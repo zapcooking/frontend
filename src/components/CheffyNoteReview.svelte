@@ -20,6 +20,8 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membershipStatus';
   import { THINKING_LINES, COOKING_LINES, ERROR_LINES, pickLine } from '$lib/cheffy';
+  import { onDestroy } from 'svelte';
+  import { lightningService } from '$lib/lightningService';
   import {
     requestNoteReview,
     phaseForResult,
@@ -30,7 +32,16 @@
     loadDisclosurePref,
     shouldSeedDisclosureFromPref,
     saveDisclosurePref,
+    requestCreditInvoice,
+    checkCreditStatus,
+    pollActionForStatus,
+    storePendingInvoice,
+    clearPendingInvoice,
+    resumePendingInvoice,
     DISCLOSURE_FOOTER,
+    CREDIT_PRICE_SATS,
+    CREDITS_CROSS_DEVICE_LINE,
+    PAYMENT_CARD_EXAMPLE_DRAFT,
     NOTE_REVIEW_POST_ENABLED,
     type NoteReviewMode,
     type NoteReviewPhase,
@@ -59,9 +70,13 @@
   // Disclosure footer toggle — per-mode preference, applied at publish
   // time only (never part of the editable draft).
   let disclosureOn = false;
-  // Remaining free drafts, from the server's additive previewRemaining
-  // field (preview-granted requests only).
-  let previewRemaining: number | null = null;
+  // Paid-draft balance: from creditsRemaining on spends, credit-status
+  // polls, and the resume flow. null until any signal arrives.
+  let creditBalance: number | null = null;
+  let resumeAck = false; // "payment received" banner after a resume credit
+  let payError = '';
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let resumeCheckedForOpen = false;
 
   $: signedIn = $userPublickey !== '';
   $: normalizedPk = $userPublickey.trim().toLowerCase();
@@ -81,13 +96,11 @@
       noteText: event?.content,
       mode: selected,
       noteId: event?.id,
-      // Non-members go through the server-enforced preview budget.
-      experience: signedIn && !hasMembership,
       onSigned: () => (phase = 'loading')
     });
     if (result.ok) {
       draft = result.output;
-      previewRemaining = result.previewRemaining ?? null;
+      if (typeof result.creditsRemaining === 'number') creditBalance = result.creditsRemaining;
     }
     const next = phaseForResult(result);
     phase = next.phase;
@@ -98,6 +111,85 @@
   function toggleDisclosure() {
     disclosureOn = !disclosureOn;
     saveDisclosurePref(mode, disclosureOn);
+  }
+
+  function stopPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = null;
+  }
+
+  onDestroy(stopPolling);
+
+  // One-shot resume per modal open: a paid-but-unobserved invoice from a
+  // previous session gets credited here (server metadata lives 48h).
+  $: if (open && signedIn && !resumeCheckedForOpen) {
+    resumeCheckedForOpen = true;
+    void resumePendingInvoice({ ndk: $ndk }).then((r) => {
+      if (r.outcome === 'paid') {
+        creditBalance = r.balance;
+        resumeAck = true;
+      }
+      // expired → cleared silently inside the helper; pending/absent → nothing.
+    });
+  }
+  $: if (!open) {
+    resumeCheckedForOpen = false;
+    stopPolling();
+  }
+
+  async function startPayment() {
+    payError = '';
+    phase = 'paying';
+    const invoice = await requestCreditInvoice({ ndk: $ndk });
+    if (!invoice.ok) {
+      phase = 'upsell';
+      payError =
+        invoice.code === 'RATE_LIMITED'
+          ? (invoice.error ?? 'Too many invoices — give the last one a moment.')
+          : 'Could not set up the payment. Please try again.';
+      return;
+    }
+    storePendingInvoice(invoice.invoiceId);
+
+    let setPaidHandle: { setPaid: (r: { preimage: string }) => void } | null = null;
+    try {
+      setPaidHandle = await lightningService.launchPayment({
+        invoice: invoice.bolt11,
+        onPaid: () => {
+          // Wallet says paid — the server poll below stays authoritative.
+        },
+        onCancelled: () => {
+          // Modal closed. Keep the pending invoice stored — if they paid
+          // right before closing, the resume flow credits them.
+          stopPolling();
+          if (phase === 'paying') phase = 'upsell';
+        }
+      });
+    } catch (err) {
+      console.error('[NoteReview] payment modal failed:', err);
+    }
+
+    stopPolling();
+    pollTimer = setInterval(async () => {
+      const status = await checkCreditStatus({ ndk: $ndk, invoiceId: invoice.invoiceId });
+      if (!status.ok) return; // transient — keep polling until expiry
+      const { action } = pollActionForStatus(status.status);
+      if (action === 'continue') return;
+      stopPolling();
+      if (action === 'credited') {
+        clearPendingInvoice();
+        creditBalance = status.balance;
+        setPaidHandle?.setPaid({ preimage: 'strike-confirmed' });
+        // Straight into drafting — they paid for this draft.
+        void run(mode);
+      } else {
+        clearPendingInvoice();
+        if (phase === 'paying') {
+          phase = 'upsell';
+          payError = 'That invoice expired — grab a fresh one below.';
+        }
+      }
+    }, 3000);
   }
 
   function handlePublishOutcome(outcome: PublishOutcome) {
@@ -155,7 +247,9 @@
     noteLink = '';
     timeoutSignedEvent = null;
     selectedImageIndex = 0;
-    previewRemaining = null;
+    payError = '';
+    resumeAck = false;
+    stopPolling();
   }
 
   function signIn() {
@@ -206,6 +300,14 @@
           {/each}
         </div>
       {/if}
+      {#if resumeAck}
+        <p class="nr-resume-ack">
+          ⚡ Payment received — you have {creditBalance === 1
+            ? '1 draft'
+            : `${creditBalance} drafts`}.
+          {CREDITS_CROSS_DEVICE_LINE}
+        </p>
+      {/if}
       <p class="nr-hint">What should Cheffy draft? You'll edit it before anything is posted.</p>
       <div class="nr-choices">
         <button type="button" class="nr-choice" on:click={() => run('comment')}>
@@ -232,9 +334,9 @@
       {@const posting = phase === 'posting'}
       <div class="nr-draft-head">
         <p class="nr-hint">Cheffy's draft — make it yours, then post it as your own reply.</p>
-        {#if previewRemaining !== null}
-          <span class="nr-preview-chip">
-            {previewRemaining === 1 ? '1 free draft left' : `${previewRemaining} free drafts left`}
+        {#if creditBalance !== null}
+          <span class="nr-credit-chip" title={CREDITS_CROSS_DEVICE_LINE}>
+            ⚡ {creditBalance === 1 ? '1 draft' : `${creditBalance} drafts`}
           </span>
         {/if}
       </div>
@@ -308,21 +410,40 @@
         <button type="button" class="nr-ghost" on:click={reset}>Back</button>
       </div>
     {:else if phase === 'upsell'}
+      <!-- Payment card: membership stays visually primary; sats is the
+           impulse lane. -->
       <div class="nr-gate">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
         <h2>Cheffy photo review is a Pro Kitchen feature</h2>
         <p>Get a drafted reply or a recipe guess for any dish photo on the feed.</p>
+        <div class="nr-example">
+          <span class="nr-example-label">The kind of reply Cheffy drafts:</span>
+          <p class="nr-example-text">"{PAYMENT_CARD_EXAMPLE_DRAFT}"</p>
+        </div>
+        {#if payError}<p class="nr-post-error">{payError}</p>{/if}
         <button type="button" class="nr-primary" on:click={viewMembership}>View membership</button>
+        <button type="button" class="nr-secondary" on:click={startPayment}>
+          ⚡ {CREDIT_PRICE_SATS} sats for one draft
+        </button>
+        <p class="nr-sub">{CREDITS_CROSS_DEVICE_LINE}</p>
       </div>
-    {:else if phase === 'preview-used'}
-      <div class="nr-gate">
-        <CheffyAvatar size={72} expression="happy" variant="character" />
-        <h2>Cheffy already gave your previews a look</h2>
-        <p>Unlock Pro Kitchen to keep asking Cheffy about dishes on the feed.</p>
-        <button type="button" class="nr-primary" on:click={viewMembership}>View membership</button>
-        <button type="button" class="nr-ghost" on:click={() => (open = false)}
-          >Keep exploring</button
+    {:else if phase === 'paying'}
+      <div class="nr-wait">
+        <CheffyAvatar size={64} expression="excited" variant="character" animate />
+        <p>Waiting for your {CREDIT_PRICE_SATS} sats…</p>
+        <p class="nr-sub">
+          Pay the invoice in the wallet window — drafting starts the moment it lands.
+        </p>
+        <button
+          type="button"
+          class="nr-ghost"
+          on:click={() => {
+            stopPolling();
+            phase = 'upsell';
+          }}
         >
+          Back
+        </button>
       </div>
     {:else}
       <div class="nr-wait">
@@ -473,7 +594,7 @@
     flex-wrap: wrap;
   }
 
-  .nr-preview-chip {
+  .nr-credit-chip {
     flex: 0 0 auto;
     font-size: 0.75rem;
     font-weight: 600;
@@ -481,6 +602,39 @@
     border-radius: 999px;
     color: var(--color-primary);
     background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  }
+
+  .nr-example {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+    max-width: 40ch;
+  }
+
+  .nr-example-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+  }
+
+  .nr-example-text {
+    font-size: 0.9rem;
+    font-style: italic;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+
+  .nr-resume-ack {
+    font-size: 0.88rem;
+    padding: 8px 12px;
+    border-radius: 8px;
+    color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
   }
 
   .nr-disclosure {

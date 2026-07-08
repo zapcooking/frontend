@@ -34,8 +34,8 @@ export type NoteReviewPhase =
   | 'post-timeout' // signed but relay round-trip timed out — retry without re-signing
   | 'posted' // published — success state with a link to the reply
   | 'dead-end' // friendly stop — nothing postable (unclear/unreadable photo)
-  | 'upsell' // NOT_MEMBER — membership gate
-  | 'preview-used' // preview turns spent — conversion nudge
+  | 'upsell' // NOT_MEMBER — the membership-or-sats payment card
+  | 'paying' // 21-sat invoice active: Alby modal open, status polling
   | 'error'; // retryable failure
 
 /** The only phase a publish may start from — the double-post guard. */
@@ -44,7 +44,7 @@ export function canPost(phase: NoteReviewPhase): boolean {
 }
 
 export type NoteReviewResult =
-  | { ok: true; output: string; previewRemaining?: number }
+  | { ok: true; output: string; creditsRemaining?: number }
   | { ok: false; code?: string; error?: string; status?: number };
 
 // Mirrors the server cap — a longer note just loses its tail.
@@ -82,8 +82,6 @@ export function phaseForResult(result: NoteReviewResult): {
   switch (result.code) {
     case 'NOT_MEMBER':
       return { phase: 'upsell', message: '' };
-    case 'PREVIEW_USED':
-      return { phase: 'preview-used', message: '' };
     case 'NOT_FOOD':
     case 'IMAGE_UNREADABLE':
       // Deliberately ignore the server-provided line here — it can be a
@@ -104,8 +102,6 @@ export interface NoteReviewRequestOpts {
   noteText?: string;
   /** Event id hex, server logging only. */
   noteId?: string;
-  /** Non-member preview request (server enforces the cookie budget). */
-  experience?: boolean;
   /** Called once the NIP-98 header is signed, before the fetch — flips signing → loading. */
   onSigned?: () => void;
   /** Test injection points. */
@@ -124,7 +120,6 @@ export async function requestNoteReview(opts: NoteReviewRequestOpts): Promise<No
     imageUrl,
     mode,
     noteId,
-    experience,
     onSigned,
     signHeader = signNip98AuthHeader,
     fetchFn = fetch
@@ -134,7 +129,6 @@ export async function requestNoteReview(opts: NoteReviewRequestOpts): Promise<No
   const body: Record<string, unknown> = { imageUrl, mode };
   if (noteText) body.noteText = noteText;
   if (noteId) body.noteId = noteId;
-  if (experience) body.experience = true;
   // The signed payload hash and the fetch body must be the same string.
   const bodyString = JSON.stringify(body);
 
@@ -169,9 +163,9 @@ export async function requestNoteReview(opts: NoteReviewRequestOpts): Promise<No
       return {
         ok: true,
         output: data.output,
-        // Additive server field on preview-granted requests only.
-        ...(typeof data.previewRemaining === 'number'
-          ? { previewRemaining: data.previewRemaining }
+        // Additive server field on credit-spending requests only.
+        ...(typeof data.creditsRemaining === 'number'
+          ? { creditsRemaining: data.creditsRemaining }
           : {})
       };
     }
@@ -385,4 +379,193 @@ export function saveDisclosurePref(mode: NoteReviewMode, on: boolean): void {
     // Storage unavailable (private mode) — the toggle still works for
     // the session; it just won't be remembered.
   }
+}
+
+// ---------------------------------------------------------------------------
+// Credit purchase (Phase 5) — 21 sats per draft for non-members
+// ---------------------------------------------------------------------------
+
+export const CREDIT_PRICE_SATS = 21;
+
+/** Chip + card copy: credits follow the key, not the device. */
+export const CREDITS_CROSS_DEVICE_LINE = 'Tied to your Nostr key — works on any device.';
+
+/**
+ * Static example shown on the payment card (D5) so first-timers see
+ * output quality before the 21-sat ask. Comment-mode length, hardcoded.
+ */
+export const PAYMENT_CARD_EXAMPLE_DRAFT =
+  "That crust has the kind of golden edge you only get from a properly hot pan — and the basil on top says you weren't rushing. Beautiful work.";
+
+export type CreditInvoiceResult =
+  | { ok: true; invoiceId: string; bolt11: string; expiresAt: number }
+  | { ok: false; code?: string; error?: string };
+
+export type CreditStatusResult =
+  | { ok: true; status: 'paid' | 'pending' | 'expired'; balance: number }
+  | { ok: false; code?: string; error?: string };
+
+interface CreditApiOpts {
+  ndk: NDK;
+  signHeader?: typeof signNip98AuthHeader;
+  fetchFn?: typeof fetch;
+  origin?: string;
+}
+
+function apiOrigin(origin?: string): string {
+  return origin ?? (typeof location !== 'undefined' ? location.origin : 'https://zap.cooking');
+}
+
+/** Buy one draft: create a 21-sat invoice bound to the signed-in key. */
+export async function requestCreditInvoice(opts: CreditApiOpts): Promise<CreditInvoiceResult> {
+  const { ndk, signHeader = signNip98AuthHeader, fetchFn = fetch } = opts;
+  const bodyString = '{}';
+  let authorization: string;
+  try {
+    authorization = await signHeader(ndk, {
+      method: 'POST',
+      url: `${apiOrigin(opts.origin)}/api/zappy/note-review/credit-invoice`,
+      bodyString
+    });
+  } catch (err) {
+    return { ok: false, code: 'SIGN_FAILED', error: err instanceof Error ? err.message : '' };
+  }
+  try {
+    const resp = await fetchFn('/api/zappy/note-review/credit-invoice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authorization },
+      body: bodyString
+    });
+    const data: Record<string, unknown> = await resp.json().catch(() => ({}));
+    if (
+      resp.ok &&
+      data.ok === true &&
+      typeof data.invoiceId === 'string' &&
+      typeof data.bolt11 === 'string'
+    ) {
+      return {
+        ok: true,
+        invoiceId: data.invoiceId,
+        bolt11: data.bolt11,
+        expiresAt: typeof data.expiresAt === 'number' ? data.expiresAt : 0
+      };
+    }
+    return {
+      ok: false,
+      code: typeof data.code === 'string' ? data.code : undefined,
+      error: typeof data.error === 'string' ? data.error : undefined
+    };
+  } catch (err) {
+    return { ok: false, code: 'NETWORK', error: err instanceof Error ? err.message : '' };
+  }
+}
+
+/**
+ * Poll one invoice. The NIP-98 u-tag is signed without the query string
+ * — normalizeUrl strips it on both sides, so signature and URL match.
+ */
+export async function checkCreditStatus(
+  opts: CreditApiOpts & { invoiceId: string }
+): Promise<CreditStatusResult> {
+  const { ndk, invoiceId, signHeader = signNip98AuthHeader, fetchFn = fetch } = opts;
+  let authorization: string;
+  try {
+    authorization = await signHeader(ndk, {
+      method: 'GET',
+      url: `${apiOrigin(opts.origin)}/api/zappy/note-review/credit-status`
+    });
+  } catch (err) {
+    return { ok: false, code: 'SIGN_FAILED', error: err instanceof Error ? err.message : '' };
+  }
+  try {
+    const resp = await fetchFn(
+      `/api/zappy/note-review/credit-status?id=${encodeURIComponent(invoiceId)}`,
+      { method: 'GET', headers: { Authorization: authorization } }
+    );
+    const data: Record<string, unknown> = await resp.json().catch(() => ({}));
+    if (resp.ok && data.ok === true && typeof data.status === 'string') {
+      return {
+        ok: true,
+        status: data.status as 'paid' | 'pending' | 'expired',
+        balance: typeof data.balance === 'number' ? data.balance : 0
+      };
+    }
+    return {
+      ok: false,
+      code: typeof data.code === 'string' ? data.code : undefined,
+      error: typeof data.error === 'string' ? data.error : undefined
+    };
+  } catch (err) {
+    return { ok: false, code: 'NETWORK', error: err instanceof Error ? err.message : '' };
+  }
+}
+
+/** What the 3s poll loop does with each status observation. */
+export function pollActionForStatus(status: 'paid' | 'pending' | 'expired'): {
+  action: 'credited' | 'expired' | 'continue';
+} {
+  if (status === 'paid') return { action: 'credited' };
+  if (status === 'expired') return { action: 'expired' };
+  return { action: 'continue' };
+}
+
+// ── Pending-invoice persistence (resume flow) ────────────────────────
+// If the payer closes the modal between paying and the poll observing
+// COMPLETED, the invoice id survives here; the next modal open polls it
+// once and credits them (server metadata stays creditable for 48h).
+
+const PENDING_INVOICE_KEY = 'zapcooking_note_review_pending_invoice';
+
+export function storePendingInvoice(invoiceId: string): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(PENDING_INVOICE_KEY, invoiceId);
+  } catch {
+    // Private mode — resume just won't work across closes this session.
+  }
+}
+
+export function loadPendingInvoice(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    return localStorage.getItem(PENDING_INVOICE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingInvoice(): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.removeItem(PENDING_INVOICE_KEY);
+  } catch {
+    // Nothing to clean if storage is unavailable.
+  }
+}
+
+export type ResumeOutcome =
+  | { outcome: 'absent' }
+  | { outcome: 'paid'; balance: number }
+  | { outcome: 'pending' }
+  | { outcome: 'expired' };
+
+/**
+ * One-shot resume check on modal open. paid → cleared + acknowledged;
+ * expired → cleared silently; pending → kept for the next open;
+ * check failure → kept (never destroys a potentially-paid invoice).
+ */
+export async function resumePendingInvoice(opts: CreditApiOpts): Promise<ResumeOutcome> {
+  const invoiceId = loadPendingInvoice();
+  if (!invoiceId) return { outcome: 'absent' };
+  const result = await checkCreditStatus({ ...opts, invoiceId });
+  if (!result.ok) return { outcome: 'pending' }; // transient — keep and retry next open
+  if (result.status === 'paid') {
+    clearPendingInvoice();
+    return { outcome: 'paid', balance: result.balance };
+  }
+  if (result.status === 'expired') {
+    clearPendingInvoice();
+    return { outcome: 'expired' };
+  }
+  return { outcome: 'pending' };
 }

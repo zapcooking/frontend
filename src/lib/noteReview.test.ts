@@ -36,9 +36,8 @@ describe('phaseForResult — modal state machine', () => {
     });
   });
 
-  it('NOT_MEMBER → upsell, PREVIEW_USED → preview-used', () => {
+  it('NOT_MEMBER → upsell (the payment card)', () => {
     expect(phaseForResult({ ok: false, code: 'NOT_MEMBER' }).phase).toBe('upsell');
-    expect(phaseForResult({ ok: false, code: 'PREVIEW_USED' }).phase).toBe('preview-used');
   });
 
   it('NOT_FOOD hedges — never echoes the server line as a confident verdict', () => {
@@ -133,15 +132,16 @@ describe('requestNoteReview', () => {
     expect(body.noteText).toHaveLength(NOTE_TEXT_MAX_CHARS);
   });
 
-  it('includes experience: true for preview requests', async () => {
+  it('never sends an experience field (preview system removed in Phase 5)', async () => {
     const fetchFn = okFetch();
     await requestNoteReview({
       ...base,
-      experience: true,
+      noteText: 'hi',
       signHeader: vi.fn().mockResolvedValue('Nostr abc'),
       fetchFn
     });
-    expect(JSON.parse(fetchFn.mock.calls[0][1].body).experience).toBe(true);
+    const body = JSON.parse(fetchFn.mock.calls[0][1].body);
+    expect('experience' in body).toBe(false);
   });
 
   it('calls onSigned after signing and before the fetch', async () => {
@@ -260,7 +260,7 @@ describe('canPost — double-post guard', () => {
       'posted',
       'dead-end',
       'upsell',
-      'preview-used',
+      'paying',
       'error'
     ];
     for (const phase of blocked) expect(canPost(phase), phase).toBe(false);
@@ -570,8 +570,8 @@ describe('footer in the built event per toggle state', () => {
   });
 });
 
-describe('previewRemaining passthrough', () => {
-  it('surfaces the additive server field on success', async () => {
+describe('creditsRemaining passthrough', () => {
+  it('surfaces the additive server field on credit spends', async () => {
     const result = await requestNoteReview({
       ndk: {} as never,
       imageUrl: 'https://image.nostr.build/dish.jpg',
@@ -581,10 +581,10 @@ describe('previewRemaining passthrough', () => {
       fetchFn: vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({ ok: true, output: 'draft!', previewRemaining: 2 })
+        json: async () => ({ ok: true, output: 'draft!', creditsRemaining: 1 })
       }) as never
     });
-    expect(result).toMatchObject({ ok: true, previewRemaining: 2 });
+    expect(result).toMatchObject({ ok: true, creditsRemaining: 1 });
   });
 
   it('is absent for member responses', async () => {
@@ -601,7 +601,7 @@ describe('previewRemaining passthrough', () => {
       }) as never
     });
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.previewRemaining).toBeUndefined();
+    if (result.ok) expect(result.creditsRemaining).toBeUndefined();
   });
 });
 
@@ -615,4 +615,200 @@ describe('shouldSeedDisclosureFromPref', () => {
       expect(shouldSeedDisclosureFromPref(phase), phase).toBe(false);
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Credit purchase (Phase 5)
+// ---------------------------------------------------------------------------
+
+import { readFileSync } from 'node:fs';
+import {
+  requestCreditInvoice,
+  checkCreditStatus,
+  pollActionForStatus,
+  storePendingInvoice,
+  loadPendingInvoice,
+  clearPendingInvoice,
+  resumePendingInvoice,
+  CREDIT_PRICE_SATS,
+  PAYMENT_CARD_EXAMPLE_DRAFT,
+  CREDITS_CROSS_DEVICE_LINE
+} from './noteReview';
+
+function fakeStorageGlobal() {
+  const map = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
+    clear: () => map.clear(),
+    key: () => null,
+    get length() {
+      return map.size;
+    }
+  } as Storage);
+  return map;
+}
+
+describe('payment card constants', () => {
+  it('prices one draft at 21 sats and hedges nothing about cross-device credits', () => {
+    expect(CREDIT_PRICE_SATS).toBe(21);
+    expect(CREDITS_CROSS_DEVICE_LINE.toLowerCase()).toContain('any device');
+  });
+
+  it('example draft is comment-mode length: a short, specific, warm reply', () => {
+    expect(PAYMENT_CARD_EXAMPLE_DRAFT.length).toBeGreaterThan(40);
+    expect(PAYMENT_CARD_EXAMPLE_DRAFT.length).toBeLessThan(300);
+    expect(PAYMENT_CARD_EXAMPLE_DRAFT).not.toContain('## Ingredients'); // not a recipe
+  });
+});
+
+describe('requestCreditInvoice', () => {
+  const base = { ndk: {} as never, origin: 'https://zap.cooking' };
+
+  it('signs the empty body against the credit-invoice URL and returns the invoice', async () => {
+    const signHeader = vi.fn().mockResolvedValue('Nostr abc');
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, invoiceId: 'rr-1', bolt11: 'lnbc...', expiresAt: 123 })
+    });
+    const result = await requestCreditInvoice({ ...base, signHeader, fetchFn } as never);
+    expect(result).toEqual({ ok: true, invoiceId: 'rr-1', bolt11: 'lnbc...', expiresAt: 123 });
+    const signOpts = signHeader.mock.calls[0][1];
+    expect(signOpts.url).toBe('https://zap.cooking/api/zappy/note-review/credit-invoice');
+    expect(signOpts.bodyString).toBe(fetchFn.mock.calls[0][1].body);
+  });
+
+  it('maps signer failure and server errors to typed results', async () => {
+    const signFail = await requestCreditInvoice({
+      ...base,
+      signHeader: vi.fn().mockRejectedValue(new Error('no signer')),
+      fetchFn: vi.fn()
+    } as never);
+    expect(signFail).toMatchObject({ ok: false, code: 'SIGN_FAILED' });
+
+    const rateLimited = await requestCreditInvoice({
+      ...base,
+      signHeader: vi.fn().mockResolvedValue('Nostr abc'),
+      fetchFn: vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        json: async () => ({ ok: false, code: 'RATE_LIMITED', error: 'slow down' })
+      })
+    } as never);
+    expect(rateLimited).toMatchObject({ ok: false, code: 'RATE_LIMITED' });
+  });
+});
+
+describe('checkCreditStatus', () => {
+  it('signs the query-free URL (normalizeUrl strips queries) but fetches with the id', async () => {
+    const signHeader = vi.fn().mockResolvedValue('Nostr abc');
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, status: 'pending', balance: 0 })
+    });
+    const result = await checkCreditStatus({
+      ndk: {} as never,
+      origin: 'https://zap.cooking',
+      invoiceId: 'rr-1',
+      signHeader,
+      fetchFn
+    } as never);
+    expect(result).toEqual({ ok: true, status: 'pending', balance: 0 });
+    expect(signHeader.mock.calls[0][1].url).toBe(
+      'https://zap.cooking/api/zappy/note-review/credit-status'
+    );
+    expect(fetchFn.mock.calls[0][0]).toBe('/api/zappy/note-review/credit-status?id=rr-1');
+  });
+});
+
+describe('pollActionForStatus — polling state machine', () => {
+  it('paid → credited, expired → expired, pending → continue', () => {
+    expect(pollActionForStatus('paid')).toEqual({ action: 'credited' });
+    expect(pollActionForStatus('expired')).toEqual({ action: 'expired' });
+    expect(pollActionForStatus('pending')).toEqual({ action: 'continue' });
+  });
+});
+
+describe('pending-invoice resume flow', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function resumeWith(status: 'paid' | 'pending' | 'expired' | 'fail', balance = 1) {
+    const fetchFn =
+      status === 'fail'
+        ? vi.fn().mockRejectedValue(new Error('offline'))
+        : vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, status, balance })
+          });
+    return resumePendingInvoice({
+      ndk: {} as never,
+      origin: 'https://zap.cooking',
+      signHeader: vi.fn().mockResolvedValue('Nostr abc'),
+      fetchFn
+    } as never);
+  }
+
+  it('absent: no stored invoice → no network call, outcome absent', async () => {
+    fakeStorageGlobal();
+    expect(await resumeWith('paid')).toEqual({ outcome: 'absent' });
+  });
+
+  it('paid: credits acknowledged and the stored id is cleared', async () => {
+    fakeStorageGlobal();
+    storePendingInvoice('rr-9');
+    expect(await resumeWith('paid', 3)).toEqual({ outcome: 'paid', balance: 3 });
+    expect(loadPendingInvoice()).toBeNull(); // cleared — can't double-acknowledge
+  });
+
+  it('expired: cleared silently', async () => {
+    fakeStorageGlobal();
+    storePendingInvoice('rr-9');
+    expect(await resumeWith('expired')).toEqual({ outcome: 'expired' });
+    expect(loadPendingInvoice()).toBeNull();
+  });
+
+  it('pending: kept for the next open', async () => {
+    fakeStorageGlobal();
+    storePendingInvoice('rr-9');
+    expect(await resumeWith('pending')).toEqual({ outcome: 'pending' });
+    expect(loadPendingInvoice()).toBe('rr-9');
+  });
+
+  it('check failure: NEVER clears a potentially-paid invoice', async () => {
+    fakeStorageGlobal();
+    storePendingInvoice('rr-9');
+    expect(await resumeWith('fail')).toEqual({ outcome: 'pending' });
+    expect(loadPendingInvoice()).toBe('rr-9');
+  });
+
+  it('storage helpers are SSR/private-mode safe', () => {
+    // No localStorage stubbed at all here.
+    expect(() => storePendingInvoice('rr-1')).not.toThrow();
+    expect(loadPendingInvoice()).toBeNull();
+    expect(() => clearPendingInvoice()).not.toThrow();
+  });
+});
+
+describe('preview-system removal completeness', () => {
+  // Chat's experience preview (cheffyChat.ts, /api/zappy) is untouched
+  // by design; these files must carry no trace of the note-review one.
+  const FORBIDDEN = [/PREVIEW_USED/, /previewRemaining/, /'preview-used'/, /\bexperience\b/i];
+  const FILES = [
+    'src/lib/noteReview.ts',
+    'src/components/CheffyNoteReview.svelte',
+    'src/components/CheffyNoteReviewTrigger.svelte'
+  ];
+
+  for (const file of FILES) {
+    it(`${file} carries no preview/experience symbols`, () => {
+      const source = readFileSync(file, 'utf8');
+      for (const pattern of FORBIDDEN) {
+        expect(pattern.test(source), `${pattern} found in ${file}`).toBe(false);
+      }
+    });
+  }
 });
