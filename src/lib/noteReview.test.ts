@@ -455,3 +455,164 @@ describe('client tag on the built event (real postComment)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Disclosure footer + preview count (Phase 4)
+// ---------------------------------------------------------------------------
+
+import { afterEach } from 'vitest';
+import {
+  withDisclosureFooter,
+  loadDisclosurePref,
+  shouldSeedDisclosureFromPref,
+  saveDisclosurePref,
+  DISCLOSURE_FOOTER,
+  DISCLOSURE_DEFAULTS
+} from './noteReview';
+
+describe('withDisclosureFooter', () => {
+  it('appends the exact footer on its own line after one blank line', () => {
+    expect(withDisclosureFooter('Lovely crust!', true)).toBe(
+      'Lovely crust!\n\n⚡🍳 via Cheffy · zap.cooking'
+    );
+    expect(DISCLOSURE_FOOTER).toBe('⚡🍳 via Cheffy · zap.cooking');
+  });
+
+  it('returns the draft untouched when the toggle is off', () => {
+    const draft = 'My own words, no footer.';
+    expect(withDisclosureFooter(draft, false)).toBe(draft);
+  });
+
+  it('normalizes trailing whitespace so exactly one blank line separates the footer', () => {
+    expect(withDisclosureFooter('Great sear!\n\n\n', true)).toBe(
+      'Great sear!\n\n⚡🍳 via Cheffy · zap.cooking'
+    );
+  });
+
+  it('never mutates the draft itself — the textarea value stays footer-free', () => {
+    const draft = 'Editable draft';
+    withDisclosureFooter(draft, true);
+    expect(draft).toBe('Editable draft');
+    expect(withDisclosureFooter(draft, true).startsWith(draft)).toBe(true);
+  });
+});
+
+describe('disclosure per-mode preference', () => {
+  function fakeStorage() {
+    const map = new Map<string, string>();
+    return {
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => void map.set(k, v),
+      removeItem: (k: string) => void map.delete(k),
+      clear: () => map.clear(),
+      key: () => null,
+      get length() {
+        return map.size;
+      }
+    } as Storage;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('defaults: ON for recipe, OFF for comment', () => {
+    vi.stubGlobal('localStorage', fakeStorage());
+    expect(DISCLOSURE_DEFAULTS).toEqual({ comment: false, recipe: true });
+    expect(loadDisclosurePref('recipe')).toBe(true);
+    expect(loadDisclosurePref('comment')).toBe(false);
+  });
+
+  it('persists each mode independently', () => {
+    vi.stubGlobal('localStorage', fakeStorage());
+    saveDisclosurePref('recipe', false);
+    saveDisclosurePref('comment', true);
+    expect(loadDisclosurePref('recipe')).toBe(false);
+    expect(loadDisclosurePref('comment')).toBe(true);
+    // Flipping one mode leaves the other alone.
+    saveDisclosurePref('recipe', true);
+    expect(loadDisclosurePref('comment')).toBe(true);
+  });
+
+  it('falls back to defaults without localStorage (SSR/private mode)', () => {
+    expect(loadDisclosurePref('recipe')).toBe(DISCLOSURE_DEFAULTS.recipe);
+    expect(loadDisclosurePref('comment')).toBe(DISCLOSURE_DEFAULTS.comment);
+    expect(() => saveDisclosurePref('recipe', true)).not.toThrow();
+  });
+});
+
+describe('footer in the built event per toggle state', () => {
+  const ndk = {} as never;
+  const parentEvent = { id: 'c'.repeat(64), pubkey: 'd'.repeat(64), kind: 1 } as never;
+
+  async function publishedContent(draft: string, disclosureOn: boolean): Promise<string> {
+    const postCommentFn = vi
+      .fn()
+      .mockResolvedValue({ event: fakeSignedEvent(), publishedRelays: [] });
+    await publishNoteReviewReply({
+      ndk,
+      parentEvent,
+      content: withDisclosureFooter(draft, disclosureOn),
+      postCommentFn: postCommentFn as never
+    });
+    return postCommentFn.mock.calls[0][1].content;
+  }
+
+  it('toggle on → footer present in the published content', async () => {
+    const content = await publishedContent('Those crispy edges!', true);
+    expect(content).toBe('Those crispy edges!\n\n⚡🍳 via Cheffy · zap.cooking');
+  });
+
+  it('toggle off → footer absent', async () => {
+    const content = await publishedContent('Those crispy edges!', false);
+    expect(content).toBe('Those crispy edges!');
+    expect(content).not.toContain(DISCLOSURE_FOOTER);
+  });
+});
+
+describe('previewRemaining passthrough', () => {
+  it('surfaces the additive server field on success', async () => {
+    const result = await requestNoteReview({
+      ndk: {} as never,
+      imageUrl: 'https://image.nostr.build/dish.jpg',
+      mode: 'comment',
+      origin: 'https://zap.cooking',
+      signHeader: vi.fn().mockResolvedValue('Nostr abc') as never,
+      fetchFn: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, output: 'draft!', previewRemaining: 2 })
+      }) as never
+    });
+    expect(result).toMatchObject({ ok: true, previewRemaining: 2 });
+  });
+
+  it('is absent for member responses', async () => {
+    const result = await requestNoteReview({
+      ndk: {} as never,
+      imageUrl: 'https://image.nostr.build/dish.jpg',
+      mode: 'comment',
+      origin: 'https://zap.cooking',
+      signHeader: vi.fn().mockResolvedValue('Nostr abc') as never,
+      fetchFn: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, output: 'draft!' })
+      }) as never
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.previewRemaining).toBeUndefined();
+  });
+});
+
+describe('shouldSeedDisclosureFromPref', () => {
+  it('seeds only on initial mode selection — Regenerate/try-again keep the in-session toggle', () => {
+    expect(shouldSeedDisclosureFromPref('choose')).toBe(true);
+    // Regenerate runs from 'draft', try-again from 'error' — an
+    // in-session toggle must survive both even when localStorage
+    // cannot persist it (private mode).
+    for (const phase of ['draft', 'error', 'posting', 'dead-end'] as NoteReviewPhase[]) {
+      expect(shouldSeedDisclosureFromPref(phase), phase).toBe(false);
+    }
+  });
+});
