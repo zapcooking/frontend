@@ -5,7 +5,8 @@
  * fetch) are mocked at the module boundary; the endpoint's own
  * validation, gating, and response-shaping logic runs for real —
  * including the D5 fail-CLOSED membership posture this endpoint
- * deliberately does not share with its siblings.
+ * deliberately does not share with its siblings. The credit ledger
+ * (Phase 5) runs for real on its in-memory dev fallback.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -13,7 +14,17 @@ import {
   NOTE_REVIEW_RECIPE_INSTRUCTION,
   CHEFFY_VISION_MODEL
 } from '$lib/cheffyPrompt.server';
+import {
+  creditInvoicePaid,
+  getCreditBalance,
+  __resetNoteReviewCreditsForTests
+} from '$lib/noteReviewCredits.server';
 import { POST } from './+server';
+
+/** Seed N purchased credits for PUBKEY via the real (idempotent) path. */
+async function seedCredits(n: number) {
+  for (let i = 0; i < n; i++) await creditInvoicePaid(undefined, `seed-${i}`, PUBKEY);
+}
 
 const mocks = vi.hoisted(() => ({
   verifyNip98: vi.fn(),
@@ -84,6 +95,7 @@ async function call(body: unknown, opts: EventOpts = {}) {
 }
 
 beforeEach(() => {
+  __resetNoteReviewCreditsForTests();
   vi.stubGlobal('fetch', fetchMock);
   mocks.verifyNip98.mockReset().mockResolvedValue({ ok: true, pubkey: PUBKEY });
   mocks.hasActiveMembership.mockReset().mockResolvedValue(true);
@@ -160,15 +172,25 @@ describe('NIP-98 auth', () => {
 });
 
 describe('membership gate', () => {
-  it('lets members through with full access', async () => {
+  it('lets members through with full access, never touching the credit ledger', async () => {
     const { res, data, setCookies } = await call(validBody());
     expect(res.status).toBe(200);
     expect(mocks.hasActiveMembership).toHaveBeenCalledWith(PUBKEY, 'secret');
-    expect(setCookies).toEqual([]); // members never touch the preview budget
-    expect(data.previewRemaining).toBeUndefined(); // additive field is preview-only
+    expect(setCookies).toEqual([]); // nothing sets cookies anymore
+    expect(data.creditsRemaining).toBeUndefined(); // additive field is credit-spends only
   });
 
-  it('403s NOT_MEMBER for a non-member without the experience flag', async () => {
+  it('spends a purchased credit on success and reports the remaining balance', async () => {
+    mocks.hasActiveMembership.mockResolvedValue(false);
+    await seedCredits(2);
+    const { res, data, setCookies } = await call(validBody());
+    expect(res.status).toBe(200);
+    expect(data.creditsRemaining).toBe(1);
+    expect(setCookies).toEqual([]); // the preview cookie is gone for good
+    expect(await getCreditBalance(undefined, PUBKEY)).toBe(1);
+  });
+
+  it('403s NOT_MEMBER at zero credits — the client renders this as the payment card', async () => {
     mocks.hasActiveMembership.mockResolvedValue(false);
     const { res, data } = await call(validBody());
     expect(res.status).toBe(403);
@@ -176,42 +198,38 @@ describe('membership gate', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('grants a preview turn, success-counts the cookie, and reports the remaining budget', async () => {
+  it('never spends a credit on a failed draft (NOT_FOOD)', async () => {
     mocks.hasActiveMembership.mockResolvedValue(false);
-    const { res, data, setCookies } = await call(validBody({ experience: true }));
-    expect(res.status).toBe(200);
-    expect(setCookies).toHaveLength(1);
-    expect(setCookies[0].name).toBe('zapcooking_cheffy_note_review_experience_used');
-    expect(setCookies[0].value).toBe('1');
-    expect(setCookies[0].opts.httpOnly).toBe(true);
-    expect(data.previewRemaining).toBe(2); // 3-turn budget, first just spent
-  });
-
-  it('reports zero remaining on the final preview turn', async () => {
-    mocks.hasActiveMembership.mockResolvedValue(false);
-    const { res, data } = await call(validBody({ experience: true }), {
-      cookies: { zapcooking_cheffy_note_review_experience_used: '2' }
-    });
-    expect(res.status).toBe(200);
-    expect(data.previewRemaining).toBe(0);
-  });
-
-  it('429s PREVIEW_USED once the preview budget is spent', async () => {
-    mocks.hasActiveMembership.mockResolvedValue(false);
-    const { res, data } = await call(validBody({ experience: true }), {
-      cookies: { zapcooking_cheffy_note_review_experience_used: '3' }
-    });
-    expect(res.status).toBe(429);
-    expect(data.code).toBe('PREVIEW_USED');
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('does not burn a preview turn on a failed draft', async () => {
-    mocks.hasActiveMembership.mockResolvedValue(false);
+    await seedCredits(1);
     fetchMock.mockResolvedValue(openaiOk('NOT_FOOD: A very photogenic cat.'));
-    const { res, setCookies } = await call(validBody({ experience: true }));
+    const { res } = await call(validBody());
     expect(res.status).toBe(422);
-    expect(setCookies).toEqual([]);
+    expect(await getCreditBalance(undefined, PUBKEY)).toBe(1); // still spendable
+  });
+
+  it('never spends a credit on an OpenAI failure', async () => {
+    mocks.hasActiveMembership.mockResolvedValue(false);
+    await seedCredits(1);
+    fetchMock.mockResolvedValue(openaiError(500, { code: 'server_error', message: 'boom' }));
+    const { res } = await call(validBody());
+    expect(res.status).toBe(500);
+    expect(await getCreditBalance(undefined, PUBKEY)).toBe(1);
+  });
+
+  it('silently ignores a stale experience flag from pre-Phase-5 clients', async () => {
+    mocks.hasActiveMembership.mockResolvedValue(false);
+    // Zero credits + the old flag → plain NOT_MEMBER, never PREVIEW_USED,
+    // never a cookie.
+    const zero = await call(validBody({ experience: true }));
+    expect(zero.res.status).toBe(403);
+    expect(zero.data.code).toBe('NOT_MEMBER');
+    expect(zero.setCookies).toEqual([]);
+    // With credits + the old flag → normal credit spend.
+    await seedCredits(1);
+    const spent = await call(validBody({ experience: true }));
+    expect(spent.res.status).toBe(200);
+    expect(spent.data.creditsRemaining).toBe(0);
+    expect(spent.data.previewRemaining).toBeUndefined();
   });
 
   it('fails CLOSED (503) on a membership-service outage — D5', async () => {
