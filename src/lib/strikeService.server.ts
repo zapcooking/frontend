@@ -154,7 +154,14 @@ export async function createInvoice(
             currency: currency
           },
           description: description,
-          ...(expiryInSeconds ? { expiryInSeconds } : {})
+          // Include only a valid positive expiry — 0/NaN/negative never
+          // reach Strike (0 would be meaningless; omitted → Strike's
+          // 24h default applies).
+          ...(typeof expiryInSeconds === 'number' &&
+          Number.isFinite(expiryInSeconds) &&
+          expiryInSeconds > 0
+            ? { expiryInSeconds }
+            : {})
         }
       })
     },

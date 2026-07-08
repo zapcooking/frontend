@@ -61,6 +61,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     } catch {
       return json({ ok: false, error: 'Invalid request body' }, { status: 400 });
     }
+    // The expected body is `{}` — cap it before spending CPU on the
+    // NIP-98 payload hash.
+    if (bodyBytes.length > 1024) {
+      return json({ ok: false, error: 'Request body too large' }, { status: 413 });
+    }
 
     const verification = await verifyNip98(request, { bodyBytes });
     if (!verification.ok) {
@@ -72,6 +77,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     // Per-pubkey cap (rate-limit buckets stay in NOURISH_FLAGS with the
     // rl: convention; the credit LEDGER lives in GATED_CONTENT).
     const rlKv = platform?.env?.NOURISH_FLAGS;
+    if (!rlKv) {
+      // checkPerIpRateLimit fails open silently — be loud so an
+      // unmetered invoice endpoint shows up in logs.
+      console.warn(
+        '[NR Credit Invoice] NOURISH_FLAGS KV not bound — invoice rate limiting is disabled'
+      );
+    }
     const rl = await checkPerIpRateLimit(rlKv, {
       ip: authPubkey,
       scope: 'note-review-invoice',

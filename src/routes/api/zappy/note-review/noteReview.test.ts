@@ -198,6 +198,28 @@ describe('membership gate', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('fails open when the spend itself fails — the draft is never dropped', async () => {
+    mocks.hasActiveMembership.mockResolvedValue(false);
+    // KV that answers the gate read (balance 1) but explodes on the
+    // spend write: the paid-for draft must still be returned.
+    const flakyKv = {
+      get: vi.fn().mockResolvedValue('1'),
+      put: vi.fn().mockRejectedValue(new Error('KV write outage'))
+    };
+    const { res, data } = await call(validBody(), {
+      env: {
+        OPENAI_API_KEY: 'test-key',
+        MEMBERSHIP_ENABLED: 'true',
+        RELAY_API_SECRET: 'secret',
+        NOURISH_FLAGS: { kv: true },
+        GATED_CONTENT: flakyKv
+      }
+    });
+    expect(res.status).toBe(200);
+    expect(data.ok).toBe(true);
+    expect(data.creditsRemaining).toBeUndefined(); // uncharged draft, no claim made
+  });
+
   it('never spends a credit on a failed draft (NOT_FOOD)', async () => {
     mocks.hasActiveMembership.mockResolvedValue(false);
     await seedCredits(1);

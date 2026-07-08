@@ -78,6 +78,37 @@ describe('credit-invoice endpoint', () => {
     expect(mocks.verifyNip98).not.toHaveBeenCalled(); // refused before any work
   });
 
+  it('413s oversized bodies before hashing or auth', async () => {
+    const request = new Request('https://zap.cooking/api/zappy/note-review/credit-invoice', {
+      method: 'POST',
+      body: 'x'.repeat(4096)
+    });
+    const res = await POST({
+      request,
+      platform: { env: { MEMBERSHIP_ENABLED: 'true', NOURISH_FLAGS: { kv: true } } }
+    } as never);
+    expect(res.status).toBe(413);
+    expect(mocks.verifyNip98).not.toHaveBeenCalled();
+  });
+
+  it('warns loudly when the rate-limit KV binding is absent', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const request = new Request('https://zap.cooking/api/zappy/note-review/credit-invoice', {
+      method: 'POST',
+      body: '{}'
+    });
+    const res = await POST({
+      request,
+      platform: { env: { MEMBERSHIP_ENABLED: 'true' } }
+    } as never);
+    expect(res.status).toBe(200);
+    const warned = warnSpy.mock.calls.some((c: unknown[]) =>
+      String(c[0]).includes('NOURISH_FLAGS KV not bound')
+    );
+    expect(warned).toBe(true);
+    warnSpy.mockRestore();
+  });
+
   it('503s when Strike is not configured', async () => {
     mocks.isStrikeConfigured.mockReturnValue(false);
     const { res } = await call();

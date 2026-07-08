@@ -326,7 +326,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     // IMAGE_UNREADABLE, and API failures all return before this line.
     let creditsRemaining: number | undefined;
     if (creditGranted) {
-      creditsRemaining = await spendCredit(platform?.env?.GATED_CONTENT, authPubkey);
+      try {
+        creditsRemaining = await spendCredit(platform?.env?.GATED_CONTENT, authPubkey);
+      } catch (err) {
+        // Fail open: the draft exists and the OpenAI call is already
+        // paid for — an uncharged draft beats a 500 that drops it.
+        console.error('[Note Review] spendCredit failed (fail-open, uncharged draft):', err);
+      }
     }
 
     // creditsRemaining is additive (credit-spending requests only) —
