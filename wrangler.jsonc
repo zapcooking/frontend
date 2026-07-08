@@ -22,11 +22,41 @@
     },
     {
       // Passkey vault-sync blobs (plus the routes' rate-limit buckets and
-      // challenge tombstones). preview_id is REQUIRED: preview deployments
-      // must never read or write production vault blobs.
+      // challenge tombstones). Preview deployments bind the isolated
+      // preview namespace via env.preview below — `preview_id` is a
+      // Workers-config concept that Pages IGNORES (verified empirically:
+      // the dashboard-deployed config bound production for both envs).
       "binding": "VAULT_SYNC",
-      "id": "4f550842d84c45549c4d30a3cd3f10c3",
-      "preview_id": "97815021dedf4b3483669f99e6aa1347"
+      "id": "4f550842d84c45549c4d30a3cd3f10c3"
     }
-  ]
+  ],
+  // Pages per-environment override. NOTE: kv_namespaces is a
+  // non-inheritable key — this array REPLACES the top-level list for
+  // preview deployments wholesale, so every binding must be repeated here.
+  // Only VAULT_SYNC differs (isolated preview namespace: previews and
+  // staging.zap.cooking must never read or write production vault blobs);
+  // the other three deliberately keep their production ids — their
+  // preview-isolation status is a separate follow-up decision.
+  "env": {
+    "preview": {
+      "kv_namespaces": [
+        {
+          "binding": "SHORTLINKS",
+          "id": "2ad4aaf7011543b7b70c8c46a14766e1"
+        },
+        {
+          "binding": "GATED_CONTENT",
+          "id": "e373fff5cddb4db885eb4f027c307545"
+        },
+        {
+          "binding": "NOURISH_FLAGS",
+          "id": "62b1fc47ff274697923fc65e51592734"
+        },
+        {
+          "binding": "VAULT_SYNC",
+          "id": "97815021dedf4b3483669f99e6aa1347"
+        }
+      ]
+    }
+  }
 }
