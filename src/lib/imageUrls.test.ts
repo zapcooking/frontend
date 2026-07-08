@@ -28,6 +28,19 @@ describe('isImageUrl', () => {
     expect(isImageUrl('not a url')).toBe(false);
     expect(isImageUrl('')).toBe(false);
   });
+
+  it('rejects lookalike hosts that only contain a trusted domain as a substring', () => {
+    expect(isImageUrl('https://imgur.com.evil.example/abc')).toBe(false);
+    expect(isImageUrl('https://image.nostr.build.evil.example/abc')).toBe(false);
+    expect(isImageUrl('https://notimgur.com/abc')).toBe(false);
+    expect(isImageUrl('https://evil.example/imgur.com/abc')).toBe(false);
+    expect(isImageUrl('https://myimgproxyish.com/abc')).toBe(false);
+  });
+
+  it('still accepts real subdomains and imgproxy instances', () => {
+    expect(isImageUrl('https://i.imgur.com/abc')).toBe(true);
+    expect(isImageUrl('https://imgproxy.iris.to/foo/bar')).toBe(true);
+  });
 });
 
 describe('extractImageUrls', () => {
