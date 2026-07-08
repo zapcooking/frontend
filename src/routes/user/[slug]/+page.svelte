@@ -1553,7 +1553,7 @@
     title: loaded ? `${profileTitleBase} - zap.cooking` : 'User Profile - zap.cooking',
     description: loaded
       ? (profile?.about ? profile.about.slice(0, 155) : "View this user's recipes on zap.cooking")
-      : 'A user on zap.cooking - Food. Friends. Freedom.',
+      : 'A user on zap.cooking - Food is Open Source',
     image: loaded
       ? (profile?.picture || 'https://zap.cooking/social-share.png')
       : 'https://zap.cooking/social-share.png'

@@ -88,7 +88,7 @@ export function matchProfileOgRoute(pathname: string): { slug: string } | null {
 const FALLBACK_ARTICLE_OG: RecipeOgMeta = {
   pageTitle: 'Article - zap.cooking',
   ogTitle: 'An article on Zap Cooking',
-  description: 'A long-form article shared on zap.cooking - Food. Friends. Freedom.',
+  description: 'A long-form article shared on zap.cooking - Food is Open Source',
   image: 'https://zap.cooking/social-share.png',
   publishedAt: null,
   authorPubkey: null

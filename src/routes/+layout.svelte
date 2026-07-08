@@ -163,7 +163,7 @@
   // Site-wide meta tag defaults
   const siteUrl = 'https://zap.cooking';
   const title = 'Zap Cooking';
-  const ogTitle = 'Zap Cooking - Food. Friends. Freedom.';
+  const ogTitle = 'Zap Cooking - Food is Open Source';
   const description =
     'A place where food culture can live openly and grow naturally. Share recipes, support creators directly, no algorithms or ads.';
   const ogImage = `${siteUrl}/social-share.png`;

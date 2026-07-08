@@ -48,7 +48,7 @@ const FALLBACK_IMAGE = 'https://zap.cooking/social-share.png';
 export const FALLBACK_RECIPE_OG: RecipeOgMeta = {
   pageTitle: 'Recipe - zap.cooking',
   ogTitle: 'Recipe',
-  description: 'A recipe shared on zap.cooking - Food. Friends. Freedom.',
+  description: 'A recipe shared on zap.cooking - Food is Open Source',
   image: FALLBACK_IMAGE,
   publishedAt: null,
   authorPubkey: null
