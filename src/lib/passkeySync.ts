@@ -48,7 +48,7 @@ export const PASSKEY_SYNC_ENABLED = true;
  * the launch PR flips BOTH together and updates the CI flag-guard in the
  * same change (R3 ruling). Guarded on main by .github/workflows/checks.yaml.
  */
-export const PASSKEY_SIGNUP_ENABLED = false;
+export const PASSKEY_SIGNUP_ENABLED = true;
 
 /** '1' = user opted in (R1 default-ON at enrollment); '0' = explicitly off.
  * ABSENT = off — pre-Phase-2 enrollments must never surprise-upload. */
