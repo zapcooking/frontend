@@ -37,3 +37,7 @@ docs/plans/tanstack-query-migration.md
 .gated-content-store.json
 .nip108-dev-store.json
 PR_UI_IMPROVEMENTS.md
+
+# NIP-98 staging matrix scratch runner (Phase gate tooling, never committed)
+nip98-matrix.mjs
+.nip98-matrix-keys.json
