@@ -40,7 +40,7 @@ import { getPublicKey } from 'nostr-tools';
  * Soft-launch gate (R3): while false, no sync UI renders and no sync
  * network calls are made anywhere — Phase 2 ships dark. Flip deliberately.
  */
-export const PASSKEY_SYNC_ENABLED = false;
+export const PASSKEY_SYNC_ENABLED = true;
 
 /** '1' = user opted in (R1 default-ON at enrollment); '0' = explicitly off.
  * ABSENT = off — pre-Phase-2 enrollments must never surprise-upload. */
