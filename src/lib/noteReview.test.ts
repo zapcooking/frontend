@@ -5,7 +5,9 @@ import {
   DEAD_END_LINES,
   SIGN_FAILED_LINE,
   NOTE_REVIEW_POST_ENABLED,
-  NOTE_TEXT_MAX_CHARS
+  NOTE_TEXT_MAX_CHARS,
+  isInAppWalletKind,
+  executeCreditPayment
 } from './noteReview';
 import { extractImageUrls } from './imageUrls';
 
@@ -843,8 +845,6 @@ describe('preview-system removal completeness', () => {
 // Credit payment routing (in-app wallet first, bc fallback)
 // ---------------------------------------------------------------------------
 
-import { isInAppWalletKind, executeCreditPayment } from './noteReview';
-
 describe('isInAppWalletKind — productPayment.ts semantics', () => {
   it('kind 3 (NWC) and kind 4 (Spark) are in-app; WebLN and walletless are not', () => {
     expect(isInAppWalletKind(3)).toBe(true);
@@ -901,6 +901,17 @@ describe('executeCreditPayment — routing and poll authority', () => {
       inAppTimeoutMs: 20
     });
     expect(await executeCreditPayment(BOLT11, hung)).toBe('in-app-failed');
+  });
+
+  it('clears the losing race timer after a fast in-app settle', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = io();
+      await executeCreditPayment(BOLT11, deps);
+      expect(vi.getTimerCount()).toBe(0); // no 30s straggler
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('THE POLL STARTS FIRST ON EVERY PATH — wallet signals stay advisory, the poll is the sole crediting authority', async () => {

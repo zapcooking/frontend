@@ -643,18 +643,25 @@ export async function executeCreditPayment(
     return 'external';
   }
 
+  const timeoutMs = io.inAppTimeoutMs ?? IN_APP_PAY_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const timeoutMs = io.inAppTimeoutMs ?? IN_APP_PAY_TIMEOUT_MS;
     const result = await Promise.race([
       io.sendPayment(bolt11),
-      new Promise<{ success: false; error: string }>((resolve) =>
-        setTimeout(() => resolve({ success: false, error: 'in-app payment timed out' }), timeoutMs)
-      )
+      new Promise<{ success: false; error: string }>((resolve) => {
+        timer = setTimeout(
+          () => resolve({ success: false, error: 'in-app payment timed out' }),
+          timeoutMs
+        );
+      })
     ]);
     // Success here is ADVISORY — the poll does the crediting either way.
     // A late settle after the timeout is also fine: the poll observes it.
     return result.success ? 'in-app' : 'in-app-failed';
   } catch {
     return 'in-app-failed';
+  } finally {
+    // Don't leave the losing timer pending after a fast settle.
+    clearTimeout(timer);
   }
 }
