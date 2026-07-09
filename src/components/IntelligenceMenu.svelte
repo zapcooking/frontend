@@ -4,6 +4,7 @@
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import CheffyIcon from './icons/CheffyIcon.svelte';
+  import { openCheffy } from '$lib/stores/cheffyChat';
 
   export let open: boolean = false;
 
@@ -19,8 +20,12 @@
       accent: 'rgb(168, 85, 247)'
     },
     {
-      href: '/cheffy',
-      label: 'Cheffy',
+      // Opens the floating Cheffy messenger in place (A2 relocation of
+      // the retired floating launcher) rather than navigating to the
+      // full /cheffy page — hence the "Ask" label, which doesn't
+      // overpromise a full-page destination.
+      action: openCheffy,
+      label: 'Ask Cheffy',
       blurb: 'Your kitchen companion',
       Icon: CheffyIcon,
       // Cheffy's warm orange — uses the CSS var so the accent shifts
@@ -41,9 +46,13 @@
     dispatch('close');
   }
 
-  function go(href: string) {
+  // Items either navigate (href) or run an in-place action (e.g.
+  // openCheffy opens the floating messenger). The menu closes first
+  // either way.
+  function activate(item: { href?: string; action?: () => void }) {
     close();
-    goto(href);
+    if (item.action) item.action();
+    else if (item.href) goto(item.href);
   }
 
   function onDocClick(e: MouseEvent) {
@@ -75,7 +84,7 @@
       <span class="eyebrow">Intelligence</span>
     </div>
     {#each items as item}
-      <button type="button" class="item" role="menuitem" on:click={() => go(item.href)}>
+      <button type="button" class="item" role="menuitem" on:click={() => activate(item)}>
         <span class="icon" style:color={item.accent}>
           {#if item.Icon === CheffyIcon}
             <!-- Cheffy renders as the full colored character (no

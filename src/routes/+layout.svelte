@@ -49,7 +49,6 @@
   import UserSidePanel from '../components/UserSidePanel.svelte';
   import MobileNavDrawer from '../components/MobileNavDrawer.svelte';
   import MobileSearchOverlay from '../components/MobileSearchOverlay.svelte';
-  import CheffyLauncher from '../components/CheffyLauncher.svelte';
   import CheffyMessenger from '../components/CheffyMessenger.svelte';
   // Import sync service to initialize offline sync functionality
   import '$lib/syncService';
@@ -554,7 +553,9 @@
       <!-- Header with blur. Fixed to the viewport (not sticky inside the
            scroll container) so it stays put while the page content scrolls
            and rubber-band-bounces behind it. -->
-      <div class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4">
+      <div
+        class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
+      >
         <Header />
         <!-- Decorative connector (desktop): a vertical line just left of
              the search box that curves into the header's bottom divider. -->
@@ -570,8 +571,9 @@
         style="background-color: var(--color-bg-primary); padding-top: var(--header-h);"
       >
         <div
-          class="px-4 lg:pl-[26px] min-w-0 max-w-full flex flex-col min-h-full {$page.url.pathname.startsWith('/messages') ||
-          $page.url.pathname.startsWith('/groups')
+          class="px-4 lg:pl-[26px] min-w-0 max-w-full flex flex-col min-h-full {$page.url.pathname.startsWith(
+            '/messages'
+          ) || $page.url.pathname.startsWith('/groups')
             ? ''
             : 'pb-16 lg:pb-8'}"
         >
@@ -591,11 +593,9 @@
       <BottomNav />
       <CookingToolsWidget />
       {#if showCheffy}
-        <!-- Hide the floating Cheffy launcher while the composer is open so
-             it doesn't float over the inset composer panel. -->
-        {#if !$postComposerOpen}
-          <CheffyLauncher />
-        {/if}
+        <!-- The floating launcher was retired (A2); Cheffy opens from the
+             header Intelligence menu's "Ask Cheffy" item. The messenger
+             stays gated here and on /explore's own entry points. -->
         <CheffyMessenger />
       {/if}
       <MobileNavDrawer />

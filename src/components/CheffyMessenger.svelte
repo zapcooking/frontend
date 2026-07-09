@@ -306,9 +306,16 @@
     window.visualViewport?.removeEventListener('scroll', syncViewport);
     menuOpen = false;
     attachOpen = false;
-    // Return focus to the launcher.
-    const launcher = document.getElementById('cheffy-launcher-btn');
-    (launcher ?? prevFocus)?.focus?.();
+    // Return focus to whatever opened the messenger. The header
+    // IntelligenceMenu unmounts on selection, so its "Ask Cheffy" item
+    // (the prevFocus at open time) is detached by now and .focus() would
+    // no-op, dropping focus to <body>. Fall back to the header's stable
+    // Intelligence trigger in that case so keyboard focus is never lost.
+    const target =
+      prevFocus && prevFocus.isConnected
+        ? prevFocus
+        : document.querySelector<HTMLElement>('.zh-intelligence-btn');
+    target?.focus?.();
   }
 
   $: if (browser && $cheffyOpen !== wasOpen) {
@@ -626,101 +633,101 @@
       <!-- Composer — usable during a member chat and during the preview
            turns; replaced by the conversion card once they're spent. -->
       {#if !$cheffyConversion}
-      <!-- Fixed composer -->
-      <div class="cheffy-composer">
-        {#if scanError}
-          <p class="scan-error" role="alert">{scanError}</p>
-        {/if}
-        <div class="composer-row">
-          {#if !inExperience}
-            <!-- Attach (scan / photo / paste) is a member-only tool. -->
+        <!-- Fixed composer -->
+        <div class="cheffy-composer">
+          {#if scanError}
+            <p class="scan-error" role="alert">{scanError}</p>
+          {/if}
+          <div class="composer-row">
+            {#if !inExperience}
+              <!-- Attach (scan / photo / paste) is a member-only tool. -->
+              <button
+                type="button"
+                class="composer-icon"
+                aria-label="Add ingredients, photo, or recipe"
+                aria-haspopup="menu"
+                aria-expanded={attachOpen}
+                on:click|stopPropagation={() => (attachOpen = !attachOpen)}
+                disabled={isScanning}
+              >
+                {#if isScanning}
+                  <ArrowsClockwiseIcon size={20} class="animate-spin" />
+                {:else}
+                  <PaperclipIcon size={20} />
+                {/if}
+              </button>
+            {/if}
+            <label class="sr-only" for="cheffy-composer-input">Message Cheffy</label>
+            <textarea
+              id="cheffy-composer-input"
+              bind:this={composerEl}
+              bind:value={$cheffyDraft}
+              rows="1"
+              class="composer-input"
+              {placeholder}
+              disabled={$cheffyLoading}
+              on:keydown={onComposerKeydown}
+            ></textarea>
             <button
               type="button"
-              class="composer-icon"
-              aria-label="Add ingredients, photo, or recipe"
-              aria-haspopup="menu"
-              aria-expanded={attachOpen}
-              on:click|stopPropagation={() => (attachOpen = !attachOpen)}
-              disabled={isScanning}
+              class="composer-send"
+              aria-label="Send message"
+              disabled={!canSend}
+              on:click={() => sendCheffy($cheffyDraft)}
             >
-              {#if isScanning}
-                <ArrowsClockwiseIcon size={20} class="animate-spin" />
+              {#if $cheffyLoading}
+                <ArrowsClockwiseIcon size={18} class="animate-spin" />
               {:else}
-                <PaperclipIcon size={20} />
+                <PaperPlaneIcon size={18} weight="fill" />
               {/if}
             </button>
+          </div>
+        </div>
+
+        {#if !inExperience}
+          <!-- Hidden file inputs for scan/photo/upload -->
+          <input
+            bind:this={cameraInput}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            class="hidden"
+            on:change={handleScan}
+          />
+          <input
+            bind:this={uploadInput}
+            type="file"
+            accept="image/*"
+            class="hidden"
+            on:change={handleScan}
+          />
+
+          <!-- Attachment action sheet -->
+          {#if attachOpen}
+            <button
+              class="attach-scrim"
+              aria-label="Close attachment menu"
+              on:click={() => (attachOpen = false)}
+            ></button>
+            <div class="attach-sheet" role="menu" aria-label="Add to Cheffy">
+              <button type="button" role="menuitem" class="attach-item" on:click={pickUpload}>
+                <ScanIcon size={20} /> Scan ingredients
+              </button>
+              <button type="button" role="menuitem" class="attach-item" on:click={pickCamera}>
+                <CameraIcon size={20} /> Take a photo
+              </button>
+              <button type="button" role="menuitem" class="attach-item" on:click={pickUpload}>
+                <ImageIcon size={20} /> Upload an image
+              </button>
+              <button type="button" role="menuitem" class="attach-item" on:click={handoffSousChef}>
+                <ClipboardIcon size={20} /> Paste a recipe
+              </button>
+              <button type="button" role="menuitem" class="attach-item" on:click={handoffSousChef}>
+                <LinkIcon size={20} /> Import a link
+              </button>
+            </div>
           {/if}
-          <label class="sr-only" for="cheffy-composer-input">Message Cheffy</label>
-          <textarea
-            id="cheffy-composer-input"
-            bind:this={composerEl}
-            bind:value={$cheffyDraft}
-            rows="1"
-            class="composer-input"
-            {placeholder}
-            disabled={$cheffyLoading}
-            on:keydown={onComposerKeydown}
-          ></textarea>
-          <button
-            type="button"
-            class="composer-send"
-            aria-label="Send message"
-            disabled={!canSend}
-            on:click={() => sendCheffy($cheffyDraft)}
-          >
-            {#if $cheffyLoading}
-              <ArrowsClockwiseIcon size={18} class="animate-spin" />
-            {:else}
-              <PaperPlaneIcon size={18} weight="fill" />
-            {/if}
-          </button>
-        </div>
-      </div>
-
-      {#if !inExperience}
-      <!-- Hidden file inputs for scan/photo/upload -->
-      <input
-        bind:this={cameraInput}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        class="hidden"
-        on:change={handleScan}
-      />
-      <input
-        bind:this={uploadInput}
-        type="file"
-        accept="image/*"
-        class="hidden"
-        on:change={handleScan}
-      />
-
-      <!-- Attachment action sheet -->
-      {#if attachOpen}
-        <button
-          class="attach-scrim"
-          aria-label="Close attachment menu"
-          on:click={() => (attachOpen = false)}
-        ></button>
-        <div class="attach-sheet" role="menu" aria-label="Add to Cheffy">
-          <button type="button" role="menuitem" class="attach-item" on:click={pickUpload}>
-            <ScanIcon size={20} /> Scan ingredients
-          </button>
-          <button type="button" role="menuitem" class="attach-item" on:click={pickCamera}>
-            <CameraIcon size={20} /> Take a photo
-          </button>
-          <button type="button" role="menuitem" class="attach-item" on:click={pickUpload}>
-            <ImageIcon size={20} /> Upload an image
-          </button>
-          <button type="button" role="menuitem" class="attach-item" on:click={handoffSousChef}>
-            <ClipboardIcon size={20} /> Paste a recipe
-          </button>
-          <button type="button" role="menuitem" class="attach-item" on:click={handoffSousChef}>
-            <LinkIcon size={20} /> Import a link
-          </button>
-        </div>
-      {/if}
-      {/if}
+        {/if}
       {/if}
     {/if}
   </div>
