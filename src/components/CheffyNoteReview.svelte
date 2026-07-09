@@ -85,6 +85,11 @@
   // needed, the poll credits whichever attempt lands).
   let inAppPayFailed = false;
   let currentBolt11 = '';
+  // bc modal success-flip handle — shared by the primary external path
+  // AND the fallback modal, so the poll's confirmation can flip
+  // whichever modal is actually open (late-settle: fallback showing →
+  // poll confirms → modal flips to success, then drafting starts).
+  let paymentModalHandle: { setPaid: (r: { preimage: string }) => void } | null = null;
 
   // productPayment.ts pattern, verbatim semantics: NWC/Spark pay
   // inline; everyone else gets the bitcoin-connect modal.
@@ -198,7 +203,7 @@
 
     currentBolt11 = bolt11;
     inAppPayFailed = false;
-    let setPaidHandle: { setPaid: (r: { preimage: string }) => void } | null = null;
+    paymentModalHandle = null;
 
     function beginPolling(id: string) {
       stopPolling();
@@ -215,7 +220,7 @@
           if (action === 'credited') {
             clearPendingInvoice();
             creditBalance = status.balance;
-            setPaidHandle?.setPaid({ preimage: 'strike-confirmed' });
+            paymentModalHandle?.setPaid({ preimage: 'strike-confirmed' });
             // Straight into drafting — they paid for this draft.
             void run(mode);
           } else {
@@ -233,7 +238,7 @@
 
     async function launchExternal(invoiceToPay: string) {
       try {
-        setPaidHandle = await lightningService.launchPayment({
+        paymentModalHandle = await lightningService.launchPayment({
           invoice: invoiceToPay,
           onPaid: () => {
             // Wallet says paid — the server poll stays authoritative.
@@ -283,6 +288,10 @@
           stopPolling();
           if (phase === 'paying') phase = 'upsell';
         }
+      })
+      .then((handle) => {
+        // The poll's confirmation must be able to flip THIS modal too.
+        paymentModalHandle = handle;
       })
       .catch(() => {
         inAppPayFailed = true;
@@ -348,6 +357,7 @@
     resumeAck = false;
     inAppPayFailed = false;
     currentBolt11 = '';
+    paymentModalHandle = null;
     stopPolling();
   }
 
