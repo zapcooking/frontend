@@ -52,6 +52,17 @@ describe('A2 — launcher fully removed, no orphans', () => {
     expect(messenger).not.toContain('cheffy-launcher');
   });
 
+  it('close-focus falls back to the stable Intelligence trigger when the opener is detached', () => {
+    // The IntelligenceMenu "Ask Cheffy" item unmounts on selection, so
+    // prevFocus is disconnected by close time — focus must not fall to
+    // <body>. The header trigger (.zh-intelligence-btn) is the fallback.
+    const messenger = readFileSync(MESSENGER, 'utf8');
+    expect(messenger).toContain('prevFocus.isConnected');
+    expect(messenger).toContain('.zh-intelligence-btn');
+    // And that trigger actually exists in the header with that class.
+    expect(readFileSync('src/components/Header.svelte', 'utf8')).toContain('zh-intelligence-btn');
+  });
+
   it('no source file references the launcher component or its class', () => {
     for (const file of [INTEL, LAYOUT, MESSENGER]) {
       const src = readFileSync(file, 'utf8');

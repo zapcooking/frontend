@@ -306,9 +306,16 @@
     window.visualViewport?.removeEventListener('scroll', syncViewport);
     menuOpen = false;
     attachOpen = false;
-    // Return focus to whatever opened the messenger (the header
-    // "Ask Cheffy" item, or the /explore entry points).
-    prevFocus?.focus?.();
+    // Return focus to whatever opened the messenger. The header
+    // IntelligenceMenu unmounts on selection, so its "Ask Cheffy" item
+    // (the prevFocus at open time) is detached by now and .focus() would
+    // no-op, dropping focus to <body>. Fall back to the header's stable
+    // Intelligence trigger in that case so keyboard focus is never lost.
+    const target =
+      prevFocus && prevFocus.isConnected
+        ? prevFocus
+        : document.querySelector<HTMLElement>('.zh-intelligence-btn');
+    target?.focus?.();
   }
 
   $: if (browser && $cheffyOpen !== wasOpen) {
