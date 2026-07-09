@@ -724,6 +724,23 @@ describe('checkCreditStatus', () => {
   });
 });
 
+describe('checkCreditStatus status validation', () => {
+  it('rejects unknown status strings instead of polling forever on garbage', async () => {
+    const result = await checkCreditStatus({
+      ndk: {} as never,
+      origin: 'https://zap.cooking',
+      invoiceId: 'rr-1',
+      signHeader: vi.fn().mockResolvedValue('Nostr abc'),
+      fetchFn: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, status: 'PROCESSING', balance: 0 })
+      })
+    } as never);
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe('pollActionForStatus — polling state machine', () => {
   it('paid → credited, expired → expired, pending → continue', () => {
     expect(pollActionForStatus('paid')).toEqual({ action: 'credited' });
@@ -759,35 +776,44 @@ describe('pending-invoice resume flow', () => {
 
   it('paid: credits acknowledged and the stored id is cleared', async () => {
     fakeStorageGlobal();
-    storePendingInvoice('rr-9');
+    storePendingInvoice({ invoiceId: 'rr-9', bolt11: 'lnbc...', expiresAt: 1 });
     expect(await resumeWith('paid', 3)).toEqual({ outcome: 'paid', balance: 3 });
     expect(loadPendingInvoice()).toBeNull(); // cleared — can't double-acknowledge
   });
 
   it('expired: cleared silently', async () => {
     fakeStorageGlobal();
-    storePendingInvoice('rr-9');
+    storePendingInvoice({ invoiceId: 'rr-9', bolt11: 'lnbc...', expiresAt: 1 });
     expect(await resumeWith('expired')).toEqual({ outcome: 'expired' });
     expect(loadPendingInvoice()).toBeNull();
   });
 
-  it('pending: kept for the next open', async () => {
+  it('pending: kept for the next open, and the outcome carries the invoice for reuse', async () => {
     fakeStorageGlobal();
-    storePendingInvoice('rr-9');
-    expect(await resumeWith('pending')).toEqual({ outcome: 'pending' });
-    expect(loadPendingInvoice()).toBe('rr-9');
+    const invoice = { invoiceId: 'rr-9', bolt11: 'lnbc...', expiresAt: 9_999_999_999_999 };
+    storePendingInvoice(invoice);
+    expect(await resumeWith('pending')).toEqual({ outcome: 'pending', invoice });
+    expect(loadPendingInvoice()).toEqual(invoice);
   });
 
   it('check failure: NEVER clears a potentially-paid invoice', async () => {
     fakeStorageGlobal();
-    storePendingInvoice('rr-9');
-    expect(await resumeWith('fail')).toEqual({ outcome: 'pending' });
-    expect(loadPendingInvoice()).toBe('rr-9');
+    const invoice = { invoiceId: 'rr-9', bolt11: 'lnbc...', expiresAt: 1 };
+    storePendingInvoice(invoice);
+    expect(await resumeWith('fail')).toEqual({ outcome: 'pending', invoice });
+    expect(loadPendingInvoice()).toEqual(invoice);
+  });
+
+  it('tolerates the legacy bare-string storage format', async () => {
+    const map = fakeStorageGlobal();
+    map.set('zapcooking_note_review_pending_invoice', 'rr-legacy');
+    expect(loadPendingInvoice()).toEqual({ invoiceId: 'rr-legacy' });
+    expect(await resumeWith('paid', 2)).toEqual({ outcome: 'paid', balance: 2 });
   });
 
   it('storage helpers are SSR/private-mode safe', () => {
     // No localStorage stubbed at all here.
-    expect(() => storePendingInvoice('rr-1')).not.toThrow();
+    expect(() => storePendingInvoice({ invoiceId: 'rr-1' })).not.toThrow();
     expect(loadPendingInvoice()).toBeNull();
     expect(() => clearPendingInvoice()).not.toThrow();
   });

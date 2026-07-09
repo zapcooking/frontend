@@ -483,10 +483,14 @@ export async function checkCreditStatus(
       { method: 'GET', headers: { Authorization: authorization } }
     );
     const data: Record<string, unknown> = await resp.json().catch(() => ({}));
-    if (resp.ok && data.ok === true && typeof data.status === 'string') {
+    if (
+      resp.ok &&
+      data.ok === true &&
+      (data.status === 'paid' || data.status === 'pending' || data.status === 'expired')
+    ) {
       return {
         ok: true,
-        status: data.status as 'paid' | 'pending' | 'expired',
+        status: data.status,
         balance: typeof data.balance === 'number' ? data.balance : 0
       };
     }
@@ -516,19 +520,37 @@ export function pollActionForStatus(status: 'paid' | 'pending' | 'expired'): {
 
 const PENDING_INVOICE_KEY = 'zapcooking_note_review_pending_invoice';
 
-export function storePendingInvoice(invoiceId: string): void {
+export interface PendingInvoice {
+  invoiceId: string;
+  /** Present since the object format — lets a live invoice be REUSED
+   * instead of overwritten by a fresh purchase (an overwrite would
+   * orphan a just-paid invoice's credit client-side). */
+  bolt11?: string;
+  expiresAt?: number;
+}
+
+export function storePendingInvoice(invoice: PendingInvoice): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(PENDING_INVOICE_KEY, invoiceId);
+    localStorage.setItem(PENDING_INVOICE_KEY, JSON.stringify(invoice));
   } catch {
     // Private mode — resume just won't work across closes this session.
   }
 }
 
-export function loadPendingInvoice(): string | null {
+export function loadPendingInvoice(): PendingInvoice | null {
   if (typeof localStorage === 'undefined') return null;
   try {
-    return localStorage.getItem(PENDING_INVOICE_KEY);
+    const raw = localStorage.getItem(PENDING_INVOICE_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.invoiceId === 'string') return parsed as PendingInvoice;
+    } catch {
+      // Legacy bare-string format from the first 5.2 iteration.
+      return { invoiceId: raw };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -546,7 +568,7 @@ export function clearPendingInvoice(): void {
 export type ResumeOutcome =
   | { outcome: 'absent' }
   | { outcome: 'paid'; balance: number }
-  | { outcome: 'pending' }
+  | { outcome: 'pending'; invoice: PendingInvoice }
   | { outcome: 'expired' };
 
 /**
@@ -555,10 +577,10 @@ export type ResumeOutcome =
  * check failure → kept (never destroys a potentially-paid invoice).
  */
 export async function resumePendingInvoice(opts: CreditApiOpts): Promise<ResumeOutcome> {
-  const invoiceId = loadPendingInvoice();
-  if (!invoiceId) return { outcome: 'absent' };
-  const result = await checkCreditStatus({ ...opts, invoiceId });
-  if (!result.ok) return { outcome: 'pending' }; // transient — keep and retry next open
+  const pending = loadPendingInvoice();
+  if (!pending) return { outcome: 'absent' };
+  const result = await checkCreditStatus({ ...opts, invoiceId: pending.invoiceId });
+  if (!result.ok) return { outcome: 'pending', invoice: pending }; // transient — keep, retry next open
   if (result.status === 'paid') {
     clearPendingInvoice();
     return { outcome: 'paid', balance: result.balance };
@@ -567,5 +589,5 @@ export async function resumePendingInvoice(opts: CreditApiOpts): Promise<ResumeO
     clearPendingInvoice();
     return { outcome: 'expired' };
   }
-  return { outcome: 'pending' };
+  return { outcome: 'pending', invoice: pending };
 }

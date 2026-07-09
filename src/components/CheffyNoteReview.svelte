@@ -140,54 +140,100 @@
   async function startPayment() {
     payError = '';
     phase = 'paying';
-    const invoice = await requestCreditInvoice({ ndk: $ndk });
-    if (!invoice.ok) {
-      phase = 'upsell';
-      payError =
-        invoice.code === 'RATE_LIMITED'
-          ? (invoice.error ?? 'Too many invoices — give the last one a moment.')
-          : 'Could not set up the payment. Please try again.';
+
+    // Resolve any outstanding invoice BEFORE minting a new one — an
+    // overwrite would orphan a just-paid invoice's credit client-side.
+    let invoiceId = '';
+    let bolt11 = '';
+    const prior = await resumePendingInvoice({ ndk: $ndk });
+    if (prior.outcome === 'paid') {
+      // They already paid the earlier invoice — no new charge, straight
+      // into drafting.
+      creditBalance = prior.balance;
+      void run(mode);
       return;
     }
-    storePendingInvoice(invoice.invoiceId);
+    if (
+      prior.outcome === 'pending' &&
+      prior.invoice.bolt11 &&
+      (prior.invoice.expiresAt ?? 0) > Date.now() + 30_000
+    ) {
+      // Still-live unpaid invoice: reuse it rather than minting another.
+      invoiceId = prior.invoice.invoiceId;
+      bolt11 = prior.invoice.bolt11;
+    } else if (prior.outcome === 'pending' && !prior.invoice.bolt11) {
+      // Legacy/opaque pending id we can't display and can't confirm
+      // settled — never overwrite a possibly-paid invoice.
+      phase = 'upsell';
+      payError = 'Still checking an earlier payment — try again in a moment.';
+      return;
+    }
+
+    if (!invoiceId) {
+      const created = await requestCreditInvoice({ ndk: $ndk });
+      if (!created.ok) {
+        phase = 'upsell';
+        payError =
+          created.code === 'RATE_LIMITED'
+            ? (created.error ?? 'Too many invoices — give the last one a moment.')
+            : 'Could not set up the payment. Please try again.';
+        return;
+      }
+      invoiceId = created.invoiceId;
+      bolt11 = created.bolt11;
+      storePendingInvoice({ invoiceId, bolt11, expiresAt: created.expiresAt });
+    }
 
     let setPaidHandle: { setPaid: (r: { preimage: string }) => void } | null = null;
     try {
       setPaidHandle = await lightningService.launchPayment({
-        invoice: invoice.bolt11,
+        invoice: bolt11,
         onPaid: () => {
           // Wallet says paid — the server poll below stays authoritative.
         },
         onCancelled: () => {
           // Modal closed. Keep the pending invoice stored — if they paid
-          // right before closing, the resume flow credits them.
+          // right before closing, resolve-or-resume credits them.
           stopPolling();
           if (phase === 'paying') phase = 'upsell';
         }
       });
     } catch (err) {
+      // No wallet UI ever appeared — don't strand the user on a timer.
+      // The stored invoice stays put: the next tap reuses it.
       console.error('[NoteReview] payment modal failed:', err);
+      stopPolling();
+      phase = 'upsell';
+      payError = "Couldn't open the payment window. Tap again to retry the same invoice.";
+      return;
     }
 
     stopPolling();
+    let pollInFlight = false; // 3s ticks must never overlap a slow check
     pollTimer = setInterval(async () => {
-      const status = await checkCreditStatus({ ndk: $ndk, invoiceId: invoice.invoiceId });
-      if (!status.ok) return; // transient — keep polling until expiry
-      const { action } = pollActionForStatus(status.status);
-      if (action === 'continue') return;
-      stopPolling();
-      if (action === 'credited') {
-        clearPendingInvoice();
-        creditBalance = status.balance;
-        setPaidHandle?.setPaid({ preimage: 'strike-confirmed' });
-        // Straight into drafting — they paid for this draft.
-        void run(mode);
-      } else {
-        clearPendingInvoice();
-        if (phase === 'paying') {
-          phase = 'upsell';
-          payError = 'That invoice expired — grab a fresh one below.';
+      if (pollInFlight) return;
+      pollInFlight = true;
+      try {
+        const status = await checkCreditStatus({ ndk: $ndk, invoiceId });
+        if (!status.ok) return; // transient — keep polling until expiry
+        const { action } = pollActionForStatus(status.status);
+        if (action === 'continue') return;
+        stopPolling();
+        if (action === 'credited') {
+          clearPendingInvoice();
+          creditBalance = status.balance;
+          setPaidHandle?.setPaid({ preimage: 'strike-confirmed' });
+          // Straight into drafting — they paid for this draft.
+          void run(mode);
+        } else {
+          clearPendingInvoice();
+          if (phase === 'paying') {
+            phase = 'upsell';
+            payError = 'That invoice expired — grab a fresh one below.';
+          }
         }
+      } finally {
+        pollInFlight = false;
       }
     }, 3000);
   }
