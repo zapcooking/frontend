@@ -43,6 +43,7 @@
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import NoteRepost from './NoteRepost.svelte';
+  import CheffyNoteReviewTrigger from './CheffyNoteReviewTrigger.svelte';
   import CommentThread from './comments/CommentThread.svelte';
   import ZapModal from './ZapModal.svelte';
   import ShareModal from './ShareModal.svelte';
@@ -5330,6 +5331,19 @@
                         <span class="text-caption p-1.5 opacity-40">⚡</span>
                       {/if}
                     </div>
+
+                    {#if visibleNotes.has(event.id)}
+                      <!-- Bottom-right of the card. ml-auto keeps it
+                       right-aligned even when the narrow mobile content
+                       column wraps it onto its own line (column width
+                       < action cluster + trigger at ~390px). Renders
+                       nothing for imageless notes — the trigger owns
+                       detection. -->
+                      <CheffyNoteReviewTrigger
+                        {event}
+                        wrapClass="ml-auto hover:bg-accent-gray rounded-full p-1.5 transition-colors"
+                      />
+                    {/if}
                   </div>
 
                   <div class="px-2 sm:px-0">

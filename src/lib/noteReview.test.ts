@@ -193,12 +193,11 @@ describe('requestNoteReview', () => {
   });
 });
 
-describe('menu-item visibility gating (image detection)', () => {
-  // PostActionsMenu shows "Ask Cheffy about this photo" only when
-  // extractImageUrls finds at least one image in the note content —
-  // the same gate the old card-face trigger used. The menu is shared
-  // by BOTH surfaces (feed card and thread view), so one gate covers
-  // both.
+describe('entry-point visibility gating (image detection)', () => {
+  // BOTH entry points — the card-face trigger and PostActionsMenu's
+  // "Ask Cheffy about this photo" item — share this one gate:
+  // extractImageUrls must find at least one image in the note content.
+  // The menu is shared by feed and thread surfaces.
   it('image-bearing notes show the menu item', () => {
     expect(extractImageUrls('dinner! https://image.nostr.build/abc.jpg').length).toBeGreaterThan(0);
     expect(extractImageUrls('https://nostr.build/i/xyz look at this').length).toBeGreaterThan(0);
@@ -831,6 +830,7 @@ describe('preview-system removal completeness', () => {
   const FILES = [
     'src/lib/noteReview.ts',
     'src/components/CheffyNoteReview.svelte',
+    'src/components/CheffyNoteReviewTrigger.svelte',
     'src/components/PostActionsMenu.svelte'
   ];
 
@@ -945,7 +945,7 @@ describe('executeCreditPayment — routing and poll authority', () => {
   });
 });
 
-describe('trigger relocation completeness (PR A)', () => {
+describe('dual entry points (PR A, as course-corrected)', () => {
   it('the menu path exists: gated item + modal mount in PostActionsMenu, both surfaces share it', () => {
     const menu = readFileSync('src/components/PostActionsMenu.svelte', 'utf8');
     expect(menu).toContain('Ask Cheffy about this photo');
@@ -960,16 +960,12 @@ describe('trigger relocation completeness (PR A)', () => {
     expect(readFileSync('src/routes/[nip19]/+page.svelte', 'utf8')).toContain('PostActionsMenu');
   });
 
-  it('no orphaned card-face trigger remains: no showCheffy prop, no trigger component, no ml-auto fix', () => {
-    expect(existsSync('src/components/CheffyNoteReviewTrigger.svelte')).toBe(false);
-    for (const file of [
-      'src/components/NoteActionBar.svelte',
-      'src/components/FoodstrFeedOptimized.svelte'
-    ]) {
-      const source = readFileSync(file, 'utf8');
-      expect(source, file).not.toContain('showCheffy');
-      expect(source, file).not.toContain('CheffyNoteReviewTrigger');
-      expect(source, file).not.toContain('Bottom-right of the card');
-    }
+  it('the card-face trigger coexists: component present, both placements intact', () => {
+    expect(existsSync('src/components/CheffyNoteReviewTrigger.svelte')).toBe(true);
+    const actionBar = readFileSync('src/components/NoteActionBar.svelte', 'utf8');
+    expect(actionBar).toContain('showCheffy');
+    expect(actionBar).toContain('CheffyNoteReviewTrigger');
+    const feed = readFileSync('src/components/FoodstrFeedOptimized.svelte', 'utf8');
+    expect(feed).toContain('CheffyNoteReviewTrigger');
   });
 });
