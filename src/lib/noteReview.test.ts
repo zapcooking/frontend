@@ -193,15 +193,18 @@ describe('requestNoteReview', () => {
   });
 });
 
-describe('trigger visibility gating (image detection)', () => {
-  // CheffyNoteReviewTrigger renders only when extractImageUrls finds
-  // at least one image in the note content — these mirror its gate.
-  it('image-bearing notes show the trigger', () => {
+describe('menu-item visibility gating (image detection)', () => {
+  // PostActionsMenu shows "Ask Cheffy about this photo" only when
+  // extractImageUrls finds at least one image in the note content —
+  // the same gate the old card-face trigger used. The menu is shared
+  // by BOTH surfaces (feed card and thread view), so one gate covers
+  // both.
+  it('image-bearing notes show the menu item', () => {
     expect(extractImageUrls('dinner! https://image.nostr.build/abc.jpg').length).toBeGreaterThan(0);
     expect(extractImageUrls('https://nostr.build/i/xyz look at this').length).toBeGreaterThan(0);
   });
 
-  it('imageless notes hide the trigger', () => {
+  it('imageless notes hide the menu item', () => {
     expect(extractImageUrls('just words tonight')).toHaveLength(0);
     expect(extractImageUrls('a link https://zap.cooking/recipe/1 but no photo')).toHaveLength(0);
     expect(extractImageUrls('video https://example.com/cooking.mp4')).toHaveLength(0);
@@ -623,7 +626,7 @@ describe('shouldSeedDisclosureFromPref', () => {
 // Credit purchase (Phase 5)
 // ---------------------------------------------------------------------------
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import {
   requestCreditInvoice,
   checkCreditStatus,
@@ -828,7 +831,7 @@ describe('preview-system removal completeness', () => {
   const FILES = [
     'src/lib/noteReview.ts',
     'src/components/CheffyNoteReview.svelte',
-    'src/components/CheffyNoteReviewTrigger.svelte'
+    'src/components/PostActionsMenu.svelte'
   ];
 
   for (const file of FILES) {
@@ -939,5 +942,34 @@ describe('executeCreditPayment — routing and poll authority', () => {
 
     // And there is nothing else success COULD do: the io surface has no
     // crediting hook — executeCreditPayment can only start the poll.
+  });
+});
+
+describe('trigger relocation completeness (PR A)', () => {
+  it('the menu path exists: gated item + modal mount in PostActionsMenu, both surfaces share it', () => {
+    const menu = readFileSync('src/components/PostActionsMenu.svelte', 'utf8');
+    expect(menu).toContain('Ask Cheffy about this photo');
+    expect(menu).toContain('extractImageUrls'); // image gate
+    expect(menu).toContain('cheffyImageUrls.length > 0'); // item gated
+    expect(menu).toContain('<CheffyNoteReview'); // modal launches from the menu
+    expect(menu).toContain('bind:open={cheffyOpen}');
+    // Both surfaces render PostActionsMenu (feed + thread).
+    expect(readFileSync('src/components/FoodstrFeedOptimized.svelte', 'utf8')).toContain(
+      'PostActionsMenu'
+    );
+    expect(readFileSync('src/routes/[nip19]/+page.svelte', 'utf8')).toContain('PostActionsMenu');
+  });
+
+  it('no orphaned card-face trigger remains: no showCheffy prop, no trigger component, no ml-auto fix', () => {
+    expect(existsSync('src/components/CheffyNoteReviewTrigger.svelte')).toBe(false);
+    for (const file of [
+      'src/components/NoteActionBar.svelte',
+      'src/components/FoodstrFeedOptimized.svelte'
+    ]) {
+      const source = readFileSync(file, 'utf8');
+      expect(source, file).not.toContain('showCheffy');
+      expect(source, file).not.toContain('CheffyNoteReviewTrigger');
+      expect(source, file).not.toContain('Bottom-right of the card');
+    }
   });
 });

@@ -12,6 +12,9 @@
   import DownloadIcon from 'phosphor-svelte/lib/DownloadSimple';
   import DotsThree from 'phosphor-svelte/lib/DotsThree';
   import { clickOutside } from '$lib/clickOutside';
+  import CheffyIcon from './icons/CheffyIcon.svelte';
+  import CheffyNoteReview from './CheffyNoteReview.svelte';
+  import { extractImageUrls } from '$lib/imageUrls';
 
   export let event: NDKEvent;
   export let engagementData: {
@@ -27,6 +30,17 @@
 
   let menuOpen = false;
   let copied = false;
+
+  // "Ask Cheffy about this photo" — image-bearing notes only (same
+  // gate the old card-face trigger used).
+  let cheffyOpen = false;
+  $: cheffyImageUrls = extractImageUrls(event?.content || '');
+
+  function handleAskCheffy() {
+    closeMenu();
+    cheffyOpen = true;
+  }
+
   let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 
   function toggleMenu() {
@@ -240,6 +254,19 @@
           <span>Copy JSON</span>
         {/if}
       </button>
+      {#if cheffyImageUrls.length > 0}
+        <button
+          on:click={handleAskCheffy}
+          class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+          style="color: var(--color-text-primary);"
+        >
+          <CheffyIcon size={16} mono class="text-caption" />
+          <!-- nowrap: this is the menu's longest label; the menu is
+               min-w sized, so letting it set the width beats a
+               three-line wrap against single-line neighbors. -->
+          <span class="whitespace-nowrap">Ask Cheffy about this photo</span>
+        </button>
+      {/if}
       {#if engagementData}
         <button
           on:click={handleDownloadImage}
@@ -253,3 +280,7 @@
     </div>
   {/if}
 </div>
+
+{#if cheffyOpen}
+  <CheffyNoteReview bind:open={cheffyOpen} {event} imageUrls={cheffyImageUrls} />
+{/if}
