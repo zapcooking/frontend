@@ -160,7 +160,25 @@ describe('credit-invoice endpoint', () => {
     expect(res.status).toBe(502);
   });
 
-  it('500s when Strike throws', async () => {
+  it('502s STRIKE_ERROR on upstream Strike rejections (e.g. auth), reason logged server-side', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.createInvoice.mockRejectedValue(
+      new Error(
+        'Strike API error: 401 Unauthorized. {"data":{"code":"UNAUTHORIZED","message":"Invalid or unspecified identity."}}'
+      )
+    );
+    const { res, data } = await call();
+    expect(res.status).toBe(502);
+    expect(data.code).toBe('STRIKE_ERROR');
+    expect(data.error).not.toContain('Unauthorized'); // reason stays server-side
+    const logged = errSpy.mock.calls.some((c: unknown[]) =>
+      String(c[1] ?? c[0]).includes('401 Unauthorized')
+    );
+    expect(logged).toBe(true);
+    errSpy.mockRestore();
+  });
+
+  it('500s on non-Strike unexpected errors', async () => {
     mocks.createInvoice.mockRejectedValue(new Error('strike down'));
     const { res } = await call();
     expect(res.status).toBe(500);

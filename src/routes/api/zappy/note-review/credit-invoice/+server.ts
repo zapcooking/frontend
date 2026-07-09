@@ -135,6 +135,21 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     return json({ ok: true, invoiceId, bolt11, expiresAt });
   } catch (error: unknown) {
+    // Upstream Strike failures (auth rejection, 4xx/5xx) are a typed
+    // 502, not a bare 500 — the client shows a retry line and the real
+    // reason stays in the server log. strikeService throws with this
+    // exact message prefix for every non-ok Strike response.
+    if (error instanceof Error && error.message.startsWith('Strike API error')) {
+      console.error('[NR Credit Invoice] Strike rejected the request:', error.message);
+      return json(
+        {
+          ok: false,
+          code: 'STRIKE_ERROR',
+          error: 'Lightning payments are having trouble right now. Please try again shortly.'
+        },
+        { status: 502 }
+      );
+    }
     console.error('[NR Credit Invoice] Error:', error);
     return json(
       { ok: false, error: 'Could not create the invoice. Please try again.' },
