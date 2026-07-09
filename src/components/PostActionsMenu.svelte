@@ -32,8 +32,9 @@
   let copied = false;
 
   // "Ask Cheffy about this photo" — image-bearing notes only (same
-  // gate the old card-face trigger used).
+  // gate the card-face trigger uses).
   let cheffyOpen = false;
+  let cheffyImageUrls: string[] = [];
   $: cheffyImageUrls = extractImageUrls(event?.content || '');
 
   function handleAskCheffy() {
