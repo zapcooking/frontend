@@ -5333,15 +5333,16 @@
                     </div>
 
                     {#if visibleNotes.has(event.id)}
-                      <!-- Bottom-right of the card. ml-auto keeps it
-                       right-aligned even when the narrow mobile content
-                       column wraps it onto its own line (column width
-                       < action cluster + trigger at ~390px). Renders
-                       nothing for imageless notes — the trigger owns
-                       detection. -->
+                      <!-- Desktop-only on the card face: the mobile
+                       content column (stacked px paddings, ~254px
+                       usable at 390px) cannot fit the action cluster
+                       plus trigger on one line for any real engagement
+                       counts, so below sm the ⋯ menu's "Ask Cheffy"
+                       item is the entry point instead. Renders nothing
+                       for imageless notes — the trigger owns detection. -->
                       <CheffyNoteReviewTrigger
                         {event}
-                        wrapClass="ml-auto hover:bg-accent-gray rounded-full p-1.5 transition-colors"
+                        wrapClass="hidden sm:block ml-auto hover:bg-accent-gray rounded-full p-1.5 transition-colors"
                       />
                     {/if}
                   </div>

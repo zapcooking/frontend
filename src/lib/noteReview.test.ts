@@ -967,5 +967,9 @@ describe('dual entry points (PR A, as course-corrected)', () => {
     expect(actionBar).toContain('CheffyNoteReviewTrigger');
     const feed = readFileSync('src/components/FoodstrFeedOptimized.svelte', 'utf8');
     expect(feed).toContain('CheffyNoteReviewTrigger');
+    // Feed card face is desktop-only (option 2): below sm the ⋯ menu
+    // is the entry point — the narrow mobile column can't fit the
+    // trigger on one line for real engagement counts.
+    expect(feed).toContain('hidden sm:block');
   });
 });
