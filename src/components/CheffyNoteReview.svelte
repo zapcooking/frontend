@@ -22,6 +22,7 @@
   import { THINKING_LINES, COOKING_LINES, ERROR_LINES, pickLine } from '$lib/cheffy';
   import { onDestroy } from 'svelte';
   import { lightningService } from '$lib/lightningService';
+  import { activeWallet, sendPayment } from '$lib/wallet';
   import {
     requestNoteReview,
     phaseForResult,
@@ -35,6 +36,8 @@
     requestCreditInvoice,
     checkCreditStatus,
     pollActionForStatus,
+    executeCreditPayment,
+    isInAppWalletKind,
     storePendingInvoice,
     clearPendingInvoice,
     resumePendingInvoice,
@@ -77,6 +80,15 @@
   let payError = '';
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let resumeCheckedForOpen = false;
+  // In-app payment failed/timed out — offer the bc modal with the SAME
+  // invoice (a BOLT11 settles exactly once; no double-payment guard
+  // needed, the poll credits whichever attempt lands).
+  let inAppPayFailed = false;
+  let currentBolt11 = '';
+
+  // productPayment.ts pattern, verbatim semantics: NWC/Spark pay
+  // inline; everyone else gets the bitcoin-connect modal.
+  $: hasInAppWallet = isInAppWalletKind($activeWallet?.kind);
 
   $: signedIn = $userPublickey !== '';
   $: normalizedPk = $userPublickey.trim().toLowerCase();
@@ -184,58 +196,97 @@
       storePendingInvoice({ invoiceId, bolt11, expiresAt: created.expiresAt });
     }
 
+    currentBolt11 = bolt11;
+    inAppPayFailed = false;
     let setPaidHandle: { setPaid: (r: { preimage: string }) => void } | null = null;
-    try {
-      setPaidHandle = await lightningService.launchPayment({
-        invoice: bolt11,
-        onPaid: () => {
-          // Wallet says paid — the server poll below stays authoritative.
-        },
+
+    function beginPolling(id: string) {
+      stopPolling();
+      let pollInFlight = false; // 3s ticks must never overlap a slow check
+      pollTimer = setInterval(async () => {
+        if (pollInFlight) return;
+        pollInFlight = true;
+        try {
+          const status = await checkCreditStatus({ ndk: $ndk, invoiceId: id });
+          if (!status.ok) return; // transient — keep polling until expiry
+          const { action } = pollActionForStatus(status.status);
+          if (action === 'continue') return;
+          stopPolling();
+          if (action === 'credited') {
+            clearPendingInvoice();
+            creditBalance = status.balance;
+            setPaidHandle?.setPaid({ preimage: 'strike-confirmed' });
+            // Straight into drafting — they paid for this draft.
+            void run(mode);
+          } else {
+            clearPendingInvoice();
+            if (phase === 'paying') {
+              phase = 'upsell';
+              payError = 'That invoice expired — grab a fresh one below.';
+            }
+          }
+        } finally {
+          pollInFlight = false;
+        }
+      }, 3000);
+    }
+
+    async function launchExternal(invoiceToPay: string) {
+      try {
+        setPaidHandle = await lightningService.launchPayment({
+          invoice: invoiceToPay,
+          onPaid: () => {
+            // Wallet says paid — the server poll stays authoritative.
+          },
+          onCancelled: () => {
+            // Modal closed. Keep the pending invoice stored — if they paid
+            // right before closing, resolve-or-resume credits them.
+            stopPolling();
+            if (phase === 'paying') phase = 'upsell';
+          }
+        });
+      } catch (err) {
+        // No wallet UI ever appeared — don't strand the user on a timer.
+        // The stored invoice stays put: the next tap reuses it.
+        console.error('[NoteReview] payment modal failed:', err);
+        stopPolling();
+        phase = 'upsell';
+        payError = "Couldn't open the payment window. Tap again to retry the same invoice.";
+      }
+    }
+
+    // The poll starts FIRST on every path (inside executeCreditPayment);
+    // wallet-side success is advisory — the poll is the sole crediting
+    // authority regardless of how the sats travel.
+    const path = await executeCreditPayment(bolt11, {
+      hasInAppWallet,
+      sendPayment: (b) =>
+        sendPayment(b, { amount: CREDIT_PRICE_SATS, description: 'Cheffy note review draft' }),
+      launchExternal,
+      startPoll: () => beginPolling(invoiceId)
+    });
+    if (path === 'in-app-failed' && phase === 'paying') {
+      // Fallback affordance: re-present the SAME bolt11 in the bc modal.
+      inAppPayFailed = true;
+    }
+  }
+
+  function openFallbackModal() {
+    // Same invoice, never a fresh mint — a BOLT11 settles exactly once,
+    // so even a race with a slow in-app payment cannot double-charge.
+    inAppPayFailed = false;
+    void lightningService
+      .launchPayment({
+        invoice: currentBolt11,
+        onPaid: () => {},
         onCancelled: () => {
-          // Modal closed. Keep the pending invoice stored — if they paid
-          // right before closing, resolve-or-resume credits them.
           stopPolling();
           if (phase === 'paying') phase = 'upsell';
         }
+      })
+      .catch(() => {
+        inAppPayFailed = true;
       });
-    } catch (err) {
-      // No wallet UI ever appeared — don't strand the user on a timer.
-      // The stored invoice stays put: the next tap reuses it.
-      console.error('[NoteReview] payment modal failed:', err);
-      stopPolling();
-      phase = 'upsell';
-      payError = "Couldn't open the payment window. Tap again to retry the same invoice.";
-      return;
-    }
-
-    stopPolling();
-    let pollInFlight = false; // 3s ticks must never overlap a slow check
-    pollTimer = setInterval(async () => {
-      if (pollInFlight) return;
-      pollInFlight = true;
-      try {
-        const status = await checkCreditStatus({ ndk: $ndk, invoiceId });
-        if (!status.ok) return; // transient — keep polling until expiry
-        const { action } = pollActionForStatus(status.status);
-        if (action === 'continue') return;
-        stopPolling();
-        if (action === 'credited') {
-          clearPendingInvoice();
-          creditBalance = status.balance;
-          setPaidHandle?.setPaid({ preimage: 'strike-confirmed' });
-          // Straight into drafting — they paid for this draft.
-          void run(mode);
-        } else {
-          clearPendingInvoice();
-          if (phase === 'paying') {
-            phase = 'upsell';
-            payError = 'That invoice expired — grab a fresh one below.';
-          }
-        }
-      } finally {
-        pollInFlight = false;
-      }
-    }, 3000);
   }
 
   function handlePublishOutcome(outcome: PublishOutcome) {
@@ -295,6 +346,8 @@
     selectedImageIndex = 0;
     payError = '';
     resumeAck = false;
+    inAppPayFailed = false;
+    currentBolt11 = '';
     stopPolling();
   }
 
@@ -477,9 +530,20 @@
       <div class="nr-wait">
         <CheffyAvatar size={64} expression="excited" variant="character" animate />
         <p>Waiting for your {CREDIT_PRICE_SATS} sats…</p>
-        <p class="nr-sub">
-          Pay the invoice in the wallet window — drafting starts the moment it lands.
-        </p>
+        {#if inAppPayFailed}
+          <p class="nr-sub">
+            Your wallet didn't answer. The invoice is still good — pay it another way.
+          </p>
+          <button type="button" class="nr-secondary" on:click={openFallbackModal}>
+            Open payment window
+          </button>
+        {:else if hasInAppWallet}
+          <p class="nr-sub">Paying from your wallet — drafting starts the moment it lands.</p>
+        {:else}
+          <p class="nr-sub">
+            Pay the invoice in the wallet window — drafting starts the moment it lands.
+          </p>
+        {/if}
         <button
           type="button"
           class="nr-ghost"

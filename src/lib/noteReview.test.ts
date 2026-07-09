@@ -838,3 +838,95 @@ describe('preview-system removal completeness', () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Credit payment routing (in-app wallet first, bc fallback)
+// ---------------------------------------------------------------------------
+
+import { isInAppWalletKind, executeCreditPayment } from './noteReview';
+
+describe('isInAppWalletKind — productPayment.ts semantics', () => {
+  it('kind 3 (NWC) and kind 4 (Spark) are in-app; WebLN and walletless are not', () => {
+    expect(isInAppWalletKind(3)).toBe(true);
+    expect(isInAppWalletKind(4)).toBe(true);
+    expect(isInAppWalletKind(1)).toBe(false); // WebLN → bc modal handles it natively
+    expect(isInAppWalletKind(undefined)).toBe(false);
+  });
+});
+
+describe('executeCreditPayment — routing and poll authority', () => {
+  const BOLT11 = 'lnbc210n1testinvoice';
+
+  function io(overrides: Partial<Parameters<typeof executeCreditPayment>[1]> = {}) {
+    return {
+      hasInAppWallet: true,
+      sendPayment: vi.fn().mockResolvedValue({ success: true }),
+      launchExternal: vi.fn().mockResolvedValue(undefined),
+      startPoll: vi.fn(),
+      ...overrides
+    };
+  }
+
+  it('kind-3/4 wallet routes inline through sendPayment, never opening the modal', async () => {
+    const deps = io();
+    const path = await executeCreditPayment(BOLT11, deps);
+    expect(path).toBe('in-app');
+    expect(deps.sendPayment).toHaveBeenCalledWith(BOLT11);
+    expect(deps.launchExternal).not.toHaveBeenCalled();
+  });
+
+  it('no in-app wallet routes to the bitcoin-connect modal', async () => {
+    const deps = io({ hasInAppWallet: false });
+    const path = await executeCreditPayment(BOLT11, deps);
+    expect(path).toBe('external');
+    expect(deps.launchExternal).toHaveBeenCalledWith(BOLT11);
+    expect(deps.sendPayment).not.toHaveBeenCalled();
+  });
+
+  it('in-app failure returns the fallback path WITHOUT auto-opening the modal (affordance, user-invoked, same invoice)', async () => {
+    const deps = io({
+      sendPayment: vi.fn().mockResolvedValue({ success: false, error: 'no route' })
+    });
+    const path = await executeCreditPayment(BOLT11, deps);
+    expect(path).toBe('in-app-failed');
+    expect(deps.launchExternal).not.toHaveBeenCalled();
+  });
+
+  it('in-app throw and in-app timeout both fall back', async () => {
+    const threw = io({ sendPayment: vi.fn().mockRejectedValue(new Error('nwc relay down')) });
+    expect(await executeCreditPayment(BOLT11, threw)).toBe('in-app-failed');
+
+    const hung = io({
+      sendPayment: vi.fn().mockReturnValue(new Promise(() => {})),
+      inAppTimeoutMs: 20
+    });
+    expect(await executeCreditPayment(BOLT11, hung)).toBe('in-app-failed');
+  });
+
+  it('THE POLL STARTS FIRST ON EVERY PATH — wallet signals stay advisory, the poll is the sole crediting authority', async () => {
+    // in-app success: poll started before sendPayment resolves
+    const order: string[] = [];
+    const success = io({
+      startPoll: vi.fn(() => order.push('poll')),
+      sendPayment: vi.fn(async () => {
+        order.push('send');
+        return { success: true };
+      })
+    });
+    await executeCreditPayment(BOLT11, success);
+    expect(order).toEqual(['poll', 'send']);
+
+    // external path
+    const ext = io({ hasInAppWallet: false });
+    await executeCreditPayment(BOLT11, ext);
+    expect(ext.startPoll).toHaveBeenCalledTimes(1);
+
+    // failure path — the poll keeps running so a slow settle still credits
+    const fail = io({ sendPayment: vi.fn().mockResolvedValue({ success: false }) });
+    await executeCreditPayment(BOLT11, fail);
+    expect(fail.startPoll).toHaveBeenCalledTimes(1);
+
+    // And there is nothing else success COULD do: the io surface has no
+    // crediting hook — executeCreditPayment can only start the poll.
+  });
+});
