@@ -15,6 +15,8 @@
   export let event: NDKEvent;
   /** Hover/padding wrapper class from the host action row. */
   export let wrapClass = '';
+  /** Extra classes on the button itself (e.g. padding to grow the tap target). */
+  export let buttonClass = '';
   export let size = 18;
 
   let open = false;
@@ -27,7 +29,7 @@
   <div class={wrapClass}>
     <button
       type="button"
-      class="cheffy-trigger"
+      class="cheffy-trigger {buttonClass}"
       title="Ask Cheffy about this dish"
       aria-label="Ask Cheffy about this dish"
       on:click|stopPropagation|preventDefault={() => (open = true)}

@@ -967,9 +967,17 @@ describe('dual entry points (PR A, as course-corrected)', () => {
     expect(actionBar).toContain('CheffyNoteReviewTrigger');
     const feed = readFileSync('src/components/FoodstrFeedOptimized.svelte', 'utf8');
     expect(feed).toContain('CheffyNoteReviewTrigger');
-    // Feed card face is desktop-only (option 2): below sm the ⋯ menu
-    // is the entry point — the narrow mobile column can't fit the
-    // trigger on one line for real engagement counts.
-    expect(feed).toContain('hidden sm:block');
+    // Complementary breakpoints: the action-row trigger is desktop-only
+    // (the narrow mobile column can't fit it one-line for real counts),
+    // and a mobile-only slim row sits directly below the image block.
+    expect(feed).toContain('hidden sm:block'); // in-row instance, ≥sm
+    expect(feed).toContain('sm:hidden flex justify-end'); // below-image instance, <sm
+    // The mobile instance lives INSIDE the image if-block — below-image
+    // placement is structurally image-gated (plus the trigger's own gate).
+    const imageBlock = feed.slice(
+      feed.indexOf('getImageUrlsCached(event).length > 0'),
+      feed.indexOf('Reaction pills row')
+    );
+    expect(imageBlock).toContain('CheffyNoteReviewTrigger');
   });
 });

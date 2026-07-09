@@ -5277,6 +5277,18 @@
                         }}
                       />
                     </div>
+
+                    <!-- Mobile: Cheffy trigger in a slim right-aligned row
+                     directly below the image block (desktop keeps the
+                     in-row trigger; the ⋯ menu is the secondary entry
+                     everywhere). buttonClass pads the tap target to
+                     ~40px. -->
+                    <CheffyNoteReviewTrigger
+                      {event}
+                      size={20}
+                      buttonClass="!p-2.5 rounded-full hover:bg-accent-gray transition-colors"
+                      wrapClass="sm:hidden flex justify-end px-2 -mt-2 mb-1"
+                    />
                   {/if}
 
                   <!-- Reaction pills row -->
