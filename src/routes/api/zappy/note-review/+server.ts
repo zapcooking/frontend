@@ -17,15 +17,22 @@
  *   imageUrl: string,          // https image URL from the note (OpenAI fetches it — we never do)
  *   mode: "comment" | "recipe",
  *   noteText?: string,         // note content for context; untrusted, capped
- *   noteId?: string,           // event id hex, logging only
- *   experience?: true          // non-member preview request (HttpOnly cookie budget)
+ *   noteId?: string            // event id hex, logging only
  * }
+ * (A stale `experience: true` field from pre-Phase-5 clients is
+ * silently ignored — the preview system was removed for this endpoint.)
  *
  * Returns:
- *   { ok: true, output: string, mode: string, previewRemaining?: number }
- *   (previewRemaining only on preview-granted requests)
- *   { ok: false, error: string, code?: "NOT_MEMBER" | "PREVIEW_USED" |
+ *   { ok: true, output: string, mode: string, creditsRemaining?: number }
+ *   (creditsRemaining only when a purchased credit was spent)
+ *   { ok: false, error: string, code?: "NOT_MEMBER" |
  *     "MEMBERSHIP_UNAVAILABLE" | "RATE_LIMITED" | "NOT_FOOD" | "IMAGE_UNREADABLE" }
+ *
+ * Access (Phase 5): members draft free; non-members spend purchased
+ * 21-sat credits (GATED_CONTENT ledger, success-only decrement — an
+ * unreadable photo or API failure never consumes a paid credit).
+ * Zero credits → 403 NOT_MEMBER, which the client renders as the
+ * membership-or-sats payment card.
  *
  * DELIBERATE DEVIATION (decision D5, 2026-07): this endpoint fails
  * CLOSED when the membership service is unreachable (503
@@ -41,6 +48,7 @@ import { env } from '$env/dynamic/private';
 import { verifyNip98 } from '$lib/nip98.server';
 import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 import { isImageUrl } from '$lib/imageUrls';
+import { getCreditBalance, spendCredit } from '$lib/noteReviewCredits.server';
 import {
   CHEFFY_VISION_MODEL,
   NOTE_REVIEW_COMMENT_INSTRUCTION,
@@ -64,14 +72,7 @@ const PER_DAY = 30;
 const COMMENT_MAX_TOKENS = 600;
 const RECIPE_MAX_TOKENS = 1200;
 
-// Non-member preview — same pattern as Cheffy chat (3 success-counted
-// turns per device via HttpOnly cookie) with a dedicated cookie so the
-// two features' budgets never collide.
-const EXPERIENCE_COOKIE = 'zapcooking_cheffy_note_review_experience_used';
-const EXPERIENCE_MAX_TURNS = 3;
-const EXPERIENCE_COOKIE_MAX_AGE = 60 * 60 * 24 * 180; // ~180 days
-
-export const POST: RequestHandler = async ({ request, platform, cookies, url }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
   try {
     const OPENAI_API_KEY = (platform?.env as any)?.OPENAI_API_KEY || env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {
@@ -95,7 +96,6 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
     }
 
     const { imageUrl, mode, noteText, noteId } = body ?? {};
-    const isExperience = body?.experience === true;
 
     if (mode !== 'comment' && mode !== 'recipe') {
       return json(
@@ -146,11 +146,10 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
     }
     const authPubkey = verification.pubkey;
 
-    // Membership gate (Pro Kitchen) with the non-member preview path.
+    // Membership gate (Pro Kitchen) with the non-member credit path.
     // FAILS CLOSED on membership-service problems — see header comment
     // and issue #512 before "fixing" this to match the other endpoints.
-    let experienceGranted = false;
-    let experienceCount = 0;
+    let creditGranted = false;
     const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
     if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
       const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
@@ -184,29 +183,21 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
       }
 
       if (!isMember) {
-        if (!isExperience) {
+        // Purchased-credit path. Balance is read here but spent ONLY on
+        // a successful draft (bottom of the handler) — nobody pays 21
+        // sats for an error.
+        const balance = await getCreditBalance(platform?.env?.GATED_CONTENT, authPubkey);
+        if (balance <= 0) {
           return json(
             {
               ok: false,
               code: 'NOT_MEMBER',
-              error: 'Cheffy photo review is available to Pro Kitchen members.'
+              error: 'Cheffy photo review is available to Pro Kitchen members — or 21 sats a draft.'
             },
             { status: 403 }
           );
         }
-        const prior = parseInt(cookies.get(EXPERIENCE_COOKIE) || '0', 10);
-        experienceCount = Number.isFinite(prior) && prior > 0 ? prior : 0;
-        if (experienceCount >= EXPERIENCE_MAX_TURNS) {
-          return json(
-            {
-              ok: false,
-              code: 'PREVIEW_USED',
-              error: 'Unlock Pro Kitchen to keep asking Cheffy about dishes on the feed.'
-            },
-            { status: 429 }
-          );
-        }
-        experienceGranted = true;
+        creditGranted = true;
       }
     }
 
@@ -331,29 +322,26 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
       );
     }
 
-    // Count a preview turn only on a successful draft (chat precedent:
-    // failures never burn the visitor's budget).
-    if (experienceGranted) {
-      const isHttps =
-        url.protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https';
-      cookies.set(EXPERIENCE_COOKIE, String(experienceCount + 1), {
-        path: '/',
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: isHttps,
-        maxAge: EXPERIENCE_COOKIE_MAX_AGE
-      });
+    // Spend a purchased credit only on a successful draft — NOT_FOOD,
+    // IMAGE_UNREADABLE, and API failures all return before this line.
+    let creditsRemaining: number | undefined;
+    if (creditGranted) {
+      try {
+        creditsRemaining = await spendCredit(platform?.env?.GATED_CONTENT, authPubkey);
+      } catch (err) {
+        // Fail open: the draft exists and the OpenAI call is already
+        // paid for — an uncharged draft beats a 500 that drops it.
+        console.error('[Note Review] spendCredit failed (fail-open, uncharged draft):', err);
+      }
     }
 
-    // previewRemaining is additive (preview requests only) — the client
-    // surfaces the remaining free-draft budget without a second call.
+    // creditsRemaining is additive (credit-spending requests only) —
+    // the client surfaces the remaining paid-draft balance.
     return json({
       ok: true,
       output: trimmed,
       mode,
-      ...(experienceGranted
-        ? { previewRemaining: Math.max(0, EXPERIENCE_MAX_TURNS - (experienceCount + 1)) }
-        : {})
+      ...(creditGranted ? { creditsRemaining } : {})
     });
   } catch (error: any) {
     console.error('[Note Review] Error:', error);
