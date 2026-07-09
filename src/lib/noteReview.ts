@@ -591,3 +591,77 @@ export async function resumePendingInvoice(opts: CreditApiOpts): Promise<ResumeO
   }
   return { outcome: 'pending', invoice: pending };
 }
+
+// ---------------------------------------------------------------------------
+// Credit payment routing — in-app wallet first, bitcoin-connect fallback
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors productPayment.ts's hasInAppWallet: NWC (kind 3) and Spark
+ * (kind 4) pay inline through the app's own wallet; WebLN (kind 1) and
+ * walletless users go through the bitcoin-connect modal, which handles
+ * WebLN natively.
+ */
+export function isInAppWalletKind(kind: number | undefined): boolean {
+  return kind === 3 || kind === 4;
+}
+
+export type CreditPaymentPath = 'in-app' | 'external' | 'in-app-failed';
+
+export interface CreditPaymentIo {
+  hasInAppWallet: boolean;
+  /** walletManager.sendPayment wrapper — the app's own wallet. */
+  sendPayment: (bolt11: string) => Promise<{ success: boolean; error?: string }>;
+  /** lightningService.launchPayment wrapper — the bitcoin-connect modal. */
+  launchExternal: (bolt11: string) => Promise<void>;
+  /** Begins the 3s credit-status poll. */
+  startPoll: () => void;
+  /** In-app payment deadline before the fallback affordance shows. */
+  inAppTimeoutMs?: number;
+}
+
+const IN_APP_PAY_TIMEOUT_MS = 30_000;
+
+/**
+ * Route one credit-invoice payment. THE POLL STARTS FIRST, ON EVERY
+ * PATH — wallet-side success signals (in-app result, bc onPaid) are
+ * advisory only; the server credit-status poll is the sole crediting
+ * authority. An in-app failure/timeout returns 'in-app-failed' WITHOUT
+ * opening the modal — the caller renders a fallback affordance that
+ * re-presents the SAME bolt11 (never mint a second; double payment is
+ * protocol-impossible since a BOLT11 settles exactly once, so the
+ * fallback needs no guard).
+ */
+export async function executeCreditPayment(
+  bolt11: string,
+  io: CreditPaymentIo
+): Promise<CreditPaymentPath> {
+  io.startPoll();
+
+  if (!io.hasInAppWallet) {
+    await io.launchExternal(bolt11);
+    return 'external';
+  }
+
+  const timeoutMs = io.inAppTimeoutMs ?? IN_APP_PAY_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      io.sendPayment(bolt11),
+      new Promise<{ success: false; error: string }>((resolve) => {
+        timer = setTimeout(
+          () => resolve({ success: false, error: 'in-app payment timed out' }),
+          timeoutMs
+        );
+      })
+    ]);
+    // Success here is ADVISORY — the poll does the crediting either way.
+    // A late settle after the timeout is also fine: the poll observes it.
+    return result.success ? 'in-app' : 'in-app-failed';
+  } catch {
+    return 'in-app-failed';
+  } finally {
+    // Don't leave the losing timer pending after a fast settle.
+    clearTimeout(timer);
+  }
+}
