@@ -23,6 +23,11 @@ export interface NourishRelayResult {
    * no UI renders this yet; PR 3 Phase 2 #1d decision).
    */
   audienceScores?: AudienceScores;
+  /**
+   * Estimated per-serving macros (prompt v4). Undefined on v3 events and
+   * when the engine degraded to omitted. Surfaced by Phase 3a UI.
+   */
+  macros?: NourishMacros;
   contentHash: string;
   promptVersion: string;
   nourishVersion: string;

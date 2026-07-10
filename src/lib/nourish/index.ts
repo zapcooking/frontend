@@ -37,3 +37,6 @@ export {
 	roundMacros,
 	macroDerivedKcal
 } from './macros';
+
+export { macrosRowView, parseMacrosBlock, honestFigures } from './macrosDisplay';
+export type { MacrosRowView, MacrosRowTone } from './macrosDisplay';
