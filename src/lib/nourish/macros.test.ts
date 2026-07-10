@@ -4,6 +4,7 @@ import {
 	computeMacrosAndLabels,
 	deriveFreeLabel,
 	deriveThresholdLabels,
+	deriveMacroConfidence,
 	macroDerivedKcal,
 	roundMacros
 } from './macros';
@@ -14,17 +15,29 @@ import { NOURISH_PROMPT_VERSION, type NourishScores } from './types';
 function row(
 	grams: number,
 	per100g: { kcal: number; protein_g: number; carbs_g: number; fat_g: number },
-	flags: { seed_oil: string; added_sugar: string; red_meat: string } = {
+	flags: {
+		seed_oil: string;
+		added_sugar: string;
+		red_meat: string;
+		breaded?: string;
+		fried?: string;
+	} = {
 		seed_oil: 'no',
 		added_sugar: 'no',
-		red_meat: 'no'
+		red_meat: 'no',
+		breaded: 'no',
+		fried: 'no'
 	}
 ) {
 	return {
 		name: 'item',
 		grams_estimate: grams,
 		per100g,
-		flags
+		flags: {
+			breaded: 'no',
+			fried: 'no',
+			...flags
+		}
 	};
 }
 
@@ -151,6 +164,106 @@ describe('deriveThresholdLabels — bucket boundaries', () => {
 		expect(labels).toEqual(
 			expect.arrayContaining(['kcal:under400', 'kcal:under600', 'kcal:under800'])
 		);
+	});
+});
+
+describe('deriveMacroConfidence — breaded+fried → rough', () => {
+	it('breaded+fried composed dish → rough', () => {
+		const ings = [
+			row(400, { kcal: 200, protein_g: 25, carbs_g: 10, fat_g: 8 }, {
+				seed_oil: 'no',
+				added_sugar: 'no',
+				red_meat: 'no',
+				breaded: 'yes',
+				fried: 'yes'
+			}),
+			row(30, { kcal: 884, protein_g: 0, carbs_g: 0, fat_g: 100 }, {
+				seed_oil: 'no',
+				added_sugar: 'no',
+				red_meat: 'no',
+				breaded: 'no',
+				fried: 'yes'
+			})
+		];
+		expect(deriveMacroConfidence(ings)).toBe('rough');
+		const computed = computeMacrosFromIngredients(ings, '4');
+		expect(computed.ok && computed.macros.confidence).toBe('rough');
+	});
+
+	it('baked chicken breast (no breading, no fry) → estimate', () => {
+		const ings = [
+			row(500, { kcal: 165, protein_g: 31, carbs_g: 0, fat_g: 3.6 }, {
+				seed_oil: 'no',
+				added_sugar: 'no',
+				red_meat: 'no',
+				breaded: 'no',
+				fried: 'no'
+			})
+		];
+		expect(deriveMacroConfidence(ings)).toBe('estimate');
+	});
+
+	it('breaded but baked (no fried) → estimate', () => {
+		expect(
+			deriveMacroConfidence([
+				row(100, { kcal: 100, protein_g: 10, carbs_g: 10, fat_g: 0 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no',
+					breaded: 'yes',
+					fried: 'no'
+				})
+			])
+		).toBe('estimate');
+	});
+
+	it('fried without breading → estimate', () => {
+		expect(
+			deriveMacroConfidence([
+				row(100, { kcal: 100, protein_g: 10, carbs_g: 0, fat_g: 5 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no',
+					breaded: 'no',
+					fried: 'yes'
+				})
+			])
+		).toBe('estimate');
+	});
+
+	it('unknown breaded/fried does not trigger rough', () => {
+		expect(
+			deriveMacroConfidence([
+				row(100, { kcal: 100, protein_g: 10, carbs_g: 0, fat_g: 0 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no',
+					breaded: 'unknown',
+					fried: 'yes'
+				})
+			])
+		).toBe('estimate');
+	});
+
+	it('breaded and fried on different rows still → rough', () => {
+		expect(
+			deriveMacroConfidence([
+				row(50, { kcal: 400, protein_g: 10, carbs_g: 70, fat_g: 5 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no',
+					breaded: 'yes',
+					fried: 'no'
+				}),
+				row(20, { kcal: 884, protein_g: 0, carbs_g: 0, fat_g: 100 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no',
+					breaded: 'no',
+					fried: 'yes'
+				})
+			])
+		).toBe('rough');
 	});
 });
 

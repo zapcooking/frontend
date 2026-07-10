@@ -136,7 +136,7 @@ LABELS:
 For EACH ingredient in the list, also return:
 - grams_estimate: EDIBLE, AS-CONSUMED weight in grams for the WHOLE recipe (not per serving, not purchase weight).
 - per100g: { kcal, protein_g, carbs_g, fat_g } on the SAME as-consumed basis as grams_estimate.
-- flags: { seed_oil, added_sugar, red_meat } each "yes" | "no" | "unknown"
+- flags: { seed_oil, added_sugar, red_meat, breaded, fried } each "yes" | "no" | "unknown"
 
 BASIS RULES (critical — wrong basis is the #1 error):
 1. Dry grains / pasta / quinoa / rice / dry lentils: grams_estimate = COOKED edible weight for the whole recipe; per100g = COOKED reference values. Never use dry weight with dry per-100g (or dry weight with cooked per-100g).
@@ -155,22 +155,29 @@ FLAG RULES:
 - red_meat "yes": beef, pork, lamb, goat, venison, bison (muscle meat).
 - red_meat "no": poultry, fish, seafood, plant proteins, dairy, non-meat.
 - red_meat "unknown": ambiguous "meat", unspecified ground meat.
+- breaded "yes": breadcrumbs, panko, batter, flour dredge/coating, or a protein that is breaded/battered in this recipe.
+- breaded "no": uncoated ingredients; plain flour used only as a thickener in a sauce (not a dredge).
+- breaded "unknown": ambiguous coating language.
+- fried "yes": pan-fried or deep-fried application — including frying oil/fat used to fry, or a protein explicitly fried.
+- fried "no": baked, roasted, grilled, sautéed without deep/pan-fry, boiled, steamed, raw, or oil used only as a dressing/finish (not for frying).
+- fried "unknown": ambiguous "cook in oil" / unspecified method.
 
 FEW-SHOT BASIS EXAMPLES (follow these patterns):
 
 Example A — dry grain → cooked:
 Ingredient line: "1 cup dry quinoa"
-→ { "name": "quinoa", "grams_estimate": 555, "per100g": { "kcal": 120, "protein_g": 4.4, "carbs_g": 21.3, "fat_g": 1.9 }, "flags": { "seed_oil": "no", "added_sugar": "no", "red_meat": "no" } }
+→ { "name": "quinoa", "grams_estimate": 555, "per100g": { "kcal": 120, "protein_g": 4.4, "carbs_g": 21.3, "fat_g": 1.9 }, "flags": { "seed_oil": "no", "added_sugar": "no", "red_meat": "no", "breaded": "no", "fried": "no" } }
 (1 cup dry ≈ 170g dry → ~555g cooked; per100g is COOKED quinoa.)
 
 Example B — whole bird → edible yield:
 Ingredient line: "1 whole chicken (4 lb)"
-→ { "name": "chicken", "grams_estimate": 1100, "per100g": { "kcal": 215, "protein_g": 27, "carbs_g": 0, "fat_g": 12 }, "flags": { "seed_oil": "no", "added_sugar": "no", "red_meat": "no" } }
+→ { "name": "chicken", "grams_estimate": 1100, "per100g": { "kcal": 215, "protein_g": 27, "carbs_g": 0, "fat_g": 12 }, "flags": { "seed_oil": "no", "added_sugar": "no", "red_meat": "no", "breaded": "no", "fried": "no" } }
 (~4 lb purchase ≈ 1810g; edible roast yield ~55–65% → ~1100g edible; NOT 1810g.)
 
 Example C — breaded + fried with oil absorption:
 Ingredient lines: "4 chicken breasts", "1 cup breadcrumbs", "1/4 cup olive oil" (for pan-frying)
 → chicken+breading edible grams include coating that sticks; olive oil grams_estimate reflects oil absorbed/retained in the dish (often ~30–50% of oil poured), not the full pour discarded in the pan. per100g for the cutlet is as-consumed breaded chicken; oil row uses olive-oil per100g for the absorbed portion only.
+→ flags: breadcrumbs breaded=yes fried=no; chicken breaded=yes fried=yes; olive oil breaded=no fried=yes (frying fat).
 
 Recipe Title: {{title}}
 Servings: {{servings}}
@@ -206,7 +213,7 @@ Return ONLY valid JSON with this exact structure:
       "contribution": "<gut|protein|realFood|neutral>",
       "grams_estimate": <number>,
       "per100g": { "kcal": <number>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number> },
-      "flags": { "seed_oil": "yes|no|unknown", "added_sugar": "yes|no|unknown", "red_meat": "yes|no|unknown" }
+      "flags": { "seed_oil": "yes|no|unknown", "added_sugar": "yes|no|unknown", "red_meat": "yes|no|unknown", "breaded": "yes|no|unknown", "fried": "yes|no|unknown" }
     }
   ],
   "improvements": ["<short actionable suggestion>"]

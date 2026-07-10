@@ -32,6 +32,7 @@ export {
 	deriveFreeLabel,
 	deriveThresholdLabels,
 	deriveNourishLabels,
+	deriveMacroConfidence,
 	roundMacros,
 	macroDerivedKcal
 } from './macros';

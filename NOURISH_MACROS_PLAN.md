@@ -303,9 +303,12 @@ verdict). Throwaway scripts allowed, not committed to src/.
 ## Phase 3 — Web UI: macros row + filtered discovery (frontend PR 3, split 3a/3b if large)
 
 - **3a — Macros row** on `NourishScoreCard`/`NourishResult`: four
-  figures, per-serving, "Estimated per serving" label, honest rounding.
-  Absent block (v3 data) renders today's card exactly. `servingsParsed:
-  false` treatment per 0.4. No layout rework — a row, not a redesign.
+  figures, per-serving, honest rounding. Label copy follows
+  `macros.confidence`: `"Estimated per serving"` when `estimate`,
+  **`"Rough estimate"`** (distinct) when `rough` (breaded+fried
+  composition — see Phase 0/1 findings). Absent block (v3 data)
+  renders today's card exactly. `servingsParsed: false` treatment
+  per 0.4. No layout rework — a row, not a redesign.
 - **3b — Discovery filters**: upgrade `nourishDiscovery.ts` in place per
   0.7 — `#l`-filtered REQ + client-side AND intersection — and surface it
   as tappable filter chips on the discovery UI ("High protein · Under 600
@@ -316,10 +319,13 @@ verdict). Throwaway scripts allowed, not committed to src/.
 ## Phase 4 — Android parity (android PR 1, after Phase 2 deploys)
 
 - `NourishParser`: additive macros parse (lenient precedent),
-  absent-safe.
-- `NourishCard`: the same row, same label discipline.
-- Hermetic tests: v3 event parses as today, v4 parses macros, malformed
-  macros block degrades to absent.
+  absent-safe — including `confidence: "estimate" | "rough"`.
+- `NourishCard`: the same row, same label discipline; render
+  **`"Rough estimate"`** when `confidence === "rough"`, else
+  `"Estimated per serving"`.
+- Hermetic tests: v3 event parses as today, v4 parses macros,
+  `rough` vs `estimate` confidence round-trips, malformed macros
+  block degrades to absent.
 - Discovery-filter parity on Android is DEFERRED to its own follow-up —
   parser + card first, the filtered feed is a second single-concern PR
   once the web version has shaken out the query pattern.

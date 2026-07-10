@@ -113,7 +113,43 @@ v4 prompt added edible/as-consumed basis rules + few-shots for dry→cooked, who
 | loveandlemons-tofu-stirfry | 31.3% | 28.1% |
 | **outlier-class median** | **98.1%** | **35.6%** (target &lt;30%) |
 
-**Finding:** Basis rules helped (class median 98%→36%; quinoa fixed) but **did not clear 30%**. Chicken parm unchanged; whole-bird still high. Per gate amendment: **report and stop — do not hand-tune**. Raw: `tmp/nourish-bakeoff/results/outlier-v4-acceptance.json`. Manual re-run: `tmp/nourish-bakeoff/outlierAcceptance.manual.ts`.
+**Finding:** Basis rules helped (class median 98%→36%; quinoa fixed) but **did not clear 30%**. Chicken parm unchanged; whole-bird still high. Per gate amendment: **report and stop — do not hand-tune**.
+
+#### Composition vs basis — confidence:rough (follow-up decision)
+
+**Decision:** do not chase residual error with per-dish heuristics. That correction layer is the future USDA `per100g` swap. Encode the limitation honestly.
+
+The system scores recipes **as written**. Fried/breaded *composed* dishes are marked `confidence: "rough"` because as-served reality (oil absorption, breading pickup) exceeds what the ingredient list can support. All other recipes keep `confidence: "estimate"`.
+
+**Driving fields (server-side, deterministic — no title matching):**
+- `ingredients[].flags.breaded` — `"yes"` if the row is breading (crumbs/batter/dredge) or a breaded protein
+- `ingredients[].flags.fried` — `"yes"` if pan-fry / deep-fry application, including frying fat used to fry
+
+**Rule:** ≥1 `breaded === "yes"` AND ≥1 `fried === "yes"` (may be different rows) → `rough`; else `estimate`. `unknown` does not trigger rough.
+
+**UI requirement (Phases 3a / 4):** render `"Rough estimate"` when `rough`, `"Estimated per serving"` when `estimate`.
+
+**Acceptance (re-stated):** shipped engine path (enforcement + rounding). Gate only the `estimate` subset of the five outliers — median kcal |dev| must be &lt;30%. `rough` rows are reported, not gated. If a whole-bird recipe lands in `estimate` and still exceeds 30%, that is a **second finding** — stop, do not tune.
+
+#### Confidence-split acceptance re-run (2026-07-10) — STOP
+
+Shipped engine path (`runScoringPipeline` → enforcement + rounding). 5 outliers × 3 runs.
+
+| recipe | confidence | median kcal \|dev\| | gated? |
+|--------|------------|---------------------|--------|
+| nyt-chicken-parm | **rough** | 98.1% | no (reported only) |
+| eatingwell-quinoa-bowl | estimate | 21.4% | yes |
+| loveandlemons-tofu-stirfry | estimate | 28.1% | yes |
+| bonappetit-steak-salad | estimate | 35.6% | yes |
+| foodnetwork-roast-chicken | **estimate** | **169.2%** | yes |
+| **estimate-class median** | | **31.8%** | target &lt;30% — **MISS** |
+| rough-class median | | 98.1% | not gated |
+
+**Chicken parm** correctly classified `rough` via `flags.breaded` + `flags.fried` (composed breaded+fried). Residual error there is honesty-labeled, not chased.
+
+**SECOND FINDING — whole-bird / edible-yield:** `foodnetwork-roast-chicken` landed in **`estimate`** (correctly: roast, not breaded+fried) with median kcal |dev| **169%**. Per amendment: **STOP — do not tune.** Edible-yield for whole birds remains an open accuracy gap for the USDA/`per100g` seam, not a prompt-heuristic target. Steak salad also sits in estimate at 35.6% and pulls the estimate-class median to 31.8%.
+
+Raw: `tmp/nourish-bakeoff/results/outlier-confidence-split.json`.
 
 
 ### 0.2 Classification bakeoff — adversarial (verbatim)

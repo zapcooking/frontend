@@ -166,8 +166,13 @@ export interface NourishMacros {
 	perServing: NourishMacroPerServing;
 	servingsUsed: number;
 	servingsParsed: boolean;
-	/** Reserved enum; v4 always "estimate". */
-	confidence: 'estimate';
+	/**
+	 * `estimate` — default. `rough` — server detected breaded+fried
+	 * composition (`ingredients[].flags.breaded` + `.fried`); as-served
+	 * oil/breading pickup exceeds the written list. UI must render
+	 * distinctly (Phase 3a / 4).
+	 */
+	confidence: 'estimate' | 'rough';
 	/** Swap point for a future USDA lookup replacing per100g values. */
 	method: 'llm-per100g-v1';
 }

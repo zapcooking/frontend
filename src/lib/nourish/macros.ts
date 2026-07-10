@@ -25,6 +25,10 @@ export interface IngredientMacroInput {
 		seed_oil?: unknown;
 		added_sugar?: unknown;
 		red_meat?: unknown;
+		/** Breading/coating present on this item (crumbs, batter, dredge). */
+		breaded?: unknown;
+		/** Pan-fry or deep-fry application (incl. frying fat used to fry). */
+		fried?: unknown;
 	};
 }
 
@@ -134,12 +138,13 @@ export function computeMacrosFromIngredients(
 		kcal: enforced ? derived : rawPerServing.kcal
 	};
 	const rounded = roundMacros(consistent);
+	const confidence = deriveMacroConfidence(rawIngredients);
 
 	const macros: NourishMacros = {
 		perServing: rounded,
 		servingsUsed: n,
 		servingsParsed: servings.parsed,
-		confidence: 'estimate',
+		confidence,
 		method: 'llm-per100g-v1'
 	};
 
@@ -160,6 +165,31 @@ function normalizeFlag(raw: unknown): FlagValue {
 	if (v === 'yes' || v === 'true' || v === '1') return 'yes';
 	if (v === 'no' || v === 'false' || v === '0') return 'no';
 	return 'unknown';
+}
+
+/**
+ * Macro confidence from the classification pass — deterministic, no
+ * title matching.
+ *
+ * Driving fields (cite for audits / UI):
+ *   - `ingredients[].flags.breaded` — "yes" if this row is breading
+ *     (crumbs/batter/dredge) or a breaded protein
+ *   - `ingredients[].flags.fried` — "yes" if pan-fried / deep-fried
+ *     application, including frying fat used to fry
+ *
+ * Rule: at least one `breaded === "yes"` AND at least one
+ * `fried === "yes"` (may be different rows) → `rough`. Otherwise
+ * `estimate`. `unknown` does not trigger rough.
+ */
+export function deriveMacroConfidence(rawIngredients: unknown): 'estimate' | 'rough' {
+	if (!Array.isArray(rawIngredients) || rawIngredients.length === 0) return 'estimate';
+	let hasBreaded = false;
+	let hasFried = false;
+	for (const row of rawIngredients as IngredientMacroInput[]) {
+		if (normalizeFlag(row?.flags?.breaded) === 'yes') hasBreaded = true;
+		if (normalizeFlag(row?.flags?.fried) === 'yes') hasFried = true;
+	}
+	return hasBreaded && hasFried ? 'rough' : 'estimate';
 }
 
 /**
