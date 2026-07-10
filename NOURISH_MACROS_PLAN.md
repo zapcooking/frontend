@@ -158,6 +158,10 @@ relabel pass via rescore, so they're chosen once, here):
 | kcal    | `kcal:under400`, `kcal:under600`, `kcal:under800`     | macros.perServing (cumulative downward: a 380-kcal recipe carries all three) |
 | carbs   | `carbs:under20`, `carbs:under40`           | macros.perServing |
 
+**Confidence gates threshold labels:** recipes with `macros.confidence === "rough"` emit NO macro-bucket labels (`protein:*`, `kcal:*`, `carbs:*`) — a filter must never serve a recipe whose estimate class says the number isn't trustworthy; flag labels (`seedoil:free` etc.) are independent of quantity confidence and still apply.
+
+**kcal-as-tag (0.5):** keep kcal only in content `macros` + bucket `l` tags — do **not** add a raw `nourish_kcal` numeric tag (NIP-01 can't range-query it; buckets already cover discovery).
+
 **Trick 2 — AND-composition is client-side.** A single filter's `#l`
 array is OR; two label conditions cannot be ANDed in one REQ. So
 "protein:30plus AND seedoil:free" = fetch on the more selective label,
@@ -293,12 +297,15 @@ verdict). Throwaway scripts allowed, not committed to src/.
 ## Phase 2 — Pantry events + labels + rescore (frontend PR 2)
 
 - `nourishPublisher.server.ts`: macros into event content; `L`/`l` label
-  tags per §3 (+ kcal-as-tag decision from 0.5). Additive; v1/v2
-  consumers unaffected.
+  tags per §3 (+ kcal-as-tag decision from 0.5: no raw `nourish_kcal`
+  tag). Additive; v1/v2/v3 consumers unaffected. Confidence `"rough"`
+  suppresses threshold labels (engine-side); flag labels still emit.
+  Publish targets include `wss://pantry.zap.cooking` with NIP-42 AUTH.
 - Rescore endpoint verified to carry macros + labels end-to-end (shared
-  engine should make this near-free — the PR proves it).
+  engine is not enough — the endpoint must pass them through; proven in
+  `nourishPublisher.server.test.ts`).
 - Execute the 0.8 backfill decision, rate-limited. This populates the
-  index.
+  index. Post-backfill label census reported in the PR.
 
 ## Phase 3 — Web UI: macros row + filtered discovery (frontend PR 3, split 3a/3b if large)
 

@@ -459,3 +459,34 @@ Discovery UI must degrade per 0.7 during the short backfill window.
 | 0.3 One vs two calls | **PASS** — **ONE call** (plan default; drift harness inconclusive, no objection) |
 
 **Phase 0 evidence complete — STOP.** Awaiting human review before any Phase 1 product code. (Publish-to-pantry remains a Phase 2 prerequisite when Phase 1 is approved.)
+
+---
+
+## Phase 2 backfill census (2026-07-10)
+
+Corpus rescore via `tmp/nourish-backfill/` (shared `runScoringPipeline`, rate-limited). Service pubkey registered as pantry member (Phase 0 §0.5 prerequisite). **Dry-run** locally — `NOTIFICATION_PRIVATE_KEY` not in `.dev.vars`; re-run with the key to publish from checkpoint (or post-merge admin bulk rescore).
+
+| | |
+|--|--:|
+| Corpus | 55 |
+| Scored | 52 |
+| Errors | 3 (2 recipe-not-found, 1 test ping) |
+| `estimate` | 45 |
+| `rough` | 7 |
+| macros omitted | 0 |
+
+| label | recipes |
+|-------|--------:|
+| `seedoil:free` | 41 |
+| `redmeat:free` | 32 |
+| `kcal:under800` | 31 |
+| `addedsugar:free` | 27 |
+| `kcal:under600` | 25 |
+| `carbs:under40` | 23 |
+| `protein:20plus` | 19 |
+| `carbs:under20` | 16 |
+| `protein:30plus` | 14 |
+| `kcal:under400` | 13 |
+| `protein:40plus` | 12 |
+
+Filter inventory is usable for Phase 3b — `seedoil:free` alone covers 41/52 scored recipes; high-protein chips have 12–19 matches.
