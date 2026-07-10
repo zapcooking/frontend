@@ -8,6 +8,19 @@
  * Phase 3b: when label filters are active, issues a `#l`-filtered REQ
  * (most selective label first) and intersects remaining labels client-side.
  * No-filter path preserves the original fetch-all ranked behavior.
+ *
+ * Explore resilience (post-3b):
+ * - Session SWR cache keyed by sorted filter labels (TTL ~5 min).
+ * - Cross-filter recipe event map (pubkey:dTag → 30023).
+ * - Never clobber a non-empty cache with a silent empty revalidate.
+ * - Pantry empty → one ~1s retry before broad-relay fallback.
+ * - Persistent pantry pool membership (connect once, reuse relay set).
+ *
+ * NIP-42 finding (members-relay rejectFilterPolicy): prior to the companion
+ * relay change, unauthenticated REQs for kind 30078 were auth-gated (only
+ * kind 30023 was public), so pantry returned EOSE/0 and Explore depended on
+ * flaky public-relay fallback. Fix is public reads of service-authored
+ * 30078s at the relay (writes stay gated) — not client-side AUTH.
  */
 
 import type NDK from '@nostr-dev-kit/ndk';
@@ -19,6 +32,9 @@ import { parseNourishEvent, type NourishRelayResult } from './nourishRelay';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
 const FETCH_TIMEOUT_MS = 8000;
+const PANTRY_RETRY_DELAY_MS = 1000;
+/** Session cache TTL — corpus changes slowly; 5 min is enough for Explore. */
+export const DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export type SortDimension = 'overall' | 'realFood' | 'gut' | 'protein';
 
@@ -41,6 +57,13 @@ export interface NourishDiscoveryResult {
    * a filter miss.
    */
   degraded: boolean;
+  /** True when served from session cache (SWR stale hit). */
+  fromCache?: boolean;
+  /**
+   * True when a revalidate returned empty after a non-empty cache hit and
+   * we preserved the previous results ([nourish.explore.refresh-miss]).
+   */
+  refreshMiss?: boolean;
 }
 
 // ─── Filter chips (v1 discovery surface) ─────────────────────
@@ -72,11 +95,6 @@ export const NOURISH_FILTER_CHIPS: readonly NourishFilterChip[] = [
  * Static selectivity order from the Phase 2 backfill census (2026-07-10).
  * Lower index = more selective (fewer matching recipes). Used to pick the
  * primary `#l` REQ for AND-composition (NIP-01 `#l` arrays are OR).
- *
- * Census snapshot (ascending): protein:40plus 12, kcal:under400 13,
- * protein:30plus 14, carbs:under20 16, protein:20plus 19, carbs:under40 23,
- * kcal:under600 25, addedsugar:free 27, kcal:under800 31, redmeat:free 32,
- * seedoil:free 41.
  *
  * THIS ORDERING IS STATIC — revisit if the corpus grows ~10×; live counts
  * or a relay-side AND escape hatch would then be worth it.
@@ -188,6 +206,130 @@ export function getDimensionScore(nourish: NourishRelayResult, dim: SortDimensio
   }
 }
 
+// ─── Session caches (SWR) ────────────────────────────────────
+
+type DiscoveryCacheEntry = {
+  recipes: NourishRankedRecipe[];
+  degraded: boolean;
+  fetchedAt: number;
+};
+
+/** Filter-keyed discovery results. Key = {@link filterCacheKey}. */
+const discoveryCache = new Map<string, DiscoveryCacheEntry>();
+
+/**
+ * Resolved kind-30023 recipes, reusable across filter sets.
+ * Key = `${pubkey}:${dTag}`.
+ */
+const recipeEventCache = new Map<string, NDKEvent>();
+
+/** Stable cache key for a filter label set (order-independent). */
+export function filterCacheKey(filters: readonly NourishLabel[]): string {
+  if (filters.length === 0) return '';
+  return [...new Set(filters)].sort().join(',');
+}
+
+/** Peek session cache (including stale-within-TTL entries for SWR). */
+export function peekDiscoveryCache(
+  filters: readonly NourishLabel[]
+): NourishDiscoveryResult | null {
+  const key = filterCacheKey(filters);
+  const entry = discoveryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt > DISCOVERY_CACHE_TTL_MS) {
+    // Expired — drop so callers don't treat as a hit.
+    discoveryCache.delete(key);
+    return null;
+  }
+  return {
+    recipes: entry.recipes,
+    degraded: entry.degraded,
+    fromCache: true
+  };
+}
+
+/** Test/helper: write a discovery cache entry. */
+export function putDiscoveryCache(
+  filters: readonly NourishLabel[],
+  recipes: NourishRankedRecipe[],
+  degraded = false,
+  fetchedAt = Date.now()
+): void {
+  discoveryCache.set(filterCacheKey(filters), { recipes, degraded, fetchedAt });
+}
+
+export function getCachedRecipeEvent(pubkey: string, dTag: string): NDKEvent | undefined {
+  return recipeEventCache.get(`${pubkey}:${dTag}`);
+}
+
+export function putCachedRecipeEvent(pubkey: string, dTag: string, event: NDKEvent): void {
+  const key = `${pubkey}:${dTag}`;
+  const existing = recipeEventCache.get(key);
+  if (!existing || (event.created_at || 0) >= (existing.created_at || 0)) {
+    recipeEventCache.set(key, event);
+  }
+}
+
+/** Clear session caches — tests only. */
+export function resetDiscoverySessionCaches(): void {
+  discoveryCache.clear();
+  recipeEventCache.clear();
+  cachedPantryRelaySet = null;
+  cachedPantryNdk = null;
+}
+
+/**
+ * Empty revalidate after a successful non-empty fetch is almost certainly
+ * transport failure, not the corpus vanishing. Preserve previous.
+ * Legitimate filter-miss degrade keeps its own path (caller sets
+ * `legitimateEmpty`).
+ */
+export function shouldPreservePreviousOnEmpty(opts: {
+  previousCount: number;
+  freshCount: number;
+  legitimateEmpty?: boolean;
+}): boolean {
+  if (opts.legitimateEmpty) return false;
+  return opts.previousCount > 0 && opts.freshCount === 0;
+}
+
+// ─── Persistent pantry pool membership ───────────────────────
+
+let cachedPantryRelaySet: NDKRelaySet | null = null;
+let cachedPantryNdk: NDK | null = null;
+
+/**
+ * Return a stable NDKRelaySet for pantry — connect once per NDK instance
+ * instead of constructing a fresh set on every fetch (which can thrash
+ * reconnects). Verifies connectivity and reconnects if the socket is down.
+ */
+export async function ensurePantryRelaySet(ndk: NDK): Promise<NDKRelaySet> {
+  if (cachedPantryRelaySet && cachedPantryNdk === ndk) {
+    await connectPantryIfNeeded(cachedPantryRelaySet);
+    return cachedPantryRelaySet;
+  }
+
+  // Prefer an existing pool member; fromRelayUrls(create=true) adds + connects.
+  const set = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
+  cachedPantryRelaySet = set;
+  cachedPantryNdk = ndk;
+  await connectPantryIfNeeded(set);
+  return set;
+}
+
+async function connectPantryIfNeeded(set: NDKRelaySet): Promise<void> {
+  for (const relay of set.relays) {
+    const status = (relay as { connectivity?: { status?: number } }).connectivity?.status;
+    // NDKRelayStatus.CONNECTED === 1
+    if (status === 1) continue;
+    try {
+      await relay.connect();
+    } catch (err) {
+      console.warn('[Nourish Explore] Pantry reconnect failed:', err);
+    }
+  }
+}
+
 type AnalysisRow = {
   parsed: NourishRelayResult;
   recipePubkey: string;
@@ -220,27 +362,55 @@ export function buildNourishAnalysisFilter(label?: NourishLabel): {
   return filter;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchEventsWithTimeout(
+  ndk: NDK,
+  filter: {
+    kinds: number[];
+    authors?: string[];
+    limit?: number;
+    '#l'?: string[];
+    '#d'?: string[];
+  },
+  relaySet?: NDKRelaySet,
+  timeoutMs: number = FETCH_TIMEOUT_MS
+): Promise<Set<NDKEvent>> {
+  // Cast: NDKFilter's kind generics disagree with our plain number[] filters.
+  const fetchPromise = relaySet
+    ? ndk.fetchEvents(filter as never, undefined, relaySet)
+    : ndk.fetchEvents(filter as never);
+  const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
+    setTimeout(() => resolve(new Set()), timeoutMs)
+  );
+  return Promise.race([fetchPromise, timeoutPromise]);
+}
+
+/**
+ * Fetch Nourish 30078s: pantry (persistent set) → empty retry after ~1s →
+ * broad connected-relay fallback.
+ */
 async function fetchNourishEvents(
   ndk: NDK,
   label?: NourishLabel
 ): Promise<Set<NDKEvent>> {
   const filter = buildNourishAnalysisFilter(label);
-  let nourishEvents = new Set<NDKEvent>();
+  const relaySet = await ensurePantryRelaySet(ndk);
 
-  const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
-  const fetchPromise = ndk.fetchEvents(filter, undefined, relaySet);
-  const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
-    setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
-  );
-  nourishEvents = await Promise.race([fetchPromise, timeoutPromise]);
+  let nourishEvents = await fetchEventsWithTimeout(ndk, filter, relaySet);
 
   if (nourishEvents.size === 0) {
-    console.log('[Nourish Explore] No events on pantry, trying all relays...');
-    const broadFetch = ndk.fetchEvents(filter);
-    const broadTimeout = new Promise<Set<NDKEvent>>((resolve) =>
-      setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
-    );
-    nourishEvents = await Promise.race([broadFetch, broadTimeout]);
+    // Reconnect window — pantry often needs a beat after pool churn.
+    await sleep(PANTRY_RETRY_DELAY_MS);
+    await ensurePantryRelaySet(ndk);
+    nourishEvents = await fetchEventsWithTimeout(ndk, filter, relaySet);
+  }
+
+  if (nourishEvents.size === 0) {
+    console.log('[Nourish Explore] No events on pantry after retry, trying all relays...');
+    nourishEvents = await fetchEventsWithTimeout(ndk, filter);
   }
 
   return nourishEvents;
@@ -278,10 +448,13 @@ function parseAnalyses(nourishEvents: Iterable<NDKEvent>): AnalysisRow[] {
   return analyses;
 }
 
+function recipeCoordKey(pubkey: string, dTag: string): string {
+  return `${pubkey}:${dTag}`;
+}
+
 /**
- * Sort analyses, take top N, batch-fetch linked 30023 recipes.
- * Batching is driven only by the input analysis set — never assumes a
- * full-corpus fetch (filtered discovery shrinks the `#d` / authors lists).
+ * Sort analyses, take top N, resolve linked 30023 recipes via session
+ * recipe-map + batched fetch (with one retry for missing coords).
  */
 async function resolveRecipesFromAnalyses(
   ndk: NDK,
@@ -300,35 +473,27 @@ async function resolveRecipesFromAnalyses(
 
   const topAnalyses = analyses.slice(0, limit);
 
-  // Batch only the recipes we need from this (possibly filtered) set.
-  const uniqueDTags = [...new Set(topAnalyses.map((a) => a.recipeDTag))];
-  const recipeFilter = {
-    kinds: [30023 as number],
-    authors: [...new Set(topAnalyses.map((a) => a.recipePubkey))],
-    '#d': uniqueDTags
-  };
-
-  const recipeFetch = ndk.fetchEvents(recipeFilter);
-  const recipeTimeout = new Promise<Set<NDKEvent>>((resolve) =>
-    setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
+  const missing = topAnalyses.filter(
+    (a) => !recipeEventCache.has(recipeCoordKey(a.recipePubkey, a.recipeDTag))
   );
-  const recipeEvents = await Promise.race([recipeFetch, recipeTimeout]);
 
-  const recipeMap = new Map<string, NDKEvent>();
-  for (const recipe of recipeEvents) {
-    const d = recipe.tags.find((t) => t[0] === 'd')?.[1] || '';
-    const key = `${recipe.pubkey}:${d}`;
-    const existing = recipeMap.get(key);
-    if (!existing || (recipe.created_at || 0) > (existing.created_at || 0)) {
-      recipeMap.set(key, recipe);
+  if (missing.length > 0) {
+    await fetchAndCacheRecipes(ndk, missing);
+
+    const stillMissing = missing.filter(
+      (a) => !recipeEventCache.has(recipeCoordKey(a.recipePubkey, a.recipeDTag))
+    );
+    if (stillMissing.length > 0) {
+      await sleep(PANTRY_RETRY_DELAY_MS);
+      await fetchAndCacheRecipes(ndk, stillMissing);
     }
   }
 
   const results: NourishRankedRecipe[] = [];
 
   for (const analysis of topAnalyses) {
-    const key = `${analysis.recipePubkey}:${analysis.recipeDTag}`;
-    const recipe = recipeMap.get(key);
+    const key = recipeCoordKey(analysis.recipePubkey, analysis.recipeDTag);
+    const recipe = recipeEventCache.get(key);
     if (!recipe) continue;
 
     const title = recipe.tags.find((t) => t[0] === 'title')?.[1]
@@ -349,41 +514,54 @@ async function resolveRecipesFromAnalyses(
   return results;
 }
 
-/**
- * Fetch analyzed recipes from the pantry relay and rank by dimension.
- *
- * Strategy:
- * 1. No filters — fetch all kind 30078s from the service account (unchanged).
- * 2. One label — REQ with `#l: [thatLabel]`.
- * 3. Multiple labels (AND) — REQ on the most selective label, intersect
- *    remaining labels client-side on each event's `l` tags.
- * 4. Extract recipe coordinates from the `a` tag; batch-fetch 30023s.
- * 5. Empty filtered set — fall back to unfiltered ranked + `degraded: true`.
- */
-export async function fetchNourishRankedRecipes(
+async function fetchAndCacheRecipes(
   ndk: NDK,
-  sortBy: SortDimension = 'overall',
-  limit: number = 50,
-  filters: readonly NourishLabel[] = []
-): Promise<NourishDiscoveryResult> {
-  const uniqueFilters = [...new Set(filters)];
+  rows: AnalysisRow[]
+): Promise<void> {
+  if (rows.length === 0) return;
 
+  const recipeFilter = {
+    kinds: [30023 as number],
+    authors: [...new Set(rows.map((a) => a.recipePubkey))],
+    '#d': [...new Set(rows.map((a) => a.recipeDTag))]
+  };
+
+  const recipeEvents = await fetchEventsWithTimeout(ndk, recipeFilter);
+
+  for (const recipe of recipeEvents) {
+    const d = recipe.tags.find((t) => t[0] === 'd')?.[1] || '';
+    if (!d) continue;
+    putCachedRecipeEvent(recipe.pubkey, d, recipe);
+  }
+}
+
+async function fetchFreshRanked(
+  ndk: NDK,
+  sortBy: SortDimension,
+  limit: number,
+  uniqueFilters: NourishLabel[]
+): Promise<{ recipes: NourishRankedRecipe[]; degraded: boolean; legitimateEmpty: boolean }> {
   if (uniqueFilters.length === 0) {
     const nourishEvents = await fetchNourishEvents(ndk);
     console.log(`[Nourish Explore] Found ${nourishEvents.size} Nourish events`);
     const analyses = parseAnalyses(nourishEvents);
     const recipes = await resolveRecipesFromAnalyses(ndk, analyses, sortBy, limit);
-    return { recipes, degraded: false };
+    return { recipes, degraded: false, legitimateEmpty: false };
   }
 
   const primary = pickMostSelectiveLabel(uniqueFilters);
   const remaining = uniqueFilters.filter((l) => l !== primary);
 
-  let nourishEvents = await fetchNourishEvents(ndk, primary);
+  const nourishEvents = await fetchNourishEvents(ndk, primary);
   console.log(
     `[Nourish Explore] Found ${nourishEvents.size} Nourish events for #l=${primary}` +
       (remaining.length ? ` (intersect ${remaining.join(',')})` : '')
   );
+
+  // Transport miss on the primary `#l` REQ — not a confident filter miss.
+  if (nourishEvents.size === 0) {
+    return { recipes: [], degraded: false, legitimateEmpty: false };
+  }
 
   const filteredList =
     remaining.length > 0
@@ -393,15 +571,92 @@ export async function fetchNourishRankedRecipes(
   const analyses = parseAnalyses(filteredList);
 
   if (shouldDegradeFilteredResults(analyses.length)) {
+    // Legitimate filter miss (relay returned events; none survived AND/parse).
     console.log('[Nourish Explore] Filtered set empty — degrading to ranked view');
     const allEvents = await fetchNourishEvents(ndk);
     const allAnalyses = parseAnalyses(allEvents);
     const recipes = await resolveRecipesFromAnalyses(ndk, allAnalyses, sortBy, limit);
-    return { recipes, degraded: true };
+    return { recipes, degraded: true, legitimateEmpty: true };
   }
 
   const recipes = await resolveRecipesFromAnalyses(ndk, analyses, sortBy, limit);
-  return { recipes, degraded: false };
+  return { recipes, degraded: false, legitimateEmpty: false };
+}
+
+/**
+ * Fetch analyzed recipes from the pantry relay and rank by dimension.
+ *
+ * Session SWR: callers should {@link peekDiscoveryCache} first to render
+ * instantly, then call this to revalidate. Empty revalidates after a
+ * non-empty cache hit preserve previous results and log
+ * `[nourish.explore.refresh-miss]`.
+ */
+export async function fetchNourishRankedRecipes(
+  ndk: NDK,
+  sortBy: SortDimension = 'overall',
+  limit: number = 50,
+  filters: readonly NourishLabel[] = []
+): Promise<NourishDiscoveryResult> {
+  const uniqueFilters = [...new Set(filters)];
+  const key = filterCacheKey(uniqueFilters);
+  const previous = discoveryCache.get(key);
+
+  const fresh = await fetchFreshRanked(ndk, sortBy, limit, uniqueFilters);
+
+  // Never clobber a non-empty session result with a silent empty revalidate.
+  // Legitimate filter-miss degrade returns unfiltered recipes (non-empty) or
+  // falls through to the unfiltered-cache path below — not this branch.
+  if (
+    shouldPreservePreviousOnEmpty({
+      previousCount: previous?.recipes.length ?? 0,
+      freshCount: fresh.recipes.length
+    })
+  ) {
+    console.warn('[nourish.explore.refresh-miss]', {
+      filterKey: key || '(none)',
+      previousCount: previous!.recipes.length,
+      degraded: previous!.degraded,
+      legitimateEmpty: fresh.legitimateEmpty
+    });
+    return {
+      recipes: previous!.recipes,
+      degraded: previous!.degraded,
+      refreshMiss: true
+    };
+  }
+
+  // Degrade hop returned empty — prefer unfiltered session cache over blanking.
+  if (fresh.legitimateEmpty && fresh.recipes.length === 0) {
+    const unfiltered = discoveryCache.get(filterCacheKey([]));
+    if (unfiltered && unfiltered.recipes.length > 0) {
+      console.warn('[nourish.explore.refresh-miss]', {
+        filterKey: key || '(none)',
+        reason: 'degrade-unfiltered-empty',
+        previousCount: unfiltered.recipes.length
+      });
+      const degradedResult = {
+        recipes: unfiltered.recipes,
+        degraded: true,
+        refreshMiss: true as const
+      };
+      discoveryCache.set(key, {
+        recipes: degradedResult.recipes,
+        degraded: true,
+        fetchedAt: Date.now()
+      });
+      return degradedResult;
+    }
+  }
+
+  if (fresh.recipes.length > 0 || !previous) {
+    discoveryCache.set(key, {
+      recipes: fresh.recipes,
+      degraded: fresh.degraded,
+      fetchedAt: Date.now()
+    });
+  }
+
+  return { recipes: fresh.recipes, degraded: fresh.degraded };
 }
 
 // ─── Admin: model-upgrade candidates ────────────────────────
@@ -448,19 +703,17 @@ export async function fetchOutOfVersionCandidates(
     limit: CANDIDATES_FETCH_LIMIT
   };
 
-  const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
-  const fetchPromise = ndk.fetchEvents(filter, undefined, relaySet);
-  const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
-    setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
-  );
-  let nourishEvents = await Promise.race([fetchPromise, timeoutPromise]);
+  const relaySet = await ensurePantryRelaySet(ndk);
+  let nourishEvents = await fetchEventsWithTimeout(ndk, filter, relaySet);
 
   if (nourishEvents.size === 0) {
-    const broadFetch = ndk.fetchEvents(filter);
-    const broadTimeout = new Promise<Set<NDKEvent>>((resolve) =>
-      setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
-    );
-    nourishEvents = await Promise.race([broadFetch, broadTimeout]);
+    await sleep(PANTRY_RETRY_DELAY_MS);
+    await ensurePantryRelaySet(ndk);
+    nourishEvents = await fetchEventsWithTimeout(ndk, filter, relaySet);
+  }
+
+  if (nourishEvents.size === 0) {
+    nourishEvents = await fetchEventsWithTimeout(ndk, filter);
   }
 
   if (nourishEvents.size >= CANDIDATES_FETCH_LIMIT) {
