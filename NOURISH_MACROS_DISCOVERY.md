@@ -156,7 +156,6 @@ Raw: `tmp/nourish-bakeoff/results/outlier-confidence-split.json`.
 **Decision:** whole-animal/bone-in is the same category as breaded+fried — as-written systematically diverges from as-consumed — so it joins `rough` by deterministic rule. **Last class extension in this PR.**
 
 **New driving field:** `ingredients[].flags.bone_in` — `"yes"` for whole animal or bone-in cuts (whole chicken, bone-in thighs, whole fish).
-
 **Extended rule:** `(breaded===yes AND fried===yes) OR any bone_in===yes` → `rough`; else `estimate`.
 
 ##### Confidence-split re-run (shipped engine path)
@@ -171,7 +170,9 @@ Raw: `tmp/nourish-bakeoff/results/outlier-confidence-split.json`.
 | **estimate-class median** | | **28.1%** | target &lt;30% — **PASS** |
 | rough-class median | | 133.7% | not gated |
 
-**Steak salad (~36%) diagnostic (no fix):** dominant error source is **yield/trim ambiguity** on sirloin (purchase vs trimmed edible weight), not published-value noise or quantity parsing.
+<sup>†</sup> The estimate-class gate is a median of three recipes (thin sample by construction after the deterministic rough carve-outs); the Phase 2 backfill of all 55 production recipes serves as this gate's confirmation at scale, and its confidence census should be compared against this profile.
+
+**Steak salad (~36%) diagnostic (no fix):** dominant error source is **yield/trim ambiguity** on sirloin (purchase vs trimmed edible weight), not published-value noise or quantity parsing. Trim/yield ambiguity on boneless cuts is the estimate class's known soft spot — the mild end of the same as-written vs as-consumed spectrum whose severe end (whole-bird) is now classed rough. Monitored, not classed: if user reports cluster on boneless meat deviations, a bone_in-adjacent trim flag is the pre-identified fix.
 
 Gate cleared. No further classes or prompt rules in this PR. Residual estimate-class error (steak trim) and rough-class honesty labels are accepted; USDA/`per100g` lookup remains the next-arc accuracy path.
 
