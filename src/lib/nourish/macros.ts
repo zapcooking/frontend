@@ -283,14 +283,21 @@ export function deriveThresholdLabels(
 
 /**
  * Full label set from a successful macro compute + raw ingredient flags.
+ *
+ * Confidence gate: `rough` suppresses threshold buckets (`protein:*`,
+ * `kcal:*`, `carbs:*`) so discovery filters never serve a recipe whose
+ * estimate class says the number isn't trustworthy. Flag labels
+ * (`seedoil:free` etc.) are independent of quantity confidence.
  */
 export function deriveNourishLabels(
 	macroResult: MacroComputeOk,
 	rawIngredients: unknown
 ): NourishLabel[] {
-	const labels: NourishLabel[] = [
-		...deriveThresholdLabels(macroResult.recipeTotals, macroResult.servings)
-	];
+	const labels: NourishLabel[] = [];
+
+	if (macroResult.macros.confidence !== 'rough') {
+		labels.push(...deriveThresholdLabels(macroResult.recipeTotals, macroResult.servings));
+	}
 
 	const seed = deriveFreeLabel(rawIngredients, 'seed_oil', 'seedoil:free');
 	const sugar = deriveFreeLabel(rawIngredients, 'added_sugar', 'addedsugar:free');

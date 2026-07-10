@@ -419,6 +419,45 @@ describe('computeMacrosAndLabels', () => {
 		expect(omitReason).toBeTruthy();
 		expect(labels).toContain('seedoil:free');
 	});
+
+	it('rough confidence suppresses threshold labels but keeps flag labels', () => {
+		// High protein / low kcal would clear buckets if estimate — but bone_in → rough.
+		const { macros, labels } = computeMacrosAndLabels(
+			[
+				row(800, { kcal: 165, protein_g: 31, carbs_g: 0, fat_g: 3.6 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no',
+					bone_in: 'yes'
+				})
+			],
+			'2'
+		);
+		expect(macros?.confidence).toBe('rough');
+		expect(macros?.perServing.protein_g).toBeGreaterThanOrEqual(30);
+		expect(labels.some((l) => l.startsWith('protein:'))).toBe(false);
+		expect(labels.some((l) => l.startsWith('kcal:'))).toBe(false);
+		expect(labels.some((l) => l.startsWith('carbs:'))).toBe(false);
+		expect(labels).toContain('seedoil:free');
+		expect(labels).toContain('addedsugar:free');
+		expect(labels).toContain('redmeat:free');
+	});
+
+	it('estimate confidence still emits threshold labels', () => {
+		const { macros, labels } = computeMacrosAndLabels(
+			[
+				row(400, { kcal: 165, protein_g: 31, carbs_g: 0, fat_g: 3.6 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no'
+				})
+			],
+			'2'
+		);
+		expect(macros?.confidence).toBe('estimate');
+		expect(labels).toContain('protein:20plus');
+		expect(labels).toContain('protein:30plus');
+	});
 });
 
 describe('v3-shape scores still validate', () => {

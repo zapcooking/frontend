@@ -178,6 +178,12 @@ export interface NourishMacros {
 }
 
 /**
+ * NIP-32 self-label namespace on kind-30078 Nourish events (Phase 2).
+ * Distinct from the user-flag namespace `cooking.zap.nourish-flag`.
+ */
+export const NOURISH_LABEL_NAMESPACE = 'cooking.zap.nourish';
+
+/**
  * NIP-32-style label values derived server-side from macros + ingredient
  * flags. Namespace on the event is `cooking.zap.nourish` (Phase 2).
  */

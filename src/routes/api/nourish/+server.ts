@@ -113,7 +113,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 						scores,
 						improvements,
 						ingredientSignals: ingredient_signals,
-						audienceScores
+						audienceScores,
+						macros,
+						labels
 					});
 					console.log(`[Nourish] Publish ${published ? 'succeeded' : 'failed'} for ${recipeDTag}`);
 				} catch (err) {

@@ -1,6 +1,7 @@
 export {
 	NOURISH_CACHE_VERSION,
 	NOURISH_PROMPT_VERSION,
+	NOURISH_LABEL_NAMESPACE,
 	NOURISH_WEIGHTS,
 	computeOverallScore,
 	type NourishRequest,
