@@ -25,6 +25,8 @@
  *   scores: NourishScores,              // includes cacheVersion
  *   improvements: string[],             // up to 5
  *   ingredient_signals: IngredientSignal[],
+ *   macros?: NourishMacros,             // v4 — omitted when unusable
+ *   labels?: NourishLabel[],            // v4 — derived discovery labels
  *   promptVersion: string,              // model/prompt identity
  *   contentHash?: string,               // echoed when valid
  *   createdAt: number                   // unix seconds
@@ -85,7 +87,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				{ status: pipelineResult.status }
 			);
 		}
-		const { scores, improvements, ingredientSignals, audienceScores } = pipelineResult;
+		const { scores, improvements, ingredientSignals, audienceScores, macros, labels } =
+			pipelineResult;
 		const ingredient_signals = ingredientSignals;
 
 		// Publish Nourish event to relay (awaited — not fire-and-forget).
@@ -125,6 +128,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			improvements,
 			ingredient_signals,
 			audience_scores: audienceScores,
+			...(macros ? { macros } : {}),
+			labels,
 			// Identity fields — let clients cache/reconcile by promptVersion
 			// + contentHash + createdAt instead of inferring from cacheVersion.
 			promptVersion: NOURISH_PROMPT_VERSION,

@@ -283,7 +283,7 @@ function l3EntryToResolved(
 // newer lookup until rescore migrates the pantry event. Add each new
 // predecessor here when NOURISH_PROMPT_VERSION bumps so cached entries
 // don't go orphaned.
-const LEGACY_PROMPT_VERSIONS = ['1', '2', 'unknown'] as const;
+const LEGACY_PROMPT_VERSIONS = ['1', '2', '3', 'unknown'] as const;
 
 async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult> {
   // Gather candidates from every layer before deciding. Unlike commit

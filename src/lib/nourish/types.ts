@@ -1,5 +1,5 @@
 export const NOURISH_CACHE_VERSION = '2.0';
-export const NOURISH_PROMPT_VERSION = '3';
+export const NOURISH_PROMPT_VERSION = '4';
 
 /**
  * Public key of the Zap Cooking service account that publishes Nourish analysis events.
@@ -150,6 +150,50 @@ export function computeOverallScore(scores: {
 	return { score, label };
 }
 
+/** Per-serving macro estimate (honest rounding applied server-side). */
+export interface NourishMacroPerServing {
+	kcal: number;
+	protein_g: number;
+	carbs_g: number;
+	fat_g: number;
+}
+
+/**
+ * Additive macro block (prompt v4). Sibling to scores — not a ninth
+ * dimension. Absent on v3 responses/events.
+ */
+export interface NourishMacros {
+	perServing: NourishMacroPerServing;
+	servingsUsed: number;
+	servingsParsed: boolean;
+	/**
+	 * `estimate` — default. `rough` — as-written systematically diverges
+	 * from as-consumed: breaded+fried composition
+	 * (`flags.breaded` + `flags.fried`) OR whole-animal/bone-in cut
+	 * (`flags.bone_in`). UI must render distinctly (Phase 3a / 4).
+	 */
+	confidence: 'estimate' | 'rough';
+	/** Swap point for a future USDA lookup replacing per100g values. */
+	method: 'llm-per100g-v1';
+}
+
+/**
+ * NIP-32-style label values derived server-side from macros + ingredient
+ * flags. Namespace on the event is `cooking.zap.nourish` (Phase 2).
+ */
+export type NourishLabel =
+	| 'protein:20plus'
+	| 'protein:30plus'
+	| 'protein:40plus'
+	| 'kcal:under400'
+	| 'kcal:under600'
+	| 'kcal:under800'
+	| 'carbs:under20'
+	| 'carbs:under40'
+	| 'seedoil:free'
+	| 'addedsugar:free'
+	| 'redmeat:free';
+
 export interface NourishResponse {
 	success: boolean;
 	scores?: NourishScores;
@@ -161,6 +205,16 @@ export interface NourishResponse {
 	 * no UI consumer renders this yet (PR 3).
 	 */
 	audience_scores?: AudienceScores;
+	/**
+	 * Estimated per-serving macros (prompt v4). Undefined when the model
+	 * returned unusable per-ingredient data (degrade-to-omitted).
+	 */
+	macros?: NourishMacros;
+	/**
+	 * Derived discovery labels (prompt v4). Empty array when nothing
+	 * could be confidently labeled; undefined only on pre-v4 responses.
+	 */
+	labels?: NourishLabel[];
 	error?: string;
 	promptVersion?: string;
 	contentHash?: string;
