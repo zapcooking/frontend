@@ -187,7 +187,9 @@ export function buildNourishEventParts(input: NourishPublishInput): NourishEvent
  */
 function publishToRelay(
 	relayUrl: string,
-	event: { id: string; [k: string]: unknown },
+	// `finalizeEvent` returns VerifiedEvent (no string index signature) —
+	// only `id` is read; the full object is JSON-serialized for EVENT.
+	event: { id: string },
 	privKeyBytes?: Uint8Array
 ): Promise<boolean> {
 	return new Promise((resolve) => {

@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * NourishResult — strengths-focused result presentation (v3, 8 dims).
+   * NourishResult — strengths-focused result presentation (v3+, 8 dims).
    *
    * Shared between the /nourish page and the NourishModal on recipe pages.
    * Leads with what the food brings, never with what it lacks. The card is
@@ -8,7 +8,9 @@
    * warning (no amber, no red, no letter grade, no composite number).
    *
    * Prompt v3 added Heart-healthy as the 8th dimension and rebalanced the
-   * overall composite weights. Members see a rescore CTA via the
+   * overall composite weights. Prompt v4 adds an optional macros row
+   * (kcal / protein / carbs / fat per serving) — absent on v3 data so the
+   * card renders exactly as before. Members see a rescore CTA via the
    * `rescoreVariant` prop — 'upgrade' for out-of-version scores,
    * 'refresh' for current-version scores, null for non-members / contexts
    * without a persistent recipe.
@@ -19,10 +21,16 @@
   import ArrowUpIcon from 'phosphor-svelte/lib/ArrowUp';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
   import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
-  import type { NourishScores, IngredientSignal } from '$lib/nourish/types';
+  import type { NourishScores, NourishMacros, IngredientSignal } from '$lib/nourish/types';
+  import { macrosRowView } from '$lib/nourish/macrosDisplay';
   import type { FlagTarget, NourishDimension } from '$lib/nourish/flagSubmit';
 
   export let scores: NourishScores;
+  /**
+   * Estimated per-serving macros (v4). Absent on v3 / degraded scores —
+   * the card renders exactly as today (no empty row, no placeholder).
+   */
+  export let macros: NourishMacros | undefined = undefined;
   export let quickTake: string = '';
   export let improvements: string[] = [];
   export let ingredientSignals: IngredientSignal[] = [];
@@ -202,6 +210,10 @@
 
   $: strengths = topStrengths(scores);
 
+  // Macros row — null when absent (v3 / degraded). Confidence + servings
+  // copy live in macrosDisplay so the states stay unit-testable.
+  $: macrosView = macrosRowView(macros);
+
   // ─── Upgrade dimension inference ───────────────────────────────────
   // Improvements come from the LLM as plain strings, untagged. Rather
   // than re-engineering the scoring prompt, we infer the target
@@ -310,6 +322,37 @@
             {tag}
           </span>
         {/each}
+      </div>
+    </div>
+  {/if}
+
+  <!-- Macros row (v4) — per-serving kcal / P / C / F. Absent block
+       (v3 or engine omit) skips this entirely — today's card exactly.
+       `rough` gets muted treatment; copy from macrosRowView. -->
+  {#if macrosView}
+    <div
+      class="nr-macros"
+      class:nr-macros-rough={macrosView.tone === 'rough'}
+      aria-label={macrosView.label}
+    >
+      <p class="nr-macros-label">{macrosView.label}</p>
+      <div class="nr-macros-figures">
+        <div class="nr-macro">
+          <span class="nr-macro-value">{macrosView.kcal}</span>
+          <span class="nr-macro-unit">kcal</span>
+        </div>
+        <div class="nr-macro">
+          <span class="nr-macro-value">{macrosView.protein_g}</span>
+          <span class="nr-macro-unit">g protein</span>
+        </div>
+        <div class="nr-macro">
+          <span class="nr-macro-value">{macrosView.carbs_g}</span>
+          <span class="nr-macro-unit">g carbs</span>
+        </div>
+        <div class="nr-macro">
+          <span class="nr-macro-value">{macrosView.fat_g}</span>
+          <span class="nr-macro-unit">g fat</span>
+        </div>
       </div>
     </div>
   {/if}
@@ -517,6 +560,63 @@
     background: rgba(34, 197, 94, 0.1);
     color: #22c55e;
     white-space: nowrap;
+  }
+
+  /* Macros row — compact four-figure strip. `rough` is muted/hedged so
+     the honesty label isn't just an asterisk on otherwise-confident
+     numbers (~13% of the corpus lands here). */
+  .nr-macros {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.45rem 0.15rem 0.15rem;
+  }
+  .nr-macros-label {
+    margin: 0;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-secondary);
+    opacity: 0.6;
+  }
+  .nr-macros-figures {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+  .nr-macro {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.05rem;
+    min-width: 0;
+  }
+  .nr-macro-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.15;
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .nr-macro-unit {
+    font-size: 0.625rem;
+    line-height: 1.2;
+    color: var(--color-text-secondary);
+    opacity: 0.75;
+  }
+  .nr-macros-rough {
+    opacity: 0.72;
+  }
+  .nr-macros-rough .nr-macros-label {
+    text-transform: none;
+    letter-spacing: 0.01em;
+    font-weight: 500;
+    font-style: italic;
+    opacity: 0.85;
+  }
+  .nr-macros-rough .nr-macro-value {
+    font-weight: 500;
   }
 
   /* 2-col tile grid — auto-rows so one expanded tile lets its row grow

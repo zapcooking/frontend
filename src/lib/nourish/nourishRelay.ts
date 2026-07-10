@@ -18,6 +18,7 @@ import {
   type NourishRelayResult,
   type IngredientSignal
 } from './types';
+import { parseMacrosBlock } from './macrosDisplay';
 export type { NourishRelayResult } from './types';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
@@ -266,6 +267,10 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
       ? content.ingredient_signals.filter((i: any) => i && typeof i.name === 'string')
       : [];
 
+    // Macros (v4) — additive. v3 events and degrade-to-omitted payloads
+    // leave this undefined so the card renders exactly as today.
+    const macros = parseMacrosBlock(content.macros);
+
     // Extract metadata from tags. Untagged legacy events surface as
     // 'unknown' so the admin rescore-candidates view can triage them,
     // rather than being silently mislabelled as v1.
@@ -288,6 +293,7 @@ export function parseNourishEvent(event: NDKEvent): NourishRelayResult | null {
       improvements,
       ingredientSignals,
       audienceScores,
+      ...(macros ? { macros } : {}),
       contentHash,
       promptVersion,
       nourishVersion,

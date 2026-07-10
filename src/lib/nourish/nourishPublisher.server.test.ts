@@ -309,7 +309,10 @@ describe('rescore round-trip — macros + labels reach the publisher', () => {
 			body: JSON.stringify(body)
 		});
 
-		const response = await POST({ request, platform: { env: {} } as any });
+		const response = await POST({
+			request,
+			platform: { env: {} }
+		} as any);
 		expect(response.status).toBe(200);
 		const json = await response.json();
 		expect(json.macros.confidence).toBe('rough');

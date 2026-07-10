@@ -28,7 +28,12 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import { getNourishCache, setNourishScores, type NourishCacheKey } from './cache';
 import { queryNourishEvent } from './nourishRelay';
-import type { AudienceScores, NourishScores, IngredientSignal } from './types';
+import type {
+  AudienceScores,
+  NourishScores,
+  NourishMacros,
+  IngredientSignal
+} from './types';
 
 // ─── Public types ────────────────────────────────────────────
 
@@ -47,6 +52,11 @@ export interface ResolvedEntry {
    * expansion). Background mode — no UI consumer reads this yet.
    */
   audienceScores?: AudienceScores;
+  /**
+   * Estimated per-serving macros (v4). Undefined on v3 / degraded
+   * entries — Phase 3a card omits the row when absent.
+   */
+  macros?: NourishMacros;
   improvements?: string[];
   ingredientSignals?: IngredientSignal[];
   promptVersion: string;
@@ -247,6 +257,7 @@ function writeThrough(requestedKey: NourishCacheKey, winner: Candidate): void {
       createdAt: winner.entry.createdAt,
       updatedAt: winner.entry.updatedAt,
       audienceScores: winner.entry.audienceScores,
+      macros: winner.entry.macros,
       improvements: winner.entry.improvements,
       ingredientSignals: winner.entry.ingredientSignals
     });
@@ -266,6 +277,7 @@ function l3EntryToResolved(
     createdAt: l3.createdAt ?? Math.floor(l3.timestamp / 1000),
     updatedAt: l3.updatedAt,
     audienceScores: l3.audienceScores,
+    macros: l3.macros,
     improvements: l3.improvements,
     ingredientSignals: l3.ingredientSignals,
     // Prefer the entry's stored promptVersion over the caller's hint.
@@ -342,6 +354,7 @@ async function doResolve(ndk: NDK, key: NourishCacheKey): Promise<ResolveResult>
         createdAt: l4.result.createdAt,
         updatedAt: l4.result.updatedAt,
         audienceScores: l4.result.audienceScores,
+        macros: l4.result.macros,
         improvements: l4.result.improvements,
         ingredientSignals: l4.result.ingredientSignals,
         promptVersion: l4.result.promptVersion
