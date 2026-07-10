@@ -126,7 +126,6 @@ export function computeMacrosFromIngredients(
 	}
 
 	const n = servings.n > 0 ? servings.n : 4;
-	const recipeTotals: NourishMacroPerServing = { kcal, protein_g: protein, carbs_g: carbs, fat_g: fat };
 	const rawPerServing: NourishMacroPerServing = {
 		kcal: kcal / n,
 		protein_g: protein / n,
@@ -144,6 +143,16 @@ export function computeMacrosFromIngredients(
 	};
 	const rounded = roundMacros(consistent);
 	const confidence = deriveMacroConfidence(rawIngredients);
+
+	// Keep recipeTotals.kcal aligned with the post-enforcement per-serving
+	// kcal so threshold labels (derived from totals ÷ servings) match what
+	// clients display on macros.perServing.kcal.
+	const recipeTotals: NourishMacroPerServing = {
+		kcal: consistent.kcal * n,
+		protein_g: protein,
+		carbs_g: carbs,
+		fat_g: fat
+	};
 
 	const macros: NourishMacros = {
 		perServing: rounded,

@@ -94,6 +94,20 @@ describe('computeMacrosFromIngredients — arithmetic', () => {
 		// derived = 170 → rounded 170
 		expect(result.macros.perServing.kcal).toBe(170);
 		expect(result.macros.perServing.protein_g).toBe(10);
+		// recipeTotals.kcal must track enforced kcal so labels stay aligned
+		expect(result.recipeTotals.kcal).toBe(170);
+	});
+
+	it('kcal bucket labels use enforced kcal when consistency fires', () => {
+		// Raw LLM kcal 500 would miss under400; enforced 170 must land in under400+
+		const { macros, labels } = computeMacrosAndLabels(
+			[row(100, { kcal: 500, protein_g: 10, carbs_g: 10, fat_g: 10 })],
+			'1'
+		);
+		expect(macros?.perServing.kcal).toBe(170);
+		expect(labels).toContain('kcal:under400');
+		expect(labels).toContain('kcal:under600');
+		expect(labels).toContain('kcal:under800');
 	});
 
 	it('uses servings fallback of 4 when unparseable and sets servingsParsed false', () => {
@@ -143,9 +157,8 @@ describe('deriveThresholdLabels — bucket boundaries', () => {
 
 	it('30g protein → 20plus and 30plus', () => {
 		const labels = deriveThresholdLabels(totals(30, 500, 30), parseServings('4'));
-		expect(labels).toEqual(
-			expect.arrayContaining(['protein:20plus', 'protein:30plus'])
-		);
+		expect(labels).toContain('protein:20plus');
+		expect(labels).toContain('protein:30plus');
 		expect(labels).not.toContain('protein:40plus');
 	});
 
@@ -164,9 +177,9 @@ describe('deriveThresholdLabels — bucket boundaries', () => {
 
 	it('kcal under buckets are cumulative downward', () => {
 		const labels = deriveThresholdLabels(totals(20, 380, 30), parseServings('4'));
-		expect(labels).toEqual(
-			expect.arrayContaining(['kcal:under400', 'kcal:under600', 'kcal:under800'])
-		);
+		expect(labels).toContain('kcal:under400');
+		expect(labels).toContain('kcal:under600');
+		expect(labels).toContain('kcal:under800');
 	});
 });
 
