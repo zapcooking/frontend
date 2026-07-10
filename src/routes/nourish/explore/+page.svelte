@@ -7,9 +7,11 @@
   import NourishRecipeCard from '../../../components/nourish/NourishRecipeCard.svelte';
   import {
     fetchNourishRankedRecipes,
+    filterCacheKey,
     getDimensionScore,
     labelsFromChipIds,
     NOURISH_FILTER_CHIPS,
+    peekDiscoveryCache,
     type NourishRankedRecipe,
     type SortDimension
   } from '$lib/nourish/nourishDiscovery';
@@ -17,6 +19,8 @@
   // Fetched recipes for the current filter set — re-sorted client-side on sort change
   let allRecipes: NourishRankedRecipe[] = [];
   let loading = false;
+  /** Soft revalidate while cached results are already on screen. */
+  let refreshing = false;
   let loadStarted = false;
   let error = false;
   let degraded = false;
@@ -25,6 +29,8 @@
   let activeChipIds: string[] = [];
   /** Bumps on each load so stale in-flight responses are dropped. */
   let loadGen = 0;
+  /** Cache key for the recipes currently shown — enforces filter isolation. */
+  let shownCacheKey = '';
 
   const SORT_OPTIONS: { id: SortDimension; label: string; icon: string }[] = [
     { id: 'overall', label: 'Overall', icon: '🌿' },
@@ -44,25 +50,58 @@
   async function loadRecipes() {
     if (!$ndk) return;
     const gen = ++loadGen;
-    loading = true;
+    const filters = labelsFromChipIds(activeChipIds);
+    const cacheKey = filterCacheKey(filters);
+
+    // SWR: paint cached results for THIS filter set immediately.
+    // Never show chips-A results while chips-B is selected (filter isolation).
+    const cached = peekDiscoveryCache(filters);
+    if (cached && cached.recipes.length > 0) {
+      allRecipes = cached.recipes;
+      degraded = cached.degraded;
+      shownCacheKey = cacheKey;
+      loading = false;
+      refreshing = true;
+    } else {
+      // Different filter with no cache — clear prior set, show spinner.
+      if (shownCacheKey !== cacheKey) {
+        allRecipes = [];
+        degraded = false;
+        shownCacheKey = cacheKey;
+      }
+      loading = allRecipes.length === 0;
+      refreshing = allRecipes.length > 0;
+    }
+
     loadStarted = true;
     error = false;
 
     try {
       await ensureNdkConnected();
       // Re-read chips after await — a newer toggle may have changed them.
-      const filters = labelsFromChipIds(activeChipIds);
-      const result = await fetchNourishRankedRecipes($ndk, 'overall', 40, filters);
+      const latestFilters = labelsFromChipIds(activeChipIds);
+      const result = await fetchNourishRankedRecipes($ndk, 'overall', 40, latestFilters);
       if (gen !== loadGen) return;
+      // Only apply if still on the same filter set the request was for.
+      if (filterCacheKey(latestFilters) !== filterCacheKey(labelsFromChipIds(activeChipIds))) {
+        return;
+      }
       allRecipes = result.recipes;
       degraded = result.degraded;
+      shownCacheKey = filterCacheKey(latestFilters);
     } catch (err) {
       if (gen !== loadGen) return;
       console.error('[Nourish Explore] Failed to load:', err);
-      error = true;
-      degraded = false;
+      // Keep showing cached/previous recipes on error when we have them.
+      if (allRecipes.length === 0) {
+        error = true;
+        degraded = false;
+      }
     } finally {
-      if (gen === loadGen) loading = false;
+      if (gen === loadGen) {
+        loading = false;
+        refreshing = false;
+      }
     }
   }
 
@@ -170,6 +209,10 @@
       <p class="degrade-note" role="status">
         More recipes being analyzed — showing the full ranked list for now.
       </p>
+    {/if}
+
+    {#if refreshing}
+      <p class="refresh-note" aria-live="polite">Updating…</p>
     {/if}
 
     <div class="recipe-grid" class:thin={recipes.length > 0 && recipes.length <= 3}>
@@ -286,6 +329,12 @@
     border-radius: 0.5rem;
     background: rgba(34, 197, 94, 0.06);
     border: 1px solid rgba(34, 197, 94, 0.15);
+  }
+  .refresh-note {
+    font-size: 0.6875rem;
+    color: var(--color-text-secondary);
+    opacity: 0.5;
+    margin: 0;
   }
 
   /* Sort bar */

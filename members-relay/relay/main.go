@@ -36,6 +36,14 @@ const (
 	// Recipes
 	KindRecipe = 30023
 
+	// NIP-78 application data — Nourish analyses are public-readable when
+	// authored by the service key; other members' 30078 app-data stays gated.
+	KindAppData = 30078
+
+	// Zap Cooking Nourish service pubkey (frontend NOURISH_SERVICE_PUBKEY).
+	// Public discovery REQs are scoped to this author only.
+	NourishServicePubkey = "fdd263f69f9e95a2a0a58ec3e7e8053011214fa66007d93b26d2f4717d31917b"
+
 	// NIP-29 moderation events
 	KindPutUser      = 9000
 	KindRemoveUser   = 9001
@@ -379,7 +387,16 @@ func isGroupEvent(kind int) bool {
 func rejectFilterPolicy(ctx context.Context, filter nostr.Filter) (reject bool, msg string) {
 	pubkey := getAuthenticatedPubkey(ctx)
 
+	// Public recipe reads (kind 30023).
 	if containsOnlyKind(filter.Kinds, KindRecipe) {
+		return false, ""
+	}
+
+	// Public Nourish discovery reads: service-authored kind 30078 only.
+	// Writes remain auth-gated via rejectEventPolicy. Bare kind-30078
+	// filters (no author constraint) stay membership-gated so members'
+	// private NIP-78 app-data is not enumerable anonymously.
+	if isPublicNourishFilter(filter) {
 		return false, ""
 	}
 
@@ -406,6 +423,18 @@ func rejectFilterPolicy(ctx context.Context, filter nostr.Filter) (reject bool, 
 	}
 
 	return false, ""
+}
+
+// isPublicNourishFilter reports whether a REQ may be served without auth:
+// kinds=[30078] constrained to the Nourish service pubkey (optional #l etc. OK).
+func isPublicNourishFilter(filter nostr.Filter) bool {
+	if !containsOnlyKind(filter.Kinds, KindAppData) {
+		return false
+	}
+	if len(filter.Authors) != 1 || filter.Authors[0] != NourishServicePubkey {
+		return false
+	}
+	return true
 }
 
 func containsOnlyKind(kinds []int, targetKind int) bool {

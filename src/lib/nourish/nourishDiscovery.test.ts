@@ -1,27 +1,37 @@
 /**
- * Phase 3b — filtered discovery helpers.
+ * Phase 3b + Explore resilience — discovery helpers & session cache.
  *
  * Pure-logic coverage for chip→label mapping, selectivity / AND
- * intersection, REQ filter construction, and empty-set degrade.
+ * intersection, REQ filter construction, empty-set degrade, SWR cache,
+ * refresh-miss preservation, filter-key isolation, and recipe-map reuse.
  *
  * Browser eyeballing still needed (not covered here):
- * - Chip toggle selected state + results refresh on /nourish/explore
- * - Thin filtered grids (n=2–3) look intentional, not sparse/broken
- * - Degrade banner copy when a filter combo matches nothing
+ * - Chip toggle / return-to-page no longer flashes empty when pantry is slow
+ * - Cached paint then quiet revalidate ("Updating…")
+ * - Filter isolation: chips A results never flash under chips B
+ * - After members-relay deploy: unauthenticated pantry `#l` REQs return
+ *   service-key 30078s (NIP-42 public-read fix)
  * - Rough recipes absent under quantity chips, present under flag-only
- *   chips and the unfiltered view
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
 	NOURISH_FILTER_CHIPS,
 	LABEL_SELECTIVITY_ASC,
 	buildNourishAnalysisFilter,
 	eventHasAllLabels,
+	filterCacheKey,
+	getCachedRecipeEvent,
 	intersectEventsByLabels,
 	labelsFromChipIds,
+	peekDiscoveryCache,
 	pickMostSelectiveLabel,
-	shouldDegradeFilteredResults
+	putCachedRecipeEvent,
+	putDiscoveryCache,
+	resetDiscoverySessionCaches,
+	shouldDegradeFilteredResults,
+	shouldPreservePreviousOnEmpty,
+	type NourishRankedRecipe
 } from './nourishDiscovery';
 import type { NourishLabel } from './types';
 import { NOURISH_SERVICE_PUBKEY, NOURISH_LABEL_NAMESPACE } from './types';
@@ -37,6 +47,29 @@ function fakeEvent(labels: NourishLabel[], namespace = NOURISH_LABEL_NAMESPACE) 
 	}
 	return { tags } as { tags: string[][] };
 }
+
+function fakeRanked(id: string): NourishRankedRecipe {
+	return {
+		recipe: { id, tags: [], pubkey: 'pk' } as unknown as NourishRankedRecipe['recipe'],
+		nourish: {
+			scores: {
+				overall: { score: 8 },
+				realFood: { score: 8 },
+				gut: { score: 7 },
+				protein: { score: 7 }
+			},
+			createdAt: 1
+		} as unknown as NourishRankedRecipe['nourish'],
+		title: id,
+		image: '',
+		authorPubkey: 'pk',
+		recipeDTag: id
+	};
+}
+
+beforeEach(() => {
+	resetDiscoverySessionCaches();
+});
 
 describe('NOURISH_FILTER_CHIPS / labelsFromChipIds', () => {
 	it('maps v1 chips to the plan labels', () => {
@@ -125,7 +158,6 @@ describe('eventHasAllLabels / intersectEventsByLabels', () => {
 	});
 
 	it('intersects a primary-fetched set against remaining labels', () => {
-		// Simulates events already narrowed by a protein:30plus `#l` REQ.
 		const events = [
 			fakeEvent(['protein:30plus', 'seedoil:free']),
 			fakeEvent(['protein:30plus']),
@@ -150,5 +182,85 @@ describe('shouldDegradeFilteredResults', () => {
 		expect(shouldDegradeFilteredResults(1)).toBe(false);
 		expect(shouldDegradeFilteredResults(2)).toBe(false);
 		expect(shouldDegradeFilteredResults(3)).toBe(false);
+	});
+});
+
+describe('session cache — SWR / isolation / recipe map', () => {
+	it('filterCacheKey is order-independent', () => {
+		expect(filterCacheKey(['seedoil:free', 'protein:30plus'])).toBe(
+			filterCacheKey(['protein:30plus', 'seedoil:free'])
+		);
+		expect(filterCacheKey([])).toBe('');
+	});
+
+	it('cache hit returns recipes without needing a fetch (peek)', () => {
+		const recipes = [fakeRanked('a'), fakeRanked('b')];
+		putDiscoveryCache([], recipes, false);
+		const hit = peekDiscoveryCache([]);
+		expect(hit).not.toBeNull();
+		expect(hit!.fromCache).toBe(true);
+		expect(hit!.recipes).toHaveLength(2);
+		expect(hit!.recipes[0].title).toBe('a');
+	});
+
+	it('filter-keyed isolation: chips A results are not returned for chips B', () => {
+		putDiscoveryCache(['protein:30plus'], [fakeRanked('protein-only')], false);
+		putDiscoveryCache(['seedoil:free'], [fakeRanked('seedoil-only')], false);
+
+		const a = peekDiscoveryCache(['protein:30plus']);
+		const b = peekDiscoveryCache(['seedoil:free']);
+		const none = peekDiscoveryCache([]);
+
+		expect(a!.recipes[0].title).toBe('protein-only');
+		expect(b!.recipes[0].title).toBe('seedoil-only');
+		expect(none).toBeNull();
+	});
+
+	it('expired TTL entries are not returned as hits', () => {
+		putDiscoveryCache([], [fakeRanked('stale')], false, Date.now() - 10 * 60 * 1000);
+		expect(peekDiscoveryCache([])).toBeNull();
+	});
+
+	it('shouldPreservePreviousOnEmpty keeps non-empty on silent empty revalidate', () => {
+		expect(
+			shouldPreservePreviousOnEmpty({ previousCount: 12, freshCount: 0 })
+		).toBe(true);
+		expect(
+			shouldPreservePreviousOnEmpty({ previousCount: 12, freshCount: 10 })
+		).toBe(false);
+		expect(
+			shouldPreservePreviousOnEmpty({ previousCount: 0, freshCount: 0 })
+		).toBe(false);
+		expect(
+			shouldPreservePreviousOnEmpty({
+				previousCount: 12,
+				freshCount: 0,
+				legitimateEmpty: true
+			})
+		).toBe(false);
+	});
+
+	it('recipe-map reuses 30023 events across filter sets', () => {
+		const event = {
+			id: 'evt1',
+			pubkey: 'pk1',
+			created_at: 100,
+			tags: [['d', 'pasta']]
+		} as unknown as import('@nostr-dev-kit/ndk').NDKEvent;
+
+		putCachedRecipeEvent('pk1', 'pasta', event);
+		expect(getCachedRecipeEvent('pk1', 'pasta')).toBe(event);
+
+		const newer = {
+			...event,
+			id: 'evt2',
+			created_at: 200
+		} as unknown as import('@nostr-dev-kit/ndk').NDKEvent;
+		putCachedRecipeEvent('pk1', 'pasta', newer);
+		expect(getCachedRecipeEvent('pk1', 'pasta')?.id).toBe('evt2');
+
+		// Older write does not clobber
+		putCachedRecipeEvent('pk1', 'pasta', event);
+		expect(getCachedRecipeEvent('pk1', 'pasta')?.id).toBe('evt2');
 	});
 });
