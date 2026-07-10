@@ -8,16 +8,23 @@
   import {
     fetchNourishRankedRecipes,
     getDimensionScore,
+    labelsFromChipIds,
+    NOURISH_FILTER_CHIPS,
     type NourishRankedRecipe,
     type SortDimension
   } from '$lib/nourish/nourishDiscovery';
 
-  // All fetched recipes (unsorted cache) — fetched once, sorted client-side
+  // Fetched recipes for the current filter set — re-sorted client-side on sort change
   let allRecipes: NourishRankedRecipe[] = [];
   let loading = false;
   let loadStarted = false;
   let error = false;
+  let degraded = false;
   let sortBy: SortDimension = 'overall';
+  /** Active filter chip ids (AND composition). */
+  let activeChipIds: string[] = [];
+  /** Bumps on each load so stale in-flight responses are dropped. */
+  let loadGen = 0;
 
   const SORT_OPTIONS: { id: SortDimension; label: string; icon: string }[] = [
     { id: 'overall', label: 'Overall', icon: '🌿' },
@@ -35,24 +42,42 @@
   });
 
   async function loadRecipes() {
-    if (!$ndk || loading) return;
+    if (!$ndk) return;
+    const gen = ++loadGen;
     loading = true;
     loadStarted = true;
     error = false;
 
     try {
       await ensureNdkConnected();
-      allRecipes = await fetchNourishRankedRecipes($ndk, 'overall', 40);
+      // Re-read chips after await — a newer toggle may have changed them.
+      const filters = labelsFromChipIds(activeChipIds);
+      const result = await fetchNourishRankedRecipes($ndk, 'overall', 40, filters);
+      if (gen !== loadGen) return;
+      allRecipes = result.recipes;
+      degraded = result.degraded;
     } catch (err) {
+      if (gen !== loadGen) return;
       console.error('[Nourish Explore] Failed to load:', err);
       error = true;
+      degraded = false;
     } finally {
-      loading = false;
+      if (gen === loadGen) loading = false;
     }
   }
 
   function handleSort(dim: SortDimension) {
     sortBy = dim;
+  }
+
+  function toggleChip(chipId: string) {
+    if (activeChipIds.includes(chipId)) {
+      activeChipIds = activeChipIds.filter((id) => id !== chipId);
+    } else {
+      activeChipIds = [...activeChipIds, chipId];
+    }
+    // Filters need a relay REQ — refetch (sort stays client-side).
+    loadRecipes();
   }
 
   onMount(() => {
@@ -81,6 +106,24 @@
     </div>
     <p class="page-subtitle">Browse recipes by what they bring to the table.</p>
     <p class="page-note">Profiles are AI-generated estimates — use as guidance, not gospel.</p>
+  </div>
+
+  <!-- Filter chips (AND) -->
+  <div class="filter-bar">
+    <span class="filter-label">Filters</span>
+    <div class="filter-chips" role="group" aria-label="Nourish filters">
+      {#each NOURISH_FILTER_CHIPS as chip}
+        <button
+          type="button"
+          class="filter-chip"
+          class:active={activeChipIds.includes(chip.id)}
+          aria-pressed={activeChipIds.includes(chip.id)}
+          on:click={() => toggleChip(chip.id)}
+        >
+          {chip.label}
+        </button>
+      {/each}
+    </div>
   </div>
 
   <!-- Sort controls -->
@@ -123,14 +166,24 @@
     </div>
 
   {:else}
-    <div class="recipe-grid">
+    {#if degraded}
+      <p class="degrade-note" role="status">
+        More recipes being analyzed — showing the full ranked list for now.
+      </p>
+    {/if}
+
+    <div class="recipe-grid" class:thin={recipes.length > 0 && recipes.length <= 3}>
       {#each recipes as item (item.recipe.id)}
         <NourishRecipeCard {item} highlightDimension={sortBy} />
       {/each}
     </div>
 
     <p class="grid-footer">
-      {recipes.length} recipe{recipes.length !== 1 ? 's' : ''} with Nourish profiles
+      {#if activeChipIds.length > 0 && !degraded}
+        {recipes.length} recipe{recipes.length !== 1 ? 's' : ''} matching your filters
+      {:else}
+        {recipes.length} recipe{recipes.length !== 1 ? 's' : ''} with Nourish profiles
+      {/if}
     </p>
   {/if}
 </div>
@@ -182,6 +235,57 @@
     color: var(--color-text-secondary);
     opacity: 0.5;
     margin: 0;
+  }
+
+  /* Filter chips */
+  .filter-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .filter-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    opacity: 0.6;
+  }
+  .filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+  .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.35rem 0.7rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 150ms, border-color 150ms, color 150ms;
+  }
+  .filter-chip:hover:not(:disabled) {
+    background: rgba(34, 197, 94, 0.06);
+    border-color: rgba(34, 197, 94, 0.2);
+  }
+  .filter-chip.active {
+    background: rgba(34, 197, 94, 0.14);
+    border-color: rgba(34, 197, 94, 0.4);
+    color: #22c55e;
+    font-weight: 600;
+  }
+  .degrade-note {
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    background: rgba(34, 197, 94, 0.06);
+    border: 1px solid rgba(34, 197, 94, 0.15);
   }
 
   /* Sort bar */
@@ -281,15 +385,20 @@
     background: rgba(34, 197, 94, 0.08);
   }
 
-  /* Recipe grid */
+  /* Recipe grid — thin sets (n≤3) stay readable, not a sparse dashboard */
   .recipe-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: 1rem;
   }
+  .recipe-grid.thin {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 320px));
+    justify-content: start;
+  }
 
   @media (max-width: 540px) {
-    .recipe-grid {
+    .recipe-grid,
+    .recipe-grid.thin {
       grid-template-columns: 1fr;
     }
   }
