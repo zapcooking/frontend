@@ -167,10 +167,10 @@ Raw: `tmp/nourish-bakeoff/results/outlier-confidence-split.json`.
 | eatingwell-quinoa-bowl | estimate | 21.4% | yes |
 | loveandlemons-tofu-stirfry | estimate | 28.1% | yes |
 | bonappetit-steak-salad | estimate | 35.6% | yes |
-| **estimate-class median** | | **28.1%** | target &lt;30% — **PASS** |
+| **estimate-class median**† | | **28.1%** | target &lt;30% — **PASS** |
 | rough-class median | | 133.7% | not gated |
 
-<sup>†</sup> The estimate-class gate is a median of three recipes (thin sample by construction after the deterministic rough carve-outs); the Phase 2 backfill of all 55 production recipes serves as this gate's confirmation at scale, and its confidence census should be compared against this profile.
+† The estimate-class gate is a median of three recipes (thin sample by construction after the deterministic rough carve-outs); the Phase 2 backfill of all 55 production recipes serves as this gate's confirmation at scale, and its confidence census should be compared against this profile.
 
 **Steak salad (~36%) diagnostic (no fix):** dominant error source is **yield/trim ambiguity** on sirloin (purchase vs trimmed edible weight), not published-value noise or quantity parsing. Trim/yield ambiguity on boneless cuts is the estimate class's known soft spot — the mild end of the same as-written vs as-consumed spectrum whose severe end (whole-bird) is now classed rough. Monitored, not classed: if user reports cluster on boneless meat deviations, a bone_in-adjacent trim flag is the pre-identified fix.
 
