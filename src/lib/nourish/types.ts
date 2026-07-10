@@ -167,10 +167,10 @@ export interface NourishMacros {
 	servingsUsed: number;
 	servingsParsed: boolean;
 	/**
-	 * `estimate` — default. `rough` — server detected breaded+fried
-	 * composition (`ingredients[].flags.breaded` + `.fried`); as-served
-	 * oil/breading pickup exceeds the written list. UI must render
-	 * distinctly (Phase 3a / 4).
+	 * `estimate` — default. `rough` — as-written systematically diverges
+	 * from as-consumed: breaded+fried composition
+	 * (`flags.breaded` + `flags.fried`) OR whole-animal/bone-in cut
+	 * (`flags.bone_in`). UI must render distinctly (Phase 3a / 4).
 	 */
 	confidence: 'estimate' | 'rough';
 	/** Swap point for a future USDA lookup replacing per100g values. */

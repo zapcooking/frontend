@@ -21,12 +21,14 @@ function row(
 		red_meat: string;
 		breaded?: string;
 		fried?: string;
+		bone_in?: string;
 	} = {
 		seed_oil: 'no',
 		added_sugar: 'no',
 		red_meat: 'no',
 		breaded: 'no',
-		fried: 'no'
+		fried: 'no',
+		bone_in: 'no'
 	}
 ) {
 	return {
@@ -36,6 +38,7 @@ function row(
 		flags: {
 			breaded: 'no',
 			fried: 'no',
+			bone_in: 'no',
 			...flags
 		}
 	};
@@ -264,6 +267,64 @@ describe('deriveMacroConfidence — breaded+fried → rough', () => {
 				})
 			])
 		).toBe('rough');
+	});
+
+	it('whole chicken (bone_in) → rough', () => {
+		expect(
+			deriveMacroConfidence([
+				row(1100, { kcal: 215, protein_g: 27, carbs_g: 0, fat_g: 12 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no',
+					breaded: 'no',
+					fried: 'no',
+					bone_in: 'yes'
+				})
+			])
+		).toBe('rough');
+	});
+
+	it('boneless breast → estimate', () => {
+		expect(
+			deriveMacroConfidence([
+				row(500, { kcal: 165, protein_g: 31, carbs_g: 0, fat_g: 3.6 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no',
+					breaded: 'no',
+					fried: 'no',
+					bone_in: 'no'
+				})
+			])
+		).toBe('estimate');
+	});
+
+	it('bone-in thighs → rough', () => {
+		expect(
+			deriveMacroConfidence([
+				row(800, { kcal: 200, protein_g: 25, carbs_g: 0, fat_g: 12 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no',
+					breaded: 'no',
+					fried: 'no',
+					bone_in: 'yes'
+				})
+			])
+		).toBe('rough');
+	});
+
+	it('unknown bone_in does not trigger rough alone', () => {
+		expect(
+			deriveMacroConfidence([
+				row(500, { kcal: 165, protein_g: 31, carbs_g: 0, fat_g: 3.6 }, {
+					seed_oil: 'no',
+					added_sugar: 'no',
+					red_meat: 'no',
+					bone_in: 'unknown'
+				})
+			])
+		).toBe('estimate');
 	});
 });
 

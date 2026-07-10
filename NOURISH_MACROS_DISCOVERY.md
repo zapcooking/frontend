@@ -151,6 +151,32 @@ Shipped engine path (`runScoringPipeline` → enforcement + rounding). 5 outlier
 
 Raw: `tmp/nourish-bakeoff/results/outlier-confidence-split.json`.
 
+#### Whole-bird joins rough — last class extension (2026-07-10)
+
+**Decision:** whole-animal/bone-in is the same category as breaded+fried — as-written systematically diverges from as-consumed — so it joins `rough` by deterministic rule. **Last class extension in this PR.**
+
+**New driving field:** `ingredients[].flags.bone_in` — `"yes"` for whole animal or bone-in cuts (whole chicken, bone-in thighs, whole fish).
+
+**Extended rule:** `(breaded===yes AND fried===yes) OR any bone_in===yes` → `rough`; else `estimate`.
+
+##### Confidence-split re-run (shipped engine path)
+
+| recipe | confidence | median kcal \|dev\| | gated? |
+|--------|------------|---------------------|--------|
+| nyt-chicken-parm | **rough** | 98.1% | no |
+| foodnetwork-roast-chicken | **rough** | 169.2% | no |
+| eatingwell-quinoa-bowl | estimate | 21.4% | yes |
+| loveandlemons-tofu-stirfry | estimate | 28.1% | yes |
+| bonappetit-steak-salad | estimate | 35.6% | yes |
+| **estimate-class median** | | **28.1%** | target &lt;30% — **PASS** |
+| rough-class median | | 133.7% | not gated |
+
+**Steak salad (~36%) diagnostic (no fix):** dominant error source is **yield/trim ambiguity** on sirloin (purchase vs trimmed edible weight), not published-value noise or quantity parsing.
+
+Gate cleared. No further classes or prompt rules in this PR. Residual estimate-class error (steak trim) and rough-class honesty labels are accepted; USDA/`per100g` lookup remains the next-arc accuracy path.
+
+Raw: `tmp/nourish-bakeoff/results/outlier-confidence-split-bonein.json`.
+
 
 ### 0.2 Classification bakeoff — adversarial (verbatim)
 

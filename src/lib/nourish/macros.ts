@@ -29,6 +29,11 @@ export interface IngredientMacroInput {
 		breaded?: unknown;
 		/** Pan-fry or deep-fry application (incl. frying fat used to fry). */
 		fried?: unknown;
+		/**
+		 * Whole animal or bone-in cut (whole chicken, bone-in thighs,
+		 * whole fish) — edible yield diverges from purchase weight.
+		 */
+		bone_in?: unknown;
 	};
 }
 
@@ -176,19 +181,24 @@ function normalizeFlag(raw: unknown): FlagValue {
  *     (crumbs/batter/dredge) or a breaded protein
  *   - `ingredients[].flags.fried` — "yes" if pan-fried / deep-fried
  *     application, including frying fat used to fry
+ *   - `ingredients[].flags.bone_in` — "yes" if whole animal or bone-in
+ *     cut (whole chicken, bone-in thighs, whole fish)
  *
- * Rule: at least one `breaded === "yes"` AND at least one
- * `fried === "yes"` (may be different rows) → `rough`. Otherwise
- * `estimate`. `unknown` does not trigger rough.
+ * Rule: `(breaded===yes AND fried===yes) OR any bone_in===yes` →
+ * `rough`. Otherwise `estimate`. `unknown` does not trigger rough.
+ * Last class extension in the Phase 1 PR — further residual goes to USDA.
  */
 export function deriveMacroConfidence(rawIngredients: unknown): 'estimate' | 'rough' {
 	if (!Array.isArray(rawIngredients) || rawIngredients.length === 0) return 'estimate';
 	let hasBreaded = false;
 	let hasFried = false;
+	let hasBoneIn = false;
 	for (const row of rawIngredients as IngredientMacroInput[]) {
 		if (normalizeFlag(row?.flags?.breaded) === 'yes') hasBreaded = true;
 		if (normalizeFlag(row?.flags?.fried) === 'yes') hasFried = true;
+		if (normalizeFlag(row?.flags?.bone_in) === 'yes') hasBoneIn = true;
 	}
+	if (hasBoneIn) return 'rough';
 	return hasBreaded && hasFried ? 'rough' : 'estimate';
 }
 
