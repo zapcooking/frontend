@@ -1,16 +1,20 @@
 /**
  * Nourish Discovery — fetch and rank analyzed recipes by Nourish dimensions.
  *
- * Queries the pantry relay for all Nourish analysis events (kind 30078),
+ * Queries the pantry relay for Nourish analysis events (kind 30078),
  * resolves the linked recipe events, and returns them sorted by the
  * selected dimension score.
+ *
+ * Phase 3b: when label filters are active, issues a `#l`-filtered REQ
+ * (most selective label first) and intersects remaining labels client-side.
+ * No-filter path preserves the original fetch-all ranked behavior.
  */
 
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { NDKRelaySet } from '@nostr-dev-kit/ndk';
-import { NOURISH_SERVICE_PUBKEY } from './types';
-import type { NourishScores } from './types';
+import { NOURISH_SERVICE_PUBKEY, NOURISH_LABEL_NAMESPACE } from './types';
+import type { NourishLabel, NourishScores } from './types';
 import { parseNourishEvent, type NourishRelayResult } from './nourishRelay';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
@@ -27,6 +31,151 @@ export interface NourishRankedRecipe {
   recipeDTag: string;
 }
 
+/** Result of a discovery fetch, including empty-filter degrade metadata. */
+export interface NourishDiscoveryResult {
+  recipes: NourishRankedRecipe[];
+  /**
+   * True when active filters matched zero labeled analyses and we fell
+   * back to the unfiltered ranked list. UI should show the
+   * "more recipes being analyzed" line — never a bare empty state for
+   * a filter miss.
+   */
+  degraded: boolean;
+}
+
+// ─── Filter chips (v1 discovery surface) ─────────────────────
+
+export interface NourishFilterChip {
+  id: string;
+  /** User-facing chip copy. */
+  label: string;
+  /** NIP-32 `l` tag value on the 30078 event. */
+  nourishLabel: NourishLabel;
+}
+
+/**
+ * Tappable filter chips on Nourish Explore. Chips compose with AND.
+ * Quantity chips (`protein:*`, `kcal:*`, `carbs:*`) never match
+ * `confidence: "rough"` recipes — those carry no threshold labels by
+ * design. Flag chips still include them when classified.
+ */
+export const NOURISH_FILTER_CHIPS: readonly NourishFilterChip[] = [
+  { id: 'high-protein', label: 'High protein (30g+)', nourishLabel: 'protein:30plus' },
+  { id: 'under-600', label: 'Under 600 kcal', nourishLabel: 'kcal:under600' },
+  { id: 'low-carb', label: 'Low carb (under 40g)', nourishLabel: 'carbs:under40' },
+  { id: 'no-seed-oils', label: 'No seed oils', nourishLabel: 'seedoil:free' },
+  { id: 'no-added-sugar', label: 'No added sugar', nourishLabel: 'addedsugar:free' },
+  { id: 'no-red-meat', label: 'No red meat', nourishLabel: 'redmeat:free' }
+];
+
+/**
+ * Static selectivity order from the Phase 2 backfill census (2026-07-10).
+ * Lower index = more selective (fewer matching recipes). Used to pick the
+ * primary `#l` REQ for AND-composition (NIP-01 `#l` arrays are OR).
+ *
+ * Census snapshot (ascending): protein:40plus 12, kcal:under400 13,
+ * protein:30plus 14, carbs:under20 16, protein:20plus 19, carbs:under40 23,
+ * kcal:under600 25, addedsugar:free 27, kcal:under800 31, redmeat:free 32,
+ * seedoil:free 41.
+ *
+ * THIS ORDERING IS STATIC — revisit if the corpus grows ~10×; live counts
+ * or a relay-side AND escape hatch would then be worth it.
+ */
+export const LABEL_SELECTIVITY_ASC: readonly NourishLabel[] = [
+  'protein:40plus',
+  'kcal:under400',
+  'protein:30plus',
+  'carbs:under20',
+  'protein:20plus',
+  'carbs:under40',
+  'kcal:under600',
+  'addedsugar:free',
+  'kcal:under800',
+  'redmeat:free',
+  'seedoil:free'
+];
+
+/**
+ * Pick the most selective label for the primary `#l` REQ.
+ * Unknown labels (not in the census table) sort as least selective.
+ */
+export function pickMostSelectiveLabel(labels: readonly NourishLabel[]): NourishLabel {
+  if (labels.length === 0) {
+    throw new Error('pickMostSelectiveLabel requires at least one label');
+  }
+  let best = labels[0];
+  let bestRank = selectivityRank(best);
+  for (let i = 1; i < labels.length; i++) {
+    const rank = selectivityRank(labels[i]);
+    if (rank < bestRank) {
+      best = labels[i];
+      bestRank = rank;
+    }
+  }
+  return best;
+}
+
+function selectivityRank(label: NourishLabel): number {
+  const idx = LABEL_SELECTIVITY_ASC.indexOf(label);
+  return idx < 0 ? Number.POSITIVE_INFINITY : idx;
+}
+
+/** Map active chip ids → NourishLabel values (deduped, stable chip order). */
+export function labelsFromChipIds(chipIds: readonly string[]): NourishLabel[] {
+  const wanted = new Set(chipIds);
+  const out: NourishLabel[] = [];
+  for (const chip of NOURISH_FILTER_CHIPS) {
+    if (wanted.has(chip.id)) out.push(chip.nourishLabel);
+  }
+  return out;
+}
+
+/**
+ * Whether an event carries every required `l` label (NIP-32 self-label).
+ * When a namespace is present on the tag, it must match
+ * `cooking.zap.nourish`; two-element tags are accepted (relay `#l` match).
+ */
+export function eventHasAllLabels(
+  tags: readonly string[][],
+  required: readonly NourishLabel[]
+): boolean {
+  if (required.length === 0) return true;
+  const present = new Set<string>();
+  for (const t of tags) {
+    if (t[0] !== 'l' || !t[1]) continue;
+    if (t[2] !== undefined && t[2] !== NOURISH_LABEL_NAMESPACE) continue;
+    present.add(t[1]);
+  }
+  return required.every((label) => present.has(label));
+}
+
+/**
+ * Intersect a fetched event set against additional labels (client-side AND).
+ * Primary label was already applied via `#l` REQ.
+ */
+export function intersectEventsByLabels(
+  events: Iterable<NDKEvent>,
+  remainingLabels: readonly NourishLabel[]
+): NDKEvent[] {
+  if (remainingLabels.length === 0) return [...events];
+  const out: NDKEvent[] = [];
+  for (const event of events) {
+    if (eventHasAllLabels(event.tags, remainingLabels)) out.push(event);
+  }
+  return out;
+}
+
+/**
+ * Empty-set degrade: filtered queries that match nothing fall back to the
+ * ranked unfiltered view. Legitimate thin intersections (n=2–3 on a
+ * ~52-recipe corpus) are shown as-is — the plan's example threshold of 5
+ * was aimed at the backfill gap; with a populated index, only empty misses
+ * should swap the result set.
+ */
+export function shouldDegradeFilteredResults(filteredCount: number): boolean {
+  return filteredCount === 0;
+}
+
 /**
  * Get the score value for a given dimension.
  */
@@ -39,31 +188,45 @@ export function getDimensionScore(nourish: NourishRelayResult, dim: SortDimensio
   }
 }
 
+type AnalysisRow = {
+  parsed: NourishRelayResult;
+  recipePubkey: string;
+  recipeDTag: string;
+};
+
 /**
- * Fetch all analyzed recipes from the pantry relay and rank by dimension.
- *
- * Strategy:
- * 1. Fetch all kind 30078 events from the service account (Nourish analyses)
- * 2. Extract recipe coordinates from the `a` tag
- * 3. Batch-fetch the linked recipe events
- * 4. Sort by the selected dimension score (descending)
+ * Build the Nourish 30078 REQ. When `label` is set, adds `#l` for relay-side
+ * filtering; otherwise fetch-all (today's ranked Explore path).
  */
-export async function fetchNourishRankedRecipes(
-  ndk: NDK,
-  sortBy: SortDimension = 'overall',
-  limit: number = 50
-): Promise<NourishRankedRecipe[]> {
-  // Step 1: Fetch all Nourish analysis events
-  // Try pantry relay first, fall back to all connected relays
-  const filter = {
-    kinds: [30078 as number],
+export function buildNourishAnalysisFilter(label?: NourishLabel): {
+  kinds: number[];
+  authors: string[];
+  limit: number;
+  '#l'?: string[];
+} {
+  const filter: {
+    kinds: number[];
+    authors: string[];
+    limit: number;
+    '#l'?: string[];
+  } = {
+    kinds: [30078],
     authors: [NOURISH_SERVICE_PUBKEY],
     limit: 200
   };
+  if (label) {
+    filter['#l'] = [label];
+  }
+  return filter;
+}
 
+async function fetchNourishEvents(
+  ndk: NDK,
+  label?: NourishLabel
+): Promise<Set<NDKEvent>> {
+  const filter = buildNourishAnalysisFilter(label);
   let nourishEvents = new Set<NDKEvent>();
 
-  // Try pantry relay first
   const relaySet = NDKRelaySet.fromRelayUrls([PANTRY_RELAY], ndk, true);
   const fetchPromise = ndk.fetchEvents(filter, undefined, relaySet);
   const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
@@ -71,7 +234,6 @@ export async function fetchNourishRankedRecipes(
   );
   nourishEvents = await Promise.race([fetchPromise, timeoutPromise]);
 
-  // If pantry returned nothing, try all connected relays
   if (nourishEvents.size === 0) {
     console.log('[Nourish Explore] No events on pantry, trying all relays...');
     const broadFetch = ndk.fetchEvents(filter);
@@ -81,30 +243,26 @@ export async function fetchNourishRankedRecipes(
     nourishEvents = await Promise.race([broadFetch, broadTimeout]);
   }
 
-  console.log(`[Nourish Explore] Found ${nourishEvents.size} Nourish events`);
+  return nourishEvents;
+}
 
-  if (nourishEvents.size === 0) return [];
-
-  // Step 2: Parse events and extract recipe coordinates
-  const analyses: { parsed: NourishRelayResult; recipePubkey: string; recipeDTag: string }[] = [];
+function parseAnalyses(nourishEvents: Iterable<NDKEvent>): AnalysisRow[] {
+  const analyses: AnalysisRow[] = [];
 
   for (const event of nourishEvents) {
-    // Only process nourish: d-tagged events
     const dTag = event.tags.find((t) => t[0] === 'd')?.[1] || '';
     if (!dTag.startsWith('nourish:')) continue;
 
     const parsed = parseNourishEvent(event);
     if (!parsed) continue;
 
-    // Extract recipe coordinates from the a-tag
     const aTag = event.tags.find((t) => t[0] === 'a')?.[1] || '';
     const parts = aTag.split(':');
     if (parts.length < 3 || parts[0] !== '30023') continue;
 
     const recipePubkey = parts[1];
-    const recipeDTag = parts.slice(2).join(':'); // d-tag may contain colons
+    const recipeDTag = parts.slice(2).join(':');
 
-    // Deduplicate by recipe coordinate — keep the newest analysis
     const key = `${recipePubkey}:${recipeDTag}`;
     const existing = analyses.find((a) => `${a.recipePubkey}:${a.recipeDTag}` === key);
     if (existing) {
@@ -117,9 +275,22 @@ export async function fetchNourishRankedRecipes(
     }
   }
 
+  return analyses;
+}
+
+/**
+ * Sort analyses, take top N, batch-fetch linked 30023 recipes.
+ * Batching is driven only by the input analysis set — never assumes a
+ * full-corpus fetch (filtered discovery shrinks the `#d` / authors lists).
+ */
+async function resolveRecipesFromAnalyses(
+  ndk: NDK,
+  analyses: AnalysisRow[],
+  sortBy: SortDimension,
+  limit: number
+): Promise<NourishRankedRecipe[]> {
   if (analyses.length === 0) return [];
 
-  // Step 3: Sort by dimension score (descending), then by created_at as tiebreaker
   analyses.sort((a, b) => {
     const scoreA = getDimensionScore(a.parsed, sortBy);
     const scoreB = getDimensionScore(b.parsed, sortBy);
@@ -127,10 +298,9 @@ export async function fetchNourishRankedRecipes(
     return b.parsed.createdAt - a.parsed.createdAt;
   });
 
-  // Take top N
   const topAnalyses = analyses.slice(0, limit);
 
-  // Step 4: Batch-fetch only the specific recipe events we need
+  // Batch only the recipes we need from this (possibly filtered) set.
   const uniqueDTags = [...new Set(topAnalyses.map((a) => a.recipeDTag))];
   const recipeFilter = {
     kinds: [30023 as number],
@@ -138,32 +308,28 @@ export async function fetchNourishRankedRecipes(
     '#d': uniqueDTags
   };
 
-  let recipeEvents: Set<NDKEvent>;
   const recipeFetch = ndk.fetchEvents(recipeFilter);
   const recipeTimeout = new Promise<Set<NDKEvent>>((resolve) =>
     setTimeout(() => resolve(new Set()), FETCH_TIMEOUT_MS)
   );
-  recipeEvents = await Promise.race([recipeFetch, recipeTimeout]);
+  const recipeEvents = await Promise.race([recipeFetch, recipeTimeout]);
 
-  // Index recipes by coordinate
   const recipeMap = new Map<string, NDKEvent>();
   for (const recipe of recipeEvents) {
     const d = recipe.tags.find((t) => t[0] === 'd')?.[1] || '';
     const key = `${recipe.pubkey}:${d}`;
-    // Keep the most recent version if duplicates
     const existing = recipeMap.get(key);
     if (!existing || (recipe.created_at || 0) > (existing.created_at || 0)) {
       recipeMap.set(key, recipe);
     }
   }
 
-  // Step 5: Merge and return
   const results: NourishRankedRecipe[] = [];
 
   for (const analysis of topAnalyses) {
     const key = `${analysis.recipePubkey}:${analysis.recipeDTag}`;
     const recipe = recipeMap.get(key);
-    if (!recipe) continue; // Recipe not found or deleted
+    if (!recipe) continue;
 
     const title = recipe.tags.find((t) => t[0] === 'title')?.[1]
       || recipe.tags.find((t) => t[0] === 'd')?.[1]
@@ -181,6 +347,61 @@ export async function fetchNourishRankedRecipes(
   }
 
   return results;
+}
+
+/**
+ * Fetch analyzed recipes from the pantry relay and rank by dimension.
+ *
+ * Strategy:
+ * 1. No filters — fetch all kind 30078s from the service account (unchanged).
+ * 2. One label — REQ with `#l: [thatLabel]`.
+ * 3. Multiple labels (AND) — REQ on the most selective label, intersect
+ *    remaining labels client-side on each event's `l` tags.
+ * 4. Extract recipe coordinates from the `a` tag; batch-fetch 30023s.
+ * 5. Empty filtered set — fall back to unfiltered ranked + `degraded: true`.
+ */
+export async function fetchNourishRankedRecipes(
+  ndk: NDK,
+  sortBy: SortDimension = 'overall',
+  limit: number = 50,
+  filters: readonly NourishLabel[] = []
+): Promise<NourishDiscoveryResult> {
+  const uniqueFilters = [...new Set(filters)];
+
+  if (uniqueFilters.length === 0) {
+    const nourishEvents = await fetchNourishEvents(ndk);
+    console.log(`[Nourish Explore] Found ${nourishEvents.size} Nourish events`);
+    const analyses = parseAnalyses(nourishEvents);
+    const recipes = await resolveRecipesFromAnalyses(ndk, analyses, sortBy, limit);
+    return { recipes, degraded: false };
+  }
+
+  const primary = pickMostSelectiveLabel(uniqueFilters);
+  const remaining = uniqueFilters.filter((l) => l !== primary);
+
+  let nourishEvents = await fetchNourishEvents(ndk, primary);
+  console.log(
+    `[Nourish Explore] Found ${nourishEvents.size} Nourish events for #l=${primary}` +
+      (remaining.length ? ` (intersect ${remaining.join(',')})` : '')
+  );
+
+  const filteredList =
+    remaining.length > 0
+      ? intersectEventsByLabels(nourishEvents, remaining)
+      : [...nourishEvents];
+
+  const analyses = parseAnalyses(filteredList);
+
+  if (shouldDegradeFilteredResults(analyses.length)) {
+    console.log('[Nourish Explore] Filtered set empty — degrading to ranked view');
+    const allEvents = await fetchNourishEvents(ndk);
+    const allAnalyses = parseAnalyses(allEvents);
+    const recipes = await resolveRecipesFromAnalyses(ndk, allAnalyses, sortBy, limit);
+    return { recipes, degraded: true };
+  }
+
+  const recipes = await resolveRecipesFromAnalyses(ndk, analyses, sortBy, limit);
+  return { recipes, degraded: false };
 }
 
 // ─── Admin: model-upgrade candidates ────────────────────────
