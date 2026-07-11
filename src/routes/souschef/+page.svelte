@@ -11,6 +11,7 @@
   import { recipeTags, RECIPE_TAG_PREFIX_NEW, type recipeTagSimple } from '$lib/consts';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { addClientTagToEvent } from '$lib/nip89';
+  import { publishQueue } from '$lib/publishQueue';
   import { nip19 } from 'nostr-tools';
   import {
     ANON_IMPORT_HANDOFF_KEY,
@@ -71,6 +72,7 @@
   // Publishing state
   let isPublishing = false;
   let publishError = '';
+  let publishInfo = '';
 
   // Extraction state
   let isExtracting = false;
@@ -514,6 +516,7 @@
 
     isPublishing = true;
     publishError = '';
+    publishInfo = '';
 
     try {
       // Format ingredients/directions into markdown strings
@@ -571,22 +574,35 @@
 
       addClientTagToEvent(event);
 
-      // Publish with timeout
-      let publishTimeoutId: ReturnType<typeof setTimeout> | undefined;
-      const publishTimeout: Promise<never> = new Promise((_, reject) => {
-        publishTimeoutId = setTimeout(
-          () => reject(new Error('Publish timed out after 15 seconds')),
-          15000
-        );
-      });
-      await Promise.race([event.publish(), publishTimeout]);
-      if (publishTimeoutId !== undefined) {
-        clearTimeout(publishTimeoutId);
+      // Publish via publishQueue (same path as /create).
+      //
+      // Deliberate behavior change vs bare event.publish(): NDK's outbox
+      // model routes writes to the author's NIP-65 write relays. The queue
+      // fans out to the pool (+ pantry for kind 30023) and persists an
+      // IndexedDB retry if relays flake — more reliable for imports.
+      const publishResult = await publishQueue.publishWithRetry(event, 'all');
+      if (!publishResult.success && !publishResult.queued) {
+        throw new Error(publishResult.error || 'Publish failed');
+      }
+
+      // Queued for retry — surface honestly and stay put. The recipe may
+      // not be fetchable yet (same honesty as /create's queued message;
+      // we skip redirect so /recipe/<naddr> doesn't 404).
+      if (publishResult.queued) {
+        publishInfo =
+          'Publish queued. Your recipe will be published as soon as relays are reachable.';
+        isPublishing = false;
+        return;
+      }
+
+      const recipePubkey = event.pubkey || $userPublickey;
+      if (!recipePubkey) {
+        throw new Error('Unable to determine author pubkey for recipe address');
       }
 
       const naddr = nip19.naddrEncode({
         identifier: title.toLowerCase().replaceAll(' ', '-'),
-        pubkey: event.pubkey,
+        pubkey: recipePubkey,
         kind: 30023
       });
 
@@ -895,6 +911,13 @@
             <div class="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
               <WarningIcon size={20} class="text-red-500 flex-shrink-0 mt-0.5" />
               <p class="text-sm text-red-500">{publishError}</p>
+            </div>
+          {/if}
+
+          {#if publishInfo}
+            <div class="flex items-start gap-3 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
+              <CheckCircleIcon size={20} class="text-green-500 flex-shrink-0 mt-0.5" />
+              <p class="text-sm text-green-600 dark:text-green-400">{publishInfo}</p>
             </div>
           {/if}
 

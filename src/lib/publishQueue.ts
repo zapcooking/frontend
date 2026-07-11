@@ -31,7 +31,19 @@ const STALE_ITEM_AGE = 30 * 60 * 1000; // 30 minutes - auto-cleanup stale items
 // NIP-65 inbox routing — shared helper handles the kind:10002 lookup
 // + capping. See $lib/nip65Routing for the algorithm details.
 import { unionInboxRelayUrls } from '$lib/nip65Routing';
+import { normalizeRelayUrl } from '$lib/relayListCache';
 import { PANTRY_RELAY_URL } from '$lib/nostr';
+
+/**
+ * Kinds mirrored to pantry.zap.cooking on every `'all'`-mode publish.
+ *
+ * Only kind 30023: pantry's write policy exempts KindRecipe (30023) from
+ * NIP-42 auth, so unauthed publishes land. Kind 35000 (gated/premium)
+ * falls through to auth + membership gates and would be silently rejected
+ * for most users — follow-up once authed 35000 writes + client auth during
+ * publish are confirmed. Dashboard recipe count is 30023-only anyway.
+ */
+const PANTRY_MIRROR_KINDS = new Set([30023]);
 
 /**
  * Represents a pending publish operation
@@ -472,6 +484,8 @@ class PublishQueueManager {
    *
    * Relay set construction:
    *   1. Base URLs from `relayMode` (pantry / all)
+   *   1b. For kind:30023 on `'all'` mode, union pantry.zap.cooking so the
+   *       live recipe-count dashboard stays current (see PANTRY_MIRROR_KINDS)
    *   2. NIP-65 augmentation: for every non-self pubkey in the event's `p`
    *      tags, add their published *read* (inbox) relays. This is what
    *      makes replies / mentions / reactions / zaps reach the recipient.
@@ -510,7 +524,22 @@ class PublishQueueManager {
     console.log(`[PublishQueue] Event ID: ${event.id}`);
 
     // 1. Base URLs from relay mode (user's intent takes precedence).
-    const baseUrls = this.getBaseRelayUrls(relayMode, ndkInstance);
+    let baseUrls = this.getBaseRelayUrls(relayMode, ndkInstance);
+
+    // 1b. Mirror kind:30023 recipes to pantry so the live recipe-count
+    //     dashboard stays current. Pool usually omits pantry (it is not
+    //     in standardRelays). Dedup both sides via normalizeRelayUrl so
+    //     trailing-slash / casing variants don't double-add.
+    if (
+      relayMode === 'all' &&
+      event.kind != null &&
+      PANTRY_MIRROR_KINDS.has(event.kind)
+    ) {
+      const pantryKey = normalizeRelayUrl(PANTRY_RELAY_URL);
+      if (!baseUrls.some((u) => normalizeRelayUrl(u) === pantryKey)) {
+        baseUrls = [...baseUrls, PANTRY_RELAY_URL];
+      }
+    }
 
     // 2. Union with NIP-65 recipient inbox relays. Capped at the helper's
     //    MAX_PUBLISH_RELAYS so a heavily p-tagged post stays bounded.
