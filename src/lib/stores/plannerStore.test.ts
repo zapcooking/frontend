@@ -210,3 +210,43 @@ describe('deleteWeek', () => {
     expect(saveMealPlan).not.toHaveBeenCalled();
   });
 });
+
+describe('dirty-week protection', () => {
+  it('refresh never clobbers a week with a pending debounced save', async () => {
+    await plannerStore.goToWeek(W29);
+    plannerStore.setSlot(W29, 'mon', 'dinner', { type: 'text', text: 'Tacos' });
+
+    // Relay knows nothing about W29 yet — a refetch would return absent
+    fetchMealPlans.mockResolvedValue(new Map());
+    await plannerStore.refresh();
+
+    // refresh() flushed the pending save first (edit published, not lost)...
+    expect(saveMealPlan).toHaveBeenCalledTimes(1);
+    expect(saveMealPlan.mock.calls[0][0].days.mon.slots.dinner).toEqual({
+      type: 'text',
+      text: 'Tacos'
+    });
+
+    // ...and the local edit survives the force-refetch either way
+    const weekState = get(plannerStore).weeks[W29];
+    expect(weekState.status).toBe('ok');
+
+    // No stale timer fires a second, reverted save afterwards
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(saveMealPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('navigation prefetch skips weeks with pending saves', async () => {
+    await plannerStore.goToWeek(W29);
+    plannerStore.setSlot(W30, 'mon', 'dinner', { type: 'text', text: 'Soup' });
+    fetchMealPlans.mockClear();
+
+    // W30 has a pending save; navigating must not refetch/clobber it
+    await plannerStore.nextWeek(); // -> W30 visible, W31 the only fetch target
+    expect(fetchMealPlans).toHaveBeenCalledTimes(1);
+    expect(fetchMealPlans.mock.calls[0][0]).toEqual([W31]);
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(saveMealPlan.mock.calls[0][0].days.mon.slots.dinner.text).toBe('Soup');
+  });
+});
