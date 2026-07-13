@@ -82,7 +82,7 @@ Goal: grocery everywhere, fed by recipes.
 
 ## Phase 3 — Meal Planner (new feature, new data model)
 
-**Status: Not started**
+**Status: In progress**
 
 Goal: a week grid of planned meals referencing saved/published recipes; generates the grocery list.
 
