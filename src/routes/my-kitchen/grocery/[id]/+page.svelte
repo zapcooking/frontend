@@ -18,11 +18,11 @@
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotch';
-  import PanLoader from '../../../components/PanLoader.svelte';
-  import Modal from '../../../components/Modal.svelte';
-  import Button from '../../../components/Button.svelte';
-  import SortableGroceryCategory from '../../../components/grocery/SortableGroceryCategory.svelte';
-  import AddItemForm from '../../../components/grocery/AddItemForm.svelte';
+  import PanLoader from '../../../../components/PanLoader.svelte';
+  import Modal from '../../../../components/Modal.svelte';
+  import Button from '../../../../components/Button.svelte';
+  import SortableGroceryCategory from '../../../../components/grocery/SortableGroceryCategory.svelte';
+  import AddItemForm from '../../../../components/grocery/AddItemForm.svelte';
 
   // Get list ID from URL params
   $: listId = $page.params.id as string;
@@ -109,7 +109,7 @@
     try {
       const success = await groceryStore.deleteList(listId);
       if (success) {
-        goto('/grocery');
+        goto('/my-kitchen/grocery');
       }
     } catch (error) {
       console.error('Failed to delete list:', error);
@@ -162,7 +162,7 @@
       <!-- Back link and actions -->
       <div class="flex items-center justify-between">
         <a 
-          href="/grocery" 
+          href="/my-kitchen/grocery" 
           class="flex items-center gap-2 text-sm font-medium transition-colors hover:opacity-80"
           style="color: var(--color-text-secondary)"
         >
