@@ -51,7 +51,7 @@ Goal: both platforms present the same thing under the same name before adding an
 
 ## Phase 1 — Hub Shell & IA
 
-**Status: In progress**
+**Status: Shipped (web)**
 
 Goal: a hub landing surface with room for the future sections, without building them yet.
 

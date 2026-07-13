@@ -12,7 +12,6 @@
   import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
   import TimerIcon from 'phosphor-svelte/lib/Timer';
   import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
-  import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
@@ -316,16 +315,6 @@
             >
               <CookbookIcon size={22} />
               <span class="font-medium">My Kitchen</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/my-kitchen/grocery')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <ShoppingCartIcon size={22} />
-              <span class="font-medium">Grocery Lists</span>
             </button>
           </li>
           <li>

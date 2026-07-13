@@ -14,7 +14,6 @@
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
-  import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
@@ -50,7 +49,6 @@
 
   const kitchenItems: NavItem[] = [
     { href: '/my-kitchen', label: 'My Kitchen', icon: CookbookIcon, match: (p) => p.startsWith('/my-kitchen') },
-    { href: '/my-kitchen/grocery', label: 'Grocery Lists', icon: ShoppingCartIcon, match: (p) => p.startsWith('/my-kitchen/grocery') },
     { href: '/wallet', label: 'Wallet', icon: WalletIcon, match: () => $walletModalOpen, badge: 'wallet' },
     { href: '/nourish', label: 'Nourish', icon: LeafIcon, match: (p) => p.startsWith('/nourish') },
     { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },

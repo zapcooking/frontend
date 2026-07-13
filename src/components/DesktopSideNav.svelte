@@ -14,7 +14,6 @@
 
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
-  import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
@@ -101,12 +100,6 @@
       label: 'My Kitchen',
       icon: CookbookIcon,
       match: (p) => p.startsWith('/my-kitchen')
-    },
-    {
-      href: '/my-kitchen/grocery',
-      label: 'Grocery Lists',
-      icon: ShoppingCartIcon,
-      match: (p) => p.startsWith('/my-kitchen/grocery')
     },
     {
       href: '/wallet',
