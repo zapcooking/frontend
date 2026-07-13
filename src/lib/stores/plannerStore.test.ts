@@ -126,7 +126,7 @@ describe('debounced saves', () => {
 
     await vi.advanceTimersByTimeAsync(2000);
     expect(saveMealPlan).toHaveBeenCalledTimes(2);
-    const weeks = saveMealPlan.mock.calls.map((c) => c[0].week);
+    const weeks = saveMealPlan.mock.calls.map((c: unknown[]) => (c[0] as { week: string }).week);
     expect(new Set(weeks)).toEqual(new Set([W29, W30]));
   });
 });
