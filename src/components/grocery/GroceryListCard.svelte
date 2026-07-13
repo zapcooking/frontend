@@ -19,7 +19,7 @@
 </script>
 
 <a
-  href="/grocery/{list.id}"
+  href="/my-kitchen/grocery/{list.id}"
   class="group block p-4 rounded-2xl transition-all duration-200 hover:scale-[1.02] hover:shadow-lg"
   style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
 >

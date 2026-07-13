@@ -11,9 +11,9 @@
   } from '$lib/stores/groceryStore';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
-  import PanLoader from '../../components/PanLoader.svelte';
-  import GroceryListCard from '../../components/grocery/GroceryListCard.svelte';
-  import PullToRefresh from '../../components/PullToRefresh.svelte';
+  import PanLoader from '../../../components/PanLoader.svelte';
+  import GroceryListCard from '../../../components/grocery/GroceryListCard.svelte';
+  import PullToRefresh from '../../../components/PullToRefresh.svelte';
 
   // Pull-to-refresh ref
   let pullToRefreshEl: PullToRefresh;
@@ -52,7 +52,7 @@
     try {
       const newList = await groceryStore.addList('Shopping List');
       // Navigate to the new list
-      goto(`/grocery/${newList.id}`);
+      goto(`/my-kitchen/grocery/${newList.id}`);
     } catch (error) {
       console.error('Failed to create list:', error);
     } finally {

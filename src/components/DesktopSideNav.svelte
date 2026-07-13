@@ -103,10 +103,10 @@
       match: (p) => p.startsWith('/my-kitchen')
     },
     {
-      href: '/grocery',
+      href: '/my-kitchen/grocery',
       label: 'Grocery Lists',
       icon: ShoppingCartIcon,
-      match: (p) => p.startsWith('/grocery')
+      match: (p) => p.startsWith('/my-kitchen/grocery')
     },
     {
       href: '/wallet',

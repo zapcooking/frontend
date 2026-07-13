@@ -7,6 +7,7 @@
    */
   import SectionNav from '../../components/SectionNav.svelte';
   import BookOpenIcon from 'phosphor-svelte/lib/BookOpen';
+  import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import CalendarBlankIcon from 'phosphor-svelte/lib/CalendarBlank';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
 
@@ -15,9 +16,16 @@
       href: '/my-kitchen',
       label: 'Recipes',
       icon: BookOpenIcon,
-      // Exact match: child routes (planner, nourish, grocery in PR5)
-      // must not false-highlight the index section.
+      // Exact match: child routes (grocery, planner, nourish) must not
+      // false-highlight the index section.
       match: (p: string) => p === '/my-kitchen'
+    },
+    {
+      href: '/my-kitchen/grocery',
+      label: 'Grocery',
+      icon: ShoppingCartIcon,
+      // startsWith so the /my-kitchen/grocery/[id] detail keeps the tab active
+      match: (p: string) => p.startsWith('/my-kitchen/grocery')
     },
     {
       href: '/my-kitchen/planner',
