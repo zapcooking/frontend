@@ -43,17 +43,16 @@ const MAX_RECIPES = 500;
 const SUBSCRIPTION_TIMEOUT_MS = 10_000;
 
 /**
- * Fetch every recipe authored by `pubkey` and return them in a shape
- * suitable for the share-pack flow. Resolves with an empty array if
- * the user hasn't authored any recipes (the caller surfaces an empty
- * state rather than treating this as an error).
+ * Fetch every recipe authored by `pubkey` as full NDKEvents, validated
+ * and deduped by addressable coordinate, sorted newest-first. Resolves
+ * with an empty array if the user hasn't authored any recipes.
  *
- * Implementation mirrors the user-profile recipes-tab pattern in
- * `routes/user/[slug]/+page.svelte`: subscribe with the standard
- * RECIPE_TAGS filter, validate content via `parseMarkdownForEditing`'s
- * looser sibling, dedupe by a-tag, sort newest-first.
+ * This is the single implementation of the authored-recipes query —
+ * the same filter Android's Published sub-tab uses. The share-pack
+ * flow consumes it via `fetchMyAuthoredRecipes` below; the My Kitchen
+ * Published tab consumes the events directly for card rendering.
  */
-export async function fetchMyAuthoredRecipes(ndk: NDK, pubkey: string): Promise<MyRecipeForPack[]> {
+export async function fetchMyAuthoredRecipeEvents(ndk: NDK, pubkey: string): Promise<NDKEvent[]> {
   if (!ndk) throw new Error('NDK not initialized');
   if (!pubkey) throw new Error('Pubkey required');
 
@@ -68,7 +67,7 @@ export async function fetchMyAuthoredRecipes(ndk: NDK, pubkey: string): Promise<
   // created_at) keeps only the latest version. NDK delivers events as
   // they arrive — when two come in for the same address we keep
   // whichever has the higher created_at.
-  const byATag = new Map<string, MyRecipeForPack>();
+  const byATag = new Map<string, NDKEvent>();
 
   await new Promise<void>((resolve) => {
     const subscription = ndk.subscribe(filter, { closeOnEose: true });
@@ -86,23 +85,19 @@ export async function fetchMyAuthoredRecipes(ndk: NDK, pubkey: string): Promise<
       // validateMarkdownTemplate returns MarkdownTemplate | string —
       // it never returns null. A string return is an error message
       // describing what's wrong with the markdown. Filter on that
-      // shape so malformed events stay out of the pack. (The wider
-      // codebase uses an `!= null` check that's always true; we
-      // don't fix it here to keep this PR scoped, but we use the
-      // correct check for new code.)
+      // shape so malformed events stay out. (The wider codebase uses
+      // an `!= null` check that's always true; we don't fix it here
+      // to keep this scoped, but we use the correct check for new
+      // code.)
       const validation = validateMarkdownTemplate(event.content);
       if (typeof validation === 'string') return;
       const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
       if (!dTag) return;
       const aTag = `${RECIPE_KIND}:${pubkey}:${dTag}`;
       const existing = byATag.get(aTag);
-      const createdAt = event.created_at || 0;
-      if (existing && existing.createdAt >= createdAt) return;
+      if (existing && (existing.created_at || 0) >= (event.created_at || 0)) return;
 
-      const title = event.tags.find((t) => t[0] === 'title')?.[1]?.trim() || dTag;
-      const image = event.tags.find((t) => t[0] === 'image')?.[1] || undefined;
-
-      byATag.set(aTag, { aTag, title, image, createdAt });
+      byATag.set(aTag, event);
     });
 
     subscription.on('eose', () => {
@@ -116,5 +111,27 @@ export async function fetchMyAuthoredRecipes(ndk: NDK, pubkey: string): Promise<
     });
   });
 
-  return Array.from(byATag.values()).sort((a, b) => b.createdAt - a.createdAt);
+  return Array.from(byATag.values()).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+}
+
+/**
+ * Fetch every recipe authored by `pubkey` and return them in a shape
+ * suitable for the share-pack flow. Resolves with an empty array if
+ * the user hasn't authored any recipes (the caller surfaces an empty
+ * state rather than treating this as an error).
+ *
+ * Thin projection over `fetchMyAuthoredRecipeEvents` — just what the
+ * modal preview + publish path need.
+ */
+export async function fetchMyAuthoredRecipes(ndk: NDK, pubkey: string): Promise<MyRecipeForPack[]> {
+  const events = await fetchMyAuthoredRecipeEvents(ndk, pubkey);
+  return events.map((event) => {
+    const dTag = event.tags.find((t) => t[0] === 'd')?.[1] || '';
+    return {
+      aTag: `${RECIPE_KIND}:${pubkey}:${dTag}`,
+      title: event.tags.find((t) => t[0] === 'title')?.[1]?.trim() || dTag,
+      image: event.tags.find((t) => t[0] === 'image')?.[1] || undefined,
+      createdAt: event.created_at || 0
+    };
+  });
 }
