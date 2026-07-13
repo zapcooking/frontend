@@ -46,9 +46,12 @@
   import { writable, type Writable, get } from 'svelte/store';
   import { clickOutside } from '$lib/clickOutside';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
+  import ShareMyRecipesAction from '../../components/ShareMyRecipesAction.svelte';
+  import { fetchMyAuthoredRecipeEvents } from '$lib/myRecipesPack';
+  import { validateMarkdownTemplate } from '$lib/parser';
 
   // ===== View / sort / filter state (synced with URL query params) =====
-  type ViewMode = 'packs' | 'feed';
+  type ViewMode = 'packs' | 'feed' | 'published';
   type SortMode = 'recent-added' | 'recent-updated' | 'az';
 
   let viewMode: ViewMode = 'packs';
@@ -118,6 +121,7 @@
     const v = params.get('view');
     let view: ViewMode = 'packs';
     if (v === 'feed') view = 'feed';
+    else if (v === 'published') view = 'published';
     else if (v === 'packs' || v === 'grid') view = 'packs'; // legacy 'grid' alias
     const s = params.get('sort');
     const sort: SortMode =
@@ -173,6 +177,7 @@
       await cookbookStore.load();
       await loadCoverImages();
       await updateCachedRecipeCount();
+      if (publishedRequested) await loadPublishedRecipes();
     } finally {
       pullToRefreshEl?.complete();
     }
@@ -832,6 +837,52 @@
     }
     return { title, summary, image, link };
   }
+
+  // ===== Published tab (author-scoped kind-30023, same filter as Android's Published sub-tab) =====
+  let publishedEvents: NDKEvent[] = [];
+  let publishedLoading = false;
+  let publishedLoaded = false;
+  // Lazy: no authored-recipes query until the tab is first opened
+  // (mirrors Android's CookbookViewModel.requestMyRecipes()).
+  let publishedRequested = false;
+
+  async function loadPublishedRecipes() {
+    if (!$userPublickey) return;
+    publishedLoading = true;
+    try {
+      if ($isOnline && $ndk) {
+        const events = await fetchMyAuthoredRecipeEvents($ndk, $userPublickey);
+        publishedEvents = events;
+        // Cache for offline reuse (same store the feed view reads from).
+        // Fire-and-forget: cache writes must not block or fail the tab.
+        for (const e of events) {
+          offlineStorage.saveRecipeFromEvent(e).catch(() => {});
+        }
+      } else {
+        // Offline fallback: whatever authored recipes are already in the
+        // recipe cache (populated by prior visits / feed browsing). Apply
+        // the same validity check as the live path.
+        const cached = await offlineStorage.getAllRecipes();
+        publishedEvents = cached
+          .filter((c: any) => c.authorPubkey === $userPublickey)
+          .map((c: any) => buildFakeEventFromCache(c))
+          .filter((e: NDKEvent) => typeof validateMarkdownTemplate(e.content) !== 'string')
+          .sort((a: NDKEvent, b: NDKEvent) => (b.created_at || 0) - (a.created_at || 0));
+      }
+    } catch (err) {
+      console.warn('[My Kitchen published] Failed to load authored recipes', err);
+    } finally {
+      publishedLoading = false;
+      publishedLoaded = true;
+    }
+  }
+
+  // First open of the tab (including ?view=published deep links, which
+  // hydrate viewMode from the URL) triggers the one-time load.
+  $: if (viewMode === 'published' && !publishedRequested && $userPublickey) {
+    publishedRequested = true;
+    loadPublishedRecipes();
+  }
 </script>
 
 <svelte:head>
@@ -1295,6 +1346,24 @@
               <span class="text-xs opacity-80">·&nbsp;{totalUniqueSaved}</span>
             {/if}
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === 'published'}
+            on:click={() => setView('published')}
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors {viewMode ===
+            'published'
+              ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm'
+              : ''}"
+            style={viewMode === 'published' ? '' : 'color: var(--color-text-secondary);'}
+            title="Recipes you've published"
+          >
+            <PencilSimpleIcon size={16} weight={viewMode === 'published' ? 'fill' : 'regular'} />
+            <span>Published</span>
+            {#if publishedLoaded && publishedEvents.length > 0}
+              <span class="text-xs opacity-80">·&nbsp;{publishedEvents.length}</span>
+            {/if}
+          </button>
         </div>
 
         <!-- Sort + Filter (feed only) -->
@@ -1402,6 +1471,11 @@
                 </div>
               {/if}
             </div>
+          </div>
+        {:else if viewMode === 'published'}
+          <!-- Published-tab companion action -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <ShareMyRecipesAction pubkey={$userPublickey} />
           </div>
         {/if}
       </div>
@@ -1526,6 +1600,83 @@
               </div>
             {/each}
           {/if}
+        </div>
+      {/if}
+    {:else if viewMode === 'published'}
+      <!-- Published view: recipes authored by the signed-in user -->
+      {#if publishedLoading && !publishedLoaded}
+        <div class="grid gap-4 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          {#each Array(3) as _}
+            <div
+              class="rounded-2xl overflow-hidden animate-pulse"
+              style="background-color: var(--color-input-bg);"
+            >
+              <div class="w-full aspect-[4/3]" style="background-color: var(--color-accent-gray);"></div>
+              <div class="p-3 sm:p-4 flex flex-col gap-2">
+                <div
+                  class="h-4 w-3/4 rounded"
+                  style="background-color: var(--color-accent-gray);"
+                ></div>
+                <div
+                  class="h-3 w-1/2 rounded"
+                  style="background-color: var(--color-accent-gray);"
+                ></div>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {:else if publishedEvents.length === 0}
+        <div class="flex flex-col items-center justify-center py-12 px-4">
+          <div
+            class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+          >
+            <PencilSimpleIcon size={32} weight="regular" class="text-orange-500" />
+          </div>
+          <h3 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
+            No published recipes yet
+          </h3>
+          <p class="text-caption text-center max-w-sm mb-4">
+            Recipes you publish on Zap.cooking will show up here.
+          </p>
+          <a
+            href="/create"
+            class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
+          >
+            <PlusIcon size={18} weight="bold" />
+            Create a Recipe
+          </a>
+        </div>
+      {:else}
+        <!-- Big-card grid, same layout as the feed view -->
+        <div class="grid gap-4 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          {#each publishedEvents as e (e.id || feedCardData(e).link)}
+            {@const card = feedCardData(e)}
+            {#if card.link}
+              <a
+                href={card.link}
+                class="group flex flex-col rounded-2xl overflow-hidden transition-transform duration-200 hover:scale-[1.01] hover:shadow-xl"
+                style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+              >
+                <div class="relative w-full aspect-[4/3] overflow-hidden feed-card-image-wrap">
+                  <div
+                    use:lazyLoad={{ url: card.image }}
+                    class="absolute inset-0 feed-card-image group-hover:scale-105 transition-transform duration-700 ease-in-out"
+                  ></div>
+                </div>
+                <div class="p-3 sm:p-4 flex flex-col gap-1">
+                  <h3
+                    class="text-base sm:text-lg font-semibold leading-snug line-clamp-2"
+                    style="color: var(--color-text-primary);"
+                  >
+                    {card.title}
+                  </h3>
+                  {#if card.summary}
+                    <p class="text-sm text-caption line-clamp-2">{card.summary}</p>
+                  {/if}
+                </div>
+              </a>
+            {/if}
+          {/each}
         </div>
       {/if}
     {:else}
