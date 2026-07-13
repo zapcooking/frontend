@@ -812,7 +812,7 @@
   
   <div class="flex flex-col gap-4">
     <p class="text-sm text-caption">
-      Select a recipe to use as your cookbook cover
+      Select a recipe to use as your collection cover
     </p>
     
     {#if events.length === 0}
@@ -913,7 +913,7 @@
       <a
         href="/my-kitchen"
         class="absolute top-4 left-4 w-10 h-10 flex items-center justify-center rounded-full bg-black/35 hover:bg-black/55 text-white transition-colors backdrop-blur-sm"
-        aria-label="Back to cookbook"
+        aria-label="Back to My Kitchen"
       >
         <ArrowLeftIcon size={20} weight="bold" />
       </a>
@@ -1070,7 +1070,7 @@
           You're offline
         </h3>
         <p class="text-caption text-center max-w-sm mb-4">
-          This cookbook has {cachedRecipeCount} {cachedRecipeCount === 1 ? 'recipe' : 'recipes'} saved, 
+          This collection has {cachedRecipeCount} {cachedRecipeCount === 1 ? 'recipe' : 'recipes'} saved, 
           but recipe details require an internet connection to view.
         </p>
         <p class="text-caption text-center text-sm">
@@ -1142,7 +1142,7 @@
       class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
     >
       <ArrowLeftIcon size={18} />
-      Back to Cookbook
+      Back to My Kitchen
     </a>
   </div>
 {/if}

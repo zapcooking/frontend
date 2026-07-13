@@ -315,7 +315,7 @@
               style="color: var(--color-text-primary);"
             >
               <CookbookIcon size={22} />
-              <span class="font-medium">Cookbook</span>
+              <span class="font-medium">My Kitchen</span>
             </button>
           </li>
           <li>

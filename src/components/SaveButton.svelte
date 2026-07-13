@@ -395,7 +395,7 @@
       disabled={loading}
       class="flex items-center justify-center rounded-full transition duration-200 touch-none select-none {sizeClasses} {variantClasses} {showText ? 'px-4 gap-2' : ''}"
       aria-label={isSaved ? 'Recipe saved' : 'Save recipe'}
-      title={isSaved ? 'Recipe saved (hold for options)' : 'Save to cookbook (hold for options)'}
+      title={isSaved ? 'Recipe saved (hold for options)' : 'Save to My Kitchen (hold for options)'}
     >
       {#if loading}
         <div class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
