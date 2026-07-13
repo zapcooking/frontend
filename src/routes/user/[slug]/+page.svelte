@@ -190,7 +190,7 @@
     }
     // Redirect old 'lists' tab to cookbook
     if (tabParam === 'lists') {
-      goto('/cookbook');
+      goto('/my-kitchen');
     }
   }
 

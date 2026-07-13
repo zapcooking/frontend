@@ -551,7 +551,7 @@
             : 'Tap the bookmark icon on a pack to save it here.'}
       </p>
       <a
-        href="/cookbook"
+        href="/my-kitchen"
         class="flex items-center px-4 py-2 rounded-full font-medium text-sm transition-colors"
         style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
       >

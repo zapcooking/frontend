@@ -49,7 +49,7 @@
   ];
 
   const kitchenItems: NavItem[] = [
-    { href: '/cookbook', label: 'Cookbook', icon: CookbookIcon, match: (p) => p.startsWith('/cookbook') },
+    { href: '/my-kitchen', label: 'Cookbook', icon: CookbookIcon, match: (p) => p.startsWith('/my-kitchen') },
     { href: '/grocery', label: 'Grocery Lists', icon: ShoppingCartIcon, match: (p) => p.startsWith('/grocery') },
     { href: '/wallet', label: 'Wallet', icon: WalletIcon, match: () => $walletModalOpen, badge: 'wallet' },
     { href: '/nourish', label: 'Nourish', icon: LeafIcon, match: (p) => p.startsWith('/nourish') },

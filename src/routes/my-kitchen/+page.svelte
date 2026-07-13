@@ -347,7 +347,7 @@
   });
 
   function openList(list: CookbookList) {
-    goto(`/cookbook/${list.naddr}`);
+    goto(`/my-kitchen/${list.naddr}`);
   }
 
   function openCreateModal() {
@@ -385,7 +385,7 @@
 
       if (naddr) {
         closeCreateModal();
-        goto(`/cookbook/${naddr}`);
+        goto(`/my-kitchen/${naddr}`);
       } else {
         errorMessage = 'Failed to create list';
       }
@@ -476,7 +476,7 @@
 
   async function shareList(list: CookbookList, e?: Event) {
     if (e) e.stopPropagation();
-    const url = `${window.location.origin}/cookbook/${list.naddr}`;
+    const url = `${window.location.origin}/my-kitchen/${list.naddr}`;
 
     if (navigator.share) {
       try {
