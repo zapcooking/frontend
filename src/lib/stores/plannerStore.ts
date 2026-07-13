@@ -124,9 +124,13 @@ function createPlannerStore() {
   /** Fetch the given weeks in one multi-#d call, skipping loaded ones. */
   async function loadWeeks(weekIds: string[], force = false): Promise<void> {
     const state = get({ subscribe });
-    const targets = weekIds.filter(
-      (w) => isValidWeekId(w) && (force || state.weeks[w] === undefined)
-    );
+    const targets = weekIds
+      .filter((w) => isValidWeekId(w) && (force || state.weeks[w] === undefined))
+      // Never clobber a week with unsaved local edits: a force-refetch
+      // racing the 2s debounce would replace the edited plan with the
+      // relay state (possibly absent), and the pending save would then
+      // publish the reverted plan — silent data loss.
+      .filter((w) => !saveTimers.has(w) && !pendingSaves.has(w));
     if (targets.length === 0) return;
 
     update((s) => ({ ...s, loading: true }));
@@ -232,6 +236,9 @@ function createPlannerStore() {
     /** Force-refetch the current week + neighbors (pull-to-refresh). */
     async refresh(): Promise<void> {
       if (!browser || !get(userPublickey)) return;
+      // Flush pending edits first so the refetch reflects them instead
+      // of racing them (see the dirty-week guard in loadWeeks).
+      await flushPendingSaves();
       await loadWeeks(neighborhood(get({ subscribe }).currentWeekId), true);
     },
 
