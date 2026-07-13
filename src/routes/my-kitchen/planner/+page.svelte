@@ -30,6 +30,7 @@
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { lazyLoad } from '$lib/lazyLoad';
   import Modal from '../../../components/Modal.svelte';
+  import RecipePickerModal from '../../../components/RecipePickerModal.svelte';
   import Button from '../../../components/Button.svelte';
   import PullToRefresh from '../../../components/PullToRefresh.svelte';
   import CaretLeftIcon from 'phosphor-svelte/lib/CaretLeft';
@@ -113,6 +114,24 @@
   function clearEditorSlot() {
     plannerStore.clearSlot($plannerCurrentWeekId, editorDay, editorSlot);
     editorOpen = false;
+  }
+
+  // ── Recipe picker (PR10) — fills the slot editor's seam ──
+  let pickerOpen = false;
+
+  function openRecipePicker() {
+    // Keep editorDay/editorSlot as the target; swap modals
+    editorOpen = false;
+    pickerOpen = true;
+  }
+
+  function handleRecipePicked(e: CustomEvent<{ a: string; title: string }>) {
+    plannerStore.setSlot($plannerCurrentWeekId, editorDay, editorSlot, {
+      type: 'recipe',
+      a: e.detail.a,
+      title: e.detail.title
+    });
+    pickerOpen = false;
   }
 
   // ── Recipe coordinate → title/image resolution (cache-first, the
@@ -482,17 +501,30 @@
         <p class="text-sm" style="color: var(--color-text-primary);">
           {resolvedMeta.get(editorExisting.a)?.title || editorExisting.title || 'Recipe'}
         </p>
-        <div class="flex gap-2 justify-end">
-          <Button on:click={() => (editorOpen = false)}>Cancel</Button>
+        <div class="flex gap-2 justify-end flex-wrap">
           <button
             type="button"
             on:click={clearEditorSlot}
-            class="px-4 py-2 rounded-full text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-colors"
+            class="px-4 py-2 rounded-full text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-colors mr-auto"
           >
             Remove from slot
           </button>
+          <Button on:click={() => (editorOpen = false)}>Cancel</Button>
+          <Button primary on:click={openRecipePicker}>Replace recipe</Button>
         </div>
       {:else}
+        <button
+          type="button"
+          on:click={openRecipePicker}
+          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+        >
+          Add recipe
+        </button>
+        <div class="flex items-center gap-3 text-xs text-caption">
+          <span class="flex-1 border-t" style="border-color: var(--color-input-border);"></span>
+          or type an entry
+          <span class="flex-1 border-t" style="border-color: var(--color-input-border);"></span>
+        </div>
         <form on:submit|preventDefault={saveEditor} class="flex flex-col gap-3">
           <!-- svelte-ignore a11y-autofocus -->
           <input
@@ -536,6 +568,12 @@
     {/if}
   </div>
 </Modal>
+
+<RecipePickerModal
+  open={pickerOpen}
+  on:close={() => (pickerOpen = false)}
+  on:select={handleRecipePicked}
+/>
 
 <style>
   .planner-thumb {
