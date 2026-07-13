@@ -32,7 +32,7 @@
 
 ## Phase 0 — Convergence (prerequisite, low risk)
 
-**Status: Not started**
+**Status: Shipped (web)**
 
 Goal: both platforms present the same thing under the same name before adding anything.
 
@@ -51,7 +51,7 @@ Goal: both platforms present the same thing under the same name before adding an
 
 ## Phase 1 — Hub Shell & IA
 
-**Status: Not started**
+**Status: In progress**
 
 Goal: a hub landing surface with room for the future sections, without building them yet.
 
