@@ -636,7 +636,7 @@
       ];
 
       await deleteEvent.publish();
-      goto('/cookbook');
+      goto('/my-kitchen');
     } catch (err) {
       console.error('Failed to delete list:', err);
     } finally {
@@ -645,7 +645,7 @@
   }
 
   async function shareList() {
-    const url = `${window.location.origin}/cookbook/${$page.params.naddr}`;
+    const url = `${window.location.origin}/my-kitchen/${$page.params.naddr}`;
     
     if (navigator.share) {
       try {
@@ -688,7 +688,7 @@
   
   {#if loaded}
     <meta name="description" content={og_meta.description} />
-    <meta property="og:url" content={`https://zap.cooking/cookbook/${$page.params.naddr}`} />
+    <meta property="og:url" content={`https://zap.cooking/my-kitchen/${$page.params.naddr}`} />
     <meta property="og:type" content="website" />
     <meta property="og:title" content={og_meta.title} />
     <meta property="og:description" content={og_meta.description} />
@@ -696,7 +696,7 @@
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta property="twitter:domain" content="zap.cooking" />
-    <meta property="twitter:url" content={`https://zap.cooking/cookbook/${$page.params.naddr}`} />
+    <meta property="twitter:url" content={`https://zap.cooking/my-kitchen/${$page.params.naddr}`} />
     <meta name="twitter:title" content={og_meta.title} />
     <meta name="twitter:description" content={og_meta.description} />
     <meta name="twitter:image" content={og_meta.image} />
@@ -911,7 +911,7 @@
 
       <!-- Back button -->
       <a
-        href="/cookbook"
+        href="/my-kitchen"
         class="absolute top-4 left-4 w-10 h-10 flex items-center justify-center rounded-full bg-black/35 hover:bg-black/55 text-white transition-colors backdrop-blur-sm"
         aria-label="Back to cookbook"
       >
@@ -1138,7 +1138,7 @@
       </p>
     {/if}
     <a
-      href="/cookbook"
+      href="/my-kitchen"
       class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
     >
       <ArrowLeftIcon size={18} />

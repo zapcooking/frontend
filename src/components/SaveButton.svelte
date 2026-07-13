@@ -438,7 +438,7 @@
         <div class="px-3 py-4 text-center text-caption">
           <p class="mb-2">No collections yet</p>
           <a
-            href="/cookbook"
+            href="/my-kitchen"
             class="text-primary hover:underline text-sm"
             on:click={closeDropdown}
           >
@@ -476,7 +476,7 @@
         <div class="border-t my-1" style="border-color: var(--color-input-border);"></div>
 
         <a
-          href="/cookbook"
+          href="/my-kitchen"
           on:click={closeDropdown}
           class="flex items-center gap-3 px-3 py-2 text-left hover:bg-accent-gray transition-colors"
           style="color: var(--color-text-primary)"

@@ -155,7 +155,7 @@
       });
       setTimeout(() => {
         if (nevent.tags.find((a) => a[0] == 'd')?.[1] == 'nostrcooking-bookmarks') {
-          goto(`/bookmarks`);
+          goto(`/my-kitchen`);
         } else {
           goto(`/list/${naddr}`);
         }

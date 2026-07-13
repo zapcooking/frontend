@@ -454,7 +454,7 @@
       your cookbook.
     </p>
     <a
-      href="/cookbook"
+      href="/my-kitchen"
       class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
     >
       <ArrowLeftIcon size={18} />
@@ -468,7 +468,7 @@
     <!-- Back link -->
     <div>
       <a
-        href="/cookbook"
+        href="/my-kitchen"
         class="inline-flex items-center gap-1.5 text-sm text-caption hover:text-primary transition-colors"
       >
         <ArrowLeftIcon size={16} />
@@ -588,7 +588,7 @@
     <div class="flex flex-wrap gap-2 items-center">
       {#if isOwnPack}
         <a
-          href="/cookbook"
+          href="/my-kitchen"
           class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors"
           style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
         >
