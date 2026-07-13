@@ -31,6 +31,15 @@
   import { lazyLoad } from '$lib/lazyLoad';
   import Modal from '../../../components/Modal.svelte';
   import RecipePickerModal from '../../../components/RecipePickerModal.svelte';
+  import { groceryStore } from '$lib/stores/groceryStore';
+  import { parseIngredient, parseIngredientsFromRecipe } from '$lib/utils/ingredientParser';
+  import {
+    collectWeekRecipeSlots,
+    dedupeIngredients,
+    groceryListTitle,
+    type GenerationRow
+  } from '$lib/mealplan/groceryGeneration';
+  import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import Button from '../../../components/Button.svelte';
   import PullToRefresh from '../../../components/PullToRefresh.svelte';
   import CaretLeftIcon from 'phosphor-svelte/lib/CaretLeft';
@@ -132,6 +141,122 @@
       title: e.detail.title
     });
     pickerOpen = false;
+  }
+
+  // ── Grocery generation (Phase 3.3, PR11) ──
+  let generating = false;
+  let generateConfirmOpen = false;
+  let generationSummary: {
+    itemCount: number;
+    recipeCount: number;
+    textSkipped: number;
+    unresolved: string[];
+  } | null = null;
+
+  $: weekRecipeSlots = weekPlan ? collectWeekRecipeSlots(weekPlan) : null;
+
+  function openGenerateConfirm() {
+    generationSummary = null;
+    generateConfirmOpen = true;
+  }
+
+  async function generateGroceryList() {
+    if (!weekPlan || !weekRecipeSlots || generating) return;
+    generating = true;
+    try {
+      const { aTags, textCount } = weekRecipeSlots;
+
+      // Resolve each recipe's ingredient LINES, cache-first.
+      // CachedRecipe.ingredients (pre-extracted lines) skips markdown
+      // re-extraction; uncached coordinates fetch + full-parse.
+      const linesByATag = new Map<string, string[]>();
+      const cached = await offlineStorage.getRecipes(aTags);
+      for (const c of cached) {
+        if (c.ingredients?.length) {
+          linesByATag.set(c.id, c.ingredients);
+        } else if (c.content) {
+          linesByATag.set(
+            c.id,
+            parseIngredientsFromRecipe(c.content).map((p) => p.originalText)
+          );
+        }
+      }
+      const missing = aTags.filter((a) => !linesByATag.has(a));
+      if (missing.length > 0 && $isOnline && $ndk) {
+        await Promise.all(
+          missing.map(async (aTag) => {
+            const parts = aTag.split(':');
+            if (parts.length !== 3) return;
+            const [kind, pubkey, identifier] = parts;
+            try {
+              const e = await $ndk.fetchEvent({
+                kinds: [Number(kind)],
+                '#d': [identifier],
+                authors: [pubkey]
+              });
+              if (e?.content) {
+                linesByATag.set(
+                  aTag,
+                  parseIngredientsFromRecipe(e.content).map((p) => p.originalText)
+                );
+                try {
+                  await offlineStorage.saveRecipeFromEvent(e);
+                } catch {}
+              }
+            } catch (err) {
+              console.warn('[Planner generate] Failed to fetch', aTag, err);
+            }
+          })
+        );
+      }
+
+      // Unresolvable coordinates are REPORTED, not silently dropped
+      const unresolved = aTags.filter((a) => !linesByATag.has(a));
+      const resolved = aTags.filter((a) => linesByATag.has(a));
+
+      // Parse + approved v1 dedupe (exact (name, quantity) collapse)
+      const rows: GenerationRow[] = [];
+      for (const aTag of resolved) {
+        for (const line of linesByATag.get(aTag) || []) {
+          rows.push({ ingredient: parseIngredient(line), recipeId: aTag });
+        }
+      }
+      const deduped = dedupeIngredients(rows);
+
+      // Always a NEW list — never overwrite an existing one. Repeat
+      // generations for the same week create additional lists the user
+      // can delete; silent merge/overwrite risks destroying manual edits.
+      const list = await groceryStore.addList(groceryListTitle($plannerCurrentWeekId));
+      for (const aTag of resolved) {
+        groceryStore.addRecipeLink(list.id, aTag);
+      }
+      for (const row of deduped) {
+        groceryStore.addItem(
+          list.id,
+          row.ingredient.name,
+          row.ingredient.quantity,
+          row.ingredient.category,
+          row.recipeId
+        );
+      }
+
+      generationSummary = {
+        itemCount: deduped.length,
+        recipeCount: resolved.length,
+        textSkipped: textCount,
+        unresolved
+      };
+
+      // Flush the coalesced item save before leaving the page, then land
+      // on the new list.
+      await groceryStore.saveNow();
+      goto(`/my-kitchen/grocery/${list.id}`);
+    } catch (err) {
+      console.error('[Planner generate] Generation failed', err);
+      generationSummary = { itemCount: 0, recipeCount: 0, textSkipped: 0, unresolved: [] };
+    } finally {
+      generating = false;
+    }
   }
 
   // ── Recipe coordinate → title/image resolution (cache-first, the
@@ -297,6 +422,21 @@
       <div class="flex items-center gap-2">
         {#if $plannerSaving}
           <span class="text-xs text-caption">Saving…</span>
+        {/if}
+        {#if weekPlan && weekRecipeSlots}
+          <button
+            type="button"
+            on:click={openGenerateConfirm}
+            disabled={weekRecipeSlots.aTags.length === 0}
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+            title={weekRecipeSlots.aTags.length === 0
+              ? 'Add recipes to this week to generate a grocery list'
+              : 'Generate a grocery list from this week'}
+          >
+            <ShoppingCartIcon size={16} />
+            <span>Grocery list</span>
+          </button>
         {/if}
         {#if !isViewingCurrentWeek}
           <button
@@ -574,6 +714,46 @@
   on:close={() => (pickerOpen = false)}
   on:select={handleRecipePicked}
 />
+
+<!-- Generate-grocery confirm: pre-generation summary of what will happen -->
+<Modal bind:open={generateConfirmOpen} compact>
+  <h1 slot="title">Generate grocery list</h1>
+  <div class="flex flex-col gap-3">
+    {#if weekRecipeSlots}
+      <p class="text-sm" style="color: var(--color-text-primary);">
+        Creates a new list "{groceryListTitle($plannerCurrentWeekId)}" from
+        {weekRecipeSlots.aTags.length}
+        {weekRecipeSlots.aTags.length === 1 ? 'recipe' : 'recipes'}{weekRecipeSlots.textCount > 0
+          ? ` · ${weekRecipeSlots.textCount} text ${
+              weekRecipeSlots.textCount === 1 ? 'entry' : 'entries'
+            } skipped`
+          : ''}.
+      </p>
+      <p class="text-xs text-caption">
+        Matching items are combined only when name and quantity are identical. Repeat runs create
+        a new list — existing lists are never changed.
+      </p>
+      {#if generationSummary && generationSummary.unresolved.length > 0}
+        <p class="text-xs text-red-500">
+          {generationSummary.unresolved.length}
+          {generationSummary.unresolved.length === 1 ? 'recipe' : 'recipes'} couldn't be loaded and
+          {generationSummary.unresolved.length === 1 ? 'was' : 'were'} left out.
+        </p>
+      {/if}
+      <div class="flex gap-2 justify-end">
+        <Button on:click={() => (generateConfirmOpen = false)}>Cancel</Button>
+        <button
+          type="button"
+          disabled={generating}
+          on:click={generateGroceryList}
+          class="px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-50"
+        >
+          {generating ? 'Generating…' : 'Generate'}
+        </button>
+      </div>
+    {/if}
+  </div>
+</Modal>
 
 <style>
   .planner-thumb {
