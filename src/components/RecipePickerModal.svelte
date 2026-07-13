@@ -137,13 +137,8 @@
     savedLoading = true;
     try {
       if (!$cookbookLists.length) {
-        // load() resolves after the offline-first step and kicks off the
-        // network refresh WITHOUT awaiting it — await it explicitly so a
-        // cold store (fresh device/session) actually reaches the relays.
+        // On a cold cache load() awaits the relay refresh itself.
         await cookbookStore.load();
-        if (!$cookbookLists.length) {
-          await cookbookStore.refreshFromNostr();
-        }
       }
       const seen = new Set<string>();
       const aTags: string[] = [];

@@ -1481,8 +1481,11 @@
       </div>
     {/if}
 
-    <!-- Loading State -->
-    {#if $cookbookLoading}
+    <!-- Loading State. Also gate on initialized: before load() has run (or
+         while a cold-cache fetch is in flight) the store legitimately holds
+         zero lists — showing "Start Your Kitchen" then is the empty flash
+         (docs/ndk-readiness-discovery.md §4a). -->
+    {#if $cookbookLoading || !$cookbookStore.initialized}
       <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {#each Array(4) as _}
           <div
