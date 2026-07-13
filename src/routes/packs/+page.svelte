@@ -547,7 +547,7 @@
         {tab === 'discover'
           ? "We couldn't find any Recipe Packs on the connected relays. Check back soon."
           : tab === 'mine'
-            ? 'Open a collection in your cookbook and tap "Share Pack" to publish your first one.'
+            ? 'Open a collection in My Kitchen and tap "Share Pack" to publish your first one.'
             : 'Tap the bookmark icon on a pack to save it here.'}
       </p>
       <a
@@ -555,7 +555,7 @@
         class="flex items-center px-4 py-2 rounded-full font-medium text-sm transition-colors"
         style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
       >
-        Open Cookbook
+        Open My Kitchen
       </a>
     </div>
   {:else}

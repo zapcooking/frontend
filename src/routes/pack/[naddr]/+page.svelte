@@ -217,7 +217,7 @@
   async function importPack() {
     if (isImporting) return;
     if (!$userPublickey) {
-      showToast('info', 'Sign in to save this Recipe Pack to your cookbook.');
+      showToast('info', 'Sign in to save this Recipe Pack to My Kitchen.');
       goto('/login');
       return;
     }
@@ -237,7 +237,7 @@
       }
       const defaultList = await cookbookStore.ensureDefaultList();
       if (!defaultList) {
-        showToast('error', 'Could not access your cookbook. Try again.');
+        showToast('error', 'Could not access My Kitchen. Try again.');
         return;
       }
 
@@ -254,9 +254,9 @@
       const { added, skipped, failed } = result;
 
       if (added === 0 && skipped > 0) {
-        showToast('info', 'Already in your cookbook.');
+        showToast('info', 'Already in My Kitchen.');
       } else if (added > 0 && skipped === 0) {
-        showToast('success', `Added ${added} ${added === 1 ? 'recipe' : 'recipes'} to your cookbook.`);
+        showToast('success', `Added ${added} ${added === 1 ? 'recipe' : 'recipes'} to My Kitchen.`);
       } else if (added > 0 && skipped > 0) {
         showToast('success', `Added ${added}, skipped ${skipped} already saved.`);
       } else if (failed > 0) {
@@ -451,14 +451,14 @@
     </h1>
     <p class="text-caption text-center max-w-md mb-4">
       This pack may have been deleted, or your relays don't have it yet. Try again later, or browse
-      your cookbook.
+      My Kitchen.
     </p>
     <a
       href="/my-kitchen"
       class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
     >
       <ArrowLeftIcon size={18} />
-      Go to Cookbook
+      Go to My Kitchen
     </a>
   </div>
 {:else}
@@ -472,7 +472,7 @@
         class="inline-flex items-center gap-1.5 text-sm text-caption hover:text-primary transition-colors"
       >
         <ArrowLeftIcon size={16} />
-        <span>Cookbook</span>
+        <span>My Kitchen</span>
       </a>
     </div>
 
@@ -593,7 +593,7 @@
           style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
         >
           <BookmarkIcon size={16} />
-          Open your cookbook
+          Open My Kitchen
         </a>
         <!-- Delete (NIP-09 deletion request). Secondary destructive
              styling so the action is reachable but not the focal CTA;
@@ -614,7 +614,7 @@
           style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
         >
           <CheckCircleIcon size={16} weight="fill" class="text-green-500" />
-          Saved in your cookbook
+          Saved in My Kitchen
         </span>
       {:else}
         <button
@@ -627,7 +627,7 @@
             <span>Saving {importProgress.current}/{importProgress.total}…</span>
           {:else}
             <BookmarkIcon size={16} weight="fill" />
-            <span>Save Pack to Cookbook</span>
+            <span>Save Pack to My Kitchen</span>
           {/if}
         </button>
       {/if}

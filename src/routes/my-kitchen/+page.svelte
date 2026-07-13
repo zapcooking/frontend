@@ -70,7 +70,7 @@
     if (totalUniqueSaved === 0) return;
     sharePackSource = { type: 'cookbook' };
     sharePackATags = aggregatedRecipes.map((r) => r.aTag);
-    sharePackTitle = 'My Zap Cooking Cookbook';
+    sharePackTitle = 'My Zap Cooking Kitchen';
     sharePackDescription = '';
     sharePackImage = savedCollection ? coverImages.get(savedCollection.id) : undefined;
     sharePackOpen = true;
@@ -835,7 +835,7 @@
 </script>
 
 <svelte:head>
-  <title>My Cookbook - zap.cooking</title>
+  <title>My Kitchen - zap.cooking</title>
   <meta name="description" content="Your saved recipes and collections on zap.cooking" />
 </svelte:head>
 
@@ -982,7 +982,7 @@
   {#if selectedList}
     {#await loadRecipeEvents(selectedList) then recipeEvents}
       <div class="flex flex-col gap-4">
-        <p class="text-sm text-caption">Select a recipe to use as your cookbook cover</p>
+        <p class="text-sm text-caption">Select a recipe to use as your collection cover</p>
 
         {#if recipeEvents.length === 0}
           <p class="text-caption text-center py-8">
@@ -1075,7 +1075,7 @@
         <div class="flex-1">
           <p class="text-sm font-medium" style="color: var(--color-text-primary)">You're offline</p>
           <p class="text-xs text-caption">
-            Your cookbooks are saved locally. Changes will sync when you're back online.
+            Your collections are saved locally. Changes will sync when you're back online.
           </p>
         </div>
       </div>
@@ -1088,7 +1088,7 @@
           <p class="text-sm font-medium" style="color: var(--color-text-primary)">
             Syncing changes...
           </p>
-          <p class="text-xs text-caption">Your cookbooks are being updated.</p>
+          <p class="text-xs text-caption">Your collections are being updated.</p>
         </div>
       </div>
     {:else if $cookbookSyncStatus === 'pending' && $cookbookPendingOps > 0}
@@ -1121,7 +1121,7 @@
           <BookmarkIcon size={24} weight="fill" class="text-white" />
         </div>
         <div>
-          <h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">My Cookbook</h1>
+          <h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">My Kitchen</h1>
           <p class="text-sm text-caption">Your saved recipes & collections</p>
         </div>
       </div>
@@ -1201,7 +1201,7 @@
             class="flex items-center gap-1.5 pl-4 pr-3 py-1.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all text-sm"
             aria-haspopup="true"
             aria-expanded={createMenuOpen}
-            aria-label="Add to cookbook"
+            aria-label="Add to My Kitchen"
           >
             <PlusIcon size={18} weight="bold" />
             <span class="hidden sm:inline">Add</span>
@@ -1259,7 +1259,7 @@
           class="inline-flex p-0.5 rounded-full"
           style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
           role="tablist"
-          aria-label="Cookbook view"
+          aria-label="My Kitchen view"
         >
           <button
             type="button"
@@ -1307,10 +1307,10 @@
               class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
               title="Share your saved recipes as a Recipe Pack"
-              aria-label="Share cookbook as Recipe Pack"
+              aria-label="Share My Kitchen as Recipe Pack"
             >
               <ShareNetworkIcon size={16} />
-              <span>Share Cookbook</span>
+              <span>Share My Kitchen</span>
             </button>
 
             <!-- Sort dropdown -->
@@ -1426,10 +1426,10 @@
           <BookmarkIcon size={40} weight="regular" class="text-orange-500" />
         </div>
         <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
-          Start Your Cookbook
+          Start Your Kitchen
         </h2>
         <p class="text-caption text-center max-w-md mb-6">
-          Save recipes you love and organize them into collections. Your cookbook is private to you.
+          Save recipes you love and organize them into collections. Your kitchen is private to you.
         </p>
         <div class="flex gap-3">
           <button

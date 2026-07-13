@@ -98,7 +98,7 @@
   const kitchen: NavItem[] = [
     {
       href: '/my-kitchen',
-      label: 'Cookbook',
+      label: 'My Kitchen',
       icon: CookbookIcon,
       match: (p) => p.startsWith('/my-kitchen')
     },
