@@ -279,7 +279,7 @@ async function connectWithRetry(ndkInstance: NDK, maxRetries = 3): Promise<void>
       // Create new connection manager for this NDK instance
       const connectionManager = createConnectionManager(ndkInstance);
       
-      // Use connection manager's circuit breaker logic (waits for first relay)
+      // Use connection manager's circuit breaker logic (waits for a relay quorum)
       await connectionManager.connectWithCircuitBreaker();
       
       // Mark as connected - relays are now ready

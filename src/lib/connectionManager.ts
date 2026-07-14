@@ -1,5 +1,15 @@
 import type NDK from '@nostr-dev-kit/ndk';
-import { NDKRelaySet } from '@nostr-dev-kit/ndk';
+import { NDKRelaySet, NDKRelayStatus } from '@nostr-dev-kit/ndk';
+
+/**
+ * Number of connected relays that counts as "ready" for a pool of `total` relays.
+ * All-connected always qualifies (the target is never above `total`); otherwise
+ * max(2, ceil(fraction·total)), clamped to `total` so a single-relay pool
+ * (members mode) still waits for its one relay rather than an impossible 2.
+ */
+export function relayQuorumTarget(total: number, fraction = 0.6): number {
+  return Math.min(total, Math.max(2, Math.ceil(fraction * total)));
+}
 
 export interface RelayHealth {
   status: 'connected' | 'disconnected' | 'degraded' | 'circuit-open';
@@ -42,6 +52,8 @@ export class ConnectionManager {
   private readonly CIRCUIT_BREAKER_TIMEOUT = 30000; // 30 seconds
   private readonly HEARTBEAT_INTERVAL = 30000; // 30 seconds
   private readonly MAX_RESPONSE_TIME = 5000; // 5 seconds for degraded status
+  private readonly QUORUM_FRACTION = 0.6;
+  private readonly QUORUM_TIMEOUT_MS = 4000;
 
   constructor(ndk: NDK) {
     this.ndkRef = ndk;
@@ -291,9 +303,10 @@ export class ConnectionManager {
         const health = this.relayHealth.get(url);
         if (!health) return;
         
-        // Check if relay is still connected via the pool
+        // Check if relay is still connected via the pool (see enum note in
+        // getPoolConnectedRelays — the old `=== 1` matched DISCONNECTED)
         const relayInstance = this.ndkRef.pool.relays.get(url);
-        const isConnected = relayInstance?.connectivity?.status === 1; // 1 = OPEN
+        const isConnected = relayInstance !== undefined && relayInstance.status >= NDKRelayStatus.CONNECTED;
         
         if (isConnected) {
           health.lastSeen = Date.now();
@@ -351,9 +364,11 @@ export class ConnectionManager {
     try {
       await this.ndkRef.connect();
       console.log('✅ NDK.connect() completed');
-      
-      // Wait for at least one relay WebSocket to be connected (fast - typically <500ms)
-      await this.waitForFirstRelay(3000); // Reduced timeout since we're not waiting for health checks
+
+      // Wait for a quorum of relay WebSockets, not just the first one.
+      // A first-relay gate let cold-start fetches race a mostly-unconnected
+      // pool (see docs/ndk-readiness-discovery.md).
+      await this.waitForRelayQuorum(this.QUORUM_TIMEOUT_MS);
     } catch (error) {
       console.error('❌ NDK connection failed:', error);
       throw error;
@@ -361,26 +376,63 @@ export class ConnectionManager {
   }
 
   /**
-   * Wait for at least one relay WebSocket to be connected (with timeout)
-   * This is fast - just waits for WebSocket open, not health check
+   * Count connected relays against the pool's target size.
+   * Counts from the NDK pool (authoritative WebSocket status); falls back to
+   * the health-tracking map for the total only while the pool is unpopulated,
+   * so an empty pool never reads as a trivially-satisfied quorum of 0.
    */
-  async waitForFirstRelay(timeoutMs: number = 3000): Promise<void> {
-    // Check if already connected (via relay:connect event)
-    if (this.getConnectedRelays().length > 0) {
-      console.log('✅ Relay already connected');
+  private getQuorumCounts(): { connected: number; total: number } {
+    let connected = 0;
+    let total = 0;
+    try {
+      for (const relay of this.ndkRef.pool.relays.values()) {
+        total++;
+        // >= CONNECTED so relays mid-NIP-42 auth (AUTH_REQUESTED..AUTHENTICATED) count
+        if (relay.status >= NDKRelayStatus.CONNECTED) {
+          connected++;
+        }
+      }
+    } catch (e) {
+      // Pool might not be ready yet
+    }
+    if (total === 0) {
+      total = this.relayHealth.size;
+    }
+    return { connected, total };
+  }
+
+  /**
+   * Wait for a quorum of relay WebSockets to be connected (with timeout).
+   * Resolves as soon as connected >= relayQuorumTarget(total) — which is
+   * satisfied immediately when all relays connect — and resolves anyway at
+   * the timeout so callers never hang (same contract as the old first-relay
+   * wait, and as ndkReady has always guaranteed).
+   */
+  async waitForRelayQuorum(timeoutMs: number = this.QUORUM_TIMEOUT_MS): Promise<void> {
+    const startTime = Date.now();
+
+    const quorumReached = (): boolean => {
+      const { connected, total } = this.getQuorumCounts();
+      if (total === 0) return false;
+      return connected >= relayQuorumTarget(total, this.QUORUM_FRACTION);
+    };
+
+    const logOutcome = (reached: boolean) => {
+      const { connected, total } = this.getQuorumCounts();
+      const elapsed = Date.now() - startTime;
+      if (reached) {
+        console.log(`✅ Relay quorum reached: ${connected}/${total} connected in ${elapsed}ms`);
+      } else {
+        console.warn(`⚠️ Timeout waiting for relay quorum (${connected}/${total} connected after ${elapsed}ms), proceeding anyway`);
+      }
+    };
+
+    if (quorumReached()) {
+      logOutcome(true);
       return;
     }
 
-    // Also check NDK pool directly for connected relays
-    const poolConnected = this.getPoolConnectedRelays();
-    if (poolConnected.length > 0) {
-      console.log(`✅ Relay connected (from pool): ${poolConnected[0]}`);
-      return;
-    }
-    
     return new Promise((resolve) => {
-      const startTime = Date.now();
-      
       // Poll frequently for fast response
       const checkInterval = setInterval(() => {
         // Bail if destroyed
@@ -389,22 +441,18 @@ export class ConnectionManager {
           resolve();
           return;
         }
-        
-        const connected = this.getConnectedRelays();
-        const poolRelays = this.getPoolConnectedRelays();
-        
-        if (connected.length > 0 || poolRelays.length > 0) {
+
+        if (quorumReached()) {
           clearInterval(checkInterval);
-          const firstRelay = connected[0] || poolRelays[0];
-          console.log(`✅ First relay connected: ${firstRelay}`);
+          logOutcome(true);
           resolve();
           return;
         }
-        
+
         // Check timeout
         if (Date.now() - startTime > timeoutMs) {
           clearInterval(checkInterval);
-          console.warn('⚠️ Timeout waiting for relay connections, proceeding anyway');
+          logOutcome(false);
           resolve();
           return;
         }
@@ -419,8 +467,10 @@ export class ConnectionManager {
     const connected: string[] = [];
     try {
       for (const [url, relay] of this.ndkRef.pool.relays) {
-        // Check if relay WebSocket is open
-        if (relay.connectivity?.status === 1) { // 1 = OPEN
+        // Check if relay WebSocket is open. NOTE: in NDK 2.10 the status enum
+        // is DISCONNECTED=1, CONNECTED=5..AUTHENTICATED=8 — the old `=== 1`
+        // check here dated from a pre-2.x enum and matched DISCONNECTED.
+        if (relay.status >= NDKRelayStatus.CONNECTED) {
           connected.push(url);
         }
       }
