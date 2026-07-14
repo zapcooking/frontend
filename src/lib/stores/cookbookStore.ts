@@ -9,7 +9,7 @@
  */
 
 import { writable, derived, get } from 'svelte/store';
-import { ndk, userPublickey } from '$lib/nostr';
+import { ndk, userPublickey, ensureNdkConnected } from '$lib/nostr';
 import { NDKEvent, type NDKFilter, type NDKSubscription } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
@@ -57,6 +57,20 @@ function createCookbookStore() {
 
   let subscription: NDKSubscription | null = null;
   let syncUnsubscribe: (() => void) | null = null;
+
+  // Timestamp of the last refreshFromNostr that reached EOSE (0 = never this
+  // session). "The store has no default list" only confirms absence on relays
+  // after a completed refresh — before that it usually means "not fetched
+  // yet" (docs/ndk-readiness-discovery.md §4b).
+  let refreshCompletedAt = 0;
+  // Single-flight guard: concurrent refresh calls share one subscription —
+  // a second subscribe would stop the first sub and strand its awaiter.
+  let inflightRefresh: Promise<void> | null = null;
+
+  // If relays never EOSE (dead pool, filter routed nowhere), resolve anyway so
+  // an awaited refresh can't hang the UI. Does NOT count as a completed
+  // refresh — absence stays unconfirmed.
+  const REFRESH_EOSE_TIMEOUT_MS = 10000;
 
   // Register for auto-sync when connection is restored
   if (typeof window !== 'undefined') {
@@ -272,6 +286,153 @@ function createCookbookStore() {
     }
   }
 
+  /**
+   * Fetch cookbook lists from relays and reconcile into the store.
+   * Only call via refreshFromNostr() (single-flight wrapper).
+   */
+  async function doRefreshFromNostr(): Promise<void> {
+    const pubkey = get(userPublickey);
+    const ndkInstance = get(ndk);
+
+    if (!pubkey || !ndkInstance) return;
+
+    // Wait for relay readiness before subscribing. Without this, a
+    // cold-session subscribe races the connecting pool, EOSEs early against
+    // the connected subset, and caches an empty list set
+    // (docs/ndk-readiness-discovery.md §4a).
+    try {
+      await ensureNdkConnected();
+    } catch {
+      // ensureNdkConnected resolves rather than rejects by construction;
+      // tolerate anyway and let the fetch (+ timeout below) decide.
+    }
+
+    // Clean up existing subscription
+    if (subscription) {
+      subscription.stop();
+      subscription = null;
+    }
+
+    const lists: CookbookList[] = [];
+    const seenIds = new Set<string>();
+
+    // Fetch all kind 30001 lists: recipe lists + bookmarks
+    const filters: NDKFilter[] = [
+      {
+        authors: [pubkey],
+        kinds: [30001],
+        '#t': RECIPE_TAGS,
+        limit: 256
+      },
+      {
+        authors: [pubkey],
+        kinds: [30001],
+        '#d': [DEFAULT_LIST_ID],
+        limit: 1
+      }
+    ];
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+
+      // Now that load() can await this promise, an EOSE that never arrives
+      // must not hang callers. Timing out does NOT mark the refresh
+      // completed — absence stays unconfirmed for ensureDefaultList.
+      const eoseTimeout = setTimeout(() => {
+        console.warn('[CookbookStore] Refresh timed out waiting for EOSE, keeping current lists');
+        update(s => ({ ...s, loading: false, initialized: true }));
+        finish();
+      }, REFRESH_EOSE_TIMEOUT_MS);
+
+      subscription = ndkInstance.subscribe(filters, { closeOnEose: true });
+
+      subscription.on('event', (event: NDKEvent) => {
+        const dTag = event.tags.find(t => t[0] === 'd')?.[1];
+        if (!dTag || seenIds.has(dTag)) return;
+        seenIds.add(dTag);
+
+        const list = eventToList(event, pubkey);
+        if (list) {
+          lists.push(list);
+        }
+      });
+
+      subscription.on('eose', async () => {
+        clearTimeout(eoseTimeout);
+
+        // Final deduplication by id (in case of race conditions)
+        const uniqueLists = lists.filter((list, index, self) =>
+          index === self.findIndex(l => l.id === list.id)
+        );
+
+        // Sort: default list first, then by most recent
+        uniqueLists.sort((a, b) => {
+          if (a.isDefault) return -1;
+          if (b.isDefault) return 1;
+          return b.createdAt - a.createdAt;
+        });
+
+        // Merge with local pending changes
+        const currentState = get({ subscribe });
+        const mergedLists = uniqueLists.map(remoteList => {
+          const localList = currentState.lists.find(l => l.id === remoteList.id);
+          if (localList?.pendingSync) {
+            // Keep local version if it has pending changes
+            return localList;
+          }
+          return remoteList;
+        });
+
+        // Add any local-only lists (created offline)
+        currentState.lists.forEach(localList => {
+          if (localList.pendingSync && !mergedLists.find(l => l.id === localList.id)) {
+            mergedLists.push(localList);
+          }
+        });
+
+        // Save all to offline storage
+        for (const list of mergedLists) {
+          await offlineStorage.saveCookbook(list, pubkey, !list.pendingSync);
+        }
+
+        // Re-sort after merge
+        mergedLists.sort((a, b) => {
+          if (a.isDefault) return -1;
+          if (b.isDefault) return 1;
+          return b.createdAt - a.createdAt;
+        });
+
+        const pendingOps = await offlineStorage.getPendingOperations();
+
+        set({
+          lists: mergedLists,
+          loading: false,
+          initialized: true,
+          error: null,
+          syncStatus: pendingOps.length > 0 ? 'pending' : 'synced',
+          pendingOperations: pendingOps.length
+        });
+
+        // A refresh that reached EOSE is the only signal that "no default
+        // list in the store" means "no default list on relays".
+        refreshCompletedAt = Date.now();
+
+        // Process any pending sync operations
+        if (pendingOps.length > 0) {
+          syncPendingChanges();
+        }
+
+        finish();
+      });
+    });
+  }
+
   return {
     subscribe,
     update, // Expose update method for direct state updates
@@ -293,10 +454,12 @@ function createCookbookStore() {
       update(s => ({ ...s, loading: true, error: null }));
 
       // STEP 1: Load from IndexedDB first (instant)
+      let hasOfflineData = false;
       try {
         const offlineCookbooks = await offlineStorage.getAllCookbooks(pubkey);
-        
+
         if (offlineCookbooks.length > 0) {
+          hasOfflineData = true;
           console.log(`[CookbookStore] Loaded ${offlineCookbooks.length} cookbooks from offline storage`);
           
           // Deserialize the cookbooks (rebuild NDKEvent objects)
@@ -324,124 +487,35 @@ function createCookbookStore() {
         console.warn('[CookbookStore] Failed to load from offline storage:', error);
       }
 
-      // STEP 2: If online, refresh from Nostr in background
+      // STEP 2: If online, refresh from Nostr
       if (isCurrentlyOnline()) {
-        this.refreshFromNostr();
+        if (hasOfflineData) {
+          // Warm cache already rendered — reconcile in the background
+          // (the EOSE handler's set() updates subscribers when it lands).
+          this.refreshFromNostr();
+        } else {
+          // Cold cache: nothing rendered yet. Await the refresh so consumers
+          // never observe initialized:true with an empty, never-fetched list
+          // set — that's the My Kitchen "Start Your Kitchen" flash
+          // (docs/ndk-readiness-discovery.md §4a).
+          await this.refreshFromNostr();
+        }
       } else {
         update(s => ({ ...s, syncStatus: 'offline', loading: false, initialized: true }));
       }
     },
 
     /**
-     * Refresh cookbook data from Nostr relays
+     * Refresh cookbook data from Nostr relays.
+     * Single-flight: concurrent calls await the same in-flight refresh.
      */
     async refreshFromNostr(): Promise<void> {
-      const pubkey = get(userPublickey);
-      const ndkInstance = get(ndk);
-      
-      if (!pubkey || !ndkInstance) return;
-
-      // Clean up existing subscription
-      if (subscription) {
-        subscription.stop();
-        subscription = null;
-      }
-
-      const lists: CookbookList[] = [];
-      const seenIds = new Set<string>();
-
-      // Fetch all kind 30001 lists: recipe lists + bookmarks
-      const filters: NDKFilter[] = [
-        {
-          authors: [pubkey],
-          kinds: [30001],
-          '#t': RECIPE_TAGS,
-          limit: 256
-        },
-        {
-          authors: [pubkey],
-          kinds: [30001],
-          '#d': [DEFAULT_LIST_ID],
-          limit: 1
-        }
-      ];
-
-      return new Promise((resolve) => {
-        subscription = ndkInstance.subscribe(filters, { closeOnEose: true });
-
-        subscription.on('event', (event: NDKEvent) => {
-          const dTag = event.tags.find(t => t[0] === 'd')?.[1];
-          if (!dTag || seenIds.has(dTag)) return;
-          seenIds.add(dTag);
-
-          const list = eventToList(event, pubkey);
-          if (list) {
-            lists.push(list);
-          }
-        });
-
-        subscription.on('eose', async () => {
-          // Final deduplication by id (in case of race conditions)
-          const uniqueLists = lists.filter((list, index, self) => 
-            index === self.findIndex(l => l.id === list.id)
-          );
-
-          // Sort: default list first, then by most recent
-          uniqueLists.sort((a, b) => {
-            if (a.isDefault) return -1;
-            if (b.isDefault) return 1;
-            return b.createdAt - a.createdAt;
-          });
-
-          // Merge with local pending changes
-          const currentState = get({ subscribe });
-          const mergedLists = uniqueLists.map(remoteList => {
-            const localList = currentState.lists.find(l => l.id === remoteList.id);
-            if (localList?.pendingSync) {
-              // Keep local version if it has pending changes
-              return localList;
-            }
-            return remoteList;
-          });
-
-          // Add any local-only lists (created offline)
-          currentState.lists.forEach(localList => {
-            if (localList.pendingSync && !mergedLists.find(l => l.id === localList.id)) {
-              mergedLists.push(localList);
-            }
-          });
-
-          // Save all to offline storage
-          for (const list of mergedLists) {
-            await offlineStorage.saveCookbook(list, pubkey, !list.pendingSync);
-          }
-
-          // Re-sort after merge
-          mergedLists.sort((a, b) => {
-            if (a.isDefault) return -1;
-            if (b.isDefault) return 1;
-            return b.createdAt - a.createdAt;
-          });
-
-          const pendingOps = await offlineStorage.getPendingOperations();
-
-          set({
-            lists: mergedLists,
-            loading: false,
-            initialized: true,
-            error: null,
-            syncStatus: pendingOps.length > 0 ? 'pending' : 'synced',
-            pendingOperations: pendingOps.length
-          });
-
-          // Process any pending sync operations
-          if (pendingOps.length > 0) {
-            syncPendingChanges();
-          }
-
-          resolve();
-        });
+      if (inflightRefresh) return inflightRefresh;
+      const refresh = doRefreshFromNostr().finally(() => {
+        if (inflightRefresh === refresh) inflightRefresh = null;
       });
+      inflightRefresh = refresh;
+      return refresh;
     },
 
     /**
@@ -529,19 +603,45 @@ function createCookbookStore() {
     },
 
     /**
-     * Ensure the default "Saved" list exists
+     * Ensure the default "Saved" list exists.
+     *
+     * The default list is a kind-30001 replaceable event with a fixed d tag,
+     * so creating it when one already exists on relays SUPERSEDES the user's
+     * real Saved list (docs/ndk-readiness-discovery.md §4b). Creation is
+     * therefore only allowed after a refresh that reached EOSE has confirmed
+     * absence — never from a store that simply hasn't fetched yet, and never
+     * on navigator.onLine alone. Returns null when absence can't be
+     * confirmed (offline, relays unreachable); callers already tolerate null.
      */
     async ensureDefaultList(): Promise<CookbookList | null> {
-      // Check if default already exists
-      const state = get({ subscribe });
-      const existingDefault = state.lists.find(l => l.isDefault);
-      
+      const findDefault = () => get({ subscribe }).lists.find(l => l.isDefault);
+
+      // A default already in the store (fetched or restored from IndexedDB)
+      // is safe to return — the dangerous direction is concluding ABSENCE.
+      const existingDefault = findDefault();
       if (existingDefault) return existingDefault;
 
       const pubkey = get(userPublickey);
       const ndkInstance = get(ndk);
-      
+
       if (!pubkey || !ndkInstance) return null;
+
+      // Absence is only meaningful after a completed refresh. Run one if we
+      // don't have one yet (awaits relay readiness internally; single-flight
+      // with any refresh already started by load()).
+      if (refreshCompletedAt === 0) {
+        await this.refreshFromNostr();
+        const fetchedDefault = findDefault();
+        if (fetchedDefault) return fetchedDefault;
+      }
+
+      if (refreshCompletedAt === 0) {
+        // The refresh could not reach EOSE (offline / dead pool): the user's
+        // Saved list may exist on relays we never heard from. Do not create —
+        // a d-tag collision must be impossible by construction.
+        console.warn('[CookbookStore] Skipping default list creation: relay refresh has not confirmed absence');
+        return null;
+      }
 
       const naddr = nip19.naddrEncode({
         identifier: DEFAULT_LIST_ID,
@@ -566,7 +666,7 @@ function createCookbookStore() {
         createdAt: Math.floor(Date.now() / 1000),
         isDefault: true,
         event,
-        pendingSync: !isCurrentlyOnline()
+        pendingSync: true
       };
 
       // Check again before updating (race condition protection)
@@ -583,23 +683,17 @@ function createCookbookStore() {
       // Persist locally
       await persistLocally(newList, pubkey, false);
 
-      if (isCurrentlyOnline()) {
-        try {
-          await event.publish();
-          await offlineStorage.markCookbookSynced(DEFAULT_LIST_ID, pubkey);
-          update(s => ({
-            ...s,
-            lists: s.lists.map(l => 
-              l.id === DEFAULT_LIST_ID ? { ...l, pendingSync: false } : l
-            )
-          }));
-        } catch (error) {
-          console.error('[CookbookStore] Failed to publish default list:', error);
-          await offlineStorage.queueOperation('create_list', DEFAULT_LIST_ID, {
-            identifier: DEFAULT_LIST_ID, title: DEFAULT_LIST_TITLE
-          });
-        }
-      } else {
+      try {
+        await event.publish();
+        await offlineStorage.markCookbookSynced(DEFAULT_LIST_ID, pubkey);
+        update(s => ({
+          ...s,
+          lists: s.lists.map(l =>
+            l.id === DEFAULT_LIST_ID ? { ...l, pendingSync: false } : l
+          )
+        }));
+      } catch (error) {
+        console.error('[CookbookStore] Failed to publish default list:', error);
         await offlineStorage.queueOperation('create_list', DEFAULT_LIST_ID, {
           identifier: DEFAULT_LIST_ID, title: DEFAULT_LIST_TITLE
         });
@@ -1157,6 +1251,10 @@ function createCookbookStore() {
         subscription.stop();
         subscription = null;
       }
+      // A reset store has no relay knowledge: absence must be re-confirmed
+      // before ensureDefaultList may create again.
+      refreshCompletedAt = 0;
+      inflightRefresh = null;
       set({
         lists: [],
         loading: false,
