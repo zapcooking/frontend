@@ -61,7 +61,7 @@ describe('d-tag round trip', () => {
   }
   for (const v of fixtures.weekIdFromDTagReject) {
     it(v.id, () => {
-      expect(weekIdFromDTag(v.input)).toBeNull();
+      expect(weekIdFromDTag(v.input)).toBe(v.expected);
     });
   }
 });
