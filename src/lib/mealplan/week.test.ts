@@ -11,87 +11,78 @@ import {
   weekIdFromDTag,
   weekDisplayRange
 } from './week';
+import fixtures from '../../test/fixtures/week.vectors.json';
+
+/** Local calendar date from fixture {y,m,d} (m is 1-indexed). */
+function localDate(d: { y: number; m: number; d: number }): Date {
+  return new Date(d.y, d.m - 1, d.d);
+}
 
 describe('week ids across ISO year boundaries', () => {
-  it('2026 is a 53-week ISO year', () => {
-    expect(weeksInISOYear(2026)).toBe(53);
-    expect(weeksInISOYear(2025)).toBe(52);
-  });
+  for (const v of fixtures.weeksInISOYear) {
+    it(v.id, () => {
+      expect(weeksInISOYear(v.year)).toBe(v.expected);
+    });
+  }
 
-  it('Jan 1–3 2027 belong to 2026-W53', () => {
-    expect(weekIdForDate(new Date(2027, 0, 1))).toBe('2026-W53');
-    expect(weekIdForDate(new Date(2027, 0, 2))).toBe('2026-W53');
-    expect(weekIdForDate(new Date(2027, 0, 3))).toBe('2026-W53');
-    // Jan 4 2027 is a Monday — first day of 2027-W01
-    expect(weekIdForDate(new Date(2027, 0, 4))).toBe('2027-W01');
-  });
-
-  it('Dec 29 2025 belongs to 2026-W01', () => {
-    expect(weekIdForDate(new Date(2025, 11, 29))).toBe('2026-W01');
-    expect(weekIdForDate(new Date(2025, 11, 28))).toBe('2025-W52');
-  });
-
-  it('zero-pads single-digit weeks', () => {
-    expect(weekIdForDate(new Date(2026, 1, 2))).toBe('2026-W06');
-  });
+  for (const v of fixtures.weekIdForDate) {
+    it(v.id, () => {
+      expect(weekIdForDate(localDate(v.date))).toBe(v.expected);
+    });
+  }
 });
 
 describe('week arithmetic', () => {
-  it('crosses into and out of W53', () => {
-    expect(nextWeekId('2026-W53')).toBe('2027-W01');
-    expect(prevWeekId('2027-W01')).toBe('2026-W53');
-  });
-
-  it('crosses a 52-week year boundary', () => {
-    expect(prevWeekId('2026-W01')).toBe('2025-W52');
-    expect(nextWeekId('2025-W52')).toBe('2026-W01');
-  });
-
-  it('walks ordinary weeks', () => {
-    expect(nextWeekId('2026-W29')).toBe('2026-W30');
-    expect(prevWeekId('2026-W29')).toBe('2026-W28');
-  });
-
-  it('mondayOfWeek returns the ISO Monday', () => {
-    const monday = mondayOfWeek('2026-W29');
-    expect(monday.getDay()).toBe(1);
-    expect(weekIdForDate(monday)).toBe('2026-W29');
-  });
+  for (const v of fixtures.nextWeekId) {
+    it(`next:${v.id}`, () => {
+      expect(nextWeekId(v.input)).toBe(v.expected);
+    });
+  }
+  for (const v of fixtures.prevWeekId) {
+    it(`prev:${v.id}`, () => {
+      expect(prevWeekId(v.input)).toBe(v.expected);
+    });
+  }
+  for (const v of fixtures.mondayOfWeek) {
+    it(v.id, () => {
+      const monday = mondayOfWeek(v.input);
+      expect(monday.getDay()).toBe(v.expectedDayOfWeek);
+      expect(weekIdForDate(monday)).toBe(v.expectedWeekId);
+    });
+  }
 });
 
 describe('d-tag round trip', () => {
-  it('encodes and decodes', () => {
-    expect(dTagForWeek('2026-W29')).toBe('mealplan-2026-W29');
-    expect(weekIdFromDTag('mealplan-2026-W29')).toBe('2026-W29');
-  });
-
-  it('rejects foreign or malformed d-tags', () => {
-    expect(weekIdFromDTag('grocery-abc123')).toBeNull();
-    expect(weekIdFromDTag('mealplan-2026-29')).toBeNull();
-    expect(weekIdFromDTag('mealplan-2026-W99')).toBeNull();
-  });
+  for (const v of fixtures.dTagRoundTrip) {
+    it(v.id, () => {
+      expect(dTagForWeek(v.weekId)).toBe(v.dTag);
+      expect(weekIdFromDTag(v.dTag)).toBe(v.weekId);
+    });
+  }
+  for (const v of fixtures.weekIdFromDTagReject) {
+    it(v.id, () => {
+      expect(weekIdFromDTag(v.input)).toBe(v.expected);
+    });
+  }
 });
 
 describe('validation', () => {
-  it('accepts real weeks and rejects out-of-range ones', () => {
-    expect(isValidWeekId('2026-W53')).toBe(true); // 53-week year
-    expect(isValidWeekId('2025-W53')).toBe(false); // 52-week year
-    expect(isValidWeekId('2026-W00')).toBe(false);
-    expect(isValidWeekId('2026-W54')).toBe(false);
-    expect(isValidWeekId('26-W05')).toBe(false);
-    expect(isValidWeekId('garbage')).toBe(false);
-    expect(parseWeekId('2026-W29')).toEqual({ year: 2026, week: 29 });
-  });
+  for (const v of fixtures.isValidWeekId) {
+    it(v.id, () => {
+      expect(isValidWeekId(v.input)).toBe(v.expected);
+    });
+  }
+  for (const v of fixtures.parseWeekId) {
+    it(v.id, () => {
+      expect(parseWeekId(v.input)).toEqual(v.expected);
+    });
+  }
 });
 
 describe('display range', () => {
-  it('formats a same-month week', () => {
-    // 2026-W29: Mon Jul 13 – Sun Jul 19
-    expect(weekDisplayRange('2026-W29')).toBe('Week 29 (Jul 13–19)');
-  });
-
-  it('formats a cross-month week', () => {
-    // 2026-W27: Mon Jun 29 – Sun Jul 5
-    expect(weekDisplayRange('2026-W27')).toBe('Week 27 (Jun 29–Jul 5)');
-  });
+  for (const v of fixtures.weekDisplayRange) {
+    it(v.id, () => {
+      expect(weekDisplayRange(v.input)).toBe(v.expected);
+    });
+  }
 });
