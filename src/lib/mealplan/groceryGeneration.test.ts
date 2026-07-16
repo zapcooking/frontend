@@ -9,6 +9,7 @@ import {
 } from './groceryGeneration';
 import { createEmptyMealPlan, type MealPlan } from './schema';
 import type { ParsedIngredient } from '$lib/utils/ingredientParser';
+import fixtures from '../../test/fixtures/grocery-generation.vectors.json';
 
 function planWith(days: MealPlan['days']): MealPlan {
   return { ...createEmptyMealPlan('2026-W29'), days };
@@ -19,70 +20,34 @@ function ing(name: string, quantity: string): ParsedIngredient {
 }
 
 describe('collectWeekRecipeSlots', () => {
-  it('collects unique coordinates in day/slot order and counts text entries', () => {
-    const plan = planWith({
-      mon: {
-        slots: {
-          breakfast: { type: 'text', text: 'Coffee' },
-          dinner: { type: 'recipe', a: '30023:pk:curry' }
-        }
-      },
-      wed: {
-        slots: {
-          lunch: { type: 'recipe', a: '30023:pk:salad' },
-          dinner: { type: 'recipe', a: '30023:pk:curry' } // repeat
-        }
-      },
-      sun: { slots: { lunch: { type: 'text', text: 'Eating out' } } }
+  for (const v of fixtures.collectWeekRecipeSlots) {
+    it(v.id, () => {
+      const plan = planWith(v.days as MealPlan['days']);
+      expect(collectWeekRecipeSlots(plan)).toEqual(v.expected);
     });
-
-    const result = collectWeekRecipeSlots(plan);
-    expect(result.aTags).toEqual(['30023:pk:curry', '30023:pk:salad']);
-    expect(result.textCount).toBe(2);
-    expect(result.recipeSlotCount).toBe(3);
-  });
-
-  it('handles an empty week', () => {
-    expect(collectWeekRecipeSlots(planWith({}))).toEqual({
-      aTags: [],
-      textCount: 0,
-      recipeSlotCount: 0
-    });
-  });
+  }
 });
 
 describe('dedupeIngredients (approved v1: exact-match collapse, no merging)', () => {
-  it('collapses exact (name, quantity) duplicates keeping the first recipeId', () => {
-    const rows: GenerationRow[] = [
-      { ingredient: ing('olive oil', '2 tbsp'), recipeId: 'r1' },
-      { ingredient: ing('rice', '1 cup'), recipeId: 'r1' },
-      { ingredient: ing('olive oil', '2 tbsp'), recipeId: 'r2' } // exact dup
-    ];
-    const out = dedupeIngredients(rows);
-    expect(out).toHaveLength(2);
-    expect(out[0].recipeId).toBe('r1');
-  });
-
-  it('does NOT merge same name with different quantities', () => {
-    const rows: GenerationRow[] = [
-      { ingredient: ing('rice', '1 cup'), recipeId: 'r1' },
-      { ingredient: ing('rice', '2 cup'), recipeId: 'r2' }
-    ];
-    expect(dedupeIngredients(rows)).toHaveLength(2);
-  });
-
-  it('name match is case-insensitive, quantity verbatim', () => {
-    const rows: GenerationRow[] = [
-      { ingredient: ing('Olive Oil', '2 tbsp'), recipeId: 'r1' },
-      { ingredient: ing('olive oil', '2 tbsp'), recipeId: 'r2' },
-      { ingredient: ing('olive oil', '2 Tbsp'), recipeId: 'r3' } // quantity differs
-    ];
-    expect(dedupeIngredients(rows)).toHaveLength(2);
-  });
+  for (const v of fixtures.dedupeIngredients) {
+    it(v.id, () => {
+      const rows: GenerationRow[] = v.rows.map((r) => ({
+        ingredient: ing(r.name, r.quantity),
+        recipeId: r.recipeId
+      }));
+      const out = dedupeIngredients(rows);
+      expect(out).toHaveLength(v.expectedLength);
+      if (v.expectedFirstRecipeId) {
+        expect(out[0].recipeId).toBe(v.expectedFirstRecipeId);
+      }
+    });
+  }
 });
 
 describe('groceryListTitle', () => {
-  it('titles by week display range', () => {
-    expect(groceryListTitle('2026-W29')).toBe('Groceries — Week 29 (Jul 13–19)');
-  });
+  for (const v of fixtures.groceryListTitle) {
+    it(v.id, () => {
+      expect(groceryListTitle(v.weekId)).toBe(v.expected);
+    });
+  }
 });

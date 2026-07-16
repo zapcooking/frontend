@@ -6,124 +6,124 @@ import {
   MEALPLAN_SCHEMA_VERSION,
   type MealPlan
 } from './schema';
+import fixtures from '../../test/fixtures/mealplan-schema.vectors.json';
 
-const WEEK = '2026-W29';
+const WEEK = fixtures.week;
 
-function validPayload(): Record<string, unknown> {
-  return {
-    schemaVersion: 1,
-    week: WEEK,
-    days: {
-      mon: {
-        slots: {
-          breakfast: { type: 'recipe', a: '30023:abc:shakshuka', title: 'Shakshuka' },
-          lunch: { type: 'text', text: 'Leftovers' }
-        },
-        notes: 'prep the night before'
-      }
-    },
-    notes: 'light week',
-    createdAt: 1789000000,
-    updatedAt: 1789000123
-  };
+function resolvePayload(ref: unknown): Record<string, unknown> | unknown {
+  if (ref === '$validPayload') {
+    return JSON.parse(JSON.stringify(fixtures.validPayload));
+  }
+  return ref;
 }
 
-describe('validateMealPlanPayload', () => {
-  it('accepts both tagged-union branches', () => {
-    const result = validateMealPlanPayload(validPayload(), WEEK);
-    expect(result).not.toBeNull();
-    const { plan, readOnly } = result!;
-    expect(readOnly).toBe(false);
-    expect(plan.days.mon?.slots?.breakfast).toEqual({
-      type: 'recipe',
-      a: '30023:abc:shakshuka',
-      title: 'Shakshuka'
+function applyOverrides(
+  payload: Record<string, unknown>,
+  overrides?: Record<string, unknown>
+): Record<string, unknown> {
+  if (!overrides) return payload;
+  return { ...payload, ...overrides };
+}
+
+describe('validateMealPlanPayload (fixture-driven)', () => {
+  for (const c of fixtures.cases) {
+    it(c.id, () => {
+      switch (c.kind) {
+        case 'validate': {
+          const base = resolvePayload(c.payload) as Record<string, unknown>;
+          const payload = applyOverrides(base, c.overrides as Record<string, unknown> | undefined);
+          const result = validateMealPlanPayload(payload, WEEK);
+          expect(result).not.toBeNull();
+          const { plan, readOnly } = result!;
+          const exp = c.expected as Record<string, unknown>;
+          if ('readOnly' in exp) expect(readOnly).toBe(exp.readOnly);
+          if ('schemaVersion' in exp) expect(plan.schemaVersion).toBe(exp.schemaVersion);
+          if ('week' in exp) expect(plan.week).toBe(exp.week);
+          if ('breakfast' in exp) expect(plan.days.mon?.slots?.breakfast).toEqual(exp.breakfast);
+          if ('lunch' in exp) expect(plan.days.mon?.slots?.lunch).toEqual(exp.lunch);
+          if ('dayNotes' in exp) expect(plan.days.mon?.notes).toBe(exp.dayNotes);
+          if ('weekNotes' in exp) expect(plan.notes).toBe(exp.weekNotes);
+          if ('createdAt' in exp) expect(plan.createdAt).toBe(exp.createdAt);
+          if (exp.breakfastPresent) expect(plan.days.mon?.slots?.breakfast).toBeDefined();
+          break;
+        }
+        case 'roundTrip': {
+          const original = resolvePayload(c.payload) as Record<string, unknown>;
+          const validated = validateMealPlanPayload(
+            JSON.parse(JSON.stringify(original)),
+            WEEK
+          )!;
+          const roundTripped = JSON.parse(serializeMealPlan(validated.plan));
+          expect(roundTripped).toEqual(original);
+          break;
+        }
+        case 'unknownFields': {
+          const payload = resolvePayload(c.payload) as Record<string, unknown>;
+          const inject = c.inject as {
+            top: Record<string, unknown>;
+            day: Record<string, unknown>;
+            slot: Record<string, unknown>;
+          };
+          Object.assign(payload, inject.top);
+          Object.assign((payload.days as any).mon, inject.day);
+          Object.assign((payload.days as any).mon.slots.breakfast, inject.slot);
+          const { plan } = validateMealPlanPayload(payload, WEEK)!;
+          const serialized = JSON.parse(serializeMealPlan(plan));
+          const exp = c.expected as Record<string, unknown>;
+          expect(serialized.futureFeature).toEqual(exp.futureFeature);
+          expect(serialized.days.mon.dayLevelExtra).toBe(exp.dayLevelExtra);
+          expect(serialized.days.mon.slots.breakfast.servings).toBe(exp.servings);
+          break;
+        }
+        case 'dropInvalidSlots': {
+          const payload = resolvePayload(c.payload) as Record<string, unknown>;
+          Object.assign((payload.days as any).mon.slots, c.injectSlots);
+          const { plan } = validateMealPlanPayload(payload, WEEK)!;
+          const exp = c.expected as Record<string, unknown>;
+          if (exp.dinnerAbsent) expect(plan.days.mon?.slots?.dinner).toBeUndefined();
+          if (exp.snackAbsent) expect(plan.days.mon?.slots?.snack).toBeUndefined();
+          if (exp.breakfastPresent) expect(plan.days.mon?.slots?.breakfast).toBeDefined();
+          if ('dayNotes' in exp) expect(plan.days.mon?.notes).toBe(exp.dayNotes);
+          break;
+        }
+        case 'ignoreUnknownDays': {
+          const payload = resolvePayload(c.payload) as Record<string, unknown>;
+          Object.assign(payload.days as object, c.injectDays);
+          const { plan } = validateMealPlanPayload(payload, WEEK)!;
+          expect((plan.days as any).funday).toBeUndefined();
+          expect(plan.days.tue).toBeUndefined();
+          break;
+        }
+        case 'defaults': {
+          const result = validateMealPlanPayload(c.payload as Record<string, unknown>, WEEK)!;
+          const exp = c.expected as Record<string, unknown>;
+          expect(result.readOnly).toBe(exp.readOnly);
+          expect(result.plan.schemaVersion).toBe(exp.schemaVersion);
+          expect(result.plan.week).toBe(exp.week);
+          expect(result.plan.days).toEqual(exp.days);
+          if (exp.createdAtPositive) expect(result.plan.createdAt).toBeGreaterThan(0);
+          break;
+        }
+        case 'reject': {
+          for (const p of c.payloads as unknown[]) {
+            expect(validateMealPlanPayload(p, WEEK)).toBeNull();
+          }
+          break;
+        }
+        case 'createEmpty': {
+          const plan: MealPlan = createEmptyMealPlan(WEEK);
+          const exp = c.expected as Record<string, unknown>;
+          expect(plan.schemaVersion).toBe(MEALPLAN_SCHEMA_VERSION);
+          expect(plan.schemaVersion).toBe(exp.schemaVersion);
+          expect(plan.week).toBe(exp.week);
+          expect(plan.days).toEqual(exp.days);
+          const validated = validateMealPlanPayload(JSON.parse(serializeMealPlan(plan)), WEEK);
+          expect(validated?.readOnly).toBe(exp.readOnly);
+          break;
+        }
+        default:
+          throw new Error(`unknown case kind: ${(c as { kind: string }).kind}`);
+      }
     });
-    expect(plan.days.mon?.slots?.lunch).toEqual({ type: 'text', text: 'Leftovers' });
-    expect(plan.days.mon?.notes).toBe('prep the night before');
-    expect(plan.notes).toBe('light week');
-    expect(plan.createdAt).toBe(1789000000);
-  });
-
-  it('round-trips: encode → validate → serialize preserves the payload', () => {
-    const original = validPayload();
-    const validated = validateMealPlanPayload(JSON.parse(JSON.stringify(original)), WEEK)!;
-    const roundTripped = JSON.parse(serializeMealPlan(validated.plan));
-    expect(roundTripped).toEqual(original);
-  });
-
-  it('preserves unknown fields at top, day, and slot level', () => {
-    const payload = validPayload();
-    payload.futureFeature = { some: 'data' };
-    (payload.days as any).mon.dayLevelExtra = 42;
-    (payload.days as any).mon.slots.breakfast.servings = 3;
-
-    const { plan } = validateMealPlanPayload(payload, WEEK)!;
-    const serialized = JSON.parse(serializeMealPlan(plan));
-    expect(serialized.futureFeature).toEqual({ some: 'data' });
-    expect(serialized.days.mon.dayLevelExtra).toBe(42);
-    expect(serialized.days.mon.slots.breakfast.servings).toBe(3);
-  });
-
-  it('flags schemaVersion > 1 as read-only without dropping content', () => {
-    const payload = validPayload();
-    payload.schemaVersion = 2;
-    const result = validateMealPlanPayload(payload, WEEK)!;
-    expect(result.readOnly).toBe(true);
-    expect(result.plan.schemaVersion).toBe(2);
-    expect(result.plan.days.mon?.slots?.breakfast).toBeDefined();
-  });
-
-  it('the d-tag week wins over a mismatched payload week', () => {
-    const payload = validPayload();
-    payload.week = '2020-W01';
-    const { plan } = validateMealPlanPayload(payload, WEEK)!;
-    expect(plan.week).toBe(WEEK);
-  });
-
-  it('drops invalid slot entries but keeps the rest of the day', () => {
-    const payload = validPayload();
-    (payload.days as any).mon.slots.dinner = { type: 'recipe' }; // missing a
-    (payload.days as any).mon.slots.snack = { type: 'mystery', x: 1 }; // unknown type
-    const { plan } = validateMealPlanPayload(payload, WEEK)!;
-    expect(plan.days.mon?.slots?.dinner).toBeUndefined();
-    expect(plan.days.mon?.slots?.snack).toBeUndefined();
-    expect(plan.days.mon?.slots?.breakfast).toBeDefined();
-    expect(plan.days.mon?.notes).toBe('prep the night before');
-  });
-
-  it('ignores unknown day keys and non-object days', () => {
-    const payload = validPayload();
-    (payload.days as any).funday = { slots: {} };
-    (payload.days as any).tue = 'not a day';
-    const { plan } = validateMealPlanPayload(payload, WEEK)!;
-    expect((plan.days as any).funday).toBeUndefined();
-    expect(plan.days.tue).toBeUndefined();
-  });
-
-  it('defensively defaults missing fields', () => {
-    const { plan, readOnly } = validateMealPlanPayload({}, WEEK)!;
-    expect(readOnly).toBe(false);
-    expect(plan.schemaVersion).toBe(1);
-    expect(plan.week).toBe(WEEK);
-    expect(plan.days).toEqual({});
-    expect(plan.createdAt).toBeGreaterThan(0);
-  });
-
-  it('rejects structurally unusable payloads', () => {
-    expect(validateMealPlanPayload(null, WEEK)).toBeNull();
-    expect(validateMealPlanPayload('a string', WEEK)).toBeNull();
-    expect(validateMealPlanPayload([1, 2], WEEK)).toBeNull();
-  });
-});
-
-describe('createEmptyMealPlan', () => {
-  it('creates a valid v1 skeleton', () => {
-    const plan: MealPlan = createEmptyMealPlan(WEEK);
-    expect(plan.schemaVersion).toBe(MEALPLAN_SCHEMA_VERSION);
-    expect(plan.week).toBe(WEEK);
-    expect(plan.days).toEqual({});
-    const validated = validateMealPlanPayload(JSON.parse(serializeMealPlan(plan)), WEEK);
-    expect(validated?.readOnly).toBe(false);
-  });
+  }
 });

@@ -108,3 +108,28 @@ have been observed producing ciphertext that a later session cannot decrypt. Mat
 grocery contract, clients **write anyway** for NIP-46 users; this caveat is accepted and
 documented rather than blocked. If this policy changes it changes for grocery and meal plans
 together.
+
+## Cross-platform test fixtures
+
+Language-neutral JSON vectors under `src/test/fixtures/` are the **single source of truth** for
+parser / week / schema / grocery-generation behavior shared with Android. Web Vitest suites and
+Android JUnit suites both consume these files. **Fixture changes REQUIRE a matching Android
+update** — Android's copies under `app/src/test/resources/fixtures/` must checksum-match the
+hashes below. Unilateral edits on either side fail the Android checksum drift tests.
+
+| File | sha256 |
+|---|---|
+| `ingredient-parser.vectors.json` | `cc7e0ecae3ee8fac51e3ce46502fc758a30c9022b6a3f3765d49c42914b3ab81` |
+| `week.vectors.json` | `de5c75e648548f0fe38ebe021a03da17a1f3a977ec7b103642bbf0fd066faf30` |
+| `mealplan-schema.vectors.json` | `d8a34927d30a8a636bbc84ed3a384ee5f975d65827ae3302aceffb0239373e18` |
+| `grocery-generation.vectors.json` | `090faff2b486886c0c14fe83e3a4fe48f2b3de8ddff375f18f1e5c1d125508d0` |
+
+Notes:
+
+- `ingredient-parser.vectors.json` pins quirks (plural singularization `"2 cups"` → `"2 cup"`,
+  comma-suffix retention `"eggs, beaten"`) — they are the contract, not bugs to "fix" on one
+  platform.
+- `mealplan-schema.vectors.json` case `default-missing-fields` asserts `createdAt > 0` (wall
+  clock), not a fixed timestamp.
+- After editing any fixture file, recompute sha256 (`shasum -a 256`) and update this table **and**
+  the Android copies in the same change set (or a paired Android PR that lands immediately after).
