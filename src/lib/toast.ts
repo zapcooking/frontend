@@ -33,6 +33,10 @@ export const toasts = writable<ToastMessage[]>([]);
 
 /**
  * Fire a toast. Returns the id so callers can dismiss early if needed.
+ *
+ * Only one toast is shown at a time: a new toast replaces any currently
+ * visible. This keeps a rapid burst (e.g. repeated blocked pastes) from
+ * stacking a column of identical messages.
  */
 export function showToast(
   variant: ToastVariant,
@@ -41,7 +45,7 @@ export function showToast(
   link?: ToastLink
 ): string {
   const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  toasts.update((list) => [...list, { id, variant, message, durationMs, link }]);
+  toasts.set([{ id, variant, message, durationMs, link }]);
   if (durationMs > 0) {
     setTimeout(() => dismissToast(id), durationMs);
   }

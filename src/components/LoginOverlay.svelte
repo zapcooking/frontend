@@ -849,6 +849,7 @@
           placeholder="nsec1..."
           class="input block w-full sm:text-sm p-3"
           disabled={authState.isLoading}
+          data-nsec-field
         />
         {#if nsecError}
           <div class="text-sm" style="color: var(--color-danger, #ef4444)">{nsecError}</div>
