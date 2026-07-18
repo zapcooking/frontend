@@ -6,8 +6,14 @@
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
   import type { PageData } from './$types';
-  import { RECIPE_TAGS } from '$lib/consts';
+  import { RECIPE_TAGS, isHiddenRecipeCoordinate } from '$lib/consts';
   import { feedCacheService } from '$lib/feedCache';
+
+  function isDisplayableRecipe(event: NDKEvent): boolean {
+    const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+    if (isHiddenRecipeCoordinate(event.kind, event.pubkey, dTag)) return false;
+    return validateMarkdownTemplate(event.content) !== null;
+  }
 
   export const data: PageData = {} as PageData;
 
@@ -115,8 +121,8 @@
             if (getCurrentRelayGeneration() !== startGeneration) {
               console.log('🚫 Relay changed during cache fetch, ignoring cached data');
             } else {
-              // Filter cached events for valid recipes
-              events = cached.filter(e => validateMarkdownTemplate(e.content) !== null);
+              // Filter cached events for valid (non-hidden) recipes
+              events = cached.filter(isDisplayableRecipe);
               loaded = true;
               console.log(`⚡ Cache hit: ${events.length} recipes in ${(performance.now() - perfStart).toFixed(0)}ms`);
               return;
@@ -144,7 +150,7 @@
           return;
         }
         
-        if (validateMarkdownTemplate(event.content) !== null) {
+        if (isDisplayableRecipe(event)) {
           fetchedEvents.push(event);
           events = [...fetchedEvents];
 
@@ -256,7 +262,7 @@
         }
         if (seen.has(event.id)) return;
         seen.add(event.id);
-        if (validateMarkdownTemplate(event.content) !== null) {
+        if (isDisplayableRecipe(event)) {
           newEvents.push(event);
         }
       });
