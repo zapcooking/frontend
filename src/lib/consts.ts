@@ -63,11 +63,11 @@ export const HIDDEN_RECIPE_COORDINATES: ReadonlySet<string> = new Set([
 
 /** True when a recipe coordinate is on the permanent /recipes hide list. */
 export function isHiddenRecipeCoordinate(
-  kind: number,
-  pubkey: string,
+  kind: number | undefined | null,
+  pubkey: string | undefined | null,
   dTag: string | undefined | null
 ): boolean {
-  if (!pubkey || !dTag) return false;
+  if (kind == null || !pubkey || !dTag) return false;
   return HIDDEN_RECIPE_COORDINATES.has(`${kind}:${pubkey}:${dTag}`);
 }
 
