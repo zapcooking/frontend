@@ -30,6 +30,7 @@
   import { clearUnwrapCache } from '$lib/nip17';
   import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
   import { preconnectPantry } from '$lib/nip29';
+  import { installNsecPasteGuard } from '$lib/nsecPasteGuard';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
@@ -327,6 +328,9 @@
 
   onMount(async () => {
     try {
+      // Block accidental nsec pastes everywhere except the login/key-import
+      // field (the one place a secret key belongs). Idempotent.
+      installNsecPasteGuard();
       // Detect platform first (iOS, Android, or web)
       detectPlatform();
 
