@@ -51,7 +51,7 @@ Goal: both platforms present the same thing under the same name before adding an
 
 ## Phase 1 — Hub Shell & IA
 
-**Status: Shipped (web)**
+**Status: Shipped (web + Android)**
 
 Goal: a hub landing surface with room for the future sections, without building them yet.
 
@@ -65,7 +65,7 @@ Goal: a hub landing surface with room for the future sections, without building 
 
 ## Phase 2 — Grocery Parity (Android) + Hub Integration
 
-**Status: Not started**
+**Status: Shipped**
 
 Goal: grocery everywhere, fed by recipes.
 
@@ -82,7 +82,7 @@ Goal: grocery everywhere, fed by recipes.
 
 ## Phase 3 — Meal Planner (new feature, new data model)
 
-**Status: In progress**
+**Status: Shipped (web + Android; 3.5 remains open)**
 
 Goal: a week grid of planned meals referencing saved/published recipes; generates the grocery list.
 
