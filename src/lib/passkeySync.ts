@@ -235,8 +235,11 @@ export async function signInWithPasskey(): Promise<SyncSignInResult> {
     prfOutput = new Uint8Array(ext.buffer, ext.byteOffset, ext.byteLength);
   }
   if (!prfOutput || prfOutput.length !== 32) {
-    // Hybrid/QR cross-device assertions historically drop PRF — fail closed,
-    // the overlay falls through to normal login.
+    // Hybrid/QR PRF is client/provider dependent: Android→Chrome and
+    // iOS 18.4+→Chrome return it; Safari-as-client and iOS ≤18.3 drop it —
+    // or worse, pre-18.4 iOS returned a WRONG value over hybrid (Apple bug,
+    // fixed 18.4; see manual-tests P2-6a–c). Fail closed either way — the
+    // overlay falls through to normal login.
     throw new SyncSignInError('This passkey flow did not provide the required key material');
   }
 
