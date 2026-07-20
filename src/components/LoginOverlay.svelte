@@ -13,6 +13,7 @@
   import { createAuthManager, VaultConflictError, type AuthState } from '$lib/authManager';
   import {
     detectSupport,
+    detectHybridTransport,
     getVaultRecord,
     deleteVaultRecord,
     isCeremonyCancelled,
@@ -40,7 +41,8 @@
     PASSKEY_SYNC_ENABLED,
     PASSKEY_SIGNUP_ENABLED,
     shouldOfferSyncSignIn,
-    shouldOfferSignupEnrollment
+    shouldOfferSignupEnrollment,
+    shouldShowHybridPointer
   } from '$lib/passkeySync';
 
   let authManager: any = null;
@@ -148,6 +150,9 @@
   let secureError = '';
   let secureOrphanNote = false;
   let secureSyncOn = true; // R1: default ON
+  // Desktop-Chromium-only pointer under the secure-step button (paraphrased
+  // on purpose — Chrome's sheet strings vary by milestone, never quote them).
+  let secureHybridPointer = false;
 
   // Vault conflict confirmation: signing in with a key that differs from the
   // enrolled vault's account requires an explicit "replace" confirmation
@@ -237,6 +242,18 @@
         detectSupport().then((s) => {
           vaultSupported = s !== 'none';
           vaultSupportLevel = s;
+        });
+      }
+      if (PASSKEY_SIGNUP_ENABLED) {
+        detectHybridTransport().then((hybrid) => {
+          secureHybridPointer = shouldShowHybridPointer({
+            hybridTransport: hybrid,
+            // Safari never carries "Chrome/"; every Chromium derivative does.
+            isChromium: /Chrome\//.test(navigator.userAgent),
+            isDesktop:
+              typeof window.matchMedia === 'function' &&
+              window.matchMedia('(hover: hover) and (pointer: fine)').matches
+          });
         });
       }
       if (vaultRecord) {
@@ -1229,6 +1246,12 @@
               <Button on:click={secureWithPasskey} primary={true} disabled={secureBusy} class="w-full">
                 {secureBusy ? 'Waiting for passkey…' : 'Set up passkey'}
               </Button>
+              {#if secureHybridPointer}
+                <p class="mt-2 text-xs text-caption text-center">
+                  You can also set this up with your phone — choose the option to use another
+                  device when your browser asks.
+                </p>
+              {/if}
               <button
                 type="button"
                 class="block mx-auto mt-3 text-xs text-caption hover:opacity-80 underline"
