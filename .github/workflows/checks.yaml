@@ -11,11 +11,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Guard against the staging-only PASSKEY_SYNC_ENABLED flip reaching main
-  # (e.g. via a staging→main merge or cherry-pick). The flip is committed
-  # directly on the staging branch and must never merge back; production
-  # launch of vault sync is a deliberate main-side change that also updates
-  # this guard.
+  # Launched flags are pinned TRUE, pre-launch flags pinned FALSE — either
+  # kind of stray flip (a rollback merged by accident, or a staging-only
+  # change reaching main) must fail CI. Changing a flag deliberately means
+  # updating its guard in the same PR.
   flag-guard:
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -23,22 +22,23 @@ jobs:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
 
-      - name: PASSKEY_SYNC_ENABLED must be false on main 🚫
+      - name: PASSKEY_SYNC_ENABLED must be true on main 🚫
         run: |
-          if ! grep -q "export const PASSKEY_SYNC_ENABLED = false" src/lib/passkeySync.ts; then
-            echo "::error file=src/lib/passkeySync.ts::PASSKEY_SYNC_ENABLED is not false."
-            echo "The staging-only flag flip must never reach main. If this is the"
-            echo "deliberate production launch of passkey vault sync, update this guard"
-            echo "in the same PR."
+          if ! grep -q "export const PASSKEY_SYNC_ENABLED = true" src/lib/passkeySync.ts; then
+            echo "::error file=src/lib/passkeySync.ts::PASSKEY_SYNC_ENABLED is not true."
+            echo "Vault sync launched (July 2026). An un-flip silently dark-ships"
+            echo "cross-device sign-in — if this is a deliberate rollback, update"
+            echo "this guard in the same PR."
             exit 1
           fi
 
-      - name: PASSKEY_SIGNUP_ENABLED must be false on main 🚫
+      - name: PASSKEY_SIGNUP_ENABLED must be true on main 🚫
         run: |
-          if ! grep -q "export const PASSKEY_SIGNUP_ENABLED = false" src/lib/passkeySync.ts; then
-            echo "::error file=src/lib/passkeySync.ts::PASSKEY_SIGNUP_ENABLED is not false."
-            echo "Launch flips SIGNUP and SYNC together in one deliberate PR that"
-            echo "updates this guard (R3 ruling). A stray flip must not reach main."
+          if ! grep -q "export const PASSKEY_SIGNUP_ENABLED = true" src/lib/passkeySync.ts; then
+            echo "::error file=src/lib/passkeySync.ts::PASSKEY_SIGNUP_ENABLED is not true."
+            echo "Passkey-first signup launched with SYNC (R3: both flip together)."
+            echo "An un-flip silently removes the Secure-your-account step — if this"
+            echo "is a deliberate rollback, update this guard in the same PR."
             exit 1
           fi
 
