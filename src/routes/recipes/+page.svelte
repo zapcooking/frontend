@@ -48,13 +48,16 @@
   let recipeWeeksLoaded = false;
   let recipeWeeksError = false;
 
-  // Last element = current Monday-start UTC week → the pill number.
-  $: newThisWeek = recipeWeeks.length ? recipeWeeks[recipeWeeks.length - 1].count : 0;
-  // Show only on a clean, non-empty series AND when this week actually has
-  // new recipes — a "0 new this week" pill isn't worth showing. Failing
-  // silent is correct for a nice-to-have signal.
+  // Sum the two most-recent Monday-start UTC weeks → the pill number. A
+  // single-week window reads as empty early in the week (few recipes yet);
+  // a rolling 2-week window stays meaningful. slice(-2) safely handles a
+  // series shorter than 2 elements.
+  $: recentCount = recipeWeeks.slice(-2).reduce((sum, w) => sum + w.count, 0);
+  // Show only on a clean, non-empty series AND when the window actually has
+  // new recipes — a "0" pill isn't worth showing. Failing silent is correct
+  // for a nice-to-have signal.
   $: showStatsPill =
-    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && newThisWeek > 0;
+    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && recentCount > 0;
 
   async function loadRecipesByWeek() {
     try {
@@ -495,7 +498,7 @@
       </a>
     </div>
 
-    <!-- "New recipes this week" pill: glanceable stat + inline sparkline.
+    <!-- "New recipes" pill: glanceable 2-week stat + inline sparkline.
          Hidden until the stats land (loading = render nothing) and hidden
          on any error/empty/all-zero result. Never blocks the feed. -->
     {#if showStatsPill}
@@ -503,12 +506,13 @@
         <span
           class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
           style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-primary)"
-          title="New recipes added to the Pantry per week (UTC)"
+          title="New recipes added to the Pantry in the last 2 weeks (bars are weekly, UTC)"
         >
           <span aria-hidden="true">🆕</span>
-          <span>{newThisWeek} new this week</span>
+          <span>{recentCount} new recipes</span>
           <!-- Inline sparkline: one thin bar per week over the 12-week
-               series, height scaled to the series max. No axes/labels. -->
+               series, height scaled to the series max. The last two bars
+               (the counted window) are highlighted. No axes/labels. -->
           <svg
             class="shrink-0"
             width="90"
@@ -522,16 +526,15 @@
               {@const barHeight = recipeWeeksMax
                 ? Math.max(1, (week.count / recipeWeeksMax) * 18)
                 : 1}
+              {@const inWindow = i >= recipeWeeks.length - 2}
               <rect
                 x={i * 7.5 + 1}
                 y={20 - barHeight}
                 width="5.5"
                 height={barHeight}
                 rx="1"
-                fill={i === recipeWeeks.length - 1
-                  ? 'var(--color-primary)'
-                  : 'var(--color-text-secondary)'}
-                opacity={i === recipeWeeks.length - 1 ? '1' : '0.55'}
+                fill={inWindow ? 'var(--color-primary)' : 'var(--color-text-secondary)'}
+                opacity={inWindow ? '1' : '0.55'}
               />
             {/each}
           </svg>
