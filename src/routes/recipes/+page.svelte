@@ -48,8 +48,11 @@
   let recipeWeeksLoaded = false;
   let recipeWeeksError = false;
 
-  // Hero number = the most-recent week's count (last entry = "this week").
-  $: thisWeekCount = recipeWeeks.length ? recipeWeeks[recipeWeeks.length - 1].count : 0;
+  // Hero number = new recipes over the last 3 weeks (rolling window). A
+  // shorter window reads as empty early in the week (few recipes yet); a
+  // 3-week window stays meaningful. slice(-3) safely handles a series
+  // shorter than 3 elements.
+  $: recentCount = recipeWeeks.slice(-3).reduce((sum, w) => sum + w.count, 0);
 
   // Single brand-consistent green for the whole ticker (number, arrow,
   // line, dot). The theme has no green token, so define one local constant.
@@ -86,7 +89,7 @@
   // new recipes. Loading / error / empty / all-zero all fall through to
   // hidden — failing silent is correct for a nice-to-have signal.
   $: showTrend =
-    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && thisWeekCount > 0;
+    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && recentCount > 0;
 
   async function loadRecipesByWeek() {
     try {
@@ -535,12 +538,12 @@
     {#if showTrend}
       <div
         class="flex items-baseline gap-2.5 pt-1"
-        title="New recipes added to the Pantry per week (UTC); latest week highlighted"
+        title="New recipes added to the Pantry over the last 3 weeks (line is weekly, UTC)"
       >
         <span class="text-2xl font-semibold leading-none" style="color: {TREND_GREEN}">
-          <span aria-hidden="true">↑</span>{thisWeekCount}
+          <span aria-hidden="true">↑</span>{recentCount}
         </span>
-        <span class="text-xs" style="color: var(--color-text-secondary)">new this week</span>
+        <span class="text-xs" style="color: var(--color-text-secondary)">new recently</span>
         <svg
           class="shrink-0 self-center"
           width={SPARK_W}
