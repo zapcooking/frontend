@@ -31,6 +31,47 @@
   let events: NDKEvent[] = [];
   let loaded = false;
 
+  // ─── "New recipes this week" pill ────────────────────────────────
+  // Glanceable stat fetched from the SAME server-side proxy the /pantry
+  // card uses (holds the relay secret server-side). This is a
+  // nice-to-have signal, fully isolated from the recipe feed: its fetch
+  // can never block or fail the feed, and any error/empty/all-zero
+  // result simply hides the pill. Note the count is a superset of the
+  // feed (kinds 30023 + 35000, all Pantry recipes) — an accepted product
+  // choice, not filtered to match the 30023-only feed.
+  interface RecipeWeek {
+    week_start: string;
+    count: number;
+  }
+  let recipeWeeks: RecipeWeek[] = [];
+  let recipeWeeksMax = 0;
+  let recipeWeeksLoaded = false;
+  let recipeWeeksError = false;
+
+  // Last element = current Monday-start UTC week → the pill number.
+  $: newThisWeek = recipeWeeks.length ? recipeWeeks[recipeWeeks.length - 1].count : 0;
+  // Show only on a clean, non-empty series AND when this week actually has
+  // new recipes — a "0 new this week" pill isn't worth showing. Failing
+  // silent is correct for a nice-to-have signal.
+  $: showStatsPill =
+    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && newThisWeek > 0;
+
+  async function loadRecipesByWeek() {
+    try {
+      const res = await fetch('/api/pantry/recipes-by-week');
+      if (!res.ok) throw new Error(`stats request failed: ${res.status}`);
+      const data = await res.json();
+      const weeks: RecipeWeek[] = Array.isArray(data?.weeks) ? data.weeks : [];
+      recipeWeeks = weeks;
+      recipeWeeksMax = weeks.reduce((m, w) => Math.max(m, w.count), 0);
+      recipeWeeksLoaded = true;
+    } catch (err) {
+      // Quiet failure — the pill just stays hidden, feed is unaffected.
+      console.warn('[Recipes] weekly stats unavailable:', err);
+      recipeWeeksError = true;
+    }
+  }
+
   // Cache filter for consistent cache keys
   const cacheFilter = { kinds: [30023], '#t': RECIPE_TAGS };
 
@@ -380,6 +421,9 @@
 
   onMount(() => {
     loadRecipes();
+    // Fire-and-forget: isolated from the feed so a stats failure or slow
+    // response can never affect recipe loading.
+    loadRecipesByWeek();
   });
 
   onDestroy(() => {
@@ -450,6 +494,50 @@
         Premium ⚡️
       </a>
     </div>
+
+    <!-- "New recipes this week" pill: glanceable stat + inline sparkline.
+         Hidden until the stats land (loading = render nothing) and hidden
+         on any error/empty/all-zero result. Never blocks the feed. -->
+    {#if showStatsPill}
+      <div class="flex">
+        <span
+          class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
+          style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-primary)"
+          title="New recipes added to the Pantry per week (UTC)"
+        >
+          <span aria-hidden="true">🆕</span>
+          <span>{newThisWeek} new this week</span>
+          <!-- Inline sparkline: one thin bar per week over the 12-week
+               series, height scaled to the series max. No axes/labels. -->
+          <svg
+            class="shrink-0"
+            width="90"
+            height="20"
+            viewBox="0 0 90 20"
+            preserveAspectRatio="none"
+            role="img"
+            aria-label="New recipes per week over the last {recipeWeeks.length} weeks"
+          >
+            {#each recipeWeeks as week, i (week.week_start)}
+              {@const barHeight = recipeWeeksMax
+                ? Math.max(1, (week.count / recipeWeeksMax) * 18)
+                : 1}
+              <rect
+                x={i * 7.5 + 1}
+                y={20 - barHeight}
+                width="5.5"
+                height={barHeight}
+                rx="1"
+                fill={i === recipeWeeks.length - 1
+                  ? 'var(--color-primary)'
+                  : 'var(--color-text-secondary)'}
+                opacity={i === recipeWeeks.length - 1 ? '1' : '0.55'}
+              />
+            {/each}
+          </svg>
+        </span>
+      </div>
+    {/if}
 
     <!-- Orientation text for signed-out users -->
     {#if $userPublickey === ''}
