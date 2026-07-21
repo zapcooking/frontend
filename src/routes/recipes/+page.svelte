@@ -48,21 +48,22 @@
   let recipeWeeksLoaded = false;
   let recipeWeeksError = false;
 
-  // Hero number = new recipes over the last 3 weeks (rolling window). A
-  // shorter window reads as empty early in the week (few recipes yet); a
-  // 3-week window stays meaningful. slice(-3) safely handles a series
-  // shorter than 3 elements.
-  $: recentCount = recipeWeeks.slice(-3).reduce((sum, w) => sum + w.count, 0);
+  // Hero number = the most-recent week's count (last entry = "this week").
+  $: thisWeekCount = recipeWeeks.length ? recipeWeeks[recipeWeeks.length - 1].count : 0;
 
-  // Single brand-consistent green for the whole ticker (number, arrow,
-  // line, dot). The theme has no green token, so define one local constant.
-  const TREND_GREEN = '#16a34a';
+  // Brand palette for the trend, aligned to Zap Cooking's warm identity:
+  // the number + arrow use --color-primary (the canonical brand orange,
+  // theme-aware), and the sparkline traces an orange→amber gradient that
+  // echoes the active-tab underline (from-orange-500 to-amber-500). The
+  // trend always reads "up" — a positive, on-brand signal.
+  const BRAND_GRAD_FROM = '#f97316'; // orange-500
+  const BRAND_GRAD_TO = '#f59e0b'; // amber-500
 
-  // Sparkline geometry: a thin polyline over the 12-week series, y-scaled to
-  // the series max (Math.max guard vs. div-by-0), with a dot on the last
-  // point to anchor "now" and a faint gradient fill underneath.
-  const SPARK_W = 112;
-  const SPARK_H = 24;
+  // Sparkline geometry: a smooth curve over the 12-week series, y-scaled to
+  // the series max (Math.max guard vs. div-by-0), with a soft gradient area
+  // fill underneath and a dot on the last point to anchor "now".
+  const SPARK_W = 96;
+  const SPARK_H = 22;
   const SPARK_PAD = 3;
   $: sparkMax = Math.max(recipeWeeksMax, 1);
   $: sparkX = (i: number) =>
@@ -71,25 +72,41 @@
       : SPARK_PAD + (i / (recipeWeeks.length - 1)) * (SPARK_W - SPARK_PAD * 2);
   $: sparkY = (count: number) =>
     SPARK_PAD + (1 - count / sparkMax) * (SPARK_H - SPARK_PAD * 2);
-  $: sparkPoints = recipeWeeks
-    .map((w, i) => `${sparkX(i).toFixed(1)},${sparkY(w.count).toFixed(1)}`)
-    .join(' ');
-  // Close the polyline down to the baseline on both ends for the fill area.
-  $: sparkAreaPoints = recipeWeeks.length
-    ? `${sparkPoints} ${sparkX(recipeWeeks.length - 1).toFixed(1)},${SPARK_H} ${sparkX(0).toFixed(1)},${SPARK_H}`
+  $: sparkPts = recipeWeeks.map((w, i) => ({ x: sparkX(i), y: sparkY(w.count) }));
+
+  // Build a smooth SVG path from the points using a Catmull-Rom spline
+  // converted to cubic béziers — no hard zig-zag corners like a raw
+  // polyline. Falls back to a flat "M…L…" for 0/1-point edge cases.
+  function smoothPath(pts: { x: number; y: number }[]): string {
+    if (pts.length === 0) return '';
+    if (pts.length === 1) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] ?? pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2] ?? p2;
+      const c1x = p1.x + (p2.x - p0.x) / 6;
+      const c1y = p1.y + (p2.y - p0.y) / 6;
+      const c2x = p2.x - (p3.x - p1.x) / 6;
+      const c2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    }
+    return d;
+  }
+  $: sparkLinePath = smoothPath(sparkPts);
+  // Same curve, then down to the baseline on both ends and closed — the
+  // soft gradient area fill under the stroke.
+  $: sparkAreaPath = sparkPts.length
+    ? `${sparkLinePath} L ${sparkPts[sparkPts.length - 1].x.toFixed(1)} ${SPARK_H} L ${sparkPts[0].x.toFixed(1)} ${SPARK_H} Z`
     : '';
-  $: sparkLastPoint = recipeWeeks.length
-    ? {
-        x: sparkX(recipeWeeks.length - 1).toFixed(1),
-        y: sparkY(recipeWeeks[recipeWeeks.length - 1].count).toFixed(1)
-      }
-    : null;
+  $: sparkLastPoint = sparkPts.length ? sparkPts[sparkPts.length - 1] : null;
 
   // Show only on a clean, non-empty series AND when this week actually has
   // new recipes. Loading / error / empty / all-zero all fall through to
   // hidden — failing silent is correct for a nice-to-have signal.
   $: showTrend =
-    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && recentCount > 0;
+    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && thisWeekCount > 0;
 
   async function loadRecipesByWeek() {
     try {
@@ -537,15 +554,17 @@
          feed. -->
     {#if showTrend}
       <div
-        class="flex items-baseline gap-2.5 pt-1"
-        title="New recipes added to the Pantry over the last 3 weeks (line is weekly, UTC)"
+        class="flex items-center gap-1.5 pt-1"
+        title="New recipes added to the Pantry this week (line is weekly, UTC)"
       >
-        <span class="text-2xl font-semibold leading-none" style="color: {TREND_GREEN}">
-          <span aria-hidden="true">↑</span>{recentCount}
+        <span class="text-sm font-semibold leading-none" style="color: var(--color-primary)">
+          <span aria-hidden="true">↑</span>{thisWeekCount}
         </span>
-        <span class="text-xs" style="color: var(--color-text-secondary)">new recently</span>
+        <span class="text-xs leading-none" style="color: var(--color-text-secondary)"
+          >new this week</span
+        >
         <svg
-          class="shrink-0 self-center"
+          class="shrink-0"
           width={SPARK_W}
           height={SPARK_H}
           viewBox="0 0 {SPARK_W} {SPARK_H}"
@@ -554,22 +573,26 @@
           aria-label="New recipes per week over the last {recipeWeeks.length} weeks"
         >
           <defs>
+            <linearGradient id="recipesTrendStroke" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color={BRAND_GRAD_FROM} />
+              <stop offset="100%" stop-color={BRAND_GRAD_TO} />
+            </linearGradient>
             <linearGradient id="recipesTrendFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color={TREND_GREEN} stop-opacity="0.16" />
-              <stop offset="100%" stop-color={TREND_GREEN} stop-opacity="0" />
+              <stop offset="0%" stop-color={BRAND_GRAD_FROM} stop-opacity="0.20" />
+              <stop offset="100%" stop-color={BRAND_GRAD_FROM} stop-opacity="0" />
             </linearGradient>
           </defs>
-          <polygon points={sparkAreaPoints} fill="url(#recipesTrendFill)" stroke="none" />
-          <polyline
-            points={sparkPoints}
+          <path d={sparkAreaPath} fill="url(#recipesTrendFill)" stroke="none" />
+          <path
+            d={sparkLinePath}
             fill="none"
-            stroke={TREND_GREEN}
+            stroke="url(#recipesTrendStroke)"
             stroke-width="1.5"
             stroke-linecap="round"
             stroke-linejoin="round"
           />
           {#if sparkLastPoint}
-            <circle cx={sparkLastPoint.x} cy={sparkLastPoint.y} r="2.5" fill={TREND_GREEN} />
+            <circle cx={sparkLastPoint.x.toFixed(1)} cy={sparkLastPoint.y.toFixed(1)} r="2" fill={BRAND_GRAD_TO} />
           {/if}
         </svg>
       </div>
