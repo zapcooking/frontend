@@ -48,8 +48,11 @@
   let recipeWeeksLoaded = false;
   let recipeWeeksError = false;
 
-  // Hero number = the most-recent week's count (last entry = "this week").
-  $: thisWeekCount = recipeWeeks.length ? recipeWeeks[recipeWeeks.length - 1].count : 0;
+  // Hero number = new recipes over the last 3 weeks (rolling window). A
+  // shorter window reads as empty early in the week (few recipes yet); a
+  // 3-week sum stays meaningful. slice(-3) safely handles a series shorter
+  // than 3 elements.
+  $: recentCount = recipeWeeks.slice(-3).reduce((sum, w) => sum + w.count, 0);
 
   // Brand palette for the trend, aligned to Zap Cooking's warm identity:
   // the number + arrow use --color-primary (the canonical brand orange,
@@ -106,7 +109,7 @@
   // new recipes. Loading / error / empty / all-zero all fall through to
   // hidden — failing silent is correct for a nice-to-have signal.
   $: showTrend =
-    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && thisWeekCount > 0;
+    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && recentCount > 0;
 
   async function loadRecipesByWeek() {
     try {
@@ -547,21 +550,21 @@
       </a>
     </div>
 
-    <!-- Quiet stock-ticker-style "new this week" trend. No container/card:
-         a green hero number + up-arrow, a muted label, and a thin green
-         sparkline anchored with a dot on the latest week. Hidden while
-         loading and on any error/empty/all-zero result. Never blocks the
-         feed. -->
+    <!-- Quiet, brand-aligned "new recipes" trend. No container/card: a
+         brand-orange hero number (rolling 3-week new-recipe count) + up-arrow,
+         a muted label, and a smooth orange→amber sparkline anchored with a dot
+         on the latest week. Hidden while loading and on any error/empty/
+         all-zero result. Never blocks the feed. -->
     {#if showTrend}
       <div
         class="flex items-center gap-1.5 pt-1"
-        title="New recipes added to the Pantry this week (line is weekly, UTC)"
+        title="New recipes added to the Pantry over the last 3 weeks (line is weekly, UTC)"
       >
         <span class="text-sm font-semibold leading-none" style="color: var(--color-primary)">
-          <span aria-hidden="true">↑</span>{thisWeekCount}
+          <span aria-hidden="true">↑</span>{recentCount}
         </span>
         <span class="text-xs leading-none" style="color: var(--color-text-secondary)"
-          >new this week</span
+          >new recipes</span
         >
         <svg
           class="shrink-0"
