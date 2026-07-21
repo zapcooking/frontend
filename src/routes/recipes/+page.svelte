@@ -48,16 +48,45 @@
   let recipeWeeksLoaded = false;
   let recipeWeeksError = false;
 
-  // Sum the two most-recent Monday-start UTC weeks → the pill number. A
-  // single-week window reads as empty early in the week (few recipes yet);
-  // a rolling 2-week window stays meaningful. slice(-2) safely handles a
-  // series shorter than 2 elements.
-  $: recentCount = recipeWeeks.slice(-2).reduce((sum, w) => sum + w.count, 0);
-  // Show only on a clean, non-empty series AND when the window actually has
-  // new recipes — a "0" pill isn't worth showing. Failing silent is correct
-  // for a nice-to-have signal.
-  $: showStatsPill =
-    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && recentCount > 0;
+  // Hero number = the most-recent week's count (last entry = "this week").
+  $: thisWeekCount = recipeWeeks.length ? recipeWeeks[recipeWeeks.length - 1].count : 0;
+
+  // Single brand-consistent green for the whole ticker (number, arrow,
+  // line, dot). The theme has no green token, so define one local constant.
+  const TREND_GREEN = '#16a34a';
+
+  // Sparkline geometry: a thin polyline over the 12-week series, y-scaled to
+  // the series max (Math.max guard vs. div-by-0), with a dot on the last
+  // point to anchor "now" and a faint gradient fill underneath.
+  const SPARK_W = 112;
+  const SPARK_H = 24;
+  const SPARK_PAD = 3;
+  $: sparkMax = Math.max(recipeWeeksMax, 1);
+  $: sparkX = (i: number) =>
+    recipeWeeks.length <= 1
+      ? SPARK_W / 2
+      : SPARK_PAD + (i / (recipeWeeks.length - 1)) * (SPARK_W - SPARK_PAD * 2);
+  $: sparkY = (count: number) =>
+    SPARK_PAD + (1 - count / sparkMax) * (SPARK_H - SPARK_PAD * 2);
+  $: sparkPoints = recipeWeeks
+    .map((w, i) => `${sparkX(i).toFixed(1)},${sparkY(w.count).toFixed(1)}`)
+    .join(' ');
+  // Close the polyline down to the baseline on both ends for the fill area.
+  $: sparkAreaPoints = recipeWeeks.length
+    ? `${sparkPoints} ${sparkX(recipeWeeks.length - 1).toFixed(1)},${SPARK_H} ${sparkX(0).toFixed(1)},${SPARK_H}`
+    : '';
+  $: sparkLastPoint = recipeWeeks.length
+    ? {
+        x: sparkX(recipeWeeks.length - 1).toFixed(1),
+        y: sparkY(recipeWeeks[recipeWeeks.length - 1].count).toFixed(1)
+      }
+    : null;
+
+  // Show only on a clean, non-empty series AND when this week actually has
+  // new recipes. Loading / error / empty / all-zero all fall through to
+  // hidden — failing silent is correct for a nice-to-have signal.
+  $: showTrend =
+    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && thisWeekCount > 0;
 
   async function loadRecipesByWeek() {
     try {
@@ -498,47 +527,48 @@
       </a>
     </div>
 
-    <!-- "New recipes" pill: glanceable 2-week stat + inline sparkline.
-         Hidden until the stats land (loading = render nothing) and hidden
-         on any error/empty/all-zero result. Never blocks the feed. -->
-    {#if showStatsPill}
-      <div class="flex">
-        <span
-          class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium"
-          style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-primary)"
-          title="New recipes added to the Pantry in the last 2 weeks (bars are weekly, UTC)"
-        >
-          <span aria-hidden="true">🆕</span>
-          <span>{recentCount} new recipes</span>
-          <!-- Inline sparkline: one thin bar per week over the 12-week
-               series, height scaled to the series max. The last two bars
-               (the counted window) are highlighted. No axes/labels. -->
-          <svg
-            class="shrink-0"
-            width="90"
-            height="20"
-            viewBox="0 0 90 20"
-            preserveAspectRatio="none"
-            role="img"
-            aria-label="New recipes per week over the last {recipeWeeks.length} weeks"
-          >
-            {#each recipeWeeks as week, i (week.week_start)}
-              {@const barHeight = recipeWeeksMax
-                ? Math.max(1, (week.count / recipeWeeksMax) * 18)
-                : 1}
-              {@const inWindow = i >= recipeWeeks.length - 2}
-              <rect
-                x={i * 7.5 + 1}
-                y={20 - barHeight}
-                width="5.5"
-                height={barHeight}
-                rx="1"
-                fill={inWindow ? 'var(--color-primary)' : 'var(--color-text-secondary)'}
-                opacity={inWindow ? '1' : '0.55'}
-              />
-            {/each}
-          </svg>
+    <!-- Quiet stock-ticker-style "new this week" trend. No container/card:
+         a green hero number + up-arrow, a muted label, and a thin green
+         sparkline anchored with a dot on the latest week. Hidden while
+         loading and on any error/empty/all-zero result. Never blocks the
+         feed. -->
+    {#if showTrend}
+      <div
+        class="flex items-baseline gap-2.5 pt-1"
+        title="New recipes added to the Pantry per week (UTC); latest week highlighted"
+      >
+        <span class="text-2xl font-semibold leading-none" style="color: {TREND_GREEN}">
+          <span aria-hidden="true">↑</span>{thisWeekCount}
         </span>
+        <span class="text-xs" style="color: var(--color-text-secondary)">new this week</span>
+        <svg
+          class="shrink-0 self-center"
+          width={SPARK_W}
+          height={SPARK_H}
+          viewBox="0 0 {SPARK_W} {SPARK_H}"
+          fill="none"
+          role="img"
+          aria-label="New recipes per week over the last {recipeWeeks.length} weeks"
+        >
+          <defs>
+            <linearGradient id="recipesTrendFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color={TREND_GREEN} stop-opacity="0.16" />
+              <stop offset="100%" stop-color={TREND_GREEN} stop-opacity="0" />
+            </linearGradient>
+          </defs>
+          <polygon points={sparkAreaPoints} fill="url(#recipesTrendFill)" stroke="none" />
+          <polyline
+            points={sparkPoints}
+            fill="none"
+            stroke={TREND_GREEN}
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          {#if sparkLastPoint}
+            <circle cx={sparkLastPoint.x} cy={sparkLastPoint.y} r="2.5" fill={TREND_GREEN} />
+          {/if}
+        </svg>
       </div>
     {/if}
 
