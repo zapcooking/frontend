@@ -9,6 +9,43 @@
 
   const PANTRY_RELAY = 'wss://pantry.zap.cooking';
 
+  // Weekly new-recipe stats (fetched via the server-side proxy so the relay
+  // secret never reaches the browser).
+  interface RecipeWeek {
+    week_start: string;
+    count: number;
+  }
+  let recipeWeeks: RecipeWeek[] = [];
+  let recipeWeeksMax = 0;
+  let recipeWeeksLoading = false;
+  let recipeWeeksError = false;
+  let recipeWeeksLoaded = false;
+
+  async function loadRecipesByWeek() {
+    if (recipeWeeksLoaded || recipeWeeksLoading) return;
+
+    recipeWeeksLoading = true;
+    recipeWeeksError = false;
+    try {
+      const res = await fetch('/api/pantry/recipes-by-week');
+      if (!res.ok) throw new Error(`stats request failed: ${res.status}`);
+      const data = await res.json();
+      recipeWeeks = Array.isArray(data?.weeks) ? data.weeks : [];
+      recipeWeeksMax = recipeWeeks.reduce((m, w) => Math.max(m, w.count), 0);
+      recipeWeeksLoaded = true;
+    } catch (err) {
+      console.error('Failed to load recipes-by-week:', err);
+      recipeWeeksError = true;
+    } finally {
+      recipeWeeksLoading = false;
+    }
+  }
+
+  // Load the chart once membership is confirmed.
+  $: if (hasActiveMembership) {
+    loadRecipesByWeek();
+  }
+
   // Check membership status
   async function checkMembership() {
     if (!$userPublickey || checkingMembership) return;
@@ -160,6 +197,43 @@
           </ul>
         </div>
       </div>
+    </section>
+
+    <!-- New Recipes by Week Section -->
+    <section class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
+      <h2 class="text-2xl font-bold mb-4 flex items-center gap-2" style="color: var(--color-text-primary)">
+        <span>📈</span>
+        <span>New Recipes by Week</span>
+      </h2>
+
+      {#if recipeWeeksLoading}
+        <p class="text-sm" style="color: var(--color-text-secondary)">Loading…</p>
+      {:else if recipeWeeksError}
+        <p class="text-sm" style="color: var(--color-text-secondary)">
+          Recipe stats are unavailable right now. Please check back later.
+        </p>
+      {:else if !recipeWeeks.length || recipeWeeksMax === 0}
+        <p class="text-sm" style="color: var(--color-text-secondary)">
+          No new recipes recorded yet.
+        </p>
+      {:else}
+        <div class="flex items-end gap-1 h-40">
+          {#each recipeWeeks as week (week.week_start)}
+            <div class="flex flex-1 flex-col items-center justify-end h-full">
+              <div class="text-[10px] mb-1" style="color: var(--color-text-secondary)">{week.count}</div>
+              <div
+                class="w-full rounded-t transition-all duration-300"
+                style="height: {recipeWeeksMax ? Math.max(2, (week.count / recipeWeeksMax) * 100) : 2}%; background-color: {week.count === 0 ? 'var(--color-input-border)' : 'var(--color-primary)'};"
+                title="{week.week_start}: {week.count} recipes"
+              ></div>
+              <div class="text-[9px] mt-1" style="color: var(--color-text-secondary)">{week.week_start.slice(5)}</div>
+            </div>
+          {/each}
+        </div>
+        <p class="text-xs mt-4" style="color: var(--color-text-secondary)">
+          Recipes added to the Pantry each week. The July spike reflects a one-time import of existing recipes.
+        </p>
+      {/if}
     </section>
 
     <!-- Browse Content Section -->
