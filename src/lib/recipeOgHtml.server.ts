@@ -22,6 +22,7 @@ import { getRecipeOgMeta, FALLBACK_RECIPE_OG, type RecipeOgMeta } from './recipe
 import { fetchRecipeEventForOg } from './recipeOg.server';
 import { fetchNoteForOg, getNoteOgMeta, FALLBACK_NOTE_OG } from './noteOg.server';
 import { fetchProfileOgMeta, FALLBACK_PROFILE_OG } from './profileOg.server';
+import { probeImageDimensions } from './imageDimensions.server';
 
 /**
  * Crawler / link-unfurl User-Agents. Matched case-insensitively.
@@ -103,7 +104,13 @@ function escapeAttr(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function renderDocument(meta: RecipeOgMeta, canonicalUrl: string): string {
+// The static fallback graphic never changes — hardcode its known dimensions
+// (verified via `sips`) rather than fetching it on every fallback render.
+const STATIC_FALLBACK_DIMENSIONS: Record<string, { width: number; height: number; mime: string }> = {
+  'https://zap.cooking/social-share.png': { width: 1200, height: 675, mime: 'image/png' }
+};
+
+async function renderDocument(meta: RecipeOgMeta, canonicalUrl: string): Promise<string> {
   const url = escapeAttr(canonicalUrl);
   const title = escapeAttr(meta.ogTitle);
   const desc = escapeAttr(meta.description);
@@ -122,9 +129,24 @@ function renderDocument(meta: RecipeOgMeta, canonicalUrl: string): string {
     `<meta property="og:title" content="${title}" />`,
     `<meta property="og:description" content="${desc}" />`,
     `<meta property="og:image" content="${image}" />`,
-    `<meta property="og:image:secure_url" content="${image}" />`,
-    '<meta property="og:site_name" content="zap.cooking" />'
+    `<meta property="og:image:secure_url" content="${image}" />`
   ];
+
+  // Facebook/LinkedIn are known to silently drop the image from the preview
+  // card when width/height aren't supplied, even though the URL itself is
+  // valid and reachable — see docs/plans/og-missing-images-fix.md. Best
+  // effort: a fetch/parse failure just omits these tags (today's behavior),
+  // never blocks the rest of the card.
+  const dims = STATIC_FALLBACK_DIMENSIONS[meta.image] ?? (await probeImageDimensions(meta.image));
+  if (dims) {
+    lines.push(
+      `<meta property="og:image:width" content="${dims.width}" />`,
+      `<meta property="og:image:height" content="${dims.height}" />`,
+      `<meta property="og:image:type" content="${dims.mime}" />`
+    );
+  }
+
+  lines.push('<meta property="og:site_name" content="zap.cooking" />');
 
   if (meta.publishedAt !== null) {
     const iso = escapeAttr(new Date(meta.publishedAt * 1000).toISOString());
