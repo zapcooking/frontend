@@ -24,9 +24,16 @@
 
 import { finalizeEvent, generateSecretKey, getPublicKey, SimplePool } from 'nostr-tools';
 import { normalizeUrl, sha256Hex } from '../src/lib/nip98';
+import { standardRelays } from '../src/lib/consts';
 
 const BASE_URL = process.env.SCHEDULE_TEST_BASE_URL ?? 'https://zap.cooking';
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
+// SCHEDULE_TEST_RELAY_MODE=all schedules against the public relay list
+// instead of pantry — diagnostic mode for isolating pantry's write
+// posture from the worker's publish machinery. Default stays 'pantry'
+// so the routine acceptance run keeps test posts off public relays.
+const RELAY_MODE = process.env.SCHEDULE_TEST_RELAY_MODE === 'all' ? 'all' : 'pantry';
+const CONFIRM_RELAYS = RELAY_MODE === 'pantry' ? [PANTRY_RELAY] : [...standardRelays];
 const PUBLISH_LEAD_SECONDS = 180;
 const POLL_INTERVAL_MS = 30_000;
 const POLL_TIMEOUT_MS = 10 * 60_000;
@@ -68,7 +75,7 @@ async function main(): Promise<void> {
 
   // ── 2/4: schedule it ──────────────────────────────────────────────
   const scheduleUrl = `${BASE_URL}/api/schedule`;
-  const body = JSON.stringify({ event, relay_mode: 'pantry' });
+  const body = JSON.stringify({ event, relay_mode: RELAY_MODE });
   const postRes = await fetch(scheduleUrl, {
     method: 'POST',
     headers: {
@@ -81,7 +88,7 @@ async function main(): Promise<void> {
   if (postRes.status !== 201) {
     throw new Error(`POST /api/schedule returned ${postRes.status}: ${JSON.stringify(postData)}`);
   }
-  log('2/4 schedule', `201 — ${JSON.stringify(postData)}`);
+  log('2/4 schedule', `201 (relay_mode=${RELAY_MODE}) — ${JSON.stringify(postData)}`);
 
   // ── 3/4: poll until the sweep broadcasts it ───────────────────────
   const deadline = Date.now() + POLL_TIMEOUT_MS;
@@ -112,14 +119,14 @@ async function main(): Promise<void> {
   const pool = new SimplePool();
   try {
     const fetched = await Promise.race([
-      pool.get([PANTRY_RELAY], { ids: [event.id] }),
+      pool.get(CONFIRM_RELAYS, { ids: [event.id] }),
       sleep(RELAY_FETCH_TIMEOUT_MS).then(() => null)
     ]);
-    if (!fetched) throw new Error(`event ${event.id} not found on ${PANTRY_RELAY}`);
+    if (!fetched) throw new Error(`event ${event.id} not found on ${CONFIRM_RELAYS.join(', ')}`);
     if (fetched.content !== event.content) throw new Error('relay returned a different event body');
-    log('4/4 relay', `event confirmed on ${PANTRY_RELAY}`);
+    log('4/4 relay', `event confirmed via ${CONFIRM_RELAYS.length} relay(s) (${RELAY_MODE} mode)`);
   } finally {
-    pool.close([PANTRY_RELAY]);
+    pool.close(CONFIRM_RELAYS);
   }
 
   log('done', 'scheduled → swept → broadcast → fetchable. Full pipeline verified.');
