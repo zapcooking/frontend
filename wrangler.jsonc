@@ -1,6 +1,12 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "zapcooking-frontend",
+  // Zap Cooking ORG account, pinned. Seth's OAuth token spans two
+  // accounts and wrangler silently defaults to the personal one in
+  // non-interactive runs — resources created there are invisible to
+  // this project's deploys ("database not found"). Every wrangler
+  // command against this project must resolve to this account.
+  "account_id": "2d2f9386809ef6f9cda581aa16dff31c",
   "compatibility_date": "2025-01-01",
   "compatibility_flags": ["assets_navigation_prefers_asset_serving", "nodejs_compat"],
   "pages_build_output_dir": ".svelte-kit/cloudflare",
@@ -30,6 +36,17 @@
       "id": "4f550842d84c45549c4d30a3cd3f10c3"
     }
   ],
+  // Scheduled Posts (spec §7). The companion secret SCHEDULE_ENC_KEY is
+  // set on the Pages project (and the cron worker) — never here.
+  // Schema: migrations/scheduler/. Preview binds an isolated preview
+  // database (see env.preview note below).
+  "d1_databases": [
+    {
+      "binding": "SCHEDULER_DB",
+      "database_name": "zapcooking-scheduler",
+      "database_id": "5d5572d0-d1aa-4b31-87e8-b0b15ded68a5"
+    }
+  ],
   // Pages per-environment override. NOTE: kv_namespaces is a
   // non-inheritable key — this array REPLACES the top-level list for
   // preview deployments wholesale, so every binding must be repeated here.
@@ -55,6 +72,20 @@
         {
           "binding": "VAULT_SYNC",
           "id": "97815021dedf4b3483669f99e6aa1347"
+        }
+      ],
+      // Like kv_namespaces, d1_databases is non-inheritable — repeat it
+      // here or previews lose the binding. Previews bind an ISOLATED
+      // scheduler DB (VAULT_SYNC posture): scheduled events are
+      // irreversibly broadcast under real user keys, so preview writes
+      // must never land in the database the production cron sweeps.
+      // The cron worker binds ONLY the production DB — preview rows
+      // are never published anywhere.
+      "d1_databases": [
+        {
+          "binding": "SCHEDULER_DB",
+          "database_name": "zapcooking-scheduler-preview",
+          "database_id": "5ad85ea4-c1b5-4980-81e7-e4ffc1f74198"
         }
       ]
     }
