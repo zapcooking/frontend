@@ -1,6 +1,21 @@
 name = "zap-cooking-cron"
 main = "index.js"
+# Zap Cooking ORG account, pinned. Seth's OAuth token spans two accounts
+# and wrangler silently defaults to the personal one in non-interactive
+# runs — a deploy without this pin lands a SECOND copy of this worker in
+# the wrong account (double cron fires, bindings to unreachable DBs).
+account_id = "2d2f9386809ef6f9cda581aa16dff31c"
 compatibility_date = "2024-01-01"
 
 [triggers]
 crons = ["0 9 * * *"]
+
+# PRODUCTION scheduler DB, deliberately. This worker must NEVER bind
+# zapcooking-scheduler-preview: preview rows come from preview/staging
+# deployments and must never be broadcast to relays. Companion secret:
+# SCHEDULE_ENC_KEY (wrangler secret put), same value as the Pages
+# project's or the sweep can't decrypt what the API encrypted.
+[[d1_databases]]
+binding = "SCHEDULER_DB"
+database_name = "zapcooking-scheduler"
+database_id = "5d5572d0-d1aa-4b31-87e8-b0b15ded68a5"
