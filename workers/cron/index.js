@@ -9,8 +9,8 @@
  * daily trigger and for manual `wrangler triggers` invocations.
  */
 
-import { SimplePool } from 'nostr-tools';
 import { sweepDueEvents } from './sweep';
+import { publishEventRaw } from './publisher';
 
 export const MINUTELY_CRON = '* * * * *';
 export const DAILY_CRON = '0 9 * * *';
@@ -33,30 +33,20 @@ async function runSweepTick(env) {
     return;
   }
 
-  // One pool per tick, closed in finally (spec §6.6). Workers supports
-  // outbound WebSockets, which is all SimplePool needs.
-  const pool = new SimplePool();
-  const openedRelays = new Set();
-  try {
-    const summary = await sweepDueEvents({
-      db: env.SCHEDULER_DB,
-      encKeyHex: env.SCHEDULE_ENC_KEY,
-      publish: async (event, relays) => {
-        relays.forEach((r) => openedRelays.add(r));
-        // pool.publish returns one promise per relay, fulfilled on OK.
-        const results = await Promise.allSettled(pool.publish(relays, event));
-        const okCount = results.filter((r) => r.status === 'fulfilled').length;
-        if (okCount === 0) {
-          const first = results.find((r) => r.status === 'rejected');
-          throw new Error(String(first?.reason ?? 'no relay accepted').slice(0, 500));
-        }
-        return okCount;
-      }
-    });
-    if (summary.due > 0) console.log('[Sweep]', JSON.stringify(summary));
-  } finally {
-    pool.close([...openedRelays]);
-  }
+  // Raw-WebSocket publisher (publisher.ts) — NOT nostr-tools. Its
+  // inbound-frame queue relies on MessageChannel, which is undefined
+  // in the Workers runtime, so it drops every frame after the first;
+  // relays that preface OK with AUTH (pantry/khatru) always "timed
+  // out". publishEventRaw awaits the id-matched OK per relay, closes
+  // sockets in every path, and throws the first relay's verbatim
+  // failure reason when nothing accepts — which sweep.ts records as
+  // last_error.
+  const summary = await sweepDueEvents({
+    db: env.SCHEDULER_DB,
+    encKeyHex: env.SCHEDULE_ENC_KEY,
+    publish: (event, relays) => publishEventRaw(event, relays)
+  });
+  if (summary.due > 0) console.log('[Sweep]', JSON.stringify(summary));
 }
 
 /**
