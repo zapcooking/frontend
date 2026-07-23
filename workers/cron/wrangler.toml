@@ -5,10 +5,22 @@ main = "index.js"
 # runs — a deploy without this pin lands a SECOND copy of this worker in
 # the wrong account (double cron fires, bindings to unreachable DBs).
 account_id = "2d2f9386809ef6f9cda581aa16dff31c"
-compatibility_date = "2024-01-01"
+# Bumped from 2024-01-01 for outbound-WebSocket client support
+# (SimplePool needs `new WebSocket()`); matches the Pages project date.
+compatibility_date = "2025-01-01"
+# This worker is cron-only — no HTTP surface to expose.
+workers_dev = false
+
+# Retain logs so post-hoc questions ("did the 09:00 tick run clean?",
+# "what did the sweep record?") are answerable from the CLI/dashboard
+# instead of requiring a live tail at the moment of failure.
+[observability]
+enabled = true
 
 [triggers]
-crons = ["0 9 * * *"]
+# 09:00 daily = membership-expiry check; minutely = scheduled-posts
+# sweep. index.js routes on event.cron — keep both lists in sync.
+crons = ["0 9 * * *", "* * * * *"]
 
 # PRODUCTION scheduler DB, deliberately. This worker must NEVER bind
 # zapcooking-scheduler-preview: preview rows come from preview/staging
