@@ -1,12 +1,17 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "zapcooking-frontend",
-  // Zap Cooking ORG account, pinned. Seth's OAuth token spans two
-  // accounts and wrangler silently defaults to the personal one in
-  // non-interactive runs — resources created there are invisible to
-  // this project's deploys ("database not found"). Every wrangler
-  // command against this project must resolve to this account.
-  "account_id": "2d2f9386809ef6f9cda581aa16dff31c",
+  // This project lives in the Zap Cooking ORG account
+  // (2d2f9386809ef6f9cda581aa16dff31c). Pages config does NOT support
+  // an "account_id" key, so it cannot be pinned here — git-integrated
+  // Pages builds inherently run in the owning account, but LOCAL
+  // `wrangler pages ...` commands must be prefixed with
+  // CLOUDFLARE_ACCOUNT_ID=2d2f9386809ef6f9cda581aa16dff31c: Seth's
+  // OAuth token spans two accounts and wrangler silently defaults to
+  // the personal one in non-interactive runs — resources created there
+  // are invisible to this project's deploys ("database not found").
+  // The cron worker's wrangler.toml DOES pin account_id (Workers
+  // config supports it).
   "compatibility_date": "2025-01-01",
   "compatibility_flags": ["assets_navigation_prefers_asset_serving", "nodejs_compat"],
   "pages_build_output_dir": ".svelte-kit/cloudflare",
