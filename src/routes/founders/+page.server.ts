@@ -31,7 +31,10 @@ const FALLBACK_FOUNDERS = PRIORITY_FOUNDERS.map((pubkey, idx) => ({
   joined: null
 }));
 
-export const load: PageServerLoad = async ({ fetch, platform }) => {
+export const load: PageServerLoad = async ({ fetch, platform, setHeaders }) => {
+  // Never let CDN/browser cache an empty founders payload for SPA navigations.
+  setHeaders({ 'cache-control': 'private, no-store' });
+
   // Cloudflare uses platform.env, local dev uses $env
   const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
 

@@ -30,7 +30,11 @@
     tier: f.tier,
     joined: f.joined
   }));
-  $: foundersAvailable = data?.foundersAvailable === true;
+  // Prefer the explicit load flag; also accept a non-empty list so a stale
+  // client never treats real founders data as "unavailable".
+  $: foundersAvailable =
+    data?.foundersAvailable === true ||
+    (data?.foundersAvailable !== false && founders.length > 0);
 </script>
 
 <svelte:head>

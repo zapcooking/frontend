@@ -821,7 +821,9 @@
 
     {#if showFoundersList}
       <section class="genesis-founders-link">
-        <a href="/founders" class="founders-link-button"> View Founders Club Members </a>
+        <a href="/founders" class="founders-link-button" data-sveltekit-reload>
+          View Founders Club Members
+        </a>
       </section>
     {/if}
 
