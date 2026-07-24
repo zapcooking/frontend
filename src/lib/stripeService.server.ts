@@ -94,6 +94,7 @@ export async function createCheckoutSession(params: {
       },
     ],
     mode: 'subscription',
+    allow_promotion_codes: true,
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
     customer_email: params.customerEmail,
