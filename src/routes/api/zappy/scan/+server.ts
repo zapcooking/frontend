@@ -3,7 +3,7 @@
  * backwards-compatibility; the public feature is "Cheffy").
  *
  * Uses OpenAI GPT-4 Vision to analyze fridge/pantry images and detect ingredients.
- * Premium feature for Pro Kitchen members.
+ * Included with any active membership (Cook+, Pro Kitchen, Founders).
  *
  * POST /api/zappy/scan
  *
@@ -72,14 +72,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
-    // Check membership status (Pro Kitchen feature). Fail CLOSED when
+    // Check membership status (any active membership). Fail CLOSED when
     // gating is enabled but the caller sent no pubkey — otherwise a
     // non-member could reach this paid endpoint just by omitting it.
     const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
     if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
       if (!pubkey || typeof pubkey !== 'string' || !pubkey.trim()) {
         return json(
-          { ok: false, error: 'Cheffy is available to Pro Kitchen members.' },
+          { ok: false, error: 'Cheffy is available to Cook+ members.' },
           { status: 403 }
         );
       }
@@ -90,7 +90,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           const isActive = await hasActiveMembership(pubkey, API_SECRET);
           if (!isActive) {
             return json(
-              { ok: false, error: 'Cheffy is available to Pro Kitchen members.' },
+              { ok: false, error: 'Cheffy is available to Cook+ members.' },
               { status: 403 }
             );
           }

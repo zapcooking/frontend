@@ -523,7 +523,7 @@
            impulse lane. -->
       <div class="nr-gate">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
-        <h2>Cheffy photo review is a Pro Kitchen feature</h2>
+        <h2>Cheffy photo review comes with Cook+</h2>
         <p>Get a drafted reply or a recipe guess for any dish photo on the feed.</p>
         <div class="nr-example">
           <span class="nr-example-label">The kind of reply Cheffy drafts:</span>

@@ -22,14 +22,45 @@
   // Pricing data
   const cookAnnualPrice = 49;
   const cookMonthlyPrice = 4.99;
-  const proAnnualPrice = 89;
-  const proMonthlyPrice = 8.99;
 
   $: cookMonthlyEquivalent = (cookAnnualPrice / 12).toFixed(2);
-  $: proMonthlyEquivalent = (proAnnualPrice / 12).toFixed(2);
   $: savingsPercent = Math.round(
     ((cookMonthlyPrice * 12 - cookAnnualPrice) / (cookMonthlyPrice * 12)) * 100
   );
+
+  let openFaqIndex: number | null = null;
+
+  const faqs: { question: string; answer: string }[] = [
+    {
+      question: 'How many Cheffy messages do I get?',
+      answer:
+        'Cook+ includes 300 Cheffy messages per month. That is a generous monthly allowance for everyday cooking help — ask questions, use what you have, or turn an idea into dinner.'
+    },
+    {
+      question: 'Can I cancel anytime?',
+      answer:
+        'Yes. Cancel anytime from your membership page (card members use the billing portal; Lightning members contact support). You keep access through the end of your current billing period.'
+    },
+    {
+      question: 'Bitcoin or card — which should I use?',
+      answer:
+        'Both work. Bitcoin via Lightning is preferred and often a bit cheaper; cards are accepted through Stripe if that is easier for you. You choose at checkout.'
+    },
+    {
+      question: 'What happens to my recipes if I cancel?',
+      answer:
+        'Your recipes stay yours. Content you published remains on the network under your keys. You would lose Cook+ tools and member perks after your paid period ends, not the recipes you already saved or shared.'
+    },
+    {
+      question: 'How does billing work?',
+      answer:
+        'Choose annual ($49/year) or monthly ($4.99/month). Annual is the better value. Subscriptions renew for the period you picked unless you cancel before renewal.'
+    }
+  ];
+
+  function toggleFaq(index: number) {
+    openFaqIndex = openFaqIndex === index ? null : index;
+  }
 
   function handlePeriodChange(newPeriod: 'annual' | 'monthly') {
     billingPeriod = newPeriod;
@@ -164,7 +195,6 @@
   import { onMount } from 'svelte';
   import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
   import StarIcon from 'phosphor-svelte/lib/Star';
-  import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheck';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import RobotIcon from 'phosphor-svelte/lib/Robot';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
@@ -203,27 +233,25 @@
   // Perks by tier
   const TIER_PERKS: Record<string, { icon: typeof CookingPotIcon; label: string }[]> = {
     cook_plus: [
-      { icon: RobotIcon, label: 'AI Recipe Extraction' },
-      { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
+      { icon: RobotIcon, label: 'Sous Chef & Nourish' },
+      { icon: CookingPotIcon, label: 'Cheffy — Kitchen Companion' },
       { icon: StorefrontIcon, label: 'Market Access' },
-      { icon: StarIcon, label: 'Priority Relay Access' }
+      { icon: StarIcon, label: 'Member Badge & Collections' }
     ],
     pro_kitchen: [
-      { icon: RobotIcon, label: 'AI Recipe Extraction' },
+      { icon: RobotIcon, label: 'Sous Chef & Nourish' },
+      { icon: CookingPotIcon, label: 'Cheffy — Kitchen Companion' },
       { icon: LightningIcon, label: 'Lightning-Gated Recipes' },
-      { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
       { icon: StorefrontIcon, label: 'Market Access' },
-      { icon: StarIcon, label: 'Priority Relay Access' },
-      { icon: CookingPotIcon, label: 'Cheffy — Your Kitchen Companion' }
+      { icon: StarIcon, label: 'Member Badge & Collections' }
     ],
     founders: [
       { icon: CrownIcon, label: 'Lifetime Access — All Features' },
-      { icon: RobotIcon, label: 'AI Recipe Extraction' },
+      { icon: RobotIcon, label: 'Sous Chef & Nourish' },
+      { icon: CookingPotIcon, label: 'Cheffy — Kitchen Companion' },
       { icon: LightningIcon, label: 'Lightning-Gated Recipes' },
-      { icon: ShieldCheckIcon, label: 'Verified NIP-05 Identity' },
       { icon: StorefrontIcon, label: 'Market Access' },
-      { icon: StarIcon, label: 'Priority Relay Access' },
-      { icon: CookingPotIcon, label: 'Cheffy — Your Kitchen Companion' }
+      { icon: StarIcon, label: 'Founders Recognition' }
     ]
   };
 
@@ -303,21 +331,25 @@
   }
 
   function handleCardClick() {
-    if (isSoldOut) return;
     showFoundersList = !showFoundersList;
   }
 
   function goToCookPlusCheckout() {
     goto(`/membership/cook-plus-checkout?period=${billingPeriod}`);
   }
-
-  function goToProKitchenCheckout() {
-    goto(`/membership/pro-kitchen-checkout?period=${billingPeriod}`);
-  }
 </script>
 
 <svelte:head>
-  <title>Membership - zap.cooking</title>
+  <title>Cook+ Membership — AI Cooking Tools | Zap Cooking</title>
+  <meta
+    name="description"
+    content="Sous Chef pulls recipes from any link or photo. Nourish scores what they do for your body. Cheffy answers your kitchen questions with generous monthly credits. One membership unlocks all of it."
+  />
+  <meta property="og:title" content="Cook+ Membership — AI Cooking Tools | Zap Cooking" />
+  <meta
+    property="og:description"
+    content="Sous Chef pulls recipes from any link or photo. Nourish scores what they do for your body. Cheffy answers your kitchen questions with generous monthly credits. One membership unlocks all of it."
+  />
 </svelte:head>
 
 <div class="membership-page">
@@ -449,188 +481,31 @@
     <section class="hero">
       <h1>Your Kitchen, Supercharged</h1>
       <p>
-        AI-powered recipe tools, a private Nostr relay, and Bitcoin-native payments — all in one
-        membership.
+        Sous Chef pulls recipes from any link or photo. Nourish scores what they do for your body.
+        Cheffy answers your kitchen questions — with generous monthly credits included. One
+        membership unlocks all of it.
       </p>
     </section>
 
     <!-- Value Props Row -->
     <section class="value-props">
-      <div class="value-prop">
+      <a href="/souschef" class="value-prop">
         <span class="value-prop-icon">✨</span>
-        <span class="value-prop-label">AI Recipe Tools</span>
-      </div>
-      <div class="value-prop">
-        <span class="value-prop-icon">📡</span>
-        <span class="value-prop-label">Private Relay</span>
-      </div>
-      <div class="value-prop">
-        <span class="value-prop-icon">⚡</span>
-        <span class="value-prop-label">Bitcoin Payments</span>
-      </div>
+        <span class="value-prop-label">Sous Chef</span>
+      </a>
+      <a href="/nourish" class="value-prop">
+        <span class="value-prop-icon">🌱</span>
+        <span class="value-prop-label">Nourish</span>
+      </a>
+      <a href="/cheffy" class="value-prop">
+        <span class="value-prop-icon">🧑‍🍳</span>
+        <span class="value-prop-label">Cheffy</span>
+      </a>
       <div class="value-prop">
         <span class="value-prop-icon">🔓</span>
         <span class="value-prop-label">Own Your Data</span>
       </div>
     </section>
-
-    <!-- Founders Club Hero Section -->
-    <section class="genesis-founders-hero">
-      <div
-        class="genesis-hero-card {isSoldOut ? 'sold-out' : ''}"
-        on:click={handleCardClick}
-        on:keydown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            handleCardClick();
-          }
-        }}
-        role="button"
-        tabindex="0"
-        aria-expanded={showFoundersList}
-        aria-label="Toggle Founders Club list"
-      >
-        <div class="genesis-hero-content">
-          <div class="genesis-hero-icon">🔥</div>
-          <div class="genesis-hero-text">
-            <h2>Founders Club</h2>
-            <p class="genesis-hero-countdown">
-              {spotsTaken}/{TOTAL_GENESIS_SPOTS} taken
-            </p>
-          </div>
-          <div class="genesis-hero-arrow">
-            <svg
-              class="arrow-icon {showFoundersList ? 'rotated' : ''}"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </div>
-        </div>
-        {#if spotsRemaining > 0}
-          <div class="genesis-hero-progress">
-            <div class="progress-bar">
-              <div
-                class="progress-fill"
-                style="width: {(spotsTaken / TOTAL_GENESIS_SPOTS) * 100}%"
-              ></div>
-            </div>
-            <p class="progress-text">{spotsRemaining} spots remaining</p>
-            <p class="urgency-text">These spots won't last — claim yours before they're gone</p>
-          </div>
-        {/if}
-        {#if !showFoundersList}
-          <p class="card-hint">Click to learn more</p>
-        {/if}
-      </div>
-    </section>
-
-    <!-- Founders Club Checkout Section (shown when expanded) -->
-    {#if showFoundersList && !isSoldOut}
-      <section class="genesis-checkout-section">
-        <div class="genesis-checkout-card">
-          <div class="genesis-checkout-header">
-            <h3>Join Founders Club</h3>
-            <p class="genesis-checkout-price">$210 <span>lifetime</span></p>
-          </div>
-
-          <div class="genesis-checkout-benefits">
-            <h4>What you get:</h4>
-
-            <!-- Lifetime Membership -->
-            <div class="benefit-section">
-              <h5 class="section-header">Lifetime Membership</h5>
-              <ul class="benefit-list">
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">Lifetime Pro Kitchen membership (never expires)</span>
-                </li>
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">All future Pro Kitchen features included</span>
-                </li>
-              </ul>
-            </div>
-
-            <!-- Section Divider -->
-            <div class="section-divider"></div>
-
-            <!-- Founders Club Exclusive -->
-            <div class="benefit-section">
-              <h5 class="section-header">Founders Club Exclusive</h5>
-              <ul class="benefit-list">
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">Founders Club badge (#{spotsTaken + 1}-21)</span>
-                </li>
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">Name permanently displayed as a Founder</span>
-                </li>
-              </ul>
-            </div>
-
-            <!-- Section Divider -->
-            <div class="section-divider"></div>
-
-            <!-- Access & Features -->
-            <div class="benefit-section">
-              <h5 class="section-header">Access & Features</h5>
-              <ul class="benefit-list">
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
-                </li>
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">Access to pantry.zap.cooking relay</span>
-                </li>
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">Nourish recipe intelligence</span>
-                </li>
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">Buy and sell on the Market</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div class="genesis-checkout-urgency">
-            <p>Only <strong>{spotsRemaining} of {TOTAL_GENESIS_SPOTS} spots remaining</strong></p>
-          </div>
-
-          <button
-            class="genesis-claim-button"
-            on:click={handleClaimSpot}
-            disabled={isCheckingOut || isSoldOut || !isLoggedIn}
-          >
-            {#if !isLoggedIn}
-              Login to Claim Your Spot
-            {:else if isCheckingOut}
-              Processing...
-            {:else if isSoldOut}
-              Sold Out
-            {:else}
-              Claim Your Spot
-            {/if}
-          </button>
-        </div>
-      </section>
-    {/if}
-
-    <!-- Founders Club Link (shown when expanded) -->
-    {#if showFoundersList}
-      <section class="genesis-founders-link">
-        <a href="/founders" class="founders-link-button"> View Founders Club Members </a>
-      </section>
-    {/if}
 
     <!-- Active Membership Management (legacy card, hidden when API dashboard shows) -->
     {#if hasActiveCardMembership && currentMembership && !isActiveMemberApi}
@@ -670,13 +545,13 @@
       </section>
     {/if}
 
-    <!-- Membership Tiers Section -->
+    <!-- Membership Plan -->
     <section class="tiers" id="pricing">
-      <h2 class="section-label">Choose Your Plan</h2>
+      <h2 class="section-label">Cook+ Membership</h2>
 
       <PricingToggle period={billingPeriod} onPeriodChange={handlePeriodChange} {savingsPercent} />
 
-      <div class="tiers-grid">
+      <div class="tiers-grid single-tier">
         <div class="tier-card cook-plus">
           <h3>Cook+</h3>
           <div class="price">
@@ -699,26 +574,35 @@
           </div>
 
           <div class="tier-benefits">
-            <!-- Premium Tools -->
             <div class="benefit-section">
-              <h4 class="section-header">Premium Tools</h4>
+              <h4 class="section-header">AI Cooking Tools</h4>
               <ul class="benefit-list">
                 <li>
                   <span class="feature-icon">✨</span>
                   <div class="feature-content">
                     <a href="/souschef" class="feature-link"
-                      >Sous Chef - Extract recipes from any link, photo, or pasted text instantly</a
+                      >Sous Chef — Pull recipes from any link, photo, or pasted text instantly</a
                     >
-                    <span class="feature-subtext">Save time - let it do the work</span>
+                    <span class="feature-subtext">Save time — let it do the work</span>
                   </div>
                 </li>
                 <li>
                   <span class="feature-icon">🌱</span>
                   <div class="feature-content">
                     <a href="/nourish" class="feature-link"
-                      >Nourish - Recipe intelligence scores for gut health, protein, and real food</a
+                      >Nourish — See how recipes score for gut health, protein, and real food</a
                     >
                     <span class="feature-subtext">Understand what your food is doing for you</span>
+                  </div>
+                </li>
+                <li>
+                  <span class="feature-icon">🧑‍🍳</span>
+                  <div class="feature-content">
+                    <a href="/cheffy" class="feature-link"
+                      >Cheffy — Ask cooking questions, use what you have, or turn an idea into
+                      dinner</a
+                    >
+                    <span class="feature-subtext">Generous monthly credits included</span>
                   </div>
                 </li>
               </ul>
@@ -726,18 +610,9 @@
 
             <div class="section-divider"></div>
 
-            <!-- Community & Content -->
             <div class="benefit-section">
               <h4 class="section-header">Community & Content</h4>
               <ul class="benefit-list">
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
-                </li>
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">Access to pantry.zap.cooking private relay</span>
-                </li>
                 <li>
                   <span class="checkmark">✓</span>
                   <a href="/market" class="feature-link">Buy and sell on the Market</a>
@@ -750,12 +625,19 @@
                   <span class="checkmark">✓</span>
                   <span class="feature-text">Exclusive Cook+ member badge</span>
                 </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Access to pantry.zap.cooking private relay</span>
+                </li>
               </ul>
             </div>
 
             <div class="section-divider"></div>
 
-            <!-- Member Perks -->
             <div class="benefit-section">
               <h4 class="section-header">Member Perks</h4>
               <ul class="benefit-list">
@@ -771,111 +653,7 @@
             </div>
           </div>
 
-          <button class="tier-button" on:click={goToCookPlusCheckout}>Join Cook+</button>
-          <div class="payment-indicators">
-            <span>⚡ Bitcoin preferred</span>
-            <span class="separator">•</span>
-            <span>💳 Card accepted</span>
-          </div>
-        </div>
-
-        <div class="tier-card pro-kitchen">
-          <div class="popular-badge-floating">Most Popular</div>
-          <h3>Pro Kitchen</h3>
-          <div class="price">
-            <div class="price-container">
-              {#if billingPeriod === 'annual'}
-                $89<span>/year</span>
-              {:else}
-                $8.99<span>/mo</span>
-              {/if}
-            </div>
-            <div class="price-subtext">
-              {#if billingPeriod === 'annual'}
-                That's just ${proMonthlyEquivalent}/month
-              {:else}
-                <button class="annual-link" on:click={switchToAnnual}>
-                  or $89/year — save with annual
-                </button>
-              {/if}
-            </div>
-          </div>
-
-          <div class="tier-benefits">
-            <!-- Includes All Cook+ Features -->
-            <div class="benefit-section">
-              <h4 class="section-header">Includes All Cook+ Features</h4>
-              <ul class="benefit-list">
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text muted-text"
-                    >Everything in Cook+ (Sous Chef, Nourish, NIP-05 identity, Market access, pantry
-                    relay, collections, badge, early access, voting)</span
-                  >
-                </li>
-              </ul>
-            </div>
-
-            <div class="section-divider"></div>
-
-            <!-- Pro Kitchen Exclusive Features -->
-            <div class="benefit-section">
-              <h4 class="section-header">Pro Kitchen Exclusive Features</h4>
-              <ul class="benefit-list">
-                <li>
-                  <span class="checkmark">✓</span>
-                  <a href="/premium" class="feature-link">Lightning-gated recipes</a>
-                </li>
-                <li>
-                  <span class="checkmark">✓</span>
-                  <span class="feature-text">Priority recipe promotion</span>
-                </li>
-              </ul>
-            </div>
-
-            <div class="section-divider"></div>
-
-            <!-- Kitchen Tools -->
-            <div class="benefit-section">
-              <h4 class="section-header">Kitchen Tools</h4>
-              <ul class="benefit-list">
-                <li>
-                  <span class="feature-icon">🧑‍🍳</span>
-                  <div class="feature-content">
-                    <a href="/cheffy" class="feature-link"
-                      >Cheffy - Ask cooking questions, use what you have, fix a mistake, or turn an
-                      idea into dinner</a
-                    >
-                    <span class="feature-subtext">Your kitchen companion</span>
-                  </div>
-                </li>
-                <li>
-                  <span class="feature-icon">📸</span>
-                  <div class="feature-content">
-                    <span class="feature-text"
-                      >Cheffy photo review - draft a reply or recipe from any dish photo on the feed</span
-                    >
-                  </div>
-                </li>
-                <li>
-                  <span class="feature-icon">✨</span>
-                  <div class="feature-content">
-                    <span class="feature-text">Sous Chef features</span>
-                  </div>
-                </li>
-                <li>
-                  <span class="feature-icon">🌱</span>
-                  <div class="feature-content">
-                    <span class="feature-text">Nourish recipe intelligence</span>
-                  </div>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <button class="tier-button primary" on:click={goToProKitchenCheckout}
-            >Join Pro Kitchen</button
-          >
+          <button class="tier-button primary" on:click={goToCookPlusCheckout}>Join Cook+</button>
           <div class="payment-indicators">
             <span>⚡ Bitcoin preferred</span>
             <span class="separator">•</span>
@@ -884,8 +662,183 @@
         </div>
       </div>
     </section>
+
+    <!-- Founders Club story -->
+    <section class="genesis-founders-hero">
+      <div
+        class="genesis-hero-card founders-story {isSoldOut ? 'sold-out' : ''}"
+        on:click={handleCardClick}
+        on:keydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleCardClick();
+          }
+        }}
+        role="button"
+        tabindex="0"
+        aria-expanded={showFoundersList}
+        aria-label="Toggle Founders Club details"
+      >
+        <div class="genesis-hero-content">
+          <div class="genesis-hero-icon">🔥</div>
+          <div class="genesis-hero-text">
+            <h2>Founders Club</h2>
+            <p class="genesis-hero-countdown">
+              {spotsTaken} of {TOTAL_GENESIS_SPOTS} seats taken
+            </p>
+          </div>
+          <div class="genesis-hero-arrow">
+            <svg
+              class="arrow-icon {showFoundersList ? 'rotated' : ''}"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </div>
+        </div>
+        <p class="founders-story-copy">
+          Founders Club is a capped lifetime membership — {TOTAL_GENESIS_SPOTS} seats total — for
+          people who want to back Zap Cooking early and keep Pro Kitchen access for life. Seats are
+          limited by that hard cap, not by a countdown.
+        </p>
+        {#if !showFoundersList}
+          <p class="card-hint">{isSoldOut ? 'Sold out — view founders' : 'Click to learn more'}</p>
+        {/if}
+      </div>
+    </section>
+
+    {#if showFoundersList && !isSoldOut}
+      <section class="genesis-checkout-section">
+        <div class="genesis-checkout-card">
+          <div class="genesis-checkout-header">
+            <h3>Join Founders Club</h3>
+            <p class="genesis-checkout-price">$210 <span>lifetime</span></p>
+          </div>
+
+          <div class="genesis-checkout-benefits">
+            <h4>What you get:</h4>
+
+            <div class="benefit-section">
+              <h5 class="section-header">Lifetime Membership</h5>
+              <ul class="benefit-list">
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Lifetime Pro Kitchen membership (never expires)</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">All future Pro Kitchen features included</span>
+                </li>
+              </ul>
+            </div>
+
+            <div class="section-divider"></div>
+
+            <div class="benefit-section">
+              <h5 class="section-header">Founders Club Exclusive</h5>
+              <ul class="benefit-list">
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Founders Club badge (#{spotsTaken + 1}-21)</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Name permanently displayed as a Founder</span>
+                </li>
+              </ul>
+            </div>
+
+            <div class="section-divider"></div>
+
+            <div class="benefit-section">
+              <h5 class="section-header">Access & Features</h5>
+              <ul class="benefit-list">
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Sous Chef, Nourish, and Cheffy</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <a href="/market" class="feature-link">Buy and sell on the Market</a>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text">Access to pantry.zap.cooking relay</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="genesis-checkout-urgency">
+            <p>
+              <strong>{spotsTaken} of {TOTAL_GENESIS_SPOTS} seats taken</strong>
+              {#if spotsRemaining > 0}
+                — {spotsRemaining} remaining
+              {/if}
+            </p>
+          </div>
+
+          <button
+            class="genesis-claim-button"
+            on:click={handleClaimSpot}
+            disabled={isCheckingOut || isSoldOut || !isLoggedIn}
+          >
+            {#if !isLoggedIn}
+              Login to Claim Your Spot
+            {:else if isCheckingOut}
+              Processing...
+            {:else if isSoldOut}
+              Sold Out
+            {:else}
+              Claim Your Spot
+            {/if}
+          </button>
+        </div>
+      </section>
+    {/if}
+
+    {#if showFoundersList}
+      <section class="genesis-founders-link">
+        <a href="/founders" class="founders-link-button"> View Founders Club Members </a>
+      </section>
+    {/if}
+
+    <!-- FAQ -->
+    <section class="membership-faq" id="faq">
+      <h2 class="section-label">Frequently Asked Questions</h2>
+      <div class="faq-list">
+        {#each faqs as faq, index}
+          <div class="faq-item" class:open={openFaqIndex === index}>
+            <button
+              type="button"
+              class="faq-question"
+              aria-expanded={openFaqIndex === index}
+              on:click={() => toggleFaq(index)}
+            >
+              <span>{faq.question}</span>
+              <span class="faq-chevron" aria-hidden="true">{openFaqIndex === index ? '−' : '+'}</span>
+            </button>
+            {#if openFaqIndex === index}
+              <div class="faq-answer" role="region">
+                <p>{faq.answer}</p>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </section>
   {/if}
 </div>
+
 
 <style>
   /* Member Dashboard */
@@ -1537,6 +1490,11 @@
     margin: 0 auto;
   }
 
+  .tiers-grid.single-tier {
+    max-width: 420px;
+    grid-template-columns: 1fr;
+  }
+
   .tier-card {
     background: var(--color-bg-secondary);
     border: 2px solid var(--color-input-border);
@@ -1881,6 +1839,12 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  a.value-prop:hover .value-prop-label {
+    color: var(--color-primary, #f97316);
   }
 
   .value-prop-icon {
@@ -1891,6 +1855,67 @@
     font-size: 0.95rem;
     font-weight: 500;
     color: var(--color-text-secondary);
+  }
+
+  .founders-story-copy {
+    color: var(--color-text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin: 0.75rem 0 0 0;
+    position: relative;
+    z-index: 1;
+    text-align: left;
+  }
+
+  .membership-faq {
+    max-width: 720px;
+    margin: 2.5rem auto 1rem;
+  }
+
+  .faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .faq-item {
+    border: 1px solid var(--color-input-border);
+    border-radius: 12px;
+    background: var(--color-bg-secondary);
+    overflow: hidden;
+  }
+
+  .faq-question {
+    width: 100%;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.15rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    color: var(--color-text-primary);
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .faq-chevron {
+    color: var(--color-text-secondary);
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+
+  .faq-answer {
+    padding: 0 1.15rem 1.15rem;
+    color: var(--color-text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  .faq-answer p {
+    margin: 0;
   }
 
   /* Urgency text */
