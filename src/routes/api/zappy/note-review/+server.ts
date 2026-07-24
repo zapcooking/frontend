@@ -146,7 +146,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
     const authPubkey = verification.pubkey;
 
-    // Membership gate (Pro Kitchen) with the non-member credit path.
+    // Membership gate (any active membership) with the non-member credit path.
     // FAILS CLOSED on membership-service problems — see header comment
     // and issue #512 before "fixing" this to match the other endpoints.
     let creditGranted = false;
@@ -192,7 +192,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
             {
               ok: false,
               code: 'NOT_MEMBER',
-              error: 'Cheffy photo review is available to Pro Kitchen members — or 21 sats a draft.'
+              error: 'Cheffy photo review is available to Cook+ members — or 21 sats a draft.'
             },
             { status: 403 }
           );

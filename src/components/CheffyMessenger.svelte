@@ -486,7 +486,7 @@
       <!-- Membership gate -->
       <div class="cheffy-gate">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
-        <h2>Cheffy is a Pro Kitchen feature</h2>
+        <h2>Cheffy comes with Cook+</h2>
         <p>Ask cooking questions, use what you have, fix a mistake, or turn an idea into dinner.</p>
         <button
           type="button"
@@ -573,20 +573,20 @@
         {#if inExperience && $cheffyConversion}
           <!-- Soft conversion card — shown once the preview turns are
                spent (or when the experience was already used): invites the
-               visitor to create a free kitchen or unlock Kitchen+. Never a
+               visitor to create a free kitchen or unlock Cook+. Never a
                paywall — this is the gentle next step. -->
           <div class="conversion" role="group" aria-label="Keep cooking with Cheffy">
             <CheffyAvatar size={44} expression="happy" variant="character" />
             {#if $cheffyConversion === 'used'}
               <h3 class="conv-title">Cheffy already helped you get started</h3>
               <p class="conv-body">
-                Create your free kitchen to save ideas, or unlock Kitchen+ to keep cooking with
+                Create your free kitchen to save ideas, or unlock Cook+ to keep cooking with
                 Cheffy.
               </p>
             {:else if signedIn}
               <h3 class="conv-title">Keep cooking with Cheffy</h3>
               <p class="conv-body">
-                Kitchen+ gives you Cheffy, Nourish, saved drafts, recipe tools, and more ways to
+                Cook+ gives you Cheffy, Nourish, saved drafts, recipe tools, and more ways to
                 build your kitchen.
               </p>
             {:else}
@@ -602,11 +602,11 @@
                   Create your free kitchen
                 </button>
                 <button type="button" class="conv-secondary" on:click={convUnlockKitchenPlus}>
-                  Unlock Kitchen+
+                  Unlock Cook+
                 </button>
               {:else}
                 <button type="button" class="conv-primary" on:click={convUnlockKitchenPlus}>
-                  Unlock Kitchen+
+                  Unlock Cook+
                 </button>
               {/if}
               <button type="button" class="conv-ghost" on:click={convKeepExploring}>

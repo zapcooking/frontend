@@ -237,7 +237,7 @@ async function dispatchTurn(
     cheffyAnnounce.set(isRecipe ? 'Cheffy shared a recipe.' : 'Cheffy replied.');
 
     // Spend one preview turn. Only invite the visitor to create a free
-    // kitchen or unlock Kitchen+ once all preview turns are used up — let
+    // kitchen or unlock Cook+ once all preview turns are used up — let
     // them actually chat with Cheffy first.
     if (isExperience) {
       recordExperienceTurn();

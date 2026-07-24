@@ -624,7 +624,7 @@
     <div class="flex flex-col min-w-0">
       <div class="flex items-center gap-2 flex-wrap">
         <h1>Cheffy</h1>
-        <span class="pro-chip">Pro Kitchen</span>
+        <span class="pro-chip">Cook+</span>
       </div>
       <p class="text-caption">Your kitchen companion</p>
     </div>
@@ -640,10 +640,10 @@
     <div class="flex flex-col items-center justify-center py-16 gap-6">
       <CheffyAvatar size={84} expression="neutral" variant="character" />
       <div class="text-center max-w-md">
-        <h2 class="mb-2">Cheffy is a Pro Kitchen feature</h2>
+        <h2 class="mb-2">Cheffy comes with Cook+</h2>
         <p class="text-caption mb-6">
           Cheffy is your kitchen companion — ask cooking questions, use what you have, fix a
-          mistake, or turn an idea into dinner. Unlock him with a Pro Kitchen membership.
+          mistake, or turn an idea into dinner. Unlock him with a Cook+ membership.
         </p>
         <Button on:click={() => goto('/membership')}>View Membership Options</Button>
       </div>

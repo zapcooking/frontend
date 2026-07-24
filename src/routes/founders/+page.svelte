@@ -21,13 +21,20 @@
     joined: string | null;
   }
 
-  // CustomAvatar and CustomName handle their own profile loading
-  let founders: Founder[] = (data.founders || []).map((f: any) => ({
+  // CustomAvatar and CustomName handle their own profile loading.
+  // Keep this reactive to `data` — a one-shot assignment freezes the first
+  // value and shows an empty list on client-side navigations.
+  $: founders = (data.founders || []).map((f: any) => ({
     number: f.number,
     pubkey: f.pubkey,
     tier: f.tier,
     joined: f.joined
   }));
+  // Prefer the explicit load flag; also accept a non-empty list so a stale
+  // client never treats real founders data as "unavailable".
+  $: foundersAvailable =
+    data?.foundersAvailable === true ||
+    (data?.foundersAvailable !== false && founders.length > 0);
 </script>
 
 <svelte:head>
@@ -43,7 +50,11 @@
     <h2>🔥 Founders Club</h2>
     <p class="subtitle">The first believers who made this possible</p>
 
-    {#if founders.length === 0}
+    {#if !foundersAvailable}
+      <div class="empty-state">
+        <p>Founders list is temporarily unavailable.</p>
+      </div>
+    {:else if founders.length === 0}
       <div class="empty-state">
         <p>No founders found.</p>
       </div>
