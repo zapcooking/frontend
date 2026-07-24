@@ -29,7 +29,7 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
 
   if (!API_SECRET) {
     console.error('RELAY_API_SECRET not found');
-    return { founders: [], error: 'Not configured' };
+    return { founders: [], foundersAvailable: false, error: 'Not configured' };
   }
 
   try {
@@ -39,7 +39,16 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
       }
     });
 
+    if (!res.ok) {
+      console.error('Founders members API returned', res.status);
+      return { founders: [], foundersAvailable: false, error: 'Failed to load' };
+    }
+
     const data = await res.json();
+    if (!data || !Array.isArray(data.members)) {
+      console.error('Founders members API returned unexpected payload');
+      return { founders: [], foundersAvailable: false, error: 'Failed to load' };
+    }
 
     // Filter for active Genesis Founders (both 'genesis_' and 'founder' prefixes)
     const allFounders = data.members
@@ -110,11 +119,11 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
       }))
     ];
 
-    return { founders };
+    return { founders, foundersAvailable: true };
 
   } catch (err) {
     console.error('Failed to load founders:', err);
-    return { founders: [], error: 'Failed to load' };
+    return { founders: [], foundersAvailable: false, error: 'Failed to load' };
   }
 };
 

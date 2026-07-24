@@ -73,11 +73,14 @@
   // Genesis founders constants
   const TOTAL_GENESIS_SPOTS = 21;
 
-  // Track actual founders count from server
-  const actualFoundersCount = data.founders?.length || 0;
-
-  $: spotsTaken = actualFoundersCount;
-  $: spotsRemaining = TOTAL_GENESIS_SPOTS - spotsTaken;
+  // Reactive to `data` so CSR navigations pick up load results (a one-shot
+  // `const count = data.founders?.length || 0` freezes the initial value,
+  // which is often 0 before/without a successful load).
+  // `foundersAvailable` distinguishes a real empty list from a failed load —
+  // never render "0 taken" as a placeholder for unavailable data.
+  $: foundersAvailable = data?.foundersAvailable === true;
+  $: spotsTaken = foundersAvailable ? (data.founders?.length ?? 0) : null;
+  $: spotsRemaining = spotsTaken === null ? null : TOTAL_GENESIS_SPOTS - spotsTaken;
   $: isSoldOut = spotsRemaining === 0;
   $: isLoggedIn = $userPublickey && $userPublickey.length > 0;
 
@@ -684,7 +687,11 @@
           <div class="genesis-hero-text">
             <h2>Founders Club</h2>
             <p class="genesis-hero-countdown">
-              {spotsTaken} of {TOTAL_GENESIS_SPOTS} seats taken
+              {#if spotsTaken === null}
+                {TOTAL_GENESIS_SPOTS} seats
+              {:else}
+                {spotsTaken} of {TOTAL_GENESIS_SPOTS} seats taken
+              {/if}
             </p>
           </div>
           <div class="genesis-hero-arrow">
@@ -744,7 +751,9 @@
               <ul class="benefit-list">
                 <li>
                   <span class="checkmark">✓</span>
-                  <span class="feature-text">Founders Club badge (#{spotsTaken + 1}-21)</span>
+                  <span class="feature-text">
+                    Founders Club badge (#{spotsTaken === null ? '?' : spotsTaken + 1}-21)
+                  </span>
                 </li>
                 <li>
                   <span class="checkmark">✓</span>
@@ -780,9 +789,13 @@
 
           <div class="genesis-checkout-urgency">
             <p>
-              <strong>{spotsTaken} of {TOTAL_GENESIS_SPOTS} seats taken</strong>
-              {#if spotsRemaining > 0}
-                — {spotsRemaining} remaining
+              {#if spotsTaken === null}
+                <strong>{TOTAL_GENESIS_SPOTS} seats</strong>
+              {:else}
+                <strong>{spotsTaken} of {TOTAL_GENESIS_SPOTS} seats taken</strong>
+                {#if spotsRemaining !== null && spotsRemaining > 0}
+                  — {spotsRemaining} remaining
+                {/if}
               {/if}
             </p>
           </div>
