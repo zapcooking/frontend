@@ -18,6 +18,7 @@
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
   import LandingImportHero from '../../components/LandingImportHero.svelte';
+  import HomepageJoinCta from '../../components/HomepageJoinCta.svelte';
   import CheffyHomeCard from '../../components/CheffyHomeCard.svelte';
   import CheffyExploreInvite from '../../components/CheffyExploreInvite.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -350,13 +351,9 @@
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
   <div class="flex flex-col">
-    <!-- Orientation text for signed-out users -->
+    <!-- Cold-visitor join entry — logged-out only, above the fold -->
     {#if $userPublickey === ''}
-      <div class="mb-4 pt-1">
-        <p class="text-sm" style="color: var(--color-text-secondary);">
-          Recipes, ideas, and cooks from around the network.
-        </p>
-      </div>
+      <HomepageJoinCta />
     {/if}
 
     <!-- Explore Content -->
