@@ -2,7 +2,7 @@
   <title>Child Safety Standards | Zap Cooking</title>
   <meta
     name="description"
-    content="Zap Cooking's child safety policies, practices, and tools for protecting children across the Service."
+    content="Zap Cooking's child safety standards — what we prohibit, how we prevent and detect CSAE, how to report it, and the limits of what we can technically do."
   />
 </svelte:head>
 
@@ -10,150 +10,163 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Child Safety Standards</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: March 13, 2026</p>
+    <p class="text-sm opacity-75">
+      <strong>Zap Cooking LLC</strong><br />
+      Last updated: 25 July 2026<br />
+      Next scheduled review: 25 January 2027
+    </p>
 
-    <p>Zap Cooking LLC ("Zap Cooking," "we," "our," or "us") takes child safety seriously. This page describes our policies, practices, and tools related to the protection of children across the Service.</p>
+    <hr style="border-color: var(--color-input-border)" />
 
-    <p>Zap Cooking is a recipe and food community platform built on the Nostr protocol. The Service operates primarily as a client application that reads and publishes content to decentralized Nostr relays. We also operate community-managed relays and marketplace features. Regardless of architecture, we are committed to keeping our community safe for all users.</p>
+    <!-- Section 1 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">1. Our commitment</h2>
 
-    <!-- Our Position on CSAE -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Our Position on CSAE</h2>
+    <p>Zap Cooking has zero tolerance for child sexual abuse and exploitation (CSAE). Content or conduct that sexualizes, exploits, endangers, or abuses a minor is prohibited on every surface we operate, without exception and regardless of intent, framing, or claimed artistic purpose.</p>
 
-    <p>Zap Cooking maintains an absolute zero-tolerance policy toward child sexual abuse and exploitation ("CSAE"). This includes, but is not limited to:</p>
+    <p>This document sets out what we prohibit, what we do to prevent and detect it, how anyone can report it, how we respond, and — importantly — the limits of what we are technically able to do. We would rather publish an honest account of our capabilities than an aspirational one we cannot deliver.</p>
 
-    <ul class="list-disc pl-6 space-y-2">
-      <li>Child sexual abuse material ("CSAM") — any visual depiction involving a minor engaged in sexually explicit conduct</li>
-      <li>Grooming — building a relationship with a minor for the purpose of sexual exploitation</li>
-      <li>Sextortion of minors</li>
-      <li>Trafficking of children for sexual purposes</li>
-      <li>Any content or behavior that sexually exploits, abuses, or endangers children</li>
-    </ul>
+    <!-- Section 2 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">2. Definitions</h2>
 
-    <p>Any such content discovered on Zap Cooking-operated components will be removed immediately. Any account found to be distributing CSAM or engaging in CSAE will be permanently banned from all Zap Cooking-operated components. We will report such content and conduct to the appropriate authorities.</p>
+    <p><strong>CSAE</strong> — child sexual abuse and exploitation, including sexualized depiction of minors, sexual solicitation or grooming of a minor, sextortion, trafficking, and the promotion or facilitation of any of these.</p>
 
-    <!-- Age Requirements -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Age Requirements</h2>
+    <p><strong>CSAM</strong> — child sexual abuse material: visual depictions of sexually explicit conduct involving a minor.</p>
 
-    <h3 class="text-xl font-semibold mt-4 mb-2" style="color: var(--color-text-primary)">General Use</h3>
+    <p><strong>Minor</strong> — any person under 18 years of age, or under the age of majority in their jurisdiction where that age is higher.</p>
 
-    <p>The Service is available to users aged 13 and older. Users under 13 are not permitted to use the Service. If you are between 13 and 17, your parent or legal guardian must review and agree to our <a href="/terms" class="text-primary hover:underline">Terms of Service</a> on your behalf.</p>
+    <!-- Section 3 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">3. Prohibited conduct</h2>
 
-    <p>We reserve the right to use age-screening or age-verification measures and to restrict access to Zap Cooking-operated components if we believe a user does not meet the applicable age requirement.</p>
-
-    <h3 class="text-xl font-semibold mt-4 mb-2" style="color: var(--color-text-primary)">The Market</h3>
-
-    <p>The Market (our marketplace feature) is restricted to users aged 18 and older. Users under 18 may not create listings, purchase goods, or communicate with other users for the purpose of a transaction. The Market involves peer-to-peer commercial transactions and Lightning/Bitcoin payments that are designed for adult users.</p>
-
-    <h3 class="text-xl font-semibold mt-4 mb-2" style="color: var(--color-text-primary)">Age-Appropriate Experience</h3>
-
-    <p>Zap Cooking is a food and recipe community. While the platform is available to users 13 and older, we are mindful that younger users may be present. We expect all users to keep interactions appropriate and to refrain from publishing content that is harmful, exploitative, or inappropriate for a community that includes minors.</p>
-
-    <!-- Architecture -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">How Our Architecture Works</h2>
-
-    <p>Understanding our architecture is important context for this policy:</p>
-
-    <p><strong>Zap Cooking as a client.</strong> The zap.cooking web and mobile applications are Nostr clients. They display content published to relays by users across the Nostr network. The majority of content users see is stored on relays operated by independent third parties, each with their own moderation policies.</p>
-
-    <p><strong>Zap Cooking-operated components.</strong> We operate and control certain components of the Service, including the zap.cooking client interface, The Market listing surface, and community-managed relays. Within these components, we have the ability to moderate content, remove listings, restrict access, and take enforcement action.</p>
-
-    <p><strong>Community-managed relays.</strong> We operate two relays as a service to the zap.cooking community:</p>
+    <p>The following are prohibited on all Zap Cooking surfaces:</p>
 
     <ul class="list-disc pl-6 space-y-2">
-      <li><strong>The Garden</strong> (garden.zap.cooking) — a community relay running Pyramid software, with community-driven moderation in coordination with Zap Cooking.</li>
-      <li><strong>The Pantry</strong> (pantry.zap.cooking) — a NIP-29 group relay for public group chats, moderated by group administrators and Zap Cooking.</li>
+      <li>Uploading, publishing, linking to, or requesting CSAM</li>
+      <li>Sexualized depiction or description of minors, including text, illustration, and AI-generated material</li>
+      <li>Sexual solicitation of a minor, or grooming behavior — including attempts to move a minor to a private channel, to obtain images, or to establish secrecy from parents or guardians</li>
+      <li>Sextortion, or threatening to distribute intimate imagery of a minor</li>
+      <li>Trafficking, or the advertisement or facilitation of the sexual exploitation of a minor</li>
+      <li>Any attempt to use Zap Cooking's features, including its AI features, to generate, locate, or distribute the above</li>
     </ul>
 
-    <p>For content on our relays and within Zap Cooking-operated components, we accept direct responsibility for moderation and will act promptly on any reports of CSAE content. For content on third-party relays, our role is to provide tools that help users report harmful content to those relay operators.</p>
+    <p>Violations result in immediate removal from surfaces we control and permanent blocking of the responsible key, with no warning and no appeal for CSAM.</p>
 
-    <!-- Moderation -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Moderation on Zap Cooking-Operated Components</h2>
+    <!-- Section 4 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">4. Scope — what we operate and what we do not</h2>
 
-    <p>Within Zap Cooking-operated components — including our relays, the client interface, The Market, and promotional features — we implement the following:</p>
+    <p>Zap Cooking is built on Nostr, an open protocol. This has direct consequences for what enforcement means, and we state them plainly rather than implying control we do not have.</p>
+
+    <p><strong>Surfaces we operate and fully control:</strong></p>
 
     <ul class="list-disc pl-6 space-y-2">
-      <li>Active moderation by community moderators and Zap Cooking administrators</li>
-      <li>Immediate removal of any CSAE content upon discovery or report</li>
-      <li>Permanent banning of accounts found to be distributing CSAM or engaging in CSAE from all Zap Cooking-operated components</li>
-      <li>Removal of marketplace listings, sponsored placements, or boosted content that violate child safety standards</li>
-      <li>Cooperation with law enforcement, NCMEC, and other authorities as required by law</li>
-      <li>Support for community-maintained block lists and content labels published via the Nostr protocol</li>
+      <li><strong>Pantry</strong> (pantry.zap.cooking), our relay. We can and do refuse, remove, and block here.</li>
+      <li><strong>The Zap Cooking web application and our Android and iOS clients.</strong> We control what our clients fetch, render, and serve.</li>
+      <li><strong>Our own feeds, discovery surfaces, and AI features.</strong></li>
     </ul>
 
-    <p>Because content may also exist on third-party relays and decentralized infrastructure beyond our control, actions taken within Zap Cooking-operated components may not result in removal of content from the broader Nostr network.</p>
+    <p>On these surfaces, removal is immediate and effective.</p>
 
-    <!-- Reporting -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Reporting Harmful Content</h2>
+    <p><strong>Surfaces we do not operate:</strong></p>
 
-    <p>If you encounter CSAM, CSAE, or any content that endangers children while using zap.cooking, please take the following steps:</p>
+    <ul class="list-disc pl-6 space-y-2">
+      <li><strong>Third-party Nostr relays.</strong> Zap Cooking clients read from public relays operated by unrelated parties. When we identify violating content, we issue deletion requests (NIP-09) to relays where it appears. <strong>These are requests. Whether a third-party relay honors them is entirely at that relay's discretion, and we cannot compel it.</strong></li>
+      <li><strong>Third-party media hosts.</strong> Images and video are stored on Blossom servers, which are operated independently of Zap Cooking. We can stop serving and referencing such media in our clients; we cannot delete it from a host we do not run.</li>
+    </ul>
+
+    <p><strong>What we can always do, regardless of where content lives:</strong> stop serving it to our users, remove it from our feeds and search, block the responsible key from our relay and clients, and report it to the appropriate authorities.</p>
+
+    <p>We consider this the honest boundary of our capability as a small team. Within that boundary we enforce fully and promptly.</p>
+
+    <!-- Section 5 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">5. Prevention</h2>
+
+    <ul class="list-disc pl-6 space-y-2">
+      <li><strong>Zap Cooking is not an anonymous or random chat service.</strong> There is no stranger pairing, no chat roulette, no random matching, and no anonymous direct-message surface. Group chat is topic-based and joined deliberately. Nostr as a protocol permits pseudonymous participation, but our product does not offer or promote anonymous contact between strangers as a feature.</li>
+      <li><strong>The application is not directed to children.</strong> It is rated and marketed for a general adult audience, and we do not target children in our store listings, marketing, or product design.</li>
+      <li><strong>Relay-level constraints on Pantry:</strong> an allowlist restricting accepted event kinds to those our application uses, per-key and per-IP rate limits, and event size caps.</li>
+      <li><strong>Content filtering in our clients:</strong> muted-tag enforcement and content filtering applied to feeds and discovery surfaces.</li>
+      <li><strong>User-level controls:</strong> every user can mute and block any other user, and can mute words and phrases, from within the application.</li>
+      <li><strong>Group moderation:</strong> NIP-29 group chats on Pantry are moderated by their group administrators as well as by Zap Cooking.</li>
+      <li><strong>Paid placement:</strong> sponsored and boosted content is subject to these standards in full. Violating sponsored placements are removed and not refunded.</li>
+      <li><strong>AI safeguards:</strong> our AI features are prohibited from generating sexualized content involving minors and are subject to the same enforcement as user-generated content.</li>
+    </ul>
+
+    <p><strong>Current limitation, stated openly:</strong> we do not presently operate automated perceptual-hash matching against known-CSAM databases. Our detection relies on user reports, operator review, and the moderation controls described above. We are evaluating hash-matching options appropriate to our scale and will update this document when that changes.</p>
+
+    <!-- Section 6 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">6. How to report</h2>
+
+    <p><strong>By email</strong> — <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a>. This inbox is monitored and child safety reports are prioritized above all other correspondence. This is the reporting route from the web application and from any surface where an in-app control is not yet available.</p>
+
+    <p><strong>In the Android application</strong> — reporting controls are available in group chats today, including a dedicated child safety category, and are being extended across posts, recipes, comments, and profiles. Reports route directly to designated moderation accounts and require no email address or account.</p>
+
+    <p><strong>To relay operators</strong> — where content is hosted on a third-party relay, users may also report it directly to that relay's operator under its own policies. Where possible, we forward reports to the relevant operator.</p>
+
+    <p>Reports may be made by anyone, whether or not they use Zap Cooking, and whether or not they are the person depicted.</p>
+
+    <p><strong>If a child is in immediate danger, contact local law enforcement first.</strong> In the United States you can also reach the NCMEC CyberTipline at <a href="https://report.cybertip.org" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">report.cybertip.org</a> or 1-800-843-5678.</p>
+
+    <!-- Section 7 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">7. How we respond</h2>
+
+    <ul class="list-disc pl-6 space-y-2">
+      <li><strong>Acknowledgement and triage within 24 hours of receipt.</strong> CSAE reports take priority over every other category of report we receive.</li>
+      <li><strong>On confirmation:</strong> immediate removal from all surfaces we control, permanent block of the responsible key from Pantry and our clients, and deletion requests issued to third-party relays where the content appears.</li>
+      <li><strong>Preservation:</strong> we preserve relevant records as required by law and do not delete evidence prior to reporting.</li>
+      <li><strong>Reporting:</strong> confirmed CSAM is reported to the National Center for Missing &amp; Exploited Children (NCMEC), and to law enforcement where circumstances warrant.</li>
+      <li><strong>No appeal</strong> for CSAM determinations. Other enforcement decisions may be appealed to the contact below.</li>
+    </ul>
+
+    <!-- Section 8 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">8. What we ask of users</h2>
+
+    <p>If you encounter content or conduct covered by these standards:</p>
 
     <ol class="list-decimal pl-6 space-y-2">
-      <li><strong>Report to us.</strong> Use the in-app reporting tools to flag content, or email us directly at <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a>. For content on The Garden or The Pantry, reports come directly to our moderation team. For content on third-party relays, we will direct the report to the appropriate relay operator where possible.</li>
-      <li><strong>Mute or block.</strong> Immediately mute or block the offending account to remove the content from your view.</li>
-      <li><strong>Report to relay operators.</strong> If the content is hosted on a third-party relay, use available tools to report it to that relay's operator.</li>
-      <li><strong>Report to authorities.</strong> We strongly encourage reporting CSAM or CSAE content to the <a href="https://report.cybertipline.org/" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">NCMEC CyberTipline</a> and your local law enforcement.</li>
+      <li><strong>Report it</strong> using the in-app report control or by emailing <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a></li>
+      <li><strong>Block the account</strong> so it is removed from your view immediately</li>
+      <li><strong>Report it directly to NCMEC</strong> at <a href="https://report.cybertip.org" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">report.cybertip.org</a>, or to local law enforcement — you do not need to wait for us, and you should not</li>
     </ol>
 
-    <!-- Client-Side Protections -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Client-Side Protections</h2>
+    <p><strong>Do not download, save, forward, or share the material, including to show it to us.</strong> Describe what you saw and where. Possession creates legal exposure for you.</p>
 
-    <p>On the client side, zap.cooking provides tools to help users manage their experience:</p>
+    <p>By using Zap Cooking you agree not to create, publish, request, or seek access to CSAM, or to engage in any form of CSAE.</p>
 
-    <ul class="list-disc pl-6 space-y-2">
-      <li>User-driven muting and blocking to remove harmful content and accounts from view</li>
-      <li>Reporting workflows that direct reports to relay operators and to Zap Cooking for content within our components</li>
-      <li>Support for Nostr content labels and community-maintained block lists</li>
-      <li>Feed customization and filtering tools</li>
-    </ul>
+    <!-- Section 9 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">9. Age and audience</h2>
 
-    <!-- The Market -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">The Market and Child Safety</h2>
+    <p>Zap Cooking is intended for users aged 13 and older. It is not designed for, marketed to, or targeted at children under 13. Users under 13 are not permitted to use the Service, and we do not knowingly collect information from them.</p>
 
-    <p>The Market is restricted to users aged 18 and older. In addition to the age restriction:</p>
+    <p>Users aged 13 to 17 represent that a parent or legal guardian has reviewed and agreed to our <a href="/terms" class="text-primary hover:underline">Terms of Service</a> on their behalf and has authorized their use of the Service.</p>
 
-    <ul class="list-disc pl-6 space-y-2">
-      <li>Listings involving products marketed toward children (such as children's cookware or lunchbox items) must comply with all applicable product safety laws and regulations. Zap Cooking does not verify product safety compliance — sellers are solely responsible.</li>
-      <li>The Market may not be used to facilitate any interaction with, solicitation of, or transaction involving a minor.</li>
-      <li>Promoted or boosted marketplace listings are subject to the same child safety standards as all other content.</li>
-    </ul>
+    <p><strong>The Zap Cooking Market is restricted to users 18 and older</strong>, including creating listings, purchasing goods, and communicating with other users for the purpose of a transaction. The Market may not be used to facilitate any interaction, solicitation, or transaction involving a minor. Promoted and boosted listings are subject to these same standards.</p>
 
-    <!-- User Responsibility -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">User Responsibility</h2>
+    <!-- Section 10 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">10. Point of contact</h2>
 
-    <p>All users of zap.cooking must comply with applicable laws regarding child safety. By using the Service, you agree that you will not use the platform to create, distribute, solicit, or access CSAM or engage in any form of CSAE.</p>
+    <p>
+      Seth Sager, Founder and Safety Lead<br />
+      Zap Cooking LLC<br />
+      <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a>
+    </p>
 
-    <p>Users who encounter such content should:</p>
+    <p>This is a monitored address and the designated point of contact for child safety matters, including inquiries from Google Play, NCMEC, and law enforcement.</p>
 
-    <ol class="list-decimal pl-6 space-y-2">
-      <li>Use the in-app report function or email <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a></li>
-      <li>Mute or block the offending account</li>
-      <li>Report to the <a href="https://report.cybertipline.org/" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">NCMEC CyberTipline</a> or local law enforcement</li>
-    </ol>
+    <!-- Section 11 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">11. Legal compliance and transparency</h2>
 
-    <!-- Compliance -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Compliance with Law</h2>
+    <p>We comply with applicable law in the jurisdictions where we operate, including U.S. federal reporting obligations for providers of electronic communication services under 18 U.S.C. § 2258A, COPPA, and the GDPR where it applies.</p>
 
-    <p>Zap Cooking LLC is committed to complying with all applicable child safety laws. Our practices are informed by the Tech Coalition's best practices for combating online child sexual exploitation and abuse. Should we obtain actual knowledge of CSAM through our relays, reporting channels, or any Zap Cooking-operated component, we will report it to NCMEC and relevant authorities in accordance with U.S. federal law (18 U.S.C. &sect; 2258A).</p>
+    <p>Our practices are informed by the Tech Coalition's developer good practices for combating online child sexual exploitation and abuse.</p>
 
-    <!-- Contact -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Contact</h2>
+    <p>The Zap Cooking clients are open source — github.com/zapcooking/zap_cooking_android and github.com/zapcooking/frontend. The safety mechanisms, reporting features, and content controls described here can be verified in the source.</p>
 
-    <p>For child safety concerns or inquiries related to zap.cooking:</p>
+    <!-- Section 12 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">12. Review</h2>
 
-    <ul class="list-none pl-0 space-y-2">
-      <li>Email: <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a></li>
-    </ul>
+    <p>These standards are reviewed at least every six months, and immediately following any material change to our product, our moderation capability, or applicable law.</p>
 
-    <p>For immediate concerns regarding a child's safety, please contact the <a href="https://report.cybertipline.org/" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">NCMEC CyberTipline</a> or your local law enforcement directly.</p>
+    <hr style="border-color: var(--color-input-border)" />
 
-    <!-- Open Source -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Open Source Transparency</h2>
-
-    <p>zap.cooking is built on open-source principles. Client-side safety mechanisms, reporting features, and moderation tools are available for review in our public repositories.</p>
-
-    <!-- Updates -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Updates</h2>
-
-    <p>This policy may be updated to reflect improvements in our safety practices, changes to our infrastructure, or changes in legal requirements. Updates will be posted on this page with a revised date.</p>
+    <p><em>Zap Cooking LLC · Tyrone, Pennsylvania, United States</em></p>
   </div>
 </article>

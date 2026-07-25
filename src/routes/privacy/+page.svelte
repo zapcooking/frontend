@@ -156,6 +156,8 @@
 
     <p>If you believe a child under 13 has used the Service, please contact us at <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a>.</p>
 
+    <p>For our policies on child sexual abuse and exploitation, including how to report it and how we respond, see our <a href="/child-safety" class="text-primary hover:underline">Child Safety Standards</a>.</p>
+
     <!-- Section 9 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">9. Third-Party Wallets and Payment Services</h2>
 

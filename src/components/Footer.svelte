@@ -61,6 +61,8 @@
       <span class="footer-sep">·</span>
       <a href="/privacy" class="hover:text-primary transition-colors">Privacy</a>
       <span class="footer-sep">·</span>
+      <a href="/child-safety" class="hover:text-primary transition-colors">Safety</a>
+      <span class="footer-sep">·</span>
       <a href="/disclosure" class="hover:text-primary transition-colors">Disclosure</a>
     </nav>
 
