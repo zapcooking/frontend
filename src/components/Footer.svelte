@@ -63,6 +63,8 @@
       <span class="footer-sep">·</span>
       <a href="/child-safety" class="hover:text-primary transition-colors">Safety</a>
       <span class="footer-sep">·</span>
+      <a href="/delete-account" class="hover:text-primary transition-colors">Delete Account</a>
+      <span class="footer-sep">·</span>
       <a href="/disclosure" class="hover:text-primary transition-colors">Disclosure</a>
     </nav>
 
