@@ -57,6 +57,7 @@
       <li><strong>Your content stored on Pantry</strong>, the Nostr relay we operate at pantry.zap.cooking — recipes, posts, comments, reactions, and group messages held there</li>
       <li><strong>Any support correspondence</strong> associated with your account</li>
       <li><strong>Your encrypted key backup</strong>, if you used the Google Drive backup feature — see the note below</li>
+      <li><strong>Your encrypted passkey vault</strong>, if you used passkey sign-in on the website — the encrypted copy of your key held on our servers</li>
     </ul>
 
     <p>We also issue deletion requests to other Nostr relays where we can identify your content.</p>
