@@ -203,7 +203,7 @@
           class="zh-iconbtn zh-intelligence-btn {onIntelligenceSurface || intelligenceMenuOpen
             ? 'is-active'
             : ''}"
-          aria-label="Intelligence tools"
+          aria-label="Kitchen help"
           aria-haspopup="menu"
           aria-expanded={intelligenceMenuOpen}
         >
