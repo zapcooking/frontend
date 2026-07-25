@@ -42,6 +42,8 @@
 
     <p>We will acknowledge your request within 3 business days and complete deletion within 30 days.</p>
 
+    <p><strong>Paid memberships.</strong> If you have a recurring membership, requesting deletion cancels future renewals so you are not charged again. You keep access until we complete the deletion. Deleting our membership record alone does not stop billing at Stripe — when you request deletion, we cancel the subscription.</p>
+
     <p>If you are unsure which npub is yours, open your profile in the app — it is shown on your profile screen and can be copied from there.</p>
 
     <hr style="border-color: var(--color-input-border)" />

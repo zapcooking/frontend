@@ -283,7 +283,7 @@
 
     <p>The Service is operated from the United States. If you access the Service from outside the United States, you do so at your own initiative and are responsible for compliance with applicable local laws. By using the Service, you acknowledge that information may be processed and stored in the United States and other jurisdictions where our service providers operate.</p>
 
-    <p>We do not currently offer specific mechanisms for data subject access requests under non-U.S. privacy laws (such as GDPR), but we are committed to handling privacy inquiries in good faith. If you have a privacy-related request, contact us at {@html SUPPORT_EMAIL}.</p>
+    <p>You can request deletion of the records we hold against your public key at any time — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page. We do not currently offer a full suite of data subject access tools under non-U.S. privacy laws (such as GDPR access or portability requests), but we are committed to handling privacy inquiries in good faith. For other privacy-related requests, contact us at {@html SUPPORT_EMAIL}.</p>
 
     <!-- Section 16 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">16. Your Choices</h2>

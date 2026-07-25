@@ -441,6 +441,12 @@
         </div>
       </div>
 
+      <div class="billing-disclosure">
+        <p>Subscriptions renew for the period you picked unless you cancel before renewal.</p>
+        <p>Cancel anytime from your membership page. You keep access through the end of your current billing period.</p>
+        <p>Except where required by law, we do not provide prorated refunds for partial billing periods.</p>
+      </div>
+
       <div class="checkout-benefits">
         <h3>What you get:</h3>
         
@@ -709,6 +715,25 @@
   .checkout-price .period {
     font-size: 1.2rem;
     color: #9ca3af;
+  }
+
+  .billing-disclosure {
+    margin: -0.5rem 0 1.75rem;
+    padding: 0.85rem 1rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(156, 163, 175, 0.25);
+  }
+
+  .billing-disclosure p {
+    margin: 0 0 0.4rem;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: #d1d5db;
+  }
+
+  .billing-disclosure p:last-child {
+    margin-bottom: 0;
   }
 
   .checkout-benefits {
