@@ -1,3 +1,19 @@
+<script lang="ts">
+  // Cloudflare Scrape Shield rewrites every email address in the served HTML to
+  // "[email protected]" at the edge — after the Worker responds — and restores it
+  // only by running /cdn-cgi/scripts/.../email-decode.min.js. S10 designates this
+  // address as the point of contact for Google Play, NCMEC, and law enforcement,
+  // so a no-JS fetch must still show it. <!--email_off--> is Cloudflare's opt-out.
+  //
+  // It has to be injected as raw HTML: Svelte strips comments from components
+  // (compilerOptions.preserveComments defaults to false), so markers written
+  // literally in the template never reach the edge and the opt-out silently
+  // does nothing. The markers wrap the whole anchor, not just the visible text,
+  // because Cloudflare rewrites the mailto: href as well as the link body.
+  const SUPPORT_EMAIL =
+    '<!--email_off--><a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a><!--/email_off-->';
+</script>
+
 <svelte:head>
   <title>Child Safety Standards | Zap Cooking</title>
   <meta
@@ -95,7 +111,7 @@
     <!-- Section 6 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">6. How to report</h2>
 
-    <p><strong>By email</strong> — <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a>. This inbox is monitored and child safety reports are prioritized above all other correspondence. This is the reporting route from the web application and from any surface where an in-app control is not yet available.</p>
+    <p><strong>By email</strong> — {@html SUPPORT_EMAIL}. This inbox is monitored and child safety reports are prioritized above all other correspondence. This is the reporting route from the web application and from any surface where an in-app control is not yet available.</p>
 
     <p><strong>In the Android application</strong> — reporting controls are available in group chats today, including a dedicated child safety category, and are being extended across posts, recipes, comments, and profiles. Reports route directly to designated moderation accounts and require no email address or account.</p>
 
@@ -122,7 +138,7 @@
     <p>If you encounter content or conduct covered by these standards:</p>
 
     <ol class="list-decimal pl-6 space-y-2">
-      <li><strong>Report it</strong> using the in-app report control or by emailing <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a></li>
+      <li><strong>Report it</strong> using the in-app report control or by emailing {@html SUPPORT_EMAIL}</li>
       <li><strong>Block the account</strong> so it is removed from your view immediately</li>
       <li><strong>Report it directly to NCMEC</strong> at <a href="https://report.cybertip.org" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">report.cybertip.org</a>, or to local law enforcement — you do not need to wait for us, and you should not</li>
     </ol>
@@ -146,7 +162,7 @@
     <p>
       Seth Sager, Founder and Safety Lead<br />
       Zap Cooking LLC<br />
-      <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a>
+      {@html SUPPORT_EMAIL}
     </p>
 
     <p>This is a monitored address and the designated point of contact for child safety matters, including inquiries from Google Play, NCMEC, and law enforcement.</p>
