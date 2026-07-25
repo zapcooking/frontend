@@ -95,8 +95,6 @@
     <!-- Section 6 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">6. How to report</h2>
 
-    <p><strong>By email</strong> — <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a>. This inbox is monitored and child safety reports are prioritized above all other correspondence.</p>
-
     <p><strong>By email</strong> — <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a>. This inbox is monitored and child safety reports are prioritized above all other correspondence. This is the reporting route from the web application and from any surface where an in-app control is not yet available.</p>
 
     <p><strong>In the Android application</strong> — reporting controls are available in group chats today, including a dedicated child safety category, and are being extended across posts, recipes, comments, and profiles. Reports route directly to designated moderation accounts and require no email address or account.</p>
@@ -136,9 +134,9 @@
     <!-- Section 9 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">9. Age and audience</h2>
 
-    <p>Zap Cooking is intended for users aged 13 and older. It is not designed for, marketed to, or targeted at children under 13, users under 13 are not permitted to use the service, and we do not knowingly collect information from them.</p>
+    <p>Zap Cooking is intended for users aged 13 and older. It is not designed for, marketed to, or targeted at children under 13. Users under 13 are not permitted to use the Service, and we do not knowingly collect information from them.</p>
 
-    <p>Users aged 13 to 17 represent that a parent or legal guardian has reviewed and agreed to our <a href="/terms" class="text-primary hover:underline">Terms of Service</a> on their behalf and has authorized their use of the service.</p>
+    <p>Users aged 13 to 17 represent that a parent or legal guardian has reviewed and agreed to our <a href="/terms" class="text-primary hover:underline">Terms of Service</a> on their behalf and has authorized their use of the Service.</p>
 
     <p><strong>The Zap Cooking Market is restricted to users 18 and older</strong>, including creating listings, purchasing goods, and communicating with other users for the purpose of a transaction. The Market may not be used to facilitate any interaction, solicitation, or transaction involving a minor. Promoted and boosted listings are subject to these same standards.</p>
 
