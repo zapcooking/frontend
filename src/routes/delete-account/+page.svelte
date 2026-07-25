@@ -1,3 +1,19 @@
+<script lang="ts">
+  // Cloudflare Scrape Shield rewrites every email address in the served HTML to
+  // "[email protected]" at the edge — after the Worker responds — and restores it
+  // only by running /cdn-cgi/scripts/.../email-decode.min.js. This page's stated
+  // remedy is "email this address", so a no-JS fetch (Play reviewer, regulator)
+  // must still show it. <!--email_off--> is Cloudflare's opt-out marker.
+  //
+  // It has to be injected as raw HTML: Svelte strips comments from components
+  // (compilerOptions.preserveComments defaults to false), so markers written
+  // literally in the template never reach the edge and the opt-out silently
+  // does nothing. The markers wrap the whole anchor, not just the visible text,
+  // because Cloudflare rewrites the mailto: href as well as the link body.
+  const SUPPORT_EMAIL =
+    '<!--email_off--><a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a><!--/email_off-->';
+</script>
+
 <svelte:head>
   <title>Account and Data Deletion | Zap Cooking</title>
   <meta
@@ -20,7 +36,7 @@
     <!-- How to request deletion -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">How to request deletion of your Zap Cooking account</h2>
 
-    <p><strong>Email <a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a> with the subject line "Delete my account."</strong></p>
+    <p><strong>Email {@html SUPPORT_EMAIL} with the subject line "Delete my account."</strong></p>
 
     <p>Include the public key (npub) of the account you want deleted. You do not need to explain why.</p>
 
@@ -89,7 +105,7 @@
     <!-- Questions -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">Questions</h2>
 
-    <p><a href="mailto:support@zap.cooking" class="text-primary hover:underline">support@zap.cooking</a></p>
+    <p>{@html SUPPORT_EMAIL}</p>
 
     <p>
       Zap Cooking LLC<br />
