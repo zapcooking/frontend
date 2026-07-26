@@ -16,7 +16,6 @@ export interface ExpiringMember {
 
 // Reliable relays for DM delivery
 const DM_RELAYS = [
-  'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://nostr.wine',
   'wss://relay.snort.social',

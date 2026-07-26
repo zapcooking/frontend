@@ -590,7 +590,6 @@
       const articleRelays = [
         'wss://relay.primal.net',
         'wss://nos.lol',
-        'wss://relay.damus.io',
         'wss://nostr.wine',
         'wss://antiprimal.net'
       ];

@@ -8,7 +8,6 @@ import { extractZapAmountSats } from './zapAmount';
 // Aggregator relays that index zap receipts — LNURL providers publish kind:9735
 // to these relays, which may not overlap with the app's default relay set.
 const ZAP_AGGREGATOR_RELAYS = [
-  'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://relay.primal.net'
 ];

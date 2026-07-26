@@ -156,7 +156,7 @@
     <p>Third-party services that receive information in connection with the Service:</p>
 
     <ul class="list-disc pl-6 space-y-2">
-      <li><strong>Nostr relays.</strong> Content you publish — recipes, posts, comments, reactions, profile information, group messages, and Market listings — is transmitted to Nostr relays. Some are operated by us; most are not. The application connects by default to <code>pantry.zap.cooking</code> (ours) and to independently operated relays including <code>nos.lol</code>, <code>relay.damus.io</code>, <code>relay.primal.net</code>, <code>nostr.wine</code>, and <code>eden.nostr.land</code>. You can change this list in the application's relay settings. <strong>Publishing to third-party relays is the normal operation of the service, not an exception</strong>, and content sent to a relay we do not operate is outside our control.</li>
+      <li><strong>Nostr relays.</strong> Content you publish — recipes, posts, comments, reactions, profile information, group messages, and Market listings — is transmitted to Nostr relays. Some are operated by us; most are not. The application connects by default to <code>pantry.zap.cooking</code> (ours) and to independently operated relays including <code>nos.lol</code>, <code>relay.primal.net</code>, <code>nostr.wine</code>, and <code>eden.nostr.land</code>. You can change this list in the application's relay settings. <strong>Publishing to third-party relays is the normal operation of the service, not an exception</strong>, and content sent to a relay we do not operate is outside our control.</li>
       <li><strong>Blossom media servers.</strong> Images and video you upload are stored on Blossom servers, which are operated independently of Zap Cooking. The default is <code>blossom.primal.net</code>; you can change it in settings. We do not host your media.</li>
       <li><strong>OpenAI.</strong> Content you submit to our AI features is sent to OpenAI for processing. See "AI features" below.</li>
       <li><strong>Giphy.</strong> When you search for a GIF, your typed search term is sent to <code>api.giphy.com</code>. We do not send your search terms anywhere else.</li>
@@ -221,7 +221,7 @@
 
     <p><strong>This is off unless you allow it.</strong> Each report requires your explicit confirmation before it is sent — nothing is transmitted automatically.</p>
 
-    <p>Reports are sent as encrypted Nostr direct messages to our development team, routed through the relays <code>relay.0xchat.com</code>, <code>relay.utxo.one/chat</code>, and <code>relay.damus.io</code>. A report contains diagnostic information about the failure and is associated with your public key.</p>
+    <p>Reports are sent as encrypted Nostr direct messages to our development team, routed through the relays <code>relay.0xchat.com</code> and <code>relay.utxo.one/chat</code>. A report contains diagnostic information about the failure and is associated with your public key.</p>
 
     <!-- Section 10 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">10. Data Security</h2>

@@ -68,7 +68,6 @@ const CONFIG = {
   // Discovery relays for fetching relay lists
   DISCOVERY_RELAYS: [
     'wss://purplepag.es',
-    'wss://relay.damus.io',
     'wss://nos.lol',
     'wss://relay.primal.net'
   ]

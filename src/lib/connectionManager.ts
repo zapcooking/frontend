@@ -78,7 +78,6 @@ export class ConnectionManager {
       // Add some default relays if none are configured
       const defaultRelays = [
         'wss://purplepag.es',
-        'wss://relay.damus.io',
         'wss://nos.lol',
         'wss://nostr.mom',
         'wss://relay.primal.net'

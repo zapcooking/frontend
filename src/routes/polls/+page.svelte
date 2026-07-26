@@ -38,7 +38,6 @@
 
   const POLL_RELAYS = [
     'wss://nos.lol',
-    'wss://relay.damus.io',
     'wss://relay.primal.net',
     'wss://nostr.wine',
     'wss://antiprimal.net'

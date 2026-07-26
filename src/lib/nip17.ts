@@ -38,7 +38,6 @@ export function clearUnwrapCache(): void {
 }
 
 const FALLBACK_DM_RELAYS = [
-	'wss://relay.damus.io',
 	'wss://nos.lol',
 	'wss://relay.primal.net'
 ];

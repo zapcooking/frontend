@@ -20,7 +20,6 @@
   let activeWebSockets: WebSocket[] = [];
 
   const AGGREGATOR_RELAYS = [
-    'wss://relay.damus.io',
     'wss://nos.lol',
     'wss://relay.primal.net',
     'wss://nostr.wine',

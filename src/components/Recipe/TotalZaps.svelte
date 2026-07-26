@@ -19,7 +19,6 @@
   // Aggregator relays known to have good zap data
   // Tested for response time (<800ms) and zap coverage
   const AGGREGATOR_RELAYS = [
-    'wss://relay.damus.io',
     'wss://nos.lol',
     'wss://relay.primal.net',
     'wss://nostr.wine',
