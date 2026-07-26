@@ -101,7 +101,7 @@
         // with the preview text before publishing, so EVERY premium recipe fails template
         // validation. The tightened check drops them all from `events`, which also empties
         // eventGatedIds — so the page does not go blank, it silently swaps the whole
-        // listing over to the KV fallback cards at :405, one per gated-store entry.
+        // listing over to the KV fallback cards at :412, one per gated-store entry.
         //
         // Deleted premium recipes DO surface here, through that same fallback. The
         // tombstone Recipe.svelte's handleDelete publishes carries 'd'/'deleted'/'title'
@@ -401,7 +401,14 @@
         </a>
       {/each}
 
-      <!-- Server-stored recipes (not yet on relays) -->
+      <!--
+        Gated-store entries with no matching 'gated' tag in `events`. "Not yet on relays" is
+        only one reason that can happen — a deleted recipe's tombstone drops the tag too, so
+        this block also renders cards for recipes that are gone. See the note on the
+        subscription above.
+        Note also that `sortedServerRecipes` (:57) is NOT filtered by showMyRecipesOnly, unlike
+        `filteredEvents` (:53) — these cards show on the My Recipes tab whoever authored them.
+      -->
       {#each sortedServerRecipes as recipe (recipe.gatedNoteId)}
         {@const recipeLink = recipe.naddr ? `/premium/recipe/${recipe.naddr}` : `/premium/recipe/${recipe.gatedNoteId}`}
         <a
