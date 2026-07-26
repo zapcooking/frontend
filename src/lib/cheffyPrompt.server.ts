@@ -171,7 +171,14 @@ ${NOTE_REVIEW_SHARED_RULES}`;
 // Used when the member attaches a photo and sends it without typing a
 // question. Server-side default (the HUNGRY_PROMPT pattern) so the wire
 // never carries an empty user turn.
-export const PHOTO_ASK_DEFAULT_QUESTION = 'What can you tell me about this photo?';
+// This is the one string in the feature the member never sees, so if the
+// answer feels off-target they have no way to know what was asked. It has
+// to be predictable enough that the answer reads as obviously responsive.
+// Its subject is the food, not the photo — "about this photo" invites
+// commentary on the picture — and it does not ask what Cheffy would DO
+// with it, which pointed at someone's own dinner manufactures exactly the
+// unsolicited critique the carried-over rules forbid.
+export const PHOTO_ASK_DEFAULT_QUESTION = 'What is this, and what can you tell me about it?';
 
 /**
  * The member is asking about a photo THEY chose, in their own words, and

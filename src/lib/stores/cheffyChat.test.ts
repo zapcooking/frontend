@@ -165,7 +165,7 @@ describe('answer mapping', () => {
     expect(answer.content).toBe('That is a very smug cat, and not lunch.');
   });
 
-  it('a typed server failure becomes an error bubble carrying the real reason', async () => {
+  it('a typed server failure becomes an error bubble carrying the real reason, and nothing else', async () => {
     mocks.askAboutPhoto.mockResolvedValue({
       ok: false,
       code: 'RATE_LIMITED',
@@ -175,6 +175,17 @@ describe('answer mapping', () => {
     const answer = get(cheffyThread)[1];
     expect(answer.kind).toBe('error');
     expect(answer.content).toBe("Cheffy needs a breather — you've hit the photo limit for now.");
+    // No flavour line above a named cause — the bubble renders the
+    // statusLine only when it is non-empty, so a second narrator would
+    // otherwise invent a different reason above the real one.
+    expect(answer.statusLine).toBe('');
+  });
+
+  it('an UNtyped failure keeps the flavour line — there is no reason to show instead', async () => {
+    mocks.askAboutPhoto.mockResolvedValue({ ok: false, error: 'Cheffy could not respond.' });
+    await askCheffyAboutPhoto(PHOTO, 'what is this?');
+    const answer = get(cheffyThread)[1];
+    expect(answer.kind).toBe('error');
     expect(answer.statusLine).toBeTruthy();
   });
 
@@ -194,17 +205,63 @@ describe('turn hygiene', () => {
     expect(get(cheffyLoading)).toBe(false);
   });
 
-  it('retry is disabled after a photo turn — it would re-ask text-only', async () => {
+  // The error bubble renders "Try again" unconditionally, gated only on
+  // `loading`. Nothing in the component can see `lastTurn`, so the button
+  // is only honest if every turn that can produce an error bubble is
+  // replayable — and replayable as ITSELF. These three are that audit.
+  it('retry after a failed photo turn re-issues the PHOTO request, not a text one', async () => {
     mocks.askAboutPhoto.mockResolvedValue({ ok: false, error: 'boom' });
     await askCheffyAboutPhoto(PHOTO, 'what is this?');
-    const before = get(cheffyThread).length;
+    expect(get(cheffyThread)[1].kind).toBe('error');
 
+    mocks.askAboutPhoto.mockResolvedValue({ ok: true, output: 'Ribollita.' });
     await retryCheffy();
 
-    // retryCheffy routes through /api/zappy, which has never seen the
-    // photo. It must no-op rather than silently ask a different question.
+    // Same file, same question, same endpoint — and /api/zappy, which has
+    // never seen the photo, is not touched.
+    expect(mocks.askAboutPhoto).toHaveBeenCalledTimes(2);
+    expect(mocks.askAboutPhoto.mock.calls[1][0].question).toBe('what is this?');
+    expect(mocks.fileToBase64.mock.calls[1][0]).toBe(PHOTO);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(get(cheffyThread)).toHaveLength(before);
+    expect(get(cheffyThread)[1].content).toBe('Ribollita.');
+  });
+
+  it('retrying a photo turn does not append a second copy of the question', async () => {
+    mocks.askAboutPhoto.mockResolvedValue({ ok: false, error: 'boom' });
+    await askCheffyAboutPhoto(PHOTO, 'what is this?');
+
+    mocks.askAboutPhoto.mockResolvedValue({ ok: true, output: 'Ribollita.' });
+    await retryCheffy();
+
+    // The member's own bubble — and their photo — survived the first
+    // attempt; re-appending would show the question twice.
+    const userTurns = get(cheffyThread).filter((m) => m.role === 'user');
+    expect(userTurns).toHaveLength(1);
+    expect(userTurns[0].imagePreview).toMatch(/^blob:/);
+    expect(get(cheffyThread)).toHaveLength(2);
+  });
+
+  it('a text turn after a photo turn still retries as TEXT', async () => {
+    // The ordering hazard in carrying two turn shapes: the photo must not
+    // become sticky and hijack a later text turn's retry.
+    mocks.askAboutPhoto.mockResolvedValue({ ok: true, output: 'Ribollita.' });
+    await askCheffyAboutPhoto(PHOTO, 'what is this?');
+    fetchMock.mockResolvedValue({
+      ok: false,
+      json: async () => ({ ok: false, error: 'chat is down' })
+    });
+    await sendCheffy('and what wine goes with it?');
+    expect(get(cheffyThread)[3].kind).toBe('error');
+
+    const photoCallsBefore = mocks.askAboutPhoto.mock.calls.length;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, output: 'A Chianti.' })
+    });
+    await retryCheffy();
+
+    expect(mocks.askAboutPhoto).toHaveBeenCalledTimes(photoCallsBefore);
+    expect(get(cheffyThread)[3].content).toBe('A Chianti.');
   });
 
   it('ignores a second photo while a turn is in flight', async () => {

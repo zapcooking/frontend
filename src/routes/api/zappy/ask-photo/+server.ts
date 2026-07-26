@@ -194,7 +194,14 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         {
           ok: false,
           code: 'RATE_LIMITED',
-          error: "Cheffy needs a breather — you've hit the photo limit for now.",
+          // Carries its own next step: this is the whole bubble. A typed
+          // failure suppresses the random ERROR_LINES flavour pick above
+          // it (see the photo-turn error path in cheffyChat.ts), so there
+          // is nothing else on screen telling the member what to do. No
+          // number — two limits can fire (PER_HOUR, PER_DAY) and the
+          // response doesn't say which, so a count would be unsourced.
+          error:
+            "Cheffy needs a breather — you've hit the photo limit for now. Give it a little while and try again.",
           retryAfter: rl.body.retryAfter
         },
         { status: 429 }

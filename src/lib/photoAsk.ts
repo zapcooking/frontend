@@ -10,6 +10,7 @@
 
 import type NDK from '@nostr-dev-kit/ndk';
 import { signNip98AuthHeader } from './nip98';
+import { PHOTO_SIGN_FAILED_LINE, PHOTO_NETWORK_ERROR_LINE } from './cheffy';
 
 /** Mirrors the server cap — a longer question just loses its tail. */
 export const QUESTION_MAX_CHARS = 500;
@@ -82,11 +83,11 @@ export async function askAboutPhoto(opts: PhotoAskRequestOpts): Promise<PhotoAsk
       bodyString
     });
   } catch (err) {
-    return {
-      ok: false,
-      code: 'SIGN_FAILED',
-      error: err instanceof Error ? err.message : 'Signing failed'
-    };
+    // `error` is rendered verbatim inside a Cheffy bubble, so it is copy,
+    // not a stack trace: an unhandled signer message put "User rejected
+    // the request." in Cheffy's voice. The real one is diagnostic.
+    console.warn('[Photo Ask] signing failed:', err);
+    return { ok: false, code: 'SIGN_FAILED', error: PHOTO_SIGN_FAILED_LINE };
   }
 
   onSigned?.();
@@ -108,10 +109,7 @@ export async function askAboutPhoto(opts: PhotoAskRequestOpts): Promise<PhotoAsk
       status: resp.status
     };
   } catch (err) {
-    return {
-      ok: false,
-      code: 'NETWORK',
-      error: err instanceof Error ? err.message : 'Network error'
-    };
+    console.warn('[Photo Ask] request failed:', err);
+    return { ok: false, code: 'NETWORK', error: PHOTO_NETWORK_ERROR_LINE };
   }
 }

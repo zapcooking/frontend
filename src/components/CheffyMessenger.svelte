@@ -278,6 +278,17 @@
     sendCheffy($cheffyDraft);
   }
 
+  // Hand a scanned file to the composer as an attached photo. Every
+  // non-success exit of handleScan does this, which is what makes
+  // SCAN_ERROR_LINE's "the photo's still here" true: the member who
+  // scanned a plated dish is one Send away from asking about it, instead
+  // of re-opening the menu and re-picking the file we threw away.
+  function holdScanPhoto(file: File) {
+    clearAttachedPhoto();
+    attachedPhoto = file;
+    attachedPhotoUrl = URL.createObjectURL(file);
+  }
+
   async function handleScan(event: Event) {
     const inputEl = event.target as HTMLInputElement;
     const file = inputEl.files?.[0];
@@ -312,9 +323,13 @@
         composerEl?.focus();
       } else {
         scanError = SCAN_ERROR_LINE;
+        holdScanPhoto(file);
+        await tick();
+        composerEl?.focus();
       }
     } catch (err) {
       scanError = err instanceof Error ? err.message : SCAN_ERROR_LINE;
+      holdScanPhoto(file);
     } finally {
       isScanning = false;
       if (inputEl) inputEl.value = '';
@@ -611,7 +626,11 @@
                     </div>
                   {:else if m.kind === 'error'}
                     <div class="err">
-                      <p class="err-line">{m.statusLine}</p>
+                      <!-- A photo turn that failed with a typed server code
+                           carries no flavour line: the detail below already
+                           names the cause, and a second narrator above it
+                           would invent a different one. -->
+                      {#if m.statusLine}<p class="err-line">{m.statusLine}</p>{/if}
                       <p class="err-detail">{m.content}</p>
                       <button
                         type="button"
@@ -835,7 +854,7 @@
                 <ImageIcon size={20} /> Upload an image
               </button>
               <button type="button" role="menuitem" class="attach-item" on:click={pickScan}>
-                <ScanIcon size={20} /> Scan my fridge or pantry
+                <ScanIcon size={20} /> Scan a fridge or pantry for ingredients
               </button>
               <button type="button" role="menuitem" class="attach-item" on:click={handoffSousChef}>
                 <ClipboardIcon size={20} /> Paste a recipe

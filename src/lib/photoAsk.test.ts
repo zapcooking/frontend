@@ -8,6 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type NDK from '@nostr-dev-kit/ndk';
 import { askAboutPhoto, QUESTION_MAX_CHARS, PHOTO_MAX_BYTES } from './photoAsk';
+import { PHOTO_SIGN_FAILED_LINE, PHOTO_NETWORK_ERROR_LINE } from './cheffy';
 
 const NDK_STUB = {} as NDK;
 const IMAGE = 'BASE64IMAGEDATA';
@@ -131,7 +132,13 @@ describe('askAboutPhoto — signing', () => {
       origin: ORIGIN
     });
 
-    expect(result).toEqual({ ok: false, code: 'SIGN_FAILED', error: 'no signer' });
+    // `error` is rendered verbatim in a Cheffy bubble, so it is copy: the
+    // signer's own message ("User rejected the request.") must not be it.
+    expect(result).toEqual({
+      ok: false,
+      code: 'SIGN_FAILED',
+      error: PHOTO_SIGN_FAILED_LINE
+    });
     // A failed signature must not put the image on the wire.
     expect(fetchFn).not.toHaveBeenCalled();
   });
@@ -213,6 +220,7 @@ describe('askAboutPhoto — result mapping', () => {
       throw new Error('offline');
     }) as any;
     const result = await askAboutPhoto({ ...base, fetchFn });
-    expect(result).toEqual({ ok: false, code: 'NETWORK', error: 'offline' });
+    // Fixed line, not the thrown message — see the SIGN_FAILED case.
+    expect(result).toEqual({ ok: false, code: 'NETWORK', error: PHOTO_NETWORK_ERROR_LINE });
   });
 });

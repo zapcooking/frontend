@@ -96,9 +96,35 @@ export const ERROR_LINES: string[] = [
  * the question was wrong (a plated dish has no ingredients to
  * enumerate). Name that, and point at the path that does answer it,
  * instead of blaming the member's camera.
+ *
+ * "the photo's still here" is a claim about code, not a reassurance.
+ * Both scan surfaces hand the file to the composer as an attached photo
+ * on every non-success exit — `handleScan` (CheffyMessenger.svelte) and
+ * `handleFileSelect` (routes/cheffy/+page.svelte). If either stops doing
+ * that, this sentence points at a photo that isn't there and has to
+ * change with it.
  */
 export const SCAN_ERROR_LINE =
-  "Cheffy didn't spot any ingredients in that one. If it's a finished dish, ask Cheffy about the photo instead.";
+  "Cheffy didn't spot any ingredients in that one. If it's a finished dish, ask your question below — the photo's still here.";
+
+/**
+ * Client-side failure lines for a photo ask.
+ *
+ * Both replace an exception message that used to reach the member
+ * verbatim inside a Cheffy bubble ("User rejected the request.",
+ * "window.nostr is undefined"). The underlying message still goes to
+ * `console.warn` — it is diagnostic, not copy.
+ *
+ * Signing is the likeliest failure on this path because it is the only
+ * step that depends on software we do not ship, so it gets the line that
+ * names where to look. "signer app" is the term the login overlay
+ * already uses.
+ */
+export const PHOTO_SIGN_FAILED_LINE =
+  'Cheffy needs your approval to send a photo. Check your signer app and try again.';
+
+export const PHOTO_NETWORK_ERROR_LINE =
+  "Cheffy couldn't be reached. Check your connection and try again.";
 
 /**
  * Pick a line from a pool, avoiding `avoid` (usually the previously

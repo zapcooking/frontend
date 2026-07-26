@@ -140,7 +140,23 @@ export const cheffyLoading = writable(false);
 let msgSeq = 0;
 const nextId = () => `c${++msgSeq}`;
 let lastStatusLine = '';
-let lastTurn: { prompt: string; mode: 'chat' | 'hungry' } | null = null;
+/**
+ * The turn `retryCheffy()` would re-issue.
+ *
+ * The error bubble renders "Try again" unconditionally, gated only on
+ * `loading` — nothing in the component can see this variable. So it must
+ * be non-null whenever an error bubble can exist, or that button is
+ * enabled and does nothing.
+ *
+ * A photo turn cannot be replayed as a text turn: it goes to a different
+ * endpoint, and re-sending the question alone through /api/zappy would
+ * silently ask a different question about a picture Cheffy never saw. So
+ * it is a separate variant that carries its own file rather than a null.
+ */
+type LastTurn =
+  | { kind: 'text'; prompt: string; mode: 'chat' | 'hungry' }
+  | { kind: 'photo'; file: File; question: string };
+let lastTurn: LastTurn | null = null;
 
 // ── Open / close ────────────────────────────────────────────────
 export function openCheffy() {
@@ -293,7 +309,7 @@ export async function sendCheffy(content: string, mode: 'chat' | 'hungry' = 'cha
     { id: nextId(), role: 'user', content: display, kind: 'text' }
   ]);
   cheffyStarted.set(true);
-  lastTurn = { prompt: mode === 'hungry' ? '' : text, mode };
+  lastTurn = { kind: 'text', prompt: mode === 'hungry' ? '' : text, mode };
   if (mode !== 'hungry') cheffyDraft.set('');
 
   await dispatchTurn(
@@ -343,12 +359,26 @@ export async function askCheffyAboutPhoto(file: File, question: string) {
   ]);
   cheffyStarted.set(true);
   cheffyDraft.set('');
-  // A photo turn is not replayable: retryCheffy() re-sends `lastTurn`
-  // through /api/zappy, which would silently ask a text-only version of
-  // a question about a picture. Clearing it disables retry for this
-  // turn — a wrong retry is worse than no retry.
-  lastTurn = null;
+  // Recorded as a PHOTO turn, holding the file, so the error bubble's
+  // Try again re-issues it against /api/zappy/ask-photo. Recording
+  // nothing would leave that button enabled and dead; recording it as
+  // text would ask a different question. The file is already reachable
+  // for the session via the preview object URL above, so keeping this
+  // reference stores nothing new.
+  lastTurn = { kind: 'photo', file, question: text };
 
+  await dispatchPhotoTurn(file, text);
+}
+
+/**
+ * Issue one photo request into a fresh pending bubble and settle it.
+ *
+ * Split out of askCheffyAboutPhoto so a retry re-runs exactly this and
+ * nothing else — the member's own bubble, with their photo on it, is
+ * already in the thread from the first attempt and must not be appended
+ * twice.
+ */
+async function dispatchPhotoTurn(file: File, text: string) {
   cheffyLoading.set(true);
   const expectRecipe = looksLikeRecipeRequest(text);
   const statusLine = pickLine(expectRecipe ? COOKING_LINES : THINKING_LINES, lastStatusLine);
@@ -368,6 +398,23 @@ export async function askCheffyAboutPhoto(file: File, question: string) {
 
   const settle = (patch: Partial<ChatMessage>) => {
     cheffyThread.update((t) => t.map((m) => (m.id === pendingId ? { ...m, ...patch } : m)));
+  };
+
+  /**
+   * A flavour line stands in for an explanation we don't have. When the
+   * server named the cause, putting one above the real reason is a
+   * second narrator inventing a different one — so a typed failure
+   * speaks for itself and untyped 500s keep the pool. Photo turns only;
+   * the chat error path is unchanged.
+   */
+  const settleError = (detail: string, code?: string) => {
+    settle({
+      kind: 'error',
+      content: detail,
+      expression: 'concerned',
+      statusLine: code ? '' : pickLine(ERROR_LINES, statusLine)
+    });
+    cheffyAnnounce.set('Cheffy hit a snag.');
   };
 
   try {
@@ -396,16 +443,12 @@ export async function askCheffyAboutPhoto(file: File, question: string) {
       return;
     }
 
-    throw new Error(result.error || 'Cheffy could not respond.');
+    settleError(result.error || 'Cheffy could not respond.', result.code);
   } catch (err) {
-    const detail = err instanceof Error ? err.message : 'Cheffy could not respond.';
-    settle({
-      kind: 'error',
-      content: detail,
-      expression: 'concerned',
-      statusLine: pickLine(ERROR_LINES, statusLine)
-    });
-    cheffyAnnounce.set('Cheffy hit a snag.');
+    // Only unexpected exceptions land here (fileToBase64) — askAboutPhoto
+    // never throws. No typed code, so the flavour pool applies.
+    console.warn('[Photo Ask] turn failed:', err);
+    settleError('Cheffy could not respond.');
   } finally {
     cheffyLoading.set(false);
   }
@@ -430,13 +473,22 @@ export function startCheffyExperience(content: string, mode: 'chat' | 'hungry' =
 
 export async function retryCheffy() {
   if (get(cheffyLoading) || !lastTurn) return;
+  const turn = lastTurn;
   cheffyThread.update((t) => t.filter((m) => m.kind !== 'error'));
+
+  if (turn.kind === 'photo') {
+    // Re-issue the photo request only. The member's bubble, and the
+    // photo on it, are still in the thread from the first attempt.
+    await dispatchPhotoTurn(turn.file, turn.question);
+    return;
+  }
+
   const apiHistory = buildHistory(true);
   await dispatchTurn(
-    lastTurn.prompt,
-    lastTurn.mode,
+    turn.prompt,
+    turn.mode,
     apiHistory,
-    lastTurn.mode === 'hungry' || looksLikeRecipeRequest(lastTurn.prompt)
+    turn.mode === 'hungry' || looksLikeRecipeRequest(turn.prompt)
   );
 }
 

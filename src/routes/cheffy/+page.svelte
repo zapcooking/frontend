@@ -91,7 +91,15 @@
   let threadEl: HTMLDivElement;
   let loading = false; // a request is in flight
   let announce = ''; // sr-only live-region status
-  let lastTurn: { prompt: string; mode: 'chat' | 'hungry' } | null = null;
+  // The turn retryLast() would re-issue. The error bubble renders "Try
+  // again" unconditionally, so this must be non-null whenever an error
+  // bubble can exist — otherwise the button is enabled and does nothing.
+  // A photo turn goes to a different endpoint and cannot be replayed as
+  // text, so it is its own variant carrying the file rather than a null.
+  type LastTurn =
+    | { kind: 'text'; prompt: string; mode: 'chat' | 'hungry' }
+    | { kind: 'photo'; file: File; question: string };
+  let lastTurn: LastTurn | null = null;
   let lastStatusLine = '';
 
   let msgSeq = 0;
@@ -326,7 +334,7 @@
     const apiHistory = buildHistory();
     const display = mode === 'hungry' ? 'Surprise me 🎲' : text;
     thread = [...thread, { id: nextId(), role: 'user', content: display, kind: 'text' }];
-    lastTurn = { prompt: mode === 'hungry' ? '' : text, mode };
+    lastTurn = { kind: 'text', prompt: mode === 'hungry' ? '' : text, mode };
 
     if (mode !== 'hungry') {
       input = '';
@@ -344,14 +352,23 @@
 
   async function retryLast() {
     if (loading || !lastTurn) return;
+    const turn = lastTurn;
     // Drop any error bubbles, then re-issue the same turn.
     thread = thread.filter((m) => m.kind !== 'error');
+
+    if (turn.kind === 'photo') {
+      // Re-issue the photo request only. The member's bubble, and the
+      // photo on it, are still in the thread from the first attempt.
+      await dispatchPhotoTurn(turn.file, turn.question);
+      return;
+    }
+
     const apiHistory = buildHistory(true);
     await dispatchTurn(
-      lastTurn.prompt,
-      lastTurn.mode,
+      turn.prompt,
+      turn.mode,
       apiHistory,
-      lastTurn.mode === 'hungry' || looksLikeRecipeRequest(lastTurn.prompt)
+      turn.mode === 'hungry' || looksLikeRecipeRequest(turn.prompt)
     );
   }
 
@@ -607,9 +624,13 @@
         input = `I have: ${detectedIngredients.join(', ')}`;
       } else {
         scanError = SCAN_ERROR_LINE;
+        holdScanPhoto(file);
+        await tick();
+        promptEl?.focus();
       }
     } catch (err) {
       scanError = err instanceof Error ? err.message : SCAN_ERROR_LINE;
+      holdScanPhoto(file);
     } finally {
       isScanning = false;
       if (inputEl) inputEl.value = '';
@@ -627,6 +648,19 @@
       attachedPhotoUrl = '';
     }
     attachedPhoto = null;
+  }
+
+  // Hand a scanned file to the composer as an attached photo. Every
+  // non-success exit of handleFileSelect does this, which is what makes
+  // SCAN_ERROR_LINE's "the photo's still here" true: the member who
+  // scanned a plated dish is one Send away from asking about it, instead
+  // of re-picking the file we threw away.
+  function holdScanPhoto(file: File) {
+    clearAttachedPhoto();
+    detectedIngredients = [];
+    showIngredientInput = false;
+    attachedPhoto = file;
+    attachedPhotoUrl = URL.createObjectURL(file);
   }
 
   async function handlePhotoSelect(event: Event) {
@@ -674,11 +708,24 @@
     ];
     input = '';
     scanError = '';
-    // A photo turn is not replayable — retryLast() would re-send it as a
-    // text-only question through /api/zappy. No retry beats a wrong one.
-    lastTurn = null;
+    // Recorded as a PHOTO turn, holding the file, so the error bubble's
+    // Try again re-issues it against /api/zappy/ask-photo instead of
+    // asking a different question as text — or doing nothing at all. The
+    // file is already reachable for the session via the preview object
+    // URL above, so this reference stores nothing new.
+    lastTurn = { kind: 'photo', file, question: text };
     await scrollAfterTurn();
 
+    await dispatchPhotoTurn(file, text);
+  }
+
+  /**
+   * Issue one photo request into a fresh pending bubble and settle it.
+   * Split out of askPhotoTurn so a retry re-runs exactly this — the
+   * member's own bubble, with their photo on it, is already in the
+   * thread and must not be appended twice.
+   */
+  async function dispatchPhotoTurn(file: File, text: string) {
     loading = true;
     const expectRecipe = looksLikeRecipeRequest(text);
     const statusLine = pickLine(expectRecipe ? COOKING_LINES : THINKING_LINES, lastStatusLine);
@@ -696,6 +743,21 @@
 
     const settle = (patch: Partial<ChatMessage>) => {
       thread = thread.map((m) => (m.id === pending.id ? { ...m, ...patch } : m));
+    };
+
+    // A flavour line stands in for an explanation we don't have. When the
+    // server named the cause, one above the real reason is a second
+    // narrator inventing a different one — so a typed failure speaks for
+    // itself and untyped 500s keep the pool. Photo turns only; the chat
+    // error path in dispatchTurn is unchanged.
+    const settleError = (detail: string, code?: string) => {
+      settle({
+        kind: 'error',
+        content: detail,
+        expression: 'concerned',
+        statusLine: code ? '' : pickLine(ERROR_LINES, statusLine)
+      });
+      announce = 'Cheffy hit a snag.';
     };
 
     try {
@@ -721,16 +783,12 @@
         return;
       }
 
-      throw new Error(result.error || 'Cheffy could not respond.');
+      settleError(result.error || 'Cheffy could not respond.', result.code);
     } catch (err) {
-      const detail = err instanceof Error ? err.message : 'Cheffy could not respond.';
-      settle({
-        kind: 'error',
-        content: detail,
-        expression: 'concerned',
-        statusLine: pickLine(ERROR_LINES, statusLine)
-      });
-      announce = 'Cheffy hit a snag.';
+      // Only unexpected exceptions land here (fileToBase64) —
+      // askAboutPhoto never throws. No typed code, so the pool applies.
+      console.warn('[Photo Ask] turn failed:', err);
+      settleError('Cheffy could not respond.');
     } finally {
       loading = false;
       await scrollAfterTurn();
@@ -860,7 +918,10 @@
                   </div>
                 {:else if m.kind === 'error'}
                   <div class="error-bubble">
-                    <p class="error-line">{m.statusLine}</p>
+                    <!-- A photo turn that failed with a typed server code
+                         carries no flavour line: the detail below already
+                         names the cause. -->
+                    {#if m.statusLine}<p class="error-line">{m.statusLine}</p>{/if}
                     <p class="error-detail">{m.content}</p>
                     <button type="button" class="retry-btn" on:click={retryLast} disabled={loading}>
                       <ArrowsClockwiseIcon size={14} />
@@ -1061,15 +1122,18 @@
             class="scan-pill"
             on:click={triggerScan}
             disabled={isScanning || loading}
-            title="Scan my fridge or pantry"
-            aria-label="Scan my fridge or pantry"
+            title="Scan a fridge or pantry for ingredients"
+            aria-label="Scan a fridge or pantry for ingredients"
           >
             {#if isScanning}
               <ArrowsClockwiseIcon size={14} class="animate-spin" />
               <span>Scanning</span>
             {:else}
               <CameraIcon size={14} weight="fill" />
-              <span>Scan my fridge or pantry</span>
+              <!-- The pill is a control, not the choice: the full label
+                   lives in title/aria-label, and the sheet in the
+                   messenger is where the two photo paths are told apart. -->
+              <span>Scan for ingredients</span>
             {/if}
           </button>
         </div>
