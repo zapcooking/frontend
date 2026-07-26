@@ -24,6 +24,14 @@ import path from 'node:path';
  *
  * Comments are stripped before matching, so writing up this history in a code comment
  * does not trip it.
+ *
+ * ONE FALSE POSITIVE TO EXPECT, AND THE FIX THAT IS WRONG. `lifetime` is also a
+ * membership tier value (`tier IN ('standard','premium','lifetime')` in the members
+ * schema), and create/gated is a membership-gated surface. No scanned file references it
+ * today, but the day a tier check lands in one of these directories this test fails on a
+ * word doing no copy work. NARROW THE PATTERN — exclude the tier usage — never drop the
+ * word: "lifetime access" is the strongest durability claim in the set and the one we
+ * would least want to ship unnoticed.
  */
 
 const SURFACE_ROOTS = [
