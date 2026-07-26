@@ -87,16 +87,34 @@
       subscription = $ndk.subscribe(filter);
 
       subscription.on('event', (event: NDKEvent) => {
-        // NOTE: this condition is always true and is deliberately left alone.
+        // This page has TWO sources and they interact. Read both before changing either:
+        //   1. this subscription — kind 35000 carrying GATED_RECIPE_TAG
+        //   2. loadServerStoredRecipes() below — GET /api/nip108/list, the KV store
+        // combinedRecipes (:39-49) renders a KV entry as a fallback card only when its
+        // gatedNoteId is absent from these events' 'gated' tags. It reads that absence as
+        // "not on relays yet" — but absence has other causes, and both notes below are one.
+        //
+        // NOTE: the condition below is always true and is deliberately left alone.
         // validateMarkdownTemplate() returns `MarkdownTemplate | string` ($lib/parser.ts:230)
         // and never null, so it filters nothing. Do NOT "fix" it to
         // `typeof ... !== 'string'`: /create/gated replaces a premium recipe's content
-        // with the preview text before publishing, so the on-relay content of every
-        // premium recipe fails template validation and the tightened check would empty
-        // this listing entirely.
-        // Deleted premium recipes need no check here: the tombstone published by
-        // Recipe.svelte's handleDelete carries no 't' tag, so the '#t' filter above
-        // excludes it once it has replaced the original.
+        // with the preview text before publishing, so EVERY premium recipe fails template
+        // validation. The tightened check drops them all from `events`, which also empties
+        // eventGatedIds — so the page does not go blank, it silently swaps the whole
+        // listing over to the KV fallback cards at :405, one per gated-store entry.
+        //
+        // Deleted premium recipes DO surface here, through that same fallback. The
+        // tombstone Recipe.svelte's handleDelete publishes carries 'd'/'deleted'/'title'
+        // and no 't' tag, so it never matches the '#t' filter above — and no 'gated' tag,
+        // so the recipe's id leaves eventGatedIds and its KV entry becomes a card offering
+        // to unlock a recipe that is gone. The card links to /premium/recipe/<naddr>, which
+        // renders "Recipe Deleted"; no payment can be taken, since the purchase UI needs
+        // gatedMetadata and that is null for a tombstone.
+        // Not fixed here, deliberately. Nothing removes the KV entry on delete — the five
+        // routes under /api/nip108 export no DELETE — so the listing cannot tell a deleted
+        // recipe from an unpropagated one. Suppressing the card client-side would need a
+        // second relay query for the tombstones this '#t' filter hides; that was priced and
+        // declined in #587 as a workaround for missing server state.
         if (validateMarkdownTemplate(event.content) !== null) {
           // Check if we already have this event
           if (!events.find(e => e.id === event.id)) {
