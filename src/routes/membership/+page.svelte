@@ -54,7 +54,7 @@
     {
       question: 'How does billing work?',
       answer:
-        'Choose annual ($49/year) or monthly ($4.99/month). Annual is the better value. Subscriptions renew for the period you picked unless you cancel before renewal.'
+        'Choose annual ($49/year) or monthly ($4.99/month). Annual is the better value. Card subscriptions renew for the period you picked unless you cancel before renewal. A Lightning payment covers one term and does not renew on its own — you renew it yourself when the term is up.'
     }
   ];
 

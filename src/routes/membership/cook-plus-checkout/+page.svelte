@@ -25,7 +25,20 @@
 
   // Cook+ pricing (dynamic based on period)
   $: COOK_PLUS_PRICE_USD = selectedPeriod === 'annual' ? 49 : 4.99;
-  
+
+  // Billing disclosure. It has to track BOTH the period and the payment method,
+  // because the two paths are different products: card is a Stripe subscription
+  // (`mode: 'subscription'` at stripeService.server.ts:96, with a recurring
+  // year/month interval at :89-91) and renews on its own; Lightning buys a fixed
+  // term (api/membership/strike-webhook/+server.ts:123 -> registerMember with
+  // paymentMethod 'lightning_strike', which sets subscriptionMonths 12 or 1 at
+  // memberRegistration.server.ts:57-61) with no
+  // subscription behind it, so it lapses. One hardcoded line cannot be true for both.
+  // Deliberately no dollar amount here: the price is already on screen in
+  // .checkout-price, and stripeService sets `allow_promotion_codes: true`, so a
+  // code entered on Stripe's hosted page can change what's actually charged.
+  $: billingTermNoun = selectedPeriod === 'annual' ? 'year' : 'month';
+
   // Dynamic Bitcoin pricing (fetched from API)
   let bitcoinPriceLoading = true;
   let bitcoinPriceError: string | null = null;
@@ -441,12 +454,6 @@
         </div>
       </div>
 
-      <div class="billing-disclosure">
-        <p>Subscriptions renew for the period you picked unless you cancel before renewal.</p>
-        <p>Cancel anytime from your membership page. You keep access through the end of your current billing period.</p>
-        <p>Except where required by law, we do not provide prorated refunds for partial billing periods.</p>
-      </div>
-
       <div class="checkout-benefits">
         <h3>What you get:</h3>
         
@@ -601,6 +608,17 @@
         </div>
       {/if}
 
+      <div class="billing-disclosure">
+        {#if paymentMethod === 'stripe'}
+          <p>Paying by card — this is a subscription. It renews automatically each {billingTermNoun} until you cancel.</p>
+          <p>Cancel anytime from your membership page. You keep access through the end of your current billing period.</p>
+          <p>Except where required by law, we do not provide prorated refunds for partial billing periods.</p>
+        {:else}
+          <p>Paying by Lightning — one payment covers one {billingTermNoun}. It does not renew on its own; you'll need to renew when the {billingTermNoun} is up.</p>
+          <p>Except where required by law, we do not provide prorated refunds for partial billing periods.</p>
+        {/if}
+      </div>
+
       <button
         class="checkout-button"
         on:click={proceedToCheckout}
@@ -718,7 +736,9 @@
   }
 
   .billing-disclosure {
-    margin: -0.5rem 0 1.75rem;
+    /* Sits directly above the pay button, after the payment-method selector,
+       so the terms on screen always match the method the buyer has chosen. */
+    margin: 0 0 1.25rem;
     padding: 0.85rem 1rem;
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.04);
