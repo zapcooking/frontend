@@ -92,6 +92,21 @@ export const ERROR_LINES: string[] = [
 export const SCAN_ERROR_LINE = 'Cheffy could not read those ingredients. Try a clearer photo.';
 
 /**
+ * Error line for a rate-limited ingredient scan.
+ *
+ * Derived from the already-shipped note-review limit line
+ * (`api/zappy/note-review/+server.ts`, "Cheffy needs a breather — you've
+ * hit the photo-review limit for now.") with one noun changed to name
+ * the right feature. It exists because the alternatives are both wrong
+ * in front of a user: the limiter's own body carries the raw token
+ * `rate_limited`, and falling through to SCAN_ERROR_LINE tells someone
+ * who is rate-limited to retry with a clearer photo — a retry that also
+ * gets a 429.
+ */
+export const SCAN_RATE_LIMIT_LINE =
+  "Cheffy needs a breather — you've hit the fridge-scan limit for now.";
+
+/**
  * Pick a line from a pool, avoiding `avoid` (usually the previously
  * shown line) so consecutive states don't repeat. Falls back to the
  * first line for single-entry pools.

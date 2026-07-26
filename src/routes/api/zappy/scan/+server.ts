@@ -23,11 +23,24 @@
  *   ok: false,
  *   error: string
  * }
+ * or, at the per-IP cap:
+ *   429 { ok: false, code: 'RATE_LIMITED', error: string, retryAfter: number }
+ *
+ * NOT authenticated. The `pubkey` in the body is unverified — it gates
+ * membership but is not proof of identity, so the rate limit below keys
+ * on the client address instead. Adding NIP-98 here would change the
+ * contract on both callers and is deliberately out of scope.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { CHEFFY_VISION_MODEL } from '$lib/cheffyPrompt.server';
+import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
+import { SCAN_RATE_LIMIT_LINE } from '$lib/cheffy';
+
+// Same per-IP cap extract-recipe uses for its paid-model path.
+const SCAN_PER_HOUR = 8;
+const SCAN_PER_DAY = 30;
 
 const SCAN_PROMPT = `You are analyzing a photo of a refrigerator, pantry, or food items for the Zap Cooking app.
 
@@ -47,7 +60,7 @@ Respond with ONLY a JSON array of ingredient names, nothing else. Example:
 
 If no food items are clearly visible, respond with an empty array: []`;
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+export const POST: RequestHandler = async ({ request, getClientAddress, platform }) => {
   try {
     // Check for OpenAI API key
     const OPENAI_API_KEY = (platform?.env as any)?.OPENAI_API_KEY || env.OPENAI_API_KEY;
@@ -100,6 +113,52 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           // missing pubkey (handled above).
         }
       }
+    }
+
+    // Per-IP cap on the vision model. Sits above the OpenAI call so a
+    // limited request costs nothing, and below the membership gate so a
+    // non-member's 403 doesn't consume a member's quota.
+    //
+    // Keyed on the client address, NOT on `pubkey`. Unlike note-review —
+    // where the pubkey comes back verified from `verifyNip98` and is a
+    // strictly better identity than an IP — the `pubkey` here is an
+    // unverified string off the request body (see the destructure above).
+    // A pubkey-keyed bucket would be reset by typing a different pubkey,
+    // which is the exact hole this is meant to close.
+    let ip = '127.0.0.1';
+    try {
+      ip = getClientAddress();
+    } catch {
+      // Local dev / missing CF headers.
+    }
+    // checkPerIpRateLimit fails open silently when no KV is bound; be
+    // loud about it here so a missing binding shows up in logs instead
+    // of quietly leaving this endpoint unmetered.
+    const kv = platform?.env?.NOURISH_FLAGS;
+    if (!kv) {
+      console.warn('[Zappy Scan] NOURISH_FLAGS KV not bound — scan rate limiting is disabled');
+    }
+    const rl = await checkPerIpRateLimit(kv, {
+      ip,
+      scope: 'zappy-scan',
+      perHour: SCAN_PER_HOUR,
+      perDay: SCAN_PER_DAY
+    });
+    if (rl.limited) {
+      // Not the limiter's bare body: both callers render `data.error`
+      // straight into the scan error UI (CheffyMessenger.svelte:232,
+      // cheffy/+page.svelte:560), so `rl.body.error` would put the raw
+      // token `rate_limited` on screen. Same `ok:false` + `code` shape
+      // note-review uses for its 429.
+      return json(
+        {
+          ok: false,
+          code: 'RATE_LIMITED',
+          error: SCAN_RATE_LIMIT_LINE,
+          retryAfter: rl.body.retryAfter
+        },
+        { status: 429 }
+      );
     }
 
     // Detect image type from base64 header or default to jpeg
