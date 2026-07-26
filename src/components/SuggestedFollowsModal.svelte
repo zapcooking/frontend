@@ -206,6 +206,11 @@
     }
   }
 
+  // Closing this modal means the same thing as skipping it: the account is
+  // already created and following anyone is optional. Every exit routes here
+  // so onComplete always runs — it is the only thing that closes the login
+  // overlay and returns the new member to ?redirect=, which is checkout when
+  // they arrived from Cook+. Setting `open = false` directly is a dead end.
   function skip() {
     onComplete();
   }
@@ -217,7 +222,7 @@
       type="button"
       class="login-modal-logo-btn"
       aria-label="Close"
-      on:click={() => (open = false)}
+      on:click={skip}
     >
       <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
       <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="hidden dark:block" />
@@ -226,7 +231,7 @@
       type="button"
       class="login-modal-close-btn"
       aria-label="Close"
-      on:click={() => (open = false)}
+      on:click={skip}
     >
       <CloseIcon size={24} />
     </button>

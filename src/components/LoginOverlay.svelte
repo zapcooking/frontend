@@ -1421,7 +1421,17 @@
         <img src="/zapcooking-text-light.svg" alt="Zap Cooking" class="signin-wordmark-img signin-wordmark-img--light" />
         <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="signin-wordmark-img signin-wordmark-img--dark" />
       </h1>
-      <p class="signin-tagline">Share recipes and get paid by your community.</p>
+      <!-- Someone sent here from Cook+ checkout is not browsing; they were
+           about to pay. Say why the account step exists and promise the return
+           trip, which onComplete/goto(redirect) below actually delivers. -->
+      <p class="signin-tagline">
+        {#if ($page.url.searchParams.get('redirect') ?? '').startsWith('/membership/cook-plus-checkout')}
+          Cook+ is tied to your Zap Cooking account. Create one and we'll bring you right back to
+          checkout.
+        {:else}
+          Share recipes and get paid by your community.
+        {/if}
+      </p>
 
       {#if vaultRecord && vaultSupported && !authState.isAuthenticated}
         <!-- Locked passkey vault: unlock is the primary action, but every
