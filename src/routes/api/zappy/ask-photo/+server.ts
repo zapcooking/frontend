@@ -51,8 +51,9 @@ import {
 } from '$lib/cheffyPrompt.server';
 
 // The member's own question — trimmed and capped, never an error. A
-// longer question just loses its tail.
-export const QUESTION_MAX_CHARS = 500;
+// longer question just loses its tail. Unexported on purpose: SvelteKit
+// only allows handler exports from +server.ts. Client mirror: photoAsk.ts.
+const QUESTION_MAX_CHARS = 500;
 
 // The client cap is 10 MiB of FILE (photoAsk.PHOTO_MAX_BYTES), and the
 // composer tells the member "try one under 10MB". Base64 is 4/3 of the

@@ -14,7 +14,8 @@ import {
   PHOTO_ASK_DEFAULT_QUESTION,
   NOT_FOOD_PREFIX
 } from '$lib/cheffyPrompt.server';
-import { POST, QUESTION_MAX_CHARS } from './+server';
+import { QUESTION_MAX_CHARS } from '$lib/photoAsk';
+import { POST } from './+server';
 
 const mocks = vi.hoisted(() => ({
   verifyNip98: vi.fn(),
