@@ -292,6 +292,10 @@
     }
     isScanning = true;
     scanError = '';
+    // Scanning fills the draft with an ingredient list; a held photo
+    // would still win on Send and dispatch a photo-ask instead. Drop it
+    // so the two stay mutually exclusive (matches /cheffy).
+    clearAttachedPhoto();
     try {
       const base64 = await fileToBase64(file);
       const resp = await fetch('/api/zappy/scan', {
