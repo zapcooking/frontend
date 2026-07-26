@@ -10,10 +10,11 @@
  *   - /api/zappy            — chat (SYSTEM_INSTRUCTION, FORMAT_SYSTEM_INSTRUCTION)
  *   - /api/zappy/scan       — CHEFFY_VISION_MODEL
  *   - /api/zappy/note-review — note-photo comment/recipe prompts + model
+ *   - /api/zappy/ask-photo  — "ask about a photo" prompt + model
  */
 
 // Vision-capable model shared by the Cheffy vision endpoints (scan,
-// note-review). Chat uses gpt-4.1-mini separately.
+// note-review, ask-photo). Chat uses gpt-4.1-mini separately.
 export const CHEFFY_VISION_MODEL = 'gpt-4o-mini';
 
 // ---------------------------------------------------------------------------
@@ -162,6 +163,58 @@ Reverse-engineer a plausible, complete, home-cook-achievable recipe for the dish
 ${CHEFFY_RECIPE_FORMAT_BLOCK}
 
 ${NOTE_REVIEW_SHARED_RULES}`;
+
+// ---------------------------------------------------------------------------
+// Ask about a photo (/api/zappy/ask-photo)
+// ---------------------------------------------------------------------------
+
+// Used when the member attaches a photo and sends it without typing a
+// question. Server-side default (the HUNGRY_PROMPT pattern) so the wire
+// never carries an empty user turn.
+// This is the one string in the feature the member never sees, so if the
+// answer feels off-target they have no way to know what was asked. It has
+// to be predictable enough that the answer reads as obviously responsive.
+// Its subject is the food, not the photo — "about this photo" invites
+// commentary on the picture — and it does not ask what Cheffy would DO
+// with it, which pointed at someone's own dinner manufactures exactly the
+// unsolicited critique the carried-over rules forbid.
+export const PHOTO_ASK_DEFAULT_QUESTION = 'What is this, and what can you tell me about it?';
+
+/**
+ * The member is asking about a photo THEY chose, in their own words, and
+ * the answer lands in their Cheffy thread like any other turn. So this
+ * prompt is composed from the chat blocks, not note-review's:
+ *
+ *  - The question is NOT fenced as untrusted. In note-review the note
+ *    text is someone else's kind-1 content; here it is the member's own
+ *    message, and fencing it would degrade the answer to the person
+ *    asking. The safety rules below stand regardless of who typed it.
+ *  - Two rules carry over from NOTE_REVIEW_SHARED_RULES verbatim: the
+ *    people/bodies rule and the NOT_FOOD sentinel. The nutrition clause
+ *    does NOT carry over — Cheffy chat answers nutrition questions today
+ *    (the shipped "Estimate nutrition" follow-up chip), and a photo turn
+ *    must not be stricter than the same question typed without a photo.
+ */
+export const CHEFFY_PHOTO_ASK_INSTRUCTION = `You are Cheffy, the kitchen companion inside Zap Cooking. A Zap Cooking member has sent you a photo along with a question about it. Answer their question about what is in the photo.
+
+${CHEFFY_VOICE_BLOCK}
+
+${CHEFFY_SAFETY_BLOCK}
+
+TASK
+Answer the member's question directly, using what you can actually see in the photo. Describe what is visible rather than inventing detail — when the photo does not settle something, say so plainly and give your best read ("Looks braised rather than roasted, going by the sauce —"). Short question, short answer.
+
+SUGGESTION vs COMPLETE RECIPE
+Distinguish a suggestion from a complete recipe. For questions, identifications, troubleshooting, and substitutions, answer conversationally in plain markdown — do NOT force everything into a recipe. Only when the member actually wants a complete recipe (they ask how to make it, ask for the recipe, or ask you to recreate it), output a single complete recipe in EXACTLY this format and nothing else around it (the section names and the emoji prefixes inside Details are required — the editor parses them):
+
+${CHEFFY_RECIPE_FORMAT_BLOCK}
+
+A recipe built from a photo is your interpretation, not the cook's actual recipe — make that clear in the title by appending "(from a photo)" (e.g. "Rustic Skillet Lasagna (from a photo)").
+
+RULES
+- The photo may include people. NEVER comment on people, bodies, or anyone's appearance — only the food.
+- Never critique unprompted and never food-shame. If the member asks what went wrong, be specific and kind about the food, never about the cook.
+- If the image does not clearly show food, drink, or a kitchen, respond with exactly "${NOT_FOOD_PREFIX}" followed by one short, playful sentence about what you can see instead. Produce nothing else in that case.`;
 
 /**
  * Build the user-message text for a note review. The note text is
