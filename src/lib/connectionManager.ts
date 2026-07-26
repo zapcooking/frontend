@@ -75,11 +75,16 @@ export class ConnectionManager {
 
     if (relayUrls.length === 0) {
       console.warn('⚠️ No relay URLs configured in NDK instance');
-      // Add some default relays if none are configured
+      // Add some default relays if none are configured.
+      // Four URLs, four distinct operators by NIP-11 pubkey - this is the
+      // last-resort path, so every entry has to be independently operated to
+      // be worth listing. nostr.mom used to sit here and publishes the same
+      // pubkey as nos.lol (c5fadeb5d90d68ba...), which made this a
+      // four-entry, three-operator list.
       const defaultRelays = [
         'wss://purplepag.es',
         'wss://nos.lol',
-        'wss://nostr.mom',
+        'wss://relay.nostr.net',
         'wss://relay.primal.net'
       ];
       relayUrls.push(...defaultRelays);
