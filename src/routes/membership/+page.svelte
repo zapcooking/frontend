@@ -710,7 +710,7 @@
         </div>
         <p class="founders-story-copy">
           Founders Club is a capped lifetime membership — {TOTAL_GENESIS_SPOTS} seats total — for
-          people who want to back Zap Cooking early and keep Pro Kitchen access for life. Seats are
+          people who want to back Zap Cooking early and keep full access for life. Seats are
           limited by that hard cap, not by a countdown.
         </p>
         {#if !showFoundersList}
@@ -735,11 +735,11 @@
               <ul class="benefit-list">
                 <li>
                   <span class="checkmark">✓</span>
-                  <span class="feature-text">Lifetime Pro Kitchen membership (never expires)</span>
+                  <span class="feature-text">Lifetime membership (never expires)</span>
                 </li>
                 <li>
                   <span class="checkmark">✓</span>
-                  <span class="feature-text">All future Pro Kitchen features included</span>
+                  <span class="feature-text">All future features included</span>
                 </li>
               </ul>
             </div>
