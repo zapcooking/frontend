@@ -21,8 +21,8 @@
     type MembershipStatus
   } from '$lib/stores/membershipStatus';
   import { parseMarkdown } from '$lib/parser';
-  import { PROMPT_PLACEHOLDERS, SCAN_ERROR_LINE } from '$lib/cheffy';
-  import { fileToBase64, PHOTO_ACCEPT, PHOTO_MAX_BYTES } from '$lib/photoAsk';
+  import { PROMPT_PLACEHOLDERS, SCAN_ERROR_LINE, photoFormatLine } from '$lib/cheffy';
+  import { fileToBase64, identifyPhotoFile, PHOTO_MAX_BYTES } from '$lib/photoAsk';
   import {
     cheffyOpen,
     cheffyThread,
@@ -247,8 +247,8 @@
     // Reset immediately so re-picking the same file still fires change.
     if (inputEl) inputEl.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      scanError = 'Please choose an image file.';
+    if (!(await identifyPhotoFile(file))) {
+      scanError = photoFormatLine(file.type);
       return;
     }
     if (file.size > PHOTO_MAX_BYTES) {
@@ -293,11 +293,11 @@
     const inputEl = event.target as HTMLInputElement;
     const file = inputEl.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      scanError = 'Please choose an image file.';
+    if (!(await identifyPhotoFile(file))) {
+      scanError = photoFormatLine(file.type);
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > PHOTO_MAX_BYTES) {
       scanError = 'That image is a little big — try one under 10MB.';
       return;
     }
@@ -818,14 +818,20 @@
 
         {#if !inExperience}
           <!-- Hidden file inputs. Camera/upload attach the photo to the
-               composer; the third is the ingredient scanner. All three
-               filter to the formats the pipeline can actually read (see
-               PHOTO_ACCEPT) — the scanner included, because a scan that
-               finds nothing hands its file back as an ask photo. -->
+               composer; the third is the ingredient scanner.
+
+               `accept` is deliberately WIDE. It is a hint to a picker we
+               do not ship, so it cannot gate anything: a narrow value
+               greys out rows in someone else's file dialog and still
+               admits whatever arrives by another route. The format check
+               that does bind is identifyPhotoFile() in the change
+               handlers, which reads the file's own bytes. Widening this
+               costs nothing and avoids hiding a member's camera roll on
+               a platform we have not tested. -->
           <input
             bind:this={cameraInput}
             type="file"
-            accept={PHOTO_ACCEPT}
+            accept="image/*"
             capture="environment"
             class="hidden"
             on:change={handleAttachPhoto}
@@ -833,14 +839,14 @@
           <input
             bind:this={uploadInput}
             type="file"
-            accept={PHOTO_ACCEPT}
+            accept="image/*"
             class="hidden"
             on:change={handleAttachPhoto}
           />
           <input
             bind:this={scanInput}
             type="file"
-            accept={PHOTO_ACCEPT}
+            accept="image/*"
             class="hidden"
             on:change={handleScan}
           />

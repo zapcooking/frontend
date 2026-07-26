@@ -9,9 +9,12 @@ import { describe, it, expect, vi } from 'vitest';
 import type NDK from '@nostr-dev-kit/ndk';
 import {
   askAboutPhoto,
+  identifyPhotoFile,
+  identifyPhotoFormat,
   isPhotoAskRetryable,
   QUESTION_MAX_CHARS,
-  PHOTO_MAX_BYTES
+  PHOTO_MAX_BYTES,
+  PHOTO_SIGNATURE_BYTES
 } from './photoAsk';
 import { PHOTO_SIGN_FAILED_LINE, PHOTO_NETWORK_ERROR_LINE } from './cheffy';
 
@@ -268,5 +271,106 @@ describe('isPhotoAskRetryable', () => {
     // reasonable thing to offer, so absence must not fail closed.
     expect(isPhotoAskRetryable(undefined)).toBe(true);
     expect(isPhotoAskRetryable('SOMETHING_WE_ADD_LATER')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pick-time format gate (byte signatures)
+// ---------------------------------------------------------------------------
+
+/**
+ * These tests are the specification the rejection copy is not: the gate
+ * decides what Cheffy accepts, and the two RIFF cases are the reason it
+ * reads sixteen bytes rather than four.
+ */
+describe('identifyPhotoFormat', () => {
+  const bytes = (...values: number[]) => new Uint8Array(values);
+  const ascii = (text: string) => Array.from(text, (c) => c.charCodeAt(0));
+
+  const ACCEPTED: Array<[string, Uint8Array]> = [
+    ['JPEG', bytes(0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10)],
+    ['PNG', bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00)],
+    ['GIF87a', bytes(...ascii('GIF87a'))],
+    // Animated GIFs match too, and that is deliberate — the gate cannot
+    // tell 89a apart from 87a, so it narrows rather than guarantees.
+    ['GIF89a', bytes(...ascii('GIF89a'))],
+    ['WEBP', bytes(...ascii('RIFF'), 0x24, 0x00, 0x00, 0x00, ...ascii('WEBP'))]
+  ];
+
+  const EXPECTED_MIME: Record<string, string> = {
+    JPEG: 'image/jpeg',
+    PNG: 'image/png',
+    GIF87a: 'image/gif',
+    GIF89a: 'image/gif',
+    WEBP: 'image/webp'
+  };
+
+  for (const [label, head] of ACCEPTED) {
+    it(`identifies ${label}`, () => {
+      expect(identifyPhotoFormat(head)).toBe(EXPECTED_MIME[label]);
+    });
+  }
+
+  const REJECTED: Array<[string, Uint8Array]> = [
+    // An ISO-BMFF file opens with the size of its `ftyp` box, so a HEIC
+    // off an iPhone starts with zero bytes and can never match.
+    ['HEIC', bytes(0x00, 0x00, 0x00, 0x20, ...ascii('ftypheic'))],
+    ['HEIF', bytes(0x00, 0x00, 0x00, 0x18, ...ascii('ftypmif1'))],
+    // RIFF alone is not WEBP: WAV and AVI share the container.
+    ['WAV', bytes(...ascii('RIFF'), 0x24, 0x00, 0x00, 0x00, ...ascii('WAVE'))],
+    ['AVI', bytes(...ascii('RIFF'), 0x24, 0x00, 0x00, 0x00, ...ascii('AVI '))],
+    ['PDF', bytes(...ascii('%PDF-1.7'))],
+    ['BMP', bytes(...ascii('BM'), 0x36, 0x00, 0x00, 0x00)],
+    ['plain text', bytes(...ascii('hello there'))],
+    ['empty file', bytes()],
+    // A truncated header must answer null, not throw on a missing index.
+    ['a lone RIFF', bytes(...ascii('RIFF'))],
+    ['a PNG signature one byte short', bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a)],
+    ['two bytes of a JPEG', bytes(0xff, 0xd8)]
+  ];
+
+  for (const [label, head] of REJECTED) {
+    it(`rejects ${label}`, () => {
+      expect(identifyPhotoFormat(head)).toBe(null);
+    });
+  }
+});
+
+describe('identifyPhotoFile', () => {
+  const fileOf = (values: number[], type: string) =>
+    new File([new Uint8Array(values)], 'photo', { type });
+
+  it('reads the bytes, not the browser-supplied type', async () => {
+    // A HEIC wearing a .jpg name: file.type says image/jpeg and the
+    // bytes say otherwise. The bytes are what we received.
+    const misnamed = fileOf([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70], 'image/jpeg');
+    expect(await identifyPhotoFile(misnamed)).toBe(null);
+
+    // And the mirror case: a real PNG that some pickers hand over with
+    // no type at all is accepted today's rejection notwithstanding.
+    const typeless = fileOf([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], '');
+    expect(await identifyPhotoFile(typeless)).toBe('image/png');
+  });
+
+  it('reads only the leading signature bytes', async () => {
+    const big = fileOf([0xff, 0xd8, 0xff, ...new Array(4096).fill(0x41)], 'image/jpeg');
+    const slice = vi.spyOn(big, 'slice');
+    expect(await identifyPhotoFile(big)).toBe('image/jpeg');
+    expect(slice.mock.calls[0][0]).toBe(0);
+    expect(slice.mock.calls[0][1]).toBe(PHOTO_SIGNATURE_BYTES);
+  });
+
+  it('answers null when the file cannot be read at all', async () => {
+    // A file we cannot read is a file we cannot send, so an unreadable
+    // pick and an unrecognized one are the same answer to the caller.
+    const unreadable = {
+      slice: () => ({ arrayBuffer: () => Promise.reject(new Error('NotReadableError')) })
+    } as unknown as File;
+    expect(await identifyPhotoFile(unreadable)).toBe(null);
+  });
+
+  it('handles a file shorter than the signature window', async () => {
+    expect(await identifyPhotoFile(fileOf([0xff, 0xd8, 0xff], 'image/jpeg'))).toBe('image/jpeg');
+    expect(await identifyPhotoFile(fileOf([], 'image/jpeg'))).toBe(null);
   });
 });
