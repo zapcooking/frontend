@@ -16,7 +16,6 @@ import type { Event, EventTemplate } from 'nostr-tools';
 const FOLLOW_LIST_KIND = 3;
 
 const DEFAULT_RELAYS = [
-	'wss://relay.damus.io',
 	'wss://relay.primal.net',
 	'wss://nos.lol',
 	'wss://relay.snort.social',
