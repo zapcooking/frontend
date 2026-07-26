@@ -42,10 +42,19 @@ vi.mock('$lib/nostr', async () => {
   const { writable } = await import('svelte/store');
   return { ndk: writable<unknown>({}), userPublickey: writable('a'.repeat(64)) };
 });
-vi.mock('$lib/photoAsk', () => ({
-  askAboutPhoto: mocks.askAboutPhoto,
-  fileToBase64: mocks.fileToBase64
-}));
+// Only the two I/O functions are stubbed. `isPhotoAskRetryable` is a
+// pure predicate and stays REAL — stubbing it would make the retryable
+// assertions below test the stub's bucketing rather than the shipped one.
+vi.mock('$lib/photoAsk', async () => {
+  // Cast, not a type argument: `vi` resolves untyped under svelte-check,
+  // which rejects generics on it.
+  const actual = (await vi.importActual('$lib/photoAsk')) as Record<string, unknown>;
+  return {
+    ...actual,
+    askAboutPhoto: mocks.askAboutPhoto,
+    fileToBase64: mocks.fileToBase64
+  };
+});
 
 import {
   cheffyThread,
@@ -179,6 +188,32 @@ describe('answer mapping', () => {
     // statusLine only when it is non-empty, so a second narrator would
     // otherwise invent a different reason above the real one.
     expect(answer.statusLine).toBe('');
+  });
+
+  // The button is rendered on `retryable !== false`, so these two decide
+  // whether an affordance appears — the question the store test for
+  // `retryCheffy()` structurally cannot ask.
+  it('an UNREPLAYABLE failure marks the bubble non-retryable', async () => {
+    mocks.askAboutPhoto.mockResolvedValue({
+      ok: false,
+      code: 'IMAGE_UNREADABLE',
+      error: "Cheffy couldn't get a good look at that photo. Try another one?"
+    });
+    await askCheffyAboutPhoto(PHOTO, 'what is this?');
+    // Re-sending the same base64 gets the same rejection every time, so
+    // a Try again button would be guaranteed to fail. The copy points at
+    // the composer instead.
+    expect(get(cheffyThread)[1].retryable).toBe(false);
+  });
+
+  it('a failure a later replay could clear stays retryable', async () => {
+    mocks.askAboutPhoto.mockResolvedValue({
+      ok: false,
+      code: 'RATE_LIMITED',
+      error: "Cheffy needs a breather — you've hit the photo limit for now."
+    });
+    await askCheffyAboutPhoto(PHOTO, 'what is this?');
+    expect(get(cheffyThread)[1].retryable).toBe(true);
   });
 
   it('an UNtyped failure keeps the flavour line — there is no reason to show instead', async () => {

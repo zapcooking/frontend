@@ -7,7 +7,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import type NDK from '@nostr-dev-kit/ndk';
-import { askAboutPhoto, QUESTION_MAX_CHARS, PHOTO_MAX_BYTES } from './photoAsk';
+import {
+  askAboutPhoto,
+  isPhotoAskRetryable,
+  QUESTION_MAX_CHARS,
+  PHOTO_MAX_BYTES
+} from './photoAsk';
 import { PHOTO_SIGN_FAILED_LINE, PHOTO_NETWORK_ERROR_LINE } from './cheffy';
 
 const NDK_STUB = {} as NDK;
@@ -222,5 +227,46 @@ describe('askAboutPhoto — result mapping', () => {
     const result = await askAboutPhoto({ ...base, fetchFn });
     // Fixed line, not the thrown message — see the SIGN_FAILED case.
     expect(result).toEqual({ ok: false, code: 'NETWORK', error: PHOTO_NETWORK_ERROR_LINE });
+  });
+});
+
+describe('isPhotoAskRetryable', () => {
+  // One question sorts every code: CAN AN UNCHANGED REPLAY OF THIS EXACT
+  // REQUEST EVER SUCCEED? Not "is it deterministic" (a 503 is neither),
+  // and not "is the resolving control on this screen" — that framing
+  // misclassifies a signer rejection, which is resolved off screen and
+  // still wants the button. This predicate decides whether "Try again"
+  // renders at all, so a code in the wrong bucket either hides a working
+  // control or shows a dead one.
+  it('refuses retry only where an unchanged replay can never succeed', () => {
+    // The photo travels as inline base64, so there is no download that
+    // could fail transiently: same bytes, same rejection, every press.
+    // Fixing it needs a DIFFERENT input, the one thing a replay can't
+    // supply.
+    expect(isPhotoAskRetryable('IMAGE_UNREADABLE')).toBe(false);
+  });
+
+  it('allows retry wherever the same request could succeed later', () => {
+    // NOT_MEMBER belongs here, not above: the request is unchanged but
+    // the server's answer isn't, because renewing happens in another tab
+    // — after which this button is the only way back without a reload.
+    // Off-screen resolution is not disqualifying; the button is how the
+    // member resumes once it has happened.
+    for (const code of [
+      'RATE_LIMITED',
+      'MEMBERSHIP_UNAVAILABLE',
+      'NOT_MEMBER',
+      'SIGN_FAILED',
+      'NETWORK'
+    ]) {
+      expect(isPhotoAskRetryable(code)).toBe(true);
+    }
+  });
+
+  it('treats an unknown or absent code as retryable', () => {
+    // An untyped 500 is exactly the case where one more attempt is a
+    // reasonable thing to offer, so absence must not fail closed.
+    expect(isPhotoAskRetryable(undefined)).toBe(true);
+    expect(isPhotoAskRetryable('SOMETHING_WE_ADD_LATER')).toBe(true);
   });
 });

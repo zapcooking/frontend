@@ -23,9 +23,61 @@ export const QUESTION_MAX_CHARS = 500;
  */
 export const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 
+/**
+ * File-picker filter for every Cheffy photo input, ask AND scan.
+ *
+ * These are exactly the four formats both endpoints can identify from
+ * the base64 prefix (ask-photo/+server.ts, scan/+server.ts). Anything
+ * else is labelled image/jpeg by default and fails at the model — a HEIC
+ * straight off an iPhone can never match, since an ISO-BMFF file opens
+ * with a small `ftyp` box size, so its first bytes always base64 as
+ * `AAAA`. `accept="image/*"` was simply wider than the pipeline reads.
+ *
+ * Scan shares it because a scan that finds nothing hands its file to the
+ * composer as an ask photo (holdScanPhoto), so one picker feeds both.
+ *
+ * One constant rather than five attributes: the value is a server fact,
+ * and five copies of a server fact drift one at a time. Same list as
+ * ImageUploader.svelte and nourish/NourishPhotoInput.svelte.
+ */
+export const PHOTO_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
+
 export type PhotoAskResult =
   | { ok: true; output: string }
   | { ok: false; code?: string; error?: string; status?: number };
+
+/**
+ * Failure codes where re-sending the IDENTICAL request cannot succeed,
+ * so offering "Try again" would be an enabled button that is guaranteed
+ * to fail. The error bubble reads this to decide whether to render one.
+ *
+ * The test is: CAN AN UNCHANGED REPLAY OF THIS EXACT REQUEST EVER SUCCEED?
+ * Not "is it deterministic" (a 503 isn't deterministic either way), and not
+ * "is the resolving control on this screen" — that one misclassifies the
+ * failure it most needs to get right, because a signer rejection is resolved
+ * in the signer app, off screen, and still wants this button.
+ *
+ * Under the replay test all five sort cleanly. A 429 succeeds after time, a
+ * 503 after the upstream recovers, a signer rejection after a second approval,
+ * and NOT_MEMBER after the member renews in another tab — for that last one
+ * this button is the only way back without losing the turn to a reload. All
+ * keep it. Off-screen resolution is not disqualifying; the button is how the
+ * member resumes once the resolution has happened.
+ *
+ * Only IMAGE_UNREADABLE fails. The photo travels as an inline base64 `data:`
+ * URI (ask-photo/+server.ts), so there is no download that could fail
+ * transiently: same bytes, same rejection, every press. Resolving it requires
+ * a DIFFERENT input, which is the one thing a replay cannot supply. The copy
+ * already points at the composer ("Try another one?"), the step that works.
+ *
+ * Anything unrecognised is treated as retryable: an unknown failure is
+ * exactly the case where one more attempt is a reasonable thing to offer.
+ */
+const NON_RETRYABLE_CODES = new Set(['IMAGE_UNREADABLE']);
+
+export function isPhotoAskRetryable(code?: string): boolean {
+  return !code || !NON_RETRYABLE_CODES.has(code);
+}
 
 export interface PhotoAskRequestOpts {
   ndk: NDK;

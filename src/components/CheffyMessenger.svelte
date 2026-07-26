@@ -22,7 +22,7 @@
   } from '$lib/stores/membershipStatus';
   import { parseMarkdown } from '$lib/parser';
   import { PROMPT_PLACEHOLDERS, SCAN_ERROR_LINE } from '$lib/cheffy';
-  import { fileToBase64, PHOTO_MAX_BYTES } from '$lib/photoAsk';
+  import { fileToBase64, PHOTO_ACCEPT, PHOTO_MAX_BYTES } from '$lib/photoAsk';
   import {
     cheffyOpen,
     cheffyThread,
@@ -632,14 +632,20 @@
                            would invent a different one. -->
                       {#if m.statusLine}<p class="err-line">{m.statusLine}</p>{/if}
                       <p class="err-detail">{m.content}</p>
-                      <button
-                        type="button"
-                        class="retry"
-                        on:click={() => retryCheffy()}
-                        disabled={$cheffyLoading}
-                      >
-                        <ArrowsClockwiseIcon size={13} /> Try again
-                      </button>
+                      <!-- No button where re-sending the same request is
+                           guaranteed to fail (isPhotoAskRetryable). The
+                           composer is the working control there, and the
+                           detail line already points at it. -->
+                      {#if m.retryable !== false}
+                        <button
+                          type="button"
+                          class="retry"
+                          on:click={() => retryCheffy()}
+                          disabled={$cheffyLoading}
+                        >
+                          <ArrowsClockwiseIcon size={13} /> Try again
+                        </button>
+                      {/if}
                     </div>
                   {:else if m.kind === 'recipe'}
                     <CheffyRecipeCard content={m.content} />
@@ -812,11 +818,14 @@
 
         {#if !inExperience}
           <!-- Hidden file inputs. Camera/upload attach the photo to the
-               composer; the third is the ingredient scanner. -->
+               composer; the third is the ingredient scanner. All three
+               filter to the formats the pipeline can actually read (see
+               PHOTO_ACCEPT) — the scanner included, because a scan that
+               finds nothing hands its file back as an ask photo. -->
           <input
             bind:this={cameraInput}
             type="file"
-            accept="image/*"
+            accept={PHOTO_ACCEPT}
             capture="environment"
             class="hidden"
             on:change={handleAttachPhoto}
@@ -824,14 +833,14 @@
           <input
             bind:this={uploadInput}
             type="file"
-            accept="image/*"
+            accept={PHOTO_ACCEPT}
             class="hidden"
             on:change={handleAttachPhoto}
           />
           <input
             bind:this={scanInput}
             type="file"
-            accept="image/*"
+            accept={PHOTO_ACCEPT}
             class="hidden"
             on:change={handleScan}
           />
