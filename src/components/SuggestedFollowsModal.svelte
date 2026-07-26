@@ -216,23 +216,22 @@
   }
 </script>
 
-<Modal bind:open noHeader={true} allowOverflow={false}>
+<!-- cleanup={skip} covers the two exits the Close buttons above do not: Escape
+     (Modal.svelte:66-68) and a backdrop click (:147 on:click|self), both of
+     which call Modal's close() (:136-140). close() invokes cleanup and only
+     then sets open = false, so without this prop those two paths propagate
+     open=false up through bind:open to LoginOverlay's showSuggestedFollows and
+     unmount the modal WITHOUT ever running onComplete — same dead end as the
+     buttons had. Every other Modal in the login flow already passes cleanup
+     (LoginOverlay:829, :867, :941, :994, :1146, :1360); this one was the
+     outlier. Four exits, one behaviour. -->
+<Modal bind:open noHeader={true} allowOverflow={false} cleanup={skip}>
   <div class="flex flex-col gap-3 login-modal-body">
-    <button
-      type="button"
-      class="login-modal-logo-btn"
-      aria-label="Close"
-      on:click={skip}
-    >
+    <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={skip}>
       <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
       <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="hidden dark:block" />
     </button>
-    <button
-      type="button"
-      class="login-modal-close-btn"
-      aria-label="Close"
-      on:click={skip}
-    >
+    <button type="button" class="login-modal-close-btn" aria-label="Close" on:click={skip}>
       <CloseIcon size={24} />
     </button>
     <!-- Header -->
