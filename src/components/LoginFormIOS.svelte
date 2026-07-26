@@ -20,6 +20,7 @@
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
+  import { showToast } from '$lib/toast';
   import { onMount, onDestroy } from 'svelte';
 
   let authManager: any = null;
@@ -270,7 +271,10 @@
       await navigator.clipboard.writeText(nip19.nsecEncode(generatedKeys.privateKey));
       backupCopied = true;
     } catch {
-      // Leave the step gated; the download remains available.
+      // Leave the step gated — but say so. A silent failure here would leave
+      // Next disabled while the hint under it still says to reveal and copy,
+      // which is the same shape of dead end this step was fixed to remove.
+      showToast('error', 'Could not copy — select the text and copy it manually');
     }
   }
 
