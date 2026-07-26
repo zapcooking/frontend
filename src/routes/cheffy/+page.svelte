@@ -3,7 +3,7 @@
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { askAboutPhoto, fileToBase64, PHOTO_MAX_BYTES } from '$lib/photoAsk';
+  import { askAboutPhoto, fileToBase64, PHOTO_ACCEPT, PHOTO_MAX_BYTES } from '$lib/photoAsk';
   import {
     membershipStatusMap,
     queueMembershipLookup,
@@ -1142,7 +1142,7 @@
       <input
         bind:this={fileInput}
         type="file"
-        accept="image/*"
+        accept={PHOTO_ACCEPT}
         capture="environment"
         class="hidden"
         on:change={handleFileSelect}
@@ -1150,7 +1150,7 @@
       <input
         bind:this={photoInput}
         type="file"
-        accept="image/*"
+        accept={PHOTO_ACCEPT}
         class="hidden"
         on:change={handlePhotoSelect}
       />

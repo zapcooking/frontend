@@ -22,7 +22,7 @@
   } from '$lib/stores/membershipStatus';
   import { parseMarkdown } from '$lib/parser';
   import { PROMPT_PLACEHOLDERS, SCAN_ERROR_LINE } from '$lib/cheffy';
-  import { fileToBase64, PHOTO_MAX_BYTES } from '$lib/photoAsk';
+  import { fileToBase64, PHOTO_ACCEPT, PHOTO_MAX_BYTES } from '$lib/photoAsk';
   import {
     cheffyOpen,
     cheffyThread,
@@ -816,7 +816,7 @@
           <input
             bind:this={cameraInput}
             type="file"
-            accept="image/*"
+            accept={PHOTO_ACCEPT}
             capture="environment"
             class="hidden"
             on:change={handleAttachPhoto}
@@ -824,14 +824,14 @@
           <input
             bind:this={uploadInput}
             type="file"
-            accept="image/*"
+            accept={PHOTO_ACCEPT}
             class="hidden"
             on:change={handleAttachPhoto}
           />
           <input
             bind:this={scanInput}
             type="file"
-            accept="image/*"
+            accept={PHOTO_ACCEPT}
             class="hidden"
             on:change={handleScan}
           />

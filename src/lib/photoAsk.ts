@@ -23,6 +23,30 @@ export const QUESTION_MAX_CHARS = 500;
  */
 export const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 
+/**
+ * File-picker filter for every Cheffy photo input, ask AND scan.
+ *
+ * These are exactly the four formats both endpoints can identify from
+ * the base64 prefix (ask-photo/+server.ts, scan/+server.ts). Anything
+ * else is labelled image/jpeg by default and fails at the model — a HEIC
+ * straight off an iPhone can never match, since an ISO-BMFF file opens
+ * with a small `ftyp` box size, so its first bytes always base64 as
+ * `AAAA`. `accept="image/*"` was simply wider than the pipeline reads.
+ *
+ * Scan shares it because a scan that finds nothing hands its file to the
+ * composer as an ask photo (holdScanPhoto), so one picker feeds both.
+ *
+ * One constant rather than five attributes: the value is a server fact,
+ * and five copies of a server fact drift one at a time. Same list as
+ * ImageUploader.svelte and nourish/NourishPhotoInput.svelte.
+ *
+ * This does NOT replace the `file.type.startsWith('image/')` checks at
+ * the change handlers: `accept` filters the picker, it does not bind it —
+ * a determined file can still arrive by other means, and the sniffer
+ * still defaults unknown bytes to jpeg.
+ */
+export const PHOTO_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
+
 export type PhotoAskResult =
   | { ok: true; output: string }
   | { ok: false; code?: string; error?: string; status?: number };
