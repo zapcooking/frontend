@@ -87,7 +87,16 @@
       subscription = $ndk.subscribe(filter);
 
       subscription.on('event', (event: NDKEvent) => {
-        // Validate it's a recipe format
+        // NOTE: this condition is always true and is deliberately left alone.
+        // validateMarkdownTemplate() returns `MarkdownTemplate | string` ($lib/parser.ts:230)
+        // and never null, so it filters nothing. Do NOT "fix" it to
+        // `typeof ... !== 'string'`: /create/gated replaces a premium recipe's content
+        // with the preview text before publishing, so the on-relay content of every
+        // premium recipe fails template validation and the tightened check would empty
+        // this listing entirely.
+        // Deleted premium recipes need no check here: the tombstone published by
+        // Recipe.svelte's handleDelete carries no 't' tag, so the '#t' filter above
+        // excludes it once it has replaced the original.
         if (validateMarkdownTemplate(event.content) !== null) {
           // Check if we already have this event
           if (!events.find(e => e.id === event.id)) {

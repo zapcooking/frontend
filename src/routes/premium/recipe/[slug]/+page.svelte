@@ -266,6 +266,22 @@
       Try Again
     </button>
   </div>
+{:else if event && (event.tags.some((t) => t[0] === 'deleted') || !event.content || event.content.trim() === '')}
+  <!-- Deleted recipe tombstone — same check as /r/[naddr] and /recipe/[slug].
+       A deleted premium recipe is replaced by an empty event carrying a 'deleted'
+       tag, and checkIfGated() finds no gated tag on it, so without this branch it
+       falls through to the un-gated fallback below and renders as a blank recipe. -->
+  <div class="flex flex-col justify-center items-center min-h-[60vh] gap-4">
+    <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Recipe Deleted</h1>
+    <p class="text-caption">This recipe has been deleted by its author.</p>
+    <a
+      href="/premium"
+      class="inline-flex items-center gap-2 text-sm hover:underline"
+      style="color: var(--color-text-secondary);"
+    >
+      ← Browse more premium recipes
+    </a>
+  </div>
 {:else if event && gatedMetadata && !hasAccess}
   <!-- Locked Premium Recipe View -->
   <div class="max-w-4xl mx-auto">
