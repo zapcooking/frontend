@@ -673,14 +673,21 @@
   // a successful copy needs that answer — a rejected clipboard write must not
   // count as a saved key. "Copied" rather than "Link copied": the three call
   // sites copy a pairing URI, an npub, and an nsec, and only one is a link.
-  async function copyToClipboard(text: string): Promise<boolean> {
+  // manualHint names the way out when the clipboard refuses, and it differs by
+  // screen: the key screens render the value in a field you can select, the
+  // pairing screen renders it only as a QR code (:991) with no text on it at
+  // all. One sentence cannot be true on both, so the caller supplies it.
+  async function copyToClipboard(
+    text: string,
+    manualHint = 'select the text and copy it manually'
+  ): Promise<boolean> {
     if (!browser) return false;
     try {
       await navigator.clipboard.writeText(text);
       showToast('success', 'Copied');
       return true;
     } catch {
-      showToast('error', 'Could not copy — select the text and copy it manually');
+      showToast('error', `Could not copy — ${manualHint}`);
       return false;
     }
   }
@@ -1000,7 +1007,7 @@
                   📱 Open Signer
                 </Button>
               {/if}
-              <Button on:click={() => copyToClipboard(nip46PairingUri)} primary={false} class="w-full">
+              <Button on:click={() => copyToClipboard(nip46PairingUri, 'scan the QR code instead')} primary={false} class="w-full">
                 📋 Copy Link
               </Button>
             </div>
@@ -1282,8 +1289,8 @@
                          modalCleanup() discards the keypair — so the old wording claimed an account
                          existed at the one moment closing the box would take it away. State what is
                          true, and that a step is left. -->
-                    ✓ Your key is ready. Save it below — you'll finish setting up your profile in
-                    the next step.
+                    Your key is ready. Save it below — you'll finish setting up your profile in the
+                    next step.
                   {/if}
                 </p>
               </div>

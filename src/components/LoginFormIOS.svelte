@@ -612,8 +612,8 @@
                    the end of step 2, and modalCleanup() discards the keypair. The old wording
                    claimed an account existed at the one moment closing this would take it away. -->
               <p class="text-sm text-green-700">
-                ✓ Your key is ready. Save it below — you'll finish setting up your profile in the
-                next step.
+                Your key is ready. Save it below — you'll finish setting up your profile in the next
+                step.
               </p>
             </div>
           {/if}
