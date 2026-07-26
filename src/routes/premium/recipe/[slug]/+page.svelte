@@ -415,10 +415,14 @@
           </div>
         </div>
 
-        <p class="text-center text-sm mt-4" style="color: var(--color-text-secondary);">
-          <LockOpenIcon size={16} class="inline mr-1" />
-          One-time payment. Permanent access to the full recipe.
-        </p>
+        <!--
+          No caption under this button, deliberately — see the matching note in
+          components/GatedRecipePayment.svelte, which is the other implementation of this
+          same purchase. It used to read "One-time payment. Permanent access to the full
+          recipe."; this PR falsifies it, and a replacement was drafted and withdrawn rather
+          than reworded because what paying gets you is an open question at the time of
+          writing. The two blocks had already drifted apart once, so keep them in step.
+        -->
         {/if}
       </div>
     </div>
@@ -476,10 +480,10 @@
       <div>
         {#if isAuthor}
           <p class="font-medium text-green-700 dark:text-green-400">Your Premium Recipe</p>
-          <p class="text-sm text-green-600 dark:text-green-500">As the author, you always have access to view this recipe.</p>
+          <p class="text-sm text-green-600 dark:text-green-500">As the author, you can view this recipe without paying.</p>
         {:else}
           <p class="font-medium text-green-700 dark:text-green-400">Recipe Unlocked!</p>
-          <p class="text-sm text-green-600 dark:text-green-500">You have permanent access to this premium recipe.</p>
+          <p class="text-sm text-green-600 dark:text-green-500">You've unlocked this premium recipe.</p>
         {/if}
       </div>
     </div>
