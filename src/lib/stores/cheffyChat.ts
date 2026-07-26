@@ -11,7 +11,7 @@
  */
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
-import { userPublickey } from '$lib/nostr';
+import { ndk, userPublickey } from '$lib/nostr';
 import {
   pickLine,
   looksLikeStructuredRecipe,
@@ -20,6 +20,7 @@ import {
   ERROR_LINES,
   type CheffyExpression
 } from '$lib/cheffy';
+import { askAboutPhoto, fileToBase64 } from '$lib/photoAsk';
 
 export type ChatRole = 'user' | 'cheffy';
 export type ChatKind = 'text' | 'recipe' | 'pending' | 'error';
@@ -31,6 +32,20 @@ export interface ChatMessage {
   kind: ChatKind;
   expression?: CheffyExpression;
   statusLine?: string; // pending loading line / friendly error line
+  /**
+   * Object URL for a photo the member attached to this turn — DISPLAY
+   * ONLY, and the whole safety of the photo-ask design rests on that.
+   *
+   * `buildHistory` below projects exactly `role` + `content`, so a
+   * field that isn't `content` is structurally incapable of reaching
+   * /api/zappy. The image is sent once, to /api/zappy/ask-photo, and
+   * never enters conversation history. Do not read this in
+   * buildHistory, and do not move image data into `content`: that is
+   * Option B, and it needs the history sanitiser rewritten first
+   * (api/zappy/+server.ts caps content at 4000 chars, which would
+   * silently truncate a base64 image into a corrupt fragment).
+   */
+  imagePreview?: string;
 }
 
 // ── UI state ────────────────────────────────────────────────────
@@ -289,6 +304,113 @@ export async function sendCheffy(content: string, mode: 'chat' | 'hungry' = 'cha
   );
 }
 
+// ── Ask about a photo ───────────────────────────────────────────
+// Object URLs minted for attached-photo thumbnails. Tracked so a thread
+// reset can hand them back rather than leaking them for the session.
+let photoPreviewUrls: string[] = [];
+
+function releasePhotoPreviews() {
+  if (!browser) return;
+  for (const url of photoPreviewUrls) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // already revoked / not an object URL — nothing to do
+    }
+  }
+  photoPreviewUrls = [];
+}
+
+/**
+ * Attach a photo, ask a question about it, get an answer in the thread.
+ *
+ * One vision call, to /api/zappy/ask-photo — NOT through /api/zappy.
+ * The question goes into the turn's `content` (so follow-up text turns
+ * keep their context); the image goes onto `imagePreview`, which
+ * `buildHistory` cannot see. An empty question is allowed: the server
+ * supplies the default ask.
+ */
+export async function askCheffyAboutPhoto(file: File, question: string) {
+  if (get(cheffyLoading)) return;
+
+  const text = question.trim();
+  const preview = browser ? URL.createObjectURL(file) : undefined;
+  if (preview) photoPreviewUrls.push(preview);
+
+  cheffyThread.update((t) => [
+    ...t,
+    { id: nextId(), role: 'user', content: text, kind: 'text', imagePreview: preview }
+  ]);
+  cheffyStarted.set(true);
+  cheffyDraft.set('');
+  // A photo turn is not replayable: retryCheffy() re-sends `lastTurn`
+  // through /api/zappy, which would silently ask a text-only version of
+  // a question about a picture. Clearing it disables retry for this
+  // turn — a wrong retry is worse than no retry.
+  lastTurn = null;
+
+  cheffyLoading.set(true);
+  const expectRecipe = looksLikeRecipeRequest(text);
+  const statusLine = pickLine(expectRecipe ? COOKING_LINES : THINKING_LINES, lastStatusLine);
+  lastStatusLine = statusLine;
+  const pendingId = nextId();
+  cheffyThread.update((t) => [
+    ...t,
+    {
+      id: pendingId,
+      role: 'cheffy',
+      content: '',
+      kind: 'pending',
+      expression: expectRecipe ? 'cooking' : 'thinking',
+      statusLine
+    }
+  ]);
+
+  const settle = (patch: Partial<ChatMessage>) => {
+    cheffyThread.update((t) => t.map((m) => (m.id === pendingId ? { ...m, ...patch } : m)));
+  };
+
+  try {
+    const imageBase64 = await fileToBase64(file);
+    const result = await askAboutPhoto({ ndk: get(ndk), imageBase64, question: text });
+
+    if (result.ok) {
+      const isRecipe = looksLikeStructuredRecipe(result.output);
+      settle({
+        kind: isRecipe ? 'recipe' : 'text',
+        content: result.output,
+        expression: isRecipe ? 'happy' : 'neutral'
+      });
+      cheffyAnnounce.set(isRecipe ? 'Cheffy shared a recipe.' : 'Cheffy replied.');
+      return;
+    }
+
+    // NOT_FOOD is a refusal, not a failure: the member uploaded the file
+    // themselves, so there is no dead-link ambiguity here (the hedging
+    // the note-review client does exists because THAT path takes a URL
+    // and can get a CDN fallback image). Land Cheffy's playful line in
+    // the thread as an ordinary answer rather than an error bubble.
+    if (result.code === 'NOT_FOOD' && result.error) {
+      settle({ kind: 'text', content: result.error, expression: 'neutral' });
+      cheffyAnnounce.set('Cheffy replied.');
+      return;
+    }
+
+    throw new Error(result.error || 'Cheffy could not respond.');
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : 'Cheffy could not respond.';
+    settle({
+      kind: 'error',
+      content: detail,
+      expression: 'concerned',
+      statusLine: pickLine(ERROR_LINES, statusLine)
+    });
+    cheffyAnnounce.set('Cheffy hit a snag.');
+  } finally {
+    cheffyLoading.set(false);
+  }
+}
+
 /**
  * Enter the first-use experience from the /explore invite. Opens the
  * messenger as a non-member preview and sends the one prompt. If this
@@ -320,6 +442,7 @@ export async function retryCheffy() {
 
 export function startOverCheffy() {
   if (get(cheffyLoading)) return;
+  releasePhotoPreviews();
   cheffyThread.set([]);
   cheffyDraft.set('');
   cheffyStarted.set(false);

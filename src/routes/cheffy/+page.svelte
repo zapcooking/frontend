@@ -2,7 +2,8 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
-  import { userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import { askAboutPhoto, fileToBase64, PHOTO_MAX_BYTES } from '$lib/photoAsk';
   import {
     membershipStatusMap,
     queueMembershipLookup,
@@ -42,6 +43,7 @@
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import Checkmark from 'phosphor-svelte/lib/CheckFat';
   import CameraIcon from 'phosphor-svelte/lib/Camera';
+  import ImageIcon from 'phosphor-svelte/lib/Image';
   import ShuffleIcon from 'phosphor-svelte/lib/Shuffle';
   import PaperPlaneIcon from 'phosphor-svelte/lib/PaperPlaneTilt';
   import XIcon from 'phosphor-svelte/lib/X';
@@ -75,6 +77,14 @@
     kind: ChatKind;
     expression?: CheffyExpression;
     statusLine?: string; // pending loading line / friendly error line
+    /**
+     * Object URL for a photo the member attached — DISPLAY ONLY.
+     * `buildHistory` projects `role` + `content` only, so this field is
+     * structurally incapable of reaching /api/zappy. The image is sent
+     * once, to /api/zappy/ask-photo, and never enters history. Same
+     * contract as ChatMessage.imagePreview in stores/cheffyChat.ts.
+     */
+    imagePreview?: string;
   }
 
   let thread: ChatMessage[] = [];
@@ -115,6 +125,17 @@
   let newIngredient = '';
   let showIngredientInput = false;
 
+  // ── Ask about a photo state ──────────────────────────────────
+  // Distinct from the scanner: the photo is held until the member sends
+  // so their question travels with it. Scanning and asking are mutually
+  // exclusive — starting one clears the other, so the composer is never
+  // showing an ingredient list and a held photo at the same time.
+  let photoInput: HTMLInputElement;
+  let attachedPhoto: File | null = null;
+  let attachedPhotoUrl = '';
+  // Preview URLs handed to thread bubbles; released on Start over.
+  let photoPreviewUrls: string[] = [];
+
   // ── Save / Share state ───────────────────────────────────────
   let isSaving = false;
   let copiedId: string | null = null;
@@ -144,7 +165,9 @@
 
   $: hasInAppWallet = $activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4);
 
-  $: canSend = (input.trim().length > 0 || detectedIngredients.length > 0) && !loading;
+  $: canSend =
+    (input.trim().length > 0 || detectedIngredients.length > 0 || attachedPhoto !== null) &&
+    !loading;
 
   let unsubMembershipReady: (() => void) | null = null;
 
@@ -188,6 +211,8 @@
     if (placeholderInterval) clearInterval(placeholderInterval);
     if (copyTimeout) clearTimeout(copyTimeout);
     if (zapSuccessTimeout) clearTimeout(zapSuccessTimeout);
+    releasePhotoPreviews();
+    clearAttachedPhoto();
   });
 
   // ── Conversation engine ──────────────────────────────────────
@@ -332,12 +357,27 @@
 
   function startOver() {
     if (loading) return;
+    releasePhotoPreviews();
+    clearAttachedPhoto();
     thread = [];
     input = '';
     detectedIngredients = [];
     scanError = '';
     lastTurn = null;
     announce = 'Conversation cleared.';
+  }
+
+  /** Hand back the object URLs minted for thread thumbnails. */
+  function releasePhotoPreviews() {
+    if (!browser) return;
+    for (const url of photoPreviewUrls) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // already revoked — nothing to do
+      }
+    }
+    photoPreviewUrls = [];
   }
 
   function onStarter(e: CustomEvent<StarterPrompt>) {
@@ -348,7 +388,7 @@
   function onComposerKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (canSend) send(input);
+      submitComposer();
     }
   }
 
@@ -548,6 +588,9 @@
     }
     isScanning = true;
     scanError = '';
+    // Scanning takes the composer over with an ingredient list, so a
+    // held photo would be stranded — drop it (see handlePhotoSelect).
+    clearAttachedPhoto();
     try {
       const base64 = await fileToBase64(file);
       const response = await fetch('/api/zappy/scan', {
@@ -573,16 +616,140 @@
     }
   }
 
-  function fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        resolve(result.split(',')[1]);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  // ── Ask about a photo ────────────────────────────────────────
+  function triggerPhotoAttach() {
+    photoInput?.click();
+  }
+
+  function clearAttachedPhoto() {
+    if (attachedPhotoUrl) {
+      URL.revokeObjectURL(attachedPhotoUrl);
+      attachedPhotoUrl = '';
+    }
+    attachedPhoto = null;
+  }
+
+  async function handlePhotoSelect(event: Event) {
+    const inputEl = event.target as HTMLInputElement;
+    const file = inputEl.files?.[0];
+    // Reset immediately so re-picking the same file still fires change.
+    if (inputEl) inputEl.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      scanError = 'Please choose an image file.';
+      return;
+    }
+    if (file.size > PHOTO_MAX_BYTES) {
+      scanError = 'That image is a little big — try one under 10MB.';
+      return;
+    }
+    scanError = '';
+    clearAttachedPhoto();
+    // A held photo and a scanned ingredient list would both claim the
+    // composer; the photo wins because the member just chose it.
+    detectedIngredients = [];
+    showIngredientInput = false;
+    input = '';
+    attachedPhoto = file;
+    attachedPhotoUrl = URL.createObjectURL(file);
+    await tick();
+    promptEl?.focus();
+  }
+
+  /**
+   * One vision call to /api/zappy/ask-photo, rendered into the same
+   * thread as any other turn. Deliberately parallel to dispatchTurn
+   * rather than folded into it: that path posts chat history to
+   * /api/zappy, and this one must never do that.
+   */
+  async function askPhotoTurn(file: File, question: string) {
+    if (loading) return;
+    const text = question.trim();
+    const preview = browser ? URL.createObjectURL(file) : undefined;
+    if (preview) photoPreviewUrls = [...photoPreviewUrls, preview];
+
+    thread = [
+      ...thread,
+      { id: nextId(), role: 'user', content: text, kind: 'text', imagePreview: preview }
+    ];
+    input = '';
+    scanError = '';
+    // A photo turn is not replayable — retryLast() would re-send it as a
+    // text-only question through /api/zappy. No retry beats a wrong one.
+    lastTurn = null;
+    await scrollAfterTurn();
+
+    loading = true;
+    const expectRecipe = looksLikeRecipeRequest(text);
+    const statusLine = pickLine(expectRecipe ? COOKING_LINES : THINKING_LINES, lastStatusLine);
+    lastStatusLine = statusLine;
+    const pending: ChatMessage = {
+      id: nextId(),
+      role: 'cheffy',
+      content: '',
+      kind: 'pending',
+      expression: expectRecipe ? 'cooking' : 'thinking',
+      statusLine
+    };
+    thread = [...thread, pending];
+    await scrollAfterTurn();
+
+    const settle = (patch: Partial<ChatMessage>) => {
+      thread = thread.map((m) => (m.id === pending.id ? { ...m, ...patch } : m));
+    };
+
+    try {
+      const imageBase64 = await fileToBase64(file);
+      const result = await askAboutPhoto({ ndk: $ndk, imageBase64, question: text });
+
+      if (result.ok) {
+        const isRecipe = looksLikeStructuredRecipe(result.output);
+        settle({
+          kind: isRecipe ? 'recipe' : 'text',
+          content: result.output,
+          expression: isRecipe ? 'happy' : 'neutral'
+        });
+        announce = isRecipe ? 'Cheffy shared a recipe.' : 'Cheffy replied.';
+        return;
+      }
+
+      // NOT_FOOD is a refusal, not a failure — the member picked the
+      // file themselves, so Cheffy's playful line is the answer here.
+      if (result.code === 'NOT_FOOD' && result.error) {
+        settle({ kind: 'text', content: result.error, expression: 'neutral' });
+        announce = 'Cheffy replied.';
+        return;
+      }
+
+      throw new Error(result.error || 'Cheffy could not respond.');
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'Cheffy could not respond.';
+      settle({
+        kind: 'error',
+        content: detail,
+        expression: 'concerned',
+        statusLine: pickLine(ERROR_LINES, statusLine)
+      });
+      announce = 'Cheffy hit a snag.';
+    } finally {
+      loading = false;
+      await scrollAfterTurn();
+    }
+  }
+
+  // Single send entry point for the Ask Cheffy button and Enter: a held
+  // photo makes this a photo turn. An empty question is fine — the
+  // server supplies the default ask.
+  function submitComposer() {
+    if (!canSend) return;
+    if (attachedPhoto) {
+      const file = attachedPhoto;
+      const question = input;
+      clearAttachedPhoto();
+      void askPhotoTurn(file, question);
+      return;
+    }
+    void send(input);
   }
 
   function removeIngredient(ingredient: string) {
@@ -665,7 +832,18 @@
         {#each thread as m (m.id)}
           {#if m.role === 'user'}
             <div class="msg msg-user">
-              <div class="bubble-user">{m.content}</div>
+              <div class="bubble-user">
+                {#if m.imagePreview}
+                  <!-- Display only. Never reaches /api/zappy — see the
+                       imagePreview docs on ChatMessage above. -->
+                  <img
+                    class="bubble-photo"
+                    src={m.imagePreview}
+                    alt="What you asked Cheffy about"
+                  />
+                {/if}
+                {#if m.content}<span class="bubble-text">{m.content}</span>{/if}
+              </div>
             </div>
           {:else}
             <div class="msg msg-cheffy">
@@ -836,6 +1014,23 @@
         </div>
       {/if}
 
+      {#if attachedPhoto}
+        <!-- Held photo: the question and the picture travel together on
+             send, so the member gets to say what they're asking. -->
+        <div class="photo-chip">
+          <img class="photo-chip-thumb" src={attachedPhotoUrl} alt="" />
+          <span class="photo-chip-name">{attachedPhoto.name}</span>
+          <button
+            type="button"
+            class="photo-chip-remove"
+            aria-label="Remove photo"
+            on:click={clearAttachedPhoto}
+          >
+            <XIcon size={14} weight="bold" />
+          </button>
+        </div>
+      {/if}
+
       <!-- Input -->
       <div class="relative">
         <label for="cheffy-input" class="sr-only">Message Cheffy</label>
@@ -843,28 +1038,41 @@
           id="cheffy-input"
           bind:this={promptEl}
           bind:value={input}
-          placeholder={currentPlaceholder}
+          placeholder={attachedPhoto ? 'Ask about this photo…' : currentPlaceholder}
           rows="2"
           class="input auto-grow resize-none text-base w-full pb-12"
           disabled={loading}
           on:keydown={onComposerKeydown}
         ></textarea>
-        <button
-          type="button"
-          class="scan-pill"
-          on:click={triggerScan}
-          disabled={isScanning || loading}
-          title="Show Cheffy your fridge"
-          aria-label="Show Cheffy your fridge"
-        >
-          {#if isScanning}
-            <ArrowsClockwiseIcon size={14} class="animate-spin" />
-            <span>Scanning</span>
-          {:else}
-            <CameraIcon size={14} weight="fill" />
-            <span>Show Cheffy your fridge</span>
-          {/if}
-        </button>
+        <div class="composer-pills">
+          <button
+            type="button"
+            class="scan-pill"
+            on:click={triggerPhotoAttach}
+            disabled={isScanning || loading}
+            title="Ask about a photo"
+            aria-label="Ask Cheffy about a photo"
+          >
+            <ImageIcon size={14} weight="fill" />
+            <span>Ask about a photo</span>
+          </button>
+          <button
+            type="button"
+            class="scan-pill"
+            on:click={triggerScan}
+            disabled={isScanning || loading}
+            title="Scan my fridge or pantry"
+            aria-label="Scan my fridge or pantry"
+          >
+            {#if isScanning}
+              <ArrowsClockwiseIcon size={14} class="animate-spin" />
+              <span>Scanning</span>
+            {:else}
+              <CameraIcon size={14} weight="fill" />
+              <span>Scan my fridge or pantry</span>
+            {/if}
+          </button>
+        </div>
       </div>
 
       <input
@@ -874,6 +1082,13 @@
         capture="environment"
         class="hidden"
         on:change={handleFileSelect}
+      />
+      <input
+        bind:this={photoInput}
+        type="file"
+        accept="image/*"
+        class="hidden"
+        on:change={handlePhotoSelect}
       />
 
       <!-- Actions -->
@@ -891,7 +1106,7 @@
           variant="primary"
           class="w-full sm:flex-[3] py-3"
           disabled={!canSend}
-          on:click={() => send(input)}
+          on:click={submitComposer}
         >
           {#if loading}
             <ArrowsClockwiseIcon size={18} class="animate-spin" />
@@ -1081,6 +1296,57 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+  /* Attached photo inside the member's own bubble. Capped so a portrait
+     shot can't push the answer off-screen. */
+  .bubble-photo {
+    display: block;
+    max-width: 100%;
+    max-height: 240px;
+    border-radius: 10px;
+    object-fit: cover;
+  }
+  .bubble-photo + .bubble-text {
+    display: block;
+    margin-top: 8px;
+  }
+  /* Held-photo chip above the composer. */
+  .photo-chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border: 1px solid var(--color-input-border);
+    border-radius: 12px;
+  }
+  .photo-chip-thumb {
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    object-fit: cover;
+  }
+  .photo-chip-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .photo-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    border-radius: 999px;
+    color: var(--color-text-secondary);
+  }
+  .photo-chip-remove:hover {
+    background-color: var(--color-hover, rgba(127, 127, 127, 0.12));
+  }
   .msg-cheffy {
     gap: 10px;
     align-items: flex-start;
@@ -1218,10 +1484,20 @@
     overflow-y: auto;
   }
 
-  .scan-pill {
+  /* Two pills now share the composer's bottom-right corner, so the
+     absolute positioning moved from the pill to this row. They wrap on
+     narrow screens rather than overflowing the textarea. */
+  .composer-pills {
     position: absolute;
     bottom: 0.5rem;
     right: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    max-width: calc(100% - 1rem);
+  }
+  .scan-pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;

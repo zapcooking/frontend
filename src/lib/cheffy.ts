@@ -88,8 +88,17 @@ export const ERROR_LINES: string[] = [
   'Cheffy got distracted by something on the stove.'
 ];
 
-/** Error line specific to a failed ingredient scan. */
-export const SCAN_ERROR_LINE = 'Cheffy could not read those ingredients. Try a clearer photo.';
+/**
+ * Error line specific to a failed ingredient scan.
+ *
+ * The scanner asks exactly one question of a photo — what ingredients
+ * are visible — so an empty result usually means the photo was fine and
+ * the question was wrong (a plated dish has no ingredients to
+ * enumerate). Name that, and point at the path that does answer it,
+ * instead of blaming the member's camera.
+ */
+export const SCAN_ERROR_LINE =
+  "Cheffy didn't spot any ingredients in that one. If it's a finished dish, ask Cheffy about the photo instead.";
 
 /**
  * Pick a line from a pool, avoiding `avoid` (usually the previously
