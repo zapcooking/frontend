@@ -28,7 +28,7 @@ export const MY_RECIPES_TAG = 'my-recipes';
 // the hints rotate across a pack's recipe tags — between them, both
 // high-uptime general relays get coverage. Recipes publish via "all"
 // mode, so they land on both.
-export const RECIPE_PACK_RELAY_HINTS = ['wss://relay.damus.io', 'wss://relay.primal.net'];
+export const RECIPE_PACK_RELAY_HINTS = ['wss://relay.nostr.net', 'wss://relay.primal.net'];
 
 export type RecipePackSource =
   | { type: 'cookbook' }

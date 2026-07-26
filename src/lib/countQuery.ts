@@ -43,11 +43,16 @@ const COUNT_CACHE_TTL = 60 * 1000; // 1 minute cache for counts
 const nip45SupportedRelays = new Set<string>();
 const nip45UnsupportedRelays = new Set<string>();
 
-// Relays known to support NIP-45 COUNT - prioritize fastest/most reliable
+// Relays known to support NIP-45 COUNT.
+// Both verified answering COUNT on 2026-07-26. relay.nostr.net replaced
+// relay.damus.io, which was announced for shutdown by end of July 2026 and was
+// already refusing 6 of 10 connections when measured. Corpus size matters here
+// because these counts are shown to users: relay.nostr.net holds ~54k kind:30023
+// events, so it counts accurately rather than merely quickly.
 const KNOWN_NIP45_RELAYS = [
-  'wss://relay.damus.io',      // 394ms - fast and reliable
-  'wss://nos.lol'               // 342ms - fastest
-  // Note: nostr.wine (305ms) and relay.nostr.band removed - in blocked relays list
+  'wss://relay.nostr.net',
+  'wss://nos.lol'
+  // Note: nostr.wine and relay.nostr.band removed - in blocked relays list
 ];
 
 // Server API configuration
