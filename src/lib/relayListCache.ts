@@ -64,13 +64,6 @@ const CONFIG = {
   // IndexedDB settings
   CLEANUP_INTERVAL_MS: 30 * 60 * 1000,      // Cleanup expired entries every 30 min
   MAX_DB_ENTRIES: 10000,                    // Max entries in IndexedDB
-  
-  // Discovery relays for fetching relay lists
-  DISCOVERY_RELAYS: [
-    'wss://purplepag.es',
-    'wss://nos.lol',
-    'wss://relay.primal.net'
-  ]
 };
 
 // ═══════════════════════════════════════════════════════════════

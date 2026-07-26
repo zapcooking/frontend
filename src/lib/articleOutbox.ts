@@ -89,12 +89,6 @@ const CONFIG = {
     'wss://purplepag.es',            // Good for profile/content discovery
     'wss://antiprimal.net',          // Broad content discovery
   ],
-  
-  // Fallback relays if primary ones fail
-  FALLBACK_RELAYS: [
-    'wss://nostr.mutinywallet.com',
-    'wss://relay.snort.social',
-  ]
 };
 
 // ═══════════════════════════════════════════════════════════════
