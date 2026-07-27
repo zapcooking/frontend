@@ -14,7 +14,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
-  import { userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
   import {
     membershipStatusMap,
     queueMembershipLookup,
@@ -23,6 +23,7 @@
   import { parseMarkdown } from '$lib/parser';
   import { PROMPT_PLACEHOLDERS, SCAN_ERROR_LINE, photoFormatLine } from '$lib/cheffy';
   import { fileToBase64, identifyPhotoFile, PHOTO_MAX_BYTES } from '$lib/photoAsk';
+  import { scanFridgePhoto } from '$lib/photoScan';
   import {
     cheffyOpen,
     cheffyThread,
@@ -309,14 +310,9 @@
     clearAttachedPhoto();
     try {
       const base64 = await fileToBase64(file);
-      const resp = await fetch('/api/zappy/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64, pubkey: $userPublickey })
-      });
-      const data = await resp.json();
-      if (!resp.ok || !data.ok) throw new Error(data.error || SCAN_ERROR_LINE);
-      const ingredients: string[] = data.ingredients || [];
+      const result = await scanFridgePhoto({ ndk: $ndk, imageBase64: base64 });
+      if (!result.ok) throw new Error(result.error || SCAN_ERROR_LINE);
+      const ingredients: string[] = result.ingredients;
       if (ingredients.length > 0) {
         cheffyDraft.set(`I have: ${ingredients.join(', ')}`);
         await tick();

@@ -10,6 +10,7 @@
     isPhotoAskRetryable,
     PHOTO_MAX_BYTES
   } from '$lib/photoAsk';
+  import { scanFridgePhoto } from '$lib/photoScan';
   import {
     membershipStatusMap,
     queueMembershipLookup,
@@ -623,16 +624,11 @@
     clearAttachedPhoto();
     try {
       const base64 = await fileToBase64(file);
-      const response = await fetch('/api/zappy/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64, pubkey: $userPublickey })
-      });
-      const data = await response.json();
-      if (!response.ok || !data.ok) {
-        throw new Error(data.error || SCAN_ERROR_LINE);
+      const result = await scanFridgePhoto({ ndk: $ndk, imageBase64: base64 });
+      if (!result.ok) {
+        throw new Error(result.error || SCAN_ERROR_LINE);
       }
-      detectedIngredients = data.ingredients || [];
+      detectedIngredients = result.ingredients;
       if (detectedIngredients.length > 0) {
         input = `I have: ${detectedIngredients.join(', ')}`;
       } else {

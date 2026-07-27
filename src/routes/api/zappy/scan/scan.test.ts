@@ -1,10 +1,10 @@
 /**
  * Unit tests for POST /api/zappy/scan.
  *
- * Collaborators (membership API, rate limiter, OpenAI fetch) are mocked
- * at the module boundary; the endpoint's own validation, gating, and
- * response-shaping logic runs for real. Mirrors the harness in
- * ../note-review/noteReview.test.ts.
+ * Collaborators (NIP-98 verifier, membership API, rate limiter, OpenAI
+ * fetch) are mocked at the module boundary; the endpoint's own
+ * validation, gating, and response-shaping logic runs for real. Mirrors
+ * the harness in ../ask-photo/askPhoto.test.ts.
  *
  * The point of the rate-limit cases is the *ordering*: the cap has to
  * sit below the membership gate (a 403 must not spend a member's quota)
@@ -15,10 +15,12 @@ import { SCAN_RATE_LIMIT_LINE } from '$lib/cheffy';
 import { POST } from './+server';
 
 const mocks = vi.hoisted(() => ({
+  verifyNip98: vi.fn(),
   hasActiveMembership: vi.fn(),
   checkPerIpRateLimit: vi.fn()
 }));
 
+vi.mock('$lib/nip98.server', () => ({ verifyNip98: mocks.verifyNip98 }));
 vi.mock('$lib/membershipApi.server', () => ({ hasActiveMembership: mocks.hasActiveMembership }));
 vi.mock('$lib/ipRateLimit.server', () => ({ checkPerIpRateLimit: mocks.checkPerIpRateLimit }));
 
@@ -38,12 +40,13 @@ type EventOpts = {
   env?: Record<string, unknown> | null;
   /** Throw from getClientAddress, as SvelteKit does without CF headers. */
   noClientAddress?: boolean;
+  rawBody?: string;
 };
 
 function makeEvent(body: unknown, opts: EventOpts = {}) {
   const request = new Request(new URL(ENDPOINT), {
     method: 'POST',
-    body: JSON.stringify(body)
+    body: opts.rawBody ?? JSON.stringify(body)
   });
   const env =
     opts.env === null
@@ -70,11 +73,12 @@ async function call(body: unknown, opts: EventOpts = {}) {
 }
 
 function validBody(overrides: Record<string, unknown> = {}) {
-  return { image: IMAGE, pubkey: PUBKEY, ...overrides };
+  return { image: IMAGE, ...overrides };
 }
 
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
+  mocks.verifyNip98.mockReset().mockResolvedValue({ ok: true, pubkey: PUBKEY });
   mocks.hasActiveMembership.mockReset().mockResolvedValue(true);
   mocks.checkPerIpRateLimit.mockReset().mockResolvedValue({ limited: false, ipHash: 'h' });
   fetchMock.mockReset().mockResolvedValue(openaiOk('["eggs", "milk"]'));
@@ -94,8 +98,56 @@ describe('under the rate limit', () => {
   });
 });
 
+describe('NIP-98 authentication', () => {
+  it('401s when the header is missing or bad, and spends nothing', async () => {
+    for (const reason of ['missing-header', 'invalid-signature', 'payload-mismatch']) {
+      mocks.checkPerIpRateLimit.mockClear();
+      mocks.hasActiveMembership.mockClear();
+      fetchMock.mockClear();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mocks.verifyNip98.mockResolvedValue({ ok: false, reason });
+
+      const { res, data } = await call(validBody());
+
+      expect(res.status).toBe(401);
+      expect(data.ok).toBe(false);
+      // The 401 sits ABOVE the membership call, the limiter and OpenAI —
+      // an unauthenticated caller costs us nothing and burns nobody's
+      // allowance.
+      expect(mocks.hasActiveMembership).not.toHaveBeenCalled();
+      expect(mocks.checkPerIpRateLimit).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      // Reason is logged, never returned — uniform 401, no info leak.
+      expect(String(data.error)).not.toContain(reason);
+      expect(String(warn.mock.calls[0][0])).toContain(reason);
+      warn.mockRestore();
+    }
+  });
+
+  it('binds the header to this exact body', async () => {
+    await call(validBody());
+    const [, opts] = mocks.verifyNip98.mock.calls[0];
+    // Without the body bytes the verifier cannot check the payload tag,
+    // so a header signed for one photo would replay against another.
+    expect(opts.bodyBytes).toBeInstanceOf(Uint8Array);
+    expect(new TextDecoder().decode(opts.bodyBytes)).toBe(JSON.stringify(validBody()));
+  });
+
+  it('gates membership on the verified pubkey, not on anything in the body', async () => {
+    await call(validBody({ pubkey: 'b'.repeat(64) }));
+    expect(mocks.hasActiveMembership).toHaveBeenCalledTimes(1);
+    expect(mocks.hasActiveMembership.mock.calls[0][0]).toBe(PUBKEY);
+  });
+
+  it('400s on a body that is not JSON, before authenticating', async () => {
+    const { res } = await call(null, { rawBody: 'not json' });
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('rate limiting', () => {
-  it('keys the bucket on the client address, not the unverified body pubkey', async () => {
+  it('keys the bucket on the client address, not the verified pubkey', async () => {
     await call(validBody());
     expect(mocks.checkPerIpRateLimit).toHaveBeenCalledTimes(1);
     const [kv, params] = mocks.checkPerIpRateLimit.mock.calls[0];
@@ -108,8 +160,13 @@ describe('rate limiting', () => {
   });
 
   it('does not let a different pubkey reset the bucket', async () => {
-    await call(validBody({ pubkey: 'b'.repeat(64) }));
-    await call(validBody({ pubkey: 'c'.repeat(64) }));
+    // Verified now, but still free to mint — this endpoint fails OPEN on
+    // membership problems and has no gate at all when MEMBERSHIP_ENABLED
+    // is off, so the IP bucket is the only surviving cost ceiling.
+    mocks.verifyNip98.mockResolvedValueOnce({ ok: true, pubkey: 'b'.repeat(64) });
+    await call(validBody());
+    mocks.verifyNip98.mockResolvedValueOnce({ ok: true, pubkey: 'c'.repeat(64) });
+    await call(validBody());
     const ips = mocks.checkPerIpRateLimit.mock.calls.map((c: any[]) => c[1].ip);
     expect(ips).toEqual([CLIENT_IP, CLIENT_IP]);
   });
@@ -161,25 +218,23 @@ describe('rate limiting', () => {
 });
 
 describe('membership gate is not regressed', () => {
-  it('403s on a missing pubkey when gating is on, and spends no quota', async () => {
-    for (const pubkey of [undefined, '', '   ', 42]) {
-      mocks.checkPerIpRateLimit.mockClear();
-      fetchMock.mockClear();
-      const { res } = await call(validBody({ pubkey }));
-      expect(res.status).toBe(403);
-      // The 403 must sit ABOVE the limiter — a non-member probing the
-      // endpoint must not burn a real member's per-IP allowance.
-      expect(mocks.checkPerIpRateLimit).not.toHaveBeenCalled();
-      expect(fetchMock).not.toHaveBeenCalled();
-    }
-  });
-
   it('403s for a non-member and spends no quota', async () => {
     mocks.hasActiveMembership.mockResolvedValue(false);
     const { res } = await call(validBody());
     expect(res.status).toBe(403);
     expect(mocks.checkPerIpRateLimit).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('still fails OPEN when the membership service throws', async () => {
+    // Unchanged by adding NIP-98, and deliberately unlike note-review /
+    // ask-photo. Tracked in issue #512; pinned here so the divergence is
+    // a decision rather than a drift.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.hasActiveMembership.mockRejectedValue(new Error('membership service down'));
+    const { res } = await call(validBody());
+    expect(res.status).toBe(200);
+    error.mockRestore();
   });
 
   it('still rate limits when membership gating is off', async () => {
