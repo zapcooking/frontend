@@ -76,9 +76,20 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
       return json({ ok: false, error: 'Image data is required' }, { status: 400 });
     }
 
-    // Check image size (rough estimate: base64 is ~33% larger than binary)
-    // Limit to ~10MB original = ~13MB base64
-    if (image.length > 13 * 1024 * 1024) {
+    // Sized to hold the base64 expansion of the client's own file cap,
+    // rather than estimated. Both scan surfaces reject above
+    // PHOTO_MAX_BYTES (10 MiB) and say "try one under 10MB"; base64 is
+    // 4/3 of the input, so a file at exactly that cap encodes to ~13.33
+    // MiB. The previous 13 MiB wire cap was fractionally SMALLER than
+    // what the client lets through, so the top ~2.5% of allowed files
+    // uploaded and were then rejected here — after the wait, with a
+    // sentence that contradicts the one the composer just showed.
+    //
+    // A size limit is a chain, not a number: the gate a member meets
+    // first has to be the strictest, and every gate downstream strictly
+    // looser. ask-photo/+server.ts already sizes IMAGE_MAX_CHARS this
+    // way for the same reason.
+    if (image.length > 14 * 1024 * 1024) {
       return json(
         { ok: false, error: 'Image too large. Please use a smaller image.' },
         { status: 400 }

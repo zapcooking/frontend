@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SCAN_RATE_LIMIT_LINE } from '$lib/cheffy';
+import { PHOTO_MAX_BYTES } from '$lib/photoAsk';
 import { POST } from './+server';
 
 const mocks = vi.hoisted(() => ({
@@ -200,6 +201,23 @@ describe('validation still precedes the limiter', () => {
     const { res } = await call(validBody({ image: undefined }));
     expect(res.status).toBe(400);
     expect(mocks.checkPerIpRateLimit).not.toHaveBeenCalled();
+  });
+
+  it('accepts a file at the client cap once base64 has expanded it', async () => {
+    // The chain: both scan surfaces reject above PHOTO_MAX_BYTES and
+    // promise "under 10MB", so the wire cap here must be able to hold
+    // what that promise lets through. Base64 is 4/3 of the input plus
+    // padding. Under the old 13 MiB cap this exact request 400'd — the
+    // top ~2.5% of allowed files uploaded and were then refused.
+    const encodedLength = 4 * Math.ceil(PHOTO_MAX_BYTES / 3);
+    const { res } = await call(validBody({ image: '/9j/' + 'A'.repeat(encodedLength - 4) }));
+    expect(res.status).toBe(200);
+  });
+
+  it('400s above the wire cap, before any OpenAI call', async () => {
+    const { res } = await call(validBody({ image: 'x'.repeat(14 * 1024 * 1024 + 1) }));
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('500s without an OpenAI key without spending quota', async () => {
