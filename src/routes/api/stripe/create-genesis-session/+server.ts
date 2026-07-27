@@ -67,7 +67,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
             currency: 'usd',
             product_data: {
               name: 'Zap Cooking Founders Club - Lifetime Membership',
-              description: 'Lifetime membership with Founders Club badge #1-21',
+              description: 'Lifetime membership with a permanent Founders Club badge and number',
             },
             unit_amount: GENESIS_PRICE_CENTS,
           },
