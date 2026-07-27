@@ -450,10 +450,10 @@
   const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
 
   // Relay pools by purpose - optimized based on speed test results
-  // Speed test: nostr.wine (305ms) > nos.lol (342ms) > purplepag.es (356ms) > relay.damus.io (394ms)
+  // Speed test: nostr.wine (305ms) > nos.lol (342ms) > purplepag.es (356ms)
   // NOTE: All URLs are normalized (no trailing slashes) to prevent duplicate connections
   const RELAY_POOLS = {
-    recipes: ['wss://nos.lol', 'wss://relay.damus.io'], // General relays with recipe content
+    recipes: ['wss://nos.lol', 'wss://relay.nostr.net'], // General relays with recipe content
     fallback: ['wss://relay.primal.net', 'wss://nostr.wine', 'wss://antiprimal.net'], // Fast general relays for broader discovery
     discovery: [
       'wss://nostr.wine',

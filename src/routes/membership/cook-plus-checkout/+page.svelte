@@ -108,9 +108,12 @@
   onMount(() => {
     if (!browser) return;
     
-    // Redirect to login if not logged in
+    // Redirect to login if not logged in. Carry the query string, not just the
+    // path: `?period` is the billing choice the member already made on
+    // /membership, and dropping it returns them to the `annual` fallback at
+    // :23-24 — a different price than the one they clicked.
     if (!isLoggedIn) {
-      goto('/login?redirect=/membership/cook-plus-checkout');
+      goto('/login?redirect=' + encodeURIComponent($page.url.pathname + $page.url.search));
     }
 
     // Check for payment success (Stripe)
