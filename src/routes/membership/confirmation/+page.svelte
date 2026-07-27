@@ -16,12 +16,19 @@
     perks: string[];
   }> = {
     genesis: {
-      name: 'Genesis Founder',
+      name: 'Founders Club',
       tagline: "You're part of the beginning.",
       accent: '#F59E0B',
       accentGlow: 'rgba(245, 158, 11, 0.25)',
       badgeIcon: '\u26A1',
-      perks: ['Private relay access', 'NIP-05 verified identity', 'Founder badge on profile', 'Priority support'],
+      perks: [
+        'Lifetime Access \u2014 All Features',
+        'Sous Chef & Nourish',
+        'Cheffy \u2014 Kitchen Companion',
+        'Lightning-Gated Recipes',
+        'Market Access',
+        'Founders Recognition',
+      ],
     },
     cook: {
       name: 'Cook+',
@@ -29,7 +36,12 @@
       accent: '#10B981',
       accentGlow: 'rgba(16, 185, 129, 0.25)',
       badgeIcon: '\uD83C\uDF73',
-      perks: ['Private relay access', 'NIP-05 verified identity', 'Sous Chef AI assistant', 'Ad-free experience'],
+      perks: [
+        'Sous Chef & Nourish',
+        'Cheffy \u2014 Kitchen Companion',
+        'Market Access',
+        'Member Badge & Collections',
+      ],
     },
     pro: {
       name: 'Pro Kitchen',
@@ -37,7 +49,13 @@
       accent: '#8B5CF6',
       accentGlow: 'rgba(139, 92, 246, 0.25)',
       badgeIcon: '\uD83D\uDC68\u200D\uD83C\uDF73',
-      perks: ['Private relay access', 'NIP-05 verified identity', 'Full AI suite access', 'Priority recipe promotion'],
+      perks: [
+        'Sous Chef & Nourish',
+        'Cheffy \u2014 Kitchen Companion',
+        'Lightning-Gated Recipes',
+        'Market Access',
+        'Member Badge & Collections',
+      ],
     },
   };
 

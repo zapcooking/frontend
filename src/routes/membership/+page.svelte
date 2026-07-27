@@ -34,7 +34,7 @@
     {
       question: 'How many Cheffy messages do I get?',
       answer:
-        'Cook+ includes 300 Cheffy messages per month. That is a generous monthly allowance for everyday cooking help — ask questions, use what you have, or turn an idea into dinner.'
+        'A Zap Cooking membership includes 300 Cheffy messages per month. That is a generous monthly allowance for everyday cooking help — ask questions, use what you have, or turn an idea into dinner. Founders Club members get the same allowance as every other member, for the life of their membership.'
     },
     {
       question: 'Can I cancel anytime?',
@@ -710,7 +710,7 @@
         </div>
         <p class="founders-story-copy">
           Founders Club is a capped lifetime membership — {TOTAL_GENESIS_SPOTS} seats total — for
-          people who want to back Zap Cooking early and keep Pro Kitchen access for life. Seats are
+          people who want to back Zap Cooking early and keep full access for life. Seats are
           limited by that hard cap, not by a countdown.
         </p>
         {#if !showFoundersList}
@@ -735,11 +735,18 @@
               <ul class="benefit-list">
                 <li>
                   <span class="checkmark">✓</span>
-                  <span class="feature-text">Lifetime Pro Kitchen membership (never expires)</span>
+                  <span class="feature-text">Lifetime membership (never expires)</span>
                 </li>
                 <li>
                   <span class="checkmark">✓</span>
-                  <span class="feature-text">All future Pro Kitchen features included</span>
+                  <span class="feature-text">All future features included</span>
+                </li>
+                <li>
+                  <span class="checkmark">✓</span>
+                  <span class="feature-text"
+                    >Cheffy — the same monthly allowance as every member, currently 300 messages a
+                    month</span
+                  >
                 </li>
               </ul>
             </div>

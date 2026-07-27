@@ -473,6 +473,10 @@
             </li>
             <li>
               <span class="checkmark">✓</span>
+              <span class="feature-text">Cheffy - Kitchen Companion, 300 messages a month</span>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
               <span class="feature-text">Verified @zap.cooking NIP-05 identity</span>
             </li>
           </ul>
