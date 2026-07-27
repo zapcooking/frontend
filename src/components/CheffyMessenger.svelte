@@ -21,8 +21,8 @@
     type MembershipStatus
   } from '$lib/stores/membershipStatus';
   import { parseMarkdown } from '$lib/parser';
-  import { PROMPT_PLACEHOLDERS, SCAN_ERROR_LINE } from '$lib/cheffy';
-  import { fileToBase64, PHOTO_MAX_BYTES } from '$lib/photoAsk';
+  import { PROMPT_PLACEHOLDERS, SCAN_ERROR_LINE, photoFormatLine } from '$lib/cheffy';
+  import { fileToBase64, identifyPhotoFile, PHOTO_MAX_BYTES } from '$lib/photoAsk';
   import {
     cheffyOpen,
     cheffyThread,
@@ -247,8 +247,8 @@
     // Reset immediately so re-picking the same file still fires change.
     if (inputEl) inputEl.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      scanError = 'Please choose an image file.';
+    if (!(await identifyPhotoFile(file))) {
+      scanError = photoFormatLine(file.type);
       return;
     }
     if (file.size > PHOTO_MAX_BYTES) {
@@ -293,11 +293,11 @@
     const inputEl = event.target as HTMLInputElement;
     const file = inputEl.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      scanError = 'Please choose an image file.';
+    if (!(await identifyPhotoFile(file))) {
+      scanError = photoFormatLine(file.type);
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > PHOTO_MAX_BYTES) {
       scanError = 'That image is a little big — try one under 10MB.';
       return;
     }
@@ -632,14 +632,20 @@
                            would invent a different one. -->
                       {#if m.statusLine}<p class="err-line">{m.statusLine}</p>{/if}
                       <p class="err-detail">{m.content}</p>
-                      <button
-                        type="button"
-                        class="retry"
-                        on:click={() => retryCheffy()}
-                        disabled={$cheffyLoading}
-                      >
-                        <ArrowsClockwiseIcon size={13} /> Try again
-                      </button>
+                      <!-- No button where re-sending the same request is
+                           guaranteed to fail (isPhotoAskRetryable). The
+                           composer is the working control there, and the
+                           detail line already points at it. -->
+                      {#if m.retryable !== false}
+                        <button
+                          type="button"
+                          class="retry"
+                          on:click={() => retryCheffy()}
+                          disabled={$cheffyLoading}
+                        >
+                          <ArrowsClockwiseIcon size={13} /> Try again
+                        </button>
+                      {/if}
                     </div>
                   {:else if m.kind === 'recipe'}
                     <CheffyRecipeCard content={m.content} />
@@ -812,7 +818,16 @@
 
         {#if !inExperience}
           <!-- Hidden file inputs. Camera/upload attach the photo to the
-               composer; the third is the ingredient scanner. -->
+               composer; the third is the ingredient scanner.
+
+               `accept` is deliberately WIDE. It is a hint to a picker we
+               do not ship, so it cannot gate anything: a narrow value
+               greys out rows in someone else's file dialog and still
+               admits whatever arrives by another route. The format check
+               that does bind is identifyPhotoFile() in the change
+               handlers, which reads the file's own bytes. Widening this
+               costs nothing and avoids hiding a member's camera roll on
+               a platform we have not tested. -->
           <input
             bind:this={cameraInput}
             type="file"

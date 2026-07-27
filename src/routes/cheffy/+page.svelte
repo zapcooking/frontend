@@ -3,7 +3,13 @@
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { askAboutPhoto, fileToBase64, PHOTO_MAX_BYTES } from '$lib/photoAsk';
+  import {
+    askAboutPhoto,
+    fileToBase64,
+    identifyPhotoFile,
+    isPhotoAskRetryable,
+    PHOTO_MAX_BYTES
+  } from '$lib/photoAsk';
   import {
     membershipStatusMap,
     queueMembershipLookup,
@@ -30,6 +36,7 @@
     ZAP_TOAST_LINES,
     ERROR_LINES,
     SCAN_ERROR_LINE,
+    photoFormatLine,
     pickLine,
     looksLikeStructuredRecipe,
     consumeCheffyPrompt
@@ -85,6 +92,12 @@
      * contract as ChatMessage.imagePreview in stores/cheffyChat.ts.
      */
     imagePreview?: string;
+    /**
+     * For an 'error' bubble: may the member press "Try again"? Undefined
+     * means yes, so the chat error path is unchanged. Same contract as
+     * ChatMessage.retryable in stores/cheffyChat.ts.
+     */
+    retryable?: boolean;
   }
 
   let thread: ChatMessage[] = [];
@@ -595,11 +608,11 @@
     const inputEl = event.target as HTMLInputElement;
     const file = inputEl.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      scanError = 'Please choose an image file.';
+    if (!(await identifyPhotoFile(file))) {
+      scanError = photoFormatLine(file.type);
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > PHOTO_MAX_BYTES) {
       scanError = 'That image is a little big — try one under 10MB.';
       return;
     }
@@ -669,8 +682,8 @@
     // Reset immediately so re-picking the same file still fires change.
     if (inputEl) inputEl.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      scanError = 'Please choose an image file.';
+    if (!(await identifyPhotoFile(file))) {
+      scanError = photoFormatLine(file.type);
       return;
     }
     if (file.size > PHOTO_MAX_BYTES) {
@@ -755,7 +768,8 @@
         kind: 'error',
         content: detail,
         expression: 'concerned',
-        statusLine: code ? '' : pickLine(ERROR_LINES, statusLine)
+        statusLine: code ? '' : pickLine(ERROR_LINES, statusLine),
+        retryable: isPhotoAskRetryable(code)
       });
       announce = 'Cheffy hit a snag.';
     };
@@ -923,10 +937,19 @@
                          names the cause. -->
                     {#if m.statusLine}<p class="error-line">{m.statusLine}</p>{/if}
                     <p class="error-detail">{m.content}</p>
-                    <button type="button" class="retry-btn" on:click={retryLast} disabled={loading}>
-                      <ArrowsClockwiseIcon size={14} />
-                      Try again
-                    </button>
+                    <!-- No button where re-sending the same request is
+                         guaranteed to fail (isPhotoAskRetryable). -->
+                    {#if m.retryable !== false}
+                      <button
+                        type="button"
+                        class="retry-btn"
+                        on:click={retryLast}
+                        disabled={loading}
+                      >
+                        <ArrowsClockwiseIcon size={14} />
+                        Try again
+                      </button>
+                    {/if}
                   </div>
                 {:else if m.kind === 'recipe'}
                   <article class="recipe-card">
@@ -1112,7 +1135,7 @@
             on:click={triggerPhotoAttach}
             disabled={isScanning || loading}
             title="Ask about a photo"
-            aria-label="Ask Cheffy about a photo"
+            aria-label="Ask about a photo"
           >
             <ImageIcon size={14} weight="fill" />
             <span>Ask about a photo</span>
@@ -1139,6 +1162,13 @@
         </div>
       </div>
 
+      <!-- `accept` is deliberately WIDE. It is a hint to a picker we do not
+           ship, so it cannot gate anything: a narrow value greys out rows in
+           someone else's file dialog and still admits whatever arrives by
+           another route. The format check that does bind is
+           identifyPhotoFile() in the change handlers, which reads the file's
+           own bytes. Widening this costs nothing and avoids hiding a
+           member's camera roll on a platform we have not tested. -->
       <input
         bind:this={fileInput}
         type="file"

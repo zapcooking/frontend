@@ -20,7 +20,7 @@ import {
   ERROR_LINES,
   type CheffyExpression
 } from '$lib/cheffy';
-import { askAboutPhoto, fileToBase64 } from '$lib/photoAsk';
+import { askAboutPhoto, fileToBase64, isPhotoAskRetryable } from '$lib/photoAsk';
 
 export type ChatRole = 'user' | 'cheffy';
 export type ChatKind = 'text' | 'recipe' | 'pending' | 'error';
@@ -46,6 +46,16 @@ export interface ChatMessage {
    * silently truncate a base64 image into a corrupt fragment).
    */
   imagePreview?: string;
+  /**
+   * For an 'error' bubble: may the member press "Try again"?
+   *
+   * Undefined means yes — the chat error path never sets it, so its
+   * behaviour is unchanged. A photo turn sets it false for the failures
+   * where re-sending the same request cannot succeed
+   * (`isPhotoAskRetryable`), because an enabled button guaranteed to
+   * fail is a claim with nothing behind it.
+   */
+  retryable?: boolean;
 }
 
 // ── UI state ────────────────────────────────────────────────────
@@ -412,7 +422,8 @@ async function dispatchPhotoTurn(file: File, text: string) {
       kind: 'error',
       content: detail,
       expression: 'concerned',
-      statusLine: code ? '' : pickLine(ERROR_LINES, statusLine)
+      statusLine: code ? '' : pickLine(ERROR_LINES, statusLine),
+      retryable: isPhotoAskRetryable(code)
     });
     cheffyAnnounce.set('Cheffy hit a snag.');
   };
