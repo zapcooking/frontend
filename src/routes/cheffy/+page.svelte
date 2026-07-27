@@ -6,8 +6,8 @@
   import {
     askAboutPhoto,
     fileToBase64,
+    identifyPhotoFile,
     isPhotoAskRetryable,
-    PHOTO_ACCEPT,
     PHOTO_MAX_BYTES
   } from '$lib/photoAsk';
   import {
@@ -36,6 +36,7 @@
     ZAP_TOAST_LINES,
     ERROR_LINES,
     SCAN_ERROR_LINE,
+    photoFormatLine,
     pickLine,
     looksLikeStructuredRecipe,
     consumeCheffyPrompt
@@ -607,11 +608,11 @@
     const inputEl = event.target as HTMLInputElement;
     const file = inputEl.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      scanError = 'Please choose an image file.';
+    if (!(await identifyPhotoFile(file))) {
+      scanError = photoFormatLine(file.type);
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > PHOTO_MAX_BYTES) {
       scanError = 'That image is a little big — try one under 10MB.';
       return;
     }
@@ -681,8 +682,8 @@
     // Reset immediately so re-picking the same file still fires change.
     if (inputEl) inputEl.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      scanError = 'Please choose an image file.';
+    if (!(await identifyPhotoFile(file))) {
+      scanError = photoFormatLine(file.type);
       return;
     }
     if (file.size > PHOTO_MAX_BYTES) {
@@ -1161,13 +1162,17 @@
         </div>
       </div>
 
-      <!-- Both filter to the formats the pipeline can actually read (see
-           PHOTO_ACCEPT) — the scanner included, because a scan that finds
-           nothing hands its file back as an ask photo. -->
+      <!-- `accept` is deliberately WIDE. It is a hint to a picker we do not
+           ship, so it cannot gate anything: a narrow value greys out rows in
+           someone else's file dialog and still admits whatever arrives by
+           another route. The format check that does bind is
+           identifyPhotoFile() in the change handlers, which reads the file's
+           own bytes. Widening this costs nothing and avoids hiding a
+           member's camera roll on a platform we have not tested. -->
       <input
         bind:this={fileInput}
         type="file"
-        accept={PHOTO_ACCEPT}
+        accept="image/*"
         capture="environment"
         class="hidden"
         on:change={handleFileSelect}
@@ -1175,7 +1180,7 @@
       <input
         bind:this={photoInput}
         type="file"
-        accept={PHOTO_ACCEPT}
+        accept="image/*"
         class="hidden"
         on:change={handlePhotoSelect}
       />

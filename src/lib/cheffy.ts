@@ -127,6 +127,48 @@ export const PHOTO_NETWORK_ERROR_LINE =
   "Cheffy couldn't be reached. Check your connection and try again.";
 
 /**
+ * Rejection line for a file the pick-time byte gate does not recognize.
+ *
+ * THIS IS NOT THE ONLY WAY A PHOTO FAILS, and the wording carries that.
+ * The gate is a NARROWING: an animated GIF, a corrupt JPEG with a clean
+ * header, anything the model refuses downstream still gets through here
+ * and comes back as IMAGE_UNREADABLE from the server, whose own live line
+ * is "Cheffy couldn't get a good look at that photo. Try another one?"
+ * (ask-photo/+server.ts:275-277, rendered verbatim via cheffyChat.ts:457
+ * settleError — the server string wins whenever it exists).
+ *
+ * So these two lines must NOT read alike. Different events, different
+ * costs: this one is instant and nothing left the browser; the server one
+ * arrives after a signer approval, an upload and a wait, and carries no
+ * Try again button (IMAGE_UNREADABLE is the one non-retryable code). A
+ * member who reads the same sentence at both moments learns nothing from
+ * the second, which is the expensive one.
+ *
+ * Hence "doesn't recognize", not "couldn't read": at pick time Cheffy has
+ * read nothing. We looked at sixteen bytes and matched no signature.
+ *
+ * THE LIST IS ADVICE, NOT A SPECIFICATION. identifyPhotoFormat also
+ * accepts GIF, and GIF is deliberately absent here: this string renders
+ * only when nothing matched, so no GIF holder — animated or still — ever
+ * reads it. Listing GIF would spend a clause on a format its reader does
+ * not have. The names here answer "what do I convert TO", and the gate
+ * remains the specification. Do not sync this list to the gate.
+ *
+ * The HEIC noun is diagnosis, not spec, and that is why it survives the
+ * same rule: it is the one fact that turns into an action outside our
+ * product. It renders only when the bytes matched nothing AND the browser
+ * independently guessed heic — two signals agreeing.
+ *
+ * Copy owner: Growth (rev 4). Do not reword without her.
+ */
+export function photoFormatLine(fileType: string): string {
+  if (/heic|heif/i.test(fileType)) {
+    return "Cheffy reads JPG, PNG, and WEBP — that one's a HEIC. Try another photo?";
+  }
+  return "Cheffy doesn't recognize that file — it reads JPG, PNG, and WEBP. Try another photo?";
+}
+
+/**
  * Error line for a rate-limited ingredient scan.
  *
  * Derived from the already-shipped note-review limit line
