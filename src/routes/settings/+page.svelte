@@ -573,6 +573,47 @@
         return 'Unknown';
     }
   }
+
+  // How the member paid, in the member's words rather than ours. Never render
+  // the stored value: it carries our processor's name ('lightning_strike') and
+  // internal states ('lightning_simulated') that mean nothing to the person
+  // reading their own membership record.
+  //
+  // The vocabulary is the member-relay ledger's, not this repo's. Four of these
+  // are writable by hand from the pantry admin's Payment Method dropdown
+  // (member-relay admin/public/index.html:527-532), and 'lightning' is the
+  // default parameter on POST /api/members (api/index.ts:205) — so it is the
+  // likeliest value in the whole column, not an edge case. Labels here match
+  // that dropdown's wording so a member and an admin read the same word off the
+  // same record.
+  function getPaymentMethodName(method: string | undefined | null): string {
+    switch (method) {
+      case 'stripe':
+      case 'card':
+        return 'Credit Card';
+      case 'lightning_strike':
+      case 'lightning':
+        return 'Lightning';
+      case 'onchain':
+      case 'bitcoin':
+        return 'On-chain';
+      case 'gift':
+        return 'Complimentary';
+      case 'manual':
+        // Says only what is certain: a person entered this record. It must not
+        // read as 'Complimentary' — whether money moved is a separate question
+        // and conflating them would erase the distinction the ledger needs.
+        return 'Recorded manually';
+      case 'lightning_simulated':
+        // Deliberately not 'Lightning'. A record written by the simulation
+        // endpoint must not tell a member they paid for something.
+        return 'Lightning (simulated)';
+      default:
+        // Absent means no payment method; present-but-unmapped means one we
+        // have no label for yet, which is not the same thing as none.
+        return method ? 'Other' : 'None';
+    }
+  }
 </script>
 
 <svelte:head>
@@ -737,11 +778,7 @@
             <div class="flex justify-between">
               <span class="text-caption">Payment</span>
               <span style="color: var(--color-text-primary)">
-                {member.payment_method === 'stripe' || member.payment_method === 'card'
-                  ? 'Credit Card'
-                  : member.payment_method === 'bitcoin'
-                    ? 'Bitcoin'
-                    : member.payment_method || 'None'}
+                {getPaymentMethodName(member.payment_method)}
               </span>
             </div>
           </div>
