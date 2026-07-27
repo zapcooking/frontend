@@ -573,6 +573,31 @@
         return 'Unknown';
     }
   }
+
+  // How the member paid, in the member's words rather than ours. Never render
+  // the stored value: it carries our processor's name ('lightning_strike') and
+  // internal states ('lightning_simulated') that mean nothing to the person
+  // reading their own membership record.
+  function getPaymentMethodName(method: string | undefined | null): string {
+    switch (method) {
+      case 'stripe':
+      case 'card':
+        return 'Credit Card';
+      case 'lightning_strike':
+      case 'lightning':
+        return 'Lightning';
+      case 'lightning_simulated':
+        // Deliberately not 'Lightning'. A record written by the simulation
+        // endpoint must not tell a member they paid for something.
+        return 'Lightning (simulated)';
+      case 'bitcoin':
+        return 'Bitcoin';
+      default:
+        // Absent means no payment method; present-but-unmapped means one we
+        // have no label for yet, which is not the same thing as none.
+        return method ? 'Other' : 'None';
+    }
+  }
 </script>
 
 <svelte:head>
@@ -737,11 +762,7 @@
             <div class="flex justify-between">
               <span class="text-caption">Payment</span>
               <span style="color: var(--color-text-primary)">
-                {member.payment_method === 'stripe' || member.payment_method === 'card'
-                  ? 'Credit Card'
-                  : member.payment_method === 'bitcoin'
-                    ? 'Bitcoin'
-                    : member.payment_method || 'None'}
+                {getPaymentMethodName(member.payment_method)}
               </span>
             </div>
           </div>
