@@ -6,11 +6,12 @@
  * Included with any active membership (Cook+, Pro Kitchen, Founders).
  *
  * POST /api/zappy/scan
+ * Requires NIP-98 HTTP auth (kind-27235 Authorization header with
+ * body-hash payload binding — the note-review / ask-photo pattern).
  *
  * Body:
  * {
- *   image: string (base64 encoded image),
- *   pubkey?: string
+ *   image: string (base64 encoded image)
  * }
  *
  * Returns:
@@ -26,15 +27,23 @@
  * or, at the per-IP cap:
  *   429 { ok: false, code: 'RATE_LIMITED', error: string, retryAfter: number }
  *
- * NOT authenticated. The `pubkey` in the body is unverified — it gates
- * membership but is not proof of identity, so the rate limit below keys
- * on the client address instead. Adding NIP-98 here would change the
- * contract on both callers and is deliberately out of scope.
+ * The membership gate used to read a `pubkey` off this endpoint's own
+ * request body. A body pubkey is an identity claim, not an identity —
+ * npubs are public by construction, so one member npub read off a relay
+ * bought free vision calls. The pubkey now comes back verified from
+ * `verifyNip98` and the body field is gone; ask-photo already refused to
+ * repeat the old shape (see its header comment).
+ *
+ * The fail-OPEN posture on membership-service errors is UNCHANGED here —
+ * unlike note-review and ask-photo, which fail closed. That divergence is
+ * tracked in https://github.com/zapcooking/frontend/issues/512 and is a
+ * separate decision from authentication.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { CHEFFY_VISION_MODEL } from '$lib/cheffyPrompt.server';
+import { verifyNip98 } from '$lib/nip98.server';
 import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 import { SCAN_RATE_LIMIT_LINE } from '$lib/cheffy';
 
@@ -68,8 +77,24 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
       return json({ ok: false, error: 'OpenAI API key not configured' }, { status: 500 });
     }
 
-    const body = await request.json();
-    const { image, pubkey } = body;
+    // Read the body ONCE as raw bytes — the same bytes feed the NIP-98
+    // payload-hash check and the JSON parse (note-review / ask-photo
+    // pattern; `request.json()` here would consume it first).
+    let bodyBytes: Uint8Array;
+    try {
+      bodyBytes = new Uint8Array(await request.arrayBuffer());
+    } catch {
+      return json({ ok: false, error: 'Invalid request body' }, { status: 400 });
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(new TextDecoder().decode(bodyBytes)) as Record<string, unknown>;
+    } catch {
+      return json({ ok: false, error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    const { image } = body ?? {};
 
     // Validate request
     if (!image || typeof image !== 'string') {
@@ -85,17 +110,21 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
       );
     }
 
-    // Check membership status (any active membership). Fail CLOSED when
-    // gating is enabled but the caller sent no pubkey — otherwise a
-    // non-member could reach this paid endpoint just by omitting it.
+    // NIP-98: proves key control and binds the header to this exact
+    // body. Uniform 401 regardless of failure reason (no info leak); the
+    // reason is logged for greppable diagnostics.
+    const verification = await verifyNip98(request, { bodyBytes });
+    if (!verification.ok) {
+      console.warn(`[Zappy Scan] NIP-98 rejected (${verification.reason})`);
+      return json({ ok: false, error: 'Authentication required' }, { status: 401 });
+    }
+    const pubkey = verification.pubkey;
+
+    // Check membership status (any active membership). The "no pubkey"
+    // 403 that used to sit here is gone: verifyNip98 above cannot succeed
+    // without one, so it was unreachable rather than removed.
     const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
     if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
-      if (!pubkey || typeof pubkey !== 'string' || !pubkey.trim()) {
-        return json(
-          { ok: false, error: 'Cheffy is available to Cook+ members.' },
-          { status: 403 }
-        );
-      }
       const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
       if (API_SECRET) {
         try {
@@ -109,8 +138,9 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
           }
         } catch (err) {
           console.error('[Zappy Scan] Error checking membership:', err);
-          // Fail open ONLY for membership-service outages, not for a
-          // missing pubkey (handled above).
+          // Fail open ONLY for membership-service outages. An
+          // unauthenticated caller never gets this far — the 401 above
+          // is not subject to this.
         }
       }
     }
@@ -119,12 +149,21 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
     // limited request costs nothing, and below the membership gate so a
     // non-member's 403 doesn't consume a member's quota.
     //
-    // Keyed on the client address, NOT on `pubkey`. Unlike note-review —
-    // where the pubkey comes back verified from `verifyNip98` and is a
-    // strictly better identity than an IP — the `pubkey` here is an
-    // unverified string off the request body (see the destructure above).
-    // A pubkey-keyed bucket would be reset by typing a different pubkey,
-    // which is the exact hole this is meant to close.
+    // STILL keyed on the client address, NOT on the (now verified)
+    // pubkey — and that is deliberate, not a leftover.
+    //
+    // note-review and ask-photo key on the pubkey because a verified
+    // pubkey is a strictly better identity than an IP, and both fail
+    // CLOSED on any membership problem, so reaching their limiter at all
+    // means somebody paid. This endpoint fails OPEN (see the header
+    // comment and issue #512), and when MEMBERSHIP_ENABLED is off it has
+    // no membership gate at all. In either of those states a keypair is
+    // free to mint, so a pubkey-keyed bucket would be no ceiling on the
+    // vision spend whatsoever. The IP bucket is the only cost ceiling
+    // that survives a membership outage.
+    //
+    // Move this to the pubkey when — and only when — this endpoint fails
+    // closed like its siblings. The two go together.
     let ip = '127.0.0.1';
     try {
       ip = getClientAddress();
