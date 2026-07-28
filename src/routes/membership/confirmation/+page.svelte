@@ -61,7 +61,12 @@
 
   // --- State ---
   let loading = true;
-  let error: string | null = null;
+  // Which failure a member is looking at, not the developer string that caused it.
+  // The three states differ on what we can honestly claim about their money:
+  //   no-session    — reachable without a purchase, so it makes no payment claim
+  //   not-signed-in — they paid; the signer changed between checkout and return
+  //   incomplete    — they paid; whether registration finished is unknowable here
+  let errorKind: 'no-session' | 'not-signed-in' | 'incomplete' | null = null;
   let showContent = false;
 
   let tierKey = 'cook';
@@ -127,6 +132,15 @@
 
   $: canClaim = hasCustomName && isAvailable === true && !validationError && !isChecking;
 
+  // Support gets told which state the member was in; they can't see the console.
+  $: supportSubject = encodeURIComponent(
+    errorKind === 'no-session'
+      ? 'Membership: no purchase found to confirm'
+      : errorKind === 'not-signed-in'
+        ? 'Membership: paid, not signed in at return'
+        : 'Membership: payment taken, setup did not finish'
+  );
+
   onMount(async () => {
     if (!browser) return;
 
@@ -157,12 +171,12 @@
 
     // Stripe flow — complete payment via API
     if (!sessionId) {
-      error = 'No session ID provided';
+      errorKind = 'no-session';
       loading = false;
       return;
     }
     if (!$userPublickey) {
-      error = 'User not logged in';
+      errorKind = 'not-signed-in';
       loading = false;
       return;
     }
@@ -180,7 +194,8 @@
 
       const responseText = await response.text();
       if (!response.ok) {
-        let errorMessage = `Failed to complete payment (${response.status})`;
+        // Not "payment failed" — Stripe already charged; this is our registration call.
+        let errorMessage = `Membership registration failed (${response.status})`;
         try {
           const data = JSON.parse(responseText);
           errorMessage = data.error || errorMessage;
@@ -203,7 +218,11 @@
       setTimeout(() => { showContent = true; }, 100);
       initConfetti();
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to complete payment';
+      // Both a non-ok response from us and a dropped connection land here, and
+      // nothing on this page can tell them apart — so the member-facing copy
+      // states what already happened rather than guessing which side failed.
+      console.error('Failed to complete membership registration:', err);
+      errorKind = 'incomplete';
       loading = false;
     }
   });
@@ -352,13 +371,41 @@
       <div class="spinner"></div>
       <p class="loading-text">Completing your membership...</p>
     </div>
-  {:else if error}
+  {:else if errorKind}
+    <!--
+      No link out of this block, and that is deliberate. `session_id` lives only
+      in this page's query string and it is the only key that can complete the
+      registration for this purchase — navigating away discards it. The site
+      header is rendered on every route, so a member still has a way out; they
+      just don't get pushed through one from here. In particular the primary
+      action is never /membership: that is the page selling what they just paid
+      for, offered to the one person who must not buy again.
+    -->
     <div class="error-state">
-      <h1 class="error-heading">Something went wrong</h1>
-      <p class="error-text">{error}</p>
-      <button class="error-button" on:click={() => goto('/membership')}>
-        Back to Membership
-      </button>
+      {#if errorKind === 'no-session'}
+        <h1 class="error-heading">We couldn't find a purchase to confirm</h1>
+        <p class="error-text">
+          If you've just paid and landed here, email us and we'll sort it out.
+        </p>
+      {:else if errorKind === 'not-signed-in'}
+        <h1 class="error-heading">We couldn't finish setting up your membership</h1>
+        <p class="error-text">
+          Your payment went through — this part is on us, not you. Sign in with the
+          account you used at checkout, using <strong>Sign in</strong> at the top of
+          this page, then reload this page and we'll finish it. Don't buy again; we
+          have your payment.
+        </p>
+      {:else}
+        <h1 class="error-heading">We couldn't finish setting up your membership</h1>
+        <p class="error-text">
+          Your payment went through — we have it. What we can't confirm from this
+          page is whether your membership finished setting up. Don't buy again;
+          email us and we'll check and finish it.
+        </p>
+      {/if}
+      <a class="error-button" href="mailto:support@zap.cooking?subject={supportSubject}">
+        Email support@zap.cooking
+      </a>
     </div>
   {:else}
     <div class="content" class:visible={showContent}>
@@ -592,14 +639,21 @@
     margin: 0 0 8px 0;
   }
 
+  /* Was 0.45 at 14px for a one-line developer string. It now carries the only
+     instructions a member in this state gets, so it has to survive being read
+     by someone who has just been frightened. */
   .error-text {
     font-family: 'DM Sans', sans-serif;
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 14px;
-    margin: 0 0 24px 0;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 15px;
+    line-height: 1.6;
+    max-width: 34rem;
+    margin: 0 auto 24px;
   }
 
   .error-button {
+    display: inline-block;
+    text-decoration: none;
     padding: 12px 28px;
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);
