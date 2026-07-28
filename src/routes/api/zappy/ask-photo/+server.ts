@@ -57,14 +57,11 @@ const QUESTION_MAX_CHARS = 500;
 
 // The client cap is 10 MiB of FILE (photoAsk.PHOTO_MAX_BYTES), and the
 // composer tells the member "try one under 10MB". Base64 is 4/3 of the
-// input, so a file at exactly that cap encodes to ~13.33 MiB — which
-// means scan's 13 MiB wire cap is fractionally too small to hold the
-// file size its own client-side check lets through. Sized here to
-// actually cover the promise rather than copied across.
+// input, so a file at exactly that cap encodes to ~13.33 MiB. Sized here
+// to actually cover the promise rather than estimated.
 //
-// (scan/+server.ts:68 has the same latent gap, and its comment claims
-// otherwise: "~10MB original = ~13MB base64". Real, pre-existing, and
-// deliberately not touched here — this endpoint just doesn't repeat it.)
+// scan/+server.ts had the same gap with a 13 MiB cap and a comment that
+// claimed otherwise; it now matches this number, for this reason.
 const IMAGE_MAX_CHARS = 14 * 1024 * 1024;
 
 // Per-pubkey budget. NIP-98 gives a verified identity, so the bucket key
