@@ -59,19 +59,59 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       typescript: true,
     });
 
-    // Find the customer by searching checkout sessions with this pubkey in metadata
-    const sessions = await stripe.checkout.sessions.list({
-      limit: 10,
-    });
-
     let customerId: string | null = null;
 
-    for (const session of sessions.data) {
-      if (session.metadata?.pubkey === pubkey && session.customer) {
-        customerId = typeof session.customer === 'string'
-          ? session.customer
-          : session.customer.id;
-        break;
+    // Resolve pubkey -> customer from subscription metadata.
+    //
+    // createCheckoutSession stamps the pubkey onto `subscription_data.metadata`,
+    // so every subscription created from this deploy onward is addressable by
+    // it. That is the same write the invoice.paid renewal handler reads, used in
+    // the other direction: the renewal needs Stripe object -> pubkey, the portal
+    // needs pubkey -> Stripe object.
+    //
+    // Cancelled and past_due subscriptions are searchable too, which is correct
+    // here — a member managing their billing is often exactly the member whose
+    // subscription is no longer active.
+    try {
+      const found = await stripe.subscriptions.search({
+        query: `metadata['pubkey']:'${pubkey}'`,
+        limit: 1,
+      });
+
+      const subscription = found.data[0];
+      if (subscription?.customer) {
+        customerId = typeof subscription.customer === 'string'
+          ? subscription.customer
+          : subscription.customer.id;
+      }
+    } catch (searchError: any) {
+      // Search is a separate Stripe surface with its own index and its own
+      // failure modes. Losing it must not take the portal down — the fallback
+      // below is what shipped before this and still resolves recent checkouts.
+      console.error('[Stripe Portal] Subscription metadata search failed, falling back:', searchError?.message);
+    }
+
+    // Fallback: walk recent checkout sessions.
+    //
+    // Retained, not replaced. It is the only path that resolves a customer for
+    // a subscription created before subscription_data.metadata was added, and
+    // the only one that resolves a one-time `mode: 'payment'` customer (the
+    // Founders) at all, since those have no subscription to search. Its known
+    // limit is that it is account-wide and capped at 10, so it silently stops
+    // working for anyone who is not among the last ten checkouts platform-wide.
+    // Deleting it is a separate decision from adding the search above.
+    if (!customerId) {
+      const sessions = await stripe.checkout.sessions.list({
+        limit: 10,
+      });
+
+      for (const session of sessions.data) {
+        if (session.metadata?.pubkey === pubkey && session.customer) {
+          customerId = typeof session.customer === 'string'
+            ? session.customer
+            : session.customer.id;
+          break;
+        }
       }
     }
 

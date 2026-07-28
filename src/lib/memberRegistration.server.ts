@@ -2,7 +2,7 @@
  * Shared member registration logic.
  *
  * Used by:
- *  - Stripe webhook (checkout.session.completed)
+ *  - Stripe webhook (checkout.session.completed, invoice.paid)
  *  - Stripe complete-payment (client-side redirect)
  *  - Strike webhook (invoice.paid)
  *
@@ -25,6 +25,25 @@ export interface RegisterMemberResult {
   subscriptionEnd: string;
   nip05: string | null;
   nip05Username: string | null;
+}
+
+export interface RenewMemberParams {
+  pubkey: string;
+  subscriptionMonths: number;
+  paymentId: string;
+  apiSecret: string;
+}
+
+export interface RenewMemberResult {
+  renewed: boolean;
+  /**
+   * The relay already holds this paymentId and declined to extend again — a
+   * repeat webhook delivery. Reported by the relay, not decided here.
+   */
+  alreadyApplied: boolean;
+  /** No membership record to extend. Nothing was written. */
+  notFound: boolean;
+  subscriptionEnd: string | null;
 }
 
 /**
@@ -123,6 +142,68 @@ export async function registerMember(params: RegisterMemberParams): Promise<Regi
     subscriptionEnd: subscriptionEnd.toISOString(),
     nip05,
     nip05Username,
+  };
+}
+
+/**
+ * Extend an existing membership by `subscriptionMonths`.
+ *
+ * Deliberately NOT registerMember. That helper returns early when the member is
+ * already active — which is precisely the case a renewal is for — so a renewal
+ * routed through it is swallowed exactly when it matters. This one always reaches
+ * the relay's `/renew` endpoint, which extends from max(subscription_end, NOW())
+ * and resets status to 'active'.
+ *
+ * Idempotent on `paymentId`, but NOT here — the check belongs to the relay and
+ * this function only reports it. Stripe redelivers a webhook on any non-2xx
+ * response and on timeout, and a redelivery that lands twice adds a term the
+ * member never paid for. We stamp the Stripe invoice id into `payment_id`; the
+ * relay's `/renew` refuses to re-apply one it already holds and answers
+ * `action: 'already_applied'`.
+ *
+ * Two reasons the check is not done here. It cannot be: the relay's
+ * `GET /api/members/:pubkey` does not SELECT `payment_id` (nor `payment_method`),
+ * so `lookupMember(...).member.payment_id` is always undefined — the field is on
+ * the TypeScript type and never on the wire. And it should not be: a
+ * read-then-write across a network is not atomic, so two concurrent redeliveries
+ * would both read "not yet applied" and both renew.
+ *
+ * **Deployment order matters.** Against a relay that predates that guard, every
+ * redelivery renews again. Ship the relay first.
+ *
+ * Throws on any relay error the caller should retry.
+ */
+export async function renewMember(params: RenewMemberParams): Promise<RenewMemberResult> {
+  const { pubkey, subscriptionMonths, paymentId, apiSecret } = params;
+
+  const renewRes = await fetch(`https://pantry.zap.cooking/api/members/${pubkey}/renew`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiSecret}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      subscription_months: subscriptionMonths,
+      payment_id: paymentId,
+    }),
+  });
+
+  if (!renewRes.ok) {
+    if (renewRes.status === 404) {
+      return { renewed: false, alreadyApplied: false, notFound: true, subscriptionEnd: null };
+    }
+    const responseText = await renewRes.text();
+    throw new Error(`Failed to renew member: ${renewRes.status} ${responseText}`);
+  }
+
+  const data = await renewRes.json();
+  const alreadyApplied = data?.action === 'already_applied';
+
+  return {
+    renewed: !alreadyApplied,
+    alreadyApplied,
+    notFound: false,
+    subscriptionEnd: data?.member?.subscription_end ?? null,
   };
 }
 

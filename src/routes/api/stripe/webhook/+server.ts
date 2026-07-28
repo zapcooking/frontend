@@ -8,15 +8,22 @@
  *
  * Events handled:
  *  - checkout.session.completed  — registers member after successful payment
+ *  - invoice.paid                — extends membership on a recurring renewal
  *  - customer.subscription.updated — logs subscription changes
  *  - customer.subscription.deleted — logs cancellation
+ *
+ * `invoice.payment_succeeded` is intentionally NOT handled: Stripe fires it for
+ * the same invoice as `invoice.paid`, so handling both would race two renewals
+ * for one payment. `invoice.paid` must be enabled on the endpoint in the Stripe
+ * Dashboard or renewals will silently do nothing.
  *
  * Configure in Stripe Dashboard > Webhooks with signing secret in STRIPE_WEBHOOK_SECRET.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { registerMember } from '$lib/memberRegistration.server';
+import { registerMember, renewMember } from '$lib/memberRegistration.server';
+import { planRenewalFromInvoice } from '$lib/stripeRenewal';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
   // Membership feature flag guard
@@ -77,6 +84,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         break;
       }
 
+      case 'invoice.paid': {
+        await handleInvoicePaid(event.data.object, platform);
+        break;
+      }
+
       case 'customer.subscription.updated': {
         const subscription = event.data.object;
         console.log('[Stripe Webhook] Subscription updated:', {
@@ -84,7 +96,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           status: subscription.status,
           currentPeriodEnd: subscription.current_period_end,
         });
-        // Future: extend subscription on renewal
+        // Renewal extension is driven by invoice.paid, not by this event —
+        // subscription.updated fires for plan/price/status changes too, and
+        // carries no signal that money actually moved.
         break;
       }
 
@@ -199,4 +213,97 @@ async function handleCheckoutCompleted(session: any, platform: any) {
     // Don't throw — webhook should still return 200 to prevent Stripe retries
     // The client-side complete-payment flow serves as a fallback
   }
+}
+
+/**
+ * Handle invoice.paid for a recurring subscription cycle.
+ *
+ * Extends the member's subscription_end by one billing period. This is the only
+ * path that keeps a card member active past their first term — Stripe fires
+ * checkout.session.completed on the initial checkout only.
+ *
+ * Unlike handleCheckoutCompleted, relay failures here are RETHROWN so the
+ * endpoint returns 500 and Stripe redelivers. Registration has a client-side
+ * fallback; renewal has none, so a swallowed error is a lost renewal and a
+ * member locked out of access they paid for. Validation failures are still
+ * logged-and-returned — a redelivery cannot fix missing metadata.
+ */
+async function handleInvoicePaid(invoice: any, platform: any) {
+  const decision = planRenewalFromInvoice(invoice);
+
+  if (decision.action === 'skip') {
+    // 'no-pubkey' is the one skip that needs a person. It means a live card
+    // subscription was created before subscription_data.metadata existed, so
+    // nothing in this codebase can say whose membership to extend — it has to
+    // be reconciled by hand against the Stripe customer. Everything else here
+    // is an ordinary event we are correct to ignore.
+    if (decision.reason === 'no-pubkey') {
+      const subscriptionDetails = invoice?.parent?.subscription_details;
+      console.error('[Stripe Webhook] Renewal invoice has no pubkey in subscription metadata — manual reconciliation required:', {
+        invoiceId: invoice?.id,
+        customer: invoice?.customer,
+        subscription: typeof subscriptionDetails?.subscription === 'string'
+          ? subscriptionDetails.subscription
+          : subscriptionDetails?.subscription?.id,
+      });
+      return;
+    }
+
+    if (decision.reason === 'not-a-renewal-cycle') {
+      console.log('[Stripe Webhook] Invoice paid, not a renewal cycle — skipping:', {
+        invoiceId: invoice?.id,
+        billingReason: decision.value,
+      });
+      return;
+    }
+
+    console.error(`[Stripe Webhook] Renewal invoice rejected (${decision.reason}):`, {
+      invoiceId: invoice?.id,
+      value: decision.value,
+    });
+    return;
+  }
+
+  console.log('[Stripe Webhook] Renewal invoice paid:', {
+    invoiceId: invoice.id,
+    tier: decision.tier,
+    period: decision.period,
+    subscriptionMonths: decision.subscriptionMonths,
+  });
+
+  const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
+  if (!API_SECRET) {
+    console.error('[Stripe Webhook] RELAY_API_SECRET not configured');
+    return;
+  }
+
+  const result = await renewMember({
+    pubkey: decision.pubkey,
+    subscriptionMonths: decision.subscriptionMonths,
+    paymentId: decision.paymentId,
+    apiSecret: API_SECRET,
+  });
+
+  if (result.notFound) {
+    console.error('[Stripe Webhook] Renewal for a pubkey with no membership record — nothing extended:', {
+      invoiceId: invoice.id,
+      pubkey: decision.pubkey.substring(0, 16) + '...',
+    });
+    return;
+  }
+
+  if (result.alreadyApplied) {
+    console.log('[Stripe Webhook] Renewal already applied (repeat delivery):', {
+      invoiceId: invoice.id,
+      pubkey: decision.pubkey.substring(0, 16) + '...',
+    });
+    return;
+  }
+
+  console.log('[Stripe Webhook] Membership renewed:', {
+    invoiceId: invoice.id,
+    pubkey: decision.pubkey.substring(0, 16) + '...',
+    subscriptionMonths: decision.subscriptionMonths,
+    subscriptionEnd: result.subscriptionEnd,
+  });
 }

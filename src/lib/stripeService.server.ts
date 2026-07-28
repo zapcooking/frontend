@@ -103,6 +103,18 @@ export async function createCheckoutSession(params: {
       period: params.period,
       ...(params.pubkey ? { pubkey: params.pubkey } : {}),
     },
+    // Stripe does not copy session metadata onto the subscription it creates.
+    // Renewal invoices carry a snapshot of the SUBSCRIPTION's metadata
+    // (invoice.parent.subscription_details.metadata), so without this the
+    // invoice.paid handler has a customer and a subscription and no pubkey —
+    // no way to identify whose membership to extend.
+    subscription_data: {
+      metadata: {
+        tier: params.tier,
+        period: params.period,
+        ...(params.pubkey ? { pubkey: params.pubkey } : {}),
+      },
+    },
   });
   
   if (!session.url) {
