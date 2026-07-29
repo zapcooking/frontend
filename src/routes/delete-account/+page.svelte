@@ -58,8 +58,6 @@
       <li><strong>Your AI credit balance and usage records</strong> — Cheffy and Sous Chef</li>
       <li><strong>Your content stored on Pantry</strong>, the Nostr relay we operate at pantry.zap.cooking — recipes, posts, comments, reactions, and group messages held there</li>
       <li><strong>Any support correspondence</strong> associated with your account</li>
-      <li><strong>Your encrypted key backup</strong>, if you used the Google Drive backup feature — see the note below</li>
-      <li><strong>Your encrypted passkey vault</strong>, if you used passkey sign-in on the website — the encrypted copy of your key held on our servers</li>
     </ul>
 
     <p>We also issue deletion requests to other Nostr relays where we can identify your content.</p>
@@ -77,9 +75,9 @@
 
     <p><strong>Copies made by others.</strong> Anything published publicly may have been downloaded, screenshotted, or re-published by other users or services.</p>
 
-    <p><strong>Your keypair.</strong> Your Nostr private key belongs to you and exists independently of Zap Cooking. Deleting your Zap Cooking account does not delete or revoke your key, and you can continue using it with any other Nostr application. If you want to stop using the identity entirely, stop using the key — and consider publishing a NIP-62 request-to-vanish, which asks relays across the network to remove your data.</p>
+    <p><strong>Your keypair.</strong> Your Nostr private key belongs to you and exists independently of Zap Cooking. Protecting it with a passkey on the website keeps the encrypted copy in your own browser; it is not sent to us, so there is nothing of it for us to delete. Deleting your Zap Cooking account does not delete or revoke your key, and you can continue using it with any other Nostr application. If you want to stop using the identity entirely, stop using the key — and consider publishing a NIP-62 request-to-vanish, which asks relays across the network to remove your data.</p>
 
-    <p><strong>Your Google Drive backup.</strong> The encrypted backup is stored in your own Google Drive, in an app-specific folder we cannot read or access. We remove our ability to write to it; to delete the file itself, go to Google Drive → Settings → Manage apps → Zap Cooking → Delete hidden app data.</p>
+    <p><strong>Your Google Drive backup.</strong> The encrypted backup is stored in your own Google Drive, in an app-specific folder — Zap Cooking can see the backup files it put there, and nothing else in your Drive. We read that file when you restore your key, and it is encrypted before it leaves your device. Deleting your Zap Cooking account does not remove the file, and it does not withdraw the access you granted: to delete it, go to Google Drive → Settings → Manage apps → Zap Cooking → Delete hidden app data.</p>
 
     <hr style="border-color: var(--color-input-border)" />
 

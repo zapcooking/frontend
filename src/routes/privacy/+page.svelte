@@ -87,7 +87,7 @@
 
     <p>The Service stores information on your device — application preferences in the mobile apps, and browser local storage on the website — to keep settings such as your theme, session state, and wallet connection details. This information stays on your device and is not sent to us.</p>
 
-    <p>Some settings are not only local. Your relay list and your mute and block lists are published to Nostr as events signed with your own key, which means they are stored on relays, including ours. Your private key stays on your device unless you choose to use one of our optional key backup features — Google Drive backup or passkey sign-in — each described in its own section below.</p>
+    <p>Some settings are not only local. Your relay list and your mute and block lists are published to Nostr as events signed with your own key, which means they are stored on relays, including ours. Your private key stays on your device unless you choose to use our optional Google Drive backup, described in its own section below. Protecting your key with a passkey does not send it anywhere — see section 8.</p>
 
     <h3 class="text-xl font-semibold mt-6 mb-3" style="color: var(--color-text-primary)">1.6 What we hold against your public key</h3>
 
@@ -204,17 +204,13 @@
     <p>If you do not use this feature, no Google integration occurs.</p>
 
     <!-- Section 8 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">8. Passkey sign-in and encrypted key sync</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">8. Passkey protection</h2>
 
-    <p>On the Zap Cooking website you can optionally use a passkey to sign in. If you do, we store an encrypted copy of your Nostr private key on our servers, along with the public key of your passkey credential.</p>
+    <p>On the Zap Cooking website you can optionally protect your Nostr private key with a passkey — Face ID, Touch ID, or your device's screen lock. The key is encrypted on your device, and the encrypted copy stays on your device.</p>
 
-    <p><strong>We cannot read it.</strong> The key is encrypted on your device before it is sent, using a secret derived from your passkey that never leaves your device. What we hold is ciphertext we have no way to decrypt.</p>
+    <p><strong>Turning this on does not send your key to us.</strong> The encrypted copy is written to your browser's local storage and nowhere else.</p>
 
-    <p><strong>This means we cannot recover it for you.</strong> If you lose access to your passkey, we cannot restore your Nostr key from this backup, because we do not hold the means to decrypt it. Keep a separate copy of your key.</p>
-
-    <p>You can delete this stored copy at any time — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page.</p>
-
-    <p>If you do not use passkey sign-in, we store no copy of your key.</p>
+    <p><strong>There is no recovery through us.</strong> If you lose access to your passkey and have no other copy of your key, the key is gone. Keep a separate copy — the backup file or the key you saved when you created your account.</p>
 
     <!-- Section 9 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">9. Crash reports</h2>
