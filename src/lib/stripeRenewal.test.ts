@@ -105,6 +105,53 @@ describe('planRenewalFromInvoice', () => {
     expect(decision).toEqual({ action: 'skip', reason: 'no-pubkey' });
   });
 
+  // A webhook endpoint carries its own api_version, independent of the SDK, and
+  // an endpoint pinned before Basil (2025-03-31) delivers the metadata snapshot
+  // on the invoice itself with no `parent` at all. Without the fallback every
+  // renewal on such an endpoint skips as no-pubkey — silent, permanent, and in
+  // the money direction.
+  it('renews on the pre-Basil shape, where subscription_details is on the invoice', () => {
+    const decision = planRenewalFromInvoice({
+      id: 'in_test123',
+      billing_reason: 'subscription_cycle',
+      customer: 'cus_test123',
+      subscription_details: {
+        subscription: 'sub_test123',
+        metadata: { pubkey: PUBKEY, tier: 'cook', period: 'annual' }
+      }
+    });
+
+    expect(decision).toEqual({
+      action: 'renew',
+      pubkey: PUBKEY,
+      subscriptionMonths: 12,
+      paymentId: 'stripe_renewal_in_test123',
+      period: 'annual',
+      tier: 'cook'
+    });
+  });
+
+  // The Basil snapshot wins when both are present: it is the one Stripe
+  // documents as immutable, and a mutable fallback must not shadow it.
+  it('prefers parent.subscription_details when both shapes are present', () => {
+    const decision = planRenewalFromInvoice({
+      id: 'in_test123',
+      billing_reason: 'subscription_cycle',
+      parent: {
+        subscription_details: {
+          metadata: { pubkey: PUBKEY, tier: 'cook', period: 'annual' }
+        }
+      },
+      subscription_details: {
+        metadata: { pubkey: 'b'.repeat(64), tier: 'pro', period: 'monthly' }
+      }
+    });
+
+    expect(decision.action).toBe('renew');
+    expect((decision as any).pubkey).toBe(PUBKEY);
+    expect((decision as any).subscriptionMonths).toBe(12);
+  });
+
   it('skips with no-pubkey when parent is absent entirely', () => {
     const decision = planRenewalFromInvoice({
       id: 'in_test123',
@@ -147,6 +194,21 @@ describe('planRenewalFromInvoice', () => {
 
     expect(decision.action).toBe('skip');
     expect((decision as any).reason).toBe('invalid-period');
+  });
+
+  // Without an id the idempotency key is the CONSTANT
+  // `stripe_renewal_undefined`, and the relay dedupes on exactly that string —
+  // so the first renewal to send it wins and every later one, for any other
+  // member, is declined as already-applied.
+  it('refuses an invoice with no id rather than deriving a constant payment_id', () => {
+    for (const id of [undefined, null, '', 123] as any[]) {
+      const withoutId: any = invoice();
+      withoutId.id = id;
+
+      const decision = planRenewalFromInvoice(withoutId);
+
+      expect(decision, String(id)).toEqual({ action: 'skip', reason: 'no-invoice-id' });
+    }
   });
 });
 

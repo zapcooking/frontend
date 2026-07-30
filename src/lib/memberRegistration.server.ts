@@ -146,6 +146,21 @@ export async function registerMember(params: RegisterMemberParams): Promise<Regi
 }
 
 /**
+ * Is this 404 body the relay saying the member does not exist?
+ *
+ * Deliberately an exact match on the relay's own string rather than a substring
+ * or a "has an error field" test: an HTML error page from a proxy, an empty body,
+ * or any other service's JSON must all read as false so the caller retries.
+ */
+function isMemberNotFoundBody(responseText: string): boolean {
+  try {
+    return JSON.parse(responseText)?.error === 'Member not found';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Extend an existing membership by `subscriptionMonths`.
  *
  * Deliberately NOT registerMember. That helper returns early when the member is
@@ -189,10 +204,19 @@ export async function renewMember(params: RenewMemberParams): Promise<RenewMembe
   });
 
   if (!renewRes.ok) {
-    if (renewRes.status === 404) {
+    const responseText = await renewRes.text();
+
+    // A 404 is terminal only when it is the relay's OWN "no such member" answer
+    // (`api/index.ts` returns exactly `{"error":"Member not found"}` from
+    // /renew). Status alone is not enough: anything in front of the API can
+    // answer 404 while the API container itself is down — which is precisely
+    // what deploying the relay's `api` service creates a window for. Treating
+    // that as terminal returns 200 to Stripe and drops the renewal permanently,
+    // so anything we cannot positively identify is rethrown for redelivery.
+    if (renewRes.status === 404 && isMemberNotFoundBody(responseText)) {
       return { renewed: false, alreadyApplied: false, notFound: true, subscriptionEnd: null };
     }
-    const responseText = await renewRes.text();
+
     throw new Error(`Failed to renew member: ${renewRes.status} ${responseText}`);
   }
 

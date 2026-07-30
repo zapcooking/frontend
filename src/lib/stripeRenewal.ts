@@ -21,7 +21,9 @@ export type RenewalSkipReason =
   /** Subscription predates `subscription_data.metadata`. Needs a human. */
   | 'no-pubkey'
   | 'invalid-pubkey'
-  | 'invalid-period';
+  | 'invalid-period'
+  /** No invoice id, so no idempotency key can be derived. */
+  | 'no-invoice-id';
 
 export interface RenewalPlan {
   action: 'renew';
@@ -90,12 +92,23 @@ export function planRenewalFromInvoice(invoice: any): RenewalDecision {
     };
   }
 
-  // `invoice.parent.subscription_details.metadata` is an immutable snapshot of
-  // the subscription's metadata taken when the invoice was finalized. It is NOT
-  // the checkout session's metadata — Stripe does not copy that onto the
-  // subscription, which is why `subscription_data.metadata` has to be set at
+  // The subscription's metadata snapshot, taken when the invoice was finalized.
+  // It is NOT the checkout session's metadata — Stripe does not copy that onto
+  // the subscription, which is why `subscription_data.metadata` has to be set at
   // checkout for any of this to resolve.
-  const metadata = invoice?.parent?.subscription_details?.metadata || {};
+  //
+  // Two shapes, because a webhook endpoint carries its OWN `api_version`,
+  // independent of the SDK's pinned one: `parent.subscription_details` is the
+  // Basil (2025-03-31) and later shape, `invoice.subscription_details` is what an
+  // endpoint pinned before Basil delivers. Reading both removes the dependency
+  // on a dashboard setting nobody here can see — on a pre-Basil endpoint the
+  // first is undefined for every delivery, so every renewal would skip as
+  // `no-pubkey`: logged as needing a human, and indistinguishable from the
+  // benign pre-deploy case.
+  const metadata =
+    invoice?.parent?.subscription_details?.metadata ||
+    invoice?.subscription_details?.metadata ||
+    {};
   const { pubkey, tier, period } = metadata;
 
   if (!pubkey) {
@@ -110,6 +123,16 @@ export function planRenewalFromInvoice(invoice: any): RenewalDecision {
   // away a year; guessing 1 strands an annual member eleven months early.
   if (!period || !KNOWN_PERIODS.includes(period)) {
     return { action: 'skip', reason: 'invalid-period', value: String(period) };
+  }
+
+  // The invoice id IS the idempotency key, and it is the only input here that
+  // reaches the relay unvalidated. Absent, `renewalPaymentId` yields the
+  // constant `stripe_renewal_undefined`, which the relay's `payment_id` guard
+  // would then treat as already-applied across UNRELATED members — the first
+  // such renewal writes it, every later one is silently declined. Refused rather
+  // than defaulted, for the same reason as `period`.
+  if (typeof invoice.id !== 'string' || !invoice.id) {
+    return { action: 'skip', reason: 'no-invoice-id' };
   }
 
   return {

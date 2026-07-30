@@ -238,7 +238,11 @@ async function handleInvoicePaid(invoice: any, platform: any) {
     // be reconciled by hand against the Stripe customer. Everything else here
     // is an ordinary event we are correct to ignore.
     if (decision.reason === 'no-pubkey') {
-      const subscriptionDetails = invoice?.parent?.subscription_details;
+      // Both shapes, matching planRenewalFromInvoice — otherwise the one log line
+      // that exists for the case needing a human names no subscription at all on
+      // a pre-Basil endpoint.
+      const subscriptionDetails =
+        invoice?.parent?.subscription_details || invoice?.subscription_details;
       console.error('[Stripe Webhook] Renewal invoice has no pubkey in subscription metadata — manual reconciliation required:', {
         invoiceId: invoice?.id,
         customer: invoice?.customer,
@@ -257,8 +261,12 @@ async function handleInvoicePaid(invoice: any, platform: any) {
       return;
     }
 
+    // `customer` is logged alongside the invoice id because one of these reasons
+    // is a MISSING invoice id, and without the customer that line names nothing
+    // anyone could reconcile against.
     console.error(`[Stripe Webhook] Renewal invoice rejected (${decision.reason}):`, {
       invoiceId: invoice?.id,
+      customer: invoice?.customer,
       value: decision.value,
     });
     return;
