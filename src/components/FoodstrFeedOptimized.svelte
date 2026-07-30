@@ -26,7 +26,9 @@
     getCurrentRelayGeneration,
     onRelaySwitchStopSubscriptions
   } from '$lib/nostr';
-  import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+  // The one implementation of the hellthread rule — the notification path uses
+  // the same export, so the two surfaces cannot drift.
+  import { isHellthread as isHellthreadNote } from '$lib/notificationUtils';
   import { foodFilterSetting } from '$lib/foodFilterSettings';
   import MediaLightbox from './MediaLightbox.svelte';
   import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
@@ -1127,23 +1129,6 @@
     cachedMutedUsersKey = null;
   }
 
-  /**
-   * Detect if an event is a hellthread based on number of 'p' tags (mentions)
-   * @param event - NDKEvent to check
-   * @param threshold - Number of mentions that constitutes a hellthread (0 = disabled)
-   * @returns true if event should be hidden as a hellthread
-   */
-  function isHellthread(event: NDKEvent, threshold: number): boolean {
-    if (threshold === 0) return false; // Disabled
-
-    if (!event.tags || !Array.isArray(event.tags)) return false;
-
-    // Count 'p' tags (person mentions)
-    const mentionCount = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'p').length;
-
-    return mentionCount >= threshold;
-  }
-
   // Memoization cache for shouldIncludeEvent — keyed by event.id
   // Cleared when mute list changes (see reactive block below)
   const includeEventCache = new Map<string, boolean>();
@@ -1197,11 +1182,6 @@
       if (hashtagCount > MAX_HASHTAGS) {
         return false;
       }
-      // Check hellthread threshold
-      const threshold = get(hellthreadThreshold);
-      if (isHellthread(event, threshold)) {
-        return false;
-      }
       return true;
     }
 
@@ -1217,15 +1197,11 @@
       return false;
     }
 
-    // Check hashtag spam
+    // Check hashtag spam. This one stays inside the food test on purpose: it is
+    // a curation call we made, with no setting and no string promising it, so it
+    // applies only where the food guess is in scope.
     const hashtagCount = getHashtagCount(event);
     if (hashtagCount > MAX_HASHTAGS) {
-      return false;
-    }
-
-    // Check hellthread threshold
-    const threshold = get(hellthreadThreshold);
-    if (isHellthread(event, threshold)) {
       return false;
     }
 
@@ -1233,9 +1209,13 @@
   }
 
   // ─── Feed policy ─────────────────────────────────────────────
-  // Mutes and the food filter are two different instructions from the member,
-  // and they are enforced separately. Mutes always apply; the food test only
-  // where it is active for the current view.
+  // Two different kinds of rule live here, and the difference decides scope:
+  // an instruction the member gave us (a control, a stored value, or a live
+  // string promising it) applies wherever that member reads; a curation
+  // heuristic we chose applies only where our guess is in scope.
+  // Mutes and the hellthread threshold are the first kind — they always run.
+  // The food test and MAX_HASHTAGS are the second — they run only where the
+  // food filter is active for the current view.
 
   /**
    * Does the member's mute list hide this event? Covers pubkey, word, tag and
@@ -1265,6 +1245,24 @@
   }
 
   /**
+   * Does the member's hellthread threshold hide this event? Set in /settings,
+   * where the copy promises it with no scope qualifier ("Hide notes with too
+   * many mentions… Set to 0 to disable"), and the notification path already
+   * applies it unconditionally — so the feed applies it wherever the member
+   * reads, not only inside the food test. A kind 6 repost is judged by the
+   * note it carries, same as mutes.
+   */
+  function isHellthread(event: NDKEvent): boolean {
+    if (event.kind === 6) {
+      const inner = expandRepostEvent(event);
+      if (!inner) return false;
+      return isHellthread(inner);
+    }
+
+    return isHellthreadNote(event);
+  }
+
+  /**
    * Does the food test apply to what is on screen right now?
    *  - Global Food: always. The tab carries the food promise in its own name
    *    and renders no toggle.
@@ -1290,6 +1288,7 @@
   /** The one question every feed path asks before showing an event. */
   function passesFeedFilters(event: NDKEvent): boolean {
     if (isMuted(event)) return false;
+    if (isHellthread(event)) return false;
     if (!foodFilterActive) return true;
     return shouldIncludeEvent(event);
   }
