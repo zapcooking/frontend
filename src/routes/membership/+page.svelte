@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { onDestroy } from 'svelte';
   import { userPublickey } from '$lib/nostr';
+  import { signNip98AuthHeader } from '$lib/nip98';
   import { membershipStore, formatMembershipExpiry } from '$lib/membershipStore';
   import {
     membershipStatusMap,
@@ -119,38 +120,64 @@
 
     // Try Stripe portal first — works for any card member regardless of local state.
     // Falls back to email if no Stripe subscription is found (404).
+    //
+    // The portal endpoint requires NIP-98 auth signed by this pubkey. A member
+    // without a signer (read-only session) cannot produce one, so skip straight
+    // to the email fallback rather than sending a request that can only 403 —
+    // that keeps the outcome for those members exactly what it was before the
+    // gate: a human they can write to.
+    const bodyString = JSON.stringify({
+      pubkey: $userPublickey,
+      returnUrl: window.location.href
+    });
+    let authorization: string | null = null;
     try {
-      const response = await fetch('/api/stripe/create-portal-session', {
+      authorization = await signNip98AuthHeader($ndk, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pubkey: $userPublickey,
-          returnUrl: window.location.href
-        })
+        url: `${location.origin}/api/stripe/create-portal-session`,
+        bodyString
       });
+    } catch (err) {
+      console.error('[Membership] NIP-98 signing unavailable, using email fallback:', err);
+    }
 
-      if (response.ok) {
-        const { url } = await response.json();
-        if (url) {
-          window.location.href = url;
+    if (authorization) {
+      try {
+        const response = await fetch('/api/stripe/create-portal-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: authorization },
+          body: bodyString
+        });
+
+        if (response.ok) {
+          const { url } = await response.json();
+          if (url) {
+            window.location.href = url;
+            return;
+          }
+        }
+
+        // 404 = no Stripe subscription found → fall through to email.
+        // 403 = auth rejected. Also a fall-through: the response body is a
+        // greppable server string, not copy to show a member, and the email
+        // path reaches a person who can cancel it by hand.
+        if (response.status !== 404 && response.status !== 403) {
+          const errData = await response
+            .json()
+            .catch(() => ({ error: 'Failed to open cancellation portal' }));
+          throw new Error(errData.error || 'Failed to open cancellation portal');
+        }
+        if (response.status === 403) {
+          console.error('[Membership] Portal rejected NIP-98 auth, using email fallback');
+        }
+      } catch (err) {
+        // If we got a real error (not a 404/403 fallthrough), show it and stop
+        if (err instanceof Error) {
+          console.error('[Membership] Cancel error:', err);
+          cancelError = err.message;
+          cancellingMembership = false;
           return;
         }
-      }
-
-      // 404 = no Stripe subscription found → fall through to email
-      if (response.status !== 404) {
-        const errData = await response
-          .json()
-          .catch(() => ({ error: 'Failed to open cancellation portal' }));
-        throw new Error(errData.error || 'Failed to open cancellation portal');
-      }
-    } catch (err) {
-      // If we got a real error (not a 404 fallthrough), show it and stop
-      if (err instanceof Error) {
-        console.error('[Membership] Cancel error:', err);
-        cancelError = err.message;
-        cancellingMembership = false;
-        return;
       }
     }
 
