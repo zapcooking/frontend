@@ -12,7 +12,15 @@
  * record never moves — the member is billed and locked out.
  */
 
-/** Periods `createCheckoutSession` has ever written into metadata. */
+/**
+ * Periods this accepts from subscription metadata.
+ *
+ * `createCheckoutSession` emits only `'annual' | 'monthly'` today — its own
+ * parameter type says so. `'2year'` is a legacy value: it was a real checkout
+ * period until monthly replaced it, so it can still be sitting in Stripe
+ * metadata on an old object, and `handleCheckoutCompleted` accepts it for that
+ * reason. It is kept here to match, not because this path emits it.
+ */
 const KNOWN_PERIODS = ['annual', '2year', 'monthly'] as const;
 
 export type RenewalSkipReason =

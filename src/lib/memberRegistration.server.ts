@@ -4,7 +4,7 @@
  * Used by:
  *  - Stripe webhook (checkout.session.completed, invoice.paid)
  *  - Stripe complete-payment (client-side redirect)
- *  - Strike webhook (invoice.paid)
+ *  - Strike webhook (receive-request.receive-completed)
  *
  * Handles relay API registration + NIP-05 auto-claim with idempotency.
  */

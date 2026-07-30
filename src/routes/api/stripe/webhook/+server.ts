@@ -225,8 +225,10 @@ async function handleCheckoutCompleted(session: any, platform: any) {
  * Unlike handleCheckoutCompleted, relay failures here are RETHROWN so the
  * endpoint returns 500 and Stripe redelivers. Registration has a client-side
  * fallback; renewal has none, so a swallowed error is a lost renewal and a
- * member locked out of access they paid for. Validation failures are still
- * logged-and-returned — a redelivery cannot fix missing metadata.
+ * member locked out of access they paid for. A missing RELAY_API_SECRET is
+ * thrown for the same reason — it is a misconfiguration a redelivery can outlive.
+ * Only validation failures are logged-and-returned, because a redelivery carries
+ * the same absent metadata and can never do better.
  */
 async function handleInvoicePaid(invoice: any, platform: any) {
   const decision = planRenewalFromInvoice(invoice);
@@ -279,10 +281,19 @@ async function handleInvoicePaid(invoice: any, platform: any) {
     subscriptionMonths: decision.subscriptionMonths,
   });
 
+  // A missing secret is a server misconfiguration, not a bad event, so it is
+  // THROWN rather than returned: returning would answer Stripe 200 and drop the
+  // renewal permanently, and a redelivery genuinely can succeed once the binding
+  // is fixed — Stripe retries over ~3 days, which is long enough for a person to
+  // notice and bind it. That is the same reasoning as the 404 discrimination in
+  // `renewMember`, and the opposite of the validation skips above, where a
+  // redelivery carries the same absent metadata and can never do better.
   const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
   if (!API_SECRET) {
-    console.error('[Stripe Webhook] RELAY_API_SECRET not configured');
-    return;
+    console.error('[Stripe Webhook] RELAY_API_SECRET not configured — renewal not applied, letting Stripe redeliver:', {
+      invoiceId: invoice.id,
+    });
+    throw new Error('RELAY_API_SECRET not configured');
   }
 
   const result = await renewMember({
