@@ -471,13 +471,24 @@
     if (!pk) return;
     portalLoading = true;
     try {
+      // NIP-98 auth proves we own this pubkey. Required, not optional:
+      // the portal is the full billing console, so the endpoint refuses
+      // an unsigned request rather than degrading like check-status.
+      const bodyString = JSON.stringify({
+        pubkey: pk,
+        returnUrl: window.location.href
+      });
       const res = await fetch('/api/stripe/create-portal-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pubkey: pk,
-          returnUrl: window.location.href
-        })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: await signNip98AuthHeader($ndk, {
+            method: 'POST',
+            url: `${location.origin}/api/stripe/create-portal-session`,
+            bodyString
+          })
+        },
+        body: bodyString
       });
       if (res.ok) {
         const { url } = await res.json();
