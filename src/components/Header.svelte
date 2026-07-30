@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { triggerExploreNav } from '$lib/exploreNav';
@@ -134,6 +135,19 @@
     }
   }
 
+  /**
+   * Engaging search jumps the page back to the top, so results/typing aren't
+   * happening while the user is stranded mid-feed. Scrolls the #app-scroll
+   * container (the element the app actually scrolls) with a window fallback.
+   * Additive — does not interfere with focusing the input or opening the
+   * mobile search overlay.
+   */
+  function scrollToTopOnSearch() {
+    if (!browser) return;
+    const el = document.getElementById('app-scroll');
+    (el ?? window).scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
 </script>
 
 <!-- Mobile-first sleek header -->
@@ -171,8 +185,10 @@
        the pipe's vertical line to 12px (10px here + the input's 2px margin),
        matching the header's 12px top/bottom padding so the search box has
        equal visual padding on all three framed sides. -->
+  <!-- focusin (not click) so keyboard tabbing into search also jumps to top. -->
   <div
     class="hidden sm:flex flex-1 self-center print:hidden min-w-[280px] lg:max-w-xs xl:max-w-2xl xl:min-w-[500px] lg:pl-2.5"
+    on:focusin={scrollToTopOnSearch}
   >
     <TagsSearchAutocomplete
       placeholderString={'Search recipes, tags, or users...'}
@@ -186,7 +202,10 @@
     <!-- Search icon (mobile only) -->
     <div class="block sm:hidden">
       <button
-        on:click={() => mobileSearchOpen.set(true)}
+        on:click={() => {
+          scrollToTopOnSearch();
+          mobileSearchOpen.set(true);
+        }}
         class="zh-iconbtn"
         aria-label="Search"
       >
