@@ -352,8 +352,45 @@ describe('model output handling', () => {
     });
   });
 
+  // The draft is published as a plain-text feed reply, so markdown the
+  // model reaches for anyway never reaches the member's textarea.
+  it('strips markdown out of a recipe draft', async () => {
+    fetchMock.mockResolvedValue(
+      openaiOk(
+        '# Beef Tacos (from a photo)\n\nA **weeknight** favorite.\n\n## Ingredients\n- 1 lb beef\n\n## Directions\n1. Cook it'
+      )
+    );
+    const { res, data } = await call(validBody({ mode: 'recipe' }));
+    expect(res.status).toBe(200);
+    expect(data.output).toBe(
+      'Beef Tacos (from a photo)\n\nA weeknight favorite.\n\nIngredients\n- 1 lb beef\n\nDirections\n1. Cook it'
+    );
+  });
+
+  it('strips markdown out of a comment draft too', async () => {
+    fetchMock.mockResolvedValue(openaiOk('That **sear** is doing a lot of work.'));
+    const { data } = await call(validBody());
+    expect(data.output).toBe('That sear is doing a lot of work.');
+  });
+
+  it('500s when the completion is nothing but markup', async () => {
+    fetchMock.mockResolvedValue(openaiOk('## '));
+    const { res } = await call(validBody());
+    expect(res.status).toBe(500);
+  });
+
   it('422s NOT_FOOD with the playful line as display copy', async () => {
     fetchMock.mockResolvedValue(openaiOk('NOT_FOOD: A very photogenic cat.'));
+    const { res, data } = await call(validBody());
+    expect(res.status).toBe(422);
+    expect(data.code).toBe('NOT_FOOD');
+    expect(data.error).toBe('A very photogenic cat.');
+  });
+
+  // The strip runs first, so a bolded sentinel is still a dead-end and
+  // not a postable draft that opens with "NOT_FOOD:".
+  it('still detects the NOT_FOOD sentinel when the model bolds it', async () => {
+    fetchMock.mockResolvedValue(openaiOk('**NOT_FOOD:** A very photogenic cat.'));
     const { res, data } = await call(validBody());
     expect(res.status).toBe(422);
     expect(data.code).toBe('NOT_FOOD');

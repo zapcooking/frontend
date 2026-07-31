@@ -54,7 +54,8 @@ import {
   NOTE_REVIEW_COMMENT_INSTRUCTION,
   NOTE_REVIEW_RECIPE_INSTRUCTION,
   NOT_FOOD_PREFIX,
-  buildNoteReviewUserText
+  buildNoteReviewUserText,
+  stripMarkdownForNoteDraft
 } from '$lib/cheffyPrompt.server';
 
 // The note author's text is context, not a prompt — cap it hard.
@@ -300,7 +301,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     const openaiData = await openaiResponse.json();
     const output: string | undefined = openaiData.choices?.[0]?.message?.content;
-    if (!output || !output.trim()) {
+
+    // Both modes publish as a plain-text feed reply, so markdown the
+    // model reached for anyway is stripped here — the prompt asks, this
+    // guarantees. Runs BEFORE the NOT_FOOD check so a bolded sentinel
+    // (`**NOT_FOOD:** …`) is still detected as the dead-end it is, and
+    // before the empty check so an all-markup completion is treated as
+    // the non-draft it is. Scoped to this endpoint: chat keeps markdown.
+    const trimmed = output ? stripMarkdownForNoteDraft(output) : '';
+    if (!trimmed) {
       return json(
         { ok: false, error: 'Cheffy went quiet for a second. Please try again.' },
         { status: 500 }
@@ -309,7 +318,6 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Prompt-level refusal: the photo isn't food. Typed dead-end — the
     // playful line is display copy, never a postable draft.
-    const trimmed = output.trim();
     if (trimmed.startsWith(NOT_FOOD_PREFIX)) {
       const line = trimmed.slice(NOT_FOOD_PREFIX.length).trim();
       return json(
