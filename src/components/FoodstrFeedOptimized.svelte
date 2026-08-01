@@ -26,15 +26,13 @@
     getCurrentRelayGeneration,
     onRelaySwitchStopSubscriptions
   } from '$lib/nostr';
-  import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+  // The one implementation of the hellthread rule — the notification path uses
+  // the same export, so the two surfaces cannot drift.
+  import { isHellthread as isHellthreadNote } from '$lib/notificationUtils';
+  import { foodFilterSetting } from '$lib/foodFilterSettings';
   import MediaLightbox from './MediaLightbox.svelte';
   import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
-  import {
-    isPubkeyMuted,
-    containsMutedWord,
-    hasMutedTag,
-    isThreadMuted
-  } from '$lib/mutableIntegration';
+  import { isEventMutedBy } from '$lib/muteFilter';
   import Avatar from './Avatar.svelte';
   import type { NDKSubscription } from '@nostr-dev-kit/ndk';
   import { NDKEvent, NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
@@ -521,8 +519,12 @@
   let imageGenerationError: string | null = null;
   let expandedParentNotes: { [eventId: string]: boolean } = {}; // Track expanded parent notes
   let parentNoteCache: { [eventId: string]: NDKEvent | null } = {}; // Cache full parent notes
-  // Toggle for food filtering - defaults to OFF for profile view (show all posts), ON for other modes
-  let foodFilterEnabled = !authorPubkey;
+  // "Only Food" toggle — the member's own choice, persisted across reloads
+  // (see $lib/foodFilterSettings). Defaults OFF for Following, Replies and
+  // profile views: those are a promise about *who*, not about *what*. The
+  // Global Food tab renders no toggle and food-filters regardless — see
+  // foodFilterActive.
+  let foodFilterEnabled = get(foodFilterSetting);
 
   // Modals
   let zapModal = false;
@@ -1127,29 +1129,14 @@
     cachedMutedUsersKey = null;
   }
 
-  /**
-   * Detect if an event is a hellthread based on number of 'p' tags (mentions)
-   * @param event - NDKEvent to check
-   * @param threshold - Number of mentions that constitutes a hellthread (0 = disabled)
-   * @returns true if event should be hidden as a hellthread
-   */
-  function isHellthread(event: NDKEvent, threshold: number): boolean {
-    if (threshold === 0) return false; // Disabled
-
-    if (!event.tags || !Array.isArray(event.tags)) return false;
-
-    // Count 'p' tags (person mentions)
-    const mentionCount = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'p').length;
-
-    return mentionCount >= threshold;
-  }
-
-  // Memoization cache for shouldIncludeEvent — keyed by event.id
-  // Cleared when mute list changes (see reactive block below)
+  // Memoization cache for the food-only shouldIncludeEvent — keyed by event.id.
+  // Mutes/hellthread live in passesFeedFilters (always-on), not here, so this
+  // cache does not encode mute state and does not need clearing on unmute.
+  // Cleared when the signed-in user changes (see reactive block below).
   const includeEventCache = new Map<string, boolean>();
 
   function shouldIncludeEvent(event: NDKEvent): boolean {
-    // Check memoization cache first (stable per event unless mute list changes)
+    // Food-test memoization only — stable per event for a given user session.
     const eventId = event.id;
     if (eventId) {
       const cached = includeEventCache.get(eventId);
@@ -1176,38 +1163,13 @@
   }
 
   function _shouldIncludeEventUncached(event: NDKEvent): boolean {
-    // For NIP-18 reposts (kind 6), inclusion decisions need to be made against the
-    // underlying note (food content, mutes on original author, etc.). If we can't
-    // expand the inner event, drop the repost.
+    // For NIP-18 reposts (kind 6), the food test needs the underlying note.
+    // If we can't expand the inner event, drop the repost. Mutes are enforced
+    // separately in passesFeedFilters so this stays strictly food-only.
     if (event.kind === 6) {
       const inner = expandRepostEvent(event);
       if (!inner) return false;
       return _shouldIncludeEventUncached(inner);
-    }
-
-    // Check muted users (both public and private lists)
-    if ($userPublickey && $muteListStore.muteList) {
-      const authorKey = event.author?.hexpubkey || event.pubkey;
-
-      // Check pubkey mute
-      if (authorKey && isPubkeyMuted($muteListStore.muteList, authorKey)) {
-        return false;
-      }
-
-      // Check word mutes
-      if (containsMutedWord($muteListStore.muteList, event.content)) {
-        return false;
-      }
-
-      // Check tag mutes
-      if (hasMutedTag($muteListStore.muteList, event.tags)) {
-        return false;
-      }
-
-      // Check thread mutes
-      if (isThreadMuted($muteListStore.muteList, event.id)) {
-        return false;
-      }
     }
 
     // Client-side filtered results: notes without hashtags that contain food words
@@ -1216,11 +1178,6 @@
       // Only check hashtag spam, not content (content already validated by client-side filter)
       const hashtagCount = getHashtagCount(event);
       if (hashtagCount > MAX_HASHTAGS) {
-        return false;
-      }
-      // Check hellthread threshold
-      const threshold = get(hellthreadThreshold);
-      if (isHellthread(event, threshold)) {
         return false;
       }
       return true;
@@ -1238,19 +1195,113 @@
       return false;
     }
 
-    // Check hashtag spam
+    // Check hashtag spam. This one stays inside the food test on purpose: it is
+    // a curation call we made, with no setting and no string promising it, so it
+    // applies only where the food guess is in scope.
     const hashtagCount = getHashtagCount(event);
     if (hashtagCount > MAX_HASHTAGS) {
       return false;
     }
 
-    // Check hellthread threshold
-    const threshold = get(hellthreadThreshold);
-    if (isHellthread(event, threshold)) {
-      return false;
+    return true;
+  }
+
+  // ─── Feed policy ─────────────────────────────────────────────
+  // Two different kinds of rule live here, and the difference decides scope:
+  // an instruction the member gave us (a control, a stored value, or a live
+  // string promising it) applies wherever that member reads; a curation
+  // heuristic we chose applies only where our guess is in scope.
+  // Mutes and the hellthread threshold are the first kind — they always run.
+  // The food test and MAX_HASHTAGS are the second — they run only where the
+  // food filter is active for the current view.
+
+  /**
+   * Does the member's mute list hide this event? Covers pubkey, word, tag and
+   * thread mutes — the full NIP-51 list merged with the legacy localStorage
+   * one (see muteListStore). A kind 6 repost is judged by the note it carries.
+   */
+  function isMuted(event: NDKEvent): boolean {
+    if (!$userPublickey) return false;
+
+    const muteList = $muteListStore.muteList;
+    if (!muteList) return false;
+
+    if (event.kind === 6) {
+      const inner = expandRepostEvent(event);
+      // An unexpandable repost has nothing to check against the mute list;
+      // the food test is what drops it.
+      if (!inner) return false;
+      return isMuted(inner);
     }
 
-    return true;
+    return isEventMutedBy(muteList, {
+      id: event.id,
+      pubkey: event.author?.hexpubkey || event.pubkey,
+      content: event.content,
+      tags: event.tags
+    });
+  }
+
+  /**
+   * Does the member's hellthread threshold hide this event? Set in /settings,
+   * where the copy promises it with no scope qualifier ("Hide notes with too
+   * many mentions… Set to 0 to disable"), and the notification path already
+   * applies it unconditionally — so the feed applies it wherever the member
+   * reads, not only inside the food test. A kind 6 repost is judged by the
+   * note it carries, same as mutes.
+   */
+  function isHellthread(event: NDKEvent): boolean {
+    if (event.kind === 6) {
+      const inner = expandRepostEvent(event);
+      if (!inner) return false;
+      return isHellthread(inner);
+    }
+
+    return isHellthreadNote(event);
+  }
+
+  /**
+   * Does the food test apply to what is on screen right now?
+   *  - Global Food: always. The tab carries the food promise in its own name
+   *    and renders no toggle.
+   *  - Members: never.
+   *  - Following / Replies / profile: whatever the member chose.
+   *
+   * Reactive so the empty state can read it directly.
+   */
+  $: foodFilterActive =
+    filterMode === 'members'
+      ? false
+      : filterMode === 'global' && !authorPubkey
+        ? true
+        : foodFilterEnabled;
+
+  /**
+   * Is the "Only Food" switch on screen? The empty state may only say "turn it
+   * off above" where there is something above to turn off.
+   */
+  $: foodToggleVisible =
+    filterMode === 'following' || filterMode === 'replies' || Boolean(authorPubkey);
+
+  /** The one question every feed path asks before showing an event. */
+  function passesFeedFilters(event: NDKEvent): boolean {
+    if (isMuted(event)) return false;
+    if (isHellthread(event)) return false;
+    if (!foodFilterActive) return true;
+    return shouldIncludeEvent(event);
+  }
+
+  /**
+   * Set the "Only Food" toggle and reload. Shared by the switch above the feed
+   * and by the "Show all posts" button in the empty state, so the control the
+   * empty state points at is the control it flips.
+   */
+  function setFoodFilter(enabled: boolean) {
+    foodFilterEnabled = enabled;
+    foodFilterSetting.setEnabled(enabled);
+    seenEventIds.clear();
+    events = [];
+    loadFoodstrFeed(false);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1328,7 +1379,7 @@
               }
             : null
         }))
-        .filter(shouldIncludeEvent);
+        .filter(passesFeedFilters);
 
       if (cachedEvents.length === 0) return false;
 
@@ -1930,7 +1981,7 @@
               if (authorScope === 'top-level' && isReply(event)) return false;
               if (authorScope === 'replies' && !isReply(event)) return false;
             }
-            return shouldIncludeEvent(event);
+            return passesFeedFilters(event);
           });
 
           if (validCached.length > 0) {
@@ -2090,12 +2141,15 @@
         const outboxOptions: any = {
           since: timeWindow.since,
           kinds: [1, 6, 1068],
-          limit: foodFilterEnabled ? 200 : 300,
+          limit: foodFilterActive ? 200 : 300,
           timeoutMs: 5000,
           maxRelays: 10
         };
 
-        if (foodFilterEnabled) {
+        // Relay-side hashtag filter — kept on the same predicate as the
+        // client-side test so the wire query and the local filter cannot
+        // disagree about what this view is asking for.
+        if (foodFilterActive) {
           outboxOptions.additionalFilter = {
             '#t': FOOD_HASHTAGS
           };
@@ -2218,12 +2272,12 @@
         const repliesOutboxOptions: any = {
           since: timeWindow.since,
           kinds: [1, 6, 1068],
-          limit: foodFilterEnabled ? 200 : 300,
+          limit: foodFilterActive ? 200 : 300,
           timeoutMs: 5000,
           maxRelays: 10
         };
 
-        if (foodFilterEnabled) {
+        if (foodFilterActive) {
           repliesOutboxOptions.additionalFilter = {
             '#t': FOOD_HASHTAGS
           };
@@ -2479,7 +2533,7 @@
                   if (authorKey && mutedUsers.includes(authorKey)) return false;
                 }
                 if (isReply(event)) return false;
-                if (!shouldIncludeEvent(event)) return false;
+                if (!passesFeedFilters(event)) return false;
                 if (followedSet.size > 0) {
                   const authorKey = event.author?.hexpubkey || event.pubkey;
                   if (authorKey && followedSet.has(authorKey)) return false;
@@ -2586,14 +2640,10 @@
           if (authorScope === 'replies' && !isReply(event)) return false;
         }
 
-        // Apply food filter based on context
-        if (authorPubkey) {
-          // Profile view: respect the toggle
-          if (foodFilterEnabled && !shouldIncludeEvent(event)) return false;
-        } else {
-          // Global feed: always apply food filter
-          if (!shouldIncludeEvent(event)) return false;
+        // Mutes always; food test where it is active for this view
+        if (!passesFeedFilters(event)) return false;
 
+        if (!authorPubkey) {
           // Also exclude posts from followed users
           if (followedSet.size > 0) {
             const authorKey = event.author?.hexpubkey || event.pubkey;
@@ -2696,7 +2746,7 @@
 
       sub.on('event', (event: NDKEvent) => {
         if (filterMode === 'following' && isReply(event)) return;
-        if (foodFilterEnabled && !shouldIncludeEvent(event)) return;
+        if (!passesFeedFilters(event)) return;
         handleRealtimeEvent(event);
       });
 
@@ -2794,8 +2844,8 @@
         }
       }
 
-      // For profile view with food filter disabled, apply client-side filter
-      if (authorPubkey && foodFilterEnabled && !shouldIncludeEvent(event)) {
+      // Mutes always; food test where it is active for this view
+      if (!passesFeedFilters(event)) {
         return;
       }
       handleRealtimeEvent(event);
@@ -2843,7 +2893,7 @@
       const newEvents = contentEvents.filter((e) => {
         if (seenEventIds.has(e.id)) return false;
         if (isReply(e)) return false;
-        if (!shouldIncludeEvent(e)) return false;
+        if (!passesFeedFilters(e)) return false;
         if (followedSet.size > 0) {
           const authorKey = e.author?.hexpubkey || e.pubkey;
           if (authorKey && followedSet.has(authorKey)) return false;
@@ -2877,19 +2927,9 @@
     // Skip if already seen
     if (seenEventIds.has(event.id)) return;
 
-    // Validate content - apply food filter based on mode and toggle
-    if (filterMode === 'following' || filterMode === 'replies') {
-      // Following/Replies: respect foodFilterEnabled toggle
-      if (foodFilterEnabled && !shouldIncludeEvent(event)) return;
-    } else if (filterMode !== 'members') {
-      // Global feed: always apply food filter
-      // Profile view: respect the foodFilterEnabled toggle (matches initial load)
-      if (
-        authorPubkey ? foodFilterEnabled && !shouldIncludeEvent(event) : !shouldIncludeEvent(event)
-      )
-        return;
-    }
-    // Members mode: no food filter
+    // Mutes always; food test where it is active for this view (Global always,
+    // Members never, Following/Replies/profile per the member's choice).
+    if (!passesFeedFilters(event)) return;
 
     // Expand NIP-18 kind 6 reposts into their underlying note (with metadata)
     // so the rendering pipeline (which expects kind 1/1068) works correctly.
@@ -2980,8 +3020,7 @@
         const authorKey = event.author?.hexpubkey || event.pubkey;
         if (authorKey && mutedUsers.includes(authorKey)) return false;
       }
-      if (foodFilterEnabled) return shouldIncludeEvent(event);
-      return true;
+      return passesFeedFilters(event);
     });
   }
 
@@ -2993,8 +3032,7 @@
         const authorKey = event.author?.hexpubkey || event.pubkey;
         if (authorKey && mutedUsers.includes(authorKey)) return false;
       }
-      if (foodFilterEnabled) return shouldIncludeEvent(event);
-      return true;
+      return passesFeedFilters(event);
     });
   }
 
@@ -3137,8 +3175,8 @@
           // Exclude replies
           if (isReply(event)) return false;
 
-          // Apply food filter
-          if (!shouldIncludeEvent(event)) return false;
+          // Mutes always; food test where it is active for this view
+          if (!passesFeedFilters(event)) return false;
 
           // Exclude posts from followed users (they go in Following feed)
           if (followedSet.size > 0) {
@@ -3310,14 +3348,8 @@
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
 
-        // Apply food filter based on context
-        // For profile view: respect the toggle
-        // For global feed: always filter for food content
-        if (authorPubkey) {
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
-        } else {
-          if (!shouldIncludeEvent(e)) return false;
-        }
+        // Mutes always; food test where it is active for this view
+        if (!passesFeedFilters(e)) return false;
 
         // Exclude followed users from Global feed
         if (followedSet.size > 0) {
@@ -3373,13 +3405,13 @@
           since: paginationWindow.since,
           until: paginationWindow.until,
           kinds: [1, 6, 1068],
-          limit: foodFilterEnabled ? 100 : 150, // Fetch more when showing all posts
+          limit: foodFilterActive ? 100 : 150, // Fetch more when showing all posts
           timeoutMs: 5000,
           maxRelays: 10
         };
 
         // Only add food hashtag filter when food filter is enabled
-        if (foodFilterEnabled) {
+        if (foodFilterActive) {
           loadMoreOptions.additionalFilter = {
             '#t': FOOD_HASHTAGS // Server-side food filtering!
           };
@@ -3488,27 +3520,15 @@
           return false; // Global mode: exclude replies
         }
 
-        // Apply food filter based on context
-        if (authorPubkey) {
-          // Profile view: respect the toggle
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
-        } else if (filterMode === 'following' || filterMode === 'replies') {
-          // Following/Replies: respect the toggle
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
-        } else if (filterMode === 'global') {
-          // Global feed: always apply food filter
-          if (!shouldIncludeEvent(e)) return false;
+        // Mutes always; food test where it is active for this view
+        if (!passesFeedFilters(e)) return false;
 
-          // Exclude followed users from Global feed
-          if (followedSet.size > 0) {
-            const authorKey = e.author?.hexpubkey || e.pubkey;
-            if (authorKey && followedSet.has(authorKey)) {
-              return false;
-            }
+        // Exclude followed users from Global feed
+        if (!authorPubkey && filterMode === 'global' && followedSet.size > 0) {
+          const authorKey = e.author?.hexpubkey || e.pubkey;
+          if (authorKey && followedSet.has(authorKey)) {
+            return false;
           }
-        } else if (filterMode !== 'members') {
-          // Other modes: apply food filter based on toggle
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
         }
 
         return true;
@@ -4255,10 +4275,9 @@
     return DEFAULT_ENGAGEMENT_INFO;
   }
 
-  // Reload mute list when user changes
+  // Reload mute list when user changes; clear the food-test cache for the new identity.
   $: if ($userPublickey) {
     muteListStore.load();
-    // Invalidate shouldIncludeEvent cache when user (and thus mute list) changes
     includeEventCache.clear();
   }
 
@@ -4404,7 +4423,7 @@
           // Try instant cache first
           const cached = loadFromInstantCache(filterMode);
           if (cached && cached.events.length > 0) {
-            const hydratedEvents = cached.events.map(hydrateFromCache).filter(shouldIncludeEvent);
+            const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
 
             if (hydratedEvents.length > 0) {
               seenEventIds.clear();
@@ -4448,7 +4467,7 @@
           // Try instant cache first
           const cached = loadFromInstantCache(filterMode);
           if (cached && cached.events.length > 0) {
-            const hydratedEvents = cached.events.map(hydrateFromCache).filter(shouldIncludeEvent);
+            const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
 
             if (hydratedEvents.length > 0) {
               seenEventIds.clear();
@@ -4565,7 +4584,7 @@
     // Step 1: Try to render cached content immediately (0ms perceived load)
     const cached = loadFromInstantCache(filterMode);
     if (cached && cached.events.length > 0) {
-      const hydratedEvents = cached.events.map(hydrateFromCache).filter(shouldIncludeEvent);
+      const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
 
       if (hydratedEvents.length > 0) {
         // Add to seen set
@@ -4808,7 +4827,7 @@
       </div>
     {/if}
 
-    {#if filterMode === 'following' || filterMode === 'replies' || authorPubkey}
+    {#if foodToggleVisible}
       <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">
         {#if foodFilterEnabled}
           <span class="text-sm">
@@ -4821,12 +4840,7 @@
           <span class="text-sm text-caption">All posts</span>
         {/if}
         <button
-          on:click={() => {
-            foodFilterEnabled = !foodFilterEnabled;
-            seenEventIds.clear();
-            events = [];
-            loadFoodstrFeed(false);
-          }}
+          on:click={() => setFoodFilter(!foodFilterEnabled)}
           class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {foodFilterEnabled
             ? 'bg-primary'
             : 'bg-accent-gray'}"
@@ -4921,7 +4935,9 @@
               Unmute User
             </button>
           {:else}
-            <!-- No posts found message -->
+            <!-- No posts found message. Split by the predicate that decides
+                 what is actually true: is a filter hiding posts, or are there
+                 none? Copy per OUTBOX/FEED_EMPTY_STATE_COPY_2026_07_30.md. -->
             <div style="color: var(--color-caption)">
               <svg
                 class="h-12 w-12 mx-auto mb-4 opacity-50"
@@ -4936,17 +4952,67 @@
                   d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                 ></path>
               </svg>
-              <p class="text-lg font-medium">No cooking posts found</p>
-              <p class="text-sm">
-                Try posting with cooking tags like #foodstr, #cook, #cooking, etc.
-              </p>
+              {#if authorPubkey}
+                <!-- Profile view: one cook, not the follow graph -->
+                {#if foodFilterEnabled}
+                  <p class="text-lg font-medium">No cooking posts found</p>
+                  <p class="text-sm">
+                    This cook hasn't posted anything tagged as cooking. Turn off Only Food above to
+                    see everything they've posted.
+                  </p>
+                {:else}
+                  <p class="text-lg font-medium">No posts yet</p>
+                  <p class="text-sm">This cook hasn't posted anything yet.</p>
+                {/if}
+              {:else if filterMode === 'following' || filterMode === 'replies'}
+                {#if foodFilterEnabled}
+                  <p class="text-lg font-medium">No cooking posts found</p>
+                  <p class="text-sm">
+                    Only Food is hiding everything else here. Turn it off above to see all posts.
+                  </p>
+                {:else}
+                  <p class="text-lg font-medium">No posts yet</p>
+                  <p class="text-sm">
+                    {filterMode === 'replies'
+                      ? 'Nobody you follow has replied to anything recently.'
+                      : 'Nobody you follow has posted recently.'}
+                    <a href="/explore" class="underline hover:opacity-80">
+                      Find more cooks to follow
+                    </a>.
+                  </p>
+                {/if}
+              {:else if filterMode === 'members'}
+                <!-- Members feed: not covered by the copy review; unchanged. -->
+                <p class="text-lg font-medium">No cooking posts found</p>
+                <p class="text-sm">
+                  Try posting with cooking tags like #foodstr, #cook, #cooking, etc.
+                </p>
+              {:else}
+                <!-- Global Food: no toggle is rendered here, so there is no
+                     filter to point at — a load gap is the honest explanation. -->
+                <p class="text-lg font-medium">No cooking posts right now</p>
+                <p class="text-sm">
+                  Check back soon — new recipes and food posts get shared throughout the day.
+                </p>
+              {/if}
             </div>
-            <button
-              on:click={() => retryWithDelay()}
-              class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-            >
-              Refresh Feed
-            </button>
+            {#if foodToggleVisible && foodFilterEnabled}
+              <!-- Refresh does not clear a filter; the toggle does. Same handler
+                   as the switch above the feed. -->
+              <button
+                on:click={() => setFoodFilter(false)}
+                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Show all posts
+              </button>
+            {:else if !foodToggleVisible}
+              <button
+                on:click={() => retryWithDelay()}
+                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Refresh Feed
+              </button>
+            {/if}
           {/if}
         </div>
       </div>

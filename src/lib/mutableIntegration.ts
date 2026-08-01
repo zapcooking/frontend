@@ -3,42 +3,11 @@ import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
 import { encrypt, decrypt, detectEncryptionMethod } from '$lib/encryptionService';
 
-// Type definitions (from mutable)
-export interface MutedPubkey {
-	type: 'pubkey';
-	value: string; // hex pubkey
-	reason?: string;
-	eventRef?: string;
-	private?: boolean;
-}
-
-export interface MutedWord {
-	type: 'word';
-	value: string;
-	reason?: string;
-	private?: boolean;
-}
-
-export interface MutedTag {
-	type: 'tag';
-	value: string;
-	reason?: string;
-	private?: boolean;
-}
-
-export interface MutedThread {
-	type: 'thread';
-	value: string; // event id
-	reason?: string;
-	private?: boolean;
-}
-
-export interface MuteList {
-	pubkeys: MutedPubkey[];
-	words: MutedWord[];
-	tags: MutedTag[];
-	threads: MutedThread[];
-}
+// Mute-list types and the pure checks that read them live in `muteFilter.ts`
+// so they stay importable outside the browser (see that file). Re-exported
+// here so existing `$lib/mutableIntegration` imports are unchanged.
+export * from '$lib/muteFilter';
+import type { MuteList, MutedPubkey, MutedWord, MutedTag, MutedThread } from '$lib/muteFilter';
 
 /**
  * Fetch user's mute list (kind:10000) from relays
@@ -188,40 +157,6 @@ export async function parseMuteListEvent(event: NDKEvent): Promise<MuteList> {
 	}
 
 	return muteList;
-}
-
-/**
- * Check if a pubkey is in the mute list
- */
-export function isPubkeyMuted(muteList: MuteList, pubkey: string): boolean {
-	return muteList.pubkeys.some((item) => item.value === pubkey);
-}
-
-/**
- * Check if content contains muted words
- */
-export function containsMutedWord(muteList: MuteList, content: string): boolean {
-	if (!content) return false;
-	const lowerContent = content.toLowerCase();
-	return muteList.words.some((item) => lowerContent.includes(item.value.toLowerCase()));
-}
-
-/**
- * Check if event has muted tags
- */
-export function hasMutedTag(muteList: MuteList, eventTags: string[][]): boolean {
-	const eventHashtags = eventTags
-		.filter((tag) => tag[0] === 't')
-		.map((tag) => tag[1]?.toLowerCase());
-
-	return muteList.tags.some((item) => eventHashtags.includes(item.value.toLowerCase()));
-}
-
-/**
- * Check if thread is muted
- */
-export function isThreadMuted(muteList: MuteList, eventId: string): boolean {
-	return muteList.threads.some((item) => item.value === eventId);
 }
 
 /**
