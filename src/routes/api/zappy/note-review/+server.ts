@@ -306,8 +306,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     // model reached for anyway is stripped here — the prompt asks, this
     // guarantees. Runs BEFORE the NOT_FOOD check so a bolded sentinel
     // (`**NOT_FOOD:** …`) is still detected as the dead-end it is, and
-    // before the empty check so an all-markup completion is treated as
-    // the non-draft it is. Scoped to this endpoint: chat keeps markdown.
+    // before the empty check so a completion that is only the markers
+    // this strip removes (e.g. `## `) is treated as the non-draft it
+    // is. Other markup (backticks, unpaired `**`) is left alone and
+    // would still be a non-empty draft. Scoped to this endpoint: chat
+    // keeps markdown.
     const trimmed = output ? stripMarkdownForNoteDraft(output) : '';
     if (!trimmed) {
       return json(
