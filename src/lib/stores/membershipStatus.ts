@@ -146,8 +146,11 @@ export function queueMembershipLookup(pubkey: string | null | undefined): void {
  * per-avatar request storm that took `getMembership` out of `Avatar.svelte`.
  * Callers must keep it that way — one call per completed payment.
  *
- * Never rejects: a failed lookup is swallowed by `fetchBatch` and leaves the
- * previous value in place, so a caller can await it without risking the page.
+ * Never rejects: a failed lookup is swallowed by `fetchBatch`. If a previous
+ * value exists it is left in place; if the cache had no entry yet, the failure
+ * path writes the inactive placeholder (`{active:false, tier:'unknown'}`) that
+ * `fetchBatch` has always written for an unknown pubkey. Callers can await
+ * without risking the page.
  */
 export async function refreshMembership(
   pubkey: string | null | undefined
