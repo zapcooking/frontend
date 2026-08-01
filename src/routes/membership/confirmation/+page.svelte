@@ -5,6 +5,7 @@
   import { page } from '$app/stores';
   import { userPublickey, ndk } from '$lib/nostr';
   import { claimNip05, checkUsernameAvailable, validateUsername, updateProfileWithNip05 } from '$lib/nip05Service';
+  import { refreshMembership } from '$lib/stores/membershipStatus';
 
   // --- Tier Configuration ---
   const TIERS: Record<string, {
@@ -158,6 +159,10 @@
     if (paymentMethod === 'lightning') {
       nip05 = nip05Param;
       nip05Username = nip05UsernameParam;
+      // Lightning registers the member server-side before redirecting here, so
+      // this branch never calls complete-payment — but the client cache is just
+      // as stale as on the Stripe path, and for the same reason.
+      void refreshMembership($userPublickey);
       // If NIP-05 was already assigned during payment, show success state
       if (nip05Username) {
         chosenName = nip05Username;
@@ -202,6 +207,16 @@
         } catch {}
         throw new Error(errorMessage);
       }
+
+      // Membership is live on the server as of this response. The client store
+      // still holds the {active:false} it read before checkout and has no TTL,
+      // so without this the member is a non-member on every membership surface
+      // — avatar ring, belt, header, Cheffy — until they reload the tab.
+      // Placed on the shared success path so both complete-payment endpoints
+      // (genesis and standard) are covered. Not awaited: consumers subscribe to
+      // membershipStatusMap and update when it lands, and the success screen
+      // must not be able to hang behind a second round trip.
+      void refreshMembership($userPublickey);
 
       const data = JSON.parse(responseText);
       subscriptionEnd = data.subscriptionEnd || null;
