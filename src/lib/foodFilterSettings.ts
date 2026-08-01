@@ -21,7 +21,13 @@ const STORAGE_KEY = 'zapcooking_food_filter';
 const DEFAULT_ENABLED = false;
 
 function hasLocalStorage(): boolean {
-  return typeof localStorage !== 'undefined';
+  // Accessing `localStorage` (not just getItem) can throw SecurityError in
+  // restricted contexts — same guard as `memories.ts`.
+  try {
+    return typeof localStorage !== 'undefined';
+  } catch {
+    return false;
+  }
 }
 
 /**

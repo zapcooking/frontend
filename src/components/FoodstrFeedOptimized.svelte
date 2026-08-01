@@ -1129,12 +1129,14 @@
     cachedMutedUsersKey = null;
   }
 
-  // Memoization cache for shouldIncludeEvent — keyed by event.id
-  // Cleared when mute list changes (see reactive block below)
+  // Memoization cache for the food-only shouldIncludeEvent — keyed by event.id.
+  // Mutes/hellthread live in passesFeedFilters (always-on), not here, so this
+  // cache does not encode mute state and does not need clearing on unmute.
+  // Cleared when the signed-in user changes (see reactive block below).
   const includeEventCache = new Map<string, boolean>();
 
   function shouldIncludeEvent(event: NDKEvent): boolean {
-    // Check memoization cache first (stable per event unless mute list changes)
+    // Food-test memoization only — stable per event for a given user session.
     const eventId = event.id;
     if (eventId) {
       const cached = includeEventCache.get(eventId);
@@ -1161,18 +1163,14 @@
   }
 
   function _shouldIncludeEventUncached(event: NDKEvent): boolean {
-    // For NIP-18 reposts (kind 6), inclusion decisions need to be made against the
-    // underlying note (food content, mutes on original author, etc.). If we can't
-    // expand the inner event, drop the repost.
+    // For NIP-18 reposts (kind 6), the food test needs the underlying note.
+    // If we can't expand the inner event, drop the repost. Mutes are enforced
+    // separately in passesFeedFilters so this stays strictly food-only.
     if (event.kind === 6) {
       const inner = expandRepostEvent(event);
       if (!inner) return false;
       return _shouldIncludeEventUncached(inner);
     }
-
-    // Mutes (see isMuted) run here too, so a memoized "include" is never
-    // returned for an event the member has muted.
-    if (isMuted(event)) return false;
 
     // Client-side filtered results: notes without hashtags that contain food words
     // These are discovered through client-side filtering
@@ -4277,10 +4275,9 @@
     return DEFAULT_ENGAGEMENT_INFO;
   }
 
-  // Reload mute list when user changes
+  // Reload mute list when user changes; clear the food-test cache for the new identity.
   $: if ($userPublickey) {
     muteListStore.load();
-    // Invalidate shouldIncludeEvent cache when user (and thus mute list) changes
     includeEventCache.clear();
   }
 

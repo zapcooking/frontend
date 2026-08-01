@@ -89,6 +89,19 @@ describe('readStoredFoodFilter', () => {
     const { readStoredFoodFilter } = await loadModule();
     expect(readStoredFoodFilter()).toBe(false);
   });
+
+  it('falls back to the default when merely accessing localStorage throws', async () => {
+    // Some environments throw SecurityError on the identifier itself, before getItem.
+    delete (globalThis as any).localStorage;
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('SecurityError');
+      }
+    });
+    const { readStoredFoodFilter } = await loadModule();
+    expect(readStoredFoodFilter()).toBe(false);
+  });
 });
 
 describe('foodFilterSetting store', () => {

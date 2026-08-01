@@ -65,9 +65,14 @@ export function containsMutedWord(muteList: MuteList, content: string): boolean 
  * Check if event has muted tags
  */
 export function hasMutedTag(muteList: MuteList, eventTags: string[][]): boolean {
+  // Relays can send malformed tags (null/string entries). Skip anything that
+  // is not a real `t` tag with a string value so mute checks never throw.
   const eventHashtags = eventTags
-    .filter((tag) => tag[0] === 't')
-    .map((tag) => tag[1]?.toLowerCase());
+    .filter(
+      (tag): tag is string[] =>
+        Array.isArray(tag) && tag[0] === 't' && typeof tag[1] === 'string'
+    )
+    .map((tag) => tag[1].toLowerCase());
 
   return muteList.tags.some((item) => eventHashtags.includes(item.value.toLowerCase()));
 }

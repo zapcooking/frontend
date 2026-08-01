@@ -40,6 +40,13 @@ describe('the individual checks', () => {
     expect(hasMutedTag(list, [])).toBe(false);
   });
 
+  it('tolerates malformed tags without throwing', () => {
+    const list = muteList({ tags: [{ type: 'tag', value: 'politics' }] });
+    const malformed = [null, 't', ['t'], ['t', 1], ['t', 'POLITICS']] as unknown as string[][];
+    expect(() => hasMutedTag(list, malformed)).not.toThrow();
+    expect(hasMutedTag(list, malformed)).toBe(true);
+  });
+
   it('matches a muted thread by event id', () => {
     const list = muteList({ threads: [{ type: 'thread', value: NOTE_ID }] });
     expect(isThreadMuted(list, NOTE_ID)).toBe(true);
