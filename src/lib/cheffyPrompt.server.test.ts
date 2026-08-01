@@ -7,8 +7,10 @@ import {
   CHEFFY_RECIPE_FORMAT_BLOCK,
   NOTE_REVIEW_COMMENT_INSTRUCTION,
   NOTE_REVIEW_RECIPE_INSTRUCTION,
+  NOTE_REVIEW_RECIPE_FORMAT_BLOCK,
   NOT_FOOD_PREFIX,
-  buildNoteReviewUserText
+  buildNoteReviewUserText,
+  stripMarkdownForNoteDraft
 } from './cheffyPrompt.server';
 
 describe('cheffyPrompt composition', () => {
@@ -42,10 +44,74 @@ describe('cheffyPrompt composition', () => {
       expect(prompt).toContain('UNTRUSTED');
       expect(prompt).toContain('NEVER comment on people');
     }
-    // Only recipe mode carries the structured format.
-    expect(NOTE_REVIEW_RECIPE_INSTRUCTION).toContain(CHEFFY_RECIPE_FORMAT_BLOCK);
-    expect(NOTE_REVIEW_COMMENT_INSTRUCTION).not.toContain('## Ingredients');
+    // Only recipe mode carries a structured format.
+    expect(NOTE_REVIEW_RECIPE_INSTRUCTION).toContain(NOTE_REVIEW_RECIPE_FORMAT_BLOCK);
+    expect(NOTE_REVIEW_COMMENT_INSTRUCTION).not.toContain('Ingredients');
     expect(NOTE_REVIEW_RECIPE_INSTRUCTION).toContain('(from a photo)');
+  });
+
+  // Both note-review modes publish as a plain-text feed reply. The
+  // editor-parsed block belongs to the chat path only — if it ever
+  // reappears here, the drafts go back to showing literal `#` in the feed.
+  it('note-review recipe mode asks for plain text, not the editor format', () => {
+    expect(NOTE_REVIEW_RECIPE_INSTRUCTION).not.toContain(CHEFFY_RECIPE_FORMAT_BLOCK);
+    expect(NOTE_REVIEW_RECIPE_INSTRUCTION).not.toContain('## Ingredients');
+    expect(NOTE_REVIEW_RECIPE_INSTRUCTION).not.toContain('# [Recipe Title]');
+    expect(NOTE_REVIEW_RECIPE_FORMAT_BLOCK).not.toMatch(/^#/m);
+    expect(NOTE_REVIEW_RECIPE_FORMAT_BLOCK).toContain('Ingredients\n- ');
+    expect(NOTE_REVIEW_RECIPE_FORMAT_BLOCK).toContain('Directions\n1. ');
+  });
+
+  // The chat path keeps the editor-parsed block — this change must not
+  // have narrowed it.
+  it('chat recipe format still carries its editor-parsed markers', () => {
+    expect(CHEFFY_RECIPE_FORMAT_BLOCK).toContain('## Ingredients');
+    expect(CHEFFY_RECIPE_FORMAT_BLOCK).toContain('⏲️ Prep time:');
+  });
+});
+
+describe('stripMarkdownForNoteDraft', () => {
+  it('removes ATX headers of every depth, keeping the text', () => {
+    const out = stripMarkdownForNoteDraft(
+      '# Beef Tacos (from a photo)\n\n## Ingredients\n- 1 lb beef\n\n###### Directions\n1. Cook it'
+    );
+    expect(out).toBe(
+      'Beef Tacos (from a photo)\n\nIngredients\n- 1 lb beef\n\nDirections\n1. Cook it'
+    );
+  });
+
+  it('unwraps ** and __ emphasis pairs', () => {
+    expect(stripMarkdownForNoteDraft('That **sear** is __serious__.')).toBe(
+      'That sear is serious.'
+    );
+  });
+
+  it('leaves plain-text list markers and ordinary prose alone', () => {
+    const draft = 'Ingredients\n- 2 cups flour\n\nDirections\n1. Mix\n2. Bake';
+    expect(stripMarkdownForNoteDraft(draft)).toBe(draft);
+  });
+
+  it('leaves unpaired markers and a lone asterisk alone', () => {
+    expect(stripMarkdownForNoteDraft('2 * 3 eggs and a stray ** here')).toBe(
+      '2 * 3 eggs and a stray ** here'
+    );
+  });
+
+  it('does not eat a hashtag or a mid-line #', () => {
+    expect(stripMarkdownForNoteDraft('Serve hot #foodstr\nApartment #3 rules')).toBe(
+      'Serve hot #foodstr\nApartment #3 rules'
+    );
+  });
+
+  it('keeps the emoji Details line intact', () => {
+    const line = '⏲️ Prep 15 min · 🍳 Cook 3 hr · 🍽️ Serves 4';
+    expect(stripMarkdownForNoteDraft(line)).toBe(line);
+  });
+
+  it('trims, so a bolded NOT_FOOD sentinel is still detectable at index 0', () => {
+    expect(stripMarkdownForNoteDraft('  **NOT_FOOD:** That is a bicycle.  ')).toBe(
+      'NOT_FOOD: That is a bicycle.'
+    );
   });
 });
 
