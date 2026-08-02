@@ -336,9 +336,10 @@
     property="og:description"
     content="Discover recipes, collections, and cooks on zap.cooking"
   />
-  <meta property="og:image" content="https://zap.cooking/logo_with_text.png" />
+  <!-- og:image / twitter:image / twitter:card come from +layout.svelte:533-541.
+       This route is not in `hasCustomOgTags`, so the layout's set is emitted here
+       and a page-level copy would be a second, silently-drifting claim. -->
 
-  <meta name="twitter:card" content="summary" />
   <meta property="twitter:domain" content="zap.cooking" />
   <meta property="twitter:url" content="https://zap.cooking/explore" />
   <meta name="twitter:title" content="Explore - zap.cooking" />
@@ -346,7 +347,6 @@
     name="twitter:description"
     content="Discover recipes, collections, and cooks on zap.cooking"
   />
-  <meta property="twitter:image" content="https://zap.cooking/logo_with_text.png" />
 </svelte:head>
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
