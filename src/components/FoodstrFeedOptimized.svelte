@@ -41,7 +41,7 @@
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import NoteRepost from './NoteRepost.svelte';
-  import CheffyNoteReviewTrigger from './CheffyNoteReviewTrigger.svelte';
+  import CheffyMediaReview from './CheffyMediaReview.svelte';
   import PostEngagementDrawer from './PostEngagementDrawer.svelte';
   import PostEngagementToggle from './PostEngagementToggle.svelte';
   import CommentThread from './comments/CommentThread.svelte';
@@ -5341,33 +5341,23 @@
                     {@const mediaUrls = getImageUrlsCached(event)}
 
                     <!-- Swipeable gallery: peeking 4:5 tiles with a count
-                     badge; single media shrink-wraps to the photo.
+                     badge; a single photo fills a cropped 4:3 preview.
                      The lightbox only renders images, so it gets an
                      images-only list (videos play inline in their
                      tiles) with the index remapped accordingly. -->
                     <div class="mb-3">
-                      <MediaCarousel
-                        items={mediaUrls}
-                        optimizeUrl={getOptimizedImageUrl}
-                        onItemClick={(url) => {
-                          const imageUrls = mediaUrls.filter((u) => isImageUrl(u));
-                          const imageIndex = imageUrls.indexOf(url);
-                          openImageModal(url, imageUrls, imageIndex >= 0 ? imageIndex : 0);
-                        }}
-                      />
+                      <CheffyMediaReview {event}>
+                        <MediaCarousel
+                          items={mediaUrls}
+                          optimizeUrl={getOptimizedImageUrl}
+                          onItemClick={(url) => {
+                            const imageUrls = mediaUrls.filter((u) => isImageUrl(u));
+                            const imageIndex = imageUrls.indexOf(url);
+                            openImageModal(url, imageUrls, imageIndex >= 0 ? imageIndex : 0);
+                          }}
+                        />
+                      </CheffyMediaReview>
                     </div>
-
-                    <!-- Mobile: Cheffy trigger in a slim right-aligned row
-                     directly below the image block (desktop keeps the
-                     in-row trigger; the ⋯ menu is the secondary entry
-                     everywhere). buttonClass pads the tap target to
-                     ~40px. -->
-                    <CheffyNoteReviewTrigger
-                      {event}
-                      size={20}
-                      buttonClass="!p-2.5 rounded-full hover:bg-accent-gray transition-colors"
-                      wrapClass="sm:hidden flex justify-end px-2 -mt-2 mb-1"
-                    />
                   {/if}
 
                   <!-- Reaction pills row -->

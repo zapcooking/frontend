@@ -10,6 +10,7 @@
   import TwitterEmbed from './TwitterEmbed.svelte';
   import YouTubeEmbed from './YouTubeEmbed.svelte';
   import MediaCarousel from './MediaCarousel.svelte';
+  import CheffyMediaReview from './CheffyMediaReview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import { isImageUrl, filterImageUrls } from '$lib/imageUrls';
   import MediaLightbox from './MediaLightbox.svelte';
@@ -22,6 +23,7 @@
   export let embedDepth: number = 0; // Track nesting depth to prevent infinite recursion
   export let collapsible: boolean = true; // Enable collapsible long content
   export let maxLength: number = 500; // Character limit before collapse
+  export let event: NDKEvent | undefined = undefined;
 
   let isExpanded: boolean = false;
 
@@ -123,10 +125,9 @@
     );
   }
 
-  // Collapse runs of consecutive media URLs (ignoring the whitespace
-  // between them) into a single `media-gallery` part so they render as
-  // a swipeable carousel instead of a vertical stack. Lone media items
-  // keep their inline rendering.
+  // Collapse media URLs (and consecutive runs, ignoring whitespace between
+  // them) into `media-gallery` parts so single photos and galleries share
+  // the same full-width rendering and lightbox behavior.
   function groupMediaRuns(parts: any[]): any[] {
     const out: any[] = [];
     let i = 0;
@@ -154,11 +155,9 @@
           }
           break;
         }
-        if (urls.length > 1) {
-          out.push({ type: 'media-gallery', urls, key: `gallery-${part.key ?? i}` });
-          i = j;
-          continue;
-        }
+        out.push({ type: 'media-gallery', urls, key: `gallery-${part.key ?? i}` });
+        i = j;
+        continue;
       }
       out.push(part);
       i++;
@@ -388,6 +387,7 @@
   }
 
   $: renderParts = normalizeParts(groupMediaRuns(finalParsedContent));
+  $: firstMediaIndex = renderParts.findIndex((part: any) => part.type === 'media-gallery');
 
   const LIGHTNING_REGEX = /(?:(?:lightning|nostr):)?((lnbc|lntb|lnbcrt)[a-z0-9]{50,})/gi;
 
@@ -438,16 +438,28 @@
   {#each renderParts as part, i}
     {#if part.type === 'text'}<span class="whitespace-pre-wrap break-words">{part.content}</span>
     {:else if part.type === 'media-gallery'}
-      <!-- Consecutive media URLs render as a swipeable carousel:
-           peeking 4:5 tiles with a count badge. -->
+      <!-- Single photos fill the column; consecutive media URLs render
+           as a swipeable carousel with peeking 4:5 tiles. -->
       <div class="my-1">
-        <MediaCarousel
-          items={part.urls}
-          onItemClick={(url) => {
-            const index = allImageUrls.indexOf(url);
-            openImageModal(url, index >= 0 ? index : 0);
-          }}
-        />
+        {#if event && i === firstMediaIndex}
+          <CheffyMediaReview {event}>
+            <MediaCarousel
+              items={part.urls}
+              onItemClick={(url) => {
+                const index = allImageUrls.indexOf(url);
+                openImageModal(url, index >= 0 ? index : 0);
+              }}
+            />
+          </CheffyMediaReview>
+        {:else}
+          <MediaCarousel
+            items={part.urls}
+            onItemClick={(url) => {
+              const index = allImageUrls.indexOf(url);
+              openImageModal(url, index >= 0 ? index : 0);
+            }}
+          />
+        {/if}
       </div>
     {:else if part.type === 'hashtag'}
       <button
