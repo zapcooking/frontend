@@ -8,6 +8,7 @@
   export let className: string = '';
   export let imageUrl: string | null = null; // Optional override for profile picture
   export let interactive: boolean = true;
+  export let ariaLabel: string = 'Avatar';
   
   const dispatch = createEventDispatcher();
   
@@ -269,6 +270,7 @@
   role="button"
   tabindex={interactive ? 0 : -1}
   aria-disabled={!interactive}
+  aria-label={ariaLabel}
   on:keydown={(e) => {
     if (interactive && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();

@@ -42,6 +42,8 @@
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import NoteRepost from './NoteRepost.svelte';
   import CheffyNoteReviewTrigger from './CheffyNoteReviewTrigger.svelte';
+  import PostEngagementDrawer from './PostEngagementDrawer.svelte';
+  import PostEngagementToggle from './PostEngagementToggle.svelte';
   import CommentThread from './comments/CommentThread.svelte';
   import ZapModal from './ZapModal.svelte';
   import ShareModal from './ShareModal.svelte';
@@ -535,6 +537,17 @@
 
   // Lazy loading for engagement components
   let visibleNotes = new Set<string>();
+  let expandedEngagements = new Set<string>();
+
+  function toggleEngagementDrawer(eventId: string) {
+    const next = new Set(expandedEngagements);
+    if (next.has(eventId)) {
+      next.delete(eventId);
+    } else {
+      next.add(eventId);
+    }
+    expandedEngagements = next;
+  }
 
   // Lazy DOM rendering — only mount full component tree for items near the viewport
   let renderedNotes = new Set<string>();
@@ -937,12 +950,12 @@
     }
   }
 
-  // Click anywhere on a feed card (except on a link, button, or while
-  // selecting text) to open the single-note view.
+  // Click anywhere on a feed card (except on controls, expanded detail
+  // surfaces, or while selecting text) to open the single-note view.
   function gotoNoteFromCard(e: MouseEvent, ev: NDKEvent) {
     if (
       e.target instanceof Element &&
-      e.target.closest('a, button, input, textarea, [role="button"]')
+      e.target.closest('a, button, input, textarea, [role="button"], [data-stop-card-navigation]')
     ) {
       return;
     }
@@ -5411,19 +5424,20 @@
                     </div>
 
                     {#if visibleNotes.has(event.id)}
-                      <!-- Desktop-only on the card face: the mobile
-                       content column (stacked px paddings, ~254px
-                       usable at 390px) cannot fit the action cluster
-                       plus trigger on one line for any real engagement
-                       counts, so below sm the ⋯ menu's "Ask Cheffy"
-                       item is the entry point instead. Renders nothing
-                       for imageless notes — the trigger owns detection. -->
-                      <CheffyNoteReviewTrigger
-                        {event}
-                        wrapClass="hidden sm:block ml-auto hover:bg-accent-gray rounded-full p-1.5 transition-colors"
-                      />
+                      <div class="ml-auto flex items-center gap-0.5">
+                        <PostEngagementToggle
+                          expanded={expandedEngagements.has(event.id)}
+                          on:toggle={() => toggleEngagementDrawer(event.id)}
+                        />
+                      </div>
                     {/if}
                   </div>
+
+                  {#if visibleNotes.has(event.id)}
+                    <div class="px-2 sm:px-0">
+                      <PostEngagementDrawer {event} open={expandedEngagements.has(event.id)} />
+                    </div>
+                  {/if}
 
                   <div class="px-2 sm:px-0">
                     {#if visibleNotes.has(event.id)}
