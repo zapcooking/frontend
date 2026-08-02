@@ -92,9 +92,10 @@
   <meta property="og:type" content="website" />
   <meta property="og:title" content="All Tags - zap.cooking" />
   <meta property="og:description" content="Browse all recipe tags on zap.cooking" />
-  <!-- og:image / twitter:image / twitter:card come from +layout.svelte:533-541.
-       This route is not in `hasCustomOgTags`, so the layout's set is emitted here
-       and a page-level copy would be a second, silently-drifting claim. -->
+  <!-- og:image / twitter:image / twitter:card come from the `{#if !hasCustomOgTags}`
+       block in +layout.svelte's <svelte:head>. This route is not in `hasCustomOgTags`,
+       so the layout's set is emitted here and a page-level copy would be a second,
+       silently-drifting claim. -->
 
   <meta property="twitter:domain" content="zap.cooking" />
   <meta property="twitter:url" content="https://zap.cooking/explore/all" />
