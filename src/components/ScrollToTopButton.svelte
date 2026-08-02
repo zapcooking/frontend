@@ -14,6 +14,7 @@
   // translateX(-50%) that centers the button and jump it left mid-animation.
   import { fade } from 'svelte/transition';
   import CaretUpIcon from 'phosphor-svelte/lib/CaretUp';
+  import { getActiveScrollTop, scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
 
   // Show only after scrolling at least this many px down, so it never
   // competes with page chrome when the user is already near the top.
@@ -28,7 +29,7 @@
   let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
 
   function onScroll() {
-    const top = scrollEl?.scrollTop ?? window.scrollY ?? 0;
+    const top = getActiveScrollTop(scrollEl);
     visible = top > SHOW_THRESHOLD_PX;
 
     // Dim while actively scrolling (same treatment as the compose FAB) so
@@ -41,13 +42,12 @@
   }
 
   function scrollToTop() {
-    const target = scrollEl ?? window;
-    target.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollActiveSurfaceToTop(scrollEl);
   }
 
   onMount(() => {
     if (typeof window === 'undefined') return;
-    // Defer one tick so #app-scroll exists after the layout mounts.
+    // Resolve the container after this component and its parent layout mount.
     scrollEl = document.getElementById('app-scroll');
     if (scrollEl) {
       scrollEl.addEventListener('scroll', onScroll, { passive: true });

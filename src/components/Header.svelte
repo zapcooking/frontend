@@ -33,6 +33,7 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
+  import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
   import {
     membershipStatusMap,
     queueMembershipLookup,
@@ -144,8 +145,7 @@
    */
   function scrollToTopOnSearch() {
     if (!browser) return;
-    const el = document.getElementById('app-scroll');
-    (el ?? window).scrollTo({ top: 0, behavior: 'smooth' });
+    scrollActiveSurfaceToTop(document.getElementById('app-scroll'));
   }
 
 </script>

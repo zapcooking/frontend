@@ -63,6 +63,7 @@
   // Refresh engagement counts when the tab returns from background
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement } from '$lib/engagementCache';
+  import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
 
   // Version-skew guard: when a new deploy is detected (kit.version
   // pollInterval in svelte.config.js), turn the next client-side navigation
@@ -228,9 +229,7 @@
   // buttons) are unaffected. Mirrors the iOS/Twitter "tap status bar" habit.
   function scrollToTop() {
     if (!browser) return;
-    const el = document.getElementById('app-scroll');
-    const target = el ?? window;
-    target.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollActiveSurfaceToTop(document.getElementById('app-scroll'));
   }
 
   // Handle deep links from Capacitor (for NIP-46 pairing)
@@ -571,7 +570,6 @@
       <div
         class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
         on:click|self={scrollToTop}
-        title="Back to top"
       >
         <Header />
         <!-- Decorative connector (desktop): a vertical line just left of
