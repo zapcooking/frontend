@@ -984,6 +984,16 @@ describe('dual entry points (PR A, as course-corrected)', () => {
     expect(content).toContain('export let event: NDKEvent | undefined');
   });
 
+  it('offers one universal photo reply and one clearly food-specific action', () => {
+    const review = readFileSync('src/components/CheffyNoteReview.svelte', 'utf8');
+    expect(review).toContain('Ask Cheffy about this photo');
+    expect(review).toContain('Say something nice');
+    expect(review).toContain('A short, thoughtful comment about the photo');
+    expect(review).toContain('Identify any dish');
+    expect(review).toContain('For food photos, identify it and draft a recipe');
+    expect(review).not.toContain('Ask Cheffy about this dish');
+  });
+
   it('single photos fill the column and expose the uncropped lightbox', () => {
     const media = readFileSync('src/components/MediaCarousel.svelte', 'utf8');
     expect(media).toContain('width: 100%');
