@@ -7,6 +7,7 @@
   import { formatSats } from '$lib/utils';
   import { optimizeImageUrl } from '$lib/imageOptimizer';
   import { format as formatDate } from 'timeago.js';
+  import ZapCommentContent from './ZapCommentContent.svelte';
 
   export let open = false;
   export let zappers: Zapper[] = [];
@@ -164,54 +165,51 @@
     {:else if displayZappers.length > 0}
       <div class="space-y-2 max-h-96 overflow-y-auto">
         {#each displayZappers as zapper, index (zapper.pubkey)}
-          <button
-            class="relative w-full flex items-center gap-3 p-3 rounded-lg hover:bg-accent-gray transition-colors cursor-pointer text-left"
+          <div
+            class="relative w-full flex flex-wrap items-center gap-3 p-3 rounded-lg hover:bg-accent-gray transition-colors text-left"
             style="background-color: {index === 0 ? 'var(--color-input)' : 'transparent'}"
-            on:click={() => handleZapperClick(zapper.pubkey)}
           >
-            <!-- Avatar -->
-            <div class="relative flex-shrink-0">
-              {#if zapper.profilePicture}
-                <img
-                  src={optimizeImageUrl(zapper.profilePicture, { width: 48, height: 48, format: 'webp' })}
-                  alt={zapper.displayName}
-                  class="w-12 h-12 rounded-full object-cover"
-                  loading="lazy"
-                />
-              {:else}
-                <div
-                  class="w-12 h-12 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-sm font-bold"
-                >
-                  {getInitials(zapper.displayName || 'A')}
-                </div>
-              {/if}
-              
-              <!-- Top zapper crown -->
-              {#if index === 0}
-                <div class="absolute -top-1 -right-1 text-lg">👑</div>
-              {/if}
-            </div>
+            <button
+              type="button"
+              class="flex min-w-0 flex-1 items-center gap-3 text-left"
+              on:click={() => handleZapperClick(zapper.pubkey)}
+              aria-label={`Open ${zapper.displayName || 'zapper'}'s profile`}
+            >
+              <!-- Avatar -->
+              <div class="relative flex-shrink-0">
+                {#if zapper.profilePicture}
+                  <img
+                    src={optimizeImageUrl(zapper.profilePicture, { width: 48, height: 48, format: 'webp' })}
+                    alt={zapper.displayName}
+                    class="w-12 h-12 rounded-full object-cover"
+                    loading="lazy"
+                  />
+                {:else}
+                  <div
+                    class="w-12 h-12 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-sm font-bold"
+                  >
+                    {getInitials(zapper.displayName || 'A')}
+                  </div>
+                {/if}
 
-            <!-- Profile Info -->
-            <div class="flex-1 min-w-0">
-              <div class="font-semibold truncate" style="color: var(--color-text-primary)">
-                {zapper.displayName}
+                <!-- Top zapper crown -->
+                {#if index === 0}
+                  <div class="absolute -top-1 -right-1 text-lg">👑</div>
+                {/if}
               </div>
-              {#if zapper.comment}
-                <div
-                  class="text-sm italic mt-0.5 line-clamp-2 whitespace-pre-wrap break-words"
-                  style="color: var(--color-text-secondary)"
-                  title={zapper.comment}
-                >
-                  "{zapper.comment}"
+
+              <!-- Profile Info -->
+              <div class="flex-1 min-w-0">
+                <div class="font-semibold truncate" style="color: var(--color-text-primary)">
+                  {zapper.displayName}
                 </div>
-              {/if}
-              {#if formatTimestamp(zapper.timestamp)}
-                <div class="text-xs text-caption mt-0.5">
-                  {formatTimestamp(zapper.timestamp)}
-                </div>
-              {/if}
-            </div>
+                {#if formatTimestamp(zapper.timestamp)}
+                  <div class="text-xs text-caption mt-0.5">
+                    {formatTimestamp(zapper.timestamp)}
+                  </div>
+                {/if}
+              </div>
+            </button>
 
             <!-- Amount with glow -->
             <div class="flex items-center gap-1 px-3 py-1.5 rounded-full {getZapGlowClass(zapper.amount)}"
@@ -221,7 +219,15 @@
                 {formatSats(zapper.amount)}
               </span>
             </div>
-          </button>
+            {#if zapper.comment}
+              <div
+                class="zapper-comment w-full min-w-0 text-sm italic"
+                style="color: var(--color-text-secondary)"
+              >
+                <ZapCommentContent comment={zapper.comment} />
+              </div>
+            {/if}
+          </div>
         {/each}
       </div>
     {:else}
@@ -233,6 +239,16 @@
 </Modal>
 
 <style>
+  .zapper-comment {
+    margin-left: 3.75rem;
+  }
+
+  @media (max-width: 480px) {
+    .zapper-comment {
+      margin-left: 0;
+    }
+  }
+
   /* Custom scrollbar for zappers list */
   .overflow-y-auto {
     scrollbar-width: thin;

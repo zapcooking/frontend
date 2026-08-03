@@ -154,6 +154,22 @@ export async function loadPostEngagementDetails(
 
   const events = new Map<string, NDKEvent>();
   const relays = new Set(eventRelayUrls(targetEvent).map(normalizeRelayUrl));
+
+  // Temporary relays connect asynchronously. If the subscription starts first,
+  // its initial REQ can miss the aggregator carrying a zap receipt and then cache
+  // that incomplete result. Match the main engagement cache by connecting these
+  // relays before building the close-on-EOSE subscription.
+  await Promise.all(
+    ZAP_AGGREGATOR_RELAYS.map(async (url) => {
+      try {
+        const relay = ndk.pool.getRelay(url, true, true);
+        if (relay.connectivity?.status !== 1) await relay.connect();
+      } catch {
+        // Other connected relays can still satisfy the request.
+      }
+    })
+  );
+
   const relayUrls = new Set([
     ...ndk.pool.connectedRelays().map((relay) => relay.url),
     ...(ndk.explicitRelayUrls ?? []),

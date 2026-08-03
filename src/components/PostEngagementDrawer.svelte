@@ -10,6 +10,7 @@
     type PostEngagementDetails
   } from '$lib/postEngagementDetails';
   import PostEngagementPerson from './PostEngagementPerson.svelte';
+  import ZapCommentContent from './ZapCommentContent.svelte';
 
   export let event: NDKEvent;
   export let open = false;
@@ -113,7 +114,9 @@
                   </span>
                 </PostEngagementPerson>
                 {#if zap.comment}
-                  <p class="zap-comment">{zap.comment}</p>
+                  <div class="zap-comment">
+                    <ZapCommentContent comment={zap.comment} />
+                  </div>
                 {/if}
               {/each}
             </div>
