@@ -26,6 +26,7 @@ import {
 } from '$lib/encryptionService';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { fetchSparkBackupEvents } from './backupEventFetch';
 
 /**
  * Dynamically import bip39 with Buffer polyfill
@@ -1739,19 +1740,25 @@ export async function listSparkBackups(pubkey: string): Promise<SparkBackupEntry
   if (!browser) return [];
 
   try {
-    const { ndk, ndkReady } = await import('$lib/nostr');
+    const { ndk, ndkReady, getCurrentRelays } = await import('$lib/nostr');
+    const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
     const { get } = await import('svelte/store');
 
     await ndkReady;
     const ndkInstance = get(ndk);
 
-    const events = await ndkInstance.fetchEvents(
-      {
-        kinds: [BACKUP_EVENT_KIND],
-        authors: [pubkey]
-      },
-      { closeOnEose: true }
-    );
+    const filter = {
+      kinds: [BACKUP_EVENT_KIND],
+      authors: [pubkey]
+    };
+
+    // Query the configured relays directly: these are the relays the wallet
+    // backup was published to, while NDK's author routing can select a
+    // different outbox set. A live subscription also follows relays that are
+    // still connecting, and fetchSparkBackupEvents guarantees a hard deadline
+    // so a missing EOSE cannot leave the restore screen spinning forever.
+    const relaySet = NDKRelaySet.fromRelayUrls(getCurrentRelays(), ndkInstance, true);
+    const events = await fetchSparkBackupEvents(ndkInstance, filter, relaySet);
 
     if (!events || events.size === 0) {
       return [];
