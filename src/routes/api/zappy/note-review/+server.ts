@@ -1,9 +1,9 @@
 /**
  * Cheffy Note Photo Review API.
  *
- * A Pro Kitchen member points Cheffy at a food photo in a kind-1 feed
- * note; Cheffy drafts either a warm reply-comment or a reverse-
- * engineered recipe. The draft is ONLY a draft — the member edits and
+ * A Pro Kitchen member points Cheffy at a photo in a kind-1 feed note;
+ * Cheffy drafts either a contextual reply-comment or, for food photos,
+ * a reverse-engineered recipe. The draft is ONLY a draft — the member edits and
  * signs the eventual reply themselves (client-side, via postComment).
  * Nothing this endpoint returns is ever published automatically.
  *
@@ -255,7 +255,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
                 type: 'image_url',
                 image_url: {
                   url: imageUrl,
-                  // Scanner precedent: cheaper, plenty for a dish photo.
+                  // Scanner precedent: cheaper, plenty for a feed photo.
                   // First quality knob if recipe-mode drafts feel
                   // underspecified: raise detail before touching prompts
                   // or token caps.
@@ -311,7 +311,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     // is. Other markup (backticks, unpaired `**`) is left alone and
     // would still be a non-empty draft. Scoped to this endpoint: chat
     // keeps markdown.
-    const trimmed = output ? stripMarkdownForNoteDraft(output) : '';
+    let trimmed = output ? stripMarkdownForNoteDraft(output) : '';
     if (!trimmed) {
       return json(
         { ok: false, error: 'Cheffy went quiet for a second. Please try again.' },
@@ -319,18 +319,22 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
-    // Prompt-level refusal: the photo isn't food. Typed dead-end — the
-    // playful line is display copy, never a postable draft.
+    // Recipe mode is food-only. Comment mode is universal, so if the model
+    // emits the legacy sentinel anyway, keep its useful description as the
+    // editable draft instead of rejecting a valid non-food photo.
     if (trimmed.startsWith(NOT_FOOD_PREFIX)) {
       const line = trimmed.slice(NOT_FOOD_PREFIX.length).trim();
-      return json(
-        {
-          ok: false,
-          code: 'NOT_FOOD',
-          error: line || "That doesn't look like food to Cheffy — try a photo of a dish."
-        },
-        { status: 422 }
-      );
+      if (mode === 'recipe') {
+        return json(
+          {
+            ok: false,
+            code: 'NOT_FOOD',
+            error: line || "That doesn't look like food to Cheffy — try a photo of a dish."
+          },
+          { status: 422 }
+        );
+      }
+      trimmed = line || 'That photo definitely caught my eye.';
     }
 
     // Spend a purchased credit only on a successful draft — NOT_FOOD,

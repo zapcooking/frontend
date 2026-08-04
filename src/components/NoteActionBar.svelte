@@ -5,6 +5,8 @@
   import NoteRepost from './NoteRepost.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import CheffyNoteReviewTrigger from './CheffyNoteReviewTrigger.svelte';
+  import PostEngagementDrawer from './PostEngagementDrawer.svelte';
+  import PostEngagementToggle from './PostEngagementToggle.svelte';
   import ZapModal from './ZapModal.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { fetchEngagement, optimisticZapUpdate, markSelfZapCompleted } from '$lib/engagementCache';
@@ -27,10 +29,17 @@
   /** Show the repost/quote button */
   export let showRepost: boolean = true;
 
-  /** Show the "Ask Cheffy about this dish" trigger (image-bearing notes only) */
+  /** Show the "Ask Cheffy about this photo" trigger (image-bearing notes only) */
   export let showCheffy: boolean = true;
 
   let zapModalOpen = false;
+  let engagementOpen = false;
+  let engagementEventId = event.id;
+
+  $: if (event.id !== engagementEventId) {
+    engagementEventId = event.id;
+    engagementOpen = false;
+  }
 
   // Called as the `onZapClick` callback from NoteTotalZaps when its
   // internal one-tap path isn't applicable (no in-app wallet, toggle off,
@@ -111,12 +120,22 @@
       <NoteTotalZaps {event} onZapClick={openZapModal} />
     </div>
 
-    {#if showCheffy}
-      <!-- Bottom-right of the card (ml-auto). Renders nothing for
-           imageless notes — the trigger owns detection. -->
-      <CheffyNoteReviewTrigger {event} wrapClass={`${iconWrapClass} ml-auto`} />
+    {#if !isCompact}
+      <div class="trailing-actions">
+        {#if showCheffy}
+          <CheffyNoteReviewTrigger {event} wrapClass={iconWrapClass} />
+        {/if}
+        <PostEngagementToggle
+          expanded={engagementOpen}
+          on:toggle={() => (engagementOpen = !engagementOpen)}
+        />
+      </div>
     {/if}
   </div>
+
+  {#if !isCompact}
+    <PostEngagementDrawer {event} open={engagementOpen} />
+  {/if}
 </div>
 
 {#if zapModalOpen}
@@ -139,6 +158,13 @@
 
   .compact .action-row {
     gap: 0.125rem;
+  }
+
+  .trailing-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    margin-left: auto;
   }
 
   .zap-pills-row {

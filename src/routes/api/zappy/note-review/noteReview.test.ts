@@ -224,7 +224,7 @@ describe('membership gate', () => {
     mocks.hasActiveMembership.mockResolvedValue(false);
     await seedCredits(1);
     fetchMock.mockResolvedValue(openaiOk('NOT_FOOD: A very photogenic cat.'));
-    const { res } = await call(validBody());
+    const { res } = await call(validBody({ mode: 'recipe' }));
     expect(res.status).toBe(422);
     expect(await getCreditBalance(undefined, PUBKEY)).toBe(1); // still spendable
   });
@@ -379,9 +379,16 @@ describe('model output handling', () => {
     expect(res.status).toBe(500);
   });
 
-  it('422s NOT_FOOD with the playful line as display copy', async () => {
+  it('keeps a non-food description as an editable comment draft', async () => {
     fetchMock.mockResolvedValue(openaiOk('NOT_FOOD: A very photogenic cat.'));
     const { res, data } = await call(validBody());
+    expect(res.status).toBe(200);
+    expect(data.output).toBe('A very photogenic cat.');
+  });
+
+  it('422s NOT_FOOD in recipe mode with the playful line as display copy', async () => {
+    fetchMock.mockResolvedValue(openaiOk('NOT_FOOD: A very photogenic cat.'));
+    const { res, data } = await call(validBody({ mode: 'recipe' }));
     expect(res.status).toBe(422);
     expect(data.code).toBe('NOT_FOOD');
     expect(data.error).toBe('A very photogenic cat.');
@@ -391,7 +398,7 @@ describe('model output handling', () => {
   // not a postable draft that opens with "NOT_FOOD:".
   it('still detects the NOT_FOOD sentinel when the model bolds it', async () => {
     fetchMock.mockResolvedValue(openaiOk('**NOT_FOOD:** A very photogenic cat.'));
-    const { res, data } = await call(validBody());
+    const { res, data } = await call(validBody({ mode: 'recipe' }));
     expect(res.status).toBe(422);
     expect(data.code).toBe('NOT_FOOD');
     expect(data.error).toBe('A very photogenic cat.');

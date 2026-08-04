@@ -36,14 +36,16 @@ describe('cheffyPrompt composition', () => {
     expect(FORMAT_SYSTEM_INSTRUCTION).toContain('## Directions');
   });
 
-  it('note-review prompts share voice/safety and the refusal sentinel', () => {
+  it('note-review prompts share voice/safety while only recipe mode rejects non-food', () => {
     for (const prompt of [NOTE_REVIEW_COMMENT_INSTRUCTION, NOTE_REVIEW_RECIPE_INSTRUCTION]) {
       expect(prompt).toContain(CHEFFY_VOICE_BLOCK);
       expect(prompt).toContain(CHEFFY_SAFETY_BLOCK);
-      expect(prompt).toContain(NOT_FOOD_PREFIX);
       expect(prompt).toContain('UNTRUSTED');
-      expect(prompt).toContain('NEVER comment on people');
+      expect(prompt).toContain('NEVER assess bodies');
     }
+    expect(NOTE_REVIEW_COMMENT_INSTRUCTION).not.toContain(NOT_FOOD_PREFIX);
+    expect(NOTE_REVIEW_COMMENT_INSTRUCTION).toContain('object, a place, an activity');
+    expect(NOTE_REVIEW_RECIPE_INSTRUCTION).toContain(NOT_FOOD_PREFIX);
     // Only recipe mode carries a structured format.
     expect(NOTE_REVIEW_RECIPE_INSTRUCTION).toContain(NOTE_REVIEW_RECIPE_FORMAT_BLOCK);
     expect(NOTE_REVIEW_COMMENT_INSTRUCTION).not.toContain('Ingredients');

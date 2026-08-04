@@ -9,10 +9,11 @@
    * dots. Desktop gets hover-revealed chevrons plus mouse drag-to-swipe
    * since there's no touch gesture there.
    *
-   * A single media item renders in a frame that shrink-wraps the
-   * photo, with no carousel chrome.
+   * A single photo fills the content column in a cropped 4:3 preview;
+   * tapping it opens the complete image in the lightbox.
    */
   import { onDestroy } from 'svelte';
+  import ArrowsOutSimpleIcon from 'phosphor-svelte/lib/ArrowsOutSimple';
   import VideoPreview from './VideoPreview.svelte';
 
   export let items: string[] = [];
@@ -187,6 +188,9 @@
         draggable="false"
         on:error={handleImageError}
       />
+      <span class="expand-badge" title="Expand image" aria-hidden="true">
+        <ArrowsOutSimpleIcon size={18} weight="bold" />
+      </span>
     </button>
   {/if}
 {:else if items.length > 1}
@@ -266,15 +270,14 @@
 
 <style>
   /* ── Single media item ───────────────────────────────────────────
-     The frame shrink-wraps the image so the rounded box always matches
-     the photo's own proportions — no letterbox / pillarbox bars. Very
-     tall images cap at 70vh (and narrow accordingly); very wide ones
-     cap at full width with a short box. Images smaller than the column
-     render at natural size rather than upscaling. */
+     A consistent full-column preview keeps single-photo posts from
+     collapsing to the source image's intrinsic width. The lightbox
+     remains the complete, uncropped view. */
   .single-media-button {
+    position: relative;
     display: block;
-    width: fit-content;
-    max-width: 100%;
+    width: 100%;
+    aspect-ratio: 4 / 3;
     border: none;
     padding: 0;
     background: transparent;
@@ -284,16 +287,38 @@
   }
   .single-media-image {
     display: block;
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: 70vh;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
     -webkit-user-drag: none;
     user-select: none;
     transition: opacity 0.15s ease-out;
   }
   .single-media-button:hover .single-media-image {
     opacity: 0.95;
+  }
+
+  .expand-badge {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.58);
+    color: #fff;
+    opacity: 0.88;
+    pointer-events: none;
+    transition: opacity 0.15s ease-out;
+  }
+
+  .single-media-button:hover .expand-badge,
+  .single-media-button:focus-visible .expand-badge {
+    opacity: 1;
   }
 
   /* ── Multi-item gallery ──────────────────────────────────────── */
