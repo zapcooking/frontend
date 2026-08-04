@@ -6590,7 +6590,7 @@
     flex: 0 0 auto;
   }
   .spark-backup-select-active .spark-wallet-pane,
-  .spark-backup-select-content {
+  .spark-backup-select-active .spark-backup-select-content {
     display: flex;
     flex: 1 1 0;
     min-height: 0;
