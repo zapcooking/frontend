@@ -1,4 +1,4 @@
-import { setCORS as googletranslate } from 'google-translate-api-browser';
+import { translate as googletranslate } from 'google-translate-api-browser';
 import type { TranslateOption } from './state';
 //import { translate as libretranslate } from 'libretranslate';
 
@@ -12,11 +12,10 @@ export async function translate(
   string: string
 ): Promise<TranslationResult | ''> {
   if (translateOption.option == 'google') {
-    const gTranslate = googletranslate(translateOption.data) as (
-      text: string,
-      options: { to: string }
-    ) => Promise<TranslationResult>;
-    const e = await gTranslate(string, { to: translateOption.lang });
+    const e = await googletranslate(string, {
+      corsUrl: translateOption.data,
+      to: translateOption.lang
+    });
     return e;
   }
   /*if (translateOption.option == 'libretranslate') {
