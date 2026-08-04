@@ -102,13 +102,24 @@ describe('fetchSparkBackupEvents', () => {
     expect(harness.subscription.stop).toHaveBeenCalledOnce();
   });
 
-  it('stops cleanly if starting the subscription fails', async () => {
+  it('rejects if starting the subscription fails', async () => {
     const harness = createSubscriptionHarness();
     harness.subscription.start.mockRejectedValueOnce(new Error('relay failure'));
 
     await expect(
       fetchSparkBackupEvents(harness.ndk as never, filter, relaySet, 7000, 1000)
-    ).resolves.toEqual(new Set());
+    ).rejects.toThrow('relay failure');
     expect(harness.subscription.stop).toHaveBeenCalledOnce();
+  });
+
+  it('rejects if creating the subscription throws', async () => {
+    const harness = createSubscriptionHarness();
+    harness.ndk.subscribe.mockImplementationOnce(() => {
+      throw new Error('subscribe failed');
+    });
+
+    await expect(
+      fetchSparkBackupEvents(harness.ndk as never, filter, relaySet, 7000, 1000)
+    ).rejects.toThrow('subscribe failed');
   });
 });
