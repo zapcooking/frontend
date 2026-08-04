@@ -38,7 +38,7 @@ interface CachedDetails {
 const detailCache = new Map<string, CachedDetails>();
 
 function normalizeRelayUrl(url: string): string {
-  return url.trim().replace(/\/$/, '');
+  return url.trim().replace(/\/+$/, '');
 }
 
 function reactionEmoji(content: string): string | null {

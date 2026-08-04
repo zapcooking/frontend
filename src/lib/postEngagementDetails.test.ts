@@ -32,7 +32,12 @@ describe('aggregatePostEngagementEvents', () => {
   it('deduplicates reposters and relay URLs', () => {
     const details = aggregatePostEngagementEvents(
       [event('1', 6, 'alice'), event('2', 16, 'alice'), event('3', 6, 'bob')],
-      ['wss://relay.example/', 'wss://relay.example', 'wss://other.example/']
+      [
+        'wss://relay.example/',
+        'wss://relay.example',
+        'wss://relay.example///',
+        'wss://other.example/'
+      ]
     );
 
     expect(details.reposts).toEqual(['alice', 'bob']);
