@@ -4457,11 +4457,14 @@
     <div
       class="wallet-scroll picker-view"
       class:picker-view--connect-step={selectedWalletType !== null}
+      class:spark-backup-select-active={
+        selectedWalletType === 4 && sparkRestoreMode === 'nostr-select'
+      }
     >
       {#if selectedWalletType !== null}
         <!-- Sub-screen back-bar — returns to picker home (wallet type
              selection) rather than dismissing the picker entirely. -->
-        <div class="flex items-center gap-2 mb-6">
+        <div class="picker-back-bar flex items-center gap-2 mb-6">
           <button
             type="button"
             class="p-2 rounded-full hover:bg-input transition-colors cursor-pointer flex items-center justify-center min-w-[44px] min-h-[44px]"
@@ -4767,7 +4770,7 @@
         </div>
       {:else if selectedWalletType === 4}
         <!-- Spark wallet options -->
-        <div>
+        <div class="spark-wallet-pane">
           {#if canCheckSparkBackup && sparkBackupChecking}
             <div
               class="mb-4 p-3 rounded-lg border text-sm"
@@ -4847,41 +4850,45 @@
               </div>
             {/if}
           {:else if sparkRestoreMode === 'nostr-select'}
-            <p class="text-caption mb-4">Choose a backup to restore:</p>
-            <div class="space-y-2 mb-4">
-              {#each sparkBackupOptions as backup}
-                <button
-                  class={`w-full p-3 rounded-lg text-left transition-colors hover:bg-accent-gray ${
-                    selectedSparkBackupId === backup.id ? 'border-amber-500 bg-amber-500/10' : ''
-                  }`}
-                  style="border: 1px solid var(--color-input-border);"
-                  on:click={() => (selectedSparkBackupId = backup.id)}
-                >
-                  <div class="flex items-center justify-between gap-3">
-                    <div class="text-sm font-medium" style="color: var(--color-text-primary)">
-                      {formatSparkBackupLabel(backup)}
+            <div class="spark-backup-select-content">
+              <p class="text-caption mb-4">Choose a backup to restore:</p>
+              <div class="spark-backup-list space-y-2">
+                {#each sparkBackupOptions as backup}
+                  <button
+                    class={`w-full p-3 rounded-lg text-left transition-colors hover:bg-accent-gray ${
+                      selectedSparkBackupId === backup.id ? 'border-amber-500 bg-amber-500/10' : ''
+                    }`}
+                    style="border: 1px solid var(--color-input-border);"
+                    on:click={() => (selectedSparkBackupId = backup.id)}
+                  >
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm font-medium" style="color: var(--color-text-primary)">
+                        {formatSparkBackupLabel(backup)}
+                      </div>
                     </div>
-                  </div>
-                  <div class="text-xs text-caption mt-1">
-                    {#if backup.walletId}
-                      Wallet ID:
-                      <span class="font-mono">{backup.walletId}</span>
-                    {:else if backup.isLegacy}
-                      Legacy Spark wallet
-                    {:else}
-                      Spark wallet backup
-                    {/if}
-                  </div>
-                </button>
-              {/each}
+                    <div class="text-xs text-caption mt-1">
+                      {#if backup.walletId}
+                        Wallet ID:
+                        <span class="font-mono">{backup.walletId}</span>
+                      {:else if backup.isLegacy}
+                        Legacy Spark wallet
+                      {:else}
+                        Spark wallet backup
+                      {/if}
+                    </div>
+                  </button>
+                {/each}
+              </div>
+              <div class="spark-backup-actions">
+                <Button
+                  on:click={handleRestoreSelectedSparkBackup}
+                  disabled={isConnecting}
+                  class="w-full"
+                >
+                  Restore selected backup
+                </Button>
+              </div>
             </div>
-            <Button
-              on:click={handleRestoreSelectedSparkBackup}
-              disabled={isConnecting}
-              class="w-full"
-            >
-              Restore selected backup
-            </Button>
           {:else if sparkRestoreMode === 'mnemonic'}
             <p class="text-caption mb-4">
               Enter your 12 or 24 word recovery phrase to restore your wallet.
@@ -4935,7 +4942,11 @@
            A scoped CSS ::after on .wallet-scroll.picker-view got pruned
            by Svelte's CSS scoping; a real element is reliably included
            in scrollHeight. -->
-      <div aria-hidden="true" style="height: 3rem; flex-shrink: 0;"></div>
+      <div
+        class="picker-bottom-spacer"
+        aria-hidden="true"
+        style="height: 3rem; flex-shrink: 0;"
+      ></div>
     </div>
   {/if}
 
@@ -6570,6 +6581,38 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 0 1rem;
+  }
+  .wallet-scroll.spark-backup-select-active {
+    display: flex;
+    flex-direction: column;
+  }
+  .spark-backup-select-active .picker-back-bar {
+    flex: 0 0 auto;
+  }
+  .spark-backup-select-active .spark-wallet-pane,
+  .spark-backup-select-active .spark-backup-select-content {
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0;
+    flex-direction: column;
+  }
+  .spark-backup-select-active .picker-bottom-spacer {
+    display: none;
+  }
+  /* Only the backup rows scroll. The status, label, and restore action keep
+     their space inside the visible modal even when dozens of backups exist. */
+  .spark-backup-list {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* Room so the scrollbar doesn't crowd the last item's border. */
+    padding-right: 0.25rem;
+  }
+  .spark-backup-actions {
+    flex: 0 0 auto;
+    padding-top: 1rem;
+    padding-bottom: 2rem;
   }
   /* Inline send / receive / picker / wallet-info / remove-wallet views
      reuse .wallet-scroll for sizing but want a bit of vertical
