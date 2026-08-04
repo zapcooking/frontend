@@ -222,6 +222,43 @@
     use:clickOutside
     on:click_outside={closeMenu}
   >
+    <!-- Trigger precedes options in the DOM so Tab moves into the open menu
+         instead of skipping past it. Absolute positioning keeps the visual layout. -->
+    <button
+      bind:this={triggerElement}
+      type="button"
+      class={`create-trigger ${variant === 'floating' ? 'create-trigger-floating' : 'create-trigger-header'}`}
+      class:create-trigger-cancel={isCancelMode}
+      class:is-scrolling={isScrolling && variant === 'floating'}
+      aria-label={isCancelMode
+        ? 'Cancel'
+        : showMenu && variant === 'floating'
+          ? 'Close create menu'
+          : 'Create'}
+      aria-haspopup={!isCancelMode}
+      aria-expanded={!isCancelMode && showMenu}
+      on:pointerdown={handlePointerDown}
+      on:pointerup={handlePointerUp}
+      on:pointercancel={handlePointerUp}
+      on:pointerleave={handlePointerLeave}
+      on:mouseenter={handleMouseEnter}
+      on:click={handleClick}
+    >
+      <span
+        class="create-trigger-icon"
+        class:icon-rotate={isCancelMode || (showMenu && variant === 'floating')}
+      >
+        <AddIcon size={variant === 'floating' ? 22 : 18} weight="bold" />
+      </span>
+      {#if showLabel}
+        <span class="create-label">{isCancelMode ? 'Cancel' : 'Create'}</span>
+      {/if}
+    </button>
+
+    {#if variant === 'floating'}
+      <span class="create-surface-label" aria-hidden="true">Create</span>
+    {/if}
+
     <div
       class={`create-menu-panel ${
         variant === 'floating' ? 'create-menu-panel-floating' : 'create-menu-panel-header'
@@ -258,41 +295,6 @@
         <span>New read</span>
       </button>
     </div>
-
-    {#if variant === 'floating'}
-      <span class="create-surface-label" aria-hidden="true">Create</span>
-    {/if}
-
-    <button
-      bind:this={triggerElement}
-      type="button"
-      class={`create-trigger ${variant === 'floating' ? 'create-trigger-floating' : 'create-trigger-header'}`}
-      class:create-trigger-cancel={isCancelMode}
-      class:is-scrolling={isScrolling && variant === 'floating'}
-      aria-label={isCancelMode
-        ? 'Cancel'
-        : showMenu && variant === 'floating'
-          ? 'Close create menu'
-          : 'Create'}
-      aria-haspopup={!isCancelMode}
-      aria-expanded={!isCancelMode && showMenu}
-      on:pointerdown={handlePointerDown}
-      on:pointerup={handlePointerUp}
-      on:pointercancel={handlePointerUp}
-      on:pointerleave={handlePointerLeave}
-      on:mouseenter={handleMouseEnter}
-      on:click={handleClick}
-    >
-      <span
-        class="create-trigger-icon"
-        class:icon-rotate={isCancelMode || (showMenu && variant === 'floating')}
-      >
-        <AddIcon size={variant === 'floating' ? 22 : 18} weight="bold" />
-      </span>
-      {#if showLabel}
-        <span class="create-label">{isCancelMode ? 'Cancel' : 'Create'}</span>
-      {/if}
-    </button>
   </div>
 {/if}
 
