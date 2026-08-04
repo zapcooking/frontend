@@ -102,7 +102,7 @@
     "eslint": "^8.28.0",
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-svelte": "^2.30.0",
-    "node-gyp": "^13.0.1",
+    "node-gyp": "^12.4.0",
     "postcss": "^8.5.18",
     "postcss-load-config": "^4.0.1",
     "prettier": "^3.0.0",
@@ -115,7 +115,7 @@
     "vite": "^5.4.21",
     "vite-plugin-node-polyfills": "^0.24.0",
     "vitest": "^3.2.6",
-    "wrangler": "^4.118.0"
+    "wrangler": "~4.116.0"
   },
   "packageManager": "pnpm@9.12.1+sha512.e5a7e52a4183a02d5931057f7a0dbff9d5e9ce3161e33fa68ae392125b79282a8a8a470a51dfc8a0ed86221442eb2fb57019b0990ed24fab519bf0e1bc5ccfc4",
   "pnpm": {
