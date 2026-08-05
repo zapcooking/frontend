@@ -62,6 +62,7 @@
     type ReferencedNote
   } from '$lib/shareNoteImage';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
+  import { stripQuotedNoteReferences } from '$lib/feed/noteContent';
   import { compressedCacheManager, COMPRESSED_FEED_CACHE_CONFIG } from '$lib/compressedCache';
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
@@ -1007,14 +1008,7 @@
   // Get content without the quoted note reference (so it doesn't render as inline embed)
   function getContentWithoutQuote(content: string): string {
     try {
-      if (!content) return '';
-      return content
-        .replace(
-          /nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/g,
-          ''
-        )
-        .replace(/\s+/g, ' ')
-        .trim();
+      return stripQuotedNoteReferences(content);
     } catch {
       return content || '';
     }

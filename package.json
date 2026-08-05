@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.695",
+  "version": "4.2.696",
   "private": true,
   "scripts": {
     "dev": "vite dev",
