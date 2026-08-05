@@ -2,7 +2,9 @@
   import { slide } from 'svelte/transition';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
+  import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import SmileyIcon from 'phosphor-svelte/lib/Smiley';
   import { ndk } from '$lib/nostr';
   import { formatCompactTime, formatSats } from '$lib/utils';
   import {
@@ -105,19 +107,21 @@
             </h3>
             <div class="detail-list">
               {#each details.zaps as zap (zap.id)}
-                <PostEngagementPerson pubkey={zap.pubkey} size={32}>
-                  <span class="zap-meta">
-                    <strong>{formatSats(zap.amount)} sats</strong>
-                    {#if zap.timestamp > 0}
-                      <span>{formatCompactTime(zap.timestamp)}</span>
-                    {/if}
-                  </span>
-                </PostEngagementPerson>
-                {#if zap.comment}
-                  <div class="zap-comment">
-                    <ZapCommentContent comment={zap.comment} />
-                  </div>
-                {/if}
+                <div class="zap-entry">
+                  <PostEngagementPerson pubkey={zap.pubkey} size={32}>
+                    <span class="zap-meta">
+                      <strong>{formatSats(zap.amount)} sats</strong>
+                      {#if zap.timestamp > 0}
+                        <span>{formatCompactTime(zap.timestamp)}</span>
+                      {/if}
+                    </span>
+                  </PostEngagementPerson>
+                  {#if zap.comment}
+                    <div class="zap-comment">
+                      <ZapCommentContent comment={zap.comment} />
+                    </div>
+                  {/if}
+                </div>
               {/each}
             </div>
           </section>
@@ -141,6 +145,7 @@
         {#if details.reactions.length > 0}
           <section class="detail-section" aria-labelledby={`reactions-${event.id}`}>
             <h3 id={`reactions-${event.id}`} class="section-heading">
+              <SmileyIcon size={18} weight="bold" />
               <span>Reactions</span>
               <span class="section-count">
                 {details.reactions.reduce((total, group) => total + group.pubkeys.length, 0)}
@@ -164,8 +169,9 @@
         {/if}
 
         {#if details.relays.length > 0}
-          <section class="detail-section relay-section" aria-labelledby={`relays-${event.id}`}>
+          <section class="detail-section" aria-labelledby={`relays-${event.id}`}>
             <h3 id={`relays-${event.id}`} class="section-heading">
+              <BroadcastIcon size={18} weight="bold" />
               <span>Seen on</span>
               <span class="section-count">{details.relays.length}</span>
             </h3>
@@ -190,34 +196,32 @@
     position: relative;
     margin-top: 0.25rem;
     border-top: 1px solid color-mix(in srgb, var(--color-input-border) 75%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--color-input-border) 55%, transparent);
     background: var(--color-card-sunken);
     color: var(--color-text-primary);
     overflow: hidden;
   }
 
   .drawer-scroll {
+    display: flex;
     max-height: min(30rem, 60vh);
+    flex-direction: column;
+    gap: 0.875rem;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: 0.5rem 0.75rem;
+    padding: 0.75rem 0.75rem 0.875rem;
     scrollbar-width: thin;
     scrollbar-color: var(--color-input-border) transparent;
   }
 
   .detail-section {
-    padding: 0.625rem 0;
-  }
-
-  .detail-section + .detail-section {
-    border-top: 1px solid color-mix(in srgb, var(--color-input-border) 65%, transparent);
+    min-width: 0;
   }
 
   .section-heading {
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    margin: 0 0 0.375rem;
+    margin: 0 0 0.25rem;
     color: var(--color-text-secondary);
     font-size: 0.75rem;
     font-weight: 700;
@@ -242,13 +246,17 @@
   .reaction-list {
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
+    gap: 0.375rem;
   }
 
   .people-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
-    gap: 0.125rem 0.5rem;
+    gap: 0.125rem 0.75rem;
+    min-width: 0;
+  }
+
+  .zap-entry {
     min-width: 0;
   }
 
@@ -257,7 +265,6 @@
     grid-template-columns: 2rem minmax(0, 1fr);
     align-items: start;
     gap: 0.375rem;
-    padding: 0.125rem 0;
   }
 
   .reaction-emoji {
@@ -284,11 +291,10 @@
   }
 
   .zap-comment {
-    margin: -0.125rem 0 0.375rem 3rem;
+    margin: -0.125rem 0 0.25rem 3rem;
     color: var(--color-text-secondary);
     font-size: 0.8125rem;
     line-height: 1.25rem;
-    white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
 
@@ -392,6 +398,9 @@
   @media (max-width: 639px) {
     .drawer-scroll {
       max-height: 55vh;
+      gap: 0.75rem;
+      padding-top: 0.625rem;
+      padding-bottom: 0.75rem;
       padding-right: 0.5rem;
       padding-left: 0.5rem;
     }
