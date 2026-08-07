@@ -14,8 +14,8 @@ const { parseRecipe, checkPerIpRateLimit } = vi.hoisted(() => ({
   checkPerIpRateLimit: vi.fn()
 }));
 
-vi.mock('$lib/parseRecipe.server', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('$lib/parseRecipe.server')>()),
+vi.mock('$lib/parseRecipe.server', async () => ({
+  ...(await vi.importActual('$lib/parseRecipe.server')),
   parseRecipe
 }));
 vi.mock('$lib/ipRateLimit.server', () => ({ checkPerIpRateLimit }));
