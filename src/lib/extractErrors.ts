@@ -3,8 +3,13 @@
  * (/api/extract-recipe and /api/extract-recipe/public).
  *
  * The server returns { success: false, error, code } where `code` is one
- * of these stable identifiers and `error` is a short audience-neutral
- * fallback string. Copy ownership lives in each client: the landing hero
+ * of these stable identifiers and `error` is short, audience-neutral,
+ * leak-safe copy. For URL-fetch failures `error` is exactly the
+ * EXTRACT_ERROR_FALLBACK entry below; some request-validation paths
+ * return a more specific message (e.g. "URL is required for URL
+ * extraction" under INVALID_REQUEST), so treat the map as the canonical
+ * fallback, not a guarantee that error === EXTRACT_ERROR_FALLBACK[code].
+ * Copy ownership lives in each client: the landing hero
  * (anon audience) and Sous Chef (signed-in audience) map the same code to
  * different recovery text, and native apps (Android/iOS) that predate the
  * field keep rendering `error` untouched — `code` is strictly additive.
@@ -32,9 +37,9 @@ export type ExtractErrorCode =
   | 'INTERNAL'; // unexpected server error
 
 /**
- * Audience-neutral fallback copy, sent as `error`. Written for clients
- * that render it verbatim (native apps, unknown callers); web clients
- * override per-code with their own audience-specific copy.
+ * Audience-neutral fallback copy, the typical value of `error`. Written
+ * for clients that render it verbatim (native apps, unknown callers);
+ * web clients override per-code with their own audience-specific copy.
  */
 export const EXTRACT_ERROR_FALLBACK: Record<ExtractErrorCode, string> = {
   INVALID_REQUEST: 'That request could not be processed. Refresh and try again.',

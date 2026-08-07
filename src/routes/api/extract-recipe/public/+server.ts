@@ -32,7 +32,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { parseRecipe } from '$lib/parseRecipe.server';
+import { parseRecipe, MAX_URL_CHARS } from '$lib/parseRecipe.server';
 import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 import { EXTRACT_ERROR_FALLBACK } from '$lib/extractErrors';
 
@@ -67,7 +67,7 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
         { status: 400 }
       );
     }
-    if (url.length > 2048) {
+    if (url.length > MAX_URL_CHARS) {
       return json({ success: false, error: 'URL is too long', code: 'INVALID_URL' }, { status: 400 });
     }
 

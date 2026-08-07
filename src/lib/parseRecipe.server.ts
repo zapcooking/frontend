@@ -90,6 +90,7 @@ export type ParseResult =
 export const MAX_FETCH_BYTES = 5 * 1024 * 1024; // 5 MB
 export const MAX_PROMPT_CONTENT_CHARS = 15000;
 export const MAX_TEXT_INPUT_CHARS = 10000;
+export const MAX_URL_CHARS = 2048;
 
 // ─── SSRF guard ──────────────────────────────────────────────────────
 //
@@ -533,6 +534,17 @@ export async function parseRecipe(openAiKey: string, input: ParseInput): Promise
         status: 400,
         error: 'URL is required for URL extraction',
         code: 'INVALID_REQUEST'
+      };
+    }
+    // Same cap /public enforces pre-rate-limit; checked here too so the
+    // authed endpoint can't feed an over-long URL into fetchUrlContent
+    // and have it misclassified as a source failure.
+    if (input.url.length > MAX_URL_CHARS) {
+      return {
+        ok: false,
+        status: 400,
+        error: EXTRACT_ERROR_FALLBACK.INVALID_URL,
+        code: 'INVALID_URL'
       };
     }
     let urlContent: { text: string; imageUrls: string[]; finalUrl: string };

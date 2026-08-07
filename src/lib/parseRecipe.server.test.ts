@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { parseRecipe, MAX_TEXT_INPUT_CHARS } from '$lib/parseRecipe.server';
+import { parseRecipe, MAX_TEXT_INPUT_CHARS, MAX_URL_CHARS } from '$lib/parseRecipe.server';
 import { EXTRACT_ERROR_FALLBACK, type ExtractErrorCode } from '$lib/extractErrors';
 
 const KEY = 'test-openai-key';
@@ -233,6 +233,15 @@ describe('parseRecipe URL error taxonomy (status frozen at 400, code varies)', (
 describe('parseRecipe hop-0 guard rejections are client fault codes', () => {
   it('unparseable URL → INVALID_URL', async () => {
     await expectUrlFailure('not a url at all', 'INVALID_URL');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('over-long URL (> MAX_URL_CHARS) → INVALID_URL, never fetched', async () => {
+    // Same 2048 cap /public enforces pre-rate-limit; the authed
+    // endpoint reaches parseRecipe without its own length check, so
+    // this cap is what keeps an over-long URL from being fetched and
+    // misclassified as a source failure.
+    await expectUrlFailure('https://example.com/' + 'a'.repeat(MAX_URL_CHARS), 'INVALID_URL');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
