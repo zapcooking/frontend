@@ -16,6 +16,24 @@
  * last line before an outbound fetch.
  */
 
+import { EXTRACT_ERROR_FALLBACK, type ExtractErrorCode } from '$lib/extractErrors';
+
+/**
+ * Typed failure thrown inside the URL-fetch path. `code` drives the
+ * client-facing response; `message` is the server-log detail and must
+ * only ever contain upstream status + hostname — never response bodies
+ * or full URLs (Workers Observability is already over-logged).
+ */
+export class ExtractError extends Error {
+  constructor(
+    public readonly code: ExtractErrorCode,
+    logDetail: string
+  ) {
+    super(logDetail);
+    this.name = 'ExtractError';
+  }
+}
+
 const EXTRACTION_PROMPT = `You are a recipe extraction assistant. Extract recipe information from the provided content and return it in a structured JSON format.
 
 Extract the following fields:
@@ -67,11 +85,12 @@ export type ParseInput =
 
 export type ParseResult =
   | { ok: true; recipe: NormalizedRecipe }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; code: ExtractErrorCode };
 
 export const MAX_FETCH_BYTES = 5 * 1024 * 1024; // 5 MB
 export const MAX_PROMPT_CONTENT_CHARS = 15000;
 export const MAX_TEXT_INPUT_CHARS = 10000;
+export const MAX_URL_CHARS = 2048;
 
 // ─── SSRF guard ──────────────────────────────────────────────────────
 //
@@ -194,9 +213,41 @@ function extractImageUrls(html: string, baseUrl: string): string[] {
 
 const MAX_REDIRECTS = 5;
 
+/**
+ * Classify a parsePublicUrl rejection of the URL the caller typed in.
+ * Redirect-hop rejections are classified separately (the caller's URL
+ * was fine; the site sent us somewhere we won't go).
+ */
+function guardReasonToCode(reason: string): ExtractErrorCode {
+  return reason === 'Invalid URL' ? 'INVALID_URL' : 'UNSUPPORTED_URL';
+}
+
+/** Map a non-OK upstream HTTP status to a client-facing code. */
+function upstreamStatusToCode(status: number): ExtractErrorCode {
+  // 429 is deliberately "unavailable", not "blocked": it's transient,
+  // and the blocked copy tells users to give up on the site entirely.
+  if (status === 401 || status === 403 || status === 406 || status === 451) {
+    return 'SOURCE_BLOCKED';
+  }
+  if (status === 404 || status === 410) return 'SOURCE_NOT_FOUND';
+  return 'SOURCE_UNAVAILABLE';
+}
+
 async function fetchUrlContent(
   rawUrl: string
 ): Promise<{ text: string; imageUrls: string[]; finalUrl: string }> {
+  // Hop-0 pre-check: a guard rejection of the URL the user typed is
+  // their mistake (INVALID_URL / UNSUPPORTED_URL), while the identical
+  // rejection of a redirect target is the site's (SOURCE_UNAVAILABLE).
+  // This call exists ONLY to classify — it must be the same
+  // parsePublicUrl the loop runs, and the in-loop guard still executes
+  // at hop 0. Any normalization difference between "pre-checked" and
+  // "fetched" URLs would otherwise become an SSRF bypass.
+  const initial = parsePublicUrl(rawUrl);
+  if (!initial.ok) {
+    throw new ExtractError(guardReasonToCode(initial.reason), initial.reason);
+  }
+
   // Manual redirect loop — `redirect: 'follow'` would let a public URL
   // bounce into a private IP / metadata host without re-validation.
   // Each hop runs back through parsePublicUrl so the SSRF guard
@@ -205,7 +256,11 @@ async function fetchUrlContent(
   let currentUrl = rawUrl;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const parsed = parsePublicUrl(currentUrl);
-    if (!parsed.ok) throw new Error(parsed.reason);
+    if (!parsed.ok) {
+      throw hop === 0
+        ? new ExtractError(guardReasonToCode(parsed.reason), parsed.reason)
+        : new ExtractError('SOURCE_UNAVAILABLE', `redirect target rejected: ${parsed.reason}`);
+    }
 
     const fetchTarget = parsed.url.toString();
     // Browser-shaped User-Agent. The prior `ZapCooking/1.0 bot` UA was
@@ -216,39 +271,59 @@ async function fetchUrlContent(
     // generic browser UA reflects the actual traffic shape. Sites
     // with TLS fingerprinting or JS challenges will still block; this
     // only fixes naive UA-based bot detection.
-    const response = await fetch(fetchTarget, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept':
-          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9'
-      },
-      redirect: 'manual'
-    });
+    let response: Response;
+    try {
+      response = await fetch(fetchTarget, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9'
+        },
+        redirect: 'manual'
+      });
+    } catch {
+      // DNS failure, connection refused, TLS error — the site, not the
+      // caller. Log hostname only, never the full URL.
+      throw new ExtractError('SOURCE_UNAVAILABLE', `network failure reaching ${parsed.url.hostname}`);
+    }
 
     // 3xx with a Location header → revalidate and loop. Workers
     // `redirect: 'manual'` yields the redirect response with status
     // in the 300s and the Location header intact.
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
-      if (!location) throw new Error(`Redirect without Location header (${response.status})`);
+      if (!location) {
+        throw new ExtractError(
+          'SOURCE_UNAVAILABLE',
+          `redirect without Location (${response.status}) from ${parsed.url.hostname}`
+        );
+      }
       // Resolve relative Location against the current URL before
       // re-running the guard; otherwise `/admin` would be rejected
       // as a scheme-less URL when it's legitimately same-origin.
       try {
         currentUrl = new URL(location, fetchTarget).toString();
       } catch {
-        throw new Error('Invalid redirect Location');
+        throw new ExtractError(
+          'SOURCE_UNAVAILABLE',
+          `invalid redirect Location from ${parsed.url.hostname}`
+        );
       }
       continue;
     }
 
-    if (!response.ok) throw new Error(`Failed to fetch URL: ${response.status}`);
+    if (!response.ok) {
+      throw new ExtractError(
+        upstreamStatusToCode(response.status),
+        `upstream ${response.status} from ${parsed.url.hostname}`
+      );
+    }
 
     return await readResponseBody(response, fetchTarget);
   }
-  throw new Error('Too many redirects');
+  throw new ExtractError('TOO_MANY_REDIRECTS', `exceeded ${MAX_REDIRECTS} redirects`);
 }
 
 async function readResponseBody(
@@ -261,7 +336,7 @@ async function readResponseBody(
   if (contentLength) {
     const declared = Number(contentLength);
     if (Number.isFinite(declared) && declared > MAX_FETCH_BYTES) {
-      throw new Error('URL response exceeds 5 MB cap');
+      throw new ExtractError('SOURCE_TOO_LARGE', 'declared Content-Length exceeds 5 MB cap');
     }
   }
 
@@ -291,7 +366,7 @@ async function readResponseBody(
           } catch {
             // Cancel can throw if the stream is already closed — no-op.
           }
-          throw new Error('URL response exceeds 5 MB cap');
+          throw new ExtractError('SOURCE_TOO_LARGE', 'streamed body exceeds 5 MB cap');
         }
         chunks.push(value);
       }
@@ -361,31 +436,48 @@ type ChatMessage =
 async function callOpenAI(
   openAiKey: string,
   messages: ChatMessage[]
-): Promise<{ ok: true; content: string } | { ok: false; status: number; error: string }> {
-  const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${openAiKey}`
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages,
-      max_tokens: 4096,
-      temperature: 0.3
-    })
-  });
+): Promise<
+  | { ok: true; content: string }
+  | { ok: false; status: number; error: string; code: ExtractErrorCode }
+> {
+  const aiUnavailable = {
+    ok: false as const,
+    status: 500,
+    error: EXTRACT_ERROR_FALLBACK.AI_UNAVAILABLE,
+    code: 'AI_UNAVAILABLE' as const
+  };
 
-  if (!openaiResponse.ok) {
-    const errorData = await openaiResponse.json().catch(() => ({}));
-    console.error('[parseRecipe] OpenAI API error:', errorData);
-    return { ok: false, status: 500, error: 'Failed to extract recipe. Please try again.' };
+  let openaiResponse: Response;
+  try {
+    openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openAiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages,
+        max_tokens: 4096,
+        temperature: 0.3
+      })
+    });
+  } catch {
+    console.error('[parseRecipe] OpenAI request failed (network)');
+    return aiUnavailable;
   }
 
-  const data = await openaiResponse.json();
-  const content = data.choices?.[0]?.message?.content;
+  if (!openaiResponse.ok) {
+    // Status only — never log the response body.
+    console.error('[parseRecipe] OpenAI API error', { status: openaiResponse.status });
+    return aiUnavailable;
+  }
+
+  const data = await openaiResponse.json().catch(() => null);
+  const content = data?.choices?.[0]?.message?.content;
   if (!content) {
-    return { ok: false, status: 500, error: 'No response from AI. Please try again.' };
+    console.error('[parseRecipe] OpenAI returned no content');
+    return aiUnavailable;
   }
   return { ok: true, content };
 }
@@ -400,7 +492,12 @@ export async function parseRecipe(openAiKey: string, input: ParseInput): Promise
 
   if (input.type === 'image') {
     if (!input.imageData) {
-      return { ok: false, status: 400, error: 'Image data is required for image extraction' };
+      return {
+        ok: false,
+        status: 400,
+        error: 'Image data is required for image extraction',
+        code: 'INVALID_REQUEST'
+      };
     }
     messages.push({
       role: 'user',
@@ -419,25 +516,52 @@ export async function parseRecipe(openAiKey: string, input: ParseInput): Promise
   } else if (input.type === 'text') {
     const text = (input.textData || '').trim();
     if (text.length === 0) {
-      return { ok: false, status: 400, error: 'Recipe text is required' };
+      return { ok: false, status: 400, error: 'Recipe text is required', code: 'INVALID_REQUEST' };
     }
     if (text.length > MAX_TEXT_INPUT_CHARS) {
-      return { ok: false, status: 400, error: 'Recipe text is too long (max 10,000 characters)' };
+      return {
+        ok: false,
+        status: 400,
+        error: 'Recipe text is too long (max 10,000 characters)',
+        code: 'TEXT_TOO_LONG'
+      };
     }
     messages.push({ role: 'user', content: `Extract the recipe information from this text:\n\n${text}` });
   } else {
     if (!input.url) {
-      return { ok: false, status: 400, error: 'URL is required for URL extraction' };
+      return {
+        ok: false,
+        status: 400,
+        error: 'URL is required for URL extraction',
+        code: 'INVALID_REQUEST'
+      };
+    }
+    // Same cap /public enforces pre-rate-limit; checked here too so the
+    // authed endpoint can't feed an over-long URL into fetchUrlContent
+    // and have it misclassified as a source failure.
+    if (input.url.length > MAX_URL_CHARS) {
+      return {
+        ok: false,
+        status: 400,
+        error: EXTRACT_ERROR_FALLBACK.INVALID_URL,
+        code: 'INVALID_URL'
+      };
     }
     let urlContent: { text: string; imageUrls: string[]; finalUrl: string };
     try {
       urlContent = await fetchUrlContent(input.url);
     } catch (err) {
-      return {
-        ok: false,
-        status: 400,
-        error: `Failed to fetch URL content: ${err instanceof Error ? err.message : 'Unknown error'}`
-      };
+      // The client gets the mapped code + neutral copy; the underlying
+      // reason (upstream status + hostname only) stays server-side.
+      // Status is pinned to 400 — Android/iOS branch on the numeric
+      // status and only body-parse in their 400 branch; re-taxonomy is
+      // a separate mobile-coordinated change.
+      const code = err instanceof ExtractError ? err.code : 'SOURCE_UNAVAILABLE';
+      console.warn('[parseRecipe] URL fetch failed', {
+        code,
+        detail: err instanceof Error ? err.message : 'unknown'
+      });
+      return { ok: false, status: 400, error: EXTRACT_ERROR_FALLBACK[code], code };
     }
     const imageUrlsInfo =
       urlContent.imageUrls.length > 0 ? `\n\nFound image URLs:\n${urlContent.imageUrls.join('\n')}` : '';
@@ -458,8 +582,16 @@ export async function parseRecipe(openAiKey: string, input: ParseInput): Promise
       .trim();
     recipe = normalizeRecipe(JSON.parse(cleanContent));
   } catch {
-    console.error('[parseRecipe] Failed to parse AI response:', openaiResult.content);
-    return { ok: false, status: 500, error: 'Failed to parse recipe data. Please try again.' };
+    // Length only — the AI response is a response body; never log it.
+    console.error('[parseRecipe] Failed to parse AI response', {
+      length: openaiResult.content.length
+    });
+    return {
+      ok: false,
+      status: 500,
+      error: EXTRACT_ERROR_FALLBACK.AI_UNAVAILABLE,
+      code: 'AI_UNAVAILABLE'
+    };
   }
 
   return { ok: true, recipe };

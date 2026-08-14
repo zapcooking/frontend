@@ -20,6 +20,7 @@
   } from '$lib/anonImport';
   import { detectMode } from '$lib/souschefDetect';
   import { signNip98AuthHeader } from '$lib/nip98';
+  import type { ExtractErrorCode } from '$lib/extractErrors';
   import Button from '../../components/Button.svelte';
   import TagsComboBox from '../../components/TagsComboBox.svelte';
   import StringComboBox from '../../components/StringComboBox.svelte';
@@ -341,6 +342,29 @@
     }
   }
   
+  // Signed-in-audience copy per server error code. The server's `error`
+  // string is an audience-neutral fallback; this page owns its own
+  // wording (the user is on Sous Chef already, so blocked-site recovery
+  // points at pasting the recipe text right here).
+  const EXTRACT_CODE_COPY: Partial<Record<ExtractErrorCode, string>> = {
+    INVALID_REQUEST: 'Something went wrong with that request. Refresh the page and try again.',
+    INVALID_URL: 'That doesn’t look like a working link. Check the URL and try again.',
+    UNSUPPORTED_URL: 'We can only import from public websites. Check the link and try again.',
+    TEXT_TOO_LONG:
+      'That’s more text than we can read at once — trim it down to just the recipe and try again.',
+    SOURCE_BLOCKED:
+      'That site blocks automatic imports. Copy the recipe text from the page and paste it here instead.',
+    SOURCE_NOT_FOUND:
+      'We couldn’t find a recipe page at that link. It may have moved — double-check the URL.',
+    SOURCE_UNAVAILABLE: 'That site isn’t responding right now. Give it a few minutes and try again.',
+    SOURCE_TOO_LARGE:
+      'That page is too big for us to read. Try the recipe’s print-friendly page, or paste the recipe text here instead.',
+    TOO_MANY_REDIRECTS:
+      'That link kept redirecting without landing on a recipe. Copy the address directly from the recipe page and try again.',
+    AI_UNAVAILABLE: 'Our recipe assistant is temporarily unavailable — try again in a minute.',
+    INTERNAL: 'Something went wrong on our end. Try again in a bit.'
+  };
+
   // Extract recipe (requires login; redirect so reviewer can see upload UI first)
   async function extractRecipe() {
     if (!$userPublickey) {
@@ -404,7 +428,11 @@
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to extract recipe');
+        // Prefer our own copy for known codes; fall back to the
+        // server's neutral string for codes this build doesn't know.
+        const mapped =
+          typeof data?.code === 'string' ? EXTRACT_CODE_COPY[data.code as ExtractErrorCode] : undefined;
+        throw new Error(mapped || data.error || 'Failed to extract recipe');
       }
 
       // Populate the form with extracted data

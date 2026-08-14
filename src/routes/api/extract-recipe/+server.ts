@@ -32,6 +32,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { parseRecipe, type ParseInput } from '$lib/parseRecipe.server';
+import { EXTRACT_ERROR_FALLBACK } from '$lib/extractErrors';
 import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 import { verifyNip98 } from '$lib/nip98.server';
 
@@ -46,28 +47,42 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
   try {
     const OPENAI_API_KEY = platform?.env?.OPENAI_API_KEY || env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {
-      return json({ success: false, error: 'OpenAI API key not configured' }, { status: 500 });
+      console.error('[Extract Recipe] OPENAI_API_KEY not configured');
+      return json(
+        { success: false, error: EXTRACT_ERROR_FALLBACK.INTERNAL, code: 'INTERNAL' },
+        { status: 500 }
+      );
     }
 
     let bodyBytes: Uint8Array;
     try {
       bodyBytes = new Uint8Array(await request.arrayBuffer());
     } catch {
-      return json({ success: false, error: 'Invalid request body' }, { status: 400 });
+      return json(
+        { success: false, error: 'Invalid request body', code: 'INVALID_REQUEST' },
+        { status: 400 }
+      );
     }
 
     let body: Record<string, unknown>;
     try {
       body = JSON.parse(new TextDecoder().decode(bodyBytes)) as Record<string, unknown>;
     } catch {
-      return json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
+      return json(
+        { success: false, error: 'Invalid JSON body', code: 'INVALID_REQUEST' },
+        { status: 400 }
+      );
     }
 
     const { type, imageData, url, pubkey, textData } = body ?? {};
 
     if (type !== 'image' && type !== 'url' && type !== 'text') {
       return json(
-        { success: false, error: 'Invalid type. Must be "image", "url", or "text"' },
+        {
+          success: false,
+          error: 'Invalid type. Must be "image", "url", or "text"',
+          code: 'INVALID_REQUEST'
+        },
         { status: 400 }
       );
     }
@@ -131,7 +146,11 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
     if (type === 'image') {
       if (typeof imageData !== 'string' || imageData.length === 0) {
         return json(
-          { success: false, error: 'Image data is required for image extraction' },
+          {
+            success: false,
+            error: 'Image data is required for image extraction',
+            code: 'INVALID_REQUEST'
+          },
           { status: 400 }
         );
       }
@@ -139,7 +158,11 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
     } else if (type === 'url') {
       if (typeof url !== 'string' || url.trim().length === 0) {
         return json(
-          { success: false, error: 'URL is required for URL extraction' },
+          {
+            success: false,
+            error: 'URL is required for URL extraction',
+            code: 'INVALID_REQUEST'
+          },
           { status: 400 }
         );
       }
@@ -166,20 +189,30 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
       input = { type: 'url', url };
     } else {
       if (typeof textData !== 'string' || textData.trim().length === 0) {
-        return json({ success: false, error: 'Recipe text is required' }, { status: 400 });
+        return json(
+          { success: false, error: 'Recipe text is required', code: 'INVALID_REQUEST' },
+          { status: 400 }
+        );
       }
       input = { type: 'text', textData };
     }
 
     const result = await parseRecipe(OPENAI_API_KEY, input);
     if (!result.ok) {
-      return json({ success: false, error: result.error }, { status: result.status });
+      return json(
+        { success: false, error: result.error, code: result.code },
+        { status: result.status }
+      );
     }
 
     return json({ success: true, recipe: result.recipe });
   } catch (err) {
+    // Full detail stays server-side; the client never sees a raw
+    // exception message.
     console.error('[Extract Recipe] Error:', err);
-    const message = err instanceof Error ? err.message : 'An unexpected error occurred';
-    return json({ success: false, error: message }, { status: 500 });
+    return json(
+      { success: false, error: EXTRACT_ERROR_FALLBACK.INTERNAL, code: 'INTERNAL' },
+      { status: 500 }
+    );
   }
 };
