@@ -212,8 +212,16 @@
       {/if}
     </button>
 
-    <p class="text-xs text-caption text-center">
-      After payment, you'll have permanent access to this recipe
-    </p>
+    <!--
+      No caption under this button, deliberately. It used to read "After payment, you'll have
+      permanent access to this recipe", which this PR falsifies: deleting a gated recipe
+      replaces the kind-35000 event with a tombstone carrying no 'gated' tag, and checkIfGated
+      reads the gated note id off exactly that tag, so a buyer loses their route to what they
+      bought. A replacement was drafted and withdrawn rather than reworded — every candidate
+      described what paying gets you, and what paying gets you is an open question at the time
+      of writing, tracked outside this repo. A caption comes back when that is settled. The
+      same applies to premium/recipe/[slug]/+page.svelte's inline purchase block, which is a
+      second implementation of this same purchase.
+    -->
   </div>
 {/if}

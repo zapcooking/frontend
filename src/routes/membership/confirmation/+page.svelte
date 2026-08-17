@@ -5,6 +5,7 @@
   import { page } from '$app/stores';
   import { userPublickey, ndk } from '$lib/nostr';
   import { claimNip05, checkUsernameAvailable, validateUsername, updateProfileWithNip05 } from '$lib/nip05Service';
+  import { refreshMembership } from '$lib/stores/membershipStatus';
 
   // --- Tier Configuration ---
   const TIERS: Record<string, {
@@ -16,12 +17,19 @@
     perks: string[];
   }> = {
     genesis: {
-      name: 'Genesis Founder',
+      name: 'Founders Club',
       tagline: "You're part of the beginning.",
       accent: '#F59E0B',
       accentGlow: 'rgba(245, 158, 11, 0.25)',
       badgeIcon: '\u26A1',
-      perks: ['Private relay access', 'NIP-05 verified identity', 'Founder badge on profile', 'Priority support'],
+      perks: [
+        'Lifetime Access \u2014 All Features',
+        'Sous Chef & Nourish',
+        'Cheffy \u2014 Kitchen Companion',
+        'Lightning-Gated Recipes',
+        'Market Access',
+        'Founders Recognition',
+      ],
     },
     cook: {
       name: 'Cook+',
@@ -29,7 +37,12 @@
       accent: '#10B981',
       accentGlow: 'rgba(16, 185, 129, 0.25)',
       badgeIcon: '\uD83C\uDF73',
-      perks: ['Private relay access', 'NIP-05 verified identity', 'Sous Chef AI assistant', 'Ad-free experience'],
+      perks: [
+        'Sous Chef & Nourish',
+        'Cheffy \u2014 Kitchen Companion',
+        'Market Access',
+        'Member Badge & Collections',
+      ],
     },
     pro: {
       name: 'Pro Kitchen',
@@ -37,13 +50,24 @@
       accent: '#8B5CF6',
       accentGlow: 'rgba(139, 92, 246, 0.25)',
       badgeIcon: '\uD83D\uDC68\u200D\uD83C\uDF73',
-      perks: ['Private relay access', 'NIP-05 verified identity', 'Full AI suite access', 'Priority recipe promotion'],
+      perks: [
+        'Sous Chef & Nourish',
+        'Cheffy \u2014 Kitchen Companion',
+        'Lightning-Gated Recipes',
+        'Market Access',
+        'Member Badge & Collections',
+      ],
     },
   };
 
   // --- State ---
   let loading = true;
-  let error: string | null = null;
+  // Which failure a member is looking at, not the developer string that caused it.
+  // The three states differ on what we can honestly claim about their money:
+  //   no-session    — reachable without a purchase, so it makes no payment claim
+  //   not-signed-in — they paid; the signer changed between checkout and return
+  //   incomplete    — they paid; whether registration finished is unknowable here
+  let errorKind: 'no-session' | 'not-signed-in' | 'incomplete' | null = null;
   let showContent = false;
 
   let tierKey = 'cook';
@@ -109,6 +133,15 @@
 
   $: canClaim = hasCustomName && isAvailable === true && !validationError && !isChecking;
 
+  // Support gets told which state the member was in; they can't see the console.
+  $: supportSubject = encodeURIComponent(
+    errorKind === 'no-session'
+      ? 'Membership: no purchase found to confirm'
+      : errorKind === 'not-signed-in'
+        ? 'Membership: paid, not signed in at return'
+        : 'Membership: payment taken, setup did not finish'
+  );
+
   onMount(async () => {
     if (!browser) return;
 
@@ -126,6 +159,10 @@
     if (paymentMethod === 'lightning') {
       nip05 = nip05Param;
       nip05Username = nip05UsernameParam;
+      // Lightning registers the member server-side before redirecting here, so
+      // this branch never calls complete-payment — but the client cache is just
+      // as stale as on the Stripe path, and for the same reason.
+      void refreshMembership($userPublickey);
       // If NIP-05 was already assigned during payment, show success state
       if (nip05Username) {
         chosenName = nip05Username;
@@ -139,12 +176,12 @@
 
     // Stripe flow — complete payment via API
     if (!sessionId) {
-      error = 'No session ID provided';
+      errorKind = 'no-session';
       loading = false;
       return;
     }
     if (!$userPublickey) {
-      error = 'User not logged in';
+      errorKind = 'not-signed-in';
       loading = false;
       return;
     }
@@ -162,13 +199,24 @@
 
       const responseText = await response.text();
       if (!response.ok) {
-        let errorMessage = `Failed to complete payment (${response.status})`;
+        // Not "payment failed" — Stripe already charged; this is our registration call.
+        let errorMessage = `Membership registration failed (${response.status})`;
         try {
           const data = JSON.parse(responseText);
           errorMessage = data.error || errorMessage;
         } catch {}
         throw new Error(errorMessage);
       }
+
+      // Membership is live on the server as of this response. The client store
+      // still holds the {active:false} it read before checkout and has no TTL,
+      // so without this the member is a non-member on every membership surface
+      // — avatar ring, belt, header, Cheffy — until they reload the tab.
+      // Placed on the shared success path so both complete-payment endpoints
+      // (genesis and standard) are covered. Not awaited: consumers subscribe to
+      // membershipStatusMap and update when it lands, and the success screen
+      // must not be able to hang behind a second round trip.
+      void refreshMembership($userPublickey);
 
       const data = JSON.parse(responseText);
       subscriptionEnd = data.subscriptionEnd || null;
@@ -185,7 +233,11 @@
       setTimeout(() => { showContent = true; }, 100);
       initConfetti();
     } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to complete payment';
+      // Both a non-ok response from us and a dropped connection land here, and
+      // nothing on this page can tell them apart — so the member-facing copy
+      // states what already happened rather than guessing which side failed.
+      console.error('Failed to complete membership registration:', err);
+      errorKind = 'incomplete';
       loading = false;
     }
   });
@@ -334,13 +386,41 @@
       <div class="spinner"></div>
       <p class="loading-text">Completing your membership...</p>
     </div>
-  {:else if error}
+  {:else if errorKind}
+    <!--
+      No link out of this block, and that is deliberate. `session_id` lives only
+      in this page's query string and it is the only key that can complete the
+      registration for this purchase — navigating away discards it. The site
+      header is rendered on every route, so a member still has a way out; they
+      just don't get pushed through one from here. In particular the primary
+      action is never /membership: that is the page selling what they just paid
+      for, offered to the one person who must not buy again.
+    -->
     <div class="error-state">
-      <h1 class="error-heading">Something went wrong</h1>
-      <p class="error-text">{error}</p>
-      <button class="error-button" on:click={() => goto('/membership')}>
-        Back to Membership
-      </button>
+      {#if errorKind === 'no-session'}
+        <h1 class="error-heading">We couldn't find a purchase to confirm</h1>
+        <p class="error-text">
+          If you've just paid and landed here, email us and we'll sort it out.
+        </p>
+      {:else if errorKind === 'not-signed-in'}
+        <h1 class="error-heading">We couldn't finish setting up your membership</h1>
+        <p class="error-text">
+          Your payment went through — this part is on us, not you. Sign in with the
+          account you used at checkout, using <strong>Sign in</strong> at the top of
+          this page, then reload this page and we'll finish it. Don't buy again; we
+          have your payment.
+        </p>
+      {:else}
+        <h1 class="error-heading">We couldn't finish setting up your membership</h1>
+        <p class="error-text">
+          Your payment went through — we have it. What we can't confirm from this
+          page is whether your membership finished setting up. Don't buy again;
+          email us and we'll check and finish it.
+        </p>
+      {/if}
+      <a class="error-button" href="mailto:support@zap.cooking?subject={supportSubject}">
+        Email support@zap.cooking
+      </a>
     </div>
   {:else}
     <div class="content" class:visible={showContent}>
@@ -574,14 +654,21 @@
     margin: 0 0 8px 0;
   }
 
+  /* Was 0.45 at 14px for a one-line developer string. It now carries the only
+     instructions a member in this state gets, so it has to survive being read
+     by someone who has just been frightened. */
   .error-text {
     font-family: 'DM Sans', sans-serif;
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 14px;
-    margin: 0 0 24px 0;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 15px;
+    line-height: 1.6;
+    max-width: 34rem;
+    margin: 0 auto 24px;
   }
 
   .error-button {
+    display: inline-block;
+    text-decoration: none;
     padding: 12px 28px;
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);

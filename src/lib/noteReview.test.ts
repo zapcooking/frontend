@@ -960,24 +960,46 @@ describe('dual entry points (PR A, as course-corrected)', () => {
     expect(readFileSync('src/routes/[nip19]/+page.svelte', 'utf8')).toContain('PostActionsMenu');
   });
 
-  it('the card-face trigger coexists: component present, both placements intact', () => {
+  it('the card-face trigger floats over media in both feed and detail views', () => {
     expect(existsSync('src/components/CheffyNoteReviewTrigger.svelte')).toBe(true);
+    expect(existsSync('src/components/CheffyMediaReview.svelte')).toBe(true);
     const actionBar = readFileSync('src/components/NoteActionBar.svelte', 'utf8');
     expect(actionBar).toContain('showCheffy');
     expect(actionBar).toContain('CheffyNoteReviewTrigger');
+
+    const mediaReview = readFileSync('src/components/CheffyMediaReview.svelte', 'utf8');
+    expect(mediaReview).toContain('variant="floating"');
+    expect(mediaReview).toContain('bottom: -1.25rem');
+
     const feed = readFileSync('src/components/FoodstrFeedOptimized.svelte', 'utf8');
-    expect(feed).toContain('CheffyNoteReviewTrigger');
-    // Complementary breakpoints: the action-row trigger is desktop-only
-    // (the narrow mobile column can't fit it one-line for real counts),
-    // and a mobile-only slim row sits directly below the image block.
-    expect(feed).toContain('hidden sm:block'); // in-row instance, ≥sm
-    expect(feed).toContain('sm:hidden flex justify-end'); // below-image instance, <sm
-    // The mobile instance lives INSIDE the image if-block — below-image
-    // placement is structurally image-gated (plus the trigger's own gate).
+    expect(feed).toContain('CheffyMediaReview');
     const imageBlock = feed.slice(
       feed.indexOf('getImageUrlsCached(event).length > 0'),
       feed.indexOf('Reaction pills row')
     );
-    expect(imageBlock).toContain('CheffyNoteReviewTrigger');
+    expect(imageBlock).toContain('CheffyMediaReview');
+
+    const content = readFileSync('src/components/NoteContent.svelte', 'utf8');
+    expect(content).toContain('CheffyMediaReview');
+    expect(content).toContain('export let event: NDKEvent | undefined');
+  });
+
+  it('offers one universal photo reply and one clearly food-specific action', () => {
+    const review = readFileSync('src/components/CheffyNoteReview.svelte', 'utf8');
+    expect(review).toContain('Ask Cheffy about this photo');
+    expect(review).toContain('Say something nice');
+    expect(review).toContain('A short, thoughtful comment about the photo');
+    expect(review).toContain('Identify any dish');
+    expect(review).toContain('For food photos, identify it and draft a recipe');
+    expect(review).not.toContain('Ask Cheffy about this dish');
+  });
+
+  it('single photos fill the column and expose the uncropped lightbox', () => {
+    const media = readFileSync('src/components/MediaCarousel.svelte', 'utf8');
+    expect(media).toContain('width: 100%');
+    expect(media).toContain('aspect-ratio: 4 / 3');
+    expect(media).toContain('object-fit: cover');
+    expect(media).toContain('ArrowsOutSimpleIcon');
+    expect(media).toContain('aria-label="View image"');
   });
 });

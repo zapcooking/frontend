@@ -18,6 +18,7 @@
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
   import LandingImportHero from '../../components/LandingImportHero.svelte';
+  import HomepageJoinCta from '../../components/HomepageJoinCta.svelte';
   import CheffyHomeCard from '../../components/CheffyHomeCard.svelte';
   import CheffyExploreInvite from '../../components/CheffyExploreInvite.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -335,9 +336,11 @@
     property="og:description"
     content="Discover recipes, collections, and cooks on zap.cooking"
   />
-  <meta property="og:image" content="https://zap.cooking/logo_with_text.png" />
+  <!-- og:image / twitter:image / twitter:card come from the `{#if !hasCustomOgTags}`
+       block in +layout.svelte's <svelte:head>. This route is not in `hasCustomOgTags`,
+       so the layout's set is emitted here and a page-level copy would be a second,
+       silently-drifting claim. -->
 
-  <meta name="twitter:card" content="summary" />
   <meta property="twitter:domain" content="zap.cooking" />
   <meta property="twitter:url" content="https://zap.cooking/explore" />
   <meta name="twitter:title" content="Explore - zap.cooking" />
@@ -345,18 +348,13 @@
     name="twitter:description"
     content="Discover recipes, collections, and cooks on zap.cooking"
   />
-  <meta property="twitter:image" content="https://zap.cooking/logo_with_text.png" />
 </svelte:head>
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
   <div class="flex flex-col">
-    <!-- Orientation text for signed-out users -->
+    <!-- Cold-visitor join entry — logged-out only, above the fold -->
     {#if $userPublickey === ''}
-      <div class="mb-4 pt-1">
-        <p class="text-sm" style="color: var(--color-text-secondary);">
-          Recipes, ideas, and cooks from around the network.
-        </p>
-      </div>
+      <HomepageJoinCta />
     {/if}
 
     <!-- Explore Content -->
@@ -494,11 +492,11 @@
               class="text-xs uppercase tracking-widest font-semibold mb-2"
               style="color: rgba(249,115,22,0.9);"
             >
-              Kitchen+
+              Cook+
             </p>
             <h3 class="text-lg font-bold text-white">Unlock your kitchen</h3>
             <p class="text-sm mt-1.5 text-gray-300">AI tools, private groups, and more.</p>
-            <a href="/membership" class="membership-teaser-cta"> Enter the Kitchen+ </a>
+            <a href="/membership" class="membership-teaser-cta"> Enter Cook+ </a>
           </div>
         </section>
       {/if}

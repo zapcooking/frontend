@@ -1,5 +1,4 @@
 export const standardRelays = [
-  'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://purplepag.es',
   'wss://relay.primal.net',

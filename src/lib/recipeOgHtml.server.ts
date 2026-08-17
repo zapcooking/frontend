@@ -35,11 +35,16 @@ import { probeImageDimensions } from './imageDimensions.server';
  *     carries a normal `Mozilla/…` UA and must fall through to the SPA.
  *   - `Pinterest/<n>` / `Pinterestbot` — likewise (bare "Pinterest" appears in
  *     the Pinterest in-app browser).
+ *   - `Bluesky Cardyb` — Bluesky's link-card fetcher (`Bluesky Cardyb/1.1`).
+ *     Matched as the two-word form, never bare "Bluesky": the Bluesky mobile
+ *     app's in-app browser carries a normal `Mozilla/…` UA, but the app name
+ *     is exactly the kind of token that shows up in one. The version suffix is
+ *     deliberately NOT required, so a future `Cardyb/2.x` still matches.
  * Snapchat and bare "Yahoo" are intentionally omitted: their in-app browsers
  * carry those words and neither is a recipe link-unfurler worth the risk.
  */
 const CRAWLER_UA =
-  /(facebookexternalhit|facebookcatalog|Facebot|Twitterbot|LinkedInBot|Slackbot|Slack-ImgProxy|Discordbot|TelegramBot|WhatsApp\/\d|Pinterest\/\d|Pinterestbot|redditbot|Googlebot|Google-InspectionTool|bingbot|Applebot|Embedly|Quora Link Preview|vkShare|W3C_Validator|outbrain|SkypeUriPreview|nuzzel|Bitlybot|Baiduspider|ia_archiver|MetaInspector|Iframely|SummalyBot|Mastodon|Pleroma|Yeti)/i;
+  /(facebookexternalhit|facebookcatalog|Facebot|Twitterbot|LinkedInBot|Slackbot|Slack-ImgProxy|Discordbot|TelegramBot|WhatsApp\/\d|Pinterest\/\d|Pinterestbot|Bluesky Cardyb|redditbot|Googlebot|Google-InspectionTool|bingbot|Applebot|Embedly|Quora Link Preview|vkShare|W3C_Validator|outbrain|SkypeUriPreview|nuzzel|Bitlybot|Baiduspider|ia_archiver|MetaInspector|Iframely|SummalyBot|Mastodon|Pleroma|Yeti)/i;
 
 /** Only these route prefixes get bot OG injection. */
 const ROUTE_RE = /^\/(recipe|r)\/([^/]+)\/?$/;

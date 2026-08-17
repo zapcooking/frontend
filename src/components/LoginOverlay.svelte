@@ -69,7 +69,15 @@
   let generateModal = false;
   let showPrivateKey = false;
   let backupStep = 1;
+  // Two ways to have saved the key, and the step advances on either. The
+  // download cannot be verified — link.click() returns whether or not the
+  // browser's save dialog was completed — so gating only on it blocked
+  // someone who put the key in a password manager while still passing
+  // someone who cancelled the dialog. Copying the nsec is the other real
+  // save; the npub is not a backup and does not count.
   let backupDownloaded = false;
+  let backupCopied = false;
+  $: backupSaved = backupDownloaded || backupCopied;
   let bunkerModal = false;
   let nip46UniversalModal = false;
 
@@ -513,6 +521,7 @@
     generatedKeys = authManager.generateKeyPair();
     backupStep = 1;
     backupDownloaded = false;
+    backupCopied = false;
     secureEnrolled = false;
     secureError = '';
     secureOrphanNote = false;
@@ -660,13 +669,35 @@
     }
   }
 
-  async function copyToClipboard(text: string) {
-    if (!browser) return;
+  // Returns whether the write actually landed. A caller that gates a step on
+  // a successful copy needs that answer — a rejected clipboard write must not
+  // count as a saved key. "Copied" rather than "Link copied": the three call
+  // sites copy a pairing URI, an npub, and an nsec, and only one is a link.
+  // manualHint names the way out when the clipboard refuses, and it differs by
+  // screen: the key screens render the value in a field you can select, the
+  // pairing screen renders it only as a QR code (:991) with no text on it at
+  // all. One sentence cannot be true on both, so the caller supplies it.
+  async function copyToClipboard(
+    text: string,
+    manualHint = 'select the text and copy it manually'
+  ): Promise<boolean> {
+    if (!browser) return false;
     try {
       await navigator.clipboard.writeText(text);
-      showToast('success', 'Link copied');
+      showToast('success', 'Copied');
+      return true;
     } catch {
-      showToast('error', 'Could not copy — copy the link manually');
+      showToast('error', `Could not copy — ${manualHint}`);
+      return false;
+    }
+  }
+
+  // Copying the nsec into a password manager is a real backup, so it clears
+  // the same step the downloaded file does — but only if the copy succeeded.
+  async function copyBackupKey() {
+    if (!generatedKeys) return;
+    if (await copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))) {
+      backupCopied = true;
     }
   }
 
@@ -718,6 +749,7 @@
     showPrivateKey = false;
     backupStep = 1;
     backupDownloaded = false;
+    backupCopied = false;
     nsecInput = '';
     nsecError = '';
     bunkerConnectionString = '';
@@ -975,7 +1007,7 @@
                   📱 Open Signer
                 </Button>
               {/if}
-              <Button on:click={() => copyToClipboard(nip46PairingUri)} primary={false} class="w-full">
+              <Button on:click={() => copyToClipboard(nip46PairingUri, 'scan the QR code instead')} primary={false} class="w-full">
                 📋 Copy Link
               </Button>
             </div>
@@ -1182,8 +1214,10 @@
             </div>
             <p class="text-sm text-caption">When you continue, we'll create your profile and show you a backup key to save for safekeeping.</p>
             <div>
+              <!-- The hero above already gives a duration. "Takes less than 10 seconds"
+                   contradicted it on the same screen, and neither number covers a flow that is
+                   four more screens plus a file save. One promise, and it is the headline's. -->
               <Button on:click={generateNewKeys} primary={true} class="w-full spark-glow">Create Profile</Button>
-              <p class="text-xs text-caption text-center mt-2">Takes less than 10 seconds</p>
             </div>
           </div>
         {:else if securePending}
@@ -1249,7 +1283,14 @@
                     <strong>this key is your account</strong>, and it's the only way back in if you
                     ever lose access to your passkeys.
                   {:else}
-                    ✓ Your profile has been created. Save your backup key below to recover it later.
+                    <!-- Not "your profile has been created": generateNewKeys() makes a keypair in
+                         this browser and nothing else. Nothing is published or stored and nobody is
+                         signed in until useGeneratedKeys() runs at the end of step 2, and
+                         modalCleanup() discards the keypair — so the old wording claimed an account
+                         existed at the one moment closing the box would take it away. State what is
+                         true, and that a step is left. -->
+                    Your key is ready. Save it below — you'll finish setting up your profile in the
+                    next step.
                   {/if}
                 </p>
               </div>
@@ -1261,7 +1302,7 @@
                 {#if showPrivateKey}
                   <div class="flex flex-col sm:flex-row gap-2">
                     <textarea id="private-key-textarea" readonly value={nip19.nsecEncode(generatedKeys.privateKey)} rows="2" class="flex-1 min-w-0 input text-sm font-mono p-3"></textarea>
-                    <button on:click={() => generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))} class="flex-shrink-0 px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors" style="color: var(--color-text-primary)">Copy</button>
+                    <button on:click={copyBackupKey} class="flex-shrink-0 px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors" style="color: var(--color-text-primary)">Copy</button>
                   </div>
                   <div class="flex items-center justify-between mt-1.5">
                     <p class="text-xs text-amber-600">⚠️ Anyone with this key can control your profile. Never share it.</p>
@@ -1287,9 +1328,9 @@
                 <p class="text-sm text-caption">Download a backup file with your keys and safety notes.</p>
                 <Button on:click={downloadKeysBackup} primary={true} class="w-full mt-3">Download backup file</Button>
               </div>
-              <Button on:click={() => (backupStep = 2)} primary={false} class="w-full {!backupDownloaded ? 'opacity-50 cursor-not-allowed' : ''}" disabled={!backupDownloaded}>Next</Button>
-              {#if !backupDownloaded}
-                <p class="text-xs text-caption text-center">Download the backup file to continue.</p>
+              <Button on:click={() => (backupStep = 2)} primary={false} class="w-full {!backupSaved ? 'opacity-50 cursor-not-allowed' : ''}" disabled={!backupSaved}>Next</Button>
+              {#if !backupSaved}
+                <p class="text-xs text-caption text-center">Save your key to continue — download the file, or reveal and copy it.</p>
               {/if}
             {:else}
               <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 2</p>
@@ -1421,7 +1462,17 @@
         <img src="/zapcooking-text-light.svg" alt="Zap Cooking" class="signin-wordmark-img signin-wordmark-img--light" />
         <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="signin-wordmark-img signin-wordmark-img--dark" />
       </h1>
-      <p class="signin-tagline">Share recipes and get paid by your community.</p>
+      <!-- Someone sent here from Cook+ checkout is not browsing; they were
+           about to pay. Say why the account step exists and promise the return
+           trip, which onComplete/goto(redirect) below actually delivers. -->
+      <p class="signin-tagline">
+        {#if ($page.url.searchParams.get('redirect') ?? '').startsWith('/membership/cook-plus-checkout')}
+          Cook+ is tied to your Zap Cooking account. Create one and we'll bring you right back to
+          checkout.
+        {:else}
+          Share recipes and get paid by your community.
+        {/if}
+      </p>
 
       {#if vaultRecord && vaultSupported && !authState.isAuthenticated}
         <!-- Locked passkey vault: unlock is the primary action, but every

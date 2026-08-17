@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { triggerExploreNav } from '$lib/exploreNav';
@@ -32,6 +33,7 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
+  import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
   import {
     membershipStatusMap,
     queueMembershipLookup,
@@ -134,6 +136,18 @@
     }
   }
 
+  /**
+   * Engaging search jumps the page back to the top, so results/typing aren't
+   * happening while the user is stranded mid-feed. Scrolls the #app-scroll
+   * container (the element the app actually scrolls) with a window fallback.
+   * Additive — does not interfere with focusing the input or opening the
+   * mobile search overlay.
+   */
+  function scrollToTopOnSearch() {
+    if (!browser) return;
+    scrollActiveSurfaceToTop(document.getElementById('app-scroll'));
+  }
+
 </script>
 
 <!-- Mobile-first sleek header -->
@@ -171,8 +185,10 @@
        the pipe's vertical line to 12px (10px here + the input's 2px margin),
        matching the header's 12px top/bottom padding so the search box has
        equal visual padding on all three framed sides. -->
+  <!-- focusin (not click) so keyboard tabbing into search also jumps to top. -->
   <div
     class="hidden sm:flex flex-1 self-center print:hidden min-w-[280px] lg:max-w-xs xl:max-w-2xl xl:min-w-[500px] lg:pl-2.5"
+    on:focusin={scrollToTopOnSearch}
   >
     <TagsSearchAutocomplete
       placeholderString={'Search recipes, tags, or users...'}
@@ -186,7 +202,10 @@
     <!-- Search icon (mobile only) -->
     <div class="block sm:hidden">
       <button
-        on:click={() => mobileSearchOpen.set(true)}
+        on:click={() => {
+          scrollToTopOnSearch();
+          mobileSearchOpen.set(true);
+        }}
         class="zh-iconbtn"
         aria-label="Search"
       >
@@ -203,7 +222,7 @@
           class="zh-iconbtn zh-intelligence-btn {onIntelligenceSurface || intelligenceMenuOpen
             ? 'is-active'
             : ''}"
-          aria-label="Intelligence tools"
+          aria-label="Kitchen help"
           aria-haspopup="menu"
           aria-expanded={intelligenceMenuOpen}
         >

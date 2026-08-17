@@ -27,7 +27,6 @@ import { buildNourishDTag } from './nourishRelay';
 /** Public relays — no AUTH. Primary index store today (see Phase 0 §0.5). */
 const PUBLIC_PUBLISH_RELAYS = [
 	'wss://nos.lol',
-	'wss://relay.damus.io',
 	'wss://relay.primal.net'
 ];
 

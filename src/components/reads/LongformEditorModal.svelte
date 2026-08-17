@@ -388,7 +388,7 @@
 				identifier: identifier,
 				pubkey: $userPublickey,
 				kind: 30023,
-				relays: ['wss://relay.primal.net', 'wss://nos.lol', 'wss://relay.damus.io']
+				relays: ['wss://relay.primal.net', 'wss://nos.lol']
 			});
 			
 			// Delete the draft since it's now published

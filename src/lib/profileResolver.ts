@@ -126,10 +126,12 @@ async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK, hintRela
 
     const relays = [];
     for (const url of relayUrls) {
-      // autoConnect=true, createIfMissing=true — purplepag.es etc.
-      // may not be in the pool yet; this opens a connection in the
-      // background. fetchEvent will queue against not-yet-ready
-      // relays and resolve when any of them returns.
+      // getRelay(url, connect, temporary) — NDK 2.10.0. Creation is
+      // unconditional when the relay is missing; the third argument is
+      // temporary, which arms a 30s removal timer (skipped for relays in
+      // explicitRelayUrls). purplepag.es etc. may not be in the pool yet;
+      // this opens a connection in the background. fetchEvent will queue
+      // against not-yet-ready relays and resolve when any of them returns.
       const relay = ndkInstance.pool?.getRelay(url, true, true);
       if (relay) relays.push(relay);
     }

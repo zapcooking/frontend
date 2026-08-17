@@ -11,6 +11,7 @@
   import NotificationSubscriber from '../components/NotificationSubscriber.svelte';
   import Footer from '../components/Footer.svelte';
   import CreateMenuButton from '../components/CreateMenuButton.svelte';
+  import ScrollToTopButton from '../components/ScrollToTopButton.svelte';
   import PostModal from '../components/PostModal.svelte';
   import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
   import WalletModal from '../components/wallet/WalletModal.svelte';
@@ -62,6 +63,7 @@
   // Refresh engagement counts when the tab returns from background
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement } from '$lib/engagementCache';
+  import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
 
   // Version-skew guard: when a new deploy is detected (kit.version
   // pollInterval in svelte.config.js), turn the next client-side navigation
@@ -220,6 +222,14 @@
     walletWelcomeSeen = true;
     if (browser) localStorage.setItem(WALLET_WELCOME_KEY, '1');
     openWallet('setup');
+  }
+
+  // Tap the header's empty padding area → smooth-scroll back to top. Only
+  // fires on |self (the wrapper), so real header interactions (search, logo,
+  // buttons) are unaffected. Mirrors the iOS/Twitter "tap status bar" habit.
+  function scrollToTop() {
+    if (!browser) return;
+    scrollActiveSurfaceToTop(document.getElementById('app-scroll'));
   }
 
   // Handle deep links from Capacitor (for NIP-46 pairing)
@@ -559,6 +569,7 @@
            and rubber-band-bounces behind it. -->
       <div
         class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
+        on:click|self={scrollToTop}
       >
         <Header />
         <!-- Decorative connector (desktop): a vertical line just left of
@@ -593,6 +604,9 @@
       </div>
       {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$postComposerOpen}
         <CreateMenuButton variant="floating" />
+      {/if}
+      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
+        <ScrollToTopButton />
       {/if}
       <BottomNav />
       <CookingToolsWidget />

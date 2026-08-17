@@ -19,6 +19,17 @@ const inFlight = new Set<string>();
 const queued = new Set<string>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Bumped every time a forced refresh is issued for a pubkey. A batch that was
+// already in flight when the refresh started carries an older answer, and
+// without this it would land after the refresh and restore the stale value —
+// the exact defect the refresh exists to fix. Each fetch captures the epoch of
+// every pubkey it requested and drops any whose epoch moved underneath it.
+const refreshEpoch = new Map<string, number>();
+
+function epochOf(pubkey: string): number {
+  return refreshEpoch.get(pubkey) ?? 0;
+}
+
 const mapStore = writable<Record<string, MembershipStatus>>({});
 export const membershipStatusMap = { subscribe: mapStore.subscribe };
 
@@ -53,21 +64,24 @@ function normalizeStatus(raw: { active?: boolean; tier?: string; expiresAt?: str
   };
 }
 
-async function fetchBatch(pubkeys: string[]): Promise<void> {
+async function fetchBatch(pubkeys: string[], init?: RequestInit): Promise<void> {
   if (!browser || pubkeys.length === 0) return;
 
   const requested = [...new Set(pubkeys)];
   requested.forEach((pk) => inFlight.add(pk));
+  const startEpochs = new Map(requested.map((pk) => [pk, epochOf(pk)]));
+  const superseded = (pubkey: string): boolean => epochOf(pubkey) !== startEpochs.get(pubkey);
 
   try {
     const query = encodeURIComponent(requested.join(','));
-    const res = await fetch(`/api/membership?pubkeys=${query}`);
+    const res = await fetch(`/api/membership?pubkeys=${query}`, init);
     if (!res.ok) {
       throw new Error(`Membership fetch failed with status ${res.status}`);
     }
 
     const payload = (await res.json()) as MembershipResponse;
     for (const pubkey of requested) {
+      if (superseded(pubkey)) continue;
       const raw = payload?.[pubkey];
       if (raw) {
         updateStore(pubkey, normalizeStatus(raw));
@@ -78,6 +92,11 @@ async function fetchBatch(pubkeys: string[]): Promise<void> {
   } catch (error) {
     console.warn('[membershipStatus] Batch fetch failed:', error);
     for (const pubkey of requested) {
+      // No epoch check needed here: this path only writes a placeholder for a
+      // pubkey with no value at all, so a refresh that wrote one is already
+      // safe. Adding the guard would change behaviour only when the refresh
+      // failed too, and then it would leave the pubkey with no entry instead
+      // of the placeholder this path has always written.
       if (!statusCache.has(pubkey)) {
         updateStore(pubkey, { active: false, tier: 'unknown' });
       }
@@ -110,6 +129,45 @@ export function queueMembershipLookup(pubkey: string | null | undefined): void {
   if (statusCache.has(normalized) || inFlight.has(normalized)) return;
   queued.add(normalized);
   scheduleFlush();
+}
+
+/**
+ * Force a fresh lookup for one pubkey, ignoring anything already cached.
+ *
+ * `queueMembershipLookup` and `getMembership` both return early on a cached
+ * pubkey, and the cache has no TTL — so a `{active:false}` read taken before a
+ * payment completes is the answer every membership surface gets for the life of
+ * the tab (avatar ring, belt badge, header, Cheffy). Call this once after a
+ * payment is confirmed; every consumer reads `membershipStatusMap`, so the one
+ * write reaches all of them.
+ *
+ * Deliberately NOT wired into the debounced queue: this is a single known
+ * pubkey at a known moment, not feed traffic, so it does not reintroduce the
+ * per-avatar request storm that took `getMembership` out of `Avatar.svelte`.
+ * Callers must keep it that way — one call per completed payment.
+ *
+ * Never rejects: a failed lookup is swallowed by `fetchBatch`. If a previous
+ * value exists it is left in place; if the cache had no entry yet, the failure
+ * path writes the inactive placeholder (`{active:false, tier:'unknown'}`) that
+ * `fetchBatch` has always written for an unknown pubkey. Callers can await
+ * without risking the page.
+ */
+export async function refreshMembership(
+  pubkey: string | null | undefined
+): Promise<MembershipStatus | null> {
+  if (!browser) return null;
+  const normalized = normalizePubkey(pubkey);
+  if (!normalized) return null;
+
+  // Bump before the fetch, so any batch already in flight for this pubkey is
+  // treated as superseded when it lands.
+  refreshEpoch.set(normalized, epochOf(normalized) + 1);
+  // A queued-but-unflushed lookup for this pubkey would only re-ask the same
+  // question a moment later.
+  queued.delete(normalized);
+
+  await fetchBatch([normalized], { cache: 'no-store' });
+  return statusCache.get(normalized) ?? null;
 }
 
 export async function getMembership(pubkeys: string[]): Promise<Record<string, MembershipStatus>> {
@@ -154,6 +212,7 @@ export function __resetMembershipStatusStoreForTests(): void {
   statusCache.clear();
   inFlight.clear();
   queued.clear();
+  refreshEpoch.clear();
   if (flushTimer) {
     clearTimeout(flushTimer);
     flushTimer = null;

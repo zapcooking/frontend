@@ -4,7 +4,7 @@
  * no env vars, analytics, or deployed routes break).
  *
  * Uses OpenAI gpt-4.1-mini to power Cheffy, Zap Cooking's kitchen
- * companion. Premium feature for Pro Kitchen members.
+ * companion. Included with any active membership (Cook+, Pro Kitchen, Founders).
  *
  * POST /api/zappy
  *
@@ -91,7 +91,7 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
       );
     }
 
-    // Membership gate (Cheffy is a Pro Kitchen feature) with a single
+    // Membership gate (Cheffy is included with any active membership) with a single
     // controlled "experience" preview for non-members. Members are
     // unaffected. The experience path is the ONLY way a non-member can
     // reach Cheffy — and only once per device. `experienceGranted` stays
@@ -126,7 +126,7 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
         const experienceModeAllowed = mode === 'chat' || mode === 'prompt' || mode === 'hungry';
         if (!isExperience || !experienceModeAllowed) {
           return json(
-            { ok: false, error: 'Cheffy is available to Pro Kitchen members.' },
+            { ok: false, error: 'Cheffy is available to Cook+ members.' },
             { status: 403 }
           );
         }
@@ -139,7 +139,7 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
             {
               ok: false,
               code: 'CHEFFY_EXPERIENCE_USED',
-              error: 'Create your free kitchen or unlock Kitchen+ to keep cooking with Cheffy.'
+              error: 'Create your free kitchen or unlock Cook+ to keep cooking with Cheffy.'
             },
             { status: 429 }
           );
