@@ -10,7 +10,7 @@ import {
   matchProfileOgRoute,
   resolveProfileOgMeta,
   buildOgTagBlock,
-  injectOgTags
+  createOgPageTransformer
 } from '$lib/recipeOgHtml.server';
 import type { RecipeOgMeta } from '$lib/recipeOgMeta';
 
@@ -98,16 +98,18 @@ function buildCorsHeaders(origin: string | null, useWildcard: boolean): Headers 
 }
 
 /**
- * Bot-only OG injection. Social crawlers don't run JS, so the client-fetched
- * recipe event never populates the OG tags for them — they'd only ever see the
- * static placeholders. For a crawler UA on a recipe route we resolve the recipe
- * SERVER-SIDE (raw WebSocket, no NDK) and return a minimal standalone document.
+ * Resolve OG meta for routes that derive their tags from a client-fetched
+ * Nostr event. During SSR that event is null, so the page's own head emits
+ * static placeholders; the meta resolved here (raw WebSocket, no NDK) is
+ * injected into the real page for EVERY visitor — there is deliberately no
+ * User-Agent gating (see the comment in `handle`).
  *
  * This deliberately does NOT use a `+page.server.ts` / server `data` dependency:
  * that is what made #454 request `__data.json` against an OOM'd worker and 500.
- * Crawlers issue a single document GET and never request `__data.json`, so this
- * path cannot reintroduce that. Returns null (→ normal SPA resolve) for humans,
- * non-matching routes, or ANY error — it must never throw or 500.
+ * Resolution stays in this hook, on the single document GET, so this path
+ * cannot reintroduce that. Returns null (→ page served with its own tags) for
+ * non-matching routes, non-GET requests, or ANY error — it must never throw
+ * or 500.
  */
 async function resolveOgMeta(
   event: Parameters<Handle>[0]['event']
@@ -215,10 +217,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   }
 
   const response = ogTagBlock
-    ? await resolve(event, {
-        transformPageChunk: ({ html }) =>
-          html.includes('</head>') ? injectOgTags(html, ogTagBlock) : html
-      })
+    ? await resolve(event, { transformPageChunk: createOgPageTransformer(ogTagBlock) })
     : await resolve(event);
 
   if (!shouldApplyCors) {

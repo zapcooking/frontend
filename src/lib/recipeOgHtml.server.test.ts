@@ -1,87 +1,16 @@
 /**
- * Tests for `isCrawler`'s User-Agent matching.
+ * Tests for the OG injection pipeline: `injectOgTags` must replace the SSR
+ * page's placeholder tags (shipping both sets is how cards went generic —
+ * scrapers pick one arbitrarily), and `buildOgTagBlock` must degrade rather
+ * than throw on bad relay-supplied data.
  *
- * Two properties are being pinned, and they pull in opposite directions:
- *  1. every unfurler we claim to support actually matches (Bluesky was the
- *     gap — `Bluesky Cardyb/1.1` fell through to the SPA shell and got a
- *     generic card);
- *  2. no in-app browser UA matches. A false positive serves a human the
- *     empty-body crawler document instead of the app — that is the reason
- *     WhatsApp/Pinterest/Bluesky are matched only in their dedicated-crawler
- *     form, and the reason those negatives are asserted here and not just
- *     described in the comment above `CRAWLER_UA`.
+ * There are deliberately no User-Agent tests here: the crawler allowlist is
+ * gone, OG tags are injected for every visitor. Do not reintroduce UA
+ * sniffing (see recipeOgHtml.server.ts).
  */
 
 import { describe, it, expect } from 'vitest';
-import { isCrawler, injectOgTags, buildOgTagBlock } from './recipeOgHtml.server';
-
-describe('isCrawler', () => {
-  it('matches the Bluesky link-card fetcher', () => {
-    expect(isCrawler('Bluesky Cardyb/1.1')).toBe(true);
-  });
-
-  it('matches a future Bluesky Cardyb version (no version suffix required)', () => {
-    expect(isCrawler('Bluesky Cardyb/2.0')).toBe(true);
-  });
-
-  it('does NOT match a bare "Bluesky" in-app browser UA', () => {
-    expect(
-      isCrawler(
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Bluesky/1.87'
-      )
-    ).toBe(false);
-  });
-
-  const crawlers = [
-    ['Facebook', 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)'],
-    ['X / Twitter', 'Twitterbot/1.0'],
-    [
-      'LinkedIn',
-      'LinkedInBot/1.0 (compatible; Mozilla/5.0; Apache-HttpClient +http://www.linkedin.com)'
-    ],
-    ['Discord', 'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)'],
-    ['Slack', 'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)'],
-    ['Telegram', 'TelegramBot (like TwitterBot)'],
-    ['WhatsApp', 'WhatsApp/2.23.20.0 A'],
-    [
-      'Apple',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 (Applebot/0.1)'
-    ],
-    ['Mastodon', 'http.rb/5.1.1 (Mastodon/4.2.1; +https://mastodon.social/)']
-  ] as const;
-
-  for (const [label, ua] of crawlers) {
-    it(`still matches ${label}`, () => {
-      expect(isCrawler(ua)).toBe(true);
-    });
-  }
-
-  const humans = [
-    [
-      'WhatsApp in-app browser',
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 WhatsApp'
-    ],
-    [
-      'Pinterest in-app browser',
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [Pinterest/iOS]'
-    ],
-    [
-      'desktop Chrome',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-    ]
-  ] as const;
-
-  for (const [label, ua] of humans) {
-    it(`does NOT match ${label}`, () => {
-      expect(isCrawler(ua)).toBe(false);
-    });
-  }
-
-  it('does not match a missing User-Agent', () => {
-    expect(isCrawler(null)).toBe(false);
-    expect(isCrawler('')).toBe(false);
-  });
-});
+import { injectOgTags, buildOgTagBlock, createOgPageTransformer } from './recipeOgHtml.server';
 
 describe('injectOgTags', () => {
   const TAGS = [
@@ -166,6 +95,37 @@ describe('injectOgTags', () => {
   });
 });
 
+describe('createOgPageTransformer', () => {
+  const TAGS = '<meta property="og:title" content="The Anything Omelette" />';
+  const page = `<!doctype html><html><head>
+  <meta property="og:title" content="Recipe" />
+</head><body>hi</body></html>`;
+
+  it('injects when the page arrives as a single chunk', () => {
+    const transform = createOgPageTransformer(TAGS);
+    const out = transform({ html: page, done: true });
+
+    expect(out).toContain('The Anything Omelette');
+    expect(out.match(/og:title/g)).toHaveLength(1);
+  });
+
+  it('injects when the chunk boundary falls between <head> and </head>', () => {
+    // A per-chunk injection would see no complete head in either chunk and
+    // ship the placeholders — the exact regression this transformer prevents.
+    const splitAt = page.indexOf('<meta property');
+    const transform = createOgPageTransformer(TAGS);
+
+    const first = transform({ html: page.slice(0, splitAt), done: false });
+    const last = transform({ html: page.slice(splitAt), done: true });
+    const out = first + last;
+
+    expect(first).toBe('');
+    expect(out).toContain('The Anything Omelette');
+    expect(out).not.toContain('content="Recipe"');
+    expect(out).toContain('<body>hi</body>');
+  });
+});
+
 describe('buildOgTagBlock resilience', () => {
   const base = {
     pageTitle: 'T',
@@ -195,4 +155,4 @@ describe('buildOgTagBlock resilience', () => {
 
     expect(out).toContain('article:published_time');
   });
-})
+});

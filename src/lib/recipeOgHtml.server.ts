@@ -1,21 +1,23 @@
 /**
- * Server-only: detect social crawlers and render a minimal standalone OG
- * document for recipe routes.
+ * Server-only: resolve Open Graph metadata for recipe/note/reads/profile
+ * routes and inject it into the SSR page's <head> for EVERY visitor.
  *
- * WHY this exists (read before touching): recipe OG/Twitter tags are derived
- * reactively from a Nostr event fetched ONLY client-side, so crawlers — which
- * don't run JS — see placeholder defaults. The fix #454 deliberately removed
- * `+page.server.ts` from these routes because a server `data` dependency made
- * the client request `__data.json`, which 500'd against an OOM'd worker. So we
- * must NOT reintroduce any server load. Instead the `handle` hook returns this
- * tiny document for crawler User-Agents only — crawlers issue a single document
- * GET, never request `__data.json`, and never touch the service worker, so this
- * path cannot reintroduce the #454 mechanism. Human requests fall through to the
- * unchanged client SPA.
+ * WHY this exists (read before touching): these pages derive their OG/Twitter
+ * tags reactively from a Nostr event fetched ONLY client-side, so during SSR
+ * the head holds static placeholders. Anything that doesn't run JS — social
+ * crawlers, Nostr clients' link unfurlers, generic preview fetchers — would
+ * only ever see the placeholder card. The `handle` hook resolves the real
+ * meta server-side and swaps it into the page via `injectOgTags`.
  *
- * Option (a) from the brief: build a minimal standalone HTML head rather than
- * transforming the full SSR page — lightest, lowest memory, given the OOM
- * history.
+ * Two deliberate absences:
+ *  - NO `+page.server.ts` on these routes: a server `data` dependency made
+ *    the client request `__data.json`, which 500'd against an OOM'd worker
+ *    (#454). Resolution happens in the hook on the document GET only, so that
+ *    mechanism cannot come back.
+ *  - NO User-Agent gating: a crawler allowlist was tried and silently failed
+ *    for the audience that matters most — Nostr clients aren't on any such
+ *    list, and many unfurlers send a generic or empty UA. Do not reintroduce
+ *    UA sniffing here.
  */
 
 import { getRecipeOgMeta, FALLBACK_RECIPE_OG, type RecipeOgMeta } from './recipeOgMeta';
@@ -24,34 +26,8 @@ import { fetchNoteForOg, getNoteOgMeta, FALLBACK_NOTE_OG } from './noteOg.server
 import { fetchProfileOgMeta, FALLBACK_PROFILE_OG } from './profileOg.server';
 import { probeImageDimensions } from './imageDimensions.server';
 
-/**
- * Crawler / link-unfurl User-Agents. Matched case-insensitively.
- *
- * A false positive is NOT harmless: a real human matched here would get the
- * empty-body crawler document instead of the SPA, breaking the page for them.
- * So tokens that also appear in human in-app browser UAs are matched only in
- * their dedicated-crawler form, never as a bare word:
- *   - `WhatsApp/<n>`  — the link-preview fetcher; the WhatsApp in-app webview
- *     carries a normal `Mozilla/…` UA and must fall through to the SPA.
- *   - `Pinterest/<n>` / `Pinterestbot` — likewise (bare "Pinterest" appears in
- *     the Pinterest in-app browser).
- *   - `Bluesky Cardyb` — Bluesky's link-card fetcher (`Bluesky Cardyb/1.1`).
- *     Matched as the two-word form, never bare "Bluesky": the Bluesky mobile
- *     app's in-app browser carries a normal `Mozilla/…` UA, but the app name
- *     is exactly the kind of token that shows up in one. The version suffix is
- *     deliberately NOT required, so a future `Cardyb/2.x` still matches.
- * Snapchat and bare "Yahoo" are intentionally omitted: their in-app browsers
- * carry those words and neither is a recipe link-unfurler worth the risk.
- */
-const CRAWLER_UA =
-  /(facebookexternalhit|facebookcatalog|Facebot|Twitterbot|LinkedInBot|Slackbot|Slack-ImgProxy|Discordbot|TelegramBot|WhatsApp\/\d|Pinterest\/\d|Pinterestbot|Bluesky Cardyb|redditbot|Googlebot|Google-InspectionTool|bingbot|Applebot|Embedly|Quora Link Preview|vkShare|W3C_Validator|outbrain|SkypeUriPreview|nuzzel|Bitlybot|Baiduspider|ia_archiver|MetaInspector|Iframely|SummalyBot|Mastodon|Pleroma|Yeti)/i;
-
-/** Only these route prefixes get bot OG injection. */
+/** Only these route prefixes get OG injection. */
 const ROUTE_RE = /^\/(recipe|r)\/([^/]+)\/?$/;
-
-export function isCrawler(userAgent: string | null): boolean {
-  return !!userAgent && CRAWLER_UA.test(userAgent);
-}
 
 export function matchRecipeOgRoute(pathname: string): { prefix: string; slug: string } | null {
   const m = pathname.match(ROUTE_RE);
@@ -63,7 +39,7 @@ export function matchRecipeOgRoute(pathname: string): { prefix: string; slug: st
   return { prefix: m[1], slug: m[2] };
 }
 
-/** Top-level note routes (`/note1…`, `/nevent1…`) get bot OG injection too. */
+/** Top-level note routes (`/note1…`, `/nevent1…`) get OG injection too. */
 const NOTE_ROUTE_RE = /^\/((?:note1|nevent1)[0-9a-z]+)\/?$/i;
 
 export function matchNoteOgRoute(pathname: string): { slug: string } | null {
@@ -283,4 +259,25 @@ export function injectOgTags(html: string, tagBlock: string): string {
   const cleaned = head.replace(PAGE_HEAD_TAGS_RE, '');
 
   return `${html.slice(0, openTagEnd)}\n${tagBlock}\n${cleaned}${html.slice(headEnd)}`;
+}
+
+/**
+ * Per-request `transformPageChunk` callback for the `handle` hook.
+ *
+ * SvelteKit delivers the page in chunks, and a chunk boundary can fall
+ * anywhere — including between `<head>` and `</head>`, where a per-chunk
+ * injection would no-op or leave the placeholder tags behind. Buffer the
+ * whole document and inject exactly once on the final chunk. These routes
+ * don't stream server data (no `+page.server.ts`), so the buffer holds the
+ * SPA shell, not a large streamed payload.
+ */
+export function createOgPageTransformer(
+  tagBlock: string
+): (input: { html: string; done: boolean }) => string {
+  let buffer = '';
+  return ({ html, done }) => {
+    buffer += html;
+    if (!done) return '';
+    return injectOgTags(buffer, tagBlock);
+  };
 }
