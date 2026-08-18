@@ -18,7 +18,8 @@ import {
   addWallet,
   removeWallet,
   setActiveWallet,
-  getActiveWallet
+  getActiveWallet,
+  walletsDecrypted
 } from './walletStore';
 import {
   connectNwc,
@@ -1005,36 +1006,55 @@ let isInitialized = false;
 let initializationPromise: Promise<void> | null = null;
 let sparkPaymentDebugLogged = false;
 
+/**
+ * Connect the active wallet and refresh its balance. Safe to re-run —
+ * ensureWalletConnected-style checks inside each branch (or
+ * sparkInitialized) prevent duplicate connections.
+ */
+async function restoreActiveWallet(): Promise<void> {
+  const active = get(wallets).find((w) => w.active);
+  if (!active) return;
+
+  try {
+    switch (active.kind) {
+      case 1:
+        if (isWeblnConnected()) break;
+        if (isWeblnAvailable()) await connectWebln();
+        break;
+      case 3:
+        if (active.data && isNwcConnectedTo(active.data)) break;
+        await connectNwc(active.data);
+        break;
+      case 4:
+        if (get(sparkInitialized)) break;
+        const apiKey = import.meta.env.VITE_BREEZ_API_KEY;
+        const pubkey = get(userPublickey);
+        if (apiKey && pubkey) await connectSparkWallet(pubkey, apiKey);
+        break;
+    }
+    await refreshBalance();
+  } catch (e) {
+    console.warn('[WalletManager] Failed to restore wallet:', e);
+  }
+}
+
+// Encrypted NWC wallets may decrypt after init (vault unlock, NIP-07
+// extension ready late) — restore connectivity as soon as they appear.
+if (typeof window !== 'undefined') {
+  walletsDecrypted.subscribe(() => {
+    if (isInitialized) {
+      void restoreActiveWallet();
+    }
+  });
+}
+
 export async function initializeWalletManager(): Promise<void> {
   if (isInitialized) return;
   if (initializationPromise) return initializationPromise;
 
   initializationPromise = (async () => {
     await ndkReady;
-
-    const savedWallets = get(wallets);
-    const active = savedWallets.find((w) => w.active);
-
-    if (active) {
-      try {
-        switch (active.kind) {
-          case 1:
-            if (isWeblnAvailable()) await connectWebln();
-            break;
-          case 3:
-            await connectNwc(active.data);
-            break;
-          case 4:
-            const apiKey = import.meta.env.VITE_BREEZ_API_KEY;
-            const pubkey = get(userPublickey);
-            if (apiKey && pubkey) await connectSparkWallet(pubkey, apiKey);
-            break;
-        }
-        await refreshBalance();
-      } catch (e) {
-        console.warn('[WalletManager] Failed to restore wallet:', e);
-      }
-    }
+    await restoreActiveWallet();
     isInitialized = true;
   })();
 
