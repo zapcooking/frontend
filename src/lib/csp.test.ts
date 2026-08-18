@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import config from '../../svelte.config.js';
+
+// Loaded via a computed specifier so svelte-check cannot follow the import:
+// svelte.config.js pulls in the adapter packages, whose ambient .d.ts files
+// merge required properties into App.Platform and break the typing of every
+// endpoint that takes `platform` (vault-sync, nip108). Vitest still resolves
+// this at runtime.
+const configModule = '../../svelte.config' + '.js';
+const config: any = (await import(configModule)).default;
 
 /**
  * The CSP script-src hashes in svelte.config.js are content hashes of the
