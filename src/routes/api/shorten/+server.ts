@@ -19,8 +19,11 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import type { ShortenedURL } from '$lib/shortlinks/types';
 import { generateShortCode, isValidShortCode, normalizeShortCode } from '$lib/shortlinks/code';
 import { parseUrlOrNaddr } from '$lib/shortlinks/parse.server';
+import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 
 const SITE_ORIGIN = 'https://zap.cooking';
+/** One year. Long enough that a shared link keeps working; short enough to bound KV growth. */
+const SHORTLINK_TTL_SECONDS = 365 * 24 * 60 * 60;
 const MAX_CUSTOM_SLUG_LENGTH = 20;
 const RESERVED_CODES = new Set([
   'info',
@@ -40,10 +43,31 @@ function getShortUrl(code: string): string {
   return `${SITE_ORIGIN}/s/${code}`;
 }
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+export const POST: RequestHandler = async ({ request, platform, getClientAddress }) => {
   const kv = platform?.env?.SHORTLINKS;
   if (!kv) {
     return json({ success: false, error: 'Short links are not configured' }, { status: 503 });
+  }
+
+  // Unauthenticated KV write. Without a cap, anyone can mint short links in
+  // a loop and grow the namespace without bound (records are also the only
+  // thing standing between a scraper and every naddr we've ever shortened).
+  // Caps are per-IP and generous: real users create a handful at a time.
+  let ip = '127.0.0.1';
+  try {
+    ip = getClientAddress();
+  } catch {
+    // No client address (some runtimes) — fall through to the loopback
+    // bucket rather than failing the request.
+  }
+  const rate = await checkPerIpRateLimit(platform?.env?.NOURISH_FLAGS, {
+    ip,
+    scope: 'shorten',
+    perHour: 10,
+    perDay: 50
+  });
+  if (rate.limited) {
+    return json({ success: false, ...rate.body }, { status: 429 });
   }
 
   let body: {
@@ -119,7 +143,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     type
   };
 
-  await kv.put(shortCode, JSON.stringify(record));
+  // TTL so an abandoned or abusive link doesn't live in KV forever.
+  // A year is far longer than a share link's useful life while still
+  // bounding growth. NOTE: records created before this change have no
+  // expiry and will persist until swept — see the PR description.
+  await kv.put(shortCode, JSON.stringify(record), { expirationTtl: SHORTLINK_TTL_SECONDS });
 
   return json({
     success: true,
