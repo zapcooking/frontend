@@ -2,7 +2,8 @@
  * Delete a corrupted Spark wallet backup from Nostr relays.
  *
  * Usage:
- *   node scripts/delete-spark-backup.mjs <nsec>
+ *   node scripts/delete-spark-backup.mjs          (prompts for the nsec)
+ *   node scripts/delete-spark-backup.mjs <nsec>   (discouraged — see below)
  *
  * The script finds every kind:30078 event with a spark-wallet-backup d-tag
  * published by the key, then overwrites each one with an empty replacement
@@ -10,6 +11,7 @@
  * are deduplicated by relays, so the empty event wins once it propagates.
  */
 
+import { createInterface } from 'node:readline';
 import { finalizeEvent, getPublicKey, nip19 } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
 import { useWebSocketImplementation } from 'nostr-tools/pool';
@@ -18,7 +20,6 @@ import WebSocket from 'ws';
 useWebSocketImplementation(WebSocket);
 
 const RELAYS = [
-  'wss://relay.nostr.band',
   'wss://nos.lol',
   'wss://relay.primal.net',
   'wss://nostr.wine',
@@ -28,16 +29,51 @@ const RELAYS = [
 const BACKUP_EVENT_KIND = 30078;
 const SPARK_D_TAG        = 'spark-wallet-backup';
 
-// ── parse args ───────────────────────────────────────────────────────────────
-const [,, nsecArg] = process.argv;
-if (!nsecArg) {
-  console.error('Usage: node scripts/delete-spark-backup.mjs <nsec>');
+// ── obtain the key ───────────────────────────────────────────────────────────
+//
+// Prefer an interactive prompt with echo suppressed. Passing an nsec as an
+// argv leaves it in shell history (~/.zsh_history), in `ps` output for the
+// lifetime of the process, and in any shell-integration transcript — all
+// places a private key should never be.
+
+/** Read a line from stdin without echoing it back to the terminal. */
+function promptHidden(question) {
+  return new Promise((resolve, reject) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    // Suppress echo: the readline 'output' write hook drops everything but
+    // the prompt itself, so the typed key never appears on screen.
+    let muted = false;
+    const originalWrite = rl._writeToOutput?.bind(rl);
+    rl._writeToOutput = (str) => {
+      if (!muted && originalWrite) originalWrite(str);
+    };
+    rl.question(question, (answer) => {
+      rl.close();
+      process.stdout.write('\n');
+      resolve(answer.trim());
+    });
+    muted = true;
+    rl.on('error', reject);
+  });
+}
+
+const [, , nsecArg] = process.argv;
+if (nsecArg) {
+  console.warn(
+    '\n⚠️  Passing the nsec as an argument leaves it in your shell history\n' +
+      '   and in `ps` output. Prefer running this with no arguments.\n'
+  );
+}
+
+const nsecInput = nsecArg || (await promptHidden('Enter your nsec (input hidden): '));
+if (!nsecInput) {
+  console.error('No nsec provided.');
   process.exit(1);
 }
 
 let secretKey;
 try {
-  const decoded = nip19.decode(nsecArg);
+  const decoded = nip19.decode(nsecInput);
   if (decoded.type !== 'nsec') throw new Error('Not an nsec');
   secretKey = decoded.data;
 } catch {
