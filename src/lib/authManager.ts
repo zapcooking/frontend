@@ -710,6 +710,16 @@ export class AuthManager {
 
       localStorage.setItem('nostrcooking_loggedInPublicKey', userPubkey);
       localStorage.setItem('nostrcooking_authMethod', 'nip46');
+      // Accepted risk (2026-08 security review): `secret` and
+      // `localPrivateKey` inside nip46Info are persisted in plaintext.
+      // They are required for session restore — removing them would force
+      // a manual bunker-URI re-paste on every reload, and wrapping them is
+      // chicken-and-egg: the only signer able to unwrap an envelope IS
+      // this bunker session, which isn't alive until after these values
+      // are read back. Local-device compromise (the threat encrypt-to-self
+      // mitigates elsewhere) also compromises the session regardless,
+      // since the bunker connection itself is enough to request
+      // signatures.
       localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
       // Success supersedes the pending ephemeral key (now persisted in
       // nostrcooking_nip46 for reconnect). On FAILURE we deliberately keep
