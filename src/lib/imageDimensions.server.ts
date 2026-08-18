@@ -17,6 +17,8 @@
  * caller can omit the dimension tags and fall back to today's behavior.
  */
 
+import { fetchWithSsrfGuard } from '$lib/urlGuard.server';
+
 export interface ImageDimensions {
   width: number;
   height: number;
@@ -148,7 +150,10 @@ export async function probeImageDimensions(url: string): Promise<ImageDimensions
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(url, {
+      // Image URLs come from event content, i.e. from anyone. Go through
+      // the shared SSRF guard, which also re-checks each redirect hop —
+      // an unguarded fetch here would happily probe 169.254.169.254.
+      const { response: res } = await fetchWithSsrfGuard(url, {
         signal: controller.signal,
         headers: {
           // Range keeps this to a header-sized fetch even for a multi-MB

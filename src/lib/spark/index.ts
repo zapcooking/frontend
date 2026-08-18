@@ -12,7 +12,9 @@ import {
   loadMnemonic,
   hasMnemonic,
   deleteMnemonic,
-  clearAllSparkWallets
+  clearAllSparkWallets,
+  hasLegacyMnemonic,
+  migrateLegacyMnemonic
 } from './storage';
 import { logger } from '$lib/logger';
 import {
@@ -2124,5 +2126,44 @@ export function getSparkLightningAddress(): string | null {
   return get(lightningAddress);
 }
 
+// Pubkeys already swept this session — the sweep is idempotent, but
+// there's no reason to re-check on every auth-state emission.
+const legacyMnemonicSwept = new Set<string>();
+
+/**
+ * Proactively upgrade a legacy V1 mnemonic to V2 at login.
+ *
+ * V1 derives its key from the (public) pubkey, so a V1 record is readable
+ * by anyone who can read localStorage. The existing migration only runs
+ * inside loadMnemonic — i.e. when the user opens the Spark wallet — which
+ * leaves the record exposed indefinitely for users who never open it.
+ *
+ * Skipped for NIP-46 sessions (canCreateNostrBackup is false: a bunker
+ * round-trip per encrypt isn't viable here), so those keep V1 until the
+ * wallet is opened, exactly as before. Never throws — a failed migration
+ * leaves V1 in place and retries on the next login.
+ *
+ * @param pubkey The user's Nostr public key (hex string).
+ */
+export async function sweepLegacyMnemonic(pubkey: string): Promise<void> {
+  if (!browser || !pubkey) return;
+  if (legacyMnemonicSwept.has(pubkey)) return;
+  if (!hasLegacyMnemonic(pubkey)) return;
+  if (!canCreateNostrBackup()) return;
+
+  legacyMnemonicSwept.add(pubkey);
+  try {
+    const migrated = await migrateLegacyMnemonic(pubkey);
+    if (migrated) {
+      logger.info('Migrated legacy V1 mnemonic to V2 at login', 'spark');
+    }
+  } catch (e) {
+    // Signer denied or unavailable — V1 record is untouched. Allow a
+    // retry on the next login rather than marking this pubkey done.
+    legacyMnemonicSwept.delete(pubkey);
+    logger.warn('Legacy mnemonic migration deferred', 'spark', e);
+  }
+}
+
 // Export storage utilities
-export { clearAllSparkWallets, deleteMnemonic, loadMnemonic };
+export { clearAllSparkWallets, deleteMnemonic, loadMnemonic, hasLegacyMnemonic };
