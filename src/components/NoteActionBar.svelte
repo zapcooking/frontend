@@ -32,6 +32,9 @@
   /** Show the "Ask Cheffy about this photo" trigger (image-bearing notes only) */
   export let showCheffy: boolean = true;
 
+  /** Override compact mode's default of hiding the engagement details drawer. */
+  export let showEngagementDetails: boolean | undefined = undefined;
+
   let zapModalOpen = false;
   let engagementOpen = false;
   let engagementEventId = event.id;
@@ -71,11 +74,13 @@
 
   let isCompact: boolean;
   let isFull: boolean;
+  let canShowEngagementDetails: boolean;
   let iconWrapClass: string;
   let zapWrapClass: string;
 
   $: isCompact = variant === 'compact';
   $: isFull = variant === 'full';
+  $: canShowEngagementDetails = showEngagementDetails ?? !isCompact;
   $: iconWrapClass = isFull
     ? 'hover:bg-accent-gray rounded-full p-1.5 transition-colors'
     : isCompact
@@ -120,20 +125,22 @@
       <NoteTotalZaps {event} onZapClick={openZapModal} />
     </div>
 
-    {#if !isCompact}
+    {#if (!isCompact && showCheffy) || canShowEngagementDetails}
       <div class="trailing-actions">
-        {#if showCheffy}
+        {#if !isCompact && showCheffy}
           <CheffyNoteReviewTrigger {event} wrapClass={iconWrapClass} />
         {/if}
-        <PostEngagementToggle
-          expanded={engagementOpen}
-          on:toggle={() => (engagementOpen = !engagementOpen)}
-        />
+        {#if canShowEngagementDetails}
+          <PostEngagementToggle
+            expanded={engagementOpen}
+            on:toggle={() => (engagementOpen = !engagementOpen)}
+          />
+        {/if}
       </div>
     {/if}
   </div>
 
-  {#if !isCompact}
+  {#if canShowEngagementDetails}
     <PostEngagementDrawer {event} open={engagementOpen} />
   {/if}
 </div>
