@@ -161,8 +161,16 @@ export async function buildOgTagBlock(meta: RecipeOgMeta, canonicalUrl: string):
   lines.push('<meta property="og:site_name" content="zap.cooking" />');
 
   if (meta.publishedAt !== null) {
-    const iso = escapeAttr(new Date(meta.publishedAt * 1000).toISOString());
-    lines.push(`<meta property="article:published_time" content="${iso}" />`);
+    // `created_at` comes off a relay event, so it can be anything — and
+    // Date#toISOString THROWS a RangeError outside ±8.64e15 ms rather than
+    // returning something useless. One nonsense timestamp would otherwise
+    // take down the whole page render. Skip the tag instead.
+    const ms = meta.publishedAt * 1000;
+    if (Number.isFinite(ms) && Math.abs(ms) <= 8.64e15) {
+      lines.push(
+        `<meta property="article:published_time" content="${escapeAttr(new Date(ms).toISOString())}" />`
+      );
+    }
   }
   if (meta.authorPubkey) {
     lines.push(

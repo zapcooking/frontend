@@ -178,7 +178,19 @@ export const handle: Handle = async ({ event, resolve }) => {
   // `__data.json` dependency. The resolution happens here in the hook exactly
   // as it did before.
   const og = await resolveOgMeta(event);
-  const ogTagBlock = og ? await buildOgTagBlock(og.meta, og.canonicalUrl) : null;
+  // buildOgTagBlock probes the image over the network for width/height, so it
+  // can throw for reasons that have nothing to do with this page (host down,
+  // DNS, a runtime that blocks the fetch). Unguarded, that would take the
+  // whole request down with it — a 500 on a page that renders perfectly well
+  // without dimension tags. Degrade to the page's own tags instead.
+  let ogTagBlock: string | null = null;
+  if (og) {
+    try {
+      ogTagBlock = await buildOgTagBlock(og.meta, og.canonicalUrl);
+    } catch (e) {
+      console.error('[og] tag build failed, serving page tags', e);
+    }
+  }
 
   const isApiRoute = event.url.pathname.startsWith('/api/');
   const origin = event.request.headers.get('origin');

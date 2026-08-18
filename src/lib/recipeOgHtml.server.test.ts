@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { isCrawler, injectOgTags } from './recipeOgHtml.server';
+import { isCrawler, injectOgTags, buildOgTagBlock } from './recipeOgHtml.server';
 
 describe('isCrawler', () => {
   it('matches the Bluesky link-card fetcher', () => {
@@ -165,3 +165,34 @@ describe('injectOgTags', () => {
     expect(out.match(/<meta property="og:title"/g)).toHaveLength(1);
   });
 });
+
+describe('buildOgTagBlock resilience', () => {
+  const base = {
+    pageTitle: 'T',
+    ogTitle: 'T',
+    description: 'D',
+    image: 'https://zap.cooking/social-share.png',
+    authorPubkey: null
+  };
+
+  it('omits the published tag for an out-of-range timestamp instead of throwing', async () => {
+    // Date#toISOString throws a RangeError past ±8.64e15 ms. A single bad
+    // relay `created_at` must not take the page render down.
+    const out = await buildOgTagBlock(
+      { ...base, publishedAt: 8.64e15 },
+      'https://zap.cooking/r/naddr1x'
+    );
+
+    expect(out).not.toContain('article:published_time');
+    expect(out).toContain('og:title');
+  });
+
+  it('still emits the published tag for a normal timestamp', async () => {
+    const out = await buildOgTagBlock(
+      { ...base, publishedAt: 1_700_000_000 },
+      'https://zap.cooking/r/naddr1x'
+    );
+
+    expect(out).toContain('article:published_time');
+  });
+})
