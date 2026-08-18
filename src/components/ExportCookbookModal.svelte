@@ -4,6 +4,7 @@
   import Modal from './Modal.svelte';
   import Button from './Button.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { signNip98AuthHeader } from '$lib/nip98';
   import { showToast } from '$lib/toast';
   import { lightningService } from '$lib/lightningService';
   import { copyToClipboard } from '$lib/utils/share';
@@ -262,17 +263,25 @@
     }
     if (!$userPublickey) return { text: fallback, aiUsed: false };
     try {
+      // NIP-98 replaces the body pubkey. AI polish is best-effort: any
+      // failure here (including no signer) falls back to the raw
+      // description, same as before.
+      const bodyString = JSON.stringify({
+        packTitle: title,
+        packDescription: subtitle,
+        creatorName,
+        recipeCount: recipes.length,
+        recipeTitles: recipes.slice(0, 10).map((r) => r.title)
+      });
+      const authorization = await signNip98AuthHeader($ndk, {
+        method: 'POST',
+        url: new URL('/api/cookbook-intro', window.location.origin).toString(),
+        bodyString
+      });
       const res = await fetch('/api/cookbook-intro', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pubkey: $userPublickey,
-          packTitle: title,
-          packDescription: subtitle,
-          creatorName,
-          recipeCount: recipes.length,
-          recipeTitles: recipes.slice(0, 10).map((r) => r.title)
-        })
+        headers: { 'Content-Type': 'application/json', Authorization: authorization },
+        body: bodyString
       });
       const data = (await res.json()) as { success: boolean; introduction?: string; error?: string };
       if (data.success && data.introduction) {
