@@ -10,7 +10,8 @@
   import ListComboBox from '../../../../components/ListComboBox.svelte';
   import Button from '../../../../components/Button.svelte';
   import ImagesComboBox from '../../../../components/ImagesComboBox.svelte';
-  import { RECIPE_TAG_PREFIX_NEW, RECIPE_TAGS } from '$lib/consts';
+  import { RECIPE_TAGS } from '$lib/consts';
+  import { buildListTags, listIdentifier } from '$lib/listTags';
   import PanLoader from '../../../../components/PanLoader.svelte';
 
   $: {
@@ -125,31 +126,19 @@
     try {
       const nevent = new NDKEvent($ndk);
       nevent.kind = 30001;
-      if (!event.tags.find((t) => t[0] == 'd' && t[1] == 'nostrcooking-bookmarks')) {
-        nevent.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
-        nevent.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
-      } else {
-        nevent.tags.push(['d', 'nostrcooking-bookmarks']);
-      }
-      nevent.tags.push(['title', title]);
-      if (summary !== '') {
-        nevent.tags.push(['summary', summary]);
-      }
-      if ($images.length === 1) {
-        event.tags.push(['image', $images[0]]);
-      }
-      $items.forEach((e) => {
-        const decoded = nip19.decode(e.naddr);
-        if (decoded.type === 'naddr') {
-          const data = decoded.data;
-          const newAtag = `${data.kind}:${data.pubkey}:${data.identifier}`;
-          nevent.tags.push(['a', newAtag]);
-        }
-      });
+      nevent.tags.push(
+        ...buildListTags({
+          sourceTags: event.tags,
+          title,
+          summary,
+          images: $images,
+          items: $items
+        })
+      );
       await nevent.publish();
       resultMessage = 'Success!';
       let naddr = nip19.naddrEncode({
-        identifier: title.toLowerCase().replaceAll(' ', '-'),
+        identifier: listIdentifier(title),
         kind: 30001,
         pubkey: nevent.pubkey
       });

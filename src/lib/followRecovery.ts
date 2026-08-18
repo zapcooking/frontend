@@ -16,7 +16,6 @@ import type { Event, EventTemplate } from 'nostr-tools';
 const FOLLOW_LIST_KIND = 3;
 
 const DEFAULT_RELAYS = [
-	'wss://relay.damus.io',
 	'wss://relay.primal.net',
 	'wss://nos.lol',
 	'wss://relay.snort.social',
@@ -24,14 +23,22 @@ const DEFAULT_RELAYS = [
 	'wss://relay.nostr.net'
 ];
 
+/**
+ * Deliberately does NOT include Primal's cache hosts. `wss://cacheN.primal.net`
+ * never opens a socket — the bare path serves an nginx HTML page — and the real
+ * endpoint at `/v1` (see primalCache.ts) answers our scan filter with
+ * `NOTICE: kinds or authors filter is not supported`, because it speaks Primal's
+ * cache protocol rather than plain nostr. Neither form can serve this path.
+ *
+ * `nostr.mom` shares an operator with `nos.lol`, which is in DEFAULT_RELAYS. It
+ * is kept because it is a working, independently-stored host, but the two are
+ * not independent redundancy — count operators, not URLs.
+ */
 const ARCHIVAL_RELAYS = [
 	'wss://nostr.wine',
 	'wss://offchain.pub',
 	'wss://nostr.mom',
-	'wss://relay.noswhere.com',
-	'wss://cache0.primal.net',
-	'wss://cache1.primal.net',
-	'wss://cache2.primal.net'
+	'wss://relay.noswhere.com'
 ];
 
 export interface FollowListCandidate {

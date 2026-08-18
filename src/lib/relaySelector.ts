@@ -12,7 +12,6 @@
 import { browser } from '$app/environment';
 import { relayListCache, type RelayList, normalizeRelayUrl } from './relayListCache';
 import { getConnectionManager, type RelayHealth } from './connectionManager';
-import { standardRelays } from './consts';
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -57,7 +56,6 @@ export interface CoverageResult {
 
 export interface RelaySelector {
   selectForAuthor(pubkey: string, count?: number): Promise<SelectionResult>;
-  selectForPublish(): Promise<SelectionResult>;
   selectOptimalCoverage(pubkeys: string[], maxRelaysPerAuthor?: number): Promise<CoverageResult>;
   recordSuccess(relay: string, latencyMs: number): void;
   recordFailure(relay: string): void;
@@ -101,7 +99,6 @@ const CONFIG = {
   
   // Fallback relays when author has no NIP-65
   FALLBACK_RELAYS: [
-    'wss://relay.damus.io',
     'wss://nos.lol',
     'wss://relay.primal.net',
     'wss://purplepag.es'
@@ -512,26 +509,6 @@ class RelaySelectorImpl implements RelaySelector {
       relays: selected.map(s => s.url),
       scores: selected,
       fallbackUsed
-    };
-  }
-  
-  async selectForPublish(): Promise<SelectionResult> {
-    await this.loadStats();
-    
-    // For publishing, use our standard relays + any connected relays
-    const connectedRelays = this.getConnectedRelays();
-    const allCandidates = [...new Set([...standardRelays, ...connectedRelays])];
-    
-    // Rank by reliability for publishing (higher bar)
-    const ranked = this.rankRelays(allCandidates);
-    
-    // For publishing, select more relays for redundancy
-    const selected = ranked.slice(0, 4);
-    
-    return {
-      relays: selected.map(s => s.url),
-      scores: selected,
-      fallbackUsed: false
     };
   }
   

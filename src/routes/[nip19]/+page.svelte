@@ -703,7 +703,11 @@
                   {/if}
                   <!-- Parent note actions -->
                   <div class="mt-2">
-                    <NoteActionBar event={parentNote} variant="compact" />
+                    <NoteActionBar
+                      event={parentNote}
+                      variant="compact"
+                      showEngagementDetails={true}
+                    />
                   </div>
                 </div>
               </div>
@@ -755,10 +759,10 @@
         {#if event.kind === 1068}
           <PollDisplay {event} />
         {:else}
-          <NoteContent content={event.content} />
+          <NoteContent content={event.content} {event} />
         {/if}
       </div>
-      <NoteActionBar {event} />
+      <NoteActionBar {event} showCheffy={false} />
     </article>
 
     <!-- Replies Section -->
@@ -826,12 +830,12 @@
                     {#if reply.kind === 1068}
                       <PollDisplay event={reply} />
                     {:else}
-                      <NoteContent content={reply.content} showNostrEmbeds={false} />
+                      <NoteContent content={reply.content} event={reply} showNostrEmbeds={false} />
                     {/if}
                   </div>
                   <!-- Reply actions -->
                   <div class="mt-2" on:click|stopPropagation>
-                    <NoteActionBar event={reply} />
+                    <NoteActionBar event={reply} showCheffy={false} />
                   </div>
                 </article>
 
@@ -891,7 +895,11 @@
                           {#if nestedReply.kind === 1068}
                             <PollDisplay event={nestedReply} />
                           {:else}
-                            <NoteContent content={nestedReply.content} showNostrEmbeds={false} />
+                            <NoteContent
+                              content={nestedReply.content}
+                              event={nestedReply}
+                              showNostrEmbeds={false}
+                            />
                           {/if}
                         </div>
                         <!-- Nested reply actions -->

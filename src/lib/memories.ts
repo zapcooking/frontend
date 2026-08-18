@@ -114,7 +114,6 @@ export function isReplyNote(event: { tags: string[][] }): boolean {
 
 /** Archive-friendly relays queried in addition to the standard set. */
 const ARCHIVE_RELAYS = [
-  'wss://relay.damus.io',
   'wss://nostr.wine',
   'wss://relay.primal.net'
 ];

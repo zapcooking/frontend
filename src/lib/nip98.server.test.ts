@@ -188,6 +188,16 @@ describe('verifyNip98', () => {
     expect(result).toEqual({ ok: false, reason: 'payload-mismatch' });
   });
 
+  it('rejects missing payload tag when bodyBytes provided', async () => {
+    const body = JSON.stringify({ type: 'text', textData: 'hello' });
+    const bodyBytes = new TextEncoder().encode(body);
+    const event = await buildSignedAuthEvent({});
+    const request = makeRequest({ body, authorization: encodeAuthHeader(event) });
+
+    const result = await verifyNip98(request, { bodyBytes });
+    expect(result).toEqual({ ok: false, reason: 'missing-payload-tag' });
+  });
+
   it('rejects expectedPubkey mismatch when the param is provided', async () => {
     const otherSk = generateSecretKey();
     const body = '{}';

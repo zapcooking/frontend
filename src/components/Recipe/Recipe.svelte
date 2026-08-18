@@ -491,11 +491,19 @@
     isDeleting = true;
 
     try {
-      // For addressable events (kind 30023), the most reliable deletion method
-      // is to publish a replacement event with the same 'd' tag but marked as deleted.
+      // For addressable events the most reliable deletion method is to publish a
+      // replacement event with the same kind and 'd' tag but marked as deleted.
       // This overwrites the original on relays.
+      // This component renders two recipe kinds — public (30023) and premium
+      // (GATED_RECIPE_KIND, 35000) — and the tombstone must carry the SAME kind as
+      // the event being deleted, or it lands at a different address and overwrites
+      // whatever else lives there. Public and premium recipes derive their 'd' tag
+      // from the title identically (/create:343, /create/gated:187), so a hardcoded
+      // 30023 here blanks the author's public recipe when they delete a premium one
+      // of the same name.
+      const deleteKind = event.kind ?? 30023;
       const deleteEvent = new NDKEvent($ndk);
-      deleteEvent.kind = 30023;
+      deleteEvent.kind = deleteKind;
       deleteEvent.content = ''; // Empty content
 
       // Must use the same 'd' tag to replace the original
@@ -516,9 +524,9 @@
       deletionRequest.content = 'Recipe deleted by author';
       deletionRequest.tags.push(['e', event.id]);
       if (dTag) {
-        deletionRequest.tags.push(['a', `30023:${event.pubkey}:${dTag}`]);
+        deletionRequest.tags.push(['a', `${deleteKind}:${event.pubkey}:${dTag}`]);
       }
-      deletionRequest.tags.push(['k', '30023']);
+      deletionRequest.tags.push(['k', String(deleteKind)]);
 
       await deletionRequest.publish();
 

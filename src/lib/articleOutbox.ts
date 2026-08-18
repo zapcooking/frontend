@@ -84,18 +84,11 @@ const CONFIG = {
   // Article-optimized relays (good for longform content)
   ARTICLE_RELAYS: [
     'wss://relay.primal.net',        // Primal's relay (aggregated content)
-    'wss://relay.damus.io',          // Large general relay
     'wss://nos.lol',                 // Popular relay with good uptime
     'wss://nostr.wine',              // Premium relay with quality content
     'wss://purplepag.es',            // Good for profile/content discovery
     'wss://antiprimal.net',          // Broad content discovery
   ],
-  
-  // Fallback relays if primary ones fail
-  FALLBACK_RELAYS: [
-    'wss://nostr.mutinywallet.com',
-    'wss://relay.snort.social',
-  ]
 };
 
 // ═══════════════════════════════════════════════════════════════

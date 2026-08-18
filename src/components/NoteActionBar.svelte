@@ -5,6 +5,8 @@
   import NoteRepost from './NoteRepost.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import CheffyNoteReviewTrigger from './CheffyNoteReviewTrigger.svelte';
+  import PostEngagementDrawer from './PostEngagementDrawer.svelte';
+  import PostEngagementToggle from './PostEngagementToggle.svelte';
   import ZapModal from './ZapModal.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { fetchEngagement, optimisticZapUpdate, markSelfZapCompleted } from '$lib/engagementCache';
@@ -27,10 +29,20 @@
   /** Show the repost/quote button */
   export let showRepost: boolean = true;
 
-  /** Show the "Ask Cheffy about this dish" trigger (image-bearing notes only) */
+  /** Show the "Ask Cheffy about this photo" trigger (image-bearing notes only) */
   export let showCheffy: boolean = true;
 
+  /** Override compact mode's default of hiding the engagement details drawer. */
+  export let showEngagementDetails: boolean | undefined = undefined;
+
   let zapModalOpen = false;
+  let engagementOpen = false;
+  let engagementEventId = event.id;
+
+  $: if (event.id !== engagementEventId) {
+    engagementEventId = event.id;
+    engagementOpen = false;
+  }
 
   // Called as the `onZapClick` callback from NoteTotalZaps when its
   // internal one-tap path isn't applicable (no in-app wallet, toggle off,
@@ -62,11 +74,13 @@
 
   let isCompact: boolean;
   let isFull: boolean;
+  let canShowEngagementDetails: boolean;
   let iconWrapClass: string;
   let zapWrapClass: string;
 
   $: isCompact = variant === 'compact';
   $: isFull = variant === 'full';
+  $: canShowEngagementDetails = showEngagementDetails ?? !isCompact;
   $: iconWrapClass = isFull
     ? 'hover:bg-accent-gray rounded-full p-1.5 transition-colors'
     : isCompact
@@ -111,12 +125,24 @@
       <NoteTotalZaps {event} onZapClick={openZapModal} />
     </div>
 
-    {#if showCheffy}
-      <!-- Bottom-right of the card (ml-auto). Renders nothing for
-           imageless notes — the trigger owns detection. -->
-      <CheffyNoteReviewTrigger {event} wrapClass={`${iconWrapClass} ml-auto`} />
+    {#if (!isCompact && showCheffy) || canShowEngagementDetails}
+      <div class="trailing-actions">
+        {#if !isCompact && showCheffy}
+          <CheffyNoteReviewTrigger {event} wrapClass={iconWrapClass} />
+        {/if}
+        {#if canShowEngagementDetails}
+          <PostEngagementToggle
+            expanded={engagementOpen}
+            on:toggle={() => (engagementOpen = !engagementOpen)}
+          />
+        {/if}
+      </div>
     {/if}
   </div>
+
+  {#if canShowEngagementDetails}
+    <PostEngagementDrawer {event} open={engagementOpen} />
+  {/if}
 </div>
 
 {#if zapModalOpen}
@@ -139,6 +165,13 @@
 
   .compact .action-row {
     gap: 0.125rem;
+  }
+
+  .trailing-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    margin-left: auto;
   }
 
   .zap-pills-row {

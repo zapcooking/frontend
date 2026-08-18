@@ -22,19 +22,20 @@
       html:not(.dark) .logo-dark { display: none !important; }
     </style>
 
-    <!-- Override fetch BEFORE anything else loads to intercept __data.json requests in static builds -->
+    <!-- Override fetch BEFORE anything else loads to intercept __data.json
+         requests in packaged Capacitor/static builds. Do NOT treat bare
+         localhost as static — Vite/Wrangler local servers need real data. -->
     <script>
       (function () {
-        // Check if this is a static/Capacitor build (localhost or capacitor protocol)
-        var isStaticBuild =
-          window.location.hostname === 'localhost' ||
-          window.location.hostname === '127.0.0.1' ||
-          window.location.protocol === 'file:' ||
-          window.location.protocol === 'capacitor:';
+        var protocol = window.location.protocol;
+        var isPackagedStatic =
+          protocol === 'file:' ||
+          protocol === 'capacitor:' ||
+          typeof window.Capacitor !== 'undefined';
 
-        if (!isStaticBuild) return;
+        if (!isPackagedStatic) return;
 
-        console.log('[app.html] Setting up early fetch interceptor for static build');
+        console.log('[app.html] Setting up early fetch interceptor for packaged static build');
 
         var originalFetch = window.fetch;
         window.fetch = function (input, init) {
