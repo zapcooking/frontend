@@ -3,6 +3,7 @@
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { signNip98AuthHeader } from '$lib/nip98';
   import {
     askAboutPhoto,
     fileToBase64,
@@ -290,15 +291,31 @@
     await scrollAfterTurn();
 
     try {
+      // NIP-98 instead of a body pubkey. Best-effort: the server treats a
+      // missing header as anonymous, so a signing failure must send no
+      // header rather than a broken one.
+      const bodyString = JSON.stringify({
+        prompt: promptForApi,
+        mode,
+        messages: apiHistory
+      });
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if ($userPublickey) {
+        try {
+          headers.Authorization = await signNip98AuthHeader($ndk, {
+            method: 'POST',
+            url: new URL('/api/zappy', window.location.origin).toString(),
+            bodyString
+          });
+        } catch (e) {
+          console.warn('[Cheffy] NIP-98 signing unavailable, continuing unauthenticated:', e);
+        }
+      }
+
       const resp = await fetch('/api/zappy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: promptForApi,
-          mode,
-          pubkey: $userPublickey,
-          messages: apiHistory
-        })
+        headers,
+        body: bodyString
       });
       const data = await resp.json();
       if (!resp.ok || !data.ok) {
