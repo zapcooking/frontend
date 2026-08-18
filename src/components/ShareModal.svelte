@@ -196,7 +196,12 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        shortError = data?.error ?? 'Could not create short link';
+        // The rate limiter returns a machine code ('rate_limited'); don't
+        // show that to a human.
+        shortError =
+          res.status === 429
+            ? 'You\'ve created a lot of short links — try again in a little while.'
+            : (data?.error ?? 'Could not create short link');
         return;
       }
       if (data.success && data.shortUrl) {
