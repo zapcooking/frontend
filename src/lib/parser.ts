@@ -86,6 +86,11 @@ function buildYoutubeEmbed(id: string, doc: Document): HTMLElement {
     'accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'
   );
   iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+  // Third-party frame embedded from untrusted note content: deny
+  // top-level navigation, popups, form submission and downloads.
+  // allow-scripts + allow-same-origin are both required for the player;
+  // allow-presentation keeps casting working.
+  iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
   iframe.setAttribute('allowfullscreen', '');
   iframe.setAttribute('loading', 'lazy');
   wrapper.appendChild(iframe);

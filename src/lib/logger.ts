@@ -21,6 +21,56 @@ export interface LogEntry {
   url?: string;
 }
 
+/**
+ * Keys whose VALUES must never be persisted to `production_logs`.
+ *
+ * These logs sit in localStorage, which is exactly the place the rest of
+ * this codebase works to keep secrets out of — a stray
+ * `logger.error('failed', 'ctx', { nsec })` would quietly undo that. The
+ * match is on the key NAME and is deliberately broad: over-redacting a
+ * debug log costs nothing, under-redacting costs a key.
+ */
+const SENSITIVE_KEY_RE = /nsec|secret|mnemonic|seed|pin|token|privkey|private_?key|authorization|passphrase/i;
+
+/** Serialized `data` is capped so one huge payload can't evict the log buffer. */
+const MAX_SERIALIZED_DATA_CHARS = 2048;
+
+function scrubValue(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  // Bail out rather than recursing without bound on a cyclic/deep object.
+  if (depth > 4) return '[depth-limited]';
+  if (Array.isArray(value)) return value.map((v) => scrubValue(v, depth + 1));
+
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = SENSITIVE_KEY_RE.test(key) ? '[redacted]' : scrubValue(v, depth + 1);
+  }
+  return out;
+}
+
+/**
+ * Redact sensitive fields and bound the size of a log entry before it is
+ * persisted. Never throws — a logger that can fail is worse than a lossy one.
+ */
+export function scrubLogEntry<T extends { data?: unknown }>(entry: T): T {
+  try {
+    if (entry.data === undefined) return entry;
+    const scrubbed = scrubValue(entry.data);
+    const serialized = JSON.stringify(scrubbed);
+    return {
+      ...entry,
+      data:
+        serialized && serialized.length > MAX_SERIALIZED_DATA_CHARS
+          ? `${serialized.slice(0, MAX_SERIALIZED_DATA_CHARS)}…[truncated]`
+          : scrubbed
+    };
+  } catch {
+    // Unserializable (cycles, exotic objects) — drop the payload rather
+    // than risk persisting something unreviewed.
+    return { ...entry, data: '[unserializable]' };
+  }
+}
+
 class Logger {
   private static instance: Logger;
   private logLevel: LogLevel;
@@ -141,18 +191,18 @@ class Logger {
   private sendToProductionService(entry: LogEntry): void {
     // In production, you would send logs to your logging service
     // Examples: Sentry, LogRocket, DataDog, or your own service
-    
+
     // For now, we'll just store in localStorage for debugging
     if (typeof window !== 'undefined') {
       try {
         const logs = JSON.parse(localStorage.getItem('production_logs') || '[]');
-        logs.push(entry);
-        
+        logs.push(scrubLogEntry(entry));
+
         // Keep only last 50 entries
         if (logs.length > 50) {
           logs.splice(0, logs.length - 50);
         }
-        
+
         localStorage.setItem('production_logs', JSON.stringify(logs));
       } catch (error) {
         // Silently fail if localStorage is not available

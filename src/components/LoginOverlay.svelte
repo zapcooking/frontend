@@ -35,7 +35,7 @@
     createAndUploadBackup,
     type GoogleSession
   } from '$lib/googleBackup/googleBackupFlow';
-  import { isValidPin } from '$lib/googleBackup/googleBackupCrypto';
+  import { isValidPin, isValidNewPin } from '$lib/googleBackup/googleBackupCrypto';
   import {
     PASSKEY_SYNC_ENABLED,
     PASSKEY_SIGNUP_ENABLED,
@@ -418,8 +418,10 @@
       googleError = 'Google session expired. Please try again.';
       return;
     }
-    if (!isValidPin(googlePin)) {
-      googleError = 'PIN must be 4–8 digits.';
+    // Creation uses the stricter minimum. The restore path below stays at
+    // 4 digits so existing backups remain decryptable.
+    if (!isValidNewPin(googlePin)) {
+      googleError = 'PIN must be 6–8 digits.';
       return;
     }
     if (googlePin !== googlePinConfirm) {
@@ -1085,7 +1087,7 @@
               class="block text-sm font-medium mb-1.5"
               style="color: var(--color-text-primary)"
             >
-              PIN (4–8 digits)
+              PIN (6–8 digits)
             </label>
             <input
               id="google-pin"

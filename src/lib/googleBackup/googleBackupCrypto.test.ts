@@ -4,6 +4,7 @@ import {
 	encryptNsec,
 	decryptNsec,
 	isValidPin,
+	isValidNewPin,
 	__testing
 } from './googleBackupCrypto';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
@@ -59,11 +60,23 @@ describe('Google backup crypto — behaviour', () => {
 		expect(() => decryptNsec(payload, bad)).toThrow(); // HMAC verification failed
 	});
 
-	it('validates PIN format (4–8 digits)', () => {
+	it('accepts existing 4–8 digit PINs on the restore path', () => {
+		// Must stay permissive: backups made before the minimum was raised
+		// use 4- and 5-digit PINs and have to remain decryptable.
 		expect(isValidPin('4729')).toBe(true);
 		expect(isValidPin('12345678')).toBe(true);
 		expect(isValidPin('123')).toBe(false);
 		expect(isValidPin('123456789')).toBe(false);
 		expect(isValidPin('47a9')).toBe(false);
+	});
+
+	it('requires 6–8 digits for a NEW PIN', () => {
+		expect(isValidNewPin('472913')).toBe(true);
+		expect(isValidNewPin('12345678')).toBe(true);
+		// The whole point: 4- and 5-digit PINs are no longer creatable.
+		expect(isValidNewPin('4729')).toBe(false);
+		expect(isValidNewPin('47291')).toBe(false);
+		expect(isValidNewPin('123456789')).toBe(false);
+		expect(isValidNewPin('4729a1')).toBe(false);
 	});
 });

@@ -1440,7 +1440,12 @@ export async function restoreFromMnemonic(
 
     // Validate mnemonic format
     if (!validateMnemonic(mnemonic)) {
-      logger.error('[Spark] Mnemonic validation failed. First word:', mnemonic.split(' ')[0]);
+      // Never log any part of the mnemonic — a single word narrows a
+      // BIP-39 search meaningfully, and logs travel further than the key
+      // ever should. Word count is enough to debug a malformed phrase.
+      logger.error('[Spark] Mnemonic validation failed', 'spark', {
+        wordCount: mnemonic.trim().split(/\s+/).length
+      });
       throw new Error('Invalid mnemonic phrase');
     }
 
@@ -1537,7 +1542,12 @@ export async function restoreFromBackup(
 
     // Validate mnemonic format
     if (!validateMnemonic(mnemonic)) {
-      logger.error('[Spark] Mnemonic validation failed. First word:', mnemonic.split(' ')[0]);
+      // Never log any part of the mnemonic — a single word narrows a
+      // BIP-39 search meaningfully, and logs travel further than the key
+      // ever should. Word count is enough to debug a malformed phrase.
+      logger.error('[Spark] Mnemonic validation failed', 'spark', {
+        wordCount: mnemonic.trim().split(/\s+/).length
+      });
       throw new Error('Decrypted mnemonic is invalid');
     }
 
