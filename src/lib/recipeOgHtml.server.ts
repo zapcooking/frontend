@@ -111,11 +111,21 @@ function escapeAttr(value: string): string {
 
 // The static fallback graphic never changes — hardcode its known dimensions
 // (verified via `sips`) rather than fetching it on every fallback render.
-const STATIC_FALLBACK_DIMENSIONS: Record<string, { width: number; height: number; mime: string }> = {
-  'https://zap.cooking/social-share.png': { width: 1200, height: 675, mime: 'image/png' }
-};
+const STATIC_FALLBACK_DIMENSIONS: Record<string, { width: number; height: number; mime: string }> =
+  {
+    'https://zap.cooking/social-share.png': { width: 1200, height: 675, mime: 'image/png' }
+  };
 
-async function renderDocument(meta: RecipeOgMeta, canonicalUrl: string): Promise<string> {
+/**
+ * Build the head tags for a card: `<title>`, description, canonical, and the
+ * og:/twitter: set.
+ *
+ * Separated from the document wrapper so the SAME tags can be injected into
+ * the real SSR page for every visitor, rather than only into a standalone
+ * crawler document. Serving one document to everyone is the whole point —
+ * see the head-injection comment in hooks.server.ts.
+ */
+export async function buildOgTagBlock(meta: RecipeOgMeta, canonicalUrl: string): Promise<string> {
   const url = escapeAttr(canonicalUrl);
   const title = escapeAttr(meta.ogTitle);
   const desc = escapeAttr(meta.description);
@@ -123,9 +133,6 @@ async function renderDocument(meta: RecipeOgMeta, canonicalUrl: string): Promise
   const pageTitle = escapeAttr(meta.pageTitle);
 
   const lines = [
-    '<!doctype html>',
-    '<html lang="en"><head>',
-    '<meta charset="utf-8" />',
     `<title>${pageTitle}</title>`,
     `<meta name="description" content="${desc}" />`,
     `<link rel="canonical" href="${url}" />`,
@@ -169,24 +176,18 @@ async function renderDocument(meta: RecipeOgMeta, canonicalUrl: string): Promise
     `<meta name="twitter:url" content="${url}" />`,
     `<meta name="twitter:title" content="${title}" />`,
     `<meta name="twitter:description" content="${desc}" />`,
-    `<meta name="twitter:image" content="${image}" />`,
-    '</head><body></body></html>'
+    `<meta name="twitter:image" content="${image}" />`
   );
 
   return lines.join('\n');
 }
 
 /**
- * Build the standalone crawler document for a matched recipe route. NEVER
+ * Resolve OG meta for a matched recipe route. NEVER
  * throws and never hangs: on any failure or relay timeout it emits safe
  * fallback meta so the bot still gets a valid 200 card.
  */
-export async function renderRecipeOgForCrawler(
-  prefix: string,
-  slug: string,
-  origin: string
-): Promise<string> {
-  const canonicalUrl = `${origin}/${prefix}/${slug}`;
+export async function resolveRecipeOgMeta(slug: string): Promise<RecipeOgMeta> {
   let meta: RecipeOgMeta = FALLBACK_RECIPE_OG;
   try {
     const event = await fetchRecipeEventForOg(slug);
@@ -194,16 +195,15 @@ export async function renderRecipeOgForCrawler(
   } catch {
     /* keep fallback meta */
   }
-  return renderDocument(meta, canonicalUrl);
+  return meta;
 }
 
 /**
- * Build the standalone crawler document for a matched note route. Never throws
+ * Resolve OG meta for a matched note route. Never throws
  * and never hangs: on any failure or relay timeout it emits a safe generic
  * note card so the bot still gets a valid 200.
  */
-export async function renderNoteOgForCrawler(slug: string, origin: string): Promise<string> {
-  const canonicalUrl = `${origin}/${slug}`;
+export async function resolveNoteOgMeta(slug: string): Promise<RecipeOgMeta> {
   let meta: RecipeOgMeta = FALLBACK_NOTE_OG;
   try {
     const data = await fetchNoteForOg(slug);
@@ -211,16 +211,15 @@ export async function renderNoteOgForCrawler(slug: string, origin: string): Prom
   } catch {
     /* keep fallback meta */
   }
-  return renderDocument(meta, canonicalUrl);
+  return meta;
 }
 
 /**
- * Build the standalone crawler document for a `/reads/naddr…` article. Reuses
+ * Resolve OG meta for a `/reads/naddr…` article. Reuses
  * the recipe resolver/derivation (both are kind:30023 with title/summary/image
  * tags), with a generic article fallback. Never throws or hangs.
  */
-export async function renderReadsOgForCrawler(slug: string, origin: string): Promise<string> {
-  const canonicalUrl = `${origin}/reads/${slug}`;
+export async function resolveReadsOgMeta(slug: string): Promise<RecipeOgMeta> {
   let meta: RecipeOgMeta = FALLBACK_ARTICLE_OG;
   try {
     const event = await fetchRecipeEventForOg(slug);
@@ -228,20 +227,14 @@ export async function renderReadsOgForCrawler(slug: string, origin: string): Pro
   } catch {
     /* keep fallback meta */
   }
-  return renderDocument(meta, canonicalUrl);
+  return meta;
 }
 
 /**
- * Build the standalone crawler document for a profile route (`/npub1…`,
- * `/nprofile1…`, `/user/npub1…`). `pathname` is passed through so the canonical
- * URL matches the actual route (top-level vs `/user/`). Never throws or hangs.
+ * Resolve OG meta for a profile route (`/npub1…`, `/nprofile1…`,
+ * `/user/npub1…`). Never throws or hangs.
  */
-export async function renderProfileOgForCrawler(
-  slug: string,
-  origin: string,
-  pathname: string
-): Promise<string> {
-  const canonicalUrl = `${origin}${pathname}`;
+export async function resolveProfileOgMeta(slug: string): Promise<RecipeOgMeta> {
   let meta: RecipeOgMeta = FALLBACK_PROFILE_OG;
   try {
     const resolved = await fetchProfileOgMeta(slug);
@@ -249,5 +242,37 @@ export async function renderProfileOgForCrawler(
   } catch {
     /* keep fallback meta */
   }
-  return renderDocument(meta, canonicalUrl);
+  return meta;
+}
+
+/**
+ * Tags the SSR page emits from its own `<svelte:head>` that we replace.
+ *
+ * The page derives these from a CLIENT-fetched event, so during SSR they are
+ * static placeholders ("Recipe", the logo graphic). They must be removed
+ * rather than merely preceded: the layout already documents that when two
+ * sets are present scrapers pick one arbitrarily, and shipping both is how
+ * cards ended up generic in the first place.
+ */
+const PAGE_HEAD_TAGS_RE =
+  /[\t ]*<(?:title>[\s\S]*?<\/title>|meta\s+(?:property="og:[^"]*"|name="(?:twitter:[^"]*|description)")[^>]*>|link\s+rel="canonical"[^>]*>)\n?/g;
+
+/**
+ * Replace the SSR page's placeholder head tags with resolved ones.
+ *
+ * Operates only on the `<head>` region so a stray `<title>` in body content
+ * (e.g. inside an inlined SVG) can't be clobbered. Returns the html unchanged
+ * if there's no head to work with, so a shape change upstream degrades to
+ * today's behavior instead of mangling the document.
+ */
+export function injectOgTags(html: string, tagBlock: string): string {
+  const headStart = html.indexOf('<head>');
+  const headEnd = html.indexOf('</head>');
+  if (headStart === -1 || headEnd === -1 || headEnd < headStart) return html;
+
+  const openTagEnd = headStart + '<head>'.length;
+  const head = html.slice(openTagEnd, headEnd);
+  const cleaned = head.replace(PAGE_HEAD_TAGS_RE, '');
+
+  return `${html.slice(0, openTagEnd)}\n${tagBlock}\n${cleaned}${html.slice(headEnd)}`;
 }

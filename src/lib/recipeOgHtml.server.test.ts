@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { isCrawler } from './recipeOgHtml.server';
+import { isCrawler, injectOgTags } from './recipeOgHtml.server';
 
 describe('isCrawler', () => {
   it('matches the Bluesky link-card fetcher', () => {
@@ -80,5 +80,88 @@ describe('isCrawler', () => {
   it('does not match a missing User-Agent', () => {
     expect(isCrawler(null)).toBe(false);
     expect(isCrawler('')).toBe(false);
+  });
+});
+
+describe('injectOgTags', () => {
+  const TAGS = [
+    '<title>The Anything Omelette - zap.cooking</title>',
+    '<meta property="og:title" content="The Anything Omelette" />',
+    '<meta property="og:image" content="https://img.example/real.jpg" />'
+  ].join('\n');
+
+  /** The shape SSR produces: the page's own placeholder tags in <head>. */
+  const ssrPage = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Recipe</title>
+  <meta name="description" content="A recipe shared on zap.cooking" />
+  <link rel="canonical" href="https://zap.cooking/r/naddr1x" />
+  <meta property="og:title" content="Recipe" />
+  <meta property="og:image" content="https://zap.cooking/social-share.png" />
+  <meta name="twitter:title" content="Recipe" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body><div id="app">hi</div><script src="/app.js"></script></body>
+</html>`;
+
+  it('replaces the placeholder tags rather than adding a second set', () => {
+    const out = injectOgTags(ssrPage, TAGS);
+
+    // Exactly one of each — duplicates are how cards went generic before.
+    expect(out.match(/<meta property="og:title"/g)).toHaveLength(1);
+    expect(out.match(/<title>/g)).toHaveLength(1);
+    expect(out).toContain('content="The Anything Omelette"');
+    expect(out).not.toContain('content="Recipe"');
+    expect(out).not.toContain('social-share.png');
+  });
+
+  it('removes the page description, canonical and twitter tags too', () => {
+    const out = injectOgTags(ssrPage, TAGS);
+
+    expect(out).not.toContain('A recipe shared on zap.cooking');
+    expect(out).not.toContain('rel="canonical"');
+    expect(out).not.toContain('twitter:title');
+  });
+
+  it('leaves non-OG head content alone', () => {
+    const out = injectOgTags(ssrPage, TAGS);
+
+    expect(out).toContain('<meta charset="utf-8" />');
+    expect(out).toContain('<link rel="stylesheet" href="/app.css" />');
+  });
+
+  it('leaves the body untouched', () => {
+    const out = injectOgTags(ssrPage, TAGS);
+
+    expect(out).toContain('<div id="app">hi</div>');
+    expect(out).toContain('<script src="/app.js"></script>');
+  });
+
+  it('does not touch a <title> that appears in the body', () => {
+    const withSvg = ssrPage.replace(
+      '<div id="app">hi</div>',
+      '<svg><title>icon label</title></svg>'
+    );
+
+    const out = injectOgTags(withSvg, TAGS);
+
+    // Head rewriting must not reach into body content.
+    expect(out).toContain('<title>icon label</title>');
+  });
+
+  it('returns the html unchanged when there is no head', () => {
+    const noHead = '<html><body>nope</body></html>';
+    expect(injectOgTags(noHead, TAGS)).toBe(noHead);
+  });
+
+  it('still injects when the page emitted no OG tags of its own', () => {
+    const bare = '<html><head><meta charset="utf-8" /></head><body></body></html>';
+
+    const out = injectOgTags(bare, TAGS);
+
+    expect(out).toContain('og:title');
+    expect(out.match(/<meta property="og:title"/g)).toHaveLength(1);
   });
 });
