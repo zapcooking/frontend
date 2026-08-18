@@ -3,6 +3,7 @@
   import TagsComboBox from '../../../components/TagsComboBox.svelte';
   import StringComboBox from '../../../components/StringComboBox.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { signNip98AuthHeader } from '$lib/nip98';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { recipeTagSimple } from '$lib/consts';
@@ -254,13 +255,23 @@
         
         // Update the server store with the naddr for easy linking
         try {
+          // PATCH is now authenticated AND ownership-checked server-side,
+          // so it must carry a NIP-98 header signed by the recipe's author.
+          const patchBody = JSON.stringify({
+            gatedNoteId: gatedResult.gatedNoteId,
+            naddr
+          });
           await fetch('/api/nip108/store-gated', {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              gatedNoteId: gatedResult.gatedNoteId,
-              naddr
-            })
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: await signNip98AuthHeader($ndk, {
+                method: 'PATCH',
+                url: new URL('/api/nip108/store-gated', window.location.origin).toString(),
+                bodyString: patchBody
+              })
+            },
+            body: patchBody
           });
         } catch (e) {
           // Non-critical: naddr update failed

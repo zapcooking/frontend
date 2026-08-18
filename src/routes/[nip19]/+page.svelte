@@ -703,7 +703,11 @@
                   {/if}
                   <!-- Parent note actions -->
                   <div class="mt-2">
-                    <NoteActionBar event={parentNote} variant="compact" />
+                    <NoteActionBar
+                      event={parentNote}
+                      variant="compact"
+                      showEngagementDetails={true}
+                    />
                   </div>
                 </div>
               </div>

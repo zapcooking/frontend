@@ -12,7 +12,6 @@
  * {
  *   prompt: string,
  *   mode?: "prompt" | "chat" | "hungry" | "format",
- *   pubkey?: string,
  *   // Optional prior turns for session multi-turn conversation. Not
  *   // persisted server-side; the client passes the live thread each
  *   // request. Ignored for "format" (single-shot reformatting).
@@ -36,6 +35,7 @@ import { env } from '$env/dynamic/private';
 // Cheffy's personality and rules live in the shared prompt module (also
 // consumed by /api/zappy/note-review) — edit voice there, not here.
 import { SYSTEM_INSTRUCTION, FORMAT_SYSTEM_INSTRUCTION } from '$lib/cheffyPrompt.server';
+import { verifyNip98 } from '$lib/nip98.server';
 
 // "Surprise Me" — asks Cheffy for a complete, ready-to-cook recipe so
 // the strict format kicks in.
@@ -69,9 +69,45 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
       return json({ ok: false, error: 'OpenAI API key not configured' }, { status: 500 });
     }
 
-    const body = await request.json();
-    const { prompt, mode = 'prompt', pubkey } = body;
+    // Read the body ONCE as bytes: NIP-98 hashes the exact payload, and
+    // request.json() here would consume the stream before verifyNip98 sees
+    // it. Same pattern as /api/zappy/scan.
+    let bodyBytes: Uint8Array;
+    try {
+      bodyBytes = new Uint8Array(await request.arrayBuffer());
+    } catch {
+      return json({ ok: false, error: 'Invalid request body' }, { status: 400 });
+    }
+
+    let body: any;
+    try {
+      body = JSON.parse(new TextDecoder().decode(bodyBytes));
+    } catch {
+      return json({ ok: false, error: 'Invalid request body' }, { status: 400 });
+    }
+
+    const { prompt, mode = 'prompt' } = body;
     const isExperience = body.experience === true;
+
+    // Identity comes from a NIP-98 signature, never from the body.
+    //
+    // A body `pubkey` is a claim, not a proof: anyone could paste a known
+    // member's pubkey and spend our OpenAI budget on their membership (and
+    // the outage fall-through below made ANY pubkey-shaped string enough).
+    //
+    // The Authorization header stays OPTIONAL so the anonymous once-per-
+    // device preview keeps working for callers with no signer. Present but
+    // invalid is a hard 401 — that's a broken or forged client, not an
+    // anonymous one.
+    let authPubkey: string | null = null;
+    if (request.headers.get('authorization')) {
+      const verification = await verifyNip98(request, { bodyBytes });
+      if (!verification.ok) {
+        console.warn(`[Cheffy] NIP-98 rejected (${verification.reason})`);
+        return json({ ok: false, error: 'Authentication required' }, { status: 401 });
+      }
+      authPubkey = verification.pubkey;
+    }
 
     // Validate mode. "chat" and "prompt" are aliases for the
     // conversational path; "prompt" is kept for any older callers.
@@ -101,10 +137,10 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
     const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
     if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
       // Best-effort membership determination. Fail OPEN only for a
-      // verifiable, pubkey-bearing caller during a membership-service
-      // outage (preserves prior behavior); never for a missing pubkey.
+      // NIP-98-verified caller during a membership-service outage; never
+      // for an unauthenticated one.
       let isMember = false;
-      if (pubkey && typeof pubkey === 'string' && pubkey.trim()) {
+      if (authPubkey) {
         const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
         if (!API_SECRET) {
           // No secret configured — preserve prior fall-through (allow).
@@ -112,10 +148,12 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
         } else {
           try {
             const { hasActiveMembership } = await import('$lib/membershipApi.server');
-            isMember = await hasActiveMembership(pubkey, API_SECRET);
+            isMember = await hasActiveMembership(authPubkey, API_SECRET);
           } catch (err) {
             console.error('[Cheffy] Error checking membership:', err);
-            isMember = true; // outage: fail open for a pubkey-bearing caller
+            // Outage: fail open, but only for a caller who PROVED key
+            // control above. Previously any pubkey-shaped string qualified.
+            isMember = true;
           }
         }
       }

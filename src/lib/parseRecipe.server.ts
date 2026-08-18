@@ -17,6 +17,7 @@
  */
 
 import { EXTRACT_ERROR_FALLBACK, type ExtractErrorCode } from '$lib/extractErrors';
+import { parsePublicUrl } from '$lib/urlGuard.server';
 
 /**
  * Typed failure thrown inside the URL-fetch path. `code` drives the
@@ -92,76 +93,8 @@ export const MAX_PROMPT_CONTENT_CHARS = 15000;
 export const MAX_TEXT_INPUT_CHARS = 10000;
 export const MAX_URL_CHARS = 2048;
 
-// ─── SSRF guard ──────────────────────────────────────────────────────
-//
-// Cloudflare Workers don't expose DNS resolution, so we can't guard
-// against DNS-rebinding attacks. Within that limit we do what we can:
-// only http(s), and if the URL hostname is an IP literal, reject known
-// private/loopback/link-local ranges plus the AWS instance-metadata IP
-// the user called out (169.254.169.254).
-
-function parsePublicUrl(raw: string): { ok: true; url: URL } | { ok: false; reason: string } {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return { ok: false, reason: 'Invalid URL' };
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return { ok: false, reason: 'Only http(s) URLs are supported' };
-  }
-  const host = url.hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
-    return { ok: false, reason: 'Internal hostnames are not allowed' };
-  }
-  if (isPrivateIpLiteral(host)) {
-    return { ok: false, reason: 'Private/loopback addresses are not allowed' };
-  }
-  return { ok: true, url };
-}
-
-function isPrivateIpLiteral(host: string): boolean {
-  // Strip IPv6 brackets if present (URL.hostname yields them unbracketed
-  // on WHATWG, but be defensive).
-  const h = (host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host).toLowerCase();
-
-  // IPv6 loopback / unspecified / link-local / unique-local.
-  if (h === '::1' || h === '::' || h === '0:0:0:0:0:0:0:1' || h === '0:0:0:0:0:0:0:0') return true;
-  if (h.startsWith('fe80:') || h.startsWith('fe80::')) return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(h)) return true;
-
-  // IPv4-mapped and IPv4-compatible IPv6: ::ffff:127.0.0.1, ::ffff:0:127.0.0.1,
-  // ::127.0.0.1, 0:0:0:0:0:ffff:... etc. If we can find a trailing
-  // dotted-quad in what's otherwise an IPv6 literal, test the IPv4
-  // portion against the private-range check. This catches most
-  // embedded-IPv4 bypass attempts without trying to parse the full
-  // IPv6 grammar (which is hostile at best on Workers).
-  if (h.includes(':') && /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) {
-    const dottedMatch = h.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-    if (dottedMatch && isPrivateIpv4(dottedMatch[1])) return true;
-    // Any IPv6 literal with an embedded IPv4 portion is unusual and
-    // only really used for tunneling/compat — reject even if the v4
-    // portion is public, since the v6 prefix (::ffff:, ::) is a
-    // known bypass vector. Be conservative.
-    return true;
-  }
-
-  // Plain IPv4-literal check.
-  return isPrivateIpv4(h);
-}
-
-function isPrivateIpv4(h: string): boolean {
-  const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!v4) return false;
-  const [a, b] = [Number(v4[1]), Number(v4[2])];
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true; // link-local, incl. 169.254.169.254
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 0) return true; // 0.0.0.0/8
-  return false;
-}
+// SSRF guard lives in urlGuard.server.ts — shared with link-preview and
+// image-dimension probing so all three enforce the same rules.
 
 function extractImageUrls(html: string, baseUrl: string): string[] {
   const imageUrls: string[] = [];

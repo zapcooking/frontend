@@ -17,6 +17,22 @@ import { encrypt, generateSecretKey, bufferToHex } from './encryption';
 import { randomBytes } from '@noble/hashes/utils.js';
 import type { GatedRecipeMetadata, PaymentRequest, SecretResponse } from './types';
 import { nip04 } from 'nostr-tools';
+import { signNip98AuthHeader } from '$lib/nip98';
+
+/**
+ * Sign a NIP-98 header for a store-gated write.
+ *
+ * The server derives the author pubkey from this signature rather than
+ * from the request body, so an unsigned write is rejected. Both callers
+ * already receive an `ndk` with a signer (they just published an event).
+ */
+async function signStoreGated(ndk: NDK, method: string, bodyString: string): Promise<string> {
+  return signNip98AuthHeader(ndk, {
+    method,
+    url: new URL('/api/nip108/store-gated', window.location.origin).toString(),
+    bodyString
+  });
+}
 
 /**
  * Create a gated recipe (Server-side storage approach)
@@ -80,22 +96,25 @@ export async function createGatedRecipe(
   const recipeImage = imageTag ? imageTag[1] : '';
   
   // Store encrypted content on server
+  const storeBody = JSON.stringify({
+    gatedNoteId,
+    encryptedContent: encrypted.content,
+    iv: encrypted.iv,
+    secret: bufferToHex(secretKeyBytes),
+    costMsats,
+    endpoint,
+    preview: preview || recipeEvent.tagValue('summary') || '',
+    title: recipeEvent.tagValue('title') || 'Recipe',
+    authorLightningAddress, // Pass Lightning address for payments
+    image: recipeImage
+  });
   const response = await fetch('/api/nip108/store-gated', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      gatedNoteId,
-      encryptedContent: encrypted.content,
-      iv: encrypted.iv,
-      secret: bufferToHex(secretKeyBytes),
-      costMsats,
-      endpoint,
-      preview: preview || recipeEvent.tagValue('summary') || '',
-      title: recipeEvent.tagValue('title') || 'Recipe',
-      authorPubkey,
-      authorLightningAddress, // Pass Lightning address for payments
-      image: recipeImage
-    })
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: await signStoreGated(ndk, 'POST', storeBody)
+    },
+    body: storeBody
   });
   
   if (!response.ok) {
@@ -368,22 +387,25 @@ export async function backfillGatedRecipe(
     const title = recipeEvent.tagValue('title') || 'Recipe';
 
     // Store on server
+    const storeBody = JSON.stringify({
+      gatedNoteId,
+      encryptedContent: encrypted.content,
+      iv: encrypted.iv,
+      secret: bufferToHex(secretKeyBytes),
+      costMsats: costSats * 1000,
+      endpoint: '/api/nip108/payment',
+      preview,
+      title,
+      authorLightningAddress,
+      image: imageTag ? imageTag[1] : ''
+    });
     const response = await fetch('/api/nip108/store-gated', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        gatedNoteId,
-        encryptedContent: encrypted.content,
-        iv: encrypted.iv,
-        secret: bufferToHex(secretKeyBytes),
-        costMsats: costSats * 1000,
-        endpoint: '/api/nip108/payment',
-        preview,
-        title,
-        authorPubkey,
-        authorLightningAddress,
-        image: imageTag ? imageTag[1] : ''
-      })
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: await signStoreGated(ndk, 'POST', storeBody)
+      },
+      body: storeBody
     });
 
     if (!response.ok) {
