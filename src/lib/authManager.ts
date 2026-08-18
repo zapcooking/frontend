@@ -40,6 +40,36 @@ import {
 // blockUntilReady omits the perms param entirely, so permission-enforcing
 // signers pre-grant nothing; sending them explicitly lets the signer
 // authorize the whole session in one approval.
+//
+// Deliberately NOT narrowed to per-kind `sign_event:<kind>` scopes.
+//
+// A 2026-08 security review proposed enumerating the kinds we publish.
+// Enumerating them showed why that doesn't work here: the app signs 40+
+// distinct kinds (0, 1, 3, 5, 6, 7, 9, 13, 14, 54, 55, 56, 1018, 1059,
+// 1068, 1985, 6969, 9000-9021 group admin, 9734, 10000, 10002, 10013,
+// 10063, 22242, 23194, 24133, 24242, 27235, 30001, 30003, 30004, 30017,
+// 30023, 30078, 30402, 31990, 35000, …), and several call sites choose
+// the kind at RUNTIME rather than from a literal:
+//
+//   publishQueue.ts       event.kind = item.eventData.kind   (any queued kind)
+//   comments/postComment  deriveKind(parentEvent, replyTo)   (NIP-22, follows parent)
+//   Recipe.svelte         deleteEvent.kind = deleteKind
+//   FoodstrFeedOptimized  innerEvent.kind = inner.kind
+//
+// So the set is open, not closed. An allowlist would be a list of ~40
+// entries that still can't cover the dynamic cases, and the failure mode
+// is the worst kind: an auto-approving signer silently refuses to sign
+// whichever kind we forgot, and publishing breaks with no prompt and no
+// error the user can act on.
+//
+// The scope is broad because the app's signing surface genuinely is. The
+// meaningful controls here are elsewhere: signing is only ever triggered
+// by explicit user action (publishQueue.ts, zapManager.ts), the
+// nostrconnect listener ignores undecryptable or mismatched responses,
+// and prompt-per-event signers (Amber's default) keep a human in the loop.
+//
+// Revisit if NDK/NIP-46 gains a wildcard or category-level scope, or if
+// the publish paths are consolidated behind a single kind-declaring API.
 const NIP46_CONNECT_PERMS =
   'get_public_key,sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt';
 
@@ -772,6 +802,19 @@ export class AuthManager {
         : nip46Info.signerPubkey;
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
 
+      // Scope the RPC relay set to the bunker's relays, matching the
+      // paste-login path. Without this NDK leaves rpc.relaySet undefined
+      // and NIP-46 traffic — including the encrypted RPC to the signer —
+      // is published and subscribed across the ENTIRE relay pool, telling
+      // every connected relay that this user has a bunker session and
+      // handing them its metadata.
+      if (nip46Info.relays?.length) {
+        (this.nip46Signer as any).rpc.relaySet = NDKRelaySet.fromRelayUrls(
+          nip46Info.relays,
+          this.ndk
+        );
+      }
+
       // Set the signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
 
@@ -1227,6 +1270,15 @@ export class AuthManager {
       console.log('[NIP-46] Creating NIP-46 signer...');
       const signerToken = pendingInfo.secret ? `${signerPubkey}#${pendingInfo.secret}` : signerPubkey;
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
+
+      // Same relay scoping as the other two construction paths — see the
+      // comment in authenticateWithNIP46.
+      if (pendingInfo.relays?.length) {
+        (this.nip46Signer as any).rpc.relaySet = NDKRelaySet.fromRelayUrls(
+          pendingInfo.relays,
+          this.ndk
+        );
+      }
 
       // Set signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
