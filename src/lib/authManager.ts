@@ -12,6 +12,7 @@ import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
 import { fetchNip46UserPubkey, sendNip46Rpc } from './nip46Rpc';
+import { clearAccountData } from './sessionCleanup';
 import { Nip44LocalSigner } from './nip44LocalSigner';
 import {
   getVaultRecord,
@@ -52,6 +53,11 @@ const NIP46_BUNKER_PENDING_KEY = 'nostrcooking_nip46_bunker_pending';
 
 // How long a pending ephemeral client key may be reused across retries.
 const NIP46_BUNKER_PENDING_TTL_MS = 15 * 60 * 1000;
+
+// How long an in-flight nostrconnect:// pairing record stays valid. The
+// record holds an ephemeral client private key and the pairing secret,
+// so an abandoned pairing must not leave them on the device forever.
+const NIP46_PENDING_TTL_MS = 5 * 60 * 1000;
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -878,6 +884,7 @@ export class AuthManager {
     });
 
     this.clearStorage();
+    await clearAccountData();
   }
 
   // ============================================================
@@ -1142,23 +1149,45 @@ export class AuthManager {
     console.log('[NIP-46] Response listener started');
   }
 
-  // Check if there's a pending NIP-46 pairing
-  hasPendingNip46Pairing(): boolean {
-    if (!browser) return false;
+  /**
+   * Read the pending pairing record, dropping it if it has expired.
+   *
+   * The record holds an ephemeral client private key and the pairing
+   * secret. An abandoned pairing (user closed the signer app, never
+   * approved) must not leave that material on the device indefinitely,
+   * so every read enforces the TTL and deletes what it rejects.
+   */
+  private readPendingNip46(): {
+    localPrivateKey: string;
+    localPubkey: string;
+    relays: string[];
+    secret: string;
+    startedAt?: number;
+  } | null {
+    if (!browser) return null;
     const pending = localStorage.getItem('nostrcooking_nip46_pending');
-    if (!pending) return false;
+    if (!pending) return null;
 
     try {
       const info = JSON.parse(pending);
-      // Expire after 5 minutes
-      if (Date.now() - info.startedAt > 5 * 60 * 1000) {
+      // Treat a missing/!finite startedAt as expired — an undated record
+      // has no bound, and comparisons against it are NaN (never > TTL).
+      const startedAt = Number(info?.startedAt);
+      if (!Number.isFinite(startedAt) || Date.now() - startedAt > NIP46_PENDING_TTL_MS) {
         localStorage.removeItem('nostrcooking_nip46_pending');
-        return false;
+        return null;
       }
-      return true;
+      return info;
     } catch {
-      return false;
+      // Corrupt record — it can never be used, so don't leave it behind.
+      localStorage.removeItem('nostrcooking_nip46_pending');
+      return null;
     }
+  }
+
+  // Check if there's a pending NIP-46 pairing
+  hasPendingNip46Pairing(): boolean {
+    return this.readPendingNip46() !== null;
   }
 
   // Get pending pairing info
@@ -1168,15 +1197,7 @@ export class AuthManager {
     relays: string[];
     secret: string;
   } | null {
-    if (!browser) return null;
-    const pending = localStorage.getItem('nostrcooking_nip46_pending');
-    if (!pending) return null;
-
-    try {
-      return JSON.parse(pending);
-    } catch {
-      return null;
-    }
+    return this.readPendingNip46();
   }
 
   // Complete NIP-46 pairing with the signer's pubkey
@@ -1841,6 +1862,10 @@ export class AuthManager {
     });
 
     this.clearStorage();
+    // Wallets, cached balances, Spark mnemonics, group/publish/offline
+    // databases. Explicit logout only — see sessionCleanup for why this
+    // is not part of clearStorage().
+    await clearAccountData();
     this.ndk.signer = null;
   }
 

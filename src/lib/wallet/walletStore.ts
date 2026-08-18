@@ -93,6 +93,15 @@ function setCachedBalance(walletId: number, balance: number): void {
   }
 }
 
+function clearCachedBalance(walletId: number): void {
+  if (!browser) return;
+  try {
+    localStorage.removeItem(`${CACHED_BALANCE_KEY}_${walletId}`);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 // Wallet balance in sats (updated by wallet manager)
 export const walletBalance = writable<number | null>(null);
 
@@ -110,9 +119,13 @@ if (browser) {
   }, 0);
 }
 
-// Cache balance when it changes
+// Cache balance when it changes.
+//
+// Hiding the balance is a privacy setting — someone with the screen or the
+// device shouldn't see the amount. Writing it to localStorage anyway would
+// undercut that, so the cache is only written while the balance is visible.
 walletBalance.subscribe((balance) => {
-  if (browser && balance !== null) {
+  if (browser && balance !== null && loadBalanceVisibility()) {
     const saved = loadWallets();
     const active = saved.find((w) => w.active);
     if (active) {
@@ -187,10 +200,22 @@ navBalanceVisible.subscribe((visible) => {
 });
 
 /**
- * Toggle balance visibility
+ * Toggle balance visibility.
+ *
+ * Hiding also drops the already-cached amount for the active wallet —
+ * otherwise the last visible balance would sit in localStorage for
+ * anyone inspecting the device, which is the thing hiding it is meant
+ * to prevent.
  */
 export function toggleBalanceVisibility(): void {
-  balanceVisible.update((v) => !v);
+  balanceVisible.update((v) => {
+    const next = !v;
+    if (!next && browser) {
+      const active = get(wallets).find((w) => w.active);
+      if (active) clearCachedBalance(active.id);
+    }
+    return next;
+  });
 }
 
 export function setNavBalanceVisible(visible: boolean): void {
