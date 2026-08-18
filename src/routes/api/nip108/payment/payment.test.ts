@@ -11,8 +11,8 @@ vi.mock('$app/environment', () => ({ dev: false, prerendering: false }));
 
 vi.mock('$env/dynamic/private', () => ({ env: {} }));
 
-vi.mock('$lib/nip108/server-store', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('$lib/nip108/server-store')>();
+vi.mock('$lib/nip108/server-store', async (importOriginal: () => Promise<unknown>) => {
+  const actual = (await importOriginal()) as typeof import('$lib/nip108/server-store');
   return {
     ...actual,
     getGatedContent,
@@ -36,7 +36,7 @@ function makeEvent() {
       `https://zap.cooking/api/nip108/payment?g=${GATED_NOTE_ID}&p=${USER_PUBKEY}`
     ),
     platform: undefined
-  };
+  } as any;
 }
 
 beforeEach(() => {
