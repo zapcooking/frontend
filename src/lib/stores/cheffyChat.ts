@@ -12,6 +12,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { ndk, userPublickey } from '$lib/nostr';
+import { signNip98AuthHeader } from '$lib/nip98';
 import {
   pickLine,
   looksLikeStructuredRecipe,
@@ -236,16 +237,34 @@ async function dispatchTurn(
   ]);
 
   try {
+    // Identity is proved with NIP-98, not asserted with a body pubkey.
+    // Signing is best-effort: the anonymous "experience" preview has no
+    // signer, and the server treats a missing header as anonymous. Only a
+    // PRESENT-but-invalid header is rejected, so a signing failure must
+    // send no header rather than a broken one.
+    const bodyString = JSON.stringify({
+      prompt: promptForApi,
+      mode,
+      messages: apiHistory,
+      ...(isExperience ? { experience: true } : {})
+    });
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (get(userPublickey)) {
+      try {
+        headers.Authorization = await signNip98AuthHeader(get(ndk), {
+          method: 'POST',
+          url: new URL('/api/zappy', window.location.origin).toString(),
+          bodyString
+        });
+      } catch (e) {
+        console.warn('[Cheffy] NIP-98 signing unavailable, continuing unauthenticated:', e);
+      }
+    }
+
     const resp = await fetch('/api/zappy', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: promptForApi,
-        mode,
-        pubkey: get(userPublickey),
-        messages: apiHistory,
-        ...(isExperience ? { experience: true } : {})
-      })
+      headers,
+      body: bodyString
     });
     const data = await resp.json();
 

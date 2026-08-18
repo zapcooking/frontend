@@ -42,7 +42,11 @@
     clearAllWallets,
     openWallet
   } from '$lib/wallet';
-  import { disconnectWallet as disconnectSparkWallet, clearAllSparkWallets } from '$lib/spark';
+  import {
+    disconnectWallet as disconnectSparkWallet,
+    clearAllSparkWallets,
+    sweepLegacyMnemonic
+  } from '$lib/spark';
   import { loadOneTapZapSettings } from '$lib/autoZapSettings';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
@@ -385,6 +389,11 @@
         // Sync with legacy userPublickey store for compatibility
         if (state.isAuthenticated && state.publicKey) {
           userPublickey.set(state.publicKey);
+          // Upgrade a legacy V1 Spark mnemonic (key = sha256(pubkey), so
+          // readable by anyone with localStorage access) without waiting
+          // for the user to open the wallet. Deferred so it never competes
+          // with first paint; no-ops when there's nothing to migrate.
+          setTimeout(() => void sweepLegacyMnemonic(state.publicKey), 2500);
           // Message subscriptions are lazy — initialized when user navigates to /messages.
           // This avoids flooding browser signers with NIP-44 decrypt requests on login.
           // Pre-connect pantry relay shortly after login so groups load instantly
