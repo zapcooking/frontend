@@ -5,6 +5,11 @@
  *
  * Optional query param: ?tier=headline or ?tier=kitchen_card
  *
+ * Admin mode: ?admin=true returns all sponsors (active + hidden)
+ * with full details. Gated by NIP-98 HTTP Auth — the signing pubkey
+ * must equal ADMIN_PUBKEY. The previous ?pubkey= comparison was
+ * spoofable since the admin pubkey is public.
+ *
  * Returns:
  * {
  *   sponsors: [{ id, title, description, imageUrl, linkUrl, tier, expiresAt }]
@@ -13,18 +18,23 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { getActiveSponsors, getAllSponsors, type SponsorTier } from '$lib/sponsorStore.server';
-import { isAdmin } from '$lib/adminAuth';
+import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { verifyNip98 } from '$lib/nip98.server';
 
 const VALID_TIERS: SponsorTier[] = ['headline', 'kitchen_card'];
 
-export const GET: RequestHandler = async ({ url, platform }) => {
+export const GET: RequestHandler = async ({ url, request, platform }) => {
   try {
     const kv = platform?.env?.GATED_CONTENT ?? null;
 
     // Admin mode: return all sponsors (active + hidden) with full details
     const adminParam = url.searchParams.get('admin');
-    const pubkeyParam = url.searchParams.get('pubkey');
-    if (adminParam === 'true' && isAdmin(pubkeyParam)) {
+    if (adminParam === 'true') {
+      const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY });
+      if (!auth.ok) {
+        console.warn('[sponsor.active.admin-auth-failed]', { reason: auth.reason });
+        return json({ error: 'forbidden' }, { status: 403 });
+      }
       const allSponsors = await getAllSponsors(kv);
       const adminSponsors = allSponsors.map((s) => ({
         id: s.id,
