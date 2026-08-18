@@ -1,5 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { parsePublicUrl, fetchWithSsrfGuard } from '$lib/urlGuard.server';
 
 /**
  * Server-side Open Graph unfurler for inline link previews.
@@ -10,23 +11,9 @@ import type { RequestHandler } from './$types';
  * third-party quota) and extracts OG/meta tags with light regex parsing.
  *
  * Runs on the edge (Cloudflare / Vercel) using global fetch. Because it
- * fetches arbitrary user-supplied URLs, it applies basic SSRF guards:
- * http(s) only, and no localhost / private-range / link-local hosts.
+ * fetches arbitrary user-supplied URLs it goes through the shared SSRF
+ * guard in $lib/urlGuard.server, which re-checks every redirect hop.
  */
-
-const PRIVATE_HOST = /^(localhost|.*\.local|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?|\[?fe80:|\[?fc00:|\[?fd)/i;
-
-function isSafeUrl(raw: string): URL | null {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    return null;
-  }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-  if (PRIVATE_HOST.test(u.hostname)) return null;
-  return u;
-}
 
 function decodeEntities(s: string): string {
   return s
@@ -67,23 +54,27 @@ export const GET: RequestHandler = async ({ url, fetch }) => {
   const target = url.searchParams.get('url');
   if (!target) throw error(400, 'Missing url parameter');
 
-  const safe = isSafeUrl(target);
-  if (!safe) throw error(400, 'Invalid or disallowed url');
+  const safe = parsePublicUrl(target);
+  if (!safe.ok) throw error(400, 'Invalid or disallowed url');
 
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
 
-    const res = await fetch(safe.href, {
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: {
-        // Some sites gate OG tags behind a real UA.
-        'User-Agent':
-          'Mozilla/5.0 (compatible; ZapCookingBot/1.0; +https://zap.cooking)',
-        Accept: 'text/html,application/xhtml+xml'
-      }
-    }).finally(() => clearTimeout(timer));
+    // Manual, guarded redirects: `redirect: 'follow'` would let a public
+    // URL bounce into a private address without the guard ever seeing it.
+    const { response: res, finalUrl } = await fetchWithSsrfGuard(
+      safe.url.href,
+      {
+        signal: controller.signal,
+        headers: {
+          // Some sites gate OG tags behind a real UA.
+          'User-Agent': 'Mozilla/5.0 (compatible; ZapCookingBot/1.0; +https://zap.cooking)',
+          Accept: 'text/html,application/xhtml+xml'
+        }
+      },
+      { fetchImpl: fetch }
+    ).finally(() => clearTimeout(timer));
 
     if (!res.ok) return json({ error: true }, { headers: cacheHeaders(600) });
 
@@ -110,15 +101,15 @@ export const GET: RequestHandler = async ({ url, fetch }) => {
     // Resolve a relative image URL against the (possibly redirected) page.
     if (image) {
       try {
-        image = new URL(image, res.url || safe.href).href;
+        image = new URL(image, finalUrl).href;
       } catch {
         image = '';
       }
     }
 
     const siteName =
-      metaContent(html, ['og:site_name']) || safe.hostname.replace(/^www\./, '');
-    const favicon = `https://www.google.com/s2/favicons?domain=${safe.hostname}&sz=64`;
+      metaContent(html, ['og:site_name']) || safe.url.hostname.replace(/^www\./, '');
+    const favicon = `https://www.google.com/s2/favicons?domain=${safe.url.hostname}&sz=64`;
 
     const meta = { title: rawTitle, description, image, siteName, favicon };
     const empty = !meta.title && !meta.description && !meta.image;
