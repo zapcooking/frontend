@@ -67,10 +67,15 @@ export function decodeNostrProfile(nostrString: string): string | null {
 // Decode nostr profile string to get pubkey AND any embedded relay hints.
 export function decodeNostrProfileFull(nostrString: string): { pubkey: string; relays: string[] } | null {
   try {
-    if (!nostrString.startsWith('nostr:nprofile1') && !nostrString.startsWith('nostr:npub1')) {
+    // The `nostr:` prefix is optional: several clients emit prefix-less
+    // references and NoteContent now parses them, so rejecting them here
+    // would leave a bare npub1/nprofile1 rendering as raw bech32 (issue
+    // #637). nip19.decode below is still the real validation.
+    const token = nostrString.replace(/^nostr:/, '');
+    if (!token.startsWith('nprofile1') && !token.startsWith('npub1')) {
       return null;
     }
-    const decoded = nip19.decode(nostrString.replace('nostr:', ''));
+    const decoded = nip19.decode(token);
     if (decoded.type === 'nprofile') {
       return { pubkey: decoded.data.pubkey, relays: decoded.data.relays ?? [] };
     } else if (decoded.type === 'npub') {
