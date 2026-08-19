@@ -1,5 +1,6 @@
 <script lang="ts">
   import { nip19 } from 'nostr-tools';
+  import { scanNostrRefs, type ScannedRef } from '$lib/nostrRefScan';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import ProfileLink from './ProfileLink.svelte';
@@ -180,12 +181,6 @@
 
   // Parse content and create clickable links for URLs, hashtags, and nostr references
   function parseContent(text: string) {
-    // Include naddr1 for addressable events (recipes, long-form content).
-    // noffer1 (CLINK static offers) is detected both as a bare token and with
-    // the optional `nostr:` prefix — when present we render an inline "⚡ Pay"
-    // pill (NofferButton) instead of treating it as plain text.
-    const urlRegex =
-      /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1|naddr1|noffer1)([023456789acdefghjklmnpqrstuvwxyz]+)|\b(noffer1)([023456789acdefghjklmnpqrstuvwxyz]{6,})/g;
     const hashtagRegex = /#[\w]+/g;
 
     const parts = [];
@@ -193,46 +188,9 @@
     let match;
     let keyCounter = 0;
 
-    // First find URLs and nostr references
-    const urlMatches: Array<{
-      index: number;
-      content: string;
-      type: 'url' | 'nostr';
-      url?: string;
-      prefix?: string;
-      data?: string;
-    }> = [];
-    urlRegex.lastIndex = 0;
-    while ((match = urlRegex.exec(text)) !== null) {
-      const [fullMatch, url, nostrPrefix, nostrData, bareNofferPrefix, bareNofferData] = match;
-      if (url) {
-        urlMatches.push({
-          index: match.index,
-          content: fullMatch,
-          type: 'url',
-          url: url
-        });
-      } else if (nostrPrefix && nostrData) {
-        urlMatches.push({
-          index: match.index,
-          content: fullMatch,
-          type: 'nostr',
-          prefix: nostrPrefix,
-          data: nostrData
-        });
-      } else if (bareNofferPrefix && bareNofferData) {
-        // Bare `noffer1…` (no `nostr:` prefix) — treat the same as a
-        // nostr:noffer1 reference so the downstream renderer surfaces a
-        // Pay button.
-        urlMatches.push({
-          index: match.index,
-          content: fullMatch,
-          type: 'nostr',
-          prefix: bareNofferPrefix,
-          data: bareNofferData
-        });
-      }
-    }
+    // Links + nostr references, with or without the `nostr:` prefix.
+    // Lives in $lib/nostrRefScan so the regex is unit-testable.
+    const urlMatches: ScannedRef[] = scanNostrRefs(text);
 
     // Helper to check if index is inside a URL/nostr reference
     function isInUrl(index: number): boolean {
