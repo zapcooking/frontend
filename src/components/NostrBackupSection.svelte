@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { ndk, userPublickey } from '$lib/nostr';
+	import FollowListRecoveryModal from './FollowListRecoveryModal.svelte';
 	import { hasEncryptionSupport } from '$lib/encryptionService';
 	import {
 		backupFollows,
@@ -63,6 +64,17 @@
 	};
 	let expandedType: BackupType | null = null;
 	let versionsExpanded: Record<BackupType, boolean> = { follows: false, mute: false, profile: false };
+
+	/**
+	 * Mutable's follow-list recovery, surfaced here as well as on the profile
+	 * page.
+	 *
+	 * It scans relay history for earlier kind:3 events, so unlike Restore it
+	 * needs no zap.cooking backup at all — which makes Settings → Backup the
+	 * place someone actually looks after losing their follows. It stays
+	 * enabled precisely when "Restore" cannot help.
+	 */
+	let followRecoveryOpen = false;
 
 	// Wallet backup state (view-only) — check both types independently
 	interface WalletBackupInfo {
@@ -479,6 +491,15 @@
 					{/if}
 				</div>
 
+				{#if type === 'follows' && !status.loading && !status.exists}
+					<p class="text-xs text-caption mb-3">
+						No backup here yet — but your follow list may still be recoverable from
+						relay history. Try <span style="color: var(--color-text-primary)"
+							>Recover from relays</span
+						>.
+					</p>
+				{/if}
+
 				<!-- Actions -->
 				<div class="flex items-center gap-2 flex-wrap">
 					<button
@@ -514,6 +535,21 @@
 							Restore
 						{/if}
 					</button>
+
+					{#if type === 'follows'}
+						<!-- Recovery works from relay history, so it is NOT gated on
+						     status.exists — with no backup it's the only option left. -->
+						<button
+							class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+							style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+							disabled={!$userPublickey}
+							on:click={() => (followRecoveryOpen = true)}
+							title="Scan relay history for an earlier follow list"
+						>
+							<ClockCounterClockwiseIcon size={14} />
+							Recover from relays
+						</button>
+					{/if}
 
 					{#if status.backupCount > 1}
 						<button
@@ -748,3 +784,9 @@
 		Refresh All
 	</button>
 </div>
+
+<!-- Mutable's follow-list recovery. Mounted here so it's reachable from
+     Settings → Backup, not only from a profile page. -->
+{#if $userPublickey}
+  <FollowListRecoveryModal bind:open={followRecoveryOpen} pubkey={$userPublickey} />
+{/if}
