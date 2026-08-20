@@ -445,31 +445,74 @@
 
 	function handleExportJson(type: BackupType, index?: number) {
 		if (!browser) return;
-		const entry = index === undefined ? latestExportable(type) : getBackupList(type)[index];
-		if (!entry?.data) return;
+		messages[type] = null;
 
-		const backedUpAt = isoOrNull(entry.timestamp);
+		const list = getBackupList(type);
+		const entry = index === undefined ? latestExportable(type) : list[index];
+		if (!entry?.data) {
+			// Two very different causes, and the user can't tell them apart
+			// from a dead button: nothing backed up yet, versus backups that
+			// exist but wouldn't decrypt (signer refused, wrong account).
+			messages[type] = {
+				text:
+					list.length === 0
+						? 'Nothing to export yet — create a backup first.'
+						: 'Backup found but could not be read. Check you are signed in with the same account.',
+				type: 'error'
+			};
+			return;
+		}
 
-		const payload = {
-			source: 'zap.cooking',
-			exportedAt: new Date().toISOString(),
-			pubkey: $userPublickey,
-			type,
-			kind: typeLabels[type].kind,
-			backedUpAt,
-			data: entry.data
-		};
+		let url: string | null = null;
+		try {
+			const backedUpAt = isoOrNull(entry.timestamp);
+			const json = JSON.stringify(
+				{
+					source: 'zap.cooking',
+					exportedAt: new Date().toISOString(),
+					pubkey: $userPublickey,
+					type,
+					kind: typeLabels[type].kind,
+					backedUpAt,
+					data: entry.data
+				},
+				null,
+				2
+			);
 
-		const stamp = (backedUpAt ?? new Date().toISOString()).slice(0, 10);
-		const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-		const url = URL.createObjectURL(blob);
-		const link = document.createElement('a');
-		link.href = url;
-		link.download = `zapcooking-${type}-${stamp}.json`;
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
-		URL.revokeObjectURL(url);
+			const stamp = (backedUpAt ?? new Date().toISOString()).slice(0, 10);
+			url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `zapcooking-${type}-${stamp}.json`;
+			link.rel = 'noopener';
+			link.style.display = 'none';
+			document.body.appendChild(link);
+			link.click();
+
+			// Revoking synchronously after click() can cancel the download —
+			// the fetch of the blob is asynchronous, so tearing the URL down in
+			// the same tick races it. Same for removing the anchor. Defer both.
+			const anchor = link;
+			const objectUrl = url;
+			url = null; // ownership handed to the timeout
+			setTimeout(() => {
+				anchor.remove();
+				URL.revokeObjectURL(objectUrl);
+			}, 10_000);
+
+			messages[type] = { text: 'Exported as JSON', type: 'success' };
+		} catch (e) {
+			// Previously this failed silently, which is why "nothing happens"
+			// was all there was to go on.
+			if (url) URL.revokeObjectURL(url);
+			console.error('[backup] JSON export failed:', e);
+			messages[type] = {
+				text: e instanceof Error ? `Export failed: ${e.message}` : 'Export failed',
+				type: 'error'
+			};
+		}
 	}
 
 	function getBackupList(type: BackupType): Array<{ timestamp: number; data?: any }> {
@@ -602,7 +645,7 @@
 					<button
 						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
 						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
-						disabled={!backupList.some((b) => b.data)}
+						disabled={!$userPublickey}
 						on:click={() => handleExportJson(type)}
 						title="Download the latest backup as a JSON file"
 					>
@@ -735,7 +778,6 @@
 								<button
 									class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
 									style="color: var(--color-caption);"
-									disabled={!backup.data}
 									on:click={() => handleExportJson(type, i)}
 									title="Download this version as a JSON file"
 								>
