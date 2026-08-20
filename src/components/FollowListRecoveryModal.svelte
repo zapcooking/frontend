@@ -180,7 +180,13 @@
       {#if scanResult.candidates.length === 0}
         <div class="flex flex-col items-center gap-2 py-8 text-center">
           <UsersIcon size={36} class="opacity-30" />
-          <p class="text-sm" style="color: var(--color-text-secondary)">No follow list versions found.</p>
+          <p class="text-sm" style="color: var(--color-text-secondary)">
+            No recoverable follow list found.
+          </p>
+          <p class="text-xs max-w-xs" style="color: var(--color-text-secondary)">
+            Nothing on these relays holds an earlier version with follows in it. Trying again later,
+            or from a different network, may reach relays that do.
+          </p>
         </div>
       {:else}
         <div class="flex flex-col gap-2">
@@ -215,10 +221,6 @@
                     {#if candidate.isCurrent}
                       <span class="text-[11px] px-1.5 py-0.5 rounded font-medium"
                         style="background: rgba(96,165,250,0.15); color: #60a5fa">Current</span>
-                    {/if}
-                    {#if candidate.followCount === 0}
-                      <span class="text-[11px] px-1.5 py-0.5 rounded font-medium"
-                        style="background: rgba(107,114,128,0.2); color: var(--color-text-secondary)">Empty</span>
                     {/if}
                   </div>
                   <p class="text-xs" style="color: var(--color-text-primary)">
