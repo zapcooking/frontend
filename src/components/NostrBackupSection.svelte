@@ -589,19 +589,30 @@
 					style="border-color: var(--color-input-border);"
 				>
 					<div class="min-w-0">
-						<p class="text-xs font-medium" style="color: var(--color-text-primary);">
-							Follow List Recovery
-						</p>
-						<!-- Attribution matches the recovery modal and MuteListEditor so
-						     the feature reads as Mutable's wherever it surfaces. -->
-						<span
-							class="flex items-center gap-1 mt-0.5"
-							style="color: var(--color-caption);"
+						<!-- Title and attribution share one line.
+						     `items-baseline` on the row, not `items-center`: the title
+						     is 12px and the attribution 11px, so centering them left
+						     nothing on a common baseline. The logo stays centered
+						     against its OWN text inside the inner span, and is sized
+						     to the 12px line so it doesn't stretch the line box. -->
+						<p
+							class="text-xs font-medium flex items-baseline gap-1.5 flex-wrap"
+							style="color: var(--color-text-primary);"
 						>
-							<span class="text-[11px]">powered by</span>
-							<img src="/mutable_logo.svg" alt="" class="w-3.5 h-3.5 rounded-sm opacity-70" />
-							<span class="text-[11px]">Mutable</span>
-						</span>
+							Follow List Recovery
+							<span
+								class="inline-flex items-center gap-1 font-normal"
+								style="color: var(--color-caption);"
+							>
+								<span class="text-[11px] leading-none">powered by</span>
+								<img
+									src="/mutable_logo.svg"
+									alt=""
+									class="w-3 h-3 rounded-sm opacity-70 flex-shrink-0"
+								/>
+								<span class="text-[11px] leading-none">Mutable</span>
+							</span>
+						</p>
 						<p class="text-[11px] text-caption mt-0.5">
 							Search relay history for an earlier list — no backup needed.
 						</p>
