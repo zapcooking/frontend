@@ -24,7 +24,8 @@
   } | null = null;
 
   const dispatch = createEventDispatcher<{
-    copy: { noteId: string };
+    /** The copied NIP-21 URI (`nostr:nevent1…`). */
+    copy: { noteUri: string };
     downloadImage: { event: NDKEvent; engagementData: any };
   }>();
 
@@ -55,22 +56,29 @@
   async function handleCopy() {
     if (!browser) return;
 
-    const noteId = nip19.neventEncode({
+    // Copy the NIP-21 URI, not a bare bech32 identifier.
+    //
+    // What people do with this is paste it into a composer, and a
+    // prefix-less `nevent1…` renders as a wall of raw text in most clients
+    // — which is how zap.cooking ended up being the authoring client that
+    // produced exactly the broken notes issue #637 was about. The `nostr:`
+    // prefix is what makes a pasted reference resolve into an embed.
+    const noteUri = `nostr:${nip19.neventEncode({
       id: event.id,
       author: event.pubkey,
       kind: event.kind
-    });
+    })}`;
     try {
-      await navigator.clipboard.writeText(noteId);
+      await navigator.clipboard.writeText(noteUri);
       copied = true;
-      dispatch('copy', { noteId });
+      dispatch('copy', { noteUri });
       if (copyTimeout) clearTimeout(copyTimeout);
       copyTimeout = setTimeout(() => {
         copied = false;
         closeMenu();
       }, 800);
     } catch (error) {
-      console.error('Failed to copy note ID:', error);
+      console.error('Failed to copy note URI:', error);
     }
   }
 
@@ -200,7 +208,7 @@
           <span>Copied!</span>
         {:else}
           <CopyIcon size={16} class="text-caption" />
-          <span>Copy Note ID</span>
+          <span>Copy Note URI</span>
         {/if}
       </button>
       <button
