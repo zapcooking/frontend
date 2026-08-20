@@ -589,9 +589,21 @@
 					style="border-color: var(--color-input-border);"
 				>
 					<div class="min-w-0">
-						<p class="text-xs" style="color: var(--color-text-primary);">
-							Lost your follows?
-						</p>
+						<div class="flex items-center gap-1.5">
+							<p class="text-xs" style="color: var(--color-text-primary);">
+								Lost your follows?
+							</p>
+							<!-- Same attribution the recovery modal and MuteListEditor
+							     carry, so the feature is recognizable as Mutable's
+							     wherever it surfaces. -->
+							<span
+								class="flex items-center gap-1 flex-shrink-0"
+								style="color: var(--color-caption);"
+							>
+								<img src="/mutable_logo.svg" alt="" class="w-3.5 h-3.5 rounded-sm opacity-70" />
+								<span class="text-[11px]">Mutable</span>
+							</span>
+						</div>
 						<p class="text-[11px] text-caption">
 							Search relay history for an earlier list — no backup needed.
 						</p>
