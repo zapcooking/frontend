@@ -30,6 +30,7 @@
 	import WarningIcon from 'phosphor-svelte/lib/Warning';
 	import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
 	import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
+	import DownloadSimpleIcon from 'phosphor-svelte/lib/DownloadSimple';
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
@@ -401,6 +402,49 @@
 		}
 	}
 
+	/**
+	 * Download a backup's decrypted contents as JSON.
+	 *
+	 * These backups are NIP-78 events only the user can decrypt, which is
+	 * good for privacy and bad for portability: without this the data can
+	 * only ever be read back by this app, and only while the account's
+	 * signer still works. `listXBackups()` already decrypts eagerly, so the
+	 * payload is in hand — no extra signer round-trip.
+	 *
+	 * The file wraps the payload in a little provenance so it's still
+	 * intelligible months later, out of context.
+	 */
+	function handleExportJson(type: BackupType, index = 0) {
+		if (!browser) return;
+		const entry = getBackupList(type)[index];
+		if (!entry?.data) return;
+
+		const payload = {
+			source: 'zap.cooking',
+			exportedAt: new Date().toISOString(),
+			pubkey: $userPublickey,
+			type,
+			kind: typeLabels[type].kind,
+			backedUpAt: entry.timestamp ? new Date(entry.timestamp * 1000).toISOString() : null,
+			data: entry.data
+		};
+
+		const stamp = new Date(
+			(entry.timestamp ? entry.timestamp * 1000 : Date.now())
+		)
+			.toISOString()
+			.slice(0, 10);
+		const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = `zapcooking-${type}-${stamp}.json`;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		URL.revokeObjectURL(url);
+	}
+
 	function getBackupList(type: BackupType): Array<{ timestamp: number; data?: any }> {
 		switch (type) {
 			case 'follows':
@@ -528,6 +572,17 @@
 						{/if}
 					</button>
 
+					<button
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+						disabled={!backupList[0]?.data}
+						on:click={() => handleExportJson(type)}
+						title="Download the latest backup as a JSON file"
+					>
+						<DownloadSimpleIcon size={14} />
+						Export JSON
+					</button>
+
 					{#if status.backupCount > 1}
 						<button
 							class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors hover:bg-[var(--color-bg-secondary)]"
@@ -649,15 +704,27 @@
 									<span class="text-caption flex-shrink-0">&middot; {getVersionSummary(type, i)}</span>
 								{/if}
 							</div>
-							<button
-								class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80 flex-shrink-0 ml-2"
-								style="color: var(--color-primary);"
-								disabled={!backup.data || restoring[type]}
-								on:click={() => handleRestore(type, i)}
-							>
-								<CloudArrowDownIcon size={12} />
-								Restore
-							</button>
+							<div class="flex items-center gap-1 flex-shrink-0 ml-2">
+								<button
+									class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
+									style="color: var(--color-caption);"
+									disabled={!backup.data}
+									on:click={() => handleExportJson(type, i)}
+									title="Download this version as a JSON file"
+								>
+									<DownloadSimpleIcon size={12} />
+									JSON
+								</button>
+								<button
+									class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
+									style="color: var(--color-primary);"
+									disabled={!backup.data || restoring[type]}
+									on:click={() => handleRestore(type, i)}
+								>
+									<CloudArrowDownIcon size={12} />
+									Restore
+								</button>
+							</div>
 						</div>
 					{/each}
 				</div>
