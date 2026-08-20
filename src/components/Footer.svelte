@@ -43,28 +43,18 @@
       >
         ⚡ Support
       </button>
-      <span class="footer-sep">·</span>
       <a href="/about" class="hover:text-primary transition-colors">About</a>
-      <span class="footer-sep">·</span>
       <a href="/founders" class="hover:text-primary transition-colors">Founders</a>
-      <span class="footer-sep">·</span>
       <a href="/sponsors" class="hover:text-primary transition-colors">Sponsors</a>
-      <span class="footer-sep">·</span>
       <a
         href="https://github.com/zapcooking/frontend/issues/new"
         target="_blank"
         rel="noopener noreferrer"
         class="hover:text-primary transition-colors">Report a Bug</a
       >
-      <span class="footer-sep">·</span>
       <a href="/terms" class="hover:text-primary transition-colors">Terms</a>
-      <span class="footer-sep">·</span>
       <a href="/privacy" class="hover:text-primary transition-colors">Privacy</a>
-      <span class="footer-sep">·</span>
       <a href="/child-safety" class="hover:text-primary transition-colors">Safety</a>
-      <span class="footer-sep">·</span>
-      <a href="/delete-account" class="hover:text-primary transition-colors">Delete Account</a>
-      <span class="footer-sep">·</span>
       <a href="/disclosure" class="hover:text-primary transition-colors">Disclosure</a>
     </nav>
 
@@ -73,7 +63,6 @@
       <span>&copy; {currentYear} zap.cooking</span>
       <span class="footer-sep">·</span>
       <span>v{VERSION}</span>
-      <span class="footer-sep">·</span>
       <a
         href={`https://github.com/zapcooking/frontend/commit/${BUILD_HASH}`}
         target="_blank"
@@ -253,6 +242,22 @@
     font-size: 0.75rem;
     line-height: 1.2;
     text-align: left;
+  }
+
+  /*
+   * Separators are drawn on the links themselves rather than as their own
+   * flex items.
+   *
+   * As standalone spans every dot was an independent wrap opportunity, so a
+   * break could strand a `·` at the end of a line or leave one link alone on
+   * the next (see the "Disclosure" orphan this replaces). Attached to the
+   * item, a link and its trailing dot always move together.
+   */
+  .footer-links > :not(:last-child)::after {
+    content: '·';
+    opacity: 0.4;
+    margin-left: 0.5rem;
+    /* The gap already spaces items; this only offsets the dot itself. */
   }
 
   .footer-sep {

@@ -1682,6 +1682,27 @@
             </button>
           </div>
         {/if}
+
+        <!-- Account deletion. Moved here from the site footer, where it sat
+             between "Safety" and "Disclosure" as an ordinary utility link —
+             an irreversible account action doesn't belong next to the terms
+             and privacy links, and it's what people look for in Settings. -->
+        <div class="border-t border-[var(--color-input-border)] pt-5">
+          <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">
+            Delete Account
+          </p>
+          <p class="text-xs text-caption mb-3">
+            Request removal of your account data from zap.cooking. Your Nostr identity and any
+            notes already published to relays are not affected — they aren't ours to delete.
+          </p>
+          <a
+            href="/delete-account"
+            class="inline-flex items-center gap-1.5 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-sm font-medium transition-colors"
+          >
+            <TrashIcon size={16} />
+            Delete Account
+          </a>
+        </div>
       </div>
     </Accordion>
   </div>
