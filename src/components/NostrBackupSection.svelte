@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { ndk, userPublickey } from '$lib/nostr';
+	import FollowListRecoveryModal from './FollowListRecoveryModal.svelte';
 	import { hasEncryptionSupport } from '$lib/encryptionService';
 	import {
 		backupFollows,
@@ -29,6 +30,7 @@
 	import WarningIcon from 'phosphor-svelte/lib/Warning';
 	import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
 	import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
+	import DownloadSimpleIcon from 'phosphor-svelte/lib/DownloadSimple';
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
@@ -63,6 +65,17 @@
 	};
 	let expandedType: BackupType | null = null;
 	let versionsExpanded: Record<BackupType, boolean> = { follows: false, mute: false, profile: false };
+
+	/**
+	 * Mutable's follow-list recovery, surfaced here as well as on the profile
+	 * page.
+	 *
+	 * It scans relay history for earlier kind:3 events, so unlike Restore it
+	 * needs no zap.cooking backup at all — which makes Settings → Backup the
+	 * place someone actually looks after losing their follows. It stays
+	 * enabled precisely when "Restore" cannot help.
+	 */
+	let followRecoveryOpen = false;
 
 	// Wallet backup state (view-only) — check both types independently
 	interface WalletBackupInfo {
@@ -389,6 +402,119 @@
 		}
 	}
 
+	/**
+	 * Download a backup's decrypted contents as JSON.
+	 *
+	 * These backups are NIP-78 events only the user can decrypt, which is
+	 * good for privacy and bad for portability: without this the data can
+	 * only ever be read back by this app, and only while the account's
+	 * signer still works. `listXBackups()` already decrypts eagerly, so the
+	 * payload is in hand — no extra signer round-trip.
+	 *
+	 * The file wraps the payload in a little provenance so it's still
+	 * intelligible months later, out of context.
+	 */
+	/**
+	 * The newest version that can actually be exported.
+	 *
+	 * `getBackupList` can contain entries whose payload failed to decrypt
+	 * (listXBackups pushes those without `data` so they still show in the
+	 * version history). Indexing blindly at 0 would hand back an entry with
+	 * nothing to write, so walk to the newest one that has data — which is
+	 * the newest version the user can see content for.
+	 */
+	function latestExportable(type: BackupType): { timestamp: number; data?: any } | undefined {
+		return getBackupList(type).find((b) => b.data);
+	}
+
+	/**
+	 * `timestamp` on a backup entry is in MILLISECONDS — it's written as
+	 * `Date.now()` (see nostrBackup.ts) and read back with a bare
+	 * `new Date(ts)` in formatFullTimestamp. Treating it as seconds pushes
+	 * the date past the range `toISOString()` accepts, which throws a
+	 * RangeError and silently kills the click handler.
+	 */
+	function isoOrNull(ms: number | null | undefined): string | null {
+		if (!ms || !Number.isFinite(ms) || Math.abs(ms) > 8.64e15) return null;
+		try {
+			return new Date(ms).toISOString();
+		} catch {
+			return null;
+		}
+	}
+
+	function handleExportJson(type: BackupType, index?: number) {
+		if (!browser) return;
+		messages[type] = null;
+
+		const list = getBackupList(type);
+		const entry = index === undefined ? latestExportable(type) : list[index];
+		if (!entry?.data) {
+			// Two very different causes, and the user can't tell them apart
+			// from a dead button: nothing backed up yet, versus backups that
+			// exist but wouldn't decrypt (signer refused, wrong account).
+			messages[type] = {
+				text:
+					list.length === 0
+						? 'Nothing to export yet — create a backup first.'
+						: 'Backup found but could not be read. Check you are signed in with the same account.',
+				type: 'error'
+			};
+			return;
+		}
+
+		let url: string | null = null;
+		try {
+			const backedUpAt = isoOrNull(entry.timestamp);
+			const json = JSON.stringify(
+				{
+					source: 'zap.cooking',
+					exportedAt: new Date().toISOString(),
+					pubkey: $userPublickey,
+					type,
+					kind: typeLabels[type].kind,
+					backedUpAt,
+					data: entry.data
+				},
+				null,
+				2
+			);
+
+			const stamp = (backedUpAt ?? new Date().toISOString()).slice(0, 10);
+			url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `zapcooking-${type}-${stamp}.json`;
+			link.rel = 'noopener';
+			link.style.display = 'none';
+			document.body.appendChild(link);
+			link.click();
+
+			// Revoking synchronously after click() can cancel the download —
+			// the fetch of the blob is asynchronous, so tearing the URL down in
+			// the same tick races it. Same for removing the anchor. Defer both.
+			const anchor = link;
+			const objectUrl = url;
+			url = null; // ownership handed to the timeout
+			setTimeout(() => {
+				anchor.remove();
+				URL.revokeObjectURL(objectUrl);
+			}, 10_000);
+
+			messages[type] = { text: 'Exported as JSON', type: 'success' };
+		} catch (e) {
+			// Previously this failed silently, which is why "nothing happens"
+			// was all there was to go on.
+			if (url) URL.revokeObjectURL(url);
+			console.error('[backup] JSON export failed:', e);
+			messages[type] = {
+				text: e instanceof Error ? `Export failed: ${e.message}` : 'Export failed',
+				type: 'error'
+			};
+		}
+	}
+
 	function getBackupList(type: BackupType): Array<{ timestamp: number; data?: any }> {
 		switch (type) {
 			case 'follows':
@@ -479,6 +605,7 @@
 					{/if}
 				</div>
 
+
 				<!-- Actions -->
 				<div class="flex items-center gap-2 flex-wrap">
 					<button
@@ -513,6 +640,17 @@
 							<CloudArrowDownIcon size={14} />
 							Restore
 						{/if}
+					</button>
+
+					<button
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+						disabled={!$userPublickey}
+						on:click={() => handleExportJson(type)}
+						title="Download the latest backup as a JSON file"
+					>
+						<DownloadSimpleIcon size={14} />
+						Export JSON
 					</button>
 
 					{#if status.backupCount > 1}
@@ -564,6 +702,58 @@
 				{/if}
 			</div>
 
+			<!-- Relay-history recovery (Mutable).
+			     Deliberately NOT in the action row above: that row is about
+			     zap.cooking's own backups, and this reads other people's
+			     relays for an older kind:3. Grouping it with Backup/Restore
+			     both crowded the row into wrapping and implied it was the
+			     same kind of operation. -->
+			{#if type === 'follows'}
+				<div
+					class="px-4 py-2.5 border-t flex items-center justify-between gap-3 flex-wrap"
+					style="border-color: var(--color-input-border);"
+				>
+					<div class="min-w-0">
+						<!-- Title and attribution share one line.
+						     `items-baseline` on the row, not `items-center`: the title
+						     is 12px and the attribution 11px, so centering them left
+						     nothing on a common baseline. The logo stays centered
+						     against its OWN text inside the inner span, and is sized
+						     to the 12px line so it doesn't stretch the line box. -->
+						<p
+							class="text-xs font-medium flex items-baseline gap-1.5 flex-wrap"
+							style="color: var(--color-text-primary);"
+						>
+							Follow List Recovery
+							<span
+								class="inline-flex items-center gap-1 font-normal"
+								style="color: var(--color-caption);"
+							>
+								<span class="text-[11px] leading-none">powered by</span>
+								<img
+									src="/mutable_logo.svg"
+									alt=""
+									class="w-3 h-3 rounded-sm opacity-70 flex-shrink-0"
+								/>
+								<span class="text-[11px] leading-none">Mutable</span>
+							</span>
+						</p>
+						<p class="text-[11px] text-caption mt-0.5">
+							Search relay history for an earlier list — no backup needed.
+						</p>
+					</div>
+					<button
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 flex-shrink-0"
+						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+						disabled={!$userPublickey}
+						on:click={() => (followRecoveryOpen = true)}
+					>
+						<ClockCounterClockwiseIcon size={14} />
+						Recover from relays
+					</button>
+				</div>
+			{/if}
+
 			<!-- Version List (expandable) -->
 			{#if versionsExpanded[type] && backupList.length > 0}
 				<div
@@ -584,15 +774,26 @@
 									<span class="text-caption flex-shrink-0">&middot; {getVersionSummary(type, i)}</span>
 								{/if}
 							</div>
-							<button
-								class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80 flex-shrink-0 ml-2"
-								style="color: var(--color-primary);"
-								disabled={!backup.data || restoring[type]}
-								on:click={() => handleRestore(type, i)}
-							>
-								<CloudArrowDownIcon size={12} />
-								Restore
-							</button>
+							<div class="flex items-center gap-1 flex-shrink-0 ml-2">
+								<button
+									class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
+									style="color: var(--color-caption);"
+									on:click={() => handleExportJson(type, i)}
+									title="Download this version as a JSON file"
+								>
+									<DownloadSimpleIcon size={12} />
+									JSON
+								</button>
+								<button
+									class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
+									style="color: var(--color-primary);"
+									disabled={!backup.data || restoring[type]}
+									on:click={() => handleRestore(type, i)}
+								>
+									<CloudArrowDownIcon size={12} />
+									Restore
+								</button>
+							</div>
 						</div>
 					{/each}
 				</div>
@@ -748,3 +949,9 @@
 		Refresh All
 	</button>
 </div>
+
+<!-- Mutable's follow-list recovery. Mounted here so it's reachable from
+     Settings → Backup, not only from a profile page. -->
+{#if $userPublickey}
+  <FollowListRecoveryModal bind:open={followRecoveryOpen} pubkey={$userPublickey} />
+{/if}
