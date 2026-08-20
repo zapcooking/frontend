@@ -491,14 +491,6 @@
 					{/if}
 				</div>
 
-				{#if type === 'follows' && !status.loading && !status.exists}
-					<p class="text-xs text-caption mb-3">
-						No backup here yet — but your follow list may still be recoverable from
-						relay history. Try <span style="color: var(--color-text-primary)"
-							>Recover from relays</span
-						>.
-					</p>
-				{/if}
 
 				<!-- Actions -->
 				<div class="flex items-center gap-2 flex-wrap">
@@ -535,21 +527,6 @@
 							Restore
 						{/if}
 					</button>
-
-					{#if type === 'follows'}
-						<!-- Recovery works from relay history, so it is NOT gated on
-						     status.exists — with no backup it's the only option left. -->
-						<button
-							class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-							style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
-							disabled={!$userPublickey}
-							on:click={() => (followRecoveryOpen = true)}
-							title="Scan relay history for an earlier follow list"
-						>
-							<ClockCounterClockwiseIcon size={14} />
-							Recover from relays
-						</button>
-					{/if}
 
 					{#if status.backupCount > 1}
 						<button
@@ -599,6 +576,37 @@
 					</div>
 				{/if}
 			</div>
+
+			<!-- Relay-history recovery (Mutable).
+			     Deliberately NOT in the action row above: that row is about
+			     zap.cooking's own backups, and this reads other people's
+			     relays for an older kind:3. Grouping it with Backup/Restore
+			     both crowded the row into wrapping and implied it was the
+			     same kind of operation. -->
+			{#if type === 'follows'}
+				<div
+					class="px-4 py-2.5 border-t flex items-center justify-between gap-3 flex-wrap"
+					style="border-color: var(--color-input-border);"
+				>
+					<div class="min-w-0">
+						<p class="text-xs" style="color: var(--color-text-primary);">
+							Lost your follows?
+						</p>
+						<p class="text-[11px] text-caption">
+							Search relay history for an earlier list — no backup needed.
+						</p>
+					</div>
+					<button
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 flex-shrink-0"
+						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+						disabled={!$userPublickey}
+						on:click={() => (followRecoveryOpen = true)}
+					>
+						<ClockCounterClockwiseIcon size={14} />
+						Recover from relays
+					</button>
+				</div>
+			{/if}
 
 			<!-- Version List (expandable) -->
 			{#if versionsExpanded[type] && backupList.length > 0}
