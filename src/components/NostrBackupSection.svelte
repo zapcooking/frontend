@@ -414,10 +414,41 @@
 	 * The file wraps the payload in a little provenance so it's still
 	 * intelligible months later, out of context.
 	 */
-	function handleExportJson(type: BackupType, index = 0) {
+	/**
+	 * The newest version that can actually be exported.
+	 *
+	 * `getBackupList` can contain entries whose payload failed to decrypt
+	 * (listXBackups pushes those without `data` so they still show in the
+	 * version history). Indexing blindly at 0 would hand back an entry with
+	 * nothing to write, so walk to the newest one that has data — which is
+	 * the newest version the user can see content for.
+	 */
+	function latestExportable(type: BackupType): { timestamp: number; data?: any } | undefined {
+		return getBackupList(type).find((b) => b.data);
+	}
+
+	/**
+	 * `timestamp` on a backup entry is in MILLISECONDS — it's written as
+	 * `Date.now()` (see nostrBackup.ts) and read back with a bare
+	 * `new Date(ts)` in formatFullTimestamp. Treating it as seconds pushes
+	 * the date past the range `toISOString()` accepts, which throws a
+	 * RangeError and silently kills the click handler.
+	 */
+	function isoOrNull(ms: number | null | undefined): string | null {
+		if (!ms || !Number.isFinite(ms) || Math.abs(ms) > 8.64e15) return null;
+		try {
+			return new Date(ms).toISOString();
+		} catch {
+			return null;
+		}
+	}
+
+	function handleExportJson(type: BackupType, index?: number) {
 		if (!browser) return;
-		const entry = getBackupList(type)[index];
+		const entry = index === undefined ? latestExportable(type) : getBackupList(type)[index];
 		if (!entry?.data) return;
+
+		const backedUpAt = isoOrNull(entry.timestamp);
 
 		const payload = {
 			source: 'zap.cooking',
@@ -425,15 +456,11 @@
 			pubkey: $userPublickey,
 			type,
 			kind: typeLabels[type].kind,
-			backedUpAt: entry.timestamp ? new Date(entry.timestamp * 1000).toISOString() : null,
+			backedUpAt,
 			data: entry.data
 		};
 
-		const stamp = new Date(
-			(entry.timestamp ? entry.timestamp * 1000 : Date.now())
-		)
-			.toISOString()
-			.slice(0, 10);
+		const stamp = (backedUpAt ?? new Date().toISOString()).slice(0, 10);
 		const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
 		const url = URL.createObjectURL(blob);
 		const link = document.createElement('a');
@@ -575,7 +602,7 @@
 					<button
 						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
 						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
-						disabled={!backupList[0]?.data}
+						disabled={!backupList.some((b) => b.data)}
 						on:click={() => handleExportJson(type)}
 						title="Download the latest backup as a JSON file"
 					>
