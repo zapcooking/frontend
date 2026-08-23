@@ -31,6 +31,7 @@
   import { lazyLoad } from '$lib/lazyLoad';
   import Modal from '../../../components/Modal.svelte';
   import RecipePickerModal from '../../../components/RecipePickerModal.svelte';
+  import CheffyPlanModal from '../../../components/planner/CheffyPlanModal.svelte';
   import { groceryStore } from '$lib/stores/groceryStore';
   import { parseIngredient, parseIngredientsFromRecipe } from '$lib/utils/ingredientParser';
   import {
@@ -48,6 +49,8 @@
   import LockIcon from 'phosphor-svelte/lib/Lock';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import NotePencilIcon from 'phosphor-svelte/lib/NotePencil';
+  import CheffyIcon from '../../../components/icons/CheffyIcon.svelte';
+  import { occupiedSlotsFromPlan } from '$lib/mealplan/generation';
   import { addDays, format } from 'date-fns';
 
   const DAY_LABELS: Record<MealPlanDayKey, string> = {
@@ -127,6 +130,7 @@
 
   // ── Recipe picker (PR10) — fills the slot editor's seam ──
   let pickerOpen = false;
+  let cheffyPlanOpen = false;
 
   function openRecipePicker() {
     // Keep editorDay/editorSlot as the target; swap modals
@@ -154,6 +158,8 @@
   } | null = null;
 
   $: weekRecipeSlots = weekPlan ? collectWeekRecipeSlots(weekPlan) : null;
+  $: cheffyOccupiedSlots =
+    weekPlan && !isReadOnly ? occupiedSlotsFromPlan(weekPlan, [...DAY_KEYS], [...SLOT_KEYS]) : [];
 
   function openGenerateConfirm() {
     generationSummary = null;
@@ -423,6 +429,16 @@
         {#if $plannerSaving}
           <span class="text-xs text-caption">Saving…</span>
         {/if}
+        {#if weekPlan && !isReadOnly && !isDecryptFailed}
+          <button
+            type="button"
+            on:click={() => (cheffyPlanOpen = true)}
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+          >
+            <CheffyIcon size={20} expression="happy" />
+            <span>Plan with Cheffy</span>
+          </button>
+        {/if}
         {#if weekPlan && weekRecipeSlots}
           <button
             type="button"
@@ -490,7 +506,8 @@
           role="status"
         >
           <LockIcon size={16} class="text-orange-500 flex-shrink-0" />
-          <span>This week was created by a newer version of Zap Cooking and is read-only here.</span>
+          <span>This week was created by a newer version of Zap Cooking and is read-only here.</span
+          >
         </div>
       {/if}
 
@@ -503,7 +520,17 @@
           <h2 class="text-base font-semibold" style="color: var(--color-text-primary);">
             Nothing planned this week
           </h2>
-          <p class="text-sm text-caption max-w-sm">Tap any slot below to plan a meal.</p>
+          <p class="text-sm text-caption max-w-sm">
+            Tap any slot below, or let Cheffy fill the week from real Zap Cooking recipes.
+          </p>
+          <button
+            type="button"
+            on:click={() => (cheffyPlanOpen = true)}
+            class="mt-2 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+          >
+            <CheffyIcon size={20} expression="happy" />
+            Plan with Cheffy
+          </button>
         </div>
       {/if}
 
@@ -531,7 +558,9 @@
           {@const isToday = isViewingCurrentWeek && day === todayDayKey()}
           <section
             id="planner-day-{day}"
-            class="rounded-2xl p-3 flex flex-col gap-2 scroll-mt-20 {isToday ? 'planner-today' : ''}"
+            class="rounded-2xl p-3 flex flex-col gap-2 scroll-mt-20 {isToday
+              ? 'planner-today'
+              : ''}"
             style="background-color: var(--color-input-bg); border: 1px solid {isToday
               ? 'rgb(249 115 22 / 0.6)'
               : 'var(--color-input-border)'};"
@@ -715,6 +744,13 @@
   on:select={handleRecipePicked}
 />
 
+<CheffyPlanModal
+  bind:open={cheffyPlanOpen}
+  weekId={$plannerCurrentWeekId}
+  occupiedSlots={cheffyOccupiedSlots}
+  readOnly={isReadOnly}
+/>
+
 <!-- Generate-grocery confirm: pre-generation summary of what will happen -->
 <Modal bind:open={generateConfirmOpen} compact>
   <h1 slot="title">Generate grocery list</h1>
@@ -730,8 +766,8 @@
           : ''}.
       </p>
       <p class="text-xs text-caption">
-        Matching items are combined only when name and quantity are identical. Repeat runs create
-        a new list — existing lists are never changed.
+        Matching items are combined only when name and quantity are identical. Repeat runs create a
+        new list — existing lists are never changed.
       </p>
       {#if generationSummary && generationSummary.unresolved.length > 0}
         <p class="text-xs text-red-500">
