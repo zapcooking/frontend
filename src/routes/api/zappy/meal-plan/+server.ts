@@ -26,6 +26,13 @@ import {
   type RecipeCandidate
 } from '$lib/mealplan/generation';
 import {
+  candidateModeBits,
+  emptyPlanningPreferences,
+  normalizePlanningPreferences,
+  overlappingIngredientHints,
+  planningModePromptLines
+} from '$lib/mealplan/planningModes';
+import {
   isRecipeEligibleForSlot,
   noEligibleRecipesMessage,
   restrictCandidatesToRequestedSlots
@@ -33,7 +40,7 @@ import {
 
 const PER_HOUR = 10;
 const PER_DAY = 30;
-const MAX_TOKENS = 1200;
+const MAX_TOKENS = 1800;
 
 const DAY_LABELS: Record<MealPlanDayKey, string> = {
   mon: 'Monday',
@@ -64,13 +71,18 @@ HARD RULES
 - If a breakfast-eligible list is provided, breakfast slots may use ONLY those coordinates.
 - Prefer variety across the week unless the user asked for repeats or leftovers.
 - Honor excluded ingredients, time limits, servings, style chips, and free-text notes when the candidates allow it.
+- Treat planning modes as weighted preferences, not absolute requirements. Dietary exclusions, vegetarian requests, breakfast eligibility, and explicit cooking-time limits still win. If modes conflict, pick the best overall fit — never fail the request.
 - If pantry match data or a pantry ingredient list is provided, prefer recipes that use more ingredients the user already has, minimize extra grocery purchases, and reuse pantry ingredients across the week when that still makes a sensible meal. Do not force poor combinations. Do not sacrifice dietary constraints, requested meal type, cooking-time requirements, or other hard constraints merely to improve pantry utilization.
 - If there are not enough candidates, fill as many requested slots as you reasonably can. Do not pad with invented recipes or with recipes that do not fit the slot.
 - Keep each reason to one short sentence.
 
 You return structured JSON only.`;
 
-function candidateLine(c: RecipeCandidate): string {
+function candidateLine(
+  c: RecipeCandidate,
+  prefs = emptyPlanningPreferences(),
+  familiar?: Set<string>
+): string {
   const bits = [`a=${c.a}`, `title=${c.title}`];
   if (c.tags.length) bits.push(`tags=${c.tags.join(', ')}`);
   if (c.prepTime) bits.push(`prep=${c.prepTime}`);
@@ -85,6 +97,7 @@ function candidateLine(c: RecipeCandidate): string {
       bits.push(`need=${c.pantry.missingIngredients.join(', ')}`);
     }
   }
+  bits.push(...candidateModeBits(c, prefs, familiar));
   return `- ${bits.join(' | ')}`;
 }
 
@@ -104,12 +117,25 @@ function buildUserPrompt(req: MealPlanGenerationRequest): string {
     lines.push(`Avoid ingredients: ${prefs.excludeIngredients.join(', ')}`);
   }
   if (prefs.notes) lines.push(`Notes: ${prefs.notes}`);
-  if (req.prioritizePantry) {
+  const modes = normalizePlanningPreferences(req.planningPreferences, req.prioritizePantry);
+  if (modes.usePantry || req.prioritizePantry) {
     if (req.pantryIngredients?.length) {
       lines.push(`Pantry ingredients the user already has: ${req.pantryIngredients.join(', ')}`);
     }
     lines.push(
       'Pantry: Prefer meals that use these ingredients, minimize additional grocery purchases, and reuse ingredients across the week when it still makes a sensible meal. Do not force poor combinations. Do not sacrifice dietary constraints, requested meal type, cooking-time requirements, or other hard constraints merely to improve pantry utilization.'
+    );
+  }
+  lines.push(...planningModePromptLines(modes));
+  if (modes.lowWaste) {
+    const overlap = overlappingIngredientHints(req.candidates);
+    if (overlap.length) {
+      lines.push(`Ingredients that appear in multiple candidates (prefer reuse): ${overlap.join(', ')}`);
+    }
+  }
+  if (modes.adventurous && req.familiarCoordinates?.length) {
+    lines.push(
+      `Recipes the user has already saved or planned (prefer others when a good alternative exists): ${req.familiarCoordinates.join(', ')}`
     );
   }
   if (req.excludeCoordinates?.length) {
@@ -129,7 +155,9 @@ function buildUserPrompt(req: MealPlanGenerationRequest): string {
   lines.push(
     '',
     `Candidate recipes (${req.candidates.length}):`,
-    ...req.candidates.map(candidateLine)
+    ...req.candidates.map((c) =>
+      candidateLine(c, modes, new Set(req.familiarCoordinates || []))
+    )
   );
   lines.push('', 'Assign one candidate to each slot you can fill. Copy each coordinate exactly.');
   return lines.join('\n');

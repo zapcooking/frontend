@@ -5,6 +5,7 @@
    * them, then previews before a single plannerStore.applyGeneratedPlan.
    */
   import { createEventDispatcher, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
   import {
@@ -13,6 +14,7 @@
     type MembershipStatus
   } from '$lib/stores/membershipStatus';
   import { plannerStore } from '$lib/stores/plannerStore';
+  import { cookbookLists } from '$lib/stores/cookbookStore';
   import { DAY_KEYS, SLOT_KEYS, type MealPlanDayKey, type MealSlotKey } from '$lib/mealplan/schema';
   import {
     PREFERENCE_STYLES,
@@ -21,6 +23,7 @@
     parseExcludeIngredientsInput,
     resolveTargetSlots,
     slotKey,
+    totalActiveMinutes,
     type GeneratedMeal,
     type MealPlanGenerationRequest,
     type MealPlanStrategy,
@@ -28,6 +31,19 @@
     type PreferenceStyleId,
     type RecipeSource
   } from '$lib/mealplan/generation';
+  import {
+    PLANNING_MODES,
+    familiarCoordinatesFromSources,
+    hasEnabledPlanningMode,
+    loadPlanningModes,
+    savePlanningModes,
+    summarizePlanningModeFeedback,
+    togglePlanningMode,
+    type PlanningModeKey,
+    type PlanningPreferences,
+    type PlanModeFeedback
+  } from '$lib/mealplan/planningModes';
+  import { attachCachedNourish } from '$lib/mealplan/attachNourish';
   import {
     insufficientSlotCoverageMessage,
     noEligibleRecipesMessage
@@ -91,12 +107,13 @@
   let notes = '';
   let source: RecipeSource = 'all';
   let strategy: MealPlanStrategy = 'fill-empty';
-  let prioritizePantry = false;
+  let planningPreferences: PlanningPreferences = loadPlanningModes();
   let error: string | null = null;
   let statusLine = THINKING_LINES[0];
   let preview: GeneratedMeal[] = [];
   let coverageNote: string | null = null;
   let pantryNote: string | null = null;
+  let modeFeedback: PlanModeFeedback | null = null;
   let discovered: DiscoveredRecipe[] = [];
   let swappingKey: string | null = null;
   let applying = false;
@@ -125,6 +142,7 @@
     strategy,
     occupiedSlots
   }).length;
+  $: prioritizePantry = planningPreferences.usePantry;
 
   let wasOpen = false;
   $: {
@@ -149,10 +167,14 @@
     notes = '';
     source = 'all';
     strategy = 'fill-empty';
-    prioritizePantry = initialPrioritizePantry;
+    planningPreferences = loadPlanningModes();
+    if (initialPrioritizePantry) {
+      planningPreferences = { ...planningPreferences, usePantry: true };
+    }
     error = null;
     coverageNote = null;
     pantryNote = null;
+    modeFeedback = null;
     preview = [];
     discovered = [];
     swappingKey = null;
@@ -188,9 +210,35 @@
     styles = toggleIn(styles, id);
   }
 
+  function toggleMode(key: PlanningModeKey) {
+    planningPreferences = togglePlanningMode(planningPreferences, key);
+    savePlanningModes(planningPreferences);
+  }
+
+  function collectFamiliarCoordinates(): string[] {
+    const saved: string[] = [];
+    for (const list of get(cookbookLists)) {
+      for (const a of list.recipes || []) saved.push(a);
+    }
+    const planned: string[] = [];
+    const weeks = get(plannerStore).weeks;
+    for (const state of Object.values(weeks)) {
+      if (state.status !== 'ok') continue;
+      for (const day of Object.values(state.plan.days || {})) {
+        const slots = day?.slots;
+        if (!slots) continue;
+        for (const slot of Object.values(slots)) {
+          if (slot?.type === 'recipe' && slot.a) planned.push(slot.a);
+        }
+      }
+    }
+    return familiarCoordinatesFromSources({ savedAs: saved, plannedAs: planned });
+  }
+
   function wireCandidates() {
+    const attachNourish = planningPreferences.healthy || planningPreferences.highProtein;
     return discovered.map((recipe) => {
-      const wire = toWireCandidate(recipe);
+      let wire = toWireCandidate(recipe);
       if (prioritizePantry && $pantryItems.length > 0) {
         const match = matchRecipeToPantry(wire.ingredients, $pantryItems);
         wire.pantry = {
@@ -201,6 +249,7 @@
           missingIngredients: match.missingIngredients
         };
       }
+      if (attachNourish) wire = attachCachedNourish(wire);
       return wire;
     });
   }
@@ -211,12 +260,17 @@
     if (!$ndk || !$userPublickey) return null;
     const max = maxMinutes.trim() ? Number(maxMinutes) : undefined;
     const serv = servings.trim() ? Number(servings) : undefined;
+    const familiarCoordinates = planningPreferences.adventurous
+      ? collectFamiliarCoordinates()
+      : [];
     const filtered = filterRecipeCandidates(wireCandidates(), {
       maxMinutes: max && Number.isFinite(max) && max > 0 ? max : undefined,
       excludeIngredients: parseExcludeIngredientsInput(excludeText),
       styles,
       mealSlots,
       prioritizePantry,
+      planningPreferences,
+      familiarCoordinates: familiarCoordinates.length ? familiarCoordinates : undefined,
       excludeCoordinates: overrides.excludeCoordinates
     });
     if (filtered.length === 0) return null;
@@ -232,10 +286,14 @@
         notes: notes.trim() || undefined
       },
       strategy,
+      planningPreferences: hasEnabledPlanningMode(planningPreferences)
+        ? planningPreferences
+        : undefined,
       prioritizePantry: prioritizePantry || undefined,
       pantryIngredients: prioritizePantry
         ? $pantryItems.map((item) => item.name).slice(0, 80)
         : undefined,
+      familiarCoordinates: familiarCoordinates.length ? familiarCoordinates : undefined,
       candidates: filtered,
       occupiedSlots,
       ...overrides
@@ -323,6 +381,15 @@
           requested: requestedSlots
         });
         pantryNote = prioritizePantry ? weakPantryPlanNote(preview.map((m) => m.pantry)) : null;
+        modeFeedback = summarizePlanningModeFeedback({
+          preferences: planningPreferences,
+          meals: preview,
+          recipes: discovered.map((recipe) => ({
+            a: recipe.a,
+            ingredients: recipe.ingredients,
+            minutes: totalActiveMinutes(recipe.prepTime, recipe.cookTime)
+          }))
+        });
         step = 'preview';
       }
     } catch (err) {
@@ -451,6 +518,16 @@
     {#if pantryNote}
       <p class="text-sm text-caption">{pantryNote}</p>
     {/if}
+    {#if modeFeedback}
+      <div class="flex flex-col gap-0.5">
+        <p class="text-sm font-medium" style="color: var(--color-text-primary);">
+          Planned with: {modeFeedback.labels.join(' + ')}
+        </p>
+        {#if modeFeedback.summary}
+          <p class="text-sm text-caption">{modeFeedback.summary}</p>
+        {/if}
+      </div>
+    {/if}
     <GeneratedPlanPreview
       meals={preview}
       showPantry={prioritizePantry}
@@ -487,19 +564,29 @@
         {/if}
       {/if}
 
-      <label
-        class="flex items-start gap-3 p-3 rounded-xl"
-        style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
-      >
-        <input type="checkbox" bind:checked={prioritizePantry} class="mt-1" />
-        <span>
-          <span class="font-semibold">Plan with My Pantry</span>
-          <span class="block text-caption text-sm">
-            Prefer meals that use ingredients you already have. Dietary rules and meal type still
-            come first.
-          </span>
-        </span>
-      </label>
+      <fieldset class="flex flex-col gap-2">
+        <legend class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);"
+          >How should Cheffy plan your week?</legend
+        >
+        <p class="text-xs text-caption -mt-1 mb-1">Pick one or more. Cheffy will weigh them together.</p>
+        <div class="flex flex-wrap gap-2">
+          {#each PLANNING_MODES as mode}
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-full text-sm font-medium border transition-colors {chipClass(
+                planningPreferences[mode.key]
+              )}"
+              style={planningPreferences[mode.key]
+                ? ''
+                : 'border-color: var(--color-input-border); color: var(--color-text-primary);'}
+              aria-pressed={planningPreferences[mode.key]}
+              on:click={() => toggleMode(mode.key)}
+            >
+              {mode.label}
+            </button>
+          {/each}
+        </div>
+      </fieldset>
 
       <fieldset class="flex flex-col gap-2">
         <legend class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);"
