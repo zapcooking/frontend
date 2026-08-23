@@ -596,18 +596,22 @@ export async function saveGroceryList(list: GroceryList): Promise<NDKEvent | nul
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Delete a grocery list by publishing a kind 5 deletion event
- * 
- * @param listId - The ID of the list to delete
- * @param eventId - Optional: the event ID to reference in deletion
- * @returns The deletion event, or null on failure
+ * Delete one or more grocery lists by publishing a kind 5 deletion event.
+ * NIP-09 allows multiple `a` tags on a single deletion request.
+ *
+ * @param listIds - List IDs to delete
+ * @param eventIds - Optional map of list ID → event ID for `e` tags
+ * @returns The deletion event, or null if there is nothing to delete
  */
-export async function deleteGroceryList(
-  listId: string,
-  eventId?: string
+export async function deleteGroceryLists(
+  listIds: string[],
+  eventIds?: Record<string, string>
 ): Promise<NDKEvent | null> {
+  const uniqueIds = [...new Set(listIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return null;
+
   if (!browser) {
-    throw new Error('Cannot delete grocery list on server');
+    throw new Error('Cannot delete grocery lists on server');
   }
 
   const pubkey = get(userPublickey);
@@ -624,44 +628,61 @@ export async function deleteGroceryList(
   await ndkReady;
 
   try {
-    // Create deletion event (kind 5 per NIP-09)
     const deleteEvent = new NDKEvent(ndkInstance);
     deleteEvent.kind = 5;
-    deleteEvent.content = 'Deleted grocery list';
-    
-    // Reference the addressable event with an 'a' tag
-    const aTag = `${GROCERY_KIND}:${pubkey}:${listIdToDTag(listId)}`;
-    deleteEvent.tags = [
-      ['a', aTag]
-    ];
+    deleteEvent.content =
+      uniqueIds.length === 1
+        ? 'Deleted grocery list'
+        : `Deleted ${uniqueIds.length} grocery lists`;
+    deleteEvent.tags = uniqueIds.map((listId) => [
+      'a',
+      `${GROCERY_KIND}:${pubkey}:${listIdToDTag(listId)}`
+    ]);
 
-    // If we have the specific event ID, also add an 'e' tag
-    if (eventId) {
-      deleteEvent.tags.push(['e', eventId]);
+    for (const listId of uniqueIds) {
+      const eventId = eventIds?.[listId];
+      if (eventId) {
+        deleteEvent.tags.push(['e', eventId]);
+      }
     }
 
-    // Sign and publish
     await deleteEvent.sign();
-    
-    // Get user's write relays for publishing
+
     const writeRelays = await getOutboxRelays(pubkey);
-    
-    console.log('[GroceryService] Publishing deletion event...', writeRelays.length > 0 ? `(${writeRelays.length} outbox relays)` : '(default relays)');
-    
-    // Publish to user's outbox relays if available, otherwise use default relay set
+
+    console.log(
+      '[GroceryService] Publishing deletion event...',
+      writeRelays.length > 0 ? `(${writeRelays.length} outbox relays)` : '(default relays)'
+    );
+
     if (writeRelays.length > 0) {
       const relaySet = NDKRelaySet.fromRelayUrls(writeRelays, ndkInstance);
       await deleteEvent.publish(relaySet);
     } else {
       await deleteEvent.publish();
     }
-    
-    console.log('[GroceryService] Grocery list deleted successfully');
+
+    console.log('[GroceryService] Grocery list(s) deleted successfully');
     return deleteEvent;
   } catch (error) {
-    console.error('[GroceryService] Failed to delete grocery list:', error);
+    console.error('[GroceryService] Failed to delete grocery list(s):', error);
     throw error;
   }
+}
+
+/**
+ * Delete a grocery list by publishing a kind 5 deletion event
+ *
+ * @param listId - The ID of the list to delete
+ * @param eventId - Optional: the event ID to reference in deletion
+ * @returns The deletion event, or null on failure
+ */
+export async function deleteGroceryList(
+  listId: string,
+  eventId?: string
+): Promise<NDKEvent | null> {
+  if (!listId) return null;
+  return deleteGroceryLists([listId], eventId ? { [listId]: eventId } : undefined);
 }
 
 // ═══════════════════════════════════════════════════════════════

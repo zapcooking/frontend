@@ -18,7 +18,7 @@ import { userPublickey } from '$lib/nostr';
 import {
   fetchGroceryLists,
   saveGroceryList,
-  deleteGroceryList,
+  deleteGroceryLists,
   createEmptyList,
   createGroceryItem,
   type GroceryList,
@@ -317,32 +317,43 @@ function createGroceryStore() {
     },
 
     /**
+     * Delete one or more grocery lists
+     */
+    async deleteLists(listIds: string[]): Promise<boolean> {
+      const uniqueIds = [...new Set(listIds.filter(Boolean))];
+      if (uniqueIds.length === 0) return true;
+
+      for (const listId of uniqueIds) {
+        const timer = saveTimers.get(listId);
+        if (timer) {
+          clearTimeout(timer);
+          saveTimers.delete(listId);
+        }
+      }
+
+      const idSet = new Set(uniqueIds);
+      const previousLists = get({ subscribe }).lists;
+      update(s => ({
+        ...s,
+        lists: s.lists.filter(l => !idSet.has(l.id))
+      }));
+
+      try {
+        await deleteGroceryLists(uniqueIds);
+        return true;
+      } catch (error) {
+        console.error('[GroceryStore] Failed to delete lists:', error);
+        update(s => ({ ...s, lists: previousLists }));
+        void this.load();
+        return false;
+      }
+    },
+
+    /**
      * Delete a grocery list
      */
     async deleteList(listId: string): Promise<boolean> {
-      // Cancel any pending save for this list
-      const timer = saveTimers.get(listId);
-      if (timer) {
-        clearTimeout(timer);
-        saveTimers.delete(listId);
-      }
-
-      // Remove from local state immediately
-      update(s => ({
-        ...s,
-        lists: s.lists.filter(l => l.id !== listId)
-      }));
-
-      // Delete from Nostr
-      try {
-        await deleteGroceryList(listId);
-        return true;
-      } catch (error) {
-        console.error('[GroceryStore] Failed to delete list:', error);
-        // Reload to restore state if delete failed
-        this.load();
-        return false;
-      }
+      return this.deleteLists([listId]);
     },
 
     /**

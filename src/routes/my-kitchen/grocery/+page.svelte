@@ -11,18 +11,39 @@
   } from '$lib/stores/groceryStore';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
+  import TrashIcon from 'phosphor-svelte/lib/Trash';
   import PanLoader from '../../../components/PanLoader.svelte';
   import GroceryListCard from '../../../components/grocery/GroceryListCard.svelte';
   import PullToRefresh from '../../../components/PullToRefresh.svelte';
+  import Modal from '../../../components/Modal.svelte';
+  import Button from '../../../components/Button.svelte';
 
   // Pull-to-refresh ref
   let pullToRefreshEl: PullToRefresh;
 
   let isCreating = false;
+  let isEditing = false;
+  let selectedIds = new Set<string>();
+  let deleteConfirmOpen = false;
+  let isDeleting = false;
+
+  $: allSelected = $groceryLists.length > 0 && selectedIds.size === $groceryLists.length;
+  $: selectedCount = selectedIds.size;
+  $: selectedLists = $groceryLists.filter((list) => selectedIds.has(list.id));
+
+  $: if (isEditing && !isDeleting && $groceryLists.length === 0) {
+    isEditing = false;
+    selectedIds = new Set();
+    deleteConfirmOpen = false;
+  }
 
   async function handleRefresh() {
     try {
       await groceryStore.load();
+      if (isEditing) {
+        const validIds = new Set($groceryLists.map((list) => list.id));
+        selectedIds = new Set([...selectedIds].filter((id) => validIds.has(id)));
+      }
     } finally {
       pullToRefreshEl?.complete();
     }
@@ -46,7 +67,7 @@
   });
 
   async function createNewList() {
-    if (isCreating) return;
+    if (isCreating || isEditing) return;
     
     isCreating = true;
     try {
@@ -57,6 +78,50 @@
       console.error('Failed to create list:', error);
     } finally {
       isCreating = false;
+    }
+  }
+
+  function enterEditMode() {
+    isEditing = true;
+    selectedIds = new Set();
+  }
+
+  function exitEditMode() {
+    isEditing = false;
+    selectedIds = new Set();
+    deleteConfirmOpen = false;
+  }
+
+  function toggleSelect(listId: string) {
+    const next = new Set(selectedIds);
+    if (next.has(listId)) {
+      next.delete(listId);
+    } else {
+      next.add(listId);
+    }
+    selectedIds = next;
+  }
+
+  function toggleSelectAll() {
+    selectedIds = allSelected
+      ? new Set()
+      : new Set($groceryLists.map((list) => list.id));
+  }
+
+  async function deleteSelected() {
+    if (selectedIds.size === 0 || isDeleting) return;
+
+    isDeleting = true;
+    try {
+      const success = await groceryStore.deleteLists([...selectedIds]);
+      if (success) {
+        exitEditMode();
+      }
+    } catch (error) {
+      console.error('Failed to delete grocery lists:', error);
+    } finally {
+      isDeleting = false;
+      deleteConfirmOpen = false;
     }
   }
 </script>
@@ -80,17 +145,74 @@
       </div>
     </div>
     
-    <!-- New List Button -->
-    <button
-      on:click={createNewList}
-      disabled={isCreating}
-      class="flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-full font-medium transition-all text-sm disabled:opacity-50"
-      aria-label="Create new grocery list"
-    >
-      <PlusIcon size={18} weight="bold" />
-      <span>{isCreating ? 'Creating...' : 'New List'}</span>
-    </button>
+    <div class="flex items-center gap-2">
+      {#if $groceryLists.length > 0}
+        {#if isEditing}
+          <button
+            type="button"
+            on:click={exitEditMode}
+            class="flex items-center gap-2 px-4 py-1.5 rounded-full font-medium transition-all text-sm"
+            style="color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+          >
+            Done
+          </button>
+        {:else}
+          <button
+            type="button"
+            on:click={enterEditMode}
+            class="flex items-center gap-2 px-4 py-1.5 rounded-full font-medium transition-all text-sm"
+            style="color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+          >
+            Edit
+          </button>
+        {/if}
+      {/if}
+
+      {#if !isEditing}
+        <button
+          on:click={createNewList}
+          disabled={isCreating}
+          class="flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-full font-medium transition-all text-sm disabled:opacity-50"
+          aria-label="Create new grocery list"
+        >
+          <PlusIcon size={18} weight="bold" />
+          <span>{isCreating ? 'Creating...' : 'New List'}</span>
+        </button>
+      {/if}
+    </div>
   </div>
+
+  {#if isEditing}
+    <div
+      class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 py-3 rounded-2xl"
+      style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
+    >
+      <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+        {selectedCount === 0
+          ? 'Select lists to delete'
+          : `${selectedCount} ${selectedCount === 1 ? 'list' : 'lists'} selected`}
+      </p>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          on:click={toggleSelectAll}
+          class="px-3 py-1.5 rounded-full text-sm font-medium transition-all"
+          style="color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+        >
+          {allSelected ? 'Clear' : 'Select all'}
+        </button>
+        <button
+          type="button"
+          on:click={() => (deleteConfirmOpen = true)}
+          disabled={selectedCount === 0}
+          class="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full text-sm font-medium transition-colors disabled:opacity-40"
+        >
+          <TrashIcon size={16} />
+          Delete
+        </button>
+      </div>
+    </div>
+  {/if}
 
   <!-- Error Banner -->
   {#if $groceryError}
@@ -138,9 +260,54 @@
     <!-- Lists Grid -->
     <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
       {#each $groceryLists as list (list.id)}
-        <GroceryListCard {list} />
+        <GroceryListCard
+          {list}
+          selectable={isEditing}
+          selected={selectedIds.has(list.id)}
+          on:toggle={() => toggleSelect(list.id)}
+        />
       {/each}
     </div>
   {/if}
 </div>
 </PullToRefresh>
+
+<Modal cleanup={() => (deleteConfirmOpen = false)} open={deleteConfirmOpen}>
+  <h1 slot="title">{selectedCount === $groceryLists.length ? 'Delete All Lists' : selectedCount === 1 ? 'Delete List' : 'Delete Lists'}</h1>
+
+  <div class="flex flex-col gap-4">
+    <p style="color: var(--color-text-primary)">
+      {#if selectedCount === 1}
+        Are you sure you want to delete "<strong>{selectedLists[0]?.title}</strong>"?
+        This cannot be undone.
+      {:else if selectedCount === $groceryLists.length}
+        Are you sure you want to delete all {selectedCount} grocery lists?
+        This cannot be undone.
+      {:else}
+        Are you sure you want to delete {selectedCount} grocery lists?
+        This cannot be undone.
+      {/if}
+    </p>
+
+    <div class="flex justify-end gap-2">
+      <Button on:click={() => (deleteConfirmOpen = false)} primary={false} disabled={isDeleting}>
+        Cancel
+      </Button>
+      <button
+        on:click={deleteSelected}
+        disabled={isDeleting}
+        class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-full font-semibold transition-colors disabled:opacity-50"
+      >
+        {#if isDeleting}
+          Deleting...
+        {:else if selectedCount === $groceryLists.length}
+          Delete All
+        {:else if selectedCount === 1}
+          Delete List
+        {:else}
+          Delete {selectedCount} Lists
+        {/if}
+      </button>
+    </div>
+  </div>
+</Modal>
