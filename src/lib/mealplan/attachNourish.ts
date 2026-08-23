@@ -29,6 +29,8 @@ export function attachCachedNourish<T extends { a: string; nourish?: CandidateNo
   if (typeof grams === 'number' && Number.isFinite(grams) && grams > 0) {
     nourish.proteinGrams = Math.round(grams);
   }
-  if (!nourish.overall && !nourish.protein && !nourish.proteinGrams) return candidate;
+  if (nourish.overall == null && nourish.protein == null && nourish.proteinGrams == null) {
+    return candidate;
+  }
   return { ...candidate, nourish };
 }

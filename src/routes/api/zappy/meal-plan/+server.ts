@@ -152,12 +152,13 @@ function buildUserPrompt(req: MealPlanGenerationRequest): string {
       }`
     );
   }
+  const familiar = req.familiarCoordinates?.length
+    ? new Set(req.familiarCoordinates)
+    : undefined;
   lines.push(
     '',
     `Candidate recipes (${req.candidates.length}):`,
-    ...req.candidates.map((c) =>
-      candidateLine(c, modes, new Set(req.familiarCoordinates || []))
-    )
+    ...req.candidates.map((c) => candidateLine(c, modes, familiar))
   );
   lines.push('', 'Assign one candidate to each slot you can fill. Copy each coordinate exactly.');
   return lines.join('\n');
