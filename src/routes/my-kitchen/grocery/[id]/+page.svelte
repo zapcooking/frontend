@@ -30,6 +30,8 @@
   import SortableGroceryCategory from '../../../../components/grocery/SortableGroceryCategory.svelte';
   import AddItemForm from '../../../../components/grocery/AddItemForm.svelte';
   import CalendarBlankIcon from 'phosphor-svelte/lib/CalendarBlank';
+  import WarningIcon from 'phosphor-svelte/lib/Warning';
+  import { generateWeekGrocerySnapshot } from '$lib/grocery/weekGenerate';
 
   // Get list ID from URL params
   $: listId = $page.params.id as string;
@@ -122,6 +124,24 @@
 
   function addPantryCoveredToList(index: number) {
     groceryStore.addPantryCoveredToList(listId, index);
+  }
+
+  let retryingUnresolved = false;
+
+  async function retryUnresolvedRecipes() {
+    if (!list?.sourceWeekId || !list.unresolvedRecipes?.length || retryingUnresolved) return;
+    retryingUnresolved = true;
+    try {
+      const result = await generateWeekGrocerySnapshot(list.sourceWeekId);
+      if (result) {
+        groceryStore.applySnapshot(listId, result.snapshot);
+        await groceryStore.saveNow();
+      }
+    } catch (error) {
+      console.error('[Grocery] Failed to retry unresolved recipes', error);
+    } finally {
+      retryingUnresolved = false;
+    }
   }
 
   $: totalItems = list?.items.length ?? 0;
@@ -294,6 +314,33 @@
         </div>
       {/if}
     </div>
+
+    {#if list.unresolvedRecipes && list.unresolvedRecipes.length > 0}
+      <div
+        class="flex items-start gap-3 p-3 rounded-xl border border-amber-500/30 bg-amber-500/10"
+        role="status"
+      >
+        <WarningIcon size={20} class="text-amber-500 flex-shrink-0 mt-0.5" weight="fill" />
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold" style="color: var(--color-text-primary)">
+            Some ingredients may be missing
+          </p>
+          <p class="text-xs text-caption mt-0.5">
+            {list.unresolvedRecipes.length}
+            {list.unresolvedRecipes.length === 1 ? 'recipe' : 'recipes'}
+            couldn't be loaded while building this grocery list.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={retryingUnresolved}
+          on:click={retryUnresolvedRecipes}
+          class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-50"
+        >
+          {retryingUnresolved ? 'Retrying…' : 'Retry'}
+        </button>
+      </div>
+    {/if}
 
     <!-- Add Item Form -->
     <AddItemForm {listId} />

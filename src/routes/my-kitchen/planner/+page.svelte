@@ -33,15 +33,12 @@
   import Modal from '../../../components/Modal.svelte';
   import RecipePickerModal from '../../../components/RecipePickerModal.svelte';
   import CheffyPlanModal from '../../../components/planner/CheffyPlanModal.svelte';
-  import { groceryStore, groceryInitialized } from '$lib/stores/groceryStore';
-  import { pantryStore, pantryItems, pantryInitialized } from '$lib/stores/pantryStore';
-  import { parseIngredientsFromRecipe } from '$lib/utils/ingredientParser';
+  import { groceryStore } from '$lib/stores/groceryStore';
   import {
     collectWeekRecipeOccurrences,
-    groceryListTitle,
-    rowsFromRecipeLines,
-    buildGrocerySnapshot
+    groceryListTitle
   } from '$lib/mealplan/groceryGeneration';
+  import { generateWeekGrocerySnapshot } from '$lib/grocery/weekGenerate';
   import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
   import Button from '../../../components/Button.svelte';
   import PullToRefresh from '../../../components/PullToRefresh.svelte';
@@ -173,81 +170,19 @@
     if (!weekPlan || !weekRecipeSlots || generating) return;
     generating = true;
     try {
-      const { aTags, textCount, occurrences } = weekRecipeSlots;
-
-      const linesByATag = new Map<string, string[]>();
-      const cached = await offlineStorage.getRecipes(aTags);
-      for (const c of cached) {
-        if (c.ingredients?.length) {
-          linesByATag.set(c.id, c.ingredients);
-        } else if (c.content) {
-          linesByATag.set(
-            c.id,
-            parseIngredientsFromRecipe(c.content).map((p) => p.originalText)
-          );
-        }
-      }
-      const missing = aTags.filter((a) => !linesByATag.has(a));
-      if (missing.length > 0 && $isOnline && $ndk) {
-        await Promise.all(
-          missing.map(async (aTag) => {
-            const parts = aTag.split(':');
-            if (parts.length !== 3) return;
-            const [kind, pubkey, identifier] = parts;
-            try {
-              const e = await $ndk.fetchEvent({
-                kinds: [Number(kind)],
-                '#d': [identifier],
-                authors: [pubkey]
-              });
-              if (e?.content) {
-                linesByATag.set(
-                  aTag,
-                  parseIngredientsFromRecipe(e.content).map((p) => p.originalText)
-                );
-                try {
-                  await offlineStorage.saveRecipeFromEvent(e);
-                } catch {}
-              }
-            } catch (err) {
-              console.warn('[Planner generate] Failed to fetch', aTag, err);
-            }
-          })
-        );
+      const result = await generateWeekGrocerySnapshot($plannerCurrentWeekId);
+      if (!result) {
+        generationSummary = { itemCount: 0, recipeCount: 0, textSkipped: 0, unresolved: [] };
+        return;
       }
 
-      const unresolved = aTags.filter((a) => !linesByATag.has(a));
-      const resolvedOccurrences = occurrences.filter((occ) => linesByATag.has(occ.a));
-
-      const rows = rowsFromRecipeLines(
-        resolvedOccurrences.map((occ) => ({
-          a: occ.a,
-          title: occ.title,
-          occurrenceId: occ.occurrenceId,
-          lines: linesByATag.get(occ.a) || []
-        }))
-      );
-
-      if (!$groceryInitialized) {
-        await groceryStore.load();
-      }
-      if (!$pantryInitialized) {
-        await pantryStore.load();
-      }
-
-      const existing = groceryStore.findListForWeek($plannerCurrentWeekId);
-      const snapshot = buildGrocerySnapshot(rows, $pantryItems, {
-        pantryOverrides: existing?.pantryOverrides,
-        sourceWeekId: $plannerCurrentWeekId
-      });
-
-      const list = await groceryStore.applyOrCreateWeekList($plannerCurrentWeekId, snapshot);
+      const list = await groceryStore.applyOrCreateWeekList($plannerCurrentWeekId, result.snapshot);
 
       generationSummary = {
-        itemCount: snapshot.stats.addedCount,
-        recipeCount: new Set(resolvedOccurrences.map((occ) => occ.a)).size,
-        textSkipped: textCount,
-        unresolved
+        itemCount: result.snapshot.stats.addedCount,
+        recipeCount: result.resolvedRecipeCount,
+        textSkipped: result.textSkipped,
+        unresolved: result.unresolved.map((source) => source.a)
       };
 
       await groceryStore.saveNow();

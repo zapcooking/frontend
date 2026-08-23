@@ -30,6 +30,11 @@ export type { GroceryItemSource } from '$lib/grocery/consolidation';
 
 export type GroceryItemOrigin = 'manual' | 'recipe';
 
+export interface UnresolvedRecipeSource {
+  a: string;
+  title?: string;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════
@@ -80,6 +85,8 @@ export interface GroceryList {
     pantryCoveredCount: number;
     addedCount: number;
   };
+  /** Planned recipes that could not be loaded when this list was generated. */
+  unresolvedRecipes?: UnresolvedRecipeSource[];
   createdAt: number;      // Unix timestamp (seconds)
   updatedAt: number;      // Unix timestamp (seconds)
 }
@@ -245,6 +252,22 @@ function sanitizeStats(raw: unknown): GroceryList['stats'] | undefined {
   const addedCount = typeof r.addedCount === 'number' ? r.addedCount : undefined;
   if (totalIngredients == null || pantryCoveredCount == null || addedCount == null) return undefined;
   return { totalIngredients, pantryCoveredCount, addedCount };
+}
+
+export function sanitizeUnresolvedRecipes(raw: unknown): UnresolvedRecipeSource[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: UnresolvedRecipeSource[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const r = entry as Record<string, unknown>;
+    const a = typeof r.a === 'string' ? r.a.trim() : '';
+    if (!a.includes(':') || seen.has(a)) continue;
+    seen.add(a);
+    const title = asTrimmed(r.title, 120);
+    out.push(title ? { a, title } : { a });
+  }
+  return out.length ? out : undefined;
 }
 
 
@@ -447,6 +470,7 @@ async function decryptGroceryEvent(
       pantryOverrides: sanitizePantryOverrides(payload.pantryOverrides),
       sourceWeekId,
       stats: sanitizeStats(payload.stats),
+      unresolvedRecipes: sanitizeUnresolvedRecipes(payload.unresolvedRecipes),
       createdAt: payload.createdAt || now,
       updatedAt: payload.updatedAt || now
     };
@@ -518,6 +542,7 @@ export async function saveGroceryList(list: GroceryList): Promise<NDKEvent | nul
     pantryOverrides: listToSave.pantryOverrides,
     sourceWeekId: listToSave.sourceWeekId,
     stats: listToSave.stats,
+    unresolvedRecipes: listToSave.unresolvedRecipes,
     createdAt: listToSave.createdAt,
     updatedAt: listToSave.updatedAt
   });

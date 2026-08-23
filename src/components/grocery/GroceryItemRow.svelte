@@ -44,6 +44,10 @@
   function toggleSources() {
     sourcesOpen = !sourcesOpen;
   }
+
+  function returnToPantry() {
+    groceryStore.returnPantryOverride(listId, item.id);
+  }
 </script>
 
 <div
@@ -117,6 +121,17 @@
           {/each}
         </ul>
       {/if}
+    {/if}
+
+    {#if item.pantryOverride}
+      <button
+        type="button"
+        on:click={returnToPantry}
+        class="mt-1.5 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border border-green-500/40 text-green-500 hover:bg-green-500/10 transition-colors"
+        aria-label="I have {item.name}"
+      >
+        I have this
+      </button>
     {/if}
   </div>
 

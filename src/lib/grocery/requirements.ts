@@ -35,6 +35,11 @@ export interface GroceryRequirement {
   pantryOverride?: boolean;
 }
 
+export interface UnresolvedRecipeSource {
+  a: string;
+  title?: string;
+}
+
 export interface GrocerySnapshot {
   toBuy: GroceryRequirement[];
   inPantry: GroceryRequirement[];
@@ -45,6 +50,8 @@ export interface GrocerySnapshot {
   };
   recipeLinks: string[];
   sourceWeekId?: string;
+  /** Recipe a-tags that could not be loaded when this snapshot was built. */
+  unresolvedRecipes?: UnresolvedRecipeSource[];
 }
 
 export interface SnapshotListItem {
@@ -72,6 +79,7 @@ export interface SnapshotList {
   pantryOverrides?: string[];
   sourceWeekId?: string;
   stats?: GrocerySnapshot['stats'];
+  unresolvedRecipes?: UnresolvedRecipeSource[];
   createdAt: number;
   updatedAt: number;
 }
@@ -115,10 +123,57 @@ function toParsedIngredient(item: ConsolidatedIngredient) {
   };
 }
 
+export function unresolvedRecipeSources(
+  occurrences: Array<{ a: string; title?: string }>,
+  resolvedATags: Iterable<string>
+): UnresolvedRecipeSource[] {
+  const resolved = new Set(resolvedATags);
+  const seen = new Set<string>();
+  const out: UnresolvedRecipeSource[] = [];
+  for (const occ of occurrences) {
+    if (resolved.has(occ.a) || seen.has(occ.a)) continue;
+    seen.add(occ.a);
+    out.push({ a: occ.a, title: occ.title });
+  }
+  return out;
+}
+
+function sourceSignature(sources?: GroceryItemSource[]): string {
+  return (sources || [])
+    .map((source) => `${grocerySourceKey(source)}|${(source.quantity || '').trim()}`)
+    .sort()
+    .join('\n');
+}
+
+/** Stable identity for a shopping requirement — used to decide checked-state reuse. */
+export function groceryRequirementSignature(item: {
+  quantity: string;
+  unit?: string;
+  sources?: GroceryItemSource[];
+}): string {
+  return [
+    item.quantity.trim(),
+    (item.unit || '').trim().toLowerCase(),
+    sourceSignature(item.sources)
+  ].join('||');
+}
+
+export function shouldPreserveChecked(
+  existing: { checked?: boolean; quantity: string; unit?: string; sources?: GroceryItemSource[] } | undefined,
+  next: { quantity: string; unit?: string; sources?: GroceryItemSource[] }
+): boolean {
+  if (!existing?.checked) return false;
+  return groceryRequirementSignature(existing) === groceryRequirementSignature(next);
+}
+
 export function buildGrocerySnapshot(
   rows: ConsolidationRow[],
   pantry: Array<Pick<PantryItem, 'name' | 'normalizedName' | 'quantity' | 'unit' | 'isStaple'>>,
-  options?: { pantryOverrides?: string[]; sourceWeekId?: string }
+  options?: {
+    pantryOverrides?: string[];
+    sourceWeekId?: string;
+    unresolvedRecipes?: UnresolvedRecipeSource[];
+  }
 ): GrocerySnapshot {
   const consolidated = consolidateIngredients(rows);
   const overrides = new Set(
@@ -151,7 +206,8 @@ export function buildGrocerySnapshot(
       addedCount: toBuy.length
     },
     recipeLinks,
-    sourceWeekId: options?.sourceWeekId
+    sourceWeekId: options?.sourceWeekId,
+    unresolvedRecipes: options?.unresolvedRecipes?.length ? options.unresolvedRecipes : undefined
   };
 }
 
@@ -165,7 +221,7 @@ function itemFromRequirement(
     name: req.name,
     quantity: req.quantity,
     category: req.category,
-    checked: existing?.checked ?? false,
+    checked: shouldPreserveChecked(existing, req),
     recipeId: req.sources[0]?.recipeId,
     addedAt: existing?.addedAt ?? now,
     normalizedName: req.normalizedName,
@@ -185,8 +241,9 @@ function recipeItemKey(item: SnapshotListItem): string {
 }
 
 /**
- * Replace recipe-derived items with the snapshot. Manual items, checked
- * state, and item ids (matched by normalized name) are preserved.
+ * Replace recipe-derived items with the snapshot. Manual items and item
+ * ids (matched by normalized name) are preserved. Checked state is kept
+ * only when quantity, unit, and recipe sources are unchanged.
  */
 export function applySnapshotToList(list: SnapshotList, snapshot: GrocerySnapshot): SnapshotList {
   const manual = list.items.filter((item) => isManualGroceryItem(item));
@@ -197,11 +254,14 @@ export function applySnapshotToList(list: SnapshotList, snapshot: GrocerySnapsho
     itemFromRequirement(req, existingByKey.get(req.normalizedName))
   );
 
+  // Only persist overrides that are still applied on a shopping item.
+  // Stale keys (removed item / "I have this") must not survive a rebuild.
   const overrides = [
-    ...new Set([
-      ...(list.pantryOverrides || []),
-      ...snapshot.toBuy.filter((r) => r.pantryOverride).map((r) => r.normalizedName)
-    ])
+    ...new Set(
+      recipeItems
+        .filter((item) => item.pantryOverride && item.normalizedName)
+        .map((item) => item.normalizedName as string)
+    )
   ];
 
   return {
@@ -212,6 +272,7 @@ export function applySnapshotToList(list: SnapshotList, snapshot: GrocerySnapsho
     pantryOverrides: overrides.length ? overrides : undefined,
     sourceWeekId: snapshot.sourceWeekId ?? list.sourceWeekId,
     stats: snapshot.stats,
+    unresolvedRecipes: snapshot.unresolvedRecipes?.length ? snapshot.unresolvedRecipes : undefined,
     updatedAt: Math.floor(Date.now() / 1000)
   };
 }
@@ -259,7 +320,12 @@ export function mergeRequirementsIntoList(
       sources,
       recipeId: sources[0]?.recipeId,
       origin: 'recipe',
-      pantryOverride: existing.pantryOverride || req.pantryOverride
+      pantryOverride: existing.pantryOverride || req.pantryOverride,
+      checked: shouldPreserveChecked(existing, {
+        quantity: recombined.quantity,
+        unit: recombined.unit,
+        sources
+      })
     });
   }
 
@@ -345,7 +411,12 @@ export function dropStaleSourcesFromList(list: SnapshotList, plan: MealPlan): Sn
       category: recombined.category,
       sources,
       recipeId: sources[0]?.recipeId,
-      normalizedName
+      normalizedName,
+      checked: shouldPreserveChecked(item, {
+        quantity: recombined.quantity,
+        unit: recombined.unit,
+        sources
+      })
     });
   }
 
@@ -375,12 +446,15 @@ export function dropStaleSourcesFromList(list: SnapshotList, plan: MealPlan): Sn
   ];
 
   const recipeCount = nextItems.filter((item) => !isManualGroceryItem(item)).length;
+  const liveATags = new Set([...liveKeys].map((key) => key.slice(key.indexOf('|') + 1)));
+  const unresolvedRecipes = (list.unresolvedRecipes || []).filter((source) => liveATags.has(source.a));
 
   return {
     ...list,
     items: nextItems,
     recipeLinks,
     pantryCovered: pantryCovered.length ? pantryCovered : undefined,
+    unresolvedRecipes: unresolvedRecipes.length ? unresolvedRecipes : undefined,
     stats: list.stats
       ? {
           ...list.stats,
@@ -426,4 +500,79 @@ export function movePantryCoveredToList(
 
 export function overrideKeysFromList(list: SnapshotList): string[] {
   return list.pantryOverrides || [];
+}
+
+function overrideKey(item: Pick<SnapshotListItem, 'normalizedName' | 'name'>): string {
+  return item.normalizedName || groceryConsolidationKey(item.name);
+}
+
+function dropOverrideKey(overrides: string[] | undefined, key: string): string[] | undefined {
+  const next = (overrides || []).filter(
+    (value) => value !== key && groceryConsolidationKey(value) !== key
+  );
+  return next.length ? next : undefined;
+}
+
+/**
+ * Reverse "I still need this": drop the override and return the item
+ * to Already in My Kitchen. Pantry inventory is unchanged.
+ */
+export function returnOverrideToPantry(list: SnapshotList, itemId: string): SnapshotList {
+  const item = list.items.find((entry) => entry.id === itemId);
+  if (!item?.pantryOverride) return list;
+
+  const key = overrideKey(item);
+  const existingCovered = list.pantryCovered || [];
+  const pantryCovered: GroceryRequirement[] = existingCovered.some((entry) => entry.normalizedName === key)
+    ? existingCovered
+    : [
+        ...existingCovered,
+        {
+          name: item.name,
+          normalizedName: key,
+          quantity: item.quantity,
+          unit: item.unit,
+          category: canonicalizeGroceryCategory(item.category, item.name),
+          sources: item.sources || []
+        }
+      ];
+  const items = list.items.filter((entry) => entry.id !== itemId);
+  const recipeCount = items.filter((entry) => !isManualGroceryItem(entry)).length;
+
+  return {
+    ...list,
+    items,
+    pantryCovered,
+    pantryOverrides: dropOverrideKey(list.pantryOverrides, key),
+    stats: list.stats
+      ? {
+          ...list.stats,
+          addedCount: recipeCount,
+          pantryCoveredCount: pantryCovered.length,
+          totalIngredients: recipeCount + pantryCovered.length
+        }
+      : undefined,
+    updatedAt: Math.floor(Date.now() / 1000)
+  };
+}
+
+/**
+ * Remove a grocery item and drop its pantry override so a later
+ * recalculation cannot resurrect it.
+ */
+export function removeGroceryItemFromList(list: SnapshotList, itemId: string): SnapshotList {
+  const item = list.items.find((entry) => entry.id === itemId);
+  if (!item) return list;
+
+  const items = list.items.filter((entry) => entry.id !== itemId);
+  const pantryOverrides = item.pantryOverride
+    ? dropOverrideKey(list.pantryOverrides, overrideKey(item))
+    : list.pantryOverrides;
+
+  return {
+    ...list,
+    items,
+    pantryOverrides,
+    updatedAt: Math.floor(Date.now() / 1000)
+  };
 }

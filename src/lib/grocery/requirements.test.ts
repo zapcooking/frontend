@@ -8,6 +8,10 @@ import {
   buildGrocerySnapshot,
   dropStaleSourcesFromList,
   isManualGroceryItem,
+  movePantryCoveredToList,
+  removeGroceryItemFromList,
+  returnOverrideToPantry,
+  unresolvedRecipeSources,
   type SnapshotList
 } from './requirements';
 import type { ConsolidationRow } from './consolidation';
@@ -89,7 +93,7 @@ describe('applySnapshotToList', () => {
     expect(second.items.filter((item) => item.normalizedName === 'chicken breast')).toHaveLength(1);
   });
 
-  it('preserves manual items and checked state', () => {
+  it('preserves manual items when the week is recalculated', () => {
     const list: SnapshotList = {
       ...emptyList(),
       items: [
@@ -98,7 +102,7 @@ describe('applySnapshotToList', () => {
           name: 'Paper towels',
           quantity: '1',
           category: 'other',
-          checked: false,
+          checked: true,
           addedAt: 1,
           origin: 'manual'
         },
@@ -130,13 +134,198 @@ describe('applySnapshotToList', () => {
       []
     );
     const next = applySnapshotToList(list, snapshot);
-    expect(next.items.some((item) => item.name === 'Paper towels' && isManualGroceryItem(item))).toBe(
-      true
-    );
+    const towels = next.items.find((item) => item.name === 'Paper towels');
+    expect(towels && isManualGroceryItem(towels)).toBe(true);
+    expect(towels?.checked).toBe(true);
     const chicken = next.items.find((item) => item.normalizedName === 'chicken breast');
-    expect(chicken?.checked).toBe(true);
     expect(chicken?.id).toBe('recipe-1');
     expect(chicken?.quantity).toBe('4');
+    expect(chicken?.checked).toBe(false);
+  });
+});
+
+describe('checked state vs requirement changes', () => {
+  function withChickenChecked(list: SnapshotList): SnapshotList {
+    return {
+      ...list,
+      items: list.items.map((item) =>
+        item.normalizedName === 'chicken breast' ? { ...item, checked: true } : item
+      )
+    };
+  }
+
+  it('keeps a checked item checked when the requirement is unchanged', () => {
+    const snapshot = buildGrocerySnapshot([row('chicken breast', '2 lb', 'parm', 'mon:dinner')], []);
+    const checked = withChickenChecked(applySnapshotToList(emptyList(), snapshot));
+    const next = applySnapshotToList(checked, snapshot);
+    const chicken = next.items.find((item) => item.normalizedName === 'chicken breast');
+    expect(chicken?.quantity).toBe('2 lb');
+    expect(chicken?.checked).toBe(true);
+  });
+
+  it('unchecks when quantity increases', () => {
+    const first = buildGrocerySnapshot([row('chicken breast', '2 lb', 'parm', 'mon:dinner')], []);
+    const checked = withChickenChecked(applySnapshotToList(emptyList(), first));
+    const next = applySnapshotToList(
+      checked,
+      buildGrocerySnapshot(
+        [
+          row('chicken breast', '2 lb', 'parm', 'mon:dinner'),
+          row('chicken breast', '2 lb', 'tacos', 'tue:dinner')
+        ],
+        []
+      )
+    );
+    const chicken = next.items.find((item) => item.normalizedName === 'chicken breast');
+    expect(chicken?.quantity).toBe('4 lb');
+    expect(chicken?.checked).toBe(false);
+  });
+
+  it('unchecks when recipe sources change at the same quantity', () => {
+    const first = buildGrocerySnapshot([row('chicken breast', '2 lb', 'parm', 'mon:dinner')], []);
+    const checked = withChickenChecked(applySnapshotToList(emptyList(), first));
+    const next = applySnapshotToList(
+      checked,
+      buildGrocerySnapshot([row('chicken breast', '2 lb', 'tacos', 'tue:dinner')], [])
+    );
+    const chicken = next.items.find((item) => item.normalizedName === 'chicken breast');
+    expect(chicken?.quantity).toBe('2 lb');
+    expect(chicken?.checked).toBe(false);
+  });
+
+  it('unchecks remaining quantity after a meal is removed', () => {
+    const snapshot = buildGrocerySnapshot(
+      [
+        row('chicken breast', '2 lb', 'parm', 'mon:dinner'),
+        row('chicken breast', '2 lb', 'tacos', 'tue:dinner')
+      ],
+      []
+    );
+    const list = applySnapshotToList(emptyList(), snapshot);
+    const checked = {
+      ...list,
+      items: list.items.map((item) =>
+        item.normalizedName === 'chicken breast' ? { ...item, checked: true } : item
+      )
+    };
+    const plan = createEmptyMealPlan('2026-W29');
+    plan.days.tue = {
+      slots: {
+        dinner: { type: 'recipe', a: 'tacos', title: 'Chicken Tacos' }
+      }
+    };
+    const next = dropStaleSourcesFromList(checked, plan);
+    const chicken = next.items.find((item) => item.normalizedName === 'chicken breast');
+    expect(chicken?.quantity).toBe('2 lb');
+    expect(chicken?.checked).toBe(false);
+  });
+});
+
+describe('unresolved recipe sources', () => {
+  it('retains unresolved recipes on the generated list and retry rebuilds without duplicating', () => {
+    const occurrences = [
+      { a: 'parm', title: 'Chicken Parm' },
+      { a: 'tacos', title: 'Chicken Tacos' }
+    ];
+    const unresolved = unresolvedRecipeSources(occurrences, ['parm']);
+    expect(unresolved).toEqual([{ a: 'tacos', title: 'Chicken Tacos' }]);
+
+    const partial = buildGrocerySnapshot([row('chicken breast', '2 lb', 'parm', 'mon:dinner')], [], {
+      unresolvedRecipes: unresolved,
+      sourceWeekId: '2026-W29'
+    });
+    expect(partial.toBuy).toHaveLength(1);
+    expect(partial.unresolvedRecipes).toEqual([{ a: 'tacos', title: 'Chicken Tacos' }]);
+
+    const list = applySnapshotToList(emptyList(), partial);
+    expect(list.unresolvedRecipes).toHaveLength(1);
+    expect(list.items.filter((item) => item.normalizedName === 'chicken breast')).toHaveLength(1);
+
+    const resolved = buildGrocerySnapshot(
+      [
+        row('chicken breast', '2 lb', 'parm', 'mon:dinner'),
+        row('chicken breast', '2 lb', 'tacos', 'tue:dinner')
+      ],
+      [],
+      { sourceWeekId: '2026-W29', unresolvedRecipes: [] }
+    );
+    const retried = applySnapshotToList(list, resolved);
+    expect(retried.unresolvedRecipes).toBeUndefined();
+    const chicken = retried.items.filter((item) => item.normalizedName === 'chicken breast');
+    expect(chicken).toHaveLength(1);
+    expect(chicken[0].quantity).toBe('4 lb');
+  });
+
+  it('drops unresolved recipes that are no longer on the meal plan', () => {
+    const list = applySnapshotToList(
+      emptyList(),
+      buildGrocerySnapshot([row('chicken breast', '2 lb', 'parm', 'mon:dinner')], [], {
+        unresolvedRecipes: [{ a: 'tacos', title: 'Chicken Tacos' }]
+      })
+    );
+    const plan = createEmptyMealPlan('2026-W29');
+    plan.days.mon = {
+      slots: {
+        dinner: { type: 'recipe', a: 'parm', title: 'Chicken Parm' }
+      }
+    };
+    const next = dropStaleSourcesFromList(list, plan);
+    expect(next.unresolvedRecipes).toBeUndefined();
+  });
+});
+
+describe('pantry override reversal', () => {
+  it('includes after I still need this, excludes after I have this, and stays excluded on rebuild', () => {
+    const pantry = [{ name: 'Olive oil', normalizedName: 'olive oil' }];
+    const oliveRow = row('olive oil', '', 'parm', 'mon:dinner');
+
+    const initial = applySnapshotToList(emptyList(), buildGrocerySnapshot([oliveRow], pantry));
+    expect(initial.items).toHaveLength(0);
+    expect(initial.pantryCovered?.map((item) => item.normalizedName)).toEqual(['olive oil']);
+
+    const overridden = movePantryCoveredToList(initial, 0);
+    expect(overridden.added?.pantryOverride).toBe(true);
+    expect(overridden.list.items).toHaveLength(1);
+    expect(overridden.list.pantryCovered).toBeUndefined();
+    expect(overridden.list.pantryOverrides).toEqual(['olive oil']);
+
+    const included = applySnapshotToList(
+      overridden.list,
+      buildGrocerySnapshot([oliveRow], pantry, { pantryOverrides: overridden.list.pantryOverrides })
+    );
+    expect(included.items).toHaveLength(1);
+    expect(included.items[0].pantryOverride).toBe(true);
+    expect(included.pantryOverrides).toEqual(['olive oil']);
+
+    const reversed = returnOverrideToPantry(included, included.items[0].id);
+    expect(reversed.items).toHaveLength(0);
+    expect(reversed.pantryCovered?.map((item) => item.normalizedName)).toEqual(['olive oil']);
+    expect(reversed.pantryOverrides).toBeUndefined();
+
+    const rebuilt = applySnapshotToList(
+      reversed,
+      buildGrocerySnapshot([oliveRow], pantry, { pantryOverrides: reversed.pantryOverrides })
+    );
+    expect(rebuilt.items).toHaveLength(0);
+    expect(rebuilt.pantryCovered?.map((item) => item.normalizedName)).toEqual(['olive oil']);
+    expect(rebuilt.pantryOverrides).toBeUndefined();
+  });
+
+  it('does not resurrect an override after the grocery item is removed', () => {
+    const pantry = [{ name: 'Olive oil', normalizedName: 'olive oil' }];
+    const oliveRow = row('olive oil', '', 'parm', 'mon:dinner');
+    const initial = applySnapshotToList(emptyList(), buildGrocerySnapshot([oliveRow], pantry));
+    const overridden = movePantryCoveredToList(initial, 0);
+    const removed = removeGroceryItemFromList(overridden.list, overridden.added!.id);
+    expect(removed.items).toHaveLength(0);
+    expect(removed.pantryOverrides).toBeUndefined();
+
+    const rebuilt = applySnapshotToList(
+      removed,
+      buildGrocerySnapshot([oliveRow], pantry, { pantryOverrides: removed.pantryOverrides })
+    );
+    expect(rebuilt.items).toHaveLength(0);
+    expect(rebuilt.pantryCovered?.map((item) => item.normalizedName)).toEqual(['olive oil']);
   });
 });
 

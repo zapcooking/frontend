@@ -33,6 +33,8 @@ import {
   dropStaleSourcesFromList,
   mergeRequirementsIntoList,
   movePantryCoveredToList,
+  removeGroceryItemFromList,
+  returnOverrideToPantry,
   type GrocerySnapshot,
   type GroceryRequirement,
   type SnapshotList
@@ -85,6 +87,7 @@ function fromSnapshot(snapshot: SnapshotList, previous: GroceryList): GroceryLis
     pantryOverrides: snapshot.pantryOverrides,
     sourceWeekId: snapshot.sourceWeekId,
     stats: snapshot.stats,
+    unresolvedRecipes: snapshot.unresolvedRecipes,
     updatedAt: snapshot.updatedAt
   };
 }
@@ -291,7 +294,7 @@ function createGroceryStore() {
      */
     updateList(
       listId: string, 
-      updates: Partial<Pick<GroceryList, 'title' | 'notes' | 'recipeLinks' | 'pantryCovered' | 'pantryOverrides' | 'sourceWeekId' | 'stats'>>
+      updates: Partial<Pick<GroceryList, 'title' | 'notes' | 'recipeLinks' | 'pantryCovered' | 'pantryOverrides' | 'sourceWeekId' | 'stats' | 'unresolvedRecipes'>>
     ): void {
       update(s => {
         const lists = s.lists.map(list => {
@@ -404,6 +407,22 @@ function createGroceryStore() {
     },
 
     /**
+     * Reverse a pantry override: take the item off the shopping list
+     * and put it back under Already in My Kitchen.
+     */
+    returnPantryOverride(listId: string, itemId: string): void {
+      update((s) => {
+        const lists = s.lists.map((list) => {
+          if (list.id !== listId) return list;
+          const next = fromSnapshot(returnOverrideToPantry(toSnapshot(list), itemId), list);
+          scheduleSave(listId);
+          return next;
+        });
+        return { ...s, lists };
+      });
+    },
+
+    /**
      * Record recipe ingredients that were skipped because they matched
      * the pantry. Existing pantryCovered rows are kept.
      */
@@ -492,17 +511,9 @@ function createGroceryStore() {
       update(s => {
         const lists = s.lists.map(list => {
           if (list.id !== listId) return list;
-          
-          const updatedList: GroceryList = {
-            ...list,
-            items: list.items.filter(item => item.id !== itemId),
-            updatedAt: Math.floor(Date.now() / 1000)
-          };
-          
-          // Schedule debounced save
-          scheduleSave(updatedList.id);
-          
-          return updatedList;
+          const next = fromSnapshot(removeGroceryItemFromList(toSnapshot(list), itemId), list);
+          scheduleSave(listId);
+          return next;
         });
 
         return { ...s, lists };
