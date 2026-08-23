@@ -37,6 +37,7 @@ import {
   type MealSlotKey
 } from '$lib/mealplan/schema';
 import { currentWeekId, isValidWeekId, nextWeekId, prevWeekId } from '$lib/mealplan/week';
+import { notifyMealPlanMutated } from '$lib/grocery/hooks';
 
 export type PlannerWeekState =
   | { status: 'ok'; plan: MealPlan; readOnly: boolean }
@@ -198,14 +199,16 @@ function createPlannerStore() {
       return false;
     }
 
+    const nextPlan = mutate(weekState.plan);
     update((s) => ({
       ...s,
       weeks: {
         ...s.weeks,
-        [weekId]: { status: 'ok', plan: mutate(weekState.plan), readOnly: false }
+        [weekId]: { status: 'ok', plan: nextPlan, readOnly: false }
       }
     }));
     scheduleSave(weekId);
+    notifyMealPlanMutated(weekId, nextPlan);
     return true;
   }
 
@@ -269,6 +272,12 @@ function createPlannerStore() {
 
     async goToCurrentWeek(): Promise<void> {
       await this.goToWeek(currentWeekId());
+    },
+
+    /** Load a week without changing the visible planner week. */
+    async ensureWeek(weekId: string): Promise<void> {
+      if (!isValidWeekId(weekId)) return;
+      await loadWeeks([weekId]);
     },
 
     // ── Mutations (PR9 API). All return false when rejected. ──
@@ -370,6 +379,7 @@ function createPlannerStore() {
           },
           error: null
         }));
+        notifyMealPlanMutated(weekId, createEmptyMealPlan(weekId));
       } catch (error) {
         console.error('[PlannerStore] Failed to delete week:', error);
         update((s) => ({

@@ -111,19 +111,28 @@
         <ShoppingCartIcon size={40} weight="regular" class="text-green-500" />
       </div>
       <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
-        No Grocery Lists Yet
+        Your grocery list is empty
       </h2>
       <p class="text-caption text-center max-w-md mb-6">
-        Create a grocery list to keep track of items you need. Your lists are private and encrypted.
+        Add ingredients manually or build a meal plan and Zap will create your grocery list automatically.
       </p>
-      <button
-        on:click={createNewList}
-        disabled={isCreating}
-        class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-full font-medium transition-all disabled:opacity-50"
-      >
-        <PlusIcon size={18} weight="bold" />
-        {isCreating ? 'Creating...' : 'Create Your First List'}
-      </button>
+      <div class="flex flex-col sm:flex-row items-center gap-3">
+        <a
+          href="/my-kitchen/planner"
+          class="flex items-center gap-2 px-5 py-2.5 rounded-full font-medium transition-all"
+          style="color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+        >
+          Plan Meals
+        </a>
+        <button
+          on:click={createNewList}
+          disabled={isCreating}
+          class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-full font-medium transition-all disabled:opacity-50"
+        >
+          <PlusIcon size={18} weight="bold" />
+          {isCreating ? 'Creating...' : 'Add Item'}
+        </button>
+      </div>
     </div>
   {:else}
     <!-- Lists Grid -->

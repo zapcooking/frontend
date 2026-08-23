@@ -1,22 +1,21 @@
 /**
- * Grocery generation from a week's meal plan (Phase 3.3, PR11).
+ * Grocery generation from a week's meal plan.
  *
- * Pure helpers — the relay/store side (groceryStore.addList/addItem)
- * stays in the planner page. Approved v1 behavior per the Phase 3
- * findings: dedupe-without-merge (collapse EXACT (name, quantity)
- * duplicates, first occurrence's recipeId wins; no quantity summing —
- * that's v1.1), text slots skipped and reported.
+ * Pure helpers — persistence stays in groceryStore. Ingredients are
+ * consolidated (names + safe quantities) and classified against pantry
+ * after combining, so a pantry amount is compared to the week's total.
  *
- * Pantry (v1): after dedupe, rows are classified against the user's
- * pantry. Name matches with no pantry quantity are treated as already
- * owned (presence-only). If a pantry quantity exists and cannot be
- * compared reliably to the recipe amount, the ingredient stays on the
- * grocery list. Pantry inventory is never decremented.
+ * `dedupeIngredients` is the original exact-match collapse and remains
+ * for the shared Android fixture contract. The planner uses
+ * `collectWeekRecipeOccurrences` + `buildGrocerySnapshot`.
  */
 
 import type { ParsedIngredient } from '$lib/utils/ingredientParser';
+import { parseIngredient } from '$lib/utils/ingredientParser';
 import { DAY_KEYS, SLOT_KEYS, type MealPlan } from '$lib/mealplan/schema';
 import { weekDisplayRange } from '$lib/mealplan/week';
+import type { ConsolidationRow } from '$lib/grocery/consolidation';
+import { buildGrocerySnapshot } from '$lib/grocery/requirements';
 
 export interface WeekRecipeSlots {
   /** Unique recipe coordinates in day/slot order. */
@@ -27,10 +26,31 @@ export interface WeekRecipeSlots {
   recipeSlotCount: number;
 }
 
-/** Walk the plan's days/slots and collect what generation operates on. */
+export interface WeekRecipeOccurrence {
+  a: string;
+  title?: string;
+  occurrenceId: string;
+}
+
+export interface WeekRecipeOccurrences extends WeekRecipeSlots {
+  occurrences: WeekRecipeOccurrence[];
+}
+
+/** Walk the plan's days/slots and collect unique recipe coordinates. */
 export function collectWeekRecipeSlots(plan: MealPlan): WeekRecipeSlots {
+  const collected = collectWeekRecipeOccurrences(plan);
+  return {
+    aTags: collected.aTags,
+    textCount: collected.textCount,
+    recipeSlotCount: collected.recipeSlotCount
+  };
+}
+
+/** Include every planned recipe slot so repeated meals count twice. */
+export function collectWeekRecipeOccurrences(plan: MealPlan): WeekRecipeOccurrences {
   const seen = new Set<string>();
   const aTags: string[] = [];
+  const occurrences: WeekRecipeOccurrence[] = [];
   let textCount = 0;
   let recipeSlotCount = 0;
 
@@ -44,6 +64,11 @@ export function collectWeekRecipeSlots(plan: MealPlan): WeekRecipeSlots {
         textCount++;
       } else if (entry.type === 'recipe') {
         recipeSlotCount++;
+        occurrences.push({
+          a: entry.a,
+          title: entry.title,
+          occurrenceId: `${day}:${slotKey}`
+        });
         if (!seen.has(entry.a)) {
           seen.add(entry.a);
           aTags.push(entry.a);
@@ -52,13 +77,15 @@ export function collectWeekRecipeSlots(plan: MealPlan): WeekRecipeSlots {
     }
   }
 
-  return { aTags, textCount, recipeSlotCount };
+  return { aTags, textCount, recipeSlotCount, occurrences };
 }
 
 export interface GenerationRow {
   ingredient: ParsedIngredient;
   /** Source recipe coordinate (becomes GroceryItem.recipeId). */
   recipeId: string;
+  recipeTitle?: string;
+  occurrenceId?: string;
 }
 
 /**
@@ -79,9 +106,28 @@ export function dedupeIngredients(rows: GenerationRow[]): GenerationRow[] {
   return out;
 }
 
+export function rowsFromRecipeLines(
+  recipes: Array<{ a: string; title?: string; occurrenceId: string; lines: string[] }>
+): ConsolidationRow[] {
+  const rows: ConsolidationRow[] = [];
+  for (const recipe of recipes) {
+    for (const line of recipe.lines) {
+      const ingredient = parseIngredient(line);
+      rows.push({
+        ingredient: { name: ingredient.name, quantity: ingredient.quantity },
+        recipeId: recipe.a,
+        recipeTitle: recipe.title,
+        occurrenceId: recipe.occurrenceId
+      });
+    }
+  }
+  return rows;
+}
+
 /** "Groceries — Week 29 (Jul 13–19)" — reuses the PR7 display helper. */
 export function groceryListTitle(weekId: string): string {
   return `Groceries — ${weekDisplayRange(weekId)}`;
 }
 
 export { classifyGroceryRows } from '$lib/pantry/matching';
+export { buildGrocerySnapshot };

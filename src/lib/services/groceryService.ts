@@ -19,13 +19,31 @@ import { NDKEvent, NDKRelaySet, type NDKFilter } from '@nostr-dev-kit/ndk';
 import { encrypt, decrypt, detectEncryptionMethod, type EncryptionMethod } from '$lib/encryptionService';
 import { getOutboxRelays, getInboxRelays } from '$lib/relayListCache';
 import { CLIENT_TAG_IDENTIFIER } from '$lib/consts';
+import {
+  canonicalizeGroceryCategory,
+  type GroceryCategory
+} from '$lib/grocery/categories';
+import type { GroceryItemSource } from '$lib/grocery/consolidation';
+
+export type { GroceryCategory } from '$lib/grocery/categories';
+export type { GroceryItemSource } from '$lib/grocery/consolidation';
+
+export type GroceryItemOrigin = 'manual' | 'recipe';
+
+export interface UnresolvedRecipeSource {
+  a: string;
+  title?: string;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════
 
-export type GroceryCategory = 'produce' | 'protein' | 'dairy' | 'pantry' | 'frozen' | 'other';
-
+/**
+ * Grocery list item. Persistence is Zap-owned and retailer-agnostic.
+ * A future grocery provider adapter should consume `toProviderList`
+ * from `$lib/grocery/export` rather than this event payload.
+ */
 export interface GroceryItem {
   id: string;
   name: string;
@@ -34,6 +52,13 @@ export interface GroceryItem {
   checked: boolean;
   recipeId?: string;  // a-tag format: "30023:pubkey:slug"
   addedAt: number;    // Unix timestamp (seconds)
+  /** Consolidation key. Optional on lists written before grocery v1.1. */
+  normalizedName?: string;
+  unit?: string;
+  origin?: GroceryItemOrigin;
+  sources?: GroceryItemSource[];
+  /** User chose "I still need this" for a pantry-matched ingredient. */
+  pantryOverride?: boolean;
 }
 
 export interface GroceryList {
@@ -48,6 +73,20 @@ export interface GroceryList {
    * not decremented when this list is generated.
    */
   pantryCovered?: PantryCoveredItem[];
+  /**
+   * Normalized names the user forced onto the shopping list after a
+   * pantry match. Survives meal-plan recalculation.
+   */
+  pantryOverrides?: string[];
+  /** Meal-plan week this list was generated from, e.g. `2026-W29`. */
+  sourceWeekId?: string;
+  stats?: {
+    totalIngredients: number;
+    pantryCoveredCount: number;
+    addedCount: number;
+  };
+  /** Planned recipes that could not be loaded when this list was generated. */
+  unresolvedRecipes?: UnresolvedRecipeSource[];
   createdAt: number;      // Unix timestamp (seconds)
   updatedAt: number;      // Unix timestamp (seconds)
 }
@@ -56,6 +95,10 @@ export interface PantryCoveredItem {
   name: string;
   quantity: string;
   recipeId?: string;
+  normalizedName?: string;
+  unit?: string;
+  category?: GroceryCategory;
+  sources?: GroceryItemSource[];
 }
 
 export interface GroceryListEvent {
@@ -101,6 +144,67 @@ function dTagToListId(dTag: string): string | null {
   return dTag.slice(GROCERY_D_TAG_PREFIX.length);
 }
 
+function asTrimmed(value: unknown, max: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim().slice(0, max);
+  return trimmed || undefined;
+}
+
+function sanitizeSources(raw: unknown): GroceryItemSource[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: GroceryItemSource[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const r = entry as Record<string, unknown>;
+    const recipeId = asTrimmed(r.recipeId, 200);
+    const occurrenceId = asTrimmed(r.occurrenceId, 80);
+    if (!recipeId || !occurrenceId) continue;
+    const source: GroceryItemSource = {
+      recipeId,
+      occurrenceId,
+      quantity: asTrimmed(r.quantity, 80) || ''
+    };
+    const recipeTitle = asTrimmed(r.recipeTitle, 120);
+    if (recipeTitle) source.recipeTitle = recipeTitle;
+    const originalName = asTrimmed(r.originalName, 80);
+    if (originalName) source.originalName = originalName;
+    out.push(source);
+  }
+  return out.length ? out : undefined;
+}
+
+function sanitizeGroceryItem(raw: unknown, fallbackNow: number): GroceryItem | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const id = asTrimmed(r.id, 64);
+  const name = asTrimmed(r.name, 80);
+  if (!id || !name) return null;
+  const origin = r.origin === 'manual' || r.origin === 'recipe' ? r.origin : undefined;
+  const item: GroceryItem = {
+    id,
+    name,
+    quantity: asTrimmed(r.quantity, 80) || '',
+    category: canonicalizeGroceryCategory(
+      typeof r.category === 'string' ? r.category : undefined,
+      name
+    ),
+    checked: r.checked === true,
+    addedAt: typeof r.addedAt === 'number' && Number.isFinite(r.addedAt) ? r.addedAt : fallbackNow
+  };
+  const recipeId = asTrimmed(r.recipeId, 200);
+  if (recipeId) item.recipeId = recipeId;
+  const normalizedName = asTrimmed(r.normalizedName, 80);
+  if (normalizedName) item.normalizedName = normalizedName;
+  const unit = asTrimmed(r.unit, 24);
+  if (unit) item.unit = unit;
+  if (origin) item.origin = origin;
+  else item.origin = recipeId ? 'recipe' : 'manual';
+  const sources = sanitizeSources(r.sources);
+  if (sources) item.sources = sources;
+  if (r.pantryOverride === true) item.pantryOverride = true;
+  return item;
+}
+
 /** Drop malformed pantryCovered rows so the grocery UI never reads `.name` on null. */
 export function sanitizePantryCovered(raw: unknown): PantryCoveredItem[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -117,10 +221,55 @@ export function sanitizePantryCovered(raw: unknown): PantryCoveredItem[] | undef
     if (typeof r.recipeId === 'string' && r.recipeId.trim()) {
       covered.recipeId = r.recipeId.trim();
     }
+    const normalizedName = asTrimmed(r.normalizedName, 80);
+    if (normalizedName) covered.normalizedName = normalizedName;
+    const unit = asTrimmed(r.unit, 24);
+    if (unit) covered.unit = unit;
+    if (typeof r.category === 'string') {
+      covered.category = canonicalizeGroceryCategory(r.category, name);
+    }
+    const sources = sanitizeSources(r.sources);
+    if (sources) covered.sources = sources;
     out.push(covered);
   }
   return out.length ? out : undefined;
 }
+
+function sanitizePantryOverrides(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim().slice(0, 80))
+    .filter(Boolean);
+  return out.length ? [...new Set(out)] : undefined;
+}
+
+function sanitizeStats(raw: unknown): GroceryList['stats'] | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const totalIngredients = typeof r.totalIngredients === 'number' ? r.totalIngredients : undefined;
+  const pantryCoveredCount = typeof r.pantryCoveredCount === 'number' ? r.pantryCoveredCount : undefined;
+  const addedCount = typeof r.addedCount === 'number' ? r.addedCount : undefined;
+  if (totalIngredients == null || pantryCoveredCount == null || addedCount == null) return undefined;
+  return { totalIngredients, pantryCoveredCount, addedCount };
+}
+
+export function sanitizeUnresolvedRecipes(raw: unknown): UnresolvedRecipeSource[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: UnresolvedRecipeSource[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const r = entry as Record<string, unknown>;
+    const a = typeof r.a === 'string' ? r.a.trim() : '';
+    if (!a.includes(':') || seen.has(a)) continue;
+    seen.add(a);
+    const title = asTrimmed(r.title, 120);
+    out.push(title ? { a, title } : { a });
+  }
+  return out.length ? out : undefined;
+}
+
 
 /**
  * Extract recipe links from event tags
@@ -298,16 +447,32 @@ async function decryptGroceryEvent(
     // Extract recipe links from event tags
     const recipeLinks = extractRecipeLinks(event);
 
-    // Build GroceryList object
+    const now = event.created_at || Math.floor(Date.now() / 1000);
+    const itemsRaw = Array.isArray(payload.items) ? payload.items : [];
+    const items: GroceryItem[] = [];
+    for (const raw of itemsRaw) {
+      const item = sanitizeGroceryItem(raw, now);
+      if (item) items.push(item);
+    }
+
+    const sourceWeekId =
+      typeof payload.sourceWeekId === 'string' && /^\d{4}-W\d{2}$/.test(payload.sourceWeekId)
+        ? payload.sourceWeekId
+        : undefined;
+
     const list: GroceryList = {
       id: payload.id || listId,
       title: payload.title || 'Untitled List',
-      items: payload.items || [],
+      items,
       recipeLinks,
       notes: payload.notes,
       pantryCovered: sanitizePantryCovered(payload.pantryCovered),
-      createdAt: payload.createdAt || (event.created_at || Math.floor(Date.now() / 1000)),
-      updatedAt: payload.updatedAt || (event.created_at || Math.floor(Date.now() / 1000))
+      pantryOverrides: sanitizePantryOverrides(payload.pantryOverrides),
+      sourceWeekId,
+      stats: sanitizeStats(payload.stats),
+      unresolvedRecipes: sanitizeUnresolvedRecipes(payload.unresolvedRecipes),
+      createdAt: payload.createdAt || now,
+      updatedAt: payload.updatedAt || now
     };
 
     return {
@@ -374,6 +539,10 @@ export async function saveGroceryList(list: GroceryList): Promise<NDKEvent | nul
     items: listToSave.items,
     notes: listToSave.notes,
     pantryCovered: listToSave.pantryCovered,
+    pantryOverrides: listToSave.pantryOverrides,
+    sourceWeekId: listToSave.sourceWeekId,
+    stats: listToSave.stats,
+    unresolvedRecipes: listToSave.unresolvedRecipes,
     createdAt: listToSave.createdAt,
     updatedAt: listToSave.updatedAt
   });
@@ -502,13 +671,18 @@ export async function deleteGroceryList(
 /**
  * Create a new empty grocery list
  */
-export function createEmptyList(title: string = 'New List'): GroceryList {
+export function createEmptyList(
+  title: string = 'New List',
+  extras?: Partial<Pick<GroceryList, 'sourceWeekId' | 'notes'>>
+): GroceryList {
   const now = Math.floor(Date.now() / 1000);
   return {
     id: generateListId(),
     title,
     items: [],
     recipeLinks: [],
+    sourceWeekId: extras?.sourceWeekId,
+    notes: extras?.notes,
     createdAt: now,
     updatedAt: now
   };
@@ -521,8 +695,13 @@ export function createGroceryItem(
   name: string,
   quantity: string = '',
   category: GroceryCategory = 'other',
-  recipeId?: string
+  recipeId?: string,
+  extras?: Partial<
+    Pick<GroceryItem, 'normalizedName' | 'unit' | 'origin' | 'sources' | 'pantryOverride'>
+  >
 ): GroceryItem {
+  const origin = extras?.origin || (recipeId ? 'recipe' : 'manual');
+  const { origin: _ignoredOrigin, ...rest } = extras || {};
   return {
     id: generateListId(),
     name,
@@ -530,7 +709,9 @@ export function createGroceryItem(
     category,
     checked: false,
     recipeId,
-    addedAt: Math.floor(Date.now() / 1000)
+    addedAt: Math.floor(Date.now() / 1000),
+    origin,
+    ...rest
   };
 }
 
