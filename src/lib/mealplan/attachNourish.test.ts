@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { attachCachedNourish } from './attachNourish';
+import type { CandidateNourish } from './planningModes';
 
 const mocks = vi.hoisted(() => ({
   getNourishCache: vi.fn()
@@ -15,7 +16,10 @@ describe('attachCachedNourish', () => {
         protein: { score: 0 }
       }
     });
-    const out = attachCachedNourish({ a: '30023:pk:toast', title: 'Toast' });
+    const out = attachCachedNourish<{ a: string; title: string; nourish?: CandidateNourish }>({
+      a: '30023:pk:toast',
+      title: 'Toast'
+    });
     expect(out.nourish).toEqual({ overall: 0, protein: 0 });
   });
 });
