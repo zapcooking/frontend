@@ -30,6 +30,7 @@
 	import WarningIcon from 'phosphor-svelte/lib/Warning';
 	import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
 	import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
+	import DownloadSimpleIcon from 'phosphor-svelte/lib/DownloadSimple';
 	import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
 	import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
 	import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
@@ -401,6 +402,119 @@
 		}
 	}
 
+	/**
+	 * Download a backup's decrypted contents as JSON.
+	 *
+	 * These backups are NIP-78 events only the user can decrypt, which is
+	 * good for privacy and bad for portability: without this the data can
+	 * only ever be read back by this app, and only while the account's
+	 * signer still works. `listXBackups()` already decrypts eagerly, so the
+	 * payload is in hand — no extra signer round-trip.
+	 *
+	 * The file wraps the payload in a little provenance so it's still
+	 * intelligible months later, out of context.
+	 */
+	/**
+	 * The newest version that can actually be exported.
+	 *
+	 * `getBackupList` can contain entries whose payload failed to decrypt
+	 * (listXBackups pushes those without `data` so they still show in the
+	 * version history). Indexing blindly at 0 would hand back an entry with
+	 * nothing to write, so walk to the newest one that has data — which is
+	 * the newest version the user can see content for.
+	 */
+	function latestExportable(type: BackupType): { timestamp: number; data?: any } | undefined {
+		return getBackupList(type).find((b) => b.data);
+	}
+
+	/**
+	 * `timestamp` on a backup entry is in MILLISECONDS — it's written as
+	 * `Date.now()` (see nostrBackup.ts) and read back with a bare
+	 * `new Date(ts)` in formatFullTimestamp. Treating it as seconds pushes
+	 * the date past the range `toISOString()` accepts, which throws a
+	 * RangeError and silently kills the click handler.
+	 */
+	function isoOrNull(ms: number | null | undefined): string | null {
+		if (!ms || !Number.isFinite(ms) || Math.abs(ms) > 8.64e15) return null;
+		try {
+			return new Date(ms).toISOString();
+		} catch {
+			return null;
+		}
+	}
+
+	function handleExportJson(type: BackupType, index?: number) {
+		if (!browser) return;
+		messages[type] = null;
+
+		const list = getBackupList(type);
+		const entry = index === undefined ? latestExportable(type) : list[index];
+		if (!entry?.data) {
+			// Two very different causes, and the user can't tell them apart
+			// from a dead button: nothing backed up yet, versus backups that
+			// exist but wouldn't decrypt (signer refused, wrong account).
+			messages[type] = {
+				text:
+					list.length === 0
+						? 'Nothing to export yet — create a backup first.'
+						: 'Backup found but could not be read. Check you are signed in with the same account.',
+				type: 'error'
+			};
+			return;
+		}
+
+		let url: string | null = null;
+		try {
+			const backedUpAt = isoOrNull(entry.timestamp);
+			const json = JSON.stringify(
+				{
+					source: 'zap.cooking',
+					exportedAt: new Date().toISOString(),
+					pubkey: $userPublickey,
+					type,
+					kind: typeLabels[type].kind,
+					backedUpAt,
+					data: entry.data
+				},
+				null,
+				2
+			);
+
+			const stamp = (backedUpAt ?? new Date().toISOString()).slice(0, 10);
+			url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `zapcooking-${type}-${stamp}.json`;
+			link.rel = 'noopener';
+			link.style.display = 'none';
+			document.body.appendChild(link);
+			link.click();
+
+			// Revoking synchronously after click() can cancel the download —
+			// the fetch of the blob is asynchronous, so tearing the URL down in
+			// the same tick races it. Same for removing the anchor. Defer both.
+			const anchor = link;
+			const objectUrl = url;
+			url = null; // ownership handed to the timeout
+			setTimeout(() => {
+				anchor.remove();
+				URL.revokeObjectURL(objectUrl);
+			}, 10_000);
+
+			messages[type] = { text: 'Exported as JSON', type: 'success' };
+		} catch (e) {
+			// Previously this failed silently, which is why "nothing happens"
+			// was all there was to go on.
+			if (url) URL.revokeObjectURL(url);
+			console.error('[backup] JSON export failed:', e);
+			messages[type] = {
+				text: e instanceof Error ? `Export failed: ${e.message}` : 'Export failed',
+				type: 'error'
+			};
+		}
+	}
+
 	function getBackupList(type: BackupType): Array<{ timestamp: number; data?: any }> {
 		switch (type) {
 			case 'follows':
@@ -528,6 +642,17 @@
 						{/if}
 					</button>
 
+					<button
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+						disabled={!$userPublickey}
+						on:click={() => handleExportJson(type)}
+						title="Download the latest backup as a JSON file"
+					>
+						<DownloadSimpleIcon size={14} />
+						Export JSON
+					</button>
+
 					{#if status.backupCount > 1}
 						<button
 							class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors hover:bg-[var(--color-bg-secondary)]"
@@ -649,15 +774,26 @@
 									<span class="text-caption flex-shrink-0">&middot; {getVersionSummary(type, i)}</span>
 								{/if}
 							</div>
-							<button
-								class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80 flex-shrink-0 ml-2"
-								style="color: var(--color-primary);"
-								disabled={!backup.data || restoring[type]}
-								on:click={() => handleRestore(type, i)}
-							>
-								<CloudArrowDownIcon size={12} />
-								Restore
-							</button>
+							<div class="flex items-center gap-1 flex-shrink-0 ml-2">
+								<button
+									class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
+									style="color: var(--color-caption);"
+									on:click={() => handleExportJson(type, i)}
+									title="Download this version as a JSON file"
+								>
+									<DownloadSimpleIcon size={12} />
+									JSON
+								</button>
+								<button
+									class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
+									style="color: var(--color-primary);"
+									disabled={!backup.data || restoring[type]}
+									on:click={() => handleRestore(type, i)}
+								>
+									<CloudArrowDownIcon size={12} />
+									Restore
+								</button>
+							</div>
 						</div>
 					{/each}
 				</div>
