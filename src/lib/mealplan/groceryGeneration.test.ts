@@ -5,6 +5,7 @@ import {
   collectWeekRecipeSlots,
   dedupeIngredients,
   groceryListTitle,
+  classifyGroceryRows,
   type GenerationRow
 } from './groceryGeneration';
 import { createEmptyMealPlan, type MealPlan } from './schema';
@@ -50,4 +51,40 @@ describe('groceryListTitle', () => {
       expect(groceryListTitle(v.weekId)).toBe(v.expected);
     });
   }
+});
+
+describe('classifyGroceryRows pantry awareness', () => {
+  it('keeps missing ingredients and recognizes pantry items', () => {
+    const rows: GenerationRow[] = [
+      { ingredient: ing('Feta', ''), recipeId: 'a' },
+      { ingredient: ing('Olive oil', ''), recipeId: 'a' },
+      { ingredient: ing('Garlic', ''), recipeId: 'a' }
+    ];
+    const { toBuy, inPantry } = classifyGroceryRows(rows, [
+      { name: 'Olive oil', normalizedName: 'olive oil' },
+      { name: 'Garlic', normalizedName: 'garlic' }
+    ]);
+    expect(inPantry.map((r) => r.ingredient.name)).toEqual(['Olive oil', 'Garlic']);
+    expect(toBuy.map((r) => r.ingredient.name)).toEqual(['Feta']);
+  });
+
+  it('keeps uncertain quantity matches on the grocery list', () => {
+    const rows: GenerationRow[] = [{ ingredient: ing('chicken breast', '2 lb'), recipeId: 'a' }];
+    const { toBuy, inPantry } = classifyGroceryRows(rows, [
+      { name: 'Chicken breast', normalizedName: 'chicken breast', quantity: 1, unit: 'cup' }
+    ]);
+    expect(inPantry).toHaveLength(0);
+    expect(toBuy).toHaveLength(1);
+    expect(toBuy[0].status).toBe('uncertain');
+  });
+
+  it('still generates a full grocery list when pantry is empty', () => {
+    const rows: GenerationRow[] = [
+      { ingredient: ing('Rice', '1 cup'), recipeId: 'a' },
+      { ingredient: ing('Eggs', '6'), recipeId: 'a' }
+    ];
+    const { toBuy, inPantry } = classifyGroceryRows(rows, []);
+    expect(toBuy).toHaveLength(2);
+    expect(inPantry).toHaveLength(0);
+  });
 });

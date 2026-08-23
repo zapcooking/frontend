@@ -39,6 +39,8 @@
     toWireCandidate,
     type DiscoveredRecipe
   } from '$lib/services/recipeDiscoveryService';
+  import { matchRecipeToPantry, weakPantryPlanNote } from '$lib/pantry/matching';
+  import { pantryStore, pantryItems, pantryInitialized } from '$lib/stores/pantryStore';
   import { THINKING_LINES, pickLine } from '$lib/cheffy';
   import Modal from '../Modal.svelte';
   import Button from '../Button.svelte';
@@ -50,6 +52,8 @@
   export let weekId: string;
   export let occupiedSlots: MealSlotRef[] = [];
   export let readOnly = false;
+  /** When true, pantry-first planning is on as soon as the modal opens. */
+  export let initialPrioritizePantry = false;
 
   const dispatch = createEventDispatcher<{ close: void; applied: void }>();
 
@@ -87,10 +91,12 @@
   let notes = '';
   let source: RecipeSource = 'all';
   let strategy: MealPlanStrategy = 'fill-empty';
+  let prioritizePantry = false;
   let error: string | null = null;
   let statusLine = THINKING_LINES[0];
   let preview: GeneratedMeal[] = [];
   let coverageNote: string | null = null;
+  let pantryNote: string | null = null;
   let discovered: DiscoveredRecipe[] = [];
   let swappingKey: string | null = null;
   let applying = false;
@@ -103,6 +109,9 @@
   onDestroy(unsubMembership);
 
   $: if (open && $userPublickey) queueMembershipLookup($userPublickey);
+  $: if (open && $userPublickey && !$pantryInitialized) {
+    pantryStore.load();
+  }
   $: normalizedPk = String($userPublickey || '')
     .trim()
     .toLowerCase();
@@ -140,8 +149,10 @@
     notes = '';
     source = 'all';
     strategy = 'fill-empty';
+    prioritizePantry = initialPrioritizePantry;
     error = null;
     coverageNote = null;
+    pantryNote = null;
     preview = [];
     discovered = [];
     swappingKey = null;
@@ -177,17 +188,35 @@
     styles = toggleIn(styles, id);
   }
 
+  function wireCandidates() {
+    return discovered.map((recipe) => {
+      const wire = toWireCandidate(recipe);
+      if (prioritizePantry && $pantryItems.length > 0) {
+        const match = matchRecipeToPantry(wire.ingredients, $pantryItems);
+        wire.pantry = {
+          matchedCount: match.matchedCount,
+          totalCount: match.totalIngredients,
+          matchRatio: match.matchRatio,
+          matchedIngredients: match.matchedIngredients,
+          missingIngredients: match.missingIngredients
+        };
+      }
+      return wire;
+    });
+  }
+
   function buildRequest(
     overrides: Partial<MealPlanGenerationRequest> = {}
   ): MealPlanGenerationRequest | null {
     if (!$ndk || !$userPublickey) return null;
     const max = maxMinutes.trim() ? Number(maxMinutes) : undefined;
     const serv = servings.trim() ? Number(servings) : undefined;
-    const filtered = filterRecipeCandidates(discovered.map(toWireCandidate), {
+    const filtered = filterRecipeCandidates(wireCandidates(), {
       maxMinutes: max && Number.isFinite(max) && max > 0 ? max : undefined,
       excludeIngredients: parseExcludeIngredientsInput(excludeText),
       styles,
       mealSlots,
+      prioritizePantry,
       excludeCoordinates: overrides.excludeCoordinates
     });
     if (filtered.length === 0) return null;
@@ -203,6 +232,10 @@
         notes: notes.trim() || undefined
       },
       strategy,
+      prioritizePantry: prioritizePantry || undefined,
+      pantryIngredients: prioritizePantry
+        ? $pantryItems.map((item) => item.name).slice(0, 80)
+        : undefined,
       candidates: filtered,
       occupiedSlots,
       ...overrides
@@ -212,6 +245,17 @@
   async function generate(opts: { swap?: GeneratedMeal; regenerate?: boolean } = {}) {
     if (readOnly) return;
     error = null;
+    if (prioritizePantry) {
+      if (!$pantryInitialized) {
+        await pantryStore.load();
+      }
+      if ($pantryItems.length === 0) {
+        error =
+          'Your pantry is empty. Add a few ingredients you already have and Cheffy can build meals around them.';
+        if (!opts.swap && !opts.regenerate) step = 'form';
+        return;
+      }
+    }
     if (!opts.swap && !opts.regenerate) {
       step = 'working';
       statusLine = pickLine(THINKING_LINES, statusLine);
@@ -278,6 +322,7 @@
           found: preview.length,
           requested: requestedSlots
         });
+        pantryNote = prioritizePantry ? weakPantryPlanNote(preview.map((m) => m.pantry)) : null;
         step = 'preview';
       }
     } catch (err) {
@@ -403,8 +448,12 @@
     {#if coverageNote}
       <p class="text-sm text-caption">{coverageNote}</p>
     {/if}
+    {#if pantryNote}
+      <p class="text-sm text-caption">{pantryNote}</p>
+    {/if}
     <GeneratedPlanPreview
       meals={preview}
+      showPantry={prioritizePantry}
       {swappingKey}
       {applying}
       {regenerating}
@@ -427,7 +476,30 @@
     <form class="flex flex-col gap-5" on:submit|preventDefault={handleGenerate}>
       {#if error}
         <p class="text-sm text-red-500">{error}</p>
+        {#if prioritizePantry && $pantryItems.length === 0}
+          <a
+            href="/my-kitchen/pantry"
+            class="text-sm font-medium text-orange-500 hover:underline"
+            on:click={close}
+          >
+            Add ingredients to your pantry
+          </a>
+        {/if}
       {/if}
+
+      <label
+        class="flex items-start gap-3 p-3 rounded-xl"
+        style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
+      >
+        <input type="checkbox" bind:checked={prioritizePantry} class="mt-1" />
+        <span>
+          <span class="font-semibold">Plan with My Pantry</span>
+          <span class="block text-caption text-sm">
+            Prefer meals that use ingredients you already have. Dietary rules and meal type still
+            come first.
+          </span>
+        </span>
+      </label>
 
       <fieldset class="flex flex-col gap-2">
         <legend class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);"
@@ -600,7 +672,7 @@
           class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-50"
         >
           <CheffyIcon size={20} expression="happy" />
-          Plan with Cheffy
+          {prioritizePantry ? 'Plan with My Pantry' : 'Plan with Cheffy'}
         </button>
       </div>
     </form>

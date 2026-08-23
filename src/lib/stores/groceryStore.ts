@@ -25,7 +25,8 @@ import {
   type GroceryList,
   type GroceryItem,
   type GroceryCategory,
-  type GroceryListEvent
+  type GroceryListEvent,
+  type PantryCoveredItem
 } from '$lib/services/groceryService';
 
 // ═══════════════════════════════════════════════════════════════
@@ -243,7 +244,7 @@ function createGroceryStore() {
      */
     updateList(
       listId: string, 
-      updates: Partial<Pick<GroceryList, 'title' | 'notes' | 'recipeLinks'>>
+      updates: Partial<Pick<GroceryList, 'title' | 'notes' | 'recipeLinks' | 'pantryCovered'>>
     ): void {
       update(s => {
         const lists = s.lists.map(list => {
@@ -327,6 +328,64 @@ function createGroceryStore() {
       });
 
       return newItem;
+    },
+
+    /**
+     * Move a pantry-covered ingredient onto the shopping list.
+     * The user decided they don't have enough of it.
+     */
+    addPantryCoveredToList(listId: string, index: number): GroceryItem | null {
+      let added: GroceryItem | null = null;
+
+      update((s) => {
+        const lists = s.lists.map((list) => {
+          if (list.id !== listId) return list;
+          const pantryCovered = [...(list.pantryCovered || [])];
+          const covered = pantryCovered[index];
+          if (!covered) return list;
+
+          const item = createGroceryItem(
+            covered.name,
+            covered.quantity || '',
+            inferCategory(covered.name),
+            covered.recipeId
+          );
+          added = item;
+          pantryCovered.splice(index, 1);
+
+          return {
+            ...list,
+            items: [...list.items, item],
+            pantryCovered: pantryCovered.length ? pantryCovered : undefined,
+            updatedAt: Math.floor(Date.now() / 1000)
+          };
+        });
+
+        if (added) scheduleSave(listId);
+        return { ...s, lists };
+      });
+
+      return added;
+    },
+
+    /**
+     * Record recipe ingredients that were skipped because they matched
+     * the pantry. Existing pantryCovered rows are kept.
+     */
+    appendPantryCovered(listId: string, items: PantryCoveredItem[]): void {
+      if (!items.length) return;
+      update((s) => {
+        const lists = s.lists.map((list) => {
+          if (list.id !== listId) return list;
+          return {
+            ...list,
+            pantryCovered: [...(list.pantryCovered || []), ...items],
+            updatedAt: Math.floor(Date.now() / 1000)
+          };
+        });
+        scheduleSave(listId);
+        return { ...s, lists };
+      });
     },
 
     /**

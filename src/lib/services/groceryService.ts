@@ -42,8 +42,20 @@ export interface GroceryList {
   items: GroceryItem[];
   recipeLinks: string[];  // a-tag format references to linked recipes
   notes?: string;
+  /**
+   * Recipe ingredients recognized as already in the user's pantry.
+   * Informational only — not shopping items, and pantry inventory is
+   * not decremented when this list is generated.
+   */
+  pantryCovered?: PantryCoveredItem[];
   createdAt: number;      // Unix timestamp (seconds)
   updatedAt: number;      // Unix timestamp (seconds)
+}
+
+export interface PantryCoveredItem {
+  name: string;
+  quantity: string;
+  recipeId?: string;
 }
 
 export interface GroceryListEvent {
@@ -87,6 +99,27 @@ function dTagToListId(dTag: string): string | null {
     return null;
   }
   return dTag.slice(GROCERY_D_TAG_PREFIX.length);
+}
+
+/** Drop malformed pantryCovered rows so the grocery UI never reads `.name` on null. */
+export function sanitizePantryCovered(raw: unknown): PantryCoveredItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: PantryCoveredItem[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const r = entry as Record<string, unknown>;
+    const name = typeof r.name === 'string' ? r.name.trim().slice(0, 80) : '';
+    if (!name) continue;
+    const covered: PantryCoveredItem = {
+      name,
+      quantity: typeof r.quantity === 'string' ? r.quantity.trim().slice(0, 40) : ''
+    };
+    if (typeof r.recipeId === 'string' && r.recipeId.trim()) {
+      covered.recipeId = r.recipeId.trim();
+    }
+    out.push(covered);
+  }
+  return out.length ? out : undefined;
 }
 
 /**
@@ -153,12 +186,11 @@ export async function fetchGroceryLists(): Promise<GroceryListEvent[]> {
     const lists: GroceryListEvent[] = [];
     
     for (const event of events) {
-      // Filter locally: only process events with our client tag or grocery d-tag prefix
-      const clientTag = event.tags.find(t => t[0] === 'client')?.[1];
       const dTag = event.tags.find(t => t[0] === 'd')?.[1];
-      
-      // Accept if it has our client tag OR if d-tag starts with grocery prefix
-      const isOurEvent = clientTag === CLIENT_TAG_IDENTIFIER || dTag?.startsWith(GROCERY_D_TAG_PREFIX);
+
+      // Require the grocery- d-tag prefix so pantry / mealplan kind-30078
+      // events are not decrypted as grocery lists.
+      const isOurEvent = dTag?.startsWith(GROCERY_D_TAG_PREFIX);
       
       if (!isOurEvent) {
         console.log('[GroceryService] Skipping non-grocery event:', dTag);
@@ -273,6 +305,7 @@ async function decryptGroceryEvent(
       items: payload.items || [],
       recipeLinks,
       notes: payload.notes,
+      pantryCovered: sanitizePantryCovered(payload.pantryCovered),
       createdAt: payload.createdAt || (event.created_at || Math.floor(Date.now() / 1000)),
       updatedAt: payload.updatedAt || (event.created_at || Math.floor(Date.now() / 1000))
     };
@@ -340,6 +373,7 @@ export async function saveGroceryList(list: GroceryList): Promise<NDKEvent | nul
     title: listToSave.title,
     items: listToSave.items,
     notes: listToSave.notes,
+    pantryCovered: listToSave.pantryCovered,
     createdAt: listToSave.createdAt,
     updatedAt: listToSave.updatedAt
   });

@@ -23,6 +23,7 @@
   import Button from '../../../../components/Button.svelte';
   import SortableGroceryCategory from '../../../../components/grocery/SortableGroceryCategory.svelte';
   import AddItemForm from '../../../../components/grocery/AddItemForm.svelte';
+  import PlusIcon from 'phosphor-svelte/lib/Plus';
 
   // Get list ID from URL params
   $: listId = $page.params.id as string;
@@ -122,6 +123,10 @@
   // Clear checked items
   function clearCheckedItems() {
     groceryStore.clearCheckedItems(listId);
+  }
+
+  function addPantryCoveredToList(index: number) {
+    groceryStore.addPantryCoveredToList(listId, index);
   }
 
   // Calculate stats
@@ -297,6 +302,38 @@
         </div>
       {/if}
     </div>
+
+    {#if list.pantryCovered && list.pantryCovered.length > 0}
+      <div
+        class="flex flex-col gap-2 p-4 rounded-2xl"
+        style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+      >
+        <h2 class="text-sm font-semibold" style="color: var(--color-text-primary);">
+          Already in Pantry
+        </h2>
+        <p class="text-xs text-caption">
+          These matched your pantry, so they were left off the shopping list. Add any you still need.
+        </p>
+        <ul class="flex flex-col gap-1.5">
+          {#each list.pantryCovered as covered, index (`${covered.name}|${covered.quantity || ''}|${covered.recipeId || ''}|${index}`)}
+            <li class="flex items-center gap-2 text-sm">
+              <span class="min-w-0 flex-1" style="color: var(--color-text-secondary);">
+                {covered.name}{#if covered.quantity}<span class="text-caption"> · {covered.quantity}</span>{/if}
+              </span>
+              <button
+                type="button"
+                class="flex items-center gap-1 flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium border border-green-500/40 text-green-500 hover:bg-green-500/10 transition-colors"
+                aria-label="Add {covered.name} to shopping list"
+                on:click={() => addPantryCoveredToList(index)}
+              >
+                <PlusIcon size={12} weight="bold" />
+                Add
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
 
     <!-- Notes Section -->
     <div class="flex flex-col gap-2 pt-4 border-t" style="border-color: var(--color-input-border);">

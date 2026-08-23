@@ -8,6 +8,7 @@
    * PR10 via the same slot editor modal (see the "PR10 seam" comment).
    */
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { onMount, onDestroy, tick } from 'svelte';
   import { userPublickey, ndk } from '$lib/nostr';
   import { isOnline } from '$lib/connectionMonitor';
@@ -33,8 +34,10 @@
   import RecipePickerModal from '../../../components/RecipePickerModal.svelte';
   import CheffyPlanModal from '../../../components/planner/CheffyPlanModal.svelte';
   import { groceryStore } from '$lib/stores/groceryStore';
+  import { pantryStore, pantryItems, pantryInitialized } from '$lib/stores/pantryStore';
   import { parseIngredient, parseIngredientsFromRecipe } from '$lib/utils/ingredientParser';
   import {
+    classifyGroceryRows,
     collectWeekRecipeSlots,
     dedupeIngredients,
     groceryListTitle,
@@ -131,6 +134,7 @@
   // ── Recipe picker (PR10) — fills the slot editor's seam ──
   let pickerOpen = false;
   let cheffyPlanOpen = false;
+  let initialPrioritizePantry = false;
 
   function openRecipePicker() {
     // Keep editorDay/editorSlot as the target; swap modals
@@ -229,6 +233,11 @@
       }
       const deduped = dedupeIngredients(rows);
 
+      if (!$pantryInitialized) {
+        await pantryStore.load();
+      }
+      const classified = classifyGroceryRows(deduped, $pantryItems);
+
       // Always a NEW list — never overwrite an existing one. Repeat
       // generations for the same week create additional lists the user
       // can delete; silent merge/overwrite risks destroying manual edits.
@@ -236,7 +245,7 @@
       for (const aTag of resolved) {
         groceryStore.addRecipeLink(list.id, aTag);
       }
-      for (const row of deduped) {
+      for (const row of classified.toBuy) {
         groceryStore.addItem(
           list.id,
           row.ingredient.name,
@@ -245,9 +254,18 @@
           row.recipeId
         );
       }
+      if (classified.inPantry.length > 0) {
+        groceryStore.updateList(list.id, {
+          pantryCovered: classified.inPantry.map((row) => ({
+            name: row.ingredient.name,
+            quantity: row.ingredient.quantity,
+            recipeId: row.recipeId
+          }))
+        });
+      }
 
       generationSummary = {
-        itemCount: deduped.length,
+        itemCount: classified.toBuy.length,
         recipeCount: resolved.length,
         textSkipped: textCount,
         unresolved
@@ -380,6 +398,13 @@
     }
     await plannerStore.load();
     await scrollToToday();
+    if ($page.url.searchParams.get('planWithPantry') === '1') {
+      initialPrioritizePantry = true;
+      cheffyPlanOpen = true;
+      const next = new URL($page.url);
+      next.searchParams.delete('planWithPantry');
+      history.replaceState(history.state, '', `${next.pathname}${next.search}${next.hash}`);
+    }
   });
 
   onDestroy(() => {
@@ -749,6 +774,10 @@
   weekId={$plannerCurrentWeekId}
   occupiedSlots={cheffyOccupiedSlots}
   readOnly={isReadOnly}
+  {initialPrioritizePantry}
+  on:close={() => {
+    initialPrioritizePantry = false;
+  }}
 />
 
 <!-- Generate-grocery confirm: pre-generation summary of what will happen -->

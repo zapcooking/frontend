@@ -180,6 +180,105 @@ describe('filterRecipeCandidates', () => {
     expect(out.every((c) => isRecipeEligibleForSlot(c, 'breakfast'))).toBe(true);
   });
 
+  it('prefers higher pantry-match recipes when prioritizePantry is on', () => {
+    const high = cand('parm', {
+      title: 'Chicken Parmesan',
+      ingredients: ['chicken breast', 'parmesan', 'egg'],
+      pantry: {
+        matchedCount: 5,
+        totalCount: 7,
+        matchRatio: 5 / 7,
+        matchedIngredients: ['chicken breast', 'parmesan', 'egg', 'olive oil', 'garlic'],
+        missingIngredients: ['breadcrumbs', 'tomato sauce']
+      }
+    });
+    const low = cand('taco', {
+      title: 'Fish Tacos',
+      ingredients: ['fish', 'tortilla'],
+      pantry: {
+        matchedCount: 1,
+        totalCount: 8,
+        matchRatio: 1 / 8,
+        matchedIngredients: ['olive oil'],
+        missingIngredients: ['fish']
+      }
+    });
+    const out = filterRecipeCandidates([low, high], { prioritizePantry: true });
+    expect(out.map((c) => c.a)).toEqual(['30023:pk:parm', '30023:pk:taco']);
+  });
+
+  it('does not let pantry match override vegetarian', () => {
+    const steak = cand('steak', {
+      title: 'Steak',
+      ingredients: ['ribeye steak', 'salt'],
+      pantry: {
+        matchedCount: 2,
+        totalCount: 2,
+        matchRatio: 1,
+        matchedIngredients: ['ribeye steak', 'salt'],
+        missingIngredients: []
+      }
+    });
+    const salad = cand('salad', {
+      title: 'Chickpea Salad',
+      tags: ['vegetarian'],
+      ingredients: ['chickpeas'],
+      pantry: {
+        matchedCount: 0,
+        totalCount: 1,
+        matchRatio: 0,
+        matchedIngredients: [],
+        missingIngredients: ['chickpeas']
+      }
+    });
+    const out = filterRecipeCandidates([steak, salad], {
+      styles: ['vegetarian'],
+      prioritizePantry: true
+    });
+    expect(out.map((c) => c.a)).toEqual(['30023:pk:salad']);
+  });
+
+  it('still drops excluded ingredients when pantry matching is on', () => {
+    const out = filterRecipeCandidates(
+      [
+        cand('shrimp', {
+          ingredients: ['shrimp'],
+          pantry: {
+            matchedCount: 1,
+            totalCount: 1,
+            matchRatio: 1,
+            matchedIngredients: ['shrimp'],
+            missingIngredients: []
+          }
+        }),
+        cand('tofu', { ingredients: ['tofu'] })
+      ],
+      { excludeIngredients: ['shrimp'], prioritizePantry: true }
+    );
+    expect(out.map((c) => c.a)).toEqual(['30023:pk:tofu']);
+  });
+
+  it('keeps breakfast eligibility ahead of pantry ranking', () => {
+    const out = filterRecipeCandidates(
+      [
+        cand('chicken', {
+          title: 'Garlic Parmesan Chicken',
+          tags: ['dinner'],
+          pantry: {
+            matchedCount: 6,
+            totalCount: 6,
+            matchRatio: 1,
+            matchedIngredients: [],
+            missingIngredients: []
+          }
+        }),
+        cand('oats', { title: 'Overnight Oats', tags: ['breakfast'] })
+      ],
+      { mealSlots: ['breakfast'], prioritizePantry: true }
+    );
+    expect(out.map((c) => c.a)).toEqual(['30023:pk:oats']);
+  });
+
   it('composes breakfast eligibility with max time, excludes, and vegetarian', () => {
     const out = filterRecipeCandidates(
       [
@@ -284,6 +383,48 @@ describe('parseGenerationRequest', () => {
     if (!parsed.ok) return;
     expect(parsed.request.days).toEqual(['mon', 'tue']);
     expect(parsed.request.candidates).toHaveLength(1);
+  });
+
+  it('keeps prioritizePantry and candidate pantry match data', () => {
+    const parsed = parseGenerationRequest({
+      weekId: '2026-W34',
+      days: ['mon'],
+      mealSlots: ['dinner'],
+      strategy: 'fill-empty',
+      prioritizePantry: true,
+      candidates: [
+        cand('salmon', {
+          title: 'Salmon',
+          pantry: {
+            matchedCount: 2,
+            totalCount: 4,
+            matchRatio: 0.5,
+            matchedIngredients: ['olive oil', 'garlic'],
+            missingIngredients: ['salmon', 'lemon']
+          }
+        })
+      ]
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.request.prioritizePantry).toBe(true);
+    expect(parsed.request.candidates[0].pantry?.matchedCount).toBe(2);
+    expect(parsed.request.candidates[0].pantry?.missingIngredients).toEqual(['salmon', 'lemon']);
+  });
+
+  it('keeps pantryIngredients when prioritizePantry is on', () => {
+    const parsed = parseGenerationRequest({
+      weekId: '2026-W34',
+      days: ['mon'],
+      mealSlots: ['dinner'],
+      strategy: 'fill-empty',
+      prioritizePantry: true,
+      pantryIngredients: ['chicken breast', 'rice', '  ', 'eggs'],
+      candidates: [cand('salmon', { title: 'Salmon' })]
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.request.pantryIngredients).toEqual(['chicken breast', 'rice', 'eggs']);
   });
 
   it('rejects missing days, slots, or candidates', () => {
@@ -403,6 +544,32 @@ describe('validateGeneratedMealPlan', () => {
       })
     );
     expect(result).toMatchObject({ ok: false, error: 'ineligible-slot' });
+  });
+
+  it('copies pantry match data onto generated meals from the candidate', () => {
+    const pantry = {
+      matchedCount: 3,
+      totalCount: 4,
+      matchRatio: 0.75,
+      matchedIngredients: ['egg'],
+      missingIngredients: ['feta']
+    };
+    const result = validateGeneratedMealPlan(
+      { meals: [{ day: 'mon', slot: 'dinner', a: '30023:pk:salmon', title: 'S' }] },
+      baseRequest({
+        days: ['mon'],
+        candidates: [
+          cand('salmon', {
+            title: 'Mediterranean Salmon',
+            tags: ['mediterranean'],
+            pantry
+          })
+        ]
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.meals[0].pantry).toEqual(pantry);
   });
 
   it('accepts a breakfast-tagged recipe in a breakfast slot', () => {
