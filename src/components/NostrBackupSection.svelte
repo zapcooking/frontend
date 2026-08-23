@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { ndk, userPublickey } from '$lib/nostr';
+	import FollowListRecoveryModal from './FollowListRecoveryModal.svelte';
 	import { hasEncryptionSupport } from '$lib/encryptionService';
 	import {
 		backupFollows,
@@ -63,6 +64,17 @@
 	};
 	let expandedType: BackupType | null = null;
 	let versionsExpanded: Record<BackupType, boolean> = { follows: false, mute: false, profile: false };
+
+	/**
+	 * Mutable's follow-list recovery, surfaced here as well as on the profile
+	 * page.
+	 *
+	 * It scans relay history for earlier kind:3 events, so unlike Restore it
+	 * needs no zap.cooking backup at all — which makes Settings → Backup the
+	 * place someone actually looks after losing their follows. It stays
+	 * enabled precisely when "Restore" cannot help.
+	 */
+	let followRecoveryOpen = false;
 
 	// Wallet backup state (view-only) — check both types independently
 	interface WalletBackupInfo {
@@ -479,6 +491,7 @@
 					{/if}
 				</div>
 
+
 				<!-- Actions -->
 				<div class="flex items-center gap-2 flex-wrap">
 					<button
@@ -563,6 +576,58 @@
 					</div>
 				{/if}
 			</div>
+
+			<!-- Relay-history recovery (Mutable).
+			     Deliberately NOT in the action row above: that row is about
+			     zap.cooking's own backups, and this reads other people's
+			     relays for an older kind:3. Grouping it with Backup/Restore
+			     both crowded the row into wrapping and implied it was the
+			     same kind of operation. -->
+			{#if type === 'follows'}
+				<div
+					class="px-4 py-2.5 border-t flex items-center justify-between gap-3 flex-wrap"
+					style="border-color: var(--color-input-border);"
+				>
+					<div class="min-w-0">
+						<!-- Title and attribution share one line.
+						     `items-baseline` on the row, not `items-center`: the title
+						     is 12px and the attribution 11px, so centering them left
+						     nothing on a common baseline. The logo stays centered
+						     against its OWN text inside the inner span, and is sized
+						     to the 12px line so it doesn't stretch the line box. -->
+						<p
+							class="text-xs font-medium flex items-baseline gap-1.5 flex-wrap"
+							style="color: var(--color-text-primary);"
+						>
+							Follow List Recovery
+							<span
+								class="inline-flex items-center gap-1 font-normal"
+								style="color: var(--color-caption);"
+							>
+								<span class="text-[11px] leading-none">powered by</span>
+								<img
+									src="/mutable_logo.svg"
+									alt=""
+									class="w-3 h-3 rounded-sm opacity-70 flex-shrink-0"
+								/>
+								<span class="text-[11px] leading-none">Mutable</span>
+							</span>
+						</p>
+						<p class="text-[11px] text-caption mt-0.5">
+							Search relay history for an earlier list — no backup needed.
+						</p>
+					</div>
+					<button
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 flex-shrink-0"
+						style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+						disabled={!$userPublickey}
+						on:click={() => (followRecoveryOpen = true)}
+					>
+						<ClockCounterClockwiseIcon size={14} />
+						Recover from relays
+					</button>
+				</div>
+			{/if}
 
 			<!-- Version List (expandable) -->
 			{#if versionsExpanded[type] && backupList.length > 0}
@@ -748,3 +813,9 @@
 		Refresh All
 	</button>
 </div>
+
+<!-- Mutable's follow-list recovery. Mounted here so it's reachable from
+     Settings → Backup, not only from a profile page. -->
+{#if $userPublickey}
+  <FollowListRecoveryModal bind:open={followRecoveryOpen} pubkey={$userPublickey} />
+{/if}
