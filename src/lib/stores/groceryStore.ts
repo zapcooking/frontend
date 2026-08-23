@@ -18,7 +18,7 @@ import { userPublickey } from '$lib/nostr';
 import {
   fetchGroceryLists,
   saveGroceryList,
-  deleteGroceryList,
+  deleteGroceryLists,
   createEmptyList,
   createGroceryItem,
   type GroceryList,
@@ -317,32 +317,41 @@ function createGroceryStore() {
     },
 
     /**
-     * Delete a grocery list
+     * Delete one or more grocery lists
      */
-    async deleteList(listId: string): Promise<boolean> {
-      // Cancel any pending save for this list
-      const timer = saveTimers.get(listId);
-      if (timer) {
-        clearTimeout(timer);
-        saveTimers.delete(listId);
+    async deleteLists(listIds: string[]): Promise<boolean> {
+      const uniqueIds = [...new Set(listIds.filter(Boolean))];
+      if (uniqueIds.length === 0) return true;
+
+      for (const listId of uniqueIds) {
+        const timer = saveTimers.get(listId);
+        if (timer) {
+          clearTimeout(timer);
+          saveTimers.delete(listId);
+        }
       }
 
-      // Remove from local state immediately
+      const idSet = new Set(uniqueIds);
       update(s => ({
         ...s,
-        lists: s.lists.filter(l => l.id !== listId)
+        lists: s.lists.filter(l => !idSet.has(l.id))
       }));
 
-      // Delete from Nostr
       try {
-        await deleteGroceryList(listId);
+        await deleteGroceryLists(uniqueIds);
         return true;
       } catch (error) {
-        console.error('[GroceryStore] Failed to delete list:', error);
-        // Reload to restore state if delete failed
+        console.error('[GroceryStore] Failed to delete lists:', error);
         this.load();
         return false;
       }
+    },
+
+    /**
+     * Delete a grocery list
+     */
+    async deleteList(listId: string): Promise<boolean> {
+      return this.deleteLists([listId]);
     },
 
     /**
