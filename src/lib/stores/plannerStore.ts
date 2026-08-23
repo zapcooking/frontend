@@ -28,7 +28,14 @@ import {
   deleteMealPlan,
   type MealPlanFetchResult
 } from '$lib/services/plannerService';
-import { createEmptyMealPlan, type MealPlan, type MealPlanDay, type MealPlanDayKey, type MealSlot, type MealSlotKey } from '$lib/mealplan/schema';
+import {
+  createEmptyMealPlan,
+  type MealPlan,
+  type MealPlanDay,
+  type MealPlanDayKey,
+  type MealSlot,
+  type MealSlotKey
+} from '$lib/mealplan/schema';
 import { currentWeekId, isValidWeekId, nextWeekId, prevWeekId } from '$lib/mealplan/week';
 
 export type PlannerWeekState =
@@ -270,6 +277,45 @@ function createPlannerStore() {
       return mutatePlan(weekId, (plan) =>
         withDay(plan, day, (d) => ({ ...d, slots: { ...d.slots, [slot]: entry } }))
       );
+    },
+
+    /**
+     * Apply an approved Cheffy plan in one mutation / one scheduled save.
+     * `fill-empty` skips slots that already have a meal; `replace-selected`
+     * writes every provided slot. Preferences are not stored on the plan.
+     */
+    applyGeneratedPlan(
+      weekId: string,
+      meals: Array<{ day: MealPlanDayKey; slot: MealSlotKey; a: string; title: string }>,
+      strategy: 'fill-empty' | 'replace-selected' = 'fill-empty'
+    ): boolean {
+      if (!meals.length) return false;
+      const weekState = get({ subscribe }).weeks[weekId];
+      if (!weekState || weekState.status !== 'ok' || weekState.readOnly) {
+        return false;
+      }
+
+      const applicable = meals.filter((meal) => {
+        if (strategy === 'fill-empty') {
+          return !weekState.plan.days[meal.day]?.slots?.[meal.slot];
+        }
+        return true;
+      });
+      if (applicable.length === 0) return false;
+
+      return mutatePlan(weekId, (plan) => {
+        let next = plan;
+        for (const meal of applicable) {
+          next = withDay(next, meal.day, (d) => ({
+            ...d,
+            slots: {
+              ...d.slots,
+              [meal.slot]: { type: 'recipe' as const, a: meal.a, title: meal.title }
+            }
+          }));
+        }
+        return next;
+      });
     },
 
     clearSlot(weekId: string, day: MealPlanDayKey, slot: MealSlotKey): boolean {
