@@ -106,6 +106,7 @@
   $: normalizedPk = String($userPublickey || '')
     .trim()
     .toLowerCase();
+  $: signedIn = Boolean(normalizedPk);
   $: hasMembership = Boolean(membershipMap[normalizedPk]?.active);
   $: membershipKnown = Boolean(normalizedPk && membershipMap[normalizedPk]);
 
@@ -151,6 +152,11 @@
   function close() {
     open = false;
     dispatch('close');
+  }
+
+  function signIn() {
+    close();
+    goto('/login?redirect=' + encodeURIComponent('/my-kitchen/planner'));
   }
 
   function toggleIn<T>(list: T[], value: T): T[] {
@@ -349,7 +355,21 @@
     </span>
   </h1>
 
-  {#if !membershipKnown}
+  {#if !signedIn}
+    <div class="flex flex-col items-center text-center gap-4 py-8 px-2">
+      <CheffyAvatar size={72} expression="neutral" variant="character" />
+      <div>
+        <h2 class="text-lg font-semibold mb-2" style="color: var(--color-text-primary);">
+          Sign in to plan with Cheffy
+        </h2>
+        <p class="text-sm text-caption max-w-md mx-auto">
+          Cheffy plans your week from real Zap Cooking recipes — then you approve before anything
+          lands on the planner.
+        </p>
+      </div>
+      <Button primary on:click={signIn}>Sign in</Button>
+    </div>
+  {:else if !membershipKnown}
     <div class="flex flex-col items-center justify-center py-10 gap-3">
       <CheffyAvatar size={56} expression="thinking" animate />
       <p class="text-caption">Checking your kitchen…</p>

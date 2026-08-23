@@ -67,6 +67,12 @@
     if (href) window.open(href, '_blank', 'noopener');
     dispatch('view', meal);
   }
+
+  function handleThumbError(event: Event, seed: string) {
+    const img = event.currentTarget as HTMLImageElement;
+    const fallback = getPlaceholderImage(seed);
+    if (img.src !== fallback) img.src = fallback;
+  }
 </script>
 
 <div class="flex flex-col gap-4">
@@ -104,10 +110,7 @@
                     height="56"
                     loading="lazy"
                     class="w-full h-full object-cover"
-                    on:error={(e) => {
-                      const fallback = getPlaceholderImage(meal.a);
-                      if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
-                    }}
+                    on:error={(e) => handleThumbError(e, meal.a)}
                   />
                 </button>
                 <div class="min-w-0 flex-1">

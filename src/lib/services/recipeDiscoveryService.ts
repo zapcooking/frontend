@@ -180,10 +180,10 @@ export function toWireCandidate(recipe: DiscoveredRecipe): RecipeCandidate {
 }
 
 /** Attach discovered recipe images onto generated meals for the preview only. */
-export function attachDiscoveredImages<T extends { a: string; image?: string }>(
+export function attachDiscoveredImages<T extends { a: string }>(
   meals: T[],
   recipes: DiscoveredRecipe[]
-): T[] {
+): Array<T & { image?: string }> {
   const images = new Map<string, string>();
   for (const recipe of recipes) {
     if (recipe.image) images.set(recipe.a, recipe.image);
