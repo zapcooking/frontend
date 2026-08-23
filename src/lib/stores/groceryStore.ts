@@ -21,13 +21,25 @@ import {
   deleteGroceryList,
   createEmptyList,
   createGroceryItem,
-  inferCategory,
   type GroceryList,
   type GroceryItem,
   type GroceryCategory,
-  type GroceryListEvent,
   type PantryCoveredItem
 } from '$lib/services/groceryService';
+import { canonicalizeGroceryCategory, GROCERY_CATEGORIES, type GroceryAisle } from '$lib/grocery/categories';
+import { groceryConsolidationKey } from '$lib/grocery/consolidation';
+import {
+  applySnapshotToList,
+  dropStaleSourcesFromList,
+  mergeRequirementsIntoList,
+  movePantryCoveredToList,
+  type GrocerySnapshot,
+  type GroceryRequirement,
+  type SnapshotList
+} from '$lib/grocery/requirements';
+import { registerMealPlanGrocerySync } from '$lib/grocery/hooks';
+import { weekDisplayRange } from '$lib/mealplan/week';
+import type { MealPlan } from '$lib/mealplan/schema';
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -40,6 +52,41 @@ export interface GroceryStoreState {
   error: string | null;
   saving: boolean;
   lastSaved: number | null;
+}
+
+function toSnapshot(list: GroceryList): SnapshotList {
+  return {
+    ...list,
+    pantryCovered: list.pantryCovered?.map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      normalizedName: item.normalizedName || groceryConsolidationKey(item.name),
+      category: canonicalizeGroceryCategory(item.category, item.name),
+      unit: item.unit,
+      sources: item.sources || (item.recipeId
+        ? [{
+            recipeId: item.recipeId,
+            occurrenceId: `recipe:${item.recipeId}`,
+            quantity: item.quantity,
+            originalName: item.name
+          }]
+        : [])
+    }))
+  };
+}
+
+function fromSnapshot(snapshot: SnapshotList, previous: GroceryList): GroceryList {
+  return {
+    ...previous,
+    ...snapshot,
+    items: snapshot.items as GroceryItem[],
+    recipeLinks: snapshot.recipeLinks,
+    pantryCovered: snapshot.pantryCovered,
+    pantryOverrides: snapshot.pantryOverrides,
+    sourceWeekId: snapshot.sourceWeekId,
+    stats: snapshot.stats,
+    updatedAt: snapshot.updatedAt
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -244,7 +291,7 @@ function createGroceryStore() {
      */
     updateList(
       listId: string, 
-      updates: Partial<Pick<GroceryList, 'title' | 'notes' | 'recipeLinks' | 'pantryCovered'>>
+      updates: Partial<Pick<GroceryList, 'title' | 'notes' | 'recipeLinks' | 'pantryCovered' | 'pantryOverrides' | 'sourceWeekId' | 'stats'>>
     ): void {
       update(s => {
         const lists = s.lists.map(list => {
@@ -305,8 +352,11 @@ function createGroceryStore() {
       category?: GroceryCategory,
       recipeId?: string
     ): GroceryItem {
-      const inferredCategory = category || inferCategory(name);
-      const newItem = createGroceryItem(name, quantity, inferredCategory, recipeId);
+      const inferredCategory = canonicalizeGroceryCategory(category, name);
+      const newItem = createGroceryItem(name, quantity, inferredCategory, recipeId, {
+        origin: recipeId ? 'recipe' : 'manual',
+        normalizedName: groceryConsolidationKey(name)
+      });
 
       update(s => {
         const lists = s.lists.map(list => {
@@ -340,28 +390,13 @@ function createGroceryStore() {
       update((s) => {
         const lists = s.lists.map((list) => {
           if (list.id !== listId) return list;
-          const pantryCovered = [...(list.pantryCovered || [])];
-          const covered = pantryCovered[index];
-          if (!covered) return list;
-
-          const item = createGroceryItem(
-            covered.name,
-            covered.quantity || '',
-            inferCategory(covered.name),
-            covered.recipeId
-          );
-          added = item;
-          pantryCovered.splice(index, 1);
-
-          return {
-            ...list,
-            items: [...list.items, item],
-            pantryCovered: pantryCovered.length ? pantryCovered : undefined,
-            updatedAt: Math.floor(Date.now() / 1000)
-          };
+          const result = movePantryCoveredToList(toSnapshot(list), index);
+          added = result.added as GroceryItem | null;
+          if (!added) return list;
+          scheduleSave(listId);
+          return fromSnapshot(result.list, list);
         });
 
-        if (added) scheduleSave(listId);
         return { ...s, lists };
       });
 
@@ -480,13 +515,15 @@ function createGroceryStore() {
     reorderItem(listId: string, category: GroceryCategory, oldIndex: number, newIndex: number): void {
       if (oldIndex === newIndex) return;
 
+      const aisle = canonicalizeGroceryCategory(category);
+
       update(s => {
         const lists = s.lists.map(list => {
           if (list.id !== listId) return list;
 
           const categoryItemIndices: number[] = [];
           list.items.forEach((item, idx) => {
-            if (item.category === category) {
+            if (canonicalizeGroceryCategory(item.category, item.name) === aisle) {
               categoryItemIndices.push(idx);
             }
           });
@@ -595,6 +632,108 @@ function createGroceryStore() {
     },
 
     /**
+     * Replace recipe-derived items from a meal-plan snapshot. Manual
+     * items and checked state are preserved. Adding the same week twice
+     * updates the existing list instead of doubling quantities.
+     */
+    applySnapshot(listId: string, snapshot: GrocerySnapshot): void {
+      update((s) => {
+        const lists = s.lists.map((list) => {
+          if (list.id !== listId) return list;
+          const next = fromSnapshot(applySnapshotToList(toSnapshot(list), snapshot), list);
+          scheduleSave(listId);
+          return next;
+        });
+        return { ...s, lists };
+      });
+    },
+
+    /**
+     * Find the grocery list generated for a meal-plan week, if any.
+     */
+    findListForWeek(weekId: string): GroceryList | undefined {
+      const state = get({ subscribe });
+      return (
+        state.lists.find((list) => list.sourceWeekId === weekId) ||
+        state.lists.find((list) => list.title === `Groceries — ${weekDisplayRange(weekId)}`)
+      );
+    },
+
+    /**
+     * Create or update the grocery list for a planned week.
+     */
+    async applyOrCreateWeekList(weekId: string, snapshot: GrocerySnapshot): Promise<GroceryList> {
+      const existing = this.findListForWeek(weekId);
+      if (existing) {
+        this.applySnapshot(existing.id, { ...snapshot, sourceWeekId: weekId });
+        const updated = get({ subscribe }).lists.find((list) => list.id === existing.id);
+        return updated || existing;
+      }
+
+      const newList = createEmptyList(`Groceries — ${weekDisplayRange(weekId)}`, { sourceWeekId: weekId });
+      const populated = fromSnapshot(
+        applySnapshotToList(toSnapshot(newList), { ...snapshot, sourceWeekId: weekId }),
+        newList
+      );
+
+      update((s) => ({
+        ...s,
+        lists: [populated, ...s.lists],
+        error: null
+      }));
+
+      try {
+        await saveGroceryList(populated);
+        update((s) => ({ ...s, lastSaved: Date.now() }));
+      } catch (error) {
+        console.error('[GroceryStore] Failed to save week grocery list:', error);
+        update((s) => ({
+          ...s,
+          error: error instanceof Error ? error.message : 'Failed to create grocery list'
+        }));
+      }
+
+      return populated;
+    },
+
+    mergeRequirements(
+      listId: string,
+      requirements: GroceryRequirement[],
+      pantryCovered: GroceryRequirement[] = []
+    ): void {
+      update((s) => {
+        const lists = s.lists.map((list) => {
+          if (list.id !== listId) return list;
+          const next = fromSnapshot(
+            mergeRequirementsIntoList(toSnapshot(list), requirements, pantryCovered),
+            list
+          );
+          scheduleSave(listId);
+          return next;
+        });
+        return { ...s, lists };
+      });
+    },
+
+    /**
+     * Recalculate recipe-derived quantities after the meal plan changes.
+     * Manual items are not touched.
+     */
+    syncMealPlanSources(weekId: string, plan: MealPlan): void {
+      update((s) => {
+        let changed = false;
+        const lists = s.lists.map((list) => {
+          if (list.sourceWeekId !== weekId) return list;
+          const next = fromSnapshot(dropStaleSourcesFromList(toSnapshot(list), plan), list);
+          changed = true;
+          scheduleSave(list.id);
+          return next;
+        });
+        return changed ? { ...s, lists } : s;
+      });
+    },
+
+    /**
      * Force save all pending changes immediately
      */
     async saveNow(): Promise<void> {
@@ -635,6 +774,10 @@ function createGroceryStore() {
           this.clear();
         }
       });
+
+      registerMealPlanGrocerySync((weekId, plan) => {
+        this.syncMealPlanSources(weekId, plan);
+      });
     },
 
     /**
@@ -642,6 +785,7 @@ function createGroceryStore() {
      */
     destroy(): void {
       clearAllTimers();
+      registerMealPlanGrocerySync(null);
       if (pubkeyUnsubscribe) {
         pubkeyUnsubscribe();
         pubkeyUnsubscribe = null;
@@ -737,13 +881,14 @@ export function getGroceryItems(listId: string, category?: GroceryCategory) {
 export function getGroceryItemsByCategory(listId: string) {
   return derived(groceryStore, $store => {
     const list = $store.lists.find(l => l.id === listId);
-    if (!list) return new Map<GroceryCategory, GroceryItem[]>();
+    if (!list) return new Map<GroceryAisle, GroceryItem[]>();
     
-    const grouped = new Map<GroceryCategory, GroceryItem[]>();
-    const categories: GroceryCategory[] = ['produce', 'protein', 'dairy', 'pantry', 'frozen', 'other'];
+    const grouped = new Map<GroceryAisle, GroceryItem[]>();
     
-    for (const category of categories) {
-      const items = list.items.filter(item => item.category === category);
+    for (const category of GROCERY_CATEGORIES) {
+      const items = list.items.filter(
+        (item) => canonicalizeGroceryCategory(item.category, item.name) === category
+      );
       if (items.length > 0) {
         grouped.set(category, items);
       }
@@ -759,3 +904,4 @@ export function getGroceryItemsByCategory(listId: string) {
 
 export type { GroceryList, GroceryItem, GroceryCategory } from '$lib/services/groceryService';
 export { inferCategory, createGroceryItem } from '$lib/services/groceryService';
+export { inferGroceryCategory } from '$lib/grocery/categories';

@@ -2,28 +2,34 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { userPublickey } from '$lib/nostr';
   import { 
     groceryStore, 
     getGroceryList, 
     getGroceryItemsByCategory,
     grocerySaving,
-    groceryInitialized,
-    type GroceryCategory
+    groceryInitialized
   } from '$lib/stores/groceryStore';
+  import { plannerStore } from '$lib/stores/plannerStore';
+  import {
+    GROCERY_CATEGORIES,
+    GROCERY_CATEGORY_EMOJI,
+    GROCERY_CATEGORY_LABELS
+  } from '$lib/grocery/categories';
+  import { isManualGroceryItem } from '$lib/grocery/requirements';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import XIcon from 'phosphor-svelte/lib/X';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
-  import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotch';
   import PanLoader from '../../../../components/PanLoader.svelte';
   import Modal from '../../../../components/Modal.svelte';
   import Button from '../../../../components/Button.svelte';
   import SortableGroceryCategory from '../../../../components/grocery/SortableGroceryCategory.svelte';
   import AddItemForm from '../../../../components/grocery/AddItemForm.svelte';
-  import PlusIcon from 'phosphor-svelte/lib/Plus';
+  import CalendarBlankIcon from 'phosphor-svelte/lib/CalendarBlank';
 
   // Get list ID from URL params
   $: listId = $page.params.id as string;
@@ -36,18 +42,7 @@
   $: itemsByCategoryStore = getGroceryItemsByCategory(listId);
   $: itemsByCategory = $itemsByCategoryStore;
 
-  // Category display info
-  const categoryInfo: Record<GroceryCategory, { label: string; emoji: string }> = {
-    produce: { label: 'Produce', emoji: '🥬' },
-    protein: { label: 'Protein', emoji: '🥩' },
-    dairy: { label: 'Dairy', emoji: '🧀' },
-    pantry: { label: 'Pantry', emoji: '🥫' },
-    frozen: { label: 'Frozen', emoji: '🧊' },
-    other: { label: 'Other', emoji: '📦' }
-  };
-
-  // Category order for display
-  const categoryOrder: GroceryCategory[] = ['produce', 'protein', 'dairy', 'pantry', 'frozen', 'other'];
+  const categoryOrder = GROCERY_CATEGORIES;
 
   // UI state
   let isEditingTitle = false;
@@ -129,10 +124,12 @@
     groceryStore.addPantryCoveredToList(listId, index);
   }
 
-  // Calculate stats
   $: totalItems = list?.items.length ?? 0;
   $: checkedItems = list?.items.filter(item => item.checked).length ?? 0;
   $: hasCheckedItems = checkedItems > 0;
+  $: recipeItemCount = list?.items.filter((item) => !isManualGroceryItem(item)).length ?? 0;
+  $: pantryCoveredCount = list?.pantryCovered?.length ?? 0;
+  $: plannedIngredientCount = recipeItemCount + pantryCoveredCount;
 
   onMount(async () => {
     if (!$userPublickey) {
@@ -143,6 +140,15 @@
     // Only load if not already initialized (to preserve locally created lists)
     if (!$groceryInitialized) {
       await groceryStore.load();
+    }
+
+    const currentList = get(groceryStore).lists.find((entry) => entry.id === listId);
+    if (currentList?.sourceWeekId) {
+      await plannerStore.ensureWeek(currentList.sourceWeekId);
+      const week = get(plannerStore).weeks[currentList.sourceWeekId];
+      if (week?.status === 'ok') {
+        groceryStore.syncMealPlanSources(currentList.sourceWeekId, week.plan);
+      }
     }
   });
 
@@ -244,24 +250,35 @@
       </div>
 
       <!-- Stats bar -->
-      <div class="flex items-center justify-between">
-        <p class="text-sm text-caption">
-          {#if totalItems === 0}
-            No items yet
-          {:else}
-            {checkedItems}/{totalItems} items checked
-          {/if}
-        </p>
+      <div class="flex flex-col gap-1">
+        <div class="flex items-center justify-between">
+          <p class="text-sm text-caption">
+            {#if totalItems === 0}
+              No items yet
+            {:else}
+              {checkedItems}/{totalItems} items checked
+            {/if}
+          </p>
 
-        {#if hasCheckedItems}
-          <button
-            on:click={clearCheckedItems}
-            class="text-sm font-medium transition-colors hover:opacity-80"
-            style="color: var(--color-primary)"
-            aria-label="Clear checked items"
-          >
-            Clear checked
-          </button>
+          {#if hasCheckedItems}
+            <button
+              on:click={clearCheckedItems}
+              class="text-sm font-medium transition-colors hover:opacity-80"
+              style="color: var(--color-primary)"
+              aria-label="Clear checked items"
+            >
+              Clear checked
+            </button>
+          {/if}
+        </div>
+        {#if plannedIngredientCount > 0}
+          <p class="text-xs text-caption">
+            {plannedIngredientCount} ingredient{plannedIngredientCount === 1 ? '' : 's'} needed
+            {#if pantryCoveredCount > 0}
+              · {pantryCoveredCount} already in My Kitchen
+              · {recipeItemCount} added to Grocery List
+            {/if}
+          </p>
         {/if}
       </div>
 
@@ -290,15 +307,27 @@
             {listId}
             {category}
             {items}
-            categoryLabel={categoryInfo[category].label}
-            categoryEmoji={categoryInfo[category].emoji}
+            categoryLabel={GROCERY_CATEGORY_LABELS[category]}
+            categoryEmoji={GROCERY_CATEGORY_EMOJI[category]}
           />
         {/if}
       {/each}
 
       {#if totalItems === 0}
-        <div class="text-center py-8">
-          <p class="text-caption">Add items using the form above</p>
+        <div class="text-center py-10 px-4">
+          <h2 class="text-lg font-semibold mb-2" style="color: var(--color-text-primary)">
+            Your grocery list is empty
+          </h2>
+          <p class="text-caption max-w-md mx-auto mb-5">
+            Add ingredients manually or build a meal plan and Zap will create your grocery list automatically.
+          </p>
+          <a
+            href="/my-kitchen/planner"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+          >
+            <CalendarBlankIcon size={16} />
+            Plan Meals
+          </a>
         </div>
       {/if}
     </div>
@@ -309,25 +338,24 @@
         style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
       >
         <h2 class="text-sm font-semibold" style="color: var(--color-text-primary);">
-          Already in Pantry
+          Already in My Kitchen
         </h2>
         <p class="text-xs text-caption">
-          These matched your pantry, so they were left off the shopping list. Add any you still need.
+          These matched your pantry, so they were left off the shopping list.
         </p>
         <ul class="flex flex-col gap-1.5">
           {#each list.pantryCovered as covered, index (`${covered.name}|${covered.quantity || ''}|${covered.recipeId || ''}|${index}`)}
-            <li class="flex items-center gap-2 text-sm">
+            <li class="flex items-center gap-2 text-sm min-h-[40px]">
               <span class="min-w-0 flex-1" style="color: var(--color-text-secondary);">
                 {covered.name}{#if covered.quantity}<span class="text-caption"> · {covered.quantity}</span>{/if}
               </span>
               <button
                 type="button"
-                class="flex items-center gap-1 flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium border border-green-500/40 text-green-500 hover:bg-green-500/10 transition-colors"
-                aria-label="Add {covered.name} to shopping list"
+                class="flex items-center gap-1 flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border border-green-500/40 text-green-500 hover:bg-green-500/10 transition-colors"
+                aria-label="I still need {covered.name}"
                 on:click={() => addPantryCoveredToList(index)}
               >
-                <PlusIcon size={12} weight="bold" />
-                Add
+                I still need this
               </button>
             </li>
           {/each}

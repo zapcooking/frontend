@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('$app/environment', () => ({ browser: false }));
 import {
   collectWeekRecipeSlots,
+  collectWeekRecipeOccurrences,
   dedupeIngredients,
   groceryListTitle,
   classifyGroceryRows,
@@ -27,6 +28,19 @@ describe('collectWeekRecipeSlots', () => {
       expect(collectWeekRecipeSlots(plan)).toEqual(v.expected);
     });
   }
+});
+
+describe('collectWeekRecipeOccurrences', () => {
+  it('counts repeated recipes as separate meals', () => {
+    const plan = planWith({
+      mon: { slots: { dinner: { type: 'recipe', a: '30023:pk:curry', title: 'Curry' } } },
+      wed: { slots: { dinner: { type: 'recipe', a: '30023:pk:curry', title: 'Curry' } } }
+    });
+    const collected = collectWeekRecipeOccurrences(plan);
+    expect(collected.aTags).toEqual(['30023:pk:curry']);
+    expect(collected.occurrences).toHaveLength(2);
+    expect(collected.recipeSlotCount).toBe(2);
+  });
 });
 
 describe('dedupeIngredients (approved v1: exact-match collapse, no merging)', () => {
