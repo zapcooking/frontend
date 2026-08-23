@@ -123,7 +123,7 @@ export function sanitizePantryItem(
   // client can adopt them without a schemaVersion bump. V1 ignores them.
   for (const [key, value] of Object.entries(r)) {
     if (KNOWN_ITEM_KEYS.has(key) || value === undefined) continue;
-    (item as Record<string, unknown>)[key] = value;
+    (item as unknown as Record<string, unknown>)[key] = value;
   }
   return item;
 }
