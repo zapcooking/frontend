@@ -31,7 +31,7 @@
   $: selectedCount = selectedIds.size;
   $: selectedLists = $groceryLists.filter((list) => selectedIds.has(list.id));
 
-  $: if (isEditing && $groceryLists.length === 0) {
+  $: if (isEditing && !isDeleting && $groceryLists.length === 0) {
     isEditing = false;
     selectedIds = new Set();
     deleteConfirmOpen = false;

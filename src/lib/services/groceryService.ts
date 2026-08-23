@@ -611,7 +611,7 @@ export async function deleteGroceryLists(
   if (uniqueIds.length === 0) return null;
 
   if (!browser) {
-    throw new Error('Cannot delete grocery list on server');
+    throw new Error('Cannot delete grocery lists on server');
   }
 
   const pubkey = get(userPublickey);
@@ -681,7 +681,8 @@ export async function deleteGroceryList(
   listId: string,
   eventId?: string
 ): Promise<NDKEvent | null> {
-  return deleteGroceryLists(listId ? [listId] : [], eventId ? { [listId]: eventId } : undefined);
+  if (!listId) return null;
+  return deleteGroceryLists([listId], eventId ? { [listId]: eventId } : undefined);
 }
 
 // ═══════════════════════════════════════════════════════════════

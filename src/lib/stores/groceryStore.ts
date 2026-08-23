@@ -332,6 +332,7 @@ function createGroceryStore() {
       }
 
       const idSet = new Set(uniqueIds);
+      const previousLists = get({ subscribe }).lists;
       update(s => ({
         ...s,
         lists: s.lists.filter(l => !idSet.has(l.id))
@@ -342,7 +343,8 @@ function createGroceryStore() {
         return true;
       } catch (error) {
         console.error('[GroceryStore] Failed to delete lists:', error);
-        this.load();
+        update(s => ({ ...s, lists: previousLists }));
+        void this.load();
         return false;
       }
     },
