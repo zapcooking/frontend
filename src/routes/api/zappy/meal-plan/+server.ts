@@ -64,6 +64,7 @@ HARD RULES
 - If a breakfast-eligible list is provided, breakfast slots may use ONLY those coordinates.
 - Prefer variety across the week unless the user asked for repeats or leftovers.
 - Honor excluded ingredients, time limits, servings, style chips, and free-text notes when the candidates allow it.
+- If pantry match data is provided, prefer recipes that use more ingredients the user already has. Do not sacrifice dietary constraints, requested meal type, cooking-time requirements, or other hard constraints merely to improve pantry utilization.
 - If there are not enough candidates, fill as many requested slots as you reasonably can. Do not pad with invented recipes or with recipes that do not fit the slot.
 - Keep each reason to one short sentence.
 
@@ -76,6 +77,14 @@ function candidateLine(c: RecipeCandidate): string {
   if (c.cookTime) bits.push(`cook=${c.cookTime}`);
   if (c.servings) bits.push(`servings=${c.servings}`);
   if (c.ingredients.length) bits.push(`ingredients=${c.ingredients.join(', ')}`);
+  if (c.pantry && c.pantry.totalCount > 0) {
+    bits.push(
+      `pantry=${c.pantry.matchedCount}/${c.pantry.totalCount} (${Math.round(c.pantry.matchRatio * 100)}%)`
+    );
+    if (c.pantry.missingIngredients.length) {
+      bits.push(`need=${c.pantry.missingIngredients.join(', ')}`);
+    }
+  }
   return `- ${bits.join(' | ')}`;
 }
 
@@ -95,6 +104,11 @@ function buildUserPrompt(req: MealPlanGenerationRequest): string {
     lines.push(`Avoid ingredients: ${prefs.excludeIngredients.join(', ')}`);
   }
   if (prefs.notes) lines.push(`Notes: ${prefs.notes}`);
+  if (req.prioritizePantry) {
+    lines.push(
+      'Pantry: Prefer recipes that use more ingredients the user already has. Do not sacrifice dietary constraints, requested meal type, cooking-time requirements, or other hard constraints merely to improve pantry utilization.'
+    );
+  }
   if (req.excludeCoordinates?.length) {
     lines.push(`Do not reuse these coordinates: ${req.excludeCoordinates.join(', ')}`);
   }

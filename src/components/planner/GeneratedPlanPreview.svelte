@@ -9,6 +9,7 @@
   import { DAY_KEYS } from '$lib/mealplan/schema';
   import type { GeneratedMeal } from '$lib/mealplan/generation';
   import { slotKey } from '$lib/mealplan/generation';
+  import { pantryMatchSummary } from '$lib/pantry/matching';
   import { getImageOrPlaceholder, getPlaceholderImage } from '$lib/placeholderImages';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
   import EyeIcon from 'phosphor-svelte/lib/Eye';
@@ -18,6 +19,7 @@
   export let swappingKey: string | null = null;
   export let applying = false;
   export let regenerating = false;
+  export let showPantry = false;
 
   const dispatch = createEventDispatcher<{
     apply: void;
@@ -122,6 +124,19 @@
                   </p>
                   {#if meal.reason}
                     <p class="text-xs text-caption mt-0.5">{meal.reason}</p>
+                  {/if}
+                  {#if showPantry && meal.pantry && meal.pantry.totalCount > 0}
+                    <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">
+                      ✓ {pantryMatchSummary(meal.pantry)}
+                      {#if meal.pantry.missingIngredients.length}
+                        <span class="text-caption">
+                          · Need: {meal.pantry.missingIngredients.slice(0, 4).join(', ')}{meal
+                            .pantry.missingIngredients.length > 4
+                            ? '…'
+                            : ''}
+                        </span>
+                      {/if}
+                    </p>
                   {/if}
                 </div>
                 <button

@@ -176,6 +176,7 @@ export function toWireCandidate(recipe: DiscoveredRecipe): RecipeCandidate {
   if (recipe.prepTime) wire.prepTime = recipe.prepTime;
   if (recipe.cookTime) wire.cookTime = recipe.cookTime;
   if (recipe.servings) wire.servings = recipe.servings;
+  if (recipe.pantry) wire.pantry = recipe.pantry;
   return wire;
 }
 

@@ -230,6 +230,34 @@ describe('structured plan validation', () => {
     expect(data.code).toBe('ineligible-slot');
   });
 
+  it('includes pantry match data in the model prompt when prioritizePantry is set', async () => {
+    await call(
+      validBody({
+        prioritizePantry: true,
+        candidates: [
+          {
+            a: '30023:pk:salmon',
+            title: 'Mediterranean Salmon',
+            tags: ['mediterranean'],
+            ingredients: ['salmon', 'olive oil'],
+            pantry: {
+              matchedCount: 1,
+              totalCount: 2,
+              matchRatio: 0.5,
+              matchedIngredients: ['olive oil'],
+              missingIngredients: ['salmon']
+            }
+          },
+          { a: '30023:pk:pasta', title: 'Lemon Pasta', tags: ['easy'], ingredients: ['pasta'] }
+        ]
+      })
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const prompt = body.messages.find((m: { role: string }) => m.role === 'user').content as string;
+    expect(prompt).toContain('Pantry: Prefer recipes that use more ingredients');
+    expect(prompt).toContain('pantry=1/2 (50%)');
+  });
+
   it('does not send dinner recipes to the model for a breakfast-only request', async () => {
     fetchMock.mockResolvedValue(
       openaiPlan([

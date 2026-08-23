@@ -65,6 +65,19 @@ describe('candidateFromCached', () => {
     expect(toWireCandidate(discovered!).a).toBe(discovered!.a);
   });
 
+  it('toWireCandidate keeps pantry match data', () => {
+    const discovered = candidateFromCached(cached());
+    expect(discovered).toBeTruthy();
+    discovered!.pantry = {
+      matchedCount: 1,
+      totalCount: 2,
+      matchRatio: 0.5,
+      matchedIngredients: ['rice'],
+      missingIngredients: ['salmon fillet']
+    };
+    expect(toWireCandidate(discovered!).pantry?.matchedCount).toBe(1);
+  });
+
   it('attaches discovered images onto generated meals by coordinate', () => {
     const meals = attachDiscoveredImages(
       [

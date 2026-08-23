@@ -57,6 +57,14 @@ export const MAX_TAGS_PER_CANDIDATE = 8;
 export const MAX_TITLE_CHARS = 120;
 export const MAX_REASON_CHARS = 160;
 
+export interface CandidatePantryMatch {
+  matchedCount: number;
+  totalCount: number;
+  matchRatio: number;
+  matchedIngredients: string[];
+  missingIngredients: string[];
+}
+
 export interface RecipeCandidate {
   a: string;
   title: string;
@@ -65,6 +73,8 @@ export interface RecipeCandidate {
   prepTime?: string;
   cookTime?: string;
   servings?: string;
+  /** Deterministic pantry match. Never invented by Cheffy. */
+  pantry?: CandidatePantryMatch;
 }
 
 export interface MealPlanPreferences {
@@ -86,6 +96,8 @@ export interface MealPlanGenerationRequest {
   mealSlots: MealSlotKey[];
   preferences: MealPlanPreferences;
   strategy: MealPlanStrategy;
+  /** Rank and prompt Cheffy to prefer recipes that use the user's pantry. */
+  prioritizePantry?: boolean;
   candidates: RecipeCandidate[];
   /** Slots that already have a meal. Required for fill-empty enforcement. */
   occupiedSlots?: MealSlotRef[];
@@ -107,6 +119,8 @@ export interface GeneratedMeal {
   reason?: string;
   /** Client-only preview thumbnail. Never written into the meal-plan schema. */
   image?: string;
+  /** Client-only pantry match copied from the candidate. Never persisted. */
+  pantry?: CandidatePantryMatch;
 }
 
 export interface GeneratedMealPlan {
@@ -354,6 +368,8 @@ export interface FilterCandidatesOptions {
   excludeCoordinates?: string[];
   /** Soft-prefer recipes whose tags mention these meal slots. */
   mealSlots?: MealSlotKey[];
+  /** Soft-prefer higher pantry match after hard constraints. */
+  prioritizePantry?: boolean;
   maxCandidates?: number;
 }
 
@@ -391,6 +407,7 @@ export function filterRecipeCandidates(
   const slotEligible =
     mealSlots.length > 0 ? restrictCandidatesToRequestedSlots(hardPassed, mealSlots) : hardPassed;
 
+  const prioritizePantry = !!opts.prioritizePantry;
   let ranked = slotEligible;
   if (!surpriseOnly && styleTags.length > 0) {
     const matched = slotEligible.filter((c) => candidateMatchesStyle(c, styleTags));
@@ -398,32 +415,39 @@ export function filterRecipeCandidates(
     // If we have enough style matches to cover a week with extras, drop
     // the rest. Otherwise keep unmatched as fallback so Cheffy can still plan.
     ranked = matched.length >= 8 ? matched : [...matched, ...unmatched];
-  } else if (surpriseOnly) {
+  } else if (surpriseOnly && !prioritizePantry) {
     ranked = shuffleInPlace([...slotEligible]);
   }
 
-  if (mealSlots.length > 0 && !surpriseOnly) {
-    const slotNeedles = mealSlots.map((s) => s.toLowerCase());
+  const slotNeedles = mealSlots.map((s) => s.toLowerCase());
+  const shouldScore =
+    prioritizePantry || (!surpriseOnly && (styleTags.length > 0 || mealSlots.length > 0));
+  if (shouldScore) {
     ranked = [...ranked].sort(
       (a, b) =>
-        scoreCandidate(b, styleTags, slotNeedles) - scoreCandidate(a, styleTags, slotNeedles)
-    );
-  } else if (styleTags.length > 0 && !surpriseOnly) {
-    ranked = [...ranked].sort(
-      (a, b) => scoreCandidate(b, styleTags, []) - scoreCandidate(a, styleTags, [])
+        scoreCandidate(b, styleTags, slotNeedles, prioritizePantry) -
+        scoreCandidate(a, styleTags, slotNeedles, prioritizePantry)
     );
   }
 
   return ranked.slice(0, cap);
 }
 
-function scoreCandidate(c: RecipeCandidate, styleTags: string[], slotNeedles: string[]): number {
+function scoreCandidate(
+  c: RecipeCandidate,
+  styleTags: string[],
+  slotNeedles: string[],
+  prioritizePantry: boolean
+): number {
   let score = 0;
   const blob = textBlob([c.title, ...(c.tags || [])]);
   if (styleTags.some((t) => blob.includes(t))) score += 3;
   if (slotNeedles.some((t) => blob.includes(t))) score += 2;
   if (c.prepTime || c.cookTime) score += 1;
   if (c.ingredients?.length) score += 1;
+  if (prioritizePantry && c.pantry && c.pantry.totalCount > 0) {
+    score += c.pantry.matchRatio * 5;
+  }
   return score;
 }
 
@@ -489,7 +513,42 @@ function sanitizeCandidate(raw: unknown): RecipeCandidate | null {
   if (typeof r.servings === 'string' && r.servings.trim()) {
     candidate.servings = r.servings.trim().slice(0, 20);
   }
+  const pantry = sanitizeCandidatePantry(r.pantry);
+  if (pantry) candidate.pantry = pantry;
   return candidate;
+}
+
+function sanitizeCandidatePantry(raw: unknown): CandidatePantryMatch | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const p = raw as Record<string, unknown>;
+  const matchedCount =
+    typeof p.matchedCount === 'number' && Number.isFinite(p.matchedCount)
+      ? Math.max(0, Math.round(p.matchedCount))
+      : 0;
+  const totalCount =
+    typeof p.totalCount === 'number' && Number.isFinite(p.totalCount)
+      ? Math.max(0, Math.round(p.totalCount))
+      : 0;
+  const matchRatio =
+    typeof p.matchRatio === 'number' && Number.isFinite(p.matchRatio)
+      ? Math.min(1, Math.max(0, p.matchRatio))
+      : totalCount > 0
+        ? matchedCount / totalCount
+        : 0;
+  const names = (value: unknown) =>
+    Array.isArray(value)
+      ? value
+          .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+          .map((t) => t.trim().slice(0, 80))
+          .slice(0, MAX_INGREDIENTS_PER_CANDIDATE)
+      : [];
+  return {
+    matchedCount,
+    totalCount,
+    matchRatio,
+    matchedIngredients: names(p.matchedIngredients),
+    missingIngredients: names(p.missingIngredients)
+  };
 }
 
 function sanitizePreferences(raw: unknown): MealPlanPreferences {
@@ -609,6 +668,7 @@ export function parseGenerationRequest(
       ? body.excludeCoordinates.filter(isRecipeCoordinate).slice(0, MAX_CANDIDATES)
       : []
   };
+  if (body.prioritizePantry === true) request.prioritizePantry = true;
 
   const targets = resolveTargetSlots(request);
   if (targets.length === 0) {
@@ -709,13 +769,15 @@ export function validateGeneratedMealPlan(
       typeof m.reason === 'string' && m.reason.trim()
         ? m.reason.trim().slice(0, MAX_REASON_CHARS)
         : undefined;
-    meals.push({
+    const meal: GeneratedMeal = {
       day: m.day,
       slot: m.slot,
       a: candidate.a,
       title: candidate.title,
       reason
-    });
+    };
+    if (candidate.pantry) meal.pantry = candidate.pantry;
+    meals.push(meal);
   }
 
   if (meals.length === 0) {

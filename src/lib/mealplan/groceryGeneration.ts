@@ -6,6 +6,12 @@
  * findings: dedupe-without-merge (collapse EXACT (name, quantity)
  * duplicates, first occurrence's recipeId wins; no quantity summing —
  * that's v1.1), text slots skipped and reported.
+ *
+ * Pantry (v1): after dedupe, rows are classified against the user's
+ * pantry. Name matches with no pantry quantity are treated as already
+ * owned (presence-only). If a pantry quantity exists and cannot be
+ * compared reliably to the recipe amount, the ingredient stays on the
+ * grocery list. Pantry inventory is never decremented.
  */
 
 import type { ParsedIngredient } from '$lib/utils/ingredientParser';
@@ -77,3 +83,5 @@ export function dedupeIngredients(rows: GenerationRow[]): GenerationRow[] {
 export function groceryListTitle(weekId: string): string {
   return `Groceries — ${weekDisplayRange(weekId)}`;
 }
+
+export { classifyGroceryRows } from '$lib/pantry/matching';

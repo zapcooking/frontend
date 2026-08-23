@@ -33,8 +33,10 @@
   import RecipePickerModal from '../../../components/RecipePickerModal.svelte';
   import CheffyPlanModal from '../../../components/planner/CheffyPlanModal.svelte';
   import { groceryStore } from '$lib/stores/groceryStore';
+  import { pantryStore, pantryItems, pantryInitialized } from '$lib/stores/pantryStore';
   import { parseIngredient, parseIngredientsFromRecipe } from '$lib/utils/ingredientParser';
   import {
+    classifyGroceryRows,
     collectWeekRecipeSlots,
     dedupeIngredients,
     groceryListTitle,
@@ -229,6 +231,11 @@
       }
       const deduped = dedupeIngredients(rows);
 
+      if (!$pantryInitialized) {
+        await pantryStore.load();
+      }
+      const classified = classifyGroceryRows(deduped, $pantryItems);
+
       // Always a NEW list — never overwrite an existing one. Repeat
       // generations for the same week create additional lists the user
       // can delete; silent merge/overwrite risks destroying manual edits.
@@ -236,7 +243,7 @@
       for (const aTag of resolved) {
         groceryStore.addRecipeLink(list.id, aTag);
       }
-      for (const row of deduped) {
+      for (const row of classified.toBuy) {
         groceryStore.addItem(
           list.id,
           row.ingredient.name,
@@ -245,9 +252,18 @@
           row.recipeId
         );
       }
+      if (classified.inPantry.length > 0) {
+        groceryStore.updateList(list.id, {
+          pantryCovered: classified.inPantry.map((row) => ({
+            name: row.ingredient.name,
+            quantity: row.ingredient.quantity,
+            recipeId: row.recipeId
+          }))
+        });
+      }
 
       generationSummary = {
-        itemCount: deduped.length,
+        itemCount: classified.toBuy.length,
         recipeCount: resolved.length,
         textSkipped: textCount,
         unresolved
