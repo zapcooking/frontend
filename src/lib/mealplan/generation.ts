@@ -15,6 +15,26 @@ import {
 } from './schema';
 import { isValidWeekId } from './week';
 import { isRecipeEligibleForSlot, restrictCandidatesToRequestedSlots } from './slotEligibility';
+import {
+  QUICK_SOFT_MAX_MINUTES,
+  buildIngredientFrequency,
+  collectFamiliarCuisines,
+  hasEnabledPlanningMode,
+  normalizePlanningPreferences,
+  sanitizePlanningPreferences,
+  scorePlanningModes,
+  type PlanningPreferences,
+  type CandidateNourish
+} from './planningModes';
+
+export type { PlanningPreferences, PlanningModeKey, CandidateNourish } from './planningModes';
+export {
+  PLANNING_MODES,
+  PLANNING_MODE_KEYS,
+  emptyPlanningPreferences,
+  hasEnabledPlanningMode,
+  normalizePlanningPreferences
+} from './planningModes';
 
 export const MEAL_PLAN_STRATEGIES = ['fill-empty', 'replace-selected'] as const;
 export type MealPlanStrategy = (typeof MEAL_PLAN_STRATEGIES)[number];
@@ -76,6 +96,8 @@ export interface RecipeCandidate {
   servings?: string;
   /** Deterministic pantry match. Never invented by Cheffy. */
   pantry?: CandidatePantryMatch;
+  /** Cached Nourish signals only. Never invented or computed here. */
+  nourish?: CandidateNourish;
 }
 
 export interface MealPlanPreferences {
@@ -101,6 +123,17 @@ export interface MealPlanGenerationRequest {
   prioritizePantry?: boolean;
   /** Display names of pantry ingredients. Prompt-only; never persisted. */
   pantryIngredients?: string[];
+  /**
+   * Weighted planning modes (pantry, cheap, healthy, …). Prompt-only;
+   * never persisted into the meal-plan schema. Extensible — add keys
+   * in planningModes.ts without changing the planner contract.
+   */
+  planningPreferences?: PlanningPreferences;
+  /**
+   * Recipe coordinates the user has already saved or planned.
+   * Used by Try Something New. Prompt-only; never persisted.
+   */
+  familiarCoordinates?: string[];
   candidates: RecipeCandidate[];
   /** Slots that already have a meal. Required for fill-empty enforcement. */
   occupiedSlots?: MealSlotRef[];
@@ -373,6 +406,8 @@ export interface FilterCandidatesOptions {
   mealSlots?: MealSlotKey[];
   /** Soft-prefer higher pantry match after hard constraints. */
   prioritizePantry?: boolean;
+  planningPreferences?: PlanningPreferences;
+  familiarCoordinates?: string[];
   maxCandidates?: number;
 }
 
@@ -410,7 +445,8 @@ export function filterRecipeCandidates(
   const slotEligible =
     mealSlots.length > 0 ? restrictCandidatesToRequestedSlots(hardPassed, mealSlots) : hardPassed;
 
-  const prioritizePantry = !!opts.prioritizePantry;
+  const modes = normalizePlanningPreferences(opts.planningPreferences, opts.prioritizePantry);
+  const prioritizePantry = modes.usePantry;
   let ranked = slotEligible;
   if (!surpriseOnly && styleTags.length > 0) {
     const matched = slotEligible.filter((c) => candidateMatchesStyle(c, styleTags));
@@ -418,18 +454,40 @@ export function filterRecipeCandidates(
     // If we have enough style matches to cover a week with extras, drop
     // the rest. Otherwise keep unmatched as fallback so Cheffy can still plan.
     ranked = matched.length >= 8 ? matched : [...matched, ...unmatched];
-  } else if (surpriseOnly && !prioritizePantry) {
+  } else if (surpriseOnly && !hasEnabledPlanningMode(modes)) {
     ranked = shuffleInPlace([...slotEligible]);
   }
 
+  if (modes.quickMeals) {
+    const quickEnough = ranked.filter((c) => {
+      const minutes = totalActiveMinutes(c.prepTime, c.cookTime);
+      return minutes == null || minutes <= QUICK_SOFT_MAX_MINUTES;
+    });
+    if (quickEnough.length >= 8) ranked = quickEnough;
+  }
+
   const slotNeedles = mealSlots.map((s) => s.toLowerCase());
+  const familiarCoordinates = new Set(opts.familiarCoordinates || []);
+  const familiarCuisines = collectFamiliarCuisines(ranked, familiarCoordinates);
+  const ingredientFrequency = buildIngredientFrequency(ranked);
   const shouldScore =
-    prioritizePantry || (!surpriseOnly && (styleTags.length > 0 || mealSlots.length > 0));
+    hasEnabledPlanningMode(modes) ||
+    (!surpriseOnly && (styleTags.length > 0 || mealSlots.length > 0));
   if (shouldScore) {
     ranked = [...ranked].sort(
       (a, b) =>
-        scoreCandidate(b, styleTags, slotNeedles, prioritizePantry) -
-        scoreCandidate(a, styleTags, slotNeedles, prioritizePantry)
+        scoreCandidate(b, styleTags, slotNeedles, modes, {
+          minutes: totalActiveMinutes(b.prepTime, b.cookTime),
+          ingredientFrequency,
+          familiarCoordinates,
+          familiarCuisines
+        }) -
+        scoreCandidate(a, styleTags, slotNeedles, modes, {
+          minutes: totalActiveMinutes(a.prepTime, a.cookTime),
+          ingredientFrequency,
+          familiarCoordinates,
+          familiarCuisines
+        })
     );
   }
 
@@ -440,7 +498,13 @@ function scoreCandidate(
   c: RecipeCandidate,
   styleTags: string[],
   slotNeedles: string[],
-  prioritizePantry: boolean
+  modes: PlanningPreferences,
+  modeCtx: {
+    minutes: number | null;
+    ingredientFrequency: Map<string, number>;
+    familiarCoordinates: Set<string>;
+    familiarCuisines: Set<string>;
+  }
 ): number {
   let score = 0;
   const blob = textBlob([c.title, ...(c.tags || [])]);
@@ -448,9 +512,7 @@ function scoreCandidate(
   if (slotNeedles.some((t) => blob.includes(t))) score += 2;
   if (c.prepTime || c.cookTime) score += 1;
   if (c.ingredients?.length) score += 1;
-  if (prioritizePantry && c.pantry && c.pantry.totalCount > 0) {
-    score += c.pantry.matchRatio * 5;
-  }
+  score += scorePlanningModes(c, modes, modeCtx);
   return score;
 }
 
@@ -518,7 +580,25 @@ function sanitizeCandidate(raw: unknown): RecipeCandidate | null {
   }
   const pantry = sanitizeCandidatePantry(r.pantry);
   if (pantry) candidate.pantry = pantry;
+  const nourish = sanitizeCandidateNourish(r.nourish);
+  if (nourish) candidate.nourish = nourish;
   return candidate;
+}
+
+function sanitizeCandidateNourish(raw: unknown): CandidateNourish | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const n = raw as Record<string, unknown>;
+  const out: CandidateNourish = {};
+  if (typeof n.overall === 'number' && Number.isFinite(n.overall)) {
+    out.overall = Math.min(10, Math.max(0, Math.round(n.overall)));
+  }
+  if (typeof n.protein === 'number' && Number.isFinite(n.protein)) {
+    out.protein = Math.min(10, Math.max(0, Math.round(n.protein)));
+  }
+  if (typeof n.proteinGrams === 'number' && Number.isFinite(n.proteinGrams) && n.proteinGrams > 0) {
+    out.proteinGrams = Math.min(200, Math.round(n.proteinGrams));
+  }
+  return out.overall != null || out.protein != null || out.proteinGrams != null ? out : undefined;
 }
 
 function sanitizeCandidatePantry(raw: unknown): CandidatePantryMatch | undefined {
@@ -671,7 +751,16 @@ export function parseGenerationRequest(
       ? body.excludeCoordinates.filter(isRecipeCoordinate).slice(0, MAX_CANDIDATES)
       : []
   };
-  if (body.prioritizePantry === true) request.prioritizePantry = true;
+  const planningPreferences = normalizePlanningPreferences(
+    sanitizePlanningPreferences(body.planningPreferences),
+    body.prioritizePantry === true
+  );
+  if (hasEnabledPlanningMode(planningPreferences)) {
+    request.planningPreferences = planningPreferences;
+  }
+  if (planningPreferences.usePantry || body.prioritizePantry === true) {
+    request.prioritizePantry = true;
+  }
   if (Array.isArray(body.pantryIngredients)) {
     const pantryIngredients = body.pantryIngredients
       .filter((s): s is string => typeof s === 'string')
@@ -679,6 +768,12 @@ export function parseGenerationRequest(
       .filter(Boolean)
       .slice(0, MAX_PANTRY_INGREDIENTS);
     if (pantryIngredients.length) request.pantryIngredients = pantryIngredients;
+  }
+  if (Array.isArray(body.familiarCoordinates)) {
+    const familiarCoordinates = body.familiarCoordinates
+      .filter(isRecipeCoordinate)
+      .slice(0, MAX_CANDIDATES * 2);
+    if (familiarCoordinates.length) request.familiarCoordinates = familiarCoordinates;
   }
 
   const targets = resolveTargetSlots(request);

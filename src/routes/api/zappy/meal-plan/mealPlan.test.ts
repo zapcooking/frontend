@@ -260,6 +260,50 @@ describe('structured plan validation', () => {
     expect(prompt).toContain('pantry=1/2 (50%)');
   });
 
+  it('includes explicit planning-mode instructions in the model prompt', async () => {
+    await call(
+      validBody({
+        planningPreferences: {
+          usePantry: false,
+          budgetFriendly: true,
+          healthy: true,
+          highProtein: false,
+          quickMeals: true,
+          lowWaste: true,
+          adventurous: true
+        },
+        familiarCoordinates: ['30023:pk:pasta'],
+        candidates: [
+          {
+            a: '30023:pk:salmon',
+            title: 'Mediterranean Salmon',
+            tags: ['mediterranean'],
+            ingredients: ['salmon', 'spinach'],
+            nourish: { overall: 8, protein: 7 }
+          },
+          {
+            a: '30023:pk:pasta',
+            title: 'Lemon Pasta',
+            tags: ['easy'],
+            ingredients: ['pasta', 'spinach']
+          }
+        ]
+      })
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const prompt = body.messages.find((m: { role: string }) => m.role === 'user').content as string;
+    expect(prompt).toContain('Keep It Cheap:');
+    expect(prompt).toContain('Healthy Week:');
+    expect(prompt).toContain('Quick Meals:');
+    expect(prompt).toContain('Low Waste:');
+    expect(prompt).toContain('Try Something New:');
+    expect(prompt).toContain('weighted preferences, not hard requirements');
+    expect(prompt).toContain('Ingredients that appear in multiple candidates (prefer reuse): spinach');
+    expect(prompt).toContain('cost=');
+    expect(prompt).toContain('nourish=overall 8/10');
+    expect(prompt).not.toContain('Make this healthy and cheap');
+  });
+
   it('does not send dinner recipes to the model for a breakfast-only request', async () => {
     fetchMock.mockResolvedValue(
       openaiPlan([

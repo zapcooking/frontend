@@ -327,6 +327,233 @@ describe('filterRecipeCandidates', () => {
     );
     expect(out.map((c) => c.a)).toEqual(['30023:pk:yogurt']);
   });
+
+  it('prefers cheaper recipes when Keep It Cheap is on', () => {
+    const cheap = cand('beans', {
+      title: 'Rice and Beans',
+      ingredients: ['rice', 'black beans', 'onion', 'garlic']
+    });
+    const pricey = cand('surf', {
+      title: 'Truffle Lobster',
+      ingredients: ['lobster', 'truffle', 'saffron', 'crab', 'filet']
+    });
+    const out = filterRecipeCandidates([pricey, cheap], {
+      planningPreferences: {
+        usePantry: false,
+        budgetFriendly: true,
+        healthy: false,
+        highProtein: false,
+        quickMeals: false,
+        lowWaste: false,
+        adventurous: false
+      }
+    });
+    expect(out.map((c) => c.a)).toEqual(['30023:pk:beans', '30023:pk:surf']);
+  });
+
+  it('prefers quicker recipes when Quick Meals is on', () => {
+    const fast = cand('skillet', {
+      title: 'Skillet Eggs',
+      prepTime: '5 min',
+      cookTime: '10 min',
+      ingredients: ['eggs']
+    });
+    const slow = cand('roast', {
+      title: 'Sunday Roast',
+      prepTime: '30 min',
+      cookTime: '3 hours',
+      ingredients: ['beef']
+    });
+    const out = filterRecipeCandidates([slow, fast], {
+      planningPreferences: {
+        usePantry: false,
+        budgetFriendly: false,
+        healthy: false,
+        highProtein: false,
+        quickMeals: true,
+        lowWaste: false,
+        adventurous: false
+      }
+    });
+    expect(out[0].a).toBe('30023:pk:skillet');
+    expect(out.map((c) => c.a)).toContain('30023:pk:roast');
+  });
+
+  it('uses nourish protein when High Protein is on', () => {
+    const high = cand('yogurt', {
+      title: 'Lentil Bowl',
+      ingredients: ['lentils', 'spinach'],
+      nourish: { protein: 9, proteinGrams: 34 }
+    });
+    const low = cand('toast', {
+      title: 'Buttered Toast',
+      ingredients: ['bread', 'butter'],
+      nourish: { protein: 2, proteinGrams: 4 }
+    });
+    const out = filterRecipeCandidates([low, high], {
+      planningPreferences: {
+        usePantry: false,
+        budgetFriendly: false,
+        healthy: false,
+        highProtein: true,
+        quickMeals: false,
+        lowWaste: false,
+        adventurous: false
+      }
+    });
+    expect(out.map((c) => c.a)).toEqual(['30023:pk:yogurt', '30023:pk:toast']);
+  });
+
+  it('uses nourish overall when Healthy Week is on', () => {
+    const strong = cand('bowl', {
+      title: 'Grain Bowl',
+      ingredients: ['quinoa', 'kale'],
+      nourish: { overall: 9 }
+    });
+    const weak = cand('fries', {
+      title: 'Loaded Fries',
+      ingredients: ['potato', 'cheese'],
+      nourish: { overall: 2 }
+    });
+    const out = filterRecipeCandidates([weak, strong], {
+      planningPreferences: {
+        usePantry: false,
+        budgetFriendly: false,
+        healthy: true,
+        highProtein: false,
+        quickMeals: false,
+        lowWaste: false,
+        adventurous: false
+      }
+    });
+    expect(out[0].a).toBe('30023:pk:bowl');
+  });
+
+  it('prefers recipes that share ingredients when Low Waste is on', () => {
+    const sharedA = cand('tacos', {
+      title: 'Chicken Tacos',
+      ingredients: ['chicken', 'spinach', 'tortillas', 'salsa']
+    });
+    const sharedB = cand('quesadilla', {
+      title: 'Spinach Quesadilla',
+      ingredients: ['spinach', 'tortillas', 'cheese']
+    });
+    const odd = cand('sushi', {
+      title: 'Tuna Sushi',
+      ingredients: ['tuna', 'nori', 'rice vinegar', 'wasabi']
+    });
+    const out = filterRecipeCandidates([odd, sharedA, sharedB], {
+      planningPreferences: {
+        usePantry: false,
+        budgetFriendly: false,
+        healthy: false,
+        highProtein: false,
+        quickMeals: false,
+        lowWaste: true,
+        adventurous: false
+      }
+    });
+    expect(out.slice(0, 2).map((c) => c.a).sort()).toEqual([
+      '30023:pk:quesadilla',
+      '30023:pk:tacos'
+    ]);
+  });
+
+  it('deprioritizes familiar recipes when Try Something New is on', () => {
+    const usual = cand('usual', { title: 'Usual Chili', tags: ['american'] });
+    const fresh = cand('fresh', { title: 'Thai Basil Stir Fry', tags: ['thai'] });
+    const thinHistory = filterRecipeCandidates([usual, fresh], {
+      familiarCoordinates: ['30023:pk:usual'],
+      planningPreferences: {
+        usePantry: false,
+        budgetFriendly: false,
+        healthy: false,
+        highProtein: false,
+        quickMeals: false,
+        lowWaste: false,
+        adventurous: true
+      }
+    });
+    expect(thinHistory.map((c) => c.a)).toContain('30023:pk:fresh');
+    expect(thinHistory).toHaveLength(2);
+
+    const withHistory = filterRecipeCandidates([usual, fresh], {
+      familiarCoordinates: ['30023:pk:usual', '30023:pk:other1', '30023:pk:other2'],
+      planningPreferences: {
+        usePantry: false,
+        budgetFriendly: false,
+        healthy: false,
+        highProtein: false,
+        quickMeals: false,
+        lowWaste: false,
+        adventurous: true
+      }
+    });
+    expect(withHistory[0].a).toBe('30023:pk:fresh');
+  });
+
+  it('still returns candidates when conflicting modes are combined', () => {
+    const out = filterRecipeCandidates(
+      [
+        cand('beans', {
+          title: 'Rice and Beans',
+          tags: ['budget'],
+          prepTime: '10 min',
+          cookTime: '20 min',
+          ingredients: ['rice', 'black beans', 'eggs'],
+          nourish: { overall: 7, protein: 6, proteinGrams: 22 }
+        }),
+        cand('fancy', {
+          title: 'Saffron Scallops',
+          prepTime: '20 min',
+          cookTime: '15 min',
+          ingredients: ['scallops', 'saffron'],
+          nourish: { overall: 8, protein: 8, proteinGrams: 28 }
+        })
+      ],
+      {
+        planningPreferences: {
+          usePantry: false,
+          budgetFriendly: true,
+          healthy: false,
+          highProtein: true,
+          quickMeals: true,
+          lowWaste: false,
+          adventurous: true
+        },
+        familiarCoordinates: ['30023:pk:beans']
+      }
+    );
+    expect(out.length).toBe(2);
+  });
+
+  it('keeps breakfast eligibility when planning modes are on', () => {
+    const out = filterRecipeCandidates(
+      [
+        cand('chicken', {
+          title: 'Garlic Parmesan Chicken',
+          tags: ['dinner'],
+          nourish: { protein: 10, proteinGrams: 45 },
+          prepTime: '10 min',
+          cookTime: '15 min'
+        }),
+        cand('oats', { title: 'Overnight Oats', tags: ['breakfast'] })
+      ],
+      {
+        mealSlots: ['breakfast'],
+        planningPreferences: {
+          usePantry: false,
+          budgetFriendly: true,
+          healthy: true,
+          highProtein: true,
+          quickMeals: true,
+          lowWaste: true,
+          adventurous: true
+        }
+      }
+    );
+    expect(out.map((c) => c.a)).toEqual(['30023:pk:oats']);
+  });
 });
 
 describe('resolveTargetSlots', () => {
@@ -410,6 +637,47 @@ describe('parseGenerationRequest', () => {
     expect(parsed.request.prioritizePantry).toBe(true);
     expect(parsed.request.candidates[0].pantry?.matchedCount).toBe(2);
     expect(parsed.request.candidates[0].pantry?.missingIngredients).toEqual(['salmon', 'lemon']);
+  });
+
+  it('keeps planningPreferences and maps usePantry onto prioritizePantry', () => {
+    const parsed = parseGenerationRequest({
+      weekId: '2026-W34',
+      days: ['mon'],
+      mealSlots: ['dinner'],
+      strategy: 'fill-empty',
+      planningPreferences: {
+        usePantry: true,
+        budgetFriendly: true,
+        healthy: false,
+        highProtein: true,
+        quickMeals: false,
+        lowWaste: true,
+        adventurous: false
+      },
+      familiarCoordinates: ['30023:pk:usual', 'not-a-coord'],
+      candidates: [
+        cand('salmon', {
+          title: 'Salmon',
+          nourish: { overall: 8, protein: 7, proteinGrams: 31 }
+        })
+      ]
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.request.prioritizePantry).toBe(true);
+    expect(parsed.request.planningPreferences).toMatchObject({
+      usePantry: true,
+      budgetFriendly: true,
+      highProtein: true,
+      lowWaste: true,
+      adventurous: false
+    });
+    expect(parsed.request.familiarCoordinates).toEqual(['30023:pk:usual']);
+    expect(parsed.request.candidates[0].nourish).toEqual({
+      overall: 8,
+      protein: 7,
+      proteinGrams: 31
+    });
   });
 
   it('keeps pantryIngredients when prioritizePantry is on', () => {
