@@ -3912,9 +3912,9 @@
     })();
   }
 
-  function handlePostCopy(event: CustomEvent<{ noteId: string }>) {
+  function handlePostCopy(event: CustomEvent<{ noteUri: string }>) {
     // Copy handled by PostActionsMenu component
-    console.log('Note ID copied:', event.detail.noteId);
+    console.log('Note URI copied:', event.detail.noteUri);
   }
 
   function handlePostShare(event: CustomEvent<{ url: string }>, noteEvent?: NDKEvent) {

@@ -201,6 +201,32 @@
   let lastNwcBackupCheckPubkey: string | null = null;
   const BACKUP_CHECK_TIMEOUT_MS = 8000;
   $: canCheckSparkBackup = browser && hasEncryptionSupport();
+
+  /**
+   * A backup was actually found on relays, so restoring it — not creating a
+   * new wallet — is the right next step.
+   *
+   * This flips the layout below. Creating a new wallet while a backup exists
+   * leaves the user with an empty wallet and their balance stranded in the
+   * old one, so "Create New Wallet" must not be the visually dominant choice
+   * in that state. `sparkBackupExists` is null while unknown/checking, and
+   * we only reorder on an explicit true.
+   */
+  $: recommendSparkRestore = canCheckSparkBackup && sparkBackupExists === true;
+
+  /**
+   * Same idea for NWC: a backup exists, so reconnecting it beats making the
+   * user go dig the connection string out of their wallet app again. Lower
+   * stakes than Spark (an NWC backup restores a connection, not a balance),
+   * but it's still the obviously better path when we have one.
+   */
+  $: recommendNwcRestore = canCheckNwcBackup && nwcBackupExists === true;
+
+  /** Shared styling for the non-primary wallet actions on the setup screens. */
+  const WALLET_SECONDARY_ACTION_CLASS =
+    'flex items-center justify-center gap-2 w-full px-3 py-3.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 hover:bg-white/5';
+  const WALLET_SECONDARY_ACTION_STYLE =
+    'border: 1px solid var(--color-input-border); background-color: transparent; color: var(--color-text-primary);';
   $: canCheckNwcBackup = browser && hasNwcEncryptionSupport();
 
   // Delete confirmation state
@@ -4715,11 +4741,36 @@
           {:else if canCheckNwcBackup && nwcBackupExists}
             <div
               class="mb-4 p-3 rounded-lg border text-sm"
-              style="border-color: var(--color-input-border); color: var(--color-text-primary);"
+              style="border-color: var(--color-primary); color: var(--color-text-primary);"
             >
-              Backup found on Nostr. You can restore it below.
+              <span class="font-semibold">You've connected a wallet before.</span> We found a backup
+              on Nostr.
             </div>
           {/if}
+          <!-- When a backup exists, restoring leads. Otherwise the paste-a-
+               connection-string flow leads, exactly as before. -->
+          {#if recommendNwcRestore}
+            <Button
+              on:click={handleRestoreNwcFromNostr}
+              disabled={isConnecting}
+              class="w-full spark-glow"
+            >
+              <CloudArrowDownIcon size={18} />
+              Restore from Nostr Backup
+            </Button>
+            <p class="text-xs text-caption text-center mt-2">
+              Recommended — reconnects the wallet you already set up.
+            </p>
+
+            <div class="flex items-center gap-3 my-8" aria-hidden="true">
+              <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
+              <span class="text-xs text-caption uppercase tracking-wide"
+                >Or connect a different wallet</span
+              >
+              <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
+            </div>
+          {/if}
+
           <p class="text-caption mb-4">
             NWC lets you connect any Nostr Wallet Connect–compatible wallet to zap.cooking.
           </p>
@@ -4740,12 +4791,13 @@
           <Button
             on:click={handleConnectNWC}
             disabled={isConnecting || !nwcConnectionString}
+            variant={recommendNwcRestore ? 'outline' : 'primary'}
             class="w-full"
           >
             {isConnecting ? 'Connecting...' : 'Connect NWC'}
           </Button>
 
-          {#if canCheckNwcBackup}
+          {#if canCheckNwcBackup && !recommendNwcRestore}
             <div class="flex items-center gap-3 my-8" aria-hidden="true">
               <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
               <span class="text-xs text-caption uppercase tracking-wide"
@@ -4754,9 +4806,8 @@
               <div class="flex-1 border-t" style="border-color: var(--color-input-border);"></div>
             </div>
             <button
-              class="flex items-center justify-center gap-2 w-full px-3 py-3.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 hover:bg-white/5"
-              class:spark-glow={nwcBackupExists}
-              style="border: 1px solid var(--color-input-border); background-color: transparent; color: var(--color-text-primary);"
+              class={WALLET_SECONDARY_ACTION_CLASS}
+              style={WALLET_SECONDARY_ACTION_STYLE}
               on:click={handleRestoreNwcFromNostr}
               disabled={isConnecting}
             >
@@ -4779,11 +4830,15 @@
               Checking for Nostr backup...
             </div>
           {:else if canCheckSparkBackup && sparkBackupExists}
+            <!-- Directive, not passive: the old copy ("you can restore it
+                 below") pointed past a primary "Create New Wallet" button,
+                 which is the one action that would strand their balance. -->
             <div
               class="mb-4 p-3 rounded-lg border text-sm"
-              style="border-color: var(--color-input-border); color: var(--color-text-primary);"
+              style="border-color: var(--color-primary); color: var(--color-text-primary);"
             >
-              Backup found on Nostr. You can restore it below.
+              <span class="font-semibold">You already have a wallet.</span> We found a backup on
+              Nostr.
             </div>
           {/if}
           {#if sparkRestoreMode === 'options'}
@@ -4803,7 +4858,59 @@
                 <p class="text-primary-color font-medium">{sparkLoadingMessage}</p>
                 <p class="text-caption text-sm mt-2">This may take a moment...</p>
               </div>
+            {:else if recommendSparkRestore}
+              <!-- A backup exists: restoring is the recommended next step, so
+                   it takes the primary button and the top slot. Creating a new
+                   wallet here would leave the balance stranded in the old one,
+                   so it drops below the divider as the deliberate choice. -->
+              <div class="mb-4">
+                <Button
+                  on:click={handleRestoreFromNostr}
+                  disabled={isConnecting}
+                  class="w-full spark-glow"
+                >
+                  <CloudArrowDownIcon size={18} />
+                  Restore from Nostr Backup
+                </Button>
+                <p class="text-xs text-caption text-center mt-2">
+                  Recommended — a new wallet won't have your balance.
+                </p>
+
+                <div class="flex items-center gap-3 my-8" aria-hidden="true">
+                  <div
+                    class="flex-1 border-t"
+                    style="border-color: var(--color-input-border);"
+                  ></div>
+                  <span class="text-xs text-caption uppercase tracking-wide">Other options</span>
+                  <div
+                    class="flex-1 border-t"
+                    style="border-color: var(--color-input-border);"
+                  ></div>
+                </div>
+
+                <div class="space-y-4">
+                  <button
+                    class={WALLET_SECONDARY_ACTION_CLASS}
+                    style={WALLET_SECONDARY_ACTION_STYLE}
+                    on:click={() => (sparkRestoreMode = 'mnemonic')}
+                    disabled={isConnecting}
+                  >
+                    <KeyIcon size={16} />
+                    Restore from Recovery Phrase
+                  </button>
+                  <button
+                    class={WALLET_SECONDARY_ACTION_CLASS}
+                    style={WALLET_SECONDARY_ACTION_STYLE}
+                    on:click={handleSparkCreateRequest}
+                    disabled={isConnecting}
+                  >
+                    Create New Wallet
+                  </button>
+                </div>
+              </div>
             {:else}
+              <!-- No backup found (or we can't check): creating is the right
+                   default, so this keeps the original ordering. -->
               <div class="mb-4">
                 <Button on:click={handleSparkCreateRequest} disabled={isConnecting} class="w-full">
                   Create New Wallet
@@ -4824,9 +4931,8 @@
                 <div class="space-y-4">
                   {#if canCheckSparkBackup}
                     <button
-                      class="flex items-center justify-center gap-2 w-full px-3 py-3.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 hover:bg-white/5"
-                      class:spark-glow={sparkBackupExists}
-                      style="border: 1px solid var(--color-input-border); background-color: transparent; color: var(--color-text-primary);"
+                      class={WALLET_SECONDARY_ACTION_CLASS}
+                      style={WALLET_SECONDARY_ACTION_STYLE}
                       on:click={handleRestoreFromNostr}
                       disabled={isConnecting}
                     >
@@ -4835,8 +4941,8 @@
                     </button>
                   {/if}
                   <button
-                    class="flex items-center justify-center gap-2 w-full px-3 py-3.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 hover:bg-white/5"
-                    style="border: 1px solid var(--color-input-border); background-color: transparent; color: var(--color-text-primary);"
+                    class={WALLET_SECONDARY_ACTION_CLASS}
+                    style={WALLET_SECONDARY_ACTION_STYLE}
                     on:click={() => (sparkRestoreMode = 'mnemonic')}
                     disabled={isConnecting}
                   >
