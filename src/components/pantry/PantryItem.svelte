@@ -5,6 +5,7 @@
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import XIcon from 'phosphor-svelte/lib/X';
+  import StarIcon from 'phosphor-svelte/lib/Star';
 
   export let item: PantryItemType;
   export let disabled = false;
@@ -101,6 +102,18 @@
     {#if formatPantryQuantity(item)}
       <span class="text-sm text-caption flex-shrink-0">{formatPantryQuantity(item)}</span>
     {/if}
+    <button
+      type="button"
+      class="p-1.5 rounded-lg hover:bg-amber-500/10 {item.isStaple ? 'text-amber-500' : ''}"
+      style={item.isStaple ? '' : 'color: var(--color-text-secondary);'}
+      aria-label={item.isStaple ? `Unmark ${item.name} as a staple` : `Mark ${item.name} as a staple`}
+      aria-pressed={!!item.isStaple}
+      title={item.isStaple ? 'Staple — kept until you remove it' : 'Mark as staple'}
+      {disabled}
+      on:click={() => pantryStore.toggleStaple(item.id)}
+    >
+      <StarIcon size={16} weight={item.isStaple ? 'fill' : 'regular'} />
+    </button>
     <button
       type="button"
       class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"

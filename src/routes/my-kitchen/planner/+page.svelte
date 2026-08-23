@@ -8,6 +8,7 @@
    * PR10 via the same slot editor modal (see the "PR10 seam" comment).
    */
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { onMount, onDestroy, tick } from 'svelte';
   import { userPublickey, ndk } from '$lib/nostr';
   import { isOnline } from '$lib/connectionMonitor';
@@ -133,6 +134,7 @@
   // ── Recipe picker (PR10) — fills the slot editor's seam ──
   let pickerOpen = false;
   let cheffyPlanOpen = false;
+  let initialPrioritizePantry = false;
 
   function openRecipePicker() {
     // Keep editorDay/editorSlot as the target; swap modals
@@ -396,6 +398,13 @@
     }
     await plannerStore.load();
     await scrollToToday();
+    if ($page.url.searchParams.get('planWithPantry') === '1') {
+      initialPrioritizePantry = true;
+      cheffyPlanOpen = true;
+      const next = new URL($page.url);
+      next.searchParams.delete('planWithPantry');
+      history.replaceState(history.state, '', `${next.pathname}${next.search}${next.hash}`);
+    }
   });
 
   onDestroy(() => {
@@ -765,6 +774,10 @@
   weekId={$plannerCurrentWeekId}
   occupiedSlots={cheffyOccupiedSlots}
   readOnly={isReadOnly}
+  {initialPrioritizePantry}
+  on:close={() => {
+    initialPrioritizePantry = false;
+  }}
 />
 
 <!-- Generate-grocery confirm: pre-generation summary of what will happen -->

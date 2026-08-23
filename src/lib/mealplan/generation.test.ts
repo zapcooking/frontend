@@ -412,6 +412,21 @@ describe('parseGenerationRequest', () => {
     expect(parsed.request.candidates[0].pantry?.missingIngredients).toEqual(['salmon', 'lemon']);
   });
 
+  it('keeps pantryIngredients when prioritizePantry is on', () => {
+    const parsed = parseGenerationRequest({
+      weekId: '2026-W34',
+      days: ['mon'],
+      mealSlots: ['dinner'],
+      strategy: 'fill-empty',
+      prioritizePantry: true,
+      pantryIngredients: ['chicken breast', 'rice', '  ', 'eggs'],
+      candidates: [cand('salmon', { title: 'Salmon' })]
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.request.pantryIngredients).toEqual(['chicken breast', 'rice', 'eggs']);
+  });
+
   it('rejects missing days, slots, or candidates', () => {
     expect(parseGenerationRequest({ weekId: 'nope' }).ok).toBe(false);
     expect(

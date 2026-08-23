@@ -31,6 +31,7 @@ addressable-event rules (newest `created_at` wins).
       "name": "Eggs",
       "normalizedName": "egg",
       "quantity": 8,
+      "isStaple": true,
       "createdAt": 1789000000,
       "updatedAt": 1789000000
     }
@@ -43,11 +44,21 @@ addressable-event rules (newest `created_at` wins).
 `quantity` and `unit` are optional. Absence means “I have this” without tracking
 how much.
 
+`isStaple` is optional. When true, the ingredient is a household staple: it
+stays in the pantry until the user removes it, and grocery generation treats it
+as already owned (presence-only), even if a quantity is also stored.
+
+Optional item fields may be added in schemaVersion 1 as long as they are ignored
+when absent. Unknown fields on items SHOULD be preserved by readers that rewrite
+the pantry, so later clients can add expiration dates, barcodes, and similar
+without a schema bump.
+
 Readers encountering `schemaVersion > 1` MUST treat the pantry as **read-only**.
 
 ## Grocery quantity policy (v1)
 
 - Name match is required.
+- A staple (`isStaple: true`) is presence-only → treated as already owned.
 - A pantry item **without** a quantity is presence-only → treated as already owned.
 - If both sides have a comparable numeric quantity in the **same unit family**,
   compare amounts. Insufficient pantry amount stays on the grocery list.

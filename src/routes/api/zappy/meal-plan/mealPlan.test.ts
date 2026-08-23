@@ -234,6 +234,7 @@ describe('structured plan validation', () => {
     await call(
       validBody({
         prioritizePantry: true,
+        pantryIngredients: ['olive oil', 'garlic', 'rice'],
         candidates: [
           {
             a: '30023:pk:salmon',
@@ -254,7 +255,8 @@ describe('structured plan validation', () => {
     );
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     const prompt = body.messages.find((m: { role: string }) => m.role === 'user').content as string;
-    expect(prompt).toContain('Pantry: Prefer recipes that use more ingredients');
+    expect(prompt).toContain('Pantry ingredients the user already has: olive oil, garlic, rice');
+    expect(prompt).toContain('Pantry: Prefer meals that use these ingredients');
     expect(prompt).toContain('pantry=1/2 (50%)');
   });
 

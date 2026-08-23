@@ -4,7 +4,8 @@ import {
   classifyIngredientAgainstPantry,
   classifyGroceryRows,
   ingredientsMatch,
-  matchRecipeToPantry
+  matchRecipeToPantry,
+  pantryNeededSummary
 } from './matching';
 import { sanitizePantryItem, validatePantryPayload, formatPantryQuantity } from './schema';
 import type { ParsedIngredient } from '$lib/utils/ingredientParser';
@@ -127,6 +128,18 @@ describe('matchRecipeToPantry', () => {
     expect(match.matchedIngredients).toEqual([]);
     expect(match.missingIngredients).toEqual([]);
   });
+
+  it('summarizes pantry coverage for recipe views', () => {
+    expect(pantryNeededSummary({ matchedCount: 7, totalIngredients: 10 })).toBe(
+      'You have 7 of 10 ingredients'
+    );
+    expect(pantryNeededSummary({ matchedCount: 0, totalIngredients: 3 })).toBe(
+      '3 ingredients needed'
+    );
+    expect(pantryNeededSummary({ matchedCount: 4, totalIngredients: 4 })).toBe(
+      'You have every ingredient'
+    );
+  });
 });
 
 function ing(name: string, quantity = ''): ParsedIngredient {
@@ -182,6 +195,14 @@ describe('classifyIngredientAgainstPantry', () => {
     expect(toBuy.map((r) => r.ingredient.name)).toEqual(['Feta', 'eggs']);
   });
 
+  it('treats staples as already owned even when a recipe needs more quantity', () => {
+    expect(
+      classifyIngredientAgainstPantry(ing('salt', '2 tsp'), [
+        { name: 'Salt', normalizedName: 'salt', quantity: 1, unit: 'tsp', isStaple: true }
+      ])
+    ).toBe('have');
+  });
+
   it('leaves the grocery list unchanged when pantry is empty', () => {
     const rows = [{ ingredient: ing('Rice'), recipeId: 'a' }];
     const { toBuy, inPantry } = classifyGroceryRows(rows, []);
@@ -221,5 +242,19 @@ describe('pantry schema', () => {
       updatedAt: 1
     });
     expect(validated?.readOnly).toBe(true);
+  });
+
+  it('preserves staples and unknown item fields', () => {
+    const item = sanitizePantryItem({
+      id: 'abc',
+      name: 'Salt',
+      normalizedName: 'salt',
+      isStaple: true,
+      expiresAt: 1789000999,
+      createdAt: 1,
+      updatedAt: 1
+    });
+    expect(item?.isStaple).toBe(true);
+    expect((item as { expiresAt?: number }).expiresAt).toBe(1789000999);
   });
 });

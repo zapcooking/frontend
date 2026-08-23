@@ -52,6 +52,7 @@ export const STYLE_IDS: readonly PreferenceStyleId[] = PREFERENCE_STYLES.map((s)
 export const MAX_CANDIDATES = 48;
 export const MAX_NOTES_CHARS = 500;
 export const MAX_EXCLUDE_INGREDIENTS = 20;
+export const MAX_PANTRY_INGREDIENTS = 80;
 export const MAX_INGREDIENTS_PER_CANDIDATE = 12;
 export const MAX_TAGS_PER_CANDIDATE = 8;
 export const MAX_TITLE_CHARS = 120;
@@ -98,6 +99,8 @@ export interface MealPlanGenerationRequest {
   strategy: MealPlanStrategy;
   /** Rank and prompt Cheffy to prefer recipes that use the user's pantry. */
   prioritizePantry?: boolean;
+  /** Display names of pantry ingredients. Prompt-only; never persisted. */
+  pantryIngredients?: string[];
   candidates: RecipeCandidate[];
   /** Slots that already have a meal. Required for fill-empty enforcement. */
   occupiedSlots?: MealSlotRef[];
@@ -669,6 +672,14 @@ export function parseGenerationRequest(
       : []
   };
   if (body.prioritizePantry === true) request.prioritizePantry = true;
+  if (Array.isArray(body.pantryIngredients)) {
+    const pantryIngredients = body.pantryIngredients
+      .filter((s): s is string => typeof s === 'string')
+      .map((s) => s.trim().slice(0, 80))
+      .filter(Boolean)
+      .slice(0, MAX_PANTRY_INGREDIENTS);
+    if (pantryIngredients.length) request.pantryIngredients = pantryIngredients;
+  }
 
   const targets = resolveTargetSlots(request);
   if (targets.length === 0) {

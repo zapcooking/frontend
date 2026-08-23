@@ -29,9 +29,27 @@ export interface PantryItem {
   /** Optional count. Absent means "I have this" without tracking how much. */
   quantity?: number;
   unit?: string;
+  /**
+   * Common household ingredient the user always keeps on hand.
+   * Staples stay in the pantry until explicitly removed and are treated
+   * as already owned when building grocery lists.
+   */
+  isStaple?: boolean;
   createdAt: number;
   updatedAt: number;
 }
+
+/** Keys v1 understands. Unknown item fields are preserved on rewrite. */
+const KNOWN_ITEM_KEYS = new Set([
+  'id',
+  'name',
+  'normalizedName',
+  'quantity',
+  'unit',
+  'isStaple',
+  'createdAt',
+  'updatedAt'
+]);
 
 export interface Pantry {
   schemaVersion: number;
@@ -99,6 +117,14 @@ export function sanitizePantryItem(
   if (quantity != null && quantity > 0) item.quantity = quantity;
   const unit = asTrimmedString(r.unit, 24);
   if (unit) item.unit = unit;
+  if (r.isStaple === true) item.isStaple = true;
+
+  // Preserve unknown fields (expiration, barcode, etc.) so a later
+  // client can adopt them without a schemaVersion bump. V1 ignores them.
+  for (const [key, value] of Object.entries(r)) {
+    if (KNOWN_ITEM_KEYS.has(key) || value === undefined) continue;
+    (item as Record<string, unknown>)[key] = value;
+  }
   return item;
 }
 

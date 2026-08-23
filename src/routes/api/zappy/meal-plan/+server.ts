@@ -64,7 +64,7 @@ HARD RULES
 - If a breakfast-eligible list is provided, breakfast slots may use ONLY those coordinates.
 - Prefer variety across the week unless the user asked for repeats or leftovers.
 - Honor excluded ingredients, time limits, servings, style chips, and free-text notes when the candidates allow it.
-- If pantry match data is provided, prefer recipes that use more ingredients the user already has. Do not sacrifice dietary constraints, requested meal type, cooking-time requirements, or other hard constraints merely to improve pantry utilization.
+- If pantry match data or a pantry ingredient list is provided, prefer recipes that use more ingredients the user already has, minimize extra grocery purchases, and reuse pantry ingredients across the week when that still makes a sensible meal. Do not force poor combinations. Do not sacrifice dietary constraints, requested meal type, cooking-time requirements, or other hard constraints merely to improve pantry utilization.
 - If there are not enough candidates, fill as many requested slots as you reasonably can. Do not pad with invented recipes or with recipes that do not fit the slot.
 - Keep each reason to one short sentence.
 
@@ -105,8 +105,11 @@ function buildUserPrompt(req: MealPlanGenerationRequest): string {
   }
   if (prefs.notes) lines.push(`Notes: ${prefs.notes}`);
   if (req.prioritizePantry) {
+    if (req.pantryIngredients?.length) {
+      lines.push(`Pantry ingredients the user already has: ${req.pantryIngredients.join(', ')}`);
+    }
     lines.push(
-      'Pantry: Prefer recipes that use more ingredients the user already has. Do not sacrifice dietary constraints, requested meal type, cooking-time requirements, or other hard constraints merely to improve pantry utilization.'
+      'Pantry: Prefer meals that use these ingredients, minimize additional grocery purchases, and reuse ingredients across the week when it still makes a sensible meal. Do not force poor combinations. Do not sacrifice dietary constraints, requested meal type, cooking-time requirements, or other hard constraints merely to improve pantry utilization.'
     );
   }
   if (req.excludeCoordinates?.length) {

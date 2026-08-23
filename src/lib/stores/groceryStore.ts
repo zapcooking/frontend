@@ -25,7 +25,8 @@ import {
   type GroceryList,
   type GroceryItem,
   type GroceryCategory,
-  type GroceryListEvent
+  type GroceryListEvent,
+  type PantryCoveredItem
 } from '$lib/services/groceryService';
 
 // ═══════════════════════════════════════════════════════════════
@@ -365,6 +366,26 @@ function createGroceryStore() {
       });
 
       return added;
+    },
+
+    /**
+     * Record recipe ingredients that were skipped because they matched
+     * the pantry. Existing pantryCovered rows are kept.
+     */
+    appendPantryCovered(listId: string, items: PantryCoveredItem[]): void {
+      if (!items.length) return;
+      update((s) => {
+        const lists = s.lists.map((list) => {
+          if (list.id !== listId) return list;
+          return {
+            ...list,
+            pantryCovered: [...(list.pantryCovered || []), ...items],
+            updatedAt: Math.floor(Date.now() / 1000)
+          };
+        });
+        scheduleSave(listId);
+        return { ...s, lists };
+      });
     },
 
     /**

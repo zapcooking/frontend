@@ -49,6 +49,7 @@ function createPantryStore() {
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let saveInFlight = false;
   let pubkeyUnsubscribe: (() => void) | null = null;
+  let lastPubkey: string | null | undefined = undefined;
 
   function scheduleSave(): void {
     if (get({ subscribe }).readOnly) return;
@@ -97,7 +98,8 @@ function createPantryStore() {
   function buildItem(
     name: string,
     quantityText?: string,
-    now = nowUnixSeconds()
+    now = nowUnixSeconds(),
+    isStaple?: boolean
   ): PantryItem | null {
     const trimmed = name.trim().slice(0, 80);
     if (!trimmed) return null;
@@ -111,6 +113,7 @@ function createPantryStore() {
     const parsed = parseQuantityInput(quantityText || '');
     if (parsed.quantity != null) item.quantity = parsed.quantity;
     if (parsed.unit) item.unit = parsed.unit;
+    if (isStaple) item.isStaple = true;
     return item;
   }
 
@@ -121,7 +124,20 @@ function createPantryStore() {
       if (!browser) return;
       if (pubkeyUnsubscribe) pubkeyUnsubscribe();
       pubkeyUnsubscribe = userPublickey.subscribe((pubkey) => {
-        if (!pubkey) this.clear();
+        const next = pubkey || null;
+        if (lastPubkey === undefined) {
+          lastPubkey = next;
+          if (!next) this.clear();
+          return;
+        }
+        if (next === lastPubkey) return;
+        lastPubkey = next;
+        if (!next) {
+          this.clear();
+          return;
+        }
+        this.clear();
+        this.load();
       });
     },
 
@@ -193,8 +209,14 @@ function createPantryStore() {
     /**
      * Add one or more ingredients. Comma-separated input creates multiple
      * items. `quantityText` applies only when a single name is entered.
+     * Re-adding a name that already exists is a no-op, unless `isStaple`
+     * is set — then the existing item is marked as a staple.
      */
-    addItems(rawNames: string, quantityText?: string): PantryItem[] {
+    addItems(
+      rawNames: string,
+      quantityText?: string,
+      options?: { isStaple?: boolean }
+    ): PantryItem[] {
       const parts = rawNames
         .split(/[,;\n]+/)
         .map((s) => s.trim())
@@ -203,35 +225,62 @@ function createPantryStore() {
       const created: PantryItem[] = [];
       const seenNew = new Set<string>();
       for (const part of parts) {
-        const item = buildItem(part, qty);
+        const item = buildItem(part, qty, nowUnixSeconds(), options?.isStaple);
         if (!item || seenNew.has(item.normalizedName)) continue;
         seenNew.add(item.normalizedName);
         created.push(item);
       }
       if (created.length === 0) return [];
 
-      const existing = new Set(get({ subscribe }).pantry.items.map((i) => i.normalizedName));
+      const existingItems = get({ subscribe }).pantry.items;
+      const existing = new Set(existingItems.map((i) => i.normalizedName));
       const toInsert = created.filter((item) => !existing.has(item.normalizedName));
-      if (toInsert.length === 0) return [];
+      const collided = created.filter((item) => existing.has(item.normalizedName));
 
-      const ok = mutate((pantry) => ({
-        ...pantry,
-        items: [...pantry.items, ...toInsert],
-        updatedAt: nowUnixSeconds()
-      }));
+      if (toInsert.length === 0 && !(options?.isStaple && collided.length > 0)) return [];
+
+      const ok = mutate((pantry) => {
+        const now = nowUnixSeconds();
+        let items = pantry.items;
+        if (options?.isStaple && collided.length > 0) {
+          const collideKeys = new Set(collided.map((i) => i.normalizedName));
+          items = items.map((item) =>
+            collideKeys.has(item.normalizedName) && !item.isStaple
+              ? { ...item, isStaple: true, updatedAt: now }
+              : item
+          );
+        }
+        return {
+          ...pantry,
+          items: toInsert.length ? [...items, ...toInsert] : items,
+          updatedAt: now
+        };
+      });
       return ok ? toInsert : [];
     },
 
-    updateItem(itemId: string, updates: { name?: string; quantityText?: string }): boolean {
+    updateItem(
+      itemId: string,
+      updates: { name?: string; quantityText?: string; isStaple?: boolean }
+    ): boolean {
       return mutate((pantry) => {
         const now = nowUnixSeconds();
+        const current = pantry.items.find((i) => i.id === itemId);
+        if (!current) return pantry;
+        const name = updates.name?.trim().slice(0, 80) || current.name;
+        const normalizedName = normalizeIngredientName(name) || name.toLowerCase();
+        if (
+          normalizedName !== current.normalizedName &&
+          pantry.items.some((i) => i.id !== itemId && i.normalizedName === normalizedName)
+        ) {
+          return pantry;
+        }
         const items = pantry.items.map((item) => {
           if (item.id !== itemId) return item;
-          const name = updates.name?.trim().slice(0, 80) || item.name;
           const next: PantryItem = {
             ...item,
             name,
-            normalizedName: normalizeIngredientName(name) || name.toLowerCase(),
+            normalizedName,
             updatedAt: now
           };
           if (updates.quantityText !== undefined) {
@@ -241,10 +290,18 @@ function createPantryStore() {
             if (parsed.quantity != null) next.quantity = parsed.quantity;
             if (parsed.unit) next.unit = parsed.unit;
           }
+          if (updates.isStaple === true) next.isStaple = true;
+          if (updates.isStaple === false) delete next.isStaple;
           return next;
         });
         return { ...pantry, items, updatedAt: now };
       });
+    },
+
+    toggleStaple(itemId: string): boolean {
+      const item = get({ subscribe }).pantry.items.find((i) => i.id === itemId);
+      if (!item) return false;
+      return this.updateItem(itemId, { isStaple: !item.isStaple });
     },
 
     removeItem(itemId: string): boolean {

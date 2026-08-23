@@ -112,4 +112,16 @@ describe('pantry persistence', () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(savePantry).not.toHaveBeenCalled();
   });
+
+  it('marks pantry staples and does not duplicate them', async () => {
+    await pantryStore.load();
+    pantryStore.addItems('Salt');
+    const id = get(pantryStore).pantry.items[0].id;
+    pantryStore.toggleStaple(id);
+    expect(get(pantryStore).pantry.items[0].isStaple).toBe(true);
+
+    expect(pantryStore.addItems('salt', undefined, { isStaple: true })).toEqual([]);
+    expect(get(pantryStore).pantry.items).toHaveLength(1);
+    expect(get(pantryStore).pantry.items[0].isStaple).toBe(true);
+  });
 });

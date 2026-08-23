@@ -52,6 +52,8 @@
   export let weekId: string;
   export let occupiedSlots: MealSlotRef[] = [];
   export let readOnly = false;
+  /** When true, pantry-first planning is on as soon as the modal opens. */
+  export let initialPrioritizePantry = false;
 
   const dispatch = createEventDispatcher<{ close: void; applied: void }>();
 
@@ -147,7 +149,7 @@
     notes = '';
     source = 'all';
     strategy = 'fill-empty';
-    prioritizePantry = false;
+    prioritizePantry = initialPrioritizePantry;
     error = null;
     coverageNote = null;
     pantryNote = null;
@@ -231,6 +233,9 @@
       },
       strategy,
       prioritizePantry: prioritizePantry || undefined,
+      pantryIngredients: prioritizePantry
+        ? $pantryItems.map((item) => item.name).slice(0, 80)
+        : undefined,
       candidates: filtered,
       occupiedSlots,
       ...overrides

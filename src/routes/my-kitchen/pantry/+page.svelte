@@ -13,14 +13,19 @@
     pantryDecryptFailed
   } from '$lib/stores/pantryStore';
   import { formatPantryQuantity } from '$lib/pantry/schema';
+  import { groupPantryItems } from '$lib/pantry/categories';
+  import { missingCommonStaples } from '$lib/pantry/catalog';
   import PantryEditor from '../../../components/pantry/PantryEditor.svelte';
   import PantryItem from '../../../components/pantry/PantryItem.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
   import PullToRefresh from '../../../components/PullToRefresh.svelte';
   import BasketIcon from 'phosphor-svelte/lib/Basket';
   import CircleNotchIcon from 'phosphor-svelte/lib/CircleNotch';
+  import CheffyIcon from '../../../components/icons/CheffyIcon.svelte';
+  import StarIcon from 'phosphor-svelte/lib/Star';
 
   let pullToRefreshEl: PullToRefresh;
+  let editor: PantryEditor;
   let filter = '';
 
   $: filtered = $pantryItems.filter((item) => {
@@ -32,6 +37,8 @@
       formatPantryQuantity(item).toLowerCase().includes(q)
     );
   });
+  $: groups = groupPantryItems(filtered);
+  $: stapleSuggestions = missingCommonStaples($pantryItems).slice(0, 8);
 
   async function handleRefresh() {
     try {
@@ -39,6 +46,14 @@
     } finally {
       pullToRefreshEl?.complete();
     }
+  }
+
+  function focusAdd() {
+    editor?.focus();
+  }
+
+  function addStaple(name: string) {
+    pantryStore.addItems(name, undefined, { isStaple: true });
   }
 
   onMount(async () => {
@@ -75,15 +90,28 @@
         </div>
         <div>
           <h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">Pantry</h1>
-          <p class="text-sm text-caption">Ingredients you already have. Private and encrypted.</p>
+          <p class="text-sm text-caption">
+            Tell Zap what you have. We'll use it to plan meals and skip the grocery extras.
+          </p>
         </div>
       </div>
-      {#if $pantrySaving}
-        <div class="flex items-center gap-1.5 text-sm text-caption">
-          <CircleNotchIcon size={16} class="animate-spin" />
-          <span>Saving…</span>
-        </div>
-      {/if}
+      <div class="flex items-center gap-2 flex-wrap">
+        {#if $pantrySaving}
+          <div class="flex items-center gap-1.5 text-sm text-caption">
+            <CircleNotchIcon size={16} class="animate-spin" />
+            <span>Saving…</span>
+          </div>
+        {/if}
+        {#if $pantryItems.length > 0 && !$pantryReadOnly}
+          <a
+            href="/my-kitchen/planner?planWithPantry=1"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+          >
+            <CheffyIcon size={20} expression="happy" />
+            <span>Plan With My Pantry</span>
+          </a>
+        {/if}
+      </div>
     </div>
 
     {#if $pantryError}
@@ -111,9 +139,30 @@
         <PanLoader size="md" />
       </div>
     {:else}
-      <PantryEditor disabled={$pantryReadOnly} />
+      <PantryEditor bind:this={editor} disabled={$pantryReadOnly} />
 
-      {#if $pantryItems.length > 6}
+      {#if stapleSuggestions.length > 0 && !$pantryReadOnly}
+        <div class="flex flex-col gap-2">
+          <p class="text-xs font-medium text-caption flex items-center gap-1.5">
+            <StarIcon size={12} weight="fill" class="text-amber-500" />
+            Pantry staples
+          </p>
+          <div class="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+            {#each stapleSuggestions as staple}
+              <button
+                type="button"
+                class="flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
+                style="border: 1px solid var(--color-input-border); background-color: var(--color-input-bg); color: var(--color-text-primary);"
+                on:click={() => addStaple(staple)}
+              >
+                {staple}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if $pantryItems.length > 0}
         <input
           bind:value={filter}
           type="search"
@@ -124,27 +173,47 @@
       {/if}
 
       {#if $pantryItems.length === 0}
-        <div class="flex flex-col items-center justify-center py-16 px-4">
+        <div class="flex flex-col items-center justify-center py-12 px-4">
           <div
             class="w-20 h-20 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
           >
             <BasketIcon size={40} weight="regular" class="text-orange-500" />
           </div>
           <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
-            Your pantry is empty
+            What's in your kitchen?
           </h2>
-          <p class="text-caption text-center max-w-md">
-            Add a few ingredients you already have and Cheffy can build meals around them.
+          <p class="text-caption text-center max-w-md mb-5">
+            Add ingredients you already have and Zap can use them to help plan meals and simplify
+            your grocery list.
           </p>
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+            on:click={focusAdd}
+          >
+            Add your first ingredient
+          </button>
         </div>
       {:else if filtered.length === 0}
         <p class="text-sm text-caption text-center py-8">No pantry items match that search.</p>
       {:else}
-        <ul class="flex flex-col gap-2">
-          {#each filtered as item (item.id)}
-            <PantryItem {item} disabled={$pantryReadOnly} />
+        <div class="flex flex-col gap-6">
+          {#each groups as group (group.category)}
+            <section class="flex flex-col gap-2">
+              <h2
+                class="text-xs font-semibold uppercase tracking-wide"
+                style="color: var(--color-caption);"
+              >
+                {group.label}
+              </h2>
+              <ul class="flex flex-col gap-2">
+                {#each group.items as item (item.id)}
+                  <PantryItem {item} disabled={$pantryReadOnly} />
+                {/each}
+              </ul>
+            </section>
           {/each}
-        </ul>
+        </div>
       {/if}
     {/if}
   </div>

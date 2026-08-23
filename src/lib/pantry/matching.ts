@@ -6,6 +6,7 @@
  *
  * Grocery quantity policy (V1)
  * - Name match is required.
+ * - A staple is always presence-only → `have`, even if a quantity is stored.
  * - If the pantry item has no quantity, treat as presence-only: the user
  *   said they have it without tracking how much → `have`.
  * - If both sides have a comparable numeric quantity in the same unit
@@ -226,7 +227,7 @@ function parseComparableQuantity(
  */
 export function classifyIngredientAgainstPantry(
   ingredient: ParsedIngredient,
-  pantry: Array<Pick<PantryItem, 'name' | 'normalizedName' | 'quantity' | 'unit'>>
+  pantry: Array<Pick<PantryItem, 'name' | 'normalizedName' | 'quantity' | 'unit' | 'isStaple'>>
 ): GroceryPantryStatus {
   const item = pantry.find(
     (p) =>
@@ -234,6 +235,12 @@ export function classifyIngredientAgainstPantry(
       ingredientsMatch(ingredient.name, p.name)
   );
   if (!item) return 'need';
+
+  if (item.isStaple) {
+    // Staples are always-on-hand; quantity is ignored so grocery lists
+    // do not keep suggesting salt, oil, and similar household items.
+    return 'have';
+  }
 
   const pantryQty = parseComparableQuantity(undefined, item.quantity, item.unit);
   if (!pantryQty) {
@@ -249,7 +256,7 @@ export function classifyIngredientAgainstPantry(
 
 export function classifyGroceryRows(
   rows: Array<{ ingredient: ParsedIngredient; recipeId: string }>,
-  pantry: Array<Pick<PantryItem, 'name' | 'normalizedName' | 'quantity' | 'unit'>>
+  pantry: Array<Pick<PantryItem, 'name' | 'normalizedName' | 'quantity' | 'unit' | 'isStaple'>>
 ): { toBuy: ClassifiedGroceryRow[]; inPantry: ClassifiedGroceryRow[] } {
   const toBuy: ClassifiedGroceryRow[] = [];
   const inPantry: ClassifiedGroceryRow[] = [];
@@ -269,7 +276,22 @@ export function pantryMatchSummary(match: {
 }): string {
   const total = match.totalIngredients ?? match.totalCount ?? 0;
   if (total === 0) return '';
-  return `You already have ${match.matchedCount} of ${total} ingredients`;
+  return `You have ${match.matchedCount} of ${total} ingredients`;
+}
+
+export function pantryNeededSummary(match: {
+  matchedCount: number;
+  totalIngredients?: number;
+  totalCount?: number;
+}): string {
+  const total = match.totalIngredients ?? match.totalCount ?? 0;
+  if (total === 0) return '';
+  const needed = total - match.matchedCount;
+  if (needed === 0) return 'You have every ingredient';
+  if (match.matchedCount === 0) {
+    return `${needed} ingredient${needed === 1 ? '' : 's'} needed`;
+  }
+  return pantryMatchSummary(match);
 }
 
 export function weakPantryPlanNote(

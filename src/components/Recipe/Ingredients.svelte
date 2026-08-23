@@ -2,6 +2,9 @@
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { scaleIngredientLine } from '$lib/ingredientScaling';
+  import { userPublickey } from '$lib/nostr';
+  import { pantryStore, pantryItems, pantryInitialized } from '$lib/stores/pantryStore';
+  import { findMatchingPantryItem, matchRecipeToPantry, pantryNeededSummary } from '$lib/pantry/matching';
 
   export let items: string[] = [];
   export let recipeId: string;
@@ -24,8 +27,17 @@
   $: checkedStorageKey = `${CHECKED_KEY}${recipeId}`;
   $: scaleStorageKey = `${SCALE_KEY}${recipeId}`;
   $: scaledItems = items.map((item) => scaleIngredientLine(item, scale));
+  $: pantryMatch = matchRecipeToPantry(items, $pantryItems);
+  $: showPantryMarks = $pantryInitialized && $pantryItems.length > 0 && pantryMatch.totalIngredients > 0;
+  $: pantrySummary = showPantryMarks ? pantryNeededSummary(pantryMatch) : '';
+  $: inPantryByIndex = showPantryMarks
+    ? items.map((line) => !!findMatchingPantryItem(line, $pantryItems))
+    : [];
 
   onMount(() => {
+    if (browser && $userPublickey && !$pantryInitialized) {
+      pantryStore.load();
+    }
     if (!browser || !recipeId) return;
     try {
       const storedChecked = localStorage.getItem(checkedStorageKey);
@@ -84,7 +96,12 @@
 {#if items.length > 0}
   <div id="ingredients-section" class="ingredients-section">
     <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-      <h2 class="text-2xl font-bold">Ingredients</h2>
+      <div class="min-w-0">
+        <h2 class="text-2xl font-bold">Ingredients</h2>
+        {#if pantrySummary}
+          <p class="text-xs text-caption mt-0.5">{pantrySummary}</p>
+        {/if}
+      </div>
       <div class="flex items-center gap-2 print:hidden">
         <div
           class="flex items-center rounded-full border overflow-hidden"
@@ -152,7 +169,18 @@
                 </svg>
               {/if}
             </span>
-            <span class="flex-1" class:struck={checked.has(i)}>{item}</span>
+            <span class="flex-1" class:struck={checked.has(i)}>
+              {#if showPantryMarks}
+                <span
+                  class="inline-block w-4 text-xs font-medium mr-1 {inPantryByIndex[i]
+                    ? 'in-pantry'
+                    : 'need-pantry'}"
+                  title={inPantryByIndex[i] ? 'In your pantry' : 'Not in your pantry'}
+                  aria-hidden="true"
+                >{inPantryByIndex[i] ? '✓' : '○'}</span>
+              {/if}
+              {item}
+            </span>
           </button>
         </li>
       {/each}
@@ -167,6 +195,14 @@
 
   .struck {
     text-decoration: line-through;
+    color: var(--color-caption);
+  }
+
+  .in-pantry {
+    color: #16a34a;
+  }
+
+  .need-pantry {
     color: var(--color-caption);
   }
 
