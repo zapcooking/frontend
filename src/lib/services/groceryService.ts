@@ -101,6 +101,27 @@ function dTagToListId(dTag: string): string | null {
   return dTag.slice(GROCERY_D_TAG_PREFIX.length);
 }
 
+/** Drop malformed pantryCovered rows so the grocery UI never reads `.name` on null. */
+export function sanitizePantryCovered(raw: unknown): PantryCoveredItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: PantryCoveredItem[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const r = entry as Record<string, unknown>;
+    const name = typeof r.name === 'string' ? r.name.trim().slice(0, 80) : '';
+    if (!name) continue;
+    const covered: PantryCoveredItem = {
+      name,
+      quantity: typeof r.quantity === 'string' ? r.quantity.trim().slice(0, 40) : ''
+    };
+    if (typeof r.recipeId === 'string' && r.recipeId.trim()) {
+      covered.recipeId = r.recipeId.trim();
+    }
+    out.push(covered);
+  }
+  return out.length ? out : undefined;
+}
+
 /**
  * Extract recipe links from event tags
  */
@@ -284,7 +305,7 @@ async function decryptGroceryEvent(
       items: payload.items || [],
       recipeLinks,
       notes: payload.notes,
-      pantryCovered: Array.isArray(payload.pantryCovered) ? payload.pantryCovered : undefined,
+      pantryCovered: sanitizePantryCovered(payload.pantryCovered),
       createdAt: payload.createdAt || (event.created_at || Math.floor(Date.now() / 1000)),
       updatedAt: payload.updatedAt || (event.created_at || Math.floor(Date.now() / 1000))
     };

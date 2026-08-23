@@ -72,14 +72,16 @@ export async function fetchPantry(): Promise<PantryFetchResult> {
 
   try {
     const fetchPromise = ndkInstance.fetchEvents(filter, { closeOnEose: true });
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) => {
-      setTimeout(() => {
+      timeoutId = setTimeout(() => {
         console.log('[PantryService] Fetch timed out, returning empty set');
         resolve(new Set());
       }, FETCH_TIMEOUT_MS);
     });
 
     const events = await Promise.race([fetchPromise, timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
     if (events.size === 0) return { status: 'empty' };
 
     let newest: NDKEvent | null = null;
