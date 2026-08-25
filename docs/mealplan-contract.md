@@ -123,12 +123,18 @@ hashes below. Unilateral edits on either side fail the Android checksum drift te
 | `week.vectors.json` | `de5c75e648548f0fe38ebe021a03da17a1f3a977ec7b103642bbf0fd066faf30` |
 | `mealplan-schema.vectors.json` | `d8a34927d30a8a636bbc84ed3a384ee5f975d65827ae3302aceffb0239373e18` |
 | `grocery-generation.vectors.json` | `090faff2b486886c0c14fe83e3a4fe48f2b3de8ddff375f18f1e5c1d125508d0` |
+| `mealplan-eligibility.vectors.json` | `36e19caaa2ecc7df9005c1dc6f342a92a7cbe4b685faa3461c236fd3c39f531d` |
 
 Notes:
 
 - `ingredient-parser.vectors.json` pins quirks (plural singularization `"2 cups"` → `"2 cup"`,
   comma-suffix retention `"eggs, beaten"`) — they are the contract, not bugs to "fix" on one
   platform.
+- `mealplan-eligibility.vectors.json` pins Cheffy meal-slot eligibility
+  (`src/lib/mealplan/slotEligibility.ts`). Android's port must checksum-match this file. The
+  `category-tag-zapcooking-breakfast` case is deliberate: `normalize()` turns `-` into a space and
+  `tagMatches` uses contains, so category-prefixed tags still carry the breakfast/snack signal and
+  must not be prefix-stripped.
 - `mealplan-schema.vectors.json` case `default-missing-fields` asserts `createdAt > 0` (wall
   clock), not a fixed timestamp.
 - After editing any fixture file, recompute sha256 (`shasum -a 256`) and update this table **and**
