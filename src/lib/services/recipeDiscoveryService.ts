@@ -12,7 +12,7 @@ import {
   RECIPE_TAG_PREFIX_LEGACY,
   RECIPE_TAG_PREFIX_NEW,
   RECIPE_TAGS,
-  HIDDEN_RECIPE_COORDINATES,
+  isHiddenRecipeATag,
   isHiddenRecipeCoordinate
 } from '$lib/consts';
 import { fetchMyAuthoredRecipeEvents } from '$lib/myRecipesPack';
@@ -136,7 +136,7 @@ export function candidateFromEvent(event: NDKEvent): DiscoveredRecipe | null {
 }
 
 export function candidateFromCached(recipe: CachedRecipe): DiscoveredRecipe | null {
-  if (!isRecipeCoordinate(recipe.id) || HIDDEN_RECIPE_COORDINATES.has(recipe.id)) return null;
+  if (!isRecipeCoordinate(recipe.id) || isHiddenRecipeATag(recipe.id)) return null;
   const details = recipe.content ? extractRecipeDetails(recipe.content) : null;
   const ingredients =
     recipe.ingredients?.length > 0
@@ -198,7 +198,7 @@ export function attachDiscoveredImages<T extends { a: string }>(
 
 async function resolveCoordinates(ndk: NDK, aTags: string[]): Promise<DiscoveredRecipe[]> {
   const unique = [
-    ...new Set(aTags.filter((a) => isRecipeCoordinate(a) && !HIDDEN_RECIPE_COORDINATES.has(a)))
+    ...new Set(aTags.filter((a) => isRecipeCoordinate(a) && !isHiddenRecipeATag(a)))
   ];
   if (unique.length === 0) return [];
 

@@ -6,7 +6,7 @@
   import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey, ensureNdkConnected } from '$lib/nostr';
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
-  import { standardRelays } from '$lib/consts';
+  import { standardRelays, isHiddenRecipeATag } from '$lib/consts';
   import { RECIPE_PACK_KIND, RECIPE_PACK_TAG, ZAP_COOKING_TAG } from '$lib/recipePack';
   import { savedPacksStore, savedPackATags } from '$lib/savedPacksStore';
   import RecipePackCard from '../../components/RecipePackCard.svelte';
@@ -364,7 +364,10 @@
     const title = find('title') || find('d') || 'Recipe Pack';
     const description = find('description') || '';
     const image = find('image') || undefined;
-    const recipeCount = e.tags?.filter((t) => t[0] === 'a').length || 0;
+    const recipeCount =
+      e.tags?.filter(
+        (t) => t[0] === 'a' && typeof t[1] === 'string' && t[1] !== '' && !isHiddenRecipeATag(t[1])
+      ).length || 0;
     const dTag = find('d') || '';
     let viewUrl = '';
     if (dTag && e.pubkey) {

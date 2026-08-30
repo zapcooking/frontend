@@ -34,6 +34,7 @@
   import { lazyLoad } from '$lib/lazyLoad';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { offlineStorage } from '$lib/offlineStorage';
+  import { isHiddenRecipeATag } from '$lib/consts';
   import { isOnline } from '$lib/connectionMonitor';
   import { cookbookStore, cookbookLists } from '$lib/stores/cookbookStore';
   import { buildPackUrl } from '$lib/recipePack';
@@ -129,7 +130,10 @@
         return;
       }
       packEvent = found;
-      const tags = found.tags.filter((t) => t[0] === 'a').map((t) => t[1]);
+      const tags = found.tags
+        .filter((t) => t[0] === 'a')
+        .map((t) => t[1])
+        .filter((a) => !isHiddenRecipeATag(a));
       loaded = true; // header can render now
       await resolveRecipes(tags);
     } catch (err) {

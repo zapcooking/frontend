@@ -32,9 +32,24 @@ export const RECIPE_TAG_PREFIX_LEGACY = 'nostrcooking';
 export const RECIPE_TAGS = [RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY]; // For filtering (supports both)
 
 /**
- * Dev / e2e test recipes that should never surface on /recipes.
+ * Dev / e2e test recipes that should never surface anywhere on the site.
  * Coordinates are NIP-01 addressable keys `kind:pubkey:d-tag` (not event ids),
  * so later replaceable revisions stay hidden too.
+ *
+ * These entries are artifacts of a process failure that has now happened
+ * twice: live-write test gates (first an Android build, then the iOS 2.3
+ * live-publish gate) published test recipes to production relays and then
+ * discarded the ephemeral signing keys before cleaning up, making NIP-09
+ * deletion impossible. If you are here to add another coordinate, stop and
+ * fix the test instead — live-publish tests must publish, verify, and
+ * DELETE with the same key before discarding it. This list is damage
+ * control, not the normal fix.
+ *
+ * This list is duplicated across three codebases with no shared package.
+ * Any change here must be mirrored in:
+ *   Android: app/src/main/kotlin/cooking/zap/app/nostr/HiddenRecipes.kt
+ *   iOS:     HiddenRecipes.swift
+ * Drift means a recipe hidden on one client stays visible on another.
  *
  * Source naddrs (19): zc-pr11 / pr10 / pr11-ghost / pr10-zero-parse* / e2e-*.
  */
@@ -60,14 +75,45 @@ export const HIDDEN_RECIPE_COORDINATES: ReadonlySet<string> = new Set([
   '30023:dd7e9c53ae4509aba878370c7285395e5d61b98e8eabdb33afa4deb6b6f68c13:e2e-curry'
 ]);
 
-/** True when a recipe coordinate is on the permanent /recipes hide list. */
+/**
+ * d-tag prefixes that mark junk test recipes regardless of pubkey. The iOS
+ * 2.3 live-publish gate spread nine recipes across eight ephemeral pubkeys,
+ * so an exact-coordinate (or pubkey) list would grow with every future gate
+ * run; the shared d-tag prefix is the stable identifier. Mirror changes in
+ * the Android/iOS files listed above.
+ */
+export const HIDDEN_RECIPE_DTAG_PREFIXES = ['ios-2.3-live-publish-'] as const;
+
+/** True when a recipe coordinate is on the permanent site-wide hide list. */
 export function isHiddenRecipeCoordinate(
   kind: number | undefined | null,
   pubkey: string | undefined | null,
   dTag: string | undefined | null
 ): boolean {
   if (kind == null || !pubkey || !dTag) return false;
-  return HIDDEN_RECIPE_COORDINATES.has(`${kind}:${pubkey}:${dTag}`);
+  if (HIDDEN_RECIPE_COORDINATES.has(`${kind}:${pubkey}:${dTag}`)) return true;
+  // Prefix matching is recipe-only so a non-recipe addressable event (e.g. a
+  // kind-30001 cookbook list) with a colliding d-tag is never swallowed.
+  if (kind !== 30023 && kind !== GATED_RECIPE_KIND) return false;
+  return HIDDEN_RECIPE_DTAG_PREFIXES.some((prefix) => dTag.startsWith(prefix));
+}
+
+/** True when a nostr event (NDKEvent-shaped) is on the site-wide hide list. */
+export function isHiddenRecipeEvent(event: {
+  kind?: number | null;
+  pubkey?: string;
+  tags?: readonly (readonly string[])[];
+}): boolean {
+  const dTag = event.tags?.find((t) => t[0] === 'd')?.[1];
+  return isHiddenRecipeCoordinate(event.kind, event.pubkey, dTag);
+}
+
+/** True when an addressable coordinate string (`kind:pubkey:d-tag`) is hidden. */
+export function isHiddenRecipeATag(aTag: string | undefined | null): boolean {
+  if (!aTag) return false;
+  const [kind, pubkey, ...dParts] = aTag.split(':');
+  // d-tags may themselves contain ':', so rejoin the tail.
+  return isHiddenRecipeCoordinate(Number(kind), pubkey, dParts.join(':'));
 }
 
 // Gated/Premium recipe kind (addressable event in 30000-39999 range)
