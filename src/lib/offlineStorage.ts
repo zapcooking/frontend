@@ -6,6 +6,7 @@
  */
 
 import { browser } from '$app/environment';
+import { isHiddenRecipeATag } from '$lib/consts';
 
 // Database configuration
 const DB_NAME = 'zapcooking-offline';
@@ -556,6 +557,7 @@ class OfflineStorageManager {
 
     const dTag = event.tags?.find((t: string[]) => t[0] === 'd')?.[1] || '';
     const aTag = `${event.kind}:${event.pubkey}:${dTag}`;
+    if (isHiddenRecipeATag(aTag)) return;
     console.log('[OfflineStorage] Saving recipe:', aTag, '- Title:', event.tags?.find((t: string[]) => t[0] === 'title')?.[1]);
 
     // Parse ingredients from tags
@@ -597,6 +599,7 @@ class OfflineStorageManager {
    * Get a cached recipe by its a-tag
    */
   async getRecipe(aTag: string): Promise<CachedRecipe | null> {
+    if (isHiddenRecipeATag(aTag)) return null;
     await this.ready();
     if (!this.db) {
       console.warn('[OfflineStorage] getRecipe: DB not ready');
@@ -653,7 +656,10 @@ class OfflineStorageManager {
       const store = transaction.objectStore(RECIPES_STORE);
       const request = store.getAll();
 
-      request.onsuccess = () => resolve(request.result || []);
+      request.onsuccess = () =>
+        resolve(
+          ((request.result || []) as CachedRecipe[]).filter((r) => !isHiddenRecipeATag(r.id))
+        );
       request.onerror = () => reject(request.error);
     });
   }

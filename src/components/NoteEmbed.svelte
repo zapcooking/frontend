@@ -4,6 +4,7 @@
   import { browser } from '$app/environment';
   import { ndk } from '$lib/nostr';
   import { mutedPubkeys } from '$lib/muteListStore';
+  import { isHiddenRecipeEvent } from '$lib/consts';
   import CustomAvatar from './CustomAvatar.svelte';
   import AuthorName from './AuthorName.svelte';
   import { formatDistanceToNow } from 'date-fns';
@@ -126,6 +127,7 @@
       let resolved = false;
 
       subscription.on('event', (receivedEvent: NDKEvent) => {
+        if (isHiddenRecipeEvent(receivedEvent)) return;
         if (!event) {
           event = receivedEvent;
           loading = false;

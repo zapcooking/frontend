@@ -10,7 +10,12 @@
   import PanLoader from '../../../components/PanLoader.svelte';
   import RightRail from '../../../components/RightRail.svelte';
   import RailCard from '../../../components/RailCard.svelte';
-  import { GATED_RECIPE_KIND, RECIPE_TAGS } from '$lib/consts';
+  import {
+    GATED_RECIPE_KIND,
+    RECIPE_TAGS,
+    isHiddenRecipeCoordinate,
+    isHiddenRecipeEvent
+  } from '$lib/consts';
   import { getRecipeOgMeta } from '$lib/recipeOgMeta';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
 
@@ -40,6 +45,7 @@
       const items: { naddr: string; title: string; image: string }[] = [];
       for (const ev of events) {
         if (ev.id === current.id) continue;
+        if (isHiddenRecipeEvent(ev)) continue;
         const isRecipe = ev.tags.some(
           (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
         );
@@ -94,6 +100,13 @@
         // Support both regular recipes (30023) and premium recipes (35000)
         const recipeKind = b.kind === GATED_RECIPE_KIND ? GATED_RECIPE_KIND : 30023;
 
+        // Site-wide hidden coordinates 404 without hitting relays
+        if (isHiddenRecipeCoordinate(recipeKind, b.pubkey, b.identifier)) {
+          loading = false;
+          error = 'Recipe not found';
+          return;
+        }
+
         naddr = nip19.naddrEncode({
           identifier: b.identifier,
           pubkey: b.pubkey,
@@ -133,6 +146,11 @@
 
         const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
         if (e) {
+          if (isHiddenRecipeEvent(e)) {
+            loading = false;
+            error = 'Recipe not found';
+            return;
+          }
           event = e;
           const id = e.tags.find((z: any) => z[0] == 'd')?.[1];
           if (!id || !e.kind) {

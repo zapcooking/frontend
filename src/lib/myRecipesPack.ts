@@ -17,7 +17,7 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import { validateMarkdownTemplate } from '$lib/parser';
-import { RECIPE_TAGS } from '$lib/consts';
+import { RECIPE_TAGS, isHiddenRecipeCoordinate } from '$lib/consts';
 
 export interface MyRecipeForPack {
   /** Addressable a-tag in `kind:pubkey:dTag` form, ready to drop into a Recipe Pack event. */
@@ -93,6 +93,7 @@ export async function fetchMyAuthoredRecipeEvents(ndk: NDK, pubkey: string): Pro
       if (typeof validation === 'string') return;
       const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
       if (!dTag) return;
+      if (isHiddenRecipeCoordinate(RECIPE_KIND, pubkey, dTag)) return;
       const aTag = `${RECIPE_KIND}:${pubkey}:${dTag}`;
       const existing = byATag.get(aTag);
       if (existing && (existing.created_at || 0) >= (event.created_at || 0)) return;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { recipeTags, type recipeTagSimple, RECIPE_TAGS } from '$lib/consts';
+  import { recipeTags, type recipeTagSimple, RECIPE_TAGS, isHiddenRecipeEvent } from '$lib/consts';
   import { ndk, userPublickey } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
   import { NDKRelaySet, type NDKEvent } from '@nostr-dev-kit/ndk';
@@ -130,6 +130,7 @@
       if (cachedEvents && cachedEvents.length > 0) {
         const map = new Map<string, (typeof recipeCache)[0]>();
         for (const event of cachedEvents) {
+          if (isHiddenRecipeEvent(event)) continue;
           const title = event.tags.find((t) => t[0] === 'title')?.[1] || 'Untitled';
           const summary = event.tags.find((t) => t[0] === 'summary')?.[1] || '';
           const d = event.tags.find((t) => t[0] === 'd')?.[1] || '';
@@ -165,6 +166,7 @@
       const tempMap = new Map<string, (typeof recipeCache)[0]>();
 
       recipeSubscription.on('event', (event: any) => {
+        if (isHiddenRecipeEvent(event)) return;
         const title = event.tags.find((t: any) => t[0] === 'title')?.[1] || 'Untitled';
         const summary = event.tags.find((t: any) => t[0] === 'summary')?.[1] || '';
         const d = event.tags.find((t: any) => t[0] === 'd')?.[1] || '';
@@ -349,6 +351,7 @@
       const d = event.tags.find((t: string[]) => t[0] === 'd')?.[1];
       const title = event.tags.find((t: string[]) => t[0] === 'title')?.[1];
       if (!d || !title) return;
+      if (isHiddenRecipeEvent(event)) return;
 
       const naddr = nip19.naddrEncode({ kind: 30023, pubkey: event.pubkey, identifier: d });
       if (searchResults.recipes.some((r) => r.naddr === naddr)) return;

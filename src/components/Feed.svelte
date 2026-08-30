@@ -19,6 +19,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import RecipeCard from './RecipeCard.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
+  import { isHiddenRecipeEvent } from '$lib/consts';
 
   export let events: NDKEvent[];
   export let hideHide = false;
@@ -45,12 +46,14 @@
     // Perform validation checks
     const hasContent = Boolean(e.content && e.content.trim() !== '');
     const notDeleted = !e.tags.some((t) => t[0] === 'deleted');
+    // Site-wide hide list (applies to lists too, so no `lists` bypass)
+    const notHidden = !isHiddenRecipeEvent(e);
 
     // For lists, skip markdown validation
     // For recipes, validate markdown structure
     const validStructure = lists || typeof validateMarkdownTemplate(e.content) !== 'string';
 
-    const isValid: boolean = hasContent && notDeleted && validStructure;
+    const isValid: boolean = hasContent && notDeleted && notHidden && validStructure;
 
     // Cache the result
     if (eventId) {

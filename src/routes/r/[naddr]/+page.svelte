@@ -7,7 +7,7 @@
   import { onMount } from 'svelte';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
-  import { GATED_RECIPE_KIND, RECIPE_TAGS } from '$lib/consts';
+  import { GATED_RECIPE_KIND, RECIPE_TAGS, isHiddenRecipeCoordinate } from '$lib/consts';
   import { getRecipeOgMeta } from '$lib/recipeOgMeta';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
@@ -43,6 +43,13 @@
 
         // Support both regular recipes (30023) and premium recipes (35000)
         const recipeKind = b.kind === GATED_RECIPE_KIND ? GATED_RECIPE_KIND : 30023;
+
+        // Site-wide hidden coordinates 404 without hitting relays
+        if (isHiddenRecipeCoordinate(recipeKind, b.pubkey, b.identifier)) {
+          loading = false;
+          error = 'Recipe not found';
+          return;
+        }
 
         naddr = nip19.naddrEncode({
           identifier: b.identifier,
