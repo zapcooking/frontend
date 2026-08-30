@@ -24,6 +24,14 @@ describe('isHiddenRecipeCoordinate', () => {
   it('hides any pubkey whose d-tag matches a listed prefix', () => {
     expect(isHiddenRecipeCoordinate(30023, 'f'.repeat(64), 'ios-2.3-live-publish-0001')).toBe(true);
     expect(isHiddenRecipeCoordinate(30023, 'a'.repeat(64), 'ios-2.3-live-publish-')).toBe(true);
+    // premium recipe kind is prefix-matched too
+    expect(isHiddenRecipeCoordinate(35000, 'f'.repeat(64), 'ios-2.3-live-publish-1')).toBe(true);
+  });
+
+  it('limits prefix matching to recipe kinds', () => {
+    // a kind-30001 cookbook list with a colliding d-tag is not swallowed
+    expect(isHiddenRecipeCoordinate(30001, 'f'.repeat(64), 'ios-2.3-live-publish-1')).toBe(false);
+    expect(isHiddenRecipeCoordinate(30078, 'f'.repeat(64), 'ios-2.3-live-publish-1')).toBe(false);
   });
 
   it('does not hide normal recipes', () => {

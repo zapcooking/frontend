@@ -92,6 +92,9 @@ export function isHiddenRecipeCoordinate(
 ): boolean {
   if (kind == null || !pubkey || !dTag) return false;
   if (HIDDEN_RECIPE_COORDINATES.has(`${kind}:${pubkey}:${dTag}`)) return true;
+  // Prefix matching is recipe-only so a non-recipe addressable event (e.g. a
+  // kind-30001 cookbook list) with a colliding d-tag is never swallowed.
+  if (kind !== 30023 && kind !== GATED_RECIPE_KIND) return false;
   return HIDDEN_RECIPE_DTAG_PREFIXES.some((prefix) => dTag.startsWith(prefix));
 }
 

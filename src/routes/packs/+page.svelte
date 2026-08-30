@@ -365,7 +365,9 @@
     const description = find('description') || '';
     const image = find('image') || undefined;
     const recipeCount =
-      e.tags?.filter((t) => t[0] === 'a' && !isHiddenRecipeATag(t[1])).length || 0;
+      e.tags?.filter(
+        (t) => t[0] === 'a' && typeof t[1] === 'string' && t[1] !== '' && !isHiddenRecipeATag(t[1])
+      ).length || 0;
     const dTag = find('d') || '';
     let viewUrl = '';
     if (dTag && e.pubkey) {
