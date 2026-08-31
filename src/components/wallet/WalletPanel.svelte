@@ -5058,11 +5058,12 @@
 
   <!-- Mnemonic Display Modal removed - replaced by backup reminder banner -->
 
-  <!-- Reveal Mnemonic Modal - higher z-index to appear above other modals -->
+  <!-- This portal sits alongside the parent wallet modal at <body> level.
+       It must clear Modal.svelte's z-[10000] backdrop. -->
   {#if revealedMnemonic && portalTarget}
     <div use:portal={portalTarget}>
       <div
-        class="fixed inset-0 bg-black/50 flex z-[60] p-4"
+        class="fixed inset-0 bg-black/50 flex z-[10001] p-4"
         style="display: flex; align-items: center; justify-content: center;"
       >
         <div
