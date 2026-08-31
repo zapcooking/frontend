@@ -108,6 +108,19 @@ function createPersistentLightningAddress() {
 export const lightningAddress = createPersistentLightningAddress();
 
 export const walletBalance = writable<bigint | null>(null);
+export const USDB_TOKEN_IDENTIFIER = 'btkn1xgrvjwey5ngcagvap2dzzvsy4uk8ua9x69k82dwvt5e7ef9drm9qztux87';
+export interface StableBalanceState {
+  active: boolean;
+  label: string;
+  balance: bigint;
+  decimals: number;
+}
+export const stableBalance = writable<StableBalanceState>({
+  active: false,
+  label: 'USDB',
+  balance: 0n,
+  decimals: 6
+});
 export const walletInitialized = writable<boolean>(false);
 export const sparkLoading = writable<boolean>(false);
 export const sparkSyncing = writable<boolean>(false); // True while explicit sync is in progress
@@ -217,7 +230,30 @@ async function refreshBalanceInternal(): Promise<void> {
     const balanceValue =
       info.balanceSats ?? info.balanceSat ?? info.balance_sats ?? info.balance ?? 0;
     walletBalance.set(BigInt(balanceValue));
+    const tokenBalances = info.tokenBalances;
+    const balances = tokenBalances instanceof Map ? Array.from(tokenBalances.values()) : [];
+    const usdb = balances.find((entry: any) => entry?.tokenMetadata?.identifier === USDB_TOKEN_IDENTIFIER);
+    let active = false;
+    try {
+      const settings = await _sdkInstance.getUserSettings();
+      active = settings?.stableBalanceActiveLabel === 'USDB';
+    } catch {}
+    stableBalance.set({
+      active,
+      label: usdb?.tokenMetadata?.ticker || 'USDB',
+      balance: BigInt(usdb?.balance ?? 0),
+      decimals: Number(usdb?.tokenMetadata?.decimals ?? 6)
+    });
   } catch {}
+}
+
+export async function setStableBalanceEnabled(enabled: boolean): Promise<void> {
+  if (!_sdkInstance) throw new Error('Spark SDK is not initialized');
+  await _sdkInstance.updateUserSettings({
+    stableBalanceActiveLabel: enabled ? { type: 'set', label: 'USDB' } : { type: 'unset' }
+  });
+  await _sdkInstance.syncWallet({});
+  await refreshBalanceInternal();
 }
 
 /**
@@ -350,6 +386,9 @@ export async function initializeSdk(
     const config = defaultConfig('mainnet');
     config.apiKey = apiKey;
     config.privateEnabledDefault = true;
+    config.stableBalanceConfig = {
+      tokens: [{ label: 'USDB', tokenIdentifier: USDB_TOKEN_IDENTIFIER }]
+    };
 
     // Use sats.zap.cooking (subdomain) in production, breez.tips for local development
     // Strategy A: Subdomain approach - uses CNAME sats -> breez.tips in Cloudflare
@@ -535,6 +574,7 @@ export async function disconnectWallet(): Promise<void> {
     breezSdk.set(null);
     lightningAddress.set(null);
     walletBalance.set(null);
+    stableBalance.set({ active: false, label: 'USDB', balance: 0n, decimals: 6 });
     walletInitialized.set(false);
     sparkSyncing.set(false);
     _sdkInstance = null;
