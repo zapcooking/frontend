@@ -80,6 +80,8 @@
     claimDeposit,
     claimDepositWithNetworkFee,
     refundDeposit,
+    stableBalance,
+    setStableBalanceEnabled,
     isBitcoinAddress,
     type SparkWalletBackup,
     type SparkBackupEntry,
@@ -673,6 +675,28 @@
   let isSendingOnchain = false;
   let showOnchainConfirmation = false; // Show address verification step before sending
   let sendingMaxBalance = false; // Track if user wants to send full balance (fee will be deducted)
+  let stableBalanceConfirmation = false;
+  let isUpdatingStableBalance = false;
+
+  function formatStableBalance(amount: bigint, decimals: number): string {
+    const divisor = 10n ** BigInt(decimals);
+    const whole = amount / divisor;
+    const fraction = (amount % divisor).toString().padStart(decimals, '0').slice(0, 2);
+    return `${whole.toLocaleString()}.${fraction}`;
+  }
+
+  async function updateStableBalance(enabled: boolean) {
+    isUpdatingStableBalance = true;
+    try {
+      await setStableBalanceEnabled(enabled);
+      stableBalanceConfirmation = false;
+      await refreshAll();
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : 'Unable to update USD balance';
+    } finally {
+      isUpdatingStableBalance = false;
+    }
+  }
 
   // QR scan state
   let showQrCamera = false;
@@ -3176,6 +3200,49 @@
               </button>
             </div>
           </div>
+
+          {#if $activeWallet?.kind === 4 && !isPanelScrolled}
+            <div class="mt-4 p-3 rounded-lg border" style="border-color: var(--color-input-border); background: var(--color-input-bg);">
+              {#if $stableBalance.active}
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold text-primary-color">USD balance</div>
+                    <div class="text-xs text-caption mt-0.5">
+                      {#if $balanceVisible}
+                        ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)} {$stableBalance.label}
+                      {:else}
+                        $*** {$stableBalance.label}
+                      {/if}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="text-xs font-medium text-amber-500 hover:text-amber-400 disabled:opacity-50"
+                    on:click={() => updateStableBalance(false)}
+                    disabled={isUpdatingStableBalance}
+                  >
+                    {isUpdatingStableBalance ? 'Updating...' : 'Use Bitcoin'}
+                  </button>
+                </div>
+                <p class="mt-2 text-xs text-caption">Bitcoin payments automatically convert from your USD balance when needed.</p>
+              {:else if stableBalanceConfirmation}
+                <div class="text-sm font-semibold text-primary-color">Enable USD balance?</div>
+                <p class="mt-1 text-xs text-caption">Eligible incoming Bitcoin converts to USDB. Turning this off converts remaining USDB back to Bitcoin. Conversion rates and fees apply.</p>
+                <div class="mt-3 flex gap-2">
+                  <button type="button" class="flex-1 py-2 text-sm text-caption border border-input rounded-lg" on:click={() => (stableBalanceConfirmation = false)}>Not now</button>
+                  <button type="button" class="flex-1 py-2 text-sm font-medium bg-amber-500 text-white rounded-lg disabled:opacity-50" on:click={() => updateStableBalance(true)} disabled={isUpdatingStableBalance}>{isUpdatingStableBalance ? 'Enabling...' : 'Enable USD'}</button>
+                </div>
+              {:else}
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold text-primary-color">USD balance</div>
+                    <div class="text-xs text-caption mt-0.5">Protect future wallet value from Bitcoin price movement.</div>
+                  </div>
+                  <button type="button" class="text-xs font-medium text-amber-500 hover:text-amber-400" on:click={() => (stableBalanceConfirmation = true)}>Enable</button>
+                </div>
+              {/if}
+            </div>
+          {/if}
 
           <!-- Send/Receive buttons - only for NWC and Spark wallets, hidden
                in compact mode and while a send/receive view is active. -->
@@ -5869,6 +5936,11 @@
           {/if}
         {:else}
           <!-- Lightning payment button -->
+          {#if $activeWallet?.kind === 4 && $stableBalance.active}
+            <div class="p-3 rounded-lg text-xs text-caption" style="background: var(--color-input-bg);">
+              This payment may convert USDB to Bitcoin. The final rate and conversion fee are determined by Spark before settlement.
+            </div>
+          {/if}
           <button
             class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
             on:click={handleSend}
