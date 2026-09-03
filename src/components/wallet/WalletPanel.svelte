@@ -91,6 +91,7 @@
     type ClaimDepositResult,
     type RefundDepositResult
   } from '$lib/spark';
+  import { formatStableBalance } from '$lib/spark/format';
   import {
     hasEncryptionSupport,
     encrypt as encryptionServiceEncrypt,
@@ -680,13 +681,6 @@
   let isUpdatingStableBalance = false;
   $: hasStableBalance = $stableBalance.balance > 0n;
   $: showStableBalanceAsPrimary = $stableBalance.active || hasStableBalance;
-
-  function formatStableBalance(amount: bigint, decimals: number): string {
-    const divisor = 10n ** BigInt(decimals);
-    const whole = amount / divisor;
-    const fraction = (amount % divisor).toString().padStart(decimals, '0').slice(0, 2);
-    return `${whole.toLocaleString()}.${fraction}`;
-  }
 
   function formatTransactionAmount(tx: Transaction): string {
     if (!tx.asset) return `${tx.amount.toLocaleString()} sats`;

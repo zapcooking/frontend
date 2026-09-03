@@ -48,6 +48,7 @@
   import DenominatedBalance from './DenominatedBalance.svelte';
   import { displayCurrency, getPreferredFiat } from '$lib/currencyStore';
   import { stableBalance } from '$lib/spark';
+  import { formatStableBalance } from '$lib/spark/format';
 
   function onPillKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -60,14 +61,10 @@
   // Recomputed reactively when the active currency changes so the
   // label always describes what the next click will switch to.
   $: cycleTarget = $displayCurrency === 'SATS' ? getPreferredFiat() : 'SATS';
-  $: showStableBalance = $activeWallet?.kind === 4 && $stableBalance.balance > 0n;
-
-  function formatStableBalance(amount: bigint, decimals: number): string {
-    const divisor = 10n ** BigInt(decimals);
-    const whole = amount / divisor;
-    const fraction = (amount % divisor).toString().padStart(decimals, '0').slice(0, 2);
-    return `${whole.toLocaleString()}.${fraction}`;
-  }
+  // Mirror WalletPanel's showStableBalanceAsPrimary: USDB is the primary balance
+  // when the user has enabled it (even at $0.00) or when any USDB is held.
+  $: showStableBalance =
+    $activeWallet?.kind === 4 && ($stableBalance.active || $stableBalance.balance > 0n);
 
   let dropdownActive = false;
   let showRemoveBitcoinConnectModal = false;
