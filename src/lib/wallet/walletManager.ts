@@ -60,7 +60,11 @@ import {
   recentSparkPayments
 } from '$lib/spark';
 import { userPublickey } from '$lib/nostr';
-import { extractSparkPaymentAsset, extractSparkPaymentSats } from './sparkPayment';
+import {
+  extractSparkPaymentAsset,
+  extractSparkPaymentConversionFrom,
+  extractSparkPaymentSats
+} from './sparkPayment';
 
 /**
  * Connect a new wallet
@@ -569,6 +573,7 @@ export interface Transaction {
     amount: string; // base units; preserve precision beyond JavaScript's safe integer range
     decimals: number;
   };
+  conversionFrom?: string;
   description?: string;
   comment?: string; // Zap comment from kind 9734 content field
   timestamp: number; // unix timestamp
@@ -725,6 +730,7 @@ function mapSparkPayment(p: any): Transaction {
     paymentType === 'receive' ||
     paymentType === 'incoming';
   const asset = extractSparkPaymentAsset(p);
+  const conversionFrom = extractSparkPaymentConversionFrom(p);
   const amountSat = extractSparkPaymentSats(p, !!asset);
   let timestamp = p.createdAt || p.created_at || p.timestamp || p.time || 0;
   if (timestamp > 4102444800) timestamp = Math.floor(timestamp / 1000);
@@ -839,6 +845,7 @@ function mapSparkPayment(p: any): Transaction {
     type: isIncoming ? 'incoming' : ('outgoing' as 'incoming' | 'outgoing'),
     amount: Number(amountSat),
     asset,
+    conversionFrom,
     description: p.description || p.memo || p.bolt11?.substring(0, 20),
     comment,
     timestamp: timestamp || Math.floor(Date.now() / 1000),

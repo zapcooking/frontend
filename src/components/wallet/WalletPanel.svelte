@@ -4435,7 +4435,7 @@
                       </div>
                       <div class="flex-1 min-w-0">
                         <div class="font-medium text-primary-color">
-                          {tx.type === 'incoming' ? 'Received' : 'Sent'}
+                          {tx.conversionFrom ? `Converted from ${tx.conversionFrom}` : tx.type === 'incoming' ? 'Received' : 'Sent'}
                         </div>
                         {#if tx.comment}
                           <div class="text-sm text-caption truncate">

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { extractSparkPaymentAsset, extractSparkPaymentSats } from './sparkPayment';
+import {
+  extractSparkPaymentAsset,
+  extractSparkPaymentConversionFrom,
+  extractSparkPaymentSats
+} from './sparkPayment';
 
 describe('extractSparkPaymentAsset', () => {
   it('uses conversion details for a stable-balance Lightning receive', () => {
@@ -55,6 +59,22 @@ describe('extractSparkPaymentAsset', () => {
       decimals: 6
     });
     expect(extractSparkPaymentSats(payment, true)).toBe(23_914);
+    expect(extractSparkPaymentConversionFrom(payment)).toBe('Bitcoin');
+  });
+
+  it('identifies a conversion from USDB', () => {
+    expect(
+      extractSparkPaymentConversionFrom({
+        conversionDetails: {
+          conversions: [
+            {
+              from: { asset: { identifier: 'usdb-token', ticker: 'USDB' }, amount: '15800000' },
+              to: { asset: { ticker: 'BTC' }, amount: '20339' }
+            }
+          ]
+        }
+      })
+    ).toBe('USDB');
   });
 
   it('never treats token base units as sats', () => {

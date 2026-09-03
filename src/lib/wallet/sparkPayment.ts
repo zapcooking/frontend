@@ -54,3 +54,11 @@ export function extractSparkPaymentSats(payment: any, hasTokenAsset: boolean): n
 
   return Number(payment.amount ?? 0);
 }
+
+export function extractSparkPaymentConversionFrom(payment: any): string | undefined {
+  const conversions = payment.conversionDetails?.conversions || payment.conversion_details?.conversions || [];
+  const conversion = conversions.find((item: any) => item?.from?.asset && item?.to?.asset);
+  const ticker = conversion?.from?.asset?.ticker;
+  if (!ticker) return undefined;
+  return ticker === 'BTC' ? 'Bitcoin' : ticker;
+}
