@@ -109,6 +109,7 @@
   import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
   import ArrowUpIcon from 'phosphor-svelte/lib/ArrowUp';
   import ArrowDownIcon from 'phosphor-svelte/lib/ArrowDown';
+  import ArrowsLeftRightIcon from 'phosphor-svelte/lib/ArrowsLeftRight';
   import ClockIcon from 'phosphor-svelte/lib/Clock';
   import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
@@ -4417,17 +4418,22 @@
                 <!-- Unified transaction history -->
                 {#each completedTxs as tx (tx.id)}
                   {@const isOnchainTx = !!tx.txid || !!tx.isOnchain}
+                  {@const isConversion = !!tx.conversionFrom}
                   <div class="border-b" style="border-color: var(--color-input-border);">
                     <button
                       class="w-full py-4 flex items-center gap-4 text-left"
                       on:click={() => toggleTxDetails(tx.id)}
                     >
                       <div
-                        class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 {tx.type === 'incoming'
-                          ? 'bg-green-500/20'
-                          : 'bg-orange-500/20'}"
+                        class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 {isConversion
+                          ? 'bg-sky-500/20'
+                          : tx.type === 'incoming'
+                            ? 'bg-green-500/20'
+                            : 'bg-orange-500/20'}"
                       >
-                        {#if tx.type === 'incoming'}
+                        {#if isConversion}
+                          <ArrowsLeftRightIcon size={20} class="text-sky-400" />
+                        {:else if tx.type === 'incoming'}
                           <ArrowDownIcon size={20} class="text-green-500" />
                         {:else}
                           <ArrowUpIcon size={20} class="text-orange-500" />
@@ -4448,14 +4454,16 @@
                       </div>
                       <div class="flex items-center gap-2 flex-shrink-0">
                         <div
-                          class="font-semibold text-right {tx.type === 'incoming'
-                            ? 'text-green-500'
-                            : 'text-orange-500'}"
+                          class="font-semibold text-right {isConversion
+                            ? 'text-sky-400'
+                            : tx.type === 'incoming'
+                              ? 'text-green-500'
+                              : 'text-orange-500'}"
                         >
                           {#if $balanceVisible}
-                            {tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
+                            {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                           {:else}
-                            {tx.type === 'incoming' ? '+' : '-'}*** {tx.asset?.ticker || 'sats'}
+                            {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}*** {tx.asset?.ticker || 'sats'}
                           {/if}
                         </div>
                         <CaretDownIcon
