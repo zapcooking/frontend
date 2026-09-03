@@ -2912,7 +2912,7 @@
   {#if errorMessage && portalTarget}
     <div use:portal={portalTarget}>
       <div
-        class="wallet-toast fixed top-4 left-4 right-4 mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[9999]"
+        class="wallet-toast fixed top-4 left-4 right-4 mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[10002]"
         style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;"
       >
         <WarningIcon size={20} class="flex-shrink-0" />
@@ -2928,7 +2928,7 @@
   {#if successMessage && portalTarget}
     <div use:portal={portalTarget}>
       <div
-        class="wallet-toast fixed top-4 left-4 right-4 mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[9999]"
+        class="wallet-toast fixed top-4 left-4 right-4 mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[10002]"
         style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;"
       >
         <CheckCircleIcon size={20} class="flex-shrink-0" />
@@ -3123,14 +3123,14 @@
           >
             <div class="flex-1 min-w-0">
               <div
-                class="inline-block max-w-full rounded-lg transition-colors {!isPanelScrolled
+                class="inline-block max-w-full rounded-lg transition-colors {!isPanelScrolled && !$stableBalance.active
                   ? '-mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5'
                   : ''}"
-                role={!isPanelScrolled ? 'button' : undefined}
-                tabindex={!isPanelScrolled ? 0 : -1}
-                aria-label={!isPanelScrolled ? 'Toggle SATS / fiat display' : undefined}
-                on:click={!isPanelScrolled ? handleBalanceAmountTap : undefined}
-                on:keydown={!isPanelScrolled ? handleBalanceAmountKeydown : undefined}
+                role={!isPanelScrolled && !$stableBalance.active ? 'button' : undefined}
+                tabindex={!isPanelScrolled && !$stableBalance.active ? 0 : -1}
+                aria-label={!isPanelScrolled && !$stableBalance.active ? 'Toggle SATS / fiat display' : undefined}
+                on:click={!isPanelScrolled && !$stableBalance.active ? handleBalanceAmountTap : undefined}
+                on:keydown={!isPanelScrolled && !$stableBalance.active ? handleBalanceAmountKeydown : undefined}
               >
                 <div
                   class="balance-amount font-bold text-primary-color flex items-center gap-3 min-w-0"
@@ -3142,7 +3142,15 @@
                     weight="fill"
                     class="text-amber-500 flex-shrink-0"
                   />
-                  {#if $walletBalance === null}
+                  {#if $stableBalance.active}
+                    <span class:balance-refreshing={$walletLoading}>
+                      {#if $balanceVisible}
+                        ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)} {$stableBalance.label}
+                      {:else}
+                        $*** {$stableBalance.label}
+                      {/if}
+                    </span>
+                  {:else if $walletBalance === null}
                     <span
                       class="inline-block w-32 h-9 rounded-lg animate-pulse"
                       style="background: var(--color-input-bg);"
@@ -3162,7 +3170,9 @@
                        invisible placeholder when SATS is primary (preserves
                        card height across toggles). -->
                   <div class="ml-11 text-sm text-caption">
-                    {#if $displayCurrency === 'SATS' || $walletBalance === null}
+                    {#if $stableBalance.active}
+                      Stable balance
+                    {:else if $displayCurrency === 'SATS' || $walletBalance === null}
                       &nbsp;
                     {:else if !$balanceVisible}
                       ***
@@ -3185,7 +3195,7 @@
               {/if}
             </div>
             <div class="flex items-center gap-3 flex-shrink-0">
-              {#if !isPanelScrolled}
+              {#if !isPanelScrolled && !$stableBalance.active}
                 <CurrencySelector compact />
               {/if}
               <button
@@ -3219,14 +3229,8 @@
               {#if $stableBalance.active}
                 <div class="flex items-center justify-between gap-3">
                   <div>
-                    <div class="text-sm font-semibold text-primary-color">USD balance</div>
-                    <div class="text-xs text-caption mt-0.5">
-                      {#if $balanceVisible}
-                        ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)} {$stableBalance.label}
-                      {:else}
-                        $*** {$stableBalance.label}
-                      {/if}
-                    </div>
+                    <div class="text-sm font-semibold text-primary-color">Stable balance active</div>
+                    <div class="text-xs text-caption mt-0.5">Your main balance is shown in {$stableBalance.label}.</div>
                   </div>
                   <button
                     type="button"

@@ -60,6 +60,7 @@ import {
   recentSparkPayments
 } from '$lib/spark';
 import { userPublickey } from '$lib/nostr';
+import { extractSparkPaymentAsset } from './sparkPayment';
 
 /**
  * Connect a new wallet
@@ -728,14 +729,7 @@ function mapSparkPayment(p: any): Transaction {
     p.amountSat || p.amount_sat || p.amount || Math.floor(Number(amountMsat) / 1000);
   let timestamp = p.createdAt || p.created_at || p.timestamp || p.time || 0;
   if (timestamp > 4102444800) timestamp = Math.floor(timestamp / 1000);
-  const tokenMetadata = p.details?.type === 'token' ? p.details.metadata : undefined;
-  const asset = tokenMetadata
-    ? {
-        ticker: tokenMetadata.ticker || tokenMetadata.name || 'Token',
-        amount: String(p.amount ?? 0),
-        decimals: Number(tokenMetadata.decimals ?? 0)
-      }
-    : undefined;
+  const asset = extractSparkPaymentAsset(p);
   const feesMsat = p.feesMsat || p.fees_msat || p.feesMSat || 0;
   const feesSat =
     p.feesSat ||
