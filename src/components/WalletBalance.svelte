@@ -47,6 +47,7 @@
   import BitcoinConnectLogo from './icons/BitcoinConnectLogo.svelte';
   import DenominatedBalance from './DenominatedBalance.svelte';
   import { displayCurrency, getPreferredFiat } from '$lib/currencyStore';
+  import { stableBalance } from '$lib/spark';
 
   function onPillKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -59,6 +60,14 @@
   // Recomputed reactively when the active currency changes so the
   // label always describes what the next click will switch to.
   $: cycleTarget = $displayCurrency === 'SATS' ? getPreferredFiat() : 'SATS';
+  $: showStableBalance = $activeWallet?.kind === 4 && $stableBalance.balance > 0n;
+
+  function formatStableBalance(amount: bigint, decimals: number): string {
+    const divisor = 10n ** BigInt(decimals);
+    const whole = amount / divisor;
+    const fraction = (amount % divisor).toString().padStart(decimals, '0').slice(0, 2);
+    return `${whole.toLocaleString()}.${fraction}`;
+  }
 
   let dropdownActive = false;
   let showRemoveBitcoinConnectModal = false;
@@ -349,12 +358,20 @@
       on:keydown={onPillKeydown}
     >
       <LightningIcon size={16} weight="fill" class="text-amber-500" />
-      <span class="balance-text min-w-[3.5rem] text-right">
-        <DenominatedBalance
-          sats={$walletBalance}
-          visible={$balanceVisible}
-          loading={$walletLoading}
-        />
+      <span class="balance-text min-w-[3.5rem] text-right whitespace-nowrap">
+        {#if showStableBalance}
+          {#if $balanceVisible}
+            ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)} {$stableBalance.label}
+          {:else}
+            $*** {$stableBalance.label}
+          {/if}
+        {:else}
+          <DenominatedBalance
+            sats={$walletBalance}
+            visible={$balanceVisible}
+            loading={$walletLoading}
+          />
+        {/if}
       </span>
 
       <CaretDownIcon size={12} class="text-caption ml-0.5" />
@@ -419,13 +436,15 @@
           {/if}
 
           <!-- Actions -->
-          <button
-            class="flex items-center gap-2 text-sm hover:text-primary transition-colors cursor-pointer"
-            on:click={() => displayCurrency.cycleSatsFiat()}
-          >
-            <ArrowsLeftRightIcon size={18} weight="bold" />
-            Switch to {cycleTarget}
-          </button>
+          {#if !showStableBalance}
+            <button
+              class="flex items-center gap-2 text-sm hover:text-primary transition-colors cursor-pointer"
+              on:click={() => displayCurrency.cycleSatsFiat()}
+            >
+              <ArrowsLeftRightIcon size={18} weight="bold" />
+              Switch to {cycleTarget}
+            </button>
+          {/if}
 
           <button
             class="flex items-center gap-2 text-sm hover:text-primary transition-colors cursor-pointer"
