@@ -685,6 +685,19 @@
     return `${whole.toLocaleString()}.${fraction}`;
   }
 
+  function formatTransactionAmount(tx: Transaction): string {
+    if (!tx.asset) return `${tx.amount.toLocaleString()} sats`;
+
+    const amount = BigInt(tx.asset.amount);
+    const divisor = 10n ** BigInt(tx.asset.decimals);
+    const whole = amount / divisor;
+    const fraction = tx.asset.decimals
+      ? `.${(amount % divisor).toString().padStart(tx.asset.decimals, '0').slice(0, 2)}`
+      : '';
+    const prefix = tx.asset.ticker === 'USDB' ? '$' : '';
+    return `${prefix}${whole.toLocaleString()}${fraction} ${tx.asset.ticker}`;
+  }
+
   async function updateStableBalance(enabled: boolean) {
     isUpdatingStableBalance = true;
     try {
@@ -4364,7 +4377,7 @@
                     <div class="text-right">
                       <div class="font-semibold text-amber-500">
                         {#if $balanceVisible}
-                          {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                          {tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                         {:else}
                           {tx.type === 'incoming' ? '+' : '-'}*** sats
                         {/if}
@@ -4417,7 +4430,7 @@
                             : 'text-orange-500'}"
                         >
                           {#if $balanceVisible}
-                            {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                            {tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                           {:else}
                             {tx.type === 'incoming' ? '+' : '-'}*** sats
                           {/if}
@@ -4447,7 +4460,7 @@
                           style="border-color: var(--color-input-border);"
                         >
                           <span class="text-caption">Type</span>
-                          <span class="text-primary-color">{isOnchainTx ? 'On-chain' : 'Lightning'}</span>
+                          <span class="text-primary-color">{isOnchainTx ? 'On-chain' : tx.asset?.ticker || 'Lightning'}</span>
                         </div>
                         {#if $balanceVisible}
                           <div
@@ -4455,7 +4468,7 @@
                             style="border-color: var(--color-input-border);"
                           >
                             <span class="text-caption">Amount</span>
-                            <span class="text-primary-color">{tx.amount.toLocaleString()} sats</span>
+                            <span class="text-primary-color">{formatTransactionAmount(tx)}</span>
                           </div>
                           {#if tx.fees}
                             <div

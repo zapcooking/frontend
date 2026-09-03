@@ -562,7 +562,12 @@ export interface Transaction {
   txid?: string; // On-chain transaction id when available
   isOnchain?: boolean; // True when payment is on-chain (even if txid is unavailable)
   type: 'incoming' | 'outgoing';
-  amount: number; // in sats
+  amount: number; // in sats, unless asset is present
+  asset?: {
+    ticker: string;
+    amount: string; // base units; preserve precision beyond JavaScript's safe integer range
+    decimals: number;
+  };
   description?: string;
   comment?: string; // Zap comment from kind 9734 content field
   timestamp: number; // unix timestamp
@@ -723,6 +728,14 @@ function mapSparkPayment(p: any): Transaction {
     p.amountSat || p.amount_sat || p.amount || Math.floor(Number(amountMsat) / 1000);
   let timestamp = p.createdAt || p.created_at || p.timestamp || p.time || 0;
   if (timestamp > 4102444800) timestamp = Math.floor(timestamp / 1000);
+  const tokenMetadata = p.details?.type === 'token' ? p.details.metadata : undefined;
+  const asset = tokenMetadata
+    ? {
+        ticker: tokenMetadata.ticker || tokenMetadata.name || 'Token',
+        amount: String(p.amount ?? 0),
+        decimals: Number(tokenMetadata.decimals ?? 0)
+      }
+    : undefined;
   const feesMsat = p.feesMsat || p.fees_msat || p.feesMSat || 0;
   const feesSat =
     p.feesSat ||
@@ -833,10 +846,11 @@ function mapSparkPayment(p: any): Transaction {
     isOnchain: isOnchain || undefined,
     type: isIncoming ? 'incoming' : ('outgoing' as 'incoming' | 'outgoing'),
     amount: Number(amountSat),
+    asset,
     description: p.description || p.memo || p.bolt11?.substring(0, 20),
     comment,
     timestamp: timestamp || Math.floor(Date.now() / 1000),
-    fees: feesSat,
+    fees: asset ? undefined : feesSat,
     status,
     pubkey
   };
