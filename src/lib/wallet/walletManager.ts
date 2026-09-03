@@ -60,6 +60,11 @@ import {
   recentSparkPayments
 } from '$lib/spark';
 import { userPublickey } from '$lib/nostr';
+import {
+  extractSparkPaymentAsset,
+  extractSparkPaymentConversionFrom,
+  extractSparkPaymentSats
+} from './sparkPayment';
 
 /**
  * Connect a new wallet
@@ -562,7 +567,13 @@ export interface Transaction {
   txid?: string; // On-chain transaction id when available
   isOnchain?: boolean; // True when payment is on-chain (even if txid is unavailable)
   type: 'incoming' | 'outgoing';
-  amount: number; // in sats
+  amount: number; // in sats, unless asset is present
+  asset?: {
+    ticker: string;
+    amount: string; // base units; preserve precision beyond JavaScript's safe integer range
+    decimals: number;
+  };
+  conversionFrom?: string;
   description?: string;
   comment?: string; // Zap comment from kind 9734 content field
   timestamp: number; // unix timestamp
@@ -718,9 +729,9 @@ function mapSparkPayment(p: any): Transaction {
     paymentType === 'RECEIVED' ||
     paymentType === 'receive' ||
     paymentType === 'incoming';
-  const amountMsat = p.amountMsat || p.amount_msat || p.amountMSat || 0;
-  const amountSat =
-    p.amountSat || p.amount_sat || p.amount || Math.floor(Number(amountMsat) / 1000);
+  const asset = extractSparkPaymentAsset(p);
+  const conversionFrom = extractSparkPaymentConversionFrom(p);
+  const amountSat = extractSparkPaymentSats(p, !!asset);
   let timestamp = p.createdAt || p.created_at || p.timestamp || p.time || 0;
   if (timestamp > 4102444800) timestamp = Math.floor(timestamp / 1000);
   const feesMsat = p.feesMsat || p.fees_msat || p.feesMSat || 0;
@@ -833,10 +844,12 @@ function mapSparkPayment(p: any): Transaction {
     isOnchain: isOnchain || undefined,
     type: isIncoming ? 'incoming' : ('outgoing' as 'incoming' | 'outgoing'),
     amount: Number(amountSat),
+    asset,
+    conversionFrom,
     description: p.description || p.memo || p.bolt11?.substring(0, 20),
     comment,
     timestamp: timestamp || Math.floor(Date.now() / 1000),
-    fees: feesSat,
+    fees: asset ? undefined : feesSat,
     status,
     pubkey
   };

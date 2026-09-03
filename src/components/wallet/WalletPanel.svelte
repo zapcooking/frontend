@@ -109,6 +109,7 @@
   import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
   import ArrowUpIcon from 'phosphor-svelte/lib/ArrowUp';
   import ArrowDownIcon from 'phosphor-svelte/lib/ArrowDown';
+  import ArrowsLeftRightIcon from 'phosphor-svelte/lib/ArrowsLeftRight';
   import ClockIcon from 'phosphor-svelte/lib/Clock';
   import CloudArrowDownIcon from 'phosphor-svelte/lib/CloudArrowDown';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
@@ -677,12 +678,27 @@
   let sendingMaxBalance = false; // Track if user wants to send full balance (fee will be deducted)
   let stableBalanceConfirmation = false;
   let isUpdatingStableBalance = false;
+  $: hasStableBalance = $stableBalance.balance > 0n;
+  $: showStableBalanceAsPrimary = $stableBalance.active || hasStableBalance;
 
   function formatStableBalance(amount: bigint, decimals: number): string {
     const divisor = 10n ** BigInt(decimals);
     const whole = amount / divisor;
     const fraction = (amount % divisor).toString().padStart(decimals, '0').slice(0, 2);
     return `${whole.toLocaleString()}.${fraction}`;
+  }
+
+  function formatTransactionAmount(tx: Transaction): string {
+    if (!tx.asset) return `${tx.amount.toLocaleString()} sats`;
+
+    const amount = BigInt(tx.asset.amount);
+    const divisor = 10n ** BigInt(tx.asset.decimals);
+    const whole = amount / divisor;
+    const fraction = tx.asset.decimals
+      ? `.${(amount % divisor).toString().padStart(tx.asset.decimals, '0').slice(0, 2)}`
+      : '';
+    const prefix = tx.asset.ticker === 'USDB' ? '$' : '';
+    return `${prefix}${whole.toLocaleString()}${fraction} ${tx.asset.ticker}`;
   }
 
   async function updateStableBalance(enabled: boolean) {
@@ -2899,7 +2915,7 @@
   {#if errorMessage && portalTarget}
     <div use:portal={portalTarget}>
       <div
-        class="wallet-toast fixed top-4 left-4 right-4 mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[9999]"
+        class="wallet-toast fixed top-4 left-4 right-4 mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[10002]"
         style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;"
       >
         <WarningIcon size={20} class="flex-shrink-0" />
@@ -2915,7 +2931,7 @@
   {#if successMessage && portalTarget}
     <div use:portal={portalTarget}>
       <div
-        class="wallet-toast fixed top-4 left-4 right-4 mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[9999]"
+        class="wallet-toast fixed top-4 left-4 right-4 mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[10002]"
         style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;"
       >
         <CheckCircleIcon size={20} class="flex-shrink-0" />
@@ -3110,14 +3126,14 @@
           >
             <div class="flex-1 min-w-0">
               <div
-                class="inline-block max-w-full rounded-lg transition-colors {!isPanelScrolled
+                class="inline-block max-w-full rounded-lg transition-colors {!isPanelScrolled && !showStableBalanceAsPrimary
                   ? '-mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5'
                   : ''}"
-                role={!isPanelScrolled ? 'button' : undefined}
-                tabindex={!isPanelScrolled ? 0 : -1}
-                aria-label={!isPanelScrolled ? 'Toggle SATS / fiat display' : undefined}
-                on:click={!isPanelScrolled ? handleBalanceAmountTap : undefined}
-                on:keydown={!isPanelScrolled ? handleBalanceAmountKeydown : undefined}
+                role={!isPanelScrolled && !showStableBalanceAsPrimary ? 'button' : undefined}
+                tabindex={!isPanelScrolled && !showStableBalanceAsPrimary ? 0 : -1}
+                aria-label={!isPanelScrolled && !showStableBalanceAsPrimary ? 'Toggle SATS / fiat display' : undefined}
+                on:click={!isPanelScrolled && !showStableBalanceAsPrimary ? handleBalanceAmountTap : undefined}
+                on:keydown={!isPanelScrolled && !showStableBalanceAsPrimary ? handleBalanceAmountKeydown : undefined}
               >
                 <div
                   class="balance-amount font-bold text-primary-color flex items-center gap-3 min-w-0"
@@ -3129,7 +3145,15 @@
                     weight="fill"
                     class="text-amber-500 flex-shrink-0"
                   />
-                  {#if $walletBalance === null}
+                  {#if showStableBalanceAsPrimary}
+                    <span class:balance-refreshing={$walletLoading}>
+                      {#if $balanceVisible}
+                        ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)} {$stableBalance.label}
+                      {:else}
+                        $*** {$stableBalance.label}
+                      {/if}
+                    </span>
+                  {:else if $walletBalance === null}
                     <span
                       class="inline-block w-32 h-9 rounded-lg animate-pulse"
                       style="background: var(--color-input-bg);"
@@ -3149,7 +3173,11 @@
                        invisible placeholder when SATS is primary (preserves
                        card height across toggles). -->
                   <div class="ml-11 text-sm text-caption">
-                    {#if $displayCurrency === 'SATS' || $walletBalance === null}
+                    {#if hasStableBalance && !$stableBalance.active}
+                      USD balance detected
+                    {:else if $stableBalance.active}
+                      Stable balance
+                    {:else if $displayCurrency === 'SATS' || $walletBalance === null}
                       &nbsp;
                     {:else if !$balanceVisible}
                       ***
@@ -3172,7 +3200,7 @@
               {/if}
             </div>
             <div class="flex items-center gap-3 flex-shrink-0">
-              {#if !isPanelScrolled}
+              {#if !isPanelScrolled && !showStableBalanceAsPrimary}
                 <CurrencySelector compact />
               {/if}
               <button
@@ -3206,14 +3234,8 @@
               {#if $stableBalance.active}
                 <div class="flex items-center justify-between gap-3">
                   <div>
-                    <div class="text-sm font-semibold text-primary-color">USD balance</div>
-                    <div class="text-xs text-caption mt-0.5">
-                      {#if $balanceVisible}
-                        ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)} {$stableBalance.label}
-                      {:else}
-                        $*** {$stableBalance.label}
-                      {/if}
-                    </div>
+                    <div class="text-sm font-semibold text-primary-color">Stable balance active</div>
+                    <div class="text-xs text-caption mt-0.5">Your main balance is shown in {$stableBalance.label}.</div>
                   </div>
                   <button
                     type="button"
@@ -3225,6 +3247,21 @@
                   </button>
                 </div>
                 <p class="mt-2 text-xs text-caption">Bitcoin payments automatically convert from your USD balance when needed.</p>
+              {:else if hasStableBalance}
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold text-primary-color">USD balance detected</div>
+                    <div class="text-xs text-caption mt-0.5">Your USDB funds are available. Resume USD mode to use this balance for payments.</div>
+                  </div>
+                  <button
+                    type="button"
+                    class="text-xs font-medium text-amber-500 hover:text-amber-400 disabled:opacity-50"
+                    on:click={() => updateStableBalance(true)}
+                    disabled={isUpdatingStableBalance}
+                  >
+                    {isUpdatingStableBalance ? 'Updating...' : 'Resume USD'}
+                  </button>
+                </div>
               {:else if stableBalanceConfirmation}
                 <div class="text-sm font-semibold text-primary-color">Enable USD balance?</div>
                 <p class="mt-1 text-xs text-caption">Eligible incoming Bitcoin converts to USDB. Turning this off converts remaining USDB back to Bitcoin. Conversion rates and fees apply.</p>
@@ -4364,9 +4401,9 @@
                     <div class="text-right">
                       <div class="font-semibold text-amber-500">
                         {#if $balanceVisible}
-                          {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                          {tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                         {:else}
-                          {tx.type === 'incoming' ? '+' : '-'}*** sats
+                          {tx.type === 'incoming' ? '+' : '-'}*** {tx.asset?.ticker || 'sats'}
                         {/if}
                       </div>
                     </div>
@@ -4381,17 +4418,22 @@
                 <!-- Unified transaction history -->
                 {#each completedTxs as tx (tx.id)}
                   {@const isOnchainTx = !!tx.txid || !!tx.isOnchain}
+                  {@const isConversion = !!tx.conversionFrom}
                   <div class="border-b" style="border-color: var(--color-input-border);">
                     <button
                       class="w-full py-4 flex items-center gap-4 text-left"
                       on:click={() => toggleTxDetails(tx.id)}
                     >
                       <div
-                        class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 {tx.type === 'incoming'
-                          ? 'bg-green-500/20'
-                          : 'bg-orange-500/20'}"
+                        class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 {isConversion
+                          ? 'bg-sky-500/20'
+                          : tx.type === 'incoming'
+                            ? 'bg-green-500/20'
+                            : 'bg-orange-500/20'}"
                       >
-                        {#if tx.type === 'incoming'}
+                        {#if isConversion}
+                          <ArrowsLeftRightIcon size={20} class="text-sky-400" />
+                        {:else if tx.type === 'incoming'}
                           <ArrowDownIcon size={20} class="text-green-500" />
                         {:else}
                           <ArrowUpIcon size={20} class="text-orange-500" />
@@ -4399,7 +4441,7 @@
                       </div>
                       <div class="flex-1 min-w-0">
                         <div class="font-medium text-primary-color">
-                          {tx.type === 'incoming' ? 'Received' : 'Sent'}
+                          {tx.conversionFrom ? `Converted from ${tx.conversionFrom}` : tx.type === 'incoming' ? 'Received' : 'Sent'}
                         </div>
                         {#if tx.comment}
                           <div class="text-sm text-caption truncate">
@@ -4412,14 +4454,16 @@
                       </div>
                       <div class="flex items-center gap-2 flex-shrink-0">
                         <div
-                          class="font-semibold text-right {tx.type === 'incoming'
-                            ? 'text-green-500'
-                            : 'text-orange-500'}"
+                          class="font-semibold text-right {isConversion
+                            ? 'text-sky-400'
+                            : tx.type === 'incoming'
+                              ? 'text-green-500'
+                              : 'text-orange-500'}"
                         >
                           {#if $balanceVisible}
-                            {tx.type === 'incoming' ? '+' : '-'}{tx.amount.toLocaleString()} sats
+                            {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                           {:else}
-                            {tx.type === 'incoming' ? '+' : '-'}*** sats
+                            {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}*** {tx.asset?.ticker || 'sats'}
                           {/if}
                         </div>
                         <CaretDownIcon
@@ -4447,7 +4491,7 @@
                           style="border-color: var(--color-input-border);"
                         >
                           <span class="text-caption">Type</span>
-                          <span class="text-primary-color">{isOnchainTx ? 'On-chain' : 'Lightning'}</span>
+                          <span class="text-primary-color">{isOnchainTx ? 'On-chain' : tx.asset?.ticker || 'Lightning'}</span>
                         </div>
                         {#if $balanceVisible}
                           <div
@@ -4455,7 +4499,7 @@
                             style="border-color: var(--color-input-border);"
                           >
                             <span class="text-caption">Amount</span>
-                            <span class="text-primary-color">{tx.amount.toLocaleString()} sats</span>
+                            <span class="text-primary-color">{formatTransactionAmount(tx)}</span>
                           </div>
                           {#if tx.fees}
                             <div
