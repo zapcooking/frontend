@@ -677,6 +677,8 @@
   let sendingMaxBalance = false; // Track if user wants to send full balance (fee will be deducted)
   let stableBalanceConfirmation = false;
   let isUpdatingStableBalance = false;
+  $: hasStableBalance = $stableBalance.balance > 0n;
+  $: showStableBalanceAsPrimary = $stableBalance.active || hasStableBalance;
 
   function formatStableBalance(amount: bigint, decimals: number): string {
     const divisor = 10n ** BigInt(decimals);
@@ -3123,14 +3125,14 @@
           >
             <div class="flex-1 min-w-0">
               <div
-                class="inline-block max-w-full rounded-lg transition-colors {!isPanelScrolled && !$stableBalance.active
+                class="inline-block max-w-full rounded-lg transition-colors {!isPanelScrolled && !showStableBalanceAsPrimary
                   ? '-mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5'
                   : ''}"
-                role={!isPanelScrolled && !$stableBalance.active ? 'button' : undefined}
-                tabindex={!isPanelScrolled && !$stableBalance.active ? 0 : -1}
-                aria-label={!isPanelScrolled && !$stableBalance.active ? 'Toggle SATS / fiat display' : undefined}
-                on:click={!isPanelScrolled && !$stableBalance.active ? handleBalanceAmountTap : undefined}
-                on:keydown={!isPanelScrolled && !$stableBalance.active ? handleBalanceAmountKeydown : undefined}
+                role={!isPanelScrolled && !showStableBalanceAsPrimary ? 'button' : undefined}
+                tabindex={!isPanelScrolled && !showStableBalanceAsPrimary ? 0 : -1}
+                aria-label={!isPanelScrolled && !showStableBalanceAsPrimary ? 'Toggle SATS / fiat display' : undefined}
+                on:click={!isPanelScrolled && !showStableBalanceAsPrimary ? handleBalanceAmountTap : undefined}
+                on:keydown={!isPanelScrolled && !showStableBalanceAsPrimary ? handleBalanceAmountKeydown : undefined}
               >
                 <div
                   class="balance-amount font-bold text-primary-color flex items-center gap-3 min-w-0"
@@ -3142,7 +3144,7 @@
                     weight="fill"
                     class="text-amber-500 flex-shrink-0"
                   />
-                  {#if $stableBalance.active}
+                  {#if showStableBalanceAsPrimary}
                     <span class:balance-refreshing={$walletLoading}>
                       {#if $balanceVisible}
                         ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)} {$stableBalance.label}
@@ -3170,7 +3172,9 @@
                        invisible placeholder when SATS is primary (preserves
                        card height across toggles). -->
                   <div class="ml-11 text-sm text-caption">
-                    {#if $stableBalance.active}
+                    {#if hasStableBalance && !$stableBalance.active}
+                      USD balance detected
+                    {:else if $stableBalance.active}
                       Stable balance
                     {:else if $displayCurrency === 'SATS' || $walletBalance === null}
                       &nbsp;
@@ -3195,7 +3199,7 @@
               {/if}
             </div>
             <div class="flex items-center gap-3 flex-shrink-0">
-              {#if !isPanelScrolled && !$stableBalance.active}
+              {#if !isPanelScrolled && !showStableBalanceAsPrimary}
                 <CurrencySelector compact />
               {/if}
               <button
@@ -3242,6 +3246,21 @@
                   </button>
                 </div>
                 <p class="mt-2 text-xs text-caption">Bitcoin payments automatically convert from your USD balance when needed.</p>
+              {:else if hasStableBalance}
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold text-primary-color">USD balance detected</div>
+                    <div class="text-xs text-caption mt-0.5">Your USDB funds are available. Resume USD mode to use this balance for payments.</div>
+                  </div>
+                  <button
+                    type="button"
+                    class="text-xs font-medium text-amber-500 hover:text-amber-400 disabled:opacity-50"
+                    on:click={() => updateStableBalance(true)}
+                    disabled={isUpdatingStableBalance}
+                  >
+                    {isUpdatingStableBalance ? 'Updating...' : 'Resume USD'}
+                  </button>
+                </div>
               {:else if stableBalanceConfirmation}
                 <div class="text-sm font-semibold text-primary-color">Enable USD balance?</div>
                 <p class="mt-1 text-xs text-caption">Eligible incoming Bitcoin converts to USDB. Turning this off converts remaining USDB back to Bitcoin. Conversion rates and fees apply.</p>

@@ -226,12 +226,17 @@ async function setupEventListener(): Promise<void> {
 async function refreshBalanceInternal(): Promise<void> {
   if (!_sdkInstance) return;
   try {
-    const info = await _sdkInstance.getInfo({ ensureSynced: false });
+    const info = await _sdkInstance.getInfo({ ensureSynced: true });
     const balanceValue =
       info.balanceSats ?? info.balanceSat ?? info.balance_sats ?? info.balance ?? 0;
     walletBalance.set(BigInt(balanceValue));
     const tokenBalances = info.tokenBalances;
-    const balances = tokenBalances instanceof Map ? Array.from(tokenBalances.values()) : [];
+    const balances =
+      tokenBalances instanceof Map
+        ? Array.from(tokenBalances.values())
+        : Array.isArray(tokenBalances)
+          ? tokenBalances
+          : Object.values(tokenBalances || {});
     const usdb = balances.find((entry: any) => entry?.tokenMetadata?.identifier === USDB_TOKEN_IDENTIFIER);
     let active = false;
     try {
