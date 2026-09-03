@@ -4402,7 +4402,7 @@
                         {#if $balanceVisible}
                           {tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                         {:else}
-                          {tx.type === 'incoming' ? '+' : '-'}*** sats
+                          {tx.type === 'incoming' ? '+' : '-'}*** {tx.asset?.ticker || 'sats'}
                         {/if}
                       </div>
                     </div>
@@ -4455,7 +4455,7 @@
                           {#if $balanceVisible}
                             {tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                           {:else}
-                            {tx.type === 'incoming' ? '+' : '-'}*** sats
+                            {tx.type === 'incoming' ? '+' : '-'}*** {tx.asset?.ticker || 'sats'}
                           {/if}
                         </div>
                         <CaretDownIcon

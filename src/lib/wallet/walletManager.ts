@@ -60,7 +60,7 @@ import {
   recentSparkPayments
 } from '$lib/spark';
 import { userPublickey } from '$lib/nostr';
-import { extractSparkPaymentAsset } from './sparkPayment';
+import { extractSparkPaymentAsset, extractSparkPaymentSats } from './sparkPayment';
 
 /**
  * Connect a new wallet
@@ -724,12 +724,10 @@ function mapSparkPayment(p: any): Transaction {
     paymentType === 'RECEIVED' ||
     paymentType === 'receive' ||
     paymentType === 'incoming';
-  const amountMsat = p.amountMsat || p.amount_msat || p.amountMSat || 0;
-  const amountSat =
-    p.amountSat || p.amount_sat || p.amount || Math.floor(Number(amountMsat) / 1000);
+  const asset = extractSparkPaymentAsset(p);
+  const amountSat = extractSparkPaymentSats(p, !!asset);
   let timestamp = p.createdAt || p.created_at || p.timestamp || p.time || 0;
   if (timestamp > 4102444800) timestamp = Math.floor(timestamp / 1000);
-  const asset = extractSparkPaymentAsset(p);
   const feesMsat = p.feesMsat || p.fees_msat || p.feesMSat || 0;
   const feesSat =
     p.feesSat ||

@@ -226,7 +226,7 @@ async function setupEventListener(): Promise<void> {
 async function refreshBalanceInternal(): Promise<void> {
   if (!_sdkInstance) return;
   try {
-    const info = await _sdkInstance.getInfo({ ensureSynced: true });
+    const info = await _sdkInstance.getInfo({ ensureSynced: false });
     const balanceValue =
       info.balanceSats ?? info.balanceSat ?? info.balance_sats ?? info.balance ?? 0;
     walletBalance.set(BigInt(balanceValue));
