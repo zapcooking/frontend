@@ -22,7 +22,7 @@ import { getOutboxRelays } from '$lib/relayListCache';
 import type { RecipeDraft } from '$lib/draftStore';
 import type { ArticleDraft } from '$lib/articleEditor';
 import TurndownService from 'turndown';
-import { parseMarkdown } from '$lib/parser';
+import { parseMarkdownToEditorHtml } from '$lib/parser';
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -456,9 +456,11 @@ function parseArticleToDraft(eventData: { kind: number; content: string; tags: s
     .filter(t => t[0] === 't' && t[1] !== 'zapreads')
     .map(t => t[1] || '');
 
-  // Convert markdown back to HTML for Tiptap
-  // Drafts store HTML, so we need to convert the markdown from NIP-37
-  const htmlContent = parseMarkdown(content);
+  // Convert markdown back to HTML for Tiptap. Drafts store HTML, so the
+  // markdown from NIP-37 has to be rendered back - via the editor
+  // variant, which restores mention spans instead of reader-facing
+  // anchors and leaves hashtags and video links as text.
+  const htmlContent = parseMarkdownToEditorHtml(content);
 
   const timestamp = (eventData.created_at || Math.floor(Date.now() / 1000)) * 1000;
 

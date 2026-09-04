@@ -286,6 +286,19 @@ html.dark .image-placeholder::before {
   -webkit-touch-callout: none;
 }
 
+/* Profile mentions inside rendered markdown. Global rather than scoped to
+   one component: the same parseMarkdown output is rendered by the article
+   view, the recipe view, both editor previews and the print sheet. */
+a.nostr-mention {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+a.nostr-mention:hover {
+  text-decoration: underline;
+}
+
 /* Print styles for #print-recipe */
 #print-recipe {
   display: none;

@@ -11,7 +11,7 @@
 	import { getOutboxRelays } from '$lib/relayListCache';
 	import { addClientTagToEvent } from '$lib/nip89';
 	import TurndownService from 'turndown';
-	import { sanitizeHTML } from '$lib/sanitize';
+	import { parseMarkdown, mentionNamesVersion } from '$lib/parser';
 	import XIcon from 'phosphor-svelte/lib/X';
 	import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
 	import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
@@ -72,6 +72,10 @@
 		codeBlockStyle: 'fenced'
 	});
 
+	const NPUB_MENTION_RE = /nostr:(npub1[023456789acdefghjklmnpqrstuvwxyz]{58})/g;
+	const ANY_MENTION_RE =
+		/nostr:(npub1[023456789acdefghjklmnpqrstuvwxyz]{58}|nprofile1[023456789acdefghjklmnpqrstuvwxyz]+)/g;
+
 	// Custom rule: convert mention spans to nostr:npub1... format
 	turndownService.addRule('mention', {
 		filter: (node: HTMLElement) => {
@@ -96,6 +100,16 @@
 	}
 
 	// Computed values
+	// The preview renders the *published* markdown, not the editor's HTML.
+	// Rendering the editor HTML showed mentions as inert text and hashtags
+	// and YouTube links unprocessed, so the preview promised less than
+	// publishing delivers. Going through the same turndown + parseMarkdown
+	// path the reader gets makes it accurate in both directions, including
+	// anything turndown drops. `$mentionNamesVersion` is a dependency so a
+	// mention re-renders once its display name resolves.
+	$: previewHtml = showPreview
+		? renderPreview(localDraft.content, $mentionNamesVersion)
+		: '';
 	$: wordCount = getWordCount(localDraft.content);
 	$: readingTime = getReadingTime(wordCount);
 	$: statusText = getStatusText($draftStatus);
@@ -228,6 +242,60 @@
 		if (!html) return '';
 		return turndownService.turndown(html);
 	}
+
+	/**
+	 * Rewrites `nostr:npub1…` mentions as `nostr:nprofile1…` with relay
+	 * hints, which is the form NIP-27 shows in its own example.
+	 *
+	 * A bare npub carries no clue where the profile lives, so a reader
+	 * that has never seen this person has nothing to fetch and falls back
+	 * to displaying the bech32 string. Hints give it somewhere to look, so
+	 * the mention resolves to a name in clients that don't already follow
+	 * the mentioned account.
+	 *
+	 * Best-effort: a mention whose relay list can't be fetched keeps its
+	 * npub, which is still valid NIP-27.
+	 */
+	async function addRelayHintsToMentions(markdown: string): Promise<string> {
+		const matches = [...markdown.matchAll(NPUB_MENTION_RE)];
+		if (matches.length === 0) return markdown;
+
+		const npubs = [...new Set(matches.map((m) => m[1]))];
+		const replacements = new Map<string, string>();
+
+		await Promise.all(
+			npubs.map(async (npub) => {
+				try {
+					const decoded = nip19.decode(npub);
+					if (decoded.type !== 'npub') return;
+					const relays = await getOutboxRelays(decoded.data);
+					if (!relays || relays.length === 0) return;
+					// Two hints is the customary ceiling - enough to find
+					// the profile without bloating every mention.
+					replacements.set(
+						npub,
+						nip19.nprofileEncode({ pubkey: decoded.data, relays: relays.slice(0, 2) })
+					);
+				} catch {
+					// Leave this mention as a bare npub.
+				}
+			})
+		);
+
+		if (replacements.size === 0) return markdown;
+		return markdown.replace(NPUB_MENTION_RE, (full, npub) => {
+			const nprofile = replacements.get(npub);
+			return nprofile ? `nostr:${nprofile}` : full;
+		});
+	}
+
+	// `namesVersion` is unused: it's a reactivity dependency only, so the
+	// preview re-renders when a mentioned profile's name arrives.
+	function renderPreview(html: string, namesVersion: number): string {
+		void namesVersion;
+		if (!html) return '';
+		return parseMarkdown(htmlToMarkdown(html));
+	}
 	
 	// Generate a URL-friendly identifier from the title
 	// Note: In NIP-23, reusing the same identifier updates the article (by design)
@@ -277,7 +345,7 @@
 		
 		try {
 			// Convert HTML content to Markdown
-			const markdownContent = htmlToMarkdown(localDraft.content);
+			const markdownContent = await addRelayHintsToMentions(htmlToMarkdown(localDraft.content));
 			
 			if (!markdownContent.trim()) {
 				publishError = 'Article content cannot be empty';
@@ -310,10 +378,16 @@
 			}
 			
 			if (localDraft.coverImage && localDraft.coverImage.trim()) {
-				// Basic URL validation
+				// `new URL()` alone is not enough: it parses `javascript:` and
+				// `data:` URLs happily, and this value is republished as the
+				// article's `image` tag for every other client to render.
 				try {
-					new URL(localDraft.coverImage);
-					event.tags.push(['image', localDraft.coverImage]);
+					const { protocol } = new URL(localDraft.coverImage);
+					if (protocol === 'http:' || protocol === 'https:') {
+						event.tags.push(['image', localDraft.coverImage]);
+					} else {
+						console.warn('Cover image URL is not http(s), skipping');
+					}
 				} catch {
 					console.warn('Invalid cover image URL, skipping');
 				}
@@ -337,16 +411,20 @@
 			// Add NIP-89 client tag
 			addClientTagToEvent(event);
 
-			// Extract mentioned pubkeys from content and add p tags (NIP-23/NIP-27)
-			const mentionMatches = markdownContent.match(/nostr:(npub1[023456789acdefghjklmnpqrstuvwxyz]{58})/g);
+			// Extract mentioned pubkeys from content and add p tags (NIP-23/NIP-27).
+			// Both mention forms count: relay hints turn npub mentions into
+			// nprofile, and matching only npub would drop the p tag - and with
+			// it the notification - for every hinted mention.
+			const mentionMatches = markdownContent.match(ANY_MENTION_RE);
 			if (mentionMatches) {
 				const mentionedPubkeys = new Set<string>();
 				for (const match of mentionMatches) {
 					try {
-						const npub = match.replace('nostr:', '');
-						const decoded = nip19.decode(npub);
+						const decoded = nip19.decode(match.replace('nostr:', ''));
 						if (decoded.type === 'npub') {
 							mentionedPubkeys.add(decoded.data);
+						} else if (decoded.type === 'nprofile') {
+							mentionedPubkeys.add(decoded.data.pubkey);
 						}
 					} catch {}
 				}
@@ -623,7 +701,7 @@
 							{/if}
 
 							<div class="preview-body prose">
-								{@html sanitizeHTML(localDraft.content)}
+								{@html previewHtml}
 							</div>
 						</article>
 					</div>
