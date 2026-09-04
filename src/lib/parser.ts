@@ -1,4 +1,6 @@
 import MarkdownIt from 'markdown-it';
+import { get, writable } from 'svelte/store';
+import { nip19 } from 'nostr-tools';
 import { sanitizeHTML } from '$lib/sanitize';
 
 const md = new MarkdownIt({ linkify: true });
@@ -74,6 +76,123 @@ function linkHashtagsInElement(root: Element, doc: Document): void {
   }
 }
 
+/**
+ * Inline profile mentions, per NIP-27: the author's content holds a bare
+ * `nostr:npub1…` / `nostr:nprofile1…` URI and the reader is responsible
+ * for turning it into a name and a link. Without this pass a mention
+ * renders as the raw bech32 string - markdown-it's linkify doesn't know
+ * the `nostr:` scheme, so it passes straight through as text.
+ *
+ * Names come from a module-level cache. A miss renders a shortened npub
+ * immediately and queues a lookup; `mentionNamesVersion` is bumped when
+ * one lands so reactive callers can re-render with the real name. Nothing
+ * here awaits, so a cold cache never blocks the article body.
+ */
+const NOSTR_MENTION_RE =
+  /nostr:(npub1[023456789acdefghjklmnpqrstuvwxyz]{58}|nprofile1[023456789acdefghjklmnpqrstuvwxyz]+)/g;
+
+/** Bumped whenever a mentioned profile's name resolves. */
+export const mentionNamesVersion = writable(0);
+
+const mentionNames = new Map<string, string>();
+const mentionLookupsInFlight = new Set<string>();
+
+/**
+ * Fetches a mentioned profile's name in the background. `profileResolver`
+ * is imported lazily: `parser.ts` is used in SSR paths and pulling the
+ * NDK singleton in at module load would drag a relay connection with it.
+ */
+function queueMentionLookup(pubkey: string): void {
+  if (typeof window === 'undefined') return;
+  if (mentionNames.has(pubkey) || mentionLookupsInFlight.has(pubkey)) return;
+  mentionLookupsInFlight.add(pubkey);
+
+  (async () => {
+    try {
+      const [{ resolveProfileByPubkey }, { ndk }] = await Promise.all([
+        import('$lib/profileResolver'),
+        import('$lib/nostr')
+      ]);
+      const profile = await resolveProfileByPubkey(pubkey, get(ndk));
+      // Deliberately not getUsername(): its anon-name fallback would
+      // dress an unresolvable mention up as a real handle. A shortened
+      // npub is the honest answer for a profile we never found.
+      const name = profile?.display_name || profile?.name;
+      if (name) {
+        mentionNames.set(pubkey, name);
+        mentionNamesVersion.update((n) => n + 1);
+      }
+    } catch {
+      // A mention that can't be resolved keeps its shortened npub.
+    } finally {
+      mentionLookupsInFlight.delete(pubkey);
+    }
+  })();
+}
+
+function shortNpub(npub: string): string {
+  return npub.length <= 16 ? npub : `${npub.slice(0, 10)}…${npub.slice(-4)}`;
+}
+
+/** Resolves a mention URI to the pubkey and npub it points at. */
+function decodeMention(identifier: string): { pubkey: string; npub: string } | null {
+  try {
+    const decoded = nip19.decode(identifier);
+    if (decoded.type === 'npub') {
+      return { pubkey: decoded.data, npub: identifier };
+    }
+    if (decoded.type === 'nprofile') {
+      return { pubkey: decoded.data.pubkey, npub: nip19.npubEncode(decoded.data.pubkey) };
+    }
+  } catch {
+    // Malformed bech32: leave the text as the author wrote it.
+  }
+  return null;
+}
+
+function linkMentionsInElement(root: Element, doc: Document): void {
+  const textNodes: Text[] = [];
+  collectTextNodes(root, textNodes);
+  for (const node of textNodes) {
+    const text = node.textContent || '';
+    NOSTR_MENTION_RE.lastIndex = 0;
+    if (!NOSTR_MENTION_RE.test(text)) continue;
+    NOSTR_MENTION_RE.lastIndex = 0;
+
+    const fragment = doc.createDocumentFragment();
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    let replaced = false;
+    while ((match = NOSTR_MENTION_RE.exec(text)) !== null) {
+      const target = decodeMention(match[1]);
+      if (!target) continue;
+
+      if (match.index > lastIndex) {
+        fragment.appendChild(doc.createTextNode(text.slice(lastIndex, match.index)));
+      }
+
+      const name = mentionNames.get(target.pubkey);
+      if (!name) queueMentionLookup(target.pubkey);
+
+      const a = doc.createElement('a');
+      a.setAttribute('href', `/user/${target.npub}`);
+      a.className = 'nostr-mention';
+      // textContent, not innerHTML: the name is profile metadata from a
+      // relay and is not to be trusted as markup.
+      a.textContent = `@${name || shortNpub(target.npub)}`;
+      fragment.appendChild(a);
+
+      lastIndex = match.index + match[0].length;
+      replaced = true;
+    }
+    if (!replaced) continue;
+    if (lastIndex < text.length) {
+      fragment.appendChild(doc.createTextNode(text.slice(lastIndex)));
+    }
+    node.parentNode?.replaceChild(fragment, node);
+  }
+}
+
 function buildYoutubeEmbed(id: string, doc: Document): HTMLElement {
   const wrapper = doc.createElement('div');
   wrapper.className = 'youtube-embed';
@@ -128,7 +247,88 @@ function enhanceContent(html: string): string {
   const root = doc.body.firstElementChild as HTMLElement | null;
   if (!root) return html;
   embedYoutubeInElement(root, doc);
+  linkMentionsInElement(root, doc);
   linkHashtagsInElement(root, doc);
+  return root.innerHTML;
+}
+
+/**
+ * Renders markdown for the *editor*, not for reading.
+ *
+ * Differs from `parseMarkdown` in two ways that matter when the output is
+ * going back into Tiptap and will be turned back into markdown on save:
+ *
+ * - Profile mentions become Tiptap mention spans, so they survive the
+ *   round-trip as `nostr:` URIs. Rendering them as reader-facing anchors
+ *   instead would come back through turndown as `[@name](/user/npub…)`
+ *   markdown links, quietly demoting a real Nostr mention to a relative
+ *   web link.
+ * - No hashtag links and no YouTube embeds. Those are reading
+ *   affordances; an iframe has no business inside a text editor.
+ *
+ * `mentionLabels` supplies display names by pubkey where they're known.
+ * The label is cosmetic - `data-id` is what publishing reads - so an
+ * unresolved mention falls back to a shortened npub without affecting
+ * what gets saved.
+ */
+export function parseMarkdownToEditorHtml(
+  markdown: string,
+  mentionLabels?: Map<string, string>
+): string {
+  const sanitized = sanitizeHTML(md.render(markdown || ''));
+  if (!sanitized || typeof DOMParser === 'undefined') return sanitized;
+
+  const doc = new DOMParser().parseFromString(`<div>${sanitized}</div>`, 'text/html');
+  const root = doc.body.firstElementChild as HTMLElement | null;
+  if (!root) return sanitized;
+
+  const textNodes: Text[] = [];
+  collectTextNodes(root, textNodes);
+  for (const node of textNodes) {
+    const text = node.textContent || '';
+    NOSTR_MENTION_RE.lastIndex = 0;
+    if (!NOSTR_MENTION_RE.test(text)) continue;
+    NOSTR_MENTION_RE.lastIndex = 0;
+
+    const fragment = doc.createDocumentFragment();
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    let replaced = false;
+    while ((match = NOSTR_MENTION_RE.exec(text)) !== null) {
+      const target = decodeMention(match[1]);
+      if (!target) continue;
+
+      if (match.index > lastIndex) {
+        fragment.appendChild(doc.createTextNode(text.slice(lastIndex, match.index)));
+      }
+
+      const label =
+        mentionLabels?.get(target.pubkey) ||
+        mentionNames.get(target.pubkey) ||
+        shortNpub(target.npub);
+
+      // Matches what Tiptap's Mention extension renders, so the editor
+      // picks it up as a mention node rather than loose markup.
+      const span = doc.createElement('span');
+      span.className = 'mention';
+      span.setAttribute('data-type', 'mention');
+      // Always an npub: publishing re-adds relay hints, and the turndown
+      // rule emits `nostr:${data-id}` verbatim.
+      span.setAttribute('data-id', target.npub);
+      span.setAttribute('data-label', label);
+      span.textContent = `@${label}`;
+      fragment.appendChild(span);
+
+      lastIndex = match.index + match[0].length;
+      replaced = true;
+    }
+    if (!replaced) continue;
+    if (lastIndex < text.length) {
+      fragment.appendChild(doc.createTextNode(text.slice(lastIndex)));
+    }
+    node.parentNode?.replaceChild(fragment, node);
+  }
+
   return root.innerHTML;
 }
 
