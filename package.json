@@ -71,7 +71,7 @@
     "jsqr": "^1.4.0",
     "libretranslate": "^1.0.1",
     "markdown-it": "^14.2.0",
-    "nostr-tools": "^2.13.0",
+    "nostr-tools": "^2.25.2",
     "openai": "^6.16.0",
     "phosphor-svelte": "^1.4.2",
     "qrcode-generator": "^1.4.4",
