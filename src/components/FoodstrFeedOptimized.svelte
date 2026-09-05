@@ -95,6 +95,7 @@
     batchFetchEngagement,
     getEngagementStore,
     fetchEngagement,
+    cleanupEngagement,
     type EngagementData
   } from '$lib/engagementCache';
 
@@ -4355,6 +4356,12 @@
             if (!visibleNotes.has(eventId)) {
               unsubscribeFromEngagement(eventId);
               engagementGlowCache.delete(eventId);
+              // Release the note's persistent relay subscription and its
+              // engagement dedupe sets — without this they grew for the
+              // whole session, one set of structures per note ever
+              // rendered (the module's designed eviction path, previously
+              // never called).
+              cleanupEngagement(eventId);
             }
           }, 30000); // 30 second grace period
           pendingCleanupTimers.set(eventId, timer);
@@ -4743,8 +4750,14 @@
     pendingCleanupTimers.forEach((timer) => clearTimeout(timer));
     pendingCleanupTimers.clear();
 
-    // Unsubscribe all engagement store subscriptions
-    engagementSubscriptions.forEach((unsub) => unsub());
+    // Unsubscribe all engagement store subscriptions, and release every
+    // note's persistent engagement subscription and dedupe sets (the
+    // 5-min idle reaper would eventually catch some of these; don't
+    // keep streaming until then).
+    for (const eventId of [...engagementSubscriptions.keys()]) {
+      engagementSubscriptions.get(eventId)?.();
+      cleanupEngagement(eventId);
+    }
     engagementSubscriptions.clear();
 
     cleanupInfiniteScroll();
