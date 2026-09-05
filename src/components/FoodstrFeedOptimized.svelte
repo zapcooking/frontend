@@ -3505,19 +3505,26 @@
       }
 
       // Advance the pagination floor past everything this page actually
-      // returned, duplicates included, so an all-duplicate page can never
-      // cause the same window to be re-requested.
+      // returned inside the window we asked for, duplicates included, so an
+      // all-duplicate page can never cause the same window to be
+      // re-requested. Events outside [since, until] come from relays that
+      // ignore the filter and must not steer the floor: older junk would
+      // drag it past history we haven't fetched (skipping it and tripping
+      // the 30-day guard early); newer junk says nothing about this window.
+      // A page with events but none in-window means the window is
+      // exhausted, so the floor moves to its `since` edge.
       if (olderEvents.length > 0) {
-        let oldestFetchedTs = Infinity;
+        const { since: windowSince, until: windowUntil } = paginationWindow;
+        let oldestInWindow = Infinity;
         for (const e of olderEvents) {
-          const ts = e.created_at || getEventSortTime(e);
-          if (ts && ts < oldestFetchedTs) oldestFetchedTs = ts;
+          const ts = e.created_at ?? getEventSortTime(e);
+          if (!ts || ts < windowSince) continue;
+          if (windowUntil !== undefined && ts > windowUntil) continue;
+          if (ts < oldestInWindow) oldestInWindow = ts;
         }
-        if (oldestFetchedTs !== Infinity) {
-          paginationFloorTs = paginationFloorTs === null
-            ? oldestFetchedTs
-            : Math.min(paginationFloorTs, oldestFetchedTs);
-        }
+        const pageFloor = oldestInWindow === Infinity ? windowSince : oldestInWindow;
+        paginationFloorTs =
+          paginationFloorTs === null ? pageFloor : Math.min(paginationFloorTs, pageFloor);
       }
 
       // Expand kind:6 wrappers into their inner kind:1/1068 notes before
