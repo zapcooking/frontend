@@ -22,7 +22,10 @@ import { getOutboxRelays } from '$lib/relayListCache';
 import type { RecipeDraft } from '$lib/draftStore';
 import type { ArticleDraft } from '$lib/articleEditor';
 import TurndownService from 'turndown';
-import { parseMarkdownToEditorHtml } from '$lib/parser';
+// NOTE: $lib/parser (markdown-it) is imported lazily inside
+// parseArticleToDraft — this module sits on the layout's static graph
+// via articleDraftStore, and a static import would ship markdown-it
+// to every page.
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -309,7 +312,7 @@ async function decryptDraftContent(content: string, pubkey: string, draftType: '
 
     // Parse based on draft type
     if (draftType === 'article') {
-      return parseArticleToDraft(eventData);
+      return await parseArticleToDraft(eventData);
     } else {
       return parseRecipeToDraft(eventData);
     }
@@ -442,7 +445,8 @@ function buildArticleTags(draft: ArticleDraft): string[][] {
 /**
  * Parse article event data back to draft format
  */
-function parseArticleToDraft(eventData: { kind: number; content: string; tags: string[][]; created_at?: number }, draftId?: string): ArticleDraft {
+async function parseArticleToDraft(eventData: { kind: number; content: string; tags: string[][]; created_at?: number }, draftId?: string): Promise<ArticleDraft> {
+  const { parseMarkdownToEditorHtml } = await import('$lib/parser');
   const tags = eventData.tags || [];
   const content = eventData.content || '';
 

@@ -55,7 +55,7 @@
   import UserSidePanel from '../components/UserSidePanel.svelte';
   import MobileNavDrawer from '../components/MobileNavDrawer.svelte';
   import MobileSearchOverlay from '../components/MobileSearchOverlay.svelte';
-  import CheffyMessenger from '../components/CheffyMessenger.svelte';
+  import { cheffyOpen } from '$lib/stores/cheffyChat';
   // Import sync service to initialize offline sync functionality
   import '$lib/syncService';
   // Import platform detection to initialize early
@@ -68,6 +68,26 @@
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement } from '$lib/engagementCache';
   import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
+
+  // The Cheffy messenger drags markdown-it (~49KB gz) into the layout
+  // chunk that every page loads. It only renders when $cheffyOpen flips
+  // true (header Intelligence menu, /explore entry points), so load it
+  // on first open instead. It stays mounted afterward (it renders
+  // nothing while closed), keeping later opens instant.
+  let CheffyMessenger: typeof import('../components/CheffyMessenger.svelte').default | null =
+    null;
+  let cheffyLoadStarted = false;
+
+  $: if ($cheffyOpen && !cheffyLoadStarted) {
+    cheffyLoadStarted = true;
+    import('../components/CheffyMessenger.svelte').then(
+      (m) => (CheffyMessenger = m.default),
+      () => {
+        // Chunk load failed (deploy skew) — the vite:preloadError
+        // recovery reload below takes over.
+      }
+    );
+  }
 
   // Version-skew guard: when a new deploy is detected (kit.version
   // pollInterval in svelte.config.js), turn the next client-side navigation
@@ -619,11 +639,11 @@
       {/if}
       <BottomNav />
       <CookingToolsWidget />
-      {#if showCheffy}
+      {#if showCheffy && CheffyMessenger}
         <!-- The floating launcher was retired (A2); Cheffy opens from the
              header Intelligence menu's "Ask Cheffy" item. The messenger
              stays gated here and on /explore's own entry points. -->
-        <CheffyMessenger />
+        <svelte:component this={CheffyMessenger} />
       {/if}
       <MobileNavDrawer />
       <UserSidePanel />
