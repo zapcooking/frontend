@@ -2887,10 +2887,18 @@
   // ─── Periodic content refresh for Global feed ───────────────
   let contentRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const CONTENT_REFRESH_INTERVAL_MS = 60_000; // every 60s
+  let contentRefreshVisibilityHandler: (() => void) | null = null;
 
   function startPeriodicContentRefresh() {
     stopPeriodicContentRefresh();
     contentRefreshTimer = setInterval(runContentRefresh, CONTENT_REFRESH_INTERVAL_MS);
+    // Catch up once when the tab becomes visible again instead of letting
+    // the 60s tick spin while hidden — each tick is a multi-relay discovery
+    // fetch nobody is looking at.
+    contentRefreshVisibilityHandler = () => {
+      if (!document.hidden) runContentRefresh();
+    };
+    document.addEventListener('visibilitychange', contentRefreshVisibilityHandler);
   }
 
   function stopPeriodicContentRefresh() {
@@ -2898,10 +2906,18 @@
       clearInterval(contentRefreshTimer);
       contentRefreshTimer = null;
     }
+    if (contentRefreshVisibilityHandler) {
+      document.removeEventListener('visibilitychange', contentRefreshVisibilityHandler);
+      contentRefreshVisibilityHandler = null;
+    }
   }
 
   async function runContentRefresh() {
     if (isDestroyed || filterMode !== 'global' || !$ndk) return;
+    // Skip ticks while the tab is hidden; the visibilitychange handler
+    // above runs one refresh when the user comes back, and `since` is
+    // anchored on lastEventTime so that single fetch covers the gap.
+    if (typeof document !== 'undefined' && document.hidden) return;
 
     try {
       // Fetch recent notes (last 10 minutes) and client-side filter for food content
