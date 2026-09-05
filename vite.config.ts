@@ -52,13 +52,6 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      external: (id) => {
-        // Externalize Capacitor modules for web builds (they're only available in mobile)
-        if (id.startsWith('@capacitor/')) {
-          return true;
-        }
-        return false;
-      },
       onwarn(warning, warn) {
         // Suppress warnings about Svelte 5 functions (untrack, fork, settled) 
         // that SvelteKit 2.49.5 references but aren't available in Svelte 4 SSR
