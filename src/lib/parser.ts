@@ -662,9 +662,14 @@ function extractDirectionsFlexible(markdown: string): Array<{ number: number; te
     const directionsContent = altDirectionsMatch[1].trim();
     const steps: Array<{ number: number; text: string }> = [];
     
-    // Split by periods followed by space or newline, or by newlines
+    // Split by periods followed by space or newline, or by newlines. The
+    // marker dance replaces lookbehind (a parse-time SyntaxError on iOS
+    // Safari < 16.4): sentence boundaries become \u0000, newlines keep
+    // their \n attached to the preceding piece exactly like (?<=\n) did.
     const sentences = directionsContent
-      .split(/(?<=[.!?])\s+(?=[A-Z])|(?<=\n)/)
+      .replace(/([.!?])\s+(?=[A-Z])/g, '$1\u0000')
+      .replace(/\n/g, '\n\u0000')
+      .split('\u0000')
       .map(s => s.trim())
       .filter(s => s.length > 10); // Filter out very short fragments
     

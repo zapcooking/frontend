@@ -77,8 +77,10 @@ export function stripMarkdownFormatting(input: string): string {
 	// Italic (*foo*, _foo_) — restrict to forms unlikely to collide with
 	// regular punctuation usage. Underscore variant only when bordered by
 	// whitespace/start/end so we don't break snake_case identifiers.
-	out = out.replace(/(?<![*\w])\*([^\s*][^*\n]*?[^\s*])\*(?!\w)/g, '$1');
-	out = out.replace(/(?<![\w_])_([^\s_][^_\n]*?[^\s_])_(?!\w)/g, '$1');
+	// The consumed-and-re-emitted border char replaces lookbehind (a
+	// parse-time SyntaxError on iOS Safari < 16.4).
+	out = out.replace(/(^|[^*\w])\*([^\s*][^*\n]*?[^\s*])\*(?!\w)/g, '$1$2');
+	out = out.replace(/(^|[^_\w])_([^\s_][^_\n]*?[^\s_])_(?!\w)/g, '$1$2');
 
 	// Drop links whose destination is localhost/loopback entirely —
 	// label and URL both gone, since the reader can't follow them.
