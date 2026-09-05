@@ -1,22 +1,23 @@
 import { beforeEach, it, expect, vi } from 'vitest';
 import { makeRun } from './history';
 import { startService, nextCustomer, serve, type Dish } from './service';
+type MockEvent = { id?: string; pubkey: string; kind: number; content: string; tags: string[][] };
 const state = vi.hoisted(() => ({
   owner: 'alice',
-  events: [] as any[],
+  events: [] as MockEvent[],
   encrypted: vi.fn(),
   published: vi.fn(),
   sign: vi.fn(),
-  remote: [] as any[]
+  remote: [] as MockEvent[]
 }));
 vi.mock('$lib/nostr', async () => {
   const { writable } = await import('svelte/store');
   const client = {
     signer: { user: async () => ({ pubkey: state.owner }) },
     subscribe: () => {
-      const handlers: Record<string, (...args: any[]) => void> = {};
+      const handlers: Record<string, (...args: unknown[]) => void> = {};
       return {
-        on: (name: string, handler: (...args: any[]) => void) => {
+        on: (name: string, handler: (...args: unknown[]) => void) => {
           handlers[name] = handler;
         },
         stop: vi.fn(),
@@ -30,7 +31,7 @@ vi.mock('$lib/nostr', async () => {
   return { ndk: writable(client), userPublickey: writable('alice'), ndkReady: Promise.resolve() };
 });
 vi.mock('$lib/encryptionService', () => ({
-  encrypt: (...args: any[]) => state.encrypted(...args),
+  encrypt: (...args: unknown[]) => state.encrypted(...args),
   decrypt: async () => JSON.stringify(run())
 }));
 vi.mock('$lib/relayListCache', () => ({ getOutboxRelays: async () => ['wss://relay.example'] }));
@@ -47,7 +48,7 @@ vi.mock('@nostr-dev-kit/ndk', () => ({
     async sign() {
       await state.sign();
     }
-    async publish(...args: any[]) {
+    async publish(...args: unknown[]) {
       return state.published(...args);
     }
   },

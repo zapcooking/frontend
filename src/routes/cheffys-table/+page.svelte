@@ -227,7 +227,9 @@
     audio = new KitchenFeedback();
     try {
       sound = localStorage.getItem('cheffy-table-sound') === 'on';
-    } catch {}
+    } catch {
+      /* Optional browser preferences/effects must not interrupt play. */
+    }
   });
   onDestroy(() => {
     alive = false;
@@ -320,7 +322,9 @@
           sound = !sound;
           try {
             localStorage.setItem('cheffy-table-sound', sound ? 'on' : 'off');
-          } catch {}
+          } catch {
+            /* Optional browser preferences/effects must not interrupt play. */
+          }
         }}>{sound ? '♫' : '♪'}</button
       ><button aria-label="Service options" disabled={plating} on:click={() => (paused = true)}
         >Ⅱ</button

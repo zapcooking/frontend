@@ -40,7 +40,9 @@ export class KitchenFeedback {
       g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.16);
       o.start();
       o.stop(c.currentTime + 0.17);
-    } catch {}
+    } catch {
+      /* Optional browser preferences/effects must not interrupt play. */
+    }
   }
   close() {
     void this.ctx?.close();
