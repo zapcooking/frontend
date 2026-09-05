@@ -119,10 +119,11 @@
   function submit() {
     if (error || plating || paused) return;
     plating = true;
+    const submittedDish: Dish = { ...dish, ingredients: [...dish.ingredients] };
     audio?.play('dish', sound, false);
     delay = setTimeout(() => {
       if (alive) {
-        service = serve(service, dish);
+        service = serve(service, submittedDish);
         plating = false;
         notice = '';
       }
