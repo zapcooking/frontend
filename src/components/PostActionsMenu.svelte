@@ -15,9 +15,17 @@
   import CheffyIcon from './icons/CheffyIcon.svelte';
   import CheffyNoteReview from './CheffyNoteReview.svelte';
   import { extractImageUrls } from '$lib/imageUrls';
+  import { get } from 'svelte/store';
+  import { getEngagementStore } from '$lib/engagementCache';
 
   export let event: NDKEvent;
-  export let engagementData: {
+
+  // Engagement snapshot for the share-image flow, read from the engagement
+  // store when the menu opens. Reading it at render time from the feed's
+  // list markup put a per-note store read (plus a first-touch localStorage
+  // parse) on every list re-render; opening a menu is the only moment the
+  // data is actually needed, and this snapshot is fresher anyway.
+  let engagementData: {
     zaps: { totalAmount: number; count: number };
     reactions: { count: number };
     comments: { count: number };
@@ -45,8 +53,28 @@
 
   let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 
+  function refreshEngagementSnapshot() {
+    if (!browser || !event?.id) {
+      engagementData = null;
+      return;
+    }
+    const value = get(getEngagementStore(event.id));
+    // Pages that never initialize engagement (polls, thread views) keep
+    // the share-image item hidden — same as the old null-prop behavior.
+    if (value.loading) {
+      engagementData = null;
+      return;
+    }
+    engagementData = {
+      zaps: { totalAmount: value.zaps.totalAmount, count: value.zaps.count },
+      reactions: { count: value.reactions.count },
+      comments: { count: value.comments.count }
+    };
+  }
+
   function toggleMenu() {
     menuOpen = !menuOpen;
+    if (menuOpen) refreshEngagementSnapshot();
   }
 
   function closeMenu() {
