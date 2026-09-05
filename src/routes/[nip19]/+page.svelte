@@ -5,7 +5,7 @@
   import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import NoteContent from '../../components/NoteContent.svelte';
@@ -13,7 +13,7 @@
   import NoteActionBar from '../../components/NoteActionBar.svelte';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
-  import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { createCommentFilter } from '$lib/commentFilters';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
@@ -108,6 +108,48 @@
   let loadingReplies = false;
   let processedReplies = new Set<string>();
 
+  // The replies subscription is closeOnEose:false (live for realtime
+  // replies). It MUST be stopped when re-fetching for another note and
+  // when leaving the page — previously it was never stopped at all, so
+  // every note-to-note navigation stacked another live subscription,
+  // each re-sorting its (retained) replies array on every incoming
+  // event forever. That leak is what froze deep-linking sessions.
+  let replySub: NDKSubscription | null = null;
+
+  // Batch reply arrivals: busy notes deliver dozens of replies in the
+  // initial burst, and each one used to pay a full array copy + sort.
+  const REPLY_FLUSH_MS = 200;
+  let pendingReplies: NDKEvent[] = [];
+  let replyFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flushPendingReplies() {
+    replyFlushTimer = null;
+    if (pendingReplies.length === 0) return;
+    const batch = pendingReplies;
+    pendingReplies = [];
+    replies = [...replies, ...batch].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+  }
+
+  function stopReplySubscription() {
+    if (replySub) {
+      try {
+        replySub.stop();
+      } catch {
+        // NDK subscriptions can throw on repeated stop; swallow.
+      }
+      replySub = null;
+    }
+    if (replyFlushTimer) {
+      clearTimeout(replyFlushTimer);
+      replyFlushTimer = null;
+    }
+    pendingReplies = [];
+  }
+
+  onDestroy(() => {
+    stopReplySubscription();
+  });
+
   // Get the parent note ID from an event's e tags
   function getParentNoteId(evt: NDKEvent): string | null {
     // Look for reply tag first
@@ -181,6 +223,7 @@
 
   // Fetch replies to this note
   function fetchReplies(eventId: string) {
+    stopReplySubscription();
     loadingReplies = true;
     replies = [];
     processedReplies.clear();
@@ -221,15 +264,23 @@
       }
     } catch { /* non-fatal — fall back to the default pool */ }
 
-    const sub = $ndk.subscribe(filter, { closeOnEose: false }, relaySet);
+    replySub = $ndk.subscribe(filter, { closeOnEose: false }, relaySet);
 
-    sub.on('event', (e: NDKEvent) => {
+    replySub.on('event', (e: NDKEvent) => {
       if (processedReplies.has(e.id)) return;
       processedReplies.add(e.id);
-      replies = [...replies, e].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+      pendingReplies.push(e);
+      if (replyFlushTimer === null) {
+        replyFlushTimer = setTimeout(flushPendingReplies, REPLY_FLUSH_MS);
+      }
     });
 
-    sub.on('eose', () => {
+    replySub.on('eose', () => {
+      if (replyFlushTimer !== null) {
+        clearTimeout(replyFlushTimer);
+        replyFlushTimer = null;
+      }
+      flushPendingReplies();
       loadingReplies = false;
     });
 
