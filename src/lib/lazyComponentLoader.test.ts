@@ -18,7 +18,13 @@ vi.mock('$lib/nip37DraftService', () => ({
   fetchRemoteDrafts: vi.fn(async () => [])
 }));
 
-import { createLazyLoader, bindLazyLoaderToOpenState } from './lazyComponentLoader';
+import {
+  createLazyLoader,
+  bindLazyLoaderToOpenState,
+  failedModuleUrl,
+  retryFailedImport,
+  reloadFailedStylesheets
+} from './lazyComponentLoader';
 
 type Deferred<T> = { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void };
 function deferred<T>(): Deferred<T> {
@@ -332,5 +338,108 @@ describe('longform editor: draft preservation across failure and retry', () => {
     expect(get(store.currentDraftId)).toBe(draftId);
 
     unbind();
+  });
+});
+
+describe('retry after a browser-cached module failure', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('failedModuleUrl reads the module URL from Chrome and Firefox messages only', () => {
+    expect(
+      failedModuleUrl(
+        new Error('Failed to fetch dynamically imported module: https://zap.cooking/_app/immutable/chunks/abc.js')
+      )
+    ).toBe('https://zap.cooking/_app/immutable/chunks/abc.js');
+    expect(
+      failedModuleUrl(new Error('error loading dynamically imported module: http://localhost:4179/x/y.js'))
+    ).toBe('http://localhost:4179/x/y.js');
+    expect(failedModuleUrl(new Error('Importing a module script failed.'))).toBeNull();
+    expect(failedModuleUrl(new Error('boom'))).toBeNull();
+    expect(failedModuleUrl(undefined)).toBeNull();
+  });
+
+  it('retryFailedImport re-imports under a unique query and falls back to null without a URL', async () => {
+    const importer = vi.fn(async (url: string) => ({ default: url }));
+    const err = new Error('Failed to fetch dynamically imported module: https://h/c.js');
+    await expect(retryFailedImport(err, 3, importer)).resolves.toEqual({ default: 'https://h/c.js?retry=3' });
+    const withQuery = new Error('Failed to fetch dynamically imported module: https://h/c.js?v=1');
+    await retryFailedImport(withQuery, 4, importer);
+    expect(importer).toHaveBeenLastCalledWith('https://h/c.js?v=1&retry=4');
+    expect(retryFailedImport(new Error('boom'), 1, importer)).toBeNull();
+  });
+
+  it('reloadFailedStylesheets replaces only links that produced no sheet', () => {
+    const replaced: Array<{ href: string; rel: string }> = [];
+    const mkLink = (href: string, sheet: object | null) => ({
+      href,
+      sheet,
+      replaceWith(el: { href: string; rel: string }) {
+        replaced.push(el);
+      }
+    });
+    const doc = {
+      querySelectorAll: () => [mkLink('https://h/a.css', {}), mkLink('https://h/b.css', null), mkLink('', null)],
+      createElement: () => ({ rel: '', href: '' })
+    } as unknown as Document;
+    expect(reloadFailedStylesheets(2, doc)).toBe(1);
+    expect(replaced).toEqual([{ rel: 'stylesheet', href: 'https://h/b.css?retry=2' }]);
+    expect(reloadFailedStylesheets(2, undefined)).toBe(0);
+  });
+
+  it('a retry after a URL-bearing failure goes through retryImport with the attempt number', async () => {
+    const load = vi.fn(async () => ({ default: Component }));
+    const retryImport = vi.fn((_err: unknown, attempt: number) =>
+      Promise.resolve({ default: { name: `retried-${attempt}` } })
+    );
+    const failing = vi.fn(() =>
+      Promise.reject(new Error('Failed to fetch dynamically imported module: https://h/c.js'))
+    );
+    const loader = createLazyLoader<{ name: string }>(failing as never, { retryImport });
+    loader.request();
+    await flush();
+    expect(get(loader).status).toBe('failed');
+    expect(retryImport).not.toHaveBeenCalled();
+
+    loader.retry();
+    await flush();
+    expect(retryImport).toHaveBeenCalledTimes(1);
+    expect(retryImport.mock.calls[0][1]).toBe(2);
+    expect(failing).toHaveBeenCalledTimes(1); // the original import is not re-run
+    expect(get(loader)).toMatchObject({ status: 'loaded', component: { name: 'retried-2' } });
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('a reopen after a failure also uses the retry path, and a null strategy falls back to load', async () => {
+    const retryImport = vi.fn(() => null);
+    let calls = 0;
+    const load = vi.fn(() =>
+      ++calls === 1
+        ? Promise.reject(new Error('Failed to fetch dynamically imported module: https://h/c.js'))
+        : Promise.resolve({ default: Component })
+    );
+    const loader = createLazyLoader(load, { retryImport });
+    loader.request();
+    await flush();
+    loader.release();
+    loader.request();
+    await flush();
+    expect(retryImport).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(get(loader).status).toBe('loaded');
+  });
+
+  it('an import that resolves without a default export is a failure, not a loaded component', async () => {
+    const load = vi.fn(async () => undefined);
+    const loader = createLazyLoader(load as never, { retryImport: null });
+    loader.request();
+    await flush();
+    expect(get(loader).status).toBe('failed');
+    expect((get(loader).error as Error).message).toMatch(/without a default export/);
+    expect(get(loader).component).toBeNull();
   });
 });
