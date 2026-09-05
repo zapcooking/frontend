@@ -1,6 +1,4 @@
-import { translate as googletranslate } from 'google-translate-api-browser';
 import type { TranslateOption } from './state';
-//import { translate as libretranslate } from 'libretranslate';
 
 type TranslationResult = {
   text: string;
@@ -12,20 +10,16 @@ export async function translate(
   string: string
 ): Promise<TranslationResult | ''> {
   if (translateOption.option == 'google') {
+    // Lazy-load the translator so it only downloads when a user actually
+    // translates something, instead of riding along on every recipe page
+    // load.
+    const { translate: googletranslate } = await import('google-translate-api-browser');
     const e = await googletranslate(string, {
       corsUrl: translateOption.data,
       to: translateOption.lang
     });
     return e;
   }
-  /*if (translateOption.option == 'libretranslate') {
-    const e = await libretranslate({
-        query: string,
-        target: translateOption.lang,
-        apiurl: translateOption.data,
-    });
-    return e;
-  }*/
 
   return '';
 }

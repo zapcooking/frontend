@@ -4,7 +4,6 @@
  * Generates shareable PNG images from Nostr notes using html2canvas
  */
 
-import html2canvas from 'html2canvas';
 import { browser } from '$app/environment';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
@@ -718,8 +717,15 @@ async function generateNoteImageInternal(
       }
     }
 
-    // Generate canvas with Safari-specific options
+    // Generate canvas with html2canvas. Safari never reaches this point: it
+    // returned early above via generateSafariImage (simple canvas drawing).
     console.log('[ShareImage] Generating canvas with html2canvas...');
+
+    // Lazy-load html2canvas (~48KB gz) so it only downloads when a share
+    // image is actually generated instead of riding along in the feed
+    // route chunks. Imported here rather than at the top of the module so
+    // the Safari early-return path above never fetches it at all.
+    const { default: html2canvas } = await import('html2canvas');
 
     const canvas = await html2canvas(container, {
       width,
