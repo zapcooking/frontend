@@ -77,9 +77,6 @@ importers:
       '@getalby/lightning-tools':
         specifier: ^6.0.0
         version: 6.0.0
-      '@getalby/sdk':
-        specifier: ^7.0.0
-        version: 7.0.0(typescript@5.6.3)
       '@noble/ciphers':
         specifier: ^2.1.1
         version: 2.1.1
@@ -167,18 +164,12 @@ importers:
       jsqr:
         specifier: ^1.4.0
         version: 1.4.0
-      libretranslate:
-        specifier: ^1.0.1
-        version: 1.0.1
       markdown-it:
         specifier: ^14.2.0
         version: 14.3.0
       nostr-tools:
         specifier: ^2.25.2
         version: 2.25.2(typescript@5.6.3)
-      openai:
-        specifier: ^6.16.0
-        version: 6.16.0(ws@8.21.0(bufferutil@4.0.8)(utf-8-validate@5.0.10))
       phosphor-svelte:
         specifier: ^1.4.2
         version: 1.4.2(svelte@4.2.20)
@@ -188,9 +179,6 @@ importers:
       stripe:
         specifier: ^20.1.0
         version: 20.1.0(@types/node@18.19.64)
-      syllable:
-        specifier: ^5.0.1
-        version: 5.0.1
       timeago.js:
         specifier: ^4.0.2
         version: 4.0.2
@@ -200,9 +188,6 @@ importers:
       webln:
         specifier: ^0.3.2
         version: 0.3.2
-      ws:
-        specifier: ^8.20.1
-        version: 8.21.0(bufferutil@4.0.8)(utf-8-validate@5.0.10)
     devDependencies:
       '@capacitor/assets':
         specifier: ^3.0.5
@@ -300,6 +285,9 @@ importers:
       wrangler:
         specifier: ~4.116.0
         version: 4.116.0(bufferutil@4.0.8)(utf-8-validate@5.0.10)
+      ws:
+        specifier: ^8.20.1
+        version: 8.21.0(bufferutil@4.0.8)(utf-8-validate@5.0.10)
 
 packages:
 
@@ -826,10 +814,6 @@ packages:
 
   '@getalby/lightning-tools@8.1.1':
     resolution: {integrity: sha512-gB+3fvTGz9bbl31JNgKMWqG4dZWgCxSB51fYn+F4tZ3x2h5oI/yHjvb6W9GBo2Zscr5gMP64gs0LlzKYoETlvQ==}
-    engines: {node: '>=14'}
-
-  '@getalby/sdk@7.0.0':
-    resolution: {integrity: sha512-0c8gyvFbRDHZIgHmOD/dfyPukxZLeidx/hx7SXlMIS/hsx4mXpKpo9Gx1zW90buElnd3k9TVB/S/bnFSEZPE7w==}
     engines: {node: '>=14'}
 
   '@getalby/sdk@8.0.3':
@@ -1860,9 +1844,6 @@ packages:
 
   '@types/pako@2.0.4':
     resolution: {integrity: sha512-VWDCbrLeVXJM9fihYodcLiIv0ku+AlOa/TQ1SvYOaBuyrSKgEcro95LJyIsJ4vSo6BXIxOKxiJAat04CmST9Fw==}
-
-  '@types/pluralize@0.0.29':
-    resolution: {integrity: sha512-BYOID+l2Aco2nBik+iYS4SZX0Lf20KPILP5RGmM1IgzdwNdTs0eebiFriOPcej1sX9mLnSoiNte5zcFxssgpGA==}
 
   '@types/pug@2.0.10':
     resolution: {integrity: sha512-Sk/uYFOBAB7mb74XcpizmH0KOR2Pv3D2Hmrh1Dmy5BmK3MpdSa5kqZcg6EKBdklU0bFXX9gCfzvpnyUehrPIuA==}
@@ -3391,9 +3372,6 @@ packages:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
 
-  libretranslate@1.0.1:
-    resolution: {integrity: sha512-+GVBAaoS5dOKw86uRY71KebeXXECLAkyaIjUgcGKdJADY2yeCmJCYUDgD0DHWldnV9OKFmYL+weIAUeG7au5fw==}
-
   light-bolt11-decoder@3.2.0:
     resolution: {integrity: sha512-3QEofgiBOP4Ehs9BI+RkZdXZNtSys0nsJ6fyGeSiAGCBsMwHGUDS/JQlY/sTnWs91A2Nh0S9XXfA8Sy9g6QpuQ==}
 
@@ -3742,9 +3720,6 @@ packages:
     resolution: {integrity: sha512-bdok/XvKII3nUpklnV6P2hxtMNrCboOjAcyBuQnWEhO665FwrSNRxU+AqpsyvO6LgGYPspN+lu5CLtw4jPRKNA==}
     engines: {node: '>=0.10.0'}
 
-  normalize-strings@1.1.1:
-    resolution: {integrity: sha512-fARPRdTwmrQDLYhmeh7j/eZwrCP6WzxD6uKOdK/hT/uKACAE9AG2Bc2dgqOZLkfmmctHpfcJ9w3AQnfLgg3GYg==}
-
   nostr-tools@2.25.2:
     resolution: {integrity: sha512-7JAx+brEPmqGz1yzaK9MOxvis/Nl1B38j9hVsBSRDMRmxk5XSc0+5LlPEYbzeiUyk41RURBDcfuMzmaT754HAg==}
     peerDependencies:
@@ -3781,18 +3756,6 @@ packages:
   open@8.4.2:
     resolution: {integrity: sha512-7x81NCL719oNbsq/3mh+hVrAWmFuEYUqrq/Iw3kUzH8ReypT9QQ0BLoJS7/G9k6N81XjW4qHWtjWwe/9eLy1EQ==}
     engines: {node: '>=12'}
-
-  openai@6.16.0:
-    resolution: {integrity: sha512-fZ1uBqjFUjXzbGc35fFtYKEOxd20kd9fDpFeqWtsOZWiubY8CZ1NAlXHW3iathaFvqmNtCWMIsosCuyeI7Joxg==}
-    hasBin: true
-    peerDependencies:
-      ws: ^8.20.1
-      zod: ^3.25 || ^4.0
-    peerDependenciesMeta:
-      ws:
-        optional: true
-      zod:
-        optional: true
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -3990,10 +3953,6 @@ packages:
   plist@3.1.0:
     resolution: {integrity: sha512-uysumyrvkUX0rX/dEVqt8gC3sTBzd4zoWfLeS29nb53imdaXVvLINYXTI2GNqzaMuvacNx4uJQ8+b3zXR0pkgQ==}
     engines: {node: '>=10.4.0'}
-
-  pluralize@8.0.0:
-    resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
-    engines: {node: '>=4'}
 
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
@@ -4652,10 +4611,6 @@ packages:
     resolution: {integrity: sha512-qsjeeq5YjBZ5eMdFuUa4ZosMLxgr5RZ+F+Y1OrDhuOCEInRMA3x74XdBtggJcj9kOeInz0WE+LgCPDkZFlBYJw==}
     engines: {node: '>=12.0.0'}
 
-  syllable@5.0.1:
-    resolution: {integrity: sha512-HWtNCp6v7J8H0lrT8j1HHjfOLltRoDcC7QRFVu25p4BE52JqetXG65nqC7CsatT8WQRfY4Qvh93BWJIUxbmXFg==}
-    hasBin: true
-
   symbol-tree@3.2.4:
     resolution: {integrity: sha512-9QNk5KwDF+Bvz+PyObkmSYjI5ksVUYtjW7AU22r2NKcfLJcXp96hkDWU3+XndOsUb+AQ9QhfzfCT2O+CNWT5Tw==}
 
@@ -4852,11 +4807,6 @@ packages:
 
   typescript-lru-cache@2.0.0:
     resolution: {integrity: sha512-Jp57Qyy8wXeMkdNuZiglE6v2Cypg13eDA1chHwDG6kq51X7gk4K7P7HaDdzZKCxkegXkVHNcPD0n5aW6OZH3aA==}
-
-  typescript@4.9.5:
-    resolution: {integrity: sha512-1FXk9E2Hm+QzZQ7z+McJiHL4NW1F2EzMu9Nq9i3zAaGqibafqYwCVU6WyWAuyQRRzOlxou8xZSyXLEN8oKj24g==}
-    engines: {node: '>=4.2.0'}
-    hasBin: true
 
   typescript@5.6.3:
     resolution: {integrity: sha512-hjcS1mhfuyi4WW8IWtjP7brDrG2cuDZukyrYrSauoXGNgx0S7zceP07adYkJycEr56BOUTNPzbInooiN3fn1qw==}
@@ -5673,13 +5623,6 @@ snapshots:
   '@getalby/lightning-tools@6.0.0': {}
 
   '@getalby/lightning-tools@8.1.1': {}
-
-  '@getalby/sdk@7.0.0(typescript@5.6.3)':
-    dependencies:
-      '@getalby/lightning-tools': 6.0.0
-      nostr-tools: 2.25.2(typescript@5.6.3)
-    transitivePeerDependencies:
-      - typescript
 
   '@getalby/sdk@8.0.3(typescript@5.6.3)':
     dependencies:
@@ -6729,8 +6672,6 @@ snapshots:
   '@types/normalize-package-data@2.4.4': {}
 
   '@types/pako@2.0.4': {}
-
-  '@types/pluralize@0.0.29': {}
 
   '@types/pug@2.0.10': {}
 
@@ -8459,11 +8400,6 @@ snapshots:
       prelude-ls: 1.2.1
       type-check: 0.4.0
 
-  libretranslate@1.0.1:
-    dependencies:
-      '@types/node': 18.19.64
-      typescript: 4.9.5
-
   light-bolt11-decoder@3.2.0:
     dependencies:
       '@scure/base': 1.1.1
@@ -8822,8 +8758,6 @@ snapshots:
 
   normalize-range@0.1.2: {}
 
-  normalize-strings@1.1.1: {}
-
   nostr-tools@2.25.2(typescript@5.6.3):
     dependencies:
       '@noble/ciphers': 2.1.1
@@ -8869,10 +8803,6 @@ snapshots:
       define-lazy-prop: 2.0.0
       is-docker: 2.2.1
       is-wsl: 2.2.0
-
-  openai@6.16.0(ws@8.21.0(bufferutil@4.0.8)(utf-8-validate@5.0.10)):
-    optionalDependencies:
-      ws: 8.21.0(bufferutil@4.0.8)(utf-8-validate@5.0.10)
 
   optionator@0.9.4:
     dependencies:
@@ -9071,8 +9001,6 @@ snapshots:
       '@xmldom/xmldom': 0.8.13
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
-
-  pluralize@8.0.0: {}
 
   possible-typed-array-names@1.1.0: {}
 
@@ -9849,12 +9777,6 @@ snapshots:
   svg-pathdata@6.0.3:
     optional: true
 
-  syllable@5.0.1:
-    dependencies:
-      '@types/pluralize': 0.0.29
-      normalize-strings: 1.1.1
-      pluralize: 8.0.0
-
   symbol-tree@3.2.4:
     optional: true
 
@@ -10043,8 +9965,6 @@ snapshots:
       is-typedarray: 1.0.0
 
   typescript-lru-cache@2.0.0: {}
-
-  typescript@4.9.5: {}
 
   typescript@5.6.3: {}
 
