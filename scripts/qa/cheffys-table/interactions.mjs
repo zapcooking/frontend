@@ -53,6 +53,41 @@ async function complete() {
 }
 try {
   await page.goto(url);
+  // Mount the actual component in isolation to exercise malformed/empty descriptions
+  // without introducing invalid choices into the scoring or history model.
+  const labels = await page.evaluate(async () => {
+    const { default: DishVisual } = await import('/src/lib/cheffys-table/DishVisual.svelte');
+    const cases = [
+      { ingredients: ['tomato', 'bread', 'oil'], garnish: 'parmesan', style: 'plate' },
+      { ingredients: ['missing', 'tomato', 'unknown'], garnish: 'missing', style: 'bowl' },
+      { ingredients: ['missing', 'unknown'], garnish: 'none', style: 'toast' },
+      { ingredients: [], garnish: 'none', style: 'bowl' }
+    ];
+    return cases.map((dish) => {
+      const target = document.createElement('div');
+      const component = new DishVisual({ target, props: { dish } });
+      const label = target.querySelector('[role="img"]').getAttribute('aria-label');
+      component.$destroy();
+      const decoration = new DishVisual({ target, props: { dish, decorative: true } });
+      const hidden =
+        !target.querySelector('[role="img"]') &&
+        target.querySelector('.dish').getAttribute('aria-hidden') === 'true' &&
+        !target.querySelector('.dish').hasAttribute('aria-label');
+      decoration.$destroy();
+      return { label, hidden };
+    });
+  });
+  assert.deepEqual(
+    labels.map(({ label }) => label),
+    [
+      'Composed plate with Tomato, Sourdough, Olive oil, finished with Parmesan',
+      'Bowl with Tomato',
+      'On toast (empty)',
+      'Bowl (empty)'
+    ]
+  );
+  assert.ok(labels.every(({ hidden }) => hidden));
+  check('Dish descriptions use display names, skip unknown IDs, and hide decorative plates');
   await button('Open the kitchen').click();
   await begin();
   await button('Add Tomato').focus();
@@ -106,6 +141,25 @@ try {
   await button('Keep cooking').click();
   assert.equal(await button('Remove Tomato').getAttribute('aria-pressed'), 'true');
   check('Back navigation preserves a plate when cancelled');
+  await page.setViewportSize({ width: 375, height: 667 });
+  for (const name of ['Sourdough', 'Olive oil']) await button(`Add ${name}`).click();
+  const scrolled = await page.evaluate(() => {
+    const scroll = document.getElementById('app-scroll');
+    scroll.scrollTop = scroll.scrollHeight;
+    return scroll.scrollTop;
+  });
+  assert.ok(scrolled > 0);
+  await button('To the stove').click();
+  await page.getByRole('heading', { name: 'Bring it to life.', exact: true }).waitFor();
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      top: document.getElementById('app-scroll').scrollTop,
+      focus: document.activeElement?.textContent.trim()
+    })),
+    { top: 0, focus: 'Bring it to life.' }
+  );
+  check('Stage navigation resets mobile scroll and focuses the new heading with reduced motion');
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('link', { name: 'Back to Zap', exact: true }).click();
   await button('Back to Zap').click();
   await page.waitForURL('**/explore');

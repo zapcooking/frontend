@@ -80,7 +80,7 @@
   async function focusStage() {
     await tick();
     if (!alive) return;
-    document.getElementById('app-scroll')?.scrollTo({ top: 0, behavior: 'instant' });
+    document.getElementById('app-scroll')?.scrollTo({ top: 0, behavior: 'auto' });
     document
       .querySelector<HTMLElement>('.table-world .stage-title')
       ?.focus({ preventScroll: true });

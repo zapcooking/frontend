@@ -1,7 +1,7 @@
 <script lang="ts">
   import FoodArt from './FoodArt.svelte';
   import PlatedFood from './components/PlatedFood.svelte';
-  import { pantry, type Dish } from './service';
+  import { pantry, styles, type Dish } from './service';
   export let dish: Dish;
   export let cooking = false;
   export let sending = false;
@@ -36,9 +36,12 @@
   $: foods = dish.ingredients.filter(
     (id) => id !== 'oil' && !(dish.style === 'toast' && id === 'bread')
   );
-  $: description =
-    dish.ingredients.map((id) => pantry.find((f) => f.id === id)?.name).join(', ') ||
-    'empty vessel';
+  $: description = dish.ingredients
+    .map((id) => pantry.find((food) => food.id === id)?.name)
+    .filter(Boolean)
+    .join(', ');
+  $: vesselName = styles.find((style) => style.id === dish.style)?.name || 'Dish';
+  $: garnishName = pantry.find((food) => food.id === dish.garnish)?.name;
 </script>
 
 <div
@@ -50,7 +53,7 @@
   aria-hidden={decorative ? 'true' : undefined}
   aria-label={decorative
     ? undefined
-    : `${dish.style} with ${description}${dish.garnish === 'none' ? '' : `, finished with ${dish.garnish}`}`}
+    : `${vesselName}${description ? ` with ${description}` : ' (empty)'}${garnishName ? `, finished with ${garnishName}` : ''}`}
 >
   <div class="vessel">
     <div class="inner-ring"></div>
