@@ -1,8 +1,30 @@
 // Service Worker to intercept __data.json requests and cache app assets for offline support
 // This handles requests that Capacitor's native layer can't serve and enables offline functionality
 
-const CACHE_NAME = 'zapcooking-v2';
+// v3: one-time reset of the previously unbounded cache; going forward
+// the static-asset cache is capped (see MAX_STATIC_CACHE_ENTRIES).
+const CACHE_NAME = 'zapcooking-v3';
 const APP_ORIGIN = self.location.origin;
+
+// The cache-first static-asset store (images, fonts) grows without
+// bound otherwise — until this file's CACHE_NAME is manually bumped,
+// which is not a quota strategy. Entries beyond the cap are evicted
+// oldest-first (Cache keys iterate in insertion order).
+const MAX_STATIC_CACHE_ENTRIES = 400;
+
+async function trimStaticCache(cache) {
+  try {
+    const keys = await cache.keys();
+    const excess = keys.length - MAX_STATIC_CACHE_ENTRIES;
+    if (excess > 0) {
+      for (const key of keys.slice(0, excess)) {
+        await cache.delete(key);
+      }
+    }
+  } catch (e) {
+    // Non-fatal — trimming is best-effort
+  }
+}
 
 // Assets that should be cached (app code, styles, fonts, etc.)
 const ASSET_PATTERNS = [
@@ -163,7 +185,9 @@ self.addEventListener('fetch', (event) => {
               .then((networkResponse) => {
                 if (networkResponse.status === 200) {
                   const responseClone = networkResponse.clone();
-                  cache.put(event.request, responseClone);
+                  cache
+                    .put(event.request, responseClone)
+                    .then(() => trimStaticCache(cache));
                 }
                 return networkResponse;
               })
