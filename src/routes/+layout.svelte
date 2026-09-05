@@ -3,6 +3,7 @@
   import '../app.css';
   import Header from '../components/Header.svelte';
   import { browser } from '$app/environment';
+  import { derived } from 'svelte/store';
   import { page, updated } from '$app/stores';
   import { goto, beforeNavigate } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
@@ -13,7 +14,6 @@
   import CreateMenuButton from '../components/CreateMenuButton.svelte';
   import ScrollToTopButton from '../components/ScrollToTopButton.svelte';
   import PostModal from '../components/PostModal.svelte';
-  import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
   import WalletModal from '../components/wallet/WalletModal.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
   import PendingIndicator from '../components/PendingIndicator.svelte';
@@ -51,11 +51,17 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
+  import { longformEditorOpen, closeEditor } from '../components/reads/articleDraftStore';
+  import LongformEditorLoadError from '../components/reads/LongformEditorLoadError.svelte';
+  import LazyLoadErrorDialog from '../components/LazyLoadErrorDialog.svelte';
+  import { createLazyLoader, bindLazyLoaderToOpenState } from '$lib/lazyComponentLoader';
+  import { trackLoadingPendingOp } from '$lib/lazyLoadFeedback';
+  import { isCheffyRoute, cheffyMessengerWanted } from '$lib/cheffyRoutes';
   import CookingToolsWidget from '../components/CookingToolsWidget.svelte';
   import UserSidePanel from '../components/UserSidePanel.svelte';
   import MobileNavDrawer from '../components/MobileNavDrawer.svelte';
   import MobileSearchOverlay from '../components/MobileSearchOverlay.svelte';
-  import CheffyMessenger from '../components/CheffyMessenger.svelte';
+  import { cheffyOpen, closeCheffy } from '$lib/stores/cheffyChat';
   // Import sync service to initialize offline sync functionality
   import '$lib/syncService';
   // Import platform detection to initialize early
@@ -68,6 +74,55 @@
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement } from '$lib/engagementCache';
   import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
+
+  // ── Lazy-loaded overlays ──────────────────────────────────────────
+  // Heavy overlay components load on first open instead of shipping in
+  // the layout chunk every page pays for. Each has its own loader (see
+  // $lib/lazyComponentLoader): one import attempt in flight, no automatic
+  // retries, and a failed import surfaces an error dialog with Retry/Close
+  // instead of latching shut. A failed chunk import also dispatches
+  // vite:preloadError, which the recovery handler below turns into at most
+  // one reload per session; the dialogs are what users see once that
+  // reload has been used (or didn't help). Once loaded, a component stays
+  // mounted for the session (each renders nothing while closed) so later
+  // opens are instant and close transitions keep working.
+
+  // Longform editor: the TipTap/ProseMirror stack. The selected draft lives
+  // in articleDraftStore, so a retry only re-imports the chunk and never
+  // creates a new draft.
+  const longformEditorLoader = createLazyLoader(
+    () => import('../components/reads/LongformEditorModal.svelte'),
+    { enabled: browser, label: 'longform-editor' }
+  );
+
+  // Cheffy messenger: markdown-it. Wanted only while all three hold —
+  // browser (loader is inert during SSR), route eligibility (the same
+  // isCheffyRoute predicate as showCheffy) and $cheffyOpen. Opening Cheffy
+  // on an excluded route (/login, /onboarding, /cheffy, …) therefore never
+  // fetches the chunk, and navigating to one while loading releases the
+  // request so a late-resolving import shows no UI there. Conversation,
+  // composer draft and preview/membership state live in stores, so they
+  // survive a failed import.
+  const cheffyMessengerLoader = createLazyLoader(
+    () => import('../components/CheffyMessenger.svelte'),
+    { enabled: browser, label: 'cheffy-messenger' }
+  );
+  const cheffyMessengerRequested = cheffyMessengerWanted(
+    derived(page, ($page) => $page.url.pathname),
+    cheffyOpen
+  );
+
+  onMount(() => {
+    const cleanups = [
+      bindLazyLoaderToOpenState(longformEditorLoader, longformEditorOpen),
+      trackLoadingPendingOp(longformEditorLoader, longformEditorOpen, 'Loading editor…'),
+      bindLazyLoaderToOpenState(cheffyMessengerLoader, cheffyMessengerRequested),
+      trackLoadingPendingOp(cheffyMessengerLoader, cheffyMessengerRequested, 'Loading Cheffy…')
+    ];
+    return () => {
+      for (const cleanup of cleanups) cleanup();
+    };
+  });
 
   // Version-skew guard: when a new deploy is detected (kit.version
   // pollInterval in svelte.config.js), turn the next client-side navigation
@@ -184,13 +239,7 @@
   $: pathSegment = $page.url.pathname.split('/')[1] || '';
   // The persistent Cheffy messenger is hidden on the full Cheffy page
   // (redundant), the chrome-less messaging surfaces, and auth flows.
-  $: showCheffy =
-    !$page.url.pathname.startsWith('/messages') &&
-    !$page.url.pathname.startsWith('/groups') &&
-    !$page.url.pathname.startsWith('/cheffy') &&
-    !$page.url.pathname.startsWith('/zappy') &&
-    !$page.url.pathname.startsWith('/login') &&
-    !$page.url.pathname.startsWith('/onboarding');
+  $: showCheffy = isCheffyRoute($page.url.pathname);
   $: hasCustomOgTags =
     $page.url.pathname.startsWith('/recipe/') ||
     $page.url.pathname.startsWith('/r/') ||
@@ -619,17 +668,33 @@
       {/if}
       <BottomNav />
       <CookingToolsWidget />
-      {#if showCheffy}
+      {#if showCheffy && $cheffyMessengerLoader.component}
         <!-- The floating launcher was retired (A2); Cheffy opens from the
              header Intelligence menu's "Ask Cheffy" item. The messenger
              stays gated here and on /explore's own entry points. -->
-        <CheffyMessenger />
+        <svelte:component this={$cheffyMessengerLoader.component} />
+      {:else if $cheffyMessengerRequested && $cheffyMessengerLoader.status === 'failed'}
+        <LazyLoadErrorDialog
+          title="Couldn't load Cheffy"
+          message="The Cheffy messenger didn't download. Check your connection and try again. Your conversation so far is kept. If this keeps happening, reload the page."
+          error={$cheffyMessengerLoader.error}
+          onRetry={cheffyMessengerLoader.retry}
+          onClose={closeCheffy}
+        />
       {/if}
       <MobileNavDrawer />
       <UserSidePanel />
       <MobileSearchOverlay />
       <PostModal bind:open={$postComposerOpen} />
-      <LongformEditorModal />
+      {#if $longformEditorLoader.component}
+        <svelte:component this={$longformEditorLoader.component} />
+      {:else if $longformEditorOpen && $longformEditorLoader.status === 'failed'}
+        <LongformEditorLoadError
+          error={$longformEditorLoader.error}
+          onRetry={longformEditorLoader.retry}
+          onClose={closeEditor}
+        />
+      {/if}
       <WalletModal />
       {#if $loginOverlayOpen}
         <LoginOverlay />
