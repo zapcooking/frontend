@@ -247,6 +247,22 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
   let eoseReceived = false;
   const preEoseBuffer: NDKEvent[] = [];
 
+  // Realtime (post-EOSE) events also arrive in bursts — a popular post
+  // gets zapped/replied to repeatedly within the same second, and each
+  // individual add() pays a full sort plus a synchronous localStorage
+  // write. Buffer them briefly and insert in one addBulk(); local
+  // system notifications still fire immediately per event.
+  const REALTIME_FLUSH_MS = 1000;
+  const realtimeBuffer: Notification[] = [];
+  let realtimeFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flushRealtimeBuffer() {
+    realtimeFlushTimer = null;
+    if (realtimeBuffer.length === 0) return;
+    const batch = realtimeBuffer.splice(0, realtimeBuffer.length);
+    notifications.addBulk(batch);
+  }
+
   function flushPreEoseBuffer() {
     if (preEoseBuffer.length === 0) return;
     const parsed: Notification[] = [];
@@ -279,8 +295,12 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
       return;
     }
 
-    // Post-EOSE realtime event: add individually (rare, no perf issue)
-    notifications.add(notification);
+    // Post-EOSE realtime event: buffer briefly (bursts of activity on a
+    // popular post otherwise pay a sort + localStorage write each)
+    realtimeBuffer.push(notification);
+    if (realtimeFlushTimer === null) {
+      realtimeFlushTimer = setTimeout(flushRealtimeBuffer, REALTIME_FLUSH_MS);
+    }
 
     if (event.kind === 9735) recordZapToSparkSdk(event);
 
