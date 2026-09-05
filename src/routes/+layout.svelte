@@ -13,7 +13,6 @@
   import CreateMenuButton from '../components/CreateMenuButton.svelte';
   import ScrollToTopButton from '../components/ScrollToTopButton.svelte';
   import PostModal from '../components/PostModal.svelte';
-  import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
   import WalletModal from '../components/wallet/WalletModal.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
   import PendingIndicator from '../components/PendingIndicator.svelte';
@@ -51,6 +50,7 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
+  import { longformEditorOpen } from '../components/reads/articleDraftStore';
   import CookingToolsWidget from '../components/CookingToolsWidget.svelte';
   import UserSidePanel from '../components/UserSidePanel.svelte';
   import MobileNavDrawer from '../components/MobileNavDrawer.svelte';
@@ -68,6 +68,26 @@
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement } from '$lib/engagementCache';
   import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
+
+  // The longform editor drags in the TipTap/ProseMirror stack (~400KB gz);
+  // load it on first open instead of shipping it in the layout chunk. It
+  // stays mounted for the rest of the session (it renders nothing while
+  // $longformEditorOpen is false) so later opens are instant and the close
+  // transition keeps working.
+  let LongformEditorModal: typeof import('../components/reads/LongformEditorModal.svelte').default | null =
+    null;
+  let longformLoadStarted = false;
+
+  $: if ($longformEditorOpen && !longformLoadStarted) {
+    longformLoadStarted = true;
+    import('../components/reads/LongformEditorModal.svelte').then(
+      (m) => (LongformEditorModal = m.default),
+      () => {
+        // Chunk load failed (e.g. deploy skew); the vite:preloadError
+        // handler above performs the one-shot recovery reload.
+      }
+    );
+  }
 
   // Version-skew guard: when a new deploy is detected (kit.version
   // pollInterval in svelte.config.js), turn the next client-side navigation
@@ -629,7 +649,9 @@
       <UserSidePanel />
       <MobileSearchOverlay />
       <PostModal bind:open={$postComposerOpen} />
-      <LongformEditorModal />
+      {#if LongformEditorModal}
+        <svelte:component this={LongformEditorModal} />
+      {/if}
       <WalletModal />
       {#if $loginOverlayOpen}
         <LoginOverlay />
