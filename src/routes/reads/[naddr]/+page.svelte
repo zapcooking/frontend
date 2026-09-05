@@ -7,15 +7,22 @@
   import { onMount } from 'svelte';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
+  import ShareModal from '../../../components/ShareModal.svelte';
   import { RECIPE_TAGS } from '$lib/consts';
   import { validateMarkdownTemplate } from '$lib/parser';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
+  import ShareFatIcon from 'phosphor-svelte/lib/ShareFat';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
   let loading = true;
   let error: string | null = null;
+  let shareModalOpen = false;
+
+  // Production origin (matching og:url): the shortener only accepts
+  // zap.cooking URLs, and social platforms reject localhost anyway.
+  $: articleShareUrl = `https://zap.cooking/reads/${$page.params.naddr}`;
 
   onMount(() => stripTrackingParams($page.url));
 
@@ -170,8 +177,8 @@
   <meta name="twitter:image" content={og_image} />
 </svelte:head>
 
-<!-- Back to Reads link -->
-<div class="mb-4">
+<!-- Back to Reads / Share bar -->
+<div class="mb-4 flex items-center justify-between gap-2">
   <a
     href="/reads"
     class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-accent-gray"
@@ -180,6 +187,16 @@
     <ArrowLeftIcon size={16} weight="bold" />
     <span>Back to Reads</span>
   </a>
+  <button
+    type="button"
+    aria-label="Share article"
+    class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-accent-gray"
+    style="color: var(--color-text-secondary);"
+    on:click={() => (shareModalOpen = true)}
+  >
+    <ShareFatIcon size={16} weight="bold" />
+    <span>Share</span>
+  </button>
 </div>
 
 {#if loading}
@@ -212,3 +229,12 @@
     <PanLoader />
   </div>
 {/if}
+
+<!-- ShareModal mints a zap.cooking/s/<code> short link for the article
+     URL automatically when opened. -->
+<ShareModal
+  bind:open={shareModalOpen}
+  url={articleShareUrl}
+  title={fullPageTitle || og_title || 'Article'}
+  imageUrl={og_image}
+/>
