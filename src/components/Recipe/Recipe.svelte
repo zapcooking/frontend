@@ -26,7 +26,8 @@
     parseMarkdown,
     extractAndGroupDirections,
     extractRecipeDetails,
-    parseMarkdownForEditing
+    parseMarkdownForEditing,
+    mentionNamesVersion
   } from '$lib/parser';
   import { sanitizeHTML } from '$lib/sanitize';
   import { goto } from '$app/navigation';
@@ -726,9 +727,16 @@
 
   let parsedBeforeDirections = '';
   let parsedAfterDirections = '';
-  // Parse markdown once and reuse in template (avoids 3x redundant parsing per section)
-  $: parsedBeforeDirections = markdownBeforeDirections ? parseMarkdown(markdownBeforeDirections) : '';
-  $: parsedAfterDirections = markdownAfterDirections ? parseMarkdown(markdownAfterDirections) : '';
+  // Parse markdown once and reuse in template (avoids 3x redundant parsing per section).
+  // $mentionNamesVersion is a dependency so profile mentions re-render
+  // with real names when their queued lookups land — the first parse
+  // renders shortened npubs, and without this the article never re-parsed.
+  $: parsedBeforeDirections = markdownBeforeDirections
+    ? parseMarkdown(markdownBeforeDirections, $mentionNamesVersion)
+    : '';
+  $: parsedAfterDirections = markdownAfterDirections
+    ? parseMarkdown(markdownAfterDirections, $mentionNamesVersion)
+    : '';
 </script>
 
 <svelte:window on:keydown={handleImageModalKeydown} />
