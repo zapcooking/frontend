@@ -72,7 +72,7 @@
   import { prewarmOutboxCache } from '$lib/followOutbox';
   // Refresh engagement counts when the tab returns from background
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
-  import { refreshActiveEngagement } from '$lib/engagementCache';
+  import { refreshActiveEngagement, clearAllEngagementCaches } from '$lib/engagementCache';
   import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
 
   // ── Lazy-loaded overlays ──────────────────────────────────────────
@@ -461,6 +461,10 @@
           clearUnwrapCache();
           stopGroupSubscription();
           clearGroups();
+          // Release every note's engagement subscriptions/dedupe sets and
+          // wipe the engagement localStorage cache — the next user must
+          // not inherit any of it.
+          clearAllEngagementCaches();
           disconnectSparkWallet().catch(() => {});
           clearAllWallets();
           clearAllSparkWallets();

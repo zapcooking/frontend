@@ -95,8 +95,15 @@ const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - persist across page reloads
 // Keep subscriptions alive for real-time engagement updates
 // ═══════════════════════════════════════════════════════════════
 
-const persistentSubscriptions = new Map<string, { sub: NDKSubscription; lastActivity: number }>();
+const persistentSubscriptions = new Map<string, { sub: NDKSubscription; lastActivity: number; createdAt: number }>();
 const SUBSCRIPTION_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes - close idle subscriptions
+// A young persistent subscription is reused even without zap-amount data.
+// Five-plus components call fetchEngagement per note on mount, and most
+// notes have no zaps at all — refreshing the subscription on every call
+// (the old behavior) meant several stop+re-REQ cycles per note across
+// every relay, re-delivering and re-deduping the note's whole engagement
+// history each time.
+const SUBSCRIPTION_REFRESH_INTERVAL = 60 * 1000;
 let subscriptionCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
 // Start cleanup interval for idle subscriptions
@@ -456,15 +463,20 @@ export async function fetchEngagement(
   const existingPersistent = persistentSubscriptions.get(eventId);
   const latestData = get(store);
   const hasAmountData = latestData.zaps.totalAmount > 0 || latestData.zaps.topZappers.length > 0;
-  
-  if (existingPersistent && hasAmountData) {
-    // Only reuse if we already have amount data
+  const subIsYoung =
+    existingPersistent !== undefined && Date.now() - existingPersistent.createdAt < SUBSCRIPTION_REFRESH_INTERVAL;
+
+  if (existingPersistent && (hasAmountData || subIsYoung)) {
+    // Reuse: we already have amount data (a refresh would find nothing
+    // more), or the subscription is young enough that the zap aggregator
+    // relays have had a fair chance already.
     existingPersistent.lastActivity = Date.now();
     store.update(s => ({ ...s, loading: false }));
     return;
   }
-  
-  // If we have a subscription but no amount data, close it and create a fresh one.
+
+  // If we have a stale subscription but still no amount data, close it
+  // and create a fresh one.
   // Note: we intentionally do NOT wipe processedEventIds / processedReactionPairs
   // here — those dedup Sets must persist across sub close+reopen so any
   // events the prior sub already counted aren't re-counted by the new sub
@@ -472,7 +484,7 @@ export async function fetchEngagement(
   // The Sets are only evicted by `cleanupEngagement(eventId)` when the
   // event goes off-screen.
   if (existingPersistent && !hasAmountData) {
-    console.debug('[Engagement] Subscription exists but no amount data, refreshing for', eventId);
+    console.debug('[Engagement] Stale subscription with no amount data, refreshing for', eventId);
     existingPersistent.sub.stop();
     persistentSubscriptions.delete(eventId);
   }
@@ -614,7 +626,7 @@ export async function fetchEngagement(
     const sub = ndk.subscribe(filter, { closeOnEose: false }, relaySet);
     
     // Register in persistent subscriptions map
-    persistentSubscriptions.set(eventId, { sub, lastActivity: Date.now() });
+    persistentSubscriptions.set(eventId, { sub, lastActivity: Date.now(), createdAt: Date.now() });
     
     sub.on('event', (event: NDKEvent) => {
       // A subscription that cleanupEngagement stopped, or that a newer
