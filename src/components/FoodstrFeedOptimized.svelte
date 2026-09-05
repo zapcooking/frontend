@@ -157,6 +157,7 @@
     try {
       // Clear existing data for fresh load
       seenEventIds.clear();
+      paginationFloorTs = null;
       events = [];
       hasMore = true;
       loadingMore = false;
@@ -563,6 +564,14 @@
   let loadMoreCooldownUntil = 0;
   let sentinelFiredThisFrame = false;
 
+  // Pagination floor: the oldest event timestamp any pagination page has
+  // actually FETCHED (duplicates included). When a page yields no new
+  // unique events, `events` doesn't grow, so anchoring the next window on
+  // the feed's oldest event would re-request the identical window forever
+  // (relays happily re-serve the same popular events; food filtering is
+  // client-side). Reset alongside seenEventIds wherever the feed reloads.
+  let paginationFloorTs: number | null = null;
+
   // Fix D: Batch visibility updates per frame
   let pendingRenderUpdates = new Map<string, boolean>();
   let renderUpdateRafId: number | null = null;
@@ -792,10 +801,16 @@
         // a repost of an old note doesn't make pagination jump back to
         // the inner timestamp and skip everything between.
         const oldestTime = getEventSortTime(events[events.length - 1]) || now;
+        // When previous pages fetched past the feed's oldest event
+        // (all-duplicate pages), continue below the floor instead of
+        // re-requesting the window those duplicates came from.
+        const anchor = paginationFloorTs !== null && paginationFloorTs < oldestTime
+          ? paginationFloorTs
+          : oldestTime;
         const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
         return {
-          since: Math.max(oldestTime - SEVEN_DAYS_SECONDS, now - THIRTY_DAYS_SECONDS),
-          until: oldestTime - 1
+          since: Math.max(anchor - SEVEN_DAYS_SECONDS, now - THIRTY_DAYS_SECONDS),
+          until: anchor - 1
         };
       }
 
@@ -1307,6 +1322,7 @@
     foodFilterEnabled = enabled;
     foodFilterSetting.setEnabled(enabled);
     seenEventIds.clear();
+    paginationFloorTs = null;
     events = [];
     loadFoodstrFeed(false);
   }
@@ -2047,6 +2063,7 @@
       error = false;
       events = [];
       seenEventIds.clear();
+      paginationFloorTs = null;
       hasMore = true;
       loadingMore = false;
 
@@ -3487,6 +3504,22 @@
         ]);
       }
 
+      // Advance the pagination floor past everything this page actually
+      // returned, duplicates included, so an all-duplicate page can never
+      // cause the same window to be re-requested.
+      if (olderEvents.length > 0) {
+        let oldestFetchedTs = Infinity;
+        for (const e of olderEvents) {
+          const ts = e.created_at || getEventSortTime(e);
+          if (ts && ts < oldestFetchedTs) oldestFetchedTs = ts;
+        }
+        if (oldestFetchedTs !== Infinity) {
+          paginationFloorTs = paginationFloorTs === null
+            ? oldestFetchedTs
+            : Math.min(paginationFloorTs, oldestFetchedTs);
+        }
+      }
+
       // Expand kind:6 wrappers into their inner kind:1/1068 notes before
       // the per-mode filter runs. Same reason as fetchFreshData: without
       // this, kind:6 wrappers leak into `events` and break rendering/dedup.
@@ -3558,7 +3591,11 @@
         const timeLimit = now - THIRTY_DAYS_SECONDS;
 
         // Continue if we got a good batch (>= 50) or if we're still within time window
-        hasMore = olderEvents.length >= 50 || oldestEventTime > timeLimit;
+        // The floor guard stops pagination once pages have fetched past the
+        // 30-day limit even if relays keep returning (out-of-window) events.
+        hasMore =
+          (olderEvents.length >= 50 || oldestEventTime > timeLimit) &&
+          (paginationFloorTs === null || paginationFloorTs > timeLimit);
         await cacheEvents();
       } else {
         // No valid events - check if we've exhausted the time window
@@ -3567,8 +3604,13 @@
         const oldestEventTime = getEventSortTime(events[events.length - 1]) || now;
         const timeLimit = now - THIRTY_DAYS_SECONDS;
 
-        // Stop if we've gone back 30 days or got no events
-        hasMore = oldestEventTime > timeLimit && olderEvents.length > 0;
+        // Stop if we've gone back 30 days, got no events, or pagination
+        // already fetched past the time limit (all-duplicate pages).
+        const windowAnchor = Math.min(
+          paginationFloorTs ?? oldestEventTime,
+          oldestEventTime
+        );
+        hasMore = windowAnchor > timeLimit && olderEvents.length > 0;
       }
       // Fix C: Cooldown based on filtered batch size — small results get longer cooldown
       loadMoreCooldownUntil = Date.now() + (validOlder.length < 10 ? 1500 : 500);
@@ -4434,6 +4476,7 @@
 
             if (hydratedEvents.length > 0) {
               seenEventIds.clear();
+              paginationFloorTs = null;
               hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
               events = hydratedEvents;
               preseedRenderedNotes(20);
@@ -4478,6 +4521,7 @@
 
             if (hydratedEvents.length > 0) {
               seenEventIds.clear();
+              paginationFloorTs = null;
               hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
               events = hydratedEvents;
               preseedRenderedNotes(20);
@@ -4497,6 +4541,7 @@
 
           // No cache for this tab - do full load
           seenEventIds.clear();
+          paginationFloorTs = null;
           events = [];
           try {
             await loadFoodstrFeed(false);
@@ -4553,6 +4598,7 @@
       // Clear events to prevent showing stale data during switch
       events = [];
       seenEventIds.clear();
+      paginationFloorTs = null;
       clearRenderZoneState();
       loading = true;
       hasMore = true;
@@ -4568,6 +4614,7 @@
       renderedNotes = new Set();
       clearRenderZoneState();
       seenEventIds.clear();
+      paginationFloorTs = null;
       events = [];
       loading = true;
       try {
