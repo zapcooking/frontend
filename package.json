@@ -61,6 +61,7 @@
     "buffer": "^6.0.3",
     "d3-force": "^3.0.0",
     "date-fns": "^3.6.0",
+    "dexie": "^4.0.8",
     "dompurify": "^3.4.12",
     "dotenv": "^17.2.3",
     "emoji-picker-element": "^1.28.1",
