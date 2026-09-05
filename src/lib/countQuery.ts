@@ -103,13 +103,99 @@ const RELAY_RETRY_DELAY = 60000; // 1 minute before retrying failed relay
 /**
  * Send a NIP-45 COUNT query to a relay
  */
+// ─── Shared NIP-45 socket pool ─────────────────────────────────────────
+// A recipe page fires one count query per kind (reactions, comments,
+// reposts, zaps), and each query used to open its own WebSocket — several
+// simultaneous connections to the same two relays. One socket per relay
+// is kept instead, multiplexed by subscription id, and disconnected
+// after a short idle period.
+const COUNT_SOCKET_IDLE_MS = 10_000;
+
+interface PooledCountSocket {
+  ws: WebSocket;
+  ready: Promise<void>;
+  /** subId -> per-query message handler */
+  pending: Map<string, (message: unknown[]) => void>;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+}
+
+const countSocketPool = new Map<string, PooledCountSocket>();
+
+function disposeCountSocket(relayUrl: string, socket: PooledCountSocket): void {
+  if (countSocketPool.get(relayUrl) !== socket) return;
+  countSocketPool.delete(relayUrl);
+  if (socket.idleTimer) {
+    clearTimeout(socket.idleTimer);
+    socket.idleTimer = null;
+  }
+  const waiters = [...socket.pending.values()];
+  socket.pending.clear();
+  try {
+    socket.ws.close();
+  } catch {
+    // Ignore close errors
+  }
+  for (const notify of waiters) notify(['POOL-CLOSED']);
+}
+
+function acquireCountSocket(relayUrl: string): PooledCountSocket {
+  const existing = countSocketPool.get(relayUrl);
+  if (existing) {
+    if (existing.idleTimer) {
+      clearTimeout(existing.idleTimer);
+      existing.idleTimer = null;
+    }
+    return existing;
+  }
+
+  const socket: PooledCountSocket = {
+    ws: new WebSocket(relayUrl),
+    ready: Promise.resolve(),
+    pending: new Map(),
+    idleTimer: null
+  };
+
+  socket.ready = new Promise<void>((resolveReady) => {
+    socket.ws.onopen = () => resolveReady();
+    socket.ws.onerror = () => {
+      failedRelays.set(relayUrl, Date.now());
+      resolveReady();
+      disposeCountSocket(relayUrl, socket);
+    };
+    socket.ws.onclose = () => disposeCountSocket(relayUrl, socket);
+  });
+
+  socket.ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (Array.isArray(data) && typeof data[1] === 'string') {
+        const notify = socket.pending.get(data[1]);
+        if (notify) notify(data);
+      }
+    } catch {
+      // Parse errors ignored
+    }
+  };
+
+  countSocketPool.set(relayUrl, socket);
+  return socket;
+}
+
+function releaseCountSocket(relayUrl: string, socket: PooledCountSocket): void {
+  if (socket.pending.size > 0 || socket.idleTimer) return;
+  socket.idleTimer = setTimeout(() => {
+    socket.idleTimer = null;
+    if (socket.pending.size === 0) disposeCountSocket(relayUrl, socket);
+  }, COUNT_SOCKET_IDLE_MS);
+}
+
 async function sendCountQuery(
   relayUrl: string,
   filter: CountFilter,
   timeout = 5000
 ): Promise<CountResult | null> {
   if (!browser) return null;
-  
+
   // Skip relays known not to support NIP-45
   if (nip45UnsupportedRelays.has(relayUrl)) {
     return null;
@@ -121,113 +207,62 @@ async function sendCountQuery(
     return null;
   }
 
+  const socket = acquireCountSocket(relayUrl);
+  const subId = `count_${Math.random().toString(36).slice(2, 10)}`;
+
   return new Promise((resolve) => {
-    let ws: WebSocket | null = null;
-    let resolved = false;
-    const subId = `count_${Math.random().toString(36).slice(2, 10)}`;
+    let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => finish(null), timeout);
 
-    const cleanup = () => {
-      if (ws) {
-        try {
-          if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-            ws.close();
-          }
-        } catch {
-          // Ignore close errors
-        }
-        ws = null;
+    function finish(result: CountResult | null): void {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
       }
-    };
-
-    const timeoutId = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        cleanup();
-        resolve(null);
-      }
-    }, timeout);
-
-    try {
-      ws = new WebSocket(relayUrl);
-
-      ws.onopen = () => {
-        if (resolved || !ws) return;
-        try {
-          // Send COUNT request: ["COUNT", <subscription_id>, <filter>]
-          const message = JSON.stringify(['COUNT', subId, filter]);
-          ws.send(message);
-        } catch {
-          resolved = true;
-          clearTimeout(timeoutId);
-          cleanup();
-          resolve(null);
-        }
-      };
-
-      ws.onmessage = (event) => {
-        if (resolved) return;
-
-        try {
-          const data = JSON.parse(event.data);
-          
-          // COUNT response: ["COUNT", <subscription_id>, {"count": <number>, "approximate"?: boolean}]
-          if (data[0] === 'COUNT' && data[1] === subId && typeof data[2]?.count === 'number') {
-            resolved = true;
-            clearTimeout(timeoutId);
-            nip45SupportedRelays.add(relayUrl);
-            failedRelays.delete(relayUrl); // Clear failure state on success
-            cleanup();
-            resolve({
-              count: data[2].count,
-              approximate: data[2].approximate,
-              source: 'nip45'
-            });
-          }
-          // CLOSED response means relay doesn't support COUNT or rejected the request
-          else if (data[0] === 'CLOSED' && data[1] === subId) {
-            resolved = true;
-            clearTimeout(timeoutId);
-            nip45UnsupportedRelays.add(relayUrl);
-            cleanup();
-            resolve(null);
-          }
-          // NOTICE with error about COUNT
-          else if (data[0] === 'NOTICE' && typeof data[1] === 'string' && 
-                   data[1].toLowerCase().includes('count')) {
-            resolved = true;
-            clearTimeout(timeoutId);
-            nip45UnsupportedRelays.add(relayUrl);
-            cleanup();
-            resolve(null);
-          }
-        } catch {
-          // Parse error, ignore
-        }
-      };
-
-      ws.onerror = () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeoutId);
-          failedRelays.set(relayUrl, Date.now()); // Mark relay as failed
-          cleanup();
-          resolve(null);
-        }
-      };
-
-      ws.onclose = () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeoutId);
-          resolve(null);
-        }
-      };
-    } catch {
-      resolved = true;
-      clearTimeout(timeoutId);
-      failedRelays.set(relayUrl, Date.now());
-      resolve(null);
+      socket.pending.delete(subId);
+      releaseCountSocket(relayUrl, socket);
+      resolve(result);
     }
+
+    socket.pending.set(subId, (data: unknown[]) => {
+      if (data[0] === 'POOL-CLOSED') {
+        // Socket died (relay dropped the connection) — no verdict on
+        // NIP-45 support, just fail this query.
+        finish(null);
+        return;
+      }
+      // COUNT response: ["COUNT", <subId>, {"count": <number>, "approximate"?: boolean}]
+      if (data[0] === 'COUNT' && typeof (data[2] as { count?: unknown })?.count === 'number') {
+        nip45SupportedRelays.add(relayUrl);
+        failedRelays.delete(relayUrl); // Clear failure state on success
+        finish({
+          count: (data[2] as { count: number }).count,
+          approximate: (data[2] as { approximate?: boolean }).approximate,
+          source: 'nip45'
+        });
+        return;
+      }
+      // CLOSED means the relay doesn't support COUNT or rejected the request
+      if (data[0] === 'CLOSED') {
+        nip45UnsupportedRelays.add(relayUrl);
+        finish(null);
+        return;
+      }
+      // NOTICE with an error about COUNT
+      if (data[0] === 'NOTICE' && typeof data[1] === 'string' &&
+          data[1].toLowerCase().includes('count')) {
+        nip45UnsupportedRelays.add(relayUrl);
+        finish(null);
+      }
+    });
+
+    void socket.ready.then(() => {
+      try {
+        socket.ws.send(JSON.stringify(['COUNT', subId, filter]));
+      } catch {
+        failedRelays.set(relayUrl, Date.now());
+        finish(null);
+      }
+    });
   });
 }
 
