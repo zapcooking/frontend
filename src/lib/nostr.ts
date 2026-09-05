@@ -4,13 +4,28 @@ import NDKCacheAdapterDexie from '@nostr-dev-kit/ndk-cache-dexie';
 import { writable, get, type Writable } from 'svelte/store';
 import { standardRelays } from './consts';
 import { createConnectionManager, getConnectionManager, resetConnectionManagerSingleton } from './connectionManager';
+import { scheduleNdkCacheMaintenance } from './ndkCacheMaintenance';
 
 // Storage keys
 const RELAYS_STORAGE_KEY = 'nostrcooking_relays';
 const RELAY_SET_STORAGE_KEY = 'zap_active_relay_set';
 
 // Only create Dexie adapter in browser (IndexedDB not available in SSR)
-const dexieAdapter = browser ? new NDKCacheAdapterDexie({ dbName: 'zapcooking-ndk-cache-db' }) : undefined;
+const dexieAdapter = browser ? new NDKCacheAdapterDexie({
+  dbName: 'zapcooking-ndk-cache-db',
+  // Bound the in-memory LRUs — and with them the startup warm-up, which
+  // reads up to each maxSize rows from IndexedDB before the first NDK
+  // query can run. Library defaults are 50k events / 100k profiles /
+  // 100k event tags (~250k row reads every launch); these caps cover
+  // real usage with room to spare, and misses fall back to the on-disk
+  // tables anyway (getWithFallback).
+  eventCacheSize: 15_000,
+  profileCacheSize: 15_000,
+  eventTagsCacheSize: 15_000
+}) : undefined;
+
+// Cap the on-disk tables (the adapter never prunes them) — once a day.
+if (browser) scheduleNdkCacheMaintenance();
 
 // Default outbox relays (used in standard/default mode)
 const DEFAULT_OUTBOX_RELAY_URLS = ["wss://purplepag.es", "wss://nos.lol"];
