@@ -309,24 +309,29 @@ export async function initMessageSubscription(ndkInstance: NDK, userPubkey: stri
 
 		// 3. Load historical messages in background
 		const historicalPromises: Promise<void>[] = [];
+		const historyBatcher = createHistoryBatcher(userPubkey);
 
 		// NIP-17 historical
 		if (bestMethod === 'nip44') {
 			historicalPromises.push(
 				fetchHistoricalMessages(ndkInstance, userPubkey, (message) => {
-					addMessage(message, userPubkey);
+					historyBatcher.add(message);
 				}).then(() => {})
 			);
 		}
 
 		// NIP-04 historical
 		historicalPromises.push(
-			fetchHistoricalNip04Messages(ndkInstance, userPubkey).then(() => {})
+			fetchHistoricalNip04Messages(ndkInstance, userPubkey, (message) => {
+				historyBatcher.add(message);
+			}).then(() => {})
 		);
 
 		Promise.all(historicalPromises)
 			.catch(() => {})
 			.finally(() => {
+				// Apply anything still sitting in the batch window.
+				historyBatcher.flush();
 				messagesLoading.set(false);
 			});
 	} catch {
@@ -339,7 +344,8 @@ export async function initMessageSubscription(ndkInstance: NDK, userPubkey: stri
  */
 async function fetchHistoricalNip04Messages(
 	ndkInstance: NDK,
-	userPubkey: string
+	userPubkey: string,
+	onMessage?: (message: DecryptedMessage) => void
 ): Promise<DecryptedMessage[]> {
 	const sinceTimestamp = Math.round(Date.now() / 1000) - 3 * 24 * 60 * 60;
 
@@ -382,7 +388,11 @@ async function fetchHistoricalNip04Messages(
 			const message = await decryptNip04Event(event, userPubkey);
 			if (message) {
 				messages.push(message);
-				addMessage(message, userPubkey);
+				if (onMessage) {
+					onMessage(message);
+				} else {
+					addMessage(message, userPubkey);
+				}
 			}
 		} catch {
 			// Individual failures don't stop the rest
@@ -393,6 +403,37 @@ async function fetchHistoricalNip04Messages(
 }
 
 /** Stop the active message subscriptions. */
+/**
+ * Collects historical backfill messages and inserts them in batched
+ * addMessages calls (~one per 250ms of decryption). Historical backfill
+ * used addMessage per decrypted message — each paying a full Map copy +
+ * per-conversation sort — which made loading N days of history O(N²)
+ * store work on the main thread, right when a /messages deep link is
+ * already busy with sequential signer decrypts.
+ */
+function createHistoryBatcher(userPubkey: string, flushMs = 250) {
+	let batch: DecryptedMessage[] = [];
+	let timer: ReturnType<typeof setTimeout> | null = null;
+
+	function flush() {
+		timer = null;
+		if (batch.length === 0) return;
+		const pending = batch;
+		batch = [];
+		addMessages(pending, userPubkey);
+	}
+
+	return {
+		add(message: DecryptedMessage) {
+			batch.push(message);
+			if (timer === null) {
+				timer = setTimeout(flush, flushMs);
+			}
+		},
+		flush
+	};
+}
+
 export function stopMessageSubscription() {
 	if (activeSub) {
 		activeSub.stop();
