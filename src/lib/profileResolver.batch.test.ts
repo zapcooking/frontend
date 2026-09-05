@@ -65,7 +65,7 @@ describe('profileResolver batching', () => {
     expect(fetchEventsMock.mock.calls[0][0].authors).toEqual(pubkeys);
     expect(fetchEventsMock.mock.calls[0][0].kinds).toEqual([0]);
     for (const profile of results) {
-      expect(profile?.name).toBe(`name-${profile.pubkey}`);
+      expect(profile?.name).toBe(`name-${profile?.pubkey}`);
     }
   });
 

@@ -20,7 +20,7 @@
     queueMembershipLookup,
     type MembershipStatus
   } from '$lib/stores/membershipStatus';
-  import { parseMarkdown } from '$lib/parser';
+  import { parseMarkdown, mentionNamesVersion } from '$lib/parser';
   import { PROMPT_PLACEHOLDERS, SCAN_ERROR_LINE, photoFormatLine } from '$lib/cheffy';
   import { fileToBase64, identifyPhotoFile, PHOTO_MAX_BYTES } from '$lib/photoAsk';
   import { scanFridgePhoto } from '$lib/photoScan';
@@ -648,8 +648,10 @@
                   {:else}
                     <div class="cheffy-text prose dark:prose-invert max-w-none">
                       <!-- Sanitized via parseMarkdown → sanitizeHTML. -->
+                      <!-- $mentionNamesVersion re-renders when a queued
+                           mention-name lookup lands. -->
                       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                      {@html parseMarkdown(m.content)}
+                      {@html parseMarkdown(m.content, $mentionNamesVersion)}
                     </div>
                   {/if}
 
