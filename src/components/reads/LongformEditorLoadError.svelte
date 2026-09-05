@@ -8,6 +8,7 @@
   export let onRetry: () => void;
   export let onClose: () => void;
 
+  let detail = '';
   $: detail = error instanceof Error ? error.message : error ? String(error) : '';
 </script>
 
