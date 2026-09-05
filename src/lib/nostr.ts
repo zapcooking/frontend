@@ -478,9 +478,12 @@ if (browser) {
     ndkReadyResolve(); // Resolve anyway so components don't hang
   }).finally(() => {
     setTimeout(() => {
-      // Initial connection window has passed — restore console.error.
+      // Initial connection window has passed — restore both patched
+      // methods. Leaving console.log wrapped for the whole session taxed
+      // every log call with an args.join + substring scan.
       errorSuppressionActive = false;
       console.error = originalError;
+      console.log = originalLog;
     }, 3000);
   });
 } else {
