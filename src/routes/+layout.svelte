@@ -3,6 +3,7 @@
   import '../app.css';
   import Header from '../components/Header.svelte';
   import { browser } from '$app/environment';
+  import { derived } from 'svelte/store';
   import { page, updated } from '$app/stores';
   import { goto, beforeNavigate } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
@@ -50,7 +51,10 @@
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
-  import { longformEditorOpen } from '../components/reads/articleDraftStore';
+  import { longformEditorOpen, closeEditor } from '../components/reads/articleDraftStore';
+  import LongformEditorLoadError from '../components/reads/LongformEditorLoadError.svelte';
+  import { createLazyLoader, bindLazyLoaderToOpenState } from '$lib/lazyComponentLoader';
+  import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
   import CookingToolsWidget from '../components/CookingToolsWidget.svelte';
   import UserSidePanel from '../components/UserSidePanel.svelte';
   import MobileNavDrawer from '../components/MobileNavDrawer.svelte';
@@ -69,25 +73,48 @@
   import { refreshActiveEngagement } from '$lib/engagementCache';
   import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
 
-  // The longform editor drags in the TipTap/ProseMirror stack (~400KB gz);
-  // load it on first open instead of shipping it in the layout chunk. It
-  // stays mounted for the rest of the session (it renders nothing while
-  // $longformEditorOpen is false) so later opens are instant and the close
-  // transition keeps working.
-  let LongformEditorModal: typeof import('../components/reads/LongformEditorModal.svelte').default | null =
-    null;
-  let longformLoadStarted = false;
+  // The longform editor drags in the TipTap/ProseMirror stack, so it is
+  // loaded on first open instead of shipping in the layout chunk. Once
+  // loaded it stays mounted for the rest of the session (it renders nothing
+  // while $longformEditorOpen is false) so later opens are instant and the
+  // close transition keeps working.
+  //
+  // Failure handling: a failed chunk import dispatches vite:preloadError,
+  // which the recovery handler below turns into at most one reload per
+  // session. When that reload has already been used (or didn't help), the
+  // loader surfaces the failure as an error dialog with Retry/Close instead
+  // of latching shut. The selected draft lives in articleDraftStore, so a
+  // retry only re-imports the chunk and never creates a new draft.
+  const longformEditorLoader = createLazyLoader(
+    () => import('../components/reads/LongformEditorModal.svelte'),
+    { enabled: browser, label: 'longform-editor' }
+  );
 
-  $: if ($longformEditorOpen && !longformLoadStarted) {
-    longformLoadStarted = true;
-    import('../components/reads/LongformEditorModal.svelte').then(
-      (m) => (LongformEditorModal = m.default),
-      () => {
-        // Chunk load failed (e.g. deploy skew); the vite:preloadError
-        // handler above performs the one-shot recovery reload.
-      }
+  onMount(() => {
+    const unbindOpen = bindLazyLoaderToOpenState(longformEditorLoader, longformEditorOpen);
+
+    // Lightweight loading feedback via the shared pending-ops pill, shown
+    // only while the editor is open and its chunk is still downloading.
+    let loadingOpId: string | null = null;
+    const editorLoading = derived(
+      [longformEditorOpen, longformEditorLoader],
+      ([$open, $loader]) => $open && $loader.status === 'loading'
     );
-  }
+    const unsubLoading = editorLoading.subscribe((isLoading) => {
+      if (isLoading && loadingOpId === null) {
+        loadingOpId = addPendingOp('Loading editor…');
+      } else if (!isLoading && loadingOpId !== null) {
+        removePendingOp(loadingOpId);
+        loadingOpId = null;
+      }
+    });
+
+    return () => {
+      unbindOpen();
+      unsubLoading();
+      if (loadingOpId !== null) removePendingOp(loadingOpId);
+    };
+  });
 
   // Version-skew guard: when a new deploy is detected (kit.version
   // pollInterval in svelte.config.js), turn the next client-side navigation
@@ -649,8 +676,14 @@
       <UserSidePanel />
       <MobileSearchOverlay />
       <PostModal bind:open={$postComposerOpen} />
-      {#if LongformEditorModal}
-        <svelte:component this={LongformEditorModal} />
+      {#if $longformEditorLoader.component}
+        <svelte:component this={$longformEditorLoader.component} />
+      {:else if $longformEditorOpen && $longformEditorLoader.status === 'failed'}
+        <LongformEditorLoadError
+          error={$longformEditorLoader.error}
+          onRetry={longformEditorLoader.retry}
+          onClose={closeEditor}
+        />
       {/if}
       <WalletModal />
       {#if $loginOverlayOpen}
