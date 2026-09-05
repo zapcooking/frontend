@@ -185,9 +185,6 @@ importers:
       stripe:
         specifier: ^20.1.0
         version: 20.1.0(@types/node@18.19.64)
-      svelte-qrcode:
-        specifier: ^1.0.0
-        version: 1.0.1
       syllable:
         specifier: ^5.0.1
         version: 5.0.1
@@ -4193,9 +4190,6 @@ packages:
   qrcode-generator@1.4.4:
     resolution: {integrity: sha512-HM7yY8O2ilqhmULxGMpcHSF1EhJJ9yBj8gvDEuZ6M+KGJ0YY2hKpnXvRD+hZPLrDVck3ExIGhmPtSdcjC+guuw==}
 
-  qrious@4.0.2:
-    resolution: {integrity: sha512-xWPJIrK1zu5Ypn898fBp8RHkT/9ibquV2Kv24S/JY9VYEhMBMKur1gHVsOiNUh7PHP9uCgejjpZUHUIXXKoU/g==}
-
   qs@6.15.2:
     resolution: {integrity: sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw==}
     engines: {node: '>=0.6'}
@@ -4646,9 +4640,6 @@ packages:
         optional: true
       typescript:
         optional: true
-
-  svelte-qrcode@1.0.1:
-    resolution: {integrity: sha512-l1RcxDWkQqtBWUkolYee/IHGVKSgm1I2PdF8yVoIRqzKCc3kXpCXSVsMfrMSavWW2/BXvKu5Orv+JGbrO5onsw==}
 
   svelte@4.2.20:
     resolution: {integrity: sha512-eeEgGc2DtiUil5ANdtd8vPwt9AgaMdnuUFnPft9F5oMvU/FHu5IHFic+p1dR/UOB7XU2mX2yHW+NcTch4DCh5Q==}
@@ -9304,8 +9295,6 @@ snapshots:
 
   qrcode-generator@1.4.4: {}
 
-  qrious@4.0.2: {}
-
   qs@6.15.2:
     dependencies:
       side-channel: 1.1.0
@@ -9836,10 +9825,6 @@ snapshots:
       postcss: 8.5.25
       postcss-load-config: 4.0.2(postcss@8.5.25)(ts-node@10.9.2(@types/node@18.19.64)(typescript@5.6.3))
       typescript: 5.6.3
-
-  svelte-qrcode@1.0.1:
-    dependencies:
-      qrious: 4.0.2
 
   svelte@4.2.20:
     dependencies:
