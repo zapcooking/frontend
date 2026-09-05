@@ -36,7 +36,7 @@ function shouldCache(request) {
   if (request.method && request.method !== 'GET') {
     return false;
   }
-  
+
   const urlString = request.url || (typeof request === 'string' ? request : request.toString());
   
   // Only cache same-origin requests
@@ -66,6 +66,29 @@ function shouldCache(request) {
   return false;
 }
 
+// Empty SvelteKit devalue payload for __data.json requests in packaged
+// static/Capacitor builds, which have no server to answer them. Mirrors
+// the isPackagedStatic mocks in app.html and hooks.client.ts (the SW
+// can't read window.Capacitor, so the caller decides when to use it).
+function mockDataResponse() {
+  const mockData = {
+    type: 'data',
+    nodes: [
+      null, // layout data
+      {
+        type: 'data',
+        data: [{ ogMeta: 1 }, null], // devalue-encoded { ogMeta: null }
+        uses: {}
+      }
+    ]
+  };
+
+  return new Response(JSON.stringify(mockData), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing service worker');
   self.skipWaiting();
@@ -92,28 +115,24 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
   
-  // Intercept __data.json requests that don't exist in static builds
+  // __data.json exists only on the SSR web deployment. Serve the real
+  // response whenever the network provides one; fall back to the mock
+  // when it doesn't (packaged static builds have no server — a fetch
+  // there fails, 404s, or returns the SPA index.html, none of which is
+  // usable data). This used to mock unconditionally, which starved web
+  // clients of real +page.server.ts data on client-side navigations.
   if (url.includes('__data.json')) {
-    console.log('[SW] Intercepting __data.json request:', url);
-    
-    // Return mock SvelteKit data response
-    const mockData = {
-      type: 'data',
-      nodes: [
-        null, // layout data
-        {
-          type: 'data',
-          data: [{ ogMeta: 1 }, null], // devalue-encoded { ogMeta: null }
-          uses: {}
-        }
-      ]
-    };
-    
     event.respondWith(
-      new Response(JSON.stringify(mockData), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      })
+      fetch(event.request)
+        .then((response) => {
+          const contentType = response.headers.get('content-type') || '';
+          if (response.ok && contentType.includes('application/json')) {
+            return response;
+          }
+          console.debug('[SW] __data.json not served as JSON, using mock for:', url);
+          return mockDataResponse();
+        })
+        .catch(() => mockDataResponse())
     );
     return;
   }
