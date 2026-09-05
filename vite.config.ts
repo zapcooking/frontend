@@ -46,9 +46,8 @@ export default defineConfig({
   },
   optimizeDeps: {
     // Exclude packages from pre-bundling:
-    // - @getalby/sdk: needs browser WebSocket at runtime
     // - @breeztech/breez-sdk-spark: WASM module needs special handling
-    exclude: ['@getalby/sdk', '@breeztech/breez-sdk-spark']
+    exclude: ['@breeztech/breez-sdk-spark']
   },
   build: {
     rollupOptions: {
@@ -88,11 +87,10 @@ export default defineConfig({
   },
   ssr: {
     // External packages that shouldn't be bundled/evaluated during SSR
-    // - @getalby/sdk: needs browser WebSocket
     // - buffer, bip39: CommonJS packages that use require()
     // - @breeztech/breez-sdk-spark: WASM module, browser only
     // - path-browserify: CommonJS polyfill from vite-plugin-node-polyfills
     noExternal: [],
-    external: ['@getalby/sdk', 'buffer', 'bip39', '@breeztech/breez-sdk-spark', 'path-browserify']
+    external: ['buffer', 'bip39', '@breeztech/breez-sdk-spark', 'path-browserify']
   }
 });
