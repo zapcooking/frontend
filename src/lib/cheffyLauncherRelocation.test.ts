@@ -44,9 +44,14 @@ describe('A2 — launcher fully removed, no orphans', () => {
     const layout = readFileSync(LAYOUT, 'utf8');
     expect(layout).not.toContain('CheffyLauncher');
     // The messenger is lazy-mounted (markdown-it stays out of the layout
-    // chunk) but is still rendered and still showCheffy-gated.
-    expect(layout).toContain('this={CheffyMessenger}');
-    expect(layout).toContain('showCheffy && CheffyMessenger');
+    // chunk) but is still rendered and still showCheffy-gated. Both the
+    // render gate and the loader's request use the same route predicate.
+    // Behavioural coverage of the gating lives in
+    // cheffyMessengerLoading.test.ts.
+    expect(layout).toContain('this={$cheffyMessengerLoader.component}');
+    expect(layout).toContain('showCheffy && $cheffyMessengerLoader.component');
+    expect(layout).toContain('showCheffy = isCheffyRoute($page.url.pathname)');
+    expect(layout).toContain('cheffyMessengerWanted(');
   });
 
   it('no launcher DOM/id/z-index references remain in the messenger', () => {

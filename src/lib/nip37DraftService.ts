@@ -21,11 +21,10 @@ import { encrypt, decrypt, hasEncryptionSupport, detectEncryptionMethod } from '
 import { getOutboxRelays } from '$lib/relayListCache';
 import type { RecipeDraft } from '$lib/draftStore';
 import type { ArticleDraft } from '$lib/articleEditor';
-import TurndownService from 'turndown';
-// NOTE: $lib/parser (markdown-it) is imported lazily inside
-// parseArticleToDraft — this module sits on the layout's static graph
-// via articleDraftStore, and a static import would ship markdown-it
-// to every page.
+// NOTE: turndown and $lib/parser (markdown-it) are imported lazily inside
+// encryptArticleDraftContent and parseArticleToDraft respectively — this
+// module sits on the layout's static graph via articleDraftStore, and a
+// static import of either would ship it to every page.
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -267,6 +266,8 @@ async function encryptDraftContent(draft: RecipeDraft, pubkey: string): Promise<
  * Contains the unsigned article event data
  */
 async function encryptArticleDraftContent(draft: ArticleDraft, pubkey: string): Promise<string> {
+  const { default: TurndownService } = await import('turndown');
+
   // Initialize turndown for HTML to Markdown conversion
   const turndownService = new TurndownService({
     headingStyle: 'atx',
