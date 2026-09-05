@@ -332,7 +332,12 @@ export function parseMarkdownToEditorHtml(
   return root.innerHTML;
 }
 
-export function parseMarkdown(markdown: string) {
+export function parseMarkdown(markdown: string, mentionNamesRevision?: number) {
+  // `mentionNamesRevision` is ignored on purpose: callers pass
+  // $mentionNamesVersion purely so their reactive statements re-run when
+  // a queued mention-name lookup lands — the re-parse then renders real
+  // names instead of the shortened npubs the first pass showed.
+  void mentionNamesRevision;
   const parsedMarkdown = md.render(markdown);
   const sanitized = sanitizeHTML(parsedMarkdown);
   return enhanceContent(sanitized);
