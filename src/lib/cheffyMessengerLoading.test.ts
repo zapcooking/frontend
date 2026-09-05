@@ -88,7 +88,7 @@ describe('isCheffyRoute', () => {
   });
 
   it('allows ordinary routes', () => {
-    for (const path of ['/', '/explore', '/recipe/abc', '/my-kitchen/grocery/1', '/reads']) {
+    for (const path of ['/', '/explore', '/recipe/abc', '/my-kitchen/grocery/1', '/reads', '/cheffys-table', '/cheffys-table/']) {
       expect(isCheffyRoute(path), path).toBe(true);
     }
   });

@@ -230,6 +230,9 @@
   const ogImage = `${siteUrl}/social-share.png`;
   $: canonical = `${siteUrl}${$page.url.pathname === '/' ? '' : $page.url.pathname}`;
 
+  // Cheffy’s Table owns its compact HUD; shared authentication stays mounted.
+  $: kitchenMode = $page.url.pathname.replace(/\/$/, '') === '/cheffys-table';
+
   // Skip layout OG tags on pages that set their own (recipe pages, note pages,
   // pack pages). When a page provides custom OG tags AND the layout also
   // emits its generic ones, scrapers see two `og:title` etc. and most pick
@@ -615,38 +618,47 @@
   <div
     class="h-screen scroll-smooth overflow-hidden transition-colors duration-200 safe-area-container"
   >
-    <OfflineIndicator />
+    {#if !kitchenMode}<OfflineIndicator />{/if}
     <div class="flex flex-col h-full overflow-hidden">
       {#if $feedInitialLoadDone}
         <NotificationSubscriber />
       {/if}
       <!-- Fixed sidebar -->
-      <DesktopSideNav />
-      <!-- Header with blur. Fixed to the viewport (not sticky inside the
+      {#if !kitchenMode}
+        <DesktopSideNav />
+        <!-- Header with blur. Fixed to the viewport (not sticky inside the
            scroll container) so it stays put while the page content scrolls
            and rubber-band-bounces behind it. -->
-      <div
-        class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
-        on:click|self={scrollToTop}
-      >
-        <Header />
-        <!-- Decorative connector (desktop): a vertical line just left of
+        <div
+          class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
+          on:click|self={scrollToTop}
+        >
+          <Header />
+          <!-- Decorative connector (desktop): a vertical line just left of
              the search box that curves into the header's bottom divider. -->
-        <span class="header-pipe" aria-hidden="true"></span>
-      </div>
+          <span class="header-pipe" aria-hidden="true"></span>
+        </div>
+      {/if}
       <!-- Full-page scroll container: clip horizontal overflow to prevent Safari horizontal scroll/gap.
            Top padding clears the fixed header via the CSS-deterministic
            --header-h (defined in app.css); the same var lets sticky
            sub-headers sit directly below it. -->
       <div
         id="app-scroll"
-        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden lg:ml-[calc(14rem_+_5px)] xl:ml-[calc(20rem_+_5px)]"
-        style="background-color: var(--color-bg-primary); padding-top: var(--header-h);"
+        class:kitchen-scroll={kitchenMode}
+        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden {kitchenMode
+          ? ''
+          : 'lg:ml-[calc(14rem_+_5px)] xl:ml-[calc(20rem_+_5px)]'}"
+        style="background-color: var(--color-bg-primary); padding-top: {kitchenMode
+          ? '0px'
+          : 'var(--header-h)'};"
       >
         <div
-          class="px-4 lg:pl-[26px] min-w-0 max-w-full flex flex-col min-h-full {$page.url.pathname.startsWith(
-            '/messages'
-          ) || $page.url.pathname.startsWith('/groups')
+          class="{kitchenMode
+            ? ''
+            : 'px-4 lg:pl-[26px]'} min-w-0 max-w-full flex flex-col min-h-full {kitchenMode ||
+          $page.url.pathname.startsWith('/messages') ||
+          $page.url.pathname.startsWith('/groups')
             ? ''
             : 'pb-16 lg:pb-8'}"
         >
@@ -655,19 +667,19 @@
           <div class="flex-1 min-w-0 max-w-full">
             <slot />
           </div>
-          {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
+          {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
             <Footer />
           {/if}
         </div>
       </div>
-      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$postComposerOpen}
+      {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$postComposerOpen}
         <CreateMenuButton variant="floating" />
       {/if}
-      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
+      {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
         <ScrollToTopButton />
       {/if}
-      <BottomNav />
-      <CookingToolsWidget />
+      {#if !kitchenMode}<BottomNav />
+        <CookingToolsWidget />{/if}
       {#if showCheffy && $cheffyMessengerLoader.component}
         <!-- The floating launcher was retired (A2); Cheffy opens from the
              header Intelligence menu's "Ask Cheffy" item. The messenger
@@ -709,6 +721,12 @@
 </ErrorBoundary>
 
 <style>
+  .kitchen-scroll {
+    scrollbar-width: none;
+  }
+  .kitchen-scroll::-webkit-scrollbar {
+    display: none;
+  }
   /* Safe area support for Android/iOS edge-to-edge displays */
   .safe-area-container {
     padding-left: env(safe-area-inset-left, 0px);

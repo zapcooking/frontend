@@ -20,7 +20,9 @@ export const CHEFFY_EXCLUDED_PREFIXES = [
 
 /** True when the floating messenger may render on this pathname. */
 export function isCheffyRoute(pathname: string): boolean {
-  return !CHEFFY_EXCLUDED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  return !CHEFFY_EXCLUDED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
 }
 
 /**
