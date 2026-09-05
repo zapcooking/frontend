@@ -1,6 +1,6 @@
 import { nip19 } from 'nostr-tools';
 import { ndk } from './nostr';
-import type { NDKUserProfile } from '@nostr-dev-kit/ndk';
+import type { NDKUserProfile, NDKRelaySet, NDKEvent } from '@nostr-dev-kit/ndk';
 import type NDK from '@nostr-dev-kit/ndk';
 import { getAnonChefName } from './anonName';
 
@@ -104,111 +104,177 @@ const PROFILE_RELAY_URLS = [
   'wss://nostr.wine'
 ];
 
-// Fetch profile data from relays
-async function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK, hintRelays?: string[]): Promise<ProfileData | null> {
+// ─── Batched kind:0 fetching ─────────────────────────────────────────
+// ProfileLink, AuthorName, CommentCard and friends each resolve profiles
+// on mount, and each resolve used to fire its own kind:0 fetchEvent
+// across the pool + profile relays — a 50-author feed opened ~50 REQs
+// against ~6 relays apiece. Resolves now coalesce: per-pubkey
+// single-flight, plus a short collection window that fetches queued
+// pubkeys together in chunked authors:[...] REQs (relays cap filter
+// sizes; 50 per REQ is safely below every limit).
+const PROFILE_BATCH_WINDOW_MS = 150;
+const PROFILE_BATCH_CHUNK = 50;
+const inflightProfileFetches = new Map<string, Promise<ProfileData | null>>();
+
+interface ProfileBatchEntry {
+  pubkey: string;
+  hintRelays?: string[];
+  resolve: (profile: ProfileData | null) => void;
+}
+let profileBatchQueue: ProfileBatchEntry[] = [];
+let profileBatchTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Pool relays + canonical profile relays + the batch's nprofile hints. */
+async function buildProfileRelaySet(
+  ndkInstance: NDK,
+  hintRelayLists: Array<string[] | undefined>
+): Promise<NDKRelaySet | undefined> {
+  const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+  const relayUrls = new Set<string>();
+  if (ndkInstance.pool?.relays) {
+    for (const [url] of ndkInstance.pool.relays) relayUrls.add(url);
+  }
+  for (const url of PROFILE_RELAY_URLS) relayUrls.add(url);
+  for (const hints of hintRelayLists) {
+    if (hints) for (const url of hints) relayUrls.add(url);
+  }
+
+  const relays = [];
+  for (const url of relayUrls) {
+    // getRelay(url, connect, temporary) — NDK 2.10.0. Creation is
+    // unconditional when the relay is missing; the third argument is
+    // temporary, which arms a 30s removal timer (skipped for relays in
+    // explicitRelayUrls). purplepag.es etc. may not be in the pool yet;
+    // this opens a connection in the background. fetchEvents will queue
+    // against not-yet-ready relays and resolve at EOSE.
+    const relay = ndkInstance.pool?.getRelay(url, true, true);
+    if (relay) relays.push(relay);
+  }
+  return relays.length > 0 ? new NDKRelaySet(new Set(relays), ndkInstance) : undefined;
+}
+
+async function flushProfileBatch(ndkInstance: NDK): Promise<void> {
+  const queue = profileBatchQueue;
+  profileBatchQueue = [];
+  if (queue.length === 0) return;
+
+  const eventsByPubkey = new Map<string, NDKEvent>();
   try {
-    if (!ndkInstance) {
-      return null;
+    const pubkeys = [...new Set(queue.map((entry) => entry.pubkey))];
+    for (let i = 0; i < pubkeys.length; i += PROFILE_BATCH_CHUNK) {
+      const chunk = pubkeys.slice(i, i + PROFILE_BATCH_CHUNK);
+      const relaySet = await buildProfileRelaySet(
+        ndkInstance,
+        queue.filter((e) => chunk.includes(e.pubkey)).map((e) => e.hintRelays)
+      );
+      const fetchPromise = ndkInstance.fetchEvents(
+        { kinds: [0], authors: chunk },
+        undefined,
+        relaySet
+      );
+      const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
+        setTimeout(() => resolve(new Set()), PROFILE_FETCH_TIMEOUT)
+      );
+      const events = await Promise.race([fetchPromise, timeoutPromise]);
+
+      // A pubkey may have several kind:0 events (republished profiles);
+      // keep the newest by created_at, matching fetchEvent's behavior.
+      for (const event of events) {
+        if (!event.pubkey) continue;
+        const existing = eventsByPubkey.get(event.pubkey);
+        if (!existing || (event.created_at || 0) > (existing.created_at || 0)) {
+          eventsByPubkey.set(event.pubkey, event);
+        }
+      }
     }
 
-    if (!pubkey) {
-      return null;
+    for (const entry of queue) {
+      const event = eventsByPubkey.get(entry.pubkey);
+      entry.resolve(event ? parseProfileEvent(entry.pubkey, event) : null);
     }
-
-    // Build an explicit relay set: NDK's connected pool relays
-    // (whatever the page already has open — nos.lol, damus, primal
-    // in default mode) plus the canonical profile relays plus any
-    // relay hints embedded in the nprofile string.
-    const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-    const relayUrls = new Set<string>();
-    if (ndkInstance.pool?.relays) {
-      for (const [url] of ndkInstance.pool.relays) relayUrls.add(url);
+  } catch {
+    // Profile fetch errors are common and non-critical — resolve what we
+    // never fetched as null rather than rejecting.
+    for (const entry of queue) {
+      entry.resolve(eventsByPubkey.has(entry.pubkey)
+        ? parseProfileEvent(entry.pubkey, eventsByPubkey.get(entry.pubkey)!)
+        : null);
     }
-    for (const url of PROFILE_RELAY_URLS) relayUrls.add(url);
-    if (hintRelays) {
-      for (const url of hintRelays) relayUrls.add(url);
+  }
+}
+
+// Fetch profile data from relays (batched — see the batching block above)
+function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK, hintRelays?: string[]): Promise<ProfileData | null> {
+  if (!ndkInstance || !pubkey) {
+    return Promise.resolve(null);
+  }
+
+  const inflight = inflightProfileFetches.get(pubkey);
+  if (inflight) return inflight;
+
+  const promise = new Promise<ProfileData | null>((resolve) => {
+    profileBatchQueue.push({ pubkey, hintRelays, resolve });
+    if (profileBatchTimer === null) {
+      profileBatchTimer = setTimeout(() => {
+        profileBatchTimer = null;
+        void flushProfileBatch(ndkInstance);
+      }, PROFILE_BATCH_WINDOW_MS);
     }
+  }).finally(() => inflightProfileFetches.delete(pubkey));
 
-    const relays = [];
-    for (const url of relayUrls) {
-      // getRelay(url, connect, temporary) — NDK 2.10.0. Creation is
-      // unconditional when the relay is missing; the third argument is
-      // temporary, which arms a 30s removal timer (skipped for relays in
-      // explicitRelayUrls). purplepag.es etc. may not be in the pool yet;
-      // this opens a connection in the background. fetchEvent will queue
-      // against not-yet-ready relays and resolve when any of them returns.
-      const relay = ndkInstance.pool?.getRelay(url, true, true);
-      if (relay) relays.push(relay);
-    }
-    const relaySet = relays.length > 0 ? new NDKRelaySet(new Set(relays), ndkInstance) : undefined;
+  inflightProfileFetches.set(pubkey, promise);
+  return promise;
+}
 
-    const fetchPromise = ndkInstance.fetchEvent(
-      { kinds: [0], authors: [pubkey] },
-      undefined,
-      relaySet
-    );
-    const timeoutPromise = new Promise<null>((resolve) =>
-      setTimeout(() => resolve(null), PROFILE_FETCH_TIMEOUT)
-    );
-
-    const event = await Promise.race([fetchPromise, timeoutPromise]);
-    if (!event) {
-      return null;
-    }
-
-    let parsed: Record<string, unknown> = {};
-    try {
-      parsed = JSON.parse(event.content || '{}');
-    } catch {
-      // Malformed kind:0 content — return null rather than a
-      // half-populated profile that would obscure the user's identity.
-      return null;
-    }
-
-    // Nostr profile field naming has historically varied: NIP-01 says
-    // `name`, but many clients also (or only) populate `display_name`,
-    // and a few use camelCase `displayName`. Read all three so we
-    // surface the user's identity regardless of which client wrote
-    // their kind:0.
-    const name =
-      typeof parsed.name === 'string' ? parsed.name : undefined;
-    const displayName =
-      typeof parsed.display_name === 'string'
-        ? (parsed.display_name as string)
-        : typeof parsed.displayName === 'string'
-        ? (parsed.displayName as string)
-        : undefined;
-
-    // CLINK noffer: the field key isn't formally standardised yet — bxrd.app's
-    // profile editor labels it "CLINK offer (noffer)" and most likely writes it
-    // as `noffer`, but accept `offer` and `clink_offer` as fallbacks so we
-    // don't lose data if the key name diverges. The value must start with
-    // `noffer1` to be considered valid (so we don't pick up unrelated fields).
-    const rawNoffer =
-      (typeof parsed.noffer === 'string' && parsed.noffer) ||
-      (typeof parsed.offer === 'string' && parsed.offer) ||
-      (typeof parsed.clink_offer === 'string' && parsed.clink_offer) ||
-      undefined;
-    const noffer =
-      rawNoffer && /^(nostr:)?noffer1/i.test(rawNoffer.trim()) ? rawNoffer.trim() : undefined;
-
-    const profileData: ProfileData = {
-      pubkey,
-      name,
-      display_name: displayName,
-      picture: typeof parsed.picture === 'string' ? parsed.picture : undefined,
-      about: typeof parsed.about === 'string' ? parsed.about : undefined,
-      nip05: typeof parsed.nip05 === 'string' ? parsed.nip05 : undefined,
-      lud16: typeof parsed.lud16 === 'string' ? parsed.lud16 : undefined,
-      noffer,
-      lastFetched: Date.now()
-    };
-
-    return profileData;
-  } catch (error) {
-    // Silently fail - profile fetch errors are common and non-critical
+// Parse a kind:0 event into ProfileData. Returns null on malformed
+// content rather than a half-populated profile that would obscure the
+// user's identity.
+function parseProfileEvent(pubkey: string, event: NDKEvent): ProfileData | null {
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(event.content || '{}');
+  } catch {
     return null;
   }
+
+  // Nostr profile field naming has historically varied: NIP-01 says
+  // `name`, but many clients also (or only) populate `display_name`,
+  // and a few use camelCase `displayName`. Read all three so we
+  // surface the user's identity regardless of which client wrote
+  // their kind:0.
+  const name =
+    typeof parsed.name === 'string' ? parsed.name : undefined;
+  const displayName =
+    typeof parsed.display_name === 'string'
+      ? (parsed.display_name as string)
+      : typeof parsed.displayName === 'string'
+      ? (parsed.displayName as string)
+      : undefined;
+
+  // CLINK noffer: the field key isn't formally standardised yet — bxrd.app's
+  // profile editor labels it "CLINK offer (noffer)" and most likely writes it
+  // as `noffer`, but accept `offer` and `clink_offer` as fallbacks so we
+  // don't lose data if the key name diverges. The value must start with
+  // `noffer1` to be considered valid (so we don't pick up unrelated fields).
+  const rawNoffer =
+    (typeof parsed.noffer === 'string' && parsed.noffer) ||
+    (typeof parsed.offer === 'string' && parsed.offer) ||
+    (typeof parsed.clink_offer === 'string' && parsed.clink_offer) ||
+    undefined;
+  const noffer =
+    rawNoffer && /^(nostr:)?noffer1/i.test(rawNoffer.trim()) ? rawNoffer.trim() : undefined;
+
+  return {
+    pubkey,
+    name,
+    display_name: displayName,
+    picture: typeof parsed.picture === 'string' ? parsed.picture : undefined,
+    about: typeof parsed.about === 'string' ? parsed.about : undefined,
+    nip05: typeof parsed.nip05 === 'string' ? parsed.nip05 : undefined,
+    lud16: typeof parsed.lud16 === 'string' ? parsed.lud16 : undefined,
+    noffer,
+    lastFetched: Date.now()
+  };
 }
 
 // Main function to resolve profile data
