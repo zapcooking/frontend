@@ -7,7 +7,7 @@
   import Modal from './Modal.svelte';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
   import ProfileReadyIcon from './icons/ProfileReadyIcon.svelte';
-  import QRCode from 'svelte-qrcode';
+  import { qr } from '@svelte-put/qr/svg';
 
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, VaultConflictError, type AuthState } from '$lib/authManager';
@@ -997,7 +997,7 @@
         {#if nip46PairingUri}
           <div class="flex flex-col items-center gap-4">
             <div class="bg-white rounded-lg qr-container" style="--qr-size: 280px; --qr-padding: 16px;">
-              <QRCode value={nip46PairingUri} size={248} padding={null} />
+              <svg use:qr={{ data: nip46PairingUri }} width="248" height="248" />
             </div>
             <div class="text-center">
               <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">{nip46PairingStatus}</p>
