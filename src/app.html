@@ -66,13 +66,10 @@
     </script>
 
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
-    <!-- Orbitron for the timer display; Albert Sans for the sign-in modal. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Albert+Sans:wght@300;400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Fonts are self-hosted (see @font-face in app.css): no
+         render-blocking Google Fonts CSS round trip, and the packaged
+         Capacitor build has no font startup network dependency. -->
+    <link rel="preload" href="%sveltekit.assets%/fonts/albert-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
