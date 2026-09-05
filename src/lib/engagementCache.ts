@@ -197,6 +197,146 @@ function saveToCache(eventId: string, engagement: EngagementData): void {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// EVENT BATCHING
+// Applying one store.update per incoming engagement event (plus a
+// synchronous localStorage write per event) stalls the main thread
+// during a busy note's initial EOSE burst — hundreds of historical
+// reactions/zaps arrive back-to-back. Events are queued per target id
+// and applied in a single update per flush cycle instead. Per-id
+// dedup still happens at enqueue time; ordering within an id is
+// arrival order — both exactly as before batching.
+//
+// Two flush modes share one code path so a note never pays for two
+// back-to-back store updates + cache writes:
+// - periodic: the ~250ms timer applies whatever is queued for each
+//   dirty note (one update + one cache write per dirty note, nothing
+//   for notes with an empty queue). Browser scheduling can delay the
+//   timer beyond 250ms; the interval is approximate.
+// - complete: EOSE or the timeout fallback applies anything still
+//   queued AND finalizes the note (reaction-count reconciliation,
+//   loading=false, lastFetched, counting flag cleared) in that same
+//   update, then persists once with a fresh cache timestamp — even
+//   when a periodic flush already emptied the queue.
+// ═══════════════════════════════════════════════════════════════
+
+const ENGAGEMENT_FLUSH_MS = 250;
+const pendingEngagementEvents = new Map<string, { userPubkey: string; events: NDKEvent[] }>();
+let engagementFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Fetch generations: every subscription started for a note gets a token;
+// completion callbacks (EOSE / timeout) only finalize if their token is
+// still the note's current one. cleanupEngagement and
+// clearAllEngagementCaches invalidate the token, so an old callback can
+// neither recreate a torn-down store nor mark a replacement subscription
+// complete before it has actually finished counting.
+const fetchGenerations = new Map<string, number>();
+let fetchGenerationCounter = 0;
+
+function beginFetchGeneration(targetEventId: string): number {
+  const generation = ++fetchGenerationCounter;
+  fetchGenerations.set(targetEventId, generation);
+  return generation;
+}
+
+function applyEngagementEvent(
+  data: EngagementData,
+  event: NDKEvent,
+  userPubkey: string,
+  targetEventId: string
+): void {
+  switch (event.kind) {
+    case 7: // Reaction
+      processReaction(data, event, userPubkey, targetEventId);
+      break;
+    case 6: // Repost
+      processRepost(data, event, userPubkey, targetEventId);
+      break;
+    case 9735: // Zap
+      processZap(data, event, userPubkey, targetEventId);
+      break;
+    case 1: // Comment
+      // Only count as comment if it's replying to this event
+      if (event.tags.some(t => t[0] === 'e' && t[1] === targetEventId)) {
+        data.comments.count++;
+      }
+      break;
+  }
+}
+
+function queueEngagementEvent(targetEventId: string, event: NDKEvent, userPubkey: string): void {
+  let entry = pendingEngagementEvents.get(targetEventId);
+  if (!entry) {
+    entry = { userPubkey, events: [] };
+    pendingEngagementEvents.set(targetEventId, entry);
+  }
+  entry.events.push(event);
+  if (engagementFlushTimer === null) {
+    engagementFlushTimer = setTimeout(flushAllEngagementEvents, ENGAGEMENT_FLUSH_MS);
+  }
+}
+
+/**
+ * Apply everything queued for one note in a single store update with a
+ * single cache write. In 'complete' mode the same update also finalizes
+ * the note (see the section comment above); the update and write happen
+ * even if the queue is already empty. In 'periodic' mode an empty queue
+ * is a no-op.
+ */
+function flushEngagementEvents(targetEventId: string, mode: 'periodic' | 'complete' = 'periodic'): void {
+  const entry = pendingEngagementEvents.get(targetEventId);
+  if (entry) pendingEngagementEvents.delete(targetEventId);
+  if (mode === 'periodic' && !entry) return;
+
+  if (mode === 'complete') {
+    // Initial count is complete: NIP-45 counts may apply again.
+    subscriptionCountingInProgress.delete(targetEventId);
+  }
+
+  // Never recreate a store here: the note may have been torn down
+  // (cleanupEngagement / clearAllEngagementCaches) while events sat in
+  // the queue or while a completion timer was pending.
+  const store = engagementStores.get(targetEventId);
+  if (!store) return;
+
+  store.update(s => {
+    const updated = { ...s };
+    if (entry) {
+      for (const event of entry.events) {
+        applyEngagementEvent(updated, event, entry.userPubkey, targetEventId);
+      }
+    }
+    if (mode === 'complete') {
+      // Recalculate reaction count from groups to ensure accuracy
+      const sumOfGroups = updated.reactions.groups.reduce((sum, g) => sum + g.count, 0);
+      if (sumOfGroups > 0 && sumOfGroups !== updated.reactions.count) {
+        updated.reactions.count = sumOfGroups;
+      }
+      updated.loading = false;
+      updated.lastFetched = Date.now();
+    }
+    saveToCache(targetEventId, updated);
+    return updated;
+  });
+}
+
+/**
+ * Finalize a note for the subscription identified by `generation`. A
+ * stale generation (the note was cleaned up, all caches were cleared, or
+ * a newer subscription replaced this one) is ignored entirely.
+ */
+function completeEngagementFetch(targetEventId: string, generation: number): void {
+  if (fetchGenerations.get(targetEventId) !== generation) return;
+  flushEngagementEvents(targetEventId, 'complete');
+}
+
+function flushAllEngagementEvents(): void {
+  engagementFlushTimer = null;
+  for (const id of [...pendingEngagementEvents.keys()]) {
+    flushEngagementEvents(id, 'periodic');
+  }
+}
+
 // Get or create engagement store for an event
 export function getEngagementStore(eventId: string): Writable<EngagementData> {
   if (!engagementStores.has(eventId)) {
@@ -361,7 +501,6 @@ export async function fetchEngagement(
   if (!processedReactionPairs.has(eventId)) {
     processedReactionPairs.set(eventId, new Set());
   }
-  const processed = processedEventIds.get(eventId)!;
 
   // Stop any old-style subscriptions
   const existingSubs = activeSubscriptions.get(eventId);
@@ -431,6 +570,8 @@ export async function fetchEngagement(
   
   // Mark that subscription counting is in progress (prevents NIP-45 race condition)
   subscriptionCountingInProgress.add(eventId);
+  // This call's completion token (see fetchGenerations).
+  const generation = beginFetchGeneration(eventId);
   
   // Create persistent subscription for all engagement types
   const filter = {
@@ -439,6 +580,7 @@ export async function fetchEngagement(
   };
 
   let eoseReceived = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
   // Pre-connect aggregator relays before subscribing.
   // NDKRelaySet.fromRelayUrls creates temporary relays that connect asynchronously,
@@ -475,84 +617,42 @@ export async function fetchEngagement(
     persistentSubscriptions.set(eventId, { sub, lastActivity: Date.now() });
     
     sub.on('event', (event: NDKEvent) => {
-      if (!event.id || processed.has(event.id)) return;
+      // A subscription that cleanupEngagement stopped, or that a newer
+      // fetch replaced, must not feed events into the replacement's
+      // counts. The shared dedup Set is looked up live for the same
+      // reason (cleanup evicts it; the replacement recreates it).
+      if (persistentSubscriptions.get(eventId)?.sub !== sub) return;
+      const processed = processedEventIds.get(eventId);
+      if (!processed || !event.id || processed.has(event.id)) return;
       processed.add(event.id);
-      
+
       // Mark subscription as active on new events
       touchEngagementSubscription(eventId);
-      
-      store.update(s => {
-        const updated = { ...s };
-        
-        switch (event.kind) {
-          case 7: // Reaction
-            processReaction(updated, event, userPublickey, eventId);
-            break;
-          case 6: // Repost
-            processRepost(updated, event, userPublickey, eventId);
-            break;
-          case 9735: // Zap
-            processZap(updated, event, userPublickey, eventId);
-            break;
-          case 1: // Comment
-            // Only count as comment if it's replying to this event
-            if (event.tags.some(t => t[0] === 'e' && t[1] === eventId)) {
-              updated.comments.count++;
-            }
-            break;
-        }
-        
-        // Save to cache on each update for persistence
-        saveToCache(eventId, updated);
-        
-        return updated;
-      });
+
+      queueEngagementEvent(eventId, event, userPublickey);
     });
-    
+
+    // EOSE and the timeout fallback finalize through the same path
+    // exactly once per subscription: queued events are applied, counts
+    // reconciled, loading cleared and the result persisted in a single
+    // store update + cache write (see flushEngagementEvents).
     sub.on('eose', () => {
-      if (!eoseReceived) {
-        eoseReceived = true;
-        // Clear counting flag - subscription initial count is complete
-        subscriptionCountingInProgress.delete(eventId);
-        
-        store.update(s => {
-          const updated = { ...s, loading: false, lastFetched: Date.now() };
-          
-          // Recalculate reaction count from groups to ensure accuracy
-          const sumOfGroups = updated.reactions.groups.reduce((sum, g) => sum + g.count, 0);
-          if (sumOfGroups > 0 && sumOfGroups !== updated.reactions.count) {
-            updated.reactions.count = sumOfGroups;
-          }
-          
-          // Save to cache after initial fetch
-          saveToCache(eventId, updated);
-          return updated;
-        });
-        
-        console.debug('[Engagement] EOSE received, subscription stays open for', eventId);
+      if (eoseReceived) return;
+      eoseReceived = true;
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
       }
+      completeEngagementFetch(eventId, generation);
+      console.debug('[Engagement] EOSE received, subscription stays open for', eventId);
     });
     
     // Timeout fallback - mark as loaded after timeout even if EOSE didn't arrive
-    setTimeout(() => {
-      if (!eoseReceived) {
-        eoseReceived = true;
-        // Clear counting flag on timeout too
-        subscriptionCountingInProgress.delete(eventId);
-        
-        store.update(s => {
-          const updated = { ...s, loading: false, lastFetched: Date.now() };
-          
-          // Recalculate reaction count from groups to ensure accuracy
-          const sumOfGroups = updated.reactions.groups.reduce((sum, g) => sum + g.count, 0);
-          if (sumOfGroups > 0 && sumOfGroups !== updated.reactions.count) {
-            updated.reactions.count = sumOfGroups;
-          }
-          
-          saveToCache(eventId, updated);
-          return updated;
-        });
-      }
+    timeoutHandle = setTimeout(() => {
+      timeoutHandle = null;
+      if (eoseReceived) return;
+      eoseReceived = true;
+      completeEngagementFetch(eventId, generation);
     }, 5000);
     
     // Also keep in activeSubscriptions for backward compatibility
@@ -815,6 +915,14 @@ export function clearOptimisticRepost(targetEventId: string, userPubkey: string)
 
 // Cleanup function for when a note is removed from view
 export function cleanupEngagement(eventId: string): void {
+  // Drop any queued-but-unapplied events: the dedup Sets for this id are
+  // wiped below, and flushing queued events against a fresh Set would
+  // double-count them when a future subscription re-delivers them.
+  pendingEngagementEvents.delete(eventId);
+  // Invalidate any pending EOSE/timeout completion for this note so it
+  // can't finalize a store or subscription created after this cleanup.
+  fetchGenerations.delete(eventId);
+
   // Clean up persistent subscription
   const persistent = persistentSubscriptions.get(eventId);
   if (persistent) {
@@ -1098,6 +1206,8 @@ export async function batchFetchEngagement(
   }
   
   // FULL PATH: NDK subscription for accurate counts + user state
+  // Completion tokens for this batch, one per note (see fetchGenerations).
+  const generations = new Map<string, number>();
   // Init-if-absent on the dedup Sets — never wipe them here. The batch
   // subscription shares `processedEventIds` with any per-event subscription
   // that fetchEngagement may have already opened for the same eventId.
@@ -1123,6 +1233,7 @@ export async function batchFetchEngagement(
 
     // Mark that subscription counting is in progress
     subscriptionCountingInProgress.add(id);
+    generations.set(id, beginFetchGeneration(id));
 
     if (isFirstInit) {
       const store = getEngagementStore(id);
@@ -1148,6 +1259,7 @@ export async function batchFetchEngagement(
   };
   
   let eoseReceived = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   
   try {
     const sub = ndk.subscribe(filter, { closeOnEose: true });
@@ -1156,81 +1268,34 @@ export async function batchFetchEngagement(
       // Find which target event this is for
       const targetEventId = event.tags.find(t => t[0] === 'e' && toFetch.includes(t[1]))?.[1];
       if (!targetEventId) return;
-      
+
       const processed = processedEventIds.get(targetEventId);
       if (!processed || !event.id || processed.has(event.id)) return;
       processed.add(event.id);
-      
-      const store = getEngagementStore(targetEventId);
-      
-      store.update(s => {
-        const updated = { ...s };
-        
-        switch (event.kind) {
-          case 7:
-            processReaction(updated, event, userPublickey, targetEventId);
-            break;
-          case 6:
-            processRepost(updated, event, userPublickey, targetEventId);
-            break;
-          case 9735:
-            processZap(updated, event, userPublickey, targetEventId);
-            break;
-          case 1:
-            if (event.tags.some(t => t[0] === 'e' && t[1] === targetEventId)) {
-              updated.comments.count++;
-            }
-            break;
-        }
-        
-        return updated;
-      });
+
+      queueEngagementEvent(targetEventId, event, userPublickey);
     });
-    
+
+    // EOSE and the timeout fallback finalize every note in the batch
+    // through the same path exactly once: queued events applied, counts
+    // reconciled, loading cleared and the result persisted in a single
+    // store update + cache write per note (see flushEngagementEvents).
     sub.on('eose', () => {
-      if (!eoseReceived) {
-        eoseReceived = true;
-        
-        // Mark all stores as loaded and clear counting flags
-        toFetch.forEach(id => {
-          subscriptionCountingInProgress.delete(id);
-          const store = getEngagementStore(id);
-          store.update(s => {
-            const updated = { ...s, loading: false, lastFetched: Date.now() };
-            
-            // Recalculate reaction count from groups to ensure accuracy
-            const sumOfGroups = updated.reactions.groups.reduce((sum, g) => sum + g.count, 0);
-            if (sumOfGroups > 0 && sumOfGroups !== updated.reactions.count) {
-              updated.reactions.count = sumOfGroups;
-            }
-            
-            saveToCache(id, updated);
-            return updated;
-          });
-        });
+      if (eoseReceived) return;
+      eoseReceived = true;
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
       }
+      toFetch.forEach(id => completeEngagementFetch(id, generations.get(id)!));
     });
     
     // Timeout fallback
-    setTimeout(() => {
-      if (!eoseReceived) {
-        eoseReceived = true;
-        toFetch.forEach(id => {
-          subscriptionCountingInProgress.delete(id);
-          const store = getEngagementStore(id);
-          store.update(s => {
-            const updated = { ...s, loading: false, lastFetched: Date.now() };
-            
-            // Recalculate reaction count from groups to ensure accuracy
-            const sumOfGroups = updated.reactions.groups.reduce((sum, g) => sum + g.count, 0);
-            if (sumOfGroups > 0 && sumOfGroups !== updated.reactions.count) {
-              updated.reactions.count = sumOfGroups;
-            }
-            
-            return updated;
-          });
-        });
-      }
+    timeoutHandle = setTimeout(() => {
+      timeoutHandle = null;
+      if (eoseReceived) return;
+      eoseReceived = true;
+      toFetch.forEach(id => completeEngagementFetch(id, generations.get(id)!));
     }, 10000);
     
   } catch (error) {
@@ -1279,7 +1344,16 @@ export function clearAllEngagementCaches(): void {
   // Stop legacy subscriptions
   activeSubscriptions.forEach(subs => subs.forEach(sub => sub.stop()));
   activeSubscriptions.clear();
-  
+
+  // Drop queued events and stop the flush timer
+  pendingEngagementEvents.clear();
+  if (engagementFlushTimer !== null) {
+    clearTimeout(engagementFlushTimer);
+    engagementFlushTimer = null;
+  }
+  // Pending EOSE/timeout completions must not recreate cleared stores
+  fetchGenerations.clear();
+
   // Clear stores
   engagementStores.clear();
   processedEventIds.clear();
