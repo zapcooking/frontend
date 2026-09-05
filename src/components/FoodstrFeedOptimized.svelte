@@ -5094,15 +5094,6 @@
               <!-- Glow/animation disabled on community feed to reduce bandwidth -->
               <!-- {@const isZapAnimating = zapAnimatingNotes.has(event.id)} -->
               <!-- {@const zapGlowTier = engagementInfo.zapGlowTier} -->
-              {@const engagementStoreValue = get(getEngagementStore(event.id))}
-              {@const engagementData = {
-                zaps: {
-                  totalAmount: engagementStoreValue.zaps.totalAmount,
-                  count: engagementStoreValue.zaps.count
-                },
-                reactions: { count: engagementStoreValue.reactions.count },
-                comments: { count: engagementStoreValue.comments.count }
-              }}
               <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
               <article
                 class="w-full cursor-pointer"
@@ -5182,7 +5173,6 @@
                   <div class="flex-shrink-0 ml-2">
                     <PostActionsMenu
                       {event}
-                      {engagementData}
                       on:copy={(e) => {
                         selectedEvent = event;
                         handlePostCopy(e);
