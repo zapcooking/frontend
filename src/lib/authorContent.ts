@@ -9,6 +9,7 @@ import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS, isHiddenRecipeEvent } from '$lib/consts';
+import { buildPoolRelaySet } from '$lib/eventFetch';
 
 export interface AuthorRailItem {
   naddr: string;
@@ -34,11 +35,17 @@ export async function fetchAuthorContent(
   if (!ndk || !pubkey) return split;
 
   try {
-    const events = await ndk.fetchEvents({
-      kinds: [30023],
-      authors: [pubkey],
-      limit: FETCH_LIMIT
-    });
+    // Explicit relay set — author-filtered fetches on a cold pool can
+    // compute an empty relay set via the outbox tracker (see eventFetch).
+    const events = await ndk.fetchEvents(
+      {
+        kinds: [30023],
+        authors: [pubkey],
+        limit: FETCH_LIMIT
+      },
+      undefined,
+      buildPoolRelaySet(ndk)
+    );
 
     // Newest-first so each type's top-5 are the author's most recent.
     const sorted = [...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
