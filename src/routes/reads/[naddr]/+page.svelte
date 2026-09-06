@@ -10,6 +10,7 @@
   import ShareModal from '../../../components/ShareModal.svelte';
   import RightRail from '../../../components/RightRail.svelte';
   import RailCard from '../../../components/RailCard.svelte';
+  import ZapMarkMono from '../../../components/ZapMarkMono.svelte';
   import { RECIPE_TAGS, isHiddenRecipeEvent } from '$lib/consts';
   import { validateMarkdownTemplate } from '$lib/parser';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
@@ -294,7 +295,9 @@
                 <span
                   class="reads-rail-thumb"
                   style:background-image={a.image ? `url('${a.image}')` : 'none'}
-                ></span>
+                >
+                  {#if !a.image}<span class="reads-rail-thumb-mark"><ZapMarkMono /></span>{/if}
+                </span>
                 <span class="reads-rail-title">{a.title}</span>
               </a>
             {/each}
@@ -307,7 +310,9 @@
                 <span
                   class="reads-rail-thumb"
                   style:background-image={r.image ? `url('${r.image}')` : 'none'}
-                ></span>
+                >
+                  {#if !r.image}<span class="reads-rail-thumb-mark"><ZapMarkMono /></span>{/if}
+                </span>
                 <span class="reads-rail-title">{r.title}</span>
               </a>
             {/each}
@@ -362,6 +367,17 @@
     background-color: var(--color-input-bg);
     background-size: cover;
     background-position: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Monochrome zap mark shown when the article has no image, so the
+     thumb reads as a deliberate placeholder instead of an empty box. */
+  .reads-rail-thumb-mark {
+    width: 1.375rem;
+    height: 1.375rem;
+    color: var(--color-caption);
+    opacity: 0.55;
   }
   .reads-rail-title {
     font-size: 0.875rem;
