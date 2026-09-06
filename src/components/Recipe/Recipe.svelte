@@ -646,14 +646,19 @@
     carouselEl.scrollBy({ left: width, behavior: 'smooth' });
   }
 
-  // Deduplicate image tags by URL, use placeholder if no images or all images are empty
+  // Deduplicate image tags by URL, use placeholder if no images or all images are empty.
+  // General long-form articles are the exception: the stock placeholder
+  // reads fine at thumbnail size but not as a full-width hero, so articles
+  // without a real image get no carousel at all (the render guards on
+  // length). Recipes keep the placeholder — a cooking post without a
+  // photo is still expected to show one.
   $: uniqueImages = (() => {
     const images = event.tags
       .filter((e) => e[0] === 'image' && e[1] && e[1].trim() !== '')
       .filter((img, index, arr) => arr.findIndex((t) => t[1] === img[1]) === index);
-    // If no valid images, return a placeholder
+    // If no valid images, return a placeholder (recipes only)
     if (images.length === 0) {
-      return [['image', getPlaceholderImage(event.id)]];
+      return isActualRecipe ? [['image', getPlaceholderImage(event.id)]] : [];
     }
     return images;
   })();
@@ -808,7 +813,7 @@
         <!-- Author + Action Buttons Row -->
         <div class="flex justify-between items-center gap-4">
           <!-- Left: Author Profile -->
-          <AuthorProfile pubkey={event.author.pubkey} />
+          <AuthorProfile pubkey={event.author.pubkey} timestamp={event.created_at} />
 
           <!-- Right: Save button -->
           <div class="flex gap-2">
