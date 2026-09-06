@@ -47,16 +47,24 @@ export function clearVanityDirectoryCache(): void {
 }
 
 /**
+ * Reverse lookup: the author's verified handle, or '' when they don't
+ * have one. Used for namespaced short codes (zap.cooking/<handle>/<code>).
+ */
+export async function resolveHandleForPubkey(pubkey: string): Promise<string> {
+  if (!pubkey) return '';
+  const entries = await loadDirectoryEntries();
+  for (const [handle, pk] of entries) {
+    if (pk === pubkey) return handle;
+  }
+  return '';
+}
+
+/**
  * Resolve the author's vanity share URL for a `d` identifier, or '' when
  * the author has no verified handle.
  */
 export async function resolveVanityShareUrl(pubkey: string, dTag: string): Promise<string> {
   if (!pubkey || !dTag) return '';
-  const entries = await loadDirectoryEntries();
-  for (const [handle, pk] of entries) {
-    if (pk === pubkey) {
-      return `https://zap.cooking/${handle}/${dTag}`;
-    }
-  }
-  return '';
+  const handle = await resolveHandleForPubkey(pubkey);
+  return handle ? `https://zap.cooking/${handle}/${dTag}` : '';
 }

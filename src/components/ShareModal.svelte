@@ -19,6 +19,7 @@
     buildRichShareText,
     socialShareUrls
   } from '$lib/utils/share';
+  import { resolveHandleForPubkey } from '$lib/vanityUrl';
 
   export let open = false;
   export let url = '';
@@ -193,28 +194,10 @@
   }
 
   // Author pubkey -> verified zap.cooking handle (directory reverse
-  // lookup), for namespaced short links. Session-cached: the modal can
-  // open repeatedly while scrolling someone's posts.
-  let namespaceForAuthor = '';
-
+  // lookup, memoized in $lib/vanityUrl), for namespaced short links.
   async function resolveNamespace(): Promise<string> {
     if (!browser || !authorPubkey) return '';
-    if (namespaceForAuthor) return namespaceForAuthor;
-    try {
-      const res = await fetch('/.well-known/nostr.json');
-      if (!res.ok) return '';
-      const names = (await res.json())?.names;
-      if (!names || typeof names !== 'object') return '';
-      for (const [handle, pubkey] of Object.entries(names)) {
-        if (pubkey === authorPubkey && /^[a-z0-9-_.]{1,30}$/.test(handle)) {
-          namespaceForAuthor = handle;
-          return handle;
-        }
-      }
-    } catch {
-      // Fall back to a plain /s/ code.
-    }
-    return '';
+    return resolveHandleForPubkey(authorPubkey);
   }
 
   async function getShortLink() {

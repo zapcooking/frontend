@@ -302,6 +302,7 @@
       : ''}
     title={title || 'Recipe Pack'}
     imageUrl={image || ''}
+    authorPubkey={event.pubkey || ''}
   />
 {/if}
 
