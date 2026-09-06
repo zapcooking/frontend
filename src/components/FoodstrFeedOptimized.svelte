@@ -63,7 +63,7 @@
   } from '$lib/shareNoteImage';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
   import { stripQuotedNoteReferences } from '$lib/feed/noteContent';
-  import { compressedCacheManager, COMPRESSED_FEED_CACHE_CONFIG } from '$lib/compressedCache';
+  import { compressedCacheManager } from '$lib/compressedCache';
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
@@ -444,7 +444,6 @@
   const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
 
   const MAX_HASHTAGS = 5;
-  const CACHE_KEY = 'foodstr_feed_cache';
   const BATCH_DEBOUNCE_MS = 300;
   const SUBSCRIPTION_TIMEOUT_MS = 4000;
   const PRIVATE_RELAY_TIMEOUT_MS = 15000; // Longer timeout for members relays (15 seconds)
@@ -1382,84 +1381,8 @@
       // Store in IndexedDB for better performance and capacity
       const eventStore = getEventStore();
       await eventStore.storeEvents(events.slice(0, 100), 10 * 60 * 1000); // 10 min TTL
-
-      // Also keep compressed cache for quick state restore (legacy support)
-      const cacheData = {
-        events: events.slice(0, 100).map((e) => ({
-          id: e.id,
-          pubkey: e.pubkey,
-          content: e.content,
-          created_at: e.created_at,
-          tags: e.tags,
-          author: e.author
-            ? {
-                hexpubkey: e.author.hexpubkey,
-                profile: e.author.profile
-              }
-            : null
-        })),
-        timestamp: Date.now(),
-        lastEventTime
-      };
-
-      await compressedCacheManager.set(
-        {
-          ...COMPRESSED_FEED_CACHE_CONFIG,
-          key: CACHE_KEY
-        },
-        cacheData
-      );
     } catch {
       // Cache write failed - non-critical
-    }
-  }
-
-  /**
-   * @param isStale Checked after the cache read, before writing events /
-   * seenEventIds — a load superseded during the await must not write.
-   */
-  async function loadCachedEvents(isStale?: () => boolean): Promise<boolean> {
-    if (typeof window === 'undefined') return false;
-
-    try {
-      const cacheData: any = await compressedCacheManager.get({
-        ...COMPRESSED_FEED_CACHE_CONFIG,
-        key: CACHE_KEY
-      });
-
-      if (
-        !cacheData ||
-        !cacheData.events ||
-        !Array.isArray(cacheData.events) ||
-        cacheData.events.length === 0
-      ) {
-        return false;
-      }
-
-      const cachedEvents = cacheData.events
-        .map((e: any) => ({
-          ...e,
-          author: e.author
-            ? {
-                hexpubkey: e.author.hexpubkey,
-                profile: e.author.profile
-              }
-            : null
-        }))
-        .filter(passesFeedFilters);
-
-      if (cachedEvents.length === 0) return false;
-
-      if (isStale?.()) return false;
-
-      // Add to seen set
-      cachedEvents.forEach((e: NDKEvent) => seenEventIds.add(e.id));
-
-      events = cachedEvents;
-      lastEventTime = Math.max(...events.map(getEventSortTime));
-      return true;
-    } catch {
-      return false;
     }
   }
 
@@ -2079,26 +2002,8 @@
         return;
       }
 
-      // Fallback: Try compressed cache (legacy) - skip for members mode
-      if (
-        useCache &&
-        filterMode !== 'members' &&
-        (await loadCachedEvents(() => isLoadStale(myLoadId, startMode, loadGeneration)))
-      ) {
-        // Check for stale results after async operation
-        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
-          console.log('[Feed] Discarding stale compressed cache results');
-          return;
-        }
-        loading = false;
-        error = false;
-        setTimeout(() => fetchFreshData(), 100);
-        return;
-      }
-
-      // The loadCachedEvents await above may have suspended on a cache miss —
-      // re-check before resetting state for the network load, or a superseded
-      // load could wipe the newer tab's events/seenEventIds.
+      // Re-check before resetting state for the network load, or a
+      // superseded load could wipe the newer tab's events/seenEventIds.
       if (isLoadStale(myLoadId, startMode, loadGeneration)) {
         return;
       }
@@ -3768,6 +3673,8 @@
 
     stopSubscriptions();
 
+    // GCs the legacy compressed-cache feed snapshot (this feed no longer
+    // reads or writes it; entries expire and get cleaned here).
     compressedCacheManager.invalidateStale();
   }
 
