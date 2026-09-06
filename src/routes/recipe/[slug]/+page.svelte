@@ -19,11 +19,14 @@
   import { getRecipeOgMeta } from '$lib/recipeOgMeta';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import { fetchAuthorContent } from '$lib/authorContent';
+  import { fetchEventWithRelayHints } from '$lib/eventFetch';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
   let loading = true;
   let error: string | null = null;
+  // Single-flight token for loadData (see guard inside).
+  let lastRequestedSlug = '';
 
   // "More from this chef / this author" rails — one fetch, both types.
   let moreRecipes: { naddr: string; title: string; image: string; href: string }[] = [];
@@ -53,14 +56,21 @@
   }
 
   async function loadData() {
-    if (!$page.params.slug) return;
+    const slug = $page.params.slug;
+    if (!slug) return;
+
+    // Single-flight: the reactive block re-runs on every `$page` store
+    // emission; a duplicate run's null result could clobber an
+    // already-loaded recipe.
+    if (slug === lastRequestedSlug && (loading || event)) return;
+    lastRequestedSlug = slug;
 
     loading = true;
     error = null;
 
     try {
-      if ($page.params.slug.startsWith('naddr1')) {
-        const a = nip19.decode($page.params.slug);
+      if (slug.startsWith('naddr1')) {
+        const a = nip19.decode(slug);
         if (a.type !== 'naddr') {
           throw new Error('Invalid naddr format');
         }
@@ -82,20 +92,19 @@
           kind: recipeKind
         });
 
-        // Add timeout protection for recipe loading
-        const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent({
-          '#d': [b.identifier],
-          authors: [b.pubkey],
-          kinds: [recipeKind as number]
-        });
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Recipe loading timeout - relays may be unreachable')),
-            10000
-          )
+        // Explicit relay set (pool + naddr hints) — plain fetchEvent on a
+        // cold pool can compute an empty relay set for unknown authors
+        // and never send the REQ (see eventFetch.ts).
+        const e = await fetchEventWithRelayHints(
+          $ndk,
+          {
+            '#d': [b.identifier],
+            authors: [b.pubkey],
+            kinds: [recipeKind as number]
+          },
+          { hintRelayUrls: b.relays, timeoutMs: 10_000 }
         );
-
-        const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
+        if ($page.params.slug !== slug) return;
         if (e) {
           event = e;
           loading = false;
@@ -104,16 +113,14 @@
           error = 'Recipe not found';
         }
       } else {
-        // Add timeout protection for direct event ID loading
-        const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent($page.params.slug);
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Recipe loading timeout - relays may be unreachable')),
-            10000
-          )
-        );
-
-        const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
+        // Direct event-ID (note1/nevent1) loading. These resolve to
+        // ids-based filters inside NDK, which always go to the explicit
+        // relay list — no empty-relay-set race here; just a timeout.
+        const e = await Promise.race<NDKEvent | null>([
+          $ndk.fetchEvent(slug),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000))
+        ]);
+        if ($page.params.slug !== slug) return;
         if (e) {
           if (isHiddenRecipeEvent(e)) {
             loading = false;
@@ -140,6 +147,11 @@
         }
       }
     } catch (err) {
+      // Don't clobber a loaded recipe with a stale failure.
+      if ($page.params.slug !== slug || event) {
+        loading = false;
+        return;
+      }
       loading = false;
       error = err instanceof Error ? err.message : 'Failed to load recipe';
       event = null;
