@@ -597,76 +597,119 @@
   let showNewPostsButton = false;
   let isScrolledToTop = true;
 
+  // ═══════════════════════════════════════════════════════════════
+  // SHARED FEED OBSERVERS
+  // ═══════════════════════════════════════════════════════════════
+  // One IntersectionObserver instance per margin per feed, shared by
+  // every note, instead of three instances per note. A long feed
+  // session used to accumulate hundreds of live observers (one preload
+  // + one enter + one leave per note); the browser handles many targets
+  // on a single observer far more cheaply. Targets unregister in each
+  // action's destroy(), and everything tears down in onDestroy.
+
+  const preloadTargets = new Map<Element, string>();
+  let preloadObserver: IntersectionObserver | null = null;
+
+  const renderEnterTargets = new Map<Element, { eventId: string; node: HTMLElement }>();
+  const renderLeaveTargets = new Map<Element, { eventId: string; node: HTMLElement }>();
+  let renderEnterObserver: IntersectionObserver | null = null;
+  let renderLeaveObserver: IntersectionObserver | null = null;
+
+  const RENDER_HYSTERESIS_MS = 150;
+
+  function teardownSharedObservers() {
+    preloadObserver?.disconnect();
+    preloadObserver = null;
+    renderEnterObserver?.disconnect();
+    renderEnterObserver = null;
+    renderLeaveObserver?.disconnect();
+    renderLeaveObserver = null;
+    preloadTargets.clear();
+    renderEnterTargets.clear();
+    renderLeaveTargets.clear();
+  }
+
   function lazyLoadAction(node: HTMLElement, eventId: string) {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          visibleNotes = visibleNotes.add(eventId);
-          visibleNotes = visibleNotes; // trigger reactivity
-          observer.disconnect();
+    preloadObserver ??= new IntersectionObserver(
+      (entries, observer) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = preloadTargets.get(entry.target);
+          if (id === undefined) continue;
+          preloadTargets.delete(entry.target);
+          observer.unobserve(entry.target);
+          visibleNotes = visibleNotes.add(id);
         }
+        visibleNotes = visibleNotes; // trigger reactivity
       },
       { rootMargin: '800px' } // Load engagement 800px before visible - much earlier preloading
     );
 
-    observer.observe(node);
+    preloadTargets.set(node, eventId);
+    preloadObserver.observe(node);
 
     return {
       destroy() {
-        observer.disconnect();
+        preloadTargets.delete(node);
+        // Keep the shared observer alive for other notes.
       }
     };
   }
 
   /**
-   * Render-zone action with hysteresis (Fix B) and batched updates (Fix D).
-   * Uses TWO observers with different margins to create a dead zone that
-   * prevents oscillation when posts are near the boundary.
+   * Render-zone registration with hysteresis (Fix B) and batched updates
+   * (Fix D). Two shared observers with different margins create a dead
+   * zone that prevents oscillation when posts are near the boundary.
    * Measures height before swapping to skeleton (Fix A).
    */
   function renderZoneAction(node: HTMLElement, eventId: string) {
     const scrollRoot = document.getElementById('app-scroll') || null;
-    const HYSTERESIS_MS = 150;
 
-    // ENTER observer: 2000px margin — triggers full component render
-    const enterObserver = new IntersectionObserver(
+    // ENTER: 2000px margin — triggers full component render
+    renderEnterObserver ??= new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting && !renderedNotes.has(eventId)) {
-            const lastChange = renderZoneLastChange.get(eventId) || 0;
-            if (Date.now() - lastChange < HYSTERESIS_MS) return;
-            pendingRenderUpdates.set(eventId, true);
-            scheduleRenderFlush();
-          }
+          if (!entry.isIntersecting) continue;
+          const target = renderEnterTargets.get(entry.target);
+          if (!target || renderedNotes.has(target.eventId)) continue;
+          const lastChange = renderZoneLastChange.get(target.eventId) || 0;
+          if (Date.now() - lastChange < RENDER_HYSTERESIS_MS) continue;
+          pendingRenderUpdates.set(target.eventId, true);
+          scheduleRenderFlush();
         }
       },
       { rootMargin: '2000px', root: scrollRoot }
     );
 
-    // LEAVE observer: 3000px margin — triggers skeleton swap (wider = dead zone gap)
-    const leaveObserver = new IntersectionObserver(
+    // LEAVE: 3000px margin — triggers skeleton swap (wider = dead zone gap)
+    renderLeaveObserver ??= new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting && renderedNotes.has(eventId)) {
-            const lastChange = renderZoneLastChange.get(eventId) || 0;
-            if (Date.now() - lastChange < HYSTERESIS_MS) return;
-            // Fix A: measure height before swapping to skeleton
-            measuredHeights.set(eventId, node.offsetHeight);
-            pendingRenderUpdates.set(eventId, false);
-            scheduleRenderFlush();
-          }
+          if (entry.isIntersecting) continue;
+          const target = renderLeaveTargets.get(entry.target);
+          if (!target || !renderedNotes.has(target.eventId)) continue;
+          const lastChange = renderZoneLastChange.get(target.eventId) || 0;
+          if (Date.now() - lastChange < RENDER_HYSTERESIS_MS) continue;
+          // Fix A: measure height before swapping to skeleton
+          measuredHeights.set(target.eventId, target.node.offsetHeight);
+          pendingRenderUpdates.set(target.eventId, false);
+          scheduleRenderFlush();
         }
       },
       { rootMargin: '3000px', root: scrollRoot }
     );
 
-    enterObserver.observe(node);
-    leaveObserver.observe(node);
+    renderEnterTargets.set(node, { eventId, node });
+    renderLeaveTargets.set(node, { eventId, node });
+    renderEnterObserver.observe(node);
+    renderLeaveObserver.observe(node);
 
     return {
       destroy() {
-        enterObserver.disconnect();
-        leaveObserver.disconnect();
+        renderEnterTargets.delete(node);
+        renderLeaveTargets.delete(node);
+        renderEnterObserver?.unobserve(node);
+        renderLeaveObserver?.unobserve(node);
       }
     };
   }
@@ -4749,6 +4792,9 @@
     if (engagementCleanupTimer) {
       clearTimeout(engagementCleanupTimer);
     }
+
+    // Shared per-feed observers (see teardownSharedObservers)
+    teardownSharedObservers();
 
     // Prevent rAF callbacks from firing after destroy
     isDestroyed = true;
