@@ -4,6 +4,7 @@ import NDK, { NDKRelaySet } from '@nostr-dev-kit/ndk';
 import { browser } from '$app/environment';
 import { getEngagementCounts, batchFetchFromServerAPI } from './countQuery';
 import { extractZapAmountSats } from './zapAmount';
+import { getEngagementTargetId, engagementTargetsNote } from './engagementTarget';
 
 // Aggregator relays that index zap receipts — LNURL providers publish kind:9735
 // to these relays, which may not overlap with the app's default relay set.
@@ -263,8 +264,10 @@ function applyEngagementEvent(
       processZap(data, event, userPubkey, targetEventId);
       break;
     case 1: // Comment
-      // Only count as comment if it's replying to this event
-      if (event.tags.some(t => t[0] === 'e' && t[1] === targetEventId)) {
+      // Only count as comment when this note is the reply's effective
+      // NIP-10 target — a reply to a reply also carries the root and any
+      // intermediary e-tags, and must not inflate their comment counts.
+      if (engagementTargetsNote(event.tags, event.kind, targetEventId)) {
         data.comments.count++;
       }
       break;
@@ -640,6 +643,13 @@ export async function fetchEngagement(
 
       // Mark subscription as active on new events
       touchEngagementSubscription(eventId);
+
+      // The '#e' filter matches events that mention eventId in ANY e-tag
+      // position. Clients that publish reactions/zaps with full thread
+      // context ([root, intermediary, target]) would otherwise be counted
+      // as engaging with every note they mention — only count events whose
+      // effective NIP-10 target is this note.
+      if (!engagementTargetsNote(event.tags, event.kind, eventId)) return;
 
       queueEngagementEvent(eventId, event, userPublickey);
     });
@@ -1277,9 +1287,17 @@ export async function batchFetchEngagement(
     const sub = ndk.subscribe(filter, { closeOnEose: true });
     
     sub.on('event', (event: NDKEvent) => {
-      // Find which target event this is for
-      const targetEventId = event.tags.find(t => t[0] === 'e' && toFetch.includes(t[1]))?.[1];
-      if (!targetEventId) return;
+      // Route by the event's effective NIP-10 target. Matching on the
+      // first e-tag in `toFetch` mis-routes context-tagged events
+      // ([root, intermediary, target]) to their root, and matching any
+      // position counts them against every note they mention. Zap
+      // receipts keep any-position matching (see engagementTargetsNote).
+      const routedId =
+        event.kind === 9735
+          ? event.tags.find((t) => t[0] === 'e' && toFetch.includes(t[1]))?.[1]
+          : getEngagementTargetId(event.tags);
+      if (!routedId || !toFetch.includes(routedId)) return;
+      const targetEventId = routedId;
 
       const processed = processedEventIds.get(targetEventId);
       if (!processed || !event.id || processed.has(event.id)) return;

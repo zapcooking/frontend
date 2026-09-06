@@ -5,6 +5,7 @@ import NDK, {
   type NDKRelay
 } from '@nostr-dev-kit/ndk';
 import { extractZapAmountSats } from './zapAmount';
+import { engagementTargetsNote } from './engagementTarget';
 
 const DETAIL_CACHE_TTL = 2 * 60 * 1000;
 const DETAIL_FETCH_TIMEOUT = 4500;
@@ -82,7 +83,8 @@ function parseZapDetail(event: NDKEvent): ZapDetail | null {
 
 export function aggregatePostEngagementEvents(
   events: Iterable<NDKEvent>,
-  relayUrls: Iterable<string> = []
+  relayUrls: Iterable<string> = [],
+  targetEventId?: string
 ): PostEngagementDetails {
   const reactions = new Map<string, Set<string>>();
   const reposts = new Set<string>();
@@ -90,6 +92,11 @@ export function aggregatePostEngagementEvents(
 
   for (const event of events) {
     if (!event.id) continue;
+
+    // Engagement events can carry thread-context e-tags ([root,
+    // intermediary, target]); only the effective target's note gets the
+    // credit. See engagementTargetsNote in engagementTarget.ts.
+    if (targetEventId && !engagementTargetsNote(event.tags, event.kind, targetEventId)) continue;
 
     if (event.kind === 7) {
       const emoji = reactionEmoji(event.content);
@@ -178,7 +185,7 @@ export async function loadPostEngagementDetails(
   ]);
 
   const emitUpdate = () => {
-    const details = aggregatePostEngagementEvents(events.values(), relays);
+    const details = aggregatePostEngagementEvents(events.values(), relays, targetEvent.id);
     onUpdate?.(details);
     return details;
   };
@@ -218,7 +225,7 @@ export async function loadPostEngagementDetails(
     sub.on('event', (event, relay) => {
       if (event.id === targetEvent.id) {
         recordRelay(relay);
-      } else if (event.id) {
+      } else if (event.id && engagementTargetsNote(event.tags, event.kind, targetEvent.id)) {
         events.set(event.id, event);
       }
       emitUpdate();

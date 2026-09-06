@@ -67,4 +67,41 @@ describe('aggregatePostEngagementEvents', () => {
     ]);
     warn.mockRestore();
   });
+
+  it('excludes context-tagged events when a targetEventId is given', () => {
+    const root = 'root'.padEnd(64, '0');
+    const target = 'target'.padEnd(64, '1');
+    const elsewhere = 'elsewhere'.padEnd(64, '2');
+    // Damus-style reaction to `elsewhere` that carries [root, target,
+    // elsewhere] — `target` appears only as thread context
+    const contextReaction = event(
+      'ctx',
+      7,
+      'alice',
+      '🤙',
+      [['e', root, 'wss://eden.nostr.land'], ['e', target, ''], ['e', elsewhere, '']]
+    );
+    const directReaction = event('direct', 7, 'bob', '💯', [['e', target]]);
+
+    const withTarget = aggregatePostEngagementEvents(
+      [contextReaction, directReaction],
+      [],
+      target
+    );
+    expect(withTarget.reactions).toEqual([{ emoji: '💯', pubkeys: ['bob'] }]);
+
+    const onRoot = aggregatePostEngagementEvents([contextReaction], [], root);
+    expect(onRoot.reactions).toEqual([]);
+
+    // The reaction does credit its effective target, `elsewhere`
+    const onElsewhere = aggregatePostEngagementEvents([contextReaction], [], elsewhere);
+    expect(onElsewhere.reactions).toEqual([{ emoji: '🤙', pubkeys: ['alice'] }]);
+
+    // Without a targetEventId (legacy callers) behavior is unchanged
+    const unfiltered = aggregatePostEngagementEvents([contextReaction, directReaction]);
+    expect(unfiltered.reactions).toEqual([
+      { emoji: '💯', pubkeys: ['bob'] },
+      { emoji: '🤙', pubkeys: ['alice'] }
+    ]);
+  });
 });
