@@ -172,6 +172,56 @@
   }
 
   // Fetch parent thread recursively
+  // Parent notes frequently live on the reply author's write relays, not
+  // the default pool — the same reason fetchReplies builds a merged relay
+  // set. Without the hints (and on a cold deep link, before the pool has
+  // finished connecting), the parent fetch came back null, the walk broke
+  // immediately, and the thread rendered as just the reply until a manual
+  // reload warmed everything.
+  function buildParentRelaySet(evt: NDKEvent): NDKRelaySet | undefined {
+    try {
+      const extraUrls = new Set<string>();
+      const sourceRelay = evt.relay?.url || (evt as any).onRelays?.[0]?.url;
+      if (sourceRelay?.startsWith('wss://')) extraUrls.add(sourceRelay);
+      for (const tag of evt.tags) {
+        if ((tag[0] === 'e' || tag[0] === 'p') && tag[2]?.startsWith('wss://')) {
+          extraUrls.add(tag[2]);
+        }
+      }
+      if (extraUrls.size === 0 || !$ndk) return undefined;
+      const poolUrls = Array.from($ndk.pool?.relays?.keys?.() ?? []);
+      if (poolUrls.length === 0) return undefined; // default pool, not hints-only
+      const merged = [...new Set([...poolUrls, ...[...extraUrls].slice(0, 3)])];
+      return NDKRelaySet.fromRelayUrls(merged, $ndk, true);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function fetchParentById(
+    parentId: string,
+    relaySet: NDKRelaySet | undefined
+  ): Promise<NDKEvent | null> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        // Cold-start window: give pool/hint relays a moment to finish
+        // connecting before retrying.
+        await new Promise((r) => setTimeout(r, 600 * attempt));
+      }
+      try {
+        const note = await $ndk.fetchEvent(
+          { kinds: [1, 1068, 1111] as any, ids: [parentId] },
+          undefined,
+          relaySet
+        );
+        if (note) return note;
+      } catch {
+        // Try again — a dropped socket mid-fetch is transient.
+      }
+    }
+    return null;
+  }
+
   async function fetchParentThread(evt: NDKEvent) {
     loadingParents = true;
     const parents: NDKEvent[] = [];
@@ -185,7 +235,7 @@
 
         seenIds.add(parentId);
 
-        const parentNote = await $ndk.fetchEvent({ kinds: [1, 1068, 1111] as any, ids: [parentId] });
+        const parentNote = await fetchParentById(parentId, buildParentRelaySet(currentEvent));
         if (!parentNote) break;
 
         parents.unshift(parentNote); // Add to beginning for chronological order
