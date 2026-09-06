@@ -71,6 +71,7 @@
   import { resolveScore } from '$lib/nourish/scoreResolver';
   import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
+  import { resolveVanityShareUrl } from '$lib/vanityUrl';
 
   export let event: NDKEvent;
   export let isPremium = false;
@@ -186,6 +187,15 @@
 
   // Construct the canonical recipe URL for sharing (uses short /r/ format)
   $: shareUrl = buildCanonicalRecipeShareUrl(computedNaddr);
+
+  // Premium vanity URL (zap.cooking/<handle>/<slug>) when the author has a
+  // verified handle — preferred by the share modal over the /r/ short URL.
+  let vanityShareUrl = '';
+  $: if (browser && event.pubkey && event.replaceableDTag()) {
+    resolveVanityShareUrl(event.pubkey, event.replaceableDTag()).then((url) => {
+      vanityShareUrl = url;
+    });
+  }
 
   // Get recipe title and image for sharing
   $: recipeTitle =
@@ -748,7 +758,13 @@
 
 <ZapModal bind:open={zapModal} {event} on:zap-complete={handleZapComplete} />
 
-<ShareModal bind:open={shareModal} url={shareUrl} title={recipeTitle} imageUrl={recipeImage} />
+<ShareModal
+  bind:open={shareModal}
+  url={shareUrl}
+  vanityUrl={vanityShareUrl}
+  title={recipeTitle}
+  imageUrl={recipeImage}
+/>
 
 <!-- Add to Grocery List Modal -->
 <AddToListModal bind:open={groceryModal} recipeEvent={event} />
