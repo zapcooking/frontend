@@ -15,6 +15,7 @@
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
   import ShareFatIcon from 'phosphor-svelte/lib/ShareFat';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
+  import { fetchAuthorContent } from '$lib/authorContent';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
@@ -22,11 +23,9 @@
   let error: string | null = null;
   let shareModalOpen = false;
 
-  // "More from this author" rail — the author's other longform articles.
-  // (Recipes get "More from this chef" on the recipe page; the same
-  // kind:30023 feed is filtered the opposite way here — recipe-tagged
-  // items are excluded so the rail shows reading material.)
-  let moreArticles: { naddr: string; title: string; image: string }[] = [];
+  // "More from this author / this chef" rails — one fetch, both types.
+  let moreArticles: { naddr: string; title: string; image: string; href: string }[] = [];
+  let moreRecipes: { naddr: string; title: string; image: string; href: string }[] = [];
   let moreFetchedFor = '';
 
   $: if (event && event.id !== moreFetchedFor) {
@@ -36,44 +35,11 @@
 
   async function loadMoreFromAuthor(current: NDKEvent) {
     moreArticles = [];
+    moreRecipes = [];
     if (!$ndk || !current.pubkey) return;
-    try {
-      const events = await $ndk.fetchEvents({
-        kinds: [30023],
-        authors: [current.pubkey],
-        limit: 30
-      });
-      const items: { naddr: string; title: string; image: string }[] = [];
-      for (const ev of events) {
-        if (ev.id === current.id) continue;
-        if (isHiddenRecipeEvent(ev)) continue;
-        const isRecipeTagged = ev.tags.some(
-          (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
-        );
-        if (isRecipeTagged) continue; // recipe page's rail covers those
-        const dTag = ev.tags.find((t) => t[0] === 'd')?.[1];
-        if (!dTag) continue;
-        let naddrEnc = '';
-        try {
-          naddrEnc = nip19.naddrEncode({
-            identifier: dTag,
-            kind: ev.kind || 30023,
-            pubkey: ev.pubkey
-          });
-        } catch {
-          continue;
-        }
-        items.push({
-          naddr: naddrEnc,
-          title: ev.tags.find((t) => t[0] === 'title')?.[1] || dTag,
-          image: ev.tags.find((t) => t[0] === 'image')?.[1] || ''
-        });
-        if (items.length >= 5) break;
-      }
-      moreArticles = items;
-    } catch (err) {
-      console.error('[reads] Failed to load more from author:', err);
-    }
+    const split = await fetchAuthorContent($ndk, current.pubkey, current.id);
+    moreArticles = split.articles;
+    moreRecipes = split.recipes;
   }
 
   // Production origin (matching og:url): the shortener only accepts
@@ -90,27 +56,27 @@
 
   async function loadData() {
     if (!$page.params.naddr) return;
-    
+
     loading = true;
     error = null;
-    
+
     try {
       const slug = $page.params.naddr;
-      
+
       if (slug.startsWith('naddr1')) {
         const a = nip19.decode(slug);
         if (a.type !== 'naddr') {
           throw new Error('Invalid naddr format');
         }
         const b = a.data;
-        
+
         // Articles are always kind 30023
         naddr = nip19.naddrEncode({
           identifier: b.identifier,
           pubkey: b.pubkey,
           kind: 30023
         });
-        
+
         // Add timeout protection for article loading
         const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent({
           '#d': [b.identifier],
@@ -319,19 +285,34 @@
     <div class="reads-main flex-1 min-w-0">
       <Recipe {event} />
     </div>
-    {#if moreArticles.length > 0}
+    {#if moreArticles.length > 0 || moreRecipes.length > 0}
       <RightRail>
-        <RailCard title="More from this author">
-          {#each moreArticles as a (a.naddr)}
-            <a class="reads-rail-row" href="/reads/{a.naddr}">
-              <span
-                class="reads-rail-thumb"
-                style:background-image={a.image ? `url('${a.image}')` : 'none'}
-              ></span>
-              <span class="reads-rail-title">{a.title}</span>
-            </a>
-          {/each}
-        </RailCard>
+        {#if moreArticles.length > 0}
+          <RailCard title="More from this author">
+            {#each moreArticles as a (a.naddr)}
+              <a class="reads-rail-row" href={a.href}>
+                <span
+                  class="reads-rail-thumb"
+                  style:background-image={a.image ? `url('${a.image}')` : 'none'}
+                ></span>
+                <span class="reads-rail-title">{a.title}</span>
+              </a>
+            {/each}
+          </RailCard>
+        {/if}
+        {#if moreRecipes.length > 0}
+          <RailCard title="More from this chef">
+            {#each moreRecipes as r (r.naddr)}
+              <a class="reads-rail-row" href={r.href}>
+                <span
+                  class="reads-rail-thumb"
+                  style:background-image={r.image ? `url('${r.image}')` : 'none'}
+                ></span>
+                <span class="reads-rail-title">{r.title}</span>
+              </a>
+            {/each}
+          </RailCard>
+        {/if}
       </RightRail>
     {/if}
   </div>
