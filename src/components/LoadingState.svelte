@@ -17,9 +17,9 @@
 
   // Size configurations
   $: sizeConfig = {
-    sm: { spinner: 32, text: 'text-sm', container: 'py-2' },
-    md: { spinner: 44, text: 'text-base', container: 'py-4' },
-    lg: { spinner: 56, text: 'text-lg', container: 'py-8' }
+    sm: { spinner: 48, text: 'text-sm', container: 'py-2' },
+    md: { spinner: 64, text: 'text-base', container: 'py-4' },
+    lg: { spinner: 84, text: 'text-lg', container: 'py-8' }
   };
 
   $: currentSize = sizeConfig[size];

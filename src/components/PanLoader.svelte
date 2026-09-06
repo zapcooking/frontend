@@ -7,10 +7,10 @@
   // The badge is the visual anchor; sizes are much smaller than the old
   // full-width animated pan. Phrase text scales alongside.
   const sizeClasses = {
-    sm: 'w-8',   // 32px
-    md: 'w-11',  // 44px
-    lg: 'w-12',  // 48px
-    xl: 'w-14'   // 56px
+    sm: 'w-12',      // 48px
+    md: 'w-16',      // 64px
+    lg: 'w-[72px]',  // 72px
+    xl: 'w-[84px]'   // 84px
   };
 
   const phraseClasses = {
