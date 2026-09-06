@@ -536,7 +536,15 @@
           >
             <div class="relative flex-shrink-0" style="width: 200px; height: 200px;">
               <svg
-                use:qr={{ data: effectiveShareUrl }}
+                use:qr={{
+                  data: effectiveShareUrl,
+                  // Explicit dark fills: the default is currentColor,
+                  // which washes the modules out against the white card
+                  // whenever the theme's text color is light (dark mode).
+                  moduleFill: '#000000',
+                  anchorOuterFill: '#000000',
+                  anchorInnerFill: '#000000'
+                }}
                 class="absolute inset-0 w-full h-full"
                 style="left: 0; top: 0;"
                 aria-hidden="true"
