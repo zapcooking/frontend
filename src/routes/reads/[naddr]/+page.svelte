@@ -77,6 +77,11 @@
           }
           event = e;
           loading = false;
+          // Premium share URL: zap.cooking/<handle>/<slug> when the author
+          // has a handle that verifies back to their pubkey. Background —
+          // the share modal falls back to a minted /s/ code until (or
+          // unless) this resolves.
+          void resolveVanityShareUrl(e);
         } else {
           loading = false;
           error = 'Article not found';
@@ -91,10 +96,41 @@
     }
   }
 
+  /**
+   * Resolve the author's @zap.cooking handle (premium NIP-05) from the
+   * site's verified directory and, when the author is in it, expose
+   * zap.cooking/<handle>/<d-tag> as the preferred share URL. The
+   * directory is the source of truth — an author's own profile nip05 may
+   * point elsewhere (e.g. a personal domain) while they still hold a
+   * zap.cooking handle, so the profile is not consulted at all.
+   */
+  let vanityShareUrl = '';
+
+  async function resolveVanityShareUrl(e: NDKEvent) {
+    vanityShareUrl = '';
+    if (!browser) return;
+    const dTag = e.tags.find((t) => t[0] === 'd')?.[1];
+    if (!dTag) return;
+
+    try {
+      const res = await fetch('/.well-known/nostr.json');
+      if (!res.ok) return;
+      const names = (await res.json())?.names;
+      if (!names || typeof names !== 'object') return;
+      for (const [handle, pubkey] of Object.entries(names)) {
+        if (pubkey === e.pubkey && /^[a-z0-9-_.]{1,30}$/.test(handle)) {
+          vanityShareUrl = `https://zap.cooking/${handle}/${dTag}`;
+          return;
+        }
+      }
+    } catch {
+      // Keep the minted-short-link default.
+    }
+  }
+
   // OG/meta derived entirely from the client-fetched NDK event, with static
   // defaults until it loads. No server load — see <svelte:head>.
-  $: pageHeading = event
-    ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || '...'
+  $: pageHeading = event    ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || '...'
     : 'Article';
 
   $: metaTitleBase = event
@@ -231,10 +267,13 @@
 {/if}
 
 <!-- ShareModal mints a zap.cooking/s/<code> short link for the article
-     URL automatically when opened. -->
+     URL automatically when opened — unless the author's verified handle
+     resolves, in which case the vanity URL (zap.cooking/<handle>/<slug>)
+     is shared instead. -->
 <ShareModal
   bind:open={shareModalOpen}
   url={articleShareUrl}
+  vanityUrl={vanityShareUrl}
   title={fullPageTitle || og_title || 'Article'}
   imageUrl={og_image}
 />
