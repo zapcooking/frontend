@@ -17,12 +17,15 @@
   import ShareFatIcon from 'phosphor-svelte/lib/ShareFat';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import { fetchAuthorContent } from '$lib/authorContent';
+  import { fetchEventWithRelayHints } from '$lib/eventFetch';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
   let loading = true;
   let error: string | null = null;
   let shareModalOpen = false;
+  // Single-flight token for loadData (see guard inside).
+  let lastRequestedSlug = '';
 
   // "More from this author / this chef" rails — one fetch, both types.
   let moreArticles: { naddr: string; title: string; image: string; href: string }[] = [];
@@ -56,14 +59,20 @@
   }
 
   async function loadData() {
-    if (!$page.params.naddr) return;
+    const slug = $page.params.naddr;
+    if (!slug) return;
+
+    // Single-flight: the reactive block re-runs on every `$page` store
+    // emission (URL cleanups, layout state), and each run used to start
+    // a fresh fetch whose null result could clobber an already-loaded
+    // article with "Article not found".
+    if (slug === lastRequestedSlug && (loading || event)) return;
+    lastRequestedSlug = slug;
 
     loading = true;
     error = null;
 
     try {
-      const slug = $page.params.naddr;
-
       if (slug.startsWith('naddr1')) {
         const a = nip19.decode(slug);
         if (a.type !== 'naddr') {
@@ -78,17 +87,21 @@
           kind: 30023
         });
 
-        // Add timeout protection for article loading
-        const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent({
-          '#d': [b.identifier],
-          authors: [b.pubkey],
-          kinds: [30023]
-        });
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Article loading timeout - relays may be unreachable')), 10000)
+        // Add timeout protection for article loading. The explicit relay
+        // set (pool + the naddr's bech32 relay hints) routes around the
+        // cold-start race where NDK's outbox tracker returns an empty
+        // relay set for an unknown author and the REQ is never sent.
+        const e = await fetchEventWithRelayHints(
+          $ndk,
+          {
+            '#d': [b.identifier],
+            authors: [b.pubkey],
+            kinds: [30023]
+          },
+          { hintRelayUrls: b.relays, timeoutMs: 10_000 }
         );
-
-        const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
+        // The user may have navigated away while we fetched.
+        if ($page.params.naddr !== slug) return;
         if (e) {
           // Reject recipe-shaped events; anything else is treated as an article
           const hasRecipeTag = e.tags.some(
@@ -113,6 +126,12 @@
         throw new Error('Invalid article URL format');
       }
     } catch (err) {
+      // Don't clobber a loaded article with a stale failure (e.g. the
+      // fetch raced a navigation or a second loadData call).
+      if ($page.params.naddr !== slug || event) {
+        loading = false;
+        return;
+      }
       loading = false;
       error = err instanceof Error ? err.message : 'Failed to load article';
       event = null;
