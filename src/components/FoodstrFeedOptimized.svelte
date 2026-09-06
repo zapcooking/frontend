@@ -5550,6 +5550,9 @@
   imageName={shareImageName}
   isGeneratingImage={isGeneratingShareImage}
   onGenerateImage={shareModalEvent ? generateShareModalImage : null}
+  authorPubkey={shareModalEvent
+    ? shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey
+    : ''}
 />
 
 <!-- Image generation loading overlay -->

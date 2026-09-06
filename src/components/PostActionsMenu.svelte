@@ -6,6 +6,7 @@
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import LinkIcon from 'phosphor-svelte/lib/Link';
+  import ShareIcon from 'phosphor-svelte/lib/ShareFat';
   import UserIcon from 'phosphor-svelte/lib/User';
   import TextAlignLeftIcon from 'phosphor-svelte/lib/TextAlignLeft';
   import BracketsCurlyIcon from 'phosphor-svelte/lib/BracketsCurly';
@@ -35,6 +36,8 @@
     /** The copied NIP-21 URI (`nostr:nevent1…`). */
     copy: { noteUri: string };
     downloadImage: { event: NDKEvent; engagementData: any };
+    /** Open the share modal for this note. */
+    share: { url: string; event: NDKEvent };
   }>();
 
   let menuOpen = false;
@@ -112,6 +115,22 @@
 
   let linkCopied = false;
   let linkCopyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  /** Production-origin share URL for the share modal / short links —
+   *  social platforms and the shortener API both reject localhost. */
+  function shareUrl(): string {
+    const noteId = nip19.neventEncode({
+      id: event.id,
+      author: event.pubkey,
+      kind: event.kind
+    });
+    return `https://zap.cooking/${noteId}`;
+  }
+
+  function handleShare() {
+    closeMenu();
+    dispatch('share', { url: shareUrl(), event });
+  }
 
   async function handleCopyLink() {
     if (!browser) return;
@@ -238,6 +257,14 @@
           <CopyIcon size={16} class="text-caption" />
           <span>Copy Note URI</span>
         {/if}
+      </button>
+      <button
+        on:click={handleShare}
+        class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+        style="color: var(--color-text-primary);"
+      >
+        <ShareIcon size={16} class="text-caption" />
+        <span>Share…</span>
       </button>
       <button
         on:click={handleCopyLink}

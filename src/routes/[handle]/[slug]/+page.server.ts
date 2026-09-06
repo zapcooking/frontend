@@ -24,9 +24,16 @@ import { raceRelays } from '$lib/recipePackOg.server';
 const HANDLE_RE = /^[a-z0-9-_.]{1,30}$/;
 /** Nostr `d` identifier characters (case-sensitive match). */
 const SLUG_RE = /^[a-zA-Z0-9-_.]{1,80}$/;
+/** Namespaced short-code shape (base62, same as /s/ codes). */
+const SHORTCODE_RE = /^[0-9a-z]{4,12}$/;
 
 const RESOLVE_TIMEOUT_MS = 5000;
 const ARTICLE_KIND = 30023;
+
+interface NamespacedShortLink {
+  target: string;
+  createdAt: number;
+}
 
 function withTimeout<T>(promise: Promise<T>): Promise<T | null> {
   return Promise.race([
@@ -35,7 +42,13 @@ function withTimeout<T>(promise: Promise<T>): Promise<T | null> {
   ]);
 }
 
-export const load = async ({ params }: { params: { handle: string; slug: string } }) => {
+export const load = async ({
+  params,
+  platform
+}: {
+  params: { handle: string; slug: string };
+  platform?: App.Platform;
+}) => {
   const handle = params.handle.toLowerCase();
   const slug = params.slug;
 
@@ -51,12 +64,25 @@ export const load = async ({ params }: { params: { handle: string; slug: string 
   const event = await withTimeout(
     raceRelays({ kinds: [ARTICLE_KIND], authors: [pubkey], '#d': [slug] })
   );
-  if (!event) {
-    throw error(404, `No article “${slug}” by @${handle}`);
+
+  if (event) {
+    throw redirect(
+      302,
+      `/reads/${nip19.naddrEncode({ kind: ARTICLE_KIND, pubkey, identifier: slug })}`
+    );
   }
 
-  throw redirect(
-    302,
-    `/reads/${nip19.naddrEncode({ kind: ARTICLE_KIND, pubkey, identifier: slug })}`
-  );
+  // Not an article slug — maybe a namespaced short code
+  // (zap.cooking/<handle>/<code> → the author's post).
+  if (SHORTCODE_RE.test(slug)) {
+    const kv = platform?.env?.SHORTLINKS;
+    const record = kv
+      ? ((await withTimeout(kv.get(`ns/${handle}/${slug}`, 'json'))) as NamespacedShortLink | null)
+      : null;
+    if (record?.target && record.target.startsWith('/')) {
+      throw redirect(302, record.target);
+    }
+  }
+
+  throw error(404, `No article “${slug}” by @${handle}`);
 };
