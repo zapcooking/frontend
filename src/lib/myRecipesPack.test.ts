@@ -1,12 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fetchMyAuthoredRecipeEvents, fetchMyAuthoredRecipes } from './myRecipesPack';
 
 // Sentinel relay set: the fetch must hand whatever buildPoolRelaySet returns
 // straight to ndk.subscribe as its third argument (explicit relay routing).
-const POOL_RELAY_SET = { sentinel: 'pool-relay-set' } as any;
+// vi.mock is hoisted above the imports, so anything its factory closes over
+// must be hoisted too.
+const { POOL_RELAY_SET } = vi.hoisted(() => ({
+  POOL_RELAY_SET: { sentinel: 'pool-relay-set' } as any
+}));
 vi.mock('$lib/eventFetch', () => ({
   buildPoolRelaySet: vi.fn(() => POOL_RELAY_SET)
 }));
+
+import { fetchMyAuthoredRecipeEvents, fetchMyAuthoredRecipes } from './myRecipesPack';
 
 const PUBKEY = 'a'.repeat(64);
 
