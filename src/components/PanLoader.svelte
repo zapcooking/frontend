@@ -14,10 +14,10 @@
   };
 
   const phraseClasses = {
-    sm: 'text-xs',
-    md: 'text-sm',
-    lg: 'text-sm',
-    xl: 'text-base'
+    sm: 'text-base',
+    md: 'text-lg',
+    lg: 'text-lg',
+    xl: 'text-xl'
   };
 
   const phrases = [
@@ -58,7 +58,7 @@
   <div class="{sizeClasses[size]}">
     <ZapRingBadge />
   </div>
-  <p class="pan-loader-phrase text-center text-caption whitespace-nowrap {phraseClasses[size]}">
+  <p class="pan-loader-phrase text-center whitespace-nowrap {phraseClasses[size]}">
     {currentPhrase}
   </p>
 </div>
