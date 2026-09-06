@@ -31,6 +31,10 @@
   /** Verified vanity URL (zap.cooking/<handle>/<slug>) — preferred over
    * minting a short link when the caller has resolved one for the author. */
   export let vanityUrl = '';
+  /** Author's pubkey of the thing being shared. When the author holds a
+   * verified zap.cooking handle, the minted short link is namespaced
+   * under it (zap.cooking/<handle>/<code>) instead of /s/<code>. */
+  export let authorPubkey = '';
 
   let copied = false;
   let copyTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -188,16 +192,45 @@
     }
   }
 
+  // Author pubkey -> verified zap.cooking handle (directory reverse
+  // lookup), for namespaced short links. Session-cached: the modal can
+  // open repeatedly while scrolling someone's posts.
+  let namespaceForAuthor = '';
+
+  async function resolveNamespace(): Promise<string> {
+    if (!browser || !authorPubkey) return '';
+    if (namespaceForAuthor) return namespaceForAuthor;
+    try {
+      const res = await fetch('/.well-known/nostr.json');
+      if (!res.ok) return '';
+      const names = (await res.json())?.names;
+      if (!names || typeof names !== 'object') return '';
+      for (const [handle, pubkey] of Object.entries(names)) {
+        if (pubkey === authorPubkey && /^[a-z0-9-_.]{1,30}$/.test(handle)) {
+          namespaceForAuthor = handle;
+          return handle;
+        }
+      }
+    } catch {
+      // Fall back to a plain /s/ code.
+    }
+    return '';
+  }
+
   async function getShortLink() {
     if (!browser || !displayUrl) return;
     loadingShort = true;
     shortError = null;
     shortUrlResult = null;
     try {
+      const namespace = await resolveNamespace();
       const res = await fetch('/api/shorten', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: displayUrl })
+        body: JSON.stringify({
+          url: displayUrl,
+          ...(namespace ? { namespace, authorPubkey } : {})
+        })
       });
       const data = await res.json();
       if (!res.ok) {
