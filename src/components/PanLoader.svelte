@@ -51,11 +51,16 @@
   });
 </script>
 
-<div class="flex flex-col items-center gap-3 {sizeClasses[size]}">
-  <div class="w-full">
+<!-- The size class sizes the badge wrapper only — the root stays
+     content-width so the phrase renders on a single row and the whole
+     block centers correctly in consumers' page-loader flex containers. -->
+<div class="flex flex-col items-center gap-3">
+  <div class="{sizeClasses[size]}">
     <ZapRingBadge />
   </div>
-  <p class="pan-loader-phrase text-center text-caption {phraseClasses[size]}">{currentPhrase}</p>
+  <p class="pan-loader-phrase text-center text-caption whitespace-nowrap {phraseClasses[size]}">
+    {currentPhrase}
+  </p>
 </div>
 
 <style>

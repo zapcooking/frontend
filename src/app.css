@@ -84,8 +84,12 @@ body {
   }
 }
 
+/* Center loading states in the space actually left below the fixed
+   header — 100vh overfills by the header height, nudging small loaders
+   below true center (the old full-width pan was tall enough to mask it;
+   the zap-ring badge is not). */
 .page-loader {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--header-h, 4rem));
 }
 
 @media (max-width: 1023px) {
