@@ -780,7 +780,10 @@
   </div>
 </Modal>
 
-<article class="max-w-[760px] mx-auto">
+<!-- No mx-auto: the reading column is left-anchored at the same content
+     margin as the feed on desktop (the layout's px-4/lg:pl-[26px]), which
+     centering here used to break. -->
+<article class="max-w-[760px]">
   {#if checkingGated}
     <div class="flex items-center justify-center p-8">
       <div class="text-caption">Loading {isActualRecipe ? 'recipe' : 'article'}...</div>

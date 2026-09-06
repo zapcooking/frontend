@@ -8,7 +8,9 @@
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
   import ShareModal from '../../../components/ShareModal.svelte';
-  import { RECIPE_TAGS } from '$lib/consts';
+  import RightRail from '../../../components/RightRail.svelte';
+  import RailCard from '../../../components/RailCard.svelte';
+  import { RECIPE_TAGS, isHiddenRecipeEvent } from '$lib/consts';
   import { validateMarkdownTemplate } from '$lib/parser';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
   import ShareFatIcon from 'phosphor-svelte/lib/ShareFat';
@@ -19,6 +21,60 @@
   let loading = true;
   let error: string | null = null;
   let shareModalOpen = false;
+
+  // "More from this author" rail — the author's other longform articles.
+  // (Recipes get "More from this chef" on the recipe page; the same
+  // kind:30023 feed is filtered the opposite way here — recipe-tagged
+  // items are excluded so the rail shows reading material.)
+  let moreArticles: { naddr: string; title: string; image: string }[] = [];
+  let moreFetchedFor = '';
+
+  $: if (event && event.id !== moreFetchedFor) {
+    moreFetchedFor = event.id;
+    loadMoreFromAuthor(event);
+  }
+
+  async function loadMoreFromAuthor(current: NDKEvent) {
+    moreArticles = [];
+    if (!$ndk || !current.pubkey) return;
+    try {
+      const events = await $ndk.fetchEvents({
+        kinds: [30023],
+        authors: [current.pubkey],
+        limit: 30
+      });
+      const items: { naddr: string; title: string; image: string }[] = [];
+      for (const ev of events) {
+        if (ev.id === current.id) continue;
+        if (isHiddenRecipeEvent(ev)) continue;
+        const isRecipeTagged = ev.tags.some(
+          (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
+        );
+        if (isRecipeTagged) continue; // recipe page's rail covers those
+        const dTag = ev.tags.find((t) => t[0] === 'd')?.[1];
+        if (!dTag) continue;
+        let naddrEnc = '';
+        try {
+          naddrEnc = nip19.naddrEncode({
+            identifier: dTag,
+            kind: ev.kind || 30023,
+            pubkey: ev.pubkey
+          });
+        } catch {
+          continue;
+        }
+        items.push({
+          naddr: naddrEnc,
+          title: ev.tags.find((t) => t[0] === 'title')?.[1] || dTag,
+          image: ev.tags.find((t) => t[0] === 'image')?.[1] || ''
+        });
+        if (items.length >= 5) break;
+      }
+      moreArticles = items;
+    } catch (err) {
+      console.error('[reads] Failed to load more from author:', err);
+    }
+  }
 
   // Production origin (matching og:url): the shortener only accepts
   // zap.cooking URLs, and social platforms reject localhost anyway.
@@ -259,7 +315,26 @@
     </a>
   </div>
 {:else if event}
-  <Recipe {event} />
+  <div class="reads-page-layout">
+    <div class="reads-main flex-1 min-w-0">
+      <Recipe {event} />
+    </div>
+    {#if moreArticles.length > 0}
+      <RightRail>
+        <RailCard title="More from this author">
+          {#each moreArticles as a (a.naddr)}
+            <a class="reads-rail-row" href="/reads/{a.naddr}">
+              <span
+                class="reads-rail-thumb"
+                style:background-image={a.image ? `url('${a.image}')` : 'none'}
+              ></span>
+              <span class="reads-rail-title">{a.title}</span>
+            </a>
+          {/each}
+        </RailCard>
+      </RightRail>
+    {/if}
+  </div>
 {:else}
   <div class="flex justify-center items-center page-loader">
     <PanLoader />
@@ -277,3 +352,49 @@
   title={fullPageTitle || og_title || 'Article'}
   imageUrl={og_image}
 />
+
+<style>
+  .reads-page-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 3rem;
+  }
+  .reads-main {
+    min-width: 0;
+  }
+  .reads-rail-row {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.375rem 0.25rem;
+    border-radius: 0.5rem;
+    text-decoration: none;
+  }
+  .reads-rail-row:hover {
+    background-color: var(--color-input-bg);
+  }
+  .reads-rail-thumb {
+    flex-shrink: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.5rem;
+    background-color: var(--color-input-bg);
+    background-size: cover;
+    background-position: center;
+  }
+  .reads-rail-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    transition: color 140ms ease;
+  }
+  .reads-rail-row:hover .reads-rail-title {
+    color: var(--color-primary);
+  }
+</style>
