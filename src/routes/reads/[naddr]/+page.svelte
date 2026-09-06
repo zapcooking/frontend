@@ -18,6 +18,7 @@
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import { fetchAuthorContent } from '$lib/authorContent';
   import { fetchEventWithRelayHints } from '$lib/eventFetch';
+  import { resolveVanityShareUrl as resolveVanityShareUrlFor } from '$lib/vanityUrl';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
@@ -153,21 +154,7 @@
     if (!browser) return;
     const dTag = e.tags.find((t) => t[0] === 'd')?.[1];
     if (!dTag) return;
-
-    try {
-      const res = await fetch('/.well-known/nostr.json');
-      if (!res.ok) return;
-      const names = (await res.json())?.names;
-      if (!names || typeof names !== 'object') return;
-      for (const [handle, pubkey] of Object.entries(names)) {
-        if (pubkey === e.pubkey && /^[a-z0-9-_.]{1,30}$/.test(handle)) {
-          vanityShareUrl = `https://zap.cooking/${handle}/${dTag}`;
-          return;
-        }
-      }
-    } catch {
-      // Keep the minted-short-link default.
-    }
+    vanityShareUrl = await resolveVanityShareUrlFor(e.pubkey, dTag);
   }
 
   // OG/meta derived entirely from the client-fetched NDK event, with static

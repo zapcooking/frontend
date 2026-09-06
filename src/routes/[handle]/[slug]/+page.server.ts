@@ -1,12 +1,13 @@
 /**
- * Vanity article URLs for premium members: zap.cooking/<handle>/<slug>
+ * Vanity URLs for premium members: zap.cooking/<handle>/<slug>
  *
  * The handle must be the author's verified @zap.cooking NIP-05 name
- * (premium benefit). The slug is the article's `d` identifier. Resolves
- * handle → pubkey via the handle directory, then the article via the
- * same raw-WebSocket relay race the OG path uses, and 302-redirects to
- * the canonical /reads/<naddr> URL (which carries OG tags, the share
- * short-link flow, and all client behavior unchanged).
+ * (premium benefit). The slug is the post's `d` identifier — an article,
+ * a recipe, or a premium (gated) recipe. Resolves handle → pubkey via
+ * the handle directory, then the event via the same raw-WebSocket relay
+ * race the OG path uses, and 302-redirects to the canonical /reads or
+ * /recipe URL (which carry OG tags, the share short-link flow, and all
+ * client behavior unchanged).
  *
  * A 302 rather than a 301 because the handle→pubkey mapping is mutable:
  * memberships lapse and handles get reassigned, so crawlers must keep
@@ -19,6 +20,8 @@ import { error, redirect } from '@sveltejs/kit';
 import { nip19 } from 'nostr-tools';
 import { resolveHandlePubkey } from '$lib/handleDirectory.server';
 import { raceRelays } from '$lib/recipePackOg.server';
+import { RECIPE_TAGS, GATED_RECIPE_KIND } from '$lib/consts';
+import { validateMarkdownTemplate } from '$lib/parser';
 
 /** NIP-05 name characters, lowercased. */
 const HANDLE_RE = /^[a-z0-9-_.]{1,30}$/;
@@ -29,6 +32,21 @@ const SHORTCODE_RE = /^[0-9a-z]{4,12}$/;
 
 const RESOLVE_TIMEOUT_MS = 5000;
 const ARTICLE_KIND = 30023;
+
+/**
+ * Mirror of the /reads page's recipe rejection: an event with a recipe
+ * `t` tag or recipe-shaped markdown belongs on /recipe — /reads would
+ * bounce it with "This is a recipe, not an article".
+ */
+function isRecipeEvent(evt: unknown): boolean {
+  const tags: string[][] = Array.isArray((evt as any)?.tags) ? (evt as any).tags : [];
+  const hasRecipeTag = tags.some(
+    (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
+  );
+  if (hasRecipeTag) return true;
+  const content = typeof (evt as any)?.content === 'string' ? (evt as any).content : '';
+  return typeof validateMarkdownTemplate(content) !== 'string';
+}
 
 interface NamespacedShortLink {
   target: string;
@@ -61,14 +79,25 @@ export const load = async ({
     throw error(404, `No zap.cooking handle “${handle}”`);
   }
 
-  const event = await withTimeout(
+  let event = await withTimeout(
     raceRelays({ kinds: [ARTICLE_KIND], authors: [pubkey], '#d': [slug] })
   );
+  let kind = ARTICLE_KIND;
+
+  // Premium (gated) recipes live at kind 35000.
+  if (!event) {
+    event = await withTimeout(
+      raceRelays({ kinds: [GATED_RECIPE_KIND], authors: [pubkey], '#d': [slug] })
+    );
+    kind = GATED_RECIPE_KIND;
+  }
 
   if (event) {
+    // Recipe-shaped content redirects to /recipe — /reads rejects it.
+    const base = kind === GATED_RECIPE_KIND || isRecipeEvent(event) ? '/recipe' : '/reads';
     throw redirect(
       302,
-      `/reads/${nip19.naddrEncode({ kind: ARTICLE_KIND, pubkey, identifier: slug })}`
+      `${base}/${nip19.naddrEncode({ kind, pubkey, identifier: slug })}`
     );
   }
 

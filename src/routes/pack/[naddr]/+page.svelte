@@ -402,6 +402,7 @@
   url={viewUrl}
   title={title || 'Recipe Pack'}
   imageUrl={image || ''}
+  authorPubkey={packEvent?.pubkey || ''}
 />
 
 <!-- Export as Cookbook (free for Pro / 2100 sats for everyone else) -->
