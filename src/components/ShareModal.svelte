@@ -28,6 +28,9 @@
   export let imageName: string = 'zap-cooking-note.png';
   export let isGeneratingImage: boolean = false;
   export let onGenerateImage: (() => Promise<void>) | null = null;
+  /** Verified vanity URL (zap.cooking/<handle>/<slug>) — preferred over
+   * minting a short link when the caller has resolved one for the author. */
+  export let vanityUrl = '';
 
   let copied = false;
   let copyTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -66,11 +69,13 @@
     return url;
   })();
 
-  // Short link is the primary share URL when available
-  $: effectiveShareUrl = shortUrlResult?.shortUrl ?? displayUrl;
+  // Vanity URL (verified author handle) is the primary share URL; the
+  // minted short link is the fallback for authors without handles.
+  $: effectiveShareUrl = vanityUrl || (shortUrlResult?.shortUrl ?? displayUrl);
 
-  // Auto-fetch short link when share modal opens
-  $: if (browser && open && displayUrl && !shortUrlResult && !loadingShort && !shortError) {
+  // Auto-fetch short link when share modal opens (skipped when a vanity
+  // URL is present — there's nothing to mint).
+  $: if (browser && open && displayUrl && !vanityUrl && !shortUrlResult && !loadingShort && !shortError) {
     getShortLink();
   }
 
