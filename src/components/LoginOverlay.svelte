@@ -997,7 +997,19 @@
         {#if nip46PairingUri}
           <div class="flex flex-col items-center gap-4">
             <div class="bg-white rounded-lg qr-container" style="--qr-size: 280px; --qr-padding: 16px;">
-              <svg use:qr={{ data: nip46PairingUri }} width="248" height="248" />
+              <svg
+                use:qr={{
+                  data: nip46PairingUri,
+                  // Explicit dark fills: the default is currentColor,
+                  // which washes the modules out against the white card
+                  // in dark mode (the theme's text color is light).
+                  moduleFill: '#000000',
+                  anchorOuterFill: '#000000',
+                  anchorInnerFill: '#000000'
+                }}
+                width="248"
+                height="248"
+              />
             </div>
             <div class="text-center">
               <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">{nip46PairingStatus}</p>
