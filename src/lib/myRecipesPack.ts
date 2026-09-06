@@ -18,6 +18,7 @@ import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import { validateMarkdownTemplate } from '$lib/parser';
 import { RECIPE_TAGS, isHiddenRecipeCoordinate } from '$lib/consts';
+import { buildPoolRelaySet } from '$lib/eventFetch';
 
 export interface MyRecipeForPack {
   /** Addressable a-tag in `kind:pubkey:dTag` form, ready to drop into a Recipe Pack event. */
@@ -70,7 +71,10 @@ export async function fetchMyAuthoredRecipeEvents(ndk: NDK, pubkey: string): Pro
   const byATag = new Map<string, NDKEvent>();
 
   await new Promise<void>((resolve) => {
-    const subscription = ndk.subscribe(filter, { closeOnEose: true });
+    // Explicit pool relay set: with the outbox model on, an `authors` REQ is
+    // routed only to the author's NIP-65 relays, which are not where this app
+    // publishes recipes. See buildPoolRelaySet in $lib/eventFetch.ts.
+    const subscription = ndk.subscribe(filter, { closeOnEose: true }, buildPoolRelaySet(ndk));
 
     const safetyTimeout = setTimeout(() => {
       try {

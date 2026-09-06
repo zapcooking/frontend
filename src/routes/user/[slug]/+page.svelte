@@ -8,6 +8,7 @@
   import { isNofferString } from '$lib/clink/noffer';
   import Feed from '../../../components/Feed.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
+  import { buildPoolRelaySet } from '$lib/eventFetch';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
@@ -296,7 +297,9 @@
           '#t': RECIPE_TAGS
         };
 
-        let subscription = $ndk.subscribe(filter);
+        // Explicit pool relay set: with the outbox model on, an `authors` REQ is routed only to
+        // the author's NIP-65 relays, not where this app publishes. See buildPoolRelaySet in $lib/eventFetch.ts.
+        let subscription = $ndk.subscribe(filter, undefined, buildPoolRelaySet($ndk));
 
         subscription.on('event', (ev: NDKEvent) => {
           if (isDeletedEvent(ev)) return;
@@ -523,7 +526,9 @@
         until: oldestRecipeTime - 1
       };
 
-      const subscription = $ndk.subscribe(filter);
+      // Explicit pool relay set: with the outbox model on, an `authors` REQ is routed only to
+      // the author's NIP-65 relays, not where this app publishes. See buildPoolRelaySet in $lib/eventFetch.ts.
+      const subscription = $ndk.subscribe(filter, undefined, buildPoolRelaySet($ndk));
       const newRecipes: NDKEvent[] = [];
 
       await new Promise<void>((resolve) => {
@@ -733,7 +738,9 @@
         limit: 20
       };
 
-      const subscription = $ndk.subscribe(filter);
+      // Explicit pool relay set: with the outbox model on, an `authors` REQ is routed only to
+      // the author's NIP-65 relays, not where this app publishes. See buildPoolRelaySet in $lib/eventFetch.ts.
+      const subscription = $ndk.subscribe(filter, undefined, buildPoolRelaySet($ndk));
       const fetchedEvents: NDKEvent[] = [];
       const seenIds = new Set<string>();
 
@@ -808,7 +815,9 @@
         until: oldestReadsTime - 1
       };
 
-      const subscription = $ndk.subscribe(filter);
+      // Explicit pool relay set: with the outbox model on, an `authors` REQ is routed only to
+      // the author's NIP-65 relays, not where this app publishes. See buildPoolRelaySet in $lib/eventFetch.ts.
+      const subscription = $ndk.subscribe(filter, undefined, buildPoolRelaySet($ndk));
       const newReads: NDKEvent[] = [];
       const existingIds = new Set(readsEvents.map((e) => e.id));
 
