@@ -1,20 +1,23 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import ZapRingBadge from './ZapRingBadge.svelte';
 
   export let size: 'sm' | 'md' | 'lg' | 'xl' = 'lg';
 
+  // The badge is the visual anchor; sizes are much smaller than the old
+  // full-width animated pan. Phrase text scales alongside.
   const sizeClasses = {
-    sm: 'w-32',
-    md: 'w-52',
-    lg: 'w-64',
-    xl: 'w-80'
+    sm: 'w-8',   // 32px
+    md: 'w-11',  // 44px
+    lg: 'w-12',  // 48px
+    xl: 'w-14'   // 56px
   };
 
   const phraseClasses = {
-    sm: 'text-xl',
-    md: 'text-2xl',
-    lg: 'text-3xl',
-    xl: 'text-4xl'
+    sm: 'text-xs',
+    md: 'text-sm',
+    lg: 'text-sm',
+    xl: 'text-base'
   };
 
   const phrases = [
@@ -50,8 +53,7 @@
 
 <div class="flex flex-col items-center gap-3 {sizeClasses[size]}">
   <div class="w-full">
-    <img src="/pan-animated-light.svg" alt="Loading" class="dark:hidden w-full" />
-    <img src="/pan-animated-dark.svg" alt="Loading" class="hidden dark:block w-full" />
+    <ZapRingBadge />
   </div>
   <p class="pan-loader-phrase text-center text-caption {phraseClasses[size]}">{currentPhrase}</p>
 </div>
