@@ -39,7 +39,7 @@ async function make() {
   await button('Lemon').click();
 }
 async function serve() {
-  await page.getByRole('button', { name: /^Serve (Maya|Theo|Jules|Robin|Alex)$/ }).click();
+  await page.getByRole('button', { name: /^Serve / }).click();
   await page.getByText('points on the pass', { exact: true }).waitFor();
 }
 async function complete() {
@@ -171,11 +171,21 @@ try {
   await page.goto(url);
   await page.getByRole('button', { name: /^Cook for / }).waitFor();
   await context.setOffline(true);
+  const guestNames = await page.locator('.tickets li > span').allTextContents();
   await complete();
   const stored = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem('cheffys-table:history:v1:guest') || '[]')
+    JSON.parse(localStorage.getItem('cheffys-table:history:v2:guest') || '[]')
   );
   assert.equal(stored.length, 1);
+  assert.equal(stored[0].run.version, 2);
+  assert.equal(new Set(stored[0].run.roster).size, 3);
+  await page.getByRole('button', { name: 'Service Book', exact: true }).first().click();
+  await page.getByRole('dialog', { name: 'Your Service Book' }).waitFor();
+  assert.deepEqual(
+    await page.locator('.pages article .past-guests > div > span:first-child').allTextContents(),
+    guestNames
+  );
+  await page.keyboard.press('Escape');
   await page.screenshot({ path: join(output, 'screenshots', 'offline-finale.png') });
   check('Offline three-guest completion saves exactly one guest service');
   await context.setOffline(false);
@@ -231,7 +241,7 @@ try {
   await button('Cook another service').click();
   await begin();
   await make();
-  await page.getByRole('button', { name: /^Serve Maya$/ }).click();
+  await page.getByRole('button', { name: /^Serve / }).click();
   await page.evaluate(async () => {
     const { userPublickey } = await import('/src/lib/nostr.ts');
     userPublickey.set('b'.repeat(64));
@@ -240,7 +250,7 @@ try {
   assert.equal(await page.getByText('points on the pass', { exact: true }).count(), 0);
   assert.equal(await page.locator('[aria-label="0 service points"]').count(), 1);
   const savedA = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem('cheffys-table:history:v1:' + 'a'.repeat(64)) || '[]')
+    JSON.parse(localStorage.getItem('cheffys-table:history:v2:' + 'a'.repeat(64)) || '[]')
   );
   assert.equal(savedA.length, 1);
   check('Account switch during serving discards stale work and preserves the prior account book');
@@ -258,6 +268,24 @@ try {
   await button('Today’s Table').click();
   assert.equal(await page.locator('.tickets').innerText(), roster1);
   check('Restart confirmation and deterministic Daily guest tickets');
+  const dailyNames = await page.locator('.tickets li > span').allTextContents();
+  await complete();
+  const savedB = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('cheffys-table:history:v2:' + 'b'.repeat(64)) || '[]')
+  );
+  assert.equal(savedB.length, 1);
+  assert.equal(savedB[0].run.version, 2);
+  assert.equal(savedB[0].run.mode, 'daily');
+  assert.equal(new Set(savedB[0].run.roster).size, 3);
+  await page.getByRole('button', { name: 'Service Book', exact: true }).first().click();
+  await page.getByRole('dialog', { name: 'Your Service Book' }).waitFor();
+  assert.deepEqual(
+    await page.locator('.pages article .past-guests > div > span:first-child').allTextContents(),
+    dailyNames
+  );
+  check(
+    'Daily completion captures its ordered roster in a v2 identity-local record and Service Book'
+  );
   await fs.writeFile(join(output, 'interaction-results.json'), JSON.stringify(results, null, 2));
 } finally {
   await browser.close();

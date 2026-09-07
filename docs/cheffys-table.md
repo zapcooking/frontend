@@ -2,7 +2,7 @@
 
 Direct route: `/cheffys-table`. No navigation entry is added. This is the native Svelte version of the Cheffy’s Table prototype, using a dedicated kitchen shell within Zap, the shared Cheffy avatar, recipe discovery and chat draft integration. The shell keeps authentication mounted and restores normal Zap navigation when leaving.
 
-Players build three dishes from 20 illustrated ingredients, choose cooking method, kitchen time, serving style and garnish, then learn from each guest’s review. Complexity earns a bonus only when the dish succeeds. Daily services use a UTC date to choose the same guests. The pantry artwork is an original generated illustration, bundled locally without third-party image requests. Game cooking minutes are a simulation with prepared proteins and bases, not food-safety instructions.
+Players build three dishes from 20 illustrated ingredients, choose cooking method, kitchen time, serving style and garnish, then learn from each guest’s review. Complexity earns a bonus only when the dish succeeds. Open Kitchen samples three distinct guests in random order from the existing five. Daily services keep the existing UTC-date roster algorithm. Both save the ordered guest IDs so the Service Book replays exactly the guests served. The pantry artwork is an original generated illustration, bundled locally without third-party image requests. Game cooking minutes are a simulation with prepared proteins and bases, not food-safety instructions.
 
 ## Identity and persistence
 
@@ -12,7 +12,8 @@ Players build three dishes from 20 illustrated ingredients, choose cooking metho
 - Kind `30078`, `d=cheffys-table-v1:<run UUID>`, `t=cheffys-table-v1`, encryption method and Zap client tags. Each run has its own replaceable address, so retries do not add duplicate services and separate devices do not overwrite one shared history document. The payload is encrypted to the signed-in identity with NIP-44 preferred and the existing NIP-04 fallback supported.
 - Scores, dish choices and feedback are not public feed posts. Nostr authorship, timestamps and app tags remain visible to relays. Local browser backup is plaintext, scoped by identity; it is not protection from someone with access to the browser profile.
 - The latest 100 saved services are retained/displayed locally and requested during restore. Summary scores and lessons are calculated from that window. Remote records are not deleted when the local window rolls forward.
-- Version 1 payloads store ID, completion timestamp, mode, UTC service date and three validated dish choices. Reviews/scores are recomputed using the matching cooking rules; keep those rules stable for this payload version or introduce an explicit migration/versioned evaluator. These are personal client-generated game scores, not cheat-resistant leaderboard results.
+- New version 2 payloads store ID, completion timestamp, mode, UTC service date, three ordered guest IDs and three validated dish choices. Version 1 records remain supported by a frozen parser/roster/evaluator. Both supported versions use their frozen cooking rules when recalculating reviews; future scoring changes require an explicit record/rules version. These are personal client-generated game scores, not cheat-resistant leaderboard results.
+- Old clients omit v2 services from their history, scores and lessons until upgraded. New clients write an isolated v2 cache and also read the untouched v1 cache, so an old-client rewrite cannot discard locally saved v2 services. This is the explicit choice (a) compatibility policy; see [roster/history v2](cheffys-table/roster-history-v2.md) for its behavior and tests.
 
 ## Experience architecture
 
