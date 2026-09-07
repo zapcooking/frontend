@@ -2,6 +2,7 @@ const { chromium } = await import(process.env.TABLE_PLAYWRIGHT_MODULE || 'playwr
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
 const output = process.env.TABLE_QA_OUTPUT || join(tmpdir(), 'cheffys-table-qa');
 const url = process.env.TABLE_QA_URL || 'http://127.0.0.1:5188/cheffys-table';
 await fs.mkdir(join(output, 'screenshots'), { recursive: true });
@@ -52,6 +53,7 @@ try {
       await snap(page, `${key}-opening`);
       await page.getByRole('button', { name: 'Open the kitchen', exact: true }).click();
       await snap(page, `${key}-arrival`);
+      const guestNames = await page.locator('.tickets li > span').allTextContents();
       for (let guest = 0; guest < 3; guest++) {
         await page.getByRole('button', { name: /^Cook for / }).click();
         for (const name of ['Tomato', 'Sourdough', 'Olive oil']) {
@@ -71,7 +73,7 @@ try {
         await page.getByRole('button', { name: 'On toast', exact: true }).click();
         await page.getByRole('button', { name: 'Lemon', exact: true }).click();
         if (guest === 0) await snap(page, `${key}-plating`);
-        await page.getByRole('button', { name: /^Serve (Maya|Theo|Jules)$/ }).click();
+        await page.getByRole('button', { name: /^Serve / }).click();
         await page.getByText('points on the pass', { exact: true }).waitFor();
         if (guest === 0) await snap(page, `${key}-review`);
         await page
@@ -83,15 +85,67 @@ try {
       }
       await page.getByRole('heading', { name: 'Kitchen closed.', exact: true }).waitFor();
       await snap(page, `${key}-finale`);
+      const score = await page.locator('.final-score > span').getAttribute('aria-label');
+      const ratings = await page
+        .locator('.fed-guests .stars')
+        .evaluateAll((stars) => stars.map((star) => star.getAttribute('aria-label')));
       await page.getByRole('button', { name: 'Service Book', exact: true }).first().click();
       await page.getByRole('dialog', { name: 'Your Service Book' }).waitFor();
       await snap(page, `${key}-book`);
       const history = await page.evaluate(() =>
-        JSON.parse(localStorage.getItem('cheffys-table:history:v1:guest') || '[]')
+        JSON.parse(localStorage.getItem('cheffys-table:history:v2:guest') || '[]')
       );
       if (history.length !== 1) throw Error(`${key}: expected one completed guest service`);
+      assert.equal(history[0].run.version, 2);
+      assert.equal(new Set(history[0].run.roster).size, 3);
+      assert.deepEqual(
+        await page
+          .locator('.pages article .past-guests > div > span:first-child')
+          .allTextContents(),
+        guestNames
+      );
+      assert.equal(
+        (await page.locator('.pages article .date > strong').innerText()).trim(),
+        `${score} pts`
+      );
+      assert.deepEqual(
+        await page
+          .locator('.pages article .past-guests .stars')
+          .evaluateAll((stars) => stars.map((star) => star.getAttribute('aria-label'))),
+        ratings
+      );
+      // Reloading must keep the roster that was played, even as a fresh service is randomized.
+      await page.reload();
+      await page.getByRole('button', { name: /^Cook for / }).waitFor();
+      await page.getByRole('button', { name: 'Service Book', exact: true }).first().click();
+      await page.getByRole('dialog', { name: 'Your Service Book' }).waitFor();
+      assert.deepEqual(
+        await page
+          .locator('.pages article .past-guests > div > span:first-child')
+          .allTextContents(),
+        guestNames
+      );
+      assert.equal(
+        (await page.locator('.pages article .date > strong').innerText()).trim(),
+        `${score} pts`
+      );
+      assert.deepEqual(
+        await page
+          .locator('.pages article .past-guests .stars')
+          .evaluateAll((stars) => stars.map((star) => star.getAttribute('aria-label'))),
+        ratings
+      );
       if (errors.length) throw Error(`${key}: ${errors.join('; ')}`);
-      results.push({ key, screens: 8, storedServices: history.length, errors });
+      results.push({
+        key,
+        screens: 8,
+        storedServices: history.length,
+        guestNames,
+        roster: history[0].run.roster,
+        score,
+        ratings,
+        errors
+      });
       await fs.writeFile(join(output, 'matrix-results.json'), JSON.stringify(results, null, 2));
       console.log(`${key}: 8 screenshots, service saved, ${errors.length} page errors`);
       await context.close();

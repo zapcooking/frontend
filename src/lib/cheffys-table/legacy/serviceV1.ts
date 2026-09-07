@@ -1,3 +1,4 @@
+/** Frozen v1 rules from main b78d77fa. Saved history must never adopt later game rules. */
 /** Cheffy's Table. Local cooking model, not real food-safety timing guidance. */
 export type Cook = 'saute' | 'roast' | 'steam' | 'assemble';
 export type Style = 'bowl' | 'toast' | 'plate';
@@ -663,23 +664,14 @@ export function startService(
   mode: 'service' | 'daily' = 'service',
   date = new Date().toISOString().slice(0, 10)
 ): Service {
-  let roster: Customer[];
-  if (mode === 'daily') {
-    // Daily's existing date algorithm is unchanged in this release.
-    const offset = date.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % customers.length;
-    roster = [0, 1, 2].map((i) => customers[(offset + i) % customers.length]);
-  } else {
-    const available = [...customers];
-    // Sample without replacement: all 60 ordered three-guest rosters are possible.
-    roster = Array.from(
-      { length: 3 },
-      () => available.splice(Math.floor(Math.random() * available.length), 1)[0]
-    );
-  }
+  const offset =
+    mode === 'daily'
+      ? date.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % customers.length
+      : 0;
   return {
     mode,
     date,
-    roster,
+    roster: [0, 1, 2].map((i) => customers[(offset + i) % customers.length]),
     reviews: [],
     status: 'building'
   };

@@ -16,7 +16,7 @@ export type BookState = {
   localSaved: boolean;
   message: string;
 };
-/** UI-facing lifecycle, using the unchanged history codec and relay acknowledgement contract. */
+/** UI-facing lifecycle, using the versioned history codec and unchanged relay acknowledgement contract. */
 export function createServiceBook(transport: HistoryTransport) {
   const store = writable<BookState>({
     owner: '',

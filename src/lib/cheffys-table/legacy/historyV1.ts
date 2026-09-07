@@ -1,82 +1,77 @@
-import { type Service } from './service';
+/** Frozen v1 reader/client behavior from main b78d77fa; import path is the only code change. */
 import {
   emptyBook,
   nextCustomer,
   saveService,
   serve,
-  customers as savedCustomers
-} from './legacy/serviceV1';
-import {
-  parseRun as parseV1,
-  restoreService as restoreV1,
-  historyKey as legacyHistoryKey,
-  type SavedService as SavedServiceV1
-} from './legacy/historyV1';
-export type { SavedServiceV1 };
+  startService,
+  validateDish,
+  type Dish,
+  type Service
+} from './serviceV1';
 
 export const HISTORY_LIMIT = 100;
-export type SavedServiceV2 = Omit<SavedServiceV1, 'version'> & {
-  version: 2;
-  roster: [string, string, string];
+export type SavedService = {
+  version: 1;
+  id: string;
+  completedAt: string;
+  mode: Service['mode'];
+  date: string;
+  dishes: Dish[];
 };
-export type SavedService = SavedServiceV1 | SavedServiceV2;
 export type HistoryEntry = { run: SavedService; synced: boolean };
-// Old clients keep their v1 cache. Only upgraded clients read/write this cache.
-export const historyKey = (owner: string) => `cheffys-table:history:v2:${owner || 'guest'}`;
+export const historyKey = (owner: string) => `cheffys-table:history:v1:${owner || 'guest'}`;
 
-/** v1 is frozen. Unknown versions are deliberately skipped, never scored or rewritten. */
+/** Store choices, then recompute reviews with the versioned game rules. Never trust supplied scores. */
 export function parseRun(value: unknown): SavedService | null {
-  if (!value || typeof value !== 'object') return null;
-  const version = (value as { version?: unknown }).version;
-  if (version === 1) return parseV1(value);
-  if (version !== 2) return null;
-  const r = value as SavedServiceV2;
-  // Reuse frozen input validation and cooking rules; only the roster is new in v2.
-  const base = parseV1({ ...r, version: 1 });
-  if (
-    !base ||
-    !Array.isArray(r.roster) ||
-    r.roster.length !== 3 ||
-    new Set(r.roster).size !== 3 ||
-    [...r.roster].some((id) => typeof id !== 'string' || !savedCustomers.some((c) => c.id === id))
-  )
+  try {
+    const r = value as SavedService;
+    if (
+      r?.version !== 1 ||
+      typeof r.id !== 'string' ||
+      !/^[a-zA-Z0-9-]{8,64}$/.test(r.id) ||
+      !/^\d{4}-\d{2}-\d{2}T/.test(r.completedAt) ||
+      !Number.isFinite(Date.parse(r.completedAt)) ||
+      !['service', 'daily'].includes(r.mode) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(r.date) ||
+      !Number.isFinite(Date.parse(r.date)) ||
+      !Array.isArray(r.dishes) ||
+      r.dishes.length !== 3
+    )
+      return null;
+    const dishes = r.dishes.map((d) => ({
+      ingredients: [...d.ingredients],
+      cook: d.cook,
+      time: d.time,
+      style: d.style,
+      garnish: d.garnish,
+      finish: d.finish
+    }));
+    if (dishes.some((d) => validateDish(d))) return null;
+    return { version: 1, id: r.id, completedAt: r.completedAt, mode: r.mode, date: r.date, dishes };
+  } catch {
     return null;
-  return { ...base, version: 2, roster: [...r.roster] };
+  }
 }
-export function restoreService(value: SavedService): Service {
-  const run = parseRun(value);
-  if (!run) throw new Error('Invalid saved service.');
-  if (run.version === 1) return restoreV1(run);
-  // Do not call today's startService: neither randomness nor a future Daily algorithm
-  // may reinterpret a saved service. v2 shares v1's frozen scoring/customer definitions.
-  const service: Service = {
-    mode: run.mode,
-    date: run.date,
-    roster: run.roster.map((id) => savedCustomers.find((c) => c.id === id)!),
-    reviews: [],
-    status: 'building'
-  };
-  return run.dishes.reduce((s, dish) => nextCustomer(serve(s, dish)), service);
+export function restoreService(run: SavedService): Service {
+  return run.dishes.reduce((s, d) => nextCustomer(serve(s, d)), startService(run.mode, run.date));
 }
 export function makeRun(
   service: Service,
   id: string = crypto.randomUUID(),
   completedAt = new Date().toISOString()
-): SavedServiceV2 {
+): SavedService {
   if (service.status !== 'complete' || service.reviews.length !== 3)
     throw new Error('Finish all three guests first.');
-  if (service.reviews.some((review, i) => review.customer.id !== service.roster[i]?.id))
-    throw new Error('Reviews do not match the service roster.');
   const run = parseRun({
-    version: 2,
+    version: 1,
     id,
     completedAt,
     mode: service.mode,
     date: service.date,
-    roster: service.roster.map((customer) => customer.id),
     dishes: service.reviews.map((r) => r.dish)
   });
-  if (!run || run.version !== 2) throw new Error('Invalid completed service.');
+  if (!run) throw new Error('Invalid completed service.');
   return run;
 }
 export function mergeHistory(...lists: HistoryEntry[][]): HistoryEntry[] {
@@ -98,18 +93,13 @@ export function mergeHistory(...lists: HistoryEntry[][]): HistoryEntry[] {
     )
     .slice(0, HISTORY_LIMIT);
 }
-function readCache(key: string): HistoryEntry[] {
+export function readHistory(owner: string): HistoryEntry[] {
   try {
-    const data = JSON.parse(localStorage.getItem(key) || '[]');
-    return Array.isArray(data) ? data.slice(0, HISTORY_LIMIT) : [];
+    const data = JSON.parse(localStorage.getItem(historyKey(owner)) || '[]');
+    return Array.isArray(data) ? mergeHistory(data.slice(0, HISTORY_LIMIT)) : [];
   } catch {
     return [];
   }
-}
-export function readHistory(owner: string): HistoryEntry[] {
-  // Import legacy runs without changing their source cache. Re-read it on every identity
-  // load so services completed in an older tab are still found after an upgrade.
-  return mergeHistory(readCache(historyKey(owner)), readCache(legacyHistoryKey(owner)));
 }
 export function writeHistory(owner: string, entries: HistoryEntry[]): boolean {
   try {
