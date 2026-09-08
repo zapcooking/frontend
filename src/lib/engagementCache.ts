@@ -162,6 +162,25 @@ const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - persist across page reloads
 // ═══════════════════════════════════════════════════════════════
 
 const persistentSubscriptions = new Map<string, { sub: NDKSubscription; lastActivity: number; createdAt: number }>();
+
+/**
+ * One in-flight `fetchEngagement` per note.
+ *
+ * A note's action bar mounts several components at once — comment count,
+ * repost, zaps, reaction pills — and each asks for engagement. The guard
+ * that reuses an existing subscription can only see subscriptions that
+ * have already been registered, and registration happens after several
+ * awaits (relay pre-connect, relay-list lookup). Every one of those
+ * callers therefore got past the guard and opened its own subscription
+ * for the same note, and only the last to register stayed live.
+ *
+ * Events delivered to the superseded subscriptions were then discarded
+ * as stale, which is how a note with seven reactions displayed none:
+ * against a real thread, two thirds of arriving reactions and replies
+ * were being thrown away. Collapsing concurrent callers onto one promise
+ * means one subscription per note, and nothing to discard.
+ */
+const inFlightFetches = new Map<string, Promise<void>>();
 const SUBSCRIPTION_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes - close idle subscriptions
 // A young persistent subscription is reused even without zap-amount data.
 // Five-plus components call fetchEngagement per note on mount, and most
@@ -456,6 +475,24 @@ export function getEngagementStore(eventId: string): Writable<EngagementData> {
 // Fetch engagement data from network
 // Uses NIP-45 COUNT queries first for speed, then falls back to full event fetch
 export async function fetchEngagement(
+  ndk: NDK,
+  target: NDKEvent | string,
+  userPublickey: string
+): Promise<void> {
+  const id = typeof target === 'string' ? target : target?.id;
+  if (!id || !ndk) return;
+
+  const existing = inFlightFetches.get(id);
+  if (existing) return existing;
+
+  const run = runFetchEngagement(ndk, target, userPublickey).finally(() => {
+    inFlightFetches.delete(id);
+  });
+  inFlightFetches.set(id, run);
+  return run;
+}
+
+async function runFetchEngagement(
   ndk: NDK,
   target: NDKEvent | string,
   userPublickey: string
