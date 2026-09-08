@@ -11,6 +11,7 @@
   import NoteContent from '../../components/NoteContent.svelte';
   import PollDisplay from '../../components/PollDisplay.svelte';
   import NoteActionBar from '../../components/NoteActionBar.svelte';
+  import NoteReactionPills from '../../components/NoteReactionPills.svelte';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
@@ -863,6 +864,10 @@
           <NoteContent content={event.content} {event} />
         {/if}
       </div>
+      <!-- Emoji breakdown, not just a heart count: a note with four 👍
+           and three ❤️ read as bare "0" here while every other client
+           showed the pills. -->
+      <NoteReactionPills {event} />
       <NoteActionBar {event} showCheffy={false} />
     </article>
 
@@ -936,6 +941,7 @@
                   </div>
                   <!-- Reply actions -->
                   <div class="mt-2" on:click|stopPropagation>
+                    <NoteReactionPills event={reply} />
                     <NoteActionBar event={reply} showCheffy={false} />
                   </div>
                 </article>
@@ -1005,6 +1011,7 @@
                         </div>
                         <!-- Nested reply actions -->
                         <div class="mt-1.5" on:click|stopPropagation>
+                          <NoteReactionPills event={nestedReply} />
                           <NoteActionBar event={nestedReply} variant="compact" />
                         </div>
                       </article>

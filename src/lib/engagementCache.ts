@@ -5,6 +5,7 @@ import { browser } from '$app/environment';
 import { getEngagementCounts, batchFetchFromServerAPI } from './countQuery';
 import { extractZapAmountSats } from './zapAmount';
 import { getEngagementTargetId, engagementTargetsNote } from './engagementTarget';
+import { raiseCount } from './engagementCounts';
 
 // Aggregator relays that index zap receipts — LNURL providers publish kind:9735
 // to these relays, which may not overlap with the app's default relay set.
@@ -12,6 +13,70 @@ const ZAP_AGGREGATOR_RELAYS = [
   'wss://nos.lol',
   'wss://relay.primal.net'
 ];
+
+/**
+ * How long to wait on the author's relay list before subscribing anyway.
+ * `relayListCache` answers instantly once warm, so this only bites on the
+ * first note from a given author.
+ */
+const OUTBOX_LOOKUP_TIMEOUT_MS = 1500;
+
+/**
+ * Relays worth asking about a note's engagement, beyond our own.
+ *
+ * Reactions, reposts and replies are published by *other people* to
+ * *their* relays, not ours. Querying only the app's default set means a
+ * note from someone outside it reads as having no engagement at all —
+ * a Damus user's note shows zero reactions here while their own client
+ * shows a dozen, because the kind:7s only ever reached relay.damus.io.
+ *
+ * Two sources close most of that gap:
+ * - the relays that actually delivered this note (`onRelays`), which is
+ *   free and already known
+ * - the author's NIP-65 write relays, where their audience is most
+ *   likely to have replied
+ */
+async function engagementRelayHints(event: NDKEvent | undefined): Promise<string[]> {
+  if (!event) return [];
+  const hints = new Set<string>();
+
+  // Relay lists are author-controlled and still contain plain `ws://`
+  // entries. The app's connect-src policy rejects those, so a hint that
+  // isn't wss:// costs a CSP violation and buys nothing.
+  const addHint = (url: string | undefined) => {
+    if (url && url.startsWith('wss://')) hints.add(url);
+  };
+
+  try {
+    for (const relay of event.onRelays || []) {
+      addHint(relay?.url);
+    }
+  } catch {
+    // onRelays is a getter over subscription state; never fatal.
+  }
+
+  const pubkey = event.pubkey || event.author?.pubkey;
+  if (pubkey) {
+    try {
+      const { getOutboxRelays } = await import('./relayListCache');
+      const outbox = await Promise.race([
+        getOutboxRelays(pubkey),
+        new Promise<string[]>((resolve) =>
+          setTimeout(() => resolve([]), OUTBOX_LOOKUP_TIMEOUT_MS)
+        )
+      ]);
+      // Two is enough to find the author's audience without opening a
+      // connection per relay in a long list.
+      for (const url of (outbox || []).filter((u) => u?.startsWith('wss://')).slice(0, 2)) {
+        addHint(url);
+      }
+    } catch {
+      // No relay list published, or the lookup failed: defaults still apply.
+    }
+  }
+
+  return [...hints];
+}
 
 // Individual zapper info
 export interface Zapper {
@@ -392,9 +457,15 @@ export function getEngagementStore(eventId: string): Writable<EngagementData> {
 // Uses NIP-45 COUNT queries first for speed, then falls back to full event fetch
 export async function fetchEngagement(
   ndk: NDK,
-  eventId: string,
+  target: NDKEvent | string,
   userPublickey: string
 ): Promise<void> {
+  // Callers that hold the event should pass it: the event knows which
+  // relays carried it and who wrote it, which is what makes the
+  // engagement query reach the relays the reactions are actually on.
+  // An id alone still works, on our default relays only.
+  const eventId = typeof target === 'string' ? target : target?.id;
+  const hintSource = typeof target === 'string' ? undefined : target;
   if (!eventId || !ndk) return;
   
   const store = getEngagementStore(eventId);
@@ -425,26 +496,24 @@ export async function fetchEngagement(
     
     if (counts) {
       store.update(s => {
-        // Always update counts if we got them from NIP-45 (they're authoritative)
+        // A COUNT is only ever a partial view: it answers for the handful
+        // of relays that were asked, and a relay that never saw the
+        // reaction honestly answers zero. Letting that zero overwrite a
+        // number the subscription already found is how a note with real
+        // engagement ends up displaying none, so counts are only ever
+        // raised here, never lowered.
         const updated = { ...s };
         let hasAnyCounts = false;
-        
-        if (counts.reactions !== null) {
-          updated.reactions.count = counts.reactions;
-          hasAnyCounts = true;
-        }
-        if (counts.comments !== null) {
-          updated.comments.count = counts.comments;
-          hasAnyCounts = true;
-        }
-        if (counts.reposts !== null) {
-          updated.reposts.count = counts.reposts;
-          hasAnyCounts = true;
-        }
-        if (counts.zaps !== null) {
-          updated.zaps.count = counts.zaps;
-          hasAnyCounts = true;
-        }
+
+        const fold = (current: number, counted: number | null): number => {
+          if (counted !== null) hasAnyCounts = true;
+          return raiseCount(current, counted);
+        };
+
+        updated.reactions.count = fold(updated.reactions.count, counts.reactions);
+        updated.comments.count = fold(updated.comments.count, counts.comments);
+        updated.reposts.count = fold(updated.reposts.count, counts.reposts);
+        updated.zaps.count = fold(updated.zaps.count, counts.zaps);
         
         // Mark as loaded if we got counts (even if 0 - that's valid data)
         if (hasAnyCounts) {
@@ -597,12 +666,14 @@ export async function fetchEngagement(
   let eoseReceived = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
-  // Pre-connect aggregator relays before subscribing.
+  const hintRelays = await engagementRelayHints(hintSource);
+
+  // Pre-connect aggregator and hint relays before subscribing.
   // NDKRelaySet.fromRelayUrls creates temporary relays that connect asynchronously,
   // so the subscription's initial REQ can miss them. By explicitly connecting first,
-  // we ensure the REQ reaches aggregator relays on the first try.
+  // we ensure the REQ reaches those relays on the first try.
   await Promise.all(
-    ZAP_AGGREGATOR_RELAYS.map(async (url) => {
+    [...ZAP_AGGREGATOR_RELAYS, ...hintRelays].map(async (url) => {
       try {
         const relay = ndk.pool.getRelay(url, true, true);
         if (relay.connectivity?.status !== 1) {
@@ -614,9 +685,10 @@ export async function fetchEngagement(
     })
   );
 
-  // Build relay set: NDK's connected relays + zap aggregator relays
+  // Build relay set: NDK's connected relays + zap aggregators + the
+  // relays this note came from and its author writes to.
   const relaySet = NDKRelaySet.fromRelayUrls(
-    [...(ndk.explicitRelayUrls || []), ...ZAP_AGGREGATOR_RELAYS],
+    [...(ndk.explicitRelayUrls || []), ...ZAP_AGGREGATOR_RELAYS, ...hintRelays],
     ndk,
     true // addConnectedRelays
   );
