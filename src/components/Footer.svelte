@@ -1,32 +1,8 @@
 <script lang="ts">
   import GithubLogo from 'phosphor-svelte/lib/GithubLogo';
   import { VERSION, BUILD_HASH } from '$lib/version';
-  import { ndk } from '$lib/nostr';
-  import { NDKUser } from '@nostr-dev-kit/ndk';
-  import Modal from './Modal.svelte';
-  import ZapModal from './ZapModal.svelte';
-  import { qr } from '@svelte-put/qr/svg';
-  import BrantaBadge from './BrantaBadge.svelte';
-
-  // ZapCooking's pubkey (npub1xxdd8eusvdxmaph3fkuu9x2mymhrcc3ghe2l38zv0l4f4nqp659qskkt7a)
-  const ZAPCOOKING_PUBKEY = '31acd3e790619b7437c54b39c236d93d72e3c6228be5f13898fe9d536028d6a5';
 
   const currentYear = new Date().getFullYear();
-  let supportModalOpen = false;
-  let zapModalOpen = false;
-
-  async function copySupportAddress(event: MouseEvent): Promise<void> {
-    await navigator.clipboard.writeText('ZapCooking@getalby.com');
-    const button = event.currentTarget;
-    if (!(button instanceof HTMLButtonElement)) return;
-    const originalText = button.textContent;
-    button.textContent = '✓';
-    setTimeout(() => {
-      button.textContent = originalText;
-    }, 1500);
-  }
-
-  $: zapCookingUser = $ndk ? new NDKUser({ pubkey: ZAPCOOKING_PUBKEY }) : null;
 </script>
 
 <footer
@@ -36,13 +12,12 @@
   <div class="footer-inner">
     <!-- Utility links — de-emphasized (rarely clicked). -->
     <nav class="footer-links text-caption">
-      <button
-        on:click={() => (supportModalOpen = true)}
-        class="text-orange-500 hover:text-orange-600 font-semibold transition-colors cursor-pointer bg-transparent border-0 p-0"
-        type="button"
+      <a
+        href="/support"
+        class="text-orange-500 hover:text-orange-600 font-semibold transition-colors"
       >
         ⚡ Support
-      </button>
+      </a>
       <a href="/about" class="hover:text-primary transition-colors">About</a>
       <a href="/founders" class="hover:text-primary transition-colors">Founders</a>
       <a href="/sponsors" class="hover:text-primary transition-colors">Sponsors</a>
@@ -129,86 +104,6 @@
     </div>
   </div>
 </footer>
-
-<!-- Support Modal -->
-<Modal bind:open={supportModalOpen} noHeader>
-  <div class="flex flex-col gap-4">
-    <!-- Header -->
-    <div class="text-center">
-      <h2 class="text-lg font-bold" style="color: var(--color-text-primary)">
-        ⚡ Support Zap Cooking
-      </h2>
-      <p class="text-xs text-caption mt-1">Help keep Zap Cooking running!</p>
-    </div>
-
-    <!-- QR Code + Lightning Address side by side on larger screens -->
-    <div class="flex flex-col sm:flex-row gap-4 items-center">
-      <!-- QR Code -->
-      <div class="flex flex-col items-center gap-2">
-        <div class="p-3 bg-white rounded-xl flex-shrink-0">
-          <svg
-            class="w-32 h-32"
-            use:qr={{
-              data: 'lightning:ZapCooking@getalby.com',
-              logo: 'https://zap.cooking/favicon.svg',
-              shape: 'circle',
-              // Force black modules so the QR stays scannable in dark mode
-              // (they otherwise inherit the theme's light text color). The
-              // container's bg-white supplies the light background.
-              moduleFill: '#000000',
-              anchorOuterFill: '#000000',
-              anchorInnerFill: '#000000'
-            }}
-          />
-        </div>
-        <BrantaBadge paymentString="ZapCooking@getalby.com" />
-      </div>
-
-      <!-- Lightning Address + Buttons -->
-      <div class="flex flex-col gap-3 flex-1 w-full">
-        <div class="flex items-center gap-2">
-          <div
-            class="flex-1 bg-input border rounded-lg px-3 py-2 text-xs truncate"
-            style="color: var(--color-text-primary); border-color: var(--color-input-border);"
-            title="ZapCooking@getalby.com"
-          >
-            ZapCooking@getalby.com
-          </div>
-          <button
-            on:click={copySupportAddress}
-            class="bg-input hover:bg-accent-gray px-3 py-2 rounded-lg text-xs font-medium transition duration-200 flex-shrink-0"
-            style="color: var(--color-text-primary);"
-            title="Copy lightning address"
-          >
-            Copy
-          </button>
-        </div>
-
-        <button
-          on:click={() => {
-            supportModalOpen = false;
-            zapModalOpen = true;
-          }}
-          class="w-full bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white font-semibold py-2.5 px-4 rounded-lg transition duration-300 text-center text-sm"
-        >
-          ⚡ Zap with Wallet
-        </button>
-        <a
-          href="lightning:ZapCooking@getalby.com"
-          class="w-full bg-input hover:bg-accent-gray font-medium py-2 px-4 rounded-lg transition duration-300 text-center text-xs"
-          style="color: var(--color-text-primary);"
-        >
-          Open in External Wallet
-        </a>
-      </div>
-    </div>
-  </div>
-</Modal>
-
-<!-- Zap Modal for connected wallet -->
-{#if zapCookingUser}
-  <ZapModal bind:open={zapModalOpen} event={zapCookingUser} />
-{/if}
 
 <style>
   /* Compact two-row footer: a de-emphasized links row and a meta row.
