@@ -735,7 +735,19 @@ async function runFetchEngagement(
     startSubscriptionCleanup();
 
     // Create persistent subscription (stays open for real-time updates)
-    const sub = ndk.subscribe(filter, { closeOnEose: false }, relaySet);
+    // `groupable: false` is load-bearing, not a tuning knob.
+    //
+    // NDK merges subscriptions created within its grouping window when
+    // they share a filter fingerprint. Every note on a thread page asks
+    // for engagement with the same shape — same kinds, same `#e` tag —
+    // so a thread of eleven notes became one REQ carrying eleven `#e`
+    // values, and the relay truncated the merged result. Each note then
+    // saw a fraction of its own engagement: measured against jb55's
+    // noteguard thread, NDK delivered 1 of 7 reactions where a raw
+    // socket with the identical filter returned all 7.
+    //
+    // One REQ per note costs more requests and gets complete answers.
+    const sub = ndk.subscribe(filter, { closeOnEose: false, groupable: false }, relaySet);
     
     // Register in persistent subscriptions map
     persistentSubscriptions.set(eventId, { sub, lastActivity: Date.now(), createdAt: Date.now() });
