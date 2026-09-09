@@ -126,20 +126,25 @@
 
 <style>
   .thread-row {
+    /* Where this row's rail is drawn, and how far its content clears it.
+       The gap used to be one corner radius, which left the avatar sitting
+       right on the line. */
+    --rail-x: calc(var(--indent) - 8px);
+    --rail-gap: 18px;
     position: relative;
-    padding: 0.75rem 0 0.75rem var(--indent);
+    padding: 0.75rem 0 0.75rem calc(var(--rail-x) + var(--rail-gap));
   }
 
   /*
    * One rail per row: vertical line, rounded corner, short horizontal
-   * run to the row's trailing edge. The corner lands one radius left of
-   * the content so the arc meets the content edge exactly, which is the
-   * same geometry the Android client draws.
+   * run to the row's trailing edge — the same geometry the Android client
+   * draws. The arc turns within one radius of the rail and the remaining
+   * --rail-gap carries the line under the content.
    */
   .thread-row.has-connector::before {
     content: '';
     position: absolute;
-    left: calc(var(--indent) - 8px);
+    left: var(--rail-x);
     top: 0;
     right: 0;
     bottom: 0;
@@ -157,7 +162,7 @@
   .thread-row.dashed-top::after {
     content: '';
     position: absolute;
-    left: calc(var(--indent) - 8px);
+    left: var(--rail-x);
     top: 0;
     height: var(--dash-height);
     border-left: 1px dashed var(--color-input-border);
