@@ -16,7 +16,7 @@ try {
     const page = await context.newPage();
     await page.goto(url);
     await page.getByRole('button', { name: 'Open the kitchen', exact: true }).click();
-    await page.getByRole('button', { name: 'Cook for Maya', exact: true }).click();
+    await page.getByRole('button', { name: /^Cook for / }).click();
     for (const name of ['Tomato', 'Sourdough', 'Olive oil'])
       await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
     await page.getByRole('button', { name: 'To the stove', exact: true }).click();
@@ -63,7 +63,7 @@ try {
           requestAnimationFrame(frame);
         })
     );
-    await page.getByRole('button', { name: 'Serve Maya', exact: true }).click();
+    await page.getByRole('button', { name: /^Serve / }).click();
     const timing = await sample;
     await page.getByText('points on the pass', { exact: true }).waitFor();
     await page.waitForTimeout(3600); // Includes the last finite steam iteration.

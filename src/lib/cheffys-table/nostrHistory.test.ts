@@ -1,11 +1,13 @@
 import { beforeEach, it, expect, vi } from 'vitest';
-import { makeRun } from './history';
+import { makeRun, restoreService } from './history';
+import fixtures from './fixtures/legacy-services.json';
 import { startService, nextCustomer, serve, type Dish } from './service';
 type MockEvent = { id?: string; pubkey: string; kind: number; content: string; tags: string[][] };
 const state = vi.hoisted(() => ({
   owner: 'alice',
   events: [] as MockEvent[],
   encrypted: vi.fn(),
+  decrypted: vi.fn(),
   published: vi.fn(),
   sign: vi.fn(),
   remote: [] as MockEvent[]
@@ -32,7 +34,7 @@ vi.mock('$lib/nostr', async () => {
 });
 vi.mock('$lib/encryptionService', () => ({
   encrypt: (...args: unknown[]) => state.encrypted(...args),
-  decrypt: async () => JSON.stringify(run())
+  decrypt: (...args: unknown[]) => state.decrypted(...args)
 }));
 vi.mock('$lib/relayListCache', () => ({ getOutboxRelays: async () => ['wss://relay.example'] }));
 vi.mock('$lib/consts', () => ({ CLIENT_TAG_IDENTIFIER: 'zap.cooking' }));
@@ -75,6 +77,7 @@ beforeEach(() => {
   state.events = [];
   state.remote = [];
   state.encrypted.mockReset().mockResolvedValue({ ciphertext: 'encrypted-only', method: 'nip44' });
+  state.decrypted.mockReset().mockImplementation(async () => JSON.stringify(run()));
   state.published.mockReset().mockResolvedValue(new Set(['relay']));
   state.sign.mockReset().mockResolvedValue(undefined);
 });
@@ -133,4 +136,53 @@ it('restores only matching authors and application addresses', async () => {
     }
   ];
   expect(await nostrHistory.load('alice')).toEqual([run()]);
+});
+
+it('loads v1 and v2 through the same encrypted namespace while rejecting malformed v2 rosters', async () => {
+  const old = fixtures.cases[0].run,
+    modern = run();
+  const records = [
+    old,
+    modern,
+    { ...modern, id: 'bad-roster-0001', roster: ['maya', 'maya', 'theo'] },
+    { ...modern, id: 'unknown-version-0001', version: 3 }
+  ];
+  state.remote = records.map((record, i) => ({
+    id: `event-${i}`,
+    pubkey: 'alice',
+    kind: 30078,
+    content: JSON.stringify(record),
+    tags: [
+      ['encryption', 'nip44'],
+      ['d', `cheffys-table-v1:${record.id}`]
+    ]
+  }));
+  state.decrypted.mockImplementation(async (_owner: string, content: string) => content);
+  const restored = await nostrHistory.load('alice');
+  expect(restored).toEqual([old, modern]);
+  expect(restored.map((r) => r.version)).toEqual([1, 2]);
+  expect(restoreService(restored[0])).toEqual(fixtures.cases[0].service);
+  expect(restoreService(restored[1]).roster.map((c) => c.id)).toEqual(modern.roster);
+});
+
+it('does not restore v2 data into an account that changed during decryption', async () => {
+  const record = run();
+  state.remote = [
+    {
+      id: 'event-account-0001',
+      pubkey: 'alice',
+      kind: 30078,
+      content: 'encrypted',
+      tags: [
+        ['encryption', 'nip44'],
+        ['d', `cheffys-table-v1:${record.id}`]
+      ]
+    }
+  ];
+  state.decrypted.mockImplementation(async () => {
+    state.owner = 'bob';
+    userPublickey.set('bob');
+    return JSON.stringify(record);
+  });
+  await expect(nostrHistory.load('alice')).rejects.toThrow();
 });

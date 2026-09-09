@@ -6,6 +6,7 @@ import { getOutboxRelays } from '$lib/relayListCache';
 import { CLIENT_TAG_IDENTIFIER } from '$lib/consts';
 import { HISTORY_LIMIT, parseRun, type HistoryTransport } from './history';
 
+// Stable app namespace, independent of the encrypted SavedService payload version.
 const APP = 'cheffys-table-v1';
 const KIND = 30078;
 async function account(owner: string) {

@@ -81,7 +81,7 @@ it('merges cross-device services and only publishes pending local runs', async (
   expect(entries.every((e) => e.synced)).toBe(true);
 });
 it('keeps a failed save pending and retries without duplicating the service', async () => {
-  const initial = [{ run: saved(), synced: false }];
+  const initial: HistoryEntry[] = [{ run: saved(), synced: false }];
   let entries = initial;
   const transport: HistoryTransport = {
     owner: () => 'alice',
