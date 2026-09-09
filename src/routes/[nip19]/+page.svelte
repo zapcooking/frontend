@@ -15,6 +15,7 @@
   import ThreadRow from '../../components/comments/ThreadRow.svelte';
   import ThreadMoreRow from '../../components/comments/ThreadMoreRow.svelte';
   import { flattenThread } from '$lib/thread/threadFlatten';
+  import { buildReplyTree, getReplyParentId } from '$lib/thread/replyParent';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
@@ -154,27 +155,6 @@
     stopReplySubscription();
   });
 
-  // Get the parent note ID from an event's e tags
-  function getParentNoteId(evt: NDKEvent): string | null {
-    // Look for reply tag first
-    const replyTag = evt.tags.find(
-      (tag) => Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'reply'
-    );
-    if (replyTag) return replyTag[1] as string;
-
-    // Fallback to root tag
-    const rootTag = evt.tags.find(
-      (tag) => Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'root'
-    );
-    if (rootTag) return rootTag[1] as string;
-
-    // Fallback to first e tag
-    const firstETag = evt.tags.find((tag) => Array.isArray(tag) && tag[0] === 'e');
-    if (firstETag) return firstETag[1] as string;
-
-    return null;
-  }
-
   // Fetch parent thread recursively
   // Parent notes frequently live on the reply author's write relays, not
   // the default pool — the same reason fetchReplies builds a merged relay
@@ -234,7 +214,7 @@
 
     try {
       while (true) {
-        const parentId = getParentNoteId(currentEvent);
+        const parentId = getReplyParentId(currentEvent);
         if (!parentId || seenIds.has(parentId)) break;
 
         seenIds.add(parentId);
@@ -509,61 +489,13 @@
     replies = [...replies, posted].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
   }
 
-  // Filter to get only direct replies (not nested)
-  $: directReplies = replies.filter((r) => {
-    if (!event) return false;
-    const rootEvent = event;
-
-    // For NIP-22 comments (kind 1111)
-    if (r.kind === 1111) {
-      const aTags = r.getMatchingTags('a');
-      const eTags = r.getMatchingTags('e');
-      const kTags = r.getMatchingTags('k');
-
-      // Check if this comment's 'a' tag matches the root article address
-      const dTag = rootEvent.tags.find((t) => t[0] === 'd')?.[1];
-      if (dTag) {
-        const rootAddress = `${rootEvent.kind}:${rootEvent.pubkey}:${dTag}`;
-        const matchesRoot = aTags.some((tag) => tag[1] === rootAddress);
-
-        // Check if parent 'e' tag points to root event (top-level comment)
-        // and 'k' tag shows parent is the root kind (30023)
-        const isTopLevel =
-          eTags.some((tag) => tag[1] === rootEvent.id) &&
-          kTags.some((tag) => tag[1] === String(rootEvent.kind));
-
-        return matchesRoot && isTopLevel;
-      }
-      return false;
-    }
-
-    // For NIP-10 replies (kind 1)
-    const eTags = r.getMatchingTags('e');
-    const replyTag = eTags.find((tag) => tag[3] === 'reply');
-    const rootTag = eTags.find((tag) => tag[3] === 'root');
-
-    // If there's a specific reply marker, check if it points to main event
-    if (replyTag) {
-      return replyTag[1] === event.id;
-    }
-
-    // If only one e tag, it's a direct reply
-    if (eTags.length === 1 && eTags[0][1] === event.id) {
-      return true;
-    }
-
-    // If root is main event and no reply marker, it's a direct reply
-    if (rootTag && rootTag[1] === event.id && !replyTag) {
-      return true;
-    }
-
-    // Otherwise, check if any e tag references main event (handles older tagging)
-    if (eTags.length > 0 && !replyTag && !rootTag) {
-      return eTags.some((tag) => tag[1] === event?.id);
-    }
-
-    return false;
-  });
+  // Every reply hangs off exactly one parent, resolved in one place, so
+  // the ancestors above the note and the tree below it can't disagree.
+  $: visibleReplies = replies.filter((r) => !$mutedPubkeys.has(r.author?.hexpubkey || r.pubkey));
+  $: parentToChildren = event
+    ? buildReplyTree<NDKEvent>(event.id, visibleReplies)
+    : new Map<string, NDKEvent[]>();
+  $: directReplies = (event && parentToChildren.get(event.id)) || [];
 
   // People in this note: author first, then anyone mentioned (p-tags), then
   // reply authors — deduped, mute-filtered, and capped for the rail.
@@ -598,27 +530,6 @@
     expandedFanOutIds = new Set(expandedFanOutIds).add(id);
   }
 
-  // parent id -> its replies, chronological. The flattener takes the tree
-  // and decides what renders; it does not re-derive parentage.
-  $: parentToChildren = (() => {
-    const map = new Map<string, NDKEvent[]>();
-    if (!event) return map;
-    const visible = replies.filter(
-      (r) => !$mutedPubkeys.has(r.author?.hexpubkey || r.pubkey)
-    );
-    map.set(
-      event.id,
-      directReplies.filter((r) => !$mutedPubkeys.has(r.author?.hexpubkey || r.pubkey))
-    );
-    for (const reply of visible) {
-      const children = getNestedReplies(reply.id).filter(
-        (c) => !$mutedPubkeys.has(c.author?.hexpubkey || c.pubkey)
-      );
-      if (children.length > 0) map.set(reply.id, children);
-    }
-    return map;
-  })();
-
   // The root note is passed in so depths match the Android client — root
   // at 0, its replies at 1 — which is what gives a direct reply a rail
   // back to the note it answers. The root's own row is then dropped,
@@ -633,38 +544,6 @@
       }).filter((item) => !(item.kind === 'post' && item.event.id === event?.id))
     : [];
 
-  // Get nested replies for a comment
-  function getNestedReplies(parentId: string): NDKEvent[] {
-    return replies.filter((r) => {
-      // For NIP-22 comments (kind 1111)
-      if (r.kind === 1111) {
-        const eTags = r.getMatchingTags('e');
-        const kTags = r.getMatchingTags('k');
-        // Check if parent 'e' tag points to the parent comment
-        // and 'k' tag shows parent is a comment (1111)
-        return eTags.some((tag) => tag[1] === parentId) && kTags.some((tag) => tag[1] === '1111');
-      }
-
-      // For NIP-10 replies (kind 1)
-      const eTags = r.getMatchingTags('e');
-      const replyTag = eTags.find((tag) => tag[3] === 'reply');
-
-      // Check if reply marker points to parent
-      if (replyTag && replyTag[1] === parentId) {
-        return true;
-      }
-
-      // Check if this is a reply to the parent (without markers)
-      if (!replyTag && eTags.some((tag) => tag[1] === parentId)) {
-        // Make sure it's not actually replying to the main event
-        return !eTags.some(
-          (tag) => tag[1] === event?.id && (tag[3] === 'reply' || eTags.length === 1)
-        );
-      }
-
-      return false;
-    });
-  }
 </script>
 
 <svelte:head>
