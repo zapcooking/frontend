@@ -11,6 +11,9 @@
   export let placeholderString: string;
   export let autofocus = false;
   export let action: (query: string) => void;
+  // Global search bars pass this so submitting a keyword opens the results
+  // feed. Tag pickers leave it unset and keep picking the first match.
+  export let onSubmitQuery: ((query: string) => void) | null = null;
 
   let tagquery = '';
   let showAutocomplete = false;
@@ -508,7 +511,19 @@
           return;
         }
 
-        // Select first result from search results (priority: recipes > users > tags)
+        // In a search bar, the dropdown's pick-list is for jumping to one
+        // specific thing — submitting the query means "show me posts about
+        // this", so hand it to the results feed.
+        if (onSubmitQuery) {
+          const q = tagquery.trim();
+          tagquery = '';
+          searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+          showAutocomplete = false;
+          onSubmitQuery(q);
+          return;
+        }
+
+        // Tag pickers: select first result (priority: recipes > users > tags)
         if (searchResults.recipes.length > 0) {
           selectRecipe(searchResults.recipes[0].naddr);
           return;
