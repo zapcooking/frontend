@@ -16,6 +16,7 @@
   import { isImageUrl, filterImageUrls } from '$lib/imageUrls';
   import MediaLightbox from './MediaLightbox.svelte';
   import LightningInvoiceCard from './LightningInvoiceCard.svelte';
+  import QuotesIcon from 'phosphor-svelte/lib/Quotes';
 
   export let content: string;
   export let className: string = '';
@@ -281,8 +282,10 @@
   }
 
   function handleNostrClick(nostrId: string) {
-    // Navigate to the nostr reference
-    goto(`/${nostrId}`);
+    // Navigate to the nostr reference. The parsed content keeps the
+    // `nostr:` URI scheme on the string; the route doesn't take it, and
+    // leaving it on lands the reader at /nostr:nevent1... instead.
+    goto(`/${nostrId.replace(/^nostr:/i, '')}`);
   }
 
   $: parsedContent = parseContent(content);
@@ -475,11 +478,31 @@
       {:else if part.prefix === 'nevent1' || part.prefix === 'note1'}
         {#if showNostrEmbeds}
           <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {:else}
+          <div class="my-1">
+            <button
+              class="quoted-chip"
+              on:click|stopPropagation|preventDefault={() => handleNostrClick(part.content)}
+            >
+              <QuotesIcon size={12} weight="fill" />
+              Quoted note
+            </button>
+          </div>
         {/if}
       {:else if part.prefix === 'naddr1'}
         <!-- Addressable event (recipe, article, etc.) - render as embedded content -->
         {#if showNostrEmbeds}
           <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {:else}
+          <div class="my-1">
+            <button
+              class="quoted-chip"
+              on:click|stopPropagation|preventDefault={() => handleNostrClick(part.content)}
+            >
+              <QuotesIcon size={12} weight="fill" />
+              Quoted post
+            </button>
+          </div>
         {/if}
       {:else if part.prefix === 'noffer1'}
         <!-- CLINK static offer — render an inline "⚡ Pay" pill that opens
@@ -560,5 +583,29 @@
   :global(html.dark) .hashtag-pill:hover {
     background-color: rgb(234 88 12); /* bg-orange-600 */
     color: white;
+  }
+
+  /* Stand-in for a quote where the full embed is suppressed — thread
+     ancestors and reply rows keep their rows compact by passing
+     showNostrEmbeds={false}, and the reference used to render as nothing
+     at all, so the quote silently vanished from the note. */
+  .quoted-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid var(--color-input-border);
+    border-radius: 9999px;
+    color: var(--color-text-caption);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      border-color 120ms ease;
+  }
+  .quoted-chip:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-text-caption);
   }
 </style>
