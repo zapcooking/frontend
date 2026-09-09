@@ -50,6 +50,8 @@
   import QuestionIcon from 'phosphor-svelte/lib/Question';
   import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwise';
   import MuteListEditor from '../../../components/MuteListEditor.svelte';
+  import MediaLightbox from '../../../components/MediaLightbox.svelte';
+  import CloseIcon from 'phosphor-svelte/lib/X';
 
   let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -163,6 +165,21 @@
   let uploadingPicture = false;
   let pictureInputEl: HTMLInputElement | null = null;
   let avatarRefreshKey = 0; // Used to force Avatar remount after picture change
+  let avatarLightboxOpen = false;
+
+  // The picture the profile sheet shows and enlarges. Own profile prefers
+  // the just-uploaded override so a fresh picture isn't a stale relay copy;
+  // empty means there's only a generated fallback, which isn't worth zooming.
+  // NDK normalizes kind-0 `picture` onto `image`, so `image` is what's
+  // actually populated here — `picture` is read as a fallback for profiles
+  // that came from somewhere else. String() because the type's index
+  // signature widens both to string | number, which Avatar's `src` won't take.
+  $: modalPicture = String(
+    ($userPublickey === hexpubkey ? $userProfilePictureOverride : null) ||
+      profile?.image ||
+      profile?.picture ||
+      ''
+  );
 
   // Profile edit modal state
   let profileEditModal = false;
@@ -1312,6 +1329,7 @@
 
   function qrModalCleanup() {
     qrModal = false;
+    avatarLightboxOpen = false;
     npubCopied = false;
     lightningCopied = false;
   }
@@ -1758,89 +1776,137 @@
   }}
 />
 
-<Modal cleanup={qrModalCleanup} open={qrModal}>
-  <h1 slot="title">
-    {profile
-      ? profile.displayName || profile.display_name || profile.name || '...'
-      : '...'}'s Profile
-  </h1>
+<Modal cleanup={qrModalCleanup} open={qrModal} noHeader autoHeight>
+  <!-- Profile header. The banner bleeds to the dialog's edges by undoing
+       its px-4/md:px-8/pt-6 padding, so the sheet opens on the same
+       banner-and-avatar composition as the profile page rather than a
+       bare title row. Modal's own header is off for that reason; the
+       close button below is still the single dismiss affordance. -->
+  <div class="-mx-4 -mt-6 md:-mx-8">
+    <div class="relative">
+      <div
+        class="h-24 overflow-hidden rounded-t-3xl sm:h-28"
+        style="background: {profile?.banner
+          ? 'transparent'
+          : 'linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%)'}"
+      >
+        {#if profile?.banner}
+          <img src={profile.banner} alt="" class="w-full h-full object-cover" />
+        {/if}
+      </div>
 
-  <div class="flex flex-col items-center gap-6">
-    <!-- Profile Info -->
-    <div class="w-full space-y-3 border-t pt-4">
-      <!-- NIP-05 -->
+      <button
+        class="absolute top-2 right-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/70"
+        aria-label="Close"
+        on:click={qrModalCleanup}
+      >
+        <CloseIcon size={20} />
+      </button>
+
+      <!-- Avatar overlaps the banner. It only becomes a button when there
+           is a real picture behind it — enlarging a generated fallback
+           would just show a bigger placeholder. -->
+      <div class="absolute -bottom-8 left-4 md:left-8">
+        {#if modalPicture}
+          <button
+            class="rounded-full ring-4 transition-opacity hover:opacity-90"
+            style="--tw-ring-color: var(--color-bg-secondary)"
+            on:click={() => (avatarLightboxOpen = true)}
+            aria-label="View profile picture"
+            title="View profile picture"
+          >
+            {#key `${hexpubkey}-${avatarRefreshKey}`}
+              <Avatar
+                className="cursor-zoom-in"
+                pubkey={hexpubkey || ''}
+                size={72}
+                src={modalPicture}
+              />
+            {/key}
+          </button>
+        {:else}
+          <div class="rounded-full ring-4" style="--tw-ring-color: var(--color-bg-secondary)">
+            <Avatar pubkey={hexpubkey || ''} size={72} />
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
+
+  <!-- pt clears the avatar's overhang; Modal's own gap-6 supplies the rest. -->
+  <div class="flex flex-col gap-4 pt-4">
+    <!-- Identity -->
+    <div class="flex flex-col gap-1 min-w-0">
+      <h2 class="flex items-center gap-1.5 text-lg font-bold min-w-0">
+        <span class="truncate"><CustomName pubkey={hexpubkey || ''} /></span>
+        <MembershipBeltBadge pubkey={hexpubkey || ''} size={18} />
+      </h2>
+
       {#if profile?.nip05}
-        <div class="flex items-center gap-2 text-sm">
-          <SealCheckIcon size={18} weight="fill" class="text-purple-500 flex-shrink-0" />
-          <span class="break-all" style="color: var(--color-text-primary)">{profile.nip05}</span>
+        <div class="flex items-center gap-1.5 text-xs" style="color: var(--color-text-caption)">
+          <SealCheckIcon size={14} weight="fill" class="text-purple-500 flex-shrink-0" />
+          <span class="break-all">{profile.nip05}</span>
         </div>
       {/if}
 
-      <!-- Lightning Address -->
       {#if profile?.lud16 || profile?.lud06}
-        <div class="flex items-center gap-2 text-sm">
-          <LightningIcon size={18} weight="fill" class="text-yellow-500 flex-shrink-0" />
-          <span class="break-all flex-1" style="color: var(--color-text-primary)"
-            >{profile.lud16 || profile.lud06}</span
-          >
+        <div class="flex items-center gap-1.5 text-xs" style="color: var(--color-text-caption)">
+          <LightningIcon size={14} weight="fill" class="text-yellow-500 flex-shrink-0" />
+          <span class="break-all">{profile.lud16 || profile.lud06}</span>
           <button
             on:click={() => copyLightningAddress(profile?.lud16 || profile?.lud06 || '')}
             class="text-caption hover:text-primary transition-colors cursor-pointer flex-shrink-0"
             title="Copy lightning address"
           >
             {#if lightningCopied}
-              <CheckIcon size={16} weight="bold" class="text-green-500" />
+              <CheckIcon size={14} weight="bold" class="text-green-500" />
             {:else}
-              <CopyIcon size={16} />
+              <CopyIcon size={14} />
             {/if}
           </button>
         </div>
       {/if}
+    </div>
 
-
-      <!-- Action buttons for other users -->
+    <!-- Actions. Compact pills in a wrapping row: the stacked full-width
+         blocks made a five-item sheet taller than the profile it describes. -->
+    <div class="flex flex-wrap items-center gap-2">
       {#if hexpubkey !== $userPublickey}
-        <!-- Zap Button (hidden for muted users) -->
         {#if (profile?.lud16 || profile?.lud06) && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
           <button
-            class="w-full flex items-center justify-center gap-2 px-4 py-4 rounded-lg font-medium text-base transition-colors bg-yellow-500 text-black hover:bg-yellow-400 disabled:opacity-50"
+            class="flex items-center gap-1.5 rounded-lg bg-yellow-500 px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-yellow-400 disabled:opacity-50"
             disabled={isZapping}
             on:click={() => {
               qrModal = false;
               handleZapClick();
             }}
           >
-            <LightningIcon size={22} weight="fill" />
-            <span>{isZapping ? 'Zapping...' : 'Send Zap'}</span>
+            <LightningIcon size={16} weight="fill" />
+            <span>{isZapping ? 'Zapping...' : 'Zap'}</span>
           </button>
         {/if}
 
-        <!-- CLINK offer — full-width CTA, gradient brand orange. Sits
-             alongside Send Zap so the two payment paths read as peers
-             rather than the noffer feeling buried. -->
         {#if profileNoffer && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
-          <NofferButton noffer={profileNoffer} variant="cta" />
+          <NofferButton noffer={profileNoffer} />
         {/if}
 
-        <!-- DM Button -->
         {#if $userPublickey && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
           <a
             href="/messages?pubkey={hexpubkey}"
-            class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors bg-input hover:bg-accent-gray"
+            class="flex items-center gap-1.5 rounded-lg bg-input px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent-gray"
             style="color: var(--color-text-primary)"
             on:click={() => (qrModal = false)}
           >
-            <ChatCircleIcon size={18} weight="bold" />
+            <ChatCircleIcon size={16} weight="bold" />
             <span>Message</span>
           </a>
         {/if}
 
-        <!-- Follow Button with mute indicator -->
         {#if $userPublickey}
           <button
             on:click={toggleFollow}
             disabled={followLoading}
-            class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 {isFollowing
+            class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 {isFollowing
               ? 'bg-input hover:bg-accent-gray'
               : 'bg-orange-500 text-white hover:bg-orange-600'}"
             style={isFollowing ? 'color: var(--color-text-primary)' : ''}
@@ -1848,58 +1914,61 @@
             {#if followLoading}
               <span class="animate-pulse">...</span>
             {:else if isFollowing}
-              <CheckIcon size={18} weight="bold" />
+              <CheckIcon size={16} weight="bold" />
               <span>Following</span>
             {:else}
-              <UserPlusIcon size={18} weight="bold" />
+              <UserPlusIcon size={16} weight="bold" />
               <span>Follow</span>
             {/if}
             {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
-              <SpeakerSimpleSlashIcon size={18} weight="bold" class="opacity-70" />
+              <SpeakerSimpleSlashIcon size={16} weight="bold" class="opacity-70" />
             {/if}
           </button>
         {/if}
       {/if}
+    </div>
 
-      <!-- Copy Npub Button -->
+    <!-- Secondary actions read as utilities, not peers of Zap/Follow. -->
+    <div
+      class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3 text-xs"
+      style="border-color: var(--color-input-border)"
+    >
       <button
         on:click={copyNpub}
-        class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-input hover:bg-accent-gray rounded-lg transition-colors text-sm font-medium"
-        style="color: var(--color-text-primary)"
+        class="flex items-center gap-1.5 transition-colors hover:opacity-80"
+        style="color: var(--color-text-caption)"
       >
         {#if npubCopied}
-          <CheckIcon size={18} weight="bold" />
+          <CheckIcon size={14} weight="bold" class="text-green-500" />
           <span>Copied!</span>
         {:else}
-          <CopyIcon size={18} />
+          <CopyIcon size={14} />
           <span>Copy npub</span>
         {/if}
       </button>
 
-      <!-- Mute Button -->
       {#if hexpubkey !== $userPublickey && $userPublickey}
         <button
           on:click={toggleMute}
           disabled={muteLoading}
-          class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 {isMuted
-            ? 'bg-red-100 text-red-700 hover:bg-red-200'
-            : 'bg-input hover:bg-accent-gray'}"
-          style={!isMuted ? 'color: var(--color-text-primary)' : ''}
+          class="flex items-center gap-1.5 transition-colors hover:opacity-80 disabled:opacity-50"
+          style="color: {isMuted ? 'rgb(248 113 113)' : 'var(--color-text-caption)'}"
         >
           {#if muteLoading}
             <span class="animate-pulse">...</span>
-          {:else if isMuted}
-            <SpeakerSlashIcon size={18} weight="bold" />
-            <span>Unmute User</span>
           {:else}
-            <SpeakerSlashIcon size={18} />
-            <span>Mute User</span>
+            <SpeakerSlashIcon size={14} weight={isMuted ? 'bold' : 'regular'} />
+            <span>{isMuted ? 'Unmute user' : 'Mute user'}</span>
           {/if}
         </button>
       {/if}
     </div>
   </div>
 </Modal>
+
+{#if avatarLightboxOpen && modalPicture}
+  <MediaLightbox images={[modalPicture]} index={0} onClose={() => (avatarLightboxOpen = false)} />
+{/if}
 
 <div class="max-w-4xl w-full px-4">
   <!-- Profile Banner. Below xl (no sidebar) it's full-bleed and flush under
