@@ -576,7 +576,7 @@
             goto('/membership');
           }}
         >
-          View membership
+          Unlock Cook+
         </button>
       </div>
     {:else}
