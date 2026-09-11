@@ -6,6 +6,7 @@
   import { NDKRelaySet, type NDKEvent } from '@nostr-dev-kit/ndk';
   import { get } from 'svelte/store';
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
+  import { isHumanReadablePostContent, postSnippet } from '$lib/postContentReadability';
   import { feedCacheService } from '$lib/feedCache';
 
   export let placeholderString: string;
@@ -18,6 +19,11 @@
   let tagquery = '';
   let showAutocomplete = false;
   let inputFocused = false;
+
+  // @handle / npub queries are unambiguous user lookups — pin Users to
+  // the top of the dropdown for them (otherwise Users sits below Posts).
+  $: looksLikeUserQuery =
+    /^@[a-z0-9-_.]{1,30}$/i.test(tagquery.trim()) || /^npub1[a-z0-9]+$/i.test(tagquery.trim());
   let inputEl: HTMLInputElement;
 
   // Auto-focus on mount for mobile overlays where HTML autofocus is unreliable
@@ -441,14 +447,14 @@
 
       sub.on('event', (event: NDKEvent) => {
         if (thisVersion !== postSearchVersion) return;
-        if (!event.id || !event.content) return;
+        if (!event.id) return;
         if (isHiddenRecipeEvent(event)) return;
         if (searchResults.posts.some((p) => p.id === event.id)) return;
 
-        const snippet = event.content
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 90);
+        // Search relays index machine payloads too (JSON blobs, data
+        // walls, bare identifiers); don't surface those as results.
+        if (!isHumanReadablePostContent(event.content)) return;
+        const snippet = postSnippet(event.content);
         if (!snippet) return;
 
         searchResults.posts = [...searchResults.posts, { id: event.id, content: snippet, pubkey: event.pubkey }].slice(0, 8);
@@ -623,6 +629,31 @@
         {/each}
       {/if}
 
+      <!-- Users rank above posts — typing a name is the most common
+           lookup, and post matches buried the user rows before. Explicit
+           @-handles and npubs pin users to the very top. -->
+      {#if searchResults.users.length > 0 && looksLikeUserQuery}
+        <li
+          class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b"
+          style="border-color: var(--color-input-border)"
+        >
+          👤 Users
+        </li>
+        {#each searchResults.users as user (user.npub)}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+          <li
+            on:click={() => selectUser(user.npub)}
+            class="cursor-pointer px-3 py-2 hover:bg-accent-gray flex items-center gap-2"
+          >
+            {#if user.picture}
+              <img src={user.picture} alt="" class="w-6 h-6 rounded-full object-cover" />
+            {/if}
+            {user.name}
+          </li>
+        {/each}
+      {/if}
+
       {#if searchResults.posts.length > 0}
         <li
           class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t"
@@ -642,7 +673,7 @@
         {/each}
       {/if}
 
-      {#if searchResults.users.length > 0}
+      {#if searchResults.users.length > 0 && !looksLikeUserQuery}
         <li
           class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t"
           style="border-color: var(--color-input-border)"
