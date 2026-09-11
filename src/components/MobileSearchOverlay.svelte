@@ -7,6 +7,11 @@
 
   $: open = $mobileSearchOpen;
 
+  function openSearch(query: string) {
+    mobileSearchOpen.set(false);
+    goto(`/search?q=${encodeURIComponent(query)}`);
+  }
+
   function openTag(query: string) {
     mobileSearchOpen.set(false);
     if (query.startsWith('npub')) {
@@ -38,6 +43,7 @@
       <TagsSearchAutocomplete
         placeholderString={'Search recipes, tags, or users...'}
         action={openTag}
+        onSubmitQuery={openSearch}
         autofocus={true}
       />
     </div>
