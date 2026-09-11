@@ -23,7 +23,7 @@
   onMount(() => {
     // Always fetch engagement data - fetchEngagement will check cache freshness
     // Batch fetch may be in progress, but individual fetch ensures counts load
-    fetchEngagement($ndk, event.id, $userPublickey);
+    fetchEngagement($ndk, event, $userPublickey);
   });
 
   async function repost() {

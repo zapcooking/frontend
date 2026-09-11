@@ -90,7 +90,7 @@
   })();
 
   onMount(() => {
-    if (event?.id) fetchEngagement($ndk, event.id, $userPublickey);
+    if (event?.id) fetchEngagement($ndk, event, $userPublickey);
   });
 
   function openZapModal() {
@@ -104,7 +104,7 @@
   function handleZapComplete(e: CustomEvent<{ amount: number }>) {
     if (event?.id) {
       optimisticZapUpdate(event.id, (e.detail.amount || 0) * 1000, $userPublickey);
-      fetchEngagement($ndk, event.id, $userPublickey);
+      fetchEngagement($ndk, event, $userPublickey);
     }
   }
 

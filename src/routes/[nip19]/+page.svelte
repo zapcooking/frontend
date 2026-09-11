@@ -11,6 +11,11 @@
   import NoteContent from '../../components/NoteContent.svelte';
   import PollDisplay from '../../components/PollDisplay.svelte';
   import NoteActionBar from '../../components/NoteActionBar.svelte';
+  import NoteReactionPills from '../../components/NoteReactionPills.svelte';
+  import ThreadRow from '../../components/comments/ThreadRow.svelte';
+  import ThreadMoreRow from '../../components/comments/ThreadMoreRow.svelte';
+  import { flattenThread } from '$lib/thread/threadFlatten';
+  import { buildReplyTree, getReplyParentId } from '$lib/thread/replyParent';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
@@ -150,27 +155,6 @@
     stopReplySubscription();
   });
 
-  // Get the parent note ID from an event's e tags
-  function getParentNoteId(evt: NDKEvent): string | null {
-    // Look for reply tag first
-    const replyTag = evt.tags.find(
-      (tag) => Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'reply'
-    );
-    if (replyTag) return replyTag[1] as string;
-
-    // Fallback to root tag
-    const rootTag = evt.tags.find(
-      (tag) => Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'root'
-    );
-    if (rootTag) return rootTag[1] as string;
-
-    // Fallback to first e tag
-    const firstETag = evt.tags.find((tag) => Array.isArray(tag) && tag[0] === 'e');
-    if (firstETag) return firstETag[1] as string;
-
-    return null;
-  }
-
   // Fetch parent thread recursively
   // Parent notes frequently live on the reply author's write relays, not
   // the default pool — the same reason fetchReplies builds a merged relay
@@ -209,11 +193,10 @@
         await new Promise((r) => setTimeout(r, 600 * attempt));
       }
       try {
-        const note = await $ndk.fetchEvent(
-          { kinds: [1, 1068, 1111] as any, ids: [parentId] },
-          undefined,
-          relaySet
-        );
+        // By id only: a NIP-22 comment's `E` parent can be a kind-30023
+        // article (or any other root kind), and a kinds list here would
+        // stop the ancestor chain at the first such parent.
+        const note = await $ndk.fetchEvent({ ids: [parentId] }, undefined, relaySet);
         if (note) return note;
       } catch {
         // Try again — a dropped socket mid-fetch is transient.
@@ -230,7 +213,7 @@
 
     try {
       while (true) {
-        const parentId = getParentNoteId(currentEvent);
+        const parentId = getReplyParentId(currentEvent);
         if (!parentId || seenIds.has(parentId)) break;
 
         seenIds.add(parentId);
@@ -505,61 +488,13 @@
     replies = [...replies, posted].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
   }
 
-  // Filter to get only direct replies (not nested)
-  $: directReplies = replies.filter((r) => {
-    if (!event) return false;
-    const rootEvent = event;
-
-    // For NIP-22 comments (kind 1111)
-    if (r.kind === 1111) {
-      const aTags = r.getMatchingTags('a');
-      const eTags = r.getMatchingTags('e');
-      const kTags = r.getMatchingTags('k');
-
-      // Check if this comment's 'a' tag matches the root article address
-      const dTag = rootEvent.tags.find((t) => t[0] === 'd')?.[1];
-      if (dTag) {
-        const rootAddress = `${rootEvent.kind}:${rootEvent.pubkey}:${dTag}`;
-        const matchesRoot = aTags.some((tag) => tag[1] === rootAddress);
-
-        // Check if parent 'e' tag points to root event (top-level comment)
-        // and 'k' tag shows parent is the root kind (30023)
-        const isTopLevel =
-          eTags.some((tag) => tag[1] === rootEvent.id) &&
-          kTags.some((tag) => tag[1] === String(rootEvent.kind));
-
-        return matchesRoot && isTopLevel;
-      }
-      return false;
-    }
-
-    // For NIP-10 replies (kind 1)
-    const eTags = r.getMatchingTags('e');
-    const replyTag = eTags.find((tag) => tag[3] === 'reply');
-    const rootTag = eTags.find((tag) => tag[3] === 'root');
-
-    // If there's a specific reply marker, check if it points to main event
-    if (replyTag) {
-      return replyTag[1] === event.id;
-    }
-
-    // If only one e tag, it's a direct reply
-    if (eTags.length === 1 && eTags[0][1] === event.id) {
-      return true;
-    }
-
-    // If root is main event and no reply marker, it's a direct reply
-    if (rootTag && rootTag[1] === event.id && !replyTag) {
-      return true;
-    }
-
-    // Otherwise, check if any e tag references main event (handles older tagging)
-    if (eTags.length > 0 && !replyTag && !rootTag) {
-      return eTags.some((tag) => tag[1] === event?.id);
-    }
-
-    return false;
-  });
+  // Every reply hangs off exactly one parent, resolved in one place, so
+  // the ancestors above the note and the tree below it can't disagree.
+  $: visibleReplies = replies.filter((r) => !$mutedPubkeys.has(r.author?.hexpubkey || r.pubkey));
+  $: parentToChildren = event
+    ? buildReplyTree<NDKEvent>(event.id, visibleReplies)
+    : new Map<string, NDKEvent[]>();
+  $: directReplies = (event && parentToChildren.get(event.id)) || [];
 
   // People in this note: author first, then anyone mentioned (p-tags), then
   // reply authors — deduped, mute-filtered, and capped for the rail.
@@ -581,38 +516,48 @@
     return order.slice(0, 12);
   })();
 
-  // Get nested replies for a comment
-  function getNestedReplies(parentId: string): NDKEvent[] {
-    return replies.filter((r) => {
-      // For NIP-22 comments (kind 1111)
-      if (r.kind === 1111) {
-        const eTags = r.getMatchingTags('e');
-        const kTags = r.getMatchingTags('k');
-        // Check if parent 'e' tag points to the parent comment
-        // and 'k' tag shows parent is a comment (1111)
-        return eTags.some((tag) => tag[1] === parentId) && kTags.some((tag) => tag[1] === '1111');
-      }
+  // Progressive disclosure state. Expanding past the depth cap or a
+  // fan-out row is additive — nothing folds on its own — while a branch
+  // the reader collapses stays folded until they reopen it.
+  let expandedBranchIds = new Set<string>();
+  let expandedFanOutIds = new Set<string>();
+  let collapsedBranchIds = new Set<string>();
 
-      // For NIP-10 replies (kind 1)
-      const eTags = r.getMatchingTags('e');
-      const replyTag = eTags.find((tag) => tag[3] === 'reply');
-
-      // Check if reply marker points to parent
-      if (replyTag && replyTag[1] === parentId) {
-        return true;
-      }
-
-      // Check if this is a reply to the parent (without markers)
-      if (!replyTag && eTags.some((tag) => tag[1] === parentId)) {
-        // Make sure it's not actually replying to the main event
-        return !eTags.some(
-          (tag) => tag[1] === event?.id && (tag[3] === 'reply' || eTags.length === 1)
-        );
-      }
-
-      return false;
-    });
+  function expandBranch(id: string) {
+    expandedBranchIds = new Set(expandedBranchIds).add(id);
+    if (collapsedBranchIds.has(id)) {
+      const next = new Set(collapsedBranchIds);
+      next.delete(id);
+      collapsedBranchIds = next;
+    }
   }
+
+  function toggleBranchCollapse(id: string) {
+    const next = new Set(collapsedBranchIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    collapsedBranchIds = next;
+  }
+
+  function expandFanOut(id: string) {
+    expandedFanOutIds = new Set(expandedFanOutIds).add(id);
+  }
+
+  // The root note is passed in so depths match the Android client — root
+  // at 0, its replies at 1 — which is what gives a direct reply a rail
+  // back to the note it answers. The root's own row is then dropped,
+  // since this page renders it as a header card above the list.
+  $: threadItems = event
+    ? flattenThread<NDKEvent>({
+        rootId: event.id,
+        rootEvent: event,
+        parentToChildren,
+        collapsedIds: collapsedBranchIds,
+        expandedIds: expandedBranchIds,
+        expandedFanOut: expandedFanOutIds
+      }).filter((item) => !(item.kind === 'post' && item.event.id === event?.id))
+    : [];
+
 </script>
 
 <svelte:head>
@@ -863,6 +808,10 @@
           <NoteContent content={event.content} {event} />
         {/if}
       </div>
+      <!-- Emoji breakdown, not just a heart count: a note with four 👍
+           and three ❤️ read as bare "0" here while every other client
+           showed the pills. -->
+      <NoteReactionPills {event} />
       <NoteActionBar {event} showCheffy={false} />
     </article>
 
@@ -886,148 +835,34 @@
           No replies yet. {#if !$userPublickey}<a href="/login?redirect={encodeURIComponent($page.url.pathname)}" class="underline hover:opacity-80" style="color: var(--color-primary)">Sign in</a> to reply!{:else}Be the first to reply!{/if}
         </p>
       {:else}
-        <div class="space-y-3">
-          {#each directReplies as reply (reply.id)}
-            {#if !$mutedPubkeys.has(reply.author?.hexpubkey || reply.pubkey)}
-              <div class="reply-card">
-                <article
-                  class="cursor-pointer"
-                  on:click={(e) => gotoNoteUnlessInteractive(e, reply)}
-                  role="link"
-                  tabindex="0"
-                  on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(reply))}
-                >
-                  <div class="flex items-center justify-between gap-3 mb-2">
-                    <div class="flex items-center gap-3 min-w-0">
-                      <a
-                        href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
-                        class="flex-shrink-0"
-                        on:click|stopPropagation
-                      >
-                        <Avatar pubkey={reply.author?.hexpubkey || reply.pubkey} size={32} />
-                      </a>
-                      <div class="flex flex-col min-w-0">
-                        <a
-                          href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
-                          class="font-semibold text-[15px] transition-colors username-link truncate min-w-0"
-                          style="color: var(--color-text-primary)"
-                          on:click|stopPropagation
-                        >
-                          <CustomName pubkey={reply.author?.hexpubkey || reply.pubkey} />
-                        </a>
-                        <span class="text-xs" style="color: var(--color-caption)">
-                          {reply.created_at ? formatTimeAgo(reply.created_at) : ''}
-                        </span>
-                      </div>
-                    </div>
-                    <span on:click|stopPropagation>
-                      <PostActionsMenu event={reply} />
-                    </span>
-                  </div>
-                  <div
-                    class="text-[14px] leading-normal"
-                    style="color: var(--color-text-primary)"
-                  >
-                    {#if reply.kind === 1068}
-                      <PollDisplay event={reply} />
-                    {:else}
-                      <NoteContent content={reply.content} event={reply} showNostrEmbeds={false} />
-                    {/if}
-                  </div>
-                  <!-- Reply actions -->
-                  <div class="mt-2" on:click|stopPropagation>
-                    <NoteActionBar event={reply} showCheffy={false} />
-                  </div>
-                </article>
-
-                <!-- Nested Replies (1 level deep shown inline) -->
-                {#each getNestedReplies(reply.id).slice(0, 2) as nestedReply (nestedReply.id)}
-                  {#if !$mutedPubkeys.has(nestedReply.author?.hexpubkey || nestedReply.pubkey)}
-                    <div class="ml-4 pl-4 border-l-2" style="border-color: var(--color-input-border)">
-                      <article
-                        class="py-2 cursor-pointer hover:bg-[var(--color-bg-hover,rgba(255,255,255,0.03))] rounded"
-                        on:click={(e) => gotoNoteUnlessInteractive(e, nestedReply)}
-                        role="link"
-                        tabindex="0"
-                        on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(nestedReply))}
-                      >
-                        <div class="flex items-center justify-between gap-2 mb-2">
-                          <div class="flex items-center gap-2 min-w-0">
-                            <a
-                              href="/user/{nip19.npubEncode(
-                                nestedReply.author?.hexpubkey || nestedReply.pubkey
-                              )}"
-                              class="flex-shrink-0"
-                              on:click|stopPropagation
-                            >
-                              <Avatar
-                                pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
-                                size={24}
-                              />
-                            </a>
-                            <div class="flex flex-col min-w-0">
-                              <a
-                                href="/user/{nip19.npubEncode(
-                                  nestedReply.author?.hexpubkey || nestedReply.pubkey
-                                )}"
-                                class="font-semibold text-sm transition-colors username-link truncate min-w-0"
-                                style="color: var(--color-text-primary)"
-                                on:click|stopPropagation
-                              >
-                                <CustomName
-                                  pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
-                                />
-                              </a>
-                              <span class="text-xs" style="color: var(--color-caption)">
-                                {nestedReply.created_at
-                                  ? formatTimeAgo(nestedReply.created_at)
-                                  : ''}
-                              </span>
-                            </div>
-                          </div>
-                          <span on:click|stopPropagation>
-                            <PostActionsMenu event={nestedReply} />
-                          </span>
-                        </div>
-                        <div
-                          class="text-[13px] leading-normal"
-                          style="color: var(--color-text-primary)"
-                        >
-                          {#if nestedReply.kind === 1068}
-                            <PollDisplay event={nestedReply} />
-                          {:else}
-                            <NoteContent
-                              content={nestedReply.content}
-                              event={nestedReply}
-                              showNostrEmbeds={false}
-                            />
-                          {/if}
-                        </div>
-                        <!-- Nested reply actions -->
-                        <div class="mt-1.5" on:click|stopPropagation>
-                          <NoteActionBar event={nestedReply} variant="compact" />
-                        </div>
-                      </article>
-                    </div>
-                  {/if}
-                {/each}
-
-                <!-- Show more nested replies link -->
-                {#if getNestedReplies(reply.id).length > 2}
-                  <a
-                    href="{noteUrl(reply)}"
-                    class="ml-4 pl-4 border-l-2 py-2 block text-xs text-primary hover:opacity-80"
-                    style="border-color: var(--color-input-border)"
-                  >
-                    Show {getNestedReplies(reply.id).length - 2} more {getNestedReplies(reply.id)
-                      .length -
-                      2 ===
-                    1
-                      ? 'reply'
-                      : 'replies'}
-                  </a>
-                {/if}
-              </div>
+        <!-- A flat list of rows, each carrying its own depth. Replies
+             used to render one level deep, capped at two children, with
+             a link that navigated away for the rest. -->
+        <div class="thread-replies">
+          {#each threadItems as item (item.key)}
+            {#if item.kind === 'post'}
+              <ThreadRow
+                event={item.event}
+                depth={item.depth}
+                connectorStartsMidAir={item.connectorStartsMidAir}
+                descendantCount={item.descendantCount}
+                collapsed={item.collapsed}
+                onToggleCollapse={() => toggleBranchCollapse(item.event.id)}
+                rootAuthor={event?.author?.hexpubkey || event?.pubkey}
+                formatTime={formatTimeAgo}
+              />
+            {:else if item.kind === 'collapsed'}
+              <ThreadMoreRow
+                depth={item.depth}
+                hiddenCount={item.hiddenCount}
+                onExpand={() => expandBranch(item.anchor.id)}
+              />
+            {:else}
+              <ThreadMoreRow
+                depth={item.depth}
+                hiddenCount={item.hiddenCount}
+                onExpand={() => expandFanOut(item.parent.id)}
+              />
             {/if}
           {/each}
         </div>
@@ -1087,10 +922,11 @@
 
   /* Each reply is a filled panel (no border), a shade darker than the page,
      matching the reply composer box below the list. */
-  .reply-card {
-    background-color: var(--color-card-sunken);
-    border-radius: 0.5rem;
-    padding: 0.75rem 1rem;
+  .thread-replies {
+    /* Rows carry their own bottom rule; the list needs no gap. The last
+       row's rule doubles as the boundary before the reply composer. */
+    display: flex;
+    flex-direction: column;
   }
 
   /* Username hover - orange color */

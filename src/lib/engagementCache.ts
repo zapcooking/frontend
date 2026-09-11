@@ -5,6 +5,7 @@ import { browser } from '$app/environment';
 import { getEngagementCounts, batchFetchFromServerAPI } from './countQuery';
 import { extractZapAmountSats } from './zapAmount';
 import { getEngagementTargetId, engagementTargetsNote } from './engagementTarget';
+import { raiseCount } from './engagementCounts';
 
 // Aggregator relays that index zap receipts — LNURL providers publish kind:9735
 // to these relays, which may not overlap with the app's default relay set.
@@ -12,6 +13,78 @@ const ZAP_AGGREGATOR_RELAYS = [
   'wss://nos.lol',
   'wss://relay.primal.net'
 ];
+
+/**
+ * How long to wait on the author's relay list before subscribing anyway.
+ * `relayListCache` answers instantly once warm, so this only bites on the
+ * first note from a given author.
+ */
+const OUTBOX_LOOKUP_TIMEOUT_MS = 1500;
+
+/**
+ * Relays worth asking about a note's engagement, beyond our own.
+ *
+ * Reactions, reposts and replies are published by *other people* to
+ * *their* relays, not ours. Querying only the app's default set means a
+ * note from someone outside it reads as having no engagement at all —
+ * a Damus user's note shows zero reactions here while their own client
+ * shows a dozen, because the kind:7s only ever reached relay.damus.io.
+ *
+ * Two sources close most of that gap:
+ * - the relays that actually delivered this note (`onRelays`), which is
+ *   free and already known
+ * - the author's NIP-65 write relays, where their audience is most
+ *   likely to have replied
+ */
+async function engagementRelayHints(event: NDKEvent | undefined): Promise<string[]> {
+  if (!event) return [];
+  const hints = new Set<string>();
+
+  // Relay lists are author-controlled and still contain plain `ws://`
+  // entries. The app's connect-src policy rejects those, so a hint that
+  // isn't wss:// costs a CSP violation and buys nothing.
+  const addHint = (url: string | undefined) => {
+    if (url && url.startsWith('wss://')) hints.add(url);
+  };
+
+  // The single relay that delivered the note is the surest place its
+  // engagement lives, and `onRelays` can be empty for an event that came
+  // through a one-off fetch rather than a subscription.
+  try {
+    addHint(event.relay?.url);
+  } catch {
+    // `relay` is a getter on some NDK versions; never fatal.
+  }
+  try {
+    for (const relay of event.onRelays || []) {
+      addHint(relay?.url);
+    }
+  } catch {
+    // onRelays is a getter over subscription state; never fatal.
+  }
+
+  const pubkey = event.pubkey || event.author?.pubkey;
+  if (pubkey) {
+    try {
+      const { getOutboxRelays } = await import('./relayListCache');
+      const outbox = await Promise.race([
+        getOutboxRelays(pubkey),
+        new Promise<string[]>((resolve) =>
+          setTimeout(() => resolve([]), OUTBOX_LOOKUP_TIMEOUT_MS)
+        )
+      ]);
+      // Two is enough to find the author's audience without opening a
+      // connection per relay in a long list.
+      for (const url of (outbox || []).filter((u) => u?.startsWith('wss://')).slice(0, 2)) {
+        addHint(url);
+      }
+    } catch {
+      // No relay list published, or the lookup failed: defaults still apply.
+    }
+  }
+
+  return [...hints];
+}
 
 // Individual zapper info
 export interface Zapper {
@@ -97,6 +170,36 @@ const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - persist across page reloads
 // ═══════════════════════════════════════════════════════════════
 
 const persistentSubscriptions = new Map<string, { sub: NDKSubscription; lastActivity: number; createdAt: number }>();
+
+/**
+ * One in-flight `fetchEngagement` per note.
+ *
+ * A note's action bar mounts several components at once — comment count,
+ * repost, zaps, reaction pills — and each asks for engagement. The guard
+ * that reuses an existing subscription can only see subscriptions that
+ * have already been registered, and registration happens after several
+ * awaits (relay pre-connect, relay-list lookup). Every one of those
+ * callers therefore got past the guard and opened its own subscription
+ * for the same note, and only the last to register stayed live.
+ *
+ * Events delivered to the superseded subscriptions were then discarded
+ * as stale, which is how a note with seven reactions displayed none:
+ * against a real thread, two thirds of arriving reactions and replies
+ * were being thrown away. Collapsing concurrent callers onto one promise
+ * means one subscription per note, and nothing to discard.
+ */
+const inFlightFetches = new Map<string, Promise<void>>();
+
+// Bumped by cleanupEngagement (per note) and clearAllEngagementCaches (all
+// notes). A fetch that was still awaiting relay hints or connects when its
+// note was torn down compares its token afterwards and stops, rather than
+// opening a subscription and rebuilding state for a note nobody renders.
+const fetchEpochs = new Map<string, number>();
+let globalFetchEpoch = 0;
+
+function fetchEpochToken(eventId: string): string {
+  return `${globalFetchEpoch}:${fetchEpochs.get(eventId) ?? 0}`;
+}
 const SUBSCRIPTION_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes - close idle subscriptions
 // A young persistent subscription is reused even without zap-amount data.
 // Five-plus components call fetchEngagement per note on mount, and most
@@ -392,9 +495,35 @@ export function getEngagementStore(eventId: string): Writable<EngagementData> {
 // Uses NIP-45 COUNT queries first for speed, then falls back to full event fetch
 export async function fetchEngagement(
   ndk: NDK,
-  eventId: string,
+  target: NDKEvent | string,
   userPublickey: string
 ): Promise<void> {
+  const id = typeof target === 'string' ? target : target?.id;
+  if (!id || !ndk) return;
+
+  const existing = inFlightFetches.get(id);
+  if (existing) return existing;
+
+  const run = runFetchEngagement(ndk, target, userPublickey).finally(() => {
+    // Only clear our own entry: cleanup may have dropped it already and a
+    // newer fetch may have taken the slot.
+    if (inFlightFetches.get(id) === run) inFlightFetches.delete(id);
+  });
+  inFlightFetches.set(id, run);
+  return run;
+}
+
+async function runFetchEngagement(
+  ndk: NDK,
+  target: NDKEvent | string,
+  userPublickey: string
+): Promise<void> {
+  // Callers that hold the event should pass it: the event knows which
+  // relays carried it and who wrote it, which is what makes the
+  // engagement query reach the relays the reactions are actually on.
+  // An id alone still works, on our default relays only.
+  const eventId = typeof target === 'string' ? target : target?.id;
+  const hintSource = typeof target === 'string' ? undefined : target;
   if (!eventId || !ndk) return;
   
   const store = getEngagementStore(eventId);
@@ -425,26 +554,24 @@ export async function fetchEngagement(
     
     if (counts) {
       store.update(s => {
-        // Always update counts if we got them from NIP-45 (they're authoritative)
+        // A COUNT is only ever a partial view: it answers for the handful
+        // of relays that were asked, and a relay that never saw the
+        // reaction honestly answers zero. Letting that zero overwrite a
+        // number the subscription already found is how a note with real
+        // engagement ends up displaying none, so counts are only ever
+        // raised here, never lowered.
         const updated = { ...s };
         let hasAnyCounts = false;
-        
-        if (counts.reactions !== null) {
-          updated.reactions.count = counts.reactions;
-          hasAnyCounts = true;
-        }
-        if (counts.comments !== null) {
-          updated.comments.count = counts.comments;
-          hasAnyCounts = true;
-        }
-        if (counts.reposts !== null) {
-          updated.reposts.count = counts.reposts;
-          hasAnyCounts = true;
-        }
-        if (counts.zaps !== null) {
-          updated.zaps.count = counts.zaps;
-          hasAnyCounts = true;
-        }
+
+        const fold = (current: number, counted: number | null): number => {
+          if (counted !== null) hasAnyCounts = true;
+          return raiseCount(current, counted);
+        };
+
+        updated.reactions.count = fold(updated.reactions.count, counts.reactions);
+        updated.comments.count = fold(updated.comments.count, counts.comments);
+        updated.reposts.count = fold(updated.reposts.count, counts.reposts);
+        updated.zaps.count = fold(updated.zaps.count, counts.zaps);
         
         // Mark as loaded if we got counts (even if 0 - that's valid data)
         if (hasAnyCounts) {
@@ -597,12 +724,15 @@ export async function fetchEngagement(
   let eoseReceived = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
-  // Pre-connect aggregator relays before subscribing.
+  const epochToken = fetchEpochToken(eventId);
+  const hintRelays = await engagementRelayHints(hintSource);
+
+  // Pre-connect aggregator and hint relays before subscribing.
   // NDKRelaySet.fromRelayUrls creates temporary relays that connect asynchronously,
   // so the subscription's initial REQ can miss them. By explicitly connecting first,
-  // we ensure the REQ reaches aggregator relays on the first try.
+  // we ensure the REQ reaches those relays on the first try.
   await Promise.all(
-    ZAP_AGGREGATOR_RELAYS.map(async (url) => {
+    [...ZAP_AGGREGATOR_RELAYS, ...hintRelays].map(async (url) => {
       try {
         const relay = ndk.pool.getRelay(url, true, true);
         if (relay.connectivity?.status !== 1) {
@@ -614,9 +744,14 @@ export async function fetchEngagement(
     })
   );
 
-  // Build relay set: NDK's connected relays + zap aggregator relays
+  // The note may have been cleaned up (or every cache cleared) while the
+  // lookups above were pending; resuming would recreate what was torn down.
+  if (fetchEpochToken(eventId) !== epochToken) return;
+
+  // Build relay set: NDK's connected relays + zap aggregators + the
+  // relays this note came from and its author writes to.
   const relaySet = NDKRelaySet.fromRelayUrls(
-    [...(ndk.explicitRelayUrls || []), ...ZAP_AGGREGATOR_RELAYS],
+    [...(ndk.explicitRelayUrls || []), ...ZAP_AGGREGATOR_RELAYS, ...hintRelays],
     ndk,
     true // addConnectedRelays
   );
@@ -626,7 +761,19 @@ export async function fetchEngagement(
     startSubscriptionCleanup();
 
     // Create persistent subscription (stays open for real-time updates)
-    const sub = ndk.subscribe(filter, { closeOnEose: false }, relaySet);
+    // `groupable: false` is load-bearing, not a tuning knob.
+    //
+    // NDK merges subscriptions created within its grouping window when
+    // they share a filter fingerprint. Every note on a thread page asks
+    // for engagement with the same shape — same kinds, same `#e` tag —
+    // so a thread of eleven notes became one REQ carrying eleven `#e`
+    // values, and the relay truncated the merged result. Each note then
+    // saw a fraction of its own engagement: measured against jb55's
+    // noteguard thread, NDK delivered 1 of 7 reactions where a raw
+    // socket with the identical filter returned all 7.
+    //
+    // One REQ per note costs more requests and gets complete answers.
+    const sub = ndk.subscribe(filter, { closeOnEose: false, groupable: false }, relaySet);
     
     // Register in persistent subscriptions map
     persistentSubscriptions.set(eventId, { sub, lastActivity: Date.now(), createdAt: Date.now() });
@@ -944,6 +1091,10 @@ export function cleanupEngagement(eventId: string): void {
   // Invalidate any pending EOSE/timeout completion for this note so it
   // can't finalize a store or subscription created after this cleanup.
   fetchGenerations.delete(eventId);
+  // And any fetch still awaiting relay lookups, so it neither resumes nor
+  // gets handed out as the answer to a later fetch for the same note.
+  fetchEpochs.set(eventId, (fetchEpochs.get(eventId) ?? 0) + 1);
+  inFlightFetches.delete(eventId);
 
   // Clean up persistent subscription
   const persistent = persistentSubscriptions.get(eventId);
@@ -1208,11 +1359,13 @@ export async function batchFetchEngagement(
       for (const [eventId, counts] of apiCounts) {
         const store = getEngagementStore(eventId);
         store.update(s => {
+          // Same rule as the single-note path: a partial answer may raise
+          // a count, never lower one the live subscription already found.
           const updated = { ...s };
-          if (counts.reactions !== null) updated.reactions.count = counts.reactions;
-          if (counts.comments !== null) updated.comments.count = counts.comments;
-          if (counts.reposts !== null) updated.reposts.count = counts.reposts;
-          if (counts.zaps !== null) updated.zaps.count = counts.zaps;
+          updated.reactions.count = raiseCount(updated.reactions.count, counts.reactions);
+          updated.comments.count = raiseCount(updated.comments.count, counts.comments);
+          updated.reposts.count = raiseCount(updated.reposts.count, counts.reposts);
+          updated.zaps.count = raiseCount(updated.zaps.count, counts.zaps);
           updated.loading = false;
           updated.lastFetched = Date.now();
           saveToCache(eventId, updated);
@@ -1383,6 +1536,9 @@ export function clearAllEngagementCaches(): void {
   }
   // Pending EOSE/timeout completions must not recreate cleared stores
   fetchGenerations.clear();
+  // Nor may a fetch that was mid-await resume, or be reused, after this.
+  globalFetchEpoch += 1;
+  inFlightFetches.clear();
 
   // Clear stores
   engagementStores.clear();
