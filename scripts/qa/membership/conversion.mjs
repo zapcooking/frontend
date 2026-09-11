@@ -7,9 +7,13 @@
  * scripts/qa/cheffys-table pattern: Playwright is resolved from an env var
  * so the repo does not need it as a dependency.
  *
- *   MEMBERSHIP_ENABLED=true PUBLIC_MEMBERSHIP_ENABLED=true \
- *     pnpm preview --port 4173 --strictPort
- *   MEMBERSHIP_PLAYWRIGHT_MODULE=/path/to/node_modules/playwright-core \
+ *   # The preview runs in the Cloudflare adapter's workerd, which reads
+ *   # .dev.vars (gitignored) and not the shell environment — add both
+ *   # flags there, then:
+ *   #   MEMBERSHIP_ENABLED=true
+ *   #   PUBLIC_MEMBERSHIP_ENABLED=true
+ *   pnpm preview --port 4173 --strictPort --host 127.0.0.1
+ *   MEMBERSHIP_PLAYWRIGHT_MODULE=/path/to/node_modules/playwright-core/index.js \
  *   MEMBERSHIP_QA_CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
  *     node scripts/qa/membership/conversion.mjs
  *
@@ -68,9 +72,18 @@ async function newPage({
   });
   await context.addInitScript(
     ({ pk, loggedIn, discoveryRecord, sessionShown, key, sessionKey }) => {
-      // Never let a stale record from a previous run leak in.
-      localStorage.removeItem(key);
-      sessionStorage.removeItem(sessionKey);
+      // Init scripts run on every navigation. The reset below is for the
+      // first load of a context only: the discovery rules being tested
+      // (session flag, 30-day record, eligible-view count) live in exactly
+      // the storage this would otherwise wipe on the second page.
+      if (sessionStorage.getItem('__membership_qa_init') !== '1') {
+        sessionStorage.setItem('__membership_qa_init', '1');
+        // Never let a stale record from a previous run leak in.
+        localStorage.removeItem(key);
+        sessionStorage.removeItem(sessionKey);
+        if (discoveryRecord) localStorage.setItem(key, JSON.stringify(discoveryRecord));
+        if (sessionShown) sessionStorage.setItem(sessionKey, '1');
+      }
       localStorage.setItem('zapcooking_wallet_welcome_seen', '1');
       if (loggedIn) {
         localStorage.setItem('nostrcooking_loggedInPublicKey', pk);
@@ -83,8 +96,6 @@ async function newPage({
           getRelays: async () => ({})
         };
       }
-      if (discoveryRecord) localStorage.setItem(key, JSON.stringify(discoveryRecord));
-      if (sessionShown) sessionStorage.setItem(sessionKey, '1');
     },
     {
       pk: PK,
@@ -169,7 +180,7 @@ try {
 
     // textContent, not innerText: the label is uppercased by CSS.
     const toolNames = await page
-      .locator('.tool-card .tool-name')
+      .locator('.product-row .tool-name')
       .evaluateAll((els) => els.map((el) => el.textContent.trim()));
     assert.deepEqual(toolNames, ['Sous Chef', 'Nourish', 'Cheffy']);
     assert.equal(await page.getByTestId('sticky-cta').count(), 0, 'no sticky CTA on desktop');
@@ -329,8 +340,10 @@ try {
     await page.waitForTimeout(3000);
     assert.equal(await page.getByTestId('cook-plus-discovery').count(), 0, 'not after one page');
 
-    // Second eligible page → shows after the short delay.
+    // Second eligible page → shows after the short delay. Interaction is
+    // per-load by design, so the new page needs one too.
     await load(page, `${base}/reads`);
+    await page.mouse.wheel(0, 100);
     const modal = page.getByTestId('cook-plus-discovery');
     await modal.waitFor({ state: 'visible', timeout: 8000 });
     const dialog = page.locator('dialog[aria-modal="true"]');

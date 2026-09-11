@@ -20,6 +20,7 @@
   import { walletModalOpen } from '$lib/wallet/walletModalStore';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { cheffyOpen } from '$lib/stores/cheffyChat';
+  import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import Modal from './Modal.svelte';
   import Button from './Button.svelte';
   import CheffyAvatar from './CheffyAvatar.svelte';
@@ -38,7 +39,8 @@
     wasShownThisSession,
     writeDiscoveryRecord,
     type DiscoveryAction,
-    type EligibilityInput
+    type EligibilityInput,
+    type IneligibleReason
   } from '$lib/cookPlusDiscovery';
 
   /** PUBLIC_MEMBERSHIP_ENABLED, resolved by the root layout. */
@@ -83,7 +85,8 @@
     $longformEditorOpen ||
     $walletModalOpen ||
     $loginOverlayOpen ||
-    $cheffyOpen;
+    $cheffyOpen ||
+    $mobileSearchOpen;
 
   // Overlays that don't go through a store (PostModal variants, sheets).
   function domOverlayOpen(): boolean {
@@ -111,23 +114,42 @@
     }
   }
 
+  // Reasons that should close an already-open card. Opening it sets the
+  // session flag and the 30-day record, so 'session' and 'cooldown' are
+  // always true while it is up and must not count; 'route' is handled by
+  // the navigation block, which closes on any path change.
+  const CLOSE_WHILE_OPEN: ReadonlySet<IneligibleReason> = new Set([
+    'disabled',
+    'signed-out',
+    'member',
+    'overlay'
+  ]);
+
   /** Decide whether anything needs to be scheduled from the current state. */
   function schedule() {
     if (!browser) return;
     clearTimer();
-    if (open) return;
     const now = Date.now();
+    // Store overlays only: the DOM check would find this modal's own dialog.
     const verdict = evaluateDiscoveryEligibility(input(now, storeOverlayOpen));
+    if (open) {
+      // Re-evaluate while up: logging out, the lookup resolving active, or
+      // another overlay opening ends the pitch rather than stacking on it.
+      if (!verdict.eligible && CLOSE_WHILE_OPEN.has(verdict.reason)) finish('close');
+      return;
+    }
     if (!verdict.eligible) return;
     if (tracker.isEngaged(now)) {
       timer = setTimeout(tryOpen, DISCOVERY_SHOW_DELAY_MS);
       return;
     }
     // Not engaged yet. The interaction listener re-schedules on first
-    // input; the dwell rule needs a timer to be re-checked on time.
+    // input; the dwell rule needs a timer to be re-checked on time. Once
+    // the deadline has passed, the only thing missing is an interaction,
+    // so there is nothing to wait for — re-arming here would spin.
     const deadline = tracker.dwellDeadline();
-    if (deadline !== null) {
-      timer = setTimeout(schedule, Math.max(0, deadline - now) + 50);
+    if (deadline !== null && now < deadline) {
+      timer = setTimeout(schedule, deadline - now + 50);
     }
   }
 

@@ -265,3 +265,25 @@ describe('existing batching behaviour is unchanged', () => {
     expect(result[PK_A]).toEqual({ active: true, tier: 'founders', expiresAt: undefined });
   });
 });
+
+describe('failed-lookup placeholder', () => {
+  it('is marked unresolved so it cannot be mistaken for an API "not a member"', async () => {
+    fetchMock.mockReturnValueOnce(Promise.resolve({ ok: false, status: 503 }));
+    queueMembershipLookup(PK_A);
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(get(membershipStatusMap)[PK_A]).toEqual({
+      active: false,
+      tier: 'unknown',
+      unresolved: true
+    });
+  });
+
+  it('is not set when the API answered but had no entry for the pubkey', async () => {
+    fetchMock.mockReturnValueOnce(respondWith({}));
+    queueMembershipLookup(PK_A);
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(get(membershipStatusMap)[PK_A]).toEqual({ active: false, tier: 'unknown' });
+  });
+});

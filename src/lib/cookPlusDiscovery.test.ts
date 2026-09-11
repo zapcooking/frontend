@@ -233,6 +233,16 @@ describe('evaluateDiscoveryEligibility', () => {
     });
   });
 
+  it("treats the store's failed-lookup placeholder as unknown, not inactive", () => {
+    // membershipStatus writes { active: false, unresolved: true } when the
+    // request itself failed; that visitor may well be a member.
+    expect(
+      evaluateDiscoveryEligibility(
+        eligible({ membership: { active: false, tier: 'unknown', unresolved: true } })
+      )
+    ).toEqual({ eligible: false, reason: 'membership-unknown' });
+  });
+
   it('never shows to members of any tier', () => {
     for (const tier of ['cook_plus', 'pro_kitchen', 'founders', 'member', 'unknown'] as const) {
       expect(

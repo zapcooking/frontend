@@ -8,8 +8,9 @@
  * Rules, in the order they are checked:
  *   1. Membership is enabled for this deployment (PUBLIC_MEMBERSHIP_ENABLED).
  *   2. The visitor is signed in AND their membership lookup has resolved
- *      inactive. Members never see it; an unresolved lookup is treated as
- *      "might be a member" and skipped rather than risk pitching to one.
+ *      inactive. Members never see it; an unresolved lookup — no entry
+ *      yet, or the store's placeholder for a failed request — is treated
+ *      as "might be a member" and skipped rather than risk pitching to one.
  *   3. The route is not onboarding, a checkout, or a disruptive workflow
  *      (composing/publishing, messaging, wallet, admin), and not a Cook+
  *      tool page — those already carry contextual upgrade prompts, which
@@ -201,7 +202,9 @@ export type EligibilityVerdict = { eligible: true } | { eligible: false; reason:
 export function evaluateDiscoveryEligibility(input: EligibilityInput): EligibilityVerdict {
   if (!input.membershipEnabled) return { eligible: false, reason: 'disabled' };
   if (!input.signedIn) return { eligible: false, reason: 'signed-out' };
-  if (!input.membership) return { eligible: false, reason: 'membership-unknown' };
+  if (!input.membership || input.membership.unresolved) {
+    return { eligible: false, reason: 'membership-unknown' };
+  }
   if (input.membership.active) return { eligible: false, reason: 'member' };
   if (!isDiscoveryRoute(input.pathname)) return { eligible: false, reason: 'route' };
   if (input.overlayOpen) return { eligible: false, reason: 'overlay' };

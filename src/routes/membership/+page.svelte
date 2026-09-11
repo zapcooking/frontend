@@ -61,7 +61,19 @@
   // ── Cook+ pricing ──────────────────────────────────────────────
   // Annual is the default; `?period=monthly` (e.g. from a contextual
   // prompt) preselects monthly. All copy derives from the one selection.
+  // The param is re-read whenever it changes (a client-side navigation
+  // from /membership to /membership?period=monthly keeps the component
+  // mounted), but only then — a user's own switch must not be undone by
+  // unrelated $page updates.
   let billingPeriod: BillingPeriod = parseBillingPeriod($page.url.searchParams.get('period'));
+  let lastPeriodParam = $page.url.searchParams.get('period');
+  $: {
+    const periodParam = $page.url.searchParams.get('period');
+    if (periodParam !== lastPeriodParam) {
+      lastPeriodParam = periodParam;
+      billingPeriod = parseBillingPeriod(periodParam);
+    }
+  }
   const savingsPercent = annualSavingsPercent();
   const monthlyEquivalent = annualMonthlyEquivalent();
   $: ctaLabel = cookPlusCtaLabel(billingPeriod);
@@ -1484,10 +1496,6 @@
   .tools {
     margin: 2.25rem 0 3rem;
     scroll-margin-top: calc(var(--header-h, 4rem) + 0.5rem);
-  }
-
-  .tool-card {
-    scroll-margin-top: calc(var(--header-h, 4rem) + 0.75rem);
   }
 
   .section-title {
