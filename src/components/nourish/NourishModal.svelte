@@ -556,7 +556,7 @@
 			</div>
 			<h3 class="lock-title">Unlock Nourish</h3>
 			<p class="lock-desc">See how this recipe scores for gut health, protein, and real food quality.</p>
-			<a href="/membership" class="w-full"><Button primary>View Membership</Button></a>
+			<a href="/membership" class="w-full"><Button primary>Unlock Cook+</Button></a>
 		</div>
 
 	{:else if error}

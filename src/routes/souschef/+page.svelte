@@ -708,7 +708,7 @@
           <p class="text-sm">
             <span class="font-semibold" style="color: var(--color-primary);">URL imports are on us.</span>
             Image and text imports are a Cook+ and above feature.
-            <button type="button" class="underline" on:click={() => goto('/membership')}>View membership</button>.
+            <button type="button" class="underline" on:click={() => goto('/membership')}>Unlock Cook+</button>.
           </p>
         </div>
       </div>

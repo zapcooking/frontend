@@ -897,7 +897,7 @@
           Cheffy is your kitchen companion — ask cooking questions, use what you have, fix a
           mistake, or turn an idea into dinner. Unlock him with a Cook+ membership.
         </p>
-        <Button on:click={() => goto('/membership')}>View Membership Options</Button>
+        <Button on:click={() => goto('/membership')}>Unlock Cook+</Button>
       </div>
     </div>
   {:else}

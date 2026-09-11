@@ -19,7 +19,9 @@
   import PendingIndicator from '../components/PendingIndicator.svelte';
   import LoginOverlay from '../components/LoginOverlay.svelte';
   import PasskeyEnrollPrompt from '../components/PasskeyEnrollPrompt.svelte';
+  import CookPlusDiscoveryModal from '../components/CookPlusDiscoveryModal.svelte';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+  import { bottomDockOccupied } from '$lib/stores/bottomDock';
 
   // Soft-launch gate for the passkey migration prompt. While false, existing
   // plaintext-key users are never prompted — enrollment is reachable only
@@ -676,10 +678,12 @@
           {/if}
         </div>
       </div>
-      {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$postComposerOpen}
+      <!-- Floating controls yield to a page-owned bottom bar (see
+           $lib/stores/bottomDock) so nothing overlaps it. -->
+      {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$postComposerOpen && !$bottomDockOccupied}
         <CreateMenuButton variant="floating" />
       {/if}
-      {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
+      {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$bottomDockOccupied}
         <ScrollToTopButton />
       {/if}
       {#if !kitchenMode}<BottomNav />
@@ -717,6 +721,9 @@
       {/if}
       {#if PASSKEY_ENROLL_PROMPT_ENABLED && authManager}
         <PasskeyEnrollPrompt />
+      {/if}
+      {#if !kitchenMode}
+        <CookPlusDiscoveryModal membershipEnabled={data.membershipEnabled === 'true'} />
       {/if}
       <ToastContainer />
       <PendingIndicator />
