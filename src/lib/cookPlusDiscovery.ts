@@ -106,10 +106,18 @@ export interface KeyValueStorage {
   setItem(key: string, value: string): void;
 }
 
-export function readDiscoveryRecord(storage: KeyValueStorage | null | undefined): DiscoveryRecord {
+/**
+ * @param key Storage key to read. Defaults to the modal's record; the
+ * promotional bar (`$lib/cookPlusPromoBar`) keeps its own record under a
+ * different key so the two surfaces never share a cooldown.
+ */
+export function readDiscoveryRecord(
+  storage: KeyValueStorage | null | undefined,
+  key: string = DISCOVERY_STORAGE_KEY
+): DiscoveryRecord {
   if (!storage) return {};
   try {
-    const raw = storage.getItem(DISCOVERY_STORAGE_KEY);
+    const raw = storage.getItem(key);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return {};
@@ -135,38 +143,53 @@ export function readDiscoveryRecord(storage: KeyValueStorage | null | undefined)
 /** Returns false when the record could not be persisted. */
 export function writeDiscoveryRecord(
   storage: KeyValueStorage | null | undefined,
-  record: DiscoveryRecord
+  record: DiscoveryRecord,
+  key: string = DISCOVERY_STORAGE_KEY
 ): boolean {
   if (!storage) return false;
   try {
-    storage.setItem(DISCOVERY_STORAGE_KEY, JSON.stringify(record));
+    storage.setItem(key, JSON.stringify(record));
     return true;
   } catch {
     return false;
   }
 }
 
-export function isSuppressedByCooldown(record: DiscoveryRecord, now: number): boolean {
-  if (typeof record.lastShownAt !== 'number') return false;
+/**
+ * True while `timestamp` is within the 30-day window before `now`.
+ * A missing timestamp never suppresses.
+ */
+export function isWithinCooldown(timestamp: number | undefined, now: number): boolean {
+  if (typeof timestamp !== 'number') return false;
   // A clock that went backwards (or a corrupt future timestamp) must not
   // suppress forever: only a sensible past timestamp counts.
-  if (record.lastShownAt > now) return true;
-  return now - record.lastShownAt < DISCOVERY_SUPPRESSION_MS;
+  if (timestamp > now) return true;
+  return now - timestamp < DISCOVERY_SUPPRESSION_MS;
 }
 
-export function wasShownThisSession(session: KeyValueStorage | null | undefined): boolean {
+export function isSuppressedByCooldown(record: DiscoveryRecord, now: number): boolean {
+  return isWithinCooldown(record.lastShownAt, now);
+}
+
+export function wasShownThisSession(
+  session: KeyValueStorage | null | undefined,
+  key: string = DISCOVERY_SESSION_KEY
+): boolean {
   if (!session) return false;
   try {
-    return session.getItem(DISCOVERY_SESSION_KEY) === '1';
+    return session.getItem(key) === '1';
   } catch {
     return false;
   }
 }
 
-export function markShownThisSession(session: KeyValueStorage | null | undefined): void {
+export function markShownThisSession(
+  session: KeyValueStorage | null | undefined,
+  key: string = DISCOVERY_SESSION_KEY
+): void {
   if (!session) return;
   try {
-    session.setItem(DISCOVERY_SESSION_KEY, '1');
+    session.setItem(key, '1');
   } catch {
     // Without session storage the 30-day record still limits repeats.
   }
@@ -199,13 +222,26 @@ export interface EligibilityInput {
 
 export type EligibilityVerdict = { eligible: true } | { eligible: false; reason: IneligibleReason };
 
+/**
+ * The audience gate every Cook+ pitch shares: signed in, lookup resolved,
+ * not a member. Returns the reason the visitor is out, or null when they
+ * are a resolved non-member.
+ */
+export function audienceGate(input: {
+  membershipEnabled: boolean;
+  signedIn: boolean;
+  membership: MembershipStatus | undefined;
+}): 'disabled' | 'signed-out' | 'membership-unknown' | 'member' | null {
+  if (!input.membershipEnabled) return 'disabled';
+  if (!input.signedIn) return 'signed-out';
+  if (!input.membership || input.membership.unresolved) return 'membership-unknown';
+  if (input.membership.active) return 'member';
+  return null;
+}
+
 export function evaluateDiscoveryEligibility(input: EligibilityInput): EligibilityVerdict {
-  if (!input.membershipEnabled) return { eligible: false, reason: 'disabled' };
-  if (!input.signedIn) return { eligible: false, reason: 'signed-out' };
-  if (!input.membership || input.membership.unresolved) {
-    return { eligible: false, reason: 'membership-unknown' };
-  }
-  if (input.membership.active) return { eligible: false, reason: 'member' };
+  const audience = audienceGate(input);
+  if (audience) return { eligible: false, reason: audience };
   if (!isDiscoveryRoute(input.pathname)) return { eligible: false, reason: 'route' };
   if (input.overlayOpen) return { eligible: false, reason: 'overlay' };
   if (input.shownThisSession) return { eligible: false, reason: 'session' };

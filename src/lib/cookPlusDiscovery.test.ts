@@ -390,3 +390,19 @@ describe('engagement tracker', () => {
     expect(t.isEngaged(NOW)).toBe(false);
   });
 });
+
+describe('shared helpers with a custom key', () => {
+  it('read, write and session flag honour the key they are given', () => {
+    const storage = new StorageStub();
+    expect(writeDiscoveryRecord(storage, { lastDismissedAt: NOW }, 'other:record')).toBe(true);
+    expect(storage.data.has(DISCOVERY_STORAGE_KEY)).toBe(false);
+    expect(readDiscoveryRecord(storage, 'other:record')).toEqual({ lastDismissedAt: NOW });
+    expect(readDiscoveryRecord(storage)).toEqual({});
+
+    const session = new StorageStub();
+    markShownThisSession(session, 'other:session');
+    expect(session.data.has(DISCOVERY_SESSION_KEY)).toBe(false);
+    expect(wasShownThisSession(session, 'other:session')).toBe(true);
+    expect(wasShownThisSession(session)).toBe(false);
+  });
+});
