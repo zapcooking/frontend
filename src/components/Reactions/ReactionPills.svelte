@@ -17,7 +17,7 @@
     const data = $store;
     if (!data.lastFetched || Date.now() - data.lastFetched > 5 * 60 * 1000) {
       if (!data.loading) {
-        fetchEngagement($ndk, event.id, $userPublickey);
+        fetchEngagement($ndk, event, $userPublickey);
       }
     }
   });

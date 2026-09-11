@@ -68,7 +68,7 @@
       // from ZapModal's success branch / Bitcoin Connect onPaid). Fire
       // the completion marker so the sparkle burst runs exactly once.
       markSelfZapCompleted(event.id);
-      fetchEngagement($ndk, event.id, $userPublickey);
+      fetchEngagement($ndk, event, $userPublickey);
     }
   }
 

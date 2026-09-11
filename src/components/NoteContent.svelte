@@ -3,6 +3,8 @@
   import { scanNostrRefs, type ScannedRef } from '$lib/nostrRefScan';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { ndk } from '$lib/nostr';
+  import { GATED_RECIPE_KIND, RECIPE_TAGS } from '$lib/consts';
   import ProfileLink from './ProfileLink.svelte';
   import NoteEmbed from './NoteEmbed.svelte';
   import NofferButton from './clink/NofferButton.svelte';
@@ -16,6 +18,7 @@
   import { isImageUrl, filterImageUrls } from '$lib/imageUrls';
   import MediaLightbox from './MediaLightbox.svelte';
   import LightningInvoiceCard from './LightningInvoiceCard.svelte';
+  import QuotesIcon from 'phosphor-svelte/lib/Quotes';
 
   export let content: string;
   export let className: string = '';
@@ -281,8 +284,45 @@
   }
 
   function handleNostrClick(nostrId: string) {
-    // Navigate to the nostr reference
-    goto(`/${nostrId}`);
+    // Navigate to the nostr reference. The parsed content keeps the
+    // `nostr:` URI scheme on the string; the route doesn't take it, and
+    // leaving it on lands the reader at /nostr:nevent1... instead.
+    goto(`/${nostrId.replace(/^nostr:/i, '')}`);
+  }
+
+  // Addressable events don't go through the [nip19] route: recipes and
+  // articles live on type-specific pages, and which one an naddr belongs
+  // to isn't knowable from the address alone. NoteEmbed decides after
+  // fetching the event; a compact chip has to do the same on click.
+  async function openAddressable(ref: string) {
+    const clean = ref.replace(/^nostr:/i, '');
+    let decoded: ReturnType<typeof nip19.decode>;
+    try {
+      decoded = nip19.decode(clean);
+    } catch {
+      return;
+    }
+    if (decoded.type !== 'naddr') return;
+    const { kind, pubkey, identifier } = decoded.data;
+    if (kind === GATED_RECIPE_KIND) {
+      goto(`/recipe/${clean}`);
+      return;
+    }
+    let isRecipe = false;
+    try {
+      const fetched = await Promise.race([
+        $ndk.fetchEvent({ kinds: [kind], authors: [pubkey], '#d': [identifier] }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+      ]);
+      isRecipe =
+        !!fetched &&
+        fetched.tags.some(
+          (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
+        );
+    } catch {
+      // Relay unreachable: the article route still resolves the naddr.
+    }
+    goto(isRecipe ? `/recipe/${clean}` : `/reads/${clean}`);
   }
 
   $: parsedContent = parseContent(content);
@@ -475,11 +515,31 @@
       {:else if part.prefix === 'nevent1' || part.prefix === 'note1'}
         {#if showNostrEmbeds}
           <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {:else}
+          <div class="my-1">
+            <button
+              class="quoted-chip"
+              on:click|stopPropagation|preventDefault={() => handleNostrClick(part.content)}
+            >
+              <QuotesIcon size={12} weight="fill" />
+              Quoted note
+            </button>
+          </div>
         {/if}
       {:else if part.prefix === 'naddr1'}
         <!-- Addressable event (recipe, article, etc.) - render as embedded content -->
         {#if showNostrEmbeds}
           <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {:else}
+          <div class="my-1">
+            <button
+              class="quoted-chip"
+              on:click|stopPropagation|preventDefault={() => openAddressable(part.content)}
+            >
+              <QuotesIcon size={12} weight="fill" />
+              Quoted post
+            </button>
+          </div>
         {/if}
       {:else if part.prefix === 'noffer1'}
         <!-- CLINK static offer — render an inline "⚡ Pay" pill that opens
@@ -560,5 +620,29 @@
   :global(html.dark) .hashtag-pill:hover {
     background-color: rgb(234 88 12); /* bg-orange-600 */
     color: white;
+  }
+
+  /* Stand-in for a quote where the full embed is suppressed — thread
+     ancestors and reply rows keep their rows compact by passing
+     showNostrEmbeds={false}, and the reference used to render as nothing
+     at all, so the quote silently vanished from the note. */
+  .quoted-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid var(--color-input-border);
+    border-radius: 9999px;
+    color: var(--color-caption);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      border-color 120ms ease;
+  }
+  .quoted-chip:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-text-caption);
   }
 </style>

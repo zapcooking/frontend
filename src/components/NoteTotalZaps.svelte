@@ -58,7 +58,7 @@
   let lastTapTime = 0; // Debounce to prevent double-handling from touch + click
 
   onMount(() => {
-    fetchEngagement($ndk, event.id, $userPublickey);
+    fetchEngagement($ndk, event, $userPublickey);
   });
 
   onDestroy(() => {
@@ -212,7 +212,7 @@
         // Re-fetch engagement to pick up the real zap receipt from relays
         // (the optimistic update shows instantly, but this ensures the subscription
         // is active and will reconcile with the actual zap receipt)
-        fetchEngagement($ndk, event.id, $userPublickey);
+        fetchEngagement($ndk, event, $userPublickey);
       } else {
         // Haptic feedback on failure - long vibration to indicate error
         if ('vibrate' in navigator) {
@@ -221,7 +221,7 @@
         console.log('[NoteTotalZaps] One-tap zap failed:', result.error);
         // If zap failed, we need to revert the optimistic update
         // Refresh to get accurate counts (this will revert the optimistic update)
-        fetchEngagement($ndk, event.id, $userPublickey);
+        fetchEngagement($ndk, event, $userPublickey);
 
         if (onZapClick) {
           // Fall back to modal if one-tap fails
