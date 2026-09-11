@@ -32,6 +32,12 @@
   $: if (count === 0) onClose();
 
   let scroller: HTMLDivElement;
+  let rootEl: HTMLDivElement;
+  let closeButtonEl: HTMLButtonElement;
+  // Focus moves onto the lightbox while it's up and goes back to whatever
+  // opened it afterwards. The lightbox is portaled to body, so without
+  // this a parent dialog's Tab trap can't reach our close button.
+  let previousActiveElement: HTMLElement | null = null;
 
   function paneWidth(): number {
     return scroller?.offsetWidth || 0;
@@ -41,7 +47,37 @@
     // Jump straight to the tapped image (no animation on open).
     const w = paneWidth();
     if (w && index > 0) scroller.scrollLeft = index * w;
+    previousActiveElement = (document.activeElement as HTMLElement) || null;
+    closeButtonEl?.focus();
   });
+
+  function getFocusable(): HTMLElement[] {
+    if (!rootEl) return [];
+    return Array.from(rootEl.querySelectorAll<HTMLElement>('button:not([disabled])')).filter(
+      (el) => el.getClientRects().length > 0
+    );
+  }
+
+  // Keep Tab inside the lightbox: it's a modal layer over a page (and
+  // possibly a dialog) that is otherwise still reachable.
+  function trapTab(e: KeyboardEvent) {
+    const focusable = getFocusable();
+    if (focusable.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    const inside = !!active && rootEl.contains(active);
+    if (e.shiftKey && (active === first || !inside)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (active === last || !inside)) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
 
   function handleScroll() {
     const w = paneWidth();
@@ -57,6 +93,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') onClose();
+    else if (e.key === 'Tab') trapTab(e);
     else if (e.key === 'ArrowLeft' && index > 0) scrollToIndex(index - 1);
     else if (e.key === 'ArrowRight' && index < count - 1) scrollToIndex(index + 1);
   }
@@ -144,6 +181,12 @@
 
   onDestroy(() => {
     if (snapRestoreTimer) clearTimeout(snapRestoreTimer);
+    // Only hand focus back if it's still ours (or nowhere). If a parent
+    // has already moved it — e.g. a dialog closing underneath us and
+    // restoring its own opener — leave that alone.
+    const active = document.activeElement;
+    const ours = active === document.body || (!!active && rootEl?.contains(active));
+    if (ours && previousActiveElement?.isConnected) previousActiveElement.focus();
   });
 </script>
 
@@ -151,6 +194,7 @@
 
 <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
 <div
+  bind:this={rootEl}
   class="fixed inset-0 z-[10001] bg-black/85 overflow-hidden"
   use:portal={portalTarget ?? document.body}
   on:click={onClose}
@@ -188,6 +232,7 @@
 
   <!-- Close button -->
   <button
+    bind:this={closeButtonEl}
     class="absolute top-3 right-3 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
     on:click|stopPropagation={onClose}
     aria-label="Close image"

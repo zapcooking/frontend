@@ -167,19 +167,35 @@
   let avatarRefreshKey = 0; // Used to force Avatar remount after picture change
   let avatarLightboxOpen = false;
 
-  // The picture the profile sheet shows and enlarges. Own profile prefers
-  // the just-uploaded override so a fresh picture isn't a stale relay copy;
-  // empty means there's only a generated fallback, which isn't worth zooming.
-  // NDK normalizes kind-0 `picture` onto `image`, so `image` is what's
-  // actually populated here — `picture` is read as a fallback for profiles
-  // that came from somewhere else. String() because the type's index
-  // signature widens both to string | number, which Avatar's `src` won't take.
+  // The picture the profile sheet's avatar is asked to show. Own profile
+  // prefers the just-uploaded override so a fresh picture isn't a stale
+  // relay copy. NDK normalizes kind-0 `picture` onto `image`, so `image`
+  // is what's actually populated here — `picture` is read as a fallback
+  // for profiles that came from somewhere else. String() because the
+  // type's index signature widens both to string | number, which Avatar's
+  // `src` won't take.
   $: modalPicture = String(
     ($userPublickey === hexpubkey ? $userProfilePictureOverride : null) ||
       profile?.image ||
       profile?.picture ||
       ''
   );
+
+  // What the avatar actually rendered, at full size — set from Avatar's
+  // `load` event, cleared on `fallback`. The zoom button and the lightbox
+  // key off this rather than modalPicture: CustomAvatar may skip or proxy
+  // the raw URL (void.cat, snort imgproxy) or exhaust every candidate and
+  // draw the generated placeholder, and in either case enlarging the raw
+  // URL would show a broken image or nothing worth a click.
+  let modalResolvedPicture: string | null = null;
+  $: {
+    // Clear whenever the avatar's inputs change so a URL from the
+    // previous picture can't outlive its remount.
+    void modalPicture;
+    void hexpubkey;
+    void avatarRefreshKey;
+    modalResolvedPicture = null;
+  }
 
   // Profile edit modal state
   let profileEditModal = false;
@@ -1330,6 +1346,7 @@
   function qrModalCleanup() {
     qrModal = false;
     avatarLightboxOpen = false;
+    modalResolvedPicture = null;
     npubCopied = false;
     lightningCopied = false;
   }
@@ -1776,7 +1793,7 @@
   }}
 />
 
-<Modal cleanup={qrModalCleanup} open={qrModal} noHeader autoHeight>
+<Modal cleanup={qrModalCleanup} open={qrModal} noHeader autoHeight suspended={avatarLightboxOpen}>
   <!-- Profile header. The banner bleeds to the dialog's edges by undoing
        its px-4/md:px-8/pt-6 padding, so the sheet opens on the same
        banner-and-avatar composition as the profile page rather than a
@@ -1803,31 +1820,33 @@
         <CloseIcon size={20} />
       </button>
 
-      <!-- Avatar overlaps the banner. It only becomes a button when there
-           is a real picture behind it — enlarging a generated fallback
-           would just show a bigger placeholder. -->
-      <div class="absolute -bottom-8 left-4 md:left-8">
-        {#if modalPicture}
+      <!-- Avatar overlaps the banner. The avatar itself is non-interactive
+           (no nested button role, no membership tooltip eating the first
+           click); a single transparent zoom button is laid over it once an
+           image has actually loaded. With only the generated placeholder
+           there is nothing to enlarge, so no control is offered. -->
+      <div
+        class="absolute -bottom-8 left-4 md:left-8 rounded-full ring-4"
+        style="--tw-ring-color: var(--color-bg-secondary)"
+      >
+        {#key `${hexpubkey}-${avatarRefreshKey}`}
+          <Avatar
+            pubkey={hexpubkey || ''}
+            size={72}
+            src={modalPicture || null}
+            alt="Profile picture"
+            interactive={false}
+            on:load={(e) => (modalResolvedPicture = e.detail.fullSrc)}
+            on:fallback={() => (modalResolvedPicture = null)}
+          />
+        {/key}
+        {#if modalResolvedPicture}
           <button
-            class="rounded-full ring-4 transition-opacity hover:opacity-90"
-            style="--tw-ring-color: var(--color-bg-secondary)"
+            class="absolute inset-0 rounded-full cursor-zoom-in transition-colors hover:bg-black/10 focus-visible:ring-2 focus-visible:ring-orange-500"
             on:click={() => (avatarLightboxOpen = true)}
             aria-label="View profile picture"
             title="View profile picture"
-          >
-            {#key `${hexpubkey}-${avatarRefreshKey}`}
-              <Avatar
-                className="cursor-zoom-in"
-                pubkey={hexpubkey || ''}
-                size={72}
-                src={modalPicture}
-              />
-            {/key}
-          </button>
-        {:else}
-          <div class="rounded-full ring-4" style="--tw-ring-color: var(--color-bg-secondary)">
-            <Avatar pubkey={hexpubkey || ''} size={72} />
-          </div>
+          ></button>
         {/if}
       </div>
     </div>
@@ -1837,8 +1856,8 @@
   <div class="flex flex-col gap-4 pt-4">
     <!-- Identity -->
     <div class="flex flex-col gap-1 min-w-0">
-      <h2 class="flex items-center gap-1.5 text-lg font-bold min-w-0">
-        <span class="truncate"><CustomName pubkey={hexpubkey || ''} /></span>
+      <h2 id="title" class="flex items-center gap-1.5 text-lg font-bold min-w-0">
+        <span class="truncate"><CustomName pubkey={hexpubkey || ''} interactive={false} /></span>
         <MembershipBeltBadge pubkey={hexpubkey || ''} size={18} />
       </h2>
 
@@ -1966,8 +1985,12 @@
   </div>
 </Modal>
 
-{#if avatarLightboxOpen && modalPicture}
-  <MediaLightbox images={[modalPicture]} index={0} onClose={() => (avatarLightboxOpen = false)} />
+{#if avatarLightboxOpen && modalResolvedPicture}
+  <MediaLightbox
+    images={[modalResolvedPicture]}
+    index={0}
+    onClose={() => (avatarLightboxOpen = false)}
+  />
 {/if}
 
 <div class="max-w-4xl w-full px-4">

@@ -28,6 +28,11 @@
   export let maxWidth: string | null = null;
   export let autoHeight = false;
   export let fullScreenMobile = false;
+  // While true the dialog stays open but stops handling Escape and Tab.
+  // For a parent that stacks a second overlay (a lightbox portaled to
+  // body) on top of this one: without this, Tab is pulled back into the
+  // dialog and Escape closes both layers at once.
+  export let suspended = false;
 
   // Portal target - render at document body level. Initialized
   // synchronously when document is available so the dialog can mount
@@ -62,7 +67,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (!open) return;
+    if (!open || suspended) return;
     if (e.key === 'Escape') {
       close();
       return;
