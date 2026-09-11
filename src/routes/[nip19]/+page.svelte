@@ -193,11 +193,10 @@
         await new Promise((r) => setTimeout(r, 600 * attempt));
       }
       try {
-        const note = await $ndk.fetchEvent(
-          { kinds: [1, 1068, 1111] as any, ids: [parentId] },
-          undefined,
-          relaySet
-        );
+        // By id only: a NIP-22 comment's `E` parent can be a kind-30023
+        // article (or any other root kind), and a kinds list here would
+        // stop the ancestor chain at the first such parent.
+        const note = await $ndk.fetchEvent({ ids: [parentId] }, undefined, relaySet);
         if (note) return note;
       } catch {
         // Try again — a dropped socket mid-fetch is transient.
@@ -517,13 +516,27 @@
     return order.slice(0, 12);
   })();
 
-  // Progressive disclosure state. Expanding is inline and additive:
-  // nothing collapses on its own once the reader has opened it.
+  // Progressive disclosure state. Expanding past the depth cap or a
+  // fan-out row is additive — nothing folds on its own — while a branch
+  // the reader collapses stays folded until they reopen it.
   let expandedBranchIds = new Set<string>();
   let expandedFanOutIds = new Set<string>();
+  let collapsedBranchIds = new Set<string>();
 
   function expandBranch(id: string) {
     expandedBranchIds = new Set(expandedBranchIds).add(id);
+    if (collapsedBranchIds.has(id)) {
+      const next = new Set(collapsedBranchIds);
+      next.delete(id);
+      collapsedBranchIds = next;
+    }
+  }
+
+  function toggleBranchCollapse(id: string) {
+    const next = new Set(collapsedBranchIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    collapsedBranchIds = next;
   }
 
   function expandFanOut(id: string) {
@@ -539,6 +552,7 @@
         rootId: event.id,
         rootEvent: event,
         parentToChildren,
+        collapsedIds: collapsedBranchIds,
         expandedIds: expandedBranchIds,
         expandedFanOut: expandedFanOutIds
       }).filter((item) => !(item.kind === 'post' && item.event.id === event?.id))
@@ -831,6 +845,9 @@
                 event={item.event}
                 depth={item.depth}
                 connectorStartsMidAir={item.connectorStartsMidAir}
+                descendantCount={item.descendantCount}
+                collapsed={item.collapsed}
+                onToggleCollapse={() => toggleBranchCollapse(item.event.id)}
                 rootAuthor={event?.author?.hexpubkey || event?.pubkey}
                 formatTime={formatTimeAgo}
               />

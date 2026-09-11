@@ -105,6 +105,22 @@ describe('flattenThread', () => {
     expect(b?.kind === 'post' && b.connectorStartsMidAir).toBe(false);
   });
 
+  it('dashes the rail of a post that follows an affordance row at its own depth', () => {
+    // With the cap at 1, A folds behind a collapsed row; B sits right
+    // under that row at A's depth. The row above B is not a post, so its
+    // spine must not read as continuing from A.
+    const out = flattenThread({
+      rootId: 'R',
+      rootEvent: ev('R'),
+      parentToChildren: tree({ R: ['A', 'B'], A: ['A1'] }),
+      depthCap: 1
+    });
+    expect(out.map((i) => i.kind)).toEqual(['post', 'post', 'collapsed', 'post']);
+    const b = out[3];
+    expect(b.kind === 'post' && b.event.id).toBe('B');
+    expect(b.kind === 'post' && b.connectorStartsMidAir).toBe(true);
+  });
+
   it('renders top-level replies as depth-zero roots when the root has not loaded', () => {
     const out = flattenThread({
       rootId: 'R',

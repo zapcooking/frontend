@@ -3,6 +3,8 @@
   import { scanNostrRefs, type ScannedRef } from '$lib/nostrRefScan';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { ndk } from '$lib/nostr';
+  import { GATED_RECIPE_KIND, RECIPE_TAGS } from '$lib/consts';
   import ProfileLink from './ProfileLink.svelte';
   import NoteEmbed from './NoteEmbed.svelte';
   import NofferButton from './clink/NofferButton.svelte';
@@ -288,6 +290,41 @@
     goto(`/${nostrId.replace(/^nostr:/i, '')}`);
   }
 
+  // Addressable events don't go through the [nip19] route: recipes and
+  // articles live on type-specific pages, and which one an naddr belongs
+  // to isn't knowable from the address alone. NoteEmbed decides after
+  // fetching the event; a compact chip has to do the same on click.
+  async function openAddressable(ref: string) {
+    const clean = ref.replace(/^nostr:/i, '');
+    let decoded: ReturnType<typeof nip19.decode>;
+    try {
+      decoded = nip19.decode(clean);
+    } catch {
+      return;
+    }
+    if (decoded.type !== 'naddr') return;
+    const { kind, pubkey, identifier } = decoded.data;
+    if (kind === GATED_RECIPE_KIND) {
+      goto(`/recipe/${clean}`);
+      return;
+    }
+    let isRecipe = false;
+    try {
+      const fetched = await Promise.race([
+        $ndk.fetchEvent({ kinds: [kind], authors: [pubkey], '#d': [identifier] }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+      ]);
+      isRecipe =
+        !!fetched &&
+        fetched.tags.some(
+          (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
+        );
+    } catch {
+      // Relay unreachable: the article route still resolves the naddr.
+    }
+    goto(isRecipe ? `/recipe/${clean}` : `/reads/${clean}`);
+  }
+
   $: parsedContent = parseContent(content);
 
   // Check if content should be collapsed
@@ -497,7 +534,7 @@
           <div class="my-1">
             <button
               class="quoted-chip"
-              on:click|stopPropagation|preventDefault={() => handleNostrClick(part.content)}
+              on:click|stopPropagation|preventDefault={() => openAddressable(part.content)}
             >
               <QuotesIcon size={12} weight="fill" />
               Quoted post
@@ -596,7 +633,7 @@
     padding: 0.125rem 0.5rem;
     border: 1px solid var(--color-input-border);
     border-radius: 9999px;
-    color: var(--color-text-caption);
+    color: var(--color-caption);
     font-size: 0.75rem;
     font-weight: 500;
     cursor: pointer;

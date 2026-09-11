@@ -13,9 +13,12 @@
    * level. Its top is dashed when the spine doesn't continue from the row
    * directly above, so it doesn't appear to start in mid-air.
    */
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+  import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
   import Avatar from '../Avatar.svelte';
   import CustomName from '../CustomName.svelte';
   import NoteContent from '../NoteContent.svelte';
@@ -28,9 +31,42 @@
   export let event: NDKEvent;
   export let depth: number = 0;
   export let connectorStartsMidAir: boolean = false;
+  /** Replies under this note, shown on the collapse toggle. */
+  export let descendantCount: number = 0;
+  /** Whether the reader has folded this branch. */
+  export let collapsed: boolean = false;
+  export let onToggleCollapse: (() => void) | undefined = undefined;
   /** Author of the root note, badged as OP wherever they appear. */
   export let rootAuthor: string | undefined = undefined;
   export let formatTime: (timestamp: number) => string;
+
+  // Reaction pills and the action bar each open a per-note, multi-relay
+  // subscription on mount. A long thread renders dozens of rows at once,
+  // so engagement is mounted only once the row is near the viewport; a
+  // same-height placeholder holds the layout until then.
+  let rowEl: HTMLElement | null = null;
+  let engagementReady = false;
+  onMount(() => {
+    if (typeof IntersectionObserver === 'undefined' || !rowEl) {
+      engagementReady = true;
+      return;
+    }
+    // The note page scrolls inside #app-scroll. Observing against the
+    // viewport would be clipped by that container, so the preload margin
+    // would never reach below its fold; root at the container when it is
+    // an ancestor (closest() is null otherwise, and null means viewport).
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          engagementReady = true;
+          observer.disconnect();
+        }
+      },
+      { root: rowEl.closest('#app-scroll'), rootMargin: '600px 0px' }
+    );
+    observer.observe(rowEl);
+    return () => observer.disconnect();
+  });
 
   /** Dashed run at the top of the rail, matching Android's 14dp. */
   const DASH_HEIGHT_PX = 14;
@@ -41,6 +77,8 @@
   $: npub = nip19.npubEncode(pubkey);
   $: isOp = Boolean(rootAuthor) && pubkey === rootAuthor;
   $: isReply = depth > 0;
+  $: permalink = noteUrl(event);
+  $: replyWord = descendantCount === 1 ? 'reply' : 'replies';
 
   function noteUrl(evt: NDKEvent): string {
     const relayUrl = evt.relay?.url ?? (evt as any).onRelays?.[0]?.url;
@@ -65,18 +103,18 @@
 </script>
 
 <div
+  bind:this={rowEl}
   class="thread-row"
   class:has-connector={showConnector}
   class:dashed-top={showConnector && connectorStartsMidAir}
   style="--indent: {indent}px; --dash-height: {DASH_HEIGHT_PX}px"
 >
-  <article
-    class="row-body"
-    on:click={gotoUnlessInteractive}
-    role="link"
-    tabindex="0"
-    on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(event))}
-  >
+  <!-- The body is a pointer convenience, not a control: it holds author
+       links, the actions menu and the reaction/action buttons, which a
+       link role would hide from assistive tech. The timestamp is the
+       row's real permalink for keyboard and screen-reader users. -->
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
+  <article class="row-body" on:click={gotoUnlessInteractive}>
     <div class="flex items-center justify-between gap-3 mb-2">
       <div class="flex items-center gap-3 min-w-0">
         <a href="/user/{npub}" class="flex-shrink-0" on:click|stopPropagation>
@@ -96,11 +134,18 @@
           {#if isOp}
             <span class="op-badge">OP</span>
           {/if}
-          <span class="text-xs" style="color: var(--color-caption)">
+          <a
+            href={permalink}
+            class="text-xs row-permalink"
+            style="color: var(--color-caption)"
+            on:click|stopPropagation
+          >
             {event.created_at ? formatTime(event.created_at) : ''}
-          </span>
+          </a>
         </div>
       </div>
+      <!-- Only stops the row's click-to-navigate; the menu owns its controls. -->
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <span on:click|stopPropagation>
         <PostActionsMenu {event} />
       </span>
@@ -117,9 +162,30 @@
       {/if}
     </div>
 
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
     <div class="mt-2" on:click|stopPropagation>
-      <NoteReactionPills {event} />
-      <NoteActionBar {event} variant={isReply ? 'compact' : 'default'} showCheffy={!isReply} />
+      {#if engagementReady}
+        <NoteReactionPills {event} />
+        <NoteActionBar {event} variant={isReply ? 'compact' : 'default'} showCheffy={!isReply} />
+      {:else}
+        <div class="engagement-placeholder" aria-hidden="true"></div>
+      {/if}
+      {#if descendantCount > 0 && onToggleCollapse}
+        <button
+          type="button"
+          class="collapse-toggle"
+          aria-expanded={!collapsed}
+          on:click={onToggleCollapse}
+        >
+          {#if collapsed}
+            <CaretRightIcon size={12} weight="bold" />
+            <span>Show {descendantCount} {replyWord}</span>
+          {:else}
+            <CaretDownIcon size={12} weight="bold" />
+            <span>Hide {replyWord}</span>
+          {/if}
+        </button>
+      {/if}
     </div>
   </article>
 </div>
@@ -192,5 +258,32 @@
 
   .username-link:hover {
     color: var(--color-primary) !important;
+  }
+
+  .row-permalink:hover {
+    text-decoration: underline;
+  }
+
+  /* Roughly one compact action bar, so rows don't jump as they load. */
+  .engagement-placeholder {
+    min-height: 2rem;
+  }
+
+  .collapse-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+    padding: 0.25rem 0;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-caption);
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+
+  .collapse-toggle:hover {
+    color: var(--color-primary);
   }
 </style>

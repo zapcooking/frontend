@@ -36,7 +36,7 @@ export function getReplyParentId(event: ParentableEvent): string | null {
   // NIP-22 comments: lowercase `e` is the immediate parent, uppercase `E`
   // the thread root. A top-level comment carries only the root.
   if (event.kind === 1111) {
-    const parent = tags.find((t) => t[0] === 'e');
+    const parent = tags.find((t) => t[0] === 'e' && t[3] !== 'mention');
     if (parent) return parent[1];
     const root = tags.find((t) => t[0] === 'E');
     return root ? root[1] : null;
@@ -68,6 +68,12 @@ export function getReplyParentId(event: ParentableEvent): string | null {
  * note being viewed — is attached to the focused note rather than
  * dropped. A note the reader can see out of place beats one that silently
  * isn't there.
+ *
+ * The one thing that is dropped: a kind-1 note with no parent at all. It
+ * matched the `#e` filter, so its only `e` tags are `mention`s — it quotes
+ * the note rather than replying to it. NIP-22 comments are exempt because
+ * they quote with `q`, never `e`; a kind-1111 without `e`/`E` is a
+ * top-level comment on the focused event and belongs under it.
  */
 export function buildReplyTree<E extends ParentableEvent>(
   focusId: string,
@@ -82,6 +88,7 @@ export function buildReplyTree<E extends ParentableEvent>(
   for (const reply of replies) {
     if (reply.id === focusId) continue;
     const parentId = getReplyParentId(reply);
+    if (parentId === null && reply.kind !== 1111) continue;
     const bucket = parentId && known.has(parentId) ? parentId : focusId;
     const existing = map.get(bucket);
     if (existing) existing.push(reply);

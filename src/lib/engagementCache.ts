@@ -47,6 +47,14 @@ async function engagementRelayHints(event: NDKEvent | undefined): Promise<string
     if (url && url.startsWith('wss://')) hints.add(url);
   };
 
+  // The single relay that delivered the note is the surest place its
+  // engagement lives, and `onRelays` can be empty for an event that came
+  // through a one-off fetch rather than a subscription.
+  try {
+    addHint(event.relay?.url);
+  } catch {
+    // `relay` is a getter on some NDK versions; never fatal.
+  }
   try {
     for (const relay of event.onRelays || []) {
       addHint(relay?.url);
@@ -181,6 +189,17 @@ const persistentSubscriptions = new Map<string, { sub: NDKSubscription; lastActi
  * means one subscription per note, and nothing to discard.
  */
 const inFlightFetches = new Map<string, Promise<void>>();
+
+// Bumped by cleanupEngagement (per note) and clearAllEngagementCaches (all
+// notes). A fetch that was still awaiting relay hints or connects when its
+// note was torn down compares its token afterwards and stops, rather than
+// opening a subscription and rebuilding state for a note nobody renders.
+const fetchEpochs = new Map<string, number>();
+let globalFetchEpoch = 0;
+
+function fetchEpochToken(eventId: string): string {
+  return `${globalFetchEpoch}:${fetchEpochs.get(eventId) ?? 0}`;
+}
 const SUBSCRIPTION_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes - close idle subscriptions
 // A young persistent subscription is reused even without zap-amount data.
 // Five-plus components call fetchEngagement per note on mount, and most
@@ -486,7 +505,9 @@ export async function fetchEngagement(
   if (existing) return existing;
 
   const run = runFetchEngagement(ndk, target, userPublickey).finally(() => {
-    inFlightFetches.delete(id);
+    // Only clear our own entry: cleanup may have dropped it already and a
+    // newer fetch may have taken the slot.
+    if (inFlightFetches.get(id) === run) inFlightFetches.delete(id);
   });
   inFlightFetches.set(id, run);
   return run;
@@ -703,6 +724,7 @@ async function runFetchEngagement(
   let eoseReceived = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
+  const epochToken = fetchEpochToken(eventId);
   const hintRelays = await engagementRelayHints(hintSource);
 
   // Pre-connect aggregator and hint relays before subscribing.
@@ -721,6 +743,10 @@ async function runFetchEngagement(
       }
     })
   );
+
+  // The note may have been cleaned up (or every cache cleared) while the
+  // lookups above were pending; resuming would recreate what was torn down.
+  if (fetchEpochToken(eventId) !== epochToken) return;
 
   // Build relay set: NDK's connected relays + zap aggregators + the
   // relays this note came from and its author writes to.
@@ -1065,6 +1091,10 @@ export function cleanupEngagement(eventId: string): void {
   // Invalidate any pending EOSE/timeout completion for this note so it
   // can't finalize a store or subscription created after this cleanup.
   fetchGenerations.delete(eventId);
+  // And any fetch still awaiting relay lookups, so it neither resumes nor
+  // gets handed out as the answer to a later fetch for the same note.
+  fetchEpochs.set(eventId, (fetchEpochs.get(eventId) ?? 0) + 1);
+  inFlightFetches.delete(eventId);
 
   // Clean up persistent subscription
   const persistent = persistentSubscriptions.get(eventId);
@@ -1329,11 +1359,13 @@ export async function batchFetchEngagement(
       for (const [eventId, counts] of apiCounts) {
         const store = getEngagementStore(eventId);
         store.update(s => {
+          // Same rule as the single-note path: a partial answer may raise
+          // a count, never lower one the live subscription already found.
           const updated = { ...s };
-          if (counts.reactions !== null) updated.reactions.count = counts.reactions;
-          if (counts.comments !== null) updated.comments.count = counts.comments;
-          if (counts.reposts !== null) updated.reposts.count = counts.reposts;
-          if (counts.zaps !== null) updated.zaps.count = counts.zaps;
+          updated.reactions.count = raiseCount(updated.reactions.count, counts.reactions);
+          updated.comments.count = raiseCount(updated.comments.count, counts.comments);
+          updated.reposts.count = raiseCount(updated.reposts.count, counts.reposts);
+          updated.zaps.count = raiseCount(updated.zaps.count, counts.zaps);
           updated.loading = false;
           updated.lastFetched = Date.now();
           saveToCache(eventId, updated);
@@ -1504,6 +1536,9 @@ export function clearAllEngagementCaches(): void {
   }
   // Pending EOSE/timeout completions must not recreate cleared stores
   fetchGenerations.clear();
+  // Nor may a fetch that was mid-await resume, or be reused, after this.
+  globalFetchEpoch += 1;
+  inFlightFetches.clear();
 
   // Clear stores
   engagementStores.clear();

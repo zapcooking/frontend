@@ -87,6 +87,13 @@ describe('getReplyParentId', () => {
   });
 });
 
+describe('getReplyParentId (NIP-22)', () => {
+  it('ignores a mention-marked e tag on a comment and falls back to the root', () => {
+    const e = ev('c', [['E', 'article'], ['e', 'quoted', '', 'mention']], { kind: 1111 });
+    expect(getReplyParentId(e)).toBe('article');
+  });
+});
+
 describe('buildReplyTree', () => {
   const at = (id: string, parent: string | null, created_at: number) =>
     ev(id, parent ? [['e', 'root'], ['e', parent]] : [['e', 'root']], { created_at });
@@ -108,6 +115,26 @@ describe('buildReplyTree', () => {
   it('attaches a reply whose parent never arrived to the focused note', () => {
     const tree = buildReplyTree('root', [at('orphan', 'missing-note', 1)]);
     expect(tree.get('root')?.map((e) => e.id)).toEqual(['orphan']);
+  });
+
+  it('drops a kind-1 note that only mentions the focus instead of replying', () => {
+    // It matched the `#e` subscription, but every `e` tag is a mention:
+    // a quote, not a reply, and it must not render as a direct reply.
+    const quote = ev('quote', [['e', 'root', '', 'mention']], { created_at: 5 });
+    const tree = buildReplyTree('root', [at('b', 'root', 1), quote]);
+    expect(tree.get('root')?.map((e) => e.id)).toEqual(['b']);
+    expect([...tree.values()].flat().some((e) => e.id === 'quote')).toBe(false);
+  });
+
+  it('keeps a top-level NIP-22 comment under the focus even without e/E tags', () => {
+    // A comment on an addressable root carries only `A`/`a`; it arrived
+    // via `#A` and belongs under the focused event.
+    const comment = ev('c', [['A', '30023:pk:slug'], ['a', '30023:pk:slug']], {
+      kind: 1111,
+      created_at: 2
+    });
+    const tree = buildReplyTree('root', [comment]);
+    expect(tree.get('root')?.map((e) => e.id)).toEqual(['c']);
   });
 
   it('keeps every reply somewhere in the tree', () => {

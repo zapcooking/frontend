@@ -137,14 +137,18 @@ function ancestorsOf<E extends ThreadEvent>(
 }
 
 /**
- * Marks a post's rail as starting in mid-air when the row above it
- * (affordance rows included, as on Android) isn't a post at the same
- * depth.
+ * Marks a post's rail as starting in mid-air when the row above it isn't
+ * a post at the same depth. Affordance rows count as "not a post", as on
+ * Android: a post directly under a collapsed/more row gets the dashed
+ * top even if the post above that row shared its depth.
  */
 function applyConnectorFlags<E extends ThreadEvent>(items: ThreadItem<E>[]): ThreadItem<E>[] {
   let prevDepth = -1;
   return items.map((item) => {
-    if (item.kind !== 'post') return item;
+    if (item.kind !== 'post') {
+      prevDepth = -1;
+      return item;
+    }
     const midAir = item.depth > 0 && prevDepth !== item.depth;
     prevDepth = item.depth;
     return midAir === item.connectorStartsMidAir
