@@ -7,6 +7,14 @@ export interface MembershipStatus {
   active: boolean;
   tier: MembershipTier;
   expiresAt?: string;
+  /**
+   * Set only on the placeholder written when the lookup itself failed
+   * (network/API error). `active` is still false so every existing consumer
+   * keeps treating the pubkey as a non-member, but surfaces that must not
+   * pitch to a possible member (Cook+ discovery) can tell this apart from
+   * an API answer of "not a member".
+   */
+  unresolved?: true;
 }
 
 type MembershipResponse = Record<string, { active?: boolean; tier?: string; expiresAt?: string }>;
@@ -98,7 +106,7 @@ async function fetchBatch(pubkeys: string[], init?: RequestInit): Promise<void> 
       // failed too, and then it would leave the pubkey with no entry instead
       // of the placeholder this path has always written.
       if (!statusCache.has(pubkey)) {
-        updateStore(pubkey, { active: false, tier: 'unknown' });
+        updateStore(pubkey, { active: false, tier: 'unknown', unresolved: true });
       }
     }
   } finally {

@@ -496,7 +496,7 @@
             </p>
             <h3 class="text-lg font-bold text-white">Unlock your kitchen</h3>
             <p class="text-sm mt-1.5 text-gray-300">AI tools, private groups, and more.</p>
-            <a href="/membership" class="membership-teaser-cta"> Enter Cook+ </a>
+            <a href="/membership" class="membership-teaser-cta">Unlock Cook+</a>
           </div>
         </section>
       {/if}

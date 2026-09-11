@@ -498,7 +498,7 @@
           lands on the planner.
         </p>
       </div>
-      <Button primary on:click={() => goto('/membership')}>View Membership Options</Button>
+      <Button primary on:click={() => goto('/membership')}>Unlock Cook+</Button>
     </div>
   {:else if readOnly}
     <p class="text-sm text-caption">This week is read-only, so Cheffy cannot add meals to it.</p>
