@@ -49,6 +49,11 @@
   );
   $: hasActiveTimers = activeTimers.length > 0;
 
+  function openSearch(query: string) {
+    mobileSearchOpen.set(false);
+    goto(`/search?q=${encodeURIComponent(query)}`);
+  }
+
   function openTag(query: string) {
     mobileSearchOpen.set(false);
     if (query.startsWith('npub')) {
@@ -193,6 +198,7 @@
     <TagsSearchAutocomplete
       placeholderString={'Search recipes, tags, or users...'}
       action={openTag}
+      onSubmitQuery={openSearch}
     />
   </div>
   <span class="hidden sm:max-lg:flex sm:max-lg:grow"></span>
