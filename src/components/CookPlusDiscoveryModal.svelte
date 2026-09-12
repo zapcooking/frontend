@@ -21,6 +21,7 @@
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { cheffyOpen } from '$lib/stores/cheffyChat';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
+  import { cookPlusDiscoveryModalOpen } from '$lib/stores/cookPlusDiscoveryModal';
   import Modal from './Modal.svelte';
   import Button from './Button.svelte';
   import CheffyAvatar from './CheffyAvatar.svelte';
@@ -251,7 +252,13 @@
     };
   });
 
-  onDestroy(clearTimer);
+  // Mirror the open flag so the promotional bar can yield to the modal.
+  $: cookPlusDiscoveryModalOpen.set(open);
+
+  onDestroy(() => {
+    clearTimer();
+    cookPlusDiscoveryModalOpen.set(false);
+  });
 </script>
 
 <Modal bind:open cleanup={dismissed} noHeader compact autoHeight maxWidth="26rem">

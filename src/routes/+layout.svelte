@@ -20,6 +20,7 @@
   import LoginOverlay from '../components/LoginOverlay.svelte';
   import PasskeyEnrollPrompt from '../components/PasskeyEnrollPrompt.svelte';
   import CookPlusDiscoveryModal from '../components/CookPlusDiscoveryModal.svelte';
+  import CookPlusPromoBar from '../components/CookPlusPromoBar.svelte';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { bottomDockOccupied } from '$lib/stores/bottomDock';
 
@@ -724,6 +725,7 @@
       {/if}
       {#if !kitchenMode}
         <CookPlusDiscoveryModal membershipEnabled={data.membershipEnabled === 'true'} />
+        <CookPlusPromoBar membershipEnabled={data.membershipEnabled === 'true'} />
       {/if}
       <ToastContainer />
       <PendingIndicator />
