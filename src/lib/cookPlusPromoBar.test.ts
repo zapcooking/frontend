@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { get, writable } from 'svelte/store';
+import { get } from 'svelte/store';
+import { bottomDockOccupied, setBottomDockClaim } from './stores/bottomDock';
 import {
   PROMO_BAR_STORAGE_KEY,
+  PROMO_BAR_DOCK_OWNER,
   PROMO_BAR_SESSION_KEY,
   PROMO_BAR_SUPPRESSION_MS,
   PROMO_BAR_CTA_HREF,
@@ -23,10 +25,14 @@ import { COOK_PLUS_CHECKOUT_PATH } from './cookPlusPricing';
 
 class StorageStub implements KeyValueStorage {
   data = new Map<string, string>();
+  throwOnGet = false;
+  throwOnSet = false;
   getItem(key: string): string | null {
+    if (this.throwOnGet) throw new Error('denied');
     return this.data.has(key) ? (this.data.get(key) as string) : null;
   }
   setItem(key: string, value: string): void {
+    if (this.throwOnSet) throw new Error('quota');
     this.data.set(key, value);
   }
 }
@@ -183,7 +189,8 @@ describe('member suppression', () => {
 describe('controller', () => {
   let storage: StorageStub;
   let session: StorageStub;
-  let dock: ReturnType<typeof writable<boolean>>;
+  const dock = { set: (occupied: boolean) => setBottomDockClaim(PROMO_BAR_DOCK_OWNER, occupied) };
+  const MEMBERSHIP_OWNER = 'membership-sticky-cta';
 
   function make() {
     return createPromoBarController({ dock, storage, session });
@@ -204,7 +211,8 @@ describe('controller', () => {
   beforeEach(() => {
     storage = new StorageStub();
     session = new StorageStub();
-    dock = writable(false);
+    setBottomDockClaim(PROMO_BAR_DOCK_OWNER, false);
+    setBottomDockClaim(MEMBERSHIP_OWNER, false);
   });
 
   it('presents on the feed and switches copy on the way to a recipe', () => {
@@ -265,6 +273,24 @@ describe('controller', () => {
       expect(c.update(input()).visible).toBe(false);
     });
 
+    it('still presents only once when session storage is blocked', () => {
+      session.throwOnGet = true;
+      session.throwOnSet = true;
+      const c = make();
+      expect(c.update(input()).visible).toBe(true);
+      c.update(input({ url: url('/user/npub1x') }));
+      expect(c.update(input()).visible).toBe(false);
+      expect(c.update(input({ url: RECIPE })).visible).toBe(false);
+    });
+
+    it('remembers a membership-page visit in memory when session storage is blocked', () => {
+      session.throwOnGet = true;
+      session.throwOnSet = true;
+      const c = make();
+      c.update(input({ url: url('/membership') }));
+      expect(c.update(input()).visible).toBe(false);
+    });
+
     it('treats a membership-page visit as presented for the rest of the session', () => {
       const c = make();
       expect(c.update(input({ url: url('/membership') })).visible).toBe(false);
@@ -308,39 +334,51 @@ describe('controller', () => {
   describe('bottom dock', () => {
     it('occupies the dock while visible and releases it when hidden', () => {
       const c = make();
-      expect(get(dock)).toBe(false);
+      expect(get(bottomDockOccupied)).toBe(false);
       c.update(input());
-      expect(get(dock)).toBe(true);
+      expect(get(bottomDockOccupied)).toBe(true);
       c.update(input({ overlayOpen: true }));
-      expect(get(dock)).toBe(false);
+      expect(get(bottomDockOccupied)).toBe(false);
       c.update(input());
-      expect(get(dock)).toBe(true);
+      expect(get(bottomDockOccupied)).toBe(true);
       c.dismiss(NOW);
-      expect(get(dock)).toBe(false);
+      expect(get(bottomDockOccupied)).toBe(false);
     });
 
     it('releases the dock when it retires on navigation and on destroy', () => {
       const c = make();
       c.update(input());
       c.update(input({ url: url('/explore') }));
-      expect(get(dock)).toBe(false);
+      expect(get(bottomDockOccupied)).toBe(false);
 
       session = new StorageStub();
       const d = make();
       d.update(input());
-      expect(get(dock)).toBe(true);
+      expect(get(bottomDockOccupied)).toBe(true);
       d.destroy();
-      expect(get(dock)).toBe(false);
+      expect(get(bottomDockOccupied)).toBe(false);
     });
 
-    it('never releases a dock claim it did not make', () => {
-      // The membership page owns the dock for its sticky CTA.
-      dock.set(true);
+    it("cannot clear another owner's claim, and vice versa", () => {
+      // The membership page's sticky CTA holds its own claim. Whatever the
+      // bar does, that claim stands until the membership page releases it.
+      setBottomDockClaim(MEMBERSHIP_OWNER, true);
       const c = make();
       expect(c.update(input({ url: url('/membership') })).visible).toBe(false);
-      expect(get(dock)).toBe(true);
+      expect(get(bottomDockOccupied)).toBe(true);
       c.destroy();
-      expect(get(dock)).toBe(true);
+      expect(get(bottomDockOccupied)).toBe(true);
+
+      // Overlapping lifetimes during a navigation: the bar is up, the
+      // membership page claims and then tears down; the bar's claim stands.
+      session = new StorageStub();
+      const d = make();
+      d.update(input());
+      setBottomDockClaim(MEMBERSHIP_OWNER, true);
+      setBottomDockClaim(MEMBERSHIP_OWNER, false);
+      expect(get(bottomDockOccupied)).toBe(true);
+      d.destroy();
+      expect(get(bottomDockOccupied)).toBe(false);
     });
   });
 });

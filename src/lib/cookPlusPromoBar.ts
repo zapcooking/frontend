@@ -47,6 +47,8 @@ import {
 export const PROMO_BAR_STORAGE_KEY = 'zapcooking:cook-plus-promo-bar:v1';
 export const PROMO_BAR_SESSION_KEY = 'zapcooking:cook-plus-promo-bar:session';
 export const PROMO_BAR_SUPPRESSION_MS = DISCOVERY_SUPPRESSION_MS;
+/** Name under which the bar claims the bottom dock (see $lib/stores/bottomDock). */
+export const PROMO_BAR_DOCK_OWNER = 'cook-plus-promo-bar';
 /** The CTA goes to the membership page, never straight into checkout. */
 export const PROMO_BAR_CTA_HREF = MEMBERSHIP_PATH;
 
@@ -169,14 +171,17 @@ export function evaluatePromoBarEligibility(input: PromoBarEligibilityInput): Pr
 
 // ── Controller ───────────────────────────────────────────────────
 
-/** The subset of a Svelte writable the controller needs. */
-export interface DockStore {
+/**
+ * The bar's own claim on the bottom dock. The component binds this to
+ * `setBottomDockClaim(PROMO_BAR_DOCK_OWNER, …)`; ownership lives in the
+ * store, so this never has to know about other bars.
+ */
+export interface DockClaim {
   set(occupied: boolean): void;
 }
 
 export interface PromoBarControllerOptions {
-  /** `bottomDockOccupied` (or a stand-in for tests). */
-  dock: DockStore;
+  dock: DockClaim;
   storage: KeyValueStorage | null | undefined;
   session: KeyValueStorage | null | undefined;
 }
@@ -217,16 +222,23 @@ export function createPromoBarController(opts: PromoBarControllerOptions): Promo
   // Presented in this mount and not yet retired. A reload starts inactive;
   // the session flag then keeps the bar away for the rest of the session.
   let active = false;
+  // In-memory mirror of the session flag. When session storage is blocked
+  // the flag cannot be written, and without this the bar would present
+  // again every time the visitor returned to an eligible page.
+  let presented = false;
   let surface: PromoBarSurface | null = null;
   let visible = false;
-  // Only ever release a dock claim this controller made, so a page that
-  // owns the dock (the membership page's sticky CTA) is never stomped.
-  let dockClaimed = false;
+  let dockHeld = false;
 
   function syncDock(next: boolean) {
-    if (next === dockClaimed) return;
-    dockClaimed = next;
+    if (next === dockHeld) return;
+    dockHeld = next;
     opts.dock.set(next);
+  }
+
+  function markPresented() {
+    presented = true;
+    markPromoBarPresentedThisSession(opts.session);
   }
 
   function apply(nextVisible: boolean, nextSurface: PromoBarSurface | null): PromoBarState {
@@ -250,7 +262,7 @@ export function createPromoBarController(opts: PromoBarControllerOptions): Promo
     update(input) {
       if (isMembershipRoute(input.url.pathname)) {
         // Seen the real thing; nothing to remind them of this session.
-        markPromoBarPresentedThisSession(opts.session);
+        markPresented();
         return retire();
       }
 
@@ -264,13 +276,13 @@ export function createPromoBarController(opts: PromoBarControllerOptions): Promo
 
       const verdict = evaluatePromoBarEligibility({
         ...input,
-        presentedThisSession: wasPromoBarPresentedThisSession(opts.session),
+        presentedThisSession: presented || wasPromoBarPresentedThisSession(opts.session),
         record: readPromoBarRecord(opts.storage)
       });
       if (!verdict.eligible) return apply(false, null);
 
       active = true;
-      markPromoBarPresentedThisSession(opts.session);
+      markPresented();
       return apply(true, verdict.surface);
     },
     dismiss(now) {

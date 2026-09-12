@@ -10,12 +10,12 @@
    * This component only wires stores and storage to the controller and
    * draws the bar in the membership page's sticky-CTA language.
    */
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { userPublickey } from '$lib/nostr';
   import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membershipStatus';
-  import { bottomDockOccupied } from '$lib/stores/bottomDock';
+  import { setBottomDockClaim } from '$lib/stores/bottomDock';
   import { postComposerOpen } from '$lib/postComposerStore';
   import { longformEditorOpen } from './reads/articleDraftStore';
   import { walletModalOpen } from '$lib/wallet/walletModalStore';
@@ -29,7 +29,9 @@
   import {
     PROMO_BAR_COPY,
     PROMO_BAR_CTA_HREF,
+    PROMO_BAR_DOCK_OWNER,
     createPromoBarController,
+    isPromoBarRoute,
     type PromoBarState
   } from '$lib/cookPlusPromoBar';
 
@@ -52,7 +54,7 @@
   }
 
   const controller = createPromoBarController({
-    dock: bottomDockOccupied,
+    dock: { set: (occupied) => setBottomDockClaim(PROMO_BAR_DOCK_OWNER, occupied) },
     storage: localStore(),
     session: sessionStore()
   });
@@ -78,11 +80,42 @@
     $userSidePanelOpen ||
     $cookPlusDiscoveryModalOpen;
 
-  // Overlays that don't go through a store (PostModal variants, sheets).
-  function domOverlayOpen(): boolean {
-    if (!browser) return false;
-    return Boolean(document.querySelector('dialog[open], [aria-modal="true"], [role="dialog"]'));
+  // Overlays that don't go through a store (recipe picker, add-to-list,
+  // image lightbox, …) are found in the DOM. They open and close without
+  // touching any reactive dependency here, so while the bar is on an
+  // eligible route a MutationObserver keeps `domOverlay` current; the
+  // observer is off everywhere else so the feed's constant DOM churn costs
+  // nothing where the bar can never show.
+  const OVERLAY_SELECTOR = 'dialog[open], [aria-modal="true"], [role="dialog"]';
+  let domOverlay = false;
+  let observer: MutationObserver | null = null;
+
+  function sampleDomOverlay() {
+    const next = Boolean(document.querySelector(OVERLAY_SELECTOR));
+    // Only assign on a change so the reactive re-plan runs on transitions.
+    if (next !== domOverlay) domOverlay = next;
   }
+
+  function observeOverlays(on: boolean) {
+    if (!browser || typeof MutationObserver === 'undefined') return;
+    if (on && !observer) {
+      observer = new MutationObserver(sampleDomOverlay);
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['open', 'aria-modal', 'role']
+      });
+      sampleDomOverlay();
+    } else if (!on && observer) {
+      observer.disconnect();
+      observer = null;
+      domOverlay = false;
+    }
+  }
+
+  let mounted = false;
+  $: if (mounted) observeOverlays(isPromoBarRoute($page.url));
 
   $: if (browser) {
     state = controller.update({
@@ -90,7 +123,7 @@
       url: $page.url,
       signedIn,
       membership,
-      overlayOpen: storeOverlayOpen || domOverlayOpen(),
+      overlayOpen: storeOverlayOpen || domOverlay,
       now: Date.now()
     });
   }
@@ -108,7 +141,14 @@
     state = controller.state();
   }
 
-  onDestroy(() => controller.destroy());
+  onMount(() => {
+    mounted = true;
+  });
+
+  onDestroy(() => {
+    observeOverlays(false);
+    controller.destroy();
+  });
 </script>
 
 {#if state.visible && copy}

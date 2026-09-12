@@ -11,7 +11,7 @@
     queueMembershipLookup,
     type MembershipStatus
   } from '$lib/stores/membershipStatus';
-  import { bottomDockOccupied } from '$lib/stores/bottomDock';
+  import { setBottomDockClaim } from '$lib/stores/bottomDock';
   import {
     COOK_PLUS_ANNUAL_USD,
     COOK_PLUS_MONTHLY_USD,
@@ -225,9 +225,10 @@
     pricingCtaInView,
     isMobileViewport
   });
-  $: if (browser) bottomDockOccupied.set(stickyCtaVisible);
+  const DOCK_OWNER = 'membership-sticky-cta';
+  $: if (browser) setBottomDockClaim(DOCK_OWNER, stickyCtaVisible);
   onDestroy(() => {
-    if (browser) bottomDockOccupied.set(false);
+    if (browser) setBottomDockClaim(DOCK_OWNER, false);
   });
 
   let openFaqIndex: number | null = null;
@@ -1167,7 +1168,7 @@
   <!-- Mobile-only: keeps the purchase action reachable once the hero and
        pricing buttons have scrolled away. Sits above the bottom nav (and
        any timer bar) and hides the floating create/scroll buttons via
-       bottomDockOccupied so nothing overlaps it. -->
+       a bottom-dock claim so nothing overlaps it. -->
   <div class="sticky-cta" role="region" aria-label="Cook+ membership" data-testid="sticky-cta">
     <div class="sticky-cta-text">
       <span class="sticky-cta-title">Cook+</span>
