@@ -253,7 +253,8 @@
 
   $: visibleResults = results.filter((e) => !$mutedPubkeys.has(e.author?.hexpubkey || e.pubkey));
 
-  $: tabs = [
+  type SearchTab = 'posts' | 'users' | 'recipes';
+  $: tabs: Array<{ id: SearchTab; label: string; count: number; active: boolean }> = [
     { id: 'posts', label: 'Posts', count: visibleResults.length, active: loading },
     { id: 'users', label: 'Users', count: userResults.length, active: usersLoading },
     { id: 'recipes', label: 'Recipes', count: recipeResults.length, active: recipesLoading }
