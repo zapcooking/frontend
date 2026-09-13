@@ -206,13 +206,13 @@
     <!-- Section 8 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">8. Passkey sign-in and encrypted key sync</h2>
 
-    <p>On the Zap Cooking website you can optionally use a passkey to sign in. If you do, we store an encrypted copy of your Nostr private key on our servers, along with the public key of your passkey credential.</p>
+    <p>On the Zap Cooking website you can optionally use a passkey to sign in. If you do and keep “Sign in on other devices” turned on, we store an encrypted copy of your Nostr private key on our servers, along with the public key of your passkey credential. With that option off, the encrypted copy stays in your browser and nothing is sent to us.</p>
 
     <p><strong>We cannot read it.</strong> The key is encrypted on your device before it is sent, using a secret derived from your passkey that never leaves your device. What we hold is ciphertext we have no way to decrypt.</p>
 
     <p><strong>This means we cannot recover it for you.</strong> If you lose access to your passkey, we cannot restore your Nostr key from this backup, because we do not hold the means to decrypt it. Keep a separate copy of your key.</p>
 
-    <p>You can delete this stored copy at any time — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page.</p>
+    <p>You can delete this stored copy at any time by turning off “Sign in on other devices” in your <a href="/settings" class="text-primary hover:underline">Settings</a>.</p>
 
     <p>If you do not use passkey sign-in, we store no copy of your key.</p>
 
