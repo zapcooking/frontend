@@ -3461,8 +3461,13 @@
               <div class="flex-1">
                 <p class="font-medium text-primary-color mb-1">Back up your wallet</p>
                 <p class="text-sm text-caption mb-3">
-                  {$activeWallet.name} isn't in your backups — if you lose this device, its funds
-                  are gone.
+                  {#if $activeWallet.kind === 3}
+                    {$activeWallet.name} isn't in your backups — without the saved connection
+                    string your funds may become inaccessible.
+                  {:else}
+                    {$activeWallet.name} isn't in your backups — if you lose this device, its
+                    funds are gone.
+                  {/if}
                 </p>
                 <div class="flex items-center gap-4">
                   {#if encryptionSupported && !isNip46User}
