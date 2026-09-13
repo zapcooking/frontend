@@ -21,12 +21,20 @@
  */
 
 import { browser } from '$app/environment';
-import { get } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { ndkReady, userPublickey } from '$lib/nostr';
+import { showToast } from '$lib/toast';
 import { wallets, hasPersistedWallets, fingerprintWalletData } from './walletStore';
 import { connectWallet } from './walletManager';
 import { restoreNwcFromNostr } from './nwcBackup';
 import { listSparkBackups, restoreSparkBackup, getSparkWalletId } from '$lib/spark';
+
+/**
+ * True while a login auto-restore is in flight. The header mini-wallet
+ * renders its restoring pill from this instead of implying the user has
+ * no wallet during the fetch/decrypt round-trip.
+ */
+export const walletRestoring = writable(false);
 
 interface LastWalletRecord {
   kind: 3 | 4;
@@ -91,8 +99,10 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
 
   attemptedPubkey = pubkey;
   await ndkReady;
+  walletRestoring.set(true);
 
   try {
+    let result: { success: boolean; wallet?: { name: string } } | null = null;
     if (record.kind === 3) {
       const connectionString = await restoreNwcFromNostr(pubkey);
       if (!connectionString || fingerprintWalletData(connectionString) !== record.id) {
@@ -100,28 +110,33 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
         // connection than the one this device remembers.
         return false;
       }
-      const result = await connectWallet(3, connectionString);
-      return result.success;
+      result = await connectWallet(3, connectionString);
+    } else {
+      const apiKey = import.meta.env.VITE_BREEZ_API_KEY;
+      if (!apiKey) return false;
+
+      const backups = await listSparkBackups(pubkey);
+      // The remembered wallet when its backup still exists, else the
+      // newest — presence on the relays means it was never deleted.
+      const chosen = backups.find((b) => b.walletId === record.id) || backups[0];
+      if (!chosen) return false;
+
+      const mnemonic = await restoreSparkBackup(pubkey, apiKey, chosen);
+      if (!mnemonic) return false;
+
+      result = await connectWallet(4, getSparkWalletId(mnemonic));
     }
 
-    const apiKey = import.meta.env.VITE_BREEZ_API_KEY;
-    if (!apiKey) return false;
-
-    const backups = await listSparkBackups(pubkey);
-    // The remembered wallet when its backup still exists, else the
-    // newest — presence on the relays means it was never deleted.
-    const chosen = backups.find((b) => b.walletId === record.id) || backups[0];
-    if (!chosen) return false;
-
-    const mnemonic = await restoreSparkBackup(pubkey, apiKey, chosen);
-    if (!mnemonic) return false;
-
-    const result = await connectWallet(4, getSparkWalletId(mnemonic));
+    if (result.success) {
+      showToast('success', `${result.wallet?.name ?? 'Wallet'} restored from your backup`, 4000);
+    }
     return result.success;
   } catch (e) {
     // Signer denied a decrypt, relays unreachable, SDK failed to init —
     // all recoverable via the manual restore button in the wallet panel.
     console.warn('[Wallet] Auto-restore at login failed:', e);
     return false;
+  } finally {
+    walletRestoring.set(false);
   }
 }

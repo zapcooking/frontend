@@ -15,7 +15,8 @@
     disconnectWallet,
     refreshBalance,
     setActiveWallet,
-    toggleBalanceVisibility
+    toggleBalanceVisibility,
+    walletRestoring
   } from '$lib/wallet';
   import { openWallet } from '$lib/wallet/walletModalStore';
   import { dismissCookingToolsTip } from '$lib/cookingToolsTip';
@@ -134,7 +135,24 @@
   }
 </script>
 
-{#if $weblnConnected}
+{#if $walletRestoring}
+  <!-- Auto-restore in flight: keep the connected pill's silhouette with a
+       shimmering label instead of vanishing from the header — the user
+       DID have a wallet, it's on its way back from their backup. -->
+  <div
+    class="balance-pill flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium"
+    style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+    aria-live="polite"
+    title="Restoring your wallet from backup…"
+  >
+    <div
+      class="w-4 h-4 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0 restoring-dot"
+    >
+      <LightningIcon size={10} weight="fill" class="text-white" />
+    </div>
+    <span class="t-shimmer balance-text" data-text="Restoring…">Restoring…</span>
+  </div>
+{:else if $weblnConnected}
   <!-- WebLN Wallet Widget -->
   <div class="relative" use:clickOutside on:click_outside={() => (dropdownActive = false)}>
     <!-- Balance pill — entire pill toggles the dropdown. Currency
@@ -566,5 +584,69 @@
     margin: 0 -2px;
     line-height: 1;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Restoring pill ──
+     Shimmer text + soft dot pulse while the login auto-restore is in
+     flight (transitions.dev shimmer-text + skeleton pulse recipes,
+     adapted to the app's color variables and scoped here). */
+  .t-shimmer {
+    --shimmer-dur: 2000ms;
+    --shimmer-band: 400%;
+    --shimmer-base: var(--color-caption);
+    --shimmer-highlight: var(--color-text-primary);
+
+    position: relative;
+    display: inline-block;
+    color: var(--shimmer-base);
+  }
+  .t-shimmer::before {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 40%,
+      var(--shimmer-highlight) 50%,
+      transparent 60%,
+      transparent 100%
+    );
+    background-size: var(--shimmer-band) 100%;
+    background-repeat: no-repeat;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: t-shimmer var(--shimmer-dur) linear infinite;
+  }
+  @keyframes t-shimmer {
+    0% {
+      background-position: 100% 0;
+    }
+    100% {
+      background-position: 0% 0;
+    }
+  }
+
+  .restoring-dot {
+    animation: restoring-dot-pulse 1000ms ease-in-out infinite;
+  }
+  @keyframes restoring-dot-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .t-shimmer::before,
+    .restoring-dot {
+      animation: none !important;
+    }
   }
 </style>
