@@ -18,6 +18,8 @@
   import ToastContainer from '../components/ToastContainer.svelte';
   import PendingIndicator from '../components/PendingIndicator.svelte';
   import LoginOverlay from '../components/LoginOverlay.svelte';
+  import ProfilePreviewModal from '../components/ProfilePreviewModal.svelte';
+  import { openProfilePreview } from '$lib/stores/profilePreview';
   import PasskeyEnrollPrompt from '../components/PasskeyEnrollPrompt.svelte';
   import CookPlusDiscoveryModal from '../components/CookPlusDiscoveryModal.svelte';
   import CookPlusPromoBar from '../components/CookPlusPromoBar.svelte';
@@ -161,6 +163,29 @@
   }
 
   onMount(() => {
+    // Avatar clicks open the compact profile preview instead of
+    // navigating away. Capture phase so this runs before per-site
+    // handlers (some avatar links carry their own goto()); stopping
+    // propagation replaces both the default link navigation and those
+    // handlers for this click. Modified clicks (cmd/ctrl/shift/middle)
+    // keep native behavior — new-tab to the full profile.
+    const onAvatarClick = (event: MouseEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+        return;
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest) return;
+      if (!target.closest('.avatar-wrapper')) return;
+      const link = target.closest('a[href^="/user/"]');
+      if (!link) return;
+      const match = link.getAttribute('href')?.match(/^\/user\/(npub1[a-z0-9]+)/);
+      if (!match) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openProfilePreview(match[1]);
+    };
+    document.addEventListener('click', onAvatarClick, true);
+
     const readRecord = (): RecoveryReloadRecord => {
       try {
         const parsed = JSON.parse(sessionStorage.getItem(RECOVERY_RELOAD_KEY) ?? '');
@@ -216,7 +241,10 @@
     };
     window.addEventListener('vite:preloadError', onPreloadError);
 
-    return () => window.removeEventListener('vite:preloadError', onPreloadError);
+    return () => {
+      window.removeEventListener('vite:preloadError', onPreloadError);
+      document.removeEventListener('click', onAvatarClick, true);
+    };
   });
 
   // Accept props from SvelteKit to prevent warnings
@@ -706,6 +734,7 @@
       <MobileNavDrawer />
       <UserSidePanel />
       <MobileSearchOverlay />
+      <ProfilePreviewModal />
       <PostModal bind:open={$postComposerOpen} />
       {#if $longformEditorLoader.component}
         <svelte:component this={$longformEditorLoader.component} />
