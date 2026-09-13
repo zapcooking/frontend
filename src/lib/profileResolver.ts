@@ -10,6 +10,7 @@ export interface ProfileData {
   name?: string;
   display_name?: string;
   picture?: string;
+  banner?: string;
   about?: string;
   nip05?: string;
   lud16?: string;
@@ -269,6 +270,7 @@ function parseProfileEvent(pubkey: string, event: NDKEvent): ProfileData | null 
     name,
     display_name: displayName,
     picture: typeof parsed.picture === 'string' ? parsed.picture : undefined,
+    banner: typeof parsed.banner === 'string' ? parsed.banner : undefined,
     about: typeof parsed.about === 'string' ? parsed.about : undefined,
     nip05: typeof parsed.nip05 === 'string' ? parsed.nip05 : undefined,
     lud16: typeof parsed.lud16 === 'string' ? parsed.lud16 : undefined,

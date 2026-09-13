@@ -4,8 +4,6 @@
   import type { NDKFilter, NDKUser, NDKUserProfile } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import ZapModal from '../../../components/ZapModal.svelte';
-  import NofferButton from '../../../components/clink/NofferButton.svelte';
-  import { isNofferString } from '$lib/clink/noffer';
   import Feed from '../../../components/Feed.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
   import { buildPoolRelaySet } from '$lib/eventFetch';
@@ -22,7 +20,6 @@
   import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
   import SpeakerSlashIcon from 'phosphor-svelte/lib/SpeakerSlash';
   import SpeakerSimpleSlashIcon from 'phosphor-svelte/lib/SpeakerSimpleSlash';
-  import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
   import UsersIcon from 'phosphor-svelte/lib/Users';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
@@ -50,8 +47,7 @@
   import QuestionIcon from 'phosphor-svelte/lib/Question';
   import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwise';
   import MuteListEditor from '../../../components/MuteListEditor.svelte';
-  import MediaLightbox from '../../../components/MediaLightbox.svelte';
-  import CloseIcon from 'phosphor-svelte/lib/X';
+  import ProfileSheet from '../../../components/ProfileSheet.svelte';
 
   let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -61,21 +57,6 @@
   let zapModal = false;
   let followRecoveryModal = false;
   let isZapping = false;
-
-  // CLINK noffer pulled from the user's kind:0 custom field. NDK
-  // Object.assigns the parsed JSON onto NDKUserProfile, so custom
-  // fields like `noffer` ride along — they're just not typed. Validate
-  // the shape (must start with `noffer1` after stripping optional
-  // `nostr:` prefix) before exposing as a Pay pill. Tolerant of the
-  // field key — `noffer` is the most likely name (bxrd.app's profile
-  // editor labels it "CLINK offer (noffer)"); fall back to `offer` /
-  // `clink_offer` if it lands under a slightly different key.
-  $: profileNoffer = (() => {
-    if (!profile) return undefined;
-    const p = profile as unknown as Record<string, unknown>;
-    const raw = (p.noffer || p.offer || p.clink_offer) as unknown;
-    return typeof raw === 'string' && isNofferString(raw) ? raw : undefined;
-  })();
 
   // Tab state: 'recipes' | 'posts' | 'media' | 'reads' | 'following' | 'drafts'
   // Default to 'posts' tab for a more social-first experience
@@ -165,37 +146,6 @@
   let uploadingPicture = false;
   let pictureInputEl: HTMLInputElement | null = null;
   let avatarRefreshKey = 0; // Used to force Avatar remount after picture change
-  let avatarLightboxOpen = false;
-
-  // The picture the profile sheet's avatar is asked to show. Own profile
-  // prefers the just-uploaded override so a fresh picture isn't a stale
-  // relay copy. NDK normalizes kind-0 `picture` onto `image`, so `image`
-  // is what's actually populated here — `picture` is read as a fallback
-  // for profiles that came from somewhere else. String() because the
-  // type's index signature widens both to string | number, which Avatar's
-  // `src` won't take.
-  $: modalPicture = String(
-    ($userPublickey === hexpubkey ? $userProfilePictureOverride : null) ||
-      profile?.image ||
-      profile?.picture ||
-      ''
-  );
-
-  // What the avatar actually rendered, at full size — set from Avatar's
-  // `load` event, cleared on `fallback`. The zoom button and the lightbox
-  // key off this rather than modalPicture: CustomAvatar may skip or proxy
-  // the raw URL (void.cat, snort imgproxy) or exhaust every candidate and
-  // draw the generated placeholder, and in either case enlarging the raw
-  // URL would show a broken image or nothing worth a click.
-  let modalResolvedPicture: string | null = null;
-  $: {
-    // Clear whenever the avatar's inputs change so a URL from the
-    // previous picture can't outlive its remount.
-    void modalPicture;
-    void hexpubkey;
-    void avatarRefreshKey;
-    modalResolvedPicture = null;
-  }
 
   // Profile edit modal state
   let profileEditModal = false;
@@ -1340,15 +1290,11 @@
 
   let qrModal = false;
   let npubCopied = false;
-  let lightningCopied = false;
   let npubToast = false;
 
   function qrModalCleanup() {
     qrModal = false;
-    avatarLightboxOpen = false;
-    modalResolvedPicture = null;
     npubCopied = false;
-    lightningCopied = false;
   }
 
   async function handleZapClick() {
@@ -1377,16 +1323,6 @@
       }, 2000);
       setTimeout(() => {
         npubToast = false;
-      }, 2000);
-    }
-  }
-
-  async function copyLightningAddress(address: string) {
-    if (address) {
-      await navigator.clipboard.writeText(address);
-      lightningCopied = true;
-      setTimeout(() => {
-        lightningCopied = false;
       }, 2000);
     }
   }
@@ -1793,205 +1729,14 @@
   }}
 />
 
-<Modal cleanup={qrModalCleanup} open={qrModal} noHeader autoHeight suspended={avatarLightboxOpen}>
-  <!-- Profile header. The banner bleeds to the dialog's edges by undoing
-       its px-4/md:px-8/pt-6 padding, so the sheet opens on the same
-       banner-and-avatar composition as the profile page rather than a
-       bare title row. Modal's own header is off for that reason; the
-       close button below is still the single dismiss affordance. -->
-  <div class="-mx-4 -mt-6 md:-mx-8">
-    <div class="relative">
-      <div
-        class="h-24 overflow-hidden rounded-t-3xl sm:h-28"
-        style="background: {profile?.banner
-          ? 'transparent'
-          : 'linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%)'}"
-      >
-        {#if profile?.banner}
-          <img src={profile.banner} alt="" class="w-full h-full object-cover" />
-        {/if}
-      </div>
-
-      <button
-        class="absolute top-2 right-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition-colors hover:bg-black/70"
-        aria-label="Close"
-        on:click={qrModalCleanup}
-      >
-        <CloseIcon size={20} />
-      </button>
-
-      <!-- Avatar overlaps the banner. The avatar itself is non-interactive
-           (no nested button role, no membership tooltip eating the first
-           click); a single transparent zoom button is laid over it once an
-           image has actually loaded. With only the generated placeholder
-           there is nothing to enlarge, so no control is offered. -->
-      <div
-        class="absolute -bottom-8 left-4 md:left-8 rounded-full ring-4"
-        style="--tw-ring-color: var(--color-bg-secondary)"
-      >
-        {#key `${hexpubkey}-${avatarRefreshKey}`}
-          <Avatar
-            pubkey={hexpubkey || ''}
-            size={72}
-            src={modalPicture || null}
-            alt="Profile picture"
-            interactive={false}
-            on:load={(e) => (modalResolvedPicture = e.detail.fullSrc)}
-            on:fallback={() => (modalResolvedPicture = null)}
-          />
-        {/key}
-        {#if modalResolvedPicture}
-          <button
-            class="absolute inset-0 rounded-full cursor-zoom-in transition-colors hover:bg-black/10 focus-visible:ring-2 focus-visible:ring-orange-500"
-            on:click={() => (avatarLightboxOpen = true)}
-            aria-label="View profile picture"
-            title="View profile picture"
-          ></button>
-        {/if}
-      </div>
-    </div>
-  </div>
-
-  <!-- pt clears the avatar's overhang; Modal's own gap-6 supplies the rest. -->
-  <div class="flex flex-col gap-4 pt-4">
-    <!-- Identity -->
-    <div class="flex flex-col gap-1 min-w-0">
-      <h2 id="title" class="flex items-center gap-1.5 text-lg font-bold min-w-0">
-        <span class="truncate"><CustomName pubkey={hexpubkey || ''} interactive={false} /></span>
-        <MembershipBeltBadge pubkey={hexpubkey || ''} size={18} />
-      </h2>
-
-      {#if profile?.nip05}
-        <div class="flex items-center gap-1.5 text-xs" style="color: var(--color-text-caption)">
-          <SealCheckIcon size={14} weight="fill" class="text-purple-500 flex-shrink-0" />
-          <span class="break-all">{profile.nip05}</span>
-        </div>
-      {/if}
-
-      {#if profile?.lud16 || profile?.lud06}
-        <div class="flex items-center gap-1.5 text-xs" style="color: var(--color-text-caption)">
-          <LightningIcon size={14} weight="fill" class="text-yellow-500 flex-shrink-0" />
-          <span class="break-all">{profile.lud16 || profile.lud06}</span>
-          <button
-            on:click={() => copyLightningAddress(profile?.lud16 || profile?.lud06 || '')}
-            class="text-caption hover:text-primary transition-colors cursor-pointer flex-shrink-0"
-            title="Copy lightning address"
-          >
-            {#if lightningCopied}
-              <CheckIcon size={14} weight="bold" class="text-green-500" />
-            {:else}
-              <CopyIcon size={14} />
-            {/if}
-          </button>
-        </div>
-      {/if}
-    </div>
-
-    <!-- Actions. Compact pills in a wrapping row: the stacked full-width
-         blocks made a five-item sheet taller than the profile it describes. -->
-    <div class="flex flex-wrap items-center gap-2">
-      {#if hexpubkey !== $userPublickey}
-        {#if (profile?.lud16 || profile?.lud06) && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
-          <button
-            class="flex items-center gap-1.5 rounded-lg bg-yellow-500 px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-yellow-400 disabled:opacity-50"
-            disabled={isZapping}
-            on:click={() => {
-              qrModal = false;
-              handleZapClick();
-            }}
-          >
-            <LightningIcon size={16} weight="fill" />
-            <span>{isZapping ? 'Zapping...' : 'Zap'}</span>
-          </button>
-        {/if}
-
-        {#if profileNoffer && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
-          <NofferButton noffer={profileNoffer} />
-        {/if}
-
-        {#if $userPublickey && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
-          <a
-            href="/messages?pubkey={hexpubkey}"
-            class="flex items-center gap-1.5 rounded-lg bg-input px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent-gray"
-            style="color: var(--color-text-primary)"
-            on:click={() => (qrModal = false)}
-          >
-            <ChatCircleIcon size={16} weight="bold" />
-            <span>Message</span>
-          </a>
-        {/if}
-
-        {#if $userPublickey}
-          <button
-            on:click={toggleFollow}
-            disabled={followLoading}
-            class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 {isFollowing
-              ? 'bg-input hover:bg-accent-gray'
-              : 'bg-orange-500 text-white hover:bg-orange-600'}"
-            style={isFollowing ? 'color: var(--color-text-primary)' : ''}
-          >
-            {#if followLoading}
-              <span class="animate-pulse">...</span>
-            {:else if isFollowing}
-              <CheckIcon size={16} weight="bold" />
-              <span>Following</span>
-            {:else}
-              <UserPlusIcon size={16} weight="bold" />
-              <span>Follow</span>
-            {/if}
-            {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
-              <SpeakerSimpleSlashIcon size={16} weight="bold" class="opacity-70" />
-            {/if}
-          </button>
-        {/if}
-      {/if}
-    </div>
-
-    <!-- Secondary actions read as utilities, not peers of Zap/Follow. -->
-    <div
-      class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3 text-xs"
-      style="border-color: var(--color-input-border)"
-    >
-      <button
-        on:click={copyNpub}
-        class="flex items-center gap-1.5 transition-colors hover:opacity-80"
-        style="color: var(--color-text-caption)"
-      >
-        {#if npubCopied}
-          <CheckIcon size={14} weight="bold" class="text-green-500" />
-          <span>Copied!</span>
-        {:else}
-          <CopyIcon size={14} />
-          <span>Copy npub</span>
-        {/if}
-      </button>
-
-      {#if hexpubkey !== $userPublickey && $userPublickey}
-        <button
-          on:click={toggleMute}
-          disabled={muteLoading}
-          class="flex items-center gap-1.5 transition-colors hover:opacity-80 disabled:opacity-50"
-          style="color: {isMuted ? 'rgb(248 113 113)' : 'var(--color-text-caption)'}"
-        >
-          {#if muteLoading}
-            <span class="animate-pulse">...</span>
-          {:else}
-            <SpeakerSlashIcon size={14} weight={isMuted ? 'bold' : 'regular'} />
-            <span>{isMuted ? 'Unmute user' : 'Mute user'}</span>
-          {/if}
-        </button>
-      {/if}
-    </div>
-  </div>
-</Modal>
-
-{#if avatarLightboxOpen && modalResolvedPicture}
-  <MediaLightbox
-    images={[modalResolvedPicture]}
-    index={0}
-    onClose={() => (avatarLightboxOpen = false)}
-  />
-{/if}
+<!-- The same sheet avatar clicks open everywhere else in the app; the
+     way through to the full profile is left off here, since this is it. -->
+<ProfileSheet
+  open={qrModal}
+  pubkey={hexpubkey || ''}
+  refreshKey={avatarRefreshKey}
+  on:close={qrModalCleanup}
+/>
 
 <div class="max-w-4xl w-full px-4">
   <!-- Profile Banner. Below xl (no sidebar) it's full-bleed and flush under
