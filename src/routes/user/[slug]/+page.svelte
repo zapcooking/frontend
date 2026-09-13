@@ -1784,10 +1784,20 @@
     <div class="flex-1 min-w-0 flex flex-col gap-2">
       <!-- Name Row with Action Buttons on Right -->
       <div class="flex items-start justify-between gap-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <button class="hover:opacity-80 transition-opacity" on:click={() => (qrModal = true)}>
-            <h1 class="text-xl font-bold truncate flex items-center gap-1.5">
-              <CustomName pubkey={hexpubkey || ''} />
+        <div class="flex items-center gap-3 min-w-0 flex-1">
+          <!-- min-w-0 down the chain: without it the button's automatic
+               minimum size keeps it at the name's full width, and a long
+               name runs under the action buttons instead of ellipsing.
+               The ellipsis has to sit on the text span itself — `truncate`
+               on the flex h1 never reaches its children. -->
+          <button
+            class="min-w-0 hover:opacity-80 transition-opacity"
+            on:click={() => (qrModal = true)}
+          >
+            <h1 class="text-xl font-bold flex items-center gap-1.5 min-w-0">
+              <span class="truncate"
+                ><CustomName pubkey={hexpubkey || ''} interactive={false} /></span
+              >
               <MembershipBeltBadge pubkey={hexpubkey || ''} size={20} />
             </h1>
           </button>

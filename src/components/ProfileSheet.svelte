@@ -372,12 +372,17 @@
 
     <!-- Actions. Compact pills in a wrapping row: stacked full-width
          blocks made a five-item sheet taller than the profile it
-         describes. -->
+         describes. Every pill is flex-1 (grow from a zero basis), so
+         each line's pills divide it between them and a pill that wraps
+         alone — View profile on a phone, Follow on a narrow one — takes
+         the whole line instead of sitting there half-width. The zero
+         basis matters: wrapping is still decided on each pill's own
+         content width, so no label gets squeezed to buy the growth. -->
     <div class="flex flex-wrap items-center gap-2">
       {#if !isSelf}
         {#if lightningAddress && !isMuted}
           <button
-            class="flex items-center gap-1.5 rounded-lg bg-yellow-500 px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-yellow-400 disabled:opacity-50"
+            class="flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-yellow-500 px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-yellow-400 disabled:opacity-50"
             disabled={isZapping}
             on:click={handleZap}
           >
@@ -387,13 +392,17 @@
         {/if}
 
         {#if profile?.noffer && !isMuted}
-          <NofferButton noffer={profile.noffer} />
+          <!-- NofferButton styles its own button, so the slot carries the
+               row's sizing and hands it down. -->
+          <div class="noffer-slot flex flex-1">
+            <NofferButton noffer={profile.noffer} />
+          </div>
         {/if}
 
         {#if $userPublickey && !isMuted}
           <a
             href="/messages?pubkey={hex}"
-            class="flex items-center gap-1.5 rounded-lg bg-input px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent-gray"
+            class="flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-input px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent-gray"
             style="color: var(--color-text-primary)"
             on:click={close}
           >
@@ -406,7 +415,7 @@
           <button
             on:click={toggleFollow}
             disabled={followLoading}
-            class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 {isFollowing
+            class="flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 {isFollowing
               ? 'bg-input hover:bg-accent-gray'
               : 'bg-orange-500 text-white hover:bg-orange-600'}"
             style={isFollowing ? 'color: var(--color-text-primary)' : ''}
@@ -430,7 +439,7 @@
       {#if showViewFullProfile}
         <button
           on:click={viewFullProfile}
-          class="flex items-center gap-1.5 rounded-lg bg-input px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent-gray"
+          class="flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-input px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent-gray"
           style="color: var(--color-text-primary)"
         >
           <span>View profile</span>
@@ -488,3 +497,11 @@
 {#if zapTarget}
   <ZapModal bind:open={zapModal} event={zapTarget} />
 {/if}
+
+<style>
+  /* NofferButton styles its own button, so the flex-1 slot has to hand
+     the width down for it to fill its share of the row. */
+  .noffer-slot :global(button) {
+    width: 100%;
+  }
+</style>
