@@ -22,15 +22,19 @@
  *
  * Response:
  *   200 { success: true, recipe: NormalizedRecipe }
- *   400 { success: false, error: string }
+ *   400 { success: false, error: string, code: ExtractErrorCode }
  *   429 { error: 'rate_limited', retryAfter, scope }
- *   500 { success: false, error: string }
+ *   500 { success: false, error: string, code: ExtractErrorCode }
+ *
+ * `code` is additive — statuses are frozen (mobile clients branch on the
+ * numeric status; see $lib/extractErrors).
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { parseRecipe } from '$lib/parseRecipe.server';
+import { parseRecipe, MAX_URL_CHARS } from '$lib/parseRecipe.server';
 import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
+import { EXTRACT_ERROR_FALLBACK } from '$lib/extractErrors';
 
 const PER_HOUR = 8;
 const PER_DAY = 30;
@@ -39,22 +43,32 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
   try {
     const OPENAI_API_KEY = platform?.env?.OPENAI_API_KEY || env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {
-      return json({ success: false, error: 'OpenAI API key not configured' }, { status: 500 });
+      console.error('[extract-recipe.public] OPENAI_API_KEY not configured');
+      return json(
+        { success: false, error: EXTRACT_ERROR_FALLBACK.INTERNAL, code: 'INTERNAL' },
+        { status: 500 }
+      );
     }
 
     let body: Record<string, unknown>;
     try {
       body = (await request.json()) as Record<string, unknown>;
     } catch {
-      return json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
+      return json(
+        { success: false, error: 'Invalid JSON body', code: 'INVALID_REQUEST' },
+        { status: 400 }
+      );
     }
 
     const { url } = body ?? {};
     if (typeof url !== 'string' || url.trim().length === 0) {
-      return json({ success: false, error: 'URL is required' }, { status: 400 });
+      return json(
+        { success: false, error: 'URL is required', code: 'INVALID_REQUEST' },
+        { status: 400 }
+      );
     }
-    if (url.length > 2048) {
-      return json({ success: false, error: 'URL is too long' }, { status: 400 });
+    if (url.length > MAX_URL_CHARS) {
+      return json({ success: false, error: 'URL is too long', code: 'INVALID_URL' }, { status: 400 });
     }
 
     // Per-IP cap. Falls open if KV is unbound (local dev without
@@ -78,7 +92,10 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
 
     const result = await parseRecipe(OPENAI_API_KEY, { type: 'url', url });
     if (!result.ok) {
-      return json({ success: false, error: result.error }, { status: result.status });
+      return json(
+        { success: false, error: result.error, code: result.code },
+        { status: result.status }
+      );
     }
 
     // TODO(analytics): emit `anon_import_success` with { ipHash: rl.ipHash, urlHost }.
@@ -89,9 +106,13 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
 
     return json({ success: true, recipe: result.recipe });
   } catch (err) {
+    // Full detail stays server-side; the client never sees a raw
+    // exception message.
     console.error('[extract-recipe.public] error:', err);
-    const message = err instanceof Error ? err.message : 'An unexpected error occurred';
-    return json({ success: false, error: message }, { status: 500 });
+    return json(
+      { success: false, error: EXTRACT_ERROR_FALLBACK.INTERNAL, code: 'INTERNAL' },
+      { status: 500 }
+    );
   }
 };
 

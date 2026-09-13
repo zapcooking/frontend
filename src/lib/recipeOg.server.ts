@@ -14,7 +14,7 @@
 
 import { nip19 } from 'nostr-tools';
 import { raceRelays } from './recipePackOg.server';
-import { GATED_RECIPE_KIND } from './consts';
+import { GATED_RECIPE_KIND, isHiddenRecipeCoordinate, isHiddenRecipeEvent } from './consts';
 import type { OgEventLike } from './recipeOgMeta';
 
 /** Hard ceiling on the whole resolve so a wedged relay can never delay the
@@ -49,6 +49,8 @@ async function resolveEvent(slug: string): Promise<OgEventLike | null> {
 
     // Support both regular recipes (30023) and premium recipes (GATED_RECIPE_KIND).
     const recipeKind = pointer.kind === GATED_RECIPE_KIND ? GATED_RECIPE_KIND : 30023;
+    // Hidden recipes get no OG card — skip the relay race entirely.
+    if (isHiddenRecipeCoordinate(recipeKind, pointer.pubkey, pointer.identifier)) return null;
     const evt = await raceRelays({
       kinds: [recipeKind],
       authors: [pointer.pubkey],
@@ -60,7 +62,9 @@ async function resolveEvent(slug: string): Promise<OgEventLike | null> {
   // Raw hex event id.
   if (!/^[0-9a-f]{64}$/i.test(slug)) return null;
   const evt = await raceRelays({ ids: [slug] });
-  return toOgEvent(evt);
+  const ogEvent = toOgEvent(evt);
+  if (ogEvent && isHiddenRecipeEvent(ogEvent)) return null;
+  return ogEvent;
 }
 
 /**

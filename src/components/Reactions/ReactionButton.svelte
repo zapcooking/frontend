@@ -6,6 +6,7 @@
   import { aggregateReactions } from '$lib/reactionAggregator';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
   import { fetchCount } from '$lib/countQuery';
+  import { targetsEvent } from '$lib/engagementTarget';
   import EmojiReactionPicker from './EmojiReactionPicker.svelte';
   import FullEmojiPicker from './FullEmojiPicker.svelte';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
@@ -119,6 +120,10 @@
       subscription.on('event', (e: NDKEvent) => {
         if (myToken !== currentLoadToken) return;
         if (!e.id || processedIds.has(e.id)) return;
+        // The '#e' filter matches context e-tags too; only the effective
+        // NIP-10 target's note counts. Recipes match via '#a' and their
+        // reactions may carry no e tag at all, so they are exempt.
+        if (targetType !== 'recipe' && !targetsEvent(e.tags, event.id)) return;
         processedIds.add(e.id);
         reactionEvents = [...reactionEvents, e];
         processEvents();

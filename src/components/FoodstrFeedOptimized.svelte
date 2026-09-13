@@ -26,15 +26,13 @@
     getCurrentRelayGeneration,
     onRelaySwitchStopSubscriptions
   } from '$lib/nostr';
-  import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+  // The one implementation of the hellthread rule — the notification path uses
+  // the same export, so the two surfaces cannot drift.
+  import { isHellthread as isHellthreadNote } from '$lib/notificationUtils';
+  import { foodFilterSetting } from '$lib/foodFilterSettings';
   import MediaLightbox from './MediaLightbox.svelte';
   import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
-  import {
-    isPubkeyMuted,
-    containsMutedWord,
-    hasMutedTag,
-    isThreadMuted
-  } from '$lib/mutableIntegration';
+  import { isEventMutedBy } from '$lib/muteFilter';
   import Avatar from './Avatar.svelte';
   import type { NDKSubscription } from '@nostr-dev-kit/ndk';
   import { NDKEvent, NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
@@ -43,7 +41,9 @@
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import NoteRepost from './NoteRepost.svelte';
-  import CheffyNoteReviewTrigger from './CheffyNoteReviewTrigger.svelte';
+  import CheffyMediaReview from './CheffyMediaReview.svelte';
+  import PostEngagementDrawer from './PostEngagementDrawer.svelte';
+  import PostEngagementToggle from './PostEngagementToggle.svelte';
   import CommentThread from './comments/CommentThread.svelte';
   import ZapModal from './ZapModal.svelte';
   import ShareModal from './ShareModal.svelte';
@@ -62,7 +62,8 @@
     type ReferencedNote
   } from '$lib/shareNoteImage';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
-  import { compressedCacheManager, COMPRESSED_FEED_CACHE_CONFIG } from '$lib/compressedCache';
+  import { stripQuotedNoteReferences } from '$lib/feed/noteContent';
+  import { compressedCacheManager } from '$lib/compressedCache';
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
@@ -94,6 +95,7 @@
     batchFetchEngagement,
     getEngagementStore,
     fetchEngagement,
+    cleanupEngagement,
     type EngagementData
   } from '$lib/engagementCache';
 
@@ -156,6 +158,7 @@
     try {
       // Clear existing data for fresh load
       seenEventIds.clear();
+      paginationFloorTs = null;
       events = [];
       hasMore = true;
       loadingMore = false;
@@ -441,7 +444,6 @@
   const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
 
   const MAX_HASHTAGS = 5;
-  const CACHE_KEY = 'foodstr_feed_cache';
   const BATCH_DEBOUNCE_MS = 300;
   const SUBSCRIPTION_TIMEOUT_MS = 4000;
   const PRIVATE_RELAY_TIMEOUT_MS = 15000; // Longer timeout for members relays (15 seconds)
@@ -450,10 +452,10 @@
   const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60;
 
   // Relay pools by purpose - optimized based on speed test results
-  // Speed test: nostr.wine (305ms) > nos.lol (342ms) > purplepag.es (356ms) > relay.damus.io (394ms)
+  // Speed test: nostr.wine (305ms) > nos.lol (342ms) > purplepag.es (356ms)
   // NOTE: All URLs are normalized (no trailing slashes) to prevent duplicate connections
   const RELAY_POOLS = {
-    recipes: ['wss://nos.lol', 'wss://relay.damus.io'], // General relays with recipe content
+    recipes: ['wss://nos.lol', 'wss://relay.nostr.net'], // General relays with recipe content
     fallback: ['wss://relay.primal.net', 'wss://nostr.wine', 'wss://antiprimal.net'], // Fast general relays for broader discovery
     discovery: [
       'wss://nostr.wine',
@@ -521,8 +523,12 @@
   let imageGenerationError: string | null = null;
   let expandedParentNotes: { [eventId: string]: boolean } = {}; // Track expanded parent notes
   let parentNoteCache: { [eventId: string]: NDKEvent | null } = {}; // Cache full parent notes
-  // Toggle for food filtering - defaults to OFF for profile view (show all posts), ON for other modes
-  let foodFilterEnabled = !authorPubkey;
+  // "Only Food" toggle — the member's own choice, persisted across reloads
+  // (see $lib/foodFilterSettings). Defaults OFF for Following, Replies and
+  // profile views: those are a promise about *who*, not about *what*. The
+  // Global Food tab renders no toggle and food-filters regardless — see
+  // foodFilterActive.
+  let foodFilterEnabled = get(foodFilterSetting);
 
   // Modals
   let zapModal = false;
@@ -533,6 +539,17 @@
 
   // Lazy loading for engagement components
   let visibleNotes = new Set<string>();
+  let expandedEngagements = new Set<string>();
+
+  function toggleEngagementDrawer(eventId: string) {
+    const next = new Set(expandedEngagements);
+    if (next.has(eventId)) {
+      next.delete(eventId);
+    } else {
+      next.add(eventId);
+    }
+    expandedEngagements = next;
+  }
 
   // Lazy DOM rendering — only mount full component tree for items near the viewport
   let renderedNotes = new Set<string>();
@@ -546,6 +563,14 @@
   // Fix C: loadMore cooldown
   let loadMoreCooldownUntil = 0;
   let sentinelFiredThisFrame = false;
+
+  // Pagination floor: the oldest event timestamp any pagination page has
+  // actually FETCHED (duplicates included). When a page yields no new
+  // unique events, `events` doesn't grow, so anchoring the next window on
+  // the feed's oldest event would re-request the identical window forever
+  // (relays happily re-serve the same popular events; food filtering is
+  // client-side). Reset alongside seenEventIds wherever the feed reloads.
+  let paginationFloorTs: number | null = null;
 
   // Fix D: Batch visibility updates per frame
   let pendingRenderUpdates = new Map<string, boolean>();
@@ -571,76 +596,119 @@
   let showNewPostsButton = false;
   let isScrolledToTop = true;
 
+  // ═══════════════════════════════════════════════════════════════
+  // SHARED FEED OBSERVERS
+  // ═══════════════════════════════════════════════════════════════
+  // One IntersectionObserver instance per margin per feed, shared by
+  // every note, instead of three instances per note. A long feed
+  // session used to accumulate hundreds of live observers (one preload
+  // + one enter + one leave per note); the browser handles many targets
+  // on a single observer far more cheaply. Targets unregister in each
+  // action's destroy(), and everything tears down in onDestroy.
+
+  const preloadTargets = new Map<Element, string>();
+  let preloadObserver: IntersectionObserver | null = null;
+
+  const renderEnterTargets = new Map<Element, { eventId: string; node: HTMLElement }>();
+  const renderLeaveTargets = new Map<Element, { eventId: string; node: HTMLElement }>();
+  let renderEnterObserver: IntersectionObserver | null = null;
+  let renderLeaveObserver: IntersectionObserver | null = null;
+
+  const RENDER_HYSTERESIS_MS = 150;
+
+  function teardownSharedObservers() {
+    preloadObserver?.disconnect();
+    preloadObserver = null;
+    renderEnterObserver?.disconnect();
+    renderEnterObserver = null;
+    renderLeaveObserver?.disconnect();
+    renderLeaveObserver = null;
+    preloadTargets.clear();
+    renderEnterTargets.clear();
+    renderLeaveTargets.clear();
+  }
+
   function lazyLoadAction(node: HTMLElement, eventId: string) {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          visibleNotes = visibleNotes.add(eventId);
-          visibleNotes = visibleNotes; // trigger reactivity
-          observer.disconnect();
+    preloadObserver ??= new IntersectionObserver(
+      (entries, observer) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = preloadTargets.get(entry.target);
+          if (id === undefined) continue;
+          preloadTargets.delete(entry.target);
+          observer.unobserve(entry.target);
+          visibleNotes = visibleNotes.add(id);
         }
+        visibleNotes = visibleNotes; // trigger reactivity
       },
       { rootMargin: '800px' } // Load engagement 800px before visible - much earlier preloading
     );
 
-    observer.observe(node);
+    preloadTargets.set(node, eventId);
+    preloadObserver.observe(node);
 
     return {
       destroy() {
-        observer.disconnect();
+        preloadTargets.delete(node);
+        // Keep the shared observer alive for other notes.
       }
     };
   }
 
   /**
-   * Render-zone action with hysteresis (Fix B) and batched updates (Fix D).
-   * Uses TWO observers with different margins to create a dead zone that
-   * prevents oscillation when posts are near the boundary.
+   * Render-zone registration with hysteresis (Fix B) and batched updates
+   * (Fix D). Two shared observers with different margins create a dead
+   * zone that prevents oscillation when posts are near the boundary.
    * Measures height before swapping to skeleton (Fix A).
    */
   function renderZoneAction(node: HTMLElement, eventId: string) {
     const scrollRoot = document.getElementById('app-scroll') || null;
-    const HYSTERESIS_MS = 150;
 
-    // ENTER observer: 2000px margin — triggers full component render
-    const enterObserver = new IntersectionObserver(
+    // ENTER: 2000px margin — triggers full component render
+    renderEnterObserver ??= new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting && !renderedNotes.has(eventId)) {
-            const lastChange = renderZoneLastChange.get(eventId) || 0;
-            if (Date.now() - lastChange < HYSTERESIS_MS) return;
-            pendingRenderUpdates.set(eventId, true);
-            scheduleRenderFlush();
-          }
+          if (!entry.isIntersecting) continue;
+          const target = renderEnterTargets.get(entry.target);
+          if (!target || renderedNotes.has(target.eventId)) continue;
+          const lastChange = renderZoneLastChange.get(target.eventId) || 0;
+          if (Date.now() - lastChange < RENDER_HYSTERESIS_MS) continue;
+          pendingRenderUpdates.set(target.eventId, true);
+          scheduleRenderFlush();
         }
       },
       { rootMargin: '2000px', root: scrollRoot }
     );
 
-    // LEAVE observer: 3000px margin — triggers skeleton swap (wider = dead zone gap)
-    const leaveObserver = new IntersectionObserver(
+    // LEAVE: 3000px margin — triggers skeleton swap (wider = dead zone gap)
+    renderLeaveObserver ??= new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting && renderedNotes.has(eventId)) {
-            const lastChange = renderZoneLastChange.get(eventId) || 0;
-            if (Date.now() - lastChange < HYSTERESIS_MS) return;
-            // Fix A: measure height before swapping to skeleton
-            measuredHeights.set(eventId, node.offsetHeight);
-            pendingRenderUpdates.set(eventId, false);
-            scheduleRenderFlush();
-          }
+          if (entry.isIntersecting) continue;
+          const target = renderLeaveTargets.get(entry.target);
+          if (!target || !renderedNotes.has(target.eventId)) continue;
+          const lastChange = renderZoneLastChange.get(target.eventId) || 0;
+          if (Date.now() - lastChange < RENDER_HYSTERESIS_MS) continue;
+          // Fix A: measure height before swapping to skeleton
+          measuredHeights.set(target.eventId, target.node.offsetHeight);
+          pendingRenderUpdates.set(target.eventId, false);
+          scheduleRenderFlush();
         }
       },
       { rootMargin: '3000px', root: scrollRoot }
     );
 
-    enterObserver.observe(node);
-    leaveObserver.observe(node);
+    renderEnterTargets.set(node, { eventId, node });
+    renderLeaveTargets.set(node, { eventId, node });
+    renderEnterObserver.observe(node);
+    renderLeaveObserver.observe(node);
 
     return {
       destroy() {
-        enterObserver.disconnect();
-        leaveObserver.disconnect();
+        renderEnterTargets.delete(node);
+        renderLeaveTargets.delete(node);
+        renderEnterObserver?.unobserve(node);
+        renderLeaveObserver?.unobserve(node);
       }
     };
   }
@@ -776,10 +844,16 @@
         // a repost of an old note doesn't make pagination jump back to
         // the inner timestamp and skip everything between.
         const oldestTime = getEventSortTime(events[events.length - 1]) || now;
+        // When previous pages fetched past the feed's oldest event
+        // (all-duplicate pages), continue below the floor instead of
+        // re-requesting the window those duplicates came from.
+        const anchor = paginationFloorTs !== null && paginationFloorTs < oldestTime
+          ? paginationFloorTs
+          : oldestTime;
         const THIRTY_DAYS_SECONDS = 30 * 24 * 60 * 60;
         return {
-          since: Math.max(oldestTime - SEVEN_DAYS_SECONDS, now - THIRTY_DAYS_SECONDS),
-          until: oldestTime - 1
+          since: Math.max(anchor - SEVEN_DAYS_SECONDS, now - THIRTY_DAYS_SECONDS),
+          until: anchor - 1
         };
       }
 
@@ -935,12 +1009,12 @@
     }
   }
 
-  // Click anywhere on a feed card (except on a link, button, or while
-  // selecting text) to open the single-note view.
+  // Click anywhere on a feed card (except on controls, expanded detail
+  // surfaces, or while selecting text) to open the single-note view.
   function gotoNoteFromCard(e: MouseEvent, ev: NDKEvent) {
     if (
       e.target instanceof Element &&
-      e.target.closest('a, button, input, textarea, [role="button"]')
+      e.target.closest('a, button, input, textarea, [role="button"], [data-stop-card-navigation]')
     ) {
       return;
     }
@@ -992,14 +1066,7 @@
   // Get content without the quoted note reference (so it doesn't render as inline embed)
   function getContentWithoutQuote(content: string): string {
     try {
-      if (!content) return '';
-      return content
-        .replace(
-          /nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/g,
-          ''
-        )
-        .replace(/\s+/g, ' ')
-        .trim();
+      return stripQuotedNoteReferences(content);
     } catch {
       return content || '';
     }
@@ -1127,29 +1194,14 @@
     cachedMutedUsersKey = null;
   }
 
-  /**
-   * Detect if an event is a hellthread based on number of 'p' tags (mentions)
-   * @param event - NDKEvent to check
-   * @param threshold - Number of mentions that constitutes a hellthread (0 = disabled)
-   * @returns true if event should be hidden as a hellthread
-   */
-  function isHellthread(event: NDKEvent, threshold: number): boolean {
-    if (threshold === 0) return false; // Disabled
-
-    if (!event.tags || !Array.isArray(event.tags)) return false;
-
-    // Count 'p' tags (person mentions)
-    const mentionCount = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'p').length;
-
-    return mentionCount >= threshold;
-  }
-
-  // Memoization cache for shouldIncludeEvent — keyed by event.id
-  // Cleared when mute list changes (see reactive block below)
+  // Memoization cache for the food-only shouldIncludeEvent — keyed by event.id.
+  // Mutes/hellthread live in passesFeedFilters (always-on), not here, so this
+  // cache does not encode mute state and does not need clearing on unmute.
+  // Cleared when the signed-in user changes (see reactive block below).
   const includeEventCache = new Map<string, boolean>();
 
   function shouldIncludeEvent(event: NDKEvent): boolean {
-    // Check memoization cache first (stable per event unless mute list changes)
+    // Food-test memoization only — stable per event for a given user session.
     const eventId = event.id;
     if (eventId) {
       const cached = includeEventCache.get(eventId);
@@ -1176,38 +1228,13 @@
   }
 
   function _shouldIncludeEventUncached(event: NDKEvent): boolean {
-    // For NIP-18 reposts (kind 6), inclusion decisions need to be made against the
-    // underlying note (food content, mutes on original author, etc.). If we can't
-    // expand the inner event, drop the repost.
+    // For NIP-18 reposts (kind 6), the food test needs the underlying note.
+    // If we can't expand the inner event, drop the repost. Mutes are enforced
+    // separately in passesFeedFilters so this stays strictly food-only.
     if (event.kind === 6) {
       const inner = expandRepostEvent(event);
       if (!inner) return false;
       return _shouldIncludeEventUncached(inner);
-    }
-
-    // Check muted users (both public and private lists)
-    if ($userPublickey && $muteListStore.muteList) {
-      const authorKey = event.author?.hexpubkey || event.pubkey;
-
-      // Check pubkey mute
-      if (authorKey && isPubkeyMuted($muteListStore.muteList, authorKey)) {
-        return false;
-      }
-
-      // Check word mutes
-      if (containsMutedWord($muteListStore.muteList, event.content)) {
-        return false;
-      }
-
-      // Check tag mutes
-      if (hasMutedTag($muteListStore.muteList, event.tags)) {
-        return false;
-      }
-
-      // Check thread mutes
-      if (isThreadMuted($muteListStore.muteList, event.id)) {
-        return false;
-      }
     }
 
     // Client-side filtered results: notes without hashtags that contain food words
@@ -1216,11 +1243,6 @@
       // Only check hashtag spam, not content (content already validated by client-side filter)
       const hashtagCount = getHashtagCount(event);
       if (hashtagCount > MAX_HASHTAGS) {
-        return false;
-      }
-      // Check hellthread threshold
-      const threshold = get(hellthreadThreshold);
-      if (isHellthread(event, threshold)) {
         return false;
       }
       return true;
@@ -1238,19 +1260,114 @@
       return false;
     }
 
-    // Check hashtag spam
+    // Check hashtag spam. This one stays inside the food test on purpose: it is
+    // a curation call we made, with no setting and no string promising it, so it
+    // applies only where the food guess is in scope.
     const hashtagCount = getHashtagCount(event);
     if (hashtagCount > MAX_HASHTAGS) {
       return false;
     }
 
-    // Check hellthread threshold
-    const threshold = get(hellthreadThreshold);
-    if (isHellthread(event, threshold)) {
-      return false;
+    return true;
+  }
+
+  // ─── Feed policy ─────────────────────────────────────────────
+  // Two different kinds of rule live here, and the difference decides scope:
+  // an instruction the member gave us (a control, a stored value, or a live
+  // string promising it) applies wherever that member reads; a curation
+  // heuristic we chose applies only where our guess is in scope.
+  // Mutes and the hellthread threshold are the first kind — they always run.
+  // The food test and MAX_HASHTAGS are the second — they run only where the
+  // food filter is active for the current view.
+
+  /**
+   * Does the member's mute list hide this event? Covers pubkey, word, tag and
+   * thread mutes — the full NIP-51 list merged with the legacy localStorage
+   * one (see muteListStore). A kind 6 repost is judged by the note it carries.
+   */
+  function isMuted(event: NDKEvent): boolean {
+    if (!$userPublickey) return false;
+
+    const muteList = $muteListStore.muteList;
+    if (!muteList) return false;
+
+    if (event.kind === 6) {
+      const inner = expandRepostEvent(event);
+      // An unexpandable repost has nothing to check against the mute list;
+      // the food test is what drops it.
+      if (!inner) return false;
+      return isMuted(inner);
     }
 
-    return true;
+    return isEventMutedBy(muteList, {
+      id: event.id,
+      pubkey: event.author?.hexpubkey || event.pubkey,
+      content: event.content,
+      tags: event.tags
+    });
+  }
+
+  /**
+   * Does the member's hellthread threshold hide this event? Set in /settings,
+   * where the copy promises it with no scope qualifier ("Hide notes with too
+   * many mentions… Set to 0 to disable"), and the notification path already
+   * applies it unconditionally — so the feed applies it wherever the member
+   * reads, not only inside the food test. A kind 6 repost is judged by the
+   * note it carries, same as mutes.
+   */
+  function isHellthread(event: NDKEvent): boolean {
+    if (event.kind === 6) {
+      const inner = expandRepostEvent(event);
+      if (!inner) return false;
+      return isHellthread(inner);
+    }
+
+    return isHellthreadNote(event);
+  }
+
+  /**
+   * Does the food test apply to what is on screen right now?
+   *  - Global Food: always. The tab carries the food promise in its own name
+   *    and renders no toggle.
+   *  - Members: never.
+   *  - Following / Replies / profile: whatever the member chose.
+   *
+   * Reactive so the empty state can read it directly.
+   */
+  $: foodFilterActive =
+    filterMode === 'members'
+      ? false
+      : filterMode === 'global' && !authorPubkey
+        ? true
+        : foodFilterEnabled;
+
+  /**
+   * Is the "Only Food" switch on screen? The empty state may only say "turn it
+   * off above" where there is something above to turn off.
+   */
+  $: foodToggleVisible =
+    filterMode === 'following' || filterMode === 'replies' || Boolean(authorPubkey);
+
+  /** The one question every feed path asks before showing an event. */
+  function passesFeedFilters(event: NDKEvent): boolean {
+    if (isMuted(event)) return false;
+    if (isHellthread(event)) return false;
+    if (!foodFilterActive) return true;
+    return shouldIncludeEvent(event);
+  }
+
+  /**
+   * Set the "Only Food" toggle and reload. Shared by the switch above the feed
+   * and by the "Show all posts" button in the empty state, so the control the
+   * empty state points at is the control it flips.
+   */
+  function setFoodFilter(enabled: boolean) {
+    foodFilterEnabled = enabled;
+    foodFilterSetting.setEnabled(enabled);
+    seenEventIds.clear();
+    paginationFloorTs = null;
+    events = [];
+    loadFoodstrFeed(false);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1264,84 +1381,8 @@
       // Store in IndexedDB for better performance and capacity
       const eventStore = getEventStore();
       await eventStore.storeEvents(events.slice(0, 100), 10 * 60 * 1000); // 10 min TTL
-
-      // Also keep compressed cache for quick state restore (legacy support)
-      const cacheData = {
-        events: events.slice(0, 100).map((e) => ({
-          id: e.id,
-          pubkey: e.pubkey,
-          content: e.content,
-          created_at: e.created_at,
-          tags: e.tags,
-          author: e.author
-            ? {
-                hexpubkey: e.author.hexpubkey,
-                profile: e.author.profile
-              }
-            : null
-        })),
-        timestamp: Date.now(),
-        lastEventTime
-      };
-
-      await compressedCacheManager.set(
-        {
-          ...COMPRESSED_FEED_CACHE_CONFIG,
-          key: CACHE_KEY
-        },
-        cacheData
-      );
     } catch {
       // Cache write failed - non-critical
-    }
-  }
-
-  /**
-   * @param isStale Checked after the cache read, before writing events /
-   * seenEventIds — a load superseded during the await must not write.
-   */
-  async function loadCachedEvents(isStale?: () => boolean): Promise<boolean> {
-    if (typeof window === 'undefined') return false;
-
-    try {
-      const cacheData: any = await compressedCacheManager.get({
-        ...COMPRESSED_FEED_CACHE_CONFIG,
-        key: CACHE_KEY
-      });
-
-      if (
-        !cacheData ||
-        !cacheData.events ||
-        !Array.isArray(cacheData.events) ||
-        cacheData.events.length === 0
-      ) {
-        return false;
-      }
-
-      const cachedEvents = cacheData.events
-        .map((e: any) => ({
-          ...e,
-          author: e.author
-            ? {
-                hexpubkey: e.author.hexpubkey,
-                profile: e.author.profile
-              }
-            : null
-        }))
-        .filter(shouldIncludeEvent);
-
-      if (cachedEvents.length === 0) return false;
-
-      if (isStale?.()) return false;
-
-      // Add to seen set
-      cachedEvents.forEach((e: NDKEvent) => seenEventIds.add(e.id));
-
-      events = cachedEvents;
-      lastEventTime = Math.max(...events.map(getEventSortTime));
-      return true;
-    } catch {
-      return false;
     }
   }
 
@@ -1930,7 +1971,7 @@
               if (authorScope === 'top-level' && isReply(event)) return false;
               if (authorScope === 'replies' && !isReply(event)) return false;
             }
-            return shouldIncludeEvent(event);
+            return passesFeedFilters(event);
           });
 
           if (validCached.length > 0) {
@@ -1961,26 +2002,8 @@
         return;
       }
 
-      // Fallback: Try compressed cache (legacy) - skip for members mode
-      if (
-        useCache &&
-        filterMode !== 'members' &&
-        (await loadCachedEvents(() => isLoadStale(myLoadId, startMode, loadGeneration)))
-      ) {
-        // Check for stale results after async operation
-        if (isLoadStale(myLoadId, startMode, loadGeneration)) {
-          console.log('[Feed] Discarding stale compressed cache results');
-          return;
-        }
-        loading = false;
-        error = false;
-        setTimeout(() => fetchFreshData(), 100);
-        return;
-      }
-
-      // The loadCachedEvents await above may have suspended on a cache miss —
-      // re-check before resetting state for the network load, or a superseded
-      // load could wipe the newer tab's events/seenEventIds.
+      // Re-check before resetting state for the network load, or a
+      // superseded load could wipe the newer tab's events/seenEventIds.
       if (isLoadStale(myLoadId, startMode, loadGeneration)) {
         return;
       }
@@ -1989,6 +2012,7 @@
       error = false;
       events = [];
       seenEventIds.clear();
+      paginationFloorTs = null;
       hasMore = true;
       loadingMore = false;
 
@@ -2090,12 +2114,15 @@
         const outboxOptions: any = {
           since: timeWindow.since,
           kinds: [1, 6, 1068],
-          limit: foodFilterEnabled ? 200 : 300,
+          limit: foodFilterActive ? 200 : 300,
           timeoutMs: 5000,
           maxRelays: 10
         };
 
-        if (foodFilterEnabled) {
+        // Relay-side hashtag filter — kept on the same predicate as the
+        // client-side test so the wire query and the local filter cannot
+        // disagree about what this view is asking for.
+        if (foodFilterActive) {
           outboxOptions.additionalFilter = {
             '#t': FOOD_HASHTAGS
           };
@@ -2218,12 +2245,12 @@
         const repliesOutboxOptions: any = {
           since: timeWindow.since,
           kinds: [1, 6, 1068],
-          limit: foodFilterEnabled ? 200 : 300,
+          limit: foodFilterActive ? 200 : 300,
           timeoutMs: 5000,
           maxRelays: 10
         };
 
-        if (foodFilterEnabled) {
+        if (foodFilterActive) {
           repliesOutboxOptions.additionalFilter = {
             '#t': FOOD_HASHTAGS
           };
@@ -2479,7 +2506,7 @@
                   if (authorKey && mutedUsers.includes(authorKey)) return false;
                 }
                 if (isReply(event)) return false;
-                if (!shouldIncludeEvent(event)) return false;
+                if (!passesFeedFilters(event)) return false;
                 if (followedSet.size > 0) {
                   const authorKey = event.author?.hexpubkey || event.pubkey;
                   if (authorKey && followedSet.has(authorKey)) return false;
@@ -2586,14 +2613,10 @@
           if (authorScope === 'replies' && !isReply(event)) return false;
         }
 
-        // Apply food filter based on context
-        if (authorPubkey) {
-          // Profile view: respect the toggle
-          if (foodFilterEnabled && !shouldIncludeEvent(event)) return false;
-        } else {
-          // Global feed: always apply food filter
-          if (!shouldIncludeEvent(event)) return false;
+        // Mutes always; food test where it is active for this view
+        if (!passesFeedFilters(event)) return false;
 
+        if (!authorPubkey) {
           // Also exclude posts from followed users
           if (followedSet.size > 0) {
             const authorKey = event.author?.hexpubkey || event.pubkey;
@@ -2696,7 +2719,7 @@
 
       sub.on('event', (event: NDKEvent) => {
         if (filterMode === 'following' && isReply(event)) return;
-        if (foodFilterEnabled && !shouldIncludeEvent(event)) return;
+        if (!passesFeedFilters(event)) return;
         handleRealtimeEvent(event);
       });
 
@@ -2794,8 +2817,8 @@
         }
       }
 
-      // For profile view with food filter disabled, apply client-side filter
-      if (authorPubkey && foodFilterEnabled && !shouldIncludeEvent(event)) {
+      // Mutes always; food test where it is active for this view
+      if (!passesFeedFilters(event)) {
         return;
       }
       handleRealtimeEvent(event);
@@ -2813,10 +2836,18 @@
   // ─── Periodic content refresh for Global feed ───────────────
   let contentRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const CONTENT_REFRESH_INTERVAL_MS = 60_000; // every 60s
+  let contentRefreshVisibilityHandler: (() => void) | null = null;
 
   function startPeriodicContentRefresh() {
     stopPeriodicContentRefresh();
     contentRefreshTimer = setInterval(runContentRefresh, CONTENT_REFRESH_INTERVAL_MS);
+    // Catch up once when the tab becomes visible again instead of letting
+    // the 60s tick spin while hidden — each tick is a multi-relay discovery
+    // fetch nobody is looking at.
+    contentRefreshVisibilityHandler = () => {
+      if (!document.hidden) runContentRefresh();
+    };
+    document.addEventListener('visibilitychange', contentRefreshVisibilityHandler);
   }
 
   function stopPeriodicContentRefresh() {
@@ -2824,10 +2855,18 @@
       clearInterval(contentRefreshTimer);
       contentRefreshTimer = null;
     }
+    if (contentRefreshVisibilityHandler) {
+      document.removeEventListener('visibilitychange', contentRefreshVisibilityHandler);
+      contentRefreshVisibilityHandler = null;
+    }
   }
 
   async function runContentRefresh() {
     if (isDestroyed || filterMode !== 'global' || !$ndk) return;
+    // Skip ticks while the tab is hidden; the visibilitychange handler
+    // above runs one refresh when the user comes back, and `since` is
+    // anchored on lastEventTime so that single fetch covers the gap.
+    if (typeof document !== 'undefined' && document.hidden) return;
 
     try {
       // Fetch recent notes (last 10 minutes) and client-side filter for food content
@@ -2843,7 +2882,7 @@
       const newEvents = contentEvents.filter((e) => {
         if (seenEventIds.has(e.id)) return false;
         if (isReply(e)) return false;
-        if (!shouldIncludeEvent(e)) return false;
+        if (!passesFeedFilters(e)) return false;
         if (followedSet.size > 0) {
           const authorKey = e.author?.hexpubkey || e.pubkey;
           if (authorKey && followedSet.has(authorKey)) return false;
@@ -2877,19 +2916,9 @@
     // Skip if already seen
     if (seenEventIds.has(event.id)) return;
 
-    // Validate content - apply food filter based on mode and toggle
-    if (filterMode === 'following' || filterMode === 'replies') {
-      // Following/Replies: respect foodFilterEnabled toggle
-      if (foodFilterEnabled && !shouldIncludeEvent(event)) return;
-    } else if (filterMode !== 'members') {
-      // Global feed: always apply food filter
-      // Profile view: respect the foodFilterEnabled toggle (matches initial load)
-      if (
-        authorPubkey ? foodFilterEnabled && !shouldIncludeEvent(event) : !shouldIncludeEvent(event)
-      )
-        return;
-    }
-    // Members mode: no food filter
+    // Mutes always; food test where it is active for this view (Global always,
+    // Members never, Following/Replies/profile per the member's choice).
+    if (!passesFeedFilters(event)) return;
 
     // Expand NIP-18 kind 6 reposts into their underlying note (with metadata)
     // so the rendering pipeline (which expects kind 1/1068) works correctly.
@@ -2980,8 +3009,7 @@
         const authorKey = event.author?.hexpubkey || event.pubkey;
         if (authorKey && mutedUsers.includes(authorKey)) return false;
       }
-      if (foodFilterEnabled) return shouldIncludeEvent(event);
-      return true;
+      return passesFeedFilters(event);
     });
   }
 
@@ -2993,8 +3021,7 @@
         const authorKey = event.author?.hexpubkey || event.pubkey;
         if (authorKey && mutedUsers.includes(authorKey)) return false;
       }
-      if (foodFilterEnabled) return shouldIncludeEvent(event);
-      return true;
+      return passesFeedFilters(event);
     });
   }
 
@@ -3137,8 +3164,8 @@
           // Exclude replies
           if (isReply(event)) return false;
 
-          // Apply food filter
-          if (!shouldIncludeEvent(event)) return false;
+          // Mutes always; food test where it is active for this view
+          if (!passesFeedFilters(event)) return false;
 
           // Exclude posts from followed users (they go in Following feed)
           if (followedSet.size > 0) {
@@ -3310,14 +3337,8 @@
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
 
-        // Apply food filter based on context
-        // For profile view: respect the toggle
-        // For global feed: always filter for food content
-        if (authorPubkey) {
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
-        } else {
-          if (!shouldIncludeEvent(e)) return false;
-        }
+        // Mutes always; food test where it is active for this view
+        if (!passesFeedFilters(e)) return false;
 
         // Exclude followed users from Global feed
         if (followedSet.size > 0) {
@@ -3373,13 +3394,13 @@
           since: paginationWindow.since,
           until: paginationWindow.until,
           kinds: [1, 6, 1068],
-          limit: foodFilterEnabled ? 100 : 150, // Fetch more when showing all posts
+          limit: foodFilterActive ? 100 : 150, // Fetch more when showing all posts
           timeoutMs: 5000,
           maxRelays: 10
         };
 
         // Only add food hashtag filter when food filter is enabled
-        if (foodFilterEnabled) {
+        if (foodFilterActive) {
           loadMoreOptions.additionalFilter = {
             '#t': FOOD_HASHTAGS // Server-side food filtering!
           };
@@ -3448,6 +3469,29 @@
         ]);
       }
 
+      // Advance the pagination floor past everything this page actually
+      // returned inside the window we asked for, duplicates included, so an
+      // all-duplicate page can never cause the same window to be
+      // re-requested. Events outside [since, until] come from relays that
+      // ignore the filter and must not steer the floor: older junk would
+      // drag it past history we haven't fetched (skipping it and tripping
+      // the 30-day guard early); newer junk says nothing about this window.
+      // A page with events but none in-window means the window is
+      // exhausted, so the floor moves to its `since` edge.
+      if (olderEvents.length > 0) {
+        const { since: windowSince, until: windowUntil } = paginationWindow;
+        let oldestInWindow = Infinity;
+        for (const e of olderEvents) {
+          const ts = e.created_at ?? getEventSortTime(e);
+          if (!ts || ts < windowSince) continue;
+          if (windowUntil !== undefined && ts > windowUntil) continue;
+          if (ts < oldestInWindow) oldestInWindow = ts;
+        }
+        const pageFloor = oldestInWindow === Infinity ? windowSince : oldestInWindow;
+        paginationFloorTs =
+          paginationFloorTs === null ? pageFloor : Math.min(paginationFloorTs, pageFloor);
+      }
+
       // Expand kind:6 wrappers into their inner kind:1/1068 notes before
       // the per-mode filter runs. Same reason as fetchFreshData: without
       // this, kind:6 wrappers leak into `events` and break rendering/dedup.
@@ -3488,27 +3532,15 @@
           return false; // Global mode: exclude replies
         }
 
-        // Apply food filter based on context
-        if (authorPubkey) {
-          // Profile view: respect the toggle
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
-        } else if (filterMode === 'following' || filterMode === 'replies') {
-          // Following/Replies: respect the toggle
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
-        } else if (filterMode === 'global') {
-          // Global feed: always apply food filter
-          if (!shouldIncludeEvent(e)) return false;
+        // Mutes always; food test where it is active for this view
+        if (!passesFeedFilters(e)) return false;
 
-          // Exclude followed users from Global feed
-          if (followedSet.size > 0) {
-            const authorKey = e.author?.hexpubkey || e.pubkey;
-            if (authorKey && followedSet.has(authorKey)) {
-              return false;
-            }
+        // Exclude followed users from Global feed
+        if (!authorPubkey && filterMode === 'global' && followedSet.size > 0) {
+          const authorKey = e.author?.hexpubkey || e.pubkey;
+          if (authorKey && followedSet.has(authorKey)) {
+            return false;
           }
-        } else if (filterMode !== 'members') {
-          // Other modes: apply food filter based on toggle
-          if (foodFilterEnabled && !shouldIncludeEvent(e)) return false;
         }
 
         return true;
@@ -3531,7 +3563,11 @@
         const timeLimit = now - THIRTY_DAYS_SECONDS;
 
         // Continue if we got a good batch (>= 50) or if we're still within time window
-        hasMore = olderEvents.length >= 50 || oldestEventTime > timeLimit;
+        // The floor guard stops pagination once pages have fetched past the
+        // 30-day limit even if relays keep returning (out-of-window) events.
+        hasMore =
+          (olderEvents.length >= 50 || oldestEventTime > timeLimit) &&
+          (paginationFloorTs === null || paginationFloorTs > timeLimit);
         await cacheEvents();
       } else {
         // No valid events - check if we've exhausted the time window
@@ -3540,8 +3576,13 @@
         const oldestEventTime = getEventSortTime(events[events.length - 1]) || now;
         const timeLimit = now - THIRTY_DAYS_SECONDS;
 
-        // Stop if we've gone back 30 days or got no events
-        hasMore = oldestEventTime > timeLimit && olderEvents.length > 0;
+        // Stop if we've gone back 30 days, got no events, or pagination
+        // already fetched past the time limit (all-duplicate pages).
+        const windowAnchor = Math.min(
+          paginationFloorTs ?? oldestEventTime,
+          oldestEventTime
+        );
+        hasMore = windowAnchor > timeLimit && olderEvents.length > 0;
       }
       // Fix C: Cooldown based on filtered batch size — small results get longer cooldown
       loadMoreCooldownUntil = Date.now() + (validOlder.length < 10 ? 1500 : 500);
@@ -3632,6 +3673,8 @@
 
     stopSubscriptions();
 
+    // GCs the legacy compressed-cache feed snapshot (this feed no longer
+    // reads or writes it; entries expire and get cleaned here).
     compressedCacheManager.invalidateStale();
   }
 
@@ -3885,9 +3928,9 @@
     })();
   }
 
-  function handlePostCopy(event: CustomEvent<{ noteId: string }>) {
+  function handlePostCopy(event: CustomEvent<{ noteUri: string }>) {
     // Copy handled by PostActionsMenu component
-    console.log('Note ID copied:', event.detail.noteId);
+    console.log('Note URI copied:', event.detail.noteUri);
   }
 
   function handlePostShare(event: CustomEvent<{ url: string }>, noteEvent?: NDKEvent) {
@@ -4255,10 +4298,9 @@
     return DEFAULT_ENGAGEMENT_INFO;
   }
 
-  // Reload mute list when user changes
+  // Reload mute list when user changes; clear the food-test cache for the new identity.
   $: if ($userPublickey) {
     muteListStore.load();
-    // Invalidate shouldIncludeEvent cache when user (and thus mute list) changes
     includeEventCache.clear();
   }
 
@@ -4280,6 +4322,12 @@
             if (!visibleNotes.has(eventId)) {
               unsubscribeFromEngagement(eventId);
               engagementGlowCache.delete(eventId);
+              // Release the note's persistent relay subscription and its
+              // engagement dedupe sets — without this they grew for the
+              // whole session, one set of structures per note ever
+              // rendered (the module's designed eviction path, previously
+              // never called).
+              cleanupEngagement(eventId);
             }
           }, 30000); // 30 second grace period
           pendingCleanupTimers.set(eventId, timer);
@@ -4404,10 +4452,11 @@
           // Try instant cache first
           const cached = loadFromInstantCache(filterMode);
           if (cached && cached.events.length > 0) {
-            const hydratedEvents = cached.events.map(hydrateFromCache).filter(shouldIncludeEvent);
+            const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
 
             if (hydratedEvents.length > 0) {
               seenEventIds.clear();
+              paginationFloorTs = null;
               hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
               events = hydratedEvents;
               preseedRenderedNotes(20);
@@ -4448,10 +4497,11 @@
           // Try instant cache first
           const cached = loadFromInstantCache(filterMode);
           if (cached && cached.events.length > 0) {
-            const hydratedEvents = cached.events.map(hydrateFromCache).filter(shouldIncludeEvent);
+            const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
 
             if (hydratedEvents.length > 0) {
               seenEventIds.clear();
+              paginationFloorTs = null;
               hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
               events = hydratedEvents;
               preseedRenderedNotes(20);
@@ -4471,6 +4521,7 @@
 
           // No cache for this tab - do full load
           seenEventIds.clear();
+          paginationFloorTs = null;
           events = [];
           try {
             await loadFoodstrFeed(false);
@@ -4527,6 +4578,7 @@
       // Clear events to prevent showing stale data during switch
       events = [];
       seenEventIds.clear();
+      paginationFloorTs = null;
       clearRenderZoneState();
       loading = true;
       hasMore = true;
@@ -4542,6 +4594,7 @@
       renderedNotes = new Set();
       clearRenderZoneState();
       seenEventIds.clear();
+      paginationFloorTs = null;
       events = [];
       loading = true;
       try {
@@ -4565,7 +4618,7 @@
     // Step 1: Try to render cached content immediately (0ms perceived load)
     const cached = loadFromInstantCache(filterMode);
     if (cached && cached.events.length > 0) {
-      const hydratedEvents = cached.events.map(hydrateFromCache).filter(shouldIncludeEvent);
+      const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
 
       if (hydratedEvents.length > 0) {
         // Add to seen set
@@ -4647,6 +4700,9 @@
       clearTimeout(engagementCleanupTimer);
     }
 
+    // Shared per-feed observers (see teardownSharedObservers)
+    teardownSharedObservers();
+
     // Prevent rAF callbacks from firing after destroy
     isDestroyed = true;
 
@@ -4663,8 +4719,14 @@
     pendingCleanupTimers.forEach((timer) => clearTimeout(timer));
     pendingCleanupTimers.clear();
 
-    // Unsubscribe all engagement store subscriptions
-    engagementSubscriptions.forEach((unsub) => unsub());
+    // Unsubscribe all engagement store subscriptions, and release every
+    // note's persistent engagement subscription and dedupe sets (the
+    // 5-min idle reaper would eventually catch some of these; don't
+    // keep streaming until then).
+    for (const eventId of [...engagementSubscriptions.keys()]) {
+      engagementSubscriptions.get(eventId)?.();
+      cleanupEngagement(eventId);
+    }
     engagementSubscriptions.clear();
 
     cleanupInfiniteScroll();
@@ -4808,7 +4870,7 @@
       </div>
     {/if}
 
-    {#if filterMode === 'following' || filterMode === 'replies' || authorPubkey}
+    {#if foodToggleVisible}
       <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">
         {#if foodFilterEnabled}
           <span class="text-sm">
@@ -4821,12 +4883,7 @@
           <span class="text-sm text-caption">All posts</span>
         {/if}
         <button
-          on:click={() => {
-            foodFilterEnabled = !foodFilterEnabled;
-            seenEventIds.clear();
-            events = [];
-            loadFoodstrFeed(false);
-          }}
+          on:click={() => setFoodFilter(!foodFilterEnabled)}
           class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {foodFilterEnabled
             ? 'bg-primary'
             : 'bg-accent-gray'}"
@@ -4921,7 +4978,9 @@
               Unmute User
             </button>
           {:else}
-            <!-- No posts found message -->
+            <!-- No posts found message. Split by the predicate that decides
+                 what is actually true: is a filter hiding posts, or are there
+                 none? Copy per OUTBOX/FEED_EMPTY_STATE_COPY_2026_07_30.md. -->
             <div style="color: var(--color-caption)">
               <svg
                 class="h-12 w-12 mx-auto mb-4 opacity-50"
@@ -4936,17 +4995,67 @@
                   d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                 ></path>
               </svg>
-              <p class="text-lg font-medium">No cooking posts found</p>
-              <p class="text-sm">
-                Try posting with cooking tags like #foodstr, #cook, #cooking, etc.
-              </p>
+              {#if authorPubkey}
+                <!-- Profile view: one cook, not the follow graph -->
+                {#if foodFilterEnabled}
+                  <p class="text-lg font-medium">No cooking posts found</p>
+                  <p class="text-sm">
+                    This cook hasn't posted anything tagged as cooking. Turn off Only Food above to
+                    see everything they've posted.
+                  </p>
+                {:else}
+                  <p class="text-lg font-medium">No posts yet</p>
+                  <p class="text-sm">This cook hasn't posted anything yet.</p>
+                {/if}
+              {:else if filterMode === 'following' || filterMode === 'replies'}
+                {#if foodFilterEnabled}
+                  <p class="text-lg font-medium">No cooking posts found</p>
+                  <p class="text-sm">
+                    Only Food is hiding everything else here. Turn it off above to see all posts.
+                  </p>
+                {:else}
+                  <p class="text-lg font-medium">No posts yet</p>
+                  <p class="text-sm">
+                    {filterMode === 'replies'
+                      ? 'Nobody you follow has replied to anything recently.'
+                      : 'Nobody you follow has posted recently.'}
+                    <a href="/explore" class="underline hover:opacity-80">
+                      Find more cooks to follow
+                    </a>.
+                  </p>
+                {/if}
+              {:else if filterMode === 'members'}
+                <!-- Members feed: not covered by the copy review; unchanged. -->
+                <p class="text-lg font-medium">No cooking posts found</p>
+                <p class="text-sm">
+                  Try posting with cooking tags like #foodstr, #cook, #cooking, etc.
+                </p>
+              {:else}
+                <!-- Global Food: no toggle is rendered here, so there is no
+                     filter to point at — a load gap is the honest explanation. -->
+                <p class="text-lg font-medium">No cooking posts right now</p>
+                <p class="text-sm">
+                  Check back soon — new recipes and food posts get shared throughout the day.
+                </p>
+              {/if}
             </div>
-            <button
-              on:click={() => retryWithDelay()}
-              class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-            >
-              Refresh Feed
-            </button>
+            {#if foodToggleVisible && foodFilterEnabled}
+              <!-- Refresh does not clear a filter; the toggle does. Same handler
+                   as the switch above the feed. -->
+              <button
+                on:click={() => setFoodFilter(false)}
+                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Show all posts
+              </button>
+            {:else if !foodToggleVisible}
+              <button
+                on:click={() => retryWithDelay()}
+                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Refresh Feed
+              </button>
+            {/if}
           {/if}
         </div>
       </div>
@@ -4967,15 +5076,6 @@
               <!-- Glow/animation disabled on community feed to reduce bandwidth -->
               <!-- {@const isZapAnimating = zapAnimatingNotes.has(event.id)} -->
               <!-- {@const zapGlowTier = engagementInfo.zapGlowTier} -->
-              {@const engagementStoreValue = get(getEngagementStore(event.id))}
-              {@const engagementData = {
-                zaps: {
-                  totalAmount: engagementStoreValue.zaps.totalAmount,
-                  count: engagementStoreValue.zaps.count
-                },
-                reactions: { count: engagementStoreValue.reactions.count },
-                comments: { count: engagementStoreValue.comments.count }
-              }}
               <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
               <article
                 class="w-full cursor-pointer"
@@ -5055,7 +5155,6 @@
                   <div class="flex-shrink-0 ml-2">
                     <PostActionsMenu
                       {event}
-                      {engagementData}
                       on:copy={(e) => {
                         selectedEvent = event;
                         handlePostCopy(e);
@@ -5262,33 +5361,23 @@
                     {@const mediaUrls = getImageUrlsCached(event)}
 
                     <!-- Swipeable gallery: peeking 4:5 tiles with a count
-                     badge; single media shrink-wraps to the photo.
+                     badge; a single photo fills a cropped 4:3 preview.
                      The lightbox only renders images, so it gets an
                      images-only list (videos play inline in their
                      tiles) with the index remapped accordingly. -->
                     <div class="mb-3">
-                      <MediaCarousel
-                        items={mediaUrls}
-                        optimizeUrl={getOptimizedImageUrl}
-                        onItemClick={(url) => {
-                          const imageUrls = mediaUrls.filter((u) => isImageUrl(u));
-                          const imageIndex = imageUrls.indexOf(url);
-                          openImageModal(url, imageUrls, imageIndex >= 0 ? imageIndex : 0);
-                        }}
-                      />
+                      <CheffyMediaReview {event}>
+                        <MediaCarousel
+                          items={mediaUrls}
+                          optimizeUrl={getOptimizedImageUrl}
+                          onItemClick={(url) => {
+                            const imageUrls = mediaUrls.filter((u) => isImageUrl(u));
+                            const imageIndex = imageUrls.indexOf(url);
+                            openImageModal(url, imageUrls, imageIndex >= 0 ? imageIndex : 0);
+                          }}
+                        />
+                      </CheffyMediaReview>
                     </div>
-
-                    <!-- Mobile: Cheffy trigger in a slim right-aligned row
-                     directly below the image block (desktop keeps the
-                     in-row trigger; the ⋯ menu is the secondary entry
-                     everywhere). buttonClass pads the tap target to
-                     ~40px. -->
-                    <CheffyNoteReviewTrigger
-                      {event}
-                      size={20}
-                      buttonClass="!p-2.5 rounded-full hover:bg-accent-gray transition-colors"
-                      wrapClass="sm:hidden flex justify-end px-2 -mt-2 mb-1"
-                    />
                   {/if}
 
                   <!-- Reaction pills row -->
@@ -5345,19 +5434,20 @@
                     </div>
 
                     {#if visibleNotes.has(event.id)}
-                      <!-- Desktop-only on the card face: the mobile
-                       content column (stacked px paddings, ~254px
-                       usable at 390px) cannot fit the action cluster
-                       plus trigger on one line for any real engagement
-                       counts, so below sm the ⋯ menu's "Ask Cheffy"
-                       item is the entry point instead. Renders nothing
-                       for imageless notes — the trigger owns detection. -->
-                      <CheffyNoteReviewTrigger
-                        {event}
-                        wrapClass="hidden sm:block ml-auto hover:bg-accent-gray rounded-full p-1.5 transition-colors"
-                      />
+                      <div class="ml-auto flex items-center gap-0.5">
+                        <PostEngagementToggle
+                          expanded={expandedEngagements.has(event.id)}
+                          on:toggle={() => toggleEngagementDrawer(event.id)}
+                        />
+                      </div>
                     {/if}
                   </div>
+
+                  {#if visibleNotes.has(event.id)}
+                    <div class="px-2 sm:px-0">
+                      <PostEngagementDrawer {event} open={expandedEngagements.has(event.id)} />
+                    </div>
+                  {/if}
 
                   <div class="px-2 sm:px-0">
                     {#if visibleNotes.has(event.id)}
@@ -5413,6 +5503,9 @@
   imageName={shareImageName}
   isGeneratingImage={isGeneratingShareImage}
   onGenerateImage={shareModalEvent ? generateShareModalImage : null}
+  authorPubkey={shareModalEvent
+    ? shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey
+    : ''}
 />
 
 <!-- Image generation loading overlay -->

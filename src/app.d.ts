@@ -60,6 +60,21 @@ declare global {
           };
           /** HMAC key for vault-sync challenges. Distinct values in Production and Preview. */
           VAULT_SYNC_CHALLENGE_SECRET?: string;
+          /**
+           * 64-hex-char AES-256-GCM key for scheduled-post encryption at
+           * rest. Secret (Pages project + cron worker) — never committed.
+           */
+          SCHEDULE_ENC_KEY?: string;
+          /** D1 database for scheduled posts (zapcooking-scheduler). */
+          SCHEDULER_DB?: {
+            prepare(query: string): {
+              bind(...values: unknown[]): {
+                first<T = unknown>(): Promise<T | null>;
+                all<T = unknown>(): Promise<{ results: T[] }>;
+                run(): Promise<{ meta: { changes: number } }>;
+              };
+            };
+          };
         };
       }
   }

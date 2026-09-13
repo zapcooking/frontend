@@ -16,7 +16,6 @@ import type { Event, EventTemplate } from 'nostr-tools';
 const FOLLOW_LIST_KIND = 3;
 
 const DEFAULT_RELAYS = [
-	'wss://relay.damus.io',
 	'wss://relay.primal.net',
 	'wss://nos.lol',
 	'wss://relay.snort.social',
@@ -24,14 +23,22 @@ const DEFAULT_RELAYS = [
 	'wss://relay.nostr.net'
 ];
 
+/**
+ * Deliberately does NOT include Primal's cache hosts. `wss://cacheN.primal.net`
+ * never opens a socket — the bare path serves an nginx HTML page — and the real
+ * endpoint at `/v1` (see primalCache.ts) answers our scan filter with
+ * `NOTICE: kinds or authors filter is not supported`, because it speaks Primal's
+ * cache protocol rather than plain nostr. Neither form can serve this path.
+ *
+ * `nostr.mom` shares an operator with `nos.lol`, which is in DEFAULT_RELAYS. It
+ * is kept because it is a working, independently-stored host, but the two are
+ * not independent redundancy — count operators, not URLs.
+ */
 const ARCHIVAL_RELAYS = [
 	'wss://nostr.wine',
 	'wss://offchain.pub',
 	'wss://nostr.mom',
-	'wss://relay.noswhere.com',
-	'wss://cache0.primal.net',
-	'wss://cache1.primal.net',
-	'wss://cache2.primal.net'
+	'wss://relay.noswhere.com'
 ];
 
 export interface FollowListCandidate {
@@ -97,6 +104,41 @@ async function queryRelayForFollowEvents(
 	}
 }
 
+/**
+ * Decide what recovery offers, given every version found on relays.
+ *
+ * Pure and exported so the rule below is testable without touching a relay.
+ *
+ * Two things matter here:
+ *
+ * 1. `current` is the newest version and is computed BEFORE empties are
+ *    dropped. An empty current list is the usual reason someone is on this
+ *    screen, and the recommendation compares against its follow count —
+ *    filtering first would mislabel an older non-empty list as "current"
+ *    and skew that comparison.
+ * 2. Empty versions are never offered. Restoring one publishes a kind:3
+ *    with no follows — wiping the list the user came here to rescue — so
+ *    it isn't a recovery option, and listing rows they must read past only
+ *    makes a stressful screen noisier.
+ */
+export function selectRecoveryCandidates(allCandidates: FollowListCandidate[]): {
+	current: FollowListCandidate | null;
+	candidates: FollowListCandidate[];
+	recommended: FollowListCandidate | null;
+} {
+	const current = allCandidates[0] ?? null;
+	if (current) current.isCurrent = true;
+
+	const recommended = pickRecommendedRecovery(allCandidates, current);
+	if (recommended) recommended.isRecommended = true;
+
+	return {
+		current,
+		candidates: allCandidates.filter((c) => c.followCount > 0),
+		recommended
+	};
+}
+
 export async function scanFollowListHistory(
 	pubkey: string,
 	userRelays: string[] = [],
@@ -151,18 +193,14 @@ export async function scanFollowListHistory(
 		(a, b) => b.createdAt - a.createdAt
 	);
 
-	const current = allCandidates[0] ?? null;
-	if (current) current.isCurrent = true;
+	const { current, candidates, recommended } = selectRecoveryCandidates(allCandidates);
 
-	const recommended = pickRecommendedRecovery(allCandidates, current);
-	if (recommended) recommended.isRecommended = true;
-
-	const count = allCandidates.length;
+	const count = candidates.length;
 	onProgress?.(
-		`Found ${count} distinct version${count === 1 ? '' : 's'} — ${respondingRelays.length} of ${relays.length} relays had versions.`
+		`Found ${count} recoverable version${count === 1 ? '' : 's'} — ${respondingRelays.length} of ${relays.length} relays responded.`
 	);
 
-	return { current, candidates: allCandidates, recommended, queriedRelays: relays, respondingRelays };
+	return { current, candidates, recommended, queriedRelays: relays, respondingRelays };
 }
 
 export function pickRecommendedRecovery(

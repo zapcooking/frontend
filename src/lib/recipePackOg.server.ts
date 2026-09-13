@@ -8,9 +8,10 @@
  * OG meta and the card image generator.
  */
 
+import { isHiddenRecipeATag } from './consts';
+
 const RELAYS = [
 	'wss://relay.primal.net',
-	'wss://relay.damus.io',
 	'wss://nos.lol'
 ];
 
@@ -186,7 +187,10 @@ export async function fetchPackMetadata(
 	const title = find('title') || find('d') || '';
 	const description = find('description') || '';
 	const image = find('image') || '';
-	const recipeATags = tags.filter((t) => t[0] === 'a' && typeof t[1] === 'string').map((t) => t[1]);
+	const recipeATags = tags
+		.filter((t) => t[0] === 'a' && typeof t[1] === 'string')
+		.map((t) => t[1])
+		.filter((a) => !isHiddenRecipeATag(a));
 
 	return {
 		title,

@@ -142,7 +142,7 @@ export async function buildInboxAwareRelaySet(opts: {
   const pool = (
     ndk as unknown as {
       pool: {
-        getRelay: (url: string, autoConnect: boolean, createIfMissing: boolean) => NDKRelay | null;
+        getRelay: (url: string, connect: boolean, temporary: boolean) => NDKRelay | null;
       };
     }
   ).pool;

@@ -1,3 +1,12 @@
+<script context="module" lang="ts">
+  // Dev-only tooling — redirect away in production builds. (Checked via
+  // PROD so the branch survives DEV being inlined+eliminated at build.)
+  import { redirect } from '@sveltejs/kit';
+  if (import.meta.env.PROD) {
+    throw redirect(307, '/');
+  }
+</script>
+
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ndk } from '$lib/nostr';

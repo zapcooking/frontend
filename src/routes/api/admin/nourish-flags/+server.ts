@@ -6,9 +6,12 @@
  * flags live on the pantry relay and are queried client-side by the
  * admin page — this endpoint covers only the anon-via-Worker path.
  *
- * Auth: `x-admin-pubkey` header must match ADMIN_PUBKEY from
- * $lib/adminAuth. Same weak-but-consistent pattern as /sponsors.
- * A future FOLLOWUPS item formalizes this with NIP-98 HTTP-Auth.
+ * Auth: NIP-98 HTTP Auth — the caller signs a kind-27235 event bound
+ * to this URL and method; the signing pubkey must equal ADMIN_PUBKEY
+ * from $lib/adminAuth (same gate as /api/admin/promos). Header-only
+ * auth was too weak here: the admin pubkey is public, so a forged
+ * x-admin-pubkey header was enough to dump every flag record,
+ * including the full ipHash values.
  *
  * Response:
  *   {
@@ -28,6 +31,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { verifyNip98 } from '$lib/nip98.server';
 
 const LIST_PAGE_LIMIT = 1000; // KV list per-call cap.
 const GET_CONCURRENCY = 16; // max in-flight kv.get calls — bounds memory + CPU.
@@ -41,8 +45,9 @@ interface KvListResult {
 }
 
 export const GET: RequestHandler = async ({ request, platform }) => {
-  const adminPubkey = request.headers.get('x-admin-pubkey');
-  if (!adminPubkey || adminPubkey !== ADMIN_PUBKEY) {
+  const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY });
+  if (!auth.ok) {
+    console.warn('[admin.nourish-flags.auth-failed]', { reason: auth.reason });
     return json({ error: 'forbidden' }, { status: 403 });
   }
 

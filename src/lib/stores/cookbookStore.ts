@@ -12,7 +12,7 @@ import { writable, derived, get } from 'svelte/store';
 import { ndk, userPublickey, ensureNdkConnected } from '$lib/nostr';
 import { NDKEvent, type NDKFilter, type NDKSubscription } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
-import { RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
+import { RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW, isHiddenRecipeATag } from '$lib/consts';
 import { offlineStorage, type SyncOperation, type OfflineCookbook, type SerializedCookbookData } from '$lib/offlineStorage';
 import { isCurrentlyOnline, onConnect } from '$lib/connectionMonitor';
 
@@ -1278,7 +1278,10 @@ function eventToList(event: NDKEvent, userPubkey: string): CookbookList | null {
   const summary = event.tags.find(t => t[0] === 'summary')?.[1];
   const imageTag = event.tags.find(t => t[0] === 'image')?.[1];
   const coverRecipeId = event.tags.find(t => t[0] === 'cover')?.[1];
-  const recipes = event.tags.filter(t => t[0] === 'a').map(t => t[1]);
+  const recipes = event.tags
+    .filter(t => t[0] === 'a')
+    .map(t => t[1])
+    .filter(a => !isHiddenRecipeATag(a));
   const isDefault = dTag === DEFAULT_LIST_ID;
   
   const image = imageTag;

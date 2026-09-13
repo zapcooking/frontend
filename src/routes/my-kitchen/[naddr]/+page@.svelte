@@ -31,6 +31,11 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { clickOutside } from '$lib/clickOutside';
   import { formatDistanceToNow } from 'date-fns';
+  import {
+    getCollectionTitle,
+    getCollectionSummary,
+    getCollectionImage
+  } from '$lib/collectionDisplay';
 
   let loaded = false;
   let event: NDKEvent | null = null;
@@ -87,8 +92,8 @@
     const dTag = event.tags.find((t) => t[0] === 'd')?.[1] || '';
     sharePackSource = { type: 'collection', collectionDTag: dTag };
     sharePackATags = event.tags.filter((t) => t[0] === 'a').map((t) => t[1]);
-    sharePackTitle = getListTitle();
-    sharePackDescription = getListSummary() || '';
+    sharePackTitle = getCollectionTitle(event);
+    sharePackDescription = getCollectionSummary(event) || '';
     sharePackImage = coverImage || event.tags.find((t) => t[0] === 'image')?.[1];
     sharePackOpen = true;
   }
@@ -331,22 +336,6 @@
     loaded = true;
   }
 
-  function getListTitle(): string {
-    if (!event) return 'Collection';
-    const dTag = event.tags.find(t => t[0] === 'd')?.[1];
-    if (dTag === DEFAULT_LIST_ID) return DEFAULT_LIST_TITLE;
-    return event.tags.find(t => t[0] === 'title')?.[1] || 'Collection';
-  }
-
-  function getListSummary(): string | undefined {
-    return event?.tags.find(t => t[0] === 'summary')?.[1];
-  }
-
-  function getListImage(): string | undefined {
-    // Use coverImage if loaded, otherwise fall back to legacy image tag
-    return coverImage || event?.tags.find(t => t[0] === 'image')?.[1];
-  }
-  
   function openChangeCoverModal() {
     if (!event) return;
     const coverRecipeId = event.tags.find(t => t[0] === 'cover')?.[1];
@@ -479,9 +468,9 @@
 
   // Edit functionality
   function openEditModal() {
-    editTitle = getListTitle();
-    editSummary = getListSummary() || '';
-    const img = getListImage();
+    editTitle = getCollectionTitle(event);
+    editSummary = getCollectionSummary(event) || '';
+    const img = getCollectionImage(event, coverImage);
     editImages.set(img ? [img] : []);
     errorMessage = '';
     editModalOpen = true;
@@ -650,8 +639,8 @@
     if (navigator.share) {
       try {
         await navigator.share({
-          title: getListTitle(),
-          text: getListSummary() || `Check out this recipe collection on zap.cooking`,
+          title: getCollectionTitle(event),
+          text: getCollectionSummary(event) || `Check out this recipe collection on zap.cooking`,
           url
         });
       } catch (err) {
@@ -672,9 +661,15 @@
     }
   }
 
-  $: listTitle = getListTitle();
-  $: listSummary = getListSummary();
-  $: listImage = getListImage();
+  // Each of these passes its dependencies explicitly. Svelte reads a
+  // reactive statement's dependencies from the identifiers written
+  // inside it, so a zero-argument call here compiles to a statement with
+  // NO dependencies that runs once at init, before loadData() resolves.
+  // See src/lib/collectionDisplay.ts and the compile-time test alongside
+  // this file.
+  $: listTitle = getCollectionTitle(event);
+  $: listSummary = getCollectionSummary(event);
+  $: listImage = getCollectionImage(event, coverImage);
 
   $: og_meta = {
     title: `${listTitle} - zap.cooking`,

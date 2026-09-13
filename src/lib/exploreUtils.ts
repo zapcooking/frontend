@@ -5,7 +5,12 @@ import { validateMarkdownTemplate } from './parser';
 import { profileCacheManager } from './profileCache';
 import { logger } from './logger';
 import { markOnce } from './perf/explorePerf';
-import { RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY } from './consts';
+import {
+  RECIPE_TAGS,
+  RECIPE_TAG_PREFIX_NEW,
+  RECIPE_TAG_PREFIX_LEGACY,
+  isHiddenRecipeEvent
+} from './consts';
 
 export type Collection = {
   id: string;
@@ -227,7 +232,11 @@ async function fetchPopularCooksFresh(limit: number): Promise<PopularCook[]> {
           markOnce('t3_explore_first_live_event_received');
         }
         eventCount++;
-        if (typeof validateMarkdownTemplate(event.content) !== 'string' && event.author?.pubkey) {
+        if (
+          typeof validateMarkdownTemplate(event.content) !== 'string' &&
+          event.author?.pubkey &&
+          !isHiddenRecipeEvent(event)
+        ) {
           const count = authorCounts.get(event.author.pubkey) || 0;
           authorCounts.set(event.author.pubkey, count + 1);
         }
@@ -337,7 +346,11 @@ export async function fetchCollectionImage(tag: string): Promise<string | undefi
       }, 3000); // Shorter timeout for collection images
 
       subscription.on('event', (event: NDKEvent) => {
-        if (typeof validateMarkdownTemplate(event.content) !== 'string' && !imageUrl) {
+        if (
+          typeof validateMarkdownTemplate(event.content) !== 'string' &&
+          !isHiddenRecipeEvent(event) &&
+          !imageUrl
+        ) {
           // Find first image tag
           const imageTag = event.tags.find((t) => Array.isArray(t) && t[0] === 'image');
           if (imageTag && Array.isArray(imageTag) && imageTag[1]) {
@@ -484,7 +497,11 @@ export async function fetchTrendingRecipes(limit: number = 12): Promise<NDKEvent
       }, 5000); // 5 second timeout for faster UX
 
       subscription.on('event', (event: NDKEvent) => {
-        if (typeof validateMarkdownTemplate(event.content) !== 'string' && event.author?.pubkey) {
+        if (
+          typeof validateMarkdownTemplate(event.content) !== 'string' &&
+          event.author?.pubkey &&
+          !isHiddenRecipeEvent(event)
+        ) {
           recipes.push(event);
         }
       });
@@ -747,7 +764,7 @@ export async function fetchDiscoverRecipes(
         }
 
         // Filter: must have valid markdown and author (image is preferred but not required if we don't have enough)
-        if (hasValidMarkdown && hasAuthor) {
+        if (hasValidMarkdown && hasAuthor && !isHiddenRecipeEvent(event)) {
           validCount++;
           allRecipes.push(event);
 

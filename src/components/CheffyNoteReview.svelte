@@ -379,7 +379,7 @@
       expression={phase === 'signing' || phase === 'loading' ? 'cooking' : 'happy'}
       animate={phase === 'signing' || phase === 'loading'}
     />
-    <span>Ask Cheffy about this dish</span>
+    <span>Ask Cheffy about this photo</span>
   </div>
 
   <div class="nr-body">
@@ -387,12 +387,19 @@
       <div class="nr-gate">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
         <h2>Sign in to ask Cheffy</h2>
-        <p>Cheffy can draft a friendly reply or guess the recipe — you edit and sign it.</p>
+        <p>
+          Cheffy can draft a thoughtful reply to any photo, or recreate a recipe when it shows food.
+        </p>
         <button type="button" class="nr-primary" on:click={signIn}>Sign in</button>
       </div>
     {:else if phase === 'choose'}
       {#if imageUrl}
-        <img class="nr-thumb" src={imageUrl} alt="Dish from the note" loading="lazy" />
+        <img
+          class="nr-thumb"
+          src={imageUrl}
+          alt="Selected attachment from the note"
+          loading="lazy"
+        />
       {/if}
       {#if imageUrls.length > 1}
         <div class="nr-picker" role="group" aria-label="Choose which photo Cheffy looks at">
@@ -421,11 +428,11 @@
       <div class="nr-choices">
         <button type="button" class="nr-choice" on:click={() => run('comment')}>
           <span class="nr-choice-title">Say something nice</span>
-          <span class="nr-choice-sub">A short, warm reply about the dish</span>
+          <span class="nr-choice-sub">A short, thoughtful comment about the photo</span>
         </button>
         <button type="button" class="nr-choice" on:click={() => run('recipe')}>
-          <span class="nr-choice-title">Guess the recipe</span>
-          <span class="nr-choice-sub">Reverse-engineer it from the photo</span>
+          <span class="nr-choice-title">Identify any dish</span>
+          <span class="nr-choice-sub">For food photos, identify it and draft a recipe</span>
         </button>
       </div>
     {:else if phase === 'signing'}
@@ -523,8 +530,8 @@
            impulse lane. -->
       <div class="nr-gate">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
-        <h2>Cheffy photo review is a Pro Kitchen feature</h2>
-        <p>Get a drafted reply or a recipe guess for any dish photo on the feed.</p>
+        <h2>Cheffy photo review comes with Cook+</h2>
+        <p>Get a drafted reply to any photo, plus recipe recreation for food photos.</p>
         <div class="nr-example">
           <span class="nr-example-label">The kind of reply Cheffy drafts:</span>
           <p class="nr-example-text">"{PAYMENT_CARD_EXAMPLE_DRAFT}"</p>

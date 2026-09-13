@@ -1,0 +1,742 @@
+{
+  "source": "main b78d77fa; generated with its unchanged service.ts and history.ts",
+  "cases": [
+    {
+      "run": {
+        "version": 1,
+        "id": "legacy-service-0001",
+        "completedAt": "2026-09-06T12:00:00.000Z",
+        "mode": "service",
+        "date": "2026-09-06",
+        "dishes": [
+          {
+            "ingredients": ["bread", "tomato", "oil"],
+            "cook": "assemble",
+            "time": 2,
+            "style": "toast",
+            "garnish": "lemon",
+            "finish": "last"
+          },
+          {
+            "ingredients": ["rice", "chickpeas", "spinach", "garlic", "oil"],
+            "cook": "roast",
+            "time": 12,
+            "style": "bowl",
+            "garnish": "basil",
+            "finish": "last"
+          },
+          {
+            "ingredients": ["chicken", "mushroom", "garlic", "oil"],
+            "cook": "roast",
+            "time": 12,
+            "style": "plate",
+            "garnish": "parmesan",
+            "finish": "last"
+          }
+        ]
+      },
+      "service": {
+        "mode": "service",
+        "date": "2026-09-06",
+        "roster": [
+          {
+            "id": "maya",
+            "name": "Maya",
+            "initials": "M",
+            "color": "#d86d42",
+            "brief": "“Something bright with a little crunch. I have a short lunch break!”",
+            "wants": "bright",
+            "plantOnly": false,
+            "noChili": true,
+            "crunch": true,
+            "patience": 18,
+            "preferred": "toast",
+            "order": "A bright lunch"
+          },
+          {
+            "id": "theo",
+            "name": "Theo",
+            "initials": "T",
+            "color": "#547865",
+            "brief": "“A cozy plant-based bowl, please. I love something hearty and I’m happy to wait.”",
+            "wants": "cozy",
+            "plantOnly": true,
+            "noChili": false,
+            "crunch": false,
+            "patience": 34,
+            "preferred": "bowl",
+            "order": "Plant-based comfort"
+          },
+          {
+            "id": "jules",
+            "name": "Jules",
+            "initials": "J",
+            "color": "#8370a1",
+            "brief": "“Give me savory flavor and a little richness. A composed plate would be lovely.”",
+            "wants": "savory",
+            "plantOnly": false,
+            "noChili": false,
+            "crunch": false,
+            "patience": 28,
+            "preferred": "plate",
+            "order": "A savory supper"
+          }
+        ],
+        "reviews": [
+          {
+            "dish": {
+              "ingredients": ["bread", "tomato", "oil"],
+              "cook": "assemble",
+              "time": 2,
+              "style": "toast",
+              "garnish": "lemon",
+              "finish": "last"
+            },
+            "name": "Fresh tomato toast",
+            "customer": {
+              "id": "maya",
+              "name": "Maya",
+              "initials": "M",
+              "color": "#d86d42",
+              "brief": "“Something bright with a little crunch. I have a short lunch break!”",
+              "wants": "bright",
+              "plantOnly": false,
+              "noChili": true,
+              "crunch": true,
+              "patience": 18,
+              "preferred": "toast",
+              "order": "A bright lunch"
+            },
+            "score": 880,
+            "quality": 100,
+            "stars": 5,
+            "components": [
+              {
+                "name": "Customer brief",
+                "score": 30,
+                "max": 30
+              },
+              {
+                "name": "Cooking",
+                "score": 35,
+                "max": 35
+              },
+              {
+                "name": "Balance",
+                "score": 20,
+                "max": 20
+              },
+              {
+                "name": "Presentation",
+                "score": 15,
+                "max": 15
+              }
+            ],
+            "notes": [
+              {
+                "kind": "good",
+                "title": "You heard the customer",
+                "text": "Your bright finish fit the request."
+              },
+              {
+                "kind": "good",
+                "title": "Good service",
+                "text": "10 kitchen minutes kept the dish within the customer’s 18-minute window."
+              },
+              {
+                "kind": "good",
+                "title": "A well-judged cook",
+                "text": "Assemble had a suitable cooking window for this game’s prepared ingredients."
+              },
+              {
+                "kind": "good",
+                "title": "Richness meets brightness",
+                "text": "Acidity provides contrast, so the rich ingredients feel more balanced."
+              },
+              {
+                "kind": "good",
+                "title": "A dish with structure",
+                "text": "Your ingredients play different roles: a foundation, supporting flavors and contrast."
+              },
+              {
+                "kind": "good",
+                "title": "A purposeful finish",
+                "text": "Lemon added brightness to the finished dish."
+              }
+            ],
+            "minutes": 10,
+            "complexity": 80,
+            "quote": "“That was exactly the kind of meal I was hoping for.”",
+            "discovery": "A clear idea, a suitable method and a thoughtful finish can make simple ingredients feel special."
+          },
+          {
+            "dish": {
+              "ingredients": ["rice", "chickpeas", "spinach", "garlic", "oil"],
+              "cook": "roast",
+              "time": 12,
+              "style": "bowl",
+              "garnish": "basil",
+              "finish": "last"
+            },
+            "name": "Roasted chickpeas bowl",
+            "customer": {
+              "id": "theo",
+              "name": "Theo",
+              "initials": "T",
+              "color": "#547865",
+              "brief": "“A cozy plant-based bowl, please. I love something hearty and I’m happy to wait.”",
+              "wants": "cozy",
+              "plantOnly": true,
+              "noChili": false,
+              "crunch": false,
+              "patience": 34,
+              "preferred": "bowl",
+              "order": "Plant-based comfort"
+            },
+            "score": 584,
+            "quality": 73,
+            "stars": 3,
+            "components": [
+              {
+                "name": "Customer brief",
+                "score": 30,
+                "max": 30
+              },
+              {
+                "name": "Cooking",
+                "score": 13,
+                "max": 35
+              },
+              {
+                "name": "Balance",
+                "score": 15,
+                "max": 20
+              },
+              {
+                "name": "Presentation",
+                "score": 15,
+                "max": 15
+              }
+            ],
+            "notes": [
+              {
+                "kind": "good",
+                "title": "You heard the customer",
+                "text": "Your hearty foundation fit the request."
+              },
+              {
+                "kind": "good",
+                "title": "Good service",
+                "text": "26 kitchen minutes kept the dish within the customer’s 34-minute window."
+              },
+              {
+                "kind": "improve",
+                "title": "Match the method",
+                "text": "Cooked rice, Spinach would shine more with a different method. Inspect ingredient cards for clues."
+              },
+              {
+                "kind": "improve",
+                "title": "Give the method time",
+                "text": "This quick roast had little chance to develop browning. A faster method would suit the schedule."
+              },
+              {
+                "kind": "improve",
+                "title": "Balance the richness",
+                "text": "A lemon finish or juicy tomato could provide contrast to the rich ingredients."
+              },
+              {
+                "kind": "good",
+                "title": "A dish with structure",
+                "text": "Your ingredients play different roles: a foundation, supporting flavors and contrast."
+              },
+              {
+                "kind": "good",
+                "title": "A purposeful finish",
+                "text": "Basil added fresh aroma to the finished dish."
+              }
+            ],
+            "minutes": 26,
+            "complexity": 280,
+            "quote": "“There’s a good idea here, but it didn’t quite come together.”",
+            "discovery": "Cooked rice, Spinach would shine more with a different method. Inspect ingredient cards for clues."
+          },
+          {
+            "dish": {
+              "ingredients": ["chicken", "mushroom", "garlic", "oil"],
+              "cook": "roast",
+              "time": 12,
+              "style": "plate",
+              "garnish": "parmesan",
+              "finish": "last"
+            },
+            "name": "Roasted chicken plate",
+            "customer": {
+              "id": "jules",
+              "name": "Jules",
+              "initials": "J",
+              "color": "#8370a1",
+              "brief": "“Give me savory flavor and a little richness. A composed plate would be lovely.”",
+              "wants": "savory",
+              "plantOnly": false,
+              "noChili": false,
+              "crunch": false,
+              "patience": 28,
+              "preferred": "plate",
+              "order": "A savory supper"
+            },
+            "score": 797,
+            "quality": 83,
+            "stars": 4,
+            "components": [
+              {
+                "name": "Customer brief",
+                "score": 30,
+                "max": 30
+              },
+              {
+                "name": "Cooking",
+                "score": 23,
+                "max": 35
+              },
+              {
+                "name": "Balance",
+                "score": 15,
+                "max": 20
+              },
+              {
+                "name": "Presentation",
+                "score": 15,
+                "max": 15
+              }
+            ],
+            "notes": [
+              {
+                "kind": "good",
+                "title": "You heard the customer",
+                "text": "Your savory richness fit the request."
+              },
+              {
+                "kind": "good",
+                "title": "Good service",
+                "text": "24 kitchen minutes kept the dish within the customer’s 28-minute window."
+              },
+              {
+                "kind": "improve",
+                "title": "Give the method time",
+                "text": "This quick roast had little chance to develop browning. A faster method would suit the schedule."
+              },
+              {
+                "kind": "improve",
+                "title": "Balance the richness",
+                "text": "A lemon finish or juicy tomato could provide contrast to the rich ingredients."
+              },
+              {
+                "kind": "good",
+                "title": "A dish with structure",
+                "text": "Your ingredients play different roles: a foundation, supporting flavors and contrast."
+              },
+              {
+                "kind": "good",
+                "title": "A purposeful finish",
+                "text": "Parmesan added savory richness to the finished dish."
+              }
+            ],
+            "minutes": 24,
+            "complexity": 160,
+            "quote": "“I enjoyed that. A few small details could make it really sing.”",
+            "discovery": "This quick roast had little chance to develop browning. A faster method would suit the schedule."
+          }
+        ],
+        "status": "complete"
+      },
+      "book": {
+        "version": 2,
+        "best": 2261,
+        "services": 1,
+        "lessons": [
+          "A clear idea, a suitable method and a thoughtful finish can make simple ingredients feel special.",
+          "Cooked rice, Spinach would shine more with a different method. Inspect ingredient cards for clues.",
+          "This quick roast had little chance to develop browning. A faster method would suit the schedule."
+        ],
+        "daily": {}
+      }
+    },
+    {
+      "run": {
+        "version": 1,
+        "id": "legacy-daily-0001",
+        "completedAt": "2026-09-06T12:00:00.000Z",
+        "mode": "daily",
+        "date": "2026-09-06",
+        "dishes": [
+          {
+            "ingredients": ["bread", "tomato", "oil"],
+            "cook": "assemble",
+            "time": 2,
+            "style": "toast",
+            "garnish": "lemon",
+            "finish": "last"
+          },
+          {
+            "ingredients": ["rice", "chickpeas", "spinach", "garlic", "oil"],
+            "cook": "roast",
+            "time": 12,
+            "style": "bowl",
+            "garnish": "basil",
+            "finish": "last"
+          },
+          {
+            "ingredients": ["chicken", "mushroom", "garlic", "oil"],
+            "cook": "roast",
+            "time": 12,
+            "style": "plate",
+            "garnish": "parmesan",
+            "finish": "last"
+          }
+        ]
+      },
+      "service": {
+        "mode": "daily",
+        "date": "2026-09-06",
+        "roster": [
+          {
+            "id": "alex",
+            "name": "Alex",
+            "initials": "A",
+            "color": "#597f9e",
+            "brief": "“I’d love something cozy on toast. A little crunch is the best part.”",
+            "wants": "cozy",
+            "plantOnly": false,
+            "noChili": false,
+            "crunch": true,
+            "patience": 25,
+            "preferred": "toast",
+            "order": "Comfort on toast"
+          },
+          {
+            "id": "maya",
+            "name": "Maya",
+            "initials": "M",
+            "color": "#d86d42",
+            "brief": "“Something bright with a little crunch. I have a short lunch break!”",
+            "wants": "bright",
+            "plantOnly": false,
+            "noChili": true,
+            "crunch": true,
+            "patience": 18,
+            "preferred": "toast",
+            "order": "A bright lunch"
+          },
+          {
+            "id": "theo",
+            "name": "Theo",
+            "initials": "T",
+            "color": "#547865",
+            "brief": "“A cozy plant-based bowl, please. I love something hearty and I’m happy to wait.”",
+            "wants": "cozy",
+            "plantOnly": true,
+            "noChili": false,
+            "crunch": false,
+            "patience": 34,
+            "preferred": "bowl",
+            "order": "Plant-based comfort"
+          }
+        ],
+        "reviews": [
+          {
+            "dish": {
+              "ingredients": ["bread", "tomato", "oil"],
+              "cook": "assemble",
+              "time": 2,
+              "style": "toast",
+              "garnish": "lemon",
+              "finish": "last"
+            },
+            "name": "Fresh tomato toast",
+            "customer": {
+              "id": "alex",
+              "name": "Alex",
+              "initials": "A",
+              "color": "#597f9e",
+              "brief": "“I’d love something cozy on toast. A little crunch is the best part.”",
+              "wants": "cozy",
+              "plantOnly": false,
+              "noChili": false,
+              "crunch": true,
+              "patience": 25,
+              "preferred": "toast",
+              "order": "Comfort on toast"
+            },
+            "score": 880,
+            "quality": 100,
+            "stars": 5,
+            "components": [
+              {
+                "name": "Customer brief",
+                "score": 30,
+                "max": 30
+              },
+              {
+                "name": "Cooking",
+                "score": 35,
+                "max": 35
+              },
+              {
+                "name": "Balance",
+                "score": 20,
+                "max": 20
+              },
+              {
+                "name": "Presentation",
+                "score": 15,
+                "max": 15
+              }
+            ],
+            "notes": [
+              {
+                "kind": "good",
+                "title": "You heard the customer",
+                "text": "Your hearty foundation fit the request."
+              },
+              {
+                "kind": "good",
+                "title": "Good service",
+                "text": "10 kitchen minutes kept the dish within the customer’s 25-minute window."
+              },
+              {
+                "kind": "good",
+                "title": "A well-judged cook",
+                "text": "Assemble had a suitable cooking window for this game’s prepared ingredients."
+              },
+              {
+                "kind": "good",
+                "title": "Richness meets brightness",
+                "text": "Acidity provides contrast, so the rich ingredients feel more balanced."
+              },
+              {
+                "kind": "good",
+                "title": "A dish with structure",
+                "text": "Your ingredients play different roles: a foundation, supporting flavors and contrast."
+              },
+              {
+                "kind": "good",
+                "title": "A purposeful finish",
+                "text": "Lemon added brightness to the finished dish."
+              }
+            ],
+            "minutes": 10,
+            "complexity": 80,
+            "quote": "“That was exactly the kind of meal I was hoping for.”",
+            "discovery": "A clear idea, a suitable method and a thoughtful finish can make simple ingredients feel special."
+          },
+          {
+            "dish": {
+              "ingredients": ["rice", "chickpeas", "spinach", "garlic", "oil"],
+              "cook": "roast",
+              "time": 12,
+              "style": "bowl",
+              "garnish": "basil",
+              "finish": "last"
+            },
+            "name": "Roasted chickpeas bowl",
+            "customer": {
+              "id": "maya",
+              "name": "Maya",
+              "initials": "M",
+              "color": "#d86d42",
+              "brief": "“Something bright with a little crunch. I have a short lunch break!”",
+              "wants": "bright",
+              "plantOnly": false,
+              "noChili": true,
+              "crunch": true,
+              "patience": 18,
+              "preferred": "toast",
+              "order": "A bright lunch"
+            },
+            "score": 464,
+            "quality": 58,
+            "stars": 2,
+            "components": [
+              {
+                "name": "Customer brief",
+                "score": 18,
+                "max": 30
+              },
+              {
+                "name": "Cooking",
+                "score": 13,
+                "max": 35
+              },
+              {
+                "name": "Balance",
+                "score": 15,
+                "max": 20
+              },
+              {
+                "name": "Presentation",
+                "score": 12,
+                "max": 15
+              }
+            ],
+            "notes": [
+              {
+                "kind": "improve",
+                "title": "Follow the flavor brief",
+                "text": "Lemon or tomato could bring the brightness this customer wanted."
+              },
+              {
+                "kind": "improve",
+                "title": "Service ran long",
+                "text": "Your 26-minute dish exceeded their 18-minute window. Every extra ingredient adds prep time."
+              },
+              {
+                "kind": "improve",
+                "title": "Match the method",
+                "text": "Cooked rice, Spinach would shine more with a different method. Inspect ingredient cards for clues."
+              },
+              {
+                "kind": "improve",
+                "title": "Give the method time",
+                "text": "This quick roast had little chance to develop browning. A faster method would suit the schedule."
+              },
+              {
+                "kind": "improve",
+                "title": "Balance the richness",
+                "text": "A lemon finish or juicy tomato could provide contrast to the rich ingredients."
+              },
+              {
+                "kind": "good",
+                "title": "A dish with structure",
+                "text": "Your ingredients play different roles: a foundation, supporting flavors and contrast."
+              },
+              {
+                "kind": "improve",
+                "title": "Plate for your guest",
+                "text": "This customer pictured on toast. Your serving style missed that small preference."
+              },
+              {
+                "kind": "good",
+                "title": "A purposeful finish",
+                "text": "Basil added fresh aroma to the finished dish."
+              }
+            ],
+            "minutes": 26,
+            "complexity": 280,
+            "quote": "“I can see what you were trying, but this missed my request.”",
+            "discovery": "Lemon or tomato could bring the brightness this customer wanted."
+          },
+          {
+            "dish": {
+              "ingredients": ["chicken", "mushroom", "garlic", "oil"],
+              "cook": "roast",
+              "time": 12,
+              "style": "plate",
+              "garnish": "parmesan",
+              "finish": "last"
+            },
+            "name": "Roasted chicken plate",
+            "customer": {
+              "id": "theo",
+              "name": "Theo",
+              "initials": "T",
+              "color": "#547865",
+              "brief": "“A cozy plant-based bowl, please. I love something hearty and I’m happy to wait.”",
+              "wants": "cozy",
+              "plantOnly": true,
+              "noChili": false,
+              "crunch": false,
+              "patience": 34,
+              "preferred": "bowl",
+              "order": "Plant-based comfort"
+            },
+            "score": 400,
+            "quality": 50,
+            "stars": 2,
+            "components": [
+              {
+                "name": "Customer brief",
+                "score": 0,
+                "max": 30
+              },
+              {
+                "name": "Cooking",
+                "score": 23,
+                "max": 35
+              },
+              {
+                "name": "Balance",
+                "score": 15,
+                "max": 20
+              },
+              {
+                "name": "Presentation",
+                "score": 12,
+                "max": 15
+              }
+            ],
+            "notes": [
+              {
+                "kind": "improve",
+                "title": "Read the request",
+                "text": "This customer asked for plant-based food. Egg, chicken, salmon and Parmesan do not fit that request."
+              },
+              {
+                "kind": "good",
+                "title": "You heard the customer",
+                "text": "Your hearty foundation fit the request."
+              },
+              {
+                "kind": "good",
+                "title": "Good service",
+                "text": "24 kitchen minutes kept the dish within the customer’s 34-minute window."
+              },
+              {
+                "kind": "improve",
+                "title": "Give the method time",
+                "text": "This quick roast had little chance to develop browning. A faster method would suit the schedule."
+              },
+              {
+                "kind": "improve",
+                "title": "Balance the richness",
+                "text": "A lemon finish or juicy tomato could provide contrast to the rich ingredients."
+              },
+              {
+                "kind": "good",
+                "title": "A dish with structure",
+                "text": "Your ingredients play different roles: a foundation, supporting flavors and contrast."
+              },
+              {
+                "kind": "improve",
+                "title": "Plate for your guest",
+                "text": "This customer pictured bowl. Your serving style missed that small preference."
+              },
+              {
+                "kind": "good",
+                "title": "A purposeful finish",
+                "text": "Parmesan added savory richness to the finished dish."
+              }
+            ],
+            "minutes": 24,
+            "complexity": 160,
+            "quote": "“I can see what you were trying, but this missed my request.”",
+            "discovery": "This customer asked for plant-based food. Egg, chicken, salmon and Parmesan do not fit that request."
+          }
+        ],
+        "status": "complete"
+      },
+      "book": {
+        "version": 2,
+        "best": 1744,
+        "services": 1,
+        "lessons": [
+          "A clear idea, a suitable method and a thoughtful finish can make simple ingredients feel special.",
+          "Lemon or tomato could bring the brightness this customer wanted.",
+          "This customer asked for plant-based food. Egg, chicken, salmon and Parmesan do not fit that request."
+        ],
+        "daily": {
+          "2026-09-06": 1744
+        }
+      }
+    }
+  ]
+}

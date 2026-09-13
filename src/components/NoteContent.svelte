@@ -1,7 +1,10 @@
 <script lang="ts">
   import { nip19 } from 'nostr-tools';
+  import { scanNostrRefs, type ScannedRef } from '$lib/nostrRefScan';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { ndk } from '$lib/nostr';
+  import { GATED_RECIPE_KIND, RECIPE_TAGS } from '$lib/consts';
   import ProfileLink from './ProfileLink.svelte';
   import NoteEmbed from './NoteEmbed.svelte';
   import NofferButton from './clink/NofferButton.svelte';
@@ -10,10 +13,12 @@
   import TwitterEmbed from './TwitterEmbed.svelte';
   import YouTubeEmbed from './YouTubeEmbed.svelte';
   import MediaCarousel from './MediaCarousel.svelte';
+  import CheffyMediaReview from './CheffyMediaReview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import { isImageUrl, filterImageUrls } from '$lib/imageUrls';
   import MediaLightbox from './MediaLightbox.svelte';
   import LightningInvoiceCard from './LightningInvoiceCard.svelte';
+  import QuotesIcon from 'phosphor-svelte/lib/Quotes';
 
   export let content: string;
   export let className: string = '';
@@ -22,6 +27,7 @@
   export let embedDepth: number = 0; // Track nesting depth to prevent infinite recursion
   export let collapsible: boolean = true; // Enable collapsible long content
   export let maxLength: number = 500; // Character limit before collapse
+  export let event: NDKEvent | undefined = undefined;
 
   let isExpanded: boolean = false;
 
@@ -123,10 +129,9 @@
     );
   }
 
-  // Collapse runs of consecutive media URLs (ignoring the whitespace
-  // between them) into a single `media-gallery` part so they render as
-  // a swipeable carousel instead of a vertical stack. Lone media items
-  // keep their inline rendering.
+  // Collapse media URLs (and consecutive runs, ignoring whitespace between
+  // them) into `media-gallery` parts so single photos and galleries share
+  // the same full-width rendering and lightbox behavior.
   function groupMediaRuns(parts: any[]): any[] {
     const out: any[] = [];
     let i = 0;
@@ -154,11 +159,9 @@
           }
           break;
         }
-        if (urls.length > 1) {
-          out.push({ type: 'media-gallery', urls, key: `gallery-${part.key ?? i}` });
-          i = j;
-          continue;
-        }
+        out.push({ type: 'media-gallery', urls, key: `gallery-${part.key ?? i}` });
+        i = j;
+        continue;
       }
       out.push(part);
       i++;
@@ -181,12 +184,6 @@
 
   // Parse content and create clickable links for URLs, hashtags, and nostr references
   function parseContent(text: string) {
-    // Include naddr1 for addressable events (recipes, long-form content).
-    // noffer1 (CLINK static offers) is detected both as a bare token and with
-    // the optional `nostr:` prefix — when present we render an inline "⚡ Pay"
-    // pill (NofferButton) instead of treating it as plain text.
-    const urlRegex =
-      /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1|naddr1|noffer1)([023456789acdefghjklmnpqrstuvwxyz]+)|\b(noffer1)([023456789acdefghjklmnpqrstuvwxyz]{6,})/g;
     const hashtagRegex = /#[\w]+/g;
 
     const parts = [];
@@ -194,46 +191,9 @@
     let match;
     let keyCounter = 0;
 
-    // First find URLs and nostr references
-    const urlMatches: Array<{
-      index: number;
-      content: string;
-      type: 'url' | 'nostr';
-      url?: string;
-      prefix?: string;
-      data?: string;
-    }> = [];
-    urlRegex.lastIndex = 0;
-    while ((match = urlRegex.exec(text)) !== null) {
-      const [fullMatch, url, nostrPrefix, nostrData, bareNofferPrefix, bareNofferData] = match;
-      if (url) {
-        urlMatches.push({
-          index: match.index,
-          content: fullMatch,
-          type: 'url',
-          url: url
-        });
-      } else if (nostrPrefix && nostrData) {
-        urlMatches.push({
-          index: match.index,
-          content: fullMatch,
-          type: 'nostr',
-          prefix: nostrPrefix,
-          data: nostrData
-        });
-      } else if (bareNofferPrefix && bareNofferData) {
-        // Bare `noffer1…` (no `nostr:` prefix) — treat the same as a
-        // nostr:noffer1 reference so the downstream renderer surfaces a
-        // Pay button.
-        urlMatches.push({
-          index: match.index,
-          content: fullMatch,
-          type: 'nostr',
-          prefix: bareNofferPrefix,
-          data: bareNofferData
-        });
-      }
-    }
+    // Links + nostr references, with or without the `nostr:` prefix.
+    // Lives in $lib/nostrRefScan so the regex is unit-testable.
+    const urlMatches: ScannedRef[] = scanNostrRefs(text);
 
     // Helper to check if index is inside a URL/nostr reference
     function isInUrl(index: number): boolean {
@@ -324,8 +284,45 @@
   }
 
   function handleNostrClick(nostrId: string) {
-    // Navigate to the nostr reference
-    goto(`/${nostrId}`);
+    // Navigate to the nostr reference. The parsed content keeps the
+    // `nostr:` URI scheme on the string; the route doesn't take it, and
+    // leaving it on lands the reader at /nostr:nevent1... instead.
+    goto(`/${nostrId.replace(/^nostr:/i, '')}`);
+  }
+
+  // Addressable events don't go through the [nip19] route: recipes and
+  // articles live on type-specific pages, and which one an naddr belongs
+  // to isn't knowable from the address alone. NoteEmbed decides after
+  // fetching the event; a compact chip has to do the same on click.
+  async function openAddressable(ref: string) {
+    const clean = ref.replace(/^nostr:/i, '');
+    let decoded: ReturnType<typeof nip19.decode>;
+    try {
+      decoded = nip19.decode(clean);
+    } catch {
+      return;
+    }
+    if (decoded.type !== 'naddr') return;
+    const { kind, pubkey, identifier } = decoded.data;
+    if (kind === GATED_RECIPE_KIND) {
+      goto(`/recipe/${clean}`);
+      return;
+    }
+    let isRecipe = false;
+    try {
+      const fetched = await Promise.race([
+        $ndk.fetchEvent({ kinds: [kind], authors: [pubkey], '#d': [identifier] }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+      ]);
+      isRecipe =
+        !!fetched &&
+        fetched.tags.some(
+          (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
+        );
+    } catch {
+      // Relay unreachable: the article route still resolves the naddr.
+    }
+    goto(isRecipe ? `/recipe/${clean}` : `/reads/${clean}`);
   }
 
   $: parsedContent = parseContent(content);
@@ -388,6 +385,7 @@
   }
 
   $: renderParts = normalizeParts(groupMediaRuns(finalParsedContent));
+  $: firstMediaIndex = renderParts.findIndex((part: any) => part.type === 'media-gallery');
 
   const LIGHTNING_REGEX = /(?:(?:lightning|nostr):)?((lnbc|lntb|lnbcrt)[a-z0-9]{50,})/gi;
 
@@ -438,16 +436,28 @@
   {#each renderParts as part, i}
     {#if part.type === 'text'}<span class="whitespace-pre-wrap break-words">{part.content}</span>
     {:else if part.type === 'media-gallery'}
-      <!-- Consecutive media URLs render as a swipeable carousel:
-           peeking 4:5 tiles with a count badge. -->
+      <!-- Single photos fill the column; consecutive media URLs render
+           as a swipeable carousel with peeking 4:5 tiles. -->
       <div class="my-1">
-        <MediaCarousel
-          items={part.urls}
-          onItemClick={(url) => {
-            const index = allImageUrls.indexOf(url);
-            openImageModal(url, index >= 0 ? index : 0);
-          }}
-        />
+        {#if event && i === firstMediaIndex}
+          <CheffyMediaReview {event}>
+            <MediaCarousel
+              items={part.urls}
+              onItemClick={(url) => {
+                const index = allImageUrls.indexOf(url);
+                openImageModal(url, index >= 0 ? index : 0);
+              }}
+            />
+          </CheffyMediaReview>
+        {:else}
+          <MediaCarousel
+            items={part.urls}
+            onItemClick={(url) => {
+              const index = allImageUrls.indexOf(url);
+              openImageModal(url, index >= 0 ? index : 0);
+            }}
+          />
+        {/if}
       </div>
     {:else if part.type === 'hashtag'}
       <button
@@ -505,11 +515,31 @@
       {:else if part.prefix === 'nevent1' || part.prefix === 'note1'}
         {#if showNostrEmbeds}
           <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {:else}
+          <div class="my-1">
+            <button
+              class="quoted-chip"
+              on:click|stopPropagation|preventDefault={() => handleNostrClick(part.content)}
+            >
+              <QuotesIcon size={12} weight="fill" />
+              Quoted note
+            </button>
+          </div>
         {/if}
       {:else if part.prefix === 'naddr1'}
         <!-- Addressable event (recipe, article, etc.) - render as embedded content -->
         {#if showNostrEmbeds}
           <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {:else}
+          <div class="my-1">
+            <button
+              class="quoted-chip"
+              on:click|stopPropagation|preventDefault={() => openAddressable(part.content)}
+            >
+              <QuotesIcon size={12} weight="fill" />
+              Quoted post
+            </button>
+          </div>
         {/if}
       {:else if part.prefix === 'noffer1'}
         <!-- CLINK static offer — render an inline "⚡ Pay" pill that opens
@@ -590,5 +620,29 @@
   :global(html.dark) .hashtag-pill:hover {
     background-color: rgb(234 88 12); /* bg-orange-600 */
     color: white;
+  }
+
+  /* Stand-in for a quote where the full embed is suppressed — thread
+     ancestors and reply rows keep their rows compact by passing
+     showNostrEmbeds={false}, and the reference used to render as nothing
+     at all, so the quote silently vanished from the note. */
+  .quoted-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid var(--color-input-border);
+    border-radius: 9999px;
+    color: var(--color-caption);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      border-color 120ms ease;
+  }
+  .quoted-chip:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-text-caption);
   }
 </style>

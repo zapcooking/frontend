@@ -97,7 +97,6 @@ const CONFIG = {
   CONCURRENT_BATCHES: 6,            // More parallel (was 4)
   
   FALLBACK_RELAYS: [
-    'wss://relay.damus.io',
     'wss://nos.lol',
     'wss://relay.primal.net'
   ],

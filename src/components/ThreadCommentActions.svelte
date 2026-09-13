@@ -31,7 +31,7 @@
   let zapModalOpen = false;
 
   onMount(() => {
-    fetchEngagement($ndk, event.id, $userPublickey);
+    fetchEngagement($ndk, event, $userPublickey);
   });
 
   $: hasUserReacted = $store.reactions.userReactions.size > 0;

@@ -2,8 +2,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
-  import { userPublickey } from '$lib/nostr';
+  import { userPublickey, ndk } from '$lib/nostr';
   import { isAdmin } from '$lib/adminAuth';
+  import { signNip98AuthHeader } from '$lib/nip98';
   import { lightningService } from '$lib/lightningService';
   import {
     SPONSOR_PRICING,
@@ -35,6 +36,7 @@
   let showForm = false;
   let showInfoModal = false;
   let adminActionLoading: string | null = null;
+  let adminActionError = '';
 
   $: isAdminUser = isAdmin($userPublickey);
   $: headlineSponsors = activeSponsors.filter((s) => s.tier === 'headline');
@@ -55,11 +57,25 @@
   async function fetchActiveSponsors() {
     loadingSponsors = true;
     try {
-      let url = '/api/sponsor/active';
       if (isAdminUser) {
-        url += `?admin=true&pubkey=${$userPublickey}`;
+        // Admin view (active + hidden) is NIP-98-gated server-side.
+        // If signing isn't possible yet (signer still connecting), fall
+        // back to the public list — the admin-view reactivity block
+        // below re-fetches once auth state settles.
+        const url = new URL('/api/sponsor/active?admin=true', window.location.origin).toString();
+        try {
+          const authorization = await signNip98AuthHeader($ndk, { method: 'GET', url });
+          const res = await fetch(url, { headers: { Authorization: authorization } });
+          if (res.ok) {
+            const data = await res.json();
+            activeSponsors = data.sponsors || [];
+            return;
+          }
+        } catch {
+          // fall through to the public list
+        }
       }
-      const res = await fetch(url);
+      const res = await fetch('/api/sponsor/active');
       if (res.ok) {
         const data = await res.json();
         activeSponsors = data.sponsors || [];
@@ -74,17 +90,34 @@
   async function adminAction(sponsorId: string, action: 'hide' | 'unhide') {
     if (action === 'hide' && !confirm('Hide this sponsor? It will be removed from public view.')) return;
     adminActionLoading = sponsorId;
+    adminActionError = '';
     try {
-      const res = await fetch('/api/sponsor/admin', {
+      const bodyString = JSON.stringify({ action, sponsorId });
+      const url = new URL('/api/sponsor/admin', window.location.origin).toString();
+      const authorization = await signNip98AuthHeader($ndk, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, sponsorId, adminPubkey: $userPublickey }),
+        url,
+        bodyString
+      });
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authorization
+        },
+        body: bodyString
       });
       if (res.ok) {
         await fetchActiveSponsors();
+      } else if (res.status === 403) {
+        adminActionError = 'Not authorized — admin sign-in required.';
+      } else {
+        const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        adminActionError = data.error || `HTTP ${res.status}`;
       }
     } catch (err) {
       console.error('[Sponsor Admin] Action failed:', err);
+      adminActionError = err instanceof Error ? err.message : 'Action failed';
     } finally {
       adminActionLoading = null;
     }
@@ -335,6 +368,9 @@
   <!-- B. Current Sponsors -->
   <section>
     <h2 class="text-lg font-semibold mb-3">Current Sponsors</h2>
+    {#if adminActionError}
+      <p class="text-sm mb-3" style="color: var(--color-danger, #dc2626);">{adminActionError}</p>
+    {/if}
     {#if loadingSponsors}
       <div class="showcase-loading">
         <div class="showcase-skeleton"></div>

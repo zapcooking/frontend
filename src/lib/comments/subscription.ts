@@ -96,13 +96,36 @@ export function createCommentSubscription(
   const filter = createCommentFilter(root);
   const subscription: NDKSubscription = ndk.subscribe(filter, { closeOnEose });
 
+  // Buffer arrivals so a busy thread's initial EOSE burst (or a burst of
+  // realtime replies) applies as ONE store update + sort instead of a
+  // growing-array copy + sort per event.
+  const BUFFER_FLUSH_MS = 200;
+  const pendingEvents: NDKEvent[] = [];
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flushPending() {
+    flushTimer = null;
+    if (pendingEvents.length === 0) return;
+    const batch = pendingEvents.splice(0, pendingEvents.length);
+    rawEvents.update((list) => sortChronological([...list, ...batch]));
+  }
+
   subscription.on('event', (ev: NDKEvent) => {
     if (processedIds.has(ev.id)) return;
     processedIds.add(ev.id);
-    rawEvents.update((list) => sortChronological([...list, ev]));
+    pendingEvents.push(ev);
+    if (flushTimer === null) {
+      flushTimer = setTimeout(flushPending, BUFFER_FLUSH_MS);
+    }
   });
 
   subscription.on('eose', () => {
+    // Apply everything that arrived during the initial burst before
+    // flagging EOSE, so "eosed" implies the full history is in the store.
+    if (flushTimer !== null) {
+      clearTimeout(flushTimer);
+      flushPending();
+    }
     eosedStore.set(true);
   });
 
@@ -118,6 +141,7 @@ export function createCommentSubscription(
   function addLocal(ev: NDKEvent): void {
     if (!ev.id || processedIds.has(ev.id)) return;
     processedIds.add(ev.id);
+    // Optimistic UI: applied immediately rather than buffered.
     rawEvents.update((list) => sortChronological([...list, ev]));
   }
 
@@ -128,6 +152,11 @@ export function createCommentSubscription(
       subscription.stop();
     } catch {
       // NDK subscriptions can throw on repeated stop; swallow.
+    }
+    // Don't drop events that were still queued for a flush.
+    if (flushTimer !== null) {
+      clearTimeout(flushTimer);
+      flushPending();
     }
   }
 

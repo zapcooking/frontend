@@ -21,8 +21,10 @@ import { encrypt, decrypt, hasEncryptionSupport, detectEncryptionMethod } from '
 import { getOutboxRelays } from '$lib/relayListCache';
 import type { RecipeDraft } from '$lib/draftStore';
 import type { ArticleDraft } from '$lib/articleEditor';
-import TurndownService from 'turndown';
-import { parseMarkdown } from '$lib/parser';
+// NOTE: turndown and $lib/parser (markdown-it) are imported lazily inside
+// encryptArticleDraftContent and parseArticleToDraft respectively — this
+// module sits on the layout's static graph via articleDraftStore, and a
+// static import of either would ship it to every page.
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -264,6 +266,8 @@ async function encryptDraftContent(draft: RecipeDraft, pubkey: string): Promise<
  * Contains the unsigned article event data
  */
 async function encryptArticleDraftContent(draft: ArticleDraft, pubkey: string): Promise<string> {
+  const { default: TurndownService } = await import('turndown');
+
   // Initialize turndown for HTML to Markdown conversion
   const turndownService = new TurndownService({
     headingStyle: 'atx',
@@ -309,7 +313,7 @@ async function decryptDraftContent(content: string, pubkey: string, draftType: '
 
     // Parse based on draft type
     if (draftType === 'article') {
-      return parseArticleToDraft(eventData);
+      return await parseArticleToDraft(eventData);
     } else {
       return parseRecipeToDraft(eventData);
     }
@@ -442,7 +446,8 @@ function buildArticleTags(draft: ArticleDraft): string[][] {
 /**
  * Parse article event data back to draft format
  */
-function parseArticleToDraft(eventData: { kind: number; content: string; tags: string[][]; created_at?: number }, draftId?: string): ArticleDraft {
+async function parseArticleToDraft(eventData: { kind: number; content: string; tags: string[][]; created_at?: number }, draftId?: string): Promise<ArticleDraft> {
+  const { parseMarkdownToEditorHtml } = await import('$lib/parser');
   const tags = eventData.tags || [];
   const content = eventData.content || '';
 
@@ -456,9 +461,11 @@ function parseArticleToDraft(eventData: { kind: number; content: string; tags: s
     .filter(t => t[0] === 't' && t[1] !== 'zapreads')
     .map(t => t[1] || '');
 
-  // Convert markdown back to HTML for Tiptap
-  // Drafts store HTML, so we need to convert the markdown from NIP-37
-  const htmlContent = parseMarkdown(content);
+  // Convert markdown back to HTML for Tiptap. Drafts store HTML, so the
+  // markdown from NIP-37 has to be rendered back - via the editor
+  // variant, which restores mention spans instead of reader-facing
+  // anchors and leaves hashtags and video links as text.
+  const htmlContent = parseMarkdownToEditorHtml(content);
 
   const timestamp = (eventData.created_at || Math.floor(Date.now() / 1000)) * 1000;
 

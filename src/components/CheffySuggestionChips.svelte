@@ -27,6 +27,16 @@
     { label: 'Surprise me', prompt: 'Surprise me with something good to make.', behavior: 'send' }
   ];
 
+  // Shown under an attached photo, before it is sent. All 'populate' —
+  // a photo turn is dispatched by the composer's send button (it needs
+  // the file, which a chip doesn't carry), so these seed the question
+  // and let the member send it or edit it first.
+  export const PHOTO_ASK_SUGGESTIONS: CheffySuggestion[] = [
+    { label: 'What is this?', prompt: 'What is this?', behavior: 'populate' },
+    { label: 'How do I make this?', prompt: 'How do I make this?', behavior: 'populate' },
+    { label: 'What went wrong?', prompt: 'What went wrong?', behavior: 'populate' }
+  ];
+
   // Contextual follow-ups after a structured recipe (max four).
   export const CONTEXT_RECIPE: CheffySuggestion[] = [
     { label: 'Scale servings', prompt: 'Scale this recipe to serve ', behavior: 'populate' },

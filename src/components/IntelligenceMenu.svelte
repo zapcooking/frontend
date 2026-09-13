@@ -15,7 +15,7 @@
     {
       href: '/souschef',
       label: 'Sous Chef',
-      blurb: 'Recipe guidance & ideas',
+      blurb: 'Turn a link, text, or photo into a recipe',
       Icon: SparkleIcon,
       accent: 'rgb(168, 85, 247)'
     },
@@ -26,7 +26,7 @@
       // overpromise a full-page destination.
       action: openCheffy,
       label: 'Ask Cheffy',
-      blurb: 'Your kitchen companion',
+      blurb: 'Ask anything while you cook',
       Icon: CheffyIcon,
       // Cheffy's warm orange — uses the CSS var so the accent shifts
       // automatically between the light (#ec4700) and dark
@@ -36,7 +36,7 @@
     {
       href: '/nourish',
       label: 'Nourish',
-      blurb: 'Smart nutrition scoring',
+      blurb: "See what's actually in a meal",
       Icon: LeafIcon,
       accent: 'rgb(34, 197, 94)'
     }
@@ -79,9 +79,9 @@
 </script>
 
 {#if open}
-  <div bind:this={panelEl} class="intelligence-menu" role="menu" aria-label="Intelligence tools">
+  <div bind:this={panelEl} class="intelligence-menu" role="menu" aria-label="Kitchen help">
     <div class="header-row">
-      <span class="eyebrow">Intelligence</span>
+      <span class="eyebrow">Kitchen help</span>
     </div>
     {#each items as item}
       <button type="button" class="item" role="menuitem" on:click={() => activate(item)}>

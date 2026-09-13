@@ -3,6 +3,7 @@
   import TagsComboBox from '../../../components/TagsComboBox.svelte';
   import StringComboBox from '../../../components/StringComboBox.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { signNip98AuthHeader } from '$lib/nip98';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { recipeTagSimple } from '$lib/consts';
@@ -17,6 +18,7 @@
   import MarkdownEditor from '../../../components/MarkdownEditor.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { RECIPE_TAG_PREFIX_NEW, GATED_RECIPE_KIND, GATED_RECIPE_TAG } from '$lib/consts';
+  import { getMissingFields } from '$lib/recipeValidation';
   import { saveDraft, getDraft, deleteDraft } from '$lib/draftStore';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
   import GateRecipeToggle from '../../../components/GateRecipeToggle.svelte';
@@ -159,7 +161,20 @@
   }
 
   // Check if all required fields are filled (for enabling publish button)
-  $: canPublish = $images.length > 0 && title && $selectedTags.length > 0 && $directionsArray.length > 0 && $ingredientsArray.length > 0 && gateCostSats > 0;
+  // Which required fields are still empty — drives the publish gate and
+  // the "Still needed" hint. The gate cost is specific to this page, so
+  // it's appended after the five shared recipe fields.
+  $: missingFields = [
+    ...getMissingFields({
+      title,
+      tags: $selectedTags,
+      ingredients: $ingredientsArray,
+      directions: $directionsArray,
+      images: $images
+    }),
+    ...(gateCostSats > 0 ? [] : ['a gate cost'])
+  ];
+  $: canPublish = missingFields.length === 0;
 
   async function publishRecipe() {
     formatStringArrays();
@@ -254,13 +269,23 @@
         
         // Update the server store with the naddr for easy linking
         try {
+          // PATCH is now authenticated AND ownership-checked server-side,
+          // so it must carry a NIP-98 header signed by the recipe's author.
+          const patchBody = JSON.stringify({
+            gatedNoteId: gatedResult.gatedNoteId,
+            naddr
+          });
           await fetch('/api/nip108/store-gated', {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              gatedNoteId: gatedResult.gatedNoteId,
-              naddr
-            })
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: await signNip98AuthHeader($ndk, {
+                method: 'PATCH',
+                url: new URL('/api/nip108/store-gated', window.location.origin).toString(),
+                bodyString: patchBody
+              })
+            },
+            body: patchBody
           });
         } catch (e) {
           // Non-critical: naddr update failed
@@ -434,6 +459,12 @@
         </div>
       {/if}
     </div>
+
+    {#if missingFields.length > 0}
+      <p class="text-sm text-caption text-right">
+        Still needed: {missingFields.join(', ')}
+      </p>
+    {/if}
 
     <div class="flex justify-end items-center gap-2">
       {#if draftSaveMessage}

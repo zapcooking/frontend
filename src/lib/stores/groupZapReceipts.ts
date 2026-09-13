@@ -14,7 +14,6 @@ import { ndk } from '$lib/nostr';
 import { extractZapAmountSats } from '$lib/zapAmount';
 
 const ZAP_RECEIPT_RELAYS = [
-	'wss://relay.damus.io',
 	'wss://nos.lol',
 	'wss://relay.primal.net'
 ];

@@ -20,7 +20,6 @@ export const RELAY_SETS: Record<string, RelaySet> = {
     description: 'Standard relay configuration for general use',
     relays: [
       'wss://nos.lol',
-      'wss://relay.damus.io',
       'wss://relay.primal.net'
     ]
   },
@@ -57,7 +56,6 @@ export const RELAY_SETS: Record<string, RelaySet> = {
     relays: [
       'wss://relay.primal.net',     // Primal - aggregated from 100+ relays
       'wss://nos.lol',               // Popular with good uptime
-      'wss://relay.damus.io',        // Large general relay
       'wss://nostr.wine',            // Quality content focus
       'wss://eden.nostr.land',       // Reliable general relay
       'wss://relay.noswhere.com'     // General relay with longform support

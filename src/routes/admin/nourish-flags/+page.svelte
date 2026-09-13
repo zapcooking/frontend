@@ -72,10 +72,17 @@
   $: authed = isAdmin($userPublickey);
 
   async function loadAnon() {
-    if (!$userPublickey) return;
-    const res = await fetch('/api/admin/nourish-flags', {
-      headers: { 'x-admin-pubkey': $userPublickey }
-    });
+    if (!$ndk || !$userPublickey) return;
+    const url = new URL('/api/admin/nourish-flags', window.location.origin).toString();
+    let authorization: string;
+    try {
+      authorization = await signNip98AuthHeader($ndk, { method: 'GET', url });
+    } catch (err) {
+      throw new Error(
+        err instanceof Error ? err.message : 'Could not sign admin auth'
+      );
+    }
+    const res = await fetch(url, { headers: { Authorization: authorization } });
     if (!res.ok) {
       throw new Error(`anon flag fetch failed: ${res.status}`);
     }

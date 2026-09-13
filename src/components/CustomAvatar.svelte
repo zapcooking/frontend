@@ -8,6 +8,7 @@
   export let className: string = '';
   export let imageUrl: string | null = null; // Optional override for profile picture
   export let interactive: boolean = true;
+  export let ariaLabel: string = 'Avatar';
   
   const dispatch = createEventDispatcher();
   
@@ -50,6 +51,22 @@
     const h = Math.max(16, Math.round(size));
     // fit=cover gives "avatar style" cropping
     return `https://images.weserv.nl/?url=${encodeURIComponent(u)}&w=${w}&h=${h}&fit=cover&a=attention`;
+  }
+
+  // The candidate that loaded, minus avatar-sized resizing. Consumers that
+  // enlarge the picture (a lightbox) want the same host that worked — the
+  // raw URL may be blocked while weserv isn't — but not the `size`px crop.
+  function toFullSize(url: string): string {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname === 'images.weserv.nl') {
+        for (const param of ['w', 'h', 'fit', 'a']) parsed.searchParams.delete(param);
+        return parsed.toString();
+      }
+    } catch {
+      // Not an absolute URL (data:/blob:) — return as-is.
+    }
+    return url;
   }
 
   // Normalize URL: convert protocol-relative and domain/path strings to https://
@@ -222,6 +239,7 @@
       profilePicture = null;
     } finally {
       loading = false;
+      if (!profilePicture) dispatch('fallback');
     }
   }
 
@@ -245,6 +263,9 @@
   $: avatarColor = generateAvatar(pubkey);
 </script>
 
+<!-- role and tabindex flip together: button+0 when interactive, img with
+     no tab stop otherwise. The static check can't see that pairing. -->
+<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 <div 
   class="avatar {className}"
   style="
@@ -266,9 +287,9 @@
       dispatch('click');
     }
   }}
-  role="button"
-  tabindex={interactive ? 0 : -1}
-  aria-disabled={!interactive}
+  role={interactive ? 'button' : 'img'}
+  tabindex={interactive ? 0 : undefined}
+  aria-label={ariaLabel}
   on:keydown={(e) => {
     if (interactive && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
@@ -288,6 +309,10 @@
         object-fit: cover; 
         border-radius: 50%;
       "
+      on:load={() => {
+        if (!profilePicture) return;
+        dispatch('load', { src: profilePicture, fullSrc: toFullSize(profilePicture) });
+      }}
       on:error={() => {
         // Index-based fallback: advance to next candidate, skip imgproxy.snort.social
         while (currentCandidateIndex < imageCandidates.length - 1) {
@@ -302,6 +327,7 @@
         // All candidates exhausted - show initials
         imageError = true;
         profilePicture = null;
+        dispatch('fallback');
       }}
     />
   {:else}

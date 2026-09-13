@@ -212,6 +212,8 @@ src/
 
 Everyone is welcome to contribute.
 
+Working on membership or Cook+ locally? `/membership` returns 404 until `MEMBERSHIP_ENABLED=true` is set in `.env`, and the Cook+ discovery modal needs `PUBLIC_MEMBERSHIP_ENABLED=true` as well. Both are explained in the MEMBERSHIP CONFIGURATION block of `.env.example`.
+
 Note: The tag list is [here](https://github.com/github-tijlxyz/nostr.cooking/blob/main/src/lib/consts.ts#L22), please add useful tags to this list so they work with autocompletion.
 
 ---

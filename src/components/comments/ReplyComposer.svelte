@@ -308,6 +308,19 @@
 		}
 
 		posting = true;
+		// Declared outside the try so the catch can restore it; reassigned
+		// below once the final text is extracted.
+		let draftSnapshot: {
+			text: string;
+			images: string[];
+			videos: string[];
+			poll: PollConfig | null;
+		} = {
+			text: composerText,
+			images: [...uploadedImages],
+			videos: [...uploadedVideos],
+			poll: pollConfig
+		};
 		try {
 			if (composerEl) {
 				composerText = mentionCtrl.extractText();
@@ -317,6 +330,19 @@
 			let content = mentionCtrl.replacePlainMentions(composerText.trim());
 			const mediaUrls = [...uploadedImages, ...uploadedVideos];
 			const capturedPollConfig = pollConfig;
+			// Snapshot what the member typed BEFORE clearing. The composer is
+			// cleared optimistically so a successful post feels instant, but
+			// the publish below can still fail — and without this the draft is
+			// gone and the error toast's "please try again" has nothing to try
+			// again with. Holds the pre-processing state (raw text, media URLs,
+			// poll config), not the built `content`, so a restore gives back
+			// exactly what was typed rather than the mention-substituted form.
+			draftSnapshot = {
+				text: composerText,
+				images: [...uploadedImages],
+				videos: [...uploadedVideos],
+				poll: pollConfig
+			};
 			clearState();
 			if (mediaUrls.length > 0) {
 				const mediaText = mediaUrls.join('\n');
@@ -343,6 +369,16 @@
 
 			onPosted?.(posted);
 		} catch (error) {
+			// Put the draft back. The optimistic clear above assumed success;
+			// this is the branch where that assumption was wrong, and the
+			// member should not lose what they wrote. Restoring composerText
+			// while lastRendered is still '' (clearState reset both) is what
+			// re-renders the contenteditable, via the reactive syncContent
+			// block above.
+			composerText = draftSnapshot.text;
+			uploadedImages = draftSnapshot.images;
+			uploadedVideos = draftSnapshot.videos;
+			pollConfig = draftSnapshot.poll;
 			// Technical details to console; human-friendly message to the user.
 			console.error('[ReplyComposer] post failed:', error);
 			showToast('error', "Couldn't post comment — please try again.");

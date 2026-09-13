@@ -87,7 +87,37 @@
       subscription = $ndk.subscribe(filter);
 
       subscription.on('event', (event: NDKEvent) => {
-        // Validate it's a recipe format
+        // This page has TWO sources and they interact. Read both before changing either:
+        //   1. this subscription — kind 35000 carrying GATED_RECIPE_TAG
+        //   2. loadServerStoredRecipes() below — GET /api/nip108/list, the KV store
+        // combinedRecipes (:39-49) renders a KV entry as a fallback card only when its
+        // gatedNoteId is absent from these events' 'gated' tags. It reads that absence as
+        // "not on relays yet" — but absence has other causes, and both notes below are one.
+        //
+        // NOTE: the condition below is always true and is deliberately left alone.
+        // validateMarkdownTemplate() returns `MarkdownTemplate | string` ($lib/parser.ts:230)
+        // and never null, so it filters nothing. Do NOT "fix" it to
+        // `typeof ... !== 'string'`: /create/gated replaces a premium recipe's content
+        // with the preview text before publishing, so EVERY premium recipe fails template
+        // validation. The tightened check drops them all from `events`, which also empties
+        // eventGatedIds — so the page does not go blank, it silently swaps the whole
+        // listing over to the KV fallback cards at :437, one per gated-store entry.
+        //
+        // Deleted premium recipes DO surface here, through that same fallback. The
+        // tombstone Recipe.svelte's handleDelete publishes carries 'd'/'deleted'/'title'
+        // and no 't' tag, so it never matches the '#t' filter above — and no 'gated' tag,
+        // so the recipe's id leaves eventGatedIds and its KV entry becomes a card offering
+        // to unlock a recipe that is gone. Where that card leads depends on whether the KV
+        // record ever got its naddr — see the note above the fallback-card {#each} in the
+        // markup below, which is also where the naddr problem is written up. With one it
+        // renders "Recipe Deleted"; without one the slug route rejects the link outright.
+        // Neither can take a payment: the purchase UI needs gatedMetadata, and that is
+        // null for a tombstone.
+        // Not fixed here, deliberately. Nothing removes the KV entry on delete — the five
+        // routes under /api/nip108 export no DELETE — so the listing cannot tell a deleted
+        // recipe from an unpropagated one. Suppressing the card client-side would need a
+        // second relay query for the tombstones this '#t' filter hides; that was priced and
+        // declined in #587 as a workaround for missing server state.
         if (validateMarkdownTemplate(event.content) !== null) {
           // Check if we already have this event
           if (!events.find(e => e.id === event.id)) {
@@ -279,9 +309,21 @@
     <div class="flex items-start gap-3">
       <LightningIcon size={20} weight="fill" class="text-amber-500 mt-0.5 flex-shrink-0" />
       <div>
+        <!--
+          This banner is the only text on the page saying what the page is, so it orients and
+          stops there. It used to read "Lightning-Gated Recipes — Creators can monetize their
+          exclusive recipes with Lightning payments. Pay once, get permanent access.", and
+          every clause of that was a claim we could not keep: "exclusive" and "monetize"
+          describe a gate holding, and "permanent access" is what this PR falsifies. The
+          replacement deliberately names no actor — a listing's authorPubkey is a body field
+          on store-gated/+server.ts:40-50 that nothing verifies against the caller, so "set by
+          the author" would assert more than the record knows. "Set when it was published" is
+          the one system claim left in it and it holds: the only write that can reach an
+          existing record is the PATCH at store-gated/+server.ts:131, which touches naddr
+          alone, and a repeat POST is refused with a 409 at :87-92 before storing.
+        -->
         <p class="text-sm" style="color: var(--color-text-primary);">
-          <strong>Lightning-Gated Recipes</strong> — Creators can monetize their exclusive recipes with Lightning payments. 
-          Pay once, get permanent access.
+          <strong>Premium recipes.</strong> Each one has a price on it, set when it was published.
         </p>
       </div>
     </div>
@@ -374,7 +416,24 @@
         </a>
       {/each}
 
-      <!-- Server-stored recipes (not yet on relays) -->
+      <!--
+        Gated-store entries with no matching 'gated' tag in `events`. "Not yet on relays" is
+        only one reason that can happen — a deleted recipe's tombstone drops the tag too, so
+        this block also renders cards for recipes that are gone. See the note on the
+        subscription above.
+        Note also that `sortedServerRecipes` (:57) is NOT filtered by showMyRecipesOnly, unlike
+        `filteredEvents` (:53) — these cards show on the My Recipes tab whoever authored them.
+
+        The `recipe.naddr ? ... : ...` fallback below has never resolved in production. A KV
+        record is created without a naddr (store-gated/+server.ts:106 writes `naddr || ''`) and
+        completed by a second PATCH call that /create/gated/+page.svelte:256-266 wraps in a
+        try/catch commented "Non-critical". Both records live in the store on 2026-07-26 have
+        `naddr: ''`, so both take the gatedNoteId branch — and the slug route only parses
+        `naddr1...` (premium/recipe/[slug]/+page.svelte:56), throwing "Invalid recipe URL
+        format" at :153. Whatever fixes the deleted-card problem should decide who owns the
+        record between the two calls; a link built from a field that is allowed to stay empty
+        cannot be fixed here.
+      -->
       {#each sortedServerRecipes as recipe (recipe.gatedNoteId)}
         {@const recipeLink = recipe.naddr ? `/premium/recipe/${recipe.naddr}` : `/premium/recipe/${recipe.gatedNoteId}`}
         <a

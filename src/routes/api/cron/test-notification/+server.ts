@@ -108,7 +108,6 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
     // Initialize NDK
     const ndk = new NDK({
       explicitRelayUrls: [
-        'wss://relay.damus.io',
         'wss://nos.lol',
         'wss://purplepag.es'
       ]

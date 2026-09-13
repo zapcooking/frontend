@@ -247,6 +247,22 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
   let eoseReceived = false;
   const preEoseBuffer: NDKEvent[] = [];
 
+  // Realtime (post-EOSE) events also arrive in bursts — a popular post
+  // gets zapped/replied to repeatedly within the same second, and each
+  // individual add() pays a full sort plus a synchronous localStorage
+  // write. Buffer them briefly and insert in one addBulk(); local
+  // system notifications still fire immediately per event.
+  const REALTIME_FLUSH_MS = 1000;
+  const realtimeBuffer: Notification[] = [];
+  let realtimeFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flushRealtimeBuffer() {
+    realtimeFlushTimer = null;
+    if (realtimeBuffer.length === 0) return;
+    const batch = realtimeBuffer.splice(0, realtimeBuffer.length);
+    notifications.addBulk(batch);
+  }
+
   function flushPreEoseBuffer() {
     if (preEoseBuffer.length === 0) return;
     const parsed: Notification[] = [];
@@ -279,8 +295,12 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
       return;
     }
 
-    // Post-EOSE realtime event: add individually (rare, no perf issue)
-    notifications.add(notification);
+    // Post-EOSE realtime event: buffer briefly (bursts of activity on a
+    // popular post otherwise pay a sort + localStorage write each)
+    realtimeBuffer.push(notification);
+    if (realtimeFlushTimer === null) {
+      realtimeFlushTimer = setTimeout(flushRealtimeBuffer, REALTIME_FLUSH_MS);
+    }
 
     if (event.kind === 9735) recordZapToSparkSdk(event);
 
@@ -438,10 +458,11 @@ function cleanContentForPreview(content: string): string {
     .replace(/https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|svg|bmp|avif)(?:\?[^\s]*)?/gi, '')
     .replace(/https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth)[^\s]*/gi, '')
     // Remove standalone bech32 identifiers (without nostr: prefix) — display layer only resolves nostr: URIs.
-    // The lookbehind keeps `nostr:npub1…` mentions intact; without it the bech32
-    // gets stripped out of the URI, leaving a dangling literal "nostr: " that the
-    // display layer can no longer resolve to a name.
-    .replace(/(?<!nostr:)\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi, ' ')
+    // The consumed-and-re-emitted nostr: prefix keeps `nostr:npub1…` mentions intact; without it
+    // the bech32 gets stripped out of the URI, leaving a dangling literal "nostr: " that the
+    // display layer can no longer resolve to a name. (No lookbehind: parse-time
+    // SyntaxError on iOS Safari < 16.4.)
+    .replace(/(nostr:)?\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi, (match, nostrPrefix) => (nostrPrefix ? match : ' '))
     // Clean up multiple spaces and newlines
     .replace(/\s+/g, ' ')
     .trim();

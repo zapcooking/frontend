@@ -29,6 +29,7 @@ import { NDKRelaySet } from '@nostr-dev-kit/ndk';
 import { NOURISH_SERVICE_PUBKEY, NOURISH_LABEL_NAMESPACE } from './types';
 import type { NourishLabel, NourishScores } from './types';
 import { parseNourishEvent, type NourishRelayResult } from './nourishRelay';
+import { isHiddenRecipeATag } from '$lib/consts';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
 const FETCH_TIMEOUT_MS = 8000;
@@ -429,6 +430,7 @@ function parseAnalyses(nourishEvents: Iterable<NDKEvent>): AnalysisRow[] {
     const aTag = event.tags.find((t) => t[0] === 'a')?.[1] || '';
     const parts = aTag.split(':');
     if (parts.length < 3 || parts[0] !== '30023') continue;
+    if (isHiddenRecipeATag(aTag)) continue;
 
     const recipePubkey = parts[1];
     const recipeDTag = parts.slice(2).join(':');

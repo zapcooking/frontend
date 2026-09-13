@@ -25,7 +25,7 @@
 </script>
 
 <nav
-  class="inline-flex p-0.5 rounded-full self-start"
+  class="inline-flex flex-wrap p-0.5 rounded-full self-start"
   style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
   aria-label={label}
 >

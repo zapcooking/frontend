@@ -31,6 +31,102 @@
   let events: NDKEvent[] = [];
   let loaded = false;
 
+  // ─── "New recipes this week" pill ────────────────────────────────
+  // Glanceable stat fetched from the SAME server-side proxy the /pantry
+  // card uses (holds the relay secret server-side). This is a
+  // nice-to-have signal, fully isolated from the recipe feed: its fetch
+  // can never block or fail the feed, and any error/empty/all-zero
+  // result simply hides the pill. Note the count is a superset of the
+  // feed (kinds 30023 + 35000, all Pantry recipes) — an accepted product
+  // choice, not filtered to match the 30023-only feed.
+  interface RecipeWeek {
+    week_start: string;
+    count: number;
+  }
+  let recipeWeeks: RecipeWeek[] = [];
+  let recipeWeeksMax = 0;
+  let recipeWeeksLoaded = false;
+  let recipeWeeksError = false;
+
+  // Hero number = new recipes over the last 3 weeks (rolling window). A
+  // shorter window reads as empty early in the week (few recipes yet); a
+  // 3-week sum stays meaningful. slice(-3) safely handles a series shorter
+  // than 3 elements.
+  $: recentCount = recipeWeeks.slice(-3).reduce((sum, w) => sum + w.count, 0);
+
+  // Brand palette for the trend, aligned to Zap Cooking's warm identity:
+  // the number + arrow use --color-primary (the canonical brand orange,
+  // theme-aware), and the sparkline traces an orange→amber gradient that
+  // echoes the active-tab underline (from-orange-500 to-amber-500). The
+  // trend always reads "up" — a positive, on-brand signal.
+  const BRAND_GRAD_FROM = '#f97316'; // orange-500
+  const BRAND_GRAD_TO = '#f59e0b'; // amber-500
+
+  // Sparkline geometry: a smooth curve over the 12-week series, y-scaled to
+  // the series max (Math.max guard vs. div-by-0), with a soft gradient area
+  // fill underneath and a dot on the last point to anchor "now".
+  const SPARK_W = 96;
+  const SPARK_H = 22;
+  const SPARK_PAD = 3;
+  $: sparkMax = Math.max(recipeWeeksMax, 1);
+  $: sparkX = (i: number) =>
+    recipeWeeks.length <= 1
+      ? SPARK_W / 2
+      : SPARK_PAD + (i / (recipeWeeks.length - 1)) * (SPARK_W - SPARK_PAD * 2);
+  $: sparkY = (count: number) =>
+    SPARK_PAD + (1 - count / sparkMax) * (SPARK_H - SPARK_PAD * 2);
+  $: sparkPts = recipeWeeks.map((w, i) => ({ x: sparkX(i), y: sparkY(w.count) }));
+
+  // Build a smooth SVG path from the points using a Catmull-Rom spline
+  // converted to cubic béziers — no hard zig-zag corners like a raw
+  // polyline. Falls back to a flat "M…L…" for 0/1-point edge cases.
+  function smoothPath(pts: { x: number; y: number }[]): string {
+    if (pts.length === 0) return '';
+    if (pts.length === 1) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] ?? pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2] ?? p2;
+      const c1x = p1.x + (p2.x - p0.x) / 6;
+      const c1y = p1.y + (p2.y - p0.y) / 6;
+      const c2x = p2.x - (p3.x - p1.x) / 6;
+      const c2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    }
+    return d;
+  }
+  $: sparkLinePath = smoothPath(sparkPts);
+  // Same curve, then down to the baseline on both ends and closed — the
+  // soft gradient area fill under the stroke.
+  $: sparkAreaPath = sparkPts.length
+    ? `${sparkLinePath} L ${sparkPts[sparkPts.length - 1].x.toFixed(1)} ${SPARK_H} L ${sparkPts[0].x.toFixed(1)} ${SPARK_H} Z`
+    : '';
+  $: sparkLastPoint = sparkPts.length ? sparkPts[sparkPts.length - 1] : null;
+
+  // Show only on a clean, non-empty series AND when this week actually has
+  // new recipes. Loading / error / empty / all-zero all fall through to
+  // hidden — failing silent is correct for a nice-to-have signal.
+  $: showTrend =
+    recipeWeeksLoaded && !recipeWeeksError && recipeWeeks.length > 0 && recentCount > 0;
+
+  async function loadRecipesByWeek() {
+    try {
+      const res = await fetch('/api/pantry/recipes-by-week');
+      if (!res.ok) throw new Error(`stats request failed: ${res.status}`);
+      const data = await res.json();
+      const weeks: RecipeWeek[] = Array.isArray(data?.weeks) ? data.weeks : [];
+      recipeWeeks = weeks;
+      recipeWeeksMax = weeks.reduce((m, w) => Math.max(m, w.count), 0);
+      recipeWeeksLoaded = true;
+    } catch (err) {
+      // Quiet failure — the pill just stays hidden, feed is unaffected.
+      console.warn('[Recipes] weekly stats unavailable:', err);
+      recipeWeeksError = true;
+    }
+  }
+
   // Cache filter for consistent cache keys
   const cacheFilter = { kinds: [30023], '#t': RECIPE_TAGS };
 
@@ -380,6 +476,9 @@
 
   onMount(() => {
     loadRecipes();
+    // Fire-and-forget: isolated from the feed so a stats failure or slow
+    // response can never affect recipe loading.
+    loadRecipesByWeek();
   });
 
   onDestroy(() => {
@@ -450,6 +549,57 @@
         Premium ⚡️
       </a>
     </div>
+
+    <!-- Quiet, brand-aligned "new recipes" trend. No container/card: a
+         brand-orange hero number (rolling 3-week new-recipe count) + up-arrow,
+         a muted label, and a smooth orange→amber sparkline anchored with a dot
+         on the latest week. Hidden while loading and on any error/empty/
+         all-zero result. Never blocks the feed. -->
+    {#if showTrend}
+      <div
+        class="flex items-center gap-1.5 pt-1"
+        title="New recipes added to the Pantry over the last 3 weeks (line is weekly, UTC)"
+      >
+        <span class="text-sm font-semibold leading-none" style="color: var(--color-primary)">
+          <span aria-hidden="true">↑</span>{recentCount}
+        </span>
+        <span class="text-xs leading-none" style="color: var(--color-text-secondary)"
+          >new recipes</span
+        >
+        <svg
+          class="shrink-0"
+          width={SPARK_W}
+          height={SPARK_H}
+          viewBox="0 0 {SPARK_W} {SPARK_H}"
+          fill="none"
+          role="img"
+          aria-label="New recipes per week over the last {recipeWeeks.length} weeks"
+        >
+          <defs>
+            <linearGradient id="recipesTrendStroke" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color={BRAND_GRAD_FROM} />
+              <stop offset="100%" stop-color={BRAND_GRAD_TO} />
+            </linearGradient>
+            <linearGradient id="recipesTrendFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color={BRAND_GRAD_FROM} stop-opacity="0.20" />
+              <stop offset="100%" stop-color={BRAND_GRAD_FROM} stop-opacity="0" />
+            </linearGradient>
+          </defs>
+          <path d={sparkAreaPath} fill="url(#recipesTrendFill)" stroke="none" />
+          <path
+            d={sparkLinePath}
+            fill="none"
+            stroke="url(#recipesTrendStroke)"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          {#if sparkLastPoint}
+            <circle cx={sparkLastPoint.x.toFixed(1)} cy={sparkLastPoint.y.toFixed(1)} r="2" fill={BRAND_GRAD_TO} />
+          {/if}
+        </svg>
+      </div>
+    {/if}
 
     <!-- Orientation text for signed-out users -->
     {#if $userPublickey === ''}

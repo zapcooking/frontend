@@ -444,3 +444,46 @@ describe('ephemeral client key persistence', () => {
     expect(pending.signerPubkey).toBe(SIGNER);
   });
 });
+
+describe('NIP-46 RPC relay scoping', () => {
+  /**
+   * NIP-46 RPC carries the encrypted conversation with the bunker. If
+   * rpc.relaySet is left undefined, NDK publishes and subscribes across
+   * the ENTIRE relay pool, announcing to every connected relay that this
+   * user has a bunker session. All three signer construction paths must
+   * scope it to the bunker's own relays.
+   */
+
+  it('scopes the relay set on the bunker paste-login path', async () => {
+    ndkTest.setImpl(happyImpl());
+
+    await authManager.authenticateWithNIP46(URI_WITH_SECRET);
+
+    expect(ndkTest.lastSigner().rpc.relaySet?.urls).toEqual([RELAY]);
+  });
+
+  it('scopes the relay set when restoring a stored session', async () => {
+    ndkTest.setImpl(happyImpl());
+    store.set(
+      'nostrcooking_nip46',
+      JSON.stringify({
+        signerPubkey: SIGNER,
+        userPubkey: USER_PUBKEY,
+        relays: [RELAY],
+        connectionString: `bunker://${SIGNER}?relay=${RELAY}`,
+        localPrivateKey: KNOWN_KEY,
+        secret: SECRET
+      })
+    );
+    store.set('nostrcooking_authMethod', 'nip46');
+    store.set('nostrcooking_loggedInPublicKey', USER_PUBKEY);
+
+    // Restore runs from the constructor (initializeFromStorage), so build
+    // a fresh manager against the seeded storage and let it settle.
+    new AuthManager(ndk);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Previously undefined here — the reconnect path never set it.
+    expect(ndkTest.lastSigner().rpc.relaySet?.urls).toEqual([RELAY]);
+  });
+});

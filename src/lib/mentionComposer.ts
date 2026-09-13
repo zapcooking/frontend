@@ -341,14 +341,17 @@ export class MentionComposerController {
 		// re-pill. Read the text/html flavor instead and run it through
 		// htmlToPlainText, which serializes data-mention pills back to their
 		// `nostr:npub…` form so they get re-pilled by the handleInput() pass
-		// below. We parse the HTML in a detached element and only ever read
-		// text/dataset out of it — its nodes never touch the live DOM.
+		// below. Parsed with DOMParser rather than assigning innerHTML on a
+		// detached div: innerHTML on a real document element still fetches
+		// resources and fires handlers on some elements (<img onerror>,
+		// <iframe>), even when the node is never inserted. DOMParser builds
+		// an inert document — nothing loads, nothing executes — and we only
+		// read text/dataset out of it.
 		const html = event.clipboardData?.getData('text/html');
 		let plainText: string | undefined;
 		if (html && html.includes('data-mention')) {
-			const tmp = document.createElement('div');
-			tmp.innerHTML = html;
-			plainText = htmlToPlainText(tmp);
+			const parsed = new DOMParser().parseFromString(html, 'text/html');
+			plainText = htmlToPlainText(parsed.body);
 		} else {
 			plainText = event.clipboardData?.getData('text/plain');
 		}

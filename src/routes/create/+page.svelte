@@ -17,6 +17,7 @@
   import MarkdownEditor from '../../components/MarkdownEditor.svelte';
   import { onMount, onDestroy, tick } from 'svelte';
   import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
+  import { getMissingFields } from '$lib/recipeValidation';
   import {
     saveDraft,
     getDraft,
@@ -310,13 +311,16 @@
     });
   }
 
-  // Check if all required fields are filled (for enabling publish button)
-  $: canPublish =
-    $images.length > 0 &&
-    title &&
-    $selectedTags.length > 0 &&
-    $directionsArray.length > 0 &&
-    $ingredientsArray.length > 0;
+  // Which required fields are still empty — drives the publish gate and
+  // the "Still needed" hint next to the action buttons
+  $: missingFields = getMissingFields({
+    title,
+    tags: $selectedTags,
+    ingredients: $ingredientsArray,
+    directions: $directionsArray,
+    images: $images
+  });
+  $: canPublish = missingFields.length === 0;
 
   async function publishRecipe() {
     formatStringArrays();
@@ -634,6 +638,12 @@
     <span class="text-caption">First image will be your cover photo</span>
     <MediaUploader uploadedImages={images} />
   </div>
+
+  {#if missingFields.length > 0}
+    <p class="text-sm text-caption text-right">
+      Still needed: {missingFields.join(', ')}
+    </p>
+  {/if}
 
   <div class="flex justify-end items-center gap-2">
     {#if draftSaveMessage}

@@ -4,7 +4,13 @@ declare module 'google-translate-api-browser' {
     from: { language: { iso: string } };
   }
 
-  export function setCORS(
-    apiUrl?: string
-  ): (text: string, options: { to: string }) => Promise<GoogleTranslateResult>;
+  export function translate(
+    text: string,
+    options?: {
+      corsUrl?: string;
+      to?: string;
+      from?: string;
+      raw?: boolean;
+    }
+  ): Promise<GoogleTranslateResult>;
 }

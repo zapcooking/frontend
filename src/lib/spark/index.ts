@@ -12,7 +12,9 @@ import {
   loadMnemonic,
   hasMnemonic,
   deleteMnemonic,
-  clearAllSparkWallets
+  clearAllSparkWallets,
+  hasLegacyMnemonic,
+  migrateLegacyMnemonic
 } from './storage';
 import { logger } from '$lib/logger';
 import {
@@ -26,6 +28,7 @@ import {
 } from '$lib/encryptionService';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { fetchSparkBackupEvents } from './backupEventFetch';
 
 /**
  * Dynamically import bip39 with Buffer polyfill
@@ -105,6 +108,19 @@ function createPersistentLightningAddress() {
 export const lightningAddress = createPersistentLightningAddress();
 
 export const walletBalance = writable<bigint | null>(null);
+export const USDB_TOKEN_IDENTIFIER = 'btkn1xgrvjwey5ngcagvap2dzzvsy4uk8ua9x69k82dwvt5e7ef9drm9qztux87';
+export interface StableBalanceState {
+  active: boolean;
+  label: string;
+  balance: bigint;
+  decimals: number;
+}
+export const stableBalance = writable<StableBalanceState>({
+  active: false,
+  label: 'USDB',
+  balance: 0n,
+  decimals: 6
+});
 export const walletInitialized = writable<boolean>(false);
 export const sparkLoading = writable<boolean>(false);
 export const sparkSyncing = writable<boolean>(false); // True while explicit sync is in progress
@@ -214,7 +230,35 @@ async function refreshBalanceInternal(): Promise<void> {
     const balanceValue =
       info.balanceSats ?? info.balanceSat ?? info.balance_sats ?? info.balance ?? 0;
     walletBalance.set(BigInt(balanceValue));
+    const tokenBalances = info.tokenBalances;
+    const balances =
+      tokenBalances instanceof Map
+        ? Array.from(tokenBalances.values())
+        : Array.isArray(tokenBalances)
+          ? tokenBalances
+          : Object.values(tokenBalances || {});
+    const usdb = balances.find((entry: any) => entry?.tokenMetadata?.identifier === USDB_TOKEN_IDENTIFIER);
+    let active = false;
+    try {
+      const settings = await _sdkInstance.getUserSettings();
+      active = settings?.stableBalanceActiveLabel === 'USDB';
+    } catch {}
+    stableBalance.set({
+      active,
+      label: usdb?.tokenMetadata?.ticker || 'USDB',
+      balance: BigInt(usdb?.balance ?? 0),
+      decimals: Number(usdb?.tokenMetadata?.decimals ?? 6)
+    });
   } catch {}
+}
+
+export async function setStableBalanceEnabled(enabled: boolean): Promise<void> {
+  if (!_sdkInstance) throw new Error('Spark SDK is not initialized');
+  await _sdkInstance.updateUserSettings({
+    stableBalanceActiveLabel: enabled ? { type: 'set', label: 'USDB' } : { type: 'unset' }
+  });
+  await _sdkInstance.syncWallet({});
+  await refreshBalanceInternal();
 }
 
 /**
@@ -347,7 +391,9 @@ export async function initializeSdk(
     const config = defaultConfig('mainnet');
     config.apiKey = apiKey;
     config.privateEnabledDefault = true;
-    config.supportLnurlVerify = true; // Enable NIP-57 zap receipt metadata on received payments
+    config.stableBalanceConfig = {
+      tokens: [{ label: 'USDB', tokenIdentifier: USDB_TOKEN_IDENTIFIER }]
+    };
 
     // Use sats.zap.cooking (subdomain) in production, breez.tips for local development
     // Strategy A: Subdomain approach - uses CNAME sats -> breez.tips in Cloudflare
@@ -533,6 +579,7 @@ export async function disconnectWallet(): Promise<void> {
     breezSdk.set(null);
     lightningAddress.set(null);
     walletBalance.set(null);
+    stableBalance.set({ active: false, label: 'USDB', balance: 0n, decimals: 6 });
     walletInitialized.set(false);
     sparkSyncing.set(false);
     _sdkInstance = null;
@@ -1437,7 +1484,12 @@ export async function restoreFromMnemonic(
 
     // Validate mnemonic format
     if (!validateMnemonic(mnemonic)) {
-      logger.error('[Spark] Mnemonic validation failed. First word:', mnemonic.split(' ')[0]);
+      // Never log any part of the mnemonic — a single word narrows a
+      // BIP-39 search meaningfully, and logs travel further than the key
+      // ever should. Word count is enough to debug a malformed phrase.
+      logger.error('[Spark] Mnemonic validation failed', 'spark', {
+        wordCount: mnemonic.trim().split(/\s+/).length
+      });
       throw new Error('Invalid mnemonic phrase');
     }
 
@@ -1534,7 +1586,12 @@ export async function restoreFromBackup(
 
     // Validate mnemonic format
     if (!validateMnemonic(mnemonic)) {
-      logger.error('[Spark] Mnemonic validation failed. First word:', mnemonic.split(' ')[0]);
+      // Never log any part of the mnemonic — a single word narrows a
+      // BIP-39 search meaningfully, and logs travel further than the key
+      // ever should. Word count is enough to debug a malformed phrase.
+      logger.error('[Spark] Mnemonic validation failed', 'spark', {
+        wordCount: mnemonic.trim().split(/\s+/).length
+      });
       throw new Error('Decrypted mnemonic is invalid');
     }
 
@@ -1739,19 +1796,25 @@ export async function listSparkBackups(pubkey: string): Promise<SparkBackupEntry
   if (!browser) return [];
 
   try {
-    const { ndk, ndkReady } = await import('$lib/nostr');
+    const { ndk, ndkReady, getCurrentRelays } = await import('$lib/nostr');
+    const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
     const { get } = await import('svelte/store');
 
     await ndkReady;
     const ndkInstance = get(ndk);
 
-    const events = await ndkInstance.fetchEvents(
-      {
-        kinds: [BACKUP_EVENT_KIND],
-        authors: [pubkey]
-      },
-      { closeOnEose: true }
-    );
+    const filter = {
+      kinds: [BACKUP_EVENT_KIND],
+      authors: [pubkey]
+    };
+
+    // Query the configured relays directly: these are the relays the wallet
+    // backup was published to, while NDK's author routing can select a
+    // different outbox set. A live subscription also follows relays that are
+    // still connecting, and fetchSparkBackupEvents guarantees a hard deadline
+    // so a missing EOSE cannot leave the restore screen spinning forever.
+    const relaySet = NDKRelaySet.fromRelayUrls(getCurrentRelays(), ndkInstance, true);
+    const events = await fetchSparkBackupEvents(ndkInstance, filter, relaySet);
 
     if (!events || events.size === 0) {
       return [];
@@ -2107,5 +2170,44 @@ export function getSparkLightningAddress(): string | null {
   return get(lightningAddress);
 }
 
+// Pubkeys already swept this session — the sweep is idempotent, but
+// there's no reason to re-check on every auth-state emission.
+const legacyMnemonicSwept = new Set<string>();
+
+/**
+ * Proactively upgrade a legacy V1 mnemonic to V2 at login.
+ *
+ * V1 derives its key from the (public) pubkey, so a V1 record is readable
+ * by anyone who can read localStorage. The existing migration only runs
+ * inside loadMnemonic — i.e. when the user opens the Spark wallet — which
+ * leaves the record exposed indefinitely for users who never open it.
+ *
+ * Skipped for NIP-46 sessions (canCreateNostrBackup is false: a bunker
+ * round-trip per encrypt isn't viable here), so those keep V1 until the
+ * wallet is opened, exactly as before. Never throws — a failed migration
+ * leaves V1 in place and retries on the next login.
+ *
+ * @param pubkey The user's Nostr public key (hex string).
+ */
+export async function sweepLegacyMnemonic(pubkey: string): Promise<void> {
+  if (!browser || !pubkey) return;
+  if (legacyMnemonicSwept.has(pubkey)) return;
+  if (!hasLegacyMnemonic(pubkey)) return;
+  if (!canCreateNostrBackup()) return;
+
+  legacyMnemonicSwept.add(pubkey);
+  try {
+    const migrated = await migrateLegacyMnemonic(pubkey);
+    if (migrated) {
+      logger.info('Migrated legacy V1 mnemonic to V2 at login', 'spark');
+    }
+  } catch (e) {
+    // Signer denied or unavailable — V1 record is untouched. Allow a
+    // retry on the next login rather than marking this pubkey done.
+    legacyMnemonicSwept.delete(pubkey);
+    logger.warn('Legacy mnemonic migration deferred', 'spark', e);
+  }
+}
+
 // Export storage utilities
-export { clearAllSparkWallets, deleteMnemonic, loadMnemonic };
+export { clearAllSparkWallets, deleteMnemonic, loadMnemonic, hasLegacyMnemonic };

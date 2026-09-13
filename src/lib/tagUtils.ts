@@ -4,7 +4,8 @@ import {
   TAG_ALIASES,
   RECIPE_TAGS,
   RECIPE_TAG_PREFIX_NEW,
-  RECIPE_TAG_PREFIX_LEGACY
+  RECIPE_TAG_PREFIX_LEGACY,
+  isHiddenRecipeEvent
 } from './consts';
 import { ndk, ndkConnected } from './nostr';
 import { get } from 'svelte/store';
@@ -93,6 +94,7 @@ export async function computePopularTags(limit: number = 8): Promise<TagWithCoun
           markOnce('t3_explore_first_live_event_received');
         }
         eventCount++;
+        if (isHiddenRecipeEvent(event)) return;
         // Extract tags from the event (support both legacy and new prefixes)
         const tags = event.tags.filter(
           (t) =>

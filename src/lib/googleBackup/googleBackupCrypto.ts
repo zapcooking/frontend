@@ -36,8 +36,28 @@ const PBKDF2_ITERATIONS = 600_000;
 const KEY_BYTES = 32;
 const NIP44_VERSION = 0x02;
 
+/**
+ * Accepts an EXISTING PIN, for the decrypt/restore path.
+ *
+ * Stays 4–8 digits on purpose: backups created before the minimum was
+ * raised use 4- and 5-digit PINs, and narrowing this would make those
+ * backups permanently undecryptable. New PINs go through isValidNewPin.
+ */
 export function isValidPin(pin: string): boolean {
 	return /^[0-9]{4,8}$/.test(pin);
+}
+
+/**
+ * Accepts a NEW PIN, at creation time.
+ *
+ * A 4-digit PIN is 10k candidates. PBKDF2 at 600k iterations makes each
+ * guess expensive, but the backup blob is stored in the user's Drive —
+ * an attacker with the file can grind offline at their leisure, so the
+ * keyspace is the thing that has to carry the weight. Six digits is a
+ * 100x improvement for one extra keypress.
+ */
+export function isValidNewPin(pin: string): boolean {
+	return /^[0-9]{6,8}$/.test(pin);
 }
 
 /** HMAC-SHA256(key = "wisp-google-backup", msg = sub) — mirrors perAccountSalt(). */

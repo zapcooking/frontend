@@ -1,16 +1,18 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import {
-  isCrawler,
   matchRecipeOgRoute,
-  renderRecipeOgForCrawler,
+  resolveRecipeOgMeta,
   matchNoteOgRoute,
-  renderNoteOgForCrawler,
+  resolveNoteOgMeta,
   matchReadsOgRoute,
-  renderReadsOgForCrawler,
+  resolveReadsOgMeta,
   matchProfileOgRoute,
-  renderProfileOgForCrawler
+  resolveProfileOgMeta,
+  buildOgTagBlock,
+  createOgPageTransformer
 } from '$lib/recipeOgHtml.server';
+import type { RecipeOgMeta } from '$lib/recipeOgMeta';
 
 /**
  * Log the real server-side error (with stack) instead of letting SvelteKit
@@ -96,59 +98,101 @@ function buildCorsHeaders(origin: string | null, useWildcard: boolean): Headers 
 }
 
 /**
- * Bot-only OG injection. Social crawlers don't run JS, so the client-fetched
- * recipe event never populates the OG tags for them — they'd only ever see the
- * static placeholders. For a crawler UA on a recipe route we resolve the recipe
- * SERVER-SIDE (raw WebSocket, no NDK) and return a minimal standalone document.
+ * Resolve OG meta for routes that derive their tags from a client-fetched
+ * Nostr event. During SSR that event is null, so the page's own head emits
+ * static placeholders; the meta resolved here (raw WebSocket, no NDK) is
+ * injected into the real page for EVERY visitor — there is deliberately no
+ * User-Agent gating (see the comment in `handle`).
  *
  * This deliberately does NOT use a `+page.server.ts` / server `data` dependency:
  * that is what made #454 request `__data.json` against an OOM'd worker and 500.
- * Crawlers issue a single document GET and never request `__data.json`, so this
- * path cannot reintroduce that. Returns null (→ normal SPA resolve) for humans,
- * non-matching routes, or ANY error — it must never throw or 500.
+ * Resolution stays in this hook, on the single document GET, so this path
+ * cannot reintroduce that. Returns null (→ page served with its own tags) for
+ * non-matching routes, non-GET requests, or ANY error — it must never throw
+ * or 500.
  */
-async function maybeRenderBotOg(event: Parameters<Handle>[0]['event']): Promise<Response | null> {
+async function resolveOgMeta(
+  event: Parameters<Handle>[0]['event']
+): Promise<{ meta: RecipeOgMeta; canonicalUrl: string } | null> {
   try {
     if (event.request.method !== 'GET') return null;
-    if (!isCrawler(event.request.headers.get('user-agent'))) return null;
 
     const path = event.url.pathname;
-    const recipe = matchRecipeOgRoute(path);
-    const note = recipe ? null : matchNoteOgRoute(path);
-    const reads = recipe || note ? null : matchReadsOgRoute(path);
-    const profile = recipe || note || reads ? null : matchProfileOgRoute(path);
-    if (!recipe && !note && !reads && !profile) return null;
+    const origin = event.url.origin;
 
-    const html = recipe
-      ? await renderRecipeOgForCrawler(recipe.prefix, recipe.slug, event.url.origin)
-      : note
-        ? await renderNoteOgForCrawler(note.slug, event.url.origin)
-        : reads
-          ? await renderReadsOgForCrawler(reads.slug, event.url.origin)
-          : await renderProfileOgForCrawler(profile!.slug, event.url.origin, path);
-    return new Response(html, {
-      status: 200,
-      headers: {
-        'content-type': 'text/html; charset=utf-8',
-        // CRITICAL: never let this UA-specific document into a shared cache.
-        // Cloudflare's edge cache keys on URL and does NOT honour
-        // `Vary: User-Agent`, so a `public` bot document could be replayed to a
-        // real browser (serving humans the SPA-less crawler shell) or vice
-        // versa. `no-store` keeps the bot path fully separate from the human
-        // SPA path. Crawlers re-fetch on each scrape anyway; the fetch is fast.
-        'cache-control': 'no-store',
-        vary: 'User-Agent'
-      }
-    });
+    const recipe = matchRecipeOgRoute(path);
+    if (recipe) {
+      return {
+        meta: await resolveRecipeOgMeta(recipe.slug),
+        canonicalUrl: `${origin}/${recipe.prefix}/${recipe.slug}`
+      };
+    }
+
+    const note = matchNoteOgRoute(path);
+    if (note) {
+      return {
+        meta: await resolveNoteOgMeta(note.slug),
+        canonicalUrl: `${origin}/${note.slug}`
+      };
+    }
+
+    const reads = matchReadsOgRoute(path);
+    if (reads) {
+      return {
+        meta: await resolveReadsOgMeta(reads.slug),
+        canonicalUrl: `${origin}/reads/${reads.slug}`
+      };
+    }
+
+    const profile = matchProfileOgRoute(path);
+    if (profile) {
+      return {
+        meta: await resolveProfileOgMeta(profile.slug),
+        canonicalUrl: `${origin}${path}`
+      };
+    }
+
+    return null;
   } catch (e) {
-    console.error('[bot OG] falling through to SPA', e);
+    // Must never break page delivery — fall through to the page's own tags.
+    console.error('[og] resolve failed, serving page tags', e);
     return null;
   }
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-  const botOg = await maybeRenderBotOg(event);
-  if (botOg) return botOg;
+  // Open Graph tags are injected into the REAL page for EVERY visitor, not
+  // into a separate document for user-agents we recognize.
+  //
+  // This used to be gated on a crawler UA allowlist. That silently failed for
+  // the audience that matters most here: Nostr clients (Amethyst, Primal,
+  // Damus, …) aren't on any such list, and many link-preview fetchers send a
+  // generic UA or none at all — indistinguishable from a browser. They all got
+  // the SSR placeholder card ("Recipe", the logo graphic), because these pages
+  // derive their OG from a client-fetched event.
+  //
+  // UA sniffing cannot be patched into correctness, so it's gone: one document,
+  // one set of tags, everyone. That also means no `Vary: User-Agent` (which
+  // Cloudflare ignores anyway) and no `no-store`, so these pages stay
+  // edge-cacheable — and the crawler and human paths can no longer drift.
+  //
+  // This does NOT reintroduce #454: there is still no `+page.server.ts` and no
+  // `__data.json` dependency. The resolution happens here in the hook exactly
+  // as it did before.
+  const og = await resolveOgMeta(event);
+  // buildOgTagBlock probes the image over the network for width/height, so it
+  // can throw for reasons that have nothing to do with this page (host down,
+  // DNS, a runtime that blocks the fetch). Unguarded, that would take the
+  // whole request down with it — a 500 on a page that renders perfectly well
+  // without dimension tags. Degrade to the page's own tags instead.
+  let ogTagBlock: string | null = null;
+  if (og) {
+    try {
+      ogTagBlock = await buildOgTagBlock(og.meta, og.canonicalUrl);
+    } catch (e) {
+      console.error('[og] tag build failed, serving page tags', e);
+    }
+  }
 
   const isApiRoute = event.url.pathname.startsWith('/api/');
   const origin = event.request.headers.get('origin');
@@ -172,7 +216,9 @@ export const handle: Handle = async ({ event, resolve }) => {
     });
   }
 
-  const response = await resolve(event);
+  const response = ogTagBlock
+    ? await resolve(event, { transformPageChunk: createOgPageTransformer(ogTagBlock) })
+    : await resolve(event);
 
   if (!shouldApplyCors) {
     return response;

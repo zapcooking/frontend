@@ -23,7 +23,6 @@ import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 
 // Relays that index marketplace events (matches Plebeian Market's relay set)
 export const MARKETPLACE_RELAYS = [
-	'wss://relay.damus.io',
 	'wss://nos.lol',
 	'wss://relay.nostr.net'
 ];

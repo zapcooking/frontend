@@ -553,7 +553,8 @@ class PublishQueueManager {
       `[PublishQueue] base=${baseUrls.length} → ${targetRelays.length} relays after NIP-65 union`
     );
 
-    // Materialize relays via getRelay() with autoConnect=true, createIfMissing=true
+    // Materialize relays via getRelay(url, connect, temporary) — temporary=true
+    // arms a 30s removal timer, skipped for relays in explicitRelayUrls.
     const relaysToPublish: any[] = [];
     for (const url of targetRelays) {
       const relay = ndkInstance.pool.getRelay(url, true, true);

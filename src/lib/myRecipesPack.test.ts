@@ -1,4 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Sentinel relay set: the fetch must hand whatever buildPoolRelaySet returns
+// straight to ndk.subscribe as its third argument (explicit relay routing).
+// vi.mock is hoisted above the imports, so anything its factory closes over
+// must be hoisted too.
+const { POOL_RELAY_SET } = vi.hoisted(() => ({
+  POOL_RELAY_SET: { sentinel: 'pool-relay-set' } as any
+}));
+vi.mock('$lib/eventFetch', () => ({
+  buildPoolRelaySet: vi.fn(() => POOL_RELAY_SET)
+}));
+
 import { fetchMyAuthoredRecipeEvents, fetchMyAuthoredRecipes } from './myRecipesPack';
 
 const PUBKEY = 'a'.repeat(64);
@@ -37,9 +49,10 @@ function recipeEvent(opts: {
  * delivers the given events (then eose) on a microtask, mirroring the
  * async arrival the real implementation sees.
  */
-function fakeNdk(events: any[]) {
+function fakeNdk(events: any[], calls: { filter: any; opts: any; relaySet: any }[] = []) {
   return {
-    subscribe: () => {
+    subscribe: (filter: any, opts: any, relaySet: any) => {
+      calls.push({ filter, opts, relaySet });
       const handlers: Record<string, (arg?: any) => void> = {};
       queueMicrotask(() => {
         for (const e of events) handlers['event']?.(e);
@@ -56,6 +69,20 @@ function fakeNdk(events: any[]) {
 }
 
 describe('fetchMyAuthoredRecipeEvents', () => {
+  it('subscribes with the explicit pool relay set from buildPoolRelaySet', async () => {
+    const calls: { filter: any; opts: any; relaySet: any }[] = [];
+    const ndk = fakeNdk([recipeEvent({ dTag: 'tacos', createdAt: 100 })], calls);
+
+    await fetchMyAuthoredRecipeEvents(ndk, PUBKEY);
+
+    const { buildPoolRelaySet } = await import('$lib/eventFetch');
+    expect(buildPoolRelaySet).toHaveBeenCalledWith(ndk);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].filter.authors).toEqual([PUBKEY]);
+    expect(calls[0].opts).toEqual({ closeOnEose: true });
+    expect(calls[0].relaySet).toBe(POOL_RELAY_SET);
+  });
+
   it('dedupes a revised recipe by coordinate, keeping the newest version', async () => {
     const original = recipeEvent({ dTag: 'tacos', createdAt: 100, title: 'Tacos v1' });
     const revision = recipeEvent({ dTag: 'tacos', createdAt: 200, title: 'Tacos v2' });

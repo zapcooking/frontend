@@ -59,10 +59,10 @@ export const NOTE_TEXT_MAX_CHARS = 1000;
  * regenerate attempts don't repeat the same dead-end verbatim.
  */
 export const DEAD_END_LINES = [
-  "Cheffy couldn't get a good look at that photo. It might be a broken link — or just not clearly a dish.",
-  "That photo's playing hard to get — Cheffy can't quite make out a dish in it.",
-  "Cheffy squinted, but couldn't spot a dish in there. The photo may not have come through.",
-  "Hmm — Cheffy couldn't see this one clearly. The link may be stale, or the dish is camera-shy."
+  "Cheffy couldn't get a clear enough look at that photo. The link may be broken or the details didn't come through.",
+  "That photo's playing hard to get — Cheffy can't quite make out enough detail.",
+  'Cheffy squinted, but the photo may not have come through clearly.',
+  "Hmm — Cheffy couldn't see this one clearly. The link may be stale or the image is hiding its details."
 ];
 
 export const SIGN_FAILED_LINE =

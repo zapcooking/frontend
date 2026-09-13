@@ -26,7 +26,8 @@
     parseMarkdown,
     extractAndGroupDirections,
     extractRecipeDetails,
-    parseMarkdownForEditing
+    parseMarkdownForEditing,
+    mentionNamesVersion
   } from '$lib/parser';
   import { sanitizeHTML } from '$lib/sanitize';
   import { goto } from '$app/navigation';
@@ -70,6 +71,7 @@
   import { resolveScore } from '$lib/nourish/scoreResolver';
   import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
+  import { resolveVanityShareUrl } from '$lib/vanityUrl';
 
   export let event: NDKEvent;
   export let isPremium = false;
@@ -185,6 +187,15 @@
 
   // Construct the canonical recipe URL for sharing (uses short /r/ format)
   $: shareUrl = buildCanonicalRecipeShareUrl(computedNaddr);
+
+  // Premium vanity URL (zap.cooking/<handle>/<slug>) when the author has a
+  // verified handle — preferred by the share modal over the /r/ short URL.
+  let vanityShareUrl = '';
+  $: if (browser && event.pubkey && event.replaceableDTag()) {
+    resolveVanityShareUrl(event.pubkey, event.replaceableDTag()).then((url) => {
+      vanityShareUrl = url;
+    });
+  }
 
   // Get recipe title and image for sharing
   $: recipeTitle =
@@ -491,11 +502,19 @@
     isDeleting = true;
 
     try {
-      // For addressable events (kind 30023), the most reliable deletion method
-      // is to publish a replacement event with the same 'd' tag but marked as deleted.
+      // For addressable events the most reliable deletion method is to publish a
+      // replacement event with the same kind and 'd' tag but marked as deleted.
       // This overwrites the original on relays.
+      // This component renders two recipe kinds — public (30023) and premium
+      // (GATED_RECIPE_KIND, 35000) — and the tombstone must carry the SAME kind as
+      // the event being deleted, or it lands at a different address and overwrites
+      // whatever else lives there. Public and premium recipes derive their 'd' tag
+      // from the title identically (/create:343, /create/gated:187), so a hardcoded
+      // 30023 here blanks the author's public recipe when they delete a premium one
+      // of the same name.
+      const deleteKind = event.kind ?? 30023;
       const deleteEvent = new NDKEvent($ndk);
-      deleteEvent.kind = 30023;
+      deleteEvent.kind = deleteKind;
       deleteEvent.content = ''; // Empty content
 
       // Must use the same 'd' tag to replace the original
@@ -516,9 +535,9 @@
       deletionRequest.content = 'Recipe deleted by author';
       deletionRequest.tags.push(['e', event.id]);
       if (dTag) {
-        deletionRequest.tags.push(['a', `30023:${event.pubkey}:${dTag}`]);
+        deletionRequest.tags.push(['a', `${deleteKind}:${event.pubkey}:${dTag}`]);
       }
-      deletionRequest.tags.push(['k', '30023']);
+      deletionRequest.tags.push(['k', String(deleteKind)]);
 
       await deletionRequest.publish();
 
@@ -637,14 +656,19 @@
     carouselEl.scrollBy({ left: width, behavior: 'smooth' });
   }
 
-  // Deduplicate image tags by URL, use placeholder if no images or all images are empty
+  // Deduplicate image tags by URL, use placeholder if no images or all images are empty.
+  // General long-form articles are the exception: the stock placeholder
+  // reads fine at thumbnail size but not as a full-width hero, so articles
+  // without a real image get no carousel at all (the render guards on
+  // length). Recipes keep the placeholder — a cooking post without a
+  // photo is still expected to show one.
   $: uniqueImages = (() => {
     const images = event.tags
       .filter((e) => e[0] === 'image' && e[1] && e[1].trim() !== '')
       .filter((img, index, arr) => arr.findIndex((t) => t[1] === img[1]) === index);
-    // If no valid images, return a placeholder
+    // If no valid images, return a placeholder (recipes only)
     if (images.length === 0) {
-      return [['image', getPlaceholderImage(event.id)]];
+      return isActualRecipe ? [['image', getPlaceholderImage(event.id)]] : [];
     }
     return images;
   })();
@@ -718,16 +742,29 @@
 
   let parsedBeforeDirections = '';
   let parsedAfterDirections = '';
-  // Parse markdown once and reuse in template (avoids 3x redundant parsing per section)
-  $: parsedBeforeDirections = markdownBeforeDirections ? parseMarkdown(markdownBeforeDirections) : '';
-  $: parsedAfterDirections = markdownAfterDirections ? parseMarkdown(markdownAfterDirections) : '';
+  // Parse markdown once and reuse in template (avoids 3x redundant parsing per section).
+  // $mentionNamesVersion is a dependency so profile mentions re-render
+  // with real names when their queued lookups land — the first parse
+  // renders shortened npubs, and without this the article never re-parsed.
+  $: parsedBeforeDirections = markdownBeforeDirections
+    ? parseMarkdown(markdownBeforeDirections, $mentionNamesVersion)
+    : '';
+  $: parsedAfterDirections = markdownAfterDirections
+    ? parseMarkdown(markdownAfterDirections, $mentionNamesVersion)
+    : '';
 </script>
 
 <svelte:window on:keydown={handleImageModalKeydown} />
 
 <ZapModal bind:open={zapModal} {event} on:zap-complete={handleZapComplete} />
 
-<ShareModal bind:open={shareModal} url={shareUrl} title={recipeTitle} imageUrl={recipeImage} />
+<ShareModal
+  bind:open={shareModal}
+  url={shareUrl}
+  vanityUrl={vanityShareUrl}
+  title={recipeTitle}
+  imageUrl={recipeImage}
+/>
 
 <!-- Add to Grocery List Modal -->
 <AddToListModal bind:open={groceryModal} recipeEvent={event} />
@@ -764,7 +801,10 @@
   </div>
 </Modal>
 
-<article class="max-w-[760px] mx-auto">
+<!-- No mx-auto: the reading column is left-anchored at the same content
+     margin as the feed on desktop (the layout's px-4/lg:pl-[26px]), which
+     centering here used to break. -->
+<article class="max-w-[760px]">
   {#if checkingGated}
     <div class="flex items-center justify-center p-8">
       <div class="text-caption">Loading {isActualRecipe ? 'recipe' : 'article'}...</div>
@@ -789,7 +829,7 @@
         <!-- Author + Action Buttons Row -->
         <div class="flex justify-between items-center gap-4">
           <!-- Left: Author Profile -->
-          <AuthorProfile pubkey={event.author.pubkey} />
+          <AuthorProfile pubkey={event.author.pubkey} timestamp={event.created_at} />
 
           <!-- Right: Save button -->
           <div class="flex gap-2">

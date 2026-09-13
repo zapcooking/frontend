@@ -17,6 +17,10 @@
   export let className: string = '';
   // Backwards-compatible alias used by existing callsites.
   export let imageUrl: string | null = null;
+  // False renders a plain image: no button role, no tab stop, and no
+  // membership tooltip swallowing the first click. Use it when a parent
+  // control (a link, a zoom button) owns the interaction.
+  export let interactive: boolean = true;
 
   const dispatch = createEventDispatcher();
 
@@ -57,6 +61,7 @@
   }
 
   function handleClick(event: MouseEvent): void {
+    if (!interactive) return;
     if (isActiveMember) {
       if (!openTooltip) {
         // First tap/click opens tooltip without immediately triggering parent link navigation.
@@ -73,6 +78,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent): void {
+    if (!interactive) return;
     if (event.key === 'Escape') {
       openTooltip = false;
       return;
@@ -119,22 +125,33 @@
   });
 </script>
 
+<!-- role and tabindex flip together: button+0 when interactive, img with
+     no tab stop otherwise. The static check can't see that pairing. -->
+<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 <div
   bind:this={wrapperEl}
   class="avatar-wrapper {className}"
   style="--avatar-size: {size}px; {glowStyle}"
-  role="button"
-  tabindex="0"
+  role={interactive ? 'button' : 'img'}
+  tabindex={interactive ? 0 : undefined}
   aria-label={alt}
-  aria-expanded={isActiveMember ? openTooltip : undefined}
+  aria-expanded={interactive && isActiveMember ? openTooltip : undefined}
   on:click={handleClick}
   on:keydown={handleKeydown}
 >
   <div class="avatar-inner">
-    <CustomAvatar pubkey={pubkey} size={innerSize} imageUrl={avatarSrc} className="" />
+    <CustomAvatar
+      pubkey={pubkey}
+      size={innerSize}
+      imageUrl={avatarSrc}
+      className=""
+      {interactive}
+      on:load
+      on:fallback
+    />
   </div>
 
-  {#if isActiveMember && openTooltip}
+  {#if interactive && isActiveMember && openTooltip}
     <div class="membership-tooltip" role="tooltip">
       {tooltipLabel}
     </div>

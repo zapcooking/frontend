@@ -437,11 +437,15 @@
           <ul class="benefit-list">
             <li>
               <span class="checkmark">✓</span>
-              <span class="feature-text">Lifetime Pro Kitchen membership (never expires)</span>
+              <span class="feature-text">Lifetime membership (never expires)</span>
             </li>
             <li>
               <span class="checkmark">✓</span>
-              <span class="feature-text">All future Pro Kitchen features included</span>
+              <span class="feature-text">All future features included</span>
+            </li>
+            <li>
+              <span class="checkmark">✓</span>
+              <span class="feature-text">Cheffy — the same monthly allowance as every member, currently 300 messages a month</span>
             </li>
           </ul>
         </div>

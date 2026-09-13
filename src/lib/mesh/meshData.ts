@@ -9,7 +9,8 @@ import {
   CURATED_TAG_SECTIONS,
   TAG_ALIASES,
   recipeTags,
-  GATED_RECIPE_KIND
+  GATED_RECIPE_KIND,
+  isHiddenRecipeEvent
 } from '$lib/consts';
 import { getImageOrPlaceholder } from '$lib/placeholderImages';
 import { nip19 } from 'nostr-tools';
@@ -65,7 +66,11 @@ export async function fetchMeshRecipes(): Promise<NDKEvent[]> {
     const timeout = setTimeout(finalize, 8000);
 
     subscription.on('event', (event: NDKEvent) => {
-      if (typeof validateMarkdownTemplate(event.content) !== 'string' && event.author?.pubkey) {
+      if (
+        typeof validateMarkdownTemplate(event.content) !== 'string' &&
+        event.author?.pubkey &&
+        !isHiddenRecipeEvent(event)
+      ) {
         recipes.push(event);
       }
       if (recipes.length >= 150) {

@@ -15,15 +15,18 @@
  *   costMsats: number,
  *   endpoint: string,
  *   preview: string,
- *   title: string,
- *   authorPubkey: string
+ *   title: string
  * }
+ *
+ * Auth: NIP-98 on POST and PATCH. The author's pubkey comes from the
+ * verified auth event, never from the body.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { hasActiveMembership } from '$lib/membershipApi.server';
 import { getGatedContent, storeGatedContent, hasGatedContent, updateGatedContentNaddr, type GatedKV } from '$lib/nip108/server-store';
+import { verifyNip98 } from '$lib/nip98.server';
 
 function getKV(platform: App.Platform | undefined): GatedKV {
   return (platform?.env?.GATED_CONTENT as GatedKV) || null;
@@ -33,7 +36,32 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   const kv = getKV(platform);
 
   try {
-    const body = await request.json();
+    // Body read ONCE as bytes so NIP-98 can verify the payload hash.
+    let bodyBytes: Uint8Array;
+    try {
+      bodyBytes = new Uint8Array(await request.arrayBuffer());
+    } catch {
+      return json({ error: 'Invalid request body' }, { status: 400 });
+    }
+
+    // The membership gate below used to key off a body `authorPubkey`,
+    // which is an identity claim: anyone could name a known member and
+    // create gated content in their name. Identity now comes from the
+    // signature.
+    const verification = await verifyNip98(request, { bodyBytes });
+    if (!verification.ok) {
+      console.warn(`[NIP-108] NIP-98 rejected on store (${verification.reason})`);
+      return json({ error: 'Authentication required' }, { status: 401 });
+    }
+    const authorPubkey = verification.pubkey;
+
+    let body: any;
+    try {
+      body = JSON.parse(new TextDecoder().decode(bodyBytes));
+    } catch {
+      return json({ error: 'Invalid request body' }, { status: 400 });
+    }
+
     const {
       gatedNoteId,
       encryptedContent,
@@ -43,14 +71,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       endpoint,
       preview,
       title,
-      authorPubkey,
       authorLightningAddress,
       naddr,
       image
     } = body;
 
     // Validate required fields
-    if (!gatedNoteId || !encryptedContent || !iv || !secret || !authorPubkey) {
+    if (!gatedNoteId || !encryptedContent || !iv || !secret) {
       return json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -132,11 +159,41 @@ export const PATCH: RequestHandler = async ({ request, platform }) => {
   const kv = getKV(platform);
 
   try {
-    const body = await request.json();
+    // This handler previously had NO authentication: knowing a
+    // gatedNoteId was enough to repoint someone else's paid content at an
+    // attacker-chosen naddr. Now it requires a signature AND ownership.
+    let bodyBytes: Uint8Array;
+    try {
+      bodyBytes = new Uint8Array(await request.arrayBuffer());
+    } catch {
+      return json({ error: 'Invalid request body' }, { status: 400 });
+    }
+
+    const verification = await verifyNip98(request, { bodyBytes });
+    if (!verification.ok) {
+      console.warn(`[NIP-108] NIP-98 rejected on update (${verification.reason})`);
+      return json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    let body: any;
+    try {
+      body = JSON.parse(new TextDecoder().decode(bodyBytes));
+    } catch {
+      return json({ error: 'Invalid request body' }, { status: 400 });
+    }
+
     const { gatedNoteId, naddr } = body;
 
     if (!gatedNoteId) {
       return json({ error: 'Missing gatedNoteId' }, { status: 400 });
+    }
+
+    // Ownership check. A valid signature from SOME key isn't enough —
+    // it must be the key that created this content. 404 rather than 403
+    // for a non-owner so the endpoint doesn't confirm which IDs exist.
+    const existing = await getGatedContent(kv, gatedNoteId);
+    if (!existing || existing.authorPubkey !== verification.pubkey) {
+      return json({ error: 'Gated content not found' }, { status: 404 });
     }
 
     if (naddr) {

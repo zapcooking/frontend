@@ -54,6 +54,16 @@ export function createCommentFilter(event: NDKEvent): {
     };
   }
 
+  // A NIP-22 comment as the focus: its children are kind-1111 comments
+  // whose lowercase `e` names it as parent (the root scope in `E`/`A` is
+  // some other event). Legacy kind-1 replies to a comment exist too.
+  if (event.kind === 1111) {
+    return {
+      kinds: [1, 1111],
+      '#e': [event.id]
+    };
+  }
+
   // Special case for kind 30023 without a `d` tag: still look for legacy
   // kind-1 replies alongside kind 1111 for backwards compatibility with
   // older events that may not have properly structured longform metadata.

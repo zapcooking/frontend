@@ -2,9 +2,11 @@
  * POST /api/cookbook-intro — Pro-gated AI helper that polishes a Recipe
  * Pack description into a short cookbook-style introduction.
  *
+ * Auth: NIP-98. The caller's pubkey comes from the verified auth event,
+ * NOT from the body — see the note at the verification call below.
+ *
  * Body:
  *   {
- *     pubkey: string,         // signed-in user's pubkey, required
  *     packTitle: string,
  *     packDescription?: string,
  *     creatorName?: string,
@@ -33,6 +35,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { verifyNip98 } from '$lib/nip98.server';
 
 const MAX_INTRO_TOKENS = 220;
 const HEX64_RE = /^[0-9a-fA-F]{64}$/;
@@ -43,14 +46,33 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		return json({ success: false, error: 'OpenAI API key not configured' }, { status: 500 });
 	}
 
+	// Body read ONCE as bytes: NIP-98 binds the signature to this exact
+	// payload, and request.json() would consume the stream first.
+	let bodyBytes: Uint8Array;
+	try {
+		bodyBytes = new Uint8Array(await request.arrayBuffer());
+	} catch {
+		return json({ success: false, error: 'Invalid request body' }, { status: 400 });
+	}
+
 	let body: Record<string, unknown>;
 	try {
-		body = (await request.json()) as Record<string, unknown>;
+		body = JSON.parse(new TextDecoder().decode(bodyBytes)) as Record<string, unknown>;
 	} catch {
 		return json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
 	}
 
-	const pubkey = typeof body.pubkey === 'string' ? body.pubkey.trim() : '';
+	// NIP-98 replaces the old client-supplied `pubkey` body field, which was
+	// an identity CLAIM: a non-member could paste a known Pro member's
+	// pubkey and spend our OpenAI budget against that membership. There is
+	// no anonymous tier on this endpoint, so a signature is mandatory.
+	// Uniform 401 regardless of reason; the reason is logged.
+	const verification = await verifyNip98(request, { bodyBytes });
+	if (!verification.ok) {
+		console.warn(`[cookbook-intro] NIP-98 rejected (${verification.reason})`);
+		return json({ success: false, error: 'Authentication required' }, { status: 401 });
+	}
+	const pubkey = verification.pubkey;
 	const packTitle = typeof body.packTitle === 'string' ? body.packTitle.trim() : '';
 	const packDescription =
 		typeof body.packDescription === 'string' ? body.packDescription.trim() : '';
@@ -60,17 +82,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		? body.recipeTitles.filter((t): t is string => typeof t === 'string').slice(0, 10)
 		: [];
 
-	// Pubkey is a required hex-64 identifier. Note that the value is
-	// client-supplied and not signature-verified — same trust model as
-	// /api/extract-recipe today. A non-member could still claim a known
-	// Pro pubkey to obtain free AI compute. Tightening this requires
-	// migrating both endpoints to NIP-98 in a follow-up; see
-	// FOLLOWUPS-auth-migration.
-	if (!pubkey) {
-		return json({ success: false, error: 'pubkey is required' }, { status: 400 });
-	}
+	// verifyNip98 returns the pubkey from a validated event, so the shape
+	// check is belt-and-braces rather than input validation.
 	if (!HEX64_RE.test(pubkey)) {
-		return json({ success: false, error: 'pubkey must be 64-char hex' }, { status: 400 });
+		return json({ success: false, error: 'Authentication required' }, { status: 401 });
 	}
 	if (!packTitle) {
 		return json({ success: false, error: 'packTitle is required' }, { status: 400 });

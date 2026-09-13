@@ -6,6 +6,7 @@
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import LinkIcon from 'phosphor-svelte/lib/Link';
+  import ShareIcon from 'phosphor-svelte/lib/ShareFat';
   import UserIcon from 'phosphor-svelte/lib/User';
   import TextAlignLeftIcon from 'phosphor-svelte/lib/TextAlignLeft';
   import BracketsCurlyIcon from 'phosphor-svelte/lib/BracketsCurly';
@@ -15,17 +16,28 @@
   import CheffyIcon from './icons/CheffyIcon.svelte';
   import CheffyNoteReview from './CheffyNoteReview.svelte';
   import { extractImageUrls } from '$lib/imageUrls';
+  import { get } from 'svelte/store';
+  import { getEngagementStore } from '$lib/engagementCache';
 
   export let event: NDKEvent;
-  export let engagementData: {
+
+  // Engagement snapshot for the share-image flow, read from the engagement
+  // store when the menu opens. Reading it at render time from the feed's
+  // list markup put a per-note store read (plus a first-touch localStorage
+  // parse) on every list re-render; opening a menu is the only moment the
+  // data is actually needed, and this snapshot is fresher anyway.
+  let engagementData: {
     zaps: { totalAmount: number; count: number };
     reactions: { count: number };
     comments: { count: number };
   } | null = null;
 
   const dispatch = createEventDispatcher<{
-    copy: { noteId: string };
+    /** The copied NIP-21 URI (`nostr:nevent1…`). */
+    copy: { noteUri: string };
     downloadImage: { event: NDKEvent; engagementData: any };
+    /** Open the share modal for this note. */
+    share: { url: string; event: NDKEvent };
   }>();
 
   let menuOpen = false;
@@ -44,8 +56,28 @@
 
   let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 
+  function refreshEngagementSnapshot() {
+    if (!browser || !event?.id) {
+      engagementData = null;
+      return;
+    }
+    const value = get(getEngagementStore(event.id));
+    // Pages that never initialize engagement (polls, thread views) keep
+    // the share-image item hidden — same as the old null-prop behavior.
+    if (value.loading) {
+      engagementData = null;
+      return;
+    }
+    engagementData = {
+      zaps: { totalAmount: value.zaps.totalAmount, count: value.zaps.count },
+      reactions: { count: value.reactions.count },
+      comments: { count: value.comments.count }
+    };
+  }
+
   function toggleMenu() {
     menuOpen = !menuOpen;
+    if (menuOpen) refreshEngagementSnapshot();
   }
 
   function closeMenu() {
@@ -55,27 +87,50 @@
   async function handleCopy() {
     if (!browser) return;
 
-    const noteId = nip19.neventEncode({
+    // Copy the NIP-21 URI, not a bare bech32 identifier.
+    //
+    // What people do with this is paste it into a composer, and a
+    // prefix-less `nevent1…` renders as a wall of raw text in most clients
+    // — which is how zap.cooking ended up being the authoring client that
+    // produced exactly the broken notes issue #637 was about. The `nostr:`
+    // prefix is what makes a pasted reference resolve into an embed.
+    const noteUri = `nostr:${nip19.neventEncode({
       id: event.id,
       author: event.pubkey,
       kind: event.kind
-    });
+    })}`;
     try {
-      await navigator.clipboard.writeText(noteId);
+      await navigator.clipboard.writeText(noteUri);
       copied = true;
-      dispatch('copy', { noteId });
+      dispatch('copy', { noteUri });
       if (copyTimeout) clearTimeout(copyTimeout);
       copyTimeout = setTimeout(() => {
         copied = false;
         closeMenu();
       }, 800);
     } catch (error) {
-      console.error('Failed to copy note ID:', error);
+      console.error('Failed to copy note URI:', error);
     }
   }
 
   let linkCopied = false;
   let linkCopyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  /** Production-origin share URL for the share modal / short links —
+   *  social platforms and the shortener API both reject localhost. */
+  function shareUrl(): string {
+    const noteId = nip19.neventEncode({
+      id: event.id,
+      author: event.pubkey,
+      kind: event.kind
+    });
+    return `https://zap.cooking/${noteId}`;
+  }
+
+  function handleShare() {
+    closeMenu();
+    dispatch('share', { url: shareUrl(), event });
+  }
 
   async function handleCopyLink() {
     if (!browser) return;
@@ -200,8 +255,16 @@
           <span>Copied!</span>
         {:else}
           <CopyIcon size={16} class="text-caption" />
-          <span>Copy Note ID</span>
+          <span>Copy Note URI</span>
         {/if}
+      </button>
+      <button
+        on:click={handleShare}
+        class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+        style="color: var(--color-text-primary);"
+      >
+        <ShareIcon size={16} class="text-caption" />
+        <span>Share…</span>
       </button>
       <button
         on:click={handleCopyLink}

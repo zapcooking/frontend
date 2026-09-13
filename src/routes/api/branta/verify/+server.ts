@@ -12,10 +12,32 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getPaymentInfo, getPaymentInfoByQRCode, isBrantaConfigured } from '$lib/brantaService.server';
+import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+export const POST: RequestHandler = async ({ request, platform, getClientAddress }) => {
 	if (!isBrantaConfigured(platform)) {
 		return json({ verified: false, error: 'Branta not configured' }, { status: 503 });
+	}
+
+	// Per-IP cap. These proxy to Branta's API on our API key, so an
+	// unbounded caller spends our quota (and could be used to probe
+	// addresses through us). Tighter than /api/shorten because legitimate
+	// use is a few payments per session, not bulk.
+	let ip = '127.0.0.1';
+	try {
+		ip = getClientAddress();
+	} catch {
+		// No client address available — use the loopback bucket rather
+		// than failing the request.
+	}
+	const rate = await checkPerIpRateLimit(platform?.env?.NOURISH_FLAGS, {
+		ip,
+		scope: 'branta-verify',
+		perHour: 5,
+		perDay: 20
+	});
+	if (rate.limited) {
+		return json({ verified: false, ...rate.body }, { status: 429 });
 	}
 
 	let body: { payment?: unknown; qr?: unknown; secret?: unknown };

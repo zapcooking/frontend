@@ -20,6 +20,7 @@
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
+  import { showToast } from '$lib/toast';
   import { onMount, onDestroy } from 'svelte';
 
   let authManager: any = null;
@@ -49,7 +50,13 @@
   let generateModal = false;
   let showPrivateKey = false;
   let backupStep = 1;
+  // Mirrors LoginOverlay: the step advances on either real save. link.click()
+  // cannot report whether the file was actually written, so a download-only
+  // gate blocked someone who copied the key into a password manager while
+  // passing someone who dismissed the save. The npub is not a backup.
   let backupDownloaded = false;
+  let backupCopied = false;
+  $: backupSaved = backupDownloaded || backupCopied;
   let bunkerConnectionString = '';
   let bunkerError = '';
   let bunkerConnecting = false;
@@ -150,6 +157,7 @@
     generatedKeys = authManager.generateKeyPair();
     backupStep = 1;
     backupDownloaded = false;
+    backupCopied = false;
   }
 
   function downloadKeysBackup() {
@@ -254,6 +262,22 @@
     }
   }
 
+  // Copying the nsec is a real backup and clears the same step the file does,
+  // but only if the clipboard write resolved — a rejected write must not count
+  // as a saved key.
+  async function copyBackupKey() {
+    if (!browser || !generatedKeys) return;
+    try {
+      await navigator.clipboard.writeText(nip19.nsecEncode(generatedKeys.privateKey));
+      backupCopied = true;
+    } catch {
+      // Leave the step gated — but say so. A silent failure here would leave
+      // Next disabled while the hint under it still says to reveal and copy,
+      // which is the same shape of dead end this step was fixed to remove.
+      showToast('error', 'Could not copy — select the text and copy it manually');
+    }
+  }
+
   function modalCleanup() {
     nsecModal = false;
     bunkerModal = false;
@@ -261,6 +285,7 @@
     showPrivateKey = false;
     backupStep = 1;
     backupDownloaded = false;
+    backupCopied = false;
     nsecInput = '';
     nsecError = '';
     generatedKeys = null;
@@ -571,10 +596,10 @@
           </p>
 
           <div>
+            <!-- One duration promise, and it is the headline's above. -->
             <Button on:click={generateNewKeys} primary={true} class="w-full spark-glow">
               Create Profile
             </Button>
-            <p class="text-xs text-caption text-center mt-2">Takes less than 10 seconds</p>
           </div>
         </div>
       {:else}
@@ -582,8 +607,13 @@
           <!-- Calm intro message -->
           {#if backupStep === 1}
             <div class="bg-green-50 border border-green-200 rounded-lg p-3">
+              <!-- generateNewKeys() makes a keypair in memory and nothing else; nothing is
+                   published or stored and nobody is signed in until useGeneratedKeys() runs at
+                   the end of step 2, and modalCleanup() discards the keypair. The old wording
+                   claimed an account existed at the one moment closing this would take it away. -->
               <p class="text-sm text-green-700">
-                ✓ Your profile has been created. Save your backup key below to recover it later.
+                Your key is ready. Save it below — you'll finish setting up your profile in the next
+                step.
               </p>
             </div>
           {/if}
@@ -604,8 +634,7 @@
                     class="flex-1 min-w-0 input text-sm font-mono p-3"
                   ></textarea>
                   <button
-                    on:click={() =>
-                      generatedKeys && copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))}
+                    on:click={copyBackupKey}
                     class="flex-shrink-0 px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors"
                     style="color: var(--color-text-primary)"
                   >
@@ -686,13 +715,15 @@
             <Button
               on:click={() => (backupStep = 2)}
               primary={false}
-              class="w-full {!backupDownloaded ? 'opacity-50 cursor-not-allowed' : ''}"
-              disabled={!backupDownloaded}
+              class="w-full {!backupSaved ? 'opacity-50 cursor-not-allowed' : ''}"
+              disabled={!backupSaved}
             >
               Next
             </Button>
-            {#if !backupDownloaded}
-              <p class="text-xs text-caption text-center">Download the backup file to continue.</p>
+            {#if !backupSaved}
+              <p class="text-xs text-caption text-center">
+                Save your key to continue — download the file, or reveal and copy it.
+              </p>
             {/if}
           {:else}
             <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 2</p>

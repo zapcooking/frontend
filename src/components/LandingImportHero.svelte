@@ -34,6 +34,7 @@
   } from '$lib/stores/membershipStatus';
   import { checkRateLimit, recordHit } from '$lib/rateLimit';
   import { ANON_IMPORT_HANDOFF_KEY } from '$lib/anonImport';
+  import type { ExtractErrorCode } from '$lib/extractErrors';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
 
@@ -42,6 +43,27 @@
     limit: 3,
     windowMs: 60 * 60 * 1000
   } as const;
+
+  // Anon-audience copy per server error code. The server's `error`
+  // string is an audience-neutral fallback; this hero owns its own
+  // wording (the visitor is logged out, so recovery paths that need an
+  // account say "join").
+  const CODE_COPY: Partial<Record<ExtractErrorCode, string>> = {
+    INVALID_REQUEST: 'Something went wrong with that request. Refresh the page and try again.',
+    INVALID_URL: 'That doesn’t look like a working link. Check the URL and try again.',
+    UNSUPPORTED_URL: 'We can only import from public websites. Check the link and try again.',
+    SOURCE_BLOCKED:
+      'That site blocks automatic imports. Try a different link, or join to paste the recipe text in directly.',
+    SOURCE_NOT_FOUND:
+      'We couldn’t find a recipe page at that link. It may have moved — double-check the URL.',
+    SOURCE_UNAVAILABLE: 'That site isn’t responding right now. Try again in a few minutes.',
+    SOURCE_TOO_LARGE:
+      'That page is too big for us to read. Try the recipe’s print-friendly page instead.',
+    TOO_MANY_REDIRECTS:
+      'That link kept redirecting without landing on a recipe. Try copying the address straight from the recipe page.',
+    AI_UNAVAILABLE: 'Our recipe assistant is temporarily unavailable — try again in a minute.',
+    INTERNAL: 'Something went wrong on our end. Try again in a bit.'
+  };
 
   let urlInput = '';
   let error = '';
@@ -121,7 +143,12 @@
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.success) {
-        error = (data && typeof data.error === 'string' && data.error) || 'Import failed. Try a different URL.';
+        // Prefer our own copy for known codes; fall back to the
+        // server's neutral string for codes this build doesn't know.
+        error =
+          (typeof data?.code === 'string' && CODE_COPY[data.code as ExtractErrorCode]) ||
+          (data && typeof data.error === 'string' && data.error) ||
+          'Import failed. Try a different URL.';
         return;
       }
 

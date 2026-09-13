@@ -11,6 +11,15 @@ import fixture from '../test/fixtures/vault-v1.json';
 
 vi.mock('$app/environment', () => ({ browser: true }));
 
+// logout() clears account-scoped data (wallets, group/publish/offline
+// databases). Those are covered by sessionCleanup.test.ts; stub them here
+// so this suite stays a pure AuthManager unit test and doesn't pull
+// IndexedDB modules into the mocked-NDK environment.
+vi.mock('$lib/sessionCleanup', () => ({
+  clearAccountData: vi.fn().mockResolvedValue(undefined),
+  clearAccountLocalStorage: vi.fn()
+}));
+
 vi.mock('@nostr-dev-kit/ndk', async () => {
   const { getPublicKey } = await import('nostr-tools');
   const toBytes = (hex: string) =>

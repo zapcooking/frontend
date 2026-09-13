@@ -123,6 +123,23 @@ export const GET: RequestHandler = async ({ url, platform }) => {
     const invoiceData = await invoiceResponse.json();
 
     const paymentHash = typeof invoiceData.paymentHash === 'string' ? invoiceData.paymentHash : '';
+
+    // Never store a pending record we can't cryptographically verify
+    // later. A hash-less pending record would let the POST handler's
+    // interoperability fallback mark the note paid with no proof of
+    // payment (request invoice → never pay → free content). Providers
+    // that omit the hash surface as a hard error instead; dev mode
+    // keeps the old lenient behavior for local testing.
+    if (!dev && !hasVerifiablePaymentHash(paymentHash)) {
+      console.error(
+        '[NIP-108 Payment] Invoice provider returned no verifiable payment hash'
+      );
+      return json(
+        { error: 'Invoice provider did not return a verifiable payment hash' },
+        { status: 502 }
+      );
+    }
+
     await storePendingPayment(kv, gatedNoteId, userPubkey, paymentHash);
 
     return json(

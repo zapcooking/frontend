@@ -12,6 +12,7 @@ import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
 import { fetchNip46UserPubkey, sendNip46Rpc } from './nip46Rpc';
+import { clearAccountData } from './sessionCleanup';
 import { Nip44LocalSigner } from './nip44LocalSigner';
 import {
   getVaultRecord,
@@ -40,6 +41,36 @@ import {
 // blockUntilReady omits the perms param entirely, so permission-enforcing
 // signers pre-grant nothing; sending them explicitly lets the signer
 // authorize the whole session in one approval.
+//
+// Deliberately NOT narrowed to per-kind `sign_event:<kind>` scopes.
+//
+// A 2026-08 security review proposed enumerating the kinds we publish.
+// Enumerating them showed why that doesn't work here: the app signs 40+
+// distinct kinds (0, 1, 3, 5, 6, 7, 9, 13, 14, 54, 55, 56, 1018, 1059,
+// 1068, 1985, 6969, 9000-9021 group admin, 9734, 10000, 10002, 10013,
+// 10063, 22242, 23194, 24133, 24242, 27235, 30001, 30003, 30004, 30017,
+// 30023, 30078, 30402, 31990, 35000, …), and several call sites choose
+// the kind at RUNTIME rather than from a literal:
+//
+//   publishQueue.ts       event.kind = item.eventData.kind   (any queued kind)
+//   comments/postComment  deriveKind(parentEvent, replyTo)   (NIP-22, follows parent)
+//   Recipe.svelte         deleteEvent.kind = deleteKind
+//   FoodstrFeedOptimized  innerEvent.kind = inner.kind
+//
+// So the set is open, not closed. An allowlist would be a list of ~40
+// entries that still can't cover the dynamic cases, and the failure mode
+// is the worst kind: an auto-approving signer silently refuses to sign
+// whichever kind we forgot, and publishing breaks with no prompt and no
+// error the user can act on.
+//
+// The scope is broad because the app's signing surface genuinely is. The
+// meaningful controls here are elsewhere: signing is only ever triggered
+// by explicit user action (publishQueue.ts, zapManager.ts), the
+// nostrconnect listener ignores undecryptable or mismatched responses,
+// and prompt-per-event signers (Amber's default) keep a human in the loop.
+//
+// Revisit if NDK/NIP-46 gains a wildcard or category-level scope, or if
+// the publish paths are consolidated behind a single kind-declaring API.
 const NIP46_CONNECT_PERMS =
   'get_public_key,sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt';
 
@@ -52,6 +83,11 @@ const NIP46_BUNKER_PENDING_KEY = 'nostrcooking_nip46_bunker_pending';
 
 // How long a pending ephemeral client key may be reused across retries.
 const NIP46_BUNKER_PENDING_TTL_MS = 15 * 60 * 1000;
+
+// How long an in-flight nostrconnect:// pairing record stays valid. The
+// record holds an ephemeral client private key and the pairing secret,
+// so an abandoned pairing must not leave them on the device forever.
+const NIP46_PENDING_TTL_MS = 5 * 60 * 1000;
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -704,6 +740,16 @@ export class AuthManager {
 
       localStorage.setItem('nostrcooking_loggedInPublicKey', userPubkey);
       localStorage.setItem('nostrcooking_authMethod', 'nip46');
+      // Accepted risk (2026-08 security review): `secret` and
+      // `localPrivateKey` inside nip46Info are persisted in plaintext.
+      // They are required for session restore — removing them would force
+      // a manual bunker-URI re-paste on every reload, and wrapping them is
+      // chicken-and-egg: the only signer able to unwrap an envelope IS
+      // this bunker session, which isn't alive until after these values
+      // are read back. Local-device compromise (the threat encrypt-to-self
+      // mitigates elsewhere) also compromises the session regardless,
+      // since the bunker connection itself is enough to request
+      // signatures.
       localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
       // Success supersedes the pending ephemeral key (now persisted in
       // nostrcooking_nip46 for reconnect). On FAILURE we deliberately keep
@@ -771,6 +817,19 @@ export class AuthManager {
         ? `${nip46Info.signerPubkey}#${nip46Info.secret}`
         : nip46Info.signerPubkey;
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
+
+      // Scope the RPC relay set to the bunker's relays, matching the
+      // paste-login path. Without this NDK leaves rpc.relaySet undefined
+      // and NIP-46 traffic — including the encrypted RPC to the signer —
+      // is published and subscribed across the ENTIRE relay pool, telling
+      // every connected relay that this user has a bunker session and
+      // handing them its metadata.
+      if (nip46Info.relays?.length) {
+        (this.nip46Signer as any).rpc.relaySet = NDKRelaySet.fromRelayUrls(
+          nip46Info.relays,
+          this.ndk
+        );
+      }
 
       // Set the signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
@@ -878,6 +937,7 @@ export class AuthManager {
     });
 
     this.clearStorage();
+    await clearAccountData();
   }
 
   // ============================================================
@@ -917,7 +977,7 @@ export class AuthManager {
       relays = Array.from(this.ndk.pool.relays.keys()) as string[];
     }
     if (relays.length === 0) {
-      relays = ['wss://relay.damus.io', 'wss://nos.lol'];
+      relays = ['wss://relay.nostr.net', 'wss://nos.lol'];
     }
 
     // Store pending pairing info including secret for validation
@@ -1142,23 +1202,45 @@ export class AuthManager {
     console.log('[NIP-46] Response listener started');
   }
 
-  // Check if there's a pending NIP-46 pairing
-  hasPendingNip46Pairing(): boolean {
-    if (!browser) return false;
+  /**
+   * Read the pending pairing record, dropping it if it has expired.
+   *
+   * The record holds an ephemeral client private key and the pairing
+   * secret. An abandoned pairing (user closed the signer app, never
+   * approved) must not leave that material on the device indefinitely,
+   * so every read enforces the TTL and deletes what it rejects.
+   */
+  private readPendingNip46(): {
+    localPrivateKey: string;
+    localPubkey: string;
+    relays: string[];
+    secret: string;
+    startedAt?: number;
+  } | null {
+    if (!browser) return null;
     const pending = localStorage.getItem('nostrcooking_nip46_pending');
-    if (!pending) return false;
+    if (!pending) return null;
 
     try {
       const info = JSON.parse(pending);
-      // Expire after 5 minutes
-      if (Date.now() - info.startedAt > 5 * 60 * 1000) {
+      // Treat a missing/!finite startedAt as expired — an undated record
+      // has no bound, and comparisons against it are NaN (never > TTL).
+      const startedAt = Number(info?.startedAt);
+      if (!Number.isFinite(startedAt) || Date.now() - startedAt > NIP46_PENDING_TTL_MS) {
         localStorage.removeItem('nostrcooking_nip46_pending');
-        return false;
+        return null;
       }
-      return true;
+      return info;
     } catch {
-      return false;
+      // Corrupt record — it can never be used, so don't leave it behind.
+      localStorage.removeItem('nostrcooking_nip46_pending');
+      return null;
     }
+  }
+
+  // Check if there's a pending NIP-46 pairing
+  hasPendingNip46Pairing(): boolean {
+    return this.readPendingNip46() !== null;
   }
 
   // Get pending pairing info
@@ -1168,15 +1250,7 @@ export class AuthManager {
     relays: string[];
     secret: string;
   } | null {
-    if (!browser) return null;
-    const pending = localStorage.getItem('nostrcooking_nip46_pending');
-    if (!pending) return null;
-
-    try {
-      return JSON.parse(pending);
-    } catch {
-      return null;
-    }
+    return this.readPendingNip46();
   }
 
   // Complete NIP-46 pairing with the signer's pubkey
@@ -1227,6 +1301,15 @@ export class AuthManager {
       console.log('[NIP-46] Creating NIP-46 signer...');
       const signerToken = pendingInfo.secret ? `${signerPubkey}#${pendingInfo.secret}` : signerPubkey;
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
+
+      // Same relay scoping as the other two construction paths — see the
+      // comment in authenticateWithNIP46.
+      if (pendingInfo.relays?.length) {
+        (this.nip46Signer as any).rpc.relaySet = NDKRelaySet.fromRelayUrls(
+          pendingInfo.relays,
+          this.ndk
+        );
+      }
 
       // Set signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
@@ -1841,6 +1924,10 @@ export class AuthManager {
     });
 
     this.clearStorage();
+    // Wallets, cached balances, Spark mnemonics, group/publish/offline
+    // databases. Explicit logout only — see sessionCleanup for why this
+    // is not part of clearStorage().
+    await clearAccountData();
     this.ndk.signer = null;
   }
 

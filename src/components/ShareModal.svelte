@@ -19,6 +19,7 @@
     buildRichShareText,
     socialShareUrls
   } from '$lib/utils/share';
+  import { resolveHandleForPubkey } from '$lib/vanityUrl';
 
   export let open = false;
   export let url = '';
@@ -28,6 +29,13 @@
   export let imageName: string = 'zap-cooking-note.png';
   export let isGeneratingImage: boolean = false;
   export let onGenerateImage: (() => Promise<void>) | null = null;
+  /** Verified vanity URL (zap.cooking/<handle>/<slug>) — preferred over
+   * minting a short link when the caller has resolved one for the author. */
+  export let vanityUrl = '';
+  /** Author's pubkey of the thing being shared. When the author holds a
+   * verified zap.cooking handle, the minted short link is namespaced
+   * under it (zap.cooking/<handle>/<code>) instead of /s/<code>. */
+  export let authorPubkey = '';
 
   let copied = false;
   let copyTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -66,11 +74,13 @@
     return url;
   })();
 
-  // Short link is the primary share URL when available
-  $: effectiveShareUrl = shortUrlResult?.shortUrl ?? displayUrl;
+  // Vanity URL (verified author handle) is the primary share URL; the
+  // minted short link is the fallback for authors without handles.
+  $: effectiveShareUrl = vanityUrl || (shortUrlResult?.shortUrl ?? displayUrl);
 
-  // Auto-fetch short link when share modal opens
-  $: if (browser && open && displayUrl && !shortUrlResult && !loadingShort && !shortError) {
+  // Auto-fetch short link when share modal opens (skipped when a vanity
+  // URL is present — there's nothing to mint).
+  $: if (browser && open && displayUrl && !vanityUrl && !shortUrlResult && !loadingShort && !shortError) {
     getShortLink();
   }
 
@@ -183,20 +193,36 @@
     }
   }
 
+  // Author pubkey -> verified zap.cooking handle (directory reverse
+  // lookup, memoized in $lib/vanityUrl), for namespaced short links.
+  async function resolveNamespace(): Promise<string> {
+    if (!browser || !authorPubkey) return '';
+    return resolveHandleForPubkey(authorPubkey);
+  }
+
   async function getShortLink() {
     if (!browser || !displayUrl) return;
     loadingShort = true;
     shortError = null;
     shortUrlResult = null;
     try {
+      const namespace = await resolveNamespace();
       const res = await fetch('/api/shorten', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: displayUrl })
+        body: JSON.stringify({
+          url: displayUrl,
+          ...(namespace ? { namespace, authorPubkey } : {})
+        })
       });
       const data = await res.json();
       if (!res.ok) {
-        shortError = data?.error ?? 'Could not create short link';
+        // The rate limiter returns a machine code ('rate_limited'); don't
+        // show that to a human.
+        shortError =
+          res.status === 429
+            ? 'You\'ve created a lot of short links — try again in a little while.'
+            : (data?.error ?? 'Could not create short link');
         return;
       }
       if (data.success && data.shortUrl) {
@@ -526,7 +552,15 @@
           >
             <div class="relative flex-shrink-0" style="width: 200px; height: 200px;">
               <svg
-                use:qr={{ data: effectiveShareUrl }}
+                use:qr={{
+                  data: effectiveShareUrl,
+                  // Explicit dark fills: the default is currentColor,
+                  // which washes the modules out against the white card
+                  // whenever the theme's text color is light (dark mode).
+                  moduleFill: '#000000',
+                  anchorOuterFill: '#000000',
+                  anchorInnerFill: '#000000'
+                }}
                 class="absolute inset-0 w-full h-full"
                 style="left: 0; top: 0;"
                 aria-hidden="true"

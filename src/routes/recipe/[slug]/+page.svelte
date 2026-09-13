@@ -10,63 +10,41 @@
   import PanLoader from '../../../components/PanLoader.svelte';
   import RightRail from '../../../components/RightRail.svelte';
   import RailCard from '../../../components/RailCard.svelte';
-  import { GATED_RECIPE_KIND, RECIPE_TAGS } from '$lib/consts';
+  import {
+    GATED_RECIPE_KIND,
+    RECIPE_TAGS,
+    isHiddenRecipeCoordinate,
+    isHiddenRecipeEvent
+  } from '$lib/consts';
   import { getRecipeOgMeta } from '$lib/recipeOgMeta';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
+  import { fetchAuthorContent } from '$lib/authorContent';
+  import { fetchEventWithRelayHints } from '$lib/eventFetch';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
   let loading = true;
   let error: string | null = null;
+  // Single-flight token for loadData (see guard inside).
+  let lastRequestedSlug = '';
 
-  // "More from this chef" rail — other recipes by the same author.
-  let moreRecipes: { naddr: string; title: string; image: string }[] = [];
+  // "More from this chef / this author" rails — one fetch, both types.
+  let moreRecipes: { naddr: string; title: string; image: string; href: string }[] = [];
+  let moreArticles: { naddr: string; title: string; image: string; href: string }[] = [];
   let moreFetchedFor = '';
 
   $: if (event && event.id !== moreFetchedFor) {
     moreFetchedFor = event.id;
-    loadMoreFromChef(event);
+    loadMoreFromAuthor(event);
   }
 
-  async function loadMoreFromChef(current: NDKEvent) {
+  async function loadMoreFromAuthor(current: NDKEvent) {
     moreRecipes = [];
+    moreArticles = [];
     if (!$ndk || !current.pubkey) return;
-    try {
-      const events = await $ndk.fetchEvents({
-        kinds: [30023],
-        authors: [current.pubkey],
-        limit: 30
-      });
-      const items: { naddr: string; title: string; image: string }[] = [];
-      for (const ev of events) {
-        if (ev.id === current.id) continue;
-        const isRecipe = ev.tags.some(
-          (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
-        );
-        if (!isRecipe) continue;
-        const dTag = ev.tags.find((t) => t[0] === 'd')?.[1];
-        if (!dTag) continue;
-        let naddrEnc = '';
-        try {
-          naddrEnc = nip19.naddrEncode({
-            identifier: dTag,
-            kind: ev.kind || 30023,
-            pubkey: ev.pubkey
-          });
-        } catch {
-          continue;
-        }
-        items.push({
-          naddr: naddrEnc,
-          title: ev.tags.find((t) => t[0] === 'title')?.[1] || dTag,
-          image: ev.tags.find((t) => t[0] === 'image')?.[1] || ''
-        });
-        if (items.length >= 5) break;
-      }
-      moreRecipes = items;
-    } catch (err) {
-      console.error('[recipe] Failed to load more from chef:', err);
-    }
+    const split = await fetchAuthorContent($ndk, current.pubkey, current.id);
+    moreRecipes = split.recipes;
+    moreArticles = split.articles;
   }
 
   onMount(() => stripTrackingParams($page.url));
@@ -78,14 +56,21 @@
   }
 
   async function loadData() {
-    if (!$page.params.slug) return;
+    const slug = $page.params.slug;
+    if (!slug) return;
+
+    // Single-flight: the reactive block re-runs on every `$page` store
+    // emission; a duplicate run's null result could clobber an
+    // already-loaded recipe.
+    if (slug === lastRequestedSlug && (loading || event)) return;
+    lastRequestedSlug = slug;
 
     loading = true;
     error = null;
 
     try {
-      if ($page.params.slug.startsWith('naddr1')) {
-        const a = nip19.decode($page.params.slug);
+      if (slug.startsWith('naddr1')) {
+        const a = nip19.decode(slug);
         if (a.type !== 'naddr') {
           throw new Error('Invalid naddr format');
         }
@@ -94,26 +79,32 @@
         // Support both regular recipes (30023) and premium recipes (35000)
         const recipeKind = b.kind === GATED_RECIPE_KIND ? GATED_RECIPE_KIND : 30023;
 
+        // Site-wide hidden coordinates 404 without hitting relays
+        if (isHiddenRecipeCoordinate(recipeKind, b.pubkey, b.identifier)) {
+          loading = false;
+          error = 'Recipe not found';
+          return;
+        }
+
         naddr = nip19.naddrEncode({
           identifier: b.identifier,
           pubkey: b.pubkey,
           kind: recipeKind
         });
 
-        // Add timeout protection for recipe loading
-        const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent({
-          '#d': [b.identifier],
-          authors: [b.pubkey],
-          kinds: [recipeKind as number]
-        });
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Recipe loading timeout - relays may be unreachable')),
-            10000
-          )
+        // Explicit relay set (pool + naddr hints) — plain fetchEvent on a
+        // cold pool can compute an empty relay set for unknown authors
+        // and never send the REQ (see eventFetch.ts).
+        const e = await fetchEventWithRelayHints(
+          $ndk,
+          {
+            '#d': [b.identifier],
+            authors: [b.pubkey],
+            kinds: [recipeKind as number]
+          },
+          { hintRelayUrls: b.relays, timeoutMs: 10_000 }
         );
-
-        const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
+        if ($page.params.slug !== slug) return;
         if (e) {
           event = e;
           loading = false;
@@ -122,17 +113,20 @@
           error = 'Recipe not found';
         }
       } else {
-        // Add timeout protection for direct event ID loading
-        const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent($page.params.slug);
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Recipe loading timeout - relays may be unreachable')),
-            10000
-          )
-        );
-
-        const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
+        // Direct event-ID (note1/nevent1) loading. These resolve to
+        // ids-based filters inside NDK, which always go to the explicit
+        // relay list — no empty-relay-set race here; just a timeout.
+        const e = await Promise.race<NDKEvent | null>([
+          $ndk.fetchEvent(slug),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000))
+        ]);
+        if ($page.params.slug !== slug) return;
         if (e) {
+          if (isHiddenRecipeEvent(e)) {
+            loading = false;
+            error = 'Recipe not found';
+            return;
+          }
           event = e;
           const id = e.tags.find((z: any) => z[0] == 'd')?.[1];
           if (!id || !e.kind) {
@@ -153,6 +147,11 @@
         }
       }
     } catch (err) {
+      // Don't clobber a loaded recipe with a stale failure.
+      if ($page.params.slug !== slug || event) {
+        loading = false;
+        return;
+      }
       loading = false;
       error = err instanceof Error ? err.message : 'Failed to load recipe';
       event = null;
@@ -224,19 +223,34 @@
     <div class="recipe-main flex-1 min-w-0">
       <Recipe {event} />
     </div>
-    {#if moreRecipes.length > 0}
+    {#if moreRecipes.length > 0 || moreArticles.length > 0}
       <RightRail>
-        <RailCard title="More from this chef">
-          {#each moreRecipes as r (r.naddr)}
-            <a class="recipe-rail-row" href="/recipe/{r.naddr}">
-              <span
-                class="recipe-rail-thumb"
-                style:background-image={r.image ? `url('${r.image}')` : 'none'}
-              ></span>
-              <span class="recipe-rail-title">{r.title}</span>
-            </a>
-          {/each}
-        </RailCard>
+        {#if moreRecipes.length > 0}
+          <RailCard title="More from this chef">
+            {#each moreRecipes as r (r.naddr)}
+              <a class="recipe-rail-row" href={r.href}>
+                <span
+                  class="recipe-rail-thumb"
+                  style:background-image={r.image ? `url('${r.image}')` : 'none'}
+                ></span>
+                <span class="recipe-rail-title">{r.title}</span>
+              </a>
+            {/each}
+          </RailCard>
+        {/if}
+        {#if moreArticles.length > 0}
+          <RailCard title="More from this author">
+            {#each moreArticles as a (a.naddr)}
+              <a class="recipe-rail-row" href={a.href}>
+                <span
+                  class="recipe-rail-thumb"
+                  style:background-image={a.image ? `url('${a.image}')` : 'none'}
+                ></span>
+                <span class="recipe-rail-title">{a.title}</span>
+              </a>
+            {/each}
+          </RailCard>
+        {/if}
       </RightRail>
     {/if}
   </div>

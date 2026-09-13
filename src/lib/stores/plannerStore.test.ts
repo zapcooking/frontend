@@ -250,3 +250,85 @@ describe('dirty-week protection', () => {
     expect(saveMealPlan.mock.calls[0][0].days.mon.slots.dinner.text).toBe('Soup');
   });
 });
+
+describe('applyGeneratedPlan', () => {
+  it('writes every meal in one scheduled save', async () => {
+    await plannerStore.goToWeek(W29);
+
+    expect(
+      plannerStore.applyGeneratedPlan(W29, [
+        { day: 'mon', slot: 'dinner', a: '30023:pk:salmon', title: 'Salmon' },
+        { day: 'tue', slot: 'dinner', a: '30023:pk:pasta', title: 'Pasta' }
+      ])
+    ).toBe(true);
+
+    expect(saveMealPlan).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(saveMealPlan).toHaveBeenCalledTimes(1);
+    const saved = saveMealPlan.mock.calls[0][0];
+    expect(saved.days.mon.slots.dinner).toEqual({
+      type: 'recipe',
+      a: '30023:pk:salmon',
+      title: 'Salmon'
+    });
+    expect(saved.days.tue.slots.dinner).toEqual({
+      type: 'recipe',
+      a: '30023:pk:pasta',
+      title: 'Pasta'
+    });
+  });
+
+  it('fill-empty skips occupied slots and replace-selected overwrites them', async () => {
+    await plannerStore.goToWeek(W29);
+    plannerStore.setSlot(W29, 'mon', 'dinner', { type: 'text', text: 'Leftovers' });
+
+    expect(
+      plannerStore.applyGeneratedPlan(
+        W29,
+        [
+          { day: 'mon', slot: 'dinner', a: '30023:pk:salmon', title: 'Salmon' },
+          { day: 'tue', slot: 'dinner', a: '30023:pk:pasta', title: 'Pasta' }
+        ],
+        'fill-empty'
+      )
+    ).toBe(true);
+
+    let week = get(plannerStore).weeks[W29];
+    expect(week.status).toBe('ok');
+    if (week.status !== 'ok') return;
+    expect(week.plan.days.mon?.slots?.dinner).toEqual({ type: 'text', text: 'Leftovers' });
+    expect(week.plan.days.tue?.slots?.dinner).toEqual({
+      type: 'recipe',
+      a: '30023:pk:pasta',
+      title: 'Pasta'
+    });
+
+    expect(
+      plannerStore.applyGeneratedPlan(
+        W29,
+        [{ day: 'mon', slot: 'dinner', a: '30023:pk:salmon', title: 'Salmon' }],
+        'replace-selected'
+      )
+    ).toBe(true);
+    week = get(plannerStore).weeks[W29];
+    if (week.status !== 'ok') return;
+    expect(week.plan.days.mon?.slots?.dinner).toEqual({
+      type: 'recipe',
+      a: '30023:pk:salmon',
+      title: 'Salmon'
+    });
+  });
+
+  it('returns false when every selected slot is already filled under fill-empty', async () => {
+    await plannerStore.goToWeek(W29);
+    plannerStore.setSlot(W29, 'mon', 'dinner', { type: 'text', text: 'Tacos' });
+
+    expect(
+      plannerStore.applyGeneratedPlan(
+        W29,
+        [{ day: 'mon', slot: 'dinner', a: '30023:pk:salmon', title: 'Salmon' }],
+        'fill-empty'
+      )
+    ).toBe(false);
+  });
+});

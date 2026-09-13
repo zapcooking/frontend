@@ -1,9 +1,9 @@
 /**
  * Cheffy Note Photo Review API.
  *
- * A Pro Kitchen member points Cheffy at a food photo in a kind-1 feed
- * note; Cheffy drafts either a warm reply-comment or a reverse-
- * engineered recipe. The draft is ONLY a draft — the member edits and
+ * A Pro Kitchen member points Cheffy at a photo in a kind-1 feed note;
+ * Cheffy drafts either a contextual reply-comment or, for food photos,
+ * a reverse-engineered recipe. The draft is ONLY a draft — the member edits and
  * signs the eventual reply themselves (client-side, via postComment).
  * Nothing this endpoint returns is ever published automatically.
  *
@@ -54,7 +54,8 @@ import {
   NOTE_REVIEW_COMMENT_INSTRUCTION,
   NOTE_REVIEW_RECIPE_INSTRUCTION,
   NOT_FOOD_PREFIX,
-  buildNoteReviewUserText
+  buildNoteReviewUserText,
+  stripMarkdownForNoteDraft
 } from '$lib/cheffyPrompt.server';
 
 // The note author's text is context, not a prompt — cap it hard.
@@ -146,7 +147,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
     const authPubkey = verification.pubkey;
 
-    // Membership gate (Pro Kitchen) with the non-member credit path.
+    // Membership gate (any active membership) with the non-member credit path.
     // FAILS CLOSED on membership-service problems — see header comment
     // and issue #512 before "fixing" this to match the other endpoints.
     let creditGranted = false;
@@ -192,7 +193,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
             {
               ok: false,
               code: 'NOT_MEMBER',
-              error: 'Cheffy photo review is available to Pro Kitchen members — or 21 sats a draft.'
+              error: 'Cheffy photo review is available to Cook+ members — or 21 sats a draft.'
             },
             { status: 403 }
           );
@@ -254,7 +255,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
                 type: 'image_url',
                 image_url: {
                   url: imageUrl,
-                  // Scanner precedent: cheaper, plenty for a dish photo.
+                  // Scanner precedent: cheaper, plenty for a feed photo.
                   // First quality knob if recipe-mode drafts feel
                   // underspecified: raise detail before touching prompts
                   // or token caps.
@@ -300,26 +301,40 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     const openaiData = await openaiResponse.json();
     const output: string | undefined = openaiData.choices?.[0]?.message?.content;
-    if (!output || !output.trim()) {
+
+    // Both modes publish as a plain-text feed reply, so markdown the
+    // model reached for anyway is stripped here — the prompt asks, this
+    // guarantees. Runs BEFORE the NOT_FOOD check so a bolded sentinel
+    // (`**NOT_FOOD:** …`) is still detected as the dead-end it is, and
+    // before the empty check so a completion that is only the markers
+    // this strip removes (e.g. `## `) is treated as the non-draft it
+    // is. Other markup (backticks, unpaired `**`) is left alone and
+    // would still be a non-empty draft. Scoped to this endpoint: chat
+    // keeps markdown.
+    let trimmed = output ? stripMarkdownForNoteDraft(output) : '';
+    if (!trimmed) {
       return json(
         { ok: false, error: 'Cheffy went quiet for a second. Please try again.' },
         { status: 500 }
       );
     }
 
-    // Prompt-level refusal: the photo isn't food. Typed dead-end — the
-    // playful line is display copy, never a postable draft.
-    const trimmed = output.trim();
+    // Recipe mode is food-only. Comment mode is universal, so if the model
+    // emits the legacy sentinel anyway, keep its useful description as the
+    // editable draft instead of rejecting a valid non-food photo.
     if (trimmed.startsWith(NOT_FOOD_PREFIX)) {
       const line = trimmed.slice(NOT_FOOD_PREFIX.length).trim();
-      return json(
-        {
-          ok: false,
-          code: 'NOT_FOOD',
-          error: line || "That doesn't look like food to Cheffy — try a photo of a dish."
-        },
-        { status: 422 }
-      );
+      if (mode === 'recipe') {
+        return json(
+          {
+            ok: false,
+            code: 'NOT_FOOD',
+            error: line || "That doesn't look like food to Cheffy — try a photo of a dish."
+          },
+          { status: 422 }
+        );
+      }
+      trimmed = line || 'That photo definitely caught my eye.';
     }
 
     // Spend a purchased credit only on a successful draft — NOT_FOOD,

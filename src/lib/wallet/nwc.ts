@@ -11,6 +11,7 @@ import { get } from 'svelte/store'
 import { NDKEvent, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk'
 import type { NDKRelay } from '@nostr-dev-kit/ndk'
 import { nip04, nip19, getPublicKey as nostrGetPublicKey } from 'nostr-tools'
+import { hexToBytes } from '@noble/hashes/utils.js'
 
 // Helper to get NDK instance from store
 function getNdk() {
@@ -149,7 +150,10 @@ function normalizeSecretKey(secret: string): string {
  */
 function getPublicKey(secret: string): string {
 	const secretHex = normalizeSecretKey(secret)
-	return nostrGetPublicKey(secretHex as any)
+	// nostr-tools >= 2.25 requires bytes — a hex string throws
+	// "expected Uint8Array" from @noble/secp256k1 and killed every NIP-47
+	// request (balance, history, invoices).
+	return nostrGetPublicKey(hexToBytes(secretHex))
 }
 
 /**
@@ -162,7 +166,7 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 	await ndkReady
 
 	// Already connected to this URL (INLINED to avoid TDZ - isNwcConnectedTo is defined later)
-	if (currentConnectionUrl === connectionUrl && nwcSecret !== null && nwcWalletPubkey !== null && nwcRelay?.status === 1) {
+	if (currentConnectionUrl === connectionUrl && nwcSecret !== null && nwcWalletPubkey !== null && nwcRelay?.connectivity?.isAvailable()) {
 		return true
 	}
 
@@ -223,8 +227,10 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 
 async function waitForRelayConnection(relay: NDKRelay, timeoutMs: number): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
-		// Check if already connected before setting up listeners
-		if (relay.status === 1) {
+		// Check if already connected before setting up listeners.
+		// NDKRelayStatus numbers are not intuitive (DISCONNECTED=1,
+		// CONNECTED=5) — always use isAvailable().
+		if (relay.connectivity?.isAvailable()) {
 			resolve()
 			return
 		}
@@ -276,7 +282,7 @@ export async function disconnectNwc(): Promise<void> {
  * Check if NWC is connected
  */
 export function isNwcConnected(): boolean {
-	return nwcSecret !== null && nwcWalletPubkey !== null && nwcRelay?.status === 1
+	return nwcSecret !== null && nwcWalletPubkey !== null && (nwcRelay?.connectivity?.isAvailable() ?? false)
 }
 
 /**
@@ -284,7 +290,7 @@ export function isNwcConnected(): boolean {
  * NOTE: Inlined to avoid TDZ bundler errors - do not call isNwcConnected() here
  */
 export function isNwcConnectedTo(connectionUrl: string): boolean {
-	return currentConnectionUrl === connectionUrl && nwcSecret !== null && nwcWalletPubkey !== null && nwcRelay?.status === 1
+	return currentConnectionUrl === connectionUrl && nwcSecret !== null && nwcWalletPubkey !== null && (nwcRelay?.connectivity?.isAvailable() ?? false)
 }
 
 /**
@@ -324,6 +330,9 @@ async function executeNip47Request(method: string, params: Record<string, any> =
 	const relaySet = new NDKRelaySet(new Set([nwcRelay]), ndkInstance)
 
 	// Set up subscription for response before publishing
+	// Unique subId per request: NDK groups subscriptions by filter shape,
+	// and a reused/merged subscription keeps the FIRST request's #e — the
+	// second and later NIP-47 calls then never receive their responses.
 	const sub = ndkInstance.subscribe(
 		{
 			kinds: [23195],
@@ -331,7 +340,15 @@ async function executeNip47Request(method: string, params: Record<string, any> =
 			'#p': [clientPubkey],
 			'#e': [event.id!]
 		},
-		{ closeOnEose: false },
+		{
+			closeOnEose: false,
+			subId: `nwc-req-${event.id}`,
+			// NDK's groupable fingerprint hashes filter KEYS only, so every
+			// request's response sub merges into one relay subscription that
+			// keeps the FIRST request's #e — later requests never see their
+			// responses. Disable grouping; each request gets its own REQ.
+			groupable: false
+		},
 		relaySet
 	)
 

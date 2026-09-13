@@ -160,7 +160,7 @@
         <p class="lock-title">Members Only</p>
         <p class="lock-desc">Explore what your meals are made of with instant Nourish profiles.</p>
       </div>
-      <a href="/membership"><Button primary>Join</Button></a>
+      <a href="/membership"><Button primary>Unlock Cook+</Button></a>
     </div>
 
   {:else if scanResult?.scores}
@@ -209,7 +209,7 @@
     <div class="member-banner">
       <LockIcon size={14} weight="fill" />
       <span>Nourish is for <a href="/membership" class="banner-link">Zap Cooking members</a>.</span>
-      <a href="/membership" class="banner-cta">Join</a>
+      <a href="/membership" class="banner-cta">Unlock Cook+</a>
     </div>
   {/if}
   <div class="page-footer">

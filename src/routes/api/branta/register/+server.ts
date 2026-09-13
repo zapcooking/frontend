@@ -9,6 +9,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { registerPayment, isBrantaConfigured } from '$lib/brantaService.server';
 import type { DestinationType } from '@branta-ops/branta';
+import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 
 const ALLOWED_DESTINATION_TYPES: ReadonlyArray<DestinationType> = [
 	'bitcoin_address',
@@ -18,10 +19,31 @@ const ALLOWED_DESTINATION_TYPES: ReadonlyArray<DestinationType> = [
 	'tether_address'
 ];
 
-export const POST: RequestHandler = async ({ request, platform }) => {
+export const POST: RequestHandler = async ({ request, platform, getClientAddress }) => {
 	// Check if Branta is configured
 	if (!isBrantaConfigured(platform)) {
 		return json({ success: false, error: 'Branta not configured' }, { status: 503 });
+	}
+
+	// Per-IP cap. These proxy to Branta's API on our API key, so an
+	// unbounded caller spends our quota (and could be used to probe
+	// addresses through us). Tighter than /api/shorten because legitimate
+	// use is a few payments per session, not bulk.
+	let ip = '127.0.0.1';
+	try {
+		ip = getClientAddress();
+	} catch {
+		// No client address available — use the loopback bucket rather
+		// than failing the request.
+	}
+	const rate = await checkPerIpRateLimit(platform?.env?.NOURISH_FLAGS, {
+		ip,
+		scope: 'branta-register',
+		perHour: 5,
+		perDay: 20
+	});
+	if (rate.limited) {
+		return json({ success: false, ...rate.body }, { status: 429 });
 	}
 
 	try {

@@ -18,7 +18,8 @@ import {
   addWallet,
   removeWallet,
   setActiveWallet,
-  getActiveWallet
+  getActiveWallet,
+  walletsDecrypted
 } from './walletStore';
 import {
   connectNwc,
@@ -59,6 +60,11 @@ import {
   recentSparkPayments
 } from '$lib/spark';
 import { userPublickey } from '$lib/nostr';
+import {
+  extractSparkPaymentAsset,
+  extractSparkPaymentConversionFrom,
+  extractSparkPaymentSats
+} from './sparkPayment';
 
 /**
  * Connect a new wallet
@@ -561,7 +567,13 @@ export interface Transaction {
   txid?: string; // On-chain transaction id when available
   isOnchain?: boolean; // True when payment is on-chain (even if txid is unavailable)
   type: 'incoming' | 'outgoing';
-  amount: number; // in sats
+  amount: number; // in sats, unless asset is present
+  asset?: {
+    ticker: string;
+    amount: string; // base units; preserve precision beyond JavaScript's safe integer range
+    decimals: number;
+  };
+  conversionFrom?: string;
   description?: string;
   comment?: string; // Zap comment from kind 9734 content field
   timestamp: number; // unix timestamp
@@ -717,9 +729,9 @@ function mapSparkPayment(p: any): Transaction {
     paymentType === 'RECEIVED' ||
     paymentType === 'receive' ||
     paymentType === 'incoming';
-  const amountMsat = p.amountMsat || p.amount_msat || p.amountMSat || 0;
-  const amountSat =
-    p.amountSat || p.amount_sat || p.amount || Math.floor(Number(amountMsat) / 1000);
+  const asset = extractSparkPaymentAsset(p);
+  const conversionFrom = extractSparkPaymentConversionFrom(p);
+  const amountSat = extractSparkPaymentSats(p, !!asset);
   let timestamp = p.createdAt || p.created_at || p.timestamp || p.time || 0;
   if (timestamp > 4102444800) timestamp = Math.floor(timestamp / 1000);
   const feesMsat = p.feesMsat || p.fees_msat || p.feesMSat || 0;
@@ -832,10 +844,12 @@ function mapSparkPayment(p: any): Transaction {
     isOnchain: isOnchain || undefined,
     type: isIncoming ? 'incoming' : ('outgoing' as 'incoming' | 'outgoing'),
     amount: Number(amountSat),
+    asset,
+    conversionFrom,
     description: p.description || p.memo || p.bolt11?.substring(0, 20),
     comment,
     timestamp: timestamp || Math.floor(Date.now() / 1000),
-    fees: feesSat,
+    fees: asset ? undefined : feesSat,
     status,
     pubkey
   };
@@ -1005,36 +1019,55 @@ let isInitialized = false;
 let initializationPromise: Promise<void> | null = null;
 let sparkPaymentDebugLogged = false;
 
+/**
+ * Connect the active wallet and refresh its balance. Safe to re-run —
+ * ensureWalletConnected-style checks inside each branch (or
+ * sparkInitialized) prevent duplicate connections.
+ */
+async function restoreActiveWallet(): Promise<void> {
+  const active = get(wallets).find((w) => w.active);
+  if (!active) return;
+
+  try {
+    switch (active.kind) {
+      case 1:
+        if (isWeblnConnected()) break;
+        if (isWeblnAvailable()) await connectWebln();
+        break;
+      case 3:
+        if (active.data && isNwcConnectedTo(active.data)) break;
+        await connectNwc(active.data);
+        break;
+      case 4:
+        if (get(sparkInitialized)) break;
+        const apiKey = import.meta.env.VITE_BREEZ_API_KEY;
+        const pubkey = get(userPublickey);
+        if (apiKey && pubkey) await connectSparkWallet(pubkey, apiKey);
+        break;
+    }
+    await refreshBalance();
+  } catch (e) {
+    console.warn('[WalletManager] Failed to restore wallet:', e);
+  }
+}
+
+// Encrypted NWC wallets may decrypt after init (vault unlock, NIP-07
+// extension ready late) — restore connectivity as soon as they appear.
+if (typeof window !== 'undefined') {
+  walletsDecrypted.subscribe(() => {
+    if (isInitialized) {
+      void restoreActiveWallet();
+    }
+  });
+}
+
 export async function initializeWalletManager(): Promise<void> {
   if (isInitialized) return;
   if (initializationPromise) return initializationPromise;
 
   initializationPromise = (async () => {
     await ndkReady;
-
-    const savedWallets = get(wallets);
-    const active = savedWallets.find((w) => w.active);
-
-    if (active) {
-      try {
-        switch (active.kind) {
-          case 1:
-            if (isWeblnAvailable()) await connectWebln();
-            break;
-          case 3:
-            await connectNwc(active.data);
-            break;
-          case 4:
-            const apiKey = import.meta.env.VITE_BREEZ_API_KEY;
-            const pubkey = get(userPublickey);
-            if (apiKey && pubkey) await connectSparkWallet(pubkey, apiKey);
-            break;
-        }
-        await refreshBalance();
-      } catch (e) {
-        console.warn('[WalletManager] Failed to restore wallet:', e);
-      }
-    }
+    await restoreActiveWallet();
     isInitialized = true;
   })();
 

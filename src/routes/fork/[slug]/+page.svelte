@@ -3,7 +3,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { recipeTags, type recipeTagSimple } from '$lib/consts';
+  import { recipeTags, type recipeTagSimple, isHiddenRecipeEvent } from '$lib/consts';
   import FeedItem from '../../../components/RecipeCard.svelte';
   import { browser } from '$app/environment';
   import { onMount } from 'svelte';
@@ -80,6 +80,10 @@
           goto(`/fork/${c}`);
         }
       }
+    }
+    if (event && isHiddenRecipeEvent(event)) {
+      resultMessage = 'Recipe not found.';
+      return;
     }
     if (event) {
       const va = validateMarkdownTemplate(event.content);
