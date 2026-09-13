@@ -164,6 +164,18 @@ function getPrivateKey(): string | null {
 }
 
 /**
+ * Whether decrypt() can run without user interaction. True only when a
+ * local private key is available (nsec login, or a passkey vault whose
+ * NDK signer holds the key). With NIP-07 every decrypt call pops the
+ * extension's permission dialog, so background/passive checks that would
+ * compare encrypted backups must test this first and skip the comparison
+ * rather than surprise the user with a prompt.
+ */
+export function canDecryptSilently(): boolean {
+  return browser && !!getPrivateKey();
+}
+
+/**
  * Check if encryption is supported (synchronous, for UI state)
  * For NIP-46 signers, we can't check synchronously, so we return true
  * and let the actual encryption call handle the error gracefully

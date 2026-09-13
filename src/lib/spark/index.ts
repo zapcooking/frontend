@@ -7,6 +7,7 @@
 
 import { browser } from '$app/environment';
 import { writable, get } from 'svelte/store';
+import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import {
   saveMnemonic,
   loadMnemonic,
@@ -1790,6 +1791,56 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
 
   logger.info('[Spark] Wallet backed up to Nostr successfully');
   return ndkEvent.rawEvent();
+}
+
+/**
+ * Check whether a specific Spark wallet (by wallet id) has a backup on
+ * Nostr relays. The per-wallet d-tag makes this an exact, indexed query —
+ * no decryption needed. Returns null only on unexpected failure, so
+ * callers can distinguish "definitely not backed up" (false) from
+ * "couldn't check" (null).
+ */
+export async function hasSparkWalletBackupOnNostr(
+  pubkey: string,
+  walletId: string
+): Promise<boolean | null> {
+  if (!browser) return false;
+
+  try {
+    const { ndk, ndkReady } = await import('$lib/nostr');
+    const { get } = await import('svelte/store');
+
+    await ndkReady;
+    const ndkInstance = get(ndk);
+
+    const filter = {
+      kinds: [BACKUP_EVENT_KIND],
+      authors: [pubkey],
+      '#d': [getBackupTag(walletId)]
+    };
+
+    // Live subscription with a deadline — a relay that never connects
+    // must not hang the check. Late-joining relays still get the REQ.
+    return await new Promise<boolean>((resolve) => {
+      const sub = ndkInstance.subscribe(filter, { closeOnEose: false });
+      const timer = setTimeout(() => {
+        sub.stop();
+        resolve(false);
+      }, 10000);
+
+      sub.on('event', (event: NDKEvent) => {
+        // Ignore delete markers (empty replacements published to
+        // overwrite a backup).
+        if (!event.content || isDeletedBackupEvent(event)) return;
+        clearTimeout(timer);
+        sub.stop();
+        resolve(true);
+      });
+    });
+  } catch (error) {
+    console.warn('[Spark] Failed to check wallet backup status:', error);
+    return null;
+  }
 }
 
 export async function listSparkBackups(pubkey: string): Promise<SparkBackupEntry[]> {
