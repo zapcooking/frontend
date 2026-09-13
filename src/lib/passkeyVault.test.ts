@@ -17,6 +17,7 @@ import {
   saveVaultRecord,
   deleteVaultRecord,
   detectSupport,
+  detectHybridTransport,
   shouldOfferEnrollment,
   isCeremonyCancelled,
   PrfUnsupportedError,
@@ -404,6 +405,40 @@ describe('detectSupport', () => {
     vi.stubGlobal('location', { hostname: 'staging.zap.cooking' });
     stubCapabilities(async () => ({ 'extension:prf': true }));
     expect(await detectSupport()).toBe('full');
+  });
+});
+
+describe('detectHybridTransport', () => {
+  function stubCapabilities(caps: (() => Promise<unknown>) | undefined) {
+    const pkc: any = function PublicKeyCredential() {};
+    if (caps) pkc.getClientCapabilities = caps;
+    vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: pkc });
+  }
+
+  it('true only on an explicit hybridTransport: true', async () => {
+    stubCapabilities(async () => ({ hybridTransport: true }));
+    expect(await detectHybridTransport()).toBe(true);
+  });
+
+  it('false on explicit hybridTransport: false', async () => {
+    stubCapabilities(async () => ({ hybridTransport: false }));
+    expect(await detectHybridTransport()).toBe(false);
+  });
+
+  // Unlike detectSupport's provisional-'full' rule, an ABSENT key is false:
+  // this signal gates optional pointer copy, so unknown must hide it —
+  // never render a pointer the sheet might not honor.
+  it('false when the key is absent, the API is missing, or the probe throws', async () => {
+    stubCapabilities(async () => ({ 'extension:prf': true }));
+    expect(await detectHybridTransport()).toBe(false);
+    stubCapabilities(undefined);
+    expect(await detectHybridTransport()).toBe(false);
+    stubCapabilities(async () => {
+      throw new Error('boom');
+    });
+    expect(await detectHybridTransport()).toBe(false);
+    stubCapabilities(async () => undefined);
+    expect(await detectHybridTransport()).toBe(false);
   });
 });
 

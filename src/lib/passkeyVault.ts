@@ -176,6 +176,28 @@ export async function detectSupport(): Promise<VaultSupport> {
   return 'full';
 }
 
+/**
+ * True when the client reports the hybrid (QR / cross-device) transport as
+ * available — the advance signal that the create sheet will offer a "use
+ * another device" option (getClientCapabilities().hybridTransport: Chrome/
+ * Edge 133+, Safari 17.4+, Firefox 135+). Missing API, absent key, or any
+ * probe failure → false: the signup pointer copy must never render where
+ * the sheet might not actually show the option.
+ */
+export async function detectHybridTransport(): Promise<boolean> {
+  if (!browser || isNative()) return false;
+  try {
+    const pkc = (window as any).PublicKeyCredential;
+    if (typeof pkc?.getClientCapabilities === 'function') {
+      const caps = await pkc.getClientCapabilities();
+      return caps?.hybridTransport === true;
+    }
+  } catch {
+    /* fall through to false */
+  }
+  return false;
+}
+
 /** Pure predicate for the migration prompt (unit-tested). */
 export function shouldOfferEnrollment(ctx: {
   authMethod: string | null;

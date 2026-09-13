@@ -37,18 +37,20 @@ import {
 import { getPublicKey } from 'nostr-tools';
 
 /**
- * Soft-launch gate (R3): while false, no sync UI renders and no sync
- * network calls are made anywhere — Phase 2 ships dark. Flip deliberately.
+ * LAUNCHED (July 2026): cross-device vault sync is live. The CI flag-guard
+ * (.github/workflows/checks.yaml) now pins this to true — an un-flip would
+ * silently dark-ship sign-in on other devices; roll back only via a
+ * deliberate PR that updates the guard in the same change (R3 ruling).
  */
-export const PASSKEY_SYNC_ENABLED = false;
+export const PASSKEY_SYNC_ENABLED = true;
 
 /**
- * Phase 3 gate: passkey enrollment offered inside account creation
- * ("Secure your account" step). Launch-coupled with PASSKEY_SYNC_ENABLED —
- * the launch PR flips BOTH together and updates the CI flag-guard in the
- * same change (R3 ruling). Guarded on main by .github/workflows/checks.yaml.
+ * LAUNCHED (July 2026) together with PASSKEY_SYNC_ENABLED (R3: both flip in
+ * one PR with the guard). Gates the signup "Secure your account" step.
+ * PASSKEY_ENROLL_PROMPT_ENABLED (migration prompt, +layout.svelte) is a
+ * later wave and stays off.
  */
-export const PASSKEY_SIGNUP_ENABLED = false;
+export const PASSKEY_SIGNUP_ENABLED = true;
 
 /** '1' = user opted in (R1 default-ON at enrollment); '0' = explicitly off.
  * ABSENT = off — pre-Phase-2 enrollments must never surprise-upload. */
@@ -118,12 +120,25 @@ export async function fetchChallengeSafe(): Promise<string | null> {
  * Upload the vault record. The assertion must be over a server challenge
  * from the SAME ceremony budget (enrollment verify-get or an unlock).
  * Returns true on success; false marks the upload pending for retry.
+ *
+ * The SPKI submitted MUST belong to the ASSERTING credential: the server
+ * keys the blob by sha256(assertion.credentialId) and TOFU-verifies the
+ * assertion against the submitted key, so any other entry's SPKI fails
+ * verification (uniform 404). Identical to the old first-syncable-entry
+ * behavior for single-key records; correct once keys[] grows a second
+ * entry (multi-passkey fast-follow).
  */
 export async function uploadVault(
   record: VaultRecord,
   assertion: AssertionWire
 ): Promise<boolean> {
-  const entry = syncableKeyEntry(record);
+  const entry =
+    record.keys.find(
+      (k) =>
+        k.credentialId === assertion.credentialId &&
+        typeof k.spki === 'string' &&
+        (k.alg === -7 || k.alg === -257)
+    ) ?? null;
   if (!entry) return false;
   try {
     const res = await fetch('/api/vault-sync', {
@@ -299,6 +314,26 @@ export function shouldOfferSignupEnrollment(ctx: {
   support: 'full' | 'no-prf' | 'none';
 }): boolean {
   return ctx.flagEnabled && ctx.support === 'full';
+}
+
+/**
+ * Predicate for the "you can also use your phone" pointer under the signup
+ * secure-step button (unit-tested). Strict AND of:
+ * - hybridTransport: detectHybridTransport() — the create sheet will
+ *   actually offer a cross-device option;
+ * - isChromium: Safari is excluded deliberately — its "Other Options" path
+ *   targets iPhones that iCloud Keychain already serves locally, and
+ *   Safari-as-client hybrid PRF is the broken cell of the support matrix
+ *   (manual-tests P2-6c);
+ * - isDesktop: on phones the platform authenticator IS the phone — the
+ *   pointer is noise.
+ */
+export function shouldShowHybridPointer(ctx: {
+  hybridTransport: boolean;
+  isChromium: boolean;
+  isDesktop: boolean;
+}): boolean {
+  return ctx.hybridTransport && ctx.isChromium && ctx.isDesktop;
 }
 
 /** Predicate for the LoginOverlay button (unit-tested). */

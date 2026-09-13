@@ -97,6 +97,7 @@ not data loss.
 | P3-7 | Conflict at signup: browser holds another account's vault → Create Profile | "Replace saved login?" dialog BEFORE the secure step; confirm → local record replaced (no network call), step proceeds; cancel → step skipped, plaintext signup | ☐ |
 | P3-8 | Sync checkbox unchecked at signup | Enrolled locally, zero /api/vault-sync traffic (devtools network) | ☐ |
 | P3-9 | Abandon the modal right after enrolling (before backup) | User lands logged in (passkey session); Settings shows enrolled vault; nsec reveal available for backup | ☐ |
+| P3-10 | Hybrid enrollment at signup, Chrome desktop: at the create sheet pick the cross-device option and use a phone (Android, or iPhone on iOS 18.4+) | Pointer line ("You can also set this up with your phone…") visible under the button on Chrome desktop ONLY — absent on Safari and on mobile. Enrollment completes after TWO phone round-trips (create + verify-get; iPhone = QR scan each); vault + sync behave as P3-1/P3-2. Note the resulting desktop vault unlocks via the phone each time (QR per unlock on iPhone) until multi-passkey lands — expected, document don't fix | ☐ |
 
 ## Non-regression
 
