@@ -257,11 +257,13 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
  * Nostr backup (the backup is a single replaceable event, so it can hold
  * at most one connection).
  *
- * Returns false when no backup exists at all. When a backup exists, an
- * exact comparison is only possible without a signer prompt for local-key
- * sessions (nsec / passkey vault) — for NIP-07 sessions this returns null
- * ("unknown") instead of popping the extension's decrypt dialog, and
- * callers should treat null as "assume backed up" rather than nag.
+ * Returns false when no backup exists (EOSE from the relays settles this
+ * fast). When a backup exists, an exact comparison is only possible
+ * without a signer prompt for local-key sessions (nsec / passkey vault) —
+ * for NIP-07 sessions this returns null ("unknown") instead of popping
+ * the extension's decrypt dialog, and callers should treat null as
+ * "assume backed up" rather than nag. Unreachable relays also return
+ * null, so a flaky network never produces a false "missing".
  */
 export async function isNwcConnectionBackedUp(
   pubkey: string,
@@ -281,25 +283,34 @@ export async function isNwcConnectionBackedUp(
     '#d': [NWC_BACKUP_D_TAG]
   };
 
-  // Live subscription with a deadline (same shape as hasNwcBackupInNostr)
-  // — a relay that never connects must not hang the check.
-  const backupEvent = await new Promise<NDKEvent | null>((resolve) => {
+  // Live subscription: resolve on the first matching event, on EOSE
+  // (every relay that got the REQ has answered — a fast, definite "no
+  // backup" instead of burning the deadline), or on the deadline, which
+  // means the relays were unreachable — "unknown", not "missing", so a
+  // flaky network never triggers a false callout.
+  const backupEvent = await new Promise<NDKEvent | null | 'deadline'>((resolve) => {
     const sub = ndkInstance.subscribe(filter, { closeOnEose: false });
-    const timer = setTimeout(() => {
+    let settled = false;
+    const timer = setTimeout(() => finish('deadline'), 10000);
+    const finish = (value: NDKEvent | null | 'deadline') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       sub.stop();
-      resolve(null);
-    }, 10000);
+      resolve(value);
+    };
 
     sub.on('event', (event: NDKEvent) => {
       // Ignore delete markers (empty replacements published to overwrite
       // a backup).
       if (!event.content) return;
-      clearTimeout(timer);
-      sub.stop();
-      resolve(event);
+      finish(event);
     });
+
+    sub.on('eose', () => finish(null));
   });
 
+  if (backupEvent === 'deadline') return null;
   if (!backupEvent) return false;
 
   if (!canDecryptSilently()) return null;
