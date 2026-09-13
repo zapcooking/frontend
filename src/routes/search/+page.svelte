@@ -33,7 +33,8 @@
     ? ($page.url.searchParams.get('type') as 'posts' | 'users' | 'recipes')
     : 'posts';
 
-  function switchType(next: 'posts' | 'users' | 'recipes') {
+  function switchType(next: string) {
+    if (next !== 'posts' && next !== 'users' && next !== 'recipes') return;
     if (next === type) return;
     const params = new URLSearchParams($page.url.searchParams);
     params.set('type', next);
@@ -253,8 +254,7 @@
 
   $: visibleResults = results.filter((e) => !$mutedPubkeys.has(e.author?.hexpubkey || e.pubkey));
 
-  type SearchTab = 'posts' | 'users' | 'recipes';
-  $: tabs: Array<{ id: SearchTab; label: string; count: number; active: boolean }> = [
+  $: tabs = [
     { id: 'posts', label: 'Posts', count: visibleResults.length, active: loading },
     { id: 'users', label: 'Users', count: userResults.length, active: usersLoading },
     { id: 'recipes', label: 'Recipes', count: recipeResults.length, active: recipesLoading }
