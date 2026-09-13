@@ -45,7 +45,11 @@
     initializeWalletManager,
     walletConnected,
     clearAllWallets,
-    openWallet
+    openWallet,
+    activeWallet,
+    rememberActiveWallet,
+    getLastWalletRecord,
+    autoRestoreWalletAtLogin
   } from '$lib/wallet';
   import {
     disconnectWallet as disconnectSparkWallet,
@@ -484,6 +488,11 @@
           setTimeout(() => preconnectPantry($ndk), 1000);
           // Prewarm outbox relay list cache so feed loads faster regardless of which page user lands on
           setTimeout(() => prewarmOutboxCache($ndk, state.publicKey).catch(() => {}), 2000);
+          // Logout wipes wallet data by design; put the last-used wallet
+          // back from the user's Nostr backups. Deferred so first paint
+          // and the feed win the relay/signer bandwidth — the restore can
+          // prompt NIP-07 users for one decrypt.
+          setTimeout(() => void autoRestoreWalletAtLogin(state.publicKey), 2500);
         } else {
           userPublickey.set('');
           stopMessageSubscription();
@@ -522,6 +531,9 @@
           state.isAuthenticated &&
           state.publicKey &&
           !hasWallet &&
+          // A remembered wallet is on its way back from the Nostr backups —
+          // don't pitch wallet setup to someone who has one.
+          !getLastWalletRecord(state.publicKey) &&
           !isOnboardingFlow
         ) {
           if (walletWelcomeForce || !walletWelcomeSeen) {
@@ -536,6 +548,15 @@
 
       // Initialize wallet manager to restore saved wallets
       initializeWalletManager();
+
+      // Remember the active wallet whenever it changes so the next login
+      // can auto-restore it from the Nostr backups (logout wipes the
+      // wallet data itself; the record holds no secrets).
+      if (browser) {
+        activeWallet.subscribe((wallet) => {
+          if (wallet) rememberActiveWallet(wallet);
+        });
+      }
 
       // Setup Capacitor deep link listeners
       setupCapacitorListeners();
@@ -601,7 +622,15 @@
   $: {
     const onboardingFlow =
       $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
-    if (browser && !onboardingFlow && authState.isAuthenticated && !hasWallet) {
+    if (
+      browser &&
+      !onboardingFlow &&
+      authState.isAuthenticated &&
+      !hasWallet &&
+      // Same as the auth-subscription gate: skip the prompt while a
+      // remembered wallet is being restored from the Nostr backups.
+      !getLastWalletRecord(authState.publicKey)
+    ) {
       const forceFlag = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
       if (forceFlag || !walletWelcomeSeen) {
         promptWalletSetup();

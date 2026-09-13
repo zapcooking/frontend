@@ -63,6 +63,18 @@ function isEncryptedData(value: unknown): value is EncryptedData {
   );
 }
 
+// FNV-1a fingerprint of wallet data (NWC connection string / Spark wallet
+// id). Safe for storage keys and records — unlike the raw NWC string,
+// which is a live payment authorization.
+export function fingerprintWalletData(data: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < data.length; i++) {
+    h ^= data.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
 // Last envelope seen per wallet id — lets a save whose re-encrypt fails
 // (signer denied) keep the prior envelope instead of dropping to
 // plaintext or losing the wallet.
@@ -165,6 +177,21 @@ function loadWallets(): Wallet[] {
   }
   pendingEncrypted = [];
   return [];
+}
+
+// Whether any wallets (including still-encrypted envelopes) exist in
+// persistent storage. Distinguishes "device was logged out and wiped"
+// from "session reload with wallets still pending decryption" — callers
+// deciding whether to auto-restore must not race the decrypt path.
+export function hasPersistedWallets(): boolean {
+  if (!browser) return false;
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return false;
+    return (JSON.parse(stored) as StoredWallet[]).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 // ── Deferred envelope decryption ────────────────────────────────────
