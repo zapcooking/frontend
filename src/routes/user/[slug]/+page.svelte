@@ -1782,8 +1782,10 @@
   <div class="flex items-start pb-5 pt-12">
     <!-- Profile Info -->
     <div class="flex-1 min-w-0 flex flex-col gap-2">
-      <!-- Name Row with Action Buttons on Right -->
-      <div class="flex items-start justify-between gap-3">
+      <!-- Name row. On mobile the action buttons drop to their own row
+           below the name so a long username never competes with them;
+           sm and up they sit on the right of the name as before. -->
+      <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div class="flex items-center gap-3 min-w-0 flex-1">
           <!-- min-w-0 down the chain: without it the button's automatic
                minimum size keeps it at the name's full width, and a long
@@ -1818,8 +1820,8 @@
           {/if}
         </div>
 
-        <!-- Action Buttons (right-aligned) -->
-        <div class="flex items-center gap-2 flex-shrink-0">
+        <!-- Action Buttons (right-aligned; own row on mobile) -->
+        <div class="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
           {#if hexpubkey === $userPublickey}
             <button
               on:click={() => (profileEditModal = true)}
