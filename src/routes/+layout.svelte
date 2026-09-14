@@ -7,6 +7,7 @@
   import { page, updated } from '$app/stores';
   import { goto, beforeNavigate } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
+  import { lastFeedUrl } from '$lib/feedOrigin';
   import BottomNav from '../components/BottomNav.svelte';
   import DesktopSideNav from '../components/DesktopSideNav.svelte';
   import NotificationSubscriber from '../components/NotificationSubscriber.svelte';
@@ -138,7 +139,12 @@
   // into a full-page load. Cloudflare Pages removes the previous deploy's
   // immutable assets, so stale clients otherwise 404 on chunk imports when
   // navigating (broken tabs until a hard refresh).
-  beforeNavigate(({ willUnload, to, cancel }) => {
+  beforeNavigate(({ willUnload, to, cancel, from }) => {
+    // Remember the feed URL (tab included) when leaving /community so
+    // "back to feed" affordances return to the tab the user was on.
+    if (from?.url?.pathname === '/community') {
+      lastFeedUrl.set(from.url.pathname + from.url.search);
+    }
     if ($updated && !willUnload && to?.url) {
       // Cancel the client-side navigation first so SvelteKit doesn't start
       // resolving (stale) route chunks before the full-page load takes over.
