@@ -167,7 +167,7 @@
         {#each sortedGroups as group (group.yearsAgo)}
           <section>
             <h2
-              class="text-sm font-semibold mb-3"
+              class="text-[11px] font-medium uppercase tracking-wide mb-3"
               style="color: var(--color-text-primary);"
             >
               {yearLabel(group.yearsAgo)}

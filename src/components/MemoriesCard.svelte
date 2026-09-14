@@ -192,7 +192,7 @@
           {#each nonEmptyGroups as group (group.yearsAgo)}
             <div>
               <h3
-                class="text-xs font-semibold uppercase tracking-wide mb-2"
+                class="text-[11px] font-medium uppercase tracking-wide mb-2"
                 style="color: var(--color-text-secondary);"
               >
                 {group.yearsAgo === 1 ? '1 year ago' : `${group.yearsAgo} years ago`}
