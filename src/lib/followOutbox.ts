@@ -224,28 +224,43 @@ export async function fetchFollowList(
     // built on it behind an eternal "Loading more posts…" spinner. Race
     // a deadline; a stale cached follow list beats hanging (and beats
     // declaring the user's follows empty on a flaky relay day).
+    // A TIMEOUT must not cache an empty follow list: fetchFollowingEvents
+    // short-circuits to zero events when follows are empty, so a cached
+    // timeout-empty poisons the initial load AND every pagination page
+    // for the cache lifetime (feed collapses to a couple of notes).
     const FOLLOW_LIST_FETCH_TIMEOUT_MS = 5000;
+    const TIMED_OUT = Symbol('follow-list-timeout');
     let followListTimeoutId: ReturnType<typeof setTimeout>;
-    const followListDeadline = new Promise<null>((resolve) => {
-      followListTimeoutId = setTimeout(() => resolve(null), FOLLOW_LIST_FETCH_TIMEOUT_MS);
+    const followListDeadline = new Promise<typeof TIMED_OUT>((resolve) => {
+      followListTimeoutId = setTimeout(() => resolve(TIMED_OUT), FOLLOW_LIST_FETCH_TIMEOUT_MS);
     });
 
     const contactEvent = await Promise.race([
-      ndk.fetchEvent({
-        kinds: [3],
-        authors: [userPubkey],
-        limit: 1
-      }),
+      ndk
+        .fetchEvent({
+          kinds: [3],
+          authors: [userPubkey],
+          limit: 1
+        })
+        .then((e) => e ?? null),
       followListDeadline
     ]);
     clearTimeout(followListTimeoutId!);
 
-    if (!contactEvent) {
-      // Timed out with a (stale) cache for this user? Keep serving it.
+    if (contactEvent === TIMED_OUT) {
       if (cachedFollowList && followListPubkey === userPubkey) {
         console.warn('[Outbox] Contact list fetch timed out — using stale cache');
         return cachedFollowList;
       }
+      // No cache to fall back on — report empty WITHOUT caching, so the
+      // next fetch (initial retry or the next pagination page) tries the
+      // relay again instead of serving a 5-minute timeout-empty.
+      console.warn('[Outbox] Contact list fetch timed out — not caching the empty result');
+      return [];
+    }
+
+    if (!contactEvent) {
+      // Relay answered: this user genuinely has no contact event.
       cachedFollowList = [];
       followListPubkey = userPubkey;
       followListTimestamp = now;
