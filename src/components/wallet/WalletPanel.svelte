@@ -17,6 +17,7 @@
     setActiveWallet,
     toggleBalanceVisibility,
     removeWallet,
+    fingerprintWalletData,
     type WalletKind
   } from '$lib/wallet';
   import {
@@ -2638,14 +2639,9 @@
   const BACKUP_CALLOUT_KEY = 'wallet_backup_callout_dismissed';
 
   function walletBackupKey(wallet: { kind: number; data: string }): string {
-    // FNV-1a fingerprint — the raw NWC connection string must never end
-    // up in a localStorage key.
-    let h = 0x811c9dc5;
-    for (let i = 0; i < wallet.data.length; i++) {
-      h ^= wallet.data.charCodeAt(i);
-      h = Math.imul(h, 0x01000193);
-    }
-    return `${wallet.kind}:${(h >>> 0).toString(16)}`;
+    // Fingerprinted via the shared helper — the raw NWC connection string
+    // must never end up in a localStorage key.
+    return `${wallet.kind}:${fingerprintWalletData(wallet.data)}`;
   }
 
   function loadBackupCalloutDismissed() {

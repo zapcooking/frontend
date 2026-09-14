@@ -27,8 +27,17 @@ export {
   getActiveWallet,
   hasWalletKind,
   toggleBalanceVisibility,
-  setNavBalanceVisible
+  setNavBalanceVisible,
+  fingerprintWalletData
 } from './walletStore';
+
+// Auto-restore the last-used wallet from Nostr backups at login
+export {
+  rememberActiveWallet,
+  getLastWalletRecord,
+  autoRestoreWalletAtLogin,
+  walletRestoring
+} from './autoRestore';
 
 // Export manager functions
 export {
