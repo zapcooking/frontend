@@ -765,28 +765,36 @@
 
     const scrollRoot = document.getElementById('app-scroll') || null;
 
-    loadMoreObserver = new IntersectionObserver(
+    const observer = new IntersectionObserver(
       (entries) => {
-        if (
-          entries[0].isIntersecting &&
-          hasMore &&
-          !loadingMore &&
-          !loading &&
-          !sentinelFiredThisFrame &&
-          Date.now() >= loadMoreCooldownUntil
-        ) {
-          // Fix C: Single-fire per intersection — reset after rAF
-          sentinelFiredThisFrame = true;
-          requestAnimationFrame(() => {
-            if (!isDestroyed) sentinelFiredThisFrame = false;
-          });
-          loadMore();
+        if (!entries[0].isIntersecting) return;
+        if (!hasMore || loadingMore || loading || sentinelFiredThisFrame) return;
+
+        const cooldownRemaining = loadMoreCooldownUntil - Date.now();
+        if (cooldownRemaining > 0) {
+          // The sentinel is already intersecting, so no new intersection
+          // event will arrive when the cooldown expires — re-check then
+          // or pagination strands with hasMore still true.
+          setTimeout(() => {
+            if (!isDestroyed && loadMoreObserver === observer && loadMoreSentinel?.isConnected) {
+              loadMore();
+            }
+          }, cooldownRemaining + 50);
+          return;
         }
+
+        // Fix C: Single-fire per intersection — reset after rAF
+        sentinelFiredThisFrame = true;
+        requestAnimationFrame(() => {
+          if (!isDestroyed) sentinelFiredThisFrame = false;
+        });
+        loadMore();
       },
       { rootMargin: '400px', root: scrollRoot }
     );
 
-    loadMoreObserver.observe(loadMoreSentinel);
+    loadMoreObserver = observer;
+    observer.observe(loadMoreSentinel);
   }
 
   function cleanupInfiniteScroll() {
@@ -796,8 +804,13 @@
     }
   }
 
-  // Setup infinite scroll when sentinel element is available and feed is ready
-  $: if (loadMoreSentinel && hasMore && !loading && events.length > 0) {
+  // Setup infinite scroll when sentinel element is available and feed is ready.
+  // `!loadingMore` matters: observe() fires an initial callback for the
+  // current intersection state, which is what re-triggers pagination after
+  // a page that appended nothing (the sentinel never LEFT view, so no new
+  // intersection event would ever arrive). Without it, an all-filtered-out
+  // page strands the feed with hasMore=true and a dead loader.
+  $: if (loadMoreSentinel && hasMore && !loading && !loadingMore && events.length > 0) {
     // Use setTimeout to ensure DOM is ready
     setTimeout(() => {
       setupInfiniteScroll();

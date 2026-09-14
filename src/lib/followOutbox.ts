@@ -219,13 +219,33 @@ export async function fetchFollowList(
   }
   
   try {
-    const contactEvent = await ndk.fetchEvent({
-      kinds: [3],
-      authors: [userPubkey],
-      limit: 1
+    // ndk.fetchEvent has no internal deadline — a relay set that never
+    // delivers EOSE can park this await forever, freezing any feed page
+    // built on it behind an eternal "Loading more posts…" spinner. Race
+    // a deadline; a stale cached follow list beats hanging (and beats
+    // declaring the user's follows empty on a flaky relay day).
+    const FOLLOW_LIST_FETCH_TIMEOUT_MS = 5000;
+    let followListTimeoutId: ReturnType<typeof setTimeout>;
+    const followListDeadline = new Promise<null>((resolve) => {
+      followListTimeoutId = setTimeout(() => resolve(null), FOLLOW_LIST_FETCH_TIMEOUT_MS);
     });
-    
+
+    const contactEvent = await Promise.race([
+      ndk.fetchEvent({
+        kinds: [3],
+        authors: [userPubkey],
+        limit: 1
+      }),
+      followListDeadline
+    ]);
+    clearTimeout(followListTimeoutId!);
+
     if (!contactEvent) {
+      // Timed out with a (stale) cache for this user? Keep serving it.
+      if (cachedFollowList && followListPubkey === userPubkey) {
+        console.warn('[Outbox] Contact list fetch timed out — using stale cache');
+        return cachedFollowList;
+      }
       cachedFollowList = [];
       followListPubkey = userPubkey;
       followListTimestamp = now;
