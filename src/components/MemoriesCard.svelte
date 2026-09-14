@@ -115,11 +115,16 @@
 {#if loaded && nonEmptyGroups.length > 0}
   {#if !dismissed}
     <div class="memories-card rounded-xl border mb-4 overflow-hidden">
-      <div class="flex items-stretch">
-        <!-- Banner body: whole area is the tap target -->
+      <!-- One centered row. The expand button owns the text block AND
+           the caret cell — the caret stays visually centered next to the
+           dismiss X but remains part of the tap target (users aim at
+           the caret). The caret used to live inside the title's first
+           text row (pinned to the first line) while the X centered on
+           the banner, putting the two icons at different heights. -->
+      <div class="flex items-center">
         <button
           on:click={handleBannerClick}
-          class="flex-1 min-w-0 text-left pl-4 py-3"
+          class="flex-1 min-w-0 text-left pl-4 py-3 flex items-center"
           aria-expanded={isMobile ? undefined : expanded}
           aria-controls={isMobile ? undefined : 'memories-card-panel'}
           aria-label={isMobile
@@ -128,48 +133,51 @@
               ? 'Collapse memories'
               : 'Expand memories'}
         >
-          <!-- Row 1: icon + title + caret -->
-          <span class="flex items-center gap-2">
-            <span class="flex-shrink-0" style="color: var(--color-primary);" aria-hidden="true">
-              <CalendarBlankIcon size={16} weight="fill" />
-            </span>
-            <span
-              class="text-sm font-semibold whitespace-nowrap"
-              style="color: var(--color-text-primary);"
-            >
-              Memories
-            </span>
-            <span
-              class="ml-auto flex-shrink-0 pr-1"
-              style="color: var(--color-text-secondary);"
-              aria-hidden="true"
-            >
-              <!-- Mobile: navigation affordance -->
-              <span class="sm:hidden">
-                <CaretRightIcon size={16} />
+          <span class="flex-1 min-w-0">
+            <!-- Row 1: icon + title -->
+            <span class="flex items-center gap-2">
+              <span class="flex-shrink-0" style="color: var(--color-primary);" aria-hidden="true">
+                <CalendarBlankIcon size={16} weight="fill" />
               </span>
-              <!-- Desktop: inline expand affordance -->
               <span
-                class="hidden sm:inline-block transition-transform duration-200"
-                class:rotate-180={expanded}
+                class="text-sm font-semibold whitespace-nowrap"
+                style="color: var(--color-text-primary);"
               >
-                <CaretDownIcon size={16} />
+                Memories
               </span>
             </span>
+            <!-- Row 2: subheading + summary -->
+            <span class="block text-xs mt-0.5" style="color: var(--color-text-secondary);">
+              A look back at notes from this day
+            </span>
+            <span class="block text-xs mt-0.5" style="color: var(--color-text-secondary);">
+              {summary}
+            </span>
           </span>
-          <!-- Row 2: subheading + summary -->
-          <span class="block text-xs mt-0.5" style="color: var(--color-text-secondary);">
-            A look back at notes from this day
-          </span>
-          <span class="block text-xs mt-0.5" style="color: var(--color-text-secondary);">
-            {summary}
+
+          <!-- Caret cell inside the button: vertically centered with the
+               dismiss button and clickable as part of the banner. -->
+          <span
+            class="flex-shrink-0 flex items-center pl-2"
+            style="color: var(--color-text-secondary);"
+            aria-hidden="true"
+          >
+            <span class="sm:hidden">
+              <CaretRightIcon size={16} />
+            </span>
+            <span
+              class="hidden sm:inline-block transition-transform duration-200"
+              class:rotate-180={expanded}
+            >
+              <CaretDownIcon size={16} />
+            </span>
           </span>
         </button>
 
-        <!-- Dismiss: separate target, ≥44×44px, ≥8px gap from the banner caret -->
+        <!-- Dismiss: separate target, ≥44×44px, ≥8px gap from the caret -->
         <button
           on:click={dismiss}
-          class="dismiss-btn flex-shrink-0 flex items-center justify-center self-center ml-2 mr-1 rounded-full hover:opacity-70 transition-opacity"
+          class="dismiss-btn flex-shrink-0 flex items-center justify-center mr-2 rounded-full hover:opacity-70 transition-opacity"
           style="color: var(--color-text-secondary);"
           aria-label="Hide memories for today"
         >
