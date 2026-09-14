@@ -273,7 +273,11 @@ export async function refreshBalance(sync = false): Promise<number | null> {
 
       case 3: // NWC
         try {
-          balance = await getNwcBalance();
+          // Single attempt: getNwcBalance's default triple-retry with
+          // backoff holds the loading state for up to ~30s on a dead
+          // wallet — interactive refresh should fail in one timeout and
+          // let the user retry on demand.
+          balance = await getNwcBalance(1);
         } catch (e) {
           console.warn('[WalletManager] NWC balance fetch failed (will retry on next refresh):', e);
           // Don't throw - the wallet is still connected, just couldn't fetch balance

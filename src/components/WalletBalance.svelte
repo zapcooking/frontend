@@ -1,7 +1,7 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import { clickOutside } from '$lib/clickOutside';
-  import { fade } from 'svelte/transition';
+  import { cubicBezier, prefersReducedMotion } from '$lib/motion';
   import { portal } from './Modal.svelte';
   import Button from './Button.svelte';
   import {
@@ -57,6 +57,32 @@
       toggleDropdown();
     }
   }
+
+  // Wallet dropdown per the transitions.dev menu-dropdown recipe: grows
+  // from the trigger (origin-aware scale, slight settle) instead of a
+  // bare fade — 250ms open, 150ms close, the recipe's curve. All three
+  // dropdown variants are right-anchored under the pill, hence
+  // transform-origin: top right in the css below.
+  const dropdownReducedMotion = browser && prefersReducedMotion();
+  const dropdownEase = cubicBezier(0.22, 1, 0.36, 1);
+  const dropdownCss = (t: number) =>
+    `opacity: ${t}; transform: scale(${0.97 + 0.03 * t}); transform-origin: top right;`;
+  const dropdownIn = (node: Element) => {
+    (node as HTMLElement).style.willChange = 'transform, opacity';
+    return {
+      duration: dropdownReducedMotion ? 0 : 250,
+      easing: dropdownEase,
+      css: dropdownCss
+    };
+  };
+  const dropdownOut = (node: Element) => {
+    (node as HTMLElement).style.willChange = 'transform, opacity';
+    return {
+      duration: dropdownReducedMotion ? 0 : 150,
+      easing: dropdownEase,
+      css: dropdownCss
+    };
+  };
 
   // Target of the SATS ↔ fiat swap, used to label the dropdown item.
   // Recomputed reactively when the active currency changes so the
@@ -186,7 +212,8 @@
     {#if dropdownActive}
       <div
         class="absolute right-0 top-full mt-2 z-20"
-        transition:fade={{ delay: 0, duration: 150 }}
+        in:dropdownIn
+        out:dropdownOut
       >
         <div
           role="menu"
@@ -290,7 +317,8 @@
     {#if dropdownActive}
       <div
         class="absolute right-0 top-full mt-2 z-20"
-        transition:fade={{ delay: 0, duration: 150 }}
+        in:dropdownIn
+        out:dropdownOut
       >
         <div
           role="menu"
@@ -396,7 +424,8 @@
     {#if dropdownActive}
       <div
         class="absolute right-0 top-full mt-2 z-20"
-        transition:fade={{ delay: 0, duration: 150 }}
+        in:dropdownIn
+        out:dropdownOut
       >
         <div
           role="menu"
