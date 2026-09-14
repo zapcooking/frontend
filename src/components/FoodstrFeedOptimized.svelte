@@ -3095,12 +3095,15 @@
 
   /**
    * Fetch fresh content from Primal in background and merge with displayed events
-   * Called after instant cache paint to get latest content
+   * Called after instant cache paint to get latest content.
+   * Returns 'ok' when fresh data was merged, 'switched' when the user
+   * changed tabs mid-refresh (caller must not react), or 'failed' when
+   * the refresh threw — callers use that to fall back to a full load.
    */
-  async function fetchFreshAndMerge() {
+  async function fetchFreshAndMerge(): Promise<'ok' | 'switched' | 'failed'> {
     // Don't run for members (private relay not in Primal)
     if (filterMode === 'members') {
-      return;
+      return 'switched';
     }
 
     // Capture current mode to detect stale results after async operations
@@ -3111,7 +3114,7 @@
       let freshEvents: NDKEvent[] = [];
 
       if (startMode === 'following' || startMode === 'replies') {
-        if (!$userPublickey) return;
+        if (!$userPublickey) return 'switched';
 
         // Reuse cached follow list — avoid redundant Primal call
         const follows =
@@ -3119,8 +3122,8 @@
             ? followedPubkeysForRealtime
             : await fetchContactListFromPrimal($userPublickey);
 
-        if (filterMode !== startMode) return;
-        if (follows.length === 0) return;
+        if (filterMode !== startMode) return 'switched';
+        if (follows.length === 0) return 'switched';
 
         followedPubkeysForRealtime = follows;
 
@@ -3130,7 +3133,7 @@
           includeReplies: startMode === 'replies'
         });
 
-        if (filterMode !== startMode) return;
+        if (filterMode !== startMode) return 'switched';
 
         const filterFn = startMode === 'following' ? filterFollowingEvents : filterRepliesEvents;
         freshEvents = filterFn(primalEvents);
@@ -3155,7 +3158,7 @@
         }
 
         // Check if user switched tabs
-        if (filterMode !== startMode) return;
+        if (filterMode !== startMode) return 'switched';
 
         const { events: primalEvents } = await fetchGlobalFromPrimal($ndk, {
           limit: 200,
@@ -3163,7 +3166,7 @@
         });
 
         // Check again after async fetch
-        if (filterMode !== startMode) return;
+        if (filterMode !== startMode) return 'switched';
 
         // Apply food filter and exclude followed users
         freshEvents = primalEvents.filter((event) => {
@@ -3191,7 +3194,7 @@
       }
 
       // Final stale check before applying results
-      if (filterMode !== startMode) return;
+      if (filterMode !== startMode) return 'switched';
 
       console.log(
         `[Feed] Background refresh: ${freshEvents.length} events in ${(performance.now() - startTime).toFixed(0)}ms`
@@ -3240,12 +3243,19 @@
       } catch {
         // Non-critical
       }
+
+      return 'ok';
     } catch (err) {
-      // Only log if it's not a tab-switch scenario
+      // Only log if it's not a tab-switch scenario. Error objects
+      // JSON.stringify to {} — log the message so the failure is
+      // actually diagnosable from the console.
       if (filterMode === startMode) {
-        console.warn('[Feed] Background fetch failed:', err);
+        console.warn(
+          '[Feed] Background fetch failed:',
+          err instanceof Error ? err.message : String(err)
+        );
       }
-      // Silent fail - we already have cached content showing
+      return 'failed';
     }
   }
 
@@ -3508,13 +3518,33 @@
       // Expand kind:6 wrappers into their inner kind:1/1068 notes before
       // the per-mode filter runs. Same reason as fetchFreshData: without
       // this, kind:6 wrappers leak into `events` and break rendering/dedup.
+      // The inner note's id must be checked against seenEventIds AND a
+      // page-local set: two reposts of the same note in one page, or a
+      // repost alongside the direct note, would otherwise both survive
+      // validOlder's seen-filter (it only knows cross-page ids) and append
+      // the same id twice — Svelte's keyed each then throws
+      // "duplicate keys", which kills the whole feed render (the frozen
+      // 2-3-notes-plus-loader state).
       const expandedOlderEvents: NDKEvent[] = [];
+      const expandedIds = new Set<string>();
       for (const raw of olderEvents) {
         if (raw.kind === 6) {
+          // Mark the wrapper seen even when expansion fails — a malformed
+          // repost must not be re-expanded on every page (same policy as
+          // the realtime handler).
           seenEventIds.add(raw.id);
           const inner = expandRepostEvent(raw);
-          if (inner && inner.id) expandedOlderEvents.push(inner);
+          if (!inner || !inner.id || seenEventIds.has(inner.id) || expandedIds.has(inner.id)) {
+            continue;
+          }
+          expandedIds.add(inner.id);
+          expandedOlderEvents.push(inner);
         } else {
+          // Same-page duplicates only here — the cross-page seen check is
+          // validOlder's job, and marking ids seen now would make that
+          // filter drop the whole page.
+          if (!raw.id || expandedIds.has(raw.id)) continue;
+          expandedIds.add(raw.id);
           expandedOlderEvents.push(raw);
         }
       }
@@ -4462,29 +4492,44 @@
           renderedNotes = new Set();
           clearRenderZoneState();
 
-          // Try instant cache first
+          // Try instant cache first — but a nearly-empty cache isn't
+          // worth painting as the final state: one stale note plus a
+          // background refresh that can fail leaves the feed stranded
+          // at that note with a dead loader. Fall through to the full
+          // load below instead.
           const cached = loadFromInstantCache(filterMode);
-          if (cached && cached.events.length > 0) {
-            const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
+          const hydratedEvents = cached
+            ? cached.events.map(hydrateFromCache).filter(passesFeedFilters)
+            : [];
 
-            if (hydratedEvents.length > 0) {
-              seenEventIds.clear();
-              paginationFloorTs = null;
-              hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
-              events = hydratedEvents;
-              preseedRenderedNotes(20);
-              loading = false;
-              error = false;
-              hasMore = true;
-              loadingMore = false;
+          if (hydratedEvents.length >= 5) {
+            seenEventIds.clear();
+            paginationFloorTs = null;
+            hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
+            events = hydratedEvents;
+            preseedRenderedNotes(20);
+            loading = false;
+            error = false;
+            hasMore = true;
+            loadingMore = false;
 
-              console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
+            console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
 
-              // Background refresh
-              backgroundLoading = true;
-              fetchFreshAndMerge().finally(() => (backgroundLoading = false));
-              return;
-            }
+            // Background refresh; when it dies (Primal down, fetch
+            // threw), fall back to the full relay load — the painted
+            // cache must not be the last word.
+            backgroundLoading = true;
+            fetchFreshAndMerge()
+              .then((outcome) => {
+                if (outcome === 'failed' && !isDestroyed && filterMode === lastFilterMode) {
+                  return loadFoodstrFeed(false);
+                }
+              })
+              .catch(() => {
+                /* loadFoodstrFeed handles its own errors */
+              })
+              .finally(() => (backgroundLoading = false));
+            return;
           }
 
           // No cache - full load
@@ -4507,29 +4552,44 @@
           renderedNotes = new Set();
           clearRenderZoneState();
 
-          // Try instant cache first
+          // Try instant cache first — but a nearly-empty cache isn't
+          // worth painting as the final state: one stale note plus a
+          // background refresh that can fail leaves the feed stranded
+          // at that note with a dead loader. Fall through to the full
+          // load below instead.
           const cached = loadFromInstantCache(filterMode);
-          if (cached && cached.events.length > 0) {
-            const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
+          const hydratedEvents = cached
+            ? cached.events.map(hydrateFromCache).filter(passesFeedFilters)
+            : [];
 
-            if (hydratedEvents.length > 0) {
-              seenEventIds.clear();
-              paginationFloorTs = null;
-              hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
-              events = hydratedEvents;
-              preseedRenderedNotes(20);
-              loading = false;
-              error = false;
-              hasMore = true;
-              loadingMore = false;
+          if (hydratedEvents.length >= 5) {
+            seenEventIds.clear();
+            paginationFloorTs = null;
+            hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
+            events = hydratedEvents;
+            preseedRenderedNotes(20);
+            loading = false;
+            error = false;
+            hasMore = true;
+            loadingMore = false;
 
-              console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
+            console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
 
-              // Background refresh
-              backgroundLoading = true;
-              fetchFreshAndMerge().finally(() => (backgroundLoading = false));
-              return;
-            }
+            // Background refresh; when it dies (Primal down, fetch
+            // threw), fall back to the full relay load — the painted
+            // cache must not be the last word.
+            backgroundLoading = true;
+            fetchFreshAndMerge()
+              .then((outcome) => {
+                if (outcome === 'failed' && !isDestroyed && filterMode === lastFilterMode) {
+                  return loadFoodstrFeed(false);
+                }
+              })
+              .catch(() => {
+                /* loadFoodstrFeed handles its own errors */
+              })
+              .finally(() => (backgroundLoading = false));
+            return;
           }
 
           // No cache for this tab - do full load
