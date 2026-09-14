@@ -1314,7 +1314,7 @@
 
     return isEventMutedBy(muteList, {
       id: event.id,
-      pubkey: event.author?.hexpubkey || event.pubkey,
+      pubkey: getAuthorKey(event),
       content: event.content,
       tags: event.tags
     });
@@ -1753,6 +1753,18 @@
     return (event as any)._repostCreatedAt || event.created_at || 0;
   }
 
+  // Author pubkey for filters/mute checks. NDKUser.hexpubkey THROWS
+  // ("npub not set") when the user object was built without a pubkey —
+  // reachable through synthetic expanded-repost events — so never read
+  // it bare; fall back to the event's own pubkey field.
+  function getAuthorKey(event: NDKEvent): string {
+    try {
+      return getAuthorKey(event) || '';
+    } catch {
+      return event.pubkey || '';
+    }
+  }
+
   function applyRepostMetadata(sourceEvent: NDKEvent, expandedEvent: NDKEvent): NDKEvent {
     (expandedEvent as any)._repostedBy = sourceEvent.pubkey;
     (expandedEvent as any)._repostId = sourceEvent.id;
@@ -1765,6 +1777,11 @@
   function buildExpandedEmbeddedRepostEvent(event: NDKEvent, inner: any): NDKEvent | null {
     if (!inner || typeof inner !== 'object' || !inner.id) return null;
     if (inner.kind !== 1 && inner.kind !== 1068) return null;
+    // Without a real author pubkey the synthetic event's NDKUser throws
+    // "npub not set" on the first .author?.hexpubkey read (e.g. the mute
+    // filter), which killed entire feed loads. Drop unattributable
+    // reposts instead.
+    if (typeof inner.pubkey !== 'string' || !inner.pubkey) return null;
 
     const innerEvent = new NDKEvent($ndk, inner);
     innerEvent.id = inner.id;
@@ -1797,6 +1814,11 @@
 
     const id = eventTag?.[1];
     if (!id) return null;
+    // Same rule as the embedded path: a synthetic event without a real
+    // author pubkey detonates on .author?.hexpubkey reads ("npub not
+    // set") and takes the whole feed load down with it.
+    const innerPubkey = pubkeyTag?.[1];
+    if (!innerPubkey) return null;
     const parsedKind = kindTag ? Number.parseInt(kindTag[1], 10) : NaN;
     // If the wrapper doesn't tell us the inner kind, default to 1 — kind:6
     // is by NIP-18 a "kind:1 repost", and a wrong guess only causes the
@@ -1806,7 +1828,7 @@
 
     const innerEvent = new NDKEvent($ndk);
     innerEvent.id = id;
-    innerEvent.pubkey = pubkeyTag?.[1] || '';
+    innerEvent.pubkey = innerPubkey;
     innerEvent.kind = kind;
     innerEvent.content = '';
     innerEvent.tags = [];
@@ -2411,7 +2433,7 @@
           // Check muted users
           if ($userPublickey) {
             const mutedUsers = getMutedUsers();
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && mutedUsers.includes(authorKey)) {
               console.log('[Feed] Members: Filtered out muted user event:', event.id);
               return false;
@@ -2515,13 +2537,13 @@
               const foodEvents = primalEvents.filter((event: NDKEvent) => {
                 if ($userPublickey) {
                   const mutedUsers = getMutedUsers();
-                  const authorKey = event.author?.hexpubkey || event.pubkey;
+                  const authorKey = getAuthorKey(event);
                   if (authorKey && mutedUsers.includes(authorKey)) return false;
                 }
                 if (isReply(event)) return false;
                 if (!passesFeedFilters(event)) return false;
                 if (followedSet.size > 0) {
-                  const authorKey = event.author?.hexpubkey || event.pubkey;
+                  const authorKey = getAuthorKey(event);
                   if (authorKey && followedSet.has(authorKey)) return false;
                 }
                 return true;
@@ -2611,7 +2633,7 @@
         // Check muted users first
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
-          const authorKey = event.author?.hexpubkey || event.pubkey;
+          const authorKey = getAuthorKey(event);
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
 
@@ -2632,7 +2654,7 @@
         if (!authorPubkey) {
           // Also exclude posts from followed users
           if (followedSet.size > 0) {
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && followedSet.has(authorKey)) {
               return false; // Exclude - this belongs in Following/Notes & Replies
             }
@@ -2824,7 +2846,7 @@
 
       // For Global feed, exclude posts from followed users
       if (!authorPubkey && followedPubkeysForRealtime.length > 0) {
-        const authorKey = event.author?.hexpubkey || event.pubkey;
+        const authorKey = getAuthorKey(event);
         if (authorKey && followedPubkeysForRealtime.includes(authorKey)) {
           return; // Skip - belongs in Following/Notes & Replies
         }
@@ -2897,7 +2919,7 @@
         if (isReply(e)) return false;
         if (!passesFeedFilters(e)) return false;
         if (followedSet.size > 0) {
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && followedSet.has(authorKey)) return false;
         }
         return true;
@@ -3019,7 +3041,7 @@
       if (isReply(event)) return false;
       if ($userPublickey) {
         const mutedUsers = getMutedUsers();
-        const authorKey = event.author?.hexpubkey || event.pubkey;
+        const authorKey = getAuthorKey(event);
         if (authorKey && mutedUsers.includes(authorKey)) return false;
       }
       return passesFeedFilters(event);
@@ -3031,7 +3053,7 @@
     return rawEvents.filter((event) => {
       if ($userPublickey) {
         const mutedUsers = getMutedUsers();
-        const authorKey = event.author?.hexpubkey || event.pubkey;
+        const authorKey = getAuthorKey(event);
         if (authorKey && mutedUsers.includes(authorKey)) return false;
       }
       return passesFeedFilters(event);
@@ -3173,7 +3195,7 @@
           // Check muted users
           if ($userPublickey) {
             const mutedUsers = getMutedUsers();
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && mutedUsers.includes(authorKey)) return false;
           }
 
@@ -3185,7 +3207,7 @@
 
           // Exclude posts from followed users (they go in Following feed)
           if (followedSet.size > 0) {
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && followedSet.has(authorKey)) return false;
           }
 
@@ -3356,7 +3378,7 @@
         // Check muted users
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
 
@@ -3365,7 +3387,7 @@
 
         // Exclude followed users from Global feed
         if (followedSet.size > 0) {
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && followedSet.has(authorKey)) {
             return false;
           }
@@ -3558,7 +3580,7 @@
         // Check muted users
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
 
@@ -3580,7 +3602,7 @@
 
         // Exclude followed users from Global feed
         if (!authorPubkey && filterMode === 'global' && followedSet.size > 0) {
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && followedSet.has(authorKey)) {
             return false;
           }
@@ -3999,7 +4021,7 @@
       let authorPicture: string | undefined;
       try {
         const profile = await resolveProfileByPubkey(
-          shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey,
+          getAuthorKey(shareModalEvent),
           $ndk
         );
         if (profile) {
@@ -4023,7 +4045,7 @@
               let refAuthorPicture: string | undefined;
               try {
                 const refProfile = await resolveProfileByPubkey(
-                  refEvent.author?.hexpubkey || refEvent.pubkey,
+                  getAuthorKey(refEvent),
                   $ndk
                 );
                 if (refProfile) {
@@ -4039,7 +4061,7 @@
                 content: refEvent.content,
                 authorName: refAuthorName,
                 authorPicture: refAuthorPicture,
-                authorPubkey: refEvent.author?.hexpubkey || refEvent.pubkey,
+                authorPubkey: getAuthorKey(refEvent),
                 timestamp: refEvent.created_at
               };
             }
@@ -4104,7 +4126,7 @@
 
       try {
         const profile = await resolveProfileByPubkey(
-          noteEvent.author?.hexpubkey || noteEvent.pubkey,
+          getAuthorKey(noteEvent),
           $ndk
         );
         if (profile) {
@@ -4130,7 +4152,7 @@
               let refAuthorPicture: string | undefined;
               try {
                 const refProfile = await resolveProfileByPubkey(
-                  refEvent.author?.hexpubkey || refEvent.pubkey,
+                  getAuthorKey(refEvent),
                   $ndk
                 );
                 if (refProfile) {
@@ -4146,7 +4168,7 @@
                 content: refEvent.content,
                 authorName: refAuthorName,
                 authorPicture: refAuthorPicture,
-                authorPubkey: refEvent.author?.hexpubkey || refEvent.pubkey,
+                authorPubkey: getAuthorKey(refEvent),
                 timestamp: refEvent.created_at
               };
               console.log('[DownloadImage] Referenced note found:', referencedNote);
@@ -5193,14 +5215,14 @@
                   <div class="flex items-center space-x-3 flex-1 min-w-0">
                     {#if !hideAvatar}
                       <a
-                        href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
+                        href="/user/{nip19.npubEncode(getAuthorKey(event))}"
                         class="flex-shrink-0 cursor-pointer"
                         on:click|stopPropagation={() =>
                           goto(
-                            `/user/${nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}`
+                            `/user/${nip19.npubEncode(getAuthorKey(event))}`
                           )}
                       >
-                        <Avatar pubkey={event.author?.hexpubkey || event.pubkey} size={40} />
+                        <Avatar pubkey={getAuthorKey(event)} size={40} />
                       </a>
                     {/if}
 
@@ -5577,7 +5599,7 @@
   isGeneratingImage={isGeneratingShareImage}
   onGenerateImage={shareModalEvent ? generateShareModalImage : null}
   authorPubkey={shareModalEvent
-    ? shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey
+    ? getAuthorKey(shareModalEvent)
     : ''}
 />
 
