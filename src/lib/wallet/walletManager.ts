@@ -92,12 +92,32 @@ export async function connectWallet(
           throw new Error('NWC connection URL required');
         }
         await connectNwc(data);
-        // Try to get wallet alias, fall back to pubkey-based name
+        // Probe the wallet before declaring success. A relay connection
+        // alone proves nothing: with a revoked string or a dead wallet
+        // node the relay connects fine but the wallet never answers, and
+        // every later balance/payment call then times out silently.
+        // Fail the connect with a clear message instead. A wallet that
+        // answers "not implemented" for get_info is alive though — accept
+        // it and fall back to the pubkey-based name.
         try {
           const info = await getNwcInfo();
           name = info.alias || getNwcDisplayName(data);
-        } catch {
-          name = getNwcDisplayName(data);
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          if (/not.?implemented|not.?supported/i.test(message)) {
+            name = getNwcDisplayName(data);
+          } else {
+            try {
+              await disconnectNwc();
+            } catch {
+              // connection state is already cleaned up
+            }
+            throw new Error(
+              /timeout/i.test(message)
+                ? 'Wallet did not respond — the wallet node may be down or the connection string revoked.'
+                : `Wallet rejected the connection: ${message}`
+            );
+          }
         }
         break;
 

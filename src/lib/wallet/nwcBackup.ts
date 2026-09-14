@@ -8,6 +8,7 @@
  */
 
 import { browser } from '$app/environment';
+import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import {
   hasEncryptionSupport as _hasEncryptionSupport,
   getBestEncryptionMethod,
@@ -145,9 +146,26 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
   };
   console.log('[NWC Restore] Fetching with filter:', JSON.stringify(filter));
 
-  // Fetch with timeout
+  // Fetch with a hard deadline. ndkReady resolves even when every relay
+  // failed to connect, and fetchEvents then waits for EOSE from relays
+  // that may never connect — without a race the promise never settles and
+  // the restore button spins forever with no error.
+  const FETCH_TIMEOUT_MS = 10000;
   const fetchStart = Date.now();
-  const events = await ndkInstance.fetchEvents(filter, { closeOnEose: true });
+  const events = await Promise.race([
+    ndkInstance.fetchEvents(filter, { closeOnEose: true }),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              'Nostr relays did not respond in time. Check your connection and try again.'
+            )
+          ),
+        FETCH_TIMEOUT_MS
+      )
+    )
+  ]);
   console.log(
     '[NWC Restore] Fetch completed in',
     Date.now() - fetchStart,
@@ -293,7 +311,13 @@ export async function hasNwcBackupOnNostr(pubkey: string): Promise<boolean> {
       '#d': [NWC_BACKUP_D_TAG]
     };
 
-    const events = await ndkInstance.fetchEvents(filter, { closeOnEose: true });
+    // Same deadline as the restore path — an unbounded fetchEvents can hang
+    // forever when a relay never connects, and a try/catch cannot rescue a
+    // promise that never settles.
+    const events = await Promise.race([
+      ndkInstance.fetchEvents(filter, { closeOnEose: true }),
+      new Promise<Set<NDKEvent>>((resolve) => setTimeout(() => resolve(new Set()), 10000))
+    ]);
     return events && events.size > 0;
   } catch (e) {
     console.error('[NWC Backup] Error checking for backup:', e);
