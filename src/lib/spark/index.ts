@@ -7,6 +7,7 @@
 
 import { browser } from '$app/environment';
 import { writable, get } from 'svelte/store';
+import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import {
   saveMnemonic,
   loadMnemonic,
@@ -1790,6 +1791,63 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
 
   logger.info('[Spark] Wallet backed up to Nostr successfully');
   return ndkEvent.rawEvent();
+}
+
+/**
+ * Check whether a specific Spark wallet (by wallet id) has a backup on
+ * Nostr relays. The per-wallet d-tag makes this an exact, indexed query —
+ * no decryption needed. EOSE settles a fast, definite false; the deadline
+ * returns null ("couldn't check"), so callers can distinguish "definitely
+ * not backed up" (false) from "unknown" (null).
+ */
+export async function hasSparkWalletBackupOnNostr(
+  pubkey: string,
+  walletId: string
+): Promise<boolean | null> {
+  if (!browser) return false;
+
+  try {
+    const { ndk, ndkReady } = await import('$lib/nostr');
+    const { get } = await import('svelte/store');
+
+    await ndkReady;
+    const ndkInstance = get(ndk);
+
+    const filter = {
+      kinds: [BACKUP_EVENT_KIND],
+      authors: [pubkey],
+      '#d': [getBackupTag(walletId)]
+    };
+
+    // Live subscription: resolve true on the first matching event, false
+    // on EOSE (every relay that got the REQ answered — a fast, definite
+    // "no backup" instead of burning the deadline), and null on the
+    // deadline (relays unreachable — "unknown", never a false "missing").
+    return await new Promise<boolean | null>((resolve) => {
+      const sub = ndkInstance.subscribe(filter, { closeOnEose: false });
+      let settled = false;
+      const done = (value: boolean | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        sub.stop();
+        resolve(value);
+      };
+      const timer = setTimeout(() => done(null), 10000);
+
+      sub.on('event', (event: NDKEvent) => {
+        // Ignore delete markers (empty replacements published to
+        // overwrite a backup).
+        if (!event.content || isDeletedBackupEvent(event)) return;
+        done(true);
+      });
+
+      sub.on('eose', () => done(false));
+    });
+  } catch (error) {
+    console.warn('[Spark] Failed to check wallet backup status:', error);
+    return null;
+  }
 }
 
 export async function listSparkBackups(pubkey: string): Promise<SparkBackupEntry[]> {

@@ -16,6 +16,7 @@ import {
   decrypt,
   detectEncryptionMethod,
   canCreateNostrBackup,
+  canDecryptSilently,
   type EncryptionMethod
 } from '$lib/encryptionService';
 
@@ -249,6 +250,89 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
 
   console.log('[NWC Restore] Successfully restored NWC connection from Nostr backup');
   return connectionString;
+}
+
+/**
+ * Check whether THIS connection string is the one held in the user's NWC
+ * Nostr backup (the backup is a single replaceable event, so it can hold
+ * at most one connection).
+ *
+ * Returns false when no backup exists (EOSE from the relays settles this
+ * fast). When a backup exists, an exact comparison is only possible
+ * without a signer prompt for local-key sessions (nsec / passkey vault) —
+ * for NIP-07 sessions this returns null ("unknown") instead of popping
+ * the extension's decrypt dialog, and callers should treat null as
+ * "assume backed up" rather than nag. Unreachable relays also return
+ * null, so a flaky network never produces a false "missing".
+ */
+export async function isNwcConnectionBackedUp(
+  pubkey: string,
+  connectionUrl: string
+): Promise<boolean | null> {
+  if (!browser) return null;
+
+  const { ndk, ndkReady } = await import('$lib/nostr');
+  const { get } = await import('svelte/store');
+
+  await ndkReady;
+  const ndkInstance = get(ndk);
+
+  const filter = {
+    kinds: [NWC_BACKUP_EVENT_KIND],
+    authors: [pubkey],
+    '#d': [NWC_BACKUP_D_TAG]
+  };
+
+  // Live subscription: resolve on the first matching event, on EOSE
+  // (every relay that got the REQ has answered — a fast, definite "no
+  // backup" instead of burning the deadline), or on the deadline, which
+  // means the relays were unreachable — "unknown", not "missing", so a
+  // flaky network never triggers a false callout.
+  const backupEvent = await new Promise<NDKEvent | null | 'deadline'>((resolve) => {
+    const sub = ndkInstance.subscribe(filter, { closeOnEose: false });
+    let settled = false;
+    const timer = setTimeout(() => finish('deadline'), 10000);
+    const finish = (value: NDKEvent | null | 'deadline') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      sub.stop();
+      resolve(value);
+    };
+
+    sub.on('event', (event: NDKEvent) => {
+      // Ignore delete markers (empty replacements published to overwrite
+      // a backup).
+      if (!event.content) return;
+      finish(event);
+    });
+
+    sub.on('eose', () => finish(null));
+  });
+
+  if (backupEvent === 'deadline') return null;
+  if (!backupEvent) return false;
+
+  if (!canDecryptSilently()) return null;
+
+  try {
+    const encryptionTag = backupEvent.tags?.find((t: string[]) => t[0] === 'encryption');
+    let encryptionMethod: EncryptionMethod;
+    if (encryptionTag?.[1] === 'nip04' || encryptionTag?.[1] === 'nip44') {
+      encryptionMethod = encryptionTag[1] as EncryptionMethod;
+    } else {
+      encryptionMethod = detectEncryptionMethod(backupEvent.content);
+    }
+
+    const backedUpString = await decrypt(
+      pubkey,
+      backupEvent.content as string,
+      encryptionMethod
+    );
+    return backedUpString?.trim() === connectionUrl.trim();
+  } catch {
+    return null;
+  }
 }
 
 export async function hasNwcBackupInNostr(pubkey: string): Promise<boolean> {

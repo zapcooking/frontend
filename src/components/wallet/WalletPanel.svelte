@@ -48,6 +48,7 @@
     backupNwcToNostr,
     restoreNwcFromNostr,
     hasNwcBackupInNostr,
+    isNwcConnectionBackedUp,
     hasEncryptionSupport as hasNwcEncryptionSupport,
     deleteBackupFromNostr as deleteNwcBackupFromNostr
   } from '$lib/wallet/nwcBackup';
@@ -58,6 +59,7 @@
     createBackup,
     backupWalletToNostr,
     listSparkBackups,
+    hasSparkWalletBackupOnNostr,
     restoreSparkBackup,
     hasSparkBackupInNostr,
     loadMnemonic,
@@ -929,6 +931,7 @@
 
     // Load backup status
     loadBackupStatus();
+    loadBackupCalloutDismissed();
 
     // Load transaction history if wallet is already connected (not for WebLN)
     if ($walletConnected && $activeWallet && $activeWallet.kind !== 1) {
@@ -2586,6 +2589,7 @@
       successMessage = 'Wallet backed up to Nostr relays!';
       saveBackupStatus('nostr');
       showBackupReminder = false;
+      if ($activeWallet?.kind === 4) activeWalletBackedUp = true;
     } catch (e) {
       errorMessage = getSignerErrorMessage(e, 'Failed to backup to Nostr');
     } finally {
@@ -2617,6 +2621,125 @@
   function dismissBackupReminder() {
     showBackupReminder = false;
     backupReminderDismissed = true;
+    // Dismissing the post-create banner also covers the lean callout for
+    // this wallet — the user has said "not now" once already.
+    if ($activeWallet && ($activeWallet.kind === 3 || $activeWallet.kind === 4)) {
+      dismissWalletBackupCallout();
+    }
+  }
+
+  // ── Unbacked-wallet callout ──────────────────────────────────────────
+  // Nags when the active NWC / Spark wallet's connection isn't in the
+  // user's backups. `null` means "unknown / can't check silently" and
+  // never shows the callout — we only nag on a definite miss.
+  let activeWalletBackedUp: boolean | null = null;
+  let lastBackupCoverageKey = '';
+  const backupCalloutDismissed = new Set<string>();
+  const BACKUP_CALLOUT_KEY = 'wallet_backup_callout_dismissed';
+
+  function walletBackupKey(wallet: { kind: number; data: string }): string {
+    // FNV-1a fingerprint — the raw NWC connection string must never end
+    // up in a localStorage key.
+    let h = 0x811c9dc5;
+    for (let i = 0; i < wallet.data.length; i++) {
+      h ^= wallet.data.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return `${wallet.kind}:${(h >>> 0).toString(16)}`;
+  }
+
+  function loadBackupCalloutDismissed() {
+    if (!browser || !$userPublickey) return;
+    try {
+      const raw = localStorage.getItem(`${BACKUP_CALLOUT_KEY}_${$userPublickey}`);
+      backupCalloutDismissed.clear();
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object') {
+        for (const key of Object.keys(parsed)) backupCalloutDismissed.add(key);
+      }
+    } catch {
+      backupCalloutDismissed.clear();
+    }
+  }
+
+  function dismissWalletBackupCallout() {
+    if (!$activeWallet) return;
+    backupCalloutDismissed.add(walletBackupKey($activeWallet));
+    if (!browser || !$userPublickey) return;
+    try {
+      const entries = Object.fromEntries([...backupCalloutDismissed].map((k) => [k, true]));
+      localStorage.setItem(`${BACKUP_CALLOUT_KEY}_${$userPublickey}`, JSON.stringify(entries));
+    } catch {
+      /* storage full/blocked — dismissal just won't persist */
+    }
+  }
+
+  async function checkActiveWalletBackup() {
+    const wallet = $activeWallet;
+    if (!wallet || !$userPublickey || (wallet.kind !== 3 && wallet.kind !== 4)) {
+      activeWalletBackedUp = null;
+      return;
+    }
+
+    try {
+      if (wallet.kind === 3) {
+        // null (NIP-07 session with an existing backup — comparing would
+        // prompt the extension) is treated as backed up; see nwcBackup.
+        activeWalletBackedUp = await isNwcConnectionBackedUp($userPublickey, wallet.data);
+        return;
+      }
+
+      // Spark: wallet.data holds the wallet id. Legacy entries may store a
+      // placeholder instead — those can't be matched to a per-wallet
+      // backup, so leave the state unknown rather than nag blindly.
+      if (!/^[0-9a-f]{16}$/.test(wallet.data)) {
+        activeWalletBackedUp = null;
+        return;
+      }
+
+      const onRelay = await hasSparkWalletBackupOnNostr($userPublickey, wallet.data);
+      if (onRelay === true) {
+        activeWalletBackedUp = true;
+        return;
+      }
+      // Paper backups never touch the relays — the completion flag the
+      // write-down flow sets is the only record of them.
+      const paperDone =
+        browser && !!localStorage.getItem(`${BACKUP_STATUS_KEY}_${$userPublickey}`);
+      activeWalletBackedUp = paperDone ? true : onRelay;
+    } catch {
+      activeWalletBackedUp = null;
+    }
+  }
+
+  // Re-check whenever the active wallet (or user) changes — this also
+  // fires right after a wallet is added, since connecting makes it active.
+  $: if ($userPublickey && $activeWallet) {
+    const coverageKey = `${$userPublickey}:${$activeWallet.kind}:${$activeWallet.data}`;
+    if (coverageKey !== lastBackupCoverageKey) {
+      lastBackupCoverageKey = coverageKey;
+      activeWalletBackedUp = null; // stays hidden while the check runs
+      void checkActiveWalletBackup();
+    }
+  }
+
+  // The rich post-create banner owns the moment while it's up; the lean
+  // callout takes over only after it's dismissed and the wallet is still
+  // unbacked.
+  $: showUnbackedWalletCallout =
+    $activeWallet !== null &&
+    ($activeWallet?.kind === 3 || $activeWallet?.kind === 4) &&
+    activeWalletBackedUp === false &&
+    !(showBackupReminder && !backupReminderDismissed) &&
+    !backupCalloutDismissed.has(walletBackupKey($activeWallet!));
+
+  async function handleBackupActiveWalletNow() {
+    if (!$activeWallet) return;
+    if ($activeWallet.kind === 3) {
+      await handleNwcBackupToNostr($activeWallet);
+    } else if ($activeWallet.kind === 4) {
+      await handleBackupToNostr();
+    }
   }
 
   function handleShowPaperBackup() {
@@ -2640,6 +2763,7 @@
     try {
       await backupNwcToNostr($userPublickey, wallet.data);
       successMessage = 'NWC connection backed up to Nostr relays!';
+      if ($activeWallet && $activeWallet.data === wallet.data) activeWalletBackedUp = true;
     } catch (e) {
       errorMessage = getSignerErrorMessage(e, 'Failed to backup to Nostr');
     } finally {
@@ -3321,6 +3445,60 @@
               href="#pending-deposits"
               class="ml-auto text-xs font-medium text-amber-500 hover:text-amber-400">View</a
             >
+          </div>
+        {/if}
+
+        <!-- Unbacked wallet callout: active NWC/Spark wallet missing from
+             the user's backups. Dismissable; dismissal persists per
+             wallet (fingerprinted key, never the raw connection string). -->
+        {#if showUnbackedWalletCallout && $activeWallet}
+          <div
+            class="mb-4 p-4 rounded-2xl"
+            style="background-color: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3);"
+          >
+            <div class="flex items-start gap-3">
+              <WarningIcon size={22} class="text-amber-500 flex-shrink-0 mt-0.5" />
+              <div class="flex-1">
+                <p class="font-medium text-primary-color mb-1">Back up your wallet</p>
+                <p class="text-sm text-caption mb-3">
+                  {#if $activeWallet.kind === 3}
+                    {$activeWallet.name} isn't in your backups — without the saved connection
+                    string your funds may become inaccessible.
+                  {:else}
+                    {$activeWallet.name} isn't in your backups — if you lose this device, its
+                    funds are gone.
+                  {/if}
+                </p>
+                <div class="flex items-center gap-4">
+                  {#if encryptionSupported && !isNip46User}
+                    <button
+                      class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50"
+                      on:click={handleBackupActiveWalletNow}
+                      disabled={isBackingUp}
+                    >
+                      <CloudArrowUpIcon size={14} />
+                      {isBackingUp ? 'Backing up…' : 'Back up to Nostr'}
+                    </button>
+                  {:else}
+                    <span class="text-xs text-caption">
+                      {#if $activeWallet.kind === 3}
+                        Cloud backup is unavailable with your signer — save the NWC connection
+                        string somewhere safe.
+                      {:else}
+                        Cloud backup is unavailable with your signer — write down your recovery
+                        phrase.
+                      {/if}
+                    </span>
+                  {/if}
+                  <button
+                    class="text-xs text-caption hover:text-primary-color transition-colors cursor-pointer"
+                    on:click={dismissWalletBackupCallout}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         {/if}
 
