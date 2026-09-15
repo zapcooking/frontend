@@ -1759,7 +1759,7 @@
   // it bare; fall back to the event's own pubkey field.
   function getAuthorKey(event: NDKEvent): string {
     try {
-      return getAuthorKey(event) || '';
+      return event.author?.hexpubkey || event.pubkey || '';
     } catch {
       return event.pubkey || '';
     }
@@ -3412,7 +3412,12 @@
   // ═══════════════════════════════════════════════════════════════
 
   async function loadMore() {
-    if (loadingMore || !hasMore || Date.now() < loadMoreCooldownUntil) return;
+    // `loading` too: the cooldown-retry timer in the intersection
+    // callback fires on a delay and must not run against a feed that a
+    // tab switch or reload has begun resetting (empty events, fresh
+    // hasMore) — a page fetched there could strand the new feed's
+    // pagination.
+    if (loading || loadingMore || !hasMore || Date.now() < loadMoreCooldownUntil) return;
 
     try {
       loadingMore = true;
@@ -4710,36 +4715,45 @@
     // STALE-WHILE-REVALIDATE: Show cached content instantly, then refresh
     // ═══════════════════════════════════════════════════════════════
 
-    // Step 1: Try to render cached content immediately (0ms perceived load)
+    // Step 1: Try to render cached content immediately (0ms perceived load).
+    // Same threshold as the tab-switch path: a nearly-empty instant cache
+    // isn't worth painting as the final state — one stale note plus a
+    // refresh that can fail leaves the feed stranded at that note with a
+    // dead loader (the reported symptom). Fall through to the full load.
     const cached = loadFromInstantCache(filterMode);
-    if (cached && cached.events.length > 0) {
-      const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
+    const hydratedEvents = cached
+      ? cached.events.map(hydrateFromCache).filter(passesFeedFilters)
+      : [];
 
-      if (hydratedEvents.length > 0) {
-        // Add to seen set
-        hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
+    if (hydratedEvents.length >= 5) {
+      // Add to seen set
+      hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
 
-        events = hydratedEvents;
-        preseedRenderedNotes(20);
-        loading = false; // No loading spinner - we have content!
-        feedInitialLoadDone.set(true);
-        error = false;
-        hasMore = true;
-        loadingMore = false;
-        lastEventTime = Math.max(...events.map(getEventSortTime));
+      events = hydratedEvents;
+      preseedRenderedNotes(20);
+      loading = false; // No loading spinner - we have content!
+      feedInitialLoadDone.set(true);
+      error = false;
+      hasMore = true;
+      loadingMore = false;
+      lastEventTime = Math.max(...events.map(getEventSortTime));
 
-        console.log(`[Feed] Rendered ${events.length} cached events instantly`);
+      console.log(`[Feed] Rendered ${events.length} cached events instantly`);
 
-        // Step 2: Fetch fresh content in background
-        backgroundLoading = true;
-        try {
-          await fetchFreshAndMerge();
-        } finally {
-          backgroundLoading = false;
+      // Step 2: Fetch fresh content in background; if it dies (Primal
+      // down, fetch threw), fall back to the full relay load — the
+      // painted cache must not be the last word.
+      backgroundLoading = true;
+      try {
+        const outcome = await fetchFreshAndMerge();
+        if (outcome === 'failed' && !isDestroyed && filterMode === lastFilterMode) {
+          await loadFoodstrFeed(false);
         }
-
-        return; // Done - we showed cached content and refreshed in background
+      } finally {
+        backgroundLoading = false;
       }
+
+      return; // Done - we showed cached content and refreshed in background
     }
 
     // No usable cache - fall back to normal loading flow

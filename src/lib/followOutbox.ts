@@ -228,26 +228,41 @@ export async function fetchFollowList(
     // short-circuits to zero events when follows are empty, so a cached
     // timeout-empty poisons the initial load AND every pagination page
     // for the cache lifetime (feed collapses to a couple of notes).
+    // Implemented as a plain subscription (not ndk.fetchEvent) so the
+    // deadline can actually STOP the request — a raced fetchEvent leaves
+    // its subscription running against relays that never answer, and
+    // repeated pages would accumulate that stuck relay work.
     const FOLLOW_LIST_FETCH_TIMEOUT_MS = 5000;
-    const TIMED_OUT = Symbol('follow-list-timeout');
-    let followListTimeoutId: ReturnType<typeof setTimeout>;
-    const followListDeadline = new Promise<typeof TIMED_OUT>((resolve) => {
-      followListTimeoutId = setTimeout(() => resolve(TIMED_OUT), FOLLOW_LIST_FETCH_TIMEOUT_MS);
+    let settled = false;
+    let sub: { stop: () => void } | null = null;
+    const contactEvent = await new Promise<NDKEvent | null | 'timeout'>((resolve) => {
+      const finish = (value: NDKEvent | null | 'timeout') => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          sub?.stop();
+        } catch {
+          /* already stopped */
+        }
+        resolve(value);
+      };
+      const timer = setTimeout(() => {
+        console.warn('[Outbox] Contact list fetch timed out');
+        finish('timeout');
+      }, FOLLOW_LIST_FETCH_TIMEOUT_MS);
+
+      const subscription = ndk.subscribe(
+        { kinds: [3], authors: [userPubkey], limit: 1 },
+        { closeOnEose: true }
+      );
+      sub = subscription;
+      subscription.on('event', (event: NDKEvent) => finish(event));
+      // EOSE from the relay set is a definitive answer: no contact event.
+      subscription.on('eose', () => finish(null));
     });
 
-    const contactEvent = await Promise.race([
-      ndk
-        .fetchEvent({
-          kinds: [3],
-          authors: [userPubkey],
-          limit: 1
-        })
-        .then((e) => e ?? null),
-      followListDeadline
-    ]);
-    clearTimeout(followListTimeoutId!);
-
-    if (contactEvent === TIMED_OUT) {
+    if (contactEvent === 'timeout') {
       if (cachedFollowList && followListPubkey === userPubkey) {
         console.warn('[Outbox] Contact list fetch timed out — using stale cache');
         return cachedFollowList;
