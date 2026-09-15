@@ -355,11 +355,11 @@
           <p class="text-xs text-red-700 dark:text-red-300">
             Turning off passkey protection stores your key in plain text in this browser again.
             Before continuing, make sure you have your nsec backed up — use "Download key backup"
-            or "Reveal Private Key" below, or confirm you already saved it. You'll be asked to
-            unlock with your passkey to confirm.
+            here or "Reveal Private Key" further down, or confirm you already saved it. You'll be
+            asked to unlock with your passkey to confirm.
           </p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <button
             type="button"
             class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
@@ -368,6 +368,19 @@
           >
             {busy ? 'Waiting for passkey…' : 'Unlock & turn off'}
           </button>
+          {#if sessionKeyHex && sessionNpub}
+            <!-- The warning above cites this action, so it must stay reachable
+                 while the panel is open (review on #738). -->
+            <button
+              type="button"
+              class="px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm font-medium transition-colors"
+              style="color: var(--color-text-primary)"
+              on:click={downloadBackup}
+              disabled={busy}
+            >
+              Download key backup
+            </button>
+          {/if}
           <button
             type="button"
             class="px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm transition-colors"

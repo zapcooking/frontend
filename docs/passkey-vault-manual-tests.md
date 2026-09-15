@@ -69,7 +69,7 @@ rows below are the regression check for the extraction.
 
 | # | Steps | Expected | Chrome desktop | Android Chrome |
 |---|-------|----------|----------------|----------------|
-| 15 | Settings → Security → "Turn off passkey protection" → "Unlock & turn off" → complete passkey ceremony | Plaintext key restored in localStorage; vault record gone; session continues as privateKey; backup warning shown before ceremony; notice reads "Passkey protection is off…" | ☐ | ☐ |
+| 15 | Settings → Security → "Turn off passkey protection" → "Unlock & turn off" → complete passkey ceremony | Plaintext key restored in localStorage; vault record gone; session continues as privateKey; backup warning shown before ceremony with a working "Download key backup" button in the confirmation row; notice reads "Passkey protection is off…" | ☐ | ☐ |
 | 16 | Same but cancel the ceremony | Nothing changes: record present, no plaintext | ☐ | ☐ |
 
 ## Conflict / replace flows
