@@ -11,6 +11,8 @@
  * section appears when restore completes rather than at first paint.
  */
 
+import type { VaultSupportReason } from '$lib/passkeyVault';
+
 export type SecuritySection = 'privateKey' | 'nip46' | 'nip07' | null;
 
 export function resolveSecuritySections(ctx: {
@@ -33,38 +35,76 @@ export function resolveSecuritySections(ctx: {
   return null;
 }
 
-export type VaultSectionState = 'offer' | 'enrolled' | null;
+/** Why the vault card is hidden. Support gates mirror VaultSupportReason; the last two are session gates. */
+export type VaultHiddenReason =
+  | 'native'
+  | 'unsupported-origin'
+  | 'insecure-context'
+  | 'no-webauthn'
+  | 'no-prf'
+  | 'external-signer'
+  | 'foreign-record'
+  | 'stale-session';
 
 /**
- * Decides whether Settings → Security shows passkey-vault management UI.
+ * Discriminated render decision for the vault card. `null` means "no card at
+ * all" and is reserved for logged-out / anonymous — every other gate yields
+ * a `hidden` result so the card can say WHY the feature is absent instead
+ * of looking like it was never shipped.
+ */
+export type VaultSectionResult =
+  | { kind: 'enrolled' }
+  | { kind: 'offer' }
+  | { kind: 'hidden'; reason: VaultHiddenReason }
+  | null;
+
+/**
+ * Decides what Settings → Security shows for the passkey vault.
  *
  * The vault is identity-bound: management renders ONLY inside an nsec
  * session (privateKey/passkey) whose pubkey owns the record. A record for a
- * different account — or any nip07/nip46/anonymous session — gets NO
- * management UI: the vault is inert there, and account mismatch is owned by
- * the login-time VaultConflictError flow, not settings. This gate is the UI
- * layer; AuthManager.removeVault independently refuses a pubkey mismatch
- * (defense-in-depth per the B ruling).
+ * different account — or any nip07/nip46 session — gets NO management UI
+ * (the vault is inert there, and account mismatch is owned by the login-time
+ * VaultConflictError flow, not settings), but it DOES get an explanatory
+ * row. This gate is the UI layer; AuthManager.removeVault independently
+ * refuses a pubkey mismatch (defense-in-depth per the B ruling).
+ *
+ * Invariant: the inputs that produce 'enrolled' and 'offer' are exactly
+ * those of the pre-`hidden` version — button visibility never changed.
  */
 export function resolveVaultSection(ctx: {
   support: 'full' | 'no-prf' | 'none';
+  /** Why support is not 'full' (from detectSupportDetail); null when 'full'. */
+  supportReason: VaultSupportReason;
   /** Live AuthManager authMethod, or null when not authenticated. */
   sessionMethod: string | null;
   /** Live session pubkey ('' when not authenticated). */
   sessionPubkey: string;
   /** Vault record pubkey, or null when no record exists. */
   recordPubkey: string | null;
-}): VaultSectionState {
-  if (ctx.support === 'none') return null;
+}): VaultSectionResult {
+  // Logged out / anonymous: no card, explanatory or otherwise. Checked first
+  // so a logged-out page stays clean even where support is 'none'.
+  if (!ctx.sessionMethod || ctx.sessionMethod === 'anonymous' || !ctx.sessionPubkey) return null;
+  if (ctx.support === 'none') {
+    return { kind: 'hidden', reason: ctx.supportReason ?? 'no-webauthn' };
+  }
   const nsecSession = ctx.sessionMethod === 'privateKey' || ctx.sessionMethod === 'passkey';
-  if (!nsecSession || !ctx.sessionPubkey) return null;
+  if (!nsecSession) return { kind: 'hidden', reason: 'external-signer' };
   if (ctx.recordPubkey) {
-    return ctx.recordPubkey === ctx.sessionPubkey ? 'enrolled' : null;
+    return ctx.recordPubkey === ctx.sessionPubkey
+      ? { kind: 'enrolled' }
+      : { kind: 'hidden', reason: 'foreign-record' };
   }
   // No record: offer enrollment only for plaintext sessions with confirmed
-  // PRF support ('no-prf' would fail the ceremony; a passkey session without
-  // a record is not a reachable state).
-  return ctx.support === 'full' && ctx.sessionMethod === 'privateKey' ? 'offer' : null;
+  // PRF support ('no-prf' would fail the ceremony).
+  if (ctx.support === 'full' && ctx.sessionMethod === 'privateKey') return { kind: 'offer' };
+  if (ctx.support === 'no-prf') return { kind: 'hidden', reason: 'no-prf' };
+  // Passkey session that has outlived its local record. Reachable: the sync
+  // sign-in publishes the passkey state BEFORE persisting the record (a
+  // subscriber sees this transiently), and another tab can remove the vault
+  // independently. Say so rather than render nothing.
+  return { kind: 'hidden', reason: 'stale-session' };
 }
 
 /**
