@@ -1,5 +1,7 @@
 <script lang="ts">
   import Button from './Button.svelte';
+  import KeyBackupGate from './KeyBackupGate.svelte';
+  import { bytesToHex } from '$lib/keyBackupGate';
   import { ndk, userPublickey } from '$lib/nostr';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
@@ -69,17 +71,13 @@
   // Modal states
   let nsecModal = false;
   let generateModal = false;
-  let showPrivateKey = false;
   let backupStep = 1;
-  // Two ways to have saved the key, and the step advances on either. The
-  // download cannot be verified — link.click() returns whether or not the
-  // browser's save dialog was completed — so gating only on it blocked
-  // someone who put the key in a password manager while still passing
-  // someone who cancelled the dialog. Copying the nsec is the other real
-  // save; the npub is not a backup and does not count.
-  let backupDownloaded = false;
-  let backupCopied = false;
-  $: backupSaved = backupDownloaded || backupCopied;
+  // Set by KeyBackupGate's `satisfied` event: a download or a verified
+  // clipboard copy of the nsec (the gate owns that logic — see
+  // backupGateSatisfied). Signup never allows the self-attested backup, so
+  // once true it stays true until the keys are regenerated or the modal
+  // resets.
+  let backupSaved = false;
   let bunkerModal = false;
   let nip46UniversalModal = false;
 
@@ -539,8 +537,7 @@
     if (!authManager) return;
     generatedKeys = authManager.generateKeyPair();
     backupStep = 1;
-    backupDownloaded = false;
-    backupCopied = false;
+    backupSaved = false;
     secureEnrolled = false;
     secureError = '';
     secureOrphanNote = false;
@@ -605,37 +602,6 @@
 
   function skipSecureStep() {
     securePending = false;
-  }
-
-  function downloadKeysBackup() {
-    if (!browser || !generatedKeys) return;
-    const nsec = nip19.nsecEncode(generatedKeys.privateKey);
-    const npub = nip19.npubEncode(generatedKeys.publicKey);
-    const content = [
-      'Zap Cooking Nostr Backup',
-      '',
-      `Public key (npub): ${npub}`,
-      '',
-      `Private key (nsec): ${nsec}`,
-      '',
-      'Keep this file safe:',
-      '- Do not share your private key.',
-      '- Store in a secure password manager or offline storage.',
-      '- You can restore your profile in any Nostr client.',
-      '- Zap Cooking: https://zap.cooking',
-      '- Anyone with this file can access your profile.'
-    ].join('\n');
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const date = new Date().toISOString().slice(0, 10);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `zapcooking-keys-${date}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    backupDownloaded = true;
   }
 
   async function useGeneratedKeys(skipProfile = false, replaceVault = false) {
@@ -711,15 +677,6 @@
     }
   }
 
-  // Copying the nsec into a password manager is a real backup, so it clears
-  // the same step the downloaded file does — but only if the copy succeeded.
-  async function copyBackupKey() {
-    if (!generatedKeys) return;
-    if (await copyToClipboard(nip19.nsecEncode(generatedKeys.privateKey))) {
-      backupCopied = true;
-    }
-  }
-
   async function startUniversalPairing() {
     if (!authManager) return;
     try {
@@ -765,10 +722,8 @@
     googlePinConfirm = '';
     googleError = '';
     googleBusy = false;
-    showPrivateKey = false;
     backupStep = 1;
-    backupDownloaded = false;
-    backupCopied = false;
+    backupSaved = false;
     nsecInput = '';
     nsecError = '';
     bunkerConnectionString = '';
@@ -1334,37 +1289,14 @@
             {/if}
             {#if backupStep === 1}
               <p class="text-xs text-caption uppercase tracking-wide mb-2">Step 1</p>
-              <div>
-                <p class="block text-sm font-medium mb-1" style="color: var(--color-text-primary)">Backup key (private)</p>
-                {#if showPrivateKey}
-                  <div class="flex flex-col sm:flex-row gap-2">
-                    <textarea id="private-key-textarea" readonly value={nip19.nsecEncode(generatedKeys.privateKey)} rows="2" class="flex-1 min-w-0 input text-sm font-mono p-3"></textarea>
-                    <button on:click={copyBackupKey} class="flex-shrink-0 px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors" style="color: var(--color-text-primary)">Copy</button>
-                  </div>
-                  <div class="flex items-center justify-between mt-1.5">
-                    <p class="text-xs text-amber-600">⚠️ Anyone with this key can control your profile. Never share it.</p>
-                    <button on:click={() => (showPrivateKey = false)} class="text-xs text-caption hover:opacity-80 underline">Hide</button>
-                  </div>
-                {:else}
-                  <div class="flex flex-col sm:flex-row gap-2">
-                    <div class="flex-1 min-w-0 bg-input border rounded-lg p-3 text-sm text-caption font-mono overflow-hidden whitespace-nowrap" style="border-color: var(--color-input-border)">••••••••••••••••••••••••••••••••</div>
-                    <button on:click={() => (showPrivateKey = true)} class="flex-shrink-0 px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm font-medium transition-colors" style="color: var(--color-text-primary)">Reveal</button>
-                  </div>
-                  <p class="text-xs text-caption mt-1.5">Reveal to copy and save securely</p>
-                {/if}
-              </div>
-              <div>
-                <label for="public-key-input" class="block text-sm font-medium mb-1" style="color: var(--color-text-primary)">Public identity (npub)</label>
-                <div class="flex flex-col sm:flex-row gap-2">
-                  <input id="public-key-input" readonly value={nip19.npubEncode(generatedKeys.publicKey)} class="flex-1 min-w-0 input text-sm font-mono p-3" />
-                  <button on:click={() => generatedKeys && copyToClipboard(nip19.npubEncode(generatedKeys.publicKey))} class="flex-shrink-0 px-3 py-2 bg-accent-gray hover:opacity-80 rounded-lg text-sm transition-colors" style="color: var(--color-text-primary)">Copy</button>
-                </div>
-                <p class="text-xs text-caption mt-1.5">This is safe to share - it's your public identity</p>
-              </div>
-              <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
-                <p class="text-sm text-caption">Download a backup file with your keys and safety notes.</p>
-                <Button on:click={downloadKeysBackup} primary={true} class="w-full mt-3">Download backup file</Button>
-              </div>
+              <!-- Signup never allows the self-attested backup: a brand-new key
+                   cannot already be backed up. allowAcknowledge stays false. -->
+              <KeyBackupGate
+                nsecHex={bytesToHex(generatedKeys.privateKey)}
+                npub={nip19.npubEncode(generatedKeys.publicKey)}
+                allowAcknowledge={false}
+                on:satisfied={() => (backupSaved = true)}
+              />
               <Button on:click={() => (backupStep = 2)} primary={false} class="w-full {!backupSaved ? 'opacity-50 cursor-not-allowed' : ''}" disabled={!backupSaved}>Next</Button>
               {#if !backupSaved}
                 <p class="text-xs text-caption text-center">Save your key to continue — download the file, or reveal and copy it.</p>

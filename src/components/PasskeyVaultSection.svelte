@@ -25,6 +25,10 @@
     syncableKeyEntry
   } from '$lib/passkeySync';
   import ShieldCheckIcon from 'phosphor-svelte/lib/ShieldCheck';
+  import { nip19 } from 'nostr-tools';
+  import KeyBackupGate from './KeyBackupGate.svelte';
+  import { downloadKeysBackupFile } from '$lib/keyBackupGate';
+  import { hexToBytes } from '$lib/passkeyVaultCrypto';
 
   const dispatch = createEventDispatcher();
 
@@ -44,12 +48,18 @@
   let recordSyncable = false;
   // R1: toggle at enrollment, DEFAULT ON.
   let enrollWithSync = true;
+  // Backup gate before enrollment (offer) — and the download button while
+  // enrolled — both need the session key, which for an unlocked passkey
+  // session exists ONLY in memory: same gate as the nsec reveal below.
+  let sessionKeyHex: string | null = null;
+  let backupOk = false;
 
   function refresh() {
     const am = getAuthManager();
     authState = am?.getState() ?? null;
     const record = getVaultRecord();
     recordPubkey = record?.pubkey ?? null;
+    sessionKeyHex = am?.getSessionPrivateKeyHex() ?? null;
     syncOn = isSyncEnabled();
     recordSyncable = !!syncableKeyEntry(record);
   }
@@ -129,6 +139,18 @@
     'stale-session':
       'This browser no longer has the vault for your passkey session. Sign out and back in to refresh passkey status.'
   };
+
+  $: sessionNpub = authState?.publicKey ? nip19.npubEncode(authState.publicKey) : '';
+  // backupOk mirrors the CURRENT offer gate only. Enroll → the gate is
+  // destroyed; turn off later → `offer` returns with a fresh, unsatisfied
+  // gate, and a stale true here would enable enrollment without a new
+  // backup. (A key change while the gate is mounted resets inside the gate.)
+  $: if (card?.kind !== 'offer') backupOk = false;
+
+  function downloadBackup() {
+    if (!sessionKeyHex || !sessionNpub) return;
+    downloadKeysBackupFile(nip19.nsecEncode(hexToBytes(sessionKeyHex)), sessionNpub);
+  }
 
   function friendlyError(e: unknown, fallback: string): string {
     if (isCeremonyCancelled(e)) return '';
@@ -305,14 +327,27 @@
       {/if}
 
       {#if !confirmingRemoval}
-        <button
-          type="button"
-          class="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-sm font-medium transition-colors"
-          on:click={() => (confirmingRemoval = true)}
-          disabled={busy}
-        >
-          Remove passkey protection…
-        </button>
+        <div class="flex flex-wrap gap-2">
+          {#if sessionKeyHex && sessionNpub}
+            <button
+              type="button"
+              class="px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm font-medium transition-colors"
+              style="color: var(--color-text-primary)"
+              on:click={downloadBackup}
+              disabled={busy}
+            >
+              Download key backup
+            </button>
+          {/if}
+          <button
+            type="button"
+            class="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-sm font-medium transition-colors"
+            on:click={() => (confirmingRemoval = true)}
+            disabled={busy}
+          >
+            Remove passkey protection…
+          </button>
+        </div>
       {:else}
         <div
           class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3"
@@ -347,9 +382,19 @@
     {:else}
       <p class="text-xs text-caption mb-3">
         Your key is currently stored in plain text in this browser. A passkey encrypts it so only
-        you can unlock it. The passkey is <strong>not</strong> a backup — reveal and save your nsec
-        below first.
+        you can unlock it. The passkey is <strong>not</strong> a backup — save your nsec first.
       </p>
+      {#if sessionKeyHex && sessionNpub}
+        <div class="mb-3">
+          <KeyBackupGate
+            nsecHex={sessionKeyHex}
+            npub={sessionNpub}
+            allowAcknowledge={true}
+            on:satisfied={() => (backupOk = true)}
+            on:unsatisfied={() => (backupOk = false)}
+          />
+        </div>
+      {/if}
       {#if PASSKEY_SYNC_ENABLED}
         <!-- R1(b): opt-in toggle at enrollment, default ON, plain disclosure. -->
         <label class="flex items-start gap-2 mb-3 cursor-pointer">
@@ -364,12 +409,18 @@
           </span>
         </label>
       {/if}
+      {#if !backupOk}
+        <p class="text-xs text-caption mb-2">
+          Save your key to continue — download the file, reveal and copy it, or confirm you already
+          have it.
+        </p>
+      {/if}
       <button
         type="button"
         class="px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
         style="color: var(--color-text-primary)"
         on:click={enroll}
-        disabled={busy}
+        disabled={busy || !backupOk}
       >
         {busy ? 'Waiting for passkey…' : 'Set up passkey protection'}
       </button>
