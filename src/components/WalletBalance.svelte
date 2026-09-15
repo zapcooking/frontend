@@ -122,7 +122,8 @@
   }
 
   async function handleRefresh() {
-    await refreshBalance();
+    // User-triggered: fail fast on a dead NWC wallet (single attempt).
+    await refreshBalance(false, { fastFailNwc: true });
   }
 
   function handleSwitchWallet(walletId: number) {
