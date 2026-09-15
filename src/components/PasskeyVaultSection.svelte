@@ -141,6 +141,11 @@
   };
 
   $: sessionNpub = authState?.publicKey ? nip19.npubEncode(authState.publicKey) : '';
+  // backupOk mirrors the CURRENT offer gate only. Enroll → the gate is
+  // destroyed; turn off later → `offer` returns with a fresh, unsatisfied
+  // gate, and a stale true here would enable enrollment without a new
+  // backup. (A key change while the gate is mounted resets inside the gate.)
+  $: if (card?.kind !== 'offer') backupOk = false;
 
   function downloadBackup() {
     if (!sessionKeyHex || !sessionNpub) return;

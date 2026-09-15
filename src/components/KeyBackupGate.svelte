@@ -35,6 +35,20 @@
   let acknowledged = false;
   let wasSatisfied = false;
 
+  // Saves are per KEY, not per component lifetime. The prompt and Settings
+  // stay mounted across session changes and signup can regenerate its key,
+  // so a backup of key A must never satisfy the gate for key B: every
+  // change of nsecHex resets the flags (the reactive block below then
+  // dispatches `unsatisfied` if the gate had been satisfied).
+  let trackedKey = nsecHex;
+  $: if (nsecHex !== trackedKey) {
+    trackedKey = nsecHex;
+    showPrivateKey = false;
+    downloaded = false;
+    copiedVerified = false;
+    acknowledged = false;
+  }
+
   $: nsec = nsecHex ? nip19.nsecEncode(hexToBytes(nsecHex)) : '';
   $: satisfied = backupGateSatisfied({
     downloaded,

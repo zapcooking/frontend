@@ -43,6 +43,13 @@
   let backupOk = false;
   let nsecHex = '';
   let npub = '';
+  // backupOk mirrors the CURRENT gate only. The gate unmounts whenever the
+  // prompt hides (snooze, logout, session change) and a later eligible
+  // session mounts a fresh, unsatisfied one — the flag must not survive
+  // that, or enrollment would be enabled without backing up the new key.
+  // (A key change while mounted is handled inside the gate, which then
+  // dispatches `unsatisfied`.)
+  $: if (!visible) backupOk = false;
 
   function evaluate() {
     if (!browser || !authState || busy || done) return;
