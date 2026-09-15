@@ -11,6 +11,7 @@
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { getAuthManager, type AuthState } from '$lib/authManager';
   import {
+    VAULT_STORAGE_KEY,
     detectSupportDetail,
     getVaultRecord,
     isCeremonyCancelled,
@@ -32,6 +33,7 @@
   let recordPubkey: string | null = null;
   let authState: AuthState | null = null;
   let unsubscribe: (() => void) | null = null;
+  let attachRetry: ReturnType<typeof setInterval> | null = null;
   let busy = false;
   let notice = '';
   let errorMsg = '';
@@ -52,13 +54,54 @@
     recordSyncable = !!syncableKeyEntry(record);
   }
 
+  // Auth flows notify subscribers synchronously from updateState(), and the
+  // synced passkey sign-in persists its vault record only AFTER that notify.
+  // Reading the record inside the listener would see a passkey session with
+  // no record; deferring one microtask lets the same-task persist land first.
+  function onAuthChange() {
+    refresh();
+    queueMicrotask(refresh);
+  }
+
+  // On a HARD load of /settings this component mounts before the layout's
+  // onMount has created the AuthManager, so a one-shot subscribe attaches
+  // nothing and authState stays null — the card (even the explanatory row)
+  // would be omitted for an authenticated session. Same retry as +page.svelte.
+  function attachAuthSubscription(): boolean {
+    const am = getAuthManager();
+    if (!am) return false;
+    unsubscribe = am.subscribe(onAuthChange);
+    refresh();
+    return true;
+  }
+
+  // Cross-tab: the vault record lives in localStorage, so a removal or
+  // enrollment in another tab must refresh this card (foreign / stale copy).
+  function onStorage(e: StorageEvent) {
+    if (e.key === null || e.key === VAULT_STORAGE_KEY) refresh();
+  }
+
   onMount(async () => {
     ({ support, reason: supportReason } = await detectSupportDetail());
     refresh();
-    unsubscribe = getAuthManager()?.subscribe(() => refresh()) ?? null;
+    window.addEventListener('storage', onStorage);
+    if (!attachAuthSubscription()) {
+      let tries = 0;
+      attachRetry = setInterval(() => {
+        if (attachAuthSubscription() || ++tries >= 20) {
+          if (attachRetry) clearInterval(attachRetry);
+          attachRetry = null;
+        }
+      }, 500);
+    }
   });
 
-  onDestroy(() => unsubscribe?.());
+  onDestroy(() => {
+    if (attachRetry) clearInterval(attachRetry);
+    attachRetry = null;
+    unsubscribe?.();
+    if (typeof window !== 'undefined') window.removeEventListener('storage', onStorage);
+  });
 
   // Identity-bound gating: enrolled UI only when the live session owns the
   // record; offer only for plaintext nsec sessions. Foreign records and
@@ -82,7 +125,9 @@
     'external-signer':
       'Passkey sign-in is available when you log in with your nsec. Your key currently lives in your extension or signer.',
     'foreign-record':
-      'A passkey vault for a different account exists in this browser. Sign in to that account to manage it.'
+      'A passkey vault for a different account exists in this browser. Sign in to that account to manage it.',
+    'stale-session':
+      'This browser no longer has the vault for your passkey session. Sign out and back in to refresh passkey status.'
   };
 
   function friendlyError(e: unknown, fallback: string): string {

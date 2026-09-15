@@ -110,12 +110,12 @@ describe('resolveVaultSection — identity-bound gating matrix', () => {
   // Only nsec sessions ever see management UI; enrolled additionally requires
   // the session to OWN the record (the staging bug: nip07 + foreign record
   // rendered "Remove passkey protection…"). Every non-management outcome for
-  // an authenticated session is now an explanatory `hidden` result; only
-  // anonymous stays null.
+  // an authenticated session is an explanatory `hidden` result — including a
+  // passkey session that has outlived its record — only anonymous stays null.
   const matrix: Array<[string | null, [unknown, unknown, unknown]]> = [
     //  method            no record                 matching               mismatched
     ['privateKey', [{ kind: 'offer' }, { kind: 'enrolled' }, hidden('foreign-record')]],
-    ['passkey', [null, { kind: 'enrolled' }, hidden('foreign-record')]], // passkey session without a record is unreachable
+    ['passkey', [hidden('stale-session'), { kind: 'enrolled' }, hidden('foreign-record')]],
     ['nip07', [hidden('external-signer'), hidden('external-signer'), hidden('external-signer')]],
     ['nip46', [hidden('external-signer'), hidden('external-signer'), hidden('external-signer')]],
     [null, [null, null, null]] // anonymous / not authenticated
@@ -228,6 +228,23 @@ describe('resolveVaultSection — identity-bound gating matrix', () => {
     it('foreign-record: nsec session while a record for another pubkey exists', () => {
       expect(resolveVaultSection(ctx('privateKey', OTHER_PK))).toEqual(hidden('foreign-record'));
       expect(resolveVaultSection(ctx('passkey', OTHER_PK))).toEqual(hidden('foreign-record'));
+    });
+
+    it('stale-session: passkey session with no record (state published before persist, or removed in another tab)', () => {
+      expect(resolveVaultSection(ctx('passkey', null, 'full'))).toEqual(hidden('stale-session'));
+      // Under no-prf the record gate still wins over the support gate.
+      expect(resolveVaultSection(ctx('passkey', null, 'no-prf'))).toEqual(hidden('no-prf'));
+    });
+
+    it('every authenticated non-management outcome is a hidden result, never null', () => {
+      for (const method of ['privateKey', 'passkey', 'nip07', 'nip46']) {
+        for (const record of [null, SESSION_PK, OTHER_PK]) {
+          for (const support of ['full', 'no-prf', 'none'] as const) {
+            const r = resolveVaultSection(ctx(method, record, support));
+            expect(r, `${method}/${record ? 'record' : 'none'}/${support}`).not.toBe(null);
+          }
+        }
+      }
     });
   });
 });

@@ -43,7 +43,8 @@ export type VaultHiddenReason =
   | 'no-webauthn'
   | 'no-prf'
   | 'external-signer'
-  | 'foreign-record';
+  | 'foreign-record'
+  | 'stale-session';
 
 /**
  * Discriminated render decision for the vault card. `null` means "no card at
@@ -99,10 +100,11 @@ export function resolveVaultSection(ctx: {
   // PRF support ('no-prf' would fail the ceremony).
   if (ctx.support === 'full' && ctx.sessionMethod === 'privateKey') return { kind: 'offer' };
   if (ctx.support === 'no-prf') return { kind: 'hidden', reason: 'no-prf' };
-  // Passkey session with no record and full support: not a reachable state
-  // (the record is what makes a session 'passkey'). Nothing truthful to say,
-  // so render nothing rather than an inaccurate explanation.
-  return null;
+  // Passkey session that has outlived its local record. Reachable: the sync
+  // sign-in publishes the passkey state BEFORE persisting the record (a
+  // subscriber sees this transiently), and another tab can remove the vault
+  // independently. Say so rather than render nothing.
+  return { kind: 'hidden', reason: 'stale-session' };
 }
 
 /**
