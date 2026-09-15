@@ -26,6 +26,26 @@ browser profile with clean site data for zap.cooking.
 | 4 | Same as 3 but cancel the passkey sheet | No error banner; plaintext key untouched; no vault record | ☐ | ☐ |
 | 5 | Settings → Security → "Set up passkey protection" (after dismissing prompt in 2) | Same behavior as 3 | ☐ | ☐ |
 
+## Backup gate before enrollment (all paths)
+
+KeyBackupGate renders the nsec (masked, Reveal/Copy), the npub, and "Download
+backup file" in front of every enrollment button. It is satisfied by a
+download, a clipboard copy that actually succeeded, or — existing users only —
+ticking "I already have my nsec backed up somewhere safe". Signup never shows
+that checkbox. There is no component-test infra for LoginOverlay; the signup
+rows below are the regression check for the extraction.
+
+| # | Steps | Expected | Chrome desktop | Android Chrome |
+|---|-------|----------|----------------|----------------|
+| G-1 | Login-time prompt (row 1) | Prompt shows the backup gate above the buttons; "Set up passkey" is DISABLED with the "Save your key to continue…" hint; no "Back up first" link | ☐ | ☐ |
+| G-2 | Prompt → "Download backup file" | File `zapcooking-keys-YYYY-MM-DD.txt` contains npub + nsec + safety notes; "Set up passkey" enables | ☐ | ☐ |
+| G-3 | Prompt → Reveal → Copy (clipboard allowed) | "Copied" toast; button enables. Deny clipboard permission first: "Could not copy" toast and button STAYS disabled | ☐ | ☐ |
+| G-4 | Prompt → tick "I already have my nsec backed up" | Button enables; un-tick → disabled again (unless a download/copy also happened) | ☐ | ☐ |
+| G-5 | Settings → Security (plaintext session) | Same gate and same enable rules as G-1..G-4 in front of "Set up passkey protection"; cancel the passkey sheet after enabling → plaintext key still present | ☐ | ☐ |
+| G-6 | Settings → Security while ENROLLED (unlocked passkey session) | "Download key backup" button next to "Remove passkey protection…"; downloads the same file from the in-memory key; absent for nip07/nip46 sessions and when locked | ☐ | ☐ |
+| G-7 | Signup regression: Create Profile → (Secure step skipped or done) → "Save your backup key" | Step 1 looks and behaves as before: Reveal/Copy, npub Copy, Download; "Next" disabled until download or successful copy; NO "I already have…" checkbox; regenerate keys → gate resets | ☐ | ☐ |
+| G-8 | Signup regression: close the modal mid-step-1, reopen, Create Profile again | Fresh keys, gate reset, Next disabled | ☐ | ☐ |
+
 ## Unlock / restore
 
 | # | Steps | Expected | Chrome desktop | Android Chrome |

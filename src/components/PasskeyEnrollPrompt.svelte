@@ -26,6 +26,8 @@
     type VaultSupport
   } from '$lib/passkeyVault';
   import { PASSKEY_SYNC_ENABLED } from '$lib/passkeySync';
+  import { nip19 } from 'nostr-tools';
+  import KeyBackupGate from './KeyBackupGate.svelte';
 
   let support: VaultSupport = 'none';
   let authState: AuthState | null = null;
@@ -36,9 +38,16 @@
   let errorMsg = '';
   // Same default as enrollWithSync (Settings) and secureSyncOn (signup).
   let sync = true;
+  // Backup gate (KeyBackupGate) runs BEFORE the ceremony so the plaintext
+  // key is still present if the user bails. Existing users may self-attest.
+  let backupOk = false;
+  let nsecHex = '';
+  let npub = '';
 
   function evaluate() {
     if (!browser || !authState || busy || done) return;
+    nsecHex = getAuthManager()?.getSessionPrivateKeyHex() ?? '';
+    npub = authState.publicKey ? nip19.npubEncode(authState.publicKey) : '';
     visible = shouldOfferEnrollment({
       authMethod: authState.authMethod,
       isAuthenticated: authState.isAuthenticated,
@@ -126,6 +135,17 @@
         only you can unlock it. The passkey is <strong>not</strong> a backup of your key — make
         sure your nsec is backed up first (Settings → Security → Reveal Private Key).
       </p>
+      {#if nsecHex && npub}
+        <div class="vault-prompt-gate">
+          <KeyBackupGate
+            {nsecHex}
+            {npub}
+            allowAcknowledge={true}
+            on:satisfied={() => (backupOk = true)}
+            on:unsatisfied={() => (backupOk = false)}
+          />
+        </div>
+      {/if}
       {#if PASSKEY_SYNC_ENABLED}
         <label class="vault-prompt-option">
           <input type="checkbox" bind:checked={sync} disabled={busy} />
@@ -139,11 +159,21 @@
       {#if errorMsg}
         <p class="vault-prompt-error" role="alert">{errorMsg}</p>
       {/if}
+      {#if !backupOk}
+        <p class="vault-prompt-hint">
+          Save your key to continue — download the file, reveal and copy it, or confirm you already
+          have it.
+        </p>
+      {/if}
       <div class="vault-prompt-actions">
-        <button type="button" class="vault-prompt-primary" on:click={setUp} disabled={busy}>
+        <button
+          type="button"
+          class="vault-prompt-primary"
+          on:click={setUp}
+          disabled={busy || !backupOk}
+        >
           {busy ? 'Waiting for passkey…' : 'Set up passkey'}
         </button>
-        <a href="/settings" class="vault-prompt-link">Back up first</a>
         <button type="button" class="vault-prompt-dismiss" on:click={snooze} disabled={busy}>
           Not now
         </button>
@@ -161,7 +191,9 @@
     right: 1rem;
     bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
     z-index: 60;
-    max-width: 22rem;
+    max-width: 26rem;
+    max-height: calc(100vh - 2rem - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
     background: var(--color-bg-secondary);
     border: 1px solid var(--color-input-border);
     border-radius: 14px;
@@ -193,6 +225,14 @@
     font-size: 0.8125rem;
     color: #ef4444;
     margin: 0 0 0.75rem;
+  }
+  .vault-prompt-gate {
+    margin: 0 0 0.75rem;
+  }
+  .vault-prompt-hint {
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    margin: 0 0 0.5rem;
   }
   .vault-prompt-option {
     display: flex;
@@ -241,11 +281,6 @@
   .vault-prompt-primary:disabled {
     opacity: 0.6;
     cursor: not-allowed;
-  }
-  .vault-prompt-link {
-    font-size: 0.8125rem;
-    color: var(--color-primary, #f97316);
-    text-decoration: underline;
   }
   .vault-prompt-dismiss {
     background: none;
