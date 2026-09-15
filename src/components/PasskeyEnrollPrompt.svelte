@@ -8,6 +8,10 @@
    * The plaintext key is deleted only inside AuthManager.enrollVault after
    * the round-trip verification; a dismissed or failed prompt changes
    * nothing.
+   *
+   * Dismissal is a snooze: "Not now" hides the prompt for 30 days, "Don't
+   * ask again" hides it for good (see isPromptDismissed). Enrollment from
+   * here syncs by default, matching Settings and signup.
    */
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
@@ -16,10 +20,12 @@
     detectSupport,
     getVaultRecord,
     shouldOfferEnrollment,
+    isPromptDismissed,
     isCeremonyCancelled,
     VAULT_PROMPT_DISMISSED_KEY,
     type VaultSupport
   } from '$lib/passkeyVault';
+  import { PASSKEY_SYNC_ENABLED } from '$lib/passkeySync';
 
   let support: VaultSupport = 'none';
   let authState: AuthState | null = null;
@@ -28,6 +34,8 @@
   let busy = false;
   let done = false;
   let errorMsg = '';
+  // Same default as enrollWithSync (Settings) and secureSyncOn (signup).
+  let sync = true;
 
   function evaluate() {
     if (!browser || !authState || busy || done) return;
@@ -37,7 +45,7 @@
       hasPlaintextKey: !!localStorage.getItem('nostrcooking_privateKey'),
       hasVault: !!getVaultRecord(),
       support,
-      dismissed: localStorage.getItem(VAULT_PROMPT_DISMISSED_KEY) === '1'
+      dismissed: isPromptDismissed(localStorage.getItem(VAULT_PROMPT_DISMISSED_KEY), Date.now())
     });
   }
 
@@ -55,8 +63,20 @@
 
   onDestroy(() => unsubscribe?.());
 
-  function dismiss() {
-    if (browser) localStorage.setItem(VAULT_PROMPT_DISMISSED_KEY, '1');
+  // Both dismissals clear the transient failure banner: the snooze can
+  // expire and evaluate() re-show the prompt WITHOUT a remount, and a stale
+  // "could not set up" message must not greet the next attempt.
+  /** "Not now": snooze for 30 days. */
+  function snooze() {
+    if (browser) localStorage.setItem(VAULT_PROMPT_DISMISSED_KEY, new Date().toISOString());
+    errorMsg = '';
+    visible = false;
+  }
+
+  /** "Don't ask again": permanent — enrollment stays reachable in Settings. */
+  function dismissForever() {
+    if (browser) localStorage.setItem(VAULT_PROMPT_DISMISSED_KEY, 'never');
+    errorMsg = '';
     visible = false;
   }
 
@@ -66,7 +86,7 @@
     busy = true;
     errorMsg = '';
     try {
-      await am.enrollVault();
+      await am.enrollVault({ sync });
       done = true;
     } catch (e) {
       if (isCeremonyCancelled(e)) {
@@ -92,8 +112,7 @@
       <p class="vault-prompt-title">🔒 Passkey protection is on</p>
       <p class="vault-prompt-body">
         Your key is no longer stored in plain text in this browser. You'll unlock with your passkey
-        next time. Remember: the passkey is <strong>not</strong> a backup — keep your nsec backup
-        safe.
+        next time. Remember: the passkey is <strong>not</strong> a backup — keep your nsec backup safe.
       </p>
       <div class="vault-prompt-actions">
         <button type="button" class="vault-prompt-primary" on:click={() => (done = false)}>
@@ -107,6 +126,16 @@
         only you can unlock it. The passkey is <strong>not</strong> a backup of your key — make
         sure your nsec is backed up first (Settings → Security → Reveal Private Key).
       </p>
+      {#if PASSKEY_SYNC_ENABLED}
+        <label class="vault-prompt-option">
+          <input type="checkbox" bind:checked={sync} disabled={busy} />
+          <span>
+            <span class="vault-prompt-option-title">Sign in on my other devices.</span>
+            Stores an encrypted copy of your key on Zap Cooking's servers — only your passkey can unlock
+            it. You can turn this off any time in Settings.
+          </span>
+        </label>
+      {/if}
       {#if errorMsg}
         <p class="vault-prompt-error" role="alert">{errorMsg}</p>
       {/if}
@@ -115,10 +144,13 @@
           {busy ? 'Waiting for passkey…' : 'Set up passkey'}
         </button>
         <a href="/settings" class="vault-prompt-link">Back up first</a>
-        <button type="button" class="vault-prompt-dismiss" on:click={dismiss} disabled={busy}>
+        <button type="button" class="vault-prompt-dismiss" on:click={snooze} disabled={busy}>
           Not now
         </button>
       </div>
+      <button type="button" class="vault-prompt-never" on:click={dismissForever} disabled={busy}>
+        Don't ask again
+      </button>
     {/if}
   </aside>
 {/if}
@@ -161,6 +193,34 @@
     font-size: 0.8125rem;
     color: #ef4444;
     margin: 0 0 0.75rem;
+  }
+  .vault-prompt-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    line-height: 1.5;
+    margin: 0 0 0.75rem;
+    cursor: pointer;
+  }
+  .vault-prompt-option input {
+    margin-top: 0.2rem;
+  }
+  .vault-prompt-option-title {
+    font-weight: 500;
+    color: var(--color-text-primary);
+  }
+  .vault-prompt-never {
+    display: block;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0.625rem 0 0;
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    text-decoration: underline;
+    cursor: pointer;
   }
   .vault-prompt-actions {
     display: flex;

@@ -19,7 +19,9 @@ browser profile with clean site data for zap.cooking.
 | # | Steps | Expected | Chrome desktop | Android Chrome |
 |---|-------|----------|----------------|----------------|
 | 1 | Log in with pasted nsec | "Protect your key with a passkey" prompt appears (bottom card); copy says the passkey is NOT a backup and points to Settings → Security | ☐ | ☐ |
-| 2 | Prompt → "Not now" | Prompt disappears; never reappears after reloads; `nostrcooking_privateKey` still in localStorage | ☐ | ☐ |
+| 2 | Prompt → "Not now" | Prompt disappears for 30 days (`nostrcooking_vault_prompt_dismissed` holds an ISO timestamp; set it 31 days back in devtools and reload → prompt returns); `nostrcooking_privateKey` still in localStorage | ☐ | ☐ |
+| 2b | Prompt → "Don't ask again" | Prompt disappears and never reappears after reloads (`nostrcooking_vault_prompt_dismissed` = `never`; a legacy `1` behaves the same); enrollment still reachable in Settings → Security | ☐ | ☐ |
+| 2c | Prompt → "Set up passkey" with "Sign in on my other devices" checked (default) | As P2-1: two passkey prompts, Settings shows sync On, server has the blob. Unchecked → as P2-2 | ☐ | ☐ |
 | 3 | Prompt → "Set up passkey" → complete both ceremonies | Success copy; `nostrcooking_vault_v1` present; `nostrcooking_privateKey` GONE; session still works (post a note) | ☐ | ☐ |
 | 4 | Same as 3 but cancel the passkey sheet | No error banner; plaintext key untouched; no vault record | ☐ | ☐ |
 | 5 | Settings → Security → "Set up passkey protection" (after dismissing prompt in 2) | Same behavior as 3 | ☐ | ☐ |

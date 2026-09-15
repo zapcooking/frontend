@@ -23,6 +23,8 @@ import {
   detectSupport,
   detectHybridTransport,
   detectSupportDetail,
+  isPromptDismissed,
+  VAULT_PROMPT_SNOOZE_MS,
   shouldOfferEnrollment,
   isCeremonyCancelled,
   PrfUnsupportedError,
@@ -526,6 +528,64 @@ describe('detectSupportDetail — one reason per gate, detectSupport() unchanged
     expect((await detectSupportDetail()).reason).toBe('insecure-context');
     vi.stubGlobal('window', { isSecureContext: true });
     expect((await detectSupportDetail()).reason).toBe('no-webauthn');
+  });
+});
+
+describe('isPromptDismissed — snooze decision for VAULT_PROMPT_DISMISSED_KEY', () => {
+  const NOW = Date.UTC(2026, 8, 15, 12, 0, 0);
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it('null (never dismissed) → false', () => {
+    expect(isPromptDismissed(null, NOW)).toBe(false);
+  });
+
+  it("'never' (Don't ask again) → true, at any time", () => {
+    expect(isPromptDismissed('never', NOW)).toBe(true);
+    expect(isPromptDismissed('never', NOW + 400 * DAY)).toBe(true);
+  });
+
+  it("legacy '1' → true, treated exactly like 'never'", () => {
+    expect(isPromptDismissed('1', NOW)).toBe(true);
+    expect(isPromptDismissed('1', NOW + 400 * DAY)).toBe(true);
+  });
+
+  it('ISO timestamp (Not now) → true within 30 days, false after', () => {
+    const at = new Date(NOW).toISOString();
+    expect(isPromptDismissed(at, NOW)).toBe(true);
+    expect(isPromptDismissed(at, NOW + 29 * DAY)).toBe(true);
+    expect(isPromptDismissed(at, NOW + VAULT_PROMPT_SNOOZE_MS - 1)).toBe(true);
+    expect(isPromptDismissed(at, NOW + VAULT_PROMPT_SNOOZE_MS)).toBe(false);
+    expect(isPromptDismissed(at, NOW + 31 * DAY)).toBe(false);
+  });
+
+  it('unparsable value fails open (not dismissed)', () => {
+    expect(isPromptDismissed('garbage', NOW)).toBe(false);
+    expect(isPromptDismissed('', NOW)).toBe(false);
+  });
+
+  it('a FUTURE timestamp fails open — it must not extend the snooze past 30 days', () => {
+    // Clock skew or a hand-edited value: now - at is negative, which the
+    // naive "< 30 days" check would accept and hide the prompt for up to
+    // 30 days AFTER the future instant.
+    expect(isPromptDismissed(new Date(NOW + 1000).toISOString(), NOW)).toBe(false);
+    expect(isPromptDismissed(new Date(NOW + 400 * DAY).toISOString(), NOW)).toBe(false);
+    // The exact instant still counts as a fresh snooze.
+    expect(isPromptDismissed(new Date(NOW).toISOString(), NOW)).toBe(true);
+  });
+
+  it('feeds shouldOfferEnrollment unchanged: snoozed hides, expired snooze offers', () => {
+    const base = {
+      authMethod: 'privateKey',
+      isAuthenticated: true,
+      hasPlaintextKey: true,
+      hasVault: false,
+      support: 'full' as const
+    };
+    const at = new Date(NOW).toISOString();
+    expect(shouldOfferEnrollment({ ...base, dismissed: isPromptDismissed(at, NOW) })).toBe(false);
+    expect(
+      shouldOfferEnrollment({ ...base, dismissed: isPromptDismissed(at, NOW + 31 * DAY) })
+    ).toBe(true);
   });
 });
 
