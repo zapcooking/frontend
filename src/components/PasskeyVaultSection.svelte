@@ -1,20 +1,23 @@
 <script lang="ts">
   /**
    * Settings → Security card for the passkey vault: enroll, status, and the
-   * unlock-gated removal/downgrade flow. Renders nothing on platforms
-   * without WebAuthn (Capacitor builds, old browsers) unless a vault record
-   * already exists (which shouldn't be possible there, but status beats
-   * silence if it ever happens).
+   * unlock-gated removal/downgrade flow. When the feature is gated off
+   * (Capacitor builds, off-domain origins, old browsers, no PRF, extension /
+   * bunker sessions, a record owned by another account) the card still
+   * renders — as one muted explanatory row, no button — so a hidden feature
+   * never looks like a missing one. Only logged-out / anonymous renders
+   * nothing.
    */
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { getAuthManager, type AuthState } from '$lib/authManager';
   import {
-    detectSupport,
+    detectSupportDetail,
     getVaultRecord,
     isCeremonyCancelled,
-    type VaultSupport
+    type VaultSupport,
+    type VaultSupportReason
   } from '$lib/passkeyVault';
-  import { resolveVaultSection } from '$lib/securitySections';
+  import { resolveVaultSection, type VaultHiddenReason } from '$lib/securitySections';
   import {
     PASSKEY_SYNC_ENABLED,
     isSyncEnabled,
@@ -25,6 +28,7 @@
   const dispatch = createEventDispatcher();
 
   let support: VaultSupport = 'none';
+  let supportReason: VaultSupportReason = null;
   let recordPubkey: string | null = null;
   let authState: AuthState | null = null;
   let unsubscribe: (() => void) | null = null;
@@ -49,7 +53,7 @@
   }
 
   onMount(async () => {
-    support = await detectSupport();
+    ({ support, reason: supportReason } = await detectSupportDetail());
     refresh();
     unsubscribe = getAuthManager()?.subscribe(() => refresh()) ?? null;
   });
@@ -58,13 +62,28 @@
 
   // Identity-bound gating: enrolled UI only when the live session owns the
   // record; offer only for plaintext nsec sessions. Foreign records and
-  // nip07/nip46/anonymous sessions render nothing (vault inert there).
+  // nip07/nip46 sessions get an explanatory row (vault inert there);
+  // anonymous sessions render nothing.
   $: card = resolveVaultSection({
     support,
+    supportReason,
     sessionMethod: authState?.isAuthenticated ? authState.authMethod : null,
     sessionPubkey: authState?.publicKey ?? '',
     recordPubkey
   });
+
+  const HIDDEN_COPY: Record<VaultHiddenReason, string> = {
+    native: 'Passkey vault is available in the web app at zap.cooking.',
+    'unsupported-origin': 'Passkeys only work on zap.cooking, not on preview or local builds.',
+    'insecure-context': "This browser doesn't support passkeys.",
+    'no-webauthn': "This browser doesn't support passkeys.",
+    'no-prf':
+      "This browser doesn't support the passkey feature we need (PRF). Try Chrome, Edge, or Safari.",
+    'external-signer':
+      'Passkey sign-in is available when you log in with your nsec. Your key currently lives in your extension or signer.',
+    'foreign-record':
+      'A passkey vault for a different account exists in this browser. Sign in to that account to manage it.'
+  };
 
   function friendlyError(e: unknown, fallback: string): string {
     if (isCeremonyCancelled(e)) return '';
@@ -157,18 +176,26 @@
   }
 </script>
 
-{#if card}
+{#if card?.kind === 'hidden'}
+  <div class="border-t border-[var(--color-input-border)] pt-5">
+    <div class="flex items-center gap-2 mb-1">
+      <ShieldCheckIcon size={18} class="text-caption" weight="regular" />
+      <p class="text-sm font-medium" style="color: var(--color-text-primary)">Passkey Protection</p>
+    </div>
+    <p class="text-xs text-caption" data-vault-hidden={card.reason}>{HIDDEN_COPY[card.reason]}</p>
+  </div>
+{:else if card}
   <div class="border-t border-[var(--color-input-border)] pt-5">
     <div class="flex items-center gap-2 mb-1">
       <ShieldCheckIcon
         size={18}
-        class={card === 'enrolled' ? 'text-green-500' : 'text-caption'}
-        weight={card === 'enrolled' ? 'fill' : 'regular'}
+        class={card.kind === 'enrolled' ? 'text-green-500' : 'text-caption'}
+        weight={card.kind === 'enrolled' ? 'fill' : 'regular'}
       />
       <p class="text-sm font-medium" style="color: var(--color-text-primary)">Passkey Protection</p>
     </div>
 
-    {#if card === 'enrolled'}
+    {#if card.kind === 'enrolled'}
       <p class="text-xs text-caption mb-3">
         Your Nostr key is encrypted on this device and unlocked with your passkey. The passkey is
         <strong>not</strong> a backup of your key — if you lose both the passkey and your nsec

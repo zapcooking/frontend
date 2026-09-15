@@ -9,6 +9,10 @@ import fixture from '../test/fixtures/vault-v1.json';
  */
 
 vi.mock('$app/environment', () => ({ browser: true }));
+// Native gate: controllable so detectSupportDetail()'s 'native' reason is
+// testable without a Capacitor runtime. Default = web.
+const platformMock = vi.hoisted(() => ({ native: false }));
+vi.mock('$lib/platform', () => ({ isNative: () => platformMock.native }));
 
 import {
   enrollPasskey,
@@ -18,6 +22,7 @@ import {
   deleteVaultRecord,
   detectSupport,
   detectHybridTransport,
+  detectSupportDetail,
   shouldOfferEnrollment,
   isCeremonyCancelled,
   PrfUnsupportedError,
@@ -114,6 +119,7 @@ beforeEach(() => {
   // and detectSupport() is 'none' anywhere else, so tests must declare an
   // on-domain origin. Off-domain cases are covered explicitly below.
   vi.stubGlobal('location', { hostname: 'zap.cooking' });
+  platformMock.native = false;
 });
 
 describe('vault record storage', () => {
@@ -156,9 +162,7 @@ describe('enrollPasskey', () => {
     expect(getArgs.userVerification).toBe('required');
 
     // The persisted record decrypts with the same PRF output.
-    credentials.get.mockResolvedValue(
-      fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() })
-    );
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
     await expect(unlockPasskey(record)).resolves.toMatchObject({ privkeyHex: fixture.nsecHex });
   });
 
@@ -326,13 +330,17 @@ describe('unlockPasskey', () => {
   });
 });
 
-describe('detectSupport', () => {
-  function stubCapabilities(caps: (() => Promise<unknown>) | undefined) {
-    const pkc: any = function PublicKeyCredential() {};
-    if (caps) pkc.getClientCapabilities = caps;
-    vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: pkc });
-  }
+/**
+ * Window stub with an optional getClientCapabilities probe. Shared by the
+ * detectSupport / detectSupportDetail / detectHybridTransport suites.
+ */
+function stubCapabilities(caps: (() => Promise<unknown>) | undefined) {
+  const pkc: any = function PublicKeyCredential() {};
+  if (caps) pkc.getClientCapabilities = caps;
+  vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: pkc });
+}
 
+describe('detectSupport', () => {
   it("returns 'none' when PublicKeyCredential is absent", async () => {
     vi.stubGlobal('window', { isSecureContext: true });
     expect(await detectSupport()).toBe('none');
@@ -401,7 +409,7 @@ describe('detectSupport', () => {
     }
   });
 
-  it("staging.zap.cooking is a supported origin (the pre-prod test surface)", async () => {
+  it('staging.zap.cooking is a supported origin (the pre-prod test surface)', async () => {
     vi.stubGlobal('location', { hostname: 'staging.zap.cooking' });
     stubCapabilities(async () => ({ 'extension:prf': true }));
     expect(await detectSupport()).toBe('full');
@@ -409,12 +417,6 @@ describe('detectSupport', () => {
 });
 
 describe('detectHybridTransport', () => {
-  function stubCapabilities(caps: (() => Promise<unknown>) | undefined) {
-    const pkc: any = function PublicKeyCredential() {};
-    if (caps) pkc.getClientCapabilities = caps;
-    vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: pkc });
-  }
-
   it('true only on an explicit hybridTransport: true', async () => {
     stubCapabilities(async () => ({ hybridTransport: true }));
     expect(await detectHybridTransport()).toBe(true);
@@ -439,6 +441,91 @@ describe('detectHybridTransport', () => {
     expect(await detectHybridTransport()).toBe(false);
     stubCapabilities(async () => undefined);
     expect(await detectHybridTransport()).toBe(false);
+  });
+});
+
+describe('detectSupportDetail — one reason per gate, detectSupport() unchanged', () => {
+  async function both() {
+    return { detail: await detectSupportDetail(), support: await detectSupport() };
+  }
+
+  it("native runtime → 'none' / native (checked first, before origin or WebAuthn)", async () => {
+    platformMock.native = true;
+    stubCapabilities(async () => ({ 'extension:prf': true }));
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'none', reason: 'native' });
+    expect(support).toBe('none');
+  });
+
+  it("off-domain origin → 'none' / unsupported-origin (even with full WebAuthn+PRF)", async () => {
+    vi.stubGlobal('location', { hostname: 'feat-x.frontend-hvd.pages.dev' });
+    stubCapabilities(async () => ({ 'extension:prf': true }));
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'none', reason: 'unsupported-origin' });
+    expect(support).toBe('none');
+  });
+
+  it("insecure context → 'none' / insecure-context (checked before WebAuthn presence)", async () => {
+    vi.stubGlobal('window', {
+      isSecureContext: false,
+      PublicKeyCredential: function PublicKeyCredential() {}
+    });
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'none', reason: 'insecure-context' });
+    expect(support).toBe('none');
+  });
+
+  it("no PublicKeyCredential → 'none' / no-webauthn", async () => {
+    vi.stubGlobal('window', { isSecureContext: true });
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'none', reason: 'no-webauthn' });
+    expect(support).toBe('none');
+  });
+
+  it("no navigator.credentials.create → 'none' / no-webauthn", async () => {
+    vi.stubGlobal('navigator', { credentials: {} });
+    stubCapabilities(async () => ({ 'extension:prf': true }));
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'none', reason: 'no-webauthn' });
+    expect(support).toBe('none');
+  });
+
+  it("extension:prf === false → 'no-prf' / no-prf", async () => {
+    stubCapabilities(async () => ({ 'extension:prf': false }));
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'no-prf', reason: 'no-prf' });
+    expect(support).toBe('no-prf');
+  });
+
+  it("'full' carries a null reason, for explicit true, absent key, missing probe, and a throwing probe", async () => {
+    for (const caps of [
+      async () => ({ 'extension:prf': true }),
+      async () => ({ conditionalCreate: true }), // Safari shape: key absent
+      async () => undefined,
+      async () => {
+        throw new Error('boom');
+      },
+      undefined
+    ]) {
+      stubCapabilities(caps);
+      const { detail, support } = await both();
+      expect(detail).toEqual({ support: 'full', reason: null });
+      expect(support).toBe('full');
+    }
+  });
+
+  it('gate precedence: native > origin > secure context > WebAuthn', async () => {
+    // Everything failing at once: reason must be the FIRST gate in order.
+    platformMock.native = true;
+    vi.stubGlobal('location', { hostname: 'localhost' });
+    vi.stubGlobal('window', { isSecureContext: false });
+    expect((await detectSupportDetail()).reason).toBe('native');
+    platformMock.native = false;
+    expect((await detectSupportDetail()).reason).toBe('unsupported-origin');
+    vi.stubGlobal('location', { hostname: 'zap.cooking' });
+    expect((await detectSupportDetail()).reason).toBe('insecure-context');
+    vi.stubGlobal('window', { isSecureContext: true });
+    expect((await detectSupportDetail()).reason).toBe('no-webauthn');
   });
 });
 
