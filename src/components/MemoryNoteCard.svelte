@@ -30,9 +30,14 @@
   // The thread's root when the memory is a reply, else the note itself —
   // the [nip19] page then renders the whole thread in the normal view.
   // Marker style first (e tag with "root"), then NIP-10 positional (first
-  // e tag is the root for replies), then a lone parent tag.
+  // e tag is the root for replies), then a lone parent tag. Mention-
+  // marked e tags are excluded to mirror isReplyNote (memories.ts): a
+  // top-level note that merely mentions another note opens itself, not
+  // the mention.
   function rootNoteId(e: NDKEvent): string | null {
-    const eTags = e.tags.filter((t) => Array.isArray(t) && t[0] === 'e');
+    const eTags = e.tags.filter(
+      (t) => Array.isArray(t) && t[0] === 'e' && t[3]?.toLowerCase() !== 'mention'
+    );
     const rootTag = eTags.find((t) => t[3] === 'root');
     if (rootTag) return rootTag[1] as string;
     if (eTags.length > 0) return eTags[0][1] as string;
