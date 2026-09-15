@@ -226,6 +226,26 @@ export async function detectHybridTransport(): Promise<boolean> {
   return false;
 }
 
+/** "Not now" snoozes the migration prompt for this long. */
+export const VAULT_PROMPT_SNOOZE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Pure decision for VAULT_PROMPT_DISMISSED_KEY (unit-tested). Raw values:
+ *   null            → never dismissed
+ *   'never'         → "Don't ask again"
+ *   '1'             → legacy permanent dismissal, treated as 'never'
+ *   ISO timestamp   → "Not now": dismissed until 30 days after it
+ * Anything unparsable counts as not dismissed (the prompt is dismissible,
+ * so a corrupt value fails open rather than hiding the migration forever).
+ */
+export function isPromptDismissed(raw: string | null, now: number): boolean {
+  if (!raw) return false;
+  if (raw === 'never' || raw === '1') return true;
+  const at = Date.parse(raw);
+  if (Number.isNaN(at)) return false;
+  return now - at < VAULT_PROMPT_SNOOZE_MS;
+}
+
 /** Pure predicate for the migration prompt (unit-tested). */
 export function shouldOfferEnrollment(ctx: {
   authMethod: string | null;
