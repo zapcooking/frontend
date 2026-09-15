@@ -563,6 +563,16 @@ describe('isPromptDismissed — snooze decision for VAULT_PROMPT_DISMISSED_KEY',
     expect(isPromptDismissed('', NOW)).toBe(false);
   });
 
+  it('a FUTURE timestamp fails open — it must not extend the snooze past 30 days', () => {
+    // Clock skew or a hand-edited value: now - at is negative, which the
+    // naive "< 30 days" check would accept and hide the prompt for up to
+    // 30 days AFTER the future instant.
+    expect(isPromptDismissed(new Date(NOW + 1000).toISOString(), NOW)).toBe(false);
+    expect(isPromptDismissed(new Date(NOW + 400 * DAY).toISOString(), NOW)).toBe(false);
+    // The exact instant still counts as a fresh snooze.
+    expect(isPromptDismissed(new Date(NOW).toISOString(), NOW)).toBe(true);
+  });
+
   it('feeds shouldOfferEnrollment unchanged: snoozed hides, expired snooze offers', () => {
     const base = {
       authMethod: 'privateKey',

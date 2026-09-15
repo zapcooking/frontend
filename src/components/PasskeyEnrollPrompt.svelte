@@ -63,15 +63,20 @@
 
   onDestroy(() => unsubscribe?.());
 
+  // Both dismissals clear the transient failure banner: the snooze can
+  // expire and evaluate() re-show the prompt WITHOUT a remount, and a stale
+  // "could not set up" message must not greet the next attempt.
   /** "Not now": snooze for 30 days. */
   function snooze() {
     if (browser) localStorage.setItem(VAULT_PROMPT_DISMISSED_KEY, new Date().toISOString());
+    errorMsg = '';
     visible = false;
   }
 
   /** "Don't ask again": permanent — enrollment stays reachable in Settings. */
   function dismissForever() {
     if (browser) localStorage.setItem(VAULT_PROMPT_DISMISSED_KEY, 'never');
+    errorMsg = '';
     visible = false;
   }
 
