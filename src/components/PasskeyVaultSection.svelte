@@ -231,8 +231,8 @@
       await am.removeVault();
       confirmingRemoval = false;
       notice =
-        'Passkey removed. Your key is stored in this browser again — anyone with access to this ' +
-        'browser profile can read it.';
+        'Passkey protection is off. Your key is stored in this browser again — anyone with ' +
+        'access to this browser profile can read it.';
       dispatch('changed');
     } catch (e) {
       errorMsg = friendlyError(e, 'Could not remove the passkey. Nothing was changed.');
@@ -277,7 +277,7 @@
           <div class="flex items-center justify-between gap-3">
             <div>
               <p class="text-sm font-medium" style="color: var(--color-text-primary)">
-                Sign in on other devices
+                Sign in on other devices{#if recordSyncable}: {syncOn ? 'On' : 'Off'}{/if}
               </p>
               <p class="text-xs text-caption mt-0.5">
                 {#if recordSyncable}
@@ -294,7 +294,7 @@
                 type="button"
                 role="switch"
                 aria-checked={syncOn}
-                aria-label="Sign in on other devices"
+                aria-label="Sign in on other devices: {syncOn ? 'On' : 'Off'}"
                 class="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors {syncOn
                   ? 'bg-green-500/15 text-green-600'
                   : 'bg-secondary text-caption'}"
@@ -345,7 +345,7 @@
             on:click={() => (confirmingRemoval = true)}
             disabled={busy}
           >
-            Remove passkey protection…
+            Turn off passkey protection
           </button>
         </div>
       {:else}
@@ -353,21 +353,34 @@
           class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3"
         >
           <p class="text-xs text-red-700 dark:text-red-300">
-            Removing the passkey stores your key in plain text in this browser again. Before
-            continuing, make sure you have your nsec backed up — use "Reveal Private Key" below
-            after removal, or confirm you already saved it. You'll be asked to unlock with your
-            passkey to confirm.
+            Turning off passkey protection stores your key in plain text in this browser again.
+            Before continuing, make sure you have your nsec backed up — use "Download key backup"
+            here or "Reveal Private Key" further down, or confirm you already saved it. You'll be
+            asked to unlock with your passkey to confirm.
           </p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <button
             type="button"
             class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             on:click={remove}
             disabled={busy}
           >
-            {busy ? 'Waiting for passkey…' : 'Unlock & remove'}
+            {busy ? 'Waiting for passkey…' : 'Unlock & turn off'}
           </button>
+          {#if sessionKeyHex && sessionNpub}
+            <!-- The warning above cites this action, so it must stay reachable
+                 while the panel is open (review on #738). -->
+            <button
+              type="button"
+              class="px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm font-medium transition-colors"
+              style="color: var(--color-text-primary)"
+              on:click={downloadBackup}
+              disabled={busy}
+            >
+              Download key backup
+            </button>
+          {/if}
           <button
             type="button"
             class="px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm transition-colors"
@@ -422,7 +435,7 @@
         on:click={enroll}
         disabled={busy || !backupOk}
       >
-        {busy ? 'Waiting for passkey…' : 'Set up passkey protection'}
+        {busy ? 'Waiting for passkey…' : 'Turn on passkey protection'}
       </button>
     {/if}
 

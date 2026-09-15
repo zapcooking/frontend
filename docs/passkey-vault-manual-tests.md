@@ -24,7 +24,7 @@ browser profile with clean site data for zap.cooking.
 | 2c | Prompt → "Set up passkey" with "Sign in on my other devices" checked (default) | As P2-1: two passkey prompts, Settings shows sync On, server has the blob. Unchecked → as P2-2 | ☐ | ☐ |
 | 3 | Prompt → "Set up passkey" → complete both ceremonies | Success copy; `nostrcooking_vault_v1` present; `nostrcooking_privateKey` GONE; session still works (post a note) | ☐ | ☐ |
 | 4 | Same as 3 but cancel the passkey sheet | No error banner; plaintext key untouched; no vault record | ☐ | ☐ |
-| 5 | Settings → Security → "Set up passkey protection" (after dismissing prompt in 2) | Same behavior as 3 | ☐ | ☐ |
+| 5 | Settings → Security → "Turn on passkey protection" (after dismissing prompt in 2) | Same behavior as 3 | ☐ | ☐ |
 
 ## Backup gate before enrollment (all paths)
 
@@ -41,8 +41,8 @@ rows below are the regression check for the extraction.
 | G-2 | Prompt → "Download backup file" | File `zapcooking-keys-YYYY-MM-DD.txt` contains npub + nsec + safety notes; "Set up passkey" enables | ☐ | ☐ |
 | G-3 | Prompt → Reveal → Copy (clipboard allowed) | "Copied" toast; button enables. Deny clipboard permission first: "Could not copy" toast and button STAYS disabled | ☐ | ☐ |
 | G-4 | Prompt → tick "I already have my nsec backed up" | Button enables; un-tick → disabled again (unless a download/copy also happened) | ☐ | ☐ |
-| G-5 | Settings → Security (plaintext session) | Same gate and same enable rules as G-1..G-4 in front of "Set up passkey protection"; cancel the passkey sheet after enabling → plaintext key still present | ☐ | ☐ |
-| G-6 | Settings → Security while ENROLLED (unlocked passkey session) | "Download key backup" button next to "Remove passkey protection…"; downloads the same file from the in-memory key; absent for nip07/nip46 sessions and when locked | ☐ | ☐ |
+| G-5 | Settings → Security (plaintext session) | Same gate and same enable rules as G-1..G-4 in front of "Turn on passkey protection"; cancel the passkey sheet after enabling → plaintext key still present | ☐ | ☐ |
+| G-6 | Settings → Security while ENROLLED (unlocked passkey session) | "Download key backup" button next to "Turn off passkey protection"; downloads the same file from the in-memory key; absent for nip07/nip46 sessions and when locked | ☐ | ☐ |
 | G-7 | Signup regression: Create Profile → (Secure step skipped or done) → "Save your backup key" | Step 1 looks and behaves as before: Reveal/Copy, npub Copy, Download; "Next" disabled until download or successful copy; NO "I already have…" checkbox; regenerate keys → gate resets | ☐ | ☐ |
 | G-8 | Signup regression: close the modal mid-step-1, reopen, Create Profile again | Fresh keys, gate reset, Next disabled | ☐ | ☐ |
 
@@ -69,7 +69,7 @@ rows below are the regression check for the extraction.
 
 | # | Steps | Expected | Chrome desktop | Android Chrome |
 |---|-------|----------|----------------|----------------|
-| 15 | Settings → Security → "Remove passkey protection…" → confirm → complete passkey ceremony | Plaintext key restored in localStorage; vault record gone; session continues as privateKey; backup warning shown before ceremony | ☐ | ☐ |
+| 15 | Settings → Security → "Turn off passkey protection" → "Unlock & turn off" → complete passkey ceremony | Plaintext key restored in localStorage; vault record gone; session continues as privateKey; backup warning shown before ceremony with a working "Download key backup" button in the confirmation row; notice reads "Passkey protection is off…" | ☐ | ☐ |
 | 16 | Same but cancel the ceremony | Nothing changes: record present, no plaintext | ☐ | ☐ |
 
 ## Conflict / replace flows
@@ -93,16 +93,16 @@ not data loss.
 
 | # | Steps | Expected | Status |
 |---|-------|----------|--------|
-| P2-1 | Enroll with "Enable sign-in on other devices" checked (default) | Exactly TWO passkey prompts (create + verify); Settings shows sync On; server has the blob | ☐ |
-| P2-2 | Enroll with the toggle unchecked | Two prompts; no network calls to /api/vault-sync; Settings shows sync Off | ☐ |
+| P2-1 | Enroll with "Enable sign-in on other devices" checked (default) | Exactly TWO passkey prompts (create + verify); Settings label reads "Sign in on other devices: On"; server has the blob | ☐ |
+| P2-2 | Enroll with the toggle unchecked | Two prompts; no network calls to /api/vault-sync; Settings label reads "Sign in on other devices: Off" | ☐ |
 | P2-3 | New-device sign-in, same ecosystem: Safari↔Safari (iCloud) | Device B: "Sign in with passkey" → one biometric → signed in as the real identity; localStorage has the record, NO plaintext key; subsequent reloads unlock locally (no network) | ☐ |
 | P2-4 | Same, Chrome desktop ↔ Android Chrome (GPM) | Same as P2-3 | ☐ |
 | P2-5 | Cross-ecosystem miss (enrolled in iCloud, try on Android/GPM) | Passkey not offered by the provider — EXPECTED, not a bug; user falls through to nsec/other login | ☐ |
 | P2-6 | Hybrid/QR cross-device assertion (scan QR to phone) | If the provider drops PRF: clean "did not provide the required key material" error, normal methods still available, nothing persisted | ☐ |
-| P2-7 | Settings → toggle sync OFF | One passkey confirmation (disclosed in copy); blob gone (verify: sign-in fails on a cleared second device); toggle Off | ☐ |
-| P2-8 | Settings → toggle sync back ON | One passkey confirmation (disclosed in copy); blob re-uploaded; new-device sign-in works again | ☐ |
-| P2-9 | Remove passkey protection while sync is on | Single ceremony (no extra prompt for the delete); server blob gone; local downgrade as Phase 1 | ☐ |
-| P2-10 | Pre-Phase-2 vault (enrolled before this build): Settings sync area | "Re-create passkey & enable" card with orphan-passkey + extra-prompt copy; completing it enables sync; old provider passkey deletable | ☐ |
+| P2-7 | Settings → toggle sync OFF | One passkey confirmation (disclosed in copy); blob gone (verify: sign-in fails on a cleared second device); label reads "Sign in on other devices: Off" and the control shows Off | ☐ |
+| P2-8 | Settings → toggle sync back ON | One passkey confirmation (disclosed in copy); blob re-uploaded; new-device sign-in works again; label reads "Sign in on other devices: On" | ☐ |
+| P2-9 | "Turn off passkey protection" while sync is on | Single ceremony (no extra prompt for the delete); server blob gone; local downgrade as Phase 1 | ☐ |
+| P2-10 | Pre-Phase-2 vault (enrolled before this build): Settings sync area | "Re-create passkey & enable" card with orphan-passkey + extra-prompt copy (label shows no On/Off state for these records — unchanged); completing it enables sync; old provider passkey deletable | ☐ |
 | P2-11 | Enrollment with the network blocked (devtools offline after page load) | Enrollment still succeeds locally; sync retries silently on next unlock (verify with devtools online: PUT fires during unlock, single prompt) | ☐ |
 | P2-12 | Conflict-replace (different account's nsec over a synced vault) | Local record replaced after confirm; NO vault-sync network call; original owner's other devices still sign in (R4) | ☐ |
 
