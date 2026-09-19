@@ -77,10 +77,15 @@ export function appendHashtag(content: string, tag: string): string {
 /**
  * Remove every `#tag` token (case-insensitive, whole token) from the body and
  * tidy the whitespace it leaves behind.
+ *
+ * A token starts where `HASHTAG_PATTERN` says it does: at the start of the
+ * text or after whitespace. `#foodstr` inside `https://x.y/#foodstr` or glued
+ * to a word is not a hashtag to the feed, was never selected, and is left
+ * alone here.
  */
 export function removeHashtag(content: string, tag: string): string {
-  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])#${escapeRegex(tag)}(?![\\p{L}\\p{N}_])`, 'giu');
-  let out = content.replace(pattern, '');
+  const pattern = new RegExp(`(^|\\s)#${escapeRegex(tag)}(?![\\p{L}\\p{N}_])`, 'giu');
+  let out = content.replace(pattern, '$1');
   // A removed token leaves a double space, a space against a newline, or a
   // space at the very start.
   out = out.replace(/ {2,}/g, ' ');

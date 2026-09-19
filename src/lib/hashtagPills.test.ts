@@ -78,6 +78,16 @@ describe('deselect', () => {
   it('reads as unselected after the tap', () => {
     expect(isHashtagSelected(toggleHashtag('x #foodstr', 'foodstr'), 'foodstr')).toBe(false);
   });
+
+  it('leaves a #tag inside a URL fragment untouched', () => {
+    const url = 'see https://x.y/page#foodstr and https://x.y/#foodstr';
+    expect(removeHashtag(url, 'foodstr')).toBe(url);
+    expect(removeHashtag(`${url}\n\n#foodstr`, 'foodstr')).toBe(url);
+  });
+
+  it('leaves a # glued to a word untouched, as extraction does', () => {
+    expect(removeHashtag('word#foodstr #foodstr', 'foodstr')).toBe('word#foodstr');
+  });
 });
 
 describe('typed tag shows as selected', () => {
