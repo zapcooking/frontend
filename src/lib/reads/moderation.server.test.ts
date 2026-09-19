@@ -53,9 +53,9 @@ describe('saveReadsModerationLists', () => {
 		});
 		const lists = await loadReadsModerationLists(kv);
 		expect(lists.denylist).toEqual([]);
-		expect(lists.blockedPubkeys).toEqual(
-			expect.arrayContaining(DEFAULT_READS_MODERATION.blockedPubkeys)
-		);
+		for (const pk of DEFAULT_READS_MODERATION.blockedPubkeys) {
+			expect(lists.blockedPubkeys).toContain(pk);
+		}
 	});
 });
 
