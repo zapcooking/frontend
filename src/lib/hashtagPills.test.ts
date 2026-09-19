@@ -12,7 +12,7 @@ import {
 } from './hashtagPills';
 
 describe('SUGGESTED_HASHTAGS', () => {
-  it('is the iOS set, in the iOS order, without gratitude', () => {
+  it('is the iOS set, in the iOS order, plus gratitude for the theme', () => {
     expect(SUGGESTED_HASHTAGS).toEqual([
       'foodstr',
       'food',
@@ -21,9 +21,9 @@ describe('SUGGESTED_HASHTAGS', () => {
       'breakfast',
       'lunch',
       'dinner',
-      'coffee'
+      'coffee',
+      'gratitude'
     ]);
-    expect(SUGGESTED_HASHTAGS).not.toContain('gratitude');
   });
 });
 
