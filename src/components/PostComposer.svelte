@@ -15,6 +15,7 @@
   import { nip19 } from 'nostr-tools';
   import NoteContent from './NoteContent.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
+  import { buildHashtagTags } from '$lib/hashtags';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
   import { clearQuotedNote } from '$lib/postComposerStore';
   import { publishQueue, publishQueueState } from '$lib/publishQueue';
@@ -492,6 +493,11 @@
           event.tags.push(['p', quotedPubkey]);
         }
       }
+
+      // Hashtags typed in the body become `t` tags. Without these, every
+      // relay-side `#t` filter (web's own and the iOS/Android OnlyFood feeds)
+      // misses the note — see $lib/hashtags.
+      event.tags.push(...buildHashtagTags(postContent));
 
       addClientTagToEvent(event);
 
