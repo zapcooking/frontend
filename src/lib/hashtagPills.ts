@@ -15,23 +15,29 @@ import { MAX_HASHTAGS, countContentHashtags, extractHashtags } from './hashtags'
 
 /**
  * The suggested set, measured from 60 days of relay usage on the OnlyFood
- * relays. The first eight are the set iOS ships; `foodstr` and `food`
- * dominate, `cookstr` and `lunch` are thin but are the community's own tags.
+ * relays. `foodstr` and `food` dominate; `cookstr` and `lunch` are thin but
+ * are the community's own tags.
  *
- * `gratitude` is web's addition, for the theme. It is not in the food feed's
- * tag set and not a food word, so a note carrying only it does not reach the
- * Global feed or any relay-side filter; it rides alongside the food tags.
+ * The order is the design: the row scrolls horizontally and most people never
+ * scroll past the third pill. `foodstr` leads as the canonical community tag,
+ * then the specific tags people reach for. `food` goes last despite its usage:
+ * next to `foodstr` it reads as the same choice twice and wastes the two most
+ * valuable positions. iOS and Android should ship this same set and order.
+ *
+ * `gratitude` is deliberately out: it is not in the food feed's tag set and
+ * not a food word, so a note carrying only it misses the Global feed and every
+ * relay-side `#t` filter. A pill that looks helpful and does nothing is worse
+ * than no pill.
  */
 export const SUGGESTED_HASHTAGS: readonly string[] = [
   'foodstr',
-  'food',
-  'cooking',
-  'cookstr',
-  'breakfast',
-  'lunch',
-  'dinner',
   'coffee',
-  'gratitude'
+  'cooking',
+  'breakfast',
+  'dinner',
+  'lunch',
+  'cookstr',
+  'food'
 ];
 
 /** Is `tag` in the body, however it got there? Case-insensitive. */

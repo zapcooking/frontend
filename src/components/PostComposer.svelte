@@ -1507,23 +1507,38 @@
     background: var(--color-accent-gray);
   }
 
-  /* Hashtag suggestion pills */
+  /* Hashtag suggestion pills: one horizontal row that scrolls, never wraps.
+     A partially visible pill at the right edge is the scroll affordance, so
+     there is no fade or arrow. The counter sits outside the scroller. */
   .tag-pills {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 0.375rem 0.5rem;
+    gap: 0.5rem;
     padding: 0.25rem 0.5rem 0.5rem;
+    min-width: 0;
   }
 
   .tag-pills-row {
     display: flex;
-    flex-wrap: wrap;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
     gap: 0.375rem;
     min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px; /* room for the focus ring */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .tag-pills-row::-webkit-scrollbar {
+    display: none;
   }
 
   .tag-pill {
+    flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     padding: 0.2rem 0.6rem;
@@ -1558,6 +1573,7 @@
   }
 
   .tag-pills-count {
+    flex-shrink: 0;
     margin-left: auto;
     font-size: 0.6875rem;
     color: var(--color-caption);

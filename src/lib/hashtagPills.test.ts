@@ -12,18 +12,18 @@ import {
 } from './hashtagPills';
 
 describe('SUGGESTED_HASHTAGS', () => {
-  it('is the iOS set, in the iOS order, plus gratitude for the theme', () => {
+  it('is the measured set in the designed order, without gratitude', () => {
     expect(SUGGESTED_HASHTAGS).toEqual([
       'foodstr',
-      'food',
-      'cooking',
-      'cookstr',
-      'breakfast',
-      'lunch',
-      'dinner',
       'coffee',
-      'gratitude'
+      'cooking',
+      'breakfast',
+      'dinner',
+      'lunch',
+      'cookstr',
+      'food'
     ]);
+    expect(SUGGESTED_HASHTAGS).not.toContain('gratitude');
   });
 });
 
