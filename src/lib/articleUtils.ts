@@ -7,6 +7,7 @@ import { NDKArticle, type NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS } from './consts';
 import { validateMarkdownTemplate } from './parser';
+import { isBlockedFromReads } from './reads/moderationClient';
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -479,11 +480,6 @@ const MIN_READ_TIME_ALL = 1; // 1 minute for "All" tab (show everything that pas
 const MIN_READ_TIME_COVER = 2; // 2 minutes for cover articles
 const MAX_ARTICLES_PER_AUTHOR = 3; // Limit articles per author in feed
 
-// Blacklisted pubkeys — known spammers filtered at quality-check level
-const BLACKLISTED_PUBKEYS = new Set<string>([
-  '73d9e19ef07e0d098fc0fc5fb75db0f854824e8b4e43905acce638ddf6469960', // npub1w0v7r8hs0cxsnr7ql30mwhdslp2gyn5tfepeqkkvucudmajxn9sqgz5svp
-]);
-
 // Spam title patterns (case-insensitive)
 const SPAM_TITLE_PATTERNS = [
   /^new\s+.*merchants/i,           // "New X merchants"
@@ -510,8 +506,8 @@ const SPAM_CONTENT_PATTERNS = [
  * @param minReadTime - Minimum read time in minutes
  */
 function passesQualityFilters(event: NDKEvent, minReadTime: number): boolean {
-  // Check blacklisted authors
-  if (BLACKLISTED_PUBKEYS.has(event.pubkey)) {
+  // Blocklist + NSFW/spam keyword filter (seed lists + KV overlay).
+  if (isBlockedFromReads(event)) {
     return false;
   }
 

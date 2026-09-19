@@ -5,6 +5,7 @@
 import { writable, derived, get } from 'svelte/store';
 import type { ArticleData, CuratedCover } from './articleUtils';
 import { isValidLongformArticle, curateCover } from './articleUtils';
+import { readsModerationVersion } from './reads/moderationClient';
 
 // All articles (any topic)
 export const articleStore = writable<ArticleData[]>([]);
@@ -13,8 +14,9 @@ export const articleStore = writable<ArticleData[]>([]);
 export const coverStore = writable<CuratedCover | null>(null);
 
 // Derived: food-only articles for cover and Food/Farming categories
-export const foodArticles = derived(articleStore, ($articles) =>
-  $articles.filter((a) => isValidLongformArticle(a.event))
+export const foodArticles = derived(
+  [articleStore, readsModerationVersion],
+  ([$articles]) => $articles.filter((a) => isValidLongformArticle(a.event))
 );
 
 /**

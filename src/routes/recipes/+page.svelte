@@ -8,10 +8,12 @@
   import type { PageData } from './$types';
   import { RECIPE_TAGS, isHiddenRecipeCoordinate } from '$lib/consts';
   import { feedCacheService } from '$lib/feedCache';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
 
   function isDisplayableRecipe(event: NDKEvent): boolean {
     const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
     if (isHiddenRecipeCoordinate(event.kind, event.pubkey, dTag)) return false;
+    if (isBlockedFromReads(event)) return false;
     return validateMarkdownTemplate(event.content) !== null;
   }
 

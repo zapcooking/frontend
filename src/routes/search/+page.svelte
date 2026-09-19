@@ -8,6 +8,7 @@
   import { mutedPubkeys } from '$lib/muteListStore';
   import { NDKRelaySet, type NDKEvent, type NDKSubscription } from '@nostr-dev-kit/ndk';
   import { isHiddenRecipeEvent } from '$lib/consts';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { isHumanReadablePostContent } from '$lib/postContentReadability';
   import Avatar from '../../components/Avatar.svelte';
@@ -209,6 +210,7 @@
         const d = event.tags.find((t) => t[0] === 'd')?.[1];
         if (!d) return;
         if (isHiddenRecipeEvent(event)) return;
+        if (isBlockedFromReads(event)) return;
         const naddr = nip19.naddrEncode({ kind: 30023, pubkey: event.pubkey, identifier: d });
         if (recipeSeen.has(naddr)) return;
         recipeSeen.add(naddr);

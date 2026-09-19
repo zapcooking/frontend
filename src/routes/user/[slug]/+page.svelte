@@ -41,6 +41,7 @@
   import { profileCacheManager } from '$lib/profileCache';
   import { RECIPE_TAGS } from '$lib/consts';
   import ArticleFeed from '../../../components/ArticleFeed.svelte';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
   import MembershipBeltBadge from '../../../components/MembershipBeltBadge.svelte';
   import { fetchUserStatsFromPrimal, getPrimalCache, type PrimalUserStats } from '$lib/primalCache';
   import FollowListRecoveryModal from '../../../components/FollowListRecoveryModal.svelte';
@@ -746,6 +747,8 @@
           const recipeValidation = validateMarkdownTemplate(ev.content);
           if (typeof recipeValidation !== 'string') return;
 
+          if (isBlockedFromReads(ev)) return;
+
           fetchedEvents.push(ev);
         });
 
@@ -820,6 +823,8 @@
 
           const recipeValidation = validateMarkdownTemplate(ev.content);
           if (typeof recipeValidation !== 'string') return;
+
+          if (isBlockedFromReads(ev)) return;
 
           newReads.push(ev);
         });

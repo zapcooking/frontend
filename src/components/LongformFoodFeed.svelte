@@ -11,6 +11,7 @@
     type ArticleData
   } from '$lib/articleUtils';
   import { foodArticles, addArticles } from '$lib/articleStore';
+  import { isBlockedFromReads, readsModerationVersion } from '$lib/reads/moderationClient';
 
   let localArticles: ArticleData[] = [];
   let loading = true;
@@ -40,9 +41,11 @@
     ? sharedFoodArticles
     : localArticles;
 
+  $: _moderationVersion = $readsModerationVersion;
+
   // Format for ArticleFeed component
   $: formattedArticles = displayArticles
-    .filter((a) => a.imageUrl) // Require images for explore display
+    .filter((a) => a.imageUrl && _moderationVersion >= 0 && !isBlockedFromReads(a.event)) // Require images for explore display
     .slice(0, 20)
     .map((a) => ({
       event: a.event,

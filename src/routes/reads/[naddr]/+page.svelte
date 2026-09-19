@@ -11,7 +11,8 @@
   import RightRail from '../../../components/RightRail.svelte';
   import RailCard from '../../../components/RailCard.svelte';
   import ZapMarkMono from '../../../components/ZapMarkMono.svelte';
-  import { RECIPE_TAGS, isHiddenRecipeEvent } from '$lib/consts';
+  import ContentUnavailable from '../../../components/reads/ContentUnavailable.svelte';
+  import { RECIPE_TAGS } from '$lib/consts';
   import { validateMarkdownTemplate } from '$lib/parser';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
   import ShareFatIcon from 'phosphor-svelte/lib/ShareFat';
@@ -19,11 +20,13 @@
   import { fetchAuthorContent } from '$lib/authorContent';
   import { fetchEventWithRelayHints } from '$lib/eventFetch';
   import { resolveVanityShareUrl as resolveVanityShareUrlFor } from '$lib/vanityUrl';
+  import { isBlockedFromReads, isBlockedReadsPointerClient } from '$lib/reads/moderationClient';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
   let loading = true;
   let error: string | null = null;
+  let blocked = false;
   let shareModalOpen = false;
   // Single-flight token for loadData (see guard inside).
   let lastRequestedSlug = '';
@@ -72,7 +75,7 @@
 
     loading = true;
     error = null;
-
+    blocked = false;
     try {
       if (slug.startsWith('naddr1')) {
         const a = nip19.decode(slug);
@@ -87,6 +90,19 @@
           pubkey: b.pubkey,
           kind: 30023
         });
+
+        if (
+          isBlockedReadsPointerClient({
+            pubkey: b.pubkey,
+            naddr,
+            identifier: b.identifier
+          })
+        ) {
+          blocked = true;
+          loading = false;
+          event = null;
+          return;
+        }
 
         // Add timeout protection for article loading. The explicit relay
         // set (pool + the naddr's bech32 relay hints) routes around the
@@ -111,6 +127,12 @@
           const isRecipeShaped = typeof validateMarkdownTemplate(e.content) !== 'string';
           if (hasRecipeTag || isRecipeShaped) {
             throw new Error('This is a recipe, not an article');
+          }
+          if (isBlockedFromReads(e)) {
+            blocked = true;
+            loading = false;
+            event = null;
+            return;
           }
           event = e;
           loading = false;
@@ -159,7 +181,10 @@
 
   // OG/meta derived entirely from the client-fetched NDK event, with static
   // defaults until it loads. No server load — see <svelte:head>.
-  $: pageHeading = event    ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || '...'
+  $: pageHeading = blocked
+    ? 'Content unavailable'
+    : event
+    ? event.tags.find((e) => e[0] == 'title')?.[1] || event.tags.find((e) => e[0] == 'd')?.[1] || '...'
     : 'Article';
 
   $: metaTitleBase = event
@@ -169,12 +194,16 @@
   $: fullPageTitle = `${pageHeading} - zap.cooking`;
   $: fullMetaTitle = `${metaTitleBase} - zap.cooking`;
 
-  $: og_title = event 
+  $: og_title = blocked
+    ? 'Content unavailable - zap.cooking'
+    : event 
     ? fullMetaTitle 
     : 'Article - zap.cooking';
   
   // Better description extraction from event content
-  $: og_description = event
+  $: og_description = blocked
+    ? 'This article is not available on zap.cooking'
+    : event
     ? (() => {
         // Try summary tag first
         const summary = event.tags?.find((tag) => tag[0] === 'summary')?.[1];
@@ -243,6 +272,7 @@
 </svelte:head>
 
 <!-- Back to Reads / Share bar -->
+{#if !blocked}
 <div class="mb-4 flex items-center justify-between gap-2">
   <a
     href="/reads"
@@ -263,11 +293,14 @@
     <span>Share</span>
   </button>
 </div>
+{/if}
 
 {#if loading}
   <div class="flex justify-center items-center page-loader">
     <PanLoader />
   </div>
+{:else if blocked}
+  <ContentUnavailable />
 {:else if error}
   <div class="flex flex-col justify-center items-center page-loader gap-4">
     <h1 class="text-2xl font-bold text-red-600">Article Loading Error</h1>
