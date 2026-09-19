@@ -66,12 +66,14 @@
   import type { GatedRecipeMetadata } from '$lib/nip108/types';
   import { GATED_RECIPE_KIND } from '$lib/consts';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
+  import FlagIcon from 'phosphor-svelte/lib/Flag';
   import NourishModal from '../nourish/NourishModal.svelte';
   import NourishPill from '../nourish/NourishPill.svelte';
   import { resolveScore } from '$lib/nourish/scoreResolver';
   import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
   import { resolveVanityShareUrl } from '$lib/vanityUrl';
+  import ReportArticleModal from '../reads/ReportArticleModal.svelte';
 
   export let event: NDKEvent;
   export let isPremium = false;
@@ -103,6 +105,7 @@
   let deleteConfirmOpen = false;
   let isDeleting = false;
   let isEditingRecipe = false;
+  let reportOpen = false;
   let nourishModalOpen = false;
   let nourishPreviewScore: number | null = null;
   let nourishGut: number | null = null;
@@ -765,6 +768,12 @@
   title={recipeTitle}
   imageUrl={recipeImage}
 />
+<ReportArticleModal
+  bind:open={reportOpen}
+  pubkey={event.pubkey}
+  eventId={event.id}
+  naddr={computedNaddr}
+/>
 
 <!-- Add to Grocery List Modal -->
 <AddToListModal bind:open={groceryModal} recipeEvent={event} />
@@ -1065,6 +1074,19 @@
                   >
                     <LightningIcon size={18} />
                     Boost this recipe
+                  </button>
+                {/if}
+                {#if !isOwner}
+                  <button
+                    class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
+                    style="color: var(--color-text-primary);"
+                    on:click={() => {
+                      reportOpen = true;
+                      menuOpen = false;
+                    }}
+                  >
+                    <FlagIcon size={18} />
+                    Report {isActualRecipe ? 'Recipe' : 'Article'}
                   </button>
                 {/if}
                 <hr class="my-1 border-t" style="border-color: var(--color-input-border);" />

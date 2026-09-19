@@ -25,6 +25,13 @@ import { fetchRecipeEventForOg } from './recipeOg.server';
 import { fetchNoteForOg, getNoteOgMeta, FALLBACK_NOTE_OG } from './noteOg.server';
 import { fetchProfileOgMeta, FALLBACK_PROFILE_OG } from './profileOg.server';
 import { probeImageDimensions } from './imageDimensions.server';
+import {
+  decodeNaddr,
+  evaluateReadsContent,
+  isBlockedReadsPointer,
+  type ReadsModerationLists
+} from './reads/moderation';
+import { DEFAULT_READS_MODERATION } from './reads/moderationConfig';
 
 /** Only these route prefixes get OG injection. */
 const ROUTE_RE = /^\/(recipe|r)\/([^/]+)\/?$/;
@@ -64,6 +71,25 @@ export function matchProfileOgRoute(pathname: string): { slug: string } | null {
   const m = pathname.match(PROFILE_ROUTE_RE);
   if (!m) return null;
   return { slug: m[1] };
+}
+
+function shouldHideOg(
+  slug: string,
+  event: { tags: string[][]; content: string; pubkey?: string; kind?: number; id?: string } | null,
+  lists: ReadsModerationLists
+): boolean {
+  const decoded = slug.toLowerCase().startsWith('naddr1') ? decodeNaddr(slug) : null;
+  if (
+    decoded &&
+    isBlockedReadsPointer(
+      { pubkey: decoded.pubkey, naddr: slug, identifier: decoded.identifier },
+      lists
+    )
+  ) {
+    return true;
+  }
+  if (event && evaluateReadsContent(event, lists).blocked) return true;
+  return false;
 }
 
 /** Generic article card when a `/reads/` event can't be resolved. */
@@ -171,11 +197,15 @@ export async function buildOgTagBlock(meta: RecipeOgMeta, canonicalUrl: string):
  * throws and never hangs: on any failure or relay timeout it emits safe
  * fallback meta so the bot still gets a valid 200 card.
  */
-export async function resolveRecipeOgMeta(slug: string): Promise<RecipeOgMeta> {
+export async function resolveRecipeOgMeta(
+  slug: string,
+  lists: ReadsModerationLists = DEFAULT_READS_MODERATION
+): Promise<RecipeOgMeta> {
   let meta: RecipeOgMeta = FALLBACK_RECIPE_OG;
   try {
+    if (shouldHideOg(slug, null, lists)) return meta;
     const event = await fetchRecipeEventForOg(slug);
-    if (event) meta = getRecipeOgMeta(event);
+    if (event && !shouldHideOg(slug, event, lists)) meta = getRecipeOgMeta(event);
   } catch {
     /* keep fallback meta */
   }
@@ -203,11 +233,15 @@ export async function resolveNoteOgMeta(slug: string): Promise<RecipeOgMeta> {
  * the recipe resolver/derivation (both are kind:30023 with title/summary/image
  * tags), with a generic article fallback. Never throws or hangs.
  */
-export async function resolveReadsOgMeta(slug: string): Promise<RecipeOgMeta> {
+export async function resolveReadsOgMeta(
+  slug: string,
+  lists: ReadsModerationLists = DEFAULT_READS_MODERATION
+): Promise<RecipeOgMeta> {
   let meta: RecipeOgMeta = FALLBACK_ARTICLE_OG;
   try {
+    if (shouldHideOg(slug, null, lists)) return meta;
     const event = await fetchRecipeEventForOg(slug);
-    if (event) meta = getRecipeOgMeta(event);
+    if (event && !shouldHideOg(slug, event, lists)) meta = getRecipeOgMeta(event);
   } catch {
     /* keep fallback meta */
   }
