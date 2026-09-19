@@ -8,6 +8,7 @@
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { isHumanReadablePostContent, postSnippet } from '$lib/postContentReadability';
   import { feedCacheService } from '$lib/feedCache';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
 
   export let placeholderString: string;
   export let autofocus = false;
@@ -151,7 +152,7 @@
       if (cachedEvents && cachedEvents.length > 0) {
         const map = new Map<string, (typeof recipeCache)[0]>();
         for (const event of cachedEvents) {
-          if (isHiddenRecipeEvent(event)) continue;
+          if (isHiddenRecipeEvent(event) || isBlockedFromReads(event)) continue;
           const title = event.tags.find((t) => t[0] === 'title')?.[1] || 'Untitled';
           const summary = event.tags.find((t) => t[0] === 'summary')?.[1] || '';
           const d = event.tags.find((t) => t[0] === 'd')?.[1] || '';
@@ -187,7 +188,7 @@
       const tempMap = new Map<string, (typeof recipeCache)[0]>();
 
       recipeSubscription.on('event', (event: any) => {
-        if (isHiddenRecipeEvent(event)) return;
+        if (isHiddenRecipeEvent(event) || isBlockedFromReads(event)) return;
         const title = event.tags.find((t: any) => t[0] === 'title')?.[1] || 'Untitled';
         const summary = event.tags.find((t: any) => t[0] === 'summary')?.[1] || '';
         const d = event.tags.find((t: any) => t[0] === 'd')?.[1] || '';
@@ -379,14 +380,14 @@
     );
     networkSearchSub = sub;
 
-    sub.on('event', (event: NDKEvent) => {
+      sub.on('event', (event: NDKEvent) => {
       if (thisVersion !== networkSearchVersion) return;
       const d = event.tags.find((t: string[]) => t[0] === 'd')?.[1];
       if (!d) return;
       // Title-less long-form still searches; show the d-tag like the
       // article pages do.
       const title = event.tags.find((t: string[]) => t[0] === 'title')?.[1] || d;
-      if (isHiddenRecipeEvent(event)) return;
+      if (isHiddenRecipeEvent(event) || isBlockedFromReads(event)) return;
 
       const naddr = nip19.naddrEncode({ kind: 30023, pubkey: event.pubkey, identifier: d });
       if (searchResults.recipes.some((r) => r.naddr === naddr)) return;

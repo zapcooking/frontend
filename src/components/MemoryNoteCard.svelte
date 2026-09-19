@@ -1,6 +1,7 @@
 <script lang="ts">
   import { nip19 } from 'nostr-tools';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { goto } from '$app/navigation';
   import Avatar from './Avatar.svelte';
   import AuthorName from './AuthorName.svelte';
   import NoteContent from './NoteContent.svelte';
@@ -26,7 +27,24 @@
     }
   }
 
-  $: viewUrl = noteUrl(event.id);
+  // The thread's root when the memory is a reply, else the note itself —
+  // the [nip19] page then renders the whole thread in the normal view.
+  // Marker style first (e tag with "root"), then NIP-10 positional (first
+  // e tag is the root for replies), then a lone parent tag. Mention-
+  // marked e tags are excluded to mirror isReplyNote (memories.ts): a
+  // top-level note that merely mentions another note opens itself, not
+  // the mention.
+  function rootNoteId(e: NDKEvent): string | null {
+    const eTags = e.tags.filter(
+      (t) => Array.isArray(t) && t[0] === 'e' && t[3]?.toLowerCase() !== 'mention'
+    );
+    const rootTag = eTags.find((t) => t[3] === 'root');
+    if (rootTag) return rootTag[1] as string;
+    if (eTags.length > 0) return eTags[0][1] as string;
+    return null;
+  }
+
+  $: viewUrl = noteUrl(rootNoteId(event) ?? event.id);
 
   function share() {
     try {
@@ -36,9 +54,34 @@
       console.warn('[memories] Failed to open composer with quote:', error);
     }
   }
+
+  function handleCardClick() {
+    if (viewUrl) goto(viewUrl);
+  }
+
+  // Same guard NoteEmbed uses: let inner links and buttons (content links,
+  // View, Share) keep their own behavior instead of double-navigating.
+  function handleCardClickEvent(e: MouseEvent) {
+    if (e.target instanceof Element && e.target.closest('a, button')) return;
+    handleCardClick();
+  }
+
+  function handleCardKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleCardClick();
+    }
+  }
 </script>
 
-<article class="memory-note-card rounded-xl border p-4">
+<div
+  class="memory-note-card rounded-xl border p-4 cursor-pointer"
+  role="link"
+  tabindex="0"
+  aria-label="Open this memory's note"
+  on:click={handleCardClickEvent}
+  on:keydown={handleCardKeydown}
+>
   <div class="flex items-center gap-2 mb-2">
     <Avatar pubkey={event.pubkey} size={32} />
     <div class="min-w-0 flex-1">
@@ -73,11 +116,20 @@
       </button>
     </div>
   </div>
-</article>
+</div>
 
 <style>
   .memory-note-card {
     background-color: var(--color-bg-primary);
     border-color: var(--color-input-border);
+    transition: border-color 0.15s ease-out;
+  }
+
+  /* Clickability affordance — same amber hover treatment the wallet
+     pills use. */
+  .memory-note-card:hover,
+  .memory-note-card:focus-visible {
+    border-color: rgba(251, 191, 36, 0.5);
+    outline: none;
   }
 </style>

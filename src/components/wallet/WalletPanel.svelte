@@ -1141,7 +1141,9 @@
   async function refreshAll() {
     if (!$walletConnected || !$activeWallet) return;
     try {
-      await refreshBalance();
+      // User-triggered: fail fast on a dead NWC wallet (single attempt)
+      // instead of holding the spinner through the retry backoff.
+      await refreshBalance(false, { fastFailNwc: true });
       if ($activeWallet.kind !== 1) {
         await loadTransactionHistory(true);
       }

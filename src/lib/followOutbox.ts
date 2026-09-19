@@ -219,13 +219,63 @@ export async function fetchFollowList(
   }
   
   try {
-    const contactEvent = await ndk.fetchEvent({
-      kinds: [3],
-      authors: [userPubkey],
-      limit: 1
+    // ndk.fetchEvent has no internal deadline — a relay set that never
+    // delivers EOSE can park this await forever, freezing any feed page
+    // built on it behind an eternal "Loading more posts…" spinner. Race
+    // a deadline; a stale cached follow list beats hanging (and beats
+    // declaring the user's follows empty on a flaky relay day).
+    // A TIMEOUT must not cache an empty follow list: fetchFollowingEvents
+    // short-circuits to zero events when follows are empty, so a cached
+    // timeout-empty poisons the initial load AND every pagination page
+    // for the cache lifetime (feed collapses to a couple of notes).
+    // Implemented as a plain subscription (not ndk.fetchEvent) so the
+    // deadline can actually STOP the request — a raced fetchEvent leaves
+    // its subscription running against relays that never answer, and
+    // repeated pages would accumulate that stuck relay work.
+    const FOLLOW_LIST_FETCH_TIMEOUT_MS = 5000;
+    let settled = false;
+    let sub: { stop: () => void } | null = null;
+    const contactEvent = await new Promise<NDKEvent | null | 'timeout'>((resolve) => {
+      const finish = (value: NDKEvent | null | 'timeout') => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          sub?.stop();
+        } catch {
+          /* already stopped */
+        }
+        resolve(value);
+      };
+      const timer = setTimeout(() => {
+        console.warn('[Outbox] Contact list fetch timed out');
+        finish('timeout');
+      }, FOLLOW_LIST_FETCH_TIMEOUT_MS);
+
+      const subscription = ndk.subscribe(
+        { kinds: [3], authors: [userPubkey], limit: 1 },
+        { closeOnEose: true }
+      );
+      sub = subscription;
+      subscription.on('event', (event: NDKEvent) => finish(event));
+      // EOSE from the relay set is a definitive answer: no contact event.
+      subscription.on('eose', () => finish(null));
     });
-    
+
+    if (contactEvent === 'timeout') {
+      if (cachedFollowList && followListPubkey === userPubkey) {
+        console.warn('[Outbox] Contact list fetch timed out — using stale cache');
+        return cachedFollowList;
+      }
+      // No cache to fall back on — report empty WITHOUT caching, so the
+      // next fetch (initial retry or the next pagination page) tries the
+      // relay again instead of serving a 5-minute timeout-empty.
+      console.warn('[Outbox] Contact list fetch timed out — not caching the empty result');
+      return [];
+    }
+
     if (!contactEvent) {
+      // Relay answered: this user genuinely has no contact event.
       cachedFollowList = [];
       followListPubkey = userPubkey;
       followListTimestamp = now;

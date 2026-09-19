@@ -1,5 +1,6 @@
 <script lang="ts">
   import { browser } from '$app/environment';
+  import { cubicBezier, prefersReducedMotion } from '$lib/motion';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
   import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircle';
   import InfoIcon from 'phosphor-svelte/lib/Info';
@@ -12,26 +13,8 @@
   // slight scale + cross-blur, arriving on the slower open clock and
   // leaving on the faster close clock. The container is top-center, so
   // the toast drops in from above instead of rising from below.
-  // Svelte 4's easing module has no custom cubic-bezier factory, so the
-  // recipe's curve (0.22, 1, 0.36, 1) is evaluated with Newton–Raphson.
-  function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
-    return (t: number): number => {
-      if (t <= 0) return 0;
-      if (t >= 1) return 1;
-      let u = t;
-      for (let i = 0; i < 8; i++) {
-        const x = 3 * u * (1 - u) ** 2 * x1 + 3 * u * u * (1 - u) * x2 + u ** 3 - t;
-        if (Math.abs(x) < 1e-5) break;
-        const d = 3 * (1 - u) ** 2 * x1 + 6 * u * (1 - u) * (x2 - x1) + 3 * u * u * (1 - x2);
-        if (Math.abs(d) < 1e-6) break;
-        u -= x / d;
-      }
-      return 3 * u * (1 - u) ** 2 * y1 + 3 * u * u * (1 - u) * y2 + u ** 3;
-    };
-  }
   const toastEase = cubicBezier(0.22, 1, 0.36, 1);
-  const reducedMotion =
-    browser && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reducedMotion = browser && prefersReducedMotion();
 
   function toastCss(t: number): string {
     return `opacity: ${t}; transform: translateY(${(1 - t) * -16}px) scale(${0.97 + 0.03 * t}); filter: blur(${(1 - t) * 2}px);`;

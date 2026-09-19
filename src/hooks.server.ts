@@ -13,6 +13,7 @@ import {
   createOgPageTransformer
 } from '$lib/recipeOgHtml.server';
 import type { RecipeOgMeta } from '$lib/recipeOgMeta';
+import { loadReadsModerationLists } from '$lib/reads/moderation.server';
 
 /**
  * Log the real server-side error (with stack) instead of letting SvelteKit
@@ -122,8 +123,9 @@ async function resolveOgMeta(
 
     const recipe = matchRecipeOgRoute(path);
     if (recipe) {
+      const lists = await loadReadsModerationLists(event.platform?.env?.GATED_CONTENT ?? null);
       return {
-        meta: await resolveRecipeOgMeta(recipe.slug),
+        meta: await resolveRecipeOgMeta(recipe.slug, lists),
         canonicalUrl: `${origin}/${recipe.prefix}/${recipe.slug}`
       };
     }
@@ -138,8 +140,9 @@ async function resolveOgMeta(
 
     const reads = matchReadsOgRoute(path);
     if (reads) {
+      const lists = await loadReadsModerationLists(event.platform?.env?.GATED_CONTENT ?? null);
       return {
-        meta: await resolveReadsOgMeta(reads.slug),
+        meta: await resolveReadsOgMeta(reads.slug, lists),
         canonicalUrl: `${origin}/reads/${reads.slug}`
       };
     }

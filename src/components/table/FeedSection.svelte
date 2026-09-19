@@ -3,6 +3,7 @@
   import FilterBar from './FilterBar.svelte';
   import ArticleCard from '../ArticleCard.svelte';
   import { filterByCategory, sortArticles, limitArticlesPerAuthor, deduplicatePreviewArticles, isRelevantToReads, type ArticleData, type SortOption } from '$lib/articleUtils';
+  import { isBlockedFromReads, readsModerationVersion } from '$lib/reads/moderationClient';
 
   export let articles: ArticleData[] = [];
   export let loading: boolean = false;
@@ -27,8 +28,14 @@
 
   // Filter out cover articles, articles without real images (no placeholders in
   // reads), and off-topic content that doesn't match any curated reads topic.
+  $: _moderationVersion = $readsModerationVersion;
   $: feedArticles = articles.filter(
-    (a) => !coverArticleIds.includes(a.id) && a.imageUrl && isRelevantToReads(a)
+    (a) =>
+      _moderationVersion >= 0 &&
+      !coverArticleIds.includes(a.id) &&
+      a.imageUrl &&
+      isRelevantToReads(a) &&
+      !isBlockedFromReads(a.event)
   );
   $: dedupedArticles = deduplicatePreviewArticles(feedArticles);
   $: authorLimitedArticles = limitArticlesPerAuthor(dedupedArticles, 3); // Max 3 per author

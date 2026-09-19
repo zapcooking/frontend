@@ -182,6 +182,14 @@
     zapManager = new ZapManager($ndk);
   }
 
+  // Warm the recipient's LNURL resolution the moment the modal opens —
+  // the profile fetch + LNURL round-trips then overlap with the user
+  // choosing an amount, so submit only has to fetch the invoice.
+  // Idempotent: createZap and any other ZapManager share the cache.
+  $: if (open && zapManager && event) {
+    zapManager.prefetchZap(event);
+  }
+
   async function submitZap() {
     // If user has an in-app wallet, use it directly
     if (hasInAppWallet) {

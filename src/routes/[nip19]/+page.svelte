@@ -1,6 +1,15 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { get } from 'svelte/store';
+  import { lastFeedUrl } from '$lib/feedOrigin';
+
+  // Back to the feed tab the user came from (captured by the root
+  // layout on navigation away from /community), falling back to the
+  // feed root when the note was opened cold (link, notification…).
+  function backToFeed() {
+    goto(get(lastFeedUrl) ?? '/community');
+  }
   import { browser } from '$app/environment';
   import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -589,7 +598,7 @@
   {#if !loading}
     <div class="pt-4 pb-2">
       <button
-        on:click={() => goto('/community')}
+        on:click={backToFeed}
         class="flex items-center gap-1 text-sm transition-opacity hover:opacity-70"
         style="color: var(--color-caption)"
       >
@@ -601,7 +610,7 @@
             d="M15 19l-7-7 7-7"
           />
         </svg>
-        Community
+        Feed
       </button>
     </div>
   {/if}
@@ -661,11 +670,11 @@
           <p class="text-sm">You have muted this user. Their content is hidden.</p>
         </div>
         <button
-          on:click={() => goto('/community')}
+          on:click={backToFeed}
           class="px-4 py-2 bg-input rounded-lg hover:bg-accent-gray transition-colors"
           style="color: var(--color-text-primary)"
         >
-          Back to Community
+          Back to Feed
         </button>
       </div>
     </div>
