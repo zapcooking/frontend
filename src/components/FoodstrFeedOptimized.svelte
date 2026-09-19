@@ -36,6 +36,7 @@
   import Avatar from './Avatar.svelte';
   import type { NDKSubscription } from '@nostr-dev-kit/ndk';
   import { NDKEvent, NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
+  import { MAX_HASHTAGS, hashtagCount as countHashtags } from '$lib/hashtags';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteReactionPills from './NoteReactionPills.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
@@ -438,12 +439,12 @@
   // Macro exclusion for economics phrases
   const MACRO_EXCLUDING_FOOD_ENERGY_REGEX = /\b(excluding|exclude)\s+food\s+and\s+energy\b/i;
 
-  const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
   const URL_REGEX = /(https?:\/\/[^\s]+)/g;
   const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg'];
   const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
 
-  const MAX_HASHTAGS = 5;
+  // MAX_HASHTAGS and the hashtag pattern live in $lib/hashtags, shared with
+  // the composer so its counter and this filter cannot disagree.
   const BATCH_DEBOUNCE_MS = 300;
   const SUBSCRIPTION_TIMEOUT_MS = 4000;
   const PRIVATE_RELAY_TIMEOUT_MS = 15000; // Longer timeout for members relays (15 seconds)
@@ -1162,18 +1163,8 @@
     return false;
   }
 
-  function countContentHashtags(content: string): number {
-    if (!content) return 0;
-    const matches = content.match(HASHTAG_PATTERN);
-    return matches ? matches.length : 0;
-  }
-
   function getHashtagCount(event: NDKEvent): number {
-    const contentHashtags = countContentHashtags(event.content || '');
-    const tagHashtags = Array.isArray(event.tags)
-      ? event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 't').length
-      : 0;
-    return Math.max(contentHashtags, tagHashtags);
+    return countHashtags(event.content || '', event.tags);
   }
 
   // Cache muted users to avoid repeated localStorage parsing
