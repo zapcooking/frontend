@@ -1533,7 +1533,9 @@
           {/if}
         </div>
 
-        <!-- Passkey Vault (renders nothing when unsupported/not applicable) -->
+        <!-- Passkey Vault: enroll/enrolled UI for nsec sessions; a one-line explanation when gated
+             (native, off-domain, no WebAuthn/PRF, extension/bunker session, foreign record);
+             nothing only when logged out -->
         <PasskeyVaultSection on:changed={refreshKeyState} />
 
         <!-- Private Key (legacy plaintext OR unlocked passkey session) -->

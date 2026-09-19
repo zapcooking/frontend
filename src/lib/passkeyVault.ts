@@ -146,34 +146,62 @@ export function deleteVaultRecord(): void {
 export type VaultSupport = 'full' | 'no-prf' | 'none';
 
 /**
+ * Why support is not 'full'. One value per gate in detectSupportDetail(),
+ * in check order; null when support is 'full'. Consumed by Settings so a
+ * hidden vault card can explain itself instead of rendering nothing.
+ */
+export type VaultSupportReason =
+  | 'native'
+  | 'unsupported-origin'
+  | 'insecure-context'
+  | 'no-webauthn'
+  | 'no-prf'
+  | null;
+
+export interface VaultSupportDetail {
+  support: VaultSupport;
+  reason: VaultSupportReason;
+}
+
+/**
  * 'none'   — no WebAuthn surface at all (native app, insecure context, old browser)
  * 'no-prf' — WebAuthn present but the platform reports no PRF support
  * 'full'   — PRF believed available. Still provisional: only the enrollment
  *            ceremony's verify-on-get proves it for the actual provider.
+ *
+ * The gates run in this exact order and the first failing one names the
+ * reason: native → unsupported-origin → insecure-context → no-webauthn →
+ * no-prf. (SSR counts as 'native' for the reason: it is "not the web app
+ * runtime", and no component reads the reason before mount anyway.)
  */
-export async function detectSupport(): Promise<VaultSupport> {
-  if (!browser || isNative()) return 'none';
-  if (!isSupportedOrigin()) return 'none';
-  if (!window.isSecureContext) return 'none';
+export async function detectSupportDetail(): Promise<VaultSupportDetail> {
+  if (!browser || isNative()) return { support: 'none', reason: 'native' };
+  if (!isSupportedOrigin()) return { support: 'none', reason: 'unsupported-origin' };
+  if (!window.isSecureContext) return { support: 'none', reason: 'insecure-context' };
   const pkc = (window as any).PublicKeyCredential;
-  if (!pkc || !navigator.credentials?.create) return 'none';
+  if (!pkc || !navigator.credentials?.create) return { support: 'none', reason: 'no-webauthn' };
   try {
     if (typeof pkc.getClientCapabilities === 'function') {
       const caps = await pkc.getClientCapabilities();
       const prf = caps?.['extension:prf'];
-      if (prf === false) return 'no-prf';
+      if (prf === false) return { support: 'no-prf', reason: 'no-prf' };
       // true → full; ABSENT → provisional 'full'. Safari omits extension
       // keys from getClientCapabilities entirely, and per the WebAuthn spec
       // an absent capability means "unknown", not "unsupported" — only an
       // explicit false may hide the feature. The enrollment ceremony
       // (prf.enabled on create + PRF output verified on get) remains the
       // authoritative check either way.
-      return 'full';
+      return { support: 'full', reason: null };
     }
   } catch {
     /* capability probe failed — fall through to provisional */
   }
-  return 'full';
+  return { support: 'full', reason: null };
+}
+
+/** Thin wrapper over detectSupportDetail() — existing callers keep the bare VaultSupport. */
+export async function detectSupport(): Promise<VaultSupport> {
+  return (await detectSupportDetail()).support;
 }
 
 /**
@@ -196,6 +224,28 @@ export async function detectHybridTransport(): Promise<boolean> {
     /* fall through to false */
   }
   return false;
+}
+
+/** "Not now" snoozes the migration prompt for this long. */
+export const VAULT_PROMPT_SNOOZE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Pure decision for VAULT_PROMPT_DISMISSED_KEY (unit-tested). Raw values:
+ *   null            → never dismissed
+ *   'never'         → "Don't ask again"
+ *   '1'             → legacy permanent dismissal, treated as 'never'
+ *   ISO timestamp   → "Not now": dismissed until 30 days after it
+ * Anything unparsable — or a timestamp in the FUTURE (clock skew, a hand-
+ * edited value) — counts as not dismissed: the prompt is dismissible, so a
+ * bad value fails open rather than hiding the migration for longer than
+ * 30 days.
+ */
+export function isPromptDismissed(raw: string | null, now: number): boolean {
+  if (!raw) return false;
+  if (raw === 'never' || raw === '1') return true;
+  const at = Date.parse(raw);
+  if (Number.isNaN(at) || at > now) return false;
+  return now - at < VAULT_PROMPT_SNOOZE_MS;
 }
 
 /** Pure predicate for the migration prompt (unit-tested). */

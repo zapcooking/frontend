@@ -26,10 +26,11 @@
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { bottomDockOccupied } from '$lib/stores/bottomDock';
 
-  // Soft-launch gate for the passkey migration prompt. While false, existing
+  // Launch gate for the passkey migration prompt (launched September 2026;
+  // CI's flag-guard pins it true on main). While false, existing
   // plaintext-key users are never prompted — enrollment is reachable only
-  // via Settings → Security. Flip to true to start actively migrating users.
-  const PASSKEY_ENROLL_PROMPT_ENABLED = false;
+  // via Settings → Security.
+  const PASSKEY_ENROLL_PROMPT_ENABLED = true;
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { stopMessageSubscription, clearMessages } from '$lib/stores/messages';
   import { clearDecryptCache } from '$lib/encryptionService';
