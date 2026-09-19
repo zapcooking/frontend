@@ -5,6 +5,7 @@
   import { userPublickey } from '$lib/nostr';
   import { clickOutside } from '$lib/clickOutside';
   import { postComposerOpen } from '$lib/postComposerStore';
+  import { miningOp } from '$lib/stores/miningOp';
   import { openNewDraft } from './reads/articleDraftStore';
   import AddIcon from 'phosphor-svelte/lib/Plus';
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
@@ -29,6 +30,12 @@
     $page.url.pathname.startsWith('/create') || $page.url.pathname.startsWith('/list/create');
   $: isSignedIn = $userPublickey !== '';
   $: isCancelMode = isCreateRoute;
+  // A mine holds the single worker for as long as it runs, so a second post
+  // started underneath it would sit unread behind the first and look hung.
+  // The floating indicator is already on screen saying what the wait is.
+  $: isMining = $miningOp !== null;
+
+  $: if (isMining) closeMenu();
 
   $: if (isCancelMode) {
     closeMenu();
@@ -230,11 +237,15 @@
       class={`create-trigger ${variant === 'floating' ? 'create-trigger-floating' : 'create-trigger-header'}`}
       class:create-trigger-cancel={isCancelMode}
       class:is-scrolling={isScrolling && variant === 'floating'}
-      aria-label={isCancelMode
-        ? 'Cancel'
-        : showMenu && variant === 'floating'
-          ? 'Close create menu'
-          : 'Create'}
+      disabled={isMining}
+      title={isMining ? 'Mining proof of work — finishing your last post' : undefined}
+      aria-label={isMining
+        ? 'Create (unavailable while mining proof of work)'
+        : isCancelMode
+          ? 'Cancel'
+          : showMenu && variant === 'floating'
+            ? 'Close create menu'
+            : 'Create'}
       aria-haspopup={!isCancelMode}
       aria-expanded={!isCancelMode && showMenu}
       on:pointerdown={handlePointerDown}
@@ -299,6 +310,13 @@
 {/if}
 
 <style>
+  /* Held, not hidden: the button staying put with the floating indicator
+     beside it reads as "busy", where a vanishing button reads as broken. */
+  .create-trigger:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   .create-menu {
     position: relative;
     display: inline-flex;

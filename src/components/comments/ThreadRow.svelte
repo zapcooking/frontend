@@ -26,6 +26,7 @@
   import NoteReactionPills from '../NoteReactionPills.svelte';
   import PostActionsMenu from '../PostActionsMenu.svelte';
   import PollDisplay from '../PollDisplay.svelte';
+  import PowBadge from '../PowBadge.svelte';
   import { threadIndentPx } from '$lib/thread/threadFlatten';
 
   export let event: NDKEvent;
@@ -142,6 +143,7 @@
           >
             {event.created_at ? formatTime(event.created_at) : ''}
           </a>
+          <PowBadge id={event.id} tags={event.tags} />
         </div>
       </div>
       <!-- Only stops the row's click-to-navigate; the menu owns its controls. -->
