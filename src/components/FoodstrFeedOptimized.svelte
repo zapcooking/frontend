@@ -765,28 +765,36 @@
 
     const scrollRoot = document.getElementById('app-scroll') || null;
 
-    loadMoreObserver = new IntersectionObserver(
+    const observer = new IntersectionObserver(
       (entries) => {
-        if (
-          entries[0].isIntersecting &&
-          hasMore &&
-          !loadingMore &&
-          !loading &&
-          !sentinelFiredThisFrame &&
-          Date.now() >= loadMoreCooldownUntil
-        ) {
-          // Fix C: Single-fire per intersection — reset after rAF
-          sentinelFiredThisFrame = true;
-          requestAnimationFrame(() => {
-            if (!isDestroyed) sentinelFiredThisFrame = false;
-          });
-          loadMore();
+        if (!entries[0].isIntersecting) return;
+        if (!hasMore || loadingMore || loading || sentinelFiredThisFrame) return;
+
+        const cooldownRemaining = loadMoreCooldownUntil - Date.now();
+        if (cooldownRemaining > 0) {
+          // The sentinel is already intersecting, so no new intersection
+          // event will arrive when the cooldown expires — re-check then
+          // or pagination strands with hasMore still true.
+          setTimeout(() => {
+            if (!isDestroyed && loadMoreObserver === observer && loadMoreSentinel?.isConnected) {
+              loadMore();
+            }
+          }, cooldownRemaining + 50);
+          return;
         }
+
+        // Fix C: Single-fire per intersection — reset after rAF
+        sentinelFiredThisFrame = true;
+        requestAnimationFrame(() => {
+          if (!isDestroyed) sentinelFiredThisFrame = false;
+        });
+        loadMore();
       },
       { rootMargin: '400px', root: scrollRoot }
     );
 
-    loadMoreObserver.observe(loadMoreSentinel);
+    loadMoreObserver = observer;
+    observer.observe(loadMoreSentinel);
   }
 
   function cleanupInfiniteScroll() {
@@ -796,8 +804,13 @@
     }
   }
 
-  // Setup infinite scroll when sentinel element is available and feed is ready
-  $: if (loadMoreSentinel && hasMore && !loading && events.length > 0) {
+  // Setup infinite scroll when sentinel element is available and feed is ready.
+  // `!loadingMore` matters: observe() fires an initial callback for the
+  // current intersection state, which is what re-triggers pagination after
+  // a page that appended nothing (the sentinel never LEFT view, so no new
+  // intersection event would ever arrive). Without it, an all-filtered-out
+  // page strands the feed with hasMore=true and a dead loader.
+  $: if (loadMoreSentinel && hasMore && !loading && !loadingMore && events.length > 0) {
     // Use setTimeout to ensure DOM is ready
     setTimeout(() => {
       setupInfiniteScroll();
@@ -1301,7 +1314,7 @@
 
     return isEventMutedBy(muteList, {
       id: event.id,
-      pubkey: event.author?.hexpubkey || event.pubkey,
+      pubkey: getAuthorKey(event),
       content: event.content,
       tags: event.tags
     });
@@ -1740,6 +1753,18 @@
     return (event as any)._repostCreatedAt || event.created_at || 0;
   }
 
+  // Author pubkey for filters/mute checks. NDKUser.hexpubkey THROWS
+  // ("npub not set") when the user object was built without a pubkey —
+  // reachable through synthetic expanded-repost events — so never read
+  // it bare; fall back to the event's own pubkey field.
+  function getAuthorKey(event: NDKEvent): string {
+    try {
+      return event.author?.hexpubkey || event.pubkey || '';
+    } catch {
+      return event.pubkey || '';
+    }
+  }
+
   function applyRepostMetadata(sourceEvent: NDKEvent, expandedEvent: NDKEvent): NDKEvent {
     (expandedEvent as any)._repostedBy = sourceEvent.pubkey;
     (expandedEvent as any)._repostId = sourceEvent.id;
@@ -1752,6 +1777,11 @@
   function buildExpandedEmbeddedRepostEvent(event: NDKEvent, inner: any): NDKEvent | null {
     if (!inner || typeof inner !== 'object' || !inner.id) return null;
     if (inner.kind !== 1 && inner.kind !== 1068) return null;
+    // Without a real author pubkey the synthetic event's NDKUser throws
+    // "npub not set" on the first .author?.hexpubkey read (e.g. the mute
+    // filter), which killed entire feed loads. Drop unattributable
+    // reposts instead.
+    if (typeof inner.pubkey !== 'string' || !inner.pubkey) return null;
 
     const innerEvent = new NDKEvent($ndk, inner);
     innerEvent.id = inner.id;
@@ -1784,6 +1814,11 @@
 
     const id = eventTag?.[1];
     if (!id) return null;
+    // Same rule as the embedded path: a synthetic event without a real
+    // author pubkey detonates on .author?.hexpubkey reads ("npub not
+    // set") and takes the whole feed load down with it.
+    const innerPubkey = pubkeyTag?.[1];
+    if (!innerPubkey) return null;
     const parsedKind = kindTag ? Number.parseInt(kindTag[1], 10) : NaN;
     // If the wrapper doesn't tell us the inner kind, default to 1 — kind:6
     // is by NIP-18 a "kind:1 repost", and a wrong guess only causes the
@@ -1793,7 +1828,7 @@
 
     const innerEvent = new NDKEvent($ndk);
     innerEvent.id = id;
-    innerEvent.pubkey = pubkeyTag?.[1] || '';
+    innerEvent.pubkey = innerPubkey;
     innerEvent.kind = kind;
     innerEvent.content = '';
     innerEvent.tags = [];
@@ -2398,7 +2433,7 @@
           // Check muted users
           if ($userPublickey) {
             const mutedUsers = getMutedUsers();
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && mutedUsers.includes(authorKey)) {
               console.log('[Feed] Members: Filtered out muted user event:', event.id);
               return false;
@@ -2502,13 +2537,13 @@
               const foodEvents = primalEvents.filter((event: NDKEvent) => {
                 if ($userPublickey) {
                   const mutedUsers = getMutedUsers();
-                  const authorKey = event.author?.hexpubkey || event.pubkey;
+                  const authorKey = getAuthorKey(event);
                   if (authorKey && mutedUsers.includes(authorKey)) return false;
                 }
                 if (isReply(event)) return false;
                 if (!passesFeedFilters(event)) return false;
                 if (followedSet.size > 0) {
-                  const authorKey = event.author?.hexpubkey || event.pubkey;
+                  const authorKey = getAuthorKey(event);
                   if (authorKey && followedSet.has(authorKey)) return false;
                 }
                 return true;
@@ -2598,7 +2633,7 @@
         // Check muted users first
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
-          const authorKey = event.author?.hexpubkey || event.pubkey;
+          const authorKey = getAuthorKey(event);
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
 
@@ -2619,7 +2654,7 @@
         if (!authorPubkey) {
           // Also exclude posts from followed users
           if (followedSet.size > 0) {
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && followedSet.has(authorKey)) {
               return false; // Exclude - this belongs in Following/Notes & Replies
             }
@@ -2811,7 +2846,7 @@
 
       // For Global feed, exclude posts from followed users
       if (!authorPubkey && followedPubkeysForRealtime.length > 0) {
-        const authorKey = event.author?.hexpubkey || event.pubkey;
+        const authorKey = getAuthorKey(event);
         if (authorKey && followedPubkeysForRealtime.includes(authorKey)) {
           return; // Skip - belongs in Following/Notes & Replies
         }
@@ -2884,7 +2919,7 @@
         if (isReply(e)) return false;
         if (!passesFeedFilters(e)) return false;
         if (followedSet.size > 0) {
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && followedSet.has(authorKey)) return false;
         }
         return true;
@@ -3006,7 +3041,7 @@
       if (isReply(event)) return false;
       if ($userPublickey) {
         const mutedUsers = getMutedUsers();
-        const authorKey = event.author?.hexpubkey || event.pubkey;
+        const authorKey = getAuthorKey(event);
         if (authorKey && mutedUsers.includes(authorKey)) return false;
       }
       return passesFeedFilters(event);
@@ -3018,7 +3053,7 @@
     return rawEvents.filter((event) => {
       if ($userPublickey) {
         const mutedUsers = getMutedUsers();
-        const authorKey = event.author?.hexpubkey || event.pubkey;
+        const authorKey = getAuthorKey(event);
         if (authorKey && mutedUsers.includes(authorKey)) return false;
       }
       return passesFeedFilters(event);
@@ -3082,12 +3117,15 @@
 
   /**
    * Fetch fresh content from Primal in background and merge with displayed events
-   * Called after instant cache paint to get latest content
+   * Called after instant cache paint to get latest content.
+   * Returns 'ok' when fresh data was merged, 'switched' when the user
+   * changed tabs mid-refresh (caller must not react), or 'failed' when
+   * the refresh threw — callers use that to fall back to a full load.
    */
-  async function fetchFreshAndMerge() {
+  async function fetchFreshAndMerge(): Promise<'ok' | 'switched' | 'failed'> {
     // Don't run for members (private relay not in Primal)
     if (filterMode === 'members') {
-      return;
+      return 'switched';
     }
 
     // Capture current mode to detect stale results after async operations
@@ -3098,7 +3136,7 @@
       let freshEvents: NDKEvent[] = [];
 
       if (startMode === 'following' || startMode === 'replies') {
-        if (!$userPublickey) return;
+        if (!$userPublickey) return 'switched';
 
         // Reuse cached follow list — avoid redundant Primal call
         const follows =
@@ -3106,8 +3144,8 @@
             ? followedPubkeysForRealtime
             : await fetchContactListFromPrimal($userPublickey);
 
-        if (filterMode !== startMode) return;
-        if (follows.length === 0) return;
+        if (filterMode !== startMode) return 'switched';
+        if (follows.length === 0) return 'switched';
 
         followedPubkeysForRealtime = follows;
 
@@ -3117,7 +3155,7 @@
           includeReplies: startMode === 'replies'
         });
 
-        if (filterMode !== startMode) return;
+        if (filterMode !== startMode) return 'switched';
 
         const filterFn = startMode === 'following' ? filterFollowingEvents : filterRepliesEvents;
         freshEvents = filterFn(primalEvents);
@@ -3142,7 +3180,7 @@
         }
 
         // Check if user switched tabs
-        if (filterMode !== startMode) return;
+        if (filterMode !== startMode) return 'switched';
 
         const { events: primalEvents } = await fetchGlobalFromPrimal($ndk, {
           limit: 200,
@@ -3150,14 +3188,14 @@
         });
 
         // Check again after async fetch
-        if (filterMode !== startMode) return;
+        if (filterMode !== startMode) return 'switched';
 
         // Apply food filter and exclude followed users
         freshEvents = primalEvents.filter((event) => {
           // Check muted users
           if ($userPublickey) {
             const mutedUsers = getMutedUsers();
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && mutedUsers.includes(authorKey)) return false;
           }
 
@@ -3169,7 +3207,7 @@
 
           // Exclude posts from followed users (they go in Following feed)
           if (followedSet.size > 0) {
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && followedSet.has(authorKey)) return false;
           }
 
@@ -3178,7 +3216,7 @@
       }
 
       // Final stale check before applying results
-      if (filterMode !== startMode) return;
+      if (filterMode !== startMode) return 'switched';
 
       console.log(
         `[Feed] Background refresh: ${freshEvents.length} events in ${(performance.now() - startTime).toFixed(0)}ms`
@@ -3227,12 +3265,19 @@
       } catch {
         // Non-critical
       }
+
+      return 'ok';
     } catch (err) {
-      // Only log if it's not a tab-switch scenario
+      // Only log if it's not a tab-switch scenario. Error objects
+      // JSON.stringify to {} — log the message so the failure is
+      // actually diagnosable from the console.
       if (filterMode === startMode) {
-        console.warn('[Feed] Background fetch failed:', err);
+        console.warn(
+          '[Feed] Background fetch failed:',
+          err instanceof Error ? err.message : String(err)
+        );
       }
-      // Silent fail - we already have cached content showing
+      return 'failed';
     }
   }
 
@@ -3333,7 +3378,7 @@
         // Check muted users
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
 
@@ -3342,7 +3387,7 @@
 
         // Exclude followed users from Global feed
         if (followedSet.size > 0) {
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && followedSet.has(authorKey)) {
             return false;
           }
@@ -3367,7 +3412,12 @@
   // ═══════════════════════════════════════════════════════════════
 
   async function loadMore() {
-    if (loadingMore || !hasMore || Date.now() < loadMoreCooldownUntil) return;
+    // `loading` too: the cooldown-retry timer in the intersection
+    // callback fires on a delay and must not run against a feed that a
+    // tab switch or reload has begun resetting (empty events, fresh
+    // hasMore) — a page fetched there could strand the new feed's
+    // pagination.
+    if (loading || loadingMore || !hasMore || Date.now() < loadMoreCooldownUntil) return;
 
     try {
       loadingMore = true;
@@ -3495,13 +3545,33 @@
       // Expand kind:6 wrappers into their inner kind:1/1068 notes before
       // the per-mode filter runs. Same reason as fetchFreshData: without
       // this, kind:6 wrappers leak into `events` and break rendering/dedup.
+      // The inner note's id must be checked against seenEventIds AND a
+      // page-local set: two reposts of the same note in one page, or a
+      // repost alongside the direct note, would otherwise both survive
+      // validOlder's seen-filter (it only knows cross-page ids) and append
+      // the same id twice — Svelte's keyed each then throws
+      // "duplicate keys", which kills the whole feed render (the frozen
+      // 2-3-notes-plus-loader state).
       const expandedOlderEvents: NDKEvent[] = [];
+      const expandedIds = new Set<string>();
       for (const raw of olderEvents) {
         if (raw.kind === 6) {
+          // Mark the wrapper seen even when expansion fails — a malformed
+          // repost must not be re-expanded on every page (same policy as
+          // the realtime handler).
           seenEventIds.add(raw.id);
           const inner = expandRepostEvent(raw);
-          if (inner && inner.id) expandedOlderEvents.push(inner);
+          if (!inner || !inner.id || seenEventIds.has(inner.id) || expandedIds.has(inner.id)) {
+            continue;
+          }
+          expandedIds.add(inner.id);
+          expandedOlderEvents.push(inner);
         } else {
+          // Same-page duplicates only here — the cross-page seen check is
+          // validOlder's job, and marking ids seen now would make that
+          // filter drop the whole page.
+          if (!raw.id || expandedIds.has(raw.id)) continue;
+          expandedIds.add(raw.id);
           expandedOlderEvents.push(raw);
         }
       }
@@ -3515,7 +3585,7 @@
         // Check muted users
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
 
@@ -3537,7 +3607,7 @@
 
         // Exclude followed users from Global feed
         if (!authorPubkey && filterMode === 'global' && followedSet.size > 0) {
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && followedSet.has(authorKey)) {
             return false;
           }
@@ -3956,7 +4026,7 @@
       let authorPicture: string | undefined;
       try {
         const profile = await resolveProfileByPubkey(
-          shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey,
+          getAuthorKey(shareModalEvent),
           $ndk
         );
         if (profile) {
@@ -3980,7 +4050,7 @@
               let refAuthorPicture: string | undefined;
               try {
                 const refProfile = await resolveProfileByPubkey(
-                  refEvent.author?.hexpubkey || refEvent.pubkey,
+                  getAuthorKey(refEvent),
                   $ndk
                 );
                 if (refProfile) {
@@ -3996,7 +4066,7 @@
                 content: refEvent.content,
                 authorName: refAuthorName,
                 authorPicture: refAuthorPicture,
-                authorPubkey: refEvent.author?.hexpubkey || refEvent.pubkey,
+                authorPubkey: getAuthorKey(refEvent),
                 timestamp: refEvent.created_at
               };
             }
@@ -4061,7 +4131,7 @@
 
       try {
         const profile = await resolveProfileByPubkey(
-          noteEvent.author?.hexpubkey || noteEvent.pubkey,
+          getAuthorKey(noteEvent),
           $ndk
         );
         if (profile) {
@@ -4087,7 +4157,7 @@
               let refAuthorPicture: string | undefined;
               try {
                 const refProfile = await resolveProfileByPubkey(
-                  refEvent.author?.hexpubkey || refEvent.pubkey,
+                  getAuthorKey(refEvent),
                   $ndk
                 );
                 if (refProfile) {
@@ -4103,7 +4173,7 @@
                 content: refEvent.content,
                 authorName: refAuthorName,
                 authorPicture: refAuthorPicture,
-                authorPubkey: refEvent.author?.hexpubkey || refEvent.pubkey,
+                authorPubkey: getAuthorKey(refEvent),
                 timestamp: refEvent.created_at
               };
               console.log('[DownloadImage] Referenced note found:', referencedNote);
@@ -4449,29 +4519,44 @@
           renderedNotes = new Set();
           clearRenderZoneState();
 
-          // Try instant cache first
+          // Try instant cache first — but a nearly-empty cache isn't
+          // worth painting as the final state: one stale note plus a
+          // background refresh that can fail leaves the feed stranded
+          // at that note with a dead loader. Fall through to the full
+          // load below instead.
           const cached = loadFromInstantCache(filterMode);
-          if (cached && cached.events.length > 0) {
-            const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
+          const hydratedEvents = cached
+            ? cached.events.map(hydrateFromCache).filter(passesFeedFilters)
+            : [];
 
-            if (hydratedEvents.length > 0) {
-              seenEventIds.clear();
-              paginationFloorTs = null;
-              hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
-              events = hydratedEvents;
-              preseedRenderedNotes(20);
-              loading = false;
-              error = false;
-              hasMore = true;
-              loadingMore = false;
+          if (hydratedEvents.length >= 5) {
+            seenEventIds.clear();
+            paginationFloorTs = null;
+            hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
+            events = hydratedEvents;
+            preseedRenderedNotes(20);
+            loading = false;
+            error = false;
+            hasMore = true;
+            loadingMore = false;
 
-              console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
+            console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
 
-              // Background refresh
-              backgroundLoading = true;
-              fetchFreshAndMerge().finally(() => (backgroundLoading = false));
-              return;
-            }
+            // Background refresh; when it dies (Primal down, fetch
+            // threw), fall back to the full relay load — the painted
+            // cache must not be the last word.
+            backgroundLoading = true;
+            fetchFreshAndMerge()
+              .then((outcome) => {
+                if (outcome === 'failed' && !isDestroyed && filterMode === lastFilterMode) {
+                  return loadFoodstrFeed(false);
+                }
+              })
+              .catch(() => {
+                /* loadFoodstrFeed handles its own errors */
+              })
+              .finally(() => (backgroundLoading = false));
+            return;
           }
 
           // No cache - full load
@@ -4494,29 +4579,44 @@
           renderedNotes = new Set();
           clearRenderZoneState();
 
-          // Try instant cache first
+          // Try instant cache first — but a nearly-empty cache isn't
+          // worth painting as the final state: one stale note plus a
+          // background refresh that can fail leaves the feed stranded
+          // at that note with a dead loader. Fall through to the full
+          // load below instead.
           const cached = loadFromInstantCache(filterMode);
-          if (cached && cached.events.length > 0) {
-            const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
+          const hydratedEvents = cached
+            ? cached.events.map(hydrateFromCache).filter(passesFeedFilters)
+            : [];
 
-            if (hydratedEvents.length > 0) {
-              seenEventIds.clear();
-              paginationFloorTs = null;
-              hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
-              events = hydratedEvents;
-              preseedRenderedNotes(20);
-              loading = false;
-              error = false;
-              hasMore = true;
-              loadingMore = false;
+          if (hydratedEvents.length >= 5) {
+            seenEventIds.clear();
+            paginationFloorTs = null;
+            hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
+            events = hydratedEvents;
+            preseedRenderedNotes(20);
+            loading = false;
+            error = false;
+            hasMore = true;
+            loadingMore = false;
 
-              console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
+            console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
 
-              // Background refresh
-              backgroundLoading = true;
-              fetchFreshAndMerge().finally(() => (backgroundLoading = false));
-              return;
-            }
+            // Background refresh; when it dies (Primal down, fetch
+            // threw), fall back to the full relay load — the painted
+            // cache must not be the last word.
+            backgroundLoading = true;
+            fetchFreshAndMerge()
+              .then((outcome) => {
+                if (outcome === 'failed' && !isDestroyed && filterMode === lastFilterMode) {
+                  return loadFoodstrFeed(false);
+                }
+              })
+              .catch(() => {
+                /* loadFoodstrFeed handles its own errors */
+              })
+              .finally(() => (backgroundLoading = false));
+            return;
           }
 
           // No cache for this tab - do full load
@@ -4615,36 +4715,45 @@
     // STALE-WHILE-REVALIDATE: Show cached content instantly, then refresh
     // ═══════════════════════════════════════════════════════════════
 
-    // Step 1: Try to render cached content immediately (0ms perceived load)
+    // Step 1: Try to render cached content immediately (0ms perceived load).
+    // Same threshold as the tab-switch path: a nearly-empty instant cache
+    // isn't worth painting as the final state — one stale note plus a
+    // refresh that can fail leaves the feed stranded at that note with a
+    // dead loader (the reported symptom). Fall through to the full load.
     const cached = loadFromInstantCache(filterMode);
-    if (cached && cached.events.length > 0) {
-      const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
+    const hydratedEvents = cached
+      ? cached.events.map(hydrateFromCache).filter(passesFeedFilters)
+      : [];
 
-      if (hydratedEvents.length > 0) {
-        // Add to seen set
-        hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
+    if (hydratedEvents.length >= 5) {
+      // Add to seen set
+      hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
 
-        events = hydratedEvents;
-        preseedRenderedNotes(20);
-        loading = false; // No loading spinner - we have content!
-        feedInitialLoadDone.set(true);
-        error = false;
-        hasMore = true;
-        loadingMore = false;
-        lastEventTime = Math.max(...events.map(getEventSortTime));
+      events = hydratedEvents;
+      preseedRenderedNotes(20);
+      loading = false; // No loading spinner - we have content!
+      feedInitialLoadDone.set(true);
+      error = false;
+      hasMore = true;
+      loadingMore = false;
+      lastEventTime = Math.max(...events.map(getEventSortTime));
 
-        console.log(`[Feed] Rendered ${events.length} cached events instantly`);
+      console.log(`[Feed] Rendered ${events.length} cached events instantly`);
 
-        // Step 2: Fetch fresh content in background
-        backgroundLoading = true;
-        try {
-          await fetchFreshAndMerge();
-        } finally {
-          backgroundLoading = false;
+      // Step 2: Fetch fresh content in background; if it dies (Primal
+      // down, fetch threw), fall back to the full relay load — the
+      // painted cache must not be the last word.
+      backgroundLoading = true;
+      try {
+        const outcome = await fetchFreshAndMerge();
+        if (outcome === 'failed' && !isDestroyed && filterMode === lastFilterMode) {
+          await loadFoodstrFeed(false);
         }
-
-        return; // Done - we showed cached content and refreshed in background
+      } finally {
+        backgroundLoading = false;
       }
+
+      return; // Done - we showed cached content and refreshed in background
     }
 
     // No usable cache - fall back to normal loading flow
@@ -5120,14 +5229,14 @@
                   <div class="flex items-center space-x-3 flex-1 min-w-0">
                     {#if !hideAvatar}
                       <a
-                        href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
+                        href="/user/{nip19.npubEncode(getAuthorKey(event))}"
                         class="flex-shrink-0 cursor-pointer"
                         on:click|stopPropagation={() =>
                           goto(
-                            `/user/${nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}`
+                            `/user/${nip19.npubEncode(getAuthorKey(event))}`
                           )}
                       >
-                        <Avatar pubkey={event.author?.hexpubkey || event.pubkey} size={40} />
+                        <Avatar pubkey={getAuthorKey(event)} size={40} />
                       </a>
                     {/if}
 
@@ -5504,7 +5613,7 @@
   isGeneratingImage={isGeneratingShareImage}
   onGenerateImage={shareModalEvent ? generateShareModalImage : null}
   authorPubkey={shareModalEvent
-    ? shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey
+    ? getAuthorKey(shareModalEvent)
     : ''}
 />
 
