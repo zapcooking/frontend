@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { HASHTAG_PATTERN, extractHashtags, buildHashtagTags } from './hashtags';
+import {
+  HASHTAG_PATTERN,
+  MAX_HASHTAGS,
+  countContentHashtags,
+  hashtagCount,
+  extractHashtags,
+  buildHashtagTags
+} from './hashtags';
 
 describe('extractHashtags', () => {
   it('returns nothing for an empty or tagless body', () => {
@@ -49,5 +56,27 @@ describe('buildHashtagTags', () => {
 
   it('is empty for a body without hashtags', () => {
     expect(buildHashtagTags('plain note')).toEqual([]);
+  });
+});
+
+describe('hashtagCount', () => {
+  it('counts body tokens as the feed pattern does, punctuation included', () => {
+    expect(countContentHashtags('#a #b\n#c.')).toBe(3);
+    expect(countContentHashtags('')).toBe(0);
+  });
+
+  it('takes the greater of body tokens and t tags', () => {
+    const tTags = [
+      ['t', 'x'],
+      ['t', 'y'],
+      ['p', 'ignored']
+    ];
+    expect(hashtagCount('#one', tTags)).toBe(2);
+    expect(hashtagCount('#one #two #three', tTags)).toBe(3);
+    expect(hashtagCount('', [])).toBe(0);
+  });
+
+  it('exposes the cap the feed filters on', () => {
+    expect(MAX_HASHTAGS).toBe(5);
   });
 });
