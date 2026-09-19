@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { prefersReducedMotion } from '$lib/motion';
   import { displayCurrency, type CurrencyCode } from '$lib/currencyStore';
   import {
     convertSatsToFiat,
@@ -66,18 +68,65 @@
     if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
     return n.toLocaleString();
   }
+
+  // ── Balance text swap (transitions.dev text-states-swap recipe) ────
+  // Old value exits up with blur, new one enters from below, 150ms. The
+  // wrapper is an inline-grid with every state on the same cell so the
+  // overlapping outro/intro never shifts layout. The first render skips
+  // the animation — a page-load pop on every mount would be noise.
+  $: swapText = !visible
+    ? '***'
+    : loading || sats === null
+      ? '...'
+      : $displayCurrency === 'SATS'
+        ? formatSatsValue(sats!)
+        : fiatValue !== null
+          ? compact
+            ? formatFiatValueCompact(fiatValue)
+            : formatFiatValue(fiatValue)
+          : fiatLoading
+            ? '...'
+            : '--';
+  $: swapKey = `${visible}|${loading}|${sats}|${fiatValue}|${fiatLoading}|${$displayCurrency}|${compact}`;
+
+  let mounted = false;
+  onMount(() => {
+    mounted = true;
+  });
+
+  const swapReducedMotion = prefersReducedMotion();
+  const swapInCss = (t: number) =>
+    `opacity: ${t}; transform: translateY(${(1 - t) * 4}px); filter: blur(${(1 - t) * 2}px);`;
+  const swapOutCss = (t: number) =>
+    `opacity: ${t}; transform: translateY(${(1 - t) * -4}px); filter: blur(${(1 - t) * 2}px);`;
+  const swapIn = (node: Element) => {
+    (node as HTMLElement).style.willChange = 'transform, filter, opacity';
+    return {
+      duration: !mounted || swapReducedMotion ? 0 : 150,
+      css: swapInCss
+    };
+  };
+  const swapOut = (node: Element) => {
+    (node as HTMLElement).style.willChange = 'transform, filter, opacity';
+    return {
+      duration: !mounted || swapReducedMotion ? 0 : 150,
+      css: swapOutCss
+    };
+  };
 </script>
 
-{#if !visible}
-  ***
-{:else if loading || sats === null}
-  ...
-{:else if $displayCurrency === 'SATS'}
-  {formatSatsValue(sats)}
-{:else if fiatValue !== null}
-  {compact ? formatFiatValueCompact(fiatValue) : formatFiatValue(fiatValue)}
-{:else if fiatLoading}
-  ...
-{:else}
-  --
-{/if}
+<span class="balance-swap">
+  {#key swapKey}
+    <span class="balance-swap-item" in:swapIn out:swapOut>{swapText}</span>
+  {/key}
+</span>
+
+<style>
+  .balance-swap {
+    display: inline-grid;
+  }
+  .balance-swap-item {
+    grid-area: 1 / 1;
+    display: inline-block;
+  }
+</style>
