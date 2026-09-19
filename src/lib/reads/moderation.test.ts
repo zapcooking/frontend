@@ -184,13 +184,11 @@ describe('mergeReadsLists', () => {
 	it('unions pubkeys and keeps seed entries', () => {
 		const extra = 'd'.repeat(64);
 		const merged = mergeReadsLists(DEFAULT_READS_MODERATION, {
-			blockedPubkeys: [extra],
-			blockedEventIds: [],
-			blockedNaddrs: [],
-			denylist: []
+			blockedPubkeys: [extra]
 		});
 		expect(merged.blockedPubkeys).toContain(SPAM_PUBKEY);
 		expect(merged.blockedPubkeys).toContain(extra);
+		expect(merged.denylist).toContain('naked');
 	});
 
 	it('lets an overlay denylist replace the seed when provided', () => {
@@ -202,5 +200,19 @@ describe('mergeReadsLists', () => {
 		});
 		expect(merged.denylist).toEqual(['customterm']);
 		expect(merged.blockedPubkeys).toContain(SPAM_PUBKEY);
+	});
+
+	it('treats an empty overlay denylist as a deliberate clear', () => {
+		const merged = mergeReadsLists(DEFAULT_READS_MODERATION, { denylist: [] });
+		expect(merged.denylist).toEqual([]);
+		expect(merged.blockedPubkeys).toContain(SPAM_PUBKEY);
+	});
+
+	it('keeps seed denylist when the overlay omits the field', () => {
+		const merged = mergeReadsLists(DEFAULT_READS_MODERATION, {
+			blockedPubkeys: ['d'.repeat(64)]
+		});
+		expect(merged.denylist).toContain('naked');
+		expect(merged.denylist.length).toBe(DEFAULT_READS_MODERATION.denylist.length);
 	});
 });

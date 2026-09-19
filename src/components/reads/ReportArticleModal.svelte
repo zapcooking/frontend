@@ -50,7 +50,7 @@
   <div class="flex flex-col gap-4 p-1">
     <div class="flex items-center gap-2">
       <FlagIcon size={20} />
-      <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Report article</h2>
+      <h2 id="title" class="text-lg font-semibold" style="color: var(--color-text-primary);">Report article</h2>
     </div>
     <p class="text-sm" style="color: var(--color-text-secondary);">
       Flag this for review. Reports go to the same queue as automated NSFW/spam filters.

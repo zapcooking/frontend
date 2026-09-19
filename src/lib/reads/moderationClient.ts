@@ -91,17 +91,43 @@ function rememberLocalBlock(pubkey: string | undefined) {
 	bumpVersion();
 }
 
-function postKeywordHit(hit: ReadsModerationHit): void {
+function serializeSignedEvent(event: ReadsEventLike): Record<string, unknown> | null {
+	const maybeRaw = event as ReadsEventLike & {
+		rawEvent?: () => unknown;
+		sig?: string;
+		created_at?: number;
+	};
+	const raw = typeof maybeRaw.rawEvent === 'function' ? maybeRaw.rawEvent() : maybeRaw;
+	if (!raw || typeof raw !== 'object') return null;
+	const e = raw as Record<string, unknown>;
+	if (typeof e.id !== 'string' || typeof e.pubkey !== 'string' || typeof e.sig !== 'string') {
+		return null;
+	}
+	if (typeof e.kind !== 'number' || typeof e.created_at !== 'number' || typeof e.content !== 'string') {
+		return null;
+	}
+	if (!Array.isArray(e.tags)) return null;
+	return {
+		id: e.id,
+		pubkey: e.pubkey,
+		created_at: e.created_at,
+		kind: e.kind,
+		tags: e.tags,
+		content: e.content,
+		sig: e.sig
+	};
+}
+
+function postKeywordHit(hit: ReadsModerationHit, event: ReadsEventLike): void {
 	if (!browser) return;
+	const signed = serializeSignedEvent(event);
+	if (!signed) return;
 	const key = hit.eventId || `${hit.pubkey}:${hit.naddr}:${hit.matchedTerm}`;
 	if (postedHits.has(key)) return;
 	postedHits.add(key);
 
 	const body = JSON.stringify({
-		kind: 'keyword',
-		eventId: hit.eventId || '',
-		pubkey: hit.pubkey || '',
-		naddr: hit.naddr || '',
+		event: signed,
 		matchedTerm: hit.matchedTerm || '',
 		field: hit.field || ''
 	});
@@ -133,7 +159,7 @@ export function isBlockedFromReads(event: ReadsEventLike): boolean {
 	if (!result.blocked) return false;
 	if (result.reason === 'keyword') {
 		rememberLocalBlock(result.pubkey);
-		postKeywordHit(result);
+		postKeywordHit(result, event);
 	}
 	return true;
 }

@@ -410,9 +410,9 @@ export function mergeReadsLists(
 		blockedPubkeys: union(base.blockedPubkeys, overlay.blockedPubkeys),
 		blockedEventIds: union(base.blockedEventIds, overlay.blockedEventIds),
 		blockedNaddrs: union(base.blockedNaddrs, overlay.blockedNaddrs),
-		// Denylist: if overlay provides one, it replaces (admin is source of
-		// truth after first save). Otherwise keep seed.
-		denylist: overlay.denylist && overlay.denylist.length > 0
+		// Denylist: an explicit array (including empty) replaces the seed so
+		// an admin can clear terms. A missing property keeps the seed.
+		denylist: Array.isArray(overlay.denylist)
 			? uniqueNormalized(overlay.denylist)
 			: uniqueNormalized(base.denylist)
 	};

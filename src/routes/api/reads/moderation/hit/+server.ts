@@ -2,13 +2,14 @@
  * POST /api/reads/moderation/hit — keyword-filter match from a Reads client.
  *
  * The client already hid the article. This endpoint:
- *   1. Confirms the matched term is on the denylist (clients cannot
- *      auto-block arbitrary pubkeys with a fake term).
- *   2. Writes a review-log row.
- *   3. Auto-adds the author pubkey to blockedPubkeys.
+ *   1. Verifies a signed kind 30023/35000 event (clients cannot auto-block
+ *      an unrelated author by posting a denylist term + someone else's pubkey).
+ *   2. Re-evaluates the event against the current denylist.
+ *   3. Writes a review-log row and auto-adds that event's author pubkey.
  *
  * Rate-limited per IP. Unauthenticated by design — the feed filter runs
- * for signed-out visitors too.
+ * for signed-out visitors too — but the mutation is gated on a valid sig
+ * and a real keyword match.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
@@ -16,10 +17,10 @@ import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 import {
 	addBlockedPubkey,
 	loadReadsModerationLists,
-	recordReadsReview,
-	termIsInDenylist
+	parseVerifiedReadsEvent,
+	recordReadsReview
 } from '$lib/reads/moderation.server';
-import { isHex64 } from '$lib/reads/moderation';
+import { evaluateReadsContent, naddrFromEvent } from '$lib/reads/moderation';
 
 function clientIp(getClientAddress: () => string): string {
 	try {
@@ -50,26 +51,27 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
 		return json({ error: 'bad_request' }, { status: 400 });
 	}
 
-	const pubkey = typeof body.pubkey === 'string' ? body.pubkey : '';
-	const matchedTerm = typeof body.matchedTerm === 'string' ? body.matchedTerm : '';
-	if (!isHex64(pubkey) || !matchedTerm) {
-		return json({ error: 'bad_request' }, { status: 400 });
+	const event = parseVerifiedReadsEvent(body.event);
+	if (!event) {
+		return json({ error: 'bad_event' }, { status: 400 });
 	}
 
 	const lists = await loadReadsModerationLists(platform?.env?.GATED_CONTENT ?? null);
-	if (!termIsInDenylist(matchedTerm, lists)) {
-		return json({ error: 'unknown_term' }, { status: 400 });
+	const result = evaluateReadsContent(event, lists);
+	if (!result.blocked || result.reason !== 'keyword' || !result.matchedTerm) {
+		return json({ error: 'not_a_match' }, { status: 400 });
 	}
 
+	const pubkey = event.pubkey.toLowerCase();
 	const recorded = await recordReadsReview(
 		platform?.env?.GATED_CONTENT ?? null,
 		{
 			kind: 'keyword',
-			eventId: typeof body.eventId === 'string' ? body.eventId : '',
+			eventId: event.id,
 			pubkey,
-			naddr: typeof body.naddr === 'string' ? body.naddr : '',
-			matchedTerm,
-			field: typeof body.field === 'string' ? body.field : ''
+			naddr: naddrFromEvent(event) ?? '',
+			matchedTerm: result.matchedTerm,
+			field: result.field
 		},
 		limited.ipHash
 	);
@@ -80,8 +82,8 @@ export const POST: RequestHandler = async ({ request, getClientAddress, platform
 
 	console.info('[reads-moderation] keyword hit', {
 		pubkey,
-		eventId: body.eventId,
-		matchedTerm,
+		eventId: event.id,
+		matchedTerm: result.matchedTerm,
 		duplicate: recorded.duplicate === true
 	});
 

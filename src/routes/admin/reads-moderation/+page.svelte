@@ -6,7 +6,6 @@
    * NIP-98 signed, same as /admin/promos. KV writes may take ~1m to
    * propagate across Cloudflare edges.
    */
-  import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { isAdmin } from '$lib/adminAuth';
   import { signNip98AuthHeader } from '$lib/nip98';
@@ -25,7 +24,7 @@
     ipHash: string;
   }
 
-  let loading = true;
+  let loading = false;
   let loadError = '';
   let lists: ReadsModerationLists | null = null;
   let logs: ReviewLog[] = [];
@@ -39,10 +38,6 @@
   let denylistText = '';
 
   $: authed = isAdmin($userPublickey);
-
-  onMount(() => {
-    if (authed) loadAll();
-  });
 
   $: if (authed && lists === null && !loading && !loadError) {
     loadAll();

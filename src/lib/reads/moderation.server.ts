@@ -2,16 +2,18 @@
  * KV-backed Reads moderation store.
  *
  * Layout in GATED_CONTENT (same namespace as cookbook promos):
- *   reads_mod_config          → ReadsModerationLists
- *   reads_mod:log:<iso>:<id>  → review log row (keyword hits + user reports)
+ *   reads_mod_config              → ReadsModerationLists
+ *   reads_mod:autoblock:<pubkey>  → per-author auto-block (merge-safe)
+ *   reads_mod:log:<iso>:<id>      → review log row (keyword hits + user reports)
  *
  * Empty KV falls back to DEFAULT_READS_MODERATION so the seed blocklist
- * works in local dev and on first deploy. The first admin save or
- * keyword auto-block writes the merged lists to KV, after which KV is
- * the runtime source of truth (unioned with seed pubkeys/ids/naddrs so
- * a wipe of one field cannot un-block the known spam account).
+ * works in local dev and on first deploy. Keyword auto-blocks are written
+ * as individual keys so concurrent hits cannot clobber each other. Admin
+ * saves still write `reads_mod_config` (unioned with seed pubkeys/ids/naddrs
+ * so a wipe of one field cannot un-block the known spam account).
  */
 
+import { verifyEvent, type Event as NostrEvent } from 'nostr-tools';
 import { DEFAULT_READS_MODERATION, type ReadsModerationLists } from './moderationConfig';
 import {
 	cloneLists,
@@ -20,6 +22,9 @@ import {
 	mergeReadsLists,
 	normalizeForScan
 } from './moderation';
+
+const HIT_EVENT_KINDS = new Set([30023, 35000]);
+const MAX_HIT_EVENT_BYTES = 512 * 1024;
 
 export type ReadsModerationKV =
 	| {
@@ -36,6 +41,7 @@ export type ReadsModerationKV =
 	| undefined;
 
 const CONFIG_KEY = 'reads_mod_config';
+const AUTOBLOCK_PREFIX = 'reads_mod:autoblock:';
 const LOG_PREFIX = 'reads_mod:log:';
 const LOG_TTL_SECONDS = 90 * 24 * 60 * 60;
 const HIT_DEDUP_PREFIX = 'reads_mod:dedup:';
@@ -57,6 +63,7 @@ export interface ReadsReviewLog {
 }
 
 let memConfig: ReadsModerationLists | null = null;
+const memAutoblocks = new Set<string>();
 const memLogs: ReadsReviewLog[] = [];
 const memDedup = new Set<string>();
 
@@ -71,24 +78,79 @@ function isListsShape(value: unknown): value is ReadsModerationLists {
 	);
 }
 
+function unionPubkeys(lists: ReadsModerationLists, extra: string[]): ReadsModerationLists {
+	if (extra.length === 0) return lists;
+	const seen = new Set(lists.blockedPubkeys);
+	const blockedPubkeys = [...lists.blockedPubkeys];
+	for (const raw of extra) {
+		const pk = raw.trim().toLowerCase();
+		if (!isHex64(pk) || seen.has(pk)) continue;
+		seen.add(pk);
+		blockedPubkeys.push(pk);
+	}
+	return { ...lists, blockedPubkeys };
+}
+
+async function listAutoblockPubkeys(kv: ReadsModerationKV): Promise<string[]> {
+	if (!kv) return [...memAutoblocks];
+	if (!kv.list) return [];
+	const pks: string[] = [];
+	try {
+		let cursor: string | undefined;
+		do {
+			const page = await kv.list({ prefix: AUTOBLOCK_PREFIX, limit: 1000, cursor });
+			for (const key of page.keys) {
+				const pk = key.name.slice(AUTOBLOCK_PREFIX.length).toLowerCase();
+				if (isHex64(pk)) pks.push(pk);
+			}
+			cursor = page.list_complete === false ? page.cursor : undefined;
+		} while (cursor);
+	} catch (err) {
+		console.warn('[reads-moderation] KV autoblock list failed:', err);
+	}
+	return pks;
+}
+
+async function pruneAutoblockKeys(kv: ReadsModerationKV, keep: Set<string>): Promise<void> {
+	if (!kv) {
+		for (const pk of [...memAutoblocks]) {
+			if (!keep.has(pk)) memAutoblocks.delete(pk);
+		}
+		return;
+	}
+	if (!kv.list) return;
+	const extra = await listAutoblockPubkeys(kv);
+	for (const pk of extra) {
+		if (keep.has(pk)) continue;
+		try {
+			await kv.delete(AUTOBLOCK_PREFIX + pk);
+		} catch (err) {
+			console.warn('[reads-moderation] KV autoblock delete failed:', err);
+		}
+	}
+}
+
 export async function loadReadsModerationLists(
 	kv: ReadsModerationKV
 ): Promise<ReadsModerationLists> {
+	let lists: ReadsModerationLists;
 	if (kv) {
+		lists = cloneLists(DEFAULT_READS_MODERATION);
 		try {
 			const raw = (await kv.get(CONFIG_KEY, 'text')) as string | null;
 			if (raw) {
 				const parsed = JSON.parse(raw) as unknown;
 				if (isListsShape(parsed)) {
-					return mergeReadsLists(DEFAULT_READS_MODERATION, parsed);
+					lists = mergeReadsLists(DEFAULT_READS_MODERATION, parsed);
 				}
 			}
 		} catch (err) {
 			console.warn('[reads-moderation] KV config read failed:', err);
 		}
-		return cloneLists(DEFAULT_READS_MODERATION);
+	} else {
+		lists = mergeReadsLists(DEFAULT_READS_MODERATION, memConfig);
 	}
-	return mergeReadsLists(DEFAULT_READS_MODERATION, memConfig);
+	return unionPubkeys(lists, await listAutoblockPubkeys(kv));
 }
 
 export async function saveReadsModerationLists(
@@ -101,21 +163,68 @@ export async function saveReadsModerationLists(
 	} else {
 		memConfig = next;
 	}
-	return next;
+	await pruneAutoblockKeys(kv, new Set(next.blockedPubkeys));
+	return loadReadsModerationLists(kv);
 }
 
+/**
+ * Merge-safe auto-block: each pubkey is its own KV key so two concurrent
+ * hits cannot overwrite each other's append to `reads_mod_config`.
+ */
 export async function addBlockedPubkey(
 	kv: ReadsModerationKV,
 	pubkey: string
 ): Promise<ReadsModerationLists> {
 	const pk = pubkey.trim().toLowerCase();
 	if (!isHex64(pk)) return loadReadsModerationLists(kv);
-	const current = await loadReadsModerationLists(kv);
-	if (current.blockedPubkeys.includes(pk)) return current;
-	return saveReadsModerationLists(kv, {
-		...current,
-		blockedPubkeys: [...current.blockedPubkeys, pk]
-	});
+	if (kv) {
+		await kv.put(AUTOBLOCK_PREFIX + pk, '1');
+	} else {
+		memAutoblocks.add(pk);
+	}
+	return loadReadsModerationLists(kv);
+}
+
+/**
+ * Accept a signed kind 30023/35000 event from a public client. Returns null
+ * unless the signature verifies — callers must not auto-block on the
+ * unauthenticated `pubkey` field alone.
+ */
+export function parseVerifiedReadsEvent(raw: unknown): NostrEvent | null {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+	let encoded: Uint8Array;
+	try {
+		encoded = new TextEncoder().encode(JSON.stringify(raw));
+	} catch {
+		return null;
+	}
+	if (encoded.length > MAX_HIT_EVENT_BYTES) return null;
+
+	const e = raw as Record<string, unknown>;
+	if (typeof e.id !== 'string' || typeof e.pubkey !== 'string' || typeof e.sig !== 'string') {
+		return null;
+	}
+	if (typeof e.content !== 'string' || typeof e.kind !== 'number' || typeof e.created_at !== 'number') {
+		return null;
+	}
+	if (!HIT_EVENT_KINDS.has(e.kind) || !Array.isArray(e.tags)) return null;
+
+	// Rebuild a plain event so a copied `Symbol(verified)` cannot skip schnorr.
+	const ev: NostrEvent = {
+		id: e.id,
+		pubkey: e.pubkey,
+		created_at: e.created_at,
+		kind: e.kind,
+		tags: e.tags as NostrEvent['tags'],
+		content: e.content,
+		sig: e.sig
+	};
+	try {
+		if (!verifyEvent(ev)) return null;
+	} catch {
+		return null;
+	}
+	return ev;
 }
 
 function sanitizeLog(input: Partial<ReadsReviewLog>, ipHash: string): ReadsReviewLog | null {
