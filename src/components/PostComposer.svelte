@@ -15,7 +15,15 @@
   import { nip19 } from 'nostr-tools';
   import NoteContent from './NoteContent.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
-  import { buildHashtagTags } from '$lib/hashtags';
+  import { buildHashtagTags, MAX_HASHTAGS } from '$lib/hashtags';
+  import {
+    SUGGESTED_HASHTAGS,
+    isHashtagSelected,
+    suggestedTagCount,
+    atHashtagCap,
+    overHashtagCap,
+    toggleHashtag
+  } from '$lib/hashtagPills';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
   import { clearQuotedNote } from '$lib/postComposerStore';
   import { publishQueue, publishQueueState } from '$lib/publishQueue';
@@ -140,6 +148,38 @@
   }
 
   $: previewContent = computePreviewContent(content, uploadedImages, uploadedVideos, quotedNote);
+
+  // Hashtag suggestion pills. The body is the single source of truth: a pill
+  // is selected when its tag is in `content`, typed or tapped, and the counter
+  // counts `content` exactly as the feed's cap does ($lib/hashtags).
+  $: tagCount = suggestedTagCount(content);
+  $: tagsAtCap = atHashtagCap(content);
+  $: tagsOverCap = overHashtagCap(content);
+
+  function handlePillTap(tag: string) {
+    if (posting) return;
+    // Read the live DOM first: the last keystroke may not have flowed into
+    // `content` yet if the input handler has not run.
+    const current = composerEl ? mentionCtrl.extractText() : content;
+    const next = toggleHashtag(current, tag);
+    if (next === current) return;
+    content = next;
+    // The reactive sync re-renders the editor from `content`, which drops the
+    // caret. Put it back at the end, after the tag line.
+    setTimeout(() => {
+      if (!composerEl) return;
+      mentionCtrl.syncContent(content);
+      lastRenderedContent = content;
+      composerEl.focus();
+      const range = document.createRange();
+      range.selectNodeContents(composerEl);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      scheduleDraftSave();
+    }, 0);
+  }
 
   $: if (composerEl && (content || uploadedImages.length || uploadedVideos.length)) {
     scheduleDraftSave();
@@ -740,6 +780,31 @@
                   {:else}
                     <p class="text-caption italic">Nothing to preview yet — start writing in the Write tab.</p>
                   {/if}
+                </div>
+              {/if}
+
+              {#if !showPreview}
+                <!-- Hashtag suggestion pills. Tap to add the tag to the body,
+                     tap again to remove it. Nothing is added automatically. -->
+                <div class="tag-pills" data-testid="tag-suggestions">
+                  <div class="tag-pills-row" role="group" aria-label="Suggested hashtags">
+                    {#each SUGGESTED_HASHTAGS as tag (tag)}
+                      {@const selected = isHashtagSelected(content, tag)}
+                      {@const blocked = !selected && tagsAtCap}
+                      <button
+                        type="button"
+                        class="tag-pill"
+                        class:selected
+                        aria-pressed={selected}
+                        disabled={blocked}
+                        title={blocked ? `${MAX_HASHTAGS} tags is the limit for the food feed` : selected ? `Remove #${tag}` : `Add #${tag}`}
+                        on:click={() => handlePillTap(tag)}
+                      >#{tag}</button>
+                    {/each}
+                  </div>
+                  <span class="tag-pills-count" class:over={tagsOverCap} aria-live="polite">
+                    {tagCount}/{MAX_HASHTAGS} tags{#if tagsOverCap} · over the food feed limit{/if}
+                  </span>
                 </div>
               {/if}
 
@@ -1440,6 +1505,67 @@
 
   .tool-btn:hover:not(:disabled) {
     background: var(--color-accent-gray);
+  }
+
+  /* Hashtag suggestion pills */
+  .tag-pills {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.375rem 0.5rem;
+    padding: 0.25rem 0.5rem 0.5rem;
+  }
+
+  .tag-pills-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    min-width: 0;
+  }
+
+  .tag-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-input-border);
+    background: transparent;
+    color: var(--color-caption);
+    font-size: 0.75rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease;
+  }
+
+  .tag-pill:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-input-border));
+  }
+
+  .tag-pill.selected {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  }
+
+  .tag-pill:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .tag-pills-count {
+    margin-left: auto;
+    font-size: 0.6875rem;
+    color: var(--color-caption);
+    white-space: nowrap;
+  }
+
+  .tag-pills-count.over {
+    color: #ef4444;
   }
 
   .composer-action-row {
