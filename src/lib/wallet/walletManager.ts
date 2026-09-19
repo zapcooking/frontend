@@ -240,7 +240,20 @@ async function ensureWalletConnected(wallet: Wallet): Promise<boolean> {
  * Get balance from the active wallet
  * @param sync For Spark: if true, sync with network first (slower but gets fresh data). Default false.
  */
-export async function refreshBalance(sync = false): Promise<number | null> {
+export interface RefreshBalanceOptions {
+  /**
+   * Fail fast on a dead NWC wallet: a single get_balance attempt instead
+   * of the retry/backoff loop. Only for user-triggered refreshes —
+   * background paths (post-payment, restore, periodic) want the retries
+   * so a transient relay blip can't blank a balance we already had.
+   */
+  fastFailNwc?: boolean;
+}
+
+export async function refreshBalance(
+  sync = false,
+  opts: RefreshBalanceOptions = {}
+): Promise<number | null> {
   const wallet = getActiveWallet();
 
   if (!wallet) {
@@ -273,7 +286,10 @@ export async function refreshBalance(sync = false): Promise<number | null> {
 
       case 3: // NWC
         try {
-          balance = await getNwcBalance();
+          // Interactive refreshes fail fast (one attempt) so a dead
+          // wallet surfaces in a single timeout instead of holding the
+          // loading state ~30s; background callers keep the retry loop.
+          balance = await getNwcBalance(opts.fastFailNwc ? 1 : 3);
         } catch (e) {
           console.warn('[WalletManager] NWC balance fetch failed (will retry on next refresh):', e);
           // Don't throw - the wallet is still connected, just couldn't fetch balance
