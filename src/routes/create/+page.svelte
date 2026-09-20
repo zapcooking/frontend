@@ -151,7 +151,14 @@
       directions: $directionsArray,
       additionalMarkdown
     };
-    const { draftId } = saveDraft(draftData, currentDraftId || undefined, false);
+    const saveResult = saveDraft(draftData, currentDraftId || undefined, false);
+    const { draftId } = saveResult;
+    if (!draftId) {
+      // Content-less: nothing was created, or the emptied draft was deleted
+      if (saveResult.deletedId) forgetCurrentDraft();
+      lastSavedSignature = signatureAtSave;
+      return;
+    }
 
     // Only rewrite the URL when the draft id first gets assigned — avoids
     // thrashing $page and causing the editor to jump while typing.
@@ -164,6 +171,18 @@
     lastSavedSignature = signatureAtSave;
     // No isSavingDraft toggle and no status message — keep auto-save silent
     // so it doesn't mutate UI that's in the user's field of view.
+  }
+
+  // The current draft no longer exists (emptied and deleted): drop the id
+  // and the ?draft= param so a reload doesn't report "Draft not found".
+  function forgetCurrentDraft() {
+    currentDraftId = null;
+    currentDraftSyncStatus = undefined;
+    if (browser) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('draft');
+      window.history.replaceState({}, '', url.toString());
+    }
   }
 
   function loadDraftById(draftId: string) {
@@ -253,11 +272,23 @@
 
     // Save with immediate sync when sync is available
     const syncAvailable = $draftSyncState.syncAvailable;
-    const { draftId, syncPromise } = saveDraft(
-      draftData,
-      currentDraftId || undefined,
-      syncAvailable
-    );
+    const saveResult = saveDraft(draftData, currentDraftId || undefined, syncAvailable);
+    const { draftId, syncPromise } = saveResult;
+    if (!draftId) {
+      // Content-less: nothing was created, or the emptied draft was deleted
+      if (saveResult.deletedId) {
+        forgetCurrentDraft();
+        draftSaveMessage = 'Empty draft removed';
+      } else {
+        draftSaveMessage = 'Add a title or some content to save a draft';
+      }
+      lastSavedSignature = draftSignature;
+      isSavingDraft = false;
+      setTimeout(() => {
+        draftSaveMessage = '';
+      }, 3000);
+      return;
+    }
     currentDraftId = draftId;
 
     // Update URL to include draft ID (without navigation)

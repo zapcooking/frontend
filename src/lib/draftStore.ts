@@ -19,6 +19,7 @@ import {
   cancelPendingPublish,
   type RemoteDraft
 } from '$lib/nip37DraftService';
+import { hasRecipeDraftContent } from '$lib/draftContent';
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -272,6 +273,48 @@ function normalizeRemoteDraft(remote: RemoteDraft): DraftWithSyncState {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// EMPTY-DRAFT SWEEP
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Split drafts into the ones worth keeping and the content-less ones.
+ * Empty drafts were created by an earlier build that persisted (and
+ * synced) before the user typed anything; they carry nothing worth
+ * restoring, so every load and sync sweeps them.
+ */
+function partitionEmptyDrafts<T extends RecipeDraft>(drafts: T[]): { kept: T[]; empties: T[] } {
+  const kept: T[] = [];
+  const empties: T[] = [];
+  for (const draft of drafts) {
+    (hasRecipeDraftContent(draft) ? kept : empties).push(draft);
+  }
+  return { kept, empties };
+}
+
+/**
+ * Remove content-less drafts from a list, cancelling any queued publish
+ * and tombstoning the ones that exist on relays. Returns the survivors.
+ */
+function sweepEmptyDrafts(
+  drafts: DraftWithSyncState[],
+  remoteIds: ReadonlySet<string> = new Set()
+): DraftWithSyncState[] {
+  const { kept, empties } = partitionEmptyDrafts(drafts);
+  if (empties.length === 0) return drafts;
+
+  for (const draft of empties) {
+    cancelPendingPublish(draft.id);
+    if (remoteIds.has(draft.id)) {
+      deleteDraftRemote(draft.id, 'recipe').catch((e) => {
+        console.error(`[DraftStore] Failed to remove empty draft ${draft.id} from remote:`, e);
+      });
+    }
+  }
+  console.log(`[DraftStore] Swept ${empties.length} empty draft(s)`);
+  return kept;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // INITIALIZATION
 // ═══════════════════════════════════════════════════════════════
 
@@ -282,7 +325,11 @@ function normalizeRemoteDraft(remote: RemoteDraft): DraftWithSyncState {
 export function initializeDraftStore(): void {
   if (!browser) return;
 
-  const localDrafts = loadLocalDrafts();
+  const rawLocalDrafts = loadLocalDrafts();
+  const localDrafts = sweepEmptyDrafts(rawLocalDrafts);
+  if (localDrafts.length !== rawLocalDrafts.length) {
+    saveLocalDrafts(localDrafts);
+  }
   const syncState = loadSyncState();
   const syncAvailable = isDraftSyncAvailable();
 
@@ -342,14 +389,21 @@ export async function syncDrafts(): Promise<void> {
   }));
 
   try {
-    // Fetch remote drafts
-    const remoteDrafts = await fetchRemoteDrafts();
+    // Fetch remote drafts. Relays hold recipe AND article drafts under the
+    // same kind; only recipe drafts belong in this store.
+    const allRemote = await fetchRemoteDrafts();
+    const remoteDrafts = allRemote.filter((d) => d.draftType === 'recipe');
+    const remoteIds = new Set(remoteDrafts.map((d) => d.id));
 
-    // Get current local drafts
-    const localDrafts = loadLocalDrafts();
+    // Local copies of remote *article* drafts are leftovers from when this
+    // store merged every draft type. They must never be published back as
+    // recipes (same d-tag would replace the article on the relay), so drop
+    // them here instead of treating them as local-only.
+    const articleIds = new Set(allRemote.filter((d) => d.draftType === 'article').map((d) => d.id));
+    const localDrafts = loadLocalDrafts().filter((d) => !articleIds.has(d.id));
 
-    // Merge
-    const merged = mergeDrafts(localDrafts, remoteDrafts);
+    // Merge, then sweep anything content-less on either side
+    const merged = sweepEmptyDrafts(mergeDrafts(localDrafts, remoteDrafts), remoteIds);
 
     // Save merged drafts locally
     saveLocalDrafts(merged);
@@ -450,8 +504,20 @@ function generateDraftId(): string {
   return `draft_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
+export type SaveDraftResult =
+  | { draftId: string; draft: DraftWithSyncState; syncPromise?: Promise<boolean>; deletedId?: undefined }
+  /**
+   * Nothing is stored: the draft is content-less. `deletedId` is set when
+   * an existing draft was emptied and has therefore been deleted (locally
+   * and, when sync is on, tombstoned on relays).
+   */
+  | { draftId: null; draft: null; syncPromise?: undefined; deletedId?: string };
+
 /**
- * Save a new draft or update an existing one
+ * Save a new draft or update an existing one.
+ * Returns `draftId: null` when the draft has no content: a new draft is
+ * not created, and an existing one is deleted rather than kept empty, so
+ * a stale contentful copy on a relay cannot resurrect it later.
  * @param draft - The draft data to save
  * @param existingId - Optional ID of existing draft to update
  * @param syncImmediately - If true, syncs to relays immediately instead of debouncing
@@ -461,10 +527,28 @@ export function saveDraft(
   draft: Omit<RecipeDraft, 'id' | 'createdAt' | 'updatedAt'>,
   existingId?: string,
   syncImmediately: boolean = false
-): { draftId: string; draft: DraftWithSyncState; syncPromise?: Promise<boolean> } {
+): SaveDraftResult {
   const state = get(stateStore);
   let drafts = [...state.drafts];
   const now = Date.now();
+
+  const hasContent = hasRecipeDraftContent(draft);
+  const existingIndex = existingId ? drafts.findIndex((d) => d.id === existingId) : -1;
+
+  // No title, no body, no attachment, and nothing already on disk: there is
+  // nothing to save. Don't allocate an id, don't touch storage, don't sync.
+  if (!hasContent && existingIndex === -1) {
+    return { draftId: null, draft: null };
+  }
+
+  // The user emptied an existing draft. Keeping an empty record locally
+  // while the relay still holds the old content would let the next sync
+  // (or a load-time sweep followed by a fetch) bring the old content back,
+  // so delete it outright: local removal plus a relay tombstone.
+  if (!hasContent) {
+    deleteDraft(existingId!);
+    return { draftId: null, draft: null, deletedId: existingId };
+  }
 
   let draftId: string;
   let savedDraft: DraftWithSyncState;
@@ -670,7 +754,7 @@ export async function migrateLocalDraftsToRemote(): Promise<{ migrated: number; 
   const drafts = [...state.drafts];
 
   for (const draft of drafts) {
-    if (draft.syncStatus === 'local') {
+    if (draft.syncStatus === 'local' && hasRecipeDraftContent(draft)) {
       try {
         await publishDraft(draft);
         draft.syncStatus = 'synced';
@@ -758,10 +842,14 @@ export async function forceRefreshFromRemote(): Promise<void> {
   }));
 
   try {
-    const remoteDrafts = await fetchRemoteDrafts();
+    const remoteDrafts = (await fetchRemoteDrafts()).filter((r) => r.draftType === 'recipe');
+    const remoteIds = new Set(remoteDrafts.map((r) => r.id));
 
-    // Convert remote drafts to local format
-    const drafts: DraftWithSyncState[] = remoteDrafts.map((r) => normalizeRemoteDraft(r));
+    // Convert remote drafts to local format, sweeping content-less ones
+    const drafts = sweepEmptyDrafts(
+      remoteDrafts.map((r) => normalizeRemoteDraft(r)),
+      remoteIds
+    );
 
     // Sort by most recently updated
     drafts.sort((a, b) => b.updatedAt - a.updatedAt);
