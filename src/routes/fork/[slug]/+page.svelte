@@ -3,6 +3,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { buildImetaTagWithAlt, imetaAltByUrl } from '$lib/feed/imeta';
   import { recipeTags, type recipeTagSimple, isHiddenRecipeEvent } from '$lib/consts';
   import FeedItem from '../../../components/RecipeCard.svelte';
   import { browser } from '$app/environment';
@@ -98,8 +99,12 @@
         if (imageTagsValue && imageTagsValue.length > 0) {
           const imageUrls = imageTagsValue.map(img => img[1]);
           images.set(imageUrls); // Replace the entire array instead of pushing
+          // Carry existing imeta alt text into the editor (imetaAltByUrl
+          // keys by URL, which is what the alt badges read).
+          imageAlts.set(imetaAltByUrl(event));
         } else {
-          images.set([]); // Clear images if none found
+          images.set([]);
+          imageAlts.set({});
         }
         selectedTags.set([]);
         // Support both legacy (nostrcooking-) and new (zapcooking-) tags when loading
@@ -155,6 +160,7 @@
 
   let title = '';
   let images: Writable<string[]> = writable([]);
+  let imageAlts: Writable<Record<string, string>> = writable({});
   let selectedTags: Writable<recipeTagSimple[]> = writable([]);
   let summary = '';
   let chefsnotes = '';
@@ -254,6 +260,11 @@
         if ($images.length > 0) {
           for (let i = 0; i < $images.length; i++) {
             event.tags.push(['image', $images[i]]);
+          }
+          // NIP-92 imeta alt text per image (screen readers)
+          for (const img of $images) {
+            const alt = $imageAlts[img]?.trim();
+            if (alt) event.tags.push(buildImetaTagWithAlt(img, alt));
           }
         }
         $selectedTags.forEach((t) => {
@@ -381,7 +392,7 @@
   <div>
     <h3>Photos & Videos*</h3>
     <span class="text-caption">First image will be your cover photo</span>
-    <MediaUploader uploadedImages={images} />
+    <MediaUploader uploadedImages={images} altTexts={imageAlts} />
   </div>
   <div class="flex justify-end">
     <div>

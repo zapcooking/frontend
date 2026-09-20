@@ -6,6 +6,7 @@
   import { signNip98AuthHeader } from '$lib/nip98';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { buildImetaTagWithAlt } from '$lib/feed/imeta';
   import type { recipeTagSimple } from '$lib/consts';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
@@ -30,6 +31,7 @@
 
   let title = '';
   let images: Writable<string[]> = writable([]);
+  let imageAlts: Writable<Record<string, string>> = writable({});
   let selectedTags: Writable<recipeTagSimple[]> = writable([]);
   let summary = '';
   let chefsnotes = '';
@@ -210,6 +212,11 @@
         if ($images.length > 0) {
           for (let i = 0; i < $images.length; i++) {
             event.tags.push(['image', $images[i]]);
+          }
+          // NIP-92 imeta alt text per image (screen readers)
+          for (const img of $images) {
+            const alt = $imageAlts[img]?.trim();
+            if (alt) event.tags.push(buildImetaTagWithAlt(img, alt));
           }
         }
         $selectedTags.forEach((t) => {
@@ -415,7 +422,7 @@
     <div class="flex flex-col gap-2">
       <h3>Photos & Videos*</h3>
       <span class="text-caption">First image will be your cover photo</span>
-      <MediaUploader uploadedImages={images} />
+      <MediaUploader uploadedImages={images} altTexts={imageAlts} />
     </div>
 
     <!-- Lightning Gating Options -->

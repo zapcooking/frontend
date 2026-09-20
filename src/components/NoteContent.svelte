@@ -16,6 +16,7 @@
   import CheffyMediaReview from './CheffyMediaReview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import { isImageUrl, filterImageUrls } from '$lib/imageUrls';
+  import { imetaAltByUrl } from '$lib/feed/imeta';
   import MediaLightbox from './MediaLightbox.svelte';
   import LightningInvoiceCard from './LightningInvoiceCard.svelte';
   import QuotesIcon from 'phosphor-svelte/lib/Quotes';
@@ -55,6 +56,9 @@
   $: allImageUrls = filterImageUrls(
     finalParsedContent.filter((part: any) => part.type === 'url' && part.url).map((p: any) => p.url)
   );
+
+  // NIP-92 imeta alt text, keyed by media URL, for screen readers.
+  $: altByUrl = event ? imetaAltByUrl(event) : new Map();
 
   const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv)(\?.*)?$/i;
 
@@ -443,6 +447,7 @@
           <CheffyMediaReview {event}>
             <MediaCarousel
               items={part.urls}
+              {altByUrl}
               onItemClick={(url) => {
                 const index = allImageUrls.indexOf(url);
                 openImageModal(url, index >= 0 ? index : 0);
@@ -452,6 +457,7 @@
         {:else}
           <MediaCarousel
             items={part.urls}
+            {altByUrl}
             onItemClick={(url) => {
               const index = allImageUrls.indexOf(url);
               openImageModal(url, index >= 0 ? index : 0);
@@ -477,7 +483,7 @@
           >
             <img
               src={part.url}
-              alt=""
+              alt={altByUrl.get(part.url) || ''}
               class="max-w-full rounded-lg max-h-96 object-contain hover:opacity-95 transition-opacity"
               loading="lazy"
               on:error={handleImageError}
@@ -582,7 +588,7 @@
 <!-- Image Modal -->
 {#if imageModalOpen}
   <MediaLightbox
-    images={allImageUrls}
+    images={allImageUrls.map((url) => ({ url, alt: altByUrl.get(url) || '' }))}
     bind:index={selectedImageIndex}
     onClose={closeImageModal}
   />

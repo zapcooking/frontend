@@ -19,6 +19,7 @@ import {
 } from './types';
 import { COMMERCE_STATES, type CommerceState } from './commerceState';
 import { addClientTagToEvent } from '$lib/nip89';
+import { buildImetaTagWithAlt } from '$lib/feed/imeta';
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 
 // Relays that index marketplace events (matches Plebeian Market's relay set)
@@ -184,6 +185,14 @@ export function createProductEvent(
 	for (const imageUrl of data.images) {
 		if (imageUrl) {
 			event.tags.push(['image', imageUrl]);
+		}
+	}
+
+	// NIP-92 imeta alt text per image (screen readers)
+	if (data.imageAlts) {
+		for (const imageUrl of data.images) {
+			const alt = data.imageAlts[imageUrl]?.trim();
+			if (imageUrl && alt) event.tags.push(buildImetaTagWithAlt(imageUrl, alt));
 		}
 	}
 

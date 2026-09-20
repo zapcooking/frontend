@@ -182,6 +182,41 @@ function extractMediaUrls(content: string): MediaItem[] {
 }
 
 /**
+ * Map each imeta URL on an event to its `alt` text (NIP-92, as used by
+ * Amethyst and Gossip). Events without imeta tags yield an empty map —
+ * callers then fall back to `alt=""`.
+ */
+export function imetaAltByUrl(event: RawEventLike): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const t of event.tags || []) {
+    if (!Array.isArray(t) || t.length < 2 || t[0] !== 'imeta') continue;
+    const slots = parseImetaSlots(t);
+    if (slots.url && slots.alt) out.set(slots.url, slots.alt);
+  }
+  return out;
+}
+
+/** Serialize imeta key/value slots into a NIP-92 tag row. Values must
+ * not contain newlines (they would masquerade as slot boundaries when
+ * re-parsed). */
+export function buildImetaTag(
+  url: string,
+  fields: Record<string, string | undefined>
+): string[] {
+  const tag = ['imeta', `url ${url}`];
+  for (const [key, value] of Object.entries(fields)) {
+    if (!value) continue;
+    tag.push(`${key} ${value.replace(/\s*\n\s*/g, ' ').trim()}`);
+  }
+  return tag;
+}
+
+/** Convenience wrapper for a plain image with alt text. */
+export function buildImetaTagWithAlt(url: string, alt: string): string[] {
+  return buildImetaTag(url, { alt });
+}
+
+/**
  * Parse media items from a Nostr event.
  *
  * Strategy:

@@ -6,6 +6,8 @@
 	import { goto } from '$app/navigation';
 	import { nip19 } from 'nostr-tools';
 	import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+	import { buildImetaTagWithAlt } from '$lib/feed/imeta';
+	import AltTextEditorModal from '../AltTextEditorModal.svelte';
 	import { ndk, userPublickey } from '$lib/nostr';
 	import { RELAY_SETS } from '$lib/relays/relaySets';
 	import { getOutboxRelays } from '$lib/relayListCache';
@@ -46,6 +48,10 @@
 
 	// Local state for editing
 	let localDraft: ArticleDraft = createEmptyDraft();
+	// Cover image alt text (NIP-92 imeta). Component-scoped: alt survives
+	// within an editor session but is not part of the persisted ArticleDraft.
+	let coverAlt = '';
+	let coverAltModalOpen = false;
 	let hasUnsavedChanges = false;
 	let showPreview = false;
 	let showCloseConfirm = false;
@@ -167,6 +173,7 @@
 	$: if ($longformEditorOpen && $currentDraft && initializedForDraftId !== $currentDraft.id) {
 		localDraft = { ...$currentDraft };
 		initializedForDraftId = $currentDraft.id;
+		coverAlt = '';
 		lastSavedState = JSON.stringify({
 			title: localDraft.title,
 			subtitle: localDraft.subtitle,
@@ -385,6 +392,10 @@
 					const { protocol } = new URL(localDraft.coverImage);
 					if (protocol === 'http:' || protocol === 'https:') {
 						event.tags.push(['image', localDraft.coverImage]);
+						// NIP-92 imeta alt text for the cover (screen readers)
+						if (coverAlt.trim()) {
+							event.tags.push(buildImetaTagWithAlt(localDraft.coverImage, coverAlt.trim()));
+						}
 					} else {
 						console.warn('Cover image URL is not http(s), skipping');
 					}
@@ -716,6 +727,17 @@
 								bind:coverImage={localDraft.coverImage}
 								bind:tags={localDraft.tags}
 							/>
+							{#if localDraft.coverImage}
+								<button
+									type="button"
+									class="lf-alt-toggle"
+									class:has-alt={!!coverAlt.trim()}
+									on:click={() => (coverAltModalOpen = true)}
+								>
+									{coverAlt.trim() ? '✓ ALT' : '+ ALT'}
+									<span class="lf-alt-label">image description</span>
+								</button>
+							{/if}
 						</div>
 
 						<!-- Editor Section -->
@@ -765,6 +787,13 @@
 		{/if}
 	</div>
 {/if}
+
+<AltTextEditorModal
+	url={localDraft.coverImage}
+	initialText={coverAlt}
+	bind:open={coverAltModalOpen}
+	on:save={(e) => (coverAlt = e.detail.text)}
+/>
 
 <style>
 	/* Header */
@@ -1252,5 +1281,34 @@
 		.preview-title {
 			font-size: 1.75rem;
 		}
+	}
+
+	.lf-alt-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 0.5rem;
+		padding: 0.3rem 0.65rem;
+		border: none;
+		border-radius: 6px;
+		background: var(--color-input-bg, rgba(0, 0, 0, 0.4));
+		color: var(--color-text-primary);
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		cursor: pointer;
+	}
+	.lf-alt-toggle:hover {
+		background: var(--color-accent-gray);
+	}
+	.lf-alt-toggle.has-alt {
+		background: var(--color-primary);
+		color: #fff;
+	}
+	.lf-alt-label {
+		font-weight: 500;
+		letter-spacing: 0;
+		text-transform: lowercase;
+		opacity: 0.8;
 	}
 </style>

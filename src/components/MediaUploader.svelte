@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Writable } from 'svelte/store';
+  import { writable } from 'svelte/store';
   import { ndk } from '$lib/nostr';
   import { uploadToNostrBuild } from '$lib/mediaUpload';
   import XIcon from 'phosphor-svelte/lib/X';
@@ -8,9 +9,49 @@
   import UploadIcon from 'phosphor-svelte/lib/UploadSimple';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+  import AltTextEditorModal from './AltTextEditorModal.svelte';
 
   export let uploadedImages: Writable<string[]>;
+  /**
+   * Optional per-URL alt text (NIP-92 imeta). Pass a writable from the
+   * editor so the publish step can emit imeta tags; defaults to an
+   * internal store so the badges work even in hosts that don't publish
+   * alt yet.
+   */
+  export let altTexts: Writable<Record<string, string>> | null = null;
   export let limit = 0; // 0 = unlimited
+
+  const alts = altTexts ?? writable<Record<string, string>>({});
+
+  let altModalOpen = false;
+  let altModalUrl = '';
+  let altModalInitial = '';
+
+  function openAltEditor(url: string) {
+    altModalUrl = url;
+    altModalInitial = $alts[url] || '';
+    altModalOpen = true;
+  }
+
+  function saveAltEditor(e: CustomEvent<{ text: string }>) {
+    const url = altModalUrl;
+    if (!url) return;
+    alts.update((map) => {
+      const next = { ...map };
+      if (e.detail.text) next[url] = e.detail.text;
+      else delete next[url];
+      return next;
+    });
+  }
+
+  function removeAlt(url: string) {
+    alts.update((map) => {
+      if (!(url in map)) return map;
+      const next = { ...map };
+      delete next[url];
+      return next;
+    });
+  }
 
   let fileInput: HTMLInputElement;
   let isDragging = false;
@@ -139,7 +180,8 @@
   function removeImage(index: number) {
     uploadedImages.update(imgs => {
       const newImgs = [...imgs];
-      newImgs.splice(index, 1);
+      const [removed] = newImgs.splice(index, 1);
+      if (removed) removeAlt(removed);
       return newImgs;
     });
   }
@@ -225,6 +267,19 @@
         >
           <XIcon size={16} weight="bold" />
         </button>
+
+        <!-- Alt text badge -->
+        {#if !isVideo(coverImage)}
+          <button
+            type="button"
+            class="mu-alt-toggle"
+            class:has-alt={!!$alts[coverImage]?.trim()}
+            on:click|stopPropagation={() => openAltEditor(coverImage)}
+            aria-label={$alts[coverImage]?.trim() ? 'Edit alt text' : 'Add alt text'}
+          >
+            {$alts[coverImage]?.trim() ? '✓ ALT' : '+ ALT'}
+          </button>
+        {/if}
         
         <!-- Cover badge -->
         <div class="absolute bottom-3 left-3 bg-black/60 text-white text-xs font-medium px-3 py-1 rounded-full flex items-center gap-1">
@@ -277,6 +332,19 @@
             >
               <XIcon size={12} weight="bold" />
             </button>
+
+            <!-- Alt text badge (images only) -->
+            {#if !isVideo(media)}
+              <button
+                type="button"
+                class="mu-alt-toggle mu-alt-toggle--small"
+                class:has-alt={!!$alts[media]?.trim()}
+                on:click|stopPropagation={() => openAltEditor(media)}
+                aria-label={$alts[media]?.trim() ? 'Edit alt text' : 'Add alt text'}
+              >
+                {$alts[media]?.trim() ? '✓' : '+'}
+              </button>
+            {/if}
           </div>
         {/each}
         
@@ -360,5 +428,43 @@
       </div>
     {/if}
   </div>
+
+  <AltTextEditorModal
+    url={altModalUrl}
+    initialText={altModalInitial}
+    bind:open={altModalOpen}
+    on:save={saveAltEditor}
+  />
 </div>
+
+<style>
+  .mu-alt-toggle {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    z-index: 5;
+    padding: 2px 8px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background-color 0.15s ease-out;
+  }
+  .mu-alt-toggle--small {
+    top: 1.75rem;
+    left: 0.25rem;
+    padding: 1px 5px;
+  }
+  .mu-alt-toggle:hover {
+    background: rgba(0, 0, 0, 0.85);
+  }
+  .mu-alt-toggle.has-alt {
+    background: var(--color-primary, #f97316);
+  }
+</style>
 
