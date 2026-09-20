@@ -5,7 +5,7 @@
   import FlameIcon from 'phosphor-svelte/lib/Flame';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
-  import ZapCookingIcon from './icons/ZapCookingIcon.svelte';
+  import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
   import { totalUnreadCount } from '$lib/stores/messages';
@@ -62,18 +62,19 @@
       <span class="sr-only">Recipes</span>
     </a>
 
-    <!-- ZapCooking logo — wallet shortcut. A bar-colored disc that lifts
-         above the bar's top edge and floats over the scrolling content. -->
-    <div class="zap-cell">
-      <button
-        on:click={() => ($walletModalOpen ? closeWallet() : openWallet())}
-        class="zap-center"
-        class:active={$walletModalOpen}
-        aria-label="Wallet"
-      >
-        <ZapCookingIcon size={40} active={$walletModalOpen} />
-      </button>
-    </div>
+    <!-- Wallet. Sits in the row like every other tab, with the same icon
+         the nav menu uses: the raised disc read as a compose or action
+         button, which is what that shape means in the apps this now
+         matches, and it isn't one. -->
+    <button
+      on:click={() => ($walletModalOpen ? closeWallet() : openWallet())}
+      class="nav-tab"
+      class:active={$walletModalOpen}
+      aria-label="Wallet"
+    >
+      <WalletIcon size={28} weight={$walletModalOpen ? 'fill' : 'bold'} />
+      <span class="sr-only">Wallet</span>
+    </button>
 
     <!-- Messages -->
     <a href="/messages" class="nav-tab" class:active={pathname.startsWith('/messages')}>
@@ -138,40 +139,6 @@
 
   .nav-tab.active {
     color: var(--color-accent, #f97316);
-  }
-
-  /* Center cell — lets the disc overflow upward past the bar's top edge. */
-  .zap-cell {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: visible;
-  }
-
-  /* Bar-colored disc that rises above the rectangular bar. Same fill as
-     the bar (no border) so it merges seamlessly below the top edge and
-     reads as a raised bump floating over the content above. */
-  .zap-center {
-    position: absolute;
-    /* Side icons are 28px centered in the 56px row, so their bottom edge
-       sits (56-28)/2 = 14px above the row bottom. Anchor the disc's bottom
-       just below that line so it aligns visually with the side icons. */
-    bottom: 9px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 56px;
-    height: 56px;
-    border-radius: 9999px;
-    /* Opaque bar-colored disc — no border, no transparency. */
-    background-color: var(--color-bg-secondary);
-    cursor: pointer;
-    transition: transform 0.12s ease;
-  }
-
-  .zap-center:active {
-    transform: scale(0.93);
   }
 
   .badge-dot {
