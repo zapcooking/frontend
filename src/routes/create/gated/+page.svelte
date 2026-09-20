@@ -135,6 +135,12 @@
     };
     
     const saveResult = saveDraft(draftData, currentDraftId || undefined);
+    if (!saveResult.draftId) {
+      // Content-less and no draft on disk: the store refuses to create one
+      draftSaveMessage = 'Add a title or some content to save a draft';
+      setTimeout(() => { draftSaveMessage = ''; }, 2000);
+      return;
+    }
     currentDraftId = saveResult.draftId;
     draftSaveMessage = 'Draft saved!';
     

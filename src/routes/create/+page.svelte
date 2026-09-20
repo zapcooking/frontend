@@ -152,6 +152,8 @@
       additionalMarkdown
     };
     const { draftId } = saveDraft(draftData, currentDraftId || undefined, false);
+    // Nothing to save (content-less and no draft on disk); the store made no entry
+    if (!draftId) return;
 
     // Only rewrite the URL when the draft id first gets assigned — avoids
     // thrashing $page and causing the editor to jump while typing.
@@ -258,6 +260,15 @@
       currentDraftId || undefined,
       syncAvailable
     );
+    if (!draftId) {
+      // Content-less and no draft on disk: the store refuses to create one
+      draftSaveMessage = 'Add a title or some content to save a draft';
+      isSavingDraft = false;
+      setTimeout(() => {
+        draftSaveMessage = '';
+      }, 3000);
+      return;
+    }
     currentDraftId = draftId;
 
     // Update URL to include draft ID (without navigation)
