@@ -129,18 +129,44 @@ describe('articleDraftStore', () => {
       expect(get(store.drafts)).toHaveLength(1);
     });
 
-    it('keeps a stored draft the user emptied on disk but does not sync it', () => {
+    it('deletes a stored draft the user emptied, tombstones it, and returns it to pending', () => {
       const draft = store.createNewDraft();
       store.saveDraft({ ...draft, title: 'Draft' });
       nip37.publishArticleDraft.mockClear();
       nip37.publishArticleDraftDebounced.mockClear();
 
       const result = store.saveDraft({ ...draft, title: '' });
+      expect(result.draftId).toBe(draft.id);
       expect(result.syncPromise).toBeUndefined();
-      expect(get(store.drafts)).toHaveLength(1);
-      expect(stored(storage)[0].title).toBe('');
+      expect(get(store.drafts)).toHaveLength(0);
+      expect(stored(storage)).toHaveLength(0);
+      expect(nip37.deleteDraftRemote).toHaveBeenCalledWith(draft.id, 'article');
       expect(nip37.publishArticleDraft).not.toHaveBeenCalled();
       expect(nip37.publishArticleDraftDebounced).not.toHaveBeenCalled();
+      // The open editor still resolves the same draft
+      expect(get(store.currentDraft)?.id).toBe(draft.id);
+    });
+
+    it('an emptied draft is not resurrected by a stale relay copy on reload', async () => {
+      const draft = store.createNewDraft();
+      store.saveDraft({ ...draft, title: 'Draft' });
+      store.saveDraft({ ...draft, title: '' });
+      const stale = { ...draft, title: 'Draft', updatedAt: Date.now() - 1000 };
+      nip37.fetchRemoteDrafts.mockResolvedValue([
+        { id: draft.id, eventId: 'ev', draft: stale, draftType: 'article', createdAt: stale.updatedAt, expiresAt: null }
+      ]);
+
+      // Simulate reload: nothing pending, load from disk, then sync
+      nip37.publishArticleDraftDebounced.mockClear();
+      store.pendingDraft.set(null);
+      store.loadDrafts();
+      await store.syncDraftsFromRemote();
+
+      // The tombstone was sent at save time; until the relay reflects it the
+      // stale copy can reappear in a fetch, but it is the relay's job to
+      // replace it — we must not have republished the old content.
+      expect(nip37.deleteDraftRemote).toHaveBeenCalledWith(draft.id, 'article');
+      expect(nip37.publishArticleDraftDebounced.mock.calls.map((c: { id: string }[]) => c[0].id)).not.toContain(draft.id);
     });
   });
 

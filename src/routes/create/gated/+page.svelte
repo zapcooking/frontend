@@ -136,8 +136,18 @@
     
     const saveResult = saveDraft(draftData, currentDraftId || undefined);
     if (!saveResult.draftId) {
-      // Content-less and no draft on disk: the store refuses to create one
-      draftSaveMessage = 'Add a title or some content to save a draft';
+      // Content-less: nothing was created, or the emptied draft was deleted
+      if (saveResult.deletedId) {
+        currentDraftId = null;
+        draftSaveMessage = 'Empty draft removed';
+        if (browser) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('draft');
+          window.history.replaceState({}, '', url.toString());
+        }
+      } else {
+        draftSaveMessage = 'Add a title or some content to save a draft';
+      }
       setTimeout(() => { draftSaveMessage = ''; }, 2000);
       return;
     }

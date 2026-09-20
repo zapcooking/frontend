@@ -505,14 +505,19 @@ function generateDraftId(): string {
 }
 
 export type SaveDraftResult =
-  | { draftId: string; draft: DraftWithSyncState; syncPromise?: Promise<boolean> }
-  /** Nothing was saved: the draft is content-less and does not exist yet. */
-  | { draftId: null; draft: null; syncPromise?: undefined };
+  | { draftId: string; draft: DraftWithSyncState; syncPromise?: Promise<boolean>; deletedId?: undefined }
+  /**
+   * Nothing is stored: the draft is content-less. `deletedId` is set when
+   * an existing draft was emptied and has therefore been deleted (locally
+   * and, when sync is on, tombstoned on relays).
+   */
+  | { draftId: null; draft: null; syncPromise?: undefined; deletedId?: string };
 
 /**
  * Save a new draft or update an existing one.
- * Returns `draftId: null` when the draft has no content and no stored
- * draft to update — nothing is created or synced in that case.
+ * Returns `draftId: null` when the draft has no content: a new draft is
+ * not created, and an existing one is deleted rather than kept empty, so
+ * a stale contentful copy on a relay cannot resurrect it later.
  * @param draft - The draft data to save
  * @param existingId - Optional ID of existing draft to update
  * @param syncImmediately - If true, syncs to relays immediately instead of debouncing
@@ -536,6 +541,15 @@ export function saveDraft(
     return { draftId: null, draft: null };
   }
 
+  // The user emptied an existing draft. Keeping an empty record locally
+  // while the relay still holds the old content would let the next sync
+  // (or a load-time sweep followed by a fetch) bring the old content back,
+  // so delete it outright: local removal plus a relay tombstone.
+  if (!hasContent) {
+    deleteDraft(existingId!);
+    return { draftId: null, draft: null, deletedId: existingId };
+  }
+
   let draftId: string;
   let savedDraft: DraftWithSyncState;
 
@@ -547,7 +561,7 @@ export function saveDraft(
         ...drafts[index],
         ...draft,
         updatedAt: now,
-        syncStatus: state.syncAvailable && hasContent ? 'syncing' : 'local'
+        syncStatus: state.syncAvailable ? 'syncing' : 'local'
       };
       drafts[index] = savedDraft;
       draftId = existingId;
@@ -592,12 +606,10 @@ export function saveDraft(
     drafts
   }));
 
-  // Handle remote sync. An existing draft the user has emptied stays on
-  // disk (so the cleared state survives a reload) but is not pushed to
-  // relays — a content-less event is worth nothing to another device.
+  // Handle remote sync
   let syncPromise: Promise<boolean> | undefined;
 
-  if (state.syncAvailable && hasContent) {
+  if (state.syncAvailable) {
     if (syncImmediately) {
       // Sync immediately and return promise
       syncPromise = publishDraft(savedDraft).then((success) => {

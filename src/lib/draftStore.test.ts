@@ -114,18 +114,37 @@ describe('recipe draftStore', () => {
       expect(nip37.publishDraftDebounced).toHaveBeenCalledTimes(1);
     });
 
-    it('persists an existing draft the user emptied, but does not sync it', () => {
+    it('deletes an existing draft the user emptied and tombstones it on relays', () => {
       const { draftId } = saveDraft({ ...emptyFields, title: 'Soup' });
       nip37.publishDraftDebounced.mockClear();
 
       const result = saveDraft(emptyFields, draftId!, true);
-      expect(result.draftId).toBe(draftId);
-      expect(result.syncPromise).toBeUndefined();
-      expect(get(draftsStore)[0].title).toBe('');
-      expect((get(draftsStore)[0] as any).syncStatus).toBe('local');
-      expect(storedDrafts(storage)[0].title).toBe('');
+      expect(result.draftId).toBeNull();
+      expect(result.draft).toBeNull();
+      expect(result.deletedId).toBe(draftId);
+      expect(get(draftsStore)).toHaveLength(0);
+      expect(storedDrafts(storage)).toHaveLength(0);
+      expect(nip37.cancelPendingPublish).toHaveBeenCalledWith(draftId);
+      expect(nip37.deleteDraftRemote).toHaveBeenCalledWith(draftId);
       expect(nip37.publishDraft).not.toHaveBeenCalled();
       expect(nip37.publishDraftDebounced).not.toHaveBeenCalled();
+    });
+
+    it('an emptied draft does not come back from a stale relay copy on the next sync', async () => {
+      const { draftId } = saveDraft({ ...emptyFields, title: 'Soup' });
+      saveDraft(emptyFields, draftId!);
+      // The relay still has the old contentful version until the tombstone lands
+      nip37.fetchRemoteDrafts.mockResolvedValue([
+        remote(makeDraft(draftId!, { title: 'Soup', updatedAt: Date.now() - 1000 }), 'recipe')
+      ]);
+
+      initializeDraftStore(); // reload: load-time sweep, then sync
+      await syncDrafts();
+
+      // Deletion happened at save time, so nothing was left to resurrect;
+      // the store may re-fetch the stale event but it was tombstoned already.
+      expect(nip37.deleteDraftRemote).toHaveBeenCalledWith(draftId);
+      expect(nip37.publishDraft).not.toHaveBeenCalled();
     });
 
     it('returns null when the id to update no longer exists and there is no content', () => {

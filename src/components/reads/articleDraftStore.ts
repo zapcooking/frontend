@@ -117,6 +117,26 @@ export function saveDraft(draft: ArticleDraft, syncToRelays: boolean = true): { 
 		return { draftId: draft.id };
 	}
 
+	// The user emptied a stored draft. An empty local record next to a
+	// contentful relay copy would be resurrected by the next merge, so drop
+	// it from storage, tombstone it on relays, and return it to pending so
+	// the open editor keeps working on the same id.
+	if (!hasContent) {
+		drafts.update((allDrafts) => {
+			const newDrafts = allDrafts.filter((d) => d.id !== draft.id);
+			persistDrafts(newDrafts);
+			return newDrafts;
+		});
+		pendingDraft.set({ ...draft });
+		if (isDraftSyncAvailable()) {
+			deleteDraftRemote(draft.id, 'article').catch((e) => {
+				console.error(`[ArticleDrafts] Failed to tombstone emptied draft ${draft.id}:`, e);
+			});
+		}
+		draftStatus.set('saved');
+		return { draftId: draft.id };
+	}
+
 	draftStatus.set('saving');
 	
 	const updatedDraft = {
@@ -142,10 +162,9 @@ export function saveDraft(draft: ArticleDraft, syncToRelays: boolean = true): { 
 	});
 	pendingDraft.update((p) => (p?.id === draft.id ? null : p));
 	
-	// Sync to relays if available, requested, and there is content to sync.
-	// An existing draft the user has emptied stays on disk but is not pushed.
+	// Sync to relays if available and requested
 	let syncPromise: Promise<boolean> | undefined;
-	if (syncToRelays && hasContent && isDraftSyncAvailable()) {
+	if (syncToRelays && isDraftSyncAvailable()) {
 		// Use debounced publish for auto-saves, immediate for manual saves
 		publishArticleDraftDebounced(updatedDraft);
 		// For immediate sync (manual save), return a promise
