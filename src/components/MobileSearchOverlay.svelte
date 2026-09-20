@@ -3,26 +3,35 @@
   import { blur } from 'svelte/transition';
   import { clickOutside } from '$lib/clickOutside';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
+  import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
 
   $: open = $mobileSearchOpen;
 
   function openSearch(query: string) {
     mobileSearchOpen.set(false);
+    // A pasted identifier is a destination, not a search term — and a
+    // secret key is neither, so it never reaches the results page (which
+    // would hand it to the search relays verbatim).
+    if (isSecretKeyInput(query)) return;
+    const target = parseNip19Input(query);
+    if (target) {
+      goto(target.path);
+      return;
+    }
     goto(`/search?q=${encodeURIComponent(query)}`);
   }
 
   function openTag(query: string) {
     mobileSearchOpen.set(false);
-    if (query.startsWith('npub')) {
-      goto(`/user/${query}`);
-    } else if (query.startsWith('naddr')) {
-      goto(`/recipe/${query}`);
-    } else if (query.startsWith('note1') || query.startsWith('nevent1')) {
-      goto(`/${query}`);
-    } else {
-      goto(`/tag/${query}`);
+    // Identifiers route to the thing they name, whether or not they arrived
+    // wearing NIP-21's `nostr:` scheme; anything else is a tag.
+    const target = parseNip19Input(query);
+    if (target) {
+      goto(target.path);
+      return;
     }
+    goto(`/tag/${query}`);
   }
 
   function close() {

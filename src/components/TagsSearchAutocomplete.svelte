@@ -7,6 +7,7 @@
   import { get } from 'svelte/store';
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { isHumanReadablePostContent, postSnippet } from '$lib/postContentReadability';
+  import { parseNip19Input, isSecretKeyInput, stripNostrPrefix } from '$lib/nip19Input';
   import { feedCacheService } from '$lib/feedCache';
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
 
@@ -86,22 +87,36 @@
       return;
     }
 
-    // Check for note identifiers (note1 or nevent1)
-    if (normalizedQuery.startsWith('note1') || normalizedQuery.startsWith('nevent1')) {
-      try {
-        // Validate it's a proper nip19 identifier - use rawQuery for decoding
-        const decoded = nip19.decode(rawQuery);
-        if (decoded.type === 'note' || decoded.type === 'nevent') {
-          searchResults.note = { id: rawQuery };
-          searchResults.tags = [];
-          searchResults.recipes = [];
-          searchResults.users = [];
-          showAutocomplete = true;
-          return;
-        }
-      } catch {
-        // Invalid identifier, continue with normal search
+    // A mis-pasted secret key must not become a relay query: NIP-50 sends
+    // the term verbatim, so one keystroke of bad luck would publish it.
+    if (isSecretKeyInput(rawQuery)) {
+      searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+      showAutocomplete = false;
+      cancelNetworkSearch();
+      cancelPostSearch();
+      return;
+    }
+
+    // NIP-19 identifiers, with or without NIP-21's `nostr:` scheme — which
+    // is the form every client's copy button produces, so it is what people
+    // actually paste.
+    const target = parseNip19Input(rawQuery);
+    if (target) {
+      searchResults.tags = [];
+      searchResults.recipes = [];
+      searchResults.users = [];
+      if (target.kind === 'note') {
+        searchResults.note = { id: target.id };
+        showAutocomplete = true;
+        return;
       }
+      // Profiles and addresses have no row of their own in this dropdown;
+      // submitting navigates, which `action` below already handles.
+      searchResults.note = null;
+      showAutocomplete = false;
+      cancelNetworkSearch();
+      cancelPostSearch();
+      return;
     }
 
     // Clear note result if not a note identifier

@@ -11,6 +11,7 @@
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { isHumanReadablePostContent } from '$lib/postContentReadability';
+  import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import NoteContent from '../../components/NoteContent.svelte';
@@ -228,12 +229,28 @@
     }
   }
 
+  // An identifier that reached this page — pasted into the results page's
+  // own box, or arriving in a shared link — names one thing, so searching
+  // for its text would be answering a question nobody asked. It is sent
+  // where it points instead, replacing the history entry so Back goes to
+  // where the reader came from rather than to a search that never ran.
+  $: identifier = browser ? parseNip19Input(query) : null;
+
   // Re-run all three searches when the query changes (URL-driven —
   // back/forward works). Tab switches don't re-fetch.
   $: if (browser && query !== undefined) {
-    runSearch(query);
-    runUserSearch(query);
-    runRecipeSearch(query);
+    if (identifier) {
+      goto(identifier.path, { replaceState: true });
+    } else if (isSecretKeyInput(query)) {
+      // Never hand a secret key to the relays: NIP-50 sends the term
+      // verbatim, so running this search would publish it.
+      stopSearch();
+      stopRecipeSearch();
+    } else {
+      runSearch(query);
+      runUserSearch(query);
+      runRecipeSearch(query);
+    }
   }
 
   onDestroy(() => {
