@@ -7,7 +7,7 @@
   import { get } from 'svelte/store';
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { isHumanReadablePostContent, postSnippet } from '$lib/postContentReadability';
-  import { parseNip19Input, isSecretKeyInput, stripNostrPrefix } from '$lib/nip19Input';
+  import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
   import { feedCacheService } from '$lib/feedCache';
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
 

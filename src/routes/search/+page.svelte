@@ -243,9 +243,15 @@
       goto(identifier.path, { replaceState: true });
     } else if (isSecretKeyInput(query)) {
       // Never hand a secret key to the relays: NIP-50 sends the term
-      // verbatim, so running this search would publish it.
+      // verbatim, so running this search would publish it. Also scrub it
+      // from the address bar and this history entry, keeping the other
+      // params (e.g. `type`) so the page is otherwise unchanged.
       stopSearch();
       stopRecipeSearch();
+      const params = new URLSearchParams($page.url.searchParams);
+      params.delete('q');
+      const rest = params.toString();
+      goto(`/search${rest ? `?${rest}` : ''}`, { replaceState: true, keepFocus: true, noScroll: true });
     } else {
       runSearch(query);
       runUserSearch(query);

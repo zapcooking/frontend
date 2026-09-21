@@ -62,4 +62,14 @@ describe('parseNip19Input', () => {
     expect(isSecretKeyInput(`nostr:${nsec}`)).toBe(true);
     expect(isSecretKeyInput(NOTE)).toBe(false);
   });
+
+  it('refuses a secret key in every spelling the docstring promises', () => {
+    const nsec = 'nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5';
+    expect(isSecretKeyInput(`web+nostr:${nsec}`)).toBe(true);
+    expect(isSecretKeyInput(`  ${nsec.toUpperCase()}\n`)).toBe(true);
+    // Truncated paste is still a secret key, not a search term.
+    expect(isSecretKeyInput(nsec.slice(0, 20))).toBe(true);
+    // Hex is intentionally not treated as a secret.
+    expect(isSecretKeyInput('a'.repeat(64))).toBe(false);
+  });
 });

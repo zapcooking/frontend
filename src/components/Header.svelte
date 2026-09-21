@@ -66,6 +66,9 @@
 
   function openTag(query: string) {
     mobileSearchOpen.set(false);
+    // Same invariant as openSearch: a secret key is never written into a
+    // URL, so it cannot become `/tag/nsec1…` either.
+    if (isSecretKeyInput(query)) return;
     // Identifiers route to the thing they name, whether or not they arrived
     // wearing NIP-21's `nostr:` scheme; anything else is a tag.
     const target = parseNip19Input(query);

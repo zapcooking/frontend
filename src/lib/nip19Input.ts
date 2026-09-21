@@ -27,7 +27,14 @@ export function stripNostrPrefix(input: string): string {
 }
 
 /**
- * True for a secret key in any form.
+ * True for a bech32 secret key (`nsec1…`), with or without NIP-21's
+ * `nostr:`/`web+nostr:` scheme, in any casing, and with surrounding
+ * whitespace. It matches on the `nsec1` prefix rather than a full decode so
+ * a truncated or mangled paste is still refused.
+ *
+ * A raw 64-hex secret key is deliberately not detected: hex is
+ * indistinguishable from a public key or event id, and refusing every hex
+ * string would break legitimate searches.
  *
  * Worth its own check because the failure is silent and expensive: a search
  * box that treats an unrecognized string as text hands it to a relay as a
