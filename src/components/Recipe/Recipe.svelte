@@ -670,6 +670,15 @@
   // photo is still expected to show one.
   // NIP-92 imeta alt text keyed by image URL (recipes and article covers)
   $: imageAltByUrl = imetaAltByUrl(event);
+  // ALT badge on a carousel slide opens the description in a dialog
+  // (matches the feed carousel: alt should be inspectable, not just
+  // announced to screen readers).
+  let altDialogOpen = false;
+  let altDialogText = '';
+  function showImageAlt(url: string) {
+    altDialogText = imageAltByUrl.get(url) || '';
+    if (altDialogText) altDialogOpen = true;
+  }
   $: uniqueImages = (() => {
     const images = event.tags
       .filter((e) => e[0] === 'image' && e[1] && e[1].trim() !== '')
@@ -795,6 +804,19 @@
 <!-- Nourish Modal -->
 <NourishModal bind:open={nourishModalOpen} {event} {hasMembership} />
 
+<!-- Image description (NIP-92 alt text) -->
+{#if altDialogOpen}
+  <Modal bind:open={altDialogOpen} compact autoHeight>
+    <span slot="title">Description</span>
+    <p
+      class="text-[0.9375rem] leading-normal whitespace-pre-wrap break-words"
+      style="color: var(--color-text-primary);"
+    >
+      {altDialogText}
+    </p>
+  </Modal>
+{/if}
+
 <!-- Delete Confirmation Modal -->
 <Modal bind:open={deleteConfirmOpen} noHeader>
   <div class="flex flex-col gap-3">
@@ -864,7 +886,7 @@
           >
             {#each uniqueImages as image, i}
               <div
-                class="recipe-carousel-slide flex-shrink-0 w-full min-w-full snap-center flex items-center justify-center"
+                class="recipe-carousel-slide relative flex-shrink-0 w-full min-w-full snap-center flex items-center justify-center"
               >
                 <button
                   on:click={() =>
@@ -885,6 +907,17 @@
                     decoding="async"
                   />
                 </button>
+                {#if imageAltByUrl.get(image[1])}
+                  <!-- Sibling of the image button: no nested controls -->
+                  <button
+                    type="button"
+                    class="absolute bottom-3 left-3 z-10 px-2 py-0.5 rounded-md bg-black/60 hover:bg-black/90 text-white text-[0.6875rem] font-bold tracking-wide transition-colors"
+                    aria-label="View image description"
+                    on:click|stopPropagation={() => showImageAlt(image[1])}
+                  >
+                    ALT
+                  </button>
+                {/if}
               </div>
             {/each}
           </div>
