@@ -152,7 +152,7 @@ function imetaToMediaItem(tag: string[]): MediaItem | null {
   const dim = parseDim(slots.dim);
   if (dim) item.dim = dim;
   if (slots.blurhash) item.blurhash = slots.blurhash;
-  if (slots.alt) item.alt = slots.alt;
+  if (slots.alt) item.alt = normalizeAltBreaks(slots.alt);
   if (slots.x) item.hash = slots.x;
   if (slots.fallback) {
     item.fallback = slots.fallback
@@ -191,7 +191,7 @@ export function imetaAltByUrl(event: RawEventLike): Map<string, string> {
   for (const t of event.tags || []) {
     if (!Array.isArray(t) || t.length < 2 || t[0] !== 'imeta') continue;
     const slots = parseImetaSlots(t);
-    if (slots.url && slots.alt) out.set(slots.url, slots.alt);
+    if (slots.url && slots.alt) out.set(slots.url, normalizeAltBreaks(slots.alt));
   }
   return out;
 }
@@ -211,13 +211,27 @@ export function imetaTagsByUrl(event: RawEventLike): Map<string, string[]> {
   return out;
 }
 
+/** Normalize alt-text line breaks: CRLF → LF, trim each line, cap runs
+ * of blank lines at one paragraph gap (two \n), trim the ends. Keeps
+ * authored paragraphs intact without letting runaway gaps onto the wire
+ * or into the UI. */
+export function normalizeAltBreaks(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /**
  * Return a copy of an existing imeta tag with its `alt` slot replaced
  * (or appended when absent). An empty `alt` strips the slot. Every other
  * slot is preserved verbatim, in its original order.
  */
 export function withImetaAlt(sourceTag: string[], alt: string): string[] {
-  const cleaned = alt.replace(/\s*\n\s*/g, ' ').trim();
+  const cleaned = normalizeAltBreaks(alt);
   const out: string[] = [];
   let replaced = false;
   for (let i = 0; i < sourceTag.length; i++) {
@@ -235,9 +249,10 @@ export function withImetaAlt(sourceTag: string[], alt: string): string[] {
   return out;
 }
 
-/** Serialize imeta key/value slots into a NIP-92 tag row. Values must
- * not contain newlines (they would masquerade as slot boundaries when
- * re-parsed). */
+/** Serialize imeta key/value slots into a NIP-92 tag row. Slot values are
+ * "everything after the first space", so line breaks survive the wire
+ * (JSON escapes them) and re-parse intact — line breaks are normalized
+ * via `normalizeAltBreaks`, not stripped. */
 export function buildImetaTag(
   url: string,
   fields: Record<string, string | undefined>
@@ -245,7 +260,7 @@ export function buildImetaTag(
   const tag = ['imeta', `url ${url}`];
   for (const [key, value] of Object.entries(fields)) {
     if (!value) continue;
-    tag.push(`${key} ${value.replace(/\s*\n\s*/g, ' ').trim()}`);
+    tag.push(`${key} ${normalizeAltBreaks(value)}`);
   }
   return tag;
 }
