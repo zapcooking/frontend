@@ -424,6 +424,8 @@
   }
 
   .media-tile {
+    /* Containing block for the per-tile ALT badge. */
+    position: relative;
     /* ~72% of the container so the next tile peeks from the right
        edge, signalling there's more to swipe. */
     flex: 0 0 72%;

@@ -196,6 +196,45 @@ export function imetaAltByUrl(event: RawEventLike): Map<string, string> {
   return out;
 }
 
+/**
+ * Map each imeta URL on an event to its full tag row. Used by editors
+ * that re-emit media (fork/edit) so NIP-92 fields other than `alt`
+ * (`m`, `dim`, `blurhash`, `x`, `fallback`, ...) survive a round-trip.
+ */
+export function imetaTagsByUrl(event: RawEventLike): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const t of event.tags || []) {
+    if (!Array.isArray(t) || t.length < 2 || t[0] !== 'imeta') continue;
+    const slots = parseImetaSlots(t);
+    if (slots.url) out.set(slots.url, t);
+  }
+  return out;
+}
+
+/**
+ * Return a copy of an existing imeta tag with its `alt` slot replaced
+ * (or appended when absent). An empty `alt` strips the slot. Every other
+ * slot is preserved verbatim, in its original order.
+ */
+export function withImetaAlt(sourceTag: string[], alt: string): string[] {
+  const cleaned = alt.replace(/\s*\n\s*/g, ' ').trim();
+  const out: string[] = [];
+  let replaced = false;
+  for (let i = 0; i < sourceTag.length; i++) {
+    const slot = sourceTag[i];
+    if (i > 0 && typeof slot === 'string' && /^alt(\s|$)/i.test(slot)) {
+      if (cleaned && !replaced) {
+        out.push(`alt ${cleaned}`);
+        replaced = true;
+      }
+      continue;
+    }
+    out.push(slot);
+  }
+  if (cleaned && !replaced) out.push(`alt ${cleaned}`);
+  return out;
+}
+
 /** Serialize imeta key/value slots into a NIP-92 tag row. Values must
  * not contain newlines (they would masquerade as slot boundaries when
  * re-parsed). */

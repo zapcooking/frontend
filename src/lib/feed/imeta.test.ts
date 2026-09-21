@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseImeta, isImageUrl, isVideoUrl, imetaAltByUrl, buildImetaTagWithAlt } from './imeta';
+import { parseImeta, isImageUrl, isVideoUrl, imetaAltByUrl, buildImetaTagWithAlt, imetaTagsByUrl, withImetaAlt } from './imeta';
 import { scanNostrRefs } from '../nostrRefScan';
 import { filterImageUrls } from '../imageUrls';
 
@@ -323,5 +323,68 @@ describe('isVideoUrl', () => {
   it('rejects non-video URLs', () => {
     expect(isVideoUrl('https://x.com/a.jpg')).toBe(false);
     expect(isVideoUrl('not a url')).toBe(false);
+  });
+});
+
+describe('imetaTagsByUrl / withImetaAlt (fork/edit round-trip)', () => {
+  const rich = [
+    'imeta',
+    'url https://cdn.example/soup.jpg',
+    'm image/jpeg',
+    'dim 1920x1080',
+    'blurhash LkO~xq',
+    'alt Old description',
+    'x abc123',
+    'fallback https://mirror.example/soup.jpg'
+  ];
+
+  it('maps each imeta url to its full tag row', () => {
+    const map = imetaTagsByUrl({ tags: [rich, ['image', 'https://cdn.example/soup.jpg']] });
+    expect(map.size).toBe(1);
+    expect(map.get('https://cdn.example/soup.jpg')).toBe(rich);
+  });
+
+  it('replaces only the alt slot, keeping other fields and their order', () => {
+    const out = withImetaAlt(rich, 'A bowl of tomato soup');
+    expect(out).toEqual([
+      'imeta',
+      'url https://cdn.example/soup.jpg',
+      'm image/jpeg',
+      'dim 1920x1080',
+      'blurhash LkO~xq',
+      'alt A bowl of tomato soup',
+      'x abc123',
+      'fallback https://mirror.example/soup.jpg'
+    ]);
+    // Source row is not mutated
+    expect(rich[5]).toBe('alt Old description');
+  });
+
+  it('appends alt when the source row had none', () => {
+    const out = withImetaAlt(['imeta', 'url https://x/a.png', 'm image/png'], 'Cat');
+    expect(out).toEqual(['imeta', 'url https://x/a.png', 'm image/png', 'alt Cat']);
+  });
+
+  it('strips alt when the new value is empty, preserving the rest', () => {
+    const out = withImetaAlt(rich, '   ');
+    expect(out).toEqual([
+      'imeta',
+      'url https://cdn.example/soup.jpg',
+      'm image/jpeg',
+      'dim 1920x1080',
+      'blurhash LkO~xq',
+      'x abc123',
+      'fallback https://mirror.example/soup.jpg'
+    ]);
+  });
+
+  it('flattens newlines and collapses duplicate alt slots', () => {
+    const out = withImetaAlt(['imeta', 'url https://x/a.png', 'alt one', 'alt two'], 'multi\nline');
+    expect(out).toEqual(['imeta', 'url https://x/a.png', 'alt multi line']);
+  });
+
+  it('round-trips through imetaAltByUrl', () => {
+    const tag = withImetaAlt(rich, 'New text');
+    expect(imetaAltByUrl({ tags: [tag] }).get('https://cdn.example/soup.jpg')).toBe('New text');
   });
 });

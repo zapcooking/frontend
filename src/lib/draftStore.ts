@@ -28,6 +28,8 @@ export interface RecipeDraft {
   id: string;
   title: string;
   images: string[];
+  /** Per-image alt text keyed by URL (NIP-92 imeta) */
+  imageAlts?: Record<string, string>;
   tags: { title: string; emoji?: string }[];
   summary: string;
   chefsnotes: string;

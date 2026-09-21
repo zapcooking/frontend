@@ -19,7 +19,7 @@ import {
 } from './types';
 import { COMMERCE_STATES, type CommerceState } from './commerceState';
 import { addClientTagToEvent } from '$lib/nip89';
-import { buildImetaTagWithAlt } from '$lib/feed/imeta';
+import { buildImetaTagWithAlt, imetaAltByUrl } from '$lib/feed/imeta';
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 
 // Relays that index marketplace events (matches Plebeian Market's relay set)
@@ -107,6 +107,9 @@ export function parseProductEvent(event: NDKEvent): Product | null {
 
 		// Get all image tags
 		const images = event.tags.filter((t) => t[0] === 'image').map((t) => t[1]);
+		// NIP-92 imeta alt text keyed by image URL (only when present)
+		const altMap = imetaAltByUrl(event);
+		const imageAlts = altMap.size > 0 ? Object.fromEntries(altMap) : undefined;
 
 		// Category from 't' tag (normalizes legacy values like 'ingredients' → 'food')
 		const categoryTag = getTag('t');
@@ -144,6 +147,7 @@ export function parseProductEvent(event: NDKEvent): Product | null {
 			requiresShipping,
 			location,
 			commerceState,
+			imageAlts,
 			publishedAt: publishedAt || event.created_at || 0,
 			createdAt: event.created_at || 0,
 			event

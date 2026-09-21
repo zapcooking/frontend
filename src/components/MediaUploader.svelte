@@ -297,12 +297,10 @@
       <div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
         {#each additionalMedia as media, idx}
           {@const actualIndex = idx + 1}
-          <div 
-            class="relative group aspect-square rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary transition-all"
-            on:click={() => makeCover(actualIndex)}
-            on:keypress={(e) => e.key === 'Enter' && makeCover(actualIndex)}
-            role="button"
-            tabindex="0"
+          <!-- Tile is a plain container; make-cover, remove and alt are
+               sibling controls so no button nests inside another. -->
+          <div
+            class="relative group aspect-square rounded-lg overflow-hidden hover:ring-2 hover:ring-primary focus-within:ring-2 focus-within:ring-primary transition-all"
           >
             {#if isVideo(media)}
               <div class="absolute inset-0 bg-black/20 flex items-center justify-center">
@@ -315,20 +313,32 @@
                 title={`Additional media video ${actualIndex + 1}`}
               />
             {:else}
-              <img src={media} alt="Media {actualIndex}" class="w-full h-full object-cover" />
+              <img
+                src={media}
+                alt={$alts[media]?.trim() || `Media ${actualIndex}`}
+                class="w-full h-full object-cover"
+              />
             {/if}
+
+            <!-- Make-cover control: transparent hit target over the media -->
+            <button
+              type="button"
+              class="absolute inset-0 w-full h-full cursor-pointer focus:outline-none"
+              on:click={() => makeCover(actualIndex)}
+              aria-label="Make media {actualIndex} the cover"
+            ></button>
             
             <!-- Number badge -->
-            <div class="absolute bottom-1 left-1 bg-black/60 text-white text-xs font-bold w-5 h-5 rounded flex items-center justify-center">
+            <div class="absolute bottom-1 left-1 bg-black/60 text-white text-xs font-bold w-5 h-5 rounded flex items-center justify-center pointer-events-none">
               {actualIndex}
             </div>
             
             <!-- Remove button -->
             <button
               type="button"
-              class="absolute top-1 right-1 bg-black/60 hover:bg-red-500 text-white rounded-full p-1 transition-all duration-200 opacity-0 group-hover:opacity-100 cursor-pointer"
-              on:click|stopPropagation={() => removeImage(actualIndex)}
-              aria-label="Remove media"
+              class="absolute top-1 right-1 z-10 bg-black/60 hover:bg-red-500 text-white rounded-full p-1 transition-all duration-200 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
+              on:click={() => removeImage(actualIndex)}
+              aria-label="Remove media {actualIndex}"
             >
               <XIcon size={12} weight="bold" />
             </button>
@@ -339,8 +349,8 @@
                 type="button"
                 class="mu-alt-toggle mu-alt-toggle--small"
                 class:has-alt={!!$alts[media]?.trim()}
-                on:click|stopPropagation={() => openAltEditor(media)}
-                aria-label={$alts[media]?.trim() ? 'Edit alt text' : 'Add alt text'}
+                on:click={() => openAltEditor(media)}
+                aria-label={$alts[media]?.trim() ? `Edit alt text for media ${actualIndex}` : `Add alt text for media ${actualIndex}`}
               >
                 {$alts[media]?.trim() ? '✓' : '+'}
               </button>

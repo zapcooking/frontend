@@ -90,7 +90,7 @@
 </script>
 
 {#if open}
-  <Modal bind:open {maxLength} compact autoHeight>
+  <Modal bind:open compact autoHeight>
     <span slot="title">Edit alt text</span>
     <div class="alt-editor">
       {#if url}
@@ -120,7 +120,7 @@
         id="alt-editor-input"
         class="alt-editor-textarea"
         bind:value={draft}
-        {maxLength}
+        maxlength={maxLength}
         placeholder="e.g. A bowl of tomato soup with a grilled cheese sandwich on a wooden table"
       ></textarea>
       <div class="alt-editor-footer">

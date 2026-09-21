@@ -98,6 +98,7 @@
       currentDraftId = draftId;
       title = draft.title;
       images.set(draft.images);
+      imageAlts.set(draft.imageAlts || {});
       selectedTags.set(draft.tags);
       summary = draft.summary;
       chefsnotes = draft.chefsnotes;
@@ -125,6 +126,7 @@
     const draftData = {
       title,
       images: $images,
+      imageAlts: $imageAlts,
       tags: $selectedTags,
       summary,
       chefsnotes,

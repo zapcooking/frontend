@@ -48,10 +48,21 @@
 
 	// Local state for editing
 	let localDraft: ArticleDraft = createEmptyDraft();
-	// Cover image alt text (NIP-92 imeta). Component-scoped: alt survives
-	// within an editor session but is not part of the persisted ArticleDraft.
-	let coverAlt = '';
+	// Cover image alt text (NIP-92 imeta) lives in the persisted draft,
+	// keyed by cover URL, so it survives reopening and never leaks onto a
+	// replaced cover image.
+	$: coverAlt = (localDraft.coverImage && localDraft.coverAlts?.[localDraft.coverImage]) || '';
 	let coverAltModalOpen = false;
+
+	function setCoverAlt(text: string) {
+		const url = localDraft.coverImage;
+		if (!url) return;
+		const next = { ...(localDraft.coverAlts || {}) };
+		const cleaned = text.trim();
+		if (cleaned) next[url] = cleaned;
+		else delete next[url];
+		localDraft.coverAlts = next;
+	}
 	let hasUnsavedChanges = false;
 	let showPreview = false;
 	let showCloseConfirm = false;
@@ -148,6 +159,7 @@
 		subtitle: localDraft.subtitle,
 		content: localDraft.content,
 		coverImage: localDraft.coverImage,
+		coverAlts: localDraft.coverAlts || {},
 		tags: localDraft.tags
 	});
 	
@@ -173,12 +185,12 @@
 	$: if ($longformEditorOpen && $currentDraft && initializedForDraftId !== $currentDraft.id) {
 		localDraft = { ...$currentDraft };
 		initializedForDraftId = $currentDraft.id;
-		coverAlt = '';
 		lastSavedState = JSON.stringify({
 			title: localDraft.title,
 			subtitle: localDraft.subtitle,
 			content: localDraft.content,
 			coverImage: localDraft.coverImage,
+			coverAlts: localDraft.coverAlts || {},
 			tags: localDraft.tags
 		});
 		hasUnsavedChanges = false;
@@ -792,7 +804,7 @@
 	url={localDraft.coverImage}
 	initialText={coverAlt}
 	bind:open={coverAltModalOpen}
-	on:save={(e) => (coverAlt = e.detail.text)}
+	on:save={(e) => setCoverAlt(e.detail.text)}
 />
 
 <style>
