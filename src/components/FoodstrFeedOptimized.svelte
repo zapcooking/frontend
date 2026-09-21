@@ -64,6 +64,7 @@
   } from '$lib/shareNoteImage';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
   import { stripQuotedNoteReferences } from '$lib/feed/noteContent';
+  import { imetaAltByUrl } from '$lib/feed/imeta';
   import { compressedCacheManager } from '$lib/compressedCache';
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
@@ -535,7 +536,7 @@
   let zapModal = false;
   let selectedEvent: NDKEvent | null = null;
   let imageModalOpen = false;
-  let selectedEventImages: string[] = [];
+  let selectedEventImages: (string | { url: string; alt?: string })[] = [];
   let selectedImageIndex = 0;
 
   // Lazy loading for engagement components
@@ -4443,9 +4444,15 @@
   }
 
   // Image modal — navigation, keyboard, and swipe live inside
-  // MediaLightbox.
-  function openImageModal(_imageUrl: string, allImages: string[], index: number) {
-    selectedEventImages = allImages;
+  // MediaLightbox. Imeta alt text (NIP-92) rides along per image for
+  // the lightbox's screen-reader labels.
+  function openImageModal(
+    _imageUrl: string,
+    allImages: string[],
+    index: number,
+    altByUrl?: Map<string, string>
+  ) {
+    selectedEventImages = allImages.map((url) => ({ url, alt: altByUrl?.get(url) || '' }));
     selectedImageIndex = index;
     imageModalOpen = true;
   }
@@ -5470,10 +5477,16 @@
                         <MediaCarousel
                           items={mediaUrls}
                           optimizeUrl={getOptimizedImageUrl}
+                          altByUrl={imetaAltByUrl(event)}
                           onItemClick={(url) => {
                             const imageUrls = mediaUrls.filter((u) => isImageUrl(u));
                             const imageIndex = imageUrls.indexOf(url);
-                            openImageModal(url, imageUrls, imageIndex >= 0 ? imageIndex : 0);
+                            openImageModal(
+                              url,
+                              imageUrls,
+                              imageIndex >= 0 ? imageIndex : 0,
+                              imetaAltByUrl(event)
+                            );
                           }}
                         />
                       </CheffyMediaReview>

@@ -126,6 +126,8 @@ export interface Product {
 	requiresShipping: boolean;
 	location?: string;
 	commerceState?: CommerceState;
+	/** Per-image alt text keyed by URL (NIP-92 imeta), when the seller supplied it */
+	imageAlts?: Record<string, string>;
 	publishedAt: number;
 	createdAt: number;
 	event: NDKEvent;
@@ -143,6 +145,8 @@ export interface ProductFormData {
 	requiresShipping: boolean;
 	location?: string;
 	commerceState?: CommerceState;
+	/** Per-image alt text keyed by URL (NIP-92 imeta) */
+	imageAlts?: Record<string, string>;
 }
 
 // Kitchen / Storefront types (NIP-15 stall)

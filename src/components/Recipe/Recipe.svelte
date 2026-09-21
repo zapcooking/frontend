@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { imetaAltByUrl } from '$lib/feed/imeta';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { browser } from '$app/environment';
   import TagLinks from './TagLinks.svelte';
@@ -476,6 +477,8 @@
       const draftData = {
         title,
         images,
+        // Keep NIP-92 alt text so editing doesn't strip it on republish
+        imageAlts: Object.fromEntries(imetaAltByUrl(event)),
         tags,
         summary,
         chefsnotes: info.chefNotes || '',
@@ -665,6 +668,17 @@
   // without a real image get no carousel at all (the render guards on
   // length). Recipes keep the placeholder — a cooking post without a
   // photo is still expected to show one.
+  // NIP-92 imeta alt text keyed by image URL (recipes and article covers)
+  $: imageAltByUrl = imetaAltByUrl(event);
+  // ALT badge on a carousel slide opens the description in a dialog
+  // (matches the feed carousel: alt should be inspectable, not just
+  // announced to screen readers).
+  let altDialogOpen = false;
+  let altDialogText = '';
+  function showImageAlt(url: string) {
+    altDialogText = imageAltByUrl.get(url) || '';
+    if (altDialogText) altDialogOpen = true;
+  }
   $: uniqueImages = (() => {
     const images = event.tags
       .filter((e) => e[0] === 'image' && e[1] && e[1].trim() !== '')
@@ -790,6 +804,19 @@
 <!-- Nourish Modal -->
 <NourishModal bind:open={nourishModalOpen} {event} {hasMembership} />
 
+<!-- Image description (NIP-92 alt text) -->
+{#if altDialogOpen}
+  <Modal bind:open={altDialogOpen} compact autoHeight>
+    <span slot="title">Description</span>
+    <p
+      class="text-[0.9375rem] leading-normal whitespace-pre-wrap break-words"
+      style="color: var(--color-text-primary);"
+    >
+      {altDialogText}
+    </p>
+  </Modal>
+{/if}
+
 <!-- Delete Confirmation Modal -->
 <Modal bind:open={deleteConfirmOpen} noHeader>
   <div class="flex flex-col gap-3">
@@ -859,7 +886,7 @@
           >
             {#each uniqueImages as image, i}
               <div
-                class="recipe-carousel-slide flex-shrink-0 w-full min-w-full snap-center flex items-center justify-center"
+                class="recipe-carousel-slide relative flex-shrink-0 w-full min-w-full snap-center flex items-center justify-center"
               >
                 <button
                   on:click={() =>
@@ -870,15 +897,27 @@
                     )}
                   class="block w-full cursor-pointer rounded-3xl overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                   type="button"
+                  aria-label={imageAltByUrl.get(image[1]) || `View ${isActualRecipe ? 'recipe' : 'article'} image ${i + 1}`}
                 >
                   <img
                     class="rounded-3xl aspect-video object-cover w-full"
                     src={image[1]}
-                    alt="Recipe image {i + 1}"
+                    alt={imageAltByUrl.get(image[1]) || `${isActualRecipe ? 'Recipe' : 'Article'} image ${i + 1}`}
                     loading={i === 0 ? 'eager' : 'lazy'}
                     decoding="async"
                   />
                 </button>
+                {#if imageAltByUrl.get(image[1])}
+                  <!-- Sibling of the image button: no nested controls -->
+                  <button
+                    type="button"
+                    class="absolute bottom-3 left-3 z-10 px-2 py-0.5 rounded-md bg-black/60 hover:bg-black/90 text-white text-[0.6875rem] font-bold tracking-wide transition-colors"
+                    aria-label="View image description"
+                    on:click|stopPropagation={() => showImageAlt(image[1])}
+                  >
+                    ALT
+                  </button>
+                {/if}
               </div>
             {/each}
           </div>
@@ -1405,9 +1444,18 @@
           <!-- Image -->
           <img
             src={selectedImageUrl}
-            alt="Recipe image {selectedImageIndex + 1}"
+            alt={imageAltByUrl.get(selectedImageUrl) || `${isActualRecipe ? 'Recipe' : 'Article'} image ${selectedImageIndex + 1}`}
             class="w-full h-auto max-h-[95vh] object-contain"
           />
+          {#if imageAltByUrl.get(selectedImageUrl)}
+            <!-- Visible alt text caption (matches the feed lightbox) -->
+            <p
+              role="note"
+              class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 max-h-[30%] overflow-y-auto w-[min(640px,calc(100%-2rem))] bg-black/70 text-white text-sm leading-snug text-center rounded-xl px-3.5 py-2 whitespace-pre-wrap break-words"
+            >
+              {imageAltByUrl.get(selectedImageUrl)}
+            </p>
+          {/if}
         </div>
       </div>
     {/if}

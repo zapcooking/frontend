@@ -35,6 +35,8 @@
 	import { buildPollTags, type PollConfig } from '$lib/polls';
 	import { uploadImage, uploadVideo } from '$lib/mediaUpload';
 	import { postComment as postCommentLib } from '$lib/comments/postComment';
+	import { buildImetaTagWithAlt } from '$lib/feed/imeta';
+	import AltTextEditorModal from '../AltTextEditorModal.svelte';
 	import { showToast } from '$lib/toast';
 	import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
 	import NoteContent from '../NoteContent.svelte';
@@ -90,6 +92,7 @@
 	let showPollCreator = false;
 	let pollConfig: PollConfig | null = null;
 	let uploadedImages: string[] = [];
+	let imageAltTexts: Record<string, string> = {};
 	let uploadedVideos: string[] = [];
 	let uploadingImage = false;
 	let uploadingVideo = false;
@@ -97,6 +100,26 @@
 	let imageInputEl: HTMLInputElement;
 	let videoInputEl: HTMLInputElement;
 	let showMediaMenu = false;
+
+	// Per-image alt editor (shared modal)
+	let altModalOpen = false;
+	let altModalUrl = '';
+	let altModalInitial = '';
+
+	function openAltEditor(url: string) {
+		altModalUrl = url;
+		altModalInitial = imageAltTexts[url] || '';
+		altModalOpen = true;
+	}
+
+	function saveAltEditor(e: CustomEvent<{ text: string }>) {
+		const url = altModalUrl;
+		if (!url) return;
+		const next = { ...imageAltTexts };
+		if (e.detail.text) next[url] = e.detail.text;
+		else delete next[url];
+		imageAltTexts = next;
+	}
 
 	// Send countdown
 	let showCountdown = false;
@@ -270,6 +293,12 @@
 	}
 
 	function removeImage(index: number) {
+		const removed = uploadedImages[index];
+		if (removed) {
+			const next = { ...imageAltTexts };
+			delete next[removed];
+			imageAltTexts = next;
+		}
 		uploadedImages = uploadedImages.filter((_, i) => i !== index);
 	}
 
@@ -281,6 +310,7 @@
 		composerText = '';
 		lastRendered = '';
 		uploadedImages = [];
+		imageAltTexts = {};
 		uploadedVideos = [];
 		pollConfig = null;
 		uploadError = '';
@@ -314,11 +344,13 @@
 			text: string;
 			images: string[];
 			videos: string[];
+			alts: Record<string, string>;
 			poll: PollConfig | null;
 		} = {
 			text: composerText,
 			images: [...uploadedImages],
 			videos: [...uploadedVideos],
+			alts: { ...imageAltTexts },
 			poll: pollConfig
 		};
 		try {
@@ -341,6 +373,7 @@
 				text: composerText,
 				images: [...uploadedImages],
 				videos: [...uploadedVideos],
+				alts: { ...imageAltTexts },
 				poll: pollConfig
 			};
 			clearState();
@@ -353,6 +386,13 @@
 			const mentions = mentionCtrl.parseMentions(content);
 			for (const pubkey of mentions.values()) {
 				extraTags.push(['p', pubkey]);
+			}
+			// NIP-92 imeta alt text per image (screen readers). Read from
+			// the snapshot — clearState() has already emptied the live
+			// state by this point.
+			for (const img of draftSnapshot.images) {
+				const alt = draftSnapshot.alts[img]?.trim();
+				if (alt) extraTags.push(buildImetaTagWithAlt(img, alt));
 			}
 			if (capturedPollConfig) {
 				extraTags.push(...buildPollTags(capturedPollConfig));
@@ -377,6 +417,7 @@
 			// block above.
 			composerText = draftSnapshot.text;
 			uploadedImages = draftSnapshot.images;
+			imageAltTexts = draftSnapshot.alts;
 			uploadedVideos = draftSnapshot.videos;
 			pollConfig = draftSnapshot.poll;
 			// Technical details to console; human-friendly message to the user.
@@ -507,6 +548,15 @@
 								d="M6 18L18 6M6 6l12 12"
 							/>
 						</svg>
+					</button>
+					<button
+						type="button"
+						class="rc-alt-toggle"
+						class:has-alt={!!imageAltTexts[imageUrl]?.trim()}
+						on:click={() => openAltEditor(imageUrl)}
+						aria-label={imageAltTexts[imageUrl]?.trim() ? 'Edit alt text' : 'Add alt text'}
+					>
+						{imageAltTexts[imageUrl]?.trim() ? '✓' : '+'}
 					</button>
 				</div>
 			{/each}
@@ -744,6 +794,13 @@
 		pollConfig = e.detail;
 	}}
 />
+
+	<AltTextEditorModal
+		url={altModalUrl}
+		initialText={altModalInitial}
+		bind:open={altModalOpen}
+		on:save={saveAltEditor}
+	/>
 
 <style>
 	.reply-composer {
@@ -1076,4 +1133,28 @@
 	.media-menu-item:hover {
 		background: var(--color-accent-gray);
 	}
+
+	.rc-alt-toggle {
+		position: absolute;
+		top: 0.25rem;
+		left: 0.25rem;
+		z-index: 5;
+		padding: 1px 5px;
+		border: none;
+		border-radius: 5px;
+		background: rgba(0, 0, 0, 0.65);
+		color: #fff;
+		font-size: 0.625rem;
+		font-weight: 700;
+		line-height: 1.4;
+		cursor: pointer;
+	}
+	.rc-alt-toggle:hover {
+		background: rgba(0, 0, 0, 0.85);
+	}
+	.rc-alt-toggle.has-alt {
+		background: var(--color-primary, #f97316);
+	}
+
+
 </style>

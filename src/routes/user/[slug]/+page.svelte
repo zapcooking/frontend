@@ -84,6 +84,8 @@
     event: NDKEvent;
     url: string;
     type: 'image' | 'video';
+    /** NIP-92 imeta alt text, when the authoring client attached one. */
+    alt?: string;
   };
   let mediaItems: MediaItem[] = [];
   let mediaLoaded = false;
@@ -908,17 +910,18 @@
     const items: MediaItem[] = [];
     const seen = new Set<string>();
 
-    // Check imeta tags first (NIP-92)
+    // Check imeta tags first (NIP-92) — alt rides along for screen readers
     for (const tag of event.tags) {
       if (tag[0] === 'imeta') {
+        let url: string | undefined;
+        let alt: string | undefined;
         for (const part of tag.slice(1)) {
-          if (part.startsWith('url ')) {
-            const url = part.substring(4).trim();
-            if (!seen.has(url)) {
-              seen.add(url);
-              items.push({ event, url, type: isMediaVideoUrl(url) ? 'video' : 'image' });
-            }
-          }
+          if (part.startsWith('url ')) url = part.substring(4).trim();
+          else if (part.startsWith('alt ')) alt = part.substring(4).trim();
+        }
+        if (url && !seen.has(url)) {
+          seen.add(url);
+          items.push({ event, url, type: isMediaVideoUrl(url) ? 'video' : 'image', alt });
         }
       }
     }
@@ -2186,7 +2189,7 @@
             {:else}
               <img
                 src={item.url}
-                alt=""
+                alt={item.alt || ''}
                 loading="lazy"
                 class="media-tile-img"
                 on:error={handleMediaImgError}

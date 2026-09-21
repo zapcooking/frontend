@@ -24,6 +24,9 @@ export interface ArticleDraft {
 	subtitle: string;
 	content: string; // HTML from Tiptap editor
 	coverImage: string;
+	/** Cover alt text keyed by cover URL (NIP-92 imeta). Keyed so swapping
+	 *  the cover never publishes the previous image's description. */
+	coverAlts?: Record<string, string>;
 	tags: string[];
 	createdAt: number; // Unix timestamp
 	updatedAt: number; // Unix timestamp
