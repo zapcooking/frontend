@@ -75,8 +75,9 @@ export async function minePow(
 
   if (!worker) {
     const { default: PowWorker } = await import('./pow.worker?worker');
-    worker = new PowWorker();
-    worker.onmessage = (e: MessageEvent) => {
+    const instance: Worker = new PowWorker();
+    worker = instance;
+    instance.onmessage = (e: MessageEvent) => {
       const { id, ok, event: mined, error, progress, attempts, best, difficulty } = e.data || {};
       const p = pending.get(id);
       if (!p) return;
@@ -88,7 +89,16 @@ export async function minePow(
       if (ok) p.resolve({ event: mined, attempts, difficulty });
       else p.reject(new Error(error || 'Mining failed'));
     };
-    worker.onerror = () => settleAll(new Error('Mining failed'));
+    instance.onerror = () => {
+      // Drop the dead worker before settling. A worker that has errored
+      // will not answer again, and leaving it cached means the next mine
+      // skips construction, posts into it, and waits on a reply that
+      // never comes. Guarded on identity so a late error from a worker
+      // powCancel already replaced cannot evict its successor.
+      if (worker === instance) worker = null;
+      instance.terminate();
+      settleAll(new Error('Mining failed'));
+    };
   }
 
   const id = ++seq;

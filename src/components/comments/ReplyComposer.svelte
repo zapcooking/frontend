@@ -260,13 +260,19 @@
 	}
 
 	onDestroy(() => {
+		// Cancel only our own mine. powCancel and endMiningOp are global, but
+		// this runs for every reply composer that unmounts — a thread rerender
+		// or a row scrolling out would otherwise terminate a mine some other
+		// composer started and clear an indicator it owns. The worker outlives
+		// the composer, so when this composer is the one mining, handleSubmit
+		// would resume on the far side of its await to sign and publish a reply
+		// the reader had already walked away from.
+		if (mining) {
+			powCancel();
+			endMiningOp();
+		}
 		// Clears any pending mention-search timeout so it can't fire after
 		// unmount and trigger state updates on a destroyed component.
-		// The worker outlives the composer, and handleSubmit would otherwise
-		// resume on the far side of its await to sign and publish a reply the
-		// reader had already walked away from.
-		powCancel();
-		endMiningOp();
 		mentionCtrl.destroy();
 		if (rafHandle !== null) cancelAnimationFrame(rafHandle);
 	});
