@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseImeta, isImageUrl, isVideoUrl, imetaAltByUrl, buildImetaTagWithAlt, imetaTagsByUrl, withImetaAlt } from './imeta';
+import { parseImeta, isImageUrl, isVideoUrl, imetaAltByUrl, buildImetaTag, buildImetaTagWithAlt, imetaTagsByUrl, withImetaAlt } from './imeta';
 import { scanNostrRefs } from '../nostrRefScan';
 import { filterImageUrls } from '../imageUrls';
 
@@ -262,6 +262,29 @@ describe('buildImetaTagWithAlt', () => {
     };
     expect(imetaAltByUrl(event).get('https://x/a.jpg')).toBe('a\n\nb');
     expect(parseImeta(event)[0].alt).toBe('a\n\nb');
+  });
+
+  it('omits the alt slot when the text is only whitespace', () => {
+    // ' \n ' is truthy, so an emptiness check before normalizing would let
+    // it through and emit a bare `alt ` with nothing behind it.
+    expect(buildImetaTagWithAlt('https://x/a.jpg', ' \n ')).toEqual([
+      'imeta',
+      'url https://x/a.jpg'
+    ]);
+  });
+
+  it('keeps the alt paragraph policy off non-alt slots', () => {
+    const tag = buildImetaTag('https://x/a.jpg', {
+      alt: 'a\n\n\n\nb',
+      blurhash: 'LEHV6n\n  WB2yk8'
+    });
+    // alt keeps its paragraph gap; blurhash flattens as it always did.
+    expect(tag).toEqual([
+      'imeta',
+      'url https://x/a.jpg',
+      'alt a\n\nb',
+      'blurhash LEHV6n WB2yk8'
+    ]);
   });
 
   it('round-trips through parseImeta', () => {

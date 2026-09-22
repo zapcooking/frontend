@@ -49,6 +49,7 @@
   import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwise';
   import MuteListEditor from '../../../components/MuteListEditor.svelte';
   import ProfileSheet from '../../../components/ProfileSheet.svelte';
+  import { normalizeAltBreaks } from '$lib/feed/imeta';
 
   let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -916,8 +917,11 @@
         let url: string | undefined;
         let alt: string | undefined;
         for (const part of tag.slice(1)) {
+          // alt goes through the shared normalizer, not a bare trim: trim
+          // only touches the ends, so a third-party imeta with a runaway
+          // newline run inside it would reach the lightbox uncapped.
           if (part.startsWith('url ')) url = part.substring(4).trim();
-          else if (part.startsWith('alt ')) alt = part.substring(4).trim();
+          else if (part.startsWith('alt ')) alt = normalizeAltBreaks(part.substring(4));
         }
         if (url && !seen.has(url)) {
           seen.add(url);
