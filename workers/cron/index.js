@@ -2,15 +2,18 @@
  * zap-cooking-cron — two triggers, routed on event.cron:
  *
  *   "0 9 * * *"  daily membership-expiry check (pre-existing behavior)
+ *                plus the account-deletion digest to the admin account
  *   "* * * * *"  scheduled-posts sweep/broadcast (spec §6)
  *
- * Anything that isn't the minutely cron falls through to the
- * membership check, preserving the original worker's behavior for the
- * daily trigger and for manual `wrangler triggers` invocations.
+ * Anything that isn't the minutely cron falls through to the daily
+ * jobs, preserving the original worker's behavior for the daily
+ * trigger and for manual `wrangler triggers` invocations.
  */
 
 import { sweepDueEvents } from './sweep';
 import { publishEventRaw } from './publisher';
+import { runDeletionDigest } from './deletionDigest';
+import { ADMIN_PUBKEY } from '../../src/lib/adminAuth';
 
 export const MINUTELY_CRON = '* * * * *';
 export const DAILY_CRON = '0 9 * * *';
@@ -25,6 +28,30 @@ async function checkExpiringMemberships(env) {
 
   const result = await response.json();
   console.log('Cron job result:', result);
+}
+
+async function deletionDigest(env) {
+  if (!env.SCHEDULER_DB) {
+    console.error('[Deletion Digest] SCHEDULER_DB not configured — skipping');
+    return;
+  }
+  try {
+    const result = await runDeletionDigest({
+      db: env.SCHEDULER_DB,
+      senderKey: env.NOTIFICATION_PRIVATE_KEY,
+      recipientPubkey: ADMIN_PUBKEY,
+      publish: (event, relays) => publishEventRaw(event, relays)
+    });
+    if (result === 'no-sender-key') {
+      console.error(
+        '[Deletion Digest] deletion requests are pending but NOTIFICATION_PRIVATE_KEY is not set on this worker — nobody was told'
+      );
+    } else {
+      console.log('[Deletion Digest]', result);
+    }
+  } catch (error) {
+    console.error('[Deletion Digest] failed:', error?.message ?? error);
+  }
 }
 
 async function runSweepTick(env) {
@@ -51,21 +78,24 @@ async function runSweepTick(env) {
 
 /**
  * Trigger router, exported for tests: the minutely cron must never
- * hit the membership endpoint and the daily cron must never run the
- * sweep. `impl` is injectable so tests can assert exactly that.
+ * hit the membership endpoint or send the digest, and the daily cron
+ * must never run the sweep. `impl` is injectable so tests can assert
+ * exactly that. The daily jobs are independent — one failing must not
+ * stop the other.
  */
 export async function dispatchScheduled(event, env, impl) {
   if (event.cron === MINUTELY_CRON) {
     return impl.sweep(env);
   }
-  return impl.membership(env);
+  await Promise.allSettled([impl.membership(env), impl.deletionDigest(env)]);
 }
 
 export default {
   async scheduled(event, env, ctx) {
     await dispatchScheduled(event, env, {
       sweep: runSweepTick,
-      membership: checkExpiringMemberships
+      membership: checkExpiringMemberships,
+      deletionDigest
     });
   }
 };
