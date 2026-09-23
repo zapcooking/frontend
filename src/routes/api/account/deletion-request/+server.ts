@@ -6,8 +6,9 @@
  *   Records a deletion request for the pubkey that signed the NIP-98
  *   header, stops Stripe renewal and deletes scheduled posts at once
  *   (see $lib/accountDeletion.server), and leaves the rest for staff.
- *   Idempotent: repeating it updates the same row.
+ *   Idempotent while pending: a repeat folds into the same row.
  *   → 202 { status: 'pending', requested_at, billing, scheduled_posts_removed }
+ *   requested_at is the FIRST pending request's time — the 30-day clock.
  *
  * GET /api/account/deletion-request
  *   The caller's own request, or 404 { error: 'not_found' }.
@@ -81,10 +82,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     console.log(
       `[Account Deletion] request recorded source=${source} billing=${billing} scheduled=${scheduledPostsRemoved}`
     );
+    // A repeat while pending keeps the first requested_at (the 30-day
+    // clock), so report the stored value rather than `now`.
+    const row = await getDeletionRequest(db, pubkey);
     return json(
       {
         status: 'pending',
-        requested_at: now,
+        requested_at: row?.requested_at ?? now,
         billing,
         scheduled_posts_removed: scheduledPostsRemoved
       },

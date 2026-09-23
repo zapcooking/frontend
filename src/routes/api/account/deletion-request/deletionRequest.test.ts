@@ -249,8 +249,9 @@ describe('POST /api/account/deletion-request', () => {
     await request(db, '{}');
     db.sqlite.prepare('UPDATE account_deletion_requests SET requested_at = 1').run();
     scheduleRow(db, 'late-post', PUBKEY, 'pending');
-    const { res } = await request(db, JSON.stringify({ source: 'ios' }));
+    const { res, data } = await request(db, JSON.stringify({ source: 'ios' }));
     expect(res.status).toBe(202);
+    expect(data.requested_at).toBe(1);
 
     const rows: any[] = db.sqlite.prepare('SELECT * FROM account_deletion_requests').all();
     expect(rows).toHaveLength(1);
