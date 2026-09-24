@@ -1103,15 +1103,18 @@
                       aria-label={m.isVideo ? 'Video attachment' : m.alt?.trim() || 'Image attachment'}
                       class:media-thumb--dragging={dragIndex === index}
                       class:media-thumb--drop-target={dropIndex === index}
+                      class:media-thumb--grabbable={media.length > 1 && !posting}
                       draggable={media.length > 1 && !posting}
                       on:dragstart={(e) => handleThumbDragStart(e, index)}
                       on:dragover={(e) => handleThumbDragOver(e, index)}
+                      on:dragleave={() => { if (dropIndex === index) dropIndex = null; }}
                       on:drop={(e) => handleThumbDrop(e, index)}
                       on:dragend={handleThumbDragEnd}
                     >
                       {#if m.isVideo}
                         <video
                           src={m.url}
+                          draggable="false"
                           class="composer-img-preview object-cover rounded-lg"
                           style="border: 1px solid var(--color-input-border)"
                           preload="metadata"
@@ -1129,6 +1132,7 @@
                       {:else}
                         <img
                           src={thumbSrc(m.url)}
+                          draggable="false"
                           alt={m.alt?.trim() || 'Upload preview'}
                           class="composer-img-preview object-cover rounded-lg"
                           style="border: 1px solid var(--color-input-border)"
@@ -1157,6 +1161,7 @@
                           class="alt-toggle"
                           class:has-alt={!!m.alt?.trim()}
                           on:click={() => openAltEditor(m.url)}
+                          title={m.alt?.trim() ? 'Edit the image description' : 'Add a description'}
                           aria-label={m.alt?.trim()
                             ? 'Edit alt text'
                             : 'Add alt text'}
@@ -1173,6 +1178,7 @@
                             <button
                               type="button"
                               on:click={() => moveMedia(index, index - 1)}
+                              title="Move earlier"
                               aria-label="Move attachment earlier"
                               disabled={posting}
                             >
@@ -1183,6 +1189,7 @@
                             <button
                               type="button"
                               on:click={() => moveMedia(index, index + 1)}
+                              title="Move later"
                               aria-label="Move attachment later"
                               disabled={posting}
                             >
@@ -1551,6 +1558,14 @@
 
   .media-thumb--dragging {
     opacity: 0.45;
+  }
+
+  .media-thumb--grabbable {
+    cursor: grab;
+  }
+
+  .media-thumb--grabbable:active {
+    cursor: grabbing;
   }
 
   .media-thumb--drop-target {

@@ -30,6 +30,8 @@
 	import VideoIcon from 'phosphor-svelte/lib/Video';
 	import ClockIcon from 'phosphor-svelte/lib/Clock';
 	import PlusIcon from 'phosphor-svelte/lib/Plus';
+	import CaretLeftIcon from 'phosphor-svelte/lib/CaretLeft';
+	import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
 	import GifPicker from '../GifPicker.svelte';
 	import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
 	import PollCreator from '../PollCreator.svelte';
@@ -99,9 +101,10 @@
 	let showGifPicker = false;
 	let showPollCreator = false;
 	let pollConfig: PollConfig | null = null;
-	let uploadedImages: string[] = [];
-	let imageAltTexts: Record<string, string> = {};
-	let uploadedVideos: string[] = [];
+	// Attachments are ordered slots on the draft, never text in the editor —
+	// the same single-array model as the main composer ($lib/composerMedia).
+	// The array order is the only ordering that exists.
+	let media: MediaAttachment[] = [];
 	let uploadingImage = false;
 	let uploadingVideo = false;
 	let uploadError = '';
@@ -116,27 +119,110 @@
 
 	function openAltEditor(url: string) {
 		altModalUrl = url;
-		altModalInitial = imageAltTexts[url] || '';
+		altModalInitial = media.find((m) => m.url === url)?.alt ?? '';
 		altModalOpen = true;
 	}
 
 	function saveAltEditor(e: CustomEvent<{ text: string }>) {
 		const url = altModalUrl;
 		if (!url) return;
-		const next = { ...imageAltTexts };
-		if (e.detail.text) next[url] = e.detail.text;
-		else delete next[url];
-		imageAltTexts = next;
+		media = media.map((m) => (m.url === url ? { ...m, alt: e.detail.text || undefined } : m));
 	}
 
-	// Attachments as ordered slots on the draft ($lib/composerMedia) — the
-	// same shared contract the main composer publishes through, so the two
-	// cannot drift. Built from this composer's image/video state on demand.
-	function currentMedia(): MediaAttachment[] {
-		return [
-			...uploadedImages.map((url) => ({ url, alt: imageAltTexts[url], isVideo: false })),
-			...uploadedVideos.map((url) => ({ url, isVideo: true }))
-		];
+	// ── Reordering: two mechanisms, one array ─────────────────────
+	// Drag and drop on the thumbnails (enabled only when there is more than
+	// one), plus arrow steppers — HTML5 drag never fires on touch, so
+	// without steppers a phone or a keyboard would have no reordering at
+	// all. The alt editor is keyed by URL, so a reorder while it is open
+	// cannot invalidate what it edits.
+	let dragIndex: number | null = null;
+	let dropIndex: number | null = null;
+
+	function moveMedia(from: number | null, to: number) {
+		if (from === null || from === to) return;
+		if (from < 0 || to < 0 || from >= media.length || to >= media.length) return;
+		const moved = media.splice(from, 1)[0];
+		media.splice(to, 0, moved);
+		media = media;
+	}
+
+	function handleThumbDragStart(e: DragEvent, index: number) {
+		if (media.length < 2) return;
+		dragIndex = index;
+		// Firefox refuses to start a drag without payload data.
+		e.dataTransfer?.setData('text/plain', String(index));
+		if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+	}
+
+	function handleThumbDragOver(e: DragEvent, index: number) {
+		if (dragIndex === null) return;
+		e.preventDefault(); // without it the drop never fires
+		dropIndex = index;
+	}
+
+	function handleThumbDrop(e: DragEvent, index: number) {
+		e.preventDefault();
+		moveMedia(dragIndex, index);
+	}
+
+	function handleThumbDragEnd() {
+		// State drives the highlight on every cell, so clearing it here
+		// clears all of them — a cancelled drag leaves no highlight.
+		dragIndex = null;
+		dropIndex = null;
+	}
+
+	// ── Thumbnail loading ─────────────────────────────────────────
+	// A just-uploaded URL can 404 for a second or two while the host
+	// finishes writing it. An <img> tries exactly once, so without a retry
+	// the thumbnail is blank forever — and the URL is in the draft either
+	// way. Retry a couple of times with a cache-busting query, then say the
+	// cell failed.
+	const THUMB_RETRIES = 2;
+	let thumbRetries: Record<string, number> = {};
+	let thumbFailed: Record<string, boolean> = {};
+	const thumbRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+	function thumbSrc(url: string): string {
+		const attempt = thumbRetries[url] ?? 0;
+		if (!attempt) return url;
+		return `${url}${url.includes('?') ? '&' : '?'}zc-retry=${attempt}`;
+	}
+
+	function handleThumbError(url: string) {
+		const attempt = (thumbRetries[url] ?? 0) + 1; // the retry that just failed
+		if (attempt > THUMB_RETRIES) {
+			thumbFailed = { ...thumbFailed, [url]: true };
+			return;
+		}
+		const timer = setTimeout(() => {
+			thumbRetryTimers.delete(url);
+			thumbRetries = { ...thumbRetries, [url]: attempt };
+		}, 700 * attempt);
+		thumbRetryTimers.set(url, timer);
+	}
+
+	function forgetThumb(url: string) {
+		const timer = thumbRetryTimers.get(url);
+		if (timer) clearTimeout(timer);
+		thumbRetryTimers.delete(url);
+		if (url in thumbRetries) {
+			const next = { ...thumbRetries };
+			delete next[url];
+			thumbRetries = next;
+		}
+		if (url in thumbFailed) {
+			const next = { ...thumbFailed };
+			delete next[url];
+			thumbFailed = next;
+		}
+	}
+
+	function resetThumbState() {
+		for (const timer of thumbRetryTimers.values()) clearTimeout(timer);
+		thumbRetryTimers.clear();
+		thumbRetries = {};
+		thumbFailed = {};
 	}
 
 	// ── Paste-to-attach offers ────────────────────────────────────
@@ -182,8 +268,7 @@
 		// twice is allowed and the note carries its URL twice, exactly as
 		// pasting it twice in the text era did. imeta stays one tag per
 		// picture (deduped by URL at publish in $lib/composerMedia).
-		if (isVideoUrl(url)) uploadedVideos = [...uploadedVideos, url];
-		else uploadedImages = [...uploadedImages, url];
+		media = [...media, { url, isVideo: isVideoUrl(url) }];
 	}
 
 	// Send countdown
@@ -292,6 +377,7 @@
 		// unmount and trigger state updates on a destroyed component.
 		mentionCtrl.destroy();
 		if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+		resetThumbState();
 	});
 
 	async function handleImageUpload(e: Event) {
@@ -303,7 +389,7 @@
 		try {
 			for (const file of Array.from(files)) {
 				const url = await uploadImage($ndk, file);
-				uploadedImages = [...uploadedImages, url];
+				media = [...media, { url, isVideo: false }];
 			}
 		} catch (err: unknown) {
 			uploadError = (err as Error)?.message || 'Failed to upload image.';
@@ -333,7 +419,7 @@
 			for (const file of imageFiles) {
 				newUrls.push(await uploadImage($ndk, file));
 			}
-			uploadedImages = [...uploadedImages, ...newUrls];
+			media = [...media, ...newUrls.map((url) => ({ url, isVideo: false }))];
 		} catch (err: unknown) {
 			uploadError = (err as Error)?.message || 'Failed to upload image.';
 		} finally {
@@ -350,7 +436,7 @@
 		try {
 			for (const file of Array.from(files)) {
 				const url = await uploadVideo($ndk, file);
-				uploadedVideos = [...uploadedVideos, url];
+				media = [...media, { url, isVideo: true }];
 			}
 		} catch (err: unknown) {
 			uploadError = (err as Error)?.message || 'Failed to upload video.';
@@ -360,26 +446,20 @@
 		}
 	}
 
-	function removeImage(index: number) {
-		const removed = uploadedImages[index];
-		if (removed) {
-			const next = { ...imageAltTexts };
-			delete next[removed];
-			imageAltTexts = next;
-		}
-		uploadedImages = uploadedImages.filter((_, i) => i !== index);
-	}
-
-	function removeVideo(index: number) {
-		uploadedVideos = uploadedVideos.filter((_, i) => i !== index);
+	// Removing an attachment is a splice, with no text to clean up.
+	function removeMedia(index: number) {
+		const removed = media[index];
+		if (removed) forgetThumb(removed.url);
+		media = media.filter((_, i) => i !== index);
 	}
 
 	function clearState() {
 		composerText = '';
 		lastRendered = '';
-		uploadedImages = [];
-		imageAltTexts = {};
-		uploadedVideos = [];
+		media = [];
+		dragIndex = null;
+		dropIndex = null;
+		resetThumbState();
 		pollConfig = null;
 		uploadError = '';
 		showPreview = false;
@@ -395,13 +475,7 @@
 	}
 
 	async function handleSubmit() {
-		if (
-			(!composerText.trim() &&
-				uploadedImages.length === 0 &&
-				uploadedVideos.length === 0 &&
-				!pollConfig) ||
-			posting
-		) {
+		if ((!composerText.trim() && media.length === 0 && !pollConfig) || posting) {
 			return;
 		}
 
@@ -410,15 +484,11 @@
 		// below once the final text is extracted.
 		let draftSnapshot: {
 			text: string;
-			images: string[];
-			videos: string[];
-			alts: Record<string, string>;
+			media: MediaAttachment[];
 			poll: PollConfig | null;
 		} = {
 			text: composerText,
-			images: [...uploadedImages],
-			videos: [...uploadedVideos],
-			alts: { ...imageAltTexts },
+			media: [...media],
 			poll: pollConfig
 		};
 		try {
@@ -428,26 +498,25 @@
 			}
 
 			let content = mentionCtrl.replacePlainMentions(composerText.trim());
-			const media = currentMedia();
+			const mediaSnapshot = [...media];
 			const capturedPollConfig = pollConfig;
 			// Snapshot what the member typed BEFORE clearing. The composer is
 			// cleared optimistically so a successful post feels instant, but
 			// the publish below can still fail — and without this the draft is
 			// gone and the error toast's "please try again" has nothing to try
-			// again with. Holds the pre-processing state (raw text, media URLs,
-			// poll config), not the built `content`, so a restore gives back
-			// exactly what was typed rather than the mention-substituted form.
+			// again with. Holds the pre-processing state (raw text, ordered
+			// slots, poll config), not the built `content`, so a restore gives
+			// back exactly what was typed rather than the mention-substituted
+			// form.
 			draftSnapshot = {
 				text: composerText,
-				images: [...uploadedImages],
-				videos: [...uploadedVideos],
-				alts: { ...imageAltTexts },
+				media: [...media],
 				poll: pollConfig
 			};
 			clearState();
 			// Prose plus media URLs in draft order — the shared composition
 			// the main composer and Preview both use.
-			content = composeNoteContent(content, media);
+			content = composeNoteContent(content, mediaSnapshot);
 
 			const extraTags: string[][] = [];
 			const mentions = mentionCtrl.parseMentions(content);
@@ -458,7 +527,7 @@
 			// (shared builder — same wire format as the main composer). Read
 			// from the snapshot — clearState() has already emptied the live
 			// state by this point.
-			extraTags.push(...imetaTagsForMedia(media));
+			extraTags.push(...imetaTagsForMedia(mediaSnapshot));
 			if (capturedPollConfig) {
 				extraTags.push(...buildPollTags(capturedPollConfig));
 			}
@@ -481,9 +550,7 @@
 			// re-renders the contenteditable, via the reactive syncContent
 			// block above.
 			composerText = draftSnapshot.text;
-			uploadedImages = draftSnapshot.images;
-			imageAltTexts = draftSnapshot.alts;
-			uploadedVideos = draftSnapshot.videos;
+			media = draftSnapshot.media;
 			pollConfig = draftSnapshot.poll;
 			// Technical details to console; human-friendly message to the user.
 			console.error('[ReplyComposer] post failed:', error);
@@ -497,14 +564,11 @@
 
 	$: previewContent = composeNoteContent(
 		mentionCtrl.replacePlainMentions(composerText),
-		currentMedia()
+		media
 	);
 
 	$: isDisabled =
-		(!composerText.trim() &&
-			uploadedImages.length === 0 &&
-			uploadedVideos.length === 0 &&
-			!pollConfig) ||
+		(!composerText.trim() && media.length === 0 && !pollConfig) ||
 		posting ||
 		uploadingImage ||
 		uploadingVideo;
@@ -621,24 +685,66 @@
 		<p class="text-red-500 text-xs">{uploadError}</p>
 	{/if}
 
-	{#if uploadedImages.length > 0}
-		<div class="flex flex-wrap gap-2">
-			{#each uploadedImages as imageUrl, index}
-				<div class="relative group">
-					<img
-						src={imageUrl}
-						alt="Upload preview"
-						class="w-16 h-16 object-cover rounded-lg"
-						class:w-20={!compact}
-						class:h-20={!compact}
-						style="border: 1px solid var(--color-input-border)"
-					/>
+	{#if media.length > 0}
+		<!-- One ordered strip of attachment slots — same strip as the main
+			composer: drag to reorder (pointer), arrow steppers beneath each
+			cell (touch and keyboard both reach buttons). -->
+		<div class="flex flex-wrap gap-2" role="list" data-testid="reply-media-strip">
+			{#each media as m, index}
+				<div
+					class="relative group rc-media-thumb"
+					role="listitem"
+					aria-label={m.isVideo ? 'Video attachment' : m.alt?.trim() || 'Image attachment'}
+					class:rc-media-thumb--dragging={dragIndex === index}
+					class:rc-media-thumb--drop-target={dropIndex === index}
+					class:rc-media-thumb--grabbable={media.length > 1 && !posting}
+					draggable={media.length > 1 && !posting}
+					on:dragstart={(e) => handleThumbDragStart(e, index)}
+					on:dragover={(e) => handleThumbDragOver(e, index)}
+					on:dragleave={() => { if (dropIndex === index) dropIndex = null; }}
+					on:drop={(e) => handleThumbDrop(e, index)}
+					on:dragend={handleThumbDragEnd}
+				>
+					{#if m.isVideo}
+						<video
+							src={m.url}
+							draggable="false"
+							class="w-16 h-16 object-cover rounded-lg"
+							class:w-20={!compact}
+							class:h-20={!compact}
+							style="border: 1px solid var(--color-input-border)"
+							preload="metadata"
+							muted
+						></video>
+					{:else if thumbFailed[m.url]}
+						<div
+							class="w-16 h-16 rc-thumb-failed rounded-lg"
+							class:w-20={!compact}
+							class:h-20={!compact}
+							style="border: 1px solid var(--color-input-border)"
+							role="img"
+							aria-label="Preview unavailable — the image will still be attached"
+						>
+							<span>Preview unavailable</span>
+						</div>
+					{:else}
+						<img
+							src={thumbSrc(m.url)}
+							draggable="false"
+							alt={m.alt?.trim() || 'Upload preview'}
+							class="w-16 h-16 object-cover rounded-lg"
+							class:w-20={!compact}
+							class:h-20={!compact}
+							style="border: 1px solid var(--color-input-border)"
+							on:error={() => handleThumbError(m.url)}
+						/>
+					{/if}
 					<button
 						type="button"
-						on:click={() => removeImage(index)}
+						on:click={() => removeMedia(index)}
 						class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 shadow-lg"
 						class:p-1={!compact}
-						aria-label="Remove image"
+						aria-label={m.isVideo ? 'Remove video' : 'Remove image'}
 					>
 						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path
@@ -649,49 +755,46 @@
 							/>
 						</svg>
 					</button>
-					<button
-						type="button"
-						class="rc-alt-toggle"
-						class:has-alt={!!imageAltTexts[imageUrl]?.trim()}
-						on:click={() => openAltEditor(imageUrl)}
-						aria-label={imageAltTexts[imageUrl]?.trim() ? 'Edit alt text' : 'Add alt text'}
-					>
-						{imageAltTexts[imageUrl]?.trim() ? '✓' : '+'}
-					</button>
-				</div>
-			{/each}
-		</div>
-	{/if}
-
-	{#if uploadedVideos.length > 0}
-		<div class="flex flex-wrap gap-2">
-			{#each uploadedVideos as videoUrl, index}
-				<div class="relative group">
-					<video
-						src={videoUrl}
-						class="w-24 h-16 object-cover rounded-lg"
-						class:w-32={!compact}
-						class:h-20={!compact}
-						style="border: 1px solid var(--color-input-border)"
-						preload="metadata"
-						muted
-					></video>
-					<button
-						type="button"
-						on:click={() => removeVideo(index)}
-						class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 shadow-lg"
-						class:p-1={!compact}
-						aria-label="Remove video"
-					>
-						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M6 18L18 6M6 6l12 12"
-							/>
-						</svg>
-					</button>
+					{#if !m.isVideo}
+						<button
+							type="button"
+							class="rc-alt-toggle"
+							class:has-alt={!!m.alt?.trim()}
+							on:click={() => openAltEditor(m.url)}
+							title={m.alt?.trim() ? 'Edit the image description' : 'Add a description'}
+							aria-label={m.alt?.trim() ? 'Edit alt text' : 'Add alt text'}
+						>
+							{m.alt?.trim() ? '✓ ALT' : '+ ALT'}
+						</button>
+					{/if}
+					{#if media.length > 1}
+						<!-- The first and last cells omit the arrow that would do
+							nothing rather than showing a disabled one. -->
+						<div class="rc-thumb-steppers">
+							{#if index > 0}
+								<button
+									type="button"
+									on:click={() => moveMedia(index, index - 1)}
+									title="Move earlier"
+									aria-label="Move attachment earlier"
+									disabled={posting}
+								>
+									<CaretLeftIcon size={14} />
+								</button>
+							{/if}
+							{#if index < media.length - 1}
+								<button
+									type="button"
+									on:click={() => moveMedia(index, index + 1)}
+									title="Move later"
+									aria-label="Move attachment later"
+									disabled={posting}
+								>
+									<CaretRightIcon size={14} />
+								</button>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/each}
 		</div>
@@ -785,9 +888,9 @@
 			<!-- Right: status + clock settings -->
 			<div class="flex items-center gap-2">
 				{#if uploadingImage}
-					<span class="text-xs text-caption">Uploading image...</span>
+					<span class="text-xs text-caption">Uploading image…</span>
 				{:else if uploadingVideo}
-					<span class="text-xs text-caption">Uploading video...</span>
+					<span class="text-xs text-caption">Uploading video…</span>
 				{:else if showCountdown}
 					<span class="text-xs text-caption">Sending in {countdownDisplayNum}s…</span>
 				{/if}
@@ -884,7 +987,7 @@
 <GifPicker
 	bind:open={showGifPicker}
 	on:select={(e) => {
-		uploadedImages = [...uploadedImages, e.detail.url];
+		media = [...media, { url: e.detail.url, isVideo: false }];
 	}}
 />
 
@@ -1234,26 +1337,83 @@
 		background: var(--color-accent-gray);
 	}
 
+	/* ALT badge — same shape and size as the main composer's. */
 	.rc-alt-toggle {
 		position: absolute;
 		top: 0.25rem;
 		left: 0.25rem;
 		z-index: 5;
-		padding: 1px 5px;
+		padding: 2px 7px;
 		border: none;
-		border-radius: 5px;
+		border-radius: 6px;
 		background: rgba(0, 0, 0, 0.65);
 		color: #fff;
-		font-size: 0.625rem;
+		font-size: 0.6875rem;
 		font-weight: 700;
+		letter-spacing: 0.04em;
 		line-height: 1.4;
 		cursor: pointer;
+		transition: background-color 0.15s ease-out;
 	}
 	.rc-alt-toggle:hover {
 		background: rgba(0, 0, 0, 0.85);
 	}
 	.rc-alt-toggle.has-alt {
 		background: var(--color-primary, #f97316);
+	}
+
+	/* Attachment thumbnails: one ordered strip, same mechanics as the main
+	   composer — drag for pointer, steppers beneath for touch and keyboard. */
+	.rc-media-thumb--dragging {
+		opacity: 0.45;
+	}
+
+	.rc-media-thumb--grabbable {
+		cursor: grab;
+	}
+
+	.rc-media-thumb--grabbable:active {
+		cursor: grabbing;
+	}
+
+	.rc-media-thumb--drop-target {
+		outline: 2px dashed var(--color-primary, #f97316);
+		outline-offset: 2px;
+		border-radius: 0.5rem;
+	}
+
+	/* Failed thumbnail after retries: the URL stays in the reply and will be
+	   appended at publish — the cell says so rather than going silently blank. */
+	.rc-thumb-failed {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		padding: 0.25rem;
+		background: var(--color-accent-gray);
+		font-size: 0.5625rem;
+		line-height: 1.2;
+		color: var(--color-caption);
+	}
+
+	.rc-thumb-steppers {
+		display: flex;
+		justify-content: center;
+		gap: 0.125rem;
+		margin-top: 0.125rem;
+	}
+
+	.rc-thumb-steppers button {
+		display: flex;
+		padding: 0.125rem;
+		border-radius: 0.375rem;
+		color: var(--color-caption);
+		cursor: pointer;
+	}
+
+	.rc-thumb-steppers button:hover:not(:disabled) {
+		background: var(--color-accent-gray);
+		color: var(--color-text-primary);
 	}
 
 	/* ── Paste-to-attach offers ─────────────────────────────────── */
