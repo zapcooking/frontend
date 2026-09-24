@@ -29,13 +29,21 @@
 	import ImageIcon from 'phosphor-svelte/lib/Image';
 	import VideoIcon from 'phosphor-svelte/lib/Video';
 	import ClockIcon from 'phosphor-svelte/lib/Clock';
+	import PlusIcon from 'phosphor-svelte/lib/Plus';
 	import GifPicker from '../GifPicker.svelte';
 	import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
 	import PollCreator from '../PollCreator.svelte';
 	import { buildPollTags, type PollConfig } from '$lib/polls';
 	import { uploadImage, uploadVideo } from '$lib/mediaUpload';
+	import {
+		composeNoteContent,
+		imetaTagsForMedia,
+		attachableUrlCandidates,
+		removeBareUrlOccurrence,
+		type MediaAttachment
+	} from '$lib/composerMedia';
+	import { isVideoUrl } from '$lib/feed/imeta';
 	import { postComment as postCommentLib } from '$lib/comments/postComment';
-	import { buildImetaTagWithAlt } from '$lib/feed/imeta';
 	import AltTextEditorModal from '../AltTextEditorModal.svelte';
 	import { showToast } from '$lib/toast';
 	import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
@@ -119,6 +127,63 @@
 		if (e.detail.text) next[url] = e.detail.text;
 		else delete next[url];
 		imageAltTexts = next;
+	}
+
+	// Attachments as ordered slots on the draft ($lib/composerMedia) — the
+	// same shared contract the main composer publishes through, so the two
+	// cannot drift. Built from this composer's image/video state on demand.
+	function currentMedia(): MediaAttachment[] {
+		return [
+			...uploadedImages.map((url) => ({ url, alt: imageAltTexts[url], isVideo: false })),
+			...uploadedVideos.map((url) => ({ url, isVideo: true }))
+		];
+	}
+
+	// ── Paste-to-attach offers ────────────────────────────────────
+	// Bare URLs alone on their line are offered, never auto-converted;
+	// offers derive live from the text, so consuming or editing away an
+	// occurrence retires its offer on its own. A dismissal expires when
+	// its line does — a deliberate no is not a forever no (sidecar #356).
+	let dismissedOfferUrls = new Set<string>();
+
+	function pruneDismissedOffers(text: string) {
+		const live = new Set(attachableUrlCandidates(text));
+		let changed = false;
+		for (const url of dismissedOfferUrls) {
+			if (!live.has(url)) {
+				dismissedOfferUrls.delete(url);
+				changed = true;
+			}
+		}
+		if (changed) dismissedOfferUrls = dismissedOfferUrls;
+	}
+
+	$: pruneDismissedOffers(composerText);
+	$: attachOffers = attachableUrlCandidates(composerText).filter(
+		(url) => !dismissedOfferUrls.has(url)
+	);
+
+	function dismissAttachOffer(url: string) {
+		const next = new Set(dismissedOfferUrls);
+		next.add(url);
+		dismissedOfferUrls = next;
+	}
+
+	function acceptAttachOffer(url: string) {
+		const current = composerEl ? mentionCtrl.extractText() : composerText;
+		const next = removeBareUrlOccurrence(current, url);
+		if (next === current) return; // occurrence already consumed — stale offer
+		composerText = next;
+		if (composerEl) {
+			mentionCtrl.syncContent(composerText);
+			lastRendered = composerText;
+		}
+		// Every accepted occurrence adds a slot — attaching the same image
+		// twice is allowed and the note carries its URL twice, exactly as
+		// pasting it twice in the text era did. imeta stays one tag per
+		// picture (deduped by URL at publish in $lib/composerMedia).
+		if (isVideoUrl(url)) uploadedVideos = [...uploadedVideos, url];
+		else uploadedImages = [...uploadedImages, url];
 	}
 
 	// Send countdown
@@ -254,6 +319,9 @@
 			.map((item) => item.getAsFile())
 			.filter((f): f is File => f !== null);
 		if (imageFiles.length === 0) {
+			// Paste inserts text, always — bare URLs on URL-only lines
+			// surface as "Attach this media" offers instead (same shared
+			// rule as the main composer, never auto-converted).
 			mentionCtrl.handlePaste(e);
 			return;
 		}
@@ -360,7 +428,7 @@
 			}
 
 			let content = mentionCtrl.replacePlainMentions(composerText.trim());
-			const mediaUrls = [...uploadedImages, ...uploadedVideos];
+			const media = currentMedia();
 			const capturedPollConfig = pollConfig;
 			// Snapshot what the member typed BEFORE clearing. The composer is
 			// cleared optimistically so a successful post feels instant, but
@@ -377,23 +445,20 @@
 				poll: pollConfig
 			};
 			clearState();
-			if (mediaUrls.length > 0) {
-				const mediaText = mediaUrls.join('\n');
-				content = content ? `${content}\n\n${mediaText}` : mediaText;
-			}
+			// Prose plus media URLs in draft order — the shared composition
+			// the main composer and Preview both use.
+			content = composeNoteContent(content, media);
 
 			const extraTags: string[][] = [];
 			const mentions = mentionCtrl.parseMentions(content);
 			for (const pubkey of mentions.values()) {
 				extraTags.push(['p', pubkey]);
 			}
-			// NIP-92 imeta alt text per image (screen readers). Read from
-			// the snapshot — clearState() has already emptied the live
+			// NIP-92 imeta alt text per described attachment, in draft order
+			// (shared builder — same wire format as the main composer). Read
+			// from the snapshot — clearState() has already emptied the live
 			// state by this point.
-			for (const img of draftSnapshot.images) {
-				const alt = draftSnapshot.alts[img]?.trim();
-				if (alt) extraTags.push(buildImetaTagWithAlt(img, alt));
-			}
+			extraTags.push(...imetaTagsForMedia(media));
 			if (capturedPollConfig) {
 				extraTags.push(...buildPollTags(capturedPollConfig));
 			}
@@ -430,13 +495,10 @@
 
 	let showPreview = false;
 
-	$: previewContent = (() => {
-		const resolved = mentionCtrl.replacePlainMentions(composerText);
-		let preview = resolved.trim();
-		const media = [...uploadedImages, ...uploadedVideos];
-		if (media.length) preview = preview ? `${preview}\n\n${media.join('\n')}` : media.join('\n');
-		return preview;
-	})();
+	$: previewContent = composeNoteContent(
+		mentionCtrl.replacePlainMentions(composerText),
+		currentMedia()
+	);
 
 	$: isDisabled =
 		(!composerText.trim() &&
@@ -504,6 +566,44 @@
 			/>
 		</div>
 	</div>
+
+	{#if !showPreview && attachOffers.length > 0}
+		<!-- Pasted-link offers, one accent pill per bare-URL occurrence —
+			offered, never auto-converted (shared rule with the main
+			composer). The URL is not repeated; the ✕ keeps it as text. -->
+		<div class="rc-attach-offers" role="group" aria-label="Attach pasted links">
+			{#each attachOffers as url, i (i)}
+				<div class="rc-attach-offer-row">
+					<button
+						type="button"
+						class="rc-attach-offer"
+						on:click={() => acceptAttachOffer(url)}
+						disabled={posting}
+					>
+						<PlusIcon size={14} weight="bold" />
+						<span>Attach this media</span>
+					</button>
+					<button
+						type="button"
+						class="rc-attach-x"
+						title="Keep it as text"
+						aria-label="Keep it as text"
+						on:click={() => dismissAttachOffer(url)}
+						disabled={posting}
+					>
+						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M6 18L18 6M6 6l12 12"
+							/>
+						</svg>
+					</button>
+				</div>
+			{/each}
+		</div>
+	{/if}
 
 	<!-- Preview pane -->
 	{#if showPreview}
@@ -1154,6 +1254,66 @@
 	}
 	.rc-alt-toggle.has-alt {
 		background: var(--color-primary, #f97316);
+	}
+
+	/* ── Paste-to-attach offers ─────────────────────────────────── */
+	.rc-attach-offers {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.rc-attach-offer-row {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+
+	/* The offer wears the accent — an offer the user never notices is not
+		an offer (sidecar's rule, in zap's tokens). */
+	.rc-attach-offer {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.3rem 0.875rem;
+		border-radius: 9999px;
+		border: 1px solid var(--color-primary, #f97316);
+		color: var(--color-primary, #f97316);
+		background: color-mix(in srgb, var(--color-primary, #f97316) 10%, transparent);
+		font-size: 0.8125rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background-color 0.15s;
+	}
+
+	.rc-attach-offer:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--color-primary, #f97316) 18%, transparent);
+	}
+
+	.rc-attach-offer:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* The refusal is quiet on purpose; it never shrinks the offer. */
+	.rc-attach-x {
+		flex-shrink: 0;
+		width: 26px;
+		height: 26px;
+		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 6px;
+		border: none;
+		background: none;
+		color: var(--color-caption);
+		cursor: pointer;
+	}
+
+	.rc-attach-x:hover:not(:disabled) {
+		color: var(--color-text-primary);
+		background: var(--color-accent-gray);
 	}
 
 
