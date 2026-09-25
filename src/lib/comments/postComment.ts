@@ -84,6 +84,18 @@ export interface PostCommentOptions {
   extraTags?: string[][];
 
   /**
+   * Called with the fully built, unsigned event so the caller can mine
+   * NIP-13 proof of work into it.
+   *
+   * A hook rather than a difficulty number because mining is slow enough to
+   * need a UI: the caller owns the pane, the elapsed clock and the button
+   * that stops it, and this only owns the one thing that must not move —
+   * that it happens BEFORE signing. The signature covers the id, so a nonce
+   * mined afterwards would invalidate the signature it was mined under.
+   */
+  mine?: (event: NDKEvent) => Promise<void>;
+
+  /**
    * For content variants (e.g., polls as kind 1068) where the thread
    * structure follows NIP-22/NIP-10 but the published kind number
    * reflects content type. If omitted, kind is derived per NIP-22/NIP-10
@@ -200,6 +212,11 @@ export async function postComment(
     // Ensure created_at is set before signing.
     if (!ev.created_at) ev.created_at = Math.floor(Date.now() / 1000);
 
+    // Before signing, and before the timeout that wraps it: mining is the
+    // caller's own wait, with its own way to stop, and it must not count
+    // against the signer's clock.
+    if (options.mine) await options.mine(ev);
+
     try {
       await ev.sign();
     } catch (e) {
@@ -245,6 +262,7 @@ export async function postComment(
   // but we can still pre-build an inbox-aware relay set since the event
   // tags (which we built above) already determine recipients.
   try {
+    if (options.mine) await options.mine(ev);
     const inboxRelaySet =
       (await buildInboxAwareRelaySet({ event: ev, ndk })) ?? undefined;
     const relaySet = await ev.publish(inboxRelaySet);

@@ -29,6 +29,16 @@ export interface TimerSettings {
   postCountdownEnabled: boolean;
   postCountdownSecs: number;
   postCountdownIncludesReplies: boolean;
+  /**
+   * NIP-13 difficulty to mine into posts, in leading zero bits, or null for
+   * off. Off by default because, unlike every other setting here, this one
+   * spends the user's own time before each post rather than costing nothing.
+   *
+   * It rides in this record because it is settled per account: these
+   * settings are published under the signed-in key, so what a mine is worth
+   * — a judgment about one identity — is already scoped the right way.
+   */
+  powBits: number | null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -47,6 +57,7 @@ const DEFAULT_SETTINGS: TimerSettings = {
   postCountdownEnabled: false,
   postCountdownSecs: 10,
   postCountdownIncludesReplies: false,
+  powBits: null,
 };
 
 // ═══════════════════════════════════════════════════════════════
