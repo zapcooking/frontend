@@ -45,6 +45,7 @@
 	let requiresShipping = initialData.requiresShipping ?? true;
 	let location = initialData.location || '';
 	let images: Writable<string[]> = writable(initialData.images || []);
+	let imageAlts: Writable<Record<string, string>> = writable(initialData.imageAlts || {});
 
 	// Sats preview for fiat prices (debounced to avoid excessive API calls)
 	let satsPreview: number | null = null;
@@ -127,6 +128,7 @@
 			price: parseFloat(priceInput),
 			currency,
 			images: $images,
+			imageAlts: $imageAlts,
 			category,
 			lightningAddress: lightningAddress.trim(),
 			requiresShipping,
@@ -300,7 +302,7 @@
 		<span class="text-xs" style="color: var(--color-text-secondary)">
 			First image will be your cover photo
 		</span>
-		<MediaUploader uploadedImages={images} />
+		<MediaUploader uploadedImages={images} altTexts={imageAlts} />
 		{#if errors.images}
 			<span class="text-xs text-red-500">{errors.images}</span>
 		{/if}

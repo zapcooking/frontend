@@ -34,6 +34,8 @@
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
+  import { buildImetaTagWithAlt } from '$lib/feed/imeta';
+  import AltTextEditorModal from './AltTextEditorModal.svelte';
   import { clickOutside } from '$lib/clickOutside';
   import { showToast } from '$lib/toast';
   import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
@@ -84,7 +86,29 @@
   let composerEl: HTMLDivElement;
   let lastRenderedContent = '';
   let uploadedImages: string[] = [];
+  let imageAltTexts: Record<string, string> = {};
+  // Per-image alt editor: badge on the thumbnail opens the
+  // shared modal (with the Cook+ AI generator).
+  let altModalOpen = false;
+  let altModalUrl = '';
+  let altModalInitial = '';
   let uploadedVideos: string[] = [];
+
+  function openAltEditor(url: string) {
+    altModalUrl = url;
+    altModalInitial = imageAltTexts[url] || '';
+    altModalOpen = true;
+  }
+
+  function saveAltEditor(e: CustomEvent<{ text: string }>) {
+    const url = altModalUrl;
+    if (!url) return;
+    const next = { ...imageAltTexts };
+    if (e.detail.text) next[url] = e.detail.text;
+    else delete next[url];
+    imageAltTexts = next;
+    scheduleDraftSave();
+  }
   let uploadingImage = false;
   let uploadImageIndex = 0;
   let uploadImageTotal = 0;
@@ -252,10 +276,17 @@
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (raw) {
-        const draft = JSON.parse(raw) as { content?: string; images?: string[]; videos?: string[]; savedAt?: number };
+        const draft = JSON.parse(raw) as {
+          content?: string;
+          images?: string[];
+          imageAlts?: Record<string, string>;
+          videos?: string[];
+          savedAt?: number;
+        };
         if (draft.content || draft.images?.length || draft.videos?.length) {
           if (draft.content) content = draft.content; // don't set lastRenderedContent — let reactive sync handle DOM
           if (draft.images?.length) uploadedImages = draft.images;
+          if (draft.imageAlts) imageAltTexts = draft.imageAlts;
           if (draft.videos?.length) uploadedVideos = draft.videos;
           draftSaved = true;
         }
@@ -307,6 +338,7 @@
     isMinimized = false;
     mentionCtrl.resetMentionState();
     uploadedImages = [];
+    imageAltTexts = {};
     uploadedVideos = [];
     quotedNote = null;
     pollConfig = null;
@@ -427,6 +459,12 @@
   }
 
   function removeImage(index: number) {
+    const removed = uploadedImages[index];
+    if (removed) {
+      const rest = { ...imageAltTexts };
+      delete rest[removed];
+      imageAltTexts = rest;
+    }
     uploadedImages = uploadedImages.filter((_, i) => i !== index);
   }
 
@@ -591,6 +629,14 @@
       // misses the note — see $lib/hashtags.
       event.tags.push(...buildHashtagTags(postContent));
 
+      // NIP-92 imeta tags carry per-image alt text for screen readers
+      // (same wire format Amethyst and Gossip read). Only images with a
+      // description get a tag — no empty metadata.
+      for (const url of uploadedImages) {
+        const alt = imageAltTexts[url]?.trim();
+        if (alt) event.tags.push(buildImetaTagWithAlt(url, alt));
+      }
+
       addClientTagToEvent(event);
 
       if (zapPollConfig) {
@@ -700,7 +746,13 @@
       }
       localStorage.setItem(
         DRAFT_KEY,
-        JSON.stringify({ content: text, images: uploadedImages, videos: uploadedVideos, savedAt: Date.now() })
+        JSON.stringify({
+          content: text,
+          images: uploadedImages,
+          imageAlts: imageAltTexts,
+          videos: uploadedVideos,
+          savedAt: Date.now()
+        })
       );
       draftSaved = true;
     } catch (_) {}
@@ -943,6 +995,18 @@
                             d="M6 18L18 6M6 6l12 12"
                           />
                         </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="alt-toggle"
+                        class:has-alt={!!imageAltTexts[imageUrl]?.trim()}
+                        on:click={() => openAltEditor(imageUrl)}
+                        aria-label={imageAltTexts[imageUrl]?.trim()
+                          ? 'Edit alt text'
+                          : 'Add alt text'}
+                        disabled={posting}
+                      >
+                        {imageAltTexts[imageUrl]?.trim() ? '✓ ALT' : '+ ALT'}
                       </button>
                     </div>
                   {/each}
@@ -1258,6 +1322,15 @@
   }}
 />
 
+{#if altModalUrl}
+  <AltTextEditorModal
+    url={altModalUrl}
+    initialText={altModalInitial}
+    bind:open={altModalOpen}
+    on:save={saveAltEditor}
+  />
+{/if}
+
 <style>
   /* Bits ride on the proof-of-work glyph, so the cost of one more tap is on
      screen rather than in a tooltip. */
@@ -1324,6 +1397,32 @@
     height: 5rem;
     max-height: 200px;
   }
+
+  /* ALT badge on the upload thumbnail (top-left). */
+  .alt-toggle {
+    position: absolute;
+    top: 0.375rem;
+    left: 0.375rem;
+    padding: 2px 7px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background-color 0.15s ease-out;
+  }
+  .alt-toggle:hover {
+    background: rgba(0, 0, 0, 0.85);
+  }
+  .alt-toggle.has-alt {
+    background: var(--color-primary, #f97316);
+  }
+
+
 
   /* Custom scrollbar for composer */
   .composer-input::-webkit-scrollbar {

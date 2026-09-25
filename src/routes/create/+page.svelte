@@ -5,6 +5,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { buildImetaTagWithAlt } from '$lib/feed/imeta';
   import type { recipeTagSimple } from '$lib/consts';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
@@ -35,6 +36,7 @@
 
   let title = '';
   let images: Writable<string[]> = writable([]);
+  let imageAlts: Writable<Record<string, string>> = writable({});
   let selectedTags: Writable<recipeTagSimple[]> = writable([]);
   let summary = '';
   let chefsnotes = '';
@@ -141,6 +143,7 @@
     const draftData = {
       title,
       images: $images,
+      imageAlts: $imageAlts,
       tags: $selectedTags,
       summary,
       chefsnotes,
@@ -151,7 +154,14 @@
       directions: $directionsArray,
       additionalMarkdown
     };
-    const { draftId } = saveDraft(draftData, currentDraftId || undefined, false);
+    const saveResult = saveDraft(draftData, currentDraftId || undefined, false);
+    const { draftId } = saveResult;
+    if (!draftId) {
+      // Content-less: nothing was created, or the emptied draft was deleted
+      if (saveResult.deletedId) forgetCurrentDraft();
+      lastSavedSignature = signatureAtSave;
+      return;
+    }
 
     // Only rewrite the URL when the draft id first gets assigned — avoids
     // thrashing $page and causing the editor to jump while typing.
@@ -166,6 +176,18 @@
     // so it doesn't mutate UI that's in the user's field of view.
   }
 
+  // The current draft no longer exists (emptied and deleted): drop the id
+  // and the ?draft= param so a reload doesn't report "Draft not found".
+  function forgetCurrentDraft() {
+    currentDraftId = null;
+    currentDraftSyncStatus = undefined;
+    if (browser) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('draft');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }
+
   function loadDraftById(draftId: string) {
     const draft = getDraftWithSyncState(draftId);
     if (draft) {
@@ -173,6 +195,7 @@
       currentDraftSyncStatus = draft.syncStatus;
       title = draft.title;
       images.set(draft.images);
+      imageAlts.set(draft.imageAlts || {});
       selectedTags.set(draft.tags);
       summary = draft.summary;
       chefsnotes = draft.chefsnotes;
@@ -240,6 +263,7 @@
     const draftData = {
       title,
       images: $images,
+      imageAlts: $imageAlts,
       tags: $selectedTags,
       summary,
       chefsnotes,
@@ -253,11 +277,23 @@
 
     // Save with immediate sync when sync is available
     const syncAvailable = $draftSyncState.syncAvailable;
-    const { draftId, syncPromise } = saveDraft(
-      draftData,
-      currentDraftId || undefined,
-      syncAvailable
-    );
+    const saveResult = saveDraft(draftData, currentDraftId || undefined, syncAvailable);
+    const { draftId, syncPromise } = saveResult;
+    if (!draftId) {
+      // Content-less: nothing was created, or the emptied draft was deleted
+      if (saveResult.deletedId) {
+        forgetCurrentDraft();
+        draftSaveMessage = 'Empty draft removed';
+      } else {
+        draftSaveMessage = 'Add a title or some content to save a draft';
+      }
+      lastSavedSignature = draftSignature;
+      isSavingDraft = false;
+      setTimeout(() => {
+        draftSaveMessage = '';
+      }, 3000);
+      return;
+    }
     currentDraftId = draftId;
 
     // Update URL to include draft ID (without navigation)
@@ -357,6 +393,11 @@
         if ($images.length > 0) {
           for (let i = 0; i < $images.length; i++) {
             event.tags.push(['image', $images[i]]);
+          }
+          // NIP-92 imeta alt text per image (screen readers)
+          for (const img of $images) {
+            const alt = $imageAlts[img]?.trim();
+            if (alt) event.tags.push(buildImetaTagWithAlt(img, alt));
           }
         }
         $selectedTags.forEach((t) => {
@@ -636,7 +677,7 @@
   <div class="flex flex-col gap-2">
     <h3>Photos & Videos*</h3>
     <span class="text-caption">First image will be your cover photo</span>
-    <MediaUploader uploadedImages={images} />
+    <MediaUploader uploadedImages={images} altTexts={imageAlts} />
   </div>
 
   {#if missingFields.length > 0}

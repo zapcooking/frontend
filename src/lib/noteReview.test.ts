@@ -1000,6 +1000,7 @@ describe('dual entry points (PR A, as course-corrected)', () => {
     expect(media).toContain('aspect-ratio: 4 / 3');
     expect(media).toContain('object-fit: cover');
     expect(media).toContain('ArrowsOutSimpleIcon');
-    expect(media).toContain('aria-label="View image"');
+    // Imeta alt (NIP-92) when present, else the generic label.
+    expect(media).toContain("altByUrl.get(items[0]) || 'View image'");
   });
 });

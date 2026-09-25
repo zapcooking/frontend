@@ -13,9 +13,18 @@
   import { onMount, onDestroy } from 'svelte';
   import { portal } from './Modal.svelte';
 
-  export let images: string[] = [];
+  /** Image URLs, or `{ url, alt }` objects when NIP-92 imeta alt text
+   * is available (accessibility). */
+  export let images: (string | { url: string; alt?: string })[] = [];
   export let index = 0;
   export let onClose: () => void = () => {};
+
+  function urlOf(img: string | { url: string; alt?: string }): string {
+    return typeof img === 'string' ? img : img.url;
+  }
+  function altOf(img: string | { url: string; alt?: string }): string {
+    return typeof img === 'string' ? '' : img.alt || '';
+  }
 
   // Render at document.body so the lightbox escapes any transformed /
   // stacking-context ancestor (e.g. the composer modal dialog, which uses
@@ -215,17 +224,20 @@
     on:lostpointercapture={endDrag}
     on:click|capture={suppressClickAfterDrag}
   >
-    {#each images as url, i}
+    {#each images as img, i}
       <div class="lightbox-pane">
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
         <img
-          src={url}
-          alt={i === index ? 'Full size preview' : ''}
+          src={urlOf(img)}
+          alt={altOf(img) || (i === index ? 'Full size preview' : '')}
           class="lightbox-image"
           loading="lazy"
           draggable="false"
           on:click|stopPropagation
         />
+        {#if altOf(img)}
+          <p class="lightbox-alt-caption" role="note">{altOf(img)}</p>
+        {/if}
       </div>
     {/each}
   </div>
@@ -320,6 +332,7 @@
   }
 
   .lightbox-pane {
+    position: relative;
     flex: 0 0 100%;
     width: 100%;
     height: 100%;
@@ -335,6 +348,27 @@
       padding-left: 4rem;
       padding-right: 4rem;
     }
+  }
+
+  /* Visible alt text caption — bottom of the pane,
+     above the close/backdrop chrome. */
+  .lightbox-alt-caption {
+    position: absolute;
+    bottom: 1.25rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(640px, calc(100% - 2rem));
+    max-height: 30%;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0.5rem 0.875rem;
+    border-radius: 0.625rem;
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    text-align: center;
+    pointer-events: auto;
   }
 
   .lightbox-image {

@@ -56,6 +56,8 @@
 	$: imageUrl = product?.images?.[0]
 		? getImageOrPlaceholder(product.images[0], event.id)
 		: getImageOrPlaceholder(undefined, event.id);
+	// NIP-92 imeta alt text for the cover image; falls back to the title
+	$: imageAlt = (product?.images?.[0] && product?.imageAlts?.[product.images[0]]) || title;
 
 	function openDetail() {
 		showViewModal = true;
@@ -95,7 +97,7 @@
 		<img
 			bind:this={imageElement}
 			src={imageUrl}
-			alt={title}
+			alt={imageAlt}
 			class="absolute inset-0 image object-cover"
 			on:error={handleImageError}
 		/>

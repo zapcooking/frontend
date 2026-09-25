@@ -21,6 +21,7 @@ import { encrypt, decrypt, hasEncryptionSupport, detectEncryptionMethod } from '
 import { getOutboxRelays } from '$lib/relayListCache';
 import type { RecipeDraft } from '$lib/draftStore';
 import type { ArticleDraft } from '$lib/articleEditor';
+import { hasRecipeDraftContent, hasArticleDraftContent } from '$lib/draftContent';
 // NOTE: turndown and $lib/parser (markdown-it) are imported lazily inside
 // encryptArticleDraftContent and parseArticleToDraft respectively — this
 // module sits on the layout's static graph via articleDraftStore, and a
@@ -781,6 +782,12 @@ export async function publishDraft(draft: RecipeDraft): Promise<boolean> {
     return false;
   }
 
+  // Last line of defence: a content-less draft never becomes a relay write
+  if (!hasRecipeDraftContent(draft)) {
+    console.log(`[NIP-37] Skipping publish of empty draft ${draft.id}`);
+    return false;
+  }
+
   try {
     await ndkReady;
     const ndkInstance = getNdkInstance();
@@ -867,6 +874,11 @@ export async function publishArticleDraft(draft: ArticleDraft): Promise<boolean>
 
   if (!hasEncryptionSupport()) {
     console.error('[NIP-37] Cannot publish article draft: encryption not supported');
+    return false;
+  }
+
+  if (!hasArticleDraftContent(draft)) {
+    console.log(`[NIP-37] Skipping publish of empty article draft ${draft.id}`);
     return false;
   }
 

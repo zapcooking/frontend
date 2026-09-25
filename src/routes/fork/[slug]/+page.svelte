@@ -3,6 +3,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { buildImetaTagWithAlt, imetaAltByUrl, imetaTagsByUrl, withImetaAlt } from '$lib/feed/imeta';
   import { recipeTags, type recipeTagSimple, isHiddenRecipeEvent } from '$lib/consts';
   import FeedItem from '../../../components/RecipeCard.svelte';
   import { browser } from '$app/environment';
@@ -98,8 +99,16 @@
         if (imageTagsValue && imageTagsValue.length > 0) {
           const imageUrls = imageTagsValue.map(img => img[1]);
           images.set(imageUrls); // Replace the entire array instead of pushing
+          // Carry existing imeta alt text into the editor, keyed by URL
+          // (the alt badges read a plain Record, not a Map).
+          imageAlts.set(Object.fromEntries(imetaAltByUrl(event)));
+          // Keep the full source imeta rows so fields other than alt
+          // (m, dim, blurhash, x, fallback) survive the fork.
+          sourceImetaTags = imetaTagsByUrl(event);
         } else {
-          images.set([]); // Clear images if none found
+          images.set([]);
+          imageAlts.set({});
+          sourceImetaTags = new Map();
         }
         selectedTags.set([]);
         // Support both legacy (nostrcooking-) and new (zapcooking-) tags when loading
@@ -155,6 +164,9 @@
 
   let title = '';
   let images: Writable<string[]> = writable([]);
+  let imageAlts: Writable<Record<string, string>> = writable({});
+  // Full NIP-92 imeta rows from the forked event, keyed by image URL.
+  let sourceImetaTags: Map<string, string[]> = new Map();
   let selectedTags: Writable<recipeTagSimple[]> = writable([]);
   let summary = '';
   let chefsnotes = '';
@@ -254,6 +266,20 @@
         if ($images.length > 0) {
           for (let i = 0; i < $images.length; i++) {
             event.tags.push(['image', $images[i]]);
+          }
+          // NIP-92 imeta per image: reuse the source row (preserving m,
+          // dim, blurhash, x, fallback...) and only swap the alt slot;
+          // images new to the fork get a fresh alt-only row.
+          for (const img of $images) {
+            const alt = $imageAlts[img]?.trim() || '';
+            const source = sourceImetaTags.get(img);
+            if (source) {
+              const tag = withImetaAlt(source, alt);
+              // Drop rows that would carry only the url after alt removal.
+              if (tag.length > 2) event.tags.push(tag);
+            } else if (alt) {
+              event.tags.push(buildImetaTagWithAlt(img, alt));
+            }
           }
         }
         $selectedTags.forEach((t) => {
@@ -381,7 +407,7 @@
   <div>
     <h3>Photos & Videos*</h3>
     <span class="text-caption">First image will be your cover photo</span>
-    <MediaUploader uploadedImages={images} />
+    <MediaUploader uploadedImages={images} altTexts={imageAlts} />
   </div>
   <div class="flex justify-end">
     <div>

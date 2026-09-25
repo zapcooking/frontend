@@ -280,12 +280,14 @@ describe('longform editor: draft preservation across failure and retry', () => {
     const { loader, load, attempts } = makeLoader();
     const unbind = bindLazyLoaderToOpenState(loader, store.longformEditorOpen);
 
-    // User opens a new draft: one draft exists and is selected; the chunk
-    // import starts.
+    // User opens a new draft: it is selected and pending (not persisted —
+    // an empty draft earns a storage slot only once it has content); the
+    // chunk import starts.
     store.openNewDraft();
     const draftId = get(store.currentDraftId);
     expect(draftId).toBeTruthy();
-    expect(get(store.drafts)).toHaveLength(1);
+    expect(get(store.drafts)).toHaveLength(0);
+    expect(get(store.currentDraft)?.id).toBe(draftId);
     expect(load).toHaveBeenCalledTimes(1);
 
     // The chunk fails; the editor stays open with the same draft selected.
@@ -302,8 +304,8 @@ describe('longform editor: draft preservation across failure and retry', () => {
     await flush();
     expect(get(loader).component).toBe(Component);
     expect(get(store.currentDraftId)).toBe(draftId);
-    expect(get(store.drafts)).toHaveLength(1);
-    expect(get(store.drafts)[0].id).toBe(draftId);
+    expect(get(store.drafts)).toHaveLength(0);
+    expect(get(store.currentDraft)?.id).toBe(draftId);
 
     // Close and reopen the same draft: no further import, same component.
     store.closeEditor();
