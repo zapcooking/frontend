@@ -368,6 +368,9 @@
     font-size: 0.875rem;
     line-height: 1.45;
     text-align: center;
+    /* Alt text may carry authored paragraph breaks (capped at one blank
+       line by normalizeAltBreaks) — preserve them in the caption. */
+    white-space: pre-line;
     pointer-events: auto;
   }
 
