@@ -251,8 +251,13 @@ export function withImetaAlt(sourceTag: string[], alt: string): string[] {
 
 /** Serialize imeta key/value slots into a NIP-92 tag row. Slot values are
  * "everything after the first space", so line breaks survive the wire
- * (JSON escapes them) and re-parse intact — line breaks are normalized
- * via `normalizeAltBreaks`, not stripped. */
+ * (JSON escapes them) and re-parse intact — `alt` line breaks are
+ * normalized via `normalizeAltBreaks`, not stripped.
+ *
+ * The paragraph policy is `alt`-only: `m`, `dim`, `blurhash`, `x` and the
+ * rest are single-line by definition, and keep the flattening they always
+ * had. Emptiness is judged after normalizing, so a whitespace-only value
+ * drops its slot instead of emitting a bare `alt ` with nothing behind it. */
 export function buildImetaTag(
   url: string,
   fields: Record<string, string | undefined>
@@ -260,7 +265,10 @@ export function buildImetaTag(
   const tag = ['imeta', `url ${url}`];
   for (const [key, value] of Object.entries(fields)) {
     if (!value) continue;
-    tag.push(`${key} ${normalizeAltBreaks(value)}`);
+    const cleaned =
+      key === 'alt' ? normalizeAltBreaks(value) : value.replace(/\s*\n\s*/g, ' ').trim();
+    if (!cleaned) continue;
+    tag.push(`${key} ${cleaned}`);
   }
   return tag;
 }
