@@ -32,6 +32,7 @@
 	import PlusIcon from 'phosphor-svelte/lib/Plus';
 	import CaretLeftIcon from 'phosphor-svelte/lib/CaretLeft';
 	import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
+	import HammerIcon from 'phosphor-svelte/lib/Hammer';
 	import GifPicker from '../GifPicker.svelte';
 	import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
 	import PollCreator from '../PollCreator.svelte';
@@ -49,6 +50,15 @@
 	import AltTextEditorModal from '../AltTextEditorModal.svelte';
 	import { showToast } from '$lib/toast';
 	import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
+	import { POW_LEVELS, isPowBits, powLevelFor } from '$lib/pow';
+	import { minePowIntoEvent, powCancel, isPowCanceled } from '$lib/powMiner';
+	import {
+		miningOp,
+		startMiningOp,
+		reportMiningBest,
+		markMiningFound,
+		endMiningOp
+	} from '$lib/stores/miningOp';
 	import NoteContent from '../NoteContent.svelte';
 	import CustomName from '../CustomName.svelte';
 
@@ -372,7 +382,68 @@
 		loadTimerSettings();
 	});
 
+	// ── Proof of work ─────────────────────────────────────────────
+	//
+	// Same setting and same ladder as the note composer: a reply is a note,
+	// and a relay weighing proof of work does not care which surface it was
+	// typed in. Seeded from Settings and never written back — how hard to mine
+	// is a decision about THIS reply.
+	let powBits: number | null = null;
+	// Re-seeded whenever the SETTING changes, not once on mount: a reply
+	// composer can sit mounted in a thread across a trip to Settings, and
+	// seeding once meant turning proof of work on over there and replying from
+	// a composer that never heard about it.
+	let powSettingSeen: number | null | undefined = undefined;
+	$: {
+		const fromSettings = isPowBits($timerSettings.powBits) ? $timerSettings.powBits : null;
+		if (fromSettings !== powSettingSeen) {
+			powSettingSeen = fromSettings;
+			powBits = fromSettings;
+		}
+	}
+
+	function cyclePow() {
+		const order: (number | null)[] = [null, ...POW_LEVELS.map((l) => l.bits)];
+		const at = order.indexOf(powBits);
+		powBits = order[(at + 1) % order.length];
+	}
+
+	/**
+	 * Mine, reporting into the floating indicator rather than into a row in
+	 * this composer. The wait can run to the better part of a minute, and a
+	 * status line pinned inside the reply box means the reader has to sit and
+	 * watch the box; the indicator floats over whatever they do next.
+	 *
+	 * Unlike a note, a reply is still published from here — postComment holds
+	 * the NIP-22 tagging and the inbox routing — so the mine stays tied to
+	 * this component and stops if the reader leaves the thread.
+	 */
+	let mining = false;
+
+	async function mineForReply(event: NDKEvent, bits: number) {
+		mining = true;
+		startMiningOp(bits, powCancel);
+		try {
+			await minePowIntoEvent(event, bits, (p) => reportMiningBest(p.best));
+			markMiningFound();
+		} finally {
+			endMiningOp();
+			mining = false;
+		}
+	}
+
 	onDestroy(() => {
+		// Cancel only our own mine. powCancel and endMiningOp are global, but
+		// this runs for every reply composer that unmounts — a thread rerender
+		// or a row scrolling out would otherwise terminate a mine some other
+		// composer started and clear an indicator it owns. The worker outlives
+		// the composer, so when this composer is the one mining, handleSubmit
+		// would resume on the far side of its await to sign and publish a reply
+		// the reader had already walked away from.
+		if (mining) {
+			powCancel();
+			endMiningOp();
+		}
 		// Clears any pending mention-search timeout so it can't fire after
 		// unmount and trigger state updates on a destroyed component.
 		mentionCtrl.destroy();
@@ -479,6 +550,14 @@
 			return;
 		}
 
+		// One mine at a time: the miner keeps a single worker whose loop never
+		// yields, so a second reply started underneath the first would sit
+		// unread behind it and look hung.
+		if (get(miningOp)) {
+			showToast('info', 'Still mining your last note — one at a time');
+			return;
+		}
+
 		posting = true;
 		// Declared outside the try so the catch can restore it; reassigned
 		// below once the final text is extracted.
@@ -538,11 +617,23 @@
 				content,
 				extraTags,
 				contentKind: capturedPollConfig ? 1068 : undefined,
-				signingStrategy: 'explicit-with-timeout'
+				signingStrategy: 'explicit-with-timeout',
+				// Mining happens inside postComment, immediately before signing:
+				// the id the signature covers is the one the nonce was mined for.
+				mine: powBits ? (ev) => mineForReply(ev, powBits as number) : undefined
 			});
 
 			onPosted?.(posted);
 		} catch (error) {
+			// A stopped mine is not a failure: the user pressed the button, so
+			// the draft comes back without an error toast telling them
+			// something went wrong when nothing did.
+			if (isPowCanceled(error)) {
+				composerText = draftSnapshot.text;
+				media = draftSnapshot.media;
+				pollConfig = draftSnapshot.poll;
+				return;
+			}
 			// Put the draft back. The optimistic clear above assumed success;
 			// this is the branch where that assumption was wrong, and the
 			// member should not lose what they wrote. Restoring composerText
@@ -570,6 +661,7 @@
 	$: isDisabled =
 		(!composerText.trim() && media.length === 0 && !pollConfig) ||
 		posting ||
+		$miningOp !== null ||
 		uploadingImage ||
 		uploadingVideo;
 </script>
@@ -883,6 +975,23 @@
 				>
 					<ChartBarHorizontalIcon size={20} class={pollConfig ? 'text-primary' : ''} />
 				</button>
+				<!-- Proof of work for this reply. The bits ride on the glyph, so
+				     what one more tap costs is on screen rather than in a
+				     tooltip. -->
+				<button
+					type="button"
+					on:click={cyclePow}
+					class="btn-gif pow-btn"
+					title={powBits
+						? `Mining ${powBits} bits of proof of work into this reply. ${powLevelFor(powBits).cost}`
+						: 'Proof of work: off. Tap to mine some into this reply.'}
+					aria-label={powBits ? `Proof of work: ${powBits} bits` : 'Proof of work: off'}
+					disabled={posting || uploadingImage || uploadingVideo || showCountdown}
+					class:opacity-50={posting || uploadingImage || uploadingVideo || showCountdown}
+				>
+					<HammerIcon size={20} class={powBits ? 'text-primary' : ''} />
+					{#if powBits}<span class="pow-bits">{powBits}</span>{/if}
+				</button>
 			</div>
 
 			<!-- Right: status + clock settings -->
@@ -1006,6 +1115,24 @@
 	/>
 
 <style>
+	/* Bits ride on the proof-of-work glyph, so the cost of one more tap is on
+	   screen rather than in a tooltip. */
+	.pow-btn {
+		position: relative;
+	}
+	.pow-bits {
+		position: absolute;
+		right: 0;
+		bottom: 1px;
+		font-size: 9px;
+		font-weight: 700;
+		line-height: 1;
+		padding: 1px 2px;
+		border-radius: 3px;
+		color: var(--color-primary);
+		background: var(--color-input-bg);
+	}
+
 	.reply-composer {
 		display: flex;
 		flex-direction: column;

@@ -26,6 +26,7 @@
   import { flattenThread } from '$lib/thread/threadFlatten';
   import { buildReplyTree, getReplyParentId } from '$lib/thread/replyParent';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
+  import PowBadge from '../../components/PowBadge.svelte';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { createCommentFilter } from '$lib/commentFilters';
@@ -805,6 +806,7 @@
                 {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
               </span>
               <ClientAttribution tags={event.tags} enableEnrichment={true} />
+            <PowBadge id={event.id} tags={event.tags} />
             </div>
           </div>
         </div>

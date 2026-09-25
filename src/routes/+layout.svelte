@@ -18,6 +18,7 @@
   import WalletModal from '../components/wallet/WalletModal.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
   import PendingIndicator from '../components/PendingIndicator.svelte';
+  import MiningIndicator from '../components/MiningIndicator.svelte';
   import LoginOverlay from '../components/LoginOverlay.svelte';
   import ProfilePreviewModal from '../components/ProfilePreviewModal.svelte';
   import { openProfilePreview } from '$lib/stores/profilePreview';
@@ -794,6 +795,7 @@
       {/if}
       <ToastContainer />
       <PendingIndicator />
+      <MiningIndicator />
     </div>
   </div>
 </ErrorBoundary>

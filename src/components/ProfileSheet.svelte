@@ -392,11 +392,12 @@
         {/if}
 
         {#if profile?.noffer && !isMuted}
-          <!-- NofferButton styles its own button, so the slot carries the
-               row's sizing and hands it down. -->
-          <div class="noffer-slot flex flex-1">
-            <NofferButton noffer={profile.noffer} />
-          </div>
+          <!-- No wrapper: the `row` variant is a row peer down to its
+               flex sizing, and a padding-less wrapper as the flex item
+               would leave it 24px narrower than the buttons either
+               side (flex-basis: 0 sizes the content box, so their
+               px-3 rides on top of an equal share and its doesn't). -->
+          <NofferButton noffer={profile.noffer} variant="row" />
         {/if}
 
         {#if $userPublickey && !isMuted}
@@ -497,11 +498,3 @@
 {#if zapTarget}
   <ZapModal bind:open={zapModal} event={zapTarget} />
 {/if}
-
-<style>
-  /* NofferButton styles its own button, so the flex-1 slot has to hand
-     the width down for it to fill its share of the row. */
-  .noffer-slot :global(button) {
-    width: 100%;
-  }
-</style>

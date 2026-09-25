@@ -1,12 +1,18 @@
 <!--
   CLINK noffer "Pay" affordance.
 
-  Two variants, sharing one click target → NofferPayModal:
+  Three variants, sharing one click target → NofferPayModal:
 
     `pill` (default) — small inline pill for note content / bios / list
       rows. Filled zap-orange → amber gradient, white icon + label,
       subtle brand-orange glow. Flows with surrounding text but reads
       as a real CTA, not a label.
+
+    `row` — peer of the compact buttons in the profile sheet's action
+      row. Same shape, height and type as the Zap / Message / Follow
+      buttons beside it; the gradient is the only thing setting it
+      apart, which is the point — it's one of the row's controls, not a
+      badge dropped into it.
 
     `cta` — full-width prominent button for the profile page or any
       other place we want noffer payments front and center. Matches the
@@ -18,14 +24,20 @@
   import NofferPayModal from './NofferPayModal.svelte';
 
   export let noffer: string;
-  /** Visual size — 'pill' is the inline default, 'cta' is full-width prominent. */
-  export let variant: 'pill' | 'cta' = 'pill';
+  /**
+   * Visual size — 'pill' is the inline default, 'row' sits in a profile
+   * sheet's action row, 'cta' is full-width prominent.
+   */
+  export let variant: 'pill' | 'row' | 'cta' = 'pill';
   /** Label override; defaults differ per variant. */
   export let label: string = '';
 
   let open = false;
 
   $: resolvedLabel = label || (variant === 'cta' ? 'Pay CLINK offer' : 'Pay');
+  // Icon tracks the label: 16px next to the row's 14px text matches the
+  // phosphor icons in the buttons it sits with.
+  $: iconSize = variant === 'cta' ? 20 : variant === 'row' ? 16 : 14;
 </script>
 
 <button
@@ -34,7 +46,7 @@
   on:click|stopPropagation|preventDefault={() => (open = true)}
   title="Pay this CLINK offer"
 >
-  <LightningIcon weight="fill" size={variant === 'cta' ? 20 : 14} />
+  <LightningIcon weight="fill" size={iconSize} />
   <span>{resolvedLabel}</span>
 </button>
 
@@ -86,6 +98,25 @@
     font-size: 0.8125rem;
     font-weight: 700;
     box-shadow: 0 0 0 1px rgba(236, 71, 0, 0.5), 0 2px 8px rgba(236, 71, 0, 0.25);
+  }
+
+  /* Action-row peer — profile sheet. Mirrors the Tailwind its siblings
+     carry (rounded-lg / px-3 py-1.5 / gap-1.5 / text-sm / font-medium),
+     line-height included, so every button on the row is the same height
+     and shape. No resting shadow either: the siblings are flat, and a
+     glow here would read as a different kind of control. */
+  .noffer-pay-btn--row {
+    /* Sized like a sibling, not wrapped in one: as the flex item
+       itself, its padding sits on top of the same equal share theirs
+       does, so the widths match. */
+    flex: 1 1 0%;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.5rem;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+    white-space: nowrap;
   }
 
   /* Full-width CTA — used on the profile page. Weight matches the

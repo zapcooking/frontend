@@ -7,9 +7,13 @@
   import VideoIcon from 'phosphor-svelte/lib/Video';
   import GifIcon from 'phosphor-svelte/lib/Gif';
   import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
+  import HammerIcon from 'phosphor-svelte/lib/Hammer';
   import GifPicker from './GifPicker.svelte';
   import PollCreator from './PollCreator.svelte';
   import { buildPollTags, buildZapPollTags, type PollConfig, type ZapPollConfig } from '$lib/polls';
+  import { POW_LEVELS, isPowBits, powLevelFor, leadingZeroBits } from '$lib/pow';
+  import { startMinedPost } from '$lib/minedPost';
+  import { miningOp } from '$lib/stores/miningOp';
   import CustomAvatar from './CustomAvatar.svelte';
   import ProfileLink from './ProfileLink.svelte';
   import { nip19 } from 'nostr-tools';
@@ -290,6 +294,37 @@
   }
   let quotedNote: { nevent: string; event: NDKEventType } | null = null;
   let showGifPicker = false;
+
+  // ── Proof of work ─────────────────────────────────────────────
+  //
+  // Seeded from Settings and never written back: how hard to mine is a
+  // decision about THIS note. The toolbar button cycles Off, 16, 18, 20, 22
+  // and round again — five states is too many for a toggle and too few to be
+  // worth a sheet, and a chooser would be a second surface saying what
+  // Settings already says.
+  let powBits: number | null = null;
+  // Re-seeded whenever the SETTING changes, not once on mount. The inline
+  // composer outlives a trip to Settings and back — it is mounted with the
+  // feed — so seeding once meant turning proof of work on over there and
+  // posting from a composer that never heard about it: no mining, no
+  // progress, no nonce, and nothing on screen saying so. Tracking the last
+  // value seen rather than the current one keeps a per-note override alive
+  // until the setting itself moves again.
+  let powSettingSeen: number | null | undefined = undefined;
+  $: {
+    const fromSettings = isPowBits($timerSettings.powBits) ? $timerSettings.powBits : null;
+    if (fromSettings !== powSettingSeen) {
+      powSettingSeen = fromSettings;
+      powBits = fromSettings;
+    }
+  }
+
+  function cyclePow() {
+    const order: (number | null)[] = [null, ...POW_LEVELS.map((l) => l.bits)];
+    const at = order.indexOf(powBits);
+    powBits = order[(at + 1) % order.length];
+  }
+
   let showPollCreator = false;
   let pollConfig: PollConfig | null = null;
   let zapPollConfig: ZapPollConfig | null = null;
@@ -464,8 +499,16 @@
     focusComposer();
   }
 
-  function resetComposerState() {
-    try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
+  /**
+   * @param keepDraft Leave the stored draft alone. Used when the note has
+   * been handed to the background miner: the editor should get out of the
+   * way immediately, but the only copy of what the reader typed must
+   * survive a stopped mine or a failed publish.
+   */
+  function resetComposerState(keepDraft = false) {
+    if (!keepDraft) {
+      try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
+    }
     content = '';
     lastRenderedContent = '';
     error = '';
@@ -677,6 +720,15 @@
       return;
     }
 
+    // One mine at a time. The miner keeps a single worker and its loop
+    // never yields, so a second post started underneath the first would sit
+    // unread in the worker's queue and look hung. The floating indicator is
+    // already on screen saying what the wait is.
+    if (get(miningOp)) {
+      showToast('info', 'Still mining your last post — one at a time', 4000);
+      return;
+    }
+
     console.log('[PostComposer] Starting post process...');
     posting = true;
     dispatch('posting', true);
@@ -760,6 +812,28 @@
       // Determine which relays to publish to
       // Priority: explicit selectedRelay prop (from modal) > activeTab (from feed context)
       const relayMode = selectedRelay || (activeTab === 'members' ? 'pantry' : 'all');
+
+      // ── Proof of work runs OUTSIDE the composer ──
+      //
+      // A mine can take the better part of a minute. Awaiting it here keeps
+      // the editor on screen for the whole wait — and for the modal, keeps
+      // the whole app behind it — so the note is handed to a module-level
+      // service that survives this component, reports into the floating
+      // indicator, and finishes the post on its own.
+      //
+      // The draft is flushed to disk and deliberately kept: a stopped mine
+      // or a failed publish must not cost the reader what they typed. The
+      // service clears it once the relays have the note.
+      if (powBits) {
+        flushDraftSave();
+        void startMinedPost({ event, bits: powBits, relayMode, draftKey: DRAFT_KEY });
+        resetComposerState(true);
+        isComposerOpen = false;
+        posting = false;
+        dispatch('posting', false);
+        if (variant === 'modal') dispatch('close');
+        return;
+      }
 
       console.log(`[PostComposer] Publishing with relay mode: ${relayMode}`);
       console.log('[PostComposer] Event content:', event.content);
@@ -1296,6 +1370,24 @@
               <button on:click={() => (showPollCreator = true)} class="tool-btn" class:opacity-50={posting || showCountdown} disabled={posting || showCountdown} title="Create poll">
                 <ChartBarHorizontalIcon size={20} class={pollConfig || zapPollConfig ? 'text-primary' : 'text-caption'} />
               </button>
+
+              <!-- Proof of work for this note. The bits ride on the glyph
+                   rather than in a tooltip: what one more tap costs should be
+                   on screen, and a number is what a relay asking for proof of
+                   work actually states. -->
+              <button
+                on:click={cyclePow}
+                class="tool-btn pow-btn"
+                class:opacity-50={posting || showCountdown}
+                disabled={posting || showCountdown}
+                title={powBits
+                  ? `Mining ${powBits} bits of proof of work into this note. ${powLevelFor(powBits).cost}`
+                  : 'Proof of work: off. Tap to mine some into this note.'}
+                aria-label={powBits ? `Proof of work: ${powBits} bits` : 'Proof of work: off'}
+              >
+                <HammerIcon size={20} class={powBits ? 'text-primary' : 'text-caption'} />
+                {#if powBits}<span class="pow-bits">{powBits}</span>{/if}
+              </button>
             </div>
 
             <!-- Right: status indicators -->
@@ -1391,7 +1483,7 @@
               <button
                 class="action-post action-post--solid"
                 on:click={handlePostClick}
-                disabled={posting || uploadingImage || uploadingVideo ||
+                disabled={posting || uploadingImage || uploadingVideo || $miningOp !== null ||
                   (!content.trim() && media.length === 0 && !quotedNote && !pollConfig && !zapPollConfig)}
               >
                 {posting ? 'Posting…' : 'Post'}
@@ -1479,6 +1571,25 @@
 {/if}
 
 <style>
+  /* Bits ride on the proof-of-work glyph, so the cost of one more tap is on
+     screen rather than in a tooltip. */
+  .pow-btn {
+    position: relative;
+  }
+  .pow-bits {
+    position: absolute;
+    right: 0;
+    bottom: 1px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 1px 2px;
+    border-radius: 3px;
+    color: var(--color-primary);
+    background: var(--color-input-bg);
+  }
+
+
   .composer-input {
     white-space: pre-wrap;
     word-break: break-word;

@@ -23,6 +23,7 @@
   import Avatar from '../Avatar.svelte';
   import CustomAvatar from '../CustomAvatar.svelte';
   import ClientAttribution from '../ClientAttribution.svelte';
+  import PowBadge from '../PowBadge.svelte';
   import NoteContent from '../NoteContent.svelte';
   import ReplyComposer from './ReplyComposer.svelte';
   import ThreadCommentActions from '../ThreadCommentActions.svelte';
@@ -243,6 +244,7 @@
             {formatDate(new Date((event.created_at || 0) * 1000))}
           </span>
           <ClientAttribution tags={event.tags} enableEnrichment={false} />
+				<PowBadge id={event.id} tags={event.tags} />
         </div>
 
         <!-- Comment Text -->
