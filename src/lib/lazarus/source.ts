@@ -200,7 +200,16 @@ export async function getLazarusPublishRelays(
 ): Promise<{ write: string[]; extra: string[] }> {
   const { write: current } = await getUserRelays(pubkey);
   const restored = restoring?.kind === 10002 ? parseRelayList(restoring).write : [];
-  const write = restored.length > 0 ? restored : current;
+  // A restored relay list that names no write relays is 'missing' the same
+  // way the current one can be (getUserRelays): the app's relays stand in as
+  // the write set. Falling back to `current` would judge the restore on the
+  // very dead write relays the override exists to replace.
+  const write =
+    restored.length > 0
+      ? restored
+      : restoring?.kind === 10002
+        ? uniqueRelayUrls(getCurrentRelays())
+        : current;
   const extra = uniqueRelayUrls([...current, ...respondingRelays]).filter(
     (url) => !write.includes(url)
   );

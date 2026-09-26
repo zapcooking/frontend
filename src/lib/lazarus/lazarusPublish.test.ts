@@ -36,6 +36,7 @@ vi.mock('@nostr-dev-kit/ndk', () => ({
 vi.mock('$lib/followListCache', () => ({ resetCache: vi.fn() }));
 vi.mock('$lib/profileCache', () => ({ profileCacheManager: { invalidateProfile: vi.fn() } }));
 vi.mock('$lib/muteListStore', () => ({ muteListStore: { invalidate: vi.fn() } }));
+vi.mock('$lib/relayListCache', () => ({ relayListCache: { seedFromEvent: vi.fn() } }));
 vi.mock('$lib/authManager', () => ({ getAuthManager: () => null }));
 vi.mock('./source', () => ({
   fetchLatestLazarusVersion: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock('./source', () => ({
 }));
 
 import { fetchLatestLazarusVersion, getLazarusPublishRelays } from './source';
+import { relayListCache } from '$lib/relayListCache';
 import { publishLazarusRecovery } from './lazarusPublish';
 
 const PUBKEY = 'a'.repeat(64);
@@ -58,6 +60,21 @@ function followList(id: string, createdAt: number, count: number): Event {
     created_at: createdAt,
     kind: 3,
     tags: Array.from({ length: count }, (_, i) => ['p', i.toString(16).padStart(64, '0')]),
+    content: '',
+    sig: 'sig'
+  };
+}
+
+function relayList(id: string, createdAt: number): Event {
+  return {
+    id: id.padStart(64, '0'),
+    pubkey: PUBKEY,
+    created_at: createdAt,
+    kind: 10002,
+    tags: [
+      ['r', 'wss://alive/', 'write'],
+      ['r', 'wss://inbox/', 'read']
+    ],
     content: '',
     sig: 'sig'
   };
@@ -131,6 +148,35 @@ describe('publishLazarusRecovery', () => {
     expect(result.status === 'published' && result.publishedRelays).toEqual(['wss://write-b']);
     // The chosen version goes along, so a relay list restore is judged on its relays
     expect(getLazarusPublishRelays).toHaveBeenCalledWith(PUBKEY, [], healthy);
+  });
+
+  it('seeds the relay-list cache from the recovered event after a kind-10002 restore', async () => {
+    // Without the seed, relayListCache.get() keeps answering with the dead
+    // list and the next edit or scan in this session clobbers the restore.
+    const healthyRelays = relayList('6', NOW - 86400);
+    const clobberedRelays = relayList('7', NOW + 3600);
+    mockedFetchLatest.mockResolvedValue(clobberedRelays);
+    const result = await publishLazarusRecovery({
+      chosen: healthyRelays,
+      reviewedCurrent: clobberedRelays,
+      pubkey: PUBKEY,
+      ndk,
+      respondingRelays: []
+    });
+    expect(result.status).toBe('published');
+    // Called with the pubkey and the published event — asserted via mock.calls
+    // because the asymmetric helpers don't typecheck under svelte-check.
+    expect(relayListCache.seedFromEvent).toHaveBeenCalledTimes(1);
+    const seeded = vi.mocked(relayListCache.seedFromEvent).mock.calls[0];
+    expect(seeded?.[0]).toBe(PUBKEY);
+    expect(seeded?.[1]?.kind).toBe(10002);
+    expect(seeded?.[1]?.tags).toEqual(healthyRelays.tags);
+  });
+
+  it('does not touch the relay-list cache for other kinds', async () => {
+    mockedFetchLatest.mockResolvedValue(clobbered);
+    expect((await restore(clobbered)).status).toBe('published');
+    expect(relayListCache.seedFromEvent).not.toHaveBeenCalled();
   });
 
   describe('the unreachable re-read override (spec 0.6.0)', () => {

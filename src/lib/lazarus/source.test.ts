@@ -205,6 +205,20 @@ describe('getLazarusPublishRelays', () => {
       extra: ['wss://dead', 'wss://hist.nostr.land']
     });
   });
+
+  it('uses the app relays when the restored relay list names no write relays', async () => {
+    // Read-only restored list: falling back to `current` would judge the
+    // restore on the dead write relays it exists to replace.
+    mockedRelayListGet.mockResolvedValueOnce({ read: [], write: ['wss://dead/'], updatedAt: 0 });
+    const restoring = makeEvent({
+      kind: 10002,
+      tags: [['r', 'wss://inbox/', 'read']]
+    });
+    expect(await getLazarusPublishRelays('pubkey', [], restoring)).toEqual({
+      write: ['wss://default'],
+      extra: ['wss://dead']
+    });
+  });
 });
 
 describe('zapLazarusRelaySource.fetchVersions', () => {

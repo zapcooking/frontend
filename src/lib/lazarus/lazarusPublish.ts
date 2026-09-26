@@ -27,6 +27,7 @@ import type { Event } from 'nostr-tools';
 import { resetCache as resetFollowListCache } from '$lib/followListCache';
 import { profileCacheManager } from '$lib/profileCache';
 import { muteListStore } from '$lib/muteListStore';
+import { relayListCache } from '$lib/relayListCache';
 import { buildLazarusRecoveryDraft } from './recovery';
 import { fetchLatestLazarusVersion, getLazarusPublishRelays } from './source';
 
@@ -76,10 +77,14 @@ async function publishBestEffort(ndk: NDK, event: NDKEvent, urls: string[]) {
 
 /** Refresh the app's local copy of the recovered kind, so the next edit
  * builds on the recovered version instead of the clobbered one. */
-function refreshLocalCopy(kind: number, pubkey: string) {
-  if (kind === 3) resetFollowListCache();
-  else if (kind === 0) profileCacheManager.invalidateProfile(pubkey);
-  else if (kind === 10000) muteListStore.invalidate();
+function refreshLocalCopy(event: NDKEvent, pubkey: string) {
+  if (event.kind === 3) resetFollowListCache();
+  else if (event.kind === 0) profileCacheManager.invalidateProfile(pubkey);
+  else if (event.kind === 10000) muteListStore.invalidate();
+  // A restored relay list replaces the write relays themselves: seed the
+  // cache from the recovered event (not a refetch — the cached read would
+  // otherwise keep naming the dead relays this restore just replaced).
+  else if (event.kind === 10002) relayListCache.seedFromEvent(pubkey, event);
   // Other registry kinds have no local store in this app.
 }
 
@@ -196,7 +201,7 @@ export async function publishLazarusRecovery(opts: {
   // the clobbered copy otherwise.
   void publishBestEffort(ndk, event, extra);
 
-  refreshLocalCopy(event.kind, pubkey);
+  refreshLocalCopy(event, pubkey);
 
   return {
     status: 'published',

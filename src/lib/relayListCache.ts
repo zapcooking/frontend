@@ -33,6 +33,12 @@ export interface RelayListCache {
   get(pubkey: string): Promise<RelayList | null>;
   getMany(pubkeys: string[]): Promise<Map<string, RelayList>>;
   prefetch(pubkeys: string[]): void; // fire-and-forget
+  /**
+   * Overwrite the cached list from a kind-10002 event the client itself
+   * published (e.g. a Lazarus relay-list restore), so the next get() answers
+   * with the recovered list instead of the clobbered one.
+   */
+  seedFromEvent(pubkey: string, event: NDKEvent): void;
   invalidate(pubkey: string): void;
   clear(): Promise<void>;
 }
@@ -732,8 +738,31 @@ class RelayListCacheManager implements RelayListCache {
   }
   
   /**
+   * Seed the cache from a kind-10002 event the client itself just published
+   *
+   * A successful restore must not leave the stale cached list in place — the
+   * next get() would keep answering with it. The seeded entry is written
+   * exactly like a network answer (same freshness, same persistence), so
+   * background refresh treats it normally.
+   */
+  seedFromEvent(pubkey: string, event: NDKEvent): void {
+    const relayList = parseNip65Event(event);
+    const cached: CachedRelayList = {
+      pubkey,
+      read: relayList.read,
+      write: relayList.write,
+      updatedAt: relayList.updatedAt,
+      fetchedAt: Date.now(),
+      eventCreatedAt: (event.created_at || 0) * 1000
+    };
+    memoryCache.set(pubkey, cached);
+    inFlightFetches.delete(pubkey);
+    dbPut(cached).catch(() => {});
+  }
+
+  /**
    * Invalidate cache for a specific pubkey
-   * 
+   *
    * Called when we see a newer kind:10002 event
    */
   invalidate(pubkey: string): void {
