@@ -54,7 +54,9 @@
   // resolves its pane via allImageUrls.indexOf(url), so both rendered
   // occurrences land on the single pane that shows that image.
   $: allImageUrls = filterImageUrls(
-    finalParsedContent.filter((part: any) => part.type === 'url' && part.url).map((p: any) => p.url)
+    finalParsedContent
+      .filter((part: any) => part.type === 'url' && part.url && !part.bare)
+      .map((p: any) => p.url)
   );
 
   // NIP-92 imeta alt text, keyed by media URL, for screen readers.
@@ -127,9 +129,9 @@
 
   const isYouTube = (url?: string): boolean => !!url && parseYouTube(url) !== null;
 
-  function isMediaPart(part?: { type?: string; url?: string }): boolean {
+  function isMediaPart(part?: { type?: string; url?: string; bare?: boolean }): boolean {
     return Boolean(
-      part?.type === 'url' && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
+      part?.type === 'url' && !part.bare && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
     );
   }
 
@@ -173,7 +175,7 @@
     return out;
   }
 
-  function isBlockPart(part?: { type?: string; prefix?: string; url?: string }) {
+  function isBlockPart(part?: { type?: string; prefix?: string; url?: string; bare?: boolean }) {
     if (!part?.type) return false;
     if (part.type === 'nostr') {
       // nevent1, note1, and naddr1 are all block-level embedded content
@@ -181,6 +183,9 @@
     }
     if (part.type === 'url') {
       if (!part.url) return false;
+      // Bare domains stay inline links — a fuzzy match is an inference, and
+      // it must never grow into a media gallery or a preview card.
+      if (part.bare) return false;
       return isImageUrl(part.url) || isVideoUrl(part.url) || isYouTube(part.url) || showLinkPreviews;
     }
     return false;
@@ -245,6 +250,7 @@
           type: 'url',
           content: match.content,
           url: match.url,
+          bare: match.bare,
           key: `url-${keyCounter++}`
         });
       } else if (match.type === 'nostr') {
@@ -473,7 +479,20 @@
         {part.content}
       </button>
     {:else if part.type === 'url'}
-      {#if part.url && isImageUrl(part.url)}
+      {#if part.bare && part.url}
+        <!-- Scheme-less domain the author clearly meant as a link
+             ("see zap.cooking/pow"). Inline only — no preview card, media
+             or embed cascade — so a fuzzy false positive ("oven.to") costs
+             at most a stray underline, never a loaded card. -->
+        <a
+          href={part.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-orange-500 hover:text-orange-600 hover:underline break-all"
+        >
+          {part.content}
+        </a>
+      {:else if part.url && isImageUrl(part.url)}
         {@const imageUrl = part.url || ''}
         {@const imageIndex = allImageUrls.indexOf(imageUrl)}
         <div class="my-1">
