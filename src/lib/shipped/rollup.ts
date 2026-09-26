@@ -7,7 +7,7 @@
  * is done on the calendar string itself, which a DST shift cannot skew.
  */
 
-import { BOT_AUTHORS, REPOS, START, TIME_ZONE, isPowRepo, type PowRepo } from './config';
+import { BOT_AUTHORS, REPOS, START, START_MS, TIME_ZONE, isPowRepo, type PowRepo } from './config';
 import type { ContributorEntry, LineTotals, PrRecord, Summary } from './types';
 
 const dayFormatter = new Intl.DateTimeFormat('en-US', {
@@ -101,7 +101,7 @@ export function rollup(input: readonly PrRecord[], now: Date): Summary {
   // Defense in depth: REPOS is the allowlist even if a stray record got stored.
   const byId = new Map<string, PrRecord>();
   for (const r of input) {
-    if (isPowRepo(r.repo) && r.mergedAt >= START) byId.set(r.id, r);
+    if (isPowRepo(r.repo) && Date.parse(r.mergedAt) >= START_MS) byId.set(r.id, r);
   }
   const records = [...byId.values()].sort((a, b) =>
     a.mergedAt < b.mergedAt ? 1 : a.mergedAt > b.mergedAt ? -1 : 0
@@ -114,11 +114,7 @@ export function rollup(input: readonly PrRecord[], now: Date): Summary {
     LineTotals
   >;
   const daily: Summary['daily'] = {};
-  // START is UTC midnight (to match GitHub search), which is still Dec 31 in
-  // TIME_ZONE. The few merges in that gap are clamped onto START's calendar
-  // day so daily, monthly and totals always agree.
-  const firstDay = START.slice(0, 10);
-  const monthKeys = monthRange(firstDay.slice(0, 7), today.slice(0, 7));
+  const monthKeys = monthRange(zonedDate(new Date(START_MS)).slice(0, 7), today.slice(0, 7));
   const monthly = new Map(
     monthKeys.map((month) => [month, { month, ...emptyTotals(), byRepo: repoCounts() }])
   );
@@ -132,15 +128,14 @@ export function rollup(input: readonly PrRecord[], now: Date): Summary {
   };
 
   for (const r of records) {
-    const zoned = zonedDate(new Date(r.mergedAt));
-    const day = zoned < firstDay ? firstDay : zoned;
+    const day = zonedDate(new Date(r.mergedAt));
     addTo(totals, r);
     addTo(byRepo[r.repo], r);
 
     const d = (daily[day] ??= {});
     d[r.repo] = (d[r.repo] ?? 0) + 1;
 
-    // Always present: day is within [firstDay, today] unless a merge is
+    // Always present: day is within [START, today] in TIME_ZONE unless a merge is
     // timestamped in the future, which GitHub doesn't produce.
     const m = monthly.get(day.slice(0, 7));
     if (m) {

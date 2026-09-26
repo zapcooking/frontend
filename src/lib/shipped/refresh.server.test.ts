@@ -152,7 +152,7 @@ describe('GET /api/pow', () => {
   }
 
   it('returns 503 POW_UNCONFIGURED without a token or binding', async () => {
-    for (const env of [{ POW: memoryKV().kv }, { POW_GITHUB_TOKEN: TOKEN }]) {
+    for (const env of [{ POW: memoryKV().kv }, { POW_GITHUB_TOKEN: TOKEN }] as Record<string, unknown>[]) {
       const res = await call(env).res;
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({ code: 'POW_UNCONFIGURED' });
@@ -202,11 +202,11 @@ describe('GET /api/pow', () => {
     expect((await res).status).toBe(200);
     expect(waitUntil).toHaveBeenCalledTimes(1);
     await waitUntil.mock.calls[0][0];
-    expect(logs.some((l) => /^\[pow\] refresh github_calls=3 /.test(l))).toBe(true);
+    expect(logs.some((l) => /^\[pow\] refresh github_calls=3 overflow_calls=0 /.test(l))).toBe(true);
     vi.unstubAllGlobals();
   });
 
-  it('turns a GitHub failure into a 503 without leaking the token', async () => {
+  it('cold start: a refused token is 503 POW_UNCONFIGURED, logged by status only', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response('Bad credentials', { status: 401 }))
@@ -214,8 +214,96 @@ describe('GET /api/pow', () => {
     const res = await call({ POW: memoryKV().kv, POW_GITHUB_TOKEN: TOKEN }).res;
     expect(res.status).toBe(503);
     const text = await res.text();
-    expect(JSON.parse(text)).toEqual({ code: 'POW_UNAVAILABLE' });
-    expect(`${text}\n${logs.join('\n')}`).not.toContain(TOKEN);
+    expect(JSON.parse(text)).toEqual({ code: 'POW_UNCONFIGURED' });
+    expect(logs).toEqual(['[pow] github_auth_failed status=401']);
+    expect(text).not.toContain(TOKEN);
     vi.unstubAllGlobals();
+  });
+
+  it('cold start: any other GitHub failure is 503 POW_UNAVAILABLE', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('oops', { status: 502 })));
+    const res = await call({ POW: memoryKV().kv, POW_GITHUB_TOKEN: TOKEN }).res;
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ code: 'POW_UNAVAILABLE' });
+    vi.unstubAllGlobals();
+  });
+
+  async function seededStale() {
+    const { fetchImpl } = fakeFetch();
+    vi.stubGlobal('fetch', fetchImpl);
+    const { kv, data } = memoryKV();
+    const env: Record<string, unknown> = { POW: kv, POW_GITHUB_TOKEN: TOKEN };
+    const goodBody = await (await call(env).res).text();
+    const stored = JSON.parse(data.get('pow:summary')!);
+    stored.checkedAt = new Date(Date.now() - STALE_MS - 1000).toISOString();
+    data.set('pow:summary', JSON.stringify(stored));
+    vi.unstubAllGlobals();
+    logs.length = 0;
+    return { env, data, goodBody };
+  }
+
+  for (const [label, response] of [
+    ['HTTP 401', () => new Response('Bad credentials', { status: 401 })],
+    ['HTTP 403', () => new Response('Forbidden', { status: 403 })],
+    [
+      'GraphQL FORBIDDEN',
+      () =>
+        new Response(
+          JSON.stringify({ data: { repository: null }, errors: [{ type: 'FORBIDDEN', message: 'no' }] }),
+          { status: 200 }
+        )
+    ]
+  ] as const) {
+    it(`a refused token (${label}) keeps serving the last good summary`, async () => {
+      const { env, data, goodBody } = await seededStale();
+      const github = vi.fn(async () => response());
+      vi.stubGlobal('fetch', github);
+
+      const { res, waitUntil } = call(env);
+      const r = await res;
+      expect(r.status).toBe(200);
+      expect(await r.text()).toBe(goodBody);
+      await waitUntil.mock.calls[0][0];
+
+      const status = label === 'GraphQL FORBIDDEN' ? 'graphql_forbidden' : label.slice(5);
+      expect(logs).toContain(`[pow] github_auth_failed status=${status}`);
+      const after = JSON.parse(data.get('pow:summary')!);
+      expect(after.body).toBe(goodBody);
+      expect(after.authFailedAt).toBeTruthy();
+
+      // Backs off: once the 60s lock has lapsed, the next request still
+      // neither refreshes nor blanks.
+      github.mockClear();
+      data.delete('pow:lock');
+      const next = call(env);
+      expect((await next.res).status).toBe(200);
+      expect(next.waitUntil).not.toHaveBeenCalled();
+      expect(github).not.toHaveBeenCalled();
+
+      expect(logs.join('\n')).not.toContain(TOKEN);
+      vi.unstubAllGlobals();
+    });
+  }
+
+  it('a removed token serves the last summary, and 503s only with none', async () => {
+    const { env, goodBody } = await seededStale();
+    delete env.POW_GITHUB_TOKEN;
+    const res = await call(env).res;
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(goodBody);
+
+    const empty = await call({ POW: memoryKV().kv }).res;
+    expect(empty.status).toBe(503);
+    expect(await empty.json()).toEqual({ code: 'POW_UNCONFIGURED' });
+  });
+
+  it('a successful refresh clears the auth backoff', async () => {
+    const { kv, data } = memoryKV();
+    await refreshPow(kv, createGithubClient(TOKEN, fakeFetch().fetchImpl), NOW);
+    const stored = JSON.parse(data.get('pow:summary')!);
+    data.set('pow:summary', JSON.stringify({ ...stored, authFailedAt: NOW.toISOString() }));
+    const later = new Date(NOW.getTime() + 2 * STALE_MS);
+    const out = await refreshPow(kv, createGithubClient(TOKEN, fakeFetch().fetchImpl), later);
+    expect(out.stored.authFailedAt).toBeUndefined();
   });
 });

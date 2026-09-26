@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import fixture from '../../test/fixtures/pow-graphql.json';
 import { isExcludedPath } from './config';
-import { createGithubClient, fetchOne, syncRepo, type RepoSyncState } from './github.server';
+import {
+  GithubError,
+  createGithubClient,
+  fetchOne,
+  syncRepo,
+  type RepoSyncState
+} from './github.server';
 
 const TOKEN = 'github_pat_TEST_SECRET_do_not_leak';
 
@@ -44,7 +50,7 @@ describe('isExcludedPath', () => {
     it(`excludes ${p}`, () => expect(isExcludedPath(p)).toBe(true));
   }
 
-  for (const p of ['src/lib/pow/rollup.ts', 'Bip39.swift', 'docs/model.txt.md', 'lockfile.ts']) {
+  for (const p of ['src/lib/shipped/rollup.ts', 'Bip39.swift', 'docs/model.txt.md', 'lockfile.ts']) {
     it(`counts ${p}`, () => expect(isExcludedPath(p)).toBe(false));
   }
 });
@@ -57,6 +63,7 @@ describe('syncRepo', () => {
     expect(sent.map((s) => s.operation)).toEqual(['PowMergedPrs', 'PowOnePr', 'PowOnePr']);
     expect(sent[2].variables.filesAfter).toBe('FILES_CURSOR_1');
     expect(client.calls).toBe(3);
+    expect(res.overflowCalls).toBe(2);
 
     // PR_old_merge was merged before START; PR_stop ends the walk.
     expect(res.records.map((r) => r.id)).toEqual(['PR_small', 'PR_big']);
@@ -142,6 +149,23 @@ describe('fetchOne', () => {
 });
 
 describe('token handling', () => {
+  it('classifies refusals as auth failures, and nothing else', async () => {
+    const cases: Array<[Response, string | null]> = [
+      [new Response('', { status: 401 }), '401'],
+      [new Response('', { status: 403 }), '403'],
+      [new Response(JSON.stringify({ errors: [{ type: 'FORBIDDEN', message: 'x' }] })), 'graphql_forbidden'],
+      [new Response(JSON.stringify({ errors: [{ type: 'NOT_FOUND', message: 'x' }] })), 'graphql_not_found'],
+      [new Response('', { status: 502 }), null],
+      [new Response(JSON.stringify({ errors: [{ type: 'RATE_LIMITED', message: 'x' }] })), null]
+    ];
+    for (const [response, expected] of cases) {
+      const client = createGithubClient(TOKEN, (async () => response) as unknown as typeof fetch);
+      const err = (await syncRepo(client, 'frontend', FRESH, 1).catch((e) => e)) as GithubError;
+      expect(err).toBeInstanceOf(GithubError);
+      expect(err.authFailure).toBe(expected);
+    }
+  });
+
   it('sends the token only in the Authorization header', async () => {
     const { client, sent } = fakeGithub();
     await syncRepo(client, 'zap_cooking_android', FRESH, 5);

@@ -13,7 +13,7 @@
  * what makes the lock's weakness (below) acceptable.
  */
 
-import { REPOS, START, type PowRepo } from './config';
+import { REPOS, START_MS, type PowRepo } from './config';
 import type { RepoSyncState } from './github.server';
 import type { PrRecord } from './types';
 
@@ -32,6 +32,12 @@ export interface StoredSummary {
   complete: boolean;
   /** Last refresh, whether or not it changed anything. Drives staleness. */
   checkedAt: string;
+  /**
+   * Set when a refresh was refused by GitHub (expired/revoked token). The
+   * body stays as the last good summary; retries back off until STALE_MS
+   * after this instead of hitting GitHub on every request.
+   */
+  authFailedAt?: string;
 }
 
 export interface PowHead {
@@ -94,9 +100,9 @@ export async function upsertRecords(kv: PowKV, records: readonly PrRecord[]): Pr
   return changed;
 }
 
-function utcMonths(from: string, to: Date): string[] {
+function utcMonths(from: Date, to: Date): string[] {
   const out: string[] = [];
-  const d = new Date(`${from.slice(0, 7)}-01T00:00:00Z`);
+  const d = new Date(`${from.toISOString().slice(0, 7)}-01T00:00:00Z`);
   const end = to.toISOString().slice(0, 7);
   while (d.toISOString().slice(0, 7) <= end) {
     out.push(d.toISOString().slice(0, 7));
@@ -110,7 +116,7 @@ function utcMonths(from: string, to: Date): string[] {
  * kv.list(), whose results can lag writes by up to a minute).
  */
 export async function readAllRecords(kv: PowKV, now: Date): Promise<PrRecord[]> {
-  const keys = REPOS.flatMap((repo) => utcMonths(START, now).map((m) => shardKey(repo, m)));
+  const keys = REPOS.flatMap((repo) => utcMonths(new Date(START_MS), now).map((m) => shardKey(repo, m)));
   const shards = await Promise.all(keys.map((k) => getJson<PrRecord[]>(kv, k)));
   return shards.flatMap((s) => s ?? []);
 }

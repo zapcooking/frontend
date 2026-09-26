@@ -25,7 +25,7 @@ describe('rollup', () => {
 
   it('labels the zone and start', () => {
     expect(s.tz).toBe('America/New_York');
-    expect(s.start).toBe('2026-01-01T00:00:00Z');
+    expect(s.start).toBe('2026-01-01T00:00:00-05:00');
     expect(s.asOfDate).toBe('2026-03-11');
   });
 
@@ -64,7 +64,10 @@ describe('rollup', () => {
     expect(s.daily['2026-03-09']).toEqual({ zap_cooking_android: 1 });
   });
 
-  it('clamps a merge after START UTC but still Dec 31 ET onto the start day', () => {
+  it('draws the year boundary at midnight Eastern, inclusive', () => {
+    const ids = s.recent.map((r) => r.id);
+    expect(ids).toContain('fe-7'); // 00:00:00 ET Jan 1
+    expect(ids).not.toContain('fe-8'); // 23:59:59 ET Dec 31, already Jan 1 in UTC
     expect(s.daily['2025-12-31']).toBeUndefined();
     expect(s.daily['2026-01-01']).toEqual({ frontend: 1 });
   });

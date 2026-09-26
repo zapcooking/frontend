@@ -11,16 +11,29 @@
  * logs carry the HTTP status and GraphQL messages only, never the request.
  */
 
-import { POW_ORG, START, isExcludedPath, type PowRepo } from './config';
+import { POW_ORG, START_MS, isExcludedPath, type PowRepo } from './config';
 import type { PrRecord } from './types';
 
 const GITHUB_GRAPHQL = 'https://api.github.com/graphql';
 const PAGE_SIZE = 50;
 
+/** GraphQL error types that mean the token can't see what we asked for. */
+const AUTH_ERROR_TYPES = new Set(['UNAUTHORIZED', 'FORBIDDEN', 'NOT_FOUND']);
+
 export class GithubError extends Error {
-  constructor(message: string) {
+  /**
+   * Set when the token was refused: the HTTP status ('401', '403') or the
+   * GraphQL error type ('graphql_forbidden', …). A fine-grained token that
+   * lost access to a repo reads as NOT_FOUND, so that counts too. 403 can
+   * also be a secondary rate limit; either way the answer is the same —
+   * keep serving the last good summary.
+   */
+  readonly authFailure: string | null;
+
+  constructor(message: string, authFailure: string | null = null) {
     super(message);
     this.name = 'GithubError';
+    this.authFailure = authFailure;
   }
 }
 
@@ -47,11 +60,22 @@ export function createGithubClient(token: string, fetchImpl: typeof fetch = fetc
         },
         body: JSON.stringify({ query, variables })
       });
-      if (!res.ok) throw new GithubError(`GitHub GraphQL HTTP ${res.status}`);
-      const body = (await res.json()) as { data?: T; errors?: Array<{ message?: string }> };
+      if (!res.ok) {
+        const auth = res.status === 401 || res.status === 403 ? String(res.status) : null;
+        throw new GithubError(`GitHub GraphQL HTTP ${res.status}`, auth);
+      }
+      const body = (await res.json()) as {
+        data?: T;
+        errors?: Array<{ message?: string; type?: string }>;
+      };
       if (body.errors?.length || !body.data) {
-        const messages = (body.errors ?? []).map((e) => e.message ?? '?').join('; ');
-        throw new GithubError(`GitHub GraphQL error: ${messages || 'no data'}`);
+        const errors = body.errors ?? [];
+        const authType = errors.find((e) => e.type && AUTH_ERROR_TYPES.has(e.type))?.type;
+        const messages = errors.map((e) => e.message ?? '?').join('; ');
+        throw new GithubError(
+          `GitHub GraphQL error: ${messages || 'no data'}`,
+          authType ? `graphql_${authType.toLowerCase()}` : null
+        );
       }
       return body.data;
     }
@@ -186,6 +210,8 @@ export interface SyncResult {
   state: RepoSyncState;
   /** True when this repo is fully caught up. */
   done: boolean;
+  /** fetchOne calls for >100-file PRs — not charged to pageBudget. */
+  overflowCalls: number;
 }
 
 /**
@@ -205,12 +231,14 @@ export async function syncRepo(
   state: RepoSyncState,
   pageBudget: number
 ): Promise<SyncResult> {
-  if (pageBudget < 1) return { records: [], state, done: false };
-  const stopBefore = state.cursor ?? START;
+  if (pageBudget < 1) return { records: [], state, done: false, overflowCalls: 0 };
+  // Timestamps are compared as instants: START carries an offset, GitHub's end in Z.
+  const stopBeforeMs = state.cursor ? Date.parse(state.cursor) : START_MS;
   let after = state.pending?.after ?? null;
   let sweepTop = state.pending?.sweepTop ?? null;
   const records: PrRecord[] = [];
   let pages = 0;
+  let overflowCalls = 0;
 
   while (pages < pageBudget) {
     const data: {
@@ -219,20 +247,24 @@ export async function syncRepo(
       } | null;
     } = await client.query(LIST_QUERY, { owner: POW_ORG, name: repo, after });
     pages += 1;
-    if (!data.repository) throw new GithubError(`repository ${repo} not visible to token`);
+    if (!data.repository) {
+      throw new GithubError(`repository ${repo} not visible to token`, 'graphql_not_found');
+    }
     const { pageInfo, nodes } = data.repository.pullRequests;
 
-    sweepTop ??= nodes[0]?.updatedAt ?? state.cursor ?? START;
+    sweepTop ??= nodes[0]?.updatedAt ?? state.cursor ?? new Date(START_MS).toISOString();
 
     let reachedCursor = false;
     for (const node of nodes) {
-      if (node.updatedAt < stopBefore) {
+      if (Date.parse(node.updatedAt) < stopBeforeMs) {
         reachedCursor = true;
         break;
       }
-      if (!node.mergedAt || node.mergedAt < START) continue;
+      if (!node.mergedAt || Date.parse(node.mergedAt) < START_MS) continue;
       if (node.files.pageInfo.hasNextPage) {
+        const before = client.calls;
         const full = await fetchOne(client, repo, node.number);
+        overflowCalls += client.calls - before;
         if (full) records.push(full);
       } else {
         records.push(toPrRecord(repo, node, node.files.nodes));
@@ -240,7 +272,7 @@ export async function syncRepo(
     }
 
     if (reachedCursor || !pageInfo.hasNextPage || !pageInfo.endCursor) {
-      return { records, state: { cursor: sweepTop, pending: null }, done: true };
+      return { records, state: { cursor: sweepTop, pending: null }, done: true, overflowCalls };
     }
     after = pageInfo.endCursor;
   }
@@ -248,6 +280,7 @@ export async function syncRepo(
   return {
     records,
     state: { cursor: state.cursor, pending: { after: after!, sweepTop: sweepTop! } },
-    done: false
+    done: false,
+    overflowCalls
   };
 }

@@ -31,7 +31,18 @@ export const STALE_MS = 60 * 60 * 1000;
 export const CALL_BUDGET = 12;
 
 export function isStale(stored: StoredSummary, now: Date): boolean {
-  return !stored.complete || now.getTime() - Date.parse(stored.checkedAt) > STALE_MS;
+  const since = (iso: string) => now.getTime() - Date.parse(iso);
+  if (stored.authFailedAt && since(stored.authFailedAt) <= STALE_MS) return false;
+  return !stored.complete || since(stored.checkedAt) > STALE_MS;
+}
+
+/**
+ * GitHub refused the token: keep the last good summary exactly as it is
+ * and just note when, so retries back off. No-op if there's no summary.
+ */
+export async function recordAuthFailure(kv: PowKV, now: Date): Promise<void> {
+  const prev = await readSummary(kv);
+  if (prev) await writeSummary(kv, { ...prev, authFailedAt: now.toISOString() });
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -42,6 +53,8 @@ async function sha256Hex(text: string): Promise<string> {
 export interface RefreshOutcome {
   stored: StoredSummary;
   githubCalls: number;
+  /** Of githubCalls, the >100-file follow-ups that ran past CALL_BUDGET's page count. */
+  overflowCalls: number;
   upserted: number;
   recomputed: boolean;
 }
@@ -52,6 +65,7 @@ export async function refreshPow(
   now: Date = new Date()
 ): Promise<RefreshOutcome> {
   let upserted = 0;
+  let overflowCalls = 0;
   let complete = true;
 
   for (const repo of REPOS) {
@@ -62,6 +76,7 @@ export async function refreshPow(
     }
     const state = await readRepoState(kv, repo);
     const result = await syncRepo(client, repo, state, remaining);
+    overflowCalls += result.overflowCalls;
     // Records before state: a crash in between re-reads the page next time,
     // which the idempotent upsert absorbs.
     upserted += await upsertRecords(kv, result.records);
@@ -91,9 +106,11 @@ export async function refreshPow(
       etag
     });
   } else {
-    stored = { ...prev!, checkedAt: now.toISOString() };
+    // Drops any authFailedAt: GitHub just answered.
+    const { authFailedAt: _, ...rest } = prev!;
+    stored = { ...rest, checkedAt: now.toISOString() };
   }
   await writeSummary(kv, stored);
 
-  return { stored, githubCalls: client.calls, upserted, recomputed };
+  return { stored, githubCalls: client.calls, overflowCalls, upserted, recomputed };
 }

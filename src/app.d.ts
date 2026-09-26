@@ -77,7 +77,7 @@ declare global {
           };
           /**
            * Fine-grained GitHub token for /api/pow: read-only metadata + pull
-           * requests on the public REPOS in $lib/pow/config only. Secret.
+           * requests on the public REPOS in $lib/shipped/config only. Secret.
            */
           POW_GITHUB_TOKEN?: string;
           /** D1 database for scheduled posts (zapcooking-scheduler). */

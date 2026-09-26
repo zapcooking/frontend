@@ -20,10 +20,15 @@ export function isPowRepo(repo: string): repo is PowRepo {
 }
 
 /**
- * Inclusive lower bound on mergedAt. UTC midnight, to match GitHub's
- * `merged:>=2026-01-01` search, which the live count gate compares against.
+ * Inclusive lower bound on mergedAt: midnight in TIME_ZONE, so the year
+ * boundary uses the same zone as every other bucket. The live count gate
+ * searches `merged:>=2026-01-01T00:00:00-05:00` to match.
+ *
+ * It carries an offset, so never compare it to GitHub's `…Z` timestamps
+ * as strings — use START_MS.
  */
-export const START = '2026-01-01T00:00:00Z';
+export const START = '2026-01-01T00:00:00-05:00';
+export const START_MS = Date.parse(START);
 
 /**
  * Days, months and streaks are bucketed in this zone: the team merges in
