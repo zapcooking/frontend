@@ -274,7 +274,8 @@ describe('GET /api/pow', () => {
     expect(await res.json()).toEqual({ code: 'POW_UNAVAILABLE' });
     expect(Number(res.headers.get('retry-after'))).toBeGreaterThanOrEqual(299);
     expect(Number(res.headers.get('retry-after'))).toBeLessThanOrEqual(300);
-    expect(logs).toEqual([expect.stringMatching(/^\[pow\] github_rate_limited status=403 /)]);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatch(/^\[pow\] github_rate_limited status=403 /);
   });
 
   it('cold start: other failures carry no Retry-After', async () => {
