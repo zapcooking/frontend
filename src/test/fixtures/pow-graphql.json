@@ -1,0 +1,1249 @@
+{
+  "_comment": "github.server.test.ts fixture: one list page (normal PR, a >100-file PR whose files.pageInfo.hasNextPage is true, a merged-before-START PR, then one updated before START that stops the sync) and the two fetchOne file pages for the big PR.",
+  "listPage": {
+    "data": {
+      "repository": {
+        "pullRequests": {
+          "pageInfo": {
+            "hasNextPage": true,
+            "endCursor": "LIST_CURSOR_1"
+          },
+          "nodes": [
+            {
+              "id": "PR_small",
+              "number": 10,
+              "title": "PR 10",
+              "url": "https://github.com/zapcooking/zap_cooking_android/pull/10",
+              "updatedAt": "2026-09-20T10:00:00Z",
+              "mergedAt": "2026-09-20T09:00:00Z",
+              "additions": 120,
+              "deletions": 20,
+              "author": {
+                "login": "dmnyc"
+              },
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "android"
+                  }
+                ]
+              },
+              "files": {
+                "pageInfo": {
+                  "hasNextPage": false,
+                  "endCursor": null
+                },
+                "nodes": [
+                  {
+                    "path": "app/src/main/java/A.kt",
+                    "additions": 70,
+                    "deletions": 20
+                  },
+                  {
+                    "path": "wisp.xcodeproj/project.pbxproj",
+                    "additions": 40,
+                    "deletions": 0
+                  },
+                  {
+                    "path": "res/icon.svg",
+                    "additions": 10,
+                    "deletions": 0
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PR_big",
+              "number": 11,
+              "title": "PR 11",
+              "url": "https://github.com/zapcooking/zap_cooking_android/pull/11",
+              "updatedAt": "2026-09-19T10:00:00Z",
+              "mergedAt": "2026-09-19T09:00:00Z",
+              "additions": 3549,
+              "deletions": 1098,
+              "author": {
+                "login": "dmnyc"
+              },
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "android"
+                  }
+                ]
+              },
+              "files": {
+                "pageInfo": {
+                  "hasNextPage": true,
+                  "endCursor": "FILES_CURSOR_1"
+                },
+                "nodes": [
+                  {
+                    "path": "app/src/main/java/F0.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F1.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F2.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F3.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F4.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F5.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F6.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F7.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F8.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F9.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F10.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F11.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F12.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F13.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F14.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F15.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F16.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F17.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F18.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F19.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F20.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F21.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F22.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F23.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F24.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F25.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F26.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F27.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F28.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F29.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F30.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F31.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F32.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F33.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F34.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F35.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F36.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F37.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F38.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F39.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F40.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F41.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F42.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F43.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F44.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F45.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F46.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F47.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F48.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F49.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F50.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F51.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F52.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F53.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F54.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F55.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F56.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F57.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F58.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F59.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F60.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F61.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F62.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F63.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F64.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F65.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F66.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F67.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F68.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F69.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F70.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F71.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F72.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F73.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F74.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F75.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F76.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F77.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F78.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F79.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F80.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F81.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F82.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F83.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F84.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F85.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F86.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F87.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F88.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F89.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F90.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F91.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F92.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F93.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F94.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F95.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F96.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/java/F97.kt",
+                    "additions": 1,
+                    "deletions": 1
+                  },
+                  {
+                    "path": "app/src/main/resources/bip39-english.txt",
+                    "additions": 2048,
+                    "deletions": 0
+                  },
+                  {
+                    "path": "tools/package-lock.json",
+                    "additions": 500,
+                    "deletions": 100
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PR_old_merge",
+              "number": 3,
+              "title": "PR 3",
+              "url": "https://github.com/zapcooking/zap_cooking_android/pull/3",
+              "updatedAt": "2026-02-01T00:00:00Z",
+              "mergedAt": "2025-12-15T00:00:00Z",
+              "additions": 5,
+              "deletions": 5,
+              "author": {
+                "login": "dmnyc"
+              },
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "android"
+                  }
+                ]
+              },
+              "files": {
+                "pageInfo": {
+                  "hasNextPage": false,
+                  "endCursor": null
+                },
+                "nodes": [
+                  {
+                    "path": "A.kt",
+                    "additions": 5,
+                    "deletions": 5
+                  }
+                ]
+              }
+            },
+            {
+              "id": "PR_stop",
+              "number": 2,
+              "title": "PR 2",
+              "url": "https://github.com/zapcooking/zap_cooking_android/pull/2",
+              "updatedAt": "2025-12-31T23:59:59Z",
+              "mergedAt": "2025-12-31T20:00:00Z",
+              "additions": 5,
+              "deletions": 5,
+              "author": {
+                "login": "dmnyc"
+              },
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "android"
+                  }
+                ]
+              },
+              "files": {
+                "pageInfo": {
+                  "hasNextPage": false,
+                  "endCursor": null
+                },
+                "nodes": [
+                  {
+                    "path": "A.kt",
+                    "additions": 5,
+                    "deletions": 5
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "bigPage1": {
+    "data": {
+      "repository": {
+        "pullRequest": {
+          "id": "PR_big",
+          "number": 11,
+          "title": "PR 11",
+          "url": "https://github.com/zapcooking/zap_cooking_android/pull/11",
+          "updatedAt": "2026-09-19T10:00:00Z",
+          "mergedAt": "2026-09-19T09:00:00Z",
+          "additions": 3549,
+          "deletions": 1098,
+          "author": {
+            "login": "dmnyc"
+          },
+          "labels": {
+            "nodes": [
+              {
+                "name": "android"
+              }
+            ]
+          },
+          "files": {
+            "pageInfo": {
+              "hasNextPage": true,
+              "endCursor": "FILES_CURSOR_1"
+            },
+            "nodes": [
+              {
+                "path": "app/src/main/java/F0.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F1.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F2.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F3.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F4.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F5.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F6.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F7.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F8.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F9.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F10.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F11.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F12.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F13.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F14.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F15.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F16.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F17.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F18.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F19.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F20.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F21.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F22.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F23.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F24.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F25.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F26.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F27.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F28.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F29.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F30.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F31.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F32.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F33.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F34.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F35.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F36.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F37.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F38.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F39.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F40.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F41.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F42.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F43.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F44.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F45.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F46.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F47.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F48.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F49.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F50.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F51.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F52.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F53.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F54.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F55.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F56.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F57.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F58.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F59.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F60.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F61.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F62.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F63.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F64.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F65.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F66.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F67.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F68.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F69.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F70.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F71.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F72.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F73.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F74.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F75.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F76.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F77.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F78.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F79.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F80.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F81.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F82.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F83.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F84.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F85.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F86.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F87.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F88.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F89.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F90.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F91.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F92.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F93.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F94.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F95.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F96.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/java/F97.kt",
+                "additions": 1,
+                "deletions": 1
+              },
+              {
+                "path": "app/src/main/resources/bip39-english.txt",
+                "additions": 2048,
+                "deletions": 0
+              },
+              {
+                "path": "tools/package-lock.json",
+                "additions": 500,
+                "deletions": 100
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "bigPage2": {
+    "data": {
+      "repository": {
+        "pullRequest": {
+          "id": "PR_big",
+          "number": 11,
+          "title": "PR 11",
+          "url": "https://github.com/zapcooking/zap_cooking_android/pull/11",
+          "updatedAt": "2026-09-19T10:00:00Z",
+          "mergedAt": "2026-09-19T09:00:00Z",
+          "additions": 3549,
+          "deletions": 1098,
+          "author": {
+            "login": "dmnyc"
+          },
+          "labels": {
+            "nodes": [
+              {
+                "name": "android"
+              }
+            ]
+          },
+          "files": {
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": "FILES_CURSOR_2"
+            },
+            "nodes": [
+              {
+                "path": "app/src/main/java/Last.kt",
+                "additions": 3,
+                "deletions": 0
+              },
+              {
+                "path": "app/src/main/assets/nspam/model.txt",
+                "additions": 900,
+                "deletions": 900
+              },
+              {
+                "path": "docs/shot.png",
+                "additions": 0,
+                "deletions": 0
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "big": {
+      "additions": 3549,
+      "deletions": 1098,
+      "countedAdditions": 101,
+      "countedDeletions": 98
+    },
+    "small": {
+      "countedAdditions": 70,
+      "countedDeletions": 20
+    }
+  }
+}

@@ -12,6 +12,8 @@ declare global {
     // interface Locals {}
     // interface PageData {}
       interface Platform {
+        /** Cloudflare ExecutionContext (adapter-cloudflare's `ctx`). */
+        ctx?: { waitUntil(promise: Promise<unknown>): void };
         env?: {
           RELAY_API_SECRET: string;
           RELAY_ICON?: string;
@@ -65,6 +67,19 @@ declare global {
            * rest. Secret (Pages project + cron worker) — never committed.
            */
           SCHEDULE_ENC_KEY?: string;
+          /**
+           * KV namespace for /pow merged-PR shards, sync cursors and the
+           * cached summary. Preview binds a separate namespace.
+           */
+          POW?: {
+            get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
+            put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+          };
+          /**
+           * Fine-grained GitHub token for /api/pow: read-only metadata + pull
+           * requests on the public REPOS in $lib/pow/config only. Secret.
+           */
+          POW_GITHUB_TOKEN?: string;
           /** D1 database for scheduled posts (zapcooking-scheduler). */
           SCHEDULER_DB?: {
             prepare(query: string): {
