@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.833",
+  "version": "4.2.834",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -69,7 +69,7 @@
     "hurdak": "^0.2.5",
     "jspdf": "^4.2.1",
     "jsqr": "^1.4.0",
-    "linkify-it": "^5.0.0",
+    "linkify-it": "^5.0.1",
     "markdown-it": "^14.2.0",
     "nostr-tools": "^2.25.2",
     "phosphor-svelte": "^1.4.2",

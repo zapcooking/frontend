@@ -1,6 +1,7 @@
 <script lang="ts">
   import { nip19 } from 'nostr-tools';
   import { scanNostrRefs, type ScannedRef } from '$lib/nostrRefScan';
+  import { truncateAtUrlBoundary } from '$lib/noteTruncate';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { ndk } from '$lib/nostr';
@@ -339,23 +340,8 @@
 
   // Check if content should be collapsed
   $: shouldCollapse = collapsible && content.length > maxLength;
-  // Truncate the preview at a word boundary so we never slice through a word.
-  // If a URL straddles the limit, extend to include the whole URL instead, so
-  // its file extension survives and isImageUrl() classifies it correctly.
-  function truncateAtUrlBoundary(text: string, limit: number): string {
-    const urlRegex = /https?:\/\/[^\s]+/g;
-    let m;
-    while ((m = urlRegex.exec(text)) !== null) {
-      if (m.index < limit && m.index + m[0].length > limit) {
-        return text.substring(0, m.index + m[0].length);
-      }
-    }
-    // Back up to the last whitespace before the limit so the cut lands between
-    // words, not mid-word.
-    const cut = text.substring(0, limit);
-    const boundary = Math.max(cut.lastIndexOf(' '), cut.lastIndexOf('\n'));
-    return (boundary > 0 ? cut.substring(0, boundary) : cut).trimEnd();
-  }
+  // Truncation lives in $lib/noteTruncate so it's unit-testable and shares
+  // the scanner as its source of truth for what counts as a linkable token.
   $: displayContent = shouldCollapse && !isExpanded ? truncateAtUrlBoundary(content, maxLength) : content;
   $: finalParsedContent = splitLightningInvoices(parseContent(displayContent));
   // Whitespace, including zero-width / BOM characters that String.trim() leaves
