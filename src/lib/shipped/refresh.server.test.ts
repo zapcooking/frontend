@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fixture from '../../test/fixtures/pow-graphql.json';
-import { createGithubClient } from './github.server';
-import { CALL_BUDGET, STALE_MS, backoffUntil, isStale, refreshPow } from './refresh.server';
+import { createGithubClient, syncRepo } from './github.server';
+import {
+  CALL_BUDGET,
+  REFRESH_DEADLINE_MS,
+  STALE_MS,
+  backoffUntil,
+  isStale,
+  refreshPow
+} from './refresh.server';
 import { tryAcquireLock, upsertRecords, type PowKV } from './store.server';
 import type { PrRecord } from './types';
 import { GET } from '../../routes/api/pow/+server';
@@ -128,6 +135,152 @@ describe('backoffUntil', () => {
   });
 });
 
+/**
+ * A GitHub whose frontend has PAGES list pages of one PR each (page i holds
+ * PR_frontend_i and ends at cursor C_{i+1}); the other repos are one empty
+ * page. Every frontend call advances the fake clock by msPerCall.
+ */
+function slowGithub(PAGES: number, msPerCall: number) {
+  let t = 0;
+  const clock = () => t;
+  const fetchImpl = (async (_url: string, init: RequestInit) => {
+    const { variables } = JSON.parse(init.body as string);
+    if (variables.name === 'frontend') t += msPerCall;
+    const i = variables.after ? Number(String(variables.after).slice(2)) : 0;
+    const nodes =
+      variables.name === 'frontend'
+        ? [
+            {
+              ...structuredClone(fixture.listPage.data.repository.pullRequests.nodes[0]),
+              id: `PR_frontend_${i}`,
+              number: 100 + i,
+              updatedAt: new Date(Date.parse('2026-09-20T10:00:00Z') - i * 3600_000).toISOString(),
+              mergedAt: new Date(Date.parse('2026-09-20T09:00:00Z') - i * 3600_000).toISOString()
+            }
+          ]
+        : [];
+    const hasNextPage = variables.name === 'frontend' && i < PAGES - 1;
+    const body = {
+      data: {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage, endCursor: hasNextPage ? `C_${i + 1}` : null },
+            nodes
+          }
+        }
+      }
+    };
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as unknown as typeof fetch;
+  return { fetchImpl, clock, advance: (ms: number) => (t += ms) };
+}
+
+function storedIds(data: Map<string, string>): string[] {
+  return [...data.entries()]
+    .filter(([k]) => k.startsWith('pow:prs:'))
+    .flatMap(([, v]) => (JSON.parse(v) as PrRecord[]).map((r) => r.id))
+    .sort();
+}
+
+const ALL_EIGHT = Array.from({ length: 8 }, (_, i) => `PR_frontend_${i}`).sort();
+
+describe('refresh deadline', () => {
+  it('a backfill slower than one refresh advances across refreshes to complete', async () => {
+    const { kv, data } = memoryKV();
+    const gh = slowGithub(8, 7_000); // 3 pages fit before the 20 s deadline
+    const afters: Array<string | null> = [];
+    const outcomes = [];
+    for (let n = 0; n < 6; n++) {
+      const out = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
+        clock: gh.clock
+      });
+      outcomes.push(out);
+      afters.push(JSON.parse(data.get('pow:cursor:frontend')!).pending?.after ?? null);
+      if (out.stored.complete) break;
+    }
+    expect(outcomes.map((o) => [o.deadlineHit, o.stored.complete])).toEqual([
+      [true, false],
+      [true, false],
+      [false, true]
+    ]);
+    expect(afters).toEqual(['C_3', 'C_6', null]);
+    expect(outcomes[0].wallMs).toBe(21_000);
+    expect(storedIds(data)).toEqual(ALL_EIGHT);
+    expect(JSON.parse(outcomes[2].stored.body).totals.prs).toBe(8);
+  });
+
+  it('never abandons a page mid-checkpoint: the page that crosses the deadline is kept', async () => {
+    const { kv, data } = memoryKV();
+    const gh = slowGithub(8, 7_000);
+    const out = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
+      clock: gh.clock
+    });
+    // Page 3 started at 14 s and finished at 21 s, past the deadline: its
+    // record AND its checkpoint both landed. Page 4 never started.
+    expect(out.deadlineHit).toBe(true);
+    expect(out.githubCalls).toBe(3);
+    expect(storedIds(data)).toEqual(['PR_frontend_0', 'PR_frontend_1', 'PR_frontend_2']);
+    expect(JSON.parse(data.get('pow:cursor:frontend')!).pending.after).toBe('C_3');
+    // Other repos weren't started, and nothing claimed they were synced.
+    expect(data.has('pow:cursor:zapcooking_ios')).toBe(false);
+  });
+
+  it('does not start a >100-file follow-up past the deadline, and drops that page unwritten', async () => {
+    let t = 0;
+    const fetchImpl = (async () => {
+      t = REFRESH_DEADLINE_MS + 1; // the list page itself runs past the deadline
+      return new Response(JSON.stringify(fixture.listPage), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = createGithubClient(TOKEN, fetchImpl);
+    const checkpoint = vi.fn(async () => {});
+    const FRESH = { cursor: null, pending: null };
+    const res = await syncRepo(client, 'zap_cooking_android', FRESH, {
+      pageBudget: 5,
+      deadlineAt: REFRESH_DEADLINE_MS,
+      clock: () => t,
+      checkpoint
+    });
+    expect(client.calls).toBe(1); // no fetchOne for PR_big
+    expect(res.deadlineHit).toBe(true);
+    expect(checkpoint).not.toHaveBeenCalled();
+    expect(res.state).toBe(FRESH); // re-read from the same page next time
+  });
+
+  it('a cut-off between a page\'s record write and its checkpoint loses nothing', async () => {
+    const { kv, data } = memoryKV();
+    const gh = slowGithub(8, 0);
+    // Kill the refresh right after the FIRST write that belongs to page 2
+    // (PR_frontend_1), before the second one — whichever order they're in.
+    let armed = true;
+    let seen = false;
+    const put = kv.put.bind(kv);
+    kv.put = async (key, value, opts) => {
+      if (armed && seen) {
+        armed = false;
+        throw new Error('simulated waitUntil cut-off');
+      }
+      await put(key, value, opts);
+      if (
+        (key.startsWith('pow:prs:frontend') && value.includes('"PR_frontend_1"')) ||
+        (key === 'pow:cursor:frontend' && JSON.parse(value).pending?.after === 'C_2')
+      ) {
+        seen = true;
+      }
+    };
+    await expect(
+      refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, { clock: gh.clock })
+    ).rejects.toThrow('simulated waitUntil cut-off');
+
+    for (let n = 0; n < 4; n++) {
+      const out = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
+        clock: gh.clock
+      });
+      if (out.stored.complete) break;
+    }
+    expect(storedIds(data)).toEqual(ALL_EIGHT);
+  });
+});
+
 describe('upsertRecords', () => {
   it('is idempotent by PR id', async () => {
     const { kv, data } = memoryKV();
@@ -185,6 +338,33 @@ describe('GET /api/pow', () => {
     const request = new Request('https://zap.cooking/api/pow', { headers });
     const res = GET({ request, platform: { env, ctx: { waitUntil } } } as never) as Promise<Response>;
     return { res, waitUntil };
+  }
+
+  for (const [complete, cacheControl] of [
+    [false, 'no-store'],
+    [true, 'public, max-age=60']
+  ] as const) {
+    it(`complete:${complete} is served with Cache-Control: ${cacheControl}`, async () => {
+      const { kv, data } = memoryKV();
+      data.set(
+        'pow:summary',
+        JSON.stringify({
+          body: JSON.stringify({ complete, totals: { prs: 1 } }),
+          etag: '"abc"',
+          asOfDate: '2026-09-25',
+          complete,
+          lastSuccessAt: new Date().toISOString()
+        })
+      );
+      // No token: served straight from KV, no refresh attempted.
+      const res = await call({ POW: kv }).res;
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toBe(cacheControl);
+      const etag = res.headers.get('etag')!;
+      const again = await call({ POW: kv }, { 'If-None-Match': etag }).res;
+      expect(again.status).toBe(304);
+      expect(again.headers.get('cache-control')).toBe(cacheControl);
+    });
   }
 
   it('returns 503 POW_UNCONFIGURED without a token or binding', async () => {

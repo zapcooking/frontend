@@ -30,6 +30,14 @@ export const STALE_MS = 60 * 60 * 1000;
  */
 export const CALL_BUDGET = 12;
 
+/**
+ * Wall-clock budget for one refresh. Cloudflare stops waitUntil work 30 s
+ * after the response is sent, and a 12-call chunk has been seen to take
+ * 26.5 s, so no new page (or >100-file follow-up) starts after this. Pages
+ * are checkpointed one by one, so a cut-off still loses at most one page.
+ */
+export const REFRESH_DEADLINE_MS = 20_000;
+
 /** Floor on a header-derived backoff, so a reset time already past can't spin. */
 const MIN_BACKOFF_MS = 60 * 1000;
 
@@ -101,32 +109,46 @@ export interface RefreshOutcome {
   overflowCalls: number;
   upserted: number;
   recomputed: boolean;
+  /** Wall time of the whole refresh, sync plus recompute. */
+  wallMs: number;
+  /** The deadline stopped the sync early (the next refresh resumes it). */
+  deadlineHit: boolean;
 }
 
 export async function refreshPow(
   kv: PowKV,
   client: GithubClient,
-  now: Date = new Date()
+  now: Date = new Date(),
+  { clock = Date.now }: { clock?: () => number } = {}
 ): Promise<RefreshOutcome> {
+  const startedAt = clock();
+  const deadlineAt = startedAt + REFRESH_DEADLINE_MS;
   let upserted = 0;
   let overflowCalls = 0;
   let complete = true;
+  let deadlineHit = false;
 
   for (const repo of REPOS) {
     const remaining = CALL_BUDGET - client.calls;
-    if (remaining < 1) {
+    if (remaining < 1 || deadlineHit) {
       complete = false;
       continue;
     }
     const state = await readRepoState(kv, repo);
-    const result = await syncRepo(client, repo, state, remaining);
+    const result = await syncRepo(client, repo, state, {
+      pageBudget: remaining,
+      deadlineAt,
+      clock,
+      // Records strictly before the checkpoint that points past them. A
+      // cut-off between the two writes re-reads the page (idempotent); the
+      // reverse order could skip it for good.
+      checkpoint: async (records, next) => {
+        upserted += await upsertRecords(kv, records);
+        await writeRepoState(kv, repo, next);
+      }
+    });
     overflowCalls += result.overflowCalls;
-    // Records before state: a crash in between re-reads the page next time,
-    // which the idempotent upsert absorbs.
-    upserted += await upsertRecords(kv, result.records);
-    if (JSON.stringify(result.state) !== JSON.stringify(state)) {
-      await writeRepoState(kv, repo, result.state);
-    }
+    if (result.deadlineHit) deadlineHit = true;
     if (!result.done) complete = false;
   }
 
@@ -156,5 +178,13 @@ export async function refreshPow(
   }
   await writeSummary(kv, stored);
 
-  return { stored, githubCalls: client.calls, overflowCalls, upserted, recomputed };
+  return {
+    stored,
+    githubCalls: client.calls,
+    overflowCalls,
+    upserted,
+    recomputed,
+    wallMs: clock() - startedAt,
+    deadlineHit
+  };
 }

@@ -59,7 +59,7 @@ describe('isExcludedPath', () => {
 describe('syncRepo', () => {
   it('reads one page, follows the >100-file PR through fetchOne, and stops at START', async () => {
     const { client, sent } = fakeGithub();
-    const res = await syncRepo(client, 'zap_cooking_android', FRESH, 5);
+    const res = await syncRepo(client, 'zap_cooking_android', FRESH, { pageBudget: 5 });
 
     expect(sent.map((s) => s.operation)).toEqual(['PowMergedPrs', 'PowOnePr', 'PowOnePr']);
     expect(sent[2].variables.filesAfter).toBe('FILES_CURSOR_1');
@@ -74,7 +74,7 @@ describe('syncRepo', () => {
 
   it('subtracts EXCLUDE matches from both file pages of the big PR', async () => {
     const { client } = fakeGithub();
-    const { records } = await syncRepo(client, 'zap_cooking_android', FRESH, 5);
+    const { records } = await syncRepo(client, 'zap_cooking_android', FRESH, { pageBudget: 5 });
     const big = records.find((r) => r.id === 'PR_big')!;
     expect(big).toMatchObject(fixture.expected.big);
     expect(records.find((r) => r.id === 'PR_small')).toMatchObject(fixture.expected.small);
@@ -82,7 +82,7 @@ describe('syncRepo', () => {
 
   it('stores counted totals only, never per-file lists', async () => {
     const { client } = fakeGithub();
-    const { records } = await syncRepo(client, 'zap_cooking_android', FRESH, 5);
+    const { records } = await syncRepo(client, 'zap_cooking_android', FRESH, { pageBudget: 5 });
     for (const r of records) {
       expect(Object.keys(r).sort()).toEqual(
         [
@@ -109,7 +109,7 @@ describe('syncRepo', () => {
       client,
       'zap_cooking_android',
       { cursor: '2026-09-19T12:00:00Z', pending: null },
-      5
+      { pageBudget: 5 }
     );
     expect(res.records.map((r) => r.id)).toEqual(['PR_small']);
     expect(client.calls).toBe(1);
@@ -124,7 +124,7 @@ describe('syncRepo', () => {
     nodes[0].updatedAt = '2026-09-21T00:00:00Z';
     const { client } = fakeGithub({ listPage: page });
 
-    const first = await syncRepo(client, 'frontend', FRESH, 1);
+    const first = await syncRepo(client, 'frontend', FRESH, { pageBudget: 1 });
     expect(first.done).toBe(false);
     expect(first.state).toEqual({
       cursor: null,
@@ -132,7 +132,7 @@ describe('syncRepo', () => {
     });
 
     const { client: c2, sent } = fakeGithub();
-    const second = await syncRepo(c2, 'frontend', first.state, 5);
+    const second = await syncRepo(c2, 'frontend', first.state, { pageBudget: 5 });
     expect(sent[0].variables.after).toBe('LIST_CURSOR_1');
     expect(second.done).toBe(true);
     // The cursor is the top of the sweep's FIRST page, not of the resumed one.
@@ -231,7 +231,7 @@ describe('token handling', () => {
     ];
     for (const [response, expected] of cases) {
       const client = createGithubClient(TOKEN, (async () => response) as unknown as typeof fetch);
-      const err = (await syncRepo(client, 'frontend', FRESH, 1).catch((e) => e)) as GithubError;
+      const err = (await syncRepo(client, 'frontend', FRESH, { pageBudget: 1 }).catch((e) => e)) as GithubError;
       expect(err).toBeInstanceOf(GithubError);
       if (expected) expect(err.refusal).toMatchObject(expected);
       else expect(err.refusal).toBeNull();
@@ -240,7 +240,7 @@ describe('token handling', () => {
 
   it('sends the token only in the Authorization header', async () => {
     const { client, sent } = fakeGithub();
-    await syncRepo(client, 'zap_cooking_android', FRESH, 5);
+    await syncRepo(client, 'zap_cooking_android', FRESH, { pageBudget: 5 });
     for (const s of sent) {
       expect(s.headers.Authorization).toBe(`Bearer ${TOKEN}`);
       expect(JSON.stringify(s.variables)).not.toContain(TOKEN);
@@ -255,7 +255,7 @@ describe('token handling', () => {
       })
     ]) {
       const client = createGithubClient(TOKEN, (async () => response) as unknown as typeof fetch);
-      const err = await syncRepo(client, 'frontend', FRESH, 1).catch((e: Error) => e);
+      const err = await syncRepo(client, 'frontend', FRESH, { pageBudget: 1 }).catch((e: Error) => e);
       expect(err).toBeInstanceOf(Error);
       expect(`${(err as Error).message} ${(err as Error).stack}`).not.toContain(TOKEN);
     }
