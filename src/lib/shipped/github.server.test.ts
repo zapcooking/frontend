@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import fixture from '../../test/fixtures/pow-graphql.json';
-import { isExcludedPath } from './config';
+import { EXCLUDE, EXCLUDE_VERSION, isExcludedPath } from './config';
 import {
   GithubError,
   classifyHttpRefusal,
   createGithubClient,
   fetchOne,
   syncRepo,
+  toPrRecord,
   type RepoSyncState
 } from './github.server';
 
@@ -54,6 +55,58 @@ describe('isExcludedPath', () => {
   for (const p of ['src/lib/shipped/rollup.ts', 'Bip39.swift', 'docs/model.txt.md', 'lockfile.ts']) {
     it(`counts ${p}`, () => expect(isExcludedPath(p)).toBe(false));
   }
+});
+
+describe('the accidental plan doc', () => {
+  const PATH = 'docs/plans/stable-balance-zaps.md';
+
+  it('is excluded by exact path only', () => {
+    expect(isExcludedPath(PATH)).toBe(true);
+    expect(isExcludedPath('docs/plans/other-plan.md')).toBe(false);
+    expect(isExcludedPath(`vendor/${PATH}`)).toBe(false);
+    expect(isExcludedPath(`${PATH}.bak`)).toBe(false);
+  });
+
+  it('comes out of counted additions and deletions; raw totals are untouched', () => {
+    const node = structuredClone(fixture.listPage.data.repository.pullRequests.nodes[0]);
+    const files = [
+      { path: 'src/lib/a.ts', additions: 40, deletions: 10 },
+      { path: PATH, additions: 135_837, deletions: 0 }
+    ];
+    const added = toPrRecord('frontend', { ...node, additions: 135_877, deletions: 10 }, files);
+    expect(added).toMatchObject({
+      additions: 135_877,
+      deletions: 10,
+      countedAdditions: 40,
+      countedDeletions: 10
+    });
+    // …and its later deletion.
+    const removed = toPrRecord('frontend', { ...node, additions: 0, deletions: 135_837 }, [
+      { path: PATH, additions: 0, deletions: 135_837 }
+    ]);
+    expect(removed).toMatchObject({
+      additions: 0,
+      deletions: 135_837,
+      countedAdditions: 0,
+      countedDeletions: 0
+    });
+  });
+});
+
+describe('EXCLUDE_VERSION', () => {
+  // Every EXCLUDE list that has shipped. Changing EXCLUDE without adding a
+  // row here (and bumping EXCLUDE_VERSION to match) fails this test —
+  // stored counts would silently stay on the old list.
+  const HISTORY: Array<[number, number]> = [
+    [1, 12],
+    [2, 13]
+  ];
+  it('is bumped with every EXCLUDE change', () => {
+    const [version, length] = HISTORY.at(-1)!;
+    expect(EXCLUDE_VERSION).toBe(version);
+    expect(EXCLUDE.length).toBe(length);
+    expect(EXCLUDE).toContain('docs/plans/stable-balance-zaps.md');
+  });
 });
 
 describe('syncRepo', () => {

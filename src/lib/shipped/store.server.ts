@@ -30,6 +30,11 @@ export interface StoredSummary {
   asOfDate: string;
   /** Every repo fully synced as of the last refresh. */
   complete: boolean;
+  /**
+   * EXCLUDE_VERSION the stored records are being counted under. Absent on
+   * summaries from before versioning (= 1).
+   */
+  excludeVersion?: number;
   /** Last refresh GitHub answered, whether or not it changed anything. Drives staleness. */
   lastSuccessAt: string;
   /**

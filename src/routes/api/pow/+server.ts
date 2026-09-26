@@ -74,7 +74,8 @@ async function runRefresh(kv: PowKV, token: string): Promise<StoredSummary> {
       `[pow] refresh github_calls=${outcome.githubCalls} overflow_calls=${outcome.overflowCalls} ` +
         `upserted=${outcome.upserted} recomputed=${outcome.recomputed} ` +
         `complete=${outcome.stored.complete} wall_ms=${outcome.wallMs} ` +
-        `deadline_hit=${outcome.deadlineHit}`
+        `deadline_hit=${outcome.deadlineHit}` +
+        (outcome.resyncStarted ? ' resync_started=true' : '')
     );
     return outcome.stored;
   } catch (e) {

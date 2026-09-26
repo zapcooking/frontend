@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fixture from '../../test/fixtures/pow-graphql.json';
+import { EXCLUDE_VERSION } from './config';
 import { createGithubClient, syncRepo } from './github.server';
 import {
   CALL_BUDGET,
@@ -278,6 +279,122 @@ describe('refresh deadline', () => {
       if (out.stored.complete) break;
     }
     expect(storedIds(data)).toEqual(ALL_EIGHT);
+  });
+});
+
+describe('EXCLUDE_VERSION resync', () => {
+  /** A complete summary under the current version, plus a stale counted value. */
+  async function seeded() {
+    const { kv, data } = memoryKV();
+    const gh = slowGithub(8, 0);
+    const first = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
+      clock: gh.clock
+    });
+    expect(first.stored.complete).toBe(true);
+    // Pretend PR_frontend_3 was counted under an older EXCLUDE list.
+    const shardKey = [...data.keys()].find((k) => k.startsWith('pow:prs:frontend'))!;
+    const shard = JSON.parse(data.get(shardKey)!) as PrRecord[];
+    shard.find((r) => r.id === 'PR_frontend_3')!.countedAdditions = 999_999;
+    data.set(shardKey, JSON.stringify(shard));
+    // An incremental sync from here would stop on the first page and never
+    // re-read PR_frontend_3.
+    for (const repo of ['frontend', 'zap_cooking_android', 'zapcooking_ios']) {
+      data.set(`pow:cursor:${repo}`, JSON.stringify({ cursor: '2027-01-01T00:00:00Z', pending: null }));
+    }
+    const counted3 = () =>
+      (JSON.parse(data.get(shardKey)!) as PrRecord[]).find((r) => r.id === 'PR_frontend_3')!
+        .countedAdditions;
+    return { kv, data, gh, counted3 };
+  }
+
+  it('a matching version does not reset anything', async () => {
+    const { kv, data, gh, counted3 } = await seeded();
+    const out = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
+      clock: gh.clock
+    });
+    expect(out.resyncStarted).toBe(false);
+    expect(out.githubCalls).toBe(3); // one page per repo, then the cursor stops it
+    expect(counted3()).toBe(999_999);
+  });
+
+  it('a mismatched version resets the cursors and recounts every PR, once', async () => {
+    const { kv, data, gh, counted3 } = await seeded();
+    const stored = JSON.parse(data.get('pow:summary')!);
+    delete stored.excludeVersion; // a pre-versioning summary is v1
+    data.set('pow:summary', JSON.stringify(stored));
+
+    const out = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
+      clock: gh.clock
+    });
+    expect(out.resyncStarted).toBe(true);
+    expect(out.stored.complete).toBe(true);
+    expect(out.stored.excludeVersion).toBe(EXCLUDE_VERSION);
+    expect(out.githubCalls).toBe(8 + 2); // every frontend page, from START
+    expect(counted3()).not.toBe(999_999);
+
+    // Claimed: the next refresh is an ordinary incremental one.
+    const next = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
+      clock: gh.clock
+    });
+    expect(next.resyncStarted).toBe(false);
+  });
+
+  it('a refresh cut off right after starting the resync leaves it honest and resumable', async () => {
+    const { kv, data, gh, counted3 } = await seeded();
+    const stored = JSON.parse(data.get('pow:summary')!);
+    stored.excludeVersion = EXCLUDE_VERSION - 1;
+    data.set('pow:summary', JSON.stringify(stored));
+
+    const dead = (async () => {
+      throw new Error('simulated cut-off');
+    }) as unknown as typeof fetch;
+    await expect(
+      refreshPow(kv, createGithubClient(TOKEN, dead), NOW, { clock: gh.clock })
+    ).rejects.toThrow('simulated cut-off');
+
+    // Not final, not cacheable, and due for another refresh right away.
+    const mid = JSON.parse(data.get('pow:summary')!);
+    expect(mid.complete).toBe(false);
+    expect(JSON.parse(mid.body).complete).toBe(false);
+    expect(isStale(mid, new Date())).toBe(true);
+
+    // The next refresh continues the resync instead of starting it over.
+    const out = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
+      clock: gh.clock
+    });
+    expect(out.resyncStarted).toBe(false);
+    expect(out.githubCalls).toBe(8 + 2);
+    expect(out.stored.complete).toBe(true);
+    expect(counted3()).not.toBe(999_999);
+  });
+
+  it('keeps serving the existing numbers during a chunked resync', async () => {
+    const { kv, data } = await seeded();
+    const before = JSON.parse(JSON.parse(data.get('pow:summary')!).body);
+    const stored = JSON.parse(data.get('pow:summary')!);
+    stored.excludeVersion = EXCLUDE_VERSION - 1;
+    data.set('pow:summary', JSON.stringify(stored));
+
+    const slow = slowGithub(8, 7_000); // the resync needs several refreshes
+    const out = await refreshPow(kv, createGithubClient(TOKEN, slow.fetchImpl), NOW, {
+      clock: slow.clock
+    });
+    expect(out.resyncStarted).toBe(true);
+    expect(out.deadlineHit).toBe(true);
+
+    // Mid-resync, as a reader sees it: same PRs, nothing zeroed, not final.
+    const res = await (GET({
+      request: new Request('https://zap.cooking/api/pow'),
+      platform: { env: { POW: kv }, ctx: { waitUntil: vi.fn() } }
+    } as never) as Promise<Response>);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = await res.json();
+    expect(body.complete).toBe(false);
+    expect(body.totals.prs).toBe(before.totals.prs);
+    expect(body.totals.prs).toBeGreaterThan(0);
+    const who = (cs: Array<{ login: string; prs: number }>) => cs.map((c) => [c.login, c.prs]);
+    expect(who(body.contributors)).toEqual(who(before.contributors));
   });
 });
 

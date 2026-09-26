@@ -6,7 +6,7 @@
  * couple of refreshes rather than one oversized request.
  */
 
-import { REPOS } from './config';
+import { EXCLUDE_VERSION, REPOS } from './config';
 import { syncRepo, type GithubClient, type GithubRefusal } from './github.server';
 import { rollup, zonedDate } from './rollup';
 import {
@@ -102,6 +102,28 @@ async function sha256Hex(text: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * EXCLUDE changed since these records were counted: restart every repo's
+ * sync from START so each PR is re-fetched and recounted. The summary
+ * keeps serving its current numbers, marked complete:false until the
+ * resync finishes. Claims the new version up front, so the reset happens
+ * once; a cut-off before that line just resets again (upserts are
+ * idempotent, so a resync only ever recounts).
+ */
+async function startResync(kv: PowKV, prev: StoredSummary): Promise<void> {
+  for (const repo of REPOS) {
+    await writeRepoState(kv, repo, { cursor: null, pending: null });
+  }
+  const body = JSON.stringify({ ...JSON.parse(prev.body), complete: false });
+  await writeSummary(kv, {
+    ...prev,
+    body,
+    etag: `"${(await sha256Hex(body)).slice(0, 32)}"`,
+    complete: false,
+    excludeVersion: EXCLUDE_VERSION
+  });
+}
+
 export interface RefreshOutcome {
   stored: StoredSummary;
   githubCalls: number;
@@ -113,6 +135,8 @@ export interface RefreshOutcome {
   wallMs: number;
   /** The deadline stopped the sync early (the next refresh resumes it). */
   deadlineHit: boolean;
+  /** This refresh found an EXCLUDE_VERSION mismatch and restarted the sync. */
+  resyncStarted: boolean;
 }
 
 export async function refreshPow(
@@ -127,6 +151,10 @@ export async function refreshPow(
   let overflowCalls = 0;
   let complete = true;
   let deadlineHit = false;
+
+  const before = await readSummary(kv);
+  const resyncStarted = before !== null && (before.excludeVersion ?? 1) !== EXCLUDE_VERSION;
+  if (resyncStarted) await startResync(kv, before!);
 
   for (const repo of REPOS) {
     const remaining = CALL_BUDGET - client.calls;
@@ -165,7 +193,14 @@ export async function refreshPow(
     const summary = rollup(await readAllRecords(kv, now), now);
     const body = JSON.stringify({ complete, ...summary });
     const etag = `"${(await sha256Hex(body)).slice(0, 32)}"`;
-    stored = { body, etag, asOfDate: today, complete, lastSuccessAt: now.toISOString() };
+    stored = {
+      body,
+      etag,
+      asOfDate: today,
+      complete,
+      excludeVersion: EXCLUDE_VERSION,
+      lastSuccessAt: now.toISOString()
+    };
     await writeHead(kv, {
       latestId: summary.recent[0]?.id ?? null,
       updatedAt: now.toISOString(),
@@ -185,6 +220,7 @@ export async function refreshPow(
     upserted,
     recomputed,
     wallMs: clock() - startedAt,
-    deadlineHit
+    deadlineHit,
+    resyncStarted
   };
 }
