@@ -14,6 +14,7 @@ import type { Event, Filter } from 'nostr-tools';
 import { getCurrentRelays } from '$lib/nostr';
 import { normalizeRelayUrl, relayListCache } from '$lib/relayListCache';
 import {
+  compareLazarusVersions,
   LAZARUS_ARCHIVAL_RELAYS,
   type LazarusRelayListStatus,
   type LazarusRelayOutcome,
@@ -53,11 +54,17 @@ interface RelayAnswer {
 }
 
 /**
- * One relay's answer to a filter. The subscription is closed as soon as the
- * relay finishes, fails or times out, so a slow relay doesn't stay subscribed
- * after the scan moves on. Only EOSE counts as an answer. Events that arrived
- * before a failure or timeout are kept: they're real versions, even though
- * that relay's history is incomplete.
+ * One relay's answer to a filter, asked of the relay itself. The pool's
+ * subscribeMany reports a relay that refused the connection or sent CLOSED
+ * as an EOSE before the close, and a relay's own EOSE timeout reports
+ * silence as an answer, so neither can tell an unreachable relay from an
+ * empty one. Only EOSE counts as an answer; a refused connection, a CLOSED
+ * or a dropped connection is a failure. Scans never authenticate (NIP-42),
+ * so a relay that requires it fails the request. The request is closed as
+ * soon as the relay finishes, fails or times out, so a slow relay doesn't
+ * stay subscribed after the scan moves on. Events that arrived before a
+ * failure or timeout are kept: they're real versions, even though that
+ * relay's history is incomplete.
  */
 function fetchFromRelay(
   url: string,
@@ -66,6 +73,7 @@ function fetchFromRelay(
 ): Promise<RelayAnswer> {
   return new Promise((resolve) => {
     const events: Event[] = [];
+    const seen = new Set<string>();
     let done = false;
     let sub: { close: () => void } | undefined;
     const finish = (outcome: LazarusRelayOutcome) => {
@@ -76,13 +84,30 @@ function fetchFromRelay(
       resolve({ events, outcome });
     };
     const timer = setTimeout(() => finish('timed-out'), timeoutMs);
-    sub = getScanPool().subscribeMany([url], filter, {
-      onevent: (event: Event) => {
-        events.push(event);
-      },
-      oneose: () => finish('answered'),
-      onclose: () => finish('failed')
-    });
+    getScanPool()
+      .ensureRelay(url, { connectionTimeout: timeoutMs })
+      .then(
+        (relay) => {
+          if (done) return;
+          try {
+            sub = relay.subscribe([filter], {
+              onevent: (event: Event) => {
+                if (done || seen.has(event.id)) return;
+                seen.add(event.id);
+                events.push(event);
+              },
+              oneose: () => finish('answered'),
+              onclose: () => finish('failed'),
+              // This request's own timeout decides first
+              eoseTimeout: timeoutMs + 1000
+            });
+            if (done) sub.close();
+          } catch {
+            finish('failed');
+          }
+        },
+        () => finish('failed')
+      );
   });
 }
 
@@ -144,7 +169,7 @@ async function getUserRelays(
     const newest = answers
       .flatMap((answer) => answer.events)
       .filter((event) => event.pubkey === pubkey && event.kind === 10002)
-      .sort((a, b) => b.created_at - a.created_at)[0];
+      .sort(compareLazarusVersions)[0];
     if (newest) {
       found = parseRelayList(newest);
     } else if (!answers.some((answer) => answer.outcome === 'answered')) {
@@ -245,7 +270,7 @@ export async function fetchLatestLazarusVersion(
   let newest: Event | undefined;
   for (const event of answers.flatMap((answer) => answer.events)) {
     const usable = event.pubkey === pubkey && event.kind === kind;
-    if (usable && (!newest || event.created_at > newest.created_at)) {
+    if (usable && (!newest || compareLazarusVersions(event, newest) < 0)) {
       newest = event;
     }
   }

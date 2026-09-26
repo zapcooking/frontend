@@ -28,7 +28,7 @@ import { resetCache as resetFollowListCache } from '$lib/followListCache';
 import { profileCacheManager } from '$lib/profileCache';
 import { muteListStore } from '$lib/muteListStore';
 import { relayListCache } from '$lib/relayListCache';
-import { buildLazarusRecoveryDraft } from './recovery';
+import { buildLazarusRecoveryDraft, compareLazarusVersions } from './recovery';
 import { fetchLatestLazarusVersion, getLazarusPublishRelays } from './source';
 
 const SIGN_TIMEOUT_MS = 30000;
@@ -78,6 +78,15 @@ async function publishBestEffort(ndk: NDK, event: NDKEvent, urls: string[]) {
 /** Refresh the app's local copy of the recovered kind, so the next edit
  * builds on the recovered version instead of the clobbered one. */
 function refreshLocalCopy(event: NDKEvent, pubkey: string) {
+  // Update the local event cache rather than only invalidating the stores
+  // built on it: an invalidated copy is refetched from whatever answers
+  // first, which can be a relay still serving the clobbered version. NDK
+  // doesn't cache an event it publishes until a relay echoes it back.
+  if (event.kind !== undefined) {
+    void event.ndk?.cacheAdapter
+      ?.setEvent(event, [{ kinds: [event.kind], authors: [pubkey] }])
+      ?.catch(() => {});
+  }
   if (event.kind === 3) resetFollowListCache();
   else if (event.kind === 0) profileCacheManager.invalidateProfile(pubkey);
   else if (event.kind === 10000) muteListStore.invalidate();
@@ -140,11 +149,12 @@ export async function publishLazarusRecovery(opts: {
     }
     latest = reviewedCurrent;
   }
-  // Only a newer version counts as a change. The write relays can hold an
-  // older copy than the scan found (a clobber published to other relays
-  // never reached them); that copy is no edit, and the recovery must still
-  // be dated after the reviewed version.
-  if (latest && (!reviewedCurrent || latest.created_at > reviewedCurrent.created_at)) {
+  // Only a newer version counts as a change, including one from the same
+  // second with a lower id, the one relays keep (NIP-01). The write relays
+  // can hold an older copy than the scan found (a clobber published to
+  // other relays never reached them); that copy is no edit, and the
+  // recovery must still be dated after the reviewed version.
+  if (latest && (!reviewedCurrent || compareLazarusVersions(latest, reviewedCurrent) < 0)) {
     return { status: 'changed', latest };
   }
 

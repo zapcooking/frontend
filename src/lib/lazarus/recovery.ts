@@ -1,14 +1,21 @@
 import { kinds, type Event } from 'nostr-tools';
 import { fitsNip46Request } from './nip46';
-import { countItemTags, getContentEncryption } from './private-items';
-import { getLazarusKindProfile, type LazarusItemCount, type LazarusKindProfile } from './registry';
+import { getContentEncryption } from './private-items';
+import {
+  getLazarusItems,
+  getLazarusKindProfile,
+  getLazarusProfileFields,
+  type LazarusItemCount,
+  type LazarusKindProfile
+} from './registry';
 
 /**
  * Lazarus core: scan, rank, delta, recover-draft.
  *
  * Vendored from the spec’s reference implementation (dmnyc/jumble-spark,
  * branch feat/lazarus-data-recovery-v2, src/services/lazarus/recovery.ts),
- * spec 0.6.0-draft. Two deliberate adaptations for this repo: the relay
+ * spec 0.6.0-draft, since updated to 0.6.2-draft. Two deliberate
+ * adaptations for this repo: the relay
  * I/O lives in ./source (zap's SimplePool + relay-list adapter) instead of
  * a default source wired to the reference app's client service, so this
  * module stays pure and testable; and
@@ -44,6 +51,15 @@ const CLOBBER_EPISODE_SECONDS = 24 * 60 * 60;
  */
 const SETTLED_MIN_EDITS = 5;
 const SETTLED_MIN_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * Newer first, in the order NIP-01 has relays keep versions: the later
+ * created_at, and of two from the same second, the lower id. Every "newer"
+ * and "consecutive" below follows it.
+ */
+export function compareLazarusVersions(a: Event, b: Event): number {
+  return b.created_at - a.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
 
 /** An event together with the relay it was observed on. */
 export interface LazarusTaggedEvent {
@@ -130,10 +146,13 @@ function countItems(
 ): LazarusItemCount {
   const itemCount = profile.itemCount(event);
   if (!privateTags || !profile.privateItemTypes) return itemCount;
+  // An item listed both publicly and privately is one item
+  const publicItems = getLazarusItems(profile, event.tags);
+  const privateItems = [...getLazarusItems(profile, privateTags).keys()];
   return {
     count: itemCount.count,
     partial: false,
-    privateCount: countItemTags(privateTags, profile.privateItemTypes)
+    privateCount: privateItems.filter((key) => !publicItems.has(key)).length
   };
 }
 
@@ -263,11 +282,15 @@ function looksClobbered(laterMax: number, earlierMin: number): boolean {
   return loss >= CLOBBER_MIN_LOSS_ITEMS && loss >= earlierMin * CLOBBER_MIN_LOSS_RATIO;
 }
 
-/** Versions with a known size, oldest first. */
+/**
+ * Versions with a known size, oldest first. A version whose size is unknown
+ * takes no part in finding drops, episodes, the settled count or the fullest
+ * version, so consecutive means consecutive among these.
+ */
 function knownTimeline(candidates: LazarusCandidate[]): LazarusCandidate[] {
   return candidates
     .filter((c) => isLazarusSizeKnown(c.itemCount))
-    .sort((a, b) => a.event.created_at - b.event.created_at || (a.event.id < b.event.id ? 1 : -1));
+    .sort((a, b) => compareLazarusVersions(b.event, a.event));
 }
 
 interface ClobberEpisode {
@@ -361,9 +384,7 @@ export function rankLazarusCandidates(
   }
 
   const candidates = Array.from(byId.values());
-  const newestFirst = [...candidates].sort(
-    (a, b) => b.event.created_at - a.event.created_at || (a.event.id < b.event.id ? -1 : 1)
-  );
+  const newestFirst = [...candidates].sort((a, b) => compareLazarusVersions(a.event, b.event));
   const current = newestFirst[0];
   if (current) current.isCurrent = true;
 
@@ -379,7 +400,7 @@ export function rankLazarusCandidates(
       return range.min + range.max;
     };
     ordered = [...candidates].sort(
-      (a, b) => size(b) - size(a) || b.event.created_at - a.event.created_at
+      (a, b) => size(b) - size(a) || compareLazarusVersions(a.event, b.event)
     );
     // Nothing is recommended while the current size is unknown, or while no
     // write relay answered: current may be a version the user already replaced
@@ -439,7 +460,7 @@ export function sortLazarusCandidates(
   order: LazarusSortOrder
 ): LazarusCandidate[] {
   const byDate = (a: LazarusCandidate, b: LazarusCandidate) =>
-    b.event.created_at - a.event.created_at || (a.event.id < b.event.id ? -1 : 1);
+    compareLazarusVersions(a.event, b.event);
   if (order === 'date') return [...candidates].sort(byDate);
   const size = (c: LazarusCandidate) => {
     const range = getLazarusItemRange(c.itemCount);
@@ -535,54 +556,85 @@ export interface LazarusDelta {
   /** True when recovery would shrink the list below current. */
   shrinks: boolean;
   /**
-   * True when either version has encrypted private items that weren't
-   * decrypted, so the changes above cover public tags only.
+   * True when the chosen version has encrypted private items that weren't
+   * decrypted, so the changes above leave them out.
    */
+  privateUnknownChosen: boolean;
+  /**
+   * True when current has encrypted private items that weren't decrypted.
+   * The restore replaces them uncounted, so it may remove items no count
+   * shows.
+   */
+  privateUnknownCurrent: boolean;
+  /** True when either side's private items weren't decrypted. */
   privateUnknown: boolean;
+  /**
+   * True when the restore needs the separate confirmation a shrinking one
+   * takes: it shrinks the list, or replaces private items nobody counted.
+   */
+  needsShrinkConfirmation: boolean;
 }
 
 /**
- * What makes two tags the same item: their type and value. A relay hint or
- * petname a client rewrote doesn't change who is followed or muted. On relay
- * lists the read/write marker counts too, since it changes what the relay is
- * for.
+ * What a restore would change: the items it adds and removes. Items are the
+ * tags the registry names for the kind, each once, compared by type and
+ * value (see getLazarusItemKey); a profile's items are its content fields.
+ * Decrypted private items are compared together with the public tags, so an
+ * item that only moved between public and private isn't a change. Two
+ * versions with identical content hold the same private items, counted or
+ * not.
  */
-function tagIdentity(tag: string[], kind: number): string {
-  return JSON.stringify(tag.slice(0, kind === kinds.RelayList ? 3 : 2));
-}
-
 export function computeLazarusDelta(
   chosen: Event,
   current: Event | undefined,
   privateTags: LazarusPrivateTags = new Map()
 ): LazarusDelta {
-  // Decrypted private items are compared together with the public tags, so
-  // an item that only moved between public and private isn't a change
+  const profile = getLazarusKindProfile(chosen.kind) ?? { kind: chosen.kind };
+  const samePrivate = current?.content === chosen.content;
+  const shared =
+    current && samePrivate
+      ? (privateTags.get(chosen.id) ?? privateTags.get(current.id))
+      : undefined;
   const itemsOf = (event: Event | undefined) => {
-    if (!event) return { tags: [] as string[][], unknown: false };
-    const decrypted = privateTags.get(event.id);
+    if (!event) return { items: new Map<string, string[]>(), unknown: false };
+    if (event.kind === kinds.Metadata) {
+      const fields = Object.entries(getLazarusProfileFields(event));
+      return {
+        items: new Map(
+          fields.map(([field, value]) => [
+            field,
+            [field, typeof value === 'string' ? value : JSON.stringify(value)]
+          ])
+        ),
+        unknown: false
+      };
+    }
+    const decrypted = privateTags.get(event.id) ?? shared;
     return {
-      tags: [...event.tags, ...(decrypted ?? [])],
-      unknown: !decrypted && !!getContentEncryption(event.content)
+      items: getLazarusItems(profile, [...event.tags, ...(decrypted ?? [])]),
+      unknown: !decrypted && !samePrivate && !!getContentEncryption(event.content)
     };
   };
-  const identity = (tag: string[]) => tagIdentity(tag, chosen.kind);
-  const unique = (tags: string[][]) =>
-    Array.from(new Map(tags.map((t) => [identity(t), t])).values());
-  const chosenTags = unique(itemsOf(chosen).tags);
-  const currentTags = unique(itemsOf(current).tags);
-  const chosenIds = new Set(chosenTags.map(identity));
-  const currentIds = new Set(currentTags.map(identity));
-  const added = chosenTags.filter((tag) => !currentIds.has(identity(tag)));
-  const removed = currentTags.filter((tag) => !chosenIds.has(identity(tag)));
+  const chosenItems = itemsOf(chosen);
+  const currentItems = itemsOf(current);
+  const added = [...chosenItems.items]
+    .filter(([key]) => !currentItems.items.has(key))
+    .map(([, tag]) => tag);
+  const removed = [...currentItems.items]
+    .filter(([key]) => !chosenItems.items.has(key))
+    .map(([, tag]) => tag);
+  const shrinks = removed.length > added.length;
   return {
     added,
     removed,
     addedCount: added.length,
     removedCount: removed.length,
     grows: added.length > 0 && added.length >= removed.length,
-    shrinks: removed.length > added.length,
-    privateUnknown: itemsOf(chosen).unknown || itemsOf(current).unknown
+    shrinks,
+    privateUnknownChosen: chosenItems.unknown,
+    privateUnknownCurrent: currentItems.unknown,
+    privateUnknown: chosenItems.unknown || currentItems.unknown,
+    needsShrinkConfirmation: shrinks || currentItems.unknown
   };
 }
 
@@ -610,14 +662,6 @@ export function computeLazarusProfileChanges(
   chosen: Event,
   current: Event | undefined
 ): LazarusProfileChange[] {
-  const fieldsOf = (event: Event | undefined): Record<string, unknown> => {
-    try {
-      const parsed = JSON.parse(event?.content || '{}');
-      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-    } catch {
-      return {};
-    }
-  };
   // Profile content is extensible (pronouns, bot, client-specific fields)
   // and a restore replaces the whole content, so the delta compares every
   // key, not a whitelist: the well-known fields in display order, then any
@@ -628,8 +672,8 @@ export function computeLazarusProfileChanges(
     if (value === undefined || value === null) return undefined;
     return JSON.stringify(value);
   };
-  const to = fieldsOf(chosen);
-  const from = fieldsOf(current);
+  const to = getLazarusProfileFields(chosen);
+  const from = getLazarusProfileFields(current);
   const extraFields = Array.from(new Set([...Object.keys(from), ...Object.keys(to)]))
     .filter((field) => !PROFILE_FIELDS.includes(field))
     .sort();

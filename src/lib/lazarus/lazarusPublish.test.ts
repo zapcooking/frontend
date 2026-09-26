@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@nostr-dev-kit/ndk', () => ({
   NDKEvent: class {
+    constructor(public ndk?: unknown) {}
     kind = 0;
     content = '';
     tags: string[][] = [];
@@ -84,9 +85,12 @@ function relayList(id: string, createdAt: number): Event {
 const healthy = followList('1', NOW - 86400, 40);
 const clobbered = followList('2', NOW + 3600, 3);
 
+const setEvent = vi.fn(async (_event: { kind?: number; tags?: string[][] }, _filters: unknown) => {});
+
 const ndk = {
   signer: {},
-  pool: { getRelay: (url: string) => ({ url }) }
+  pool: { getRelay: (url: string) => ({ url }) },
+  cacheAdapter: { setEvent }
 } as unknown as NDK;
 
 function restore(reviewedCurrent: Event | undefined) {
@@ -127,6 +131,16 @@ describe('publishLazarusRecovery', () => {
     const retry = await restore(newer);
     expect(retry.status).toBe('published');
     expect(retry.status === 'published' && retry.event.created_at).toBe(newer.created_at + 1);
+  });
+
+  it('treats a version from the same second with a lower id as a change', async () => {
+    // Relays keep the lower id of two versions from the same second (NIP-01)
+    const lowerId = { ...clobbered, id: '0'.repeat(64) };
+    mockedFetchLatest.mockResolvedValue(lowerId);
+    expect(await restore(clobbered)).toEqual({ status: 'changed', latest: lowerId });
+    // One with a higher id is the version relays drop
+    mockedFetchLatest.mockResolvedValue({ ...clobbered, id: 'f'.repeat(64) });
+    expect((await restore(clobbered)).status).toBe('published');
   });
 
   it('treats a version found when none was reviewed as a change', async () => {
@@ -171,6 +185,18 @@ describe('publishLazarusRecovery', () => {
     expect(seeded?.[0]).toBe(PUBKEY);
     expect(seeded?.[1]?.kind).toBe(10002);
     expect(seeded?.[1]?.tags).toEqual(healthyRelays.tags);
+  });
+
+  it('writes the recovered version into the local event cache', async () => {
+    // Invalidating alone would refetch from whatever answers first, possibly
+    // a relay still serving the clobbered version
+    mockedFetchLatest.mockResolvedValue(clobbered);
+    expect((await restore(clobbered)).status).toBe('published');
+    expect(setEvent).toHaveBeenCalledTimes(1);
+    const [cached, filters] = setEvent.mock.calls[0] ?? [];
+    expect(cached?.kind).toBe(3);
+    expect(cached?.tags).toEqual(healthy.tags);
+    expect(filters).toEqual([{ kinds: [3], authors: [PUBKEY] }]);
   });
 
   it('does not touch the relay-list cache for other kinds', async () => {

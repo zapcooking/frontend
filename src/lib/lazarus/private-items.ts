@@ -112,7 +112,3 @@ export function parsePrivateTags(plainText: string): string[][] | undefined {
     return undefined;
   }
 }
-
-export function countItemTags(tags: string[][], types: string[]): number {
-  return tags.filter((tag) => types.includes(tag[0])).length;
-}
