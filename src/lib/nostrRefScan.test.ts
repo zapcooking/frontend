@@ -116,6 +116,54 @@ describe('undecodable tokens fall through to text', () => {
   });
 });
 
+describe('bare domains (scheme-less links)', () => {
+  it('links a bare domain and keeps its path whole', () => {
+    const found = urls('see zap.cooking/pow for more');
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({
+      content: 'zap.cooking/pow',
+      url: 'http://zap.cooking/pow',
+      bare: true
+    });
+  });
+
+  it('needs a real TLD — dotted prose stays text', () => {
+    expect(urls('bake at 350.degreesf')).toHaveLength(0);
+    expect(urls('add 1.5 cups flour')).toHaveLength(0);
+  });
+
+  it('drops trailing punctuation from the link span', () => {
+    expect(urls('see jumble.social, please')[0].content).toBe('jumble.social');
+    expect(urls('see jumble.social.')[0].content).toBe('jumble.social');
+  });
+
+  it('links www hosts', () => {
+    expect(urls('go to www.zap.cooking now')[0].url).toBe('http://www.zap.cooking');
+  });
+
+  it('does not double-match an explicit URL', () => {
+    const found = urls('see https://zap.cooking/pow');
+    expect(found).toHaveLength(1);
+    expect(found[0].bare).toBeUndefined();
+    expect(found[0].url).toBe('https://zap.cooking/pow');
+  });
+
+  it('claims a scheme-less blossom URL as one whole link', () => {
+    // Before the bare-domain pass this was left as text so the npub would
+    // not be carved out; now the whole span is the link.
+    const found = urls(`${NPUB}.blossom.band/img.png`);
+    expect(found).toHaveLength(1);
+    expect(found[0].content).toBe(`${NPUB}.blossom.band/img.png`);
+  });
+
+  it('never overlaps a nostr reference', () => {
+    const text = `hi ${NPUB} and zap.cooking/pow`;
+    const scanned = scanNostrRefs(text);
+    expect(scanned).toHaveLength(2);
+    expect(scanned.map((r) => r.type)).toEqual(['nostr', 'url']);
+  });
+});
+
 describe('mixed content', () => {
   it('finds several references and a url in order', () => {
     const text = `hi ${NPUB} see https://example.com and nostr:${NOTE}`;

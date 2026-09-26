@@ -26,9 +26,15 @@ Rules (all match how Amethyst/Quartz and Gossip already behave):
 - One `imeta` tag **per image URL**; the tag's `url` slot must equal the image
   URL exactly as it appears in `content` (or the `image` tag on 30023) —
   clients match by exact string, no normalization.
-- `alt <text>` is a single slot: the value may contain spaces but never
-  newlines. Trim the value; omit the whole `alt` slot when empty; omit the
-  entire `imeta` tag when there is no description (no empty metadata).
+- `alt <text>` is a single slot: the value may contain spaces and line
+  breaks. Line breaks ride as real `\n` inside the tag string — JSON
+  escapes them on the wire, and readers that split each slot on the first
+  space re-parse them intact (clients that split on any whitespace will
+  only see the first line; that is the accepted degradation). Cap runs at
+  two `\n` (one blank line) when authoring and when rendering, so stray
+  gaps can't balloon the layout. Trim the value; omit the whole `alt` slot
+  when empty; omit the entire `imeta` tag when there is no description (no
+  empty metadata).
 - Other imeta slots (`m`, `dim`, `blurhash`, `x`, `size`, `fallback`, …) are
   orthogonal — preserve them when re-writing tags, always keep `url` first.
 - Key lookup: `url → alt` per event. Examples: Amethyst builds

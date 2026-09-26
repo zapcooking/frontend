@@ -54,6 +54,7 @@
   import MediaCarousel from './MediaCarousel.svelte';
   import AuthorName from './AuthorName.svelte';
   import CustomName from './CustomName.svelte';
+  import PowBadge from './PowBadge.svelte';
   import {
     generateNoteImage,
     generateImageFilename,
@@ -5255,6 +5256,7 @@
                         {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
                       </span>
                       <ClientAttribution tags={event.tags} enableEnrichment={false} />
+                      <PowBadge id={event.id} tags={event.tags} />
                     </div>
                   </div>
 

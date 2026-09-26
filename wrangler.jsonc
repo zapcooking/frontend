@@ -39,6 +39,13 @@
       // the dashboard-deployed config bound production for both envs).
       "binding": "VAULT_SYNC",
       "id": "4f550842d84c45549c4d30a3cd3f10c3"
+    },
+    {
+      // /pow merged-PR shards, sync cursors and the cached summary
+      // (src/lib/shipped). Preview binds pow-preview below so preview
+      // code can never overwrite the production summary.
+      "binding": "POW",
+      "id": "ac3714c5059c4e67a4e872972b542159"
     }
   ],
   // Scheduled Posts (spec §7). The companion secret SCHEDULE_ENC_KEY is
@@ -55,9 +62,10 @@
   // Pages per-environment override. NOTE: kv_namespaces is a
   // non-inheritable key — this array REPLACES the top-level list for
   // preview deployments wholesale, so every binding must be repeated here.
-  // Only VAULT_SYNC differs (isolated preview namespace: previews and
-  // staging.zap.cooking must never read or write production vault blobs);
-  // the other three deliberately keep their production ids — their
+  // VAULT_SYNC and POW differ (isolated preview namespaces: previews and
+  // staging.zap.cooking must never read or write production vault blobs
+  // or the production /pow summary); the other three deliberately keep
+  // their production ids — their
   // preview-isolation status is a separate follow-up decision.
   "env": {
     "preview": {
@@ -77,6 +85,10 @@
         {
           "binding": "VAULT_SYNC",
           "id": "97815021dedf4b3483669f99e6aa1347"
+        },
+        {
+          "binding": "POW",
+          "id": "b0ba98a4d5434473a79ab6136e71fb88"
         }
       ],
       // Like kv_namespaces, d1_databases is non-inheritable — repeat it

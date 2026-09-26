@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseImeta, isImageUrl, isVideoUrl, imetaAltByUrl, buildImetaTagWithAlt, imetaTagsByUrl, withImetaAlt } from './imeta';
+import { parseImeta, isImageUrl, isVideoUrl, imetaAltByUrl, buildImetaTag, buildImetaTagWithAlt, imetaTagsByUrl, withImetaAlt } from './imeta';
 import { scanNostrRefs } from '../nostrRefScan';
 import { filterImageUrls } from '../imageUrls';
 
@@ -231,9 +231,60 @@ describe('buildImetaTagWithAlt', () => {
     ]);
   });
 
-  it('flattens newlines in alt so the value stays one slot', () => {
+  it('keeps single line breaks in alt (JSON escapes them on the wire)', () => {
     const tag = buildImetaTagWithAlt('https://x/a.jpg', 'two\nlines');
-    expect(tag[2]).toBe('alt two lines');
+    expect(tag[2]).toBe('alt two\nlines');
+  });
+
+  it('caps runs of blank lines at one paragraph gap', () => {
+    const tag = buildImetaTagWithAlt('https://x/a.jpg', 'a\n\n\n\n\nb');
+    expect(tag[2]).toBe('alt a\n\nb');
+  });
+
+  it('normalizes CRLF to LF in alt', () => {
+    const tag = buildImetaTagWithAlt('https://x/a.jpg', 'a\r\nb');
+    expect(tag[2]).toBe('alt a\nb');
+  });
+
+  it('round-trips multi-line alt through a serialized event', () => {
+    const alt = 'First paragraph\n\nSecond paragraph';
+    const tag = buildImetaTagWithAlt('https://x/a.jpg', alt);
+    // JSON round-trip mirrors what hits the relay and comes back.
+    const wire = JSON.parse(JSON.stringify({ content: '', tags: [tag] }));
+    expect(parseImeta(wire)[0].alt).toBe(alt);
+    expect(imetaAltByUrl(wire).get('https://x/a.jpg')).toBe(alt);
+  });
+
+  it('caps runaway line runs in alt received from other clients', () => {
+    const event = {
+      content: '',
+      tags: [['imeta', 'url https://x/a.jpg', 'alt a\n\n\n\n\nb']]
+    };
+    expect(imetaAltByUrl(event).get('https://x/a.jpg')).toBe('a\n\nb');
+    expect(parseImeta(event)[0].alt).toBe('a\n\nb');
+  });
+
+  it('omits the alt slot when the text is only whitespace', () => {
+    // ' \n ' is truthy, so an emptiness check before normalizing would let
+    // it through and emit a bare `alt ` with nothing behind it.
+    expect(buildImetaTagWithAlt('https://x/a.jpg', ' \n ')).toEqual([
+      'imeta',
+      'url https://x/a.jpg'
+    ]);
+  });
+
+  it('keeps the alt paragraph policy off non-alt slots', () => {
+    const tag = buildImetaTag('https://x/a.jpg', {
+      alt: 'a\n\n\n\nb',
+      blurhash: 'LEHV6n\n  WB2yk8'
+    });
+    // alt keeps its paragraph gap; blurhash flattens as it always did.
+    expect(tag).toEqual([
+      'imeta',
+      'url https://x/a.jpg',
+      'alt a\n\nb',
+      'blurhash LEHV6n WB2yk8'
+    ]);
   });
 
   it('round-trips through parseImeta', () => {
@@ -378,9 +429,14 @@ describe('imetaTagsByUrl / withImetaAlt (fork/edit round-trip)', () => {
     ]);
   });
 
-  it('flattens newlines and collapses duplicate alt slots', () => {
+  it('keeps line breaks and collapses duplicate alt slots', () => {
     const out = withImetaAlt(['imeta', 'url https://x/a.png', 'alt one', 'alt two'], 'multi\nline');
-    expect(out).toEqual(['imeta', 'url https://x/a.png', 'alt multi line']);
+    expect(out).toEqual(['imeta', 'url https://x/a.png', 'alt multi\nline']);
+  });
+
+  it('caps blank-line runs when replacing alt on an existing tag', () => {
+    const out = withImetaAlt(['imeta', 'url https://x/a.png'], 'a\n\n\n\nb');
+    expect(out).toEqual(['imeta', 'url https://x/a.png', 'alt a\n\nb']);
   });
 
   it('round-trips through imetaAltByUrl', () => {

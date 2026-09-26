@@ -16,7 +16,7 @@
   import Button from '../../components/Button.svelte';
   import Modal from '../../components/Modal.svelte';
   import Accordion from '../../components/Accordion.svelte';
-  import NostrBackupSection from '../../components/NostrBackupSection.svelte';
+  import LazarusRecoverySection from '../../components/LazarusRecoverySection.svelte';
   import PasskeyVaultSection from '../../components/PasskeyVaultSection.svelte';
   import { resolveSecuritySections, resolveDisplayPubkey } from '$lib/securitySections';
   import { nip19 } from 'nostr-tools';
@@ -49,6 +49,7 @@
   } from '$lib/autoZapSettings';
   import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
   import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
+  import { POW_LEVELS, POW_DEFAULT_BITS, powLevelFor } from '$lib/pow';
   import {
     fetchUserTrustProvider,
     publishTrustProvider,
@@ -57,6 +58,7 @@
   } from '$lib/marketplace/kitchens';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import ClockIcon from 'phosphor-svelte/lib/Clock';
+  import HammerIcon from 'phosphor-svelte/lib/Hammer';
   import { getConnectionManager } from '$lib/connectionManager';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
@@ -739,6 +741,79 @@
                   <span class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.postCountdownIncludesReplies ? 'translate-x-5' : ''}"></span>
                 </button>
               </div>
+            </div>
+          {/if}
+        </div>
+
+        <!-- Proof of work. Off by default, because unlike every other setting
+             here this one spends the user's own time before each post rather
+             than costing nothing. -->
+        <div class="p-4 rounded-xl" style="border: 1px solid var(--color-input-border);">
+          <div class="flex items-center justify-between">
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <HammerIcon size={18} class="text-orange-500" />
+                <span class="font-medium" style="color: var(--color-text-primary)"
+                  >Proof of work</span
+                >
+              </div>
+              <p class="text-sm text-caption mt-1">
+                Mines a NIP-13 nonce into each note before it is signed. Relays and clients
+                that weigh proof of work will rank or accept your notes accordingly.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={$timerSettings.powBits !== null}
+              aria-label="Enable proof of work"
+              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.powBits !==
+              null
+                ? 'bg-orange-500'
+                : 'bg-gray-300 dark:bg-gray-600'}"
+              on:click={() =>
+                saveTimerSettings({
+                  ...$timerSettings,
+                  powBits: $timerSettings.powBits === null ? POW_DEFAULT_BITS : null
+                })}
+            >
+              <span
+                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.powBits !==
+                null
+                  ? 'translate-x-5'
+                  : ''}"
+              ></span>
+            </button>
+          </div>
+
+          {#if $timerSettings.powBits !== null}
+            <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
+              <p class="text-sm font-medium mb-2" style="color: var(--color-text-primary)">
+                Difficulty
+              </p>
+              <div class="flex gap-2 flex-wrap">
+                {#each POW_LEVELS as level (level.bits)}
+                  <button
+                    type="button"
+                    aria-pressed={$timerSettings.powBits === level.bits}
+                    class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {$timerSettings.powBits ===
+                    level.bits
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-secondary hover:bg-accent-gray'}"
+                    style={$timerSettings.powBits !== level.bits
+                      ? 'color: var(--color-text-primary)'
+                      : ''}
+                    on:click={() => saveTimerSettings({ ...$timerSettings, powBits: level.bits })}
+                  >{level.bits} bits</button>
+                {/each}
+              </div>
+              <!-- Each step is two bits, which is four times the work, so the
+                   line under the chips carries what the rung costs — the half
+                   a number cannot say. -->
+              <p class="text-xs text-caption mt-2">
+                {powLevelFor($timerSettings.powBits).cost} Each step up is four times the work,
+                and the composer can still change it per note.
+              </p>
             </div>
           {/if}
         </div>
@@ -1493,9 +1568,9 @@
       </div>
     </Accordion>
 
-    <!-- Nostr Backup Section -->
-    <Accordion title="Nostr Backup" open={false}>
-      <NostrBackupSection />
+    <!-- Data Recovery (Lazarus): relay-history recovery of clobbered lists -->
+    <Accordion title="Data Recovery" open={false}>
+      <LazarusRecoverySection />
     </Accordion>
 
     <!-- Security Section -->

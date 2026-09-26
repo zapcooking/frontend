@@ -7,9 +7,13 @@
   import VideoIcon from 'phosphor-svelte/lib/Video';
   import GifIcon from 'phosphor-svelte/lib/Gif';
   import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
+  import HammerIcon from 'phosphor-svelte/lib/Hammer';
   import GifPicker from './GifPicker.svelte';
   import PollCreator from './PollCreator.svelte';
   import { buildPollTags, buildZapPollTags, type PollConfig, type ZapPollConfig } from '$lib/polls';
+  import { POW_LEVELS, isPowBits, powLevelFor, leadingZeroBits } from '$lib/pow';
+  import { startMinedPost } from '$lib/minedPost';
+  import { miningOp } from '$lib/stores/miningOp';
   import CustomAvatar from './CustomAvatar.svelte';
   import ProfileLink from './ProfileLink.svelte';
   import { nip19 } from 'nostr-tools';
@@ -30,8 +34,20 @@
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
   import { uploadImage, uploadVideo } from '$lib/mediaUpload';
-  import { buildImetaTagWithAlt } from '$lib/feed/imeta';
+  import {
+    composeNoteContent,
+    imetaTagsForMedia,
+    attachableUrlCandidates,
+    removeBareUrlOccurrence,
+    stripAttachmentUrlLines,
+    type MediaAttachment
+  } from '$lib/composerMedia';
+  import { isVideoUrl } from '$lib/feed/imeta';
   import AltTextEditorModal from './AltTextEditorModal.svelte';
+  import MediaDrawer from './MediaDrawer.svelte';
+  import CaretLeftIcon from 'phosphor-svelte/lib/CaretLeft';
+  import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
+  import PlusIcon from 'phosphor-svelte/lib/Plus';
   import { clickOutside } from '$lib/clickOutside';
   import { showToast } from '$lib/toast';
   import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
@@ -81,30 +97,179 @@
   let showCountdownSettings = false;
   let composerEl: HTMLDivElement;
   let lastRenderedContent = '';
-  let uploadedImages: string[] = [];
-  let imageAltTexts: Record<string, string> = {};
+
+  // Attachments are ordered slots on the draft, never text in the editor.
+  // The array order is the only ordering that exists — the wire content, the
+  // imeta tags, the thumbnails and the drawer all read it ($lib/composerMedia).
+  let media: MediaAttachment[] = [];
+
   // Per-image alt editor: badge on the thumbnail opens the
-  // shared modal (with the Cook+ AI generator).
+  // shared modal (with the Cook+ AI generator). The modal is keyed by URL,
+  // so a reorder while it is open cannot invalidate what it edits.
   let altModalOpen = false;
   let altModalUrl = '';
   let altModalInitial = '';
-  let uploadedVideos: string[] = [];
 
   function openAltEditor(url: string) {
     altModalUrl = url;
-    altModalInitial = imageAltTexts[url] || '';
+    altModalInitial = media.find((m) => m.url === url)?.alt ?? '';
     altModalOpen = true;
   }
 
   function saveAltEditor(e: CustomEvent<{ text: string }>) {
     const url = altModalUrl;
     if (!url) return;
-    const next = { ...imageAltTexts };
-    if (e.detail.text) next[url] = e.detail.text;
-    else delete next[url];
-    imageAltTexts = next;
+    media = media.map((m) => (m.url === url ? { ...m, alt: e.detail.text || undefined } : m));
     scheduleDraftSave();
   }
+
+  // ── Thumbnail loading ─────────────────────────────────────────
+  // A just-uploaded URL can 404 for a second or two while the host finishes
+  // writing it. An <img> tries exactly once, so without a retry the
+  // thumbnail is blank forever — and the URL is in the draft either way,
+  // so a silently failed thumbnail is a note about to ship a link nobody
+  // checked. Retry a couple of times with a cache-busting query, then say
+  // the cell failed.
+  const THUMB_RETRIES = 2;
+  let thumbRetries: Record<string, number> = {};
+  let thumbFailed: Record<string, boolean> = {};
+  const thumbRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function thumbSrc(url: string): string {
+    const attempt = thumbRetries[url] ?? 0;
+    if (!attempt) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}zc-retry=${attempt}`;
+  }
+
+  function handleThumbError(url: string) {
+    const attempt = (thumbRetries[url] ?? 0) + 1; // the retry that just failed
+    if (attempt > THUMB_RETRIES) {
+      thumbFailed = { ...thumbFailed, [url]: true };
+      return;
+    }
+    const timer = setTimeout(() => {
+      thumbRetryTimers.delete(url);
+      thumbRetries = { ...thumbRetries, [url]: attempt };
+    }, 700 * attempt);
+    thumbRetryTimers.set(url, timer);
+  }
+
+  function forgetThumb(url: string) {
+    const timer = thumbRetryTimers.get(url);
+    if (timer) clearTimeout(timer);
+    thumbRetryTimers.delete(url);
+    if (url in thumbRetries) {
+      const next = { ...thumbRetries };
+      delete next[url];
+      thumbRetries = next;
+    }
+    if (url in thumbFailed) {
+      const next = { ...thumbFailed };
+      delete next[url];
+      thumbFailed = next;
+    }
+  }
+
+  function resetThumbState() {
+    for (const timer of thumbRetryTimers.values()) clearTimeout(timer);
+    thumbRetryTimers.clear();
+    thumbRetries = {};
+    thumbFailed = {};
+  }
+
+  // ── Paste-to-attach offers ────────────────────────────────────
+  // Bare URLs alone on their line in the text are OFFERED as attachment
+  // slots, never auto-converted. Offers derive live from the editor text,
+  // so consuming (or editing away) an occurrence retires its offer by
+  // itself. A URL inside a sentence is authored prose and gets no offer.
+  //
+  // A dismissal expires when its line does: a URL with no live candidate
+  // line clears its refusal, so pasting it afresh later asks again — a
+  // deliberate no is not a forever no (sidecar #356).
+  let dismissedOfferUrls = new Set<string>();
+
+  function pruneDismissedOffers(text: string) {
+    const live = new Set(attachableUrlCandidates(text));
+    let changed = false;
+    for (const url of dismissedOfferUrls) {
+      if (!live.has(url)) {
+        dismissedOfferUrls.delete(url);
+        changed = true;
+      }
+    }
+    if (changed) dismissedOfferUrls = dismissedOfferUrls;
+  }
+
+  $: pruneDismissedOffers(content);
+  $: attachOffers = attachableUrlCandidates(content).filter((url) => !dismissedOfferUrls.has(url));
+
+  function dismissAttachOffer(url: string) {
+    const next = new Set(dismissedOfferUrls);
+    next.add(url);
+    dismissedOfferUrls = next;
+  }
+
+  function acceptAttachOffer(url: string) {
+    // Read the live DOM first: the last keystroke may not have flowed into
+    // `content` yet, and a fast double-tap can outpace the reactive update.
+    const current = composerEl ? mentionCtrl.extractText() : content;
+    const next = removeBareUrlOccurrence(current, url);
+    if (next === current) return; // occurrence already consumed — stale offer
+    content = next;
+    if (composerEl) {
+      mentionCtrl.syncContent(content);
+      lastRenderedContent = content;
+    }
+    // Every accepted occurrence adds a slot — attaching the same image
+    // twice is allowed and the note carries its URL twice, exactly as
+    // pasting it twice in the text era did. imeta stays one tag per
+    // picture ($lib/composerMedia dedupes by URL at publish).
+    media = [...media, { url, isVideo: isVideoUrl(url) }];
+    scheduleDraftSave();
+  }
+
+  // ── Reordering: two mechanisms, one array ─────────────────────
+  // Drag and drop on the thumbnails (enabled only when there is more than
+  // one), plus arrow steppers — HTML5 drag never fires on touch, so without
+  // steppers a phone or a keyboard would have no reordering at all.
+  let dragIndex: number | null = null;
+  let dropIndex: number | null = null;
+
+  function moveMedia(from: number | null, to: number) {
+    if (from === null || from === to) return;
+    if (from < 0 || to < 0 || from >= media.length || to >= media.length) return;
+    const moved = media.splice(from, 1)[0];
+    media.splice(to, 0, moved);
+    media = media;
+    scheduleDraftSave();
+  }
+
+  function handleThumbDragStart(e: DragEvent, index: number) {
+    if (media.length < 2) return;
+    dragIndex = index;
+    // Firefox refuses to start a drag without payload data.
+    e.dataTransfer?.setData('text/plain', String(index));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleThumbDragOver(e: DragEvent, index: number) {
+    if (dragIndex === null) return;
+    e.preventDefault(); // without it the drop never fires
+    dropIndex = index;
+  }
+
+  function handleThumbDrop(e: DragEvent, index: number) {
+    e.preventDefault();
+    moveMedia(dragIndex, index);
+  }
+
+  function handleThumbDragEnd() {
+    // State drives the highlight on every cell, so clearing it here clears
+    // all of them — a cancelled drag must not leave a highlight behind.
+    dragIndex = null;
+    dropIndex = null;
+  }
+
   let uploadingImage = false;
   let uploadImageIndex = 0;
   let uploadImageTotal = 0;
@@ -129,6 +294,37 @@
   }
   let quotedNote: { nevent: string; event: NDKEventType } | null = null;
   let showGifPicker = false;
+
+  // ── Proof of work ─────────────────────────────────────────────
+  //
+  // Seeded from Settings and never written back: how hard to mine is a
+  // decision about THIS note. The toolbar button cycles Off, 16, 18, 20, 22
+  // and round again — five states is too many for a toggle and too few to be
+  // worth a sheet, and a chooser would be a second surface saying what
+  // Settings already says.
+  let powBits: number | null = null;
+  // Re-seeded whenever the SETTING changes, not once on mount. The inline
+  // composer outlives a trip to Settings and back — it is mounted with the
+  // feed — so seeding once meant turning proof of work on over there and
+  // posting from a composer that never heard about it: no mining, no
+  // progress, no nonce, and nothing on screen saying so. Tracking the last
+  // value seen rather than the current one keeps a per-note override alive
+  // until the setting itself moves again.
+  let powSettingSeen: number | null | undefined = undefined;
+  $: {
+    const fromSettings = isPowBits($timerSettings.powBits) ? $timerSettings.powBits : null;
+    if (fromSettings !== powSettingSeen) {
+      powSettingSeen = fromSettings;
+      powBits = fromSettings;
+    }
+  }
+
+  function cyclePow() {
+    const order: (number | null)[] = [null, ...POW_LEVELS.map((l) => l.bits)];
+    const at = order.indexOf(powBits);
+    powBits = order[(at + 1) % order.length];
+  }
+
   let showPollCreator = false;
   let pollConfig: PollConfig | null = null;
   let zapPollConfig: ZapPollConfig | null = null;
@@ -171,7 +367,7 @@
     isComposerOpen = true;
   }
 
-  $: previewContent = computePreviewContent(content, uploadedImages, uploadedVideos, quotedNote);
+  $: previewContent = computePreviewContent(content, media, quotedNote);
 
   // Hashtag suggestion pills. The body is the single source of truth: a pill
   // is selected when its tag is in `content`, typed or tapped, and the counter
@@ -205,7 +401,7 @@
     }, 0);
   }
 
-  $: if (composerEl && (content || uploadedImages.length || uploadedVideos.length)) {
+  $: if (composerEl && (content || media.length)) {
     scheduleDraftSave();
   }
 
@@ -243,16 +439,33 @@
       if (raw) {
         const draft = JSON.parse(raw) as {
           content?: string;
+          media?: MediaAttachment[];
           images?: string[];
           imageAlts?: Record<string, string>;
           videos?: string[];
           savedAt?: number;
         };
-        if (draft.content || draft.images?.length || draft.videos?.length) {
-          if (draft.content) content = draft.content; // don't set lastRenderedContent — let reactive sync handle DOM
-          if (draft.images?.length) uploadedImages = draft.images;
-          if (draft.imageAlts) imageAltTexts = draft.imageAlts;
-          if (draft.videos?.length) uploadedVideos = draft.videos;
+        let restored: MediaAttachment[] = [];
+        if (Array.isArray(draft.media)) {
+          restored = draft.media.filter((m): m is MediaAttachment => !!m && typeof m.url === 'string');
+        } else {
+          // Draft saved before attachments became ordered slots: parallel
+          // image/video arrays plus a url-keyed alt map. Images first, then
+          // videos — the order those drafts always published in.
+          const alts = draft.imageAlts || {};
+          restored = [
+            ...(draft.images || []).map((url) => ({ url, alt: alts[url], isVideo: false })),
+            ...(draft.videos || []).map((url) => ({ url, isVideo: true }))
+          ];
+        }
+        if (draft.content || restored.length) {
+          if (draft.content) {
+            // Older drafts may carry an attachment URL alone on its own line
+            // in the text; strip those or publishing appends them twice. A
+            // URL written inside a sentence is authored prose and survives.
+            content = stripAttachmentUrlLines(draft.content, restored.map((m) => m.url));
+          }
+          if (restored.length) media = restored;
           draftSaved = true;
         }
       }
@@ -276,6 +489,7 @@
     // Cancel any pending debounced draft save so it can't fire after unmount
     if (draftTimer) clearTimeout(draftTimer);
     if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+    resetThumbState();
     mentionCtrl.destroy();
   });
 
@@ -285,8 +499,16 @@
     focusComposer();
   }
 
-  function resetComposerState() {
-    try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
+  /**
+   * @param keepDraft Leave the stored draft alone. Used when the note has
+   * been handed to the background miner: the editor should get out of the
+   * way immediately, but the only copy of what the reader typed must
+   * survive a stopped mine or a failed publish.
+   */
+  function resetComposerState(keepDraft = false) {
+    if (!keepDraft) {
+      try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
+    }
     content = '';
     lastRenderedContent = '';
     error = '';
@@ -294,9 +516,10 @@
     draftSaved = false;
     isMinimized = false;
     mentionCtrl.resetMentionState();
-    uploadedImages = [];
-    imageAltTexts = {};
-    uploadedVideos = [];
+    media = [];
+    resetThumbState();
+    dragIndex = null;
+    dropIndex = null;
     quotedNote = null;
     pollConfig = null;
     zapPollConfig = null;
@@ -311,7 +534,7 @@
     // Persist the latest content before we tear anything down
     flushDraftSave();
 
-    const hasContent = !!(content.trim() || uploadedImages.length || uploadedVideos.length);
+    const hasContent = !!(content.trim() || media.length);
     const isDesktop =
       typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
 
@@ -353,7 +576,7 @@
       for (const file of Array.from(files)) {
         uploadImageIndex += 1;
         const url = await uploadImage($ndk, file);
-        uploadedImages = [...uploadedImages, url];
+        media = [...media, { url, isVideo: false }];
       }
     } catch (err: any) {
       console.error('Error uploading image:', err);
@@ -372,6 +595,9 @@
       .map((item) => item.getAsFile())
       .filter((f): f is File => f !== null);
     if (imageFiles.length === 0) {
+      // Paste inserts text, always — conversion to an attachment slot never
+      // happens automatically. Bare URLs on URL-only lines surface as
+      // "Attach this media" offers below the text field instead.
       mentionCtrl.handlePaste(e);
       return;
     }
@@ -383,7 +609,7 @@
       for (const file of imageFiles) {
         newUrls.push(await uploadImage($ndk, file));
       }
-      uploadedImages = [...uploadedImages, ...newUrls];
+      media = [...media, ...newUrls.map((url) => ({ url, isVideo: false }))];
     } catch (err: any) {
       error = err?.message || 'Failed to upload image. Please try again.';
     } finally {
@@ -404,7 +630,7 @@
     try {
       for (const file of Array.from(files)) {
         const url = await uploadVideo($ndk, file);
-        uploadedVideos = [...uploadedVideos, url];
+        media = [...media, { url, isVideo: true }];
       }
     } catch (err: any) {
       console.error('Error uploading video:', err);
@@ -415,18 +641,12 @@
     }
   }
 
-  function removeImage(index: number) {
-    const removed = uploadedImages[index];
-    if (removed) {
-      const rest = { ...imageAltTexts };
-      delete rest[removed];
-      imageAltTexts = rest;
-    }
-    uploadedImages = uploadedImages.filter((_, i) => i !== index);
-  }
-
-  function removeVideo(index: number) {
-    uploadedVideos = uploadedVideos.filter((_, i) => i !== index);
+  // Removing an attachment is a splice, with no text to clean up.
+  function removeMedia(index: number) {
+    const removed = media[index];
+    if (removed) forgetThumb(removed.url);
+    media = media.filter((_, i) => i !== index);
+    scheduleDraftSave();
   }
 
   // ── Send countdown ────────────────────────────────────────────
@@ -480,14 +700,12 @@
     console.log('[PostComposer] postToFeed called');
     console.log('[PostComposer] content:', content);
     console.log('[PostComposer] quotedNote:', quotedNote);
-    console.log('[PostComposer] uploadedImages:', uploadedImages);
-    console.log('[PostComposer] uploadedVideos:', uploadedVideos);
+    console.log('[PostComposer] media:', media);
 
     if (
       !content.trim() &&
       !quotedNote &&
-      uploadedImages.length === 0 &&
-      uploadedVideos.length === 0 &&
+      media.length === 0 &&
       !pollConfig &&
       !zapPollConfig
     ) {
@@ -499,6 +717,15 @@
     if (!$userPublickey) {
       console.log('[PostComposer] No user public key');
       error = 'Please sign in to post';
+      return;
+    }
+
+    // One mine at a time. The miner keeps a single worker and its loop
+    // never yields, so a second post started underneath the first would sit
+    // unread in the worker's queue and look hung. The floating indicator is
+    // already on screen saying what the wait is.
+    if (get(miningOp)) {
+      showToast('info', 'Still mining your last post — one at a time', 4000);
       return;
     }
 
@@ -529,22 +756,9 @@
       const event = new NDKEvent($ndk);
       event.kind = zapPollConfig ? 6969 : pollConfig ? 1068 : 1;
 
-      // Build content with text, image URLs, and video URLs
-      let postContent = content.trim();
-      const mediaUrls: string[] = [];
-
-      if (uploadedImages.length > 0) {
-        mediaUrls.push(...uploadedImages);
-      }
-
-      if (uploadedVideos.length > 0) {
-        mediaUrls.push(...uploadedVideos);
-      }
-
-      if (mediaUrls.length > 0) {
-        const mediaUrlsText = mediaUrls.join('\n');
-        postContent = postContent ? `${postContent}\n\n${mediaUrlsText}` : mediaUrlsText;
-      }
+      // The note on the wire is the shared composition — prose, then the
+      // media URLs in draft order — never text the editor holds.
+      let postContent = composeNoteContent(content, media);
 
       if (quotedNote) {
         postContent = postContent
@@ -577,13 +791,10 @@
       // misses the note — see $lib/hashtags.
       event.tags.push(...buildHashtagTags(postContent));
 
-      // NIP-92 imeta tags carry per-image alt text for screen readers
-      // (same wire format Amethyst and Gossip read). Only images with a
-      // description get a tag — no empty metadata.
-      for (const url of uploadedImages) {
-        const alt = imageAltTexts[url]?.trim();
-        if (alt) event.tags.push(buildImetaTagWithAlt(url, alt));
-      }
+      // NIP-92 imeta tags carry per-attachment alt text for screen readers
+      // (same wire format Amethyst and Gossip read), one tag per described
+      // attachment in draft order — no empty metadata.
+      event.tags.push(...imetaTagsForMedia(media));
 
       addClientTagToEvent(event);
 
@@ -601,6 +812,28 @@
       // Determine which relays to publish to
       // Priority: explicit selectedRelay prop (from modal) > activeTab (from feed context)
       const relayMode = selectedRelay || (activeTab === 'members' ? 'pantry' : 'all');
+
+      // ── Proof of work runs OUTSIDE the composer ──
+      //
+      // A mine can take the better part of a minute. Awaiting it here keeps
+      // the editor on screen for the whole wait — and for the modal, keeps
+      // the whole app behind it — so the note is handed to a module-level
+      // service that survives this component, reports into the floating
+      // indicator, and finishes the post on its own.
+      //
+      // The draft is flushed to disk and deliberately kept: a stopped mine
+      // or a failed publish must not cost the reader what they typed. The
+      // service clears it once the relays have the note.
+      if (powBits) {
+        flushDraftSave();
+        void startMinedPost({ event, bits: powBits, relayMode, draftKey: DRAFT_KEY });
+        resetComposerState(true);
+        isComposerOpen = false;
+        posting = false;
+        dispatch('posting', false);
+        if (variant === 'modal') dispatch('close');
+        return;
+      }
 
       console.log(`[PostComposer] Publishing with relay mode: ${relayMode}`);
       console.log('[PostComposer] Event content:', event.content);
@@ -665,7 +898,7 @@
   function saveDraftNow() {
     try {
       const text = composerEl ? mentionCtrl.extractText() : content;
-      if (!text.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0) {
+      if (!text.trim() && media.length === 0) {
         localStorage.removeItem(DRAFT_KEY);
         draftSaved = false;
         return;
@@ -674,9 +907,7 @@
         DRAFT_KEY,
         JSON.stringify({
           content: text,
-          images: uploadedImages,
-          imageAlts: imageAltTexts,
-          videos: uploadedVideos,
+          media,
           savedAt: Date.now()
         })
       );
@@ -722,13 +953,10 @@
     isComposerOpen = false;
   }
 
-  function computePreviewContent(text: string, images: string[], videos: string[], quote: typeof quotedNote): string {
-    const resolved = mentionCtrl.replacePlainMentions(text);
-    let preview = resolved.trim();
-    const media = [...images, ...videos];
-    if (media.length) {
-      preview = preview ? `${preview}\n\n${media.join('\n')}` : media.join('\n');
-    }
+  function computePreviewContent(text: string, slots: MediaAttachment[], quote: typeof quotedNote): string {
+    // Preview renders the note that will go out — the same composeNoteContent
+    // call postToFeed uses — never just the text the editor was showing.
+    let preview = composeNoteContent(mentionCtrl.replacePlainMentions(text), slots);
     if (quote) {
       preview = preview ? `${preview}\n\nnostr:${quote.nevent}` : `nostr:${quote.nevent}`;
     }
@@ -824,6 +1052,47 @@
                 </div>
               </div>
 
+              {#if !showPreview && attachOffers.length > 0}
+                <!-- Pasted-link offers, under the text field and above the
+                     attachments strip: one accent pill per bare-URL
+                     occurrence, offered (never auto-converted). The URL is
+                     not repeated — it is right above, in the text. The ✕ is
+                     the quiet refusal ("Keep it as text"); the accent
+                     belongs to the offer, not to its refusal. -->
+                <div class="attach-offers" data-testid="attach-offers" role="group" aria-label="Attach pasted links">
+                  {#each attachOffers as url, i (i)}
+                    <div class="attach-offer-row">
+                      <button
+                        type="button"
+                        class="attach-offer"
+                        on:click={() => acceptAttachOffer(url)}
+                        disabled={posting}
+                      >
+                        <PlusIcon size={14} weight="bold" />
+                        <span>Attach this media</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="attach-x"
+                        title="Keep it as text"
+                        aria-label="Keep it as text"
+                        on:click={() => dismissAttachOffer(url)}
+                        disabled={posting}
+                      >
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
               <!-- Preview pane — matches Write pane padding/font so toggling feels seamless -->
               {#if showPreview}
                 <div class={`composer-input overflow-y-auto p-2 ${variant === 'modal' ? 'min-h-[200px] max-h-[45vh]' : 'min-h-[120px] sm:min-h-[100px] max-h-[40vh]'}`} style="color: var(--color-text-primary);">
@@ -896,22 +1165,60 @@
                 </div>
               {/if}
 
-              {#if !showPreview && uploadedImages.length > 0}
-                <div class="mb-2 flex flex-wrap gap-2">
-                  {#each uploadedImages as imageUrl, index}
-                    <div class="relative group">
-                      <img
-                        src={imageUrl}
-                        alt="Upload preview"
-                        class="composer-img-preview object-cover rounded-lg"
-                        style="border: 1px solid var(--color-input-border)"
-                      />
+              {#if !showPreview && media.length > 0}
+                <!-- One ordered strip of attachment slots. Drag to reorder
+                     (pointer); the arrow steppers beneath each cell cover
+                     touch and keyboard, which HTML5 drag never reaches. -->
+                <div class="mb-2 flex flex-wrap gap-2" role="list" data-testid="composer-media-strip">
+                  {#each media as m, index}
+                    <div
+                      class="relative group media-thumb"
+                      role="listitem"
+                      aria-label={m.isVideo ? 'Video attachment' : m.alt?.trim() || 'Image attachment'}
+                      class:media-thumb--dragging={dragIndex === index}
+                      class:media-thumb--drop-target={dropIndex === index}
+                      class:media-thumb--grabbable={media.length > 1 && !posting}
+                      draggable={media.length > 1 && !posting}
+                      on:dragstart={(e) => handleThumbDragStart(e, index)}
+                      on:dragover={(e) => handleThumbDragOver(e, index)}
+                      on:dragleave={() => { if (dropIndex === index) dropIndex = null; }}
+                      on:drop={(e) => handleThumbDrop(e, index)}
+                      on:dragend={handleThumbDragEnd}
+                    >
+                      {#if m.isVideo}
+                        <video
+                          src={m.url}
+                          draggable="false"
+                          class="composer-img-preview object-cover rounded-lg"
+                          style="border: 1px solid var(--color-input-border)"
+                          preload="metadata"
+                          muted
+                        ></video>
+                      {:else if thumbFailed[m.url]}
+                        <div
+                          class="composer-img-preview thumb-failed rounded-lg"
+                          style="border: 1px solid var(--color-input-border)"
+                          role="img"
+                          aria-label="Preview unavailable — the image will still be attached"
+                        >
+                          <span>Preview unavailable</span>
+                        </div>
+                      {:else}
+                        <img
+                          src={thumbSrc(m.url)}
+                          draggable="false"
+                          alt={m.alt?.trim() || 'Upload preview'}
+                          class="composer-img-preview object-cover rounded-lg"
+                          style="border: 1px solid var(--color-input-border)"
+                          on:error={() => handleThumbError(m.url)}
+                        />
+                      {/if}
                       <button
                         type="button"
-                        on:click={() => removeImage(index)}
+                        on:click={() => removeMedia(index)}
                         class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-all opacity-90 hover:opacity-100"
                         disabled={posting}
-                        aria-label="Remove image"
+                        aria-label={m.isVideo ? 'Remove video' : 'Remove image'}
                       >
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path
@@ -922,50 +1229,49 @@
                           />
                         </svg>
                       </button>
-                      <button
-                        type="button"
-                        class="alt-toggle"
-                        class:has-alt={!!imageAltTexts[imageUrl]?.trim()}
-                        on:click={() => openAltEditor(imageUrl)}
-                        aria-label={imageAltTexts[imageUrl]?.trim()
-                          ? 'Edit alt text'
-                          : 'Add alt text'}
-                        disabled={posting}
-                      >
-                        {imageAltTexts[imageUrl]?.trim() ? '✓ ALT' : '+ ALT'}
-                      </button>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-
-              {#if !showPreview && uploadedVideos.length > 0}
-                <div class="mb-2 flex flex-wrap gap-2">
-                  {#each uploadedVideos as videoUrl, index}
-                    <div class="relative group">
-                      <video
-                        src={videoUrl}
-                        class="w-32 h-20 object-cover rounded-lg"
-                        style="border: 1px solid var(--color-input-border)"
-                        preload="metadata"
-                        muted
-                      />
-                      <button
-                        type="button"
-                        on:click={() => removeVideo(index)}
-                        class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg transition-all opacity-90 hover:opacity-100"
-                        disabled={posting}
-                        aria-label="Remove video"
-                      >
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M6 18L18 6M6 6l12 12"
-                          />
-                        </svg>
-                      </button>
+                      {#if !m.isVideo}
+                        <button
+                          type="button"
+                          class="alt-toggle"
+                          class:has-alt={!!m.alt?.trim()}
+                          on:click={() => openAltEditor(m.url)}
+                          title={m.alt?.trim() ? 'Edit the image description' : 'Add a description'}
+                          aria-label={m.alt?.trim()
+                            ? 'Edit alt text'
+                            : 'Add alt text'}
+                          disabled={posting}
+                        >
+                          {m.alt?.trim() ? '✓ ALT' : '+ ALT'}
+                        </button>
+                      {/if}
+                      {#if media.length > 1}
+                        <!-- The first and last cells omit the arrow that would
+                             do nothing rather than showing a disabled one. -->
+                        <div class="thumb-steppers">
+                          {#if index > 0}
+                            <button
+                              type="button"
+                              on:click={() => moveMedia(index, index - 1)}
+                              title="Move earlier"
+                              aria-label="Move attachment earlier"
+                              disabled={posting}
+                            >
+                              <CaretLeftIcon size={14} />
+                            </button>
+                          {/if}
+                          {#if index < media.length - 1}
+                            <button
+                              type="button"
+                              on:click={() => moveMedia(index, index + 1)}
+                              title="Move later"
+                              aria-label="Move attachment later"
+                              disabled={posting}
+                            >
+                              <CaretRightIcon size={14} />
+                            </button>
+                          {/if}
+                        </div>
+                      {/if}
                     </div>
                   {/each}
                 </div>
@@ -1018,6 +1324,13 @@
             </div>
           {/if}
 
+          <!-- Pinned accounting line for attachments, visible even when the
+               thumbnail strip has scrolled out of view. Read-only: order
+               changes belong to the thumbnails. -->
+          {#if media.length > 0}
+            <MediaDrawer media={media} />
+          {/if}
+
           <!-- Row 1: tools + status -->
           <div class="composer-tools-row">
             <div class="flex items-center gap-1">
@@ -1056,6 +1369,24 @@
 
               <button on:click={() => (showPollCreator = true)} class="tool-btn" class:opacity-50={posting || showCountdown} disabled={posting || showCountdown} title="Create poll">
                 <ChartBarHorizontalIcon size={20} class={pollConfig || zapPollConfig ? 'text-primary' : 'text-caption'} />
+              </button>
+
+              <!-- Proof of work for this note. The bits ride on the glyph
+                   rather than in a tooltip: what one more tap costs should be
+                   on screen, and a number is what a relay asking for proof of
+                   work actually states. -->
+              <button
+                on:click={cyclePow}
+                class="tool-btn pow-btn"
+                class:opacity-50={posting || showCountdown}
+                disabled={posting || showCountdown}
+                title={powBits
+                  ? `Mining ${powBits} bits of proof of work into this note. ${powLevelFor(powBits).cost}`
+                  : 'Proof of work: off. Tap to mine some into this note.'}
+                aria-label={powBits ? `Proof of work: ${powBits} bits` : 'Proof of work: off'}
+              >
+                <HammerIcon size={20} class={powBits ? 'text-primary' : 'text-caption'} />
+                {#if powBits}<span class="pow-bits">{powBits}</span>{/if}
               </button>
             </div>
 
@@ -1152,8 +1483,8 @@
               <button
                 class="action-post action-post--solid"
                 on:click={handlePostClick}
-                disabled={posting || uploadingImage || uploadingVideo ||
-                  (!content.trim() && uploadedImages.length === 0 && uploadedVideos.length === 0 && !quotedNote && !pollConfig && !zapPollConfig)}
+                disabled={posting || uploadingImage || uploadingVideo || $miningOp !== null ||
+                  (!content.trim() && media.length === 0 && !quotedNote && !pollConfig && !zapPollConfig)}
               >
                 {posting ? 'Posting…' : 'Post'}
               </button>
@@ -1214,7 +1545,7 @@
 <GifPicker
   bind:open={showGifPicker}
   on:select={(e) => {
-    uploadedImages = [...uploadedImages, e.detail.url];
+    media = [...media, { url: e.detail.url, isVideo: false }];
   }}
 />
 
@@ -1240,6 +1571,25 @@
 {/if}
 
 <style>
+  /* Bits ride on the proof-of-work glyph, so the cost of one more tap is on
+     screen rather than in a tooltip. */
+  .pow-btn {
+    position: relative;
+  }
+  .pow-bits {
+    position: absolute;
+    right: 0;
+    bottom: 1px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 1px 2px;
+    border-radius: 3px;
+    color: var(--color-primary);
+    background: var(--color-input-bg);
+  }
+
+
   .composer-input {
     white-space: pre-wrap;
     word-break: break-word;
@@ -1309,6 +1659,64 @@
   }
   .alt-toggle.has-alt {
     background: var(--color-primary, #f97316);
+  }
+
+  /* Attachment thumbnails: cells size to the 5rem preview; the steppers row
+     beneath stays narrower than the cell so it never widens it. */
+  .media-thumb {
+    width: 5rem;
+  }
+
+  .media-thumb--dragging {
+    opacity: 0.45;
+  }
+
+  .media-thumb--grabbable {
+    cursor: grab;
+  }
+
+  .media-thumb--grabbable:active {
+    cursor: grabbing;
+  }
+
+  .media-thumb--drop-target {
+    outline: 2px dashed var(--color-primary, #f97316);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+
+  .thumb-steppers {
+    display: flex;
+    justify-content: center;
+    gap: 0.125rem;
+    margin-top: 0.125rem;
+  }
+
+  .thumb-steppers button {
+    display: flex;
+    padding: 0.125rem;
+    border-radius: 0.375rem;
+    color: var(--color-caption);
+    cursor: pointer;
+  }
+
+  .thumb-steppers button:hover:not(:disabled) {
+    background: var(--color-accent-gray);
+    color: var(--color-text-primary);
+  }
+
+  /* Failed thumbnail after retries: the URL stays in the draft and will be
+     appended at publish — the cell says so rather than going silently blank. */
+  .thumb-failed {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0.25rem;
+    background: var(--color-accent-gray);
+    font-size: 0.5625rem;
+    line-height: 1.2;
+    color: var(--color-caption);
   }
 
 
@@ -1441,6 +1849,68 @@
   }
 
   .media-menu-item:hover {
+    background: var(--color-accent-gray);
+  }
+
+  /* ── Paste-to-attach offers ─────────────────────────────────── */
+  .attach-offers {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0.25rem 0 0.5rem;
+  }
+
+  .attach-offer-row {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  /* The offer wears the accent — primary text on a primary hairline with a
+     faint tint — because an offer the user never notices is not an offer. */
+  .attach-offer {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.3rem 0.875rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-primary, #f97316);
+    color: var(--color-primary, #f97316);
+    background: color-mix(in srgb, var(--color-primary, #f97316) 10%, transparent);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s;
+  }
+
+  .attach-offer:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-primary, #f97316) 18%, transparent);
+  }
+
+  .attach-offer:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* The refusal is quiet on purpose, and does not shrink the offer to fit:
+     the row has room for both, and the pill keeps its label whole. */
+  .attach-x {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    border: none;
+    background: none;
+    color: var(--color-caption);
+    cursor: pointer;
+  }
+
+  .attach-x:hover:not(:disabled) {
+    color: var(--color-text-primary);
     background: var(--color-accent-gray);
   }
 

@@ -43,7 +43,7 @@ Materially safer than fetch, with two real gaps:
 
 - **NDK buffers per-relay**: `NDKRelayPublisher.publish` registers `once("connect")` for unconnected relays and delivers when the socket opens, bounded by the publish timeout (default 2500 ms). Slow-but-alive relays usually get the event.
 - **But success = 1 relay**: `NDKRelaySet.publish(event, timeoutMs, requiredRelayCount = 1)` resolves as long as one relay OKs. Under-connected publishes silently deliver to a subset; only zero acceptances throws `NDKPublishError("Not enough relays received the event")` — the error seen from `ensureDefaultList`.
-- `publishQueue.attemptPublish` (`src/lib/publishQueue.ts:498`) is the robust path: `ensureNdkConnected(5000)`, best-effort force-connect of target relays, 10 s timeout, IndexedDB retry queue on failure. **Many call sites bypass it** with bare `event.publish()` (cookbookStore throughout, recipePack, comments, marketplace, profileBackup, …) and get single-shot semantics with no retry.
+- `publishQueue.attemptPublish` (`src/lib/publishQueue.ts:498`) is the robust path: `ensureNdkConnected(5000)`, best-effort force-connect of target relays, 10 s timeout, IndexedDB retry queue on failure. **Many call sites bypass it** with bare `event.publish()` (cookbookStore throughout, recipePack, comments, marketplace, …) and get single-shot semantics with no retry.
 
 Conclusion: a warm-pool readiness gate fixes most of the publish exposure via NDK's own buffering; the remaining publish risk is per-call-site (`requiredRelayCount`, queue bypass), not a readiness-primitive problem.
 
@@ -70,7 +70,7 @@ Conclusion: a warm-pool readiness gate fixes most of the publish exposure via ND
 Full table in the investigation transcript; shape of the estate:
 
 - **~30 guarded await sites** across 25 files (`ndkReady` or `ensureNdkConnected`): feed (`FoodstrFeedOptimized` ×4), profileCache, memories, publishQueue, timer/autoZap settings, relayListCache, nip37 drafts (×6), groceryService (×4), spark (×6), wallet/nwc/nwcBackup (×10), routes: settings, boost, explore, packs (×3), recipes, polls, nourish/explore. All inherit first-relay semantics; **all get stronger semantics for free if the primitive is fixed.**
-- **~60 unguarded files** call `fetchEvents`/`fetchEvent`/`publish` with no readiness gate (cookbookStore, savedPacksStore, nip17, nostrBackup, marketplace, many `[slug]` routes…) — they survive on warm SPA navigation. First-action-after-launch on those routes is exposed regardless; the primitive fix narrows their window too (anything indirectly downstream of a guarded mount), but per-file audits are follow-up work, not part of the core fix.
+- **~60 unguarded files** call `fetchEvents`/`fetchEvent`/`publish` with no readiness gate (cookbookStore, savedPacksStore, nip17, marketplace, many `[slug]` routes…) — they survive on warm SPA navigation. First-action-after-launch on those routes is exposed regardless; the primitive fix narrows their window too (anything indirectly downstream of a guarded mount), but per-file audits are follow-up work, not part of the core fix.
 - **Existing workarounds that acknowledge the race** (candidates for later simplification):
   - `WalletPanel.svelte:316-321` — retry ladder `[3000, 8000, 14000]` ms, comment: "ndkReady fires on the FIRST relay WebSocket open…"
   - `nwcBackup.ts:252-256` — live subscription instead of `fetchEvents` "so NDK automatically forwards it to relays that connect after this call"

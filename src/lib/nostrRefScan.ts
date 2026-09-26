@@ -1,4 +1,6 @@
 import { nip19 } from 'nostr-tools';
+import LinkifyIt from 'linkify-it';
+import tlds from 'tlds';
 
 /**
  * Scan note content for links and nostr references.
@@ -18,6 +20,13 @@ export interface ScannedRef {
   content: string;
   type: 'url' | 'nostr';
   url?: string;
+  /**
+   * True for scheme-less fuzzy matches ("see zap.cooking/pow"). The renderer
+   * keeps these inline — never a preview card or embed — because a fuzzy
+   * match is an inference, and a false positive like "oven.to" should at
+   * worst be a stray underline, not a loaded card.
+   */
+  bare?: boolean;
   prefix?: string;
   data?: string;
 }
@@ -51,6 +60,19 @@ function isDecodableNostrRef(token: string): boolean {
   }
 }
 
+/**
+ * Scheme-less domain detection: "see zap.cooking/pow" is a link the author
+ * meant, the way Twitter/X treats bare domains. Uses linkify-it with the
+ * same full IANA TLD list `$lib/parser` feeds markdown-it, so both surfaces
+ * agree on what counts as a domain.
+ *
+ * Only fuzzy (`schema === ''`) matches are taken — explicit http(s) URLs are
+ * REF_RE's job and must not match twice. Fuzzy email is off: turning
+ * `chef@zap.cooking` into a mailto in note bodies is a separate decision.
+ */
+const bareDomainLinkify = new LinkifyIt({ fuzzyLink: true, fuzzyEmail: false, fuzzyIP: false });
+bareDomainLinkify.tlds(tlds, true);
+
 export function scanNostrRefs(text: string): ScannedRef[] {
   const out: ScannedRef[] = [];
   let match: RegExpExecArray | null;
@@ -78,7 +100,8 @@ export function scanNostrRefs(text: string): ScannedRef[] {
     if (barePrefix && bareData) {
       // Scheme-less host: `npub1abc….blossom.band/img.png` is a URL the
       // https? branch never sees, and carving the npub out of it would
-      // mangle the link. If a domain-ish character follows, leave it as text.
+      // mangle the link. If a domain-ish character follows, leave it as text
+      // — the bare-domain pass below claims the whole span as one link.
       const after = text[match.index + fullMatch.length];
       if (after === '.' || after === '/') continue;
 
@@ -94,5 +117,25 @@ export function scanNostrRefs(text: string): ScannedRef[] {
     }
   }
 
-  return out;
+  // Bare domains, merged in. Spans overlapping an already-found reference
+  // are dropped so a domain inside an explicit URL or a nostr reference is
+  // never carved out (same ordering guarantee REF_RE gives njump links).
+  // Fuzzy matches carry `schema === ''`; fuzzy email is off, so every match
+  // at this point is a scheme-less link.
+  for (const m of bareDomainLinkify.match(text) || []) {
+    if (m.schema !== '') continue;
+    const bare: ScannedRef = {
+      index: m.index,
+      content: m.text,
+      type: 'url',
+      url: m.url,
+      bare: true
+    };
+    const overlaps = out.some(
+      (r) => bare.index < r.index + r.content.length && r.index < bare.index + bare.content.length
+    );
+    if (!overlaps) out.push(bare);
+  }
+
+  return out.sort((a, b) => a.index - b.index);
 }
