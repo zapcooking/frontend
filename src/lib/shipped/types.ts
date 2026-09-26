@@ -69,3 +69,21 @@ export interface Summary {
   /** 20 most recent merges, newest first. */
   recent: PrRecord[];
 }
+
+/** The /api/pow response body (and the /pow page's data). */
+export type PowPayload = Summary & {
+  complete: boolean;
+  /** Last refresh GitHub answered. */
+  lastSuccessAt: string;
+  /** GitHub is refusing us or no token is set: numbers are as of lastSuccessAt. */
+  stale: boolean;
+  /** pow:head.etag without quotes; what ?v= must equal. */
+  dataVersion: string;
+};
+
+/** The /api/pow/head response body. */
+export interface PowHeadPayload {
+  latestId: string | null;
+  updatedAt: string;
+  etag: string;
+}

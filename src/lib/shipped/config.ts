@@ -11,6 +11,9 @@
 
 export const POW_ORG = 'zapcooking';
 
+/** Lightning address behind the /pow page's "zap the team" button. */
+export const TEAM_LIGHTNING_ADDRESS = 'zapcooking@sats.zap.cooking';
+
 /** `mobile` is dormant in 2026 and deliberately left out; re-add here. */
 export const REPOS = ['frontend', 'zap_cooking_android', 'zapcooking_ios'] as const;
 export type PowRepo = (typeof REPOS)[number];
