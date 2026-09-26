@@ -20,6 +20,7 @@ import type { PrRecord } from './types';
 export interface PowKV {
   get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
   put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 
 export interface StoredSummary {
@@ -40,6 +41,12 @@ export interface StoredSummary {
    * so a deadline that fits only one repo can't starve the last ones.
    */
   nextRepoIndex?: number;
+  /**
+   * When the last full resync (cursors reset, every PR re-fetched) started.
+   * A weekly one repairs any record lost to a KV write race. Absent on
+   * older summaries until their next refresh stamps it.
+   */
+  lastFullSyncAt?: string;
   /** Last refresh GitHub answered, whether or not it changed anything. Drives staleness. */
   lastSuccessAt: string;
   /**
@@ -136,6 +143,21 @@ export async function readAllRecords(kv: PowKV, now: Date): Promise<PrRecord[]> 
   return shards.flatMap((s) => s ?? []);
 }
 
+/** One stored record, or null. `mergedAt` picks the shard. */
+export async function readRecord(
+  kv: PowKV,
+  repo: PowRepo,
+  mergedAt: string,
+  id: string
+): Promise<PrRecord | null> {
+  const shard = (await getJson<PrRecord[]>(kv, shardKey(repo, mergedAt.slice(0, 7)))) ?? [];
+  return shard.find((r) => r.id === id) ?? null;
+}
+
+export function readHead(kv: PowKV): Promise<PowHead | null> {
+  return getJson<PowHead>(kv, HEAD_KEY);
+}
+
 export function readSummary(kv: PowKV): Promise<StoredSummary | null> {
   return getJson<StoredSummary>(kv, SUMMARY_KEY);
 }
@@ -160,4 +182,12 @@ export async function tryAcquireLock(kv: PowKV, now: Date): Promise<boolean> {
   if (await kv.get(LOCK_KEY)) return false;
   await kv.put(LOCK_KEY, now.toISOString(), { expirationTtl: 60 });
   return true;
+}
+
+/**
+ * Early release for short holders (the webhook), so a refresh isn't
+ * blocked for the rest of the 60 s TTL. Only call after acquiring.
+ */
+export async function releaseLock(kv: PowKV): Promise<void> {
+  await kv.delete(LOCK_KEY);
 }
