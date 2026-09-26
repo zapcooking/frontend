@@ -268,21 +268,45 @@ export interface RepoSyncState {
 }
 
 export interface SyncResult {
+  /** Every record checkpointed during this call. */
   records: PrRecord[];
+  /** The state as of the last checkpoint. */
   state: RepoSyncState;
   /** True when this repo is fully caught up. */
   done: boolean;
   /** fetchOne calls for >100-file PRs — not charged to pageBudget. */
   overflowCalls: number;
+  /** True if the deadline stopped the sync before it finished. */
+  deadlineHit: boolean;
+}
+
+export interface SyncOptions {
+  /** Most list pages to read in this call. */
+  pageBudget: number;
+  /** Epoch ms after which no new page or >100-file follow-up is started. */
+  deadlineAt?: number;
+  clock?: () => number;
+  /**
+   * Called once per completed page with that page's records and the state
+   * that resumes after it. The caller MUST persist the records before the
+   * state: a state pointing past a page whose records never landed would
+   * skip that page for good. The reverse order only costs a re-read.
+   */
+  checkpoint?: (records: PrRecord[], state: RepoSyncState) => Promise<void>;
 }
 
 /**
  * Walk merged PRs newest-updated first until the cursor (or START on a
- * first sync), spending at most `pageBudget` list pages. If the budget
- * runs out, the returned state resumes from the next page on a later
- * call. The cursor only moves when the sync completes, and it moves to
- * the top updatedAt seen when the sync STARTED: PRs updated while a split
- * sync is in flight jump above that mark and are picked up next time.
+ * first sync), checkpointing after every page. It stops early when the
+ * page budget runs out or the deadline passes; the last checkpoint
+ * resumes it on a later call, so a cut-off loses at most the page in
+ * flight. The deadline is only checked between units of work: a page
+ * whose records are being checkpointed always finishes, and a page
+ * abandoned before a >100-file follow-up is simply re-read next time.
+ *
+ * The cursor only moves when the sync completes, and it moves to the top
+ * updatedAt seen when the sync STARTED: PRs updated while a split sync is
+ * in flight jump above that mark and are picked up next time.
  *
  * Overflow fetchOne() calls (>100 files — two PRs all year so far) are not
  * charged against pageBudget, so callers should leave headroom.
@@ -291,24 +315,38 @@ export async function syncRepo(
   client: GithubClient,
   repo: PowRepo,
   state: RepoSyncState,
-  pageBudget: number
+  options: SyncOptions
 ): Promise<SyncResult> {
-  if (pageBudget < 1) return { records: [], state, done: false, overflowCalls: 0 };
+  const {
+    pageBudget,
+    deadlineAt = Number.POSITIVE_INFINITY,
+    clock = Date.now,
+    checkpoint = async () => {}
+  } = options;
+  const pastDeadline = () => clock() >= deadlineAt;
+  const records: PrRecord[] = [];
+  let current = state;
+  let overflowCalls = 0;
+  const stopped = (deadlineHit: boolean): SyncResult => ({
+    records,
+    state: current,
+    done: false,
+    overflowCalls,
+    deadlineHit
+  });
+
   // Timestamps are compared as instants: START carries an offset, GitHub's end in Z.
   const stopBeforeMs = state.cursor ? Date.parse(state.cursor) : START_MS;
-  let after = state.pending?.after ?? null;
   let sweepTop = state.pending?.sweepTop ?? null;
-  const records: PrRecord[] = [];
-  let pages = 0;
-  let overflowCalls = 0;
 
-  while (pages < pageBudget) {
+  for (let pages = 0; pages < pageBudget; pages++) {
+    if (pastDeadline()) return stopped(true);
+    const after = current.pending?.after ?? null;
     const data: {
       repository: {
         pullRequests: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: PrNode[] };
       } | null;
     } = await client.query(LIST_QUERY, { owner: POW_ORG, name: repo, after });
-    pages += 1;
     if (!data.repository) {
       throw new GithubError(`repository ${repo} not visible to token`, {
         kind: 'auth',
@@ -320,6 +358,7 @@ export async function syncRepo(
 
     sweepTop ??= nodes[0]?.updatedAt ?? state.cursor ?? new Date(START_MS).toISOString();
 
+    const pageRecords: PrRecord[] = [];
     let reachedCursor = false;
     for (const node of nodes) {
       if (Date.parse(node.updatedAt) < stopBeforeMs) {
@@ -328,25 +367,27 @@ export async function syncRepo(
       }
       if (!node.mergedAt || Date.parse(node.mergedAt) < START_MS) continue;
       if (node.files.pageInfo.hasNextPage) {
+        // Nothing from this page is written yet, so dropping it here is
+        // safe: the checkpoint still points at its start.
+        if (pastDeadline()) return stopped(true);
         const before = client.calls;
         const full = await fetchOne(client, repo, node.number);
         overflowCalls += client.calls - before;
-        if (full) records.push(full);
+        if (full) pageRecords.push(full);
       } else {
-        records.push(toPrRecord(repo, node, node.files.nodes));
+        pageRecords.push(toPrRecord(repo, node, node.files.nodes));
       }
     }
 
-    if (reachedCursor || !pageInfo.hasNextPage || !pageInfo.endCursor) {
-      return { records, state: { cursor: sweepTop, pending: null }, done: true, overflowCalls };
-    }
-    after = pageInfo.endCursor;
+    const done = reachedCursor || !pageInfo.hasNextPage || !pageInfo.endCursor;
+    const next: RepoSyncState = done
+      ? { cursor: sweepTop, pending: null }
+      : { cursor: state.cursor, pending: { after: pageInfo.endCursor!, sweepTop } };
+    await checkpoint(pageRecords, next);
+    records.push(...pageRecords);
+    current = next;
+    if (done) return { records, state: current, done: true, overflowCalls, deadlineHit: false };
   }
 
-  return {
-    records,
-    state: { cursor: state.cursor, pending: { after: after!, sweepTop: sweepTop! } },
-    done: false,
-    overflowCalls
-  };
+  return stopped(false);
 }

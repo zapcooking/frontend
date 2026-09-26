@@ -10,7 +10,8 @@
  *   503 { code: 'POW_UNAVAILABLE' }   no summary yet and the cold start
  *                                     failed for another reason / KV error
  *
- * Fresh summary (< STALE_MS): served from KV, zero GitHub calls. Stale:
+ * Fresh summary (< STALE_MS): served from KV, zero GitHub calls. Cached
+ * at the edge for 60 s once complete; `no-store` while complete:false. Stale:
  * served as-is while one budgeted refresh runs in waitUntil. Missing
  * (first ever request): one budgeted refresh runs inline, so the response
  * may be partial — `complete: false` until the backfill finishes over the
@@ -72,7 +73,9 @@ async function runRefresh(kv: PowKV, token: string): Promise<StoredSummary> {
     console.log(
       `[pow] refresh github_calls=${outcome.githubCalls} overflow_calls=${outcome.overflowCalls} ` +
         `upserted=${outcome.upserted} recomputed=${outcome.recomputed} ` +
-        `complete=${outcome.stored.complete}`
+        `complete=${outcome.stored.complete} wall_ms=${outcome.wallMs} ` +
+        `deadline_hit=${outcome.deadlineHit}` +
+        (outcome.resyncStarted ? ' resync_started=true' : '')
     );
     return outcome.stored;
   } catch (e) {
@@ -97,7 +100,11 @@ function respond(
   const { body, etag } = servedSummary(stored, opts);
   const headers = {
     ETag: etag,
-    'Cache-Control': 'public, max-age=60'
+    // While a backfill or resync is still running, never let the edge cache
+    // hold a response: a cache hit skips this handler, so it would also
+    // skip the refresh that moves the backfill along. Refreshes stay
+    // lock- and backoff-gated either way.
+    'Cache-Control': stored.complete ? 'public, max-age=60' : 'no-store'
   };
   if (request.headers.get('if-none-match') === etag) {
     return new Response(null, { status: 304, headers });

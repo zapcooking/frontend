@@ -59,8 +59,19 @@ export const EXCLUDE: readonly string[] = [
   '**/*.jpg',
   '**/model.txt',
   '**/bip39-*.txt',
-  '**/*.pbxproj'
+  '**/*.pbxproj',
+  // A 135,837-line plan doc committed by accident. Exact path, so its
+  // addition and any later deletion both drop out.
+  'docs/plans/stable-balance-zaps.md'
 ];
+
+/**
+ * Bump whenever EXCLUDE changes. Counted totals are computed at fetch time
+ * and stored (per-file lists are not), so a new list only takes effect
+ * through a re-fetch: a stored summary with a different version triggers
+ * a full, chunked resync. Summaries written before this existed are v1.
+ */
+export const EXCLUDE_VERSION = 2;
 
 /** Minimal glob → RegExp: `**\/` = any directory prefix (incl. none), `*` = within one segment. */
 function globToRegExp(glob: string): RegExp {
