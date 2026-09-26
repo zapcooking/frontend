@@ -111,7 +111,9 @@ function respond(
   }
   return new Response(body, {
     status: 200,
-    headers: { ...headers, 'Content-Type': 'application/json' }
+    // Explicit charset: without it some browsers decode PR titles as
+    // Latin-1 and show "—" as "â€”".
+    headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8' }
   });
 }
 

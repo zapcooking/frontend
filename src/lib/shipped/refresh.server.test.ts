@@ -44,6 +44,7 @@ function fakeFetch() {
     pr.pageInfo.hasNextPage = false;
     pr.nodes = [pr.nodes[0]];
     pr.nodes[0].id = `PR_${variables.name}`;
+    pr.nodes[0].title = `Dash — ${variables.name}`;
     return new Response(JSON.stringify(page), { status: 200 });
   });
   return { fetchImpl: fetchImpl as unknown as typeof fetch, calls, spy: fetchImpl };
@@ -620,7 +621,11 @@ describe('GET /api/pow', () => {
 
     const first = await call(env).res;
     expect(first.status).toBe(200);
-    expect(first.headers.get('content-type')).toBe('application/json');
+    expect(first.headers.get('content-type')).toBe('application/json; charset=utf-8');
+    // …and the bytes really are UTF-8: an em dash in a title round-trips.
+    expect(new TextDecoder('utf-8').decode(await first.clone().arrayBuffer())).toContain(
+      'Dash — frontend'
+    );
     const body = await first.json();
     expect(body.totals.prs).toBe(3);
     expect(body.complete).toBe(true);
