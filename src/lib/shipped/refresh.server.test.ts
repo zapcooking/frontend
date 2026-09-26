@@ -264,6 +264,26 @@ describe('GET /api/pow', () => {
     vi.unstubAllGlobals();
   });
 
+  it('cold start: a rate limit is 503 POW_UNAVAILABLE with Retry-After from the reset', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 403, headers: { 'Retry-After': '300' } }))
+    );
+    const res = await call({ POW: memoryKV().kv, POW_GITHUB_TOKEN: TOKEN }).res;
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ code: 'POW_UNAVAILABLE' });
+    expect(Number(res.headers.get('retry-after'))).toBeGreaterThanOrEqual(299);
+    expect(Number(res.headers.get('retry-after'))).toBeLessThanOrEqual(300);
+    expect(logs).toEqual([expect.stringMatching(/^\[pow\] github_rate_limited status=403 /)]);
+  });
+
+  it('cold start: other failures carry no Retry-After', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 502 })));
+    const res = await call({ POW: memoryKV().kv, POW_GITHUB_TOKEN: TOKEN }).res;
+    expect(res.status).toBe(503);
+    expect(res.headers.get('retry-after')).toBeNull();
+  });
+
   async function seededStale() {
     const { fetchImpl } = fakeFetch();
     vi.stubGlobal('fetch', fetchImpl);

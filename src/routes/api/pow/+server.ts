@@ -29,6 +29,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { GithubError, createGithubClient } from '$lib/shipped/github.server';
 import {
+  backoffUntil,
   isStale,
   recordRefusal,
   refreshPow,
@@ -43,8 +44,17 @@ import {
 
 const unconfigured = () =>
   json({ code: 'POW_UNCONFIGURED' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
-const unavailable = () =>
-  json({ code: 'POW_UNAVAILABLE' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+const unavailable = (retryAfterSeconds?: number) =>
+  json(
+    { code: 'POW_UNAVAILABLE' },
+    {
+      status: 503,
+      headers: {
+        'Cache-Control': 'no-store',
+        ...(retryAfterSeconds ? { 'Retry-After': String(retryAfterSeconds) } : {})
+      }
+    }
+  );
 
 function errorText(e: unknown): string {
   return e instanceof Error ? `${e.name}: ${e.message}` : 'unknown error';
@@ -127,8 +137,14 @@ export const GET: RequestHandler = async ({ request, platform }) => {
       // a rate limit on the very first request is just "not yet".
       const refusal = refusalOf(e);
       if (refusal?.kind === 'auth') return unconfigured();
-      if (!refusal) console.error(`[pow] cold start failed: ${errorText(e)}`);
-      return unavailable();
+      if (!refusal) {
+        console.error(`[pow] cold start failed: ${errorText(e)}`);
+        return unavailable();
+      }
+      // Rate limited: tell the client when GitHub said to come back.
+      const now = new Date();
+      const waitMs = backoffUntil(refusal, now).getTime() - now.getTime();
+      return unavailable(Math.ceil(waitMs / 1000));
     }
   }
 
