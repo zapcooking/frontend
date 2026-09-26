@@ -44,8 +44,7 @@
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
   import MembershipBeltBadge from '../../../components/MembershipBeltBadge.svelte';
   import { fetchUserStatsFromPrimal, getPrimalCache, type PrimalUserStats } from '$lib/primalCache';
-  import FollowListRecoveryModal from '../../../components/FollowListRecoveryModal.svelte';
-  import QuestionIcon from 'phosphor-svelte/lib/Question';
+  import LazarusRecoveryModal from '../../../components/LazarusRecoveryModal.svelte';
   import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwise';
   import MuteListEditor from '../../../components/MuteListEditor.svelte';
   import ProfileSheet from '../../../components/ProfileSheet.svelte';
@@ -1727,7 +1726,7 @@
 
 <!-- Follow List Recovery Modal -->
 {#if hexpubkey}
-  <FollowListRecoveryModal bind:open={followRecoveryModal} pubkey={hexpubkey} />
+  <LazarusRecoveryModal bind:open={followRecoveryModal} initialKind={3} />
 {/if}
 
 <!-- Profile Edit Modal -->
@@ -1963,11 +1962,10 @@
           on:click={() => (followRecoveryModal = true)}
           class="flex items-center gap-1 text-xs transition-colors hover:opacity-80"
           style="color: var(--color-text-secondary)"
-          title="If another client clobbered your follow list, scan relays to find and restore an older version"
+          title="If another client clobbered your follows, mutes, profile, or bookmarks, scan relay history to find and restore an older version"
         >
           <ArrowCounterClockwiseIcon size={13} />
-          <span>Restore Follow List</span>
-          <QuestionIcon size={13} class="opacity-60" />
+          <span>Restore</span>
         </button>
       {/if}
     </div>

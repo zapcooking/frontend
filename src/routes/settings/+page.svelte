@@ -16,7 +16,7 @@
   import Button from '../../components/Button.svelte';
   import Modal from '../../components/Modal.svelte';
   import Accordion from '../../components/Accordion.svelte';
-  import NostrBackupSection from '../../components/NostrBackupSection.svelte';
+  import LazarusRecoverySection from '../../components/LazarusRecoverySection.svelte';
   import PasskeyVaultSection from '../../components/PasskeyVaultSection.svelte';
   import { resolveSecuritySections, resolveDisplayPubkey } from '$lib/securitySections';
   import { nip19 } from 'nostr-tools';
@@ -1568,9 +1568,9 @@
       </div>
     </Accordion>
 
-    <!-- Nostr Backup Section -->
-    <Accordion title="Nostr Backup" open={false}>
-      <NostrBackupSection />
+    <!-- Data Recovery (Lazarus): relay-history recovery of clobbered lists -->
+    <Accordion title="Data Recovery" open={false}>
+      <LazarusRecoverySection />
     </Accordion>
 
     <!-- Security Section -->
