@@ -1,6 +1,7 @@
 <script lang="ts">
   import { nip19 } from 'nostr-tools';
   import { scanNostrRefs, type ScannedRef } from '$lib/nostrRefScan';
+  import { truncateAtUrlBoundary } from '$lib/noteTruncate';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { ndk } from '$lib/nostr';
@@ -54,7 +55,9 @@
   // resolves its pane via allImageUrls.indexOf(url), so both rendered
   // occurrences land on the single pane that shows that image.
   $: allImageUrls = filterImageUrls(
-    finalParsedContent.filter((part: any) => part.type === 'url' && part.url).map((p: any) => p.url)
+    finalParsedContent
+      .filter((part: any) => part.type === 'url' && part.url && !part.bare)
+      .map((p: any) => p.url)
   );
 
   // NIP-92 imeta alt text, keyed by media URL, for screen readers.
@@ -127,9 +130,9 @@
 
   const isYouTube = (url?: string): boolean => !!url && parseYouTube(url) !== null;
 
-  function isMediaPart(part?: { type?: string; url?: string }): boolean {
+  function isMediaPart(part?: { type?: string; url?: string; bare?: boolean }): boolean {
     return Boolean(
-      part?.type === 'url' && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
+      part?.type === 'url' && !part.bare && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
     );
   }
 
@@ -173,7 +176,7 @@
     return out;
   }
 
-  function isBlockPart(part?: { type?: string; prefix?: string; url?: string }) {
+  function isBlockPart(part?: { type?: string; prefix?: string; url?: string; bare?: boolean }) {
     if (!part?.type) return false;
     if (part.type === 'nostr') {
       // nevent1, note1, and naddr1 are all block-level embedded content
@@ -181,6 +184,9 @@
     }
     if (part.type === 'url') {
       if (!part.url) return false;
+      // Bare domains stay inline links — a fuzzy match is an inference, and
+      // it must never grow into a media gallery or a preview card.
+      if (part.bare) return false;
       return isImageUrl(part.url) || isVideoUrl(part.url) || isYouTube(part.url) || showLinkPreviews;
     }
     return false;
@@ -245,6 +251,7 @@
           type: 'url',
           content: match.content,
           url: match.url,
+          bare: match.bare,
           key: `url-${keyCounter++}`
         });
       } else if (match.type === 'nostr') {
@@ -333,23 +340,8 @@
 
   // Check if content should be collapsed
   $: shouldCollapse = collapsible && content.length > maxLength;
-  // Truncate the preview at a word boundary so we never slice through a word.
-  // If a URL straddles the limit, extend to include the whole URL instead, so
-  // its file extension survives and isImageUrl() classifies it correctly.
-  function truncateAtUrlBoundary(text: string, limit: number): string {
-    const urlRegex = /https?:\/\/[^\s]+/g;
-    let m;
-    while ((m = urlRegex.exec(text)) !== null) {
-      if (m.index < limit && m.index + m[0].length > limit) {
-        return text.substring(0, m.index + m[0].length);
-      }
-    }
-    // Back up to the last whitespace before the limit so the cut lands between
-    // words, not mid-word.
-    const cut = text.substring(0, limit);
-    const boundary = Math.max(cut.lastIndexOf(' '), cut.lastIndexOf('\n'));
-    return (boundary > 0 ? cut.substring(0, boundary) : cut).trimEnd();
-  }
+  // Truncation lives in $lib/noteTruncate so it's unit-testable and shares
+  // the scanner as its source of truth for what counts as a linkable token.
   $: displayContent = shouldCollapse && !isExpanded ? truncateAtUrlBoundary(content, maxLength) : content;
   $: finalParsedContent = splitLightningInvoices(parseContent(displayContent));
   // Whitespace, including zero-width / BOM characters that String.trim() leaves
@@ -473,7 +465,20 @@
         {part.content}
       </button>
     {:else if part.type === 'url'}
-      {#if part.url && isImageUrl(part.url)}
+      {#if part.bare && part.url}
+        <!-- Scheme-less domain the author clearly meant as a link
+             ("see zap.cooking/pow"). Inline only — no preview card, media
+             or embed cascade — so a fuzzy false positive ("oven.to") costs
+             at most a stray underline, never a loaded card. -->
+        <a
+          href={part.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-orange-500 hover:text-orange-600 hover:underline break-all"
+        >
+          {part.content}
+        </a>
+      {:else if part.url && isImageUrl(part.url)}
         {@const imageUrl = part.url || ''}
         {@const imageIndex = allImageUrls.indexOf(imageUrl)}
         <div class="my-1">
