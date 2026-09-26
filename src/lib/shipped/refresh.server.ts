@@ -158,7 +158,13 @@ export async function refreshPow(
   const resyncStarted = before !== null && (before.excludeVersion ?? 1) !== EXCLUDE_VERSION;
   if (resyncStarted) await startResync(kv, before!);
 
-  for (const repo of REPOS) {
+  // Round-robin the starting repo: under the deadline a slow first repo
+  // would otherwise take every refresh and the last repo would never run.
+  const startIndex = (before?.nextRepoIndex ?? 0) % REPOS.length;
+  const nextRepoIndex = (startIndex + 1) % REPOS.length;
+  const order = [...REPOS.slice(startIndex), ...REPOS.slice(0, startIndex)];
+
+  for (const repo of order) {
     const remaining = CALL_BUDGET - client.calls;
     if (remaining < 1 || deadlineHit) {
       complete = false;
@@ -201,6 +207,7 @@ export async function refreshPow(
       asOfDate: today,
       complete,
       excludeVersion: EXCLUDE_VERSION,
+      nextRepoIndex,
       lastSuccessAt: now.toISOString()
     };
     await writeHead(kv, {
@@ -211,7 +218,7 @@ export async function refreshPow(
   } else {
     // Drops any backoff: GitHub just answered.
     const { backoff: _, ...rest } = prev!;
-    stored = { ...rest, lastSuccessAt: now.toISOString() };
+    stored = { ...rest, nextRepoIndex, lastSuccessAt: now.toISOString() };
   }
   await writeSummary(kv, stored);
 

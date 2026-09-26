@@ -69,7 +69,7 @@ describe('refreshPow', () => {
     expect(second).toMatchObject({ upserted: 0, recomputed: false });
     expect(second.stored.etag).toBe(first.stored.etag);
     expect(second.stored.lastSuccessAt).toBe(later.toISOString());
-    expect(log.filter(([, k]) => k.startsWith('pow:prs:'))).toEqual([
+    expect(log.filter(([, k]) => k.startsWith('pow:prs:')).sort()).toEqual([
       // upsertRecords reads the three touched shards to compare — never all 27,
       // and writes none of them.
       ['get', 'pow:prs:frontend:2026-09'],
@@ -279,6 +279,116 @@ describe('refresh deadline', () => {
       if (out.stored.complete) break;
     }
     expect(storedIds(data)).toEqual(ALL_EIGHT);
+  });
+});
+
+describe('repo rotation', () => {
+  /** Every repo has 5 pages; every call takes 21 s, so one page per refresh. */
+  function allSlow() {
+    let t = 0;
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      t += 21_000;
+      const { variables } = JSON.parse(init.body as string);
+      const i = variables.after ? Number(String(variables.after).slice(2)) : 0;
+      const node = {
+        ...structuredClone(fixture.listPage.data.repository.pullRequests.nodes[0]),
+        id: `PR_${variables.name}_${i}`,
+        updatedAt: new Date(Date.parse('2026-09-20T10:00:00Z') - i * 3600_000).toISOString(),
+        mergedAt: new Date(Date.parse('2026-09-20T09:00:00Z') - i * 3600_000).toISOString()
+      };
+      const hasNextPage = i < 4;
+      return new Response(
+        JSON.stringify({
+          data: {
+            repository: {
+              pullRequests: {
+                pageInfo: { hasNextPage, endCursor: hasNextPage ? `C_${i + 1}` : null },
+                nodes: [node]
+              }
+            }
+          }
+        }),
+        { status: 200 }
+      );
+    }) as unknown as typeof fetch;
+    return { fetchImpl, clock: () => t };
+  }
+
+  it('every repo makes progress within one refresh per repo, even when only one fits', async () => {
+    const { kv, data } = memoryKV();
+    const gh = allSlow();
+    const repos = ['frontend', 'zap_cooking_android', 'zapcooking_ios'];
+    for (let n = 0; n < repos.length; n++) {
+      const out = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
+        clock: gh.clock
+      });
+      expect(out.githubCalls).toBe(1);
+      expect(out.deadlineHit).toBe(true);
+    }
+    for (const repo of repos) {
+      const state = data.get(`pow:cursor:${repo}`);
+      expect(state, `${repo} never ran`).toBeDefined();
+      expect(JSON.parse(state!).pending.after).toBe('C_1');
+    }
+  });
+});
+
+describe('repo rotation on no-op refreshes', () => {
+  it('keeps rotating when a refresh changes nothing (the no-op path)', async () => {
+    const { kv, data } = memoryKV();
+    const slow = (() => {
+      let t = 0;
+      const clock = () => t;
+      const fetchImpl = (async (_url: string, init: RequestInit) => {
+        t += 21_000;
+        const { variables } = JSON.parse(init.body as string);
+        const i = variables.after ? Number(String(variables.after).slice(2)) : 0;
+        const node = {
+          ...structuredClone(fixture.listPage.data.repository.pullRequests.nodes[0]),
+          id: `PR_${variables.name}_${i}`,
+          updatedAt: new Date(Date.parse('2026-09-20T10:00:00Z') - i * 3600_000).toISOString(),
+          mergedAt: new Date(Date.parse('2026-09-20T09:00:00Z') - i * 3600_000).toISOString()
+        };
+        const hasNextPage = i < 4;
+        return new Response(
+          JSON.stringify({
+            data: {
+              repository: {
+                pullRequests: {
+                  pageInfo: { hasNextPage, endCursor: hasNextPage ? `C_${i + 1}` : null },
+                  nodes: [node]
+                }
+              }
+            }
+          }),
+          { status: 200 }
+        );
+      }) as unknown as typeof fetch;
+      return { fetchImpl, clock };
+    })();
+    // Store everything first (real clock, so no deadline pressure).
+    for (let n = 0; n < 3; n++) {
+      const out = await refreshPow(kv, createGithubClient(TOKEN, slow.fetchImpl), NOW);
+      if (out.stored.complete) break;
+    }
+    // Now walk again from scratch, still incomplete: every page re-read is
+    // already stored, so each refresh upserts nothing and recomputes nothing.
+    const repos = ['frontend', 'zap_cooking_android', 'zapcooking_ios'];
+    for (const repo of repos) {
+      data.set(`pow:cursor:${repo}`, JSON.stringify({ cursor: null, pending: null }));
+    }
+    const stored = JSON.parse(data.get('pow:summary')!);
+    data.set('pow:summary', JSON.stringify({ ...stored, complete: false }));
+
+    for (let n = 0; n < repos.length; n++) {
+      const out = await refreshPow(kv, createGithubClient(TOKEN, slow.fetchImpl), NOW, {
+        clock: slow.clock
+      });
+      expect(out).toMatchObject({ upserted: 0, recomputed: false, githubCalls: 1 });
+    }
+    for (const repo of repos) {
+      expect(JSON.parse(data.get(`pow:cursor:${repo}`)!).pending?.after, `${repo} never ran`).toBe('C_1');
+    }
   });
 });
 

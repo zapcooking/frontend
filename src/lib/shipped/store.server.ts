@@ -35,6 +35,11 @@ export interface StoredSummary {
    * summaries from before versioning (= 1).
    */
   excludeVersion?: number;
+  /**
+   * Index into REPOS the next refresh starts from. Rotated every refresh
+   * so a deadline that fits only one repo can't starve the last ones.
+   */
+  nextRepoIndex?: number;
   /** Last refresh GitHub answered, whether or not it changed anything. Drives staleness. */
   lastSuccessAt: string;
   /**
