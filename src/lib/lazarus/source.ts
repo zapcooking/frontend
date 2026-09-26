@@ -187,13 +187,32 @@ export async function getLazarusScanPlan(
  * relays. The other relays that answered the scan hold older copies of the
  * list, so the restored version goes there too, as a best effort, to replace
  * the clobbered copy they would otherwise keep serving.
+ *
+ * A relay list restore (kind 10002) replaces the write relays themselves, so
+ * it's judged on the write relays the restored version names (spec 0.6.0):
+ * the current ones may be the dead relays the restore is meant to fix. They
+ * still get it as a best effort.
  */
 export async function getLazarusPublishRelays(
   pubkey: string,
-  respondingRelays: string[]
+  respondingRelays: string[],
+  restoring?: Event
 ): Promise<{ write: string[]; extra: string[] }> {
-  const { write } = await getUserRelays(pubkey);
-  const extra = uniqueRelayUrls(respondingRelays).filter((url) => !write.includes(url));
+  const { write: current } = await getUserRelays(pubkey);
+  const restored = restoring?.kind === 10002 ? parseRelayList(restoring).write : [];
+  // A restored relay list that names no write relays is 'missing' the same
+  // way the current one can be (getUserRelays): the app's relays stand in as
+  // the write set. Falling back to `current` would judge the restore on the
+  // very dead write relays the override exists to replace.
+  const write =
+    restored.length > 0
+      ? restored
+      : restoring?.kind === 10002
+        ? uniqueRelayUrls(getCurrentRelays())
+        : current;
+  const extra = uniqueRelayUrls([...current, ...respondingRelays]).filter(
+    (url) => !write.includes(url)
+  );
   return { write, extra };
 }
 

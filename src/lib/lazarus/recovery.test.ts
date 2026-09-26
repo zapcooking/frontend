@@ -86,6 +86,18 @@ describe('registry', () => {
     expect(profile?.ranking).toBe('intent');
   });
 
+  it('counts the n tags NIP-4e lists encryption keys in', () => {
+    const keyList = {
+      ...makeEvent({ kind: 10044 }),
+      tags: [
+        ['n', 'a'.repeat(64)],
+        ['n', 'b'.repeat(64)],
+        ['p', 'c'.repeat(64)]
+      ]
+    } as Event;
+    expect(getLazarusKindProfile(10044)?.itemCount(keyList).count).toBe(2);
+  });
+
   it('never returns profiles for unregistered kinds', () => {
     expect(getLazarusKindProfile(30078)).toBeUndefined();
     expect(getLazarusKindProfile(1)).toBeUndefined();
@@ -262,7 +274,7 @@ describe('rankLazarusCandidates', () => {
   it('recommends nothing for meaningful-empty kinds and requires intent', () => {
     const keys = {
       ...makeEvent({ kind: 10044, created_at: 1000 }),
-      tags: [['p', 'encryption-pubkey-1']]
+      tags: [['n', 'encryption-pubkey-1']]
     } as Event;
     const emptied = { ...makeEvent({ kind: 10044, created_at: 2000 }), tags: [] } as Event;
     const result = rankLazarusCandidates(LAZARUS_REGISTRY[10044], [
@@ -570,7 +582,7 @@ describe('groupLazarusCandidates', () => {
   it('keeps empty versions of meaningful-empty kinds, where empty is a valid option', () => {
     const events = [1000, 1001].map((createdAt, i) => ({
       ...makeEvent({ created_at: createdAt, kind: 10044 }),
-      tags: i === 0 ? [] : [['p', 'a'.repeat(64)]]
+      tags: i === 0 ? [] : [['n', 'a'.repeat(64)]]
     }));
     const scan = rankLazarusCandidates(
       LAZARUS_REGISTRY[10044],

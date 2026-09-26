@@ -127,7 +127,8 @@ export const LAZARUS_REGISTRY: Record<number, LazarusKindProfile> = {
     ranking: 'intent',
     meaningfulEmpty: true,
     requiredWarnings: ['affects-others'],
-    itemCount: countTags(['p'])
+    // NIP-4e lists encryption pubkeys in `n` tags
+    itemCount: countTags(['n'])
   },
   10002: {
     kind: 10002,

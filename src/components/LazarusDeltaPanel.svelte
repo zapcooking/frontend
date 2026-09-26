@@ -64,6 +64,9 @@
 
   $: candidate, resetConfirms();
   $: resetKey, resetConfirms();
+  // Every restore attempt's outcome re-arms the override, so a confirmation
+  // given for one attempt is never carried into the next.
+  $: publishErrorCode, (overrideConfirmed = false);
 
   $: currentUnreadable = publishErrorCode === 'current-unreadable';
 
@@ -240,7 +243,7 @@
     {/if}
     <button type="button" class="lz-cancel" on:click={() => dispatch('restore')}>
       <ArrowClockwiseIcon size={14} />
-      Retry the check
+      Retry the restore
     </button>
   {/if}
   <button type="button" class="lz-cancel" on:click={() => dispatch('close')}>Close review</button>

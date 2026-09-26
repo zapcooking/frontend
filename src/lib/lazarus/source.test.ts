@@ -187,6 +187,38 @@ describe('getLazarusPublishRelays', () => {
       extra: ['wss://a']
     });
   });
+
+  it('judges a relay list restore on the write relays the restored version names', async () => {
+    // The current list names only a dead relay, the one the restore is meant to fix
+    mockedRelayListGet.mockResolvedValueOnce({ read: [], write: ['wss://dead/'], updatedAt: 0 });
+    const restoring = makeEvent({
+      kind: 10002,
+      tags: [
+        ['r', 'wss://alive/', 'write'],
+        ['r', 'wss://both/'],
+        ['r', 'wss://inbox/', 'read']
+      ]
+    });
+    expect(await getLazarusPublishRelays('pubkey', ['wss://hist.nostr.land'], restoring)).toEqual({
+      write: ['wss://alive', 'wss://both'],
+      // The current write relays still get it as a best effort
+      extra: ['wss://dead', 'wss://hist.nostr.land']
+    });
+  });
+
+  it('uses the app relays when the restored relay list names no write relays', async () => {
+    // Read-only restored list: falling back to `current` would judge the
+    // restore on the dead write relays it exists to replace.
+    mockedRelayListGet.mockResolvedValueOnce({ read: [], write: ['wss://dead/'], updatedAt: 0 });
+    const restoring = makeEvent({
+      kind: 10002,
+      tags: [['r', 'wss://inbox/', 'read']]
+    });
+    expect(await getLazarusPublishRelays('pubkey', [], restoring)).toEqual({
+      write: ['wss://default'],
+      extra: ['wss://dead']
+    });
+  });
 });
 
 describe('zapLazarusRelaySource.fetchVersions', () => {

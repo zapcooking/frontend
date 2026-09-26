@@ -7,16 +7,17 @@
  * Spec safeguards implemented here (SPEC.md "Recover"):
  *  - re-read the current version from the write relays immediately before
  *    signing; if a newer one appeared since the review, return 'changed' so
- *    the UI recomputes the delta and asks again; if no write relay can be
- *    reached, abort — the spec is silent on the unreachable case, and
- *    assuming the reviewed version is still current could overwrite an
- *    unseen edit;
+ *    the UI recomputes the delta and asks again; if no write relay answers,
+ *    abort, since assuming the reviewed version is still current could
+ *    overwrite an unseen edit, unless the user explicitly overrides after a
+ *    failed retry;
  *  - the recovered event is dated after the version it replaces
  *    (buildLazarusRecoveryDraft);
  *  - the signing account must be the list's author — checked again after
  *    signing, so an account switch mid-approval aborts the publish;
- *  - success is judged on the user's write relays; the other relays that
- *    answered the scan get the recovery as a best effort.
+ *  - success is judged on the user's write relays (for a relay list, the
+ *    ones the restored version names); the other relays that answered the
+ *    scan get the recovery as a best effort.
  */
 
 import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
@@ -26,6 +27,7 @@ import type { Event } from 'nostr-tools';
 import { resetCache as resetFollowListCache } from '$lib/followListCache';
 import { profileCacheManager } from '$lib/profileCache';
 import { muteListStore } from '$lib/muteListStore';
+import { relayListCache } from '$lib/relayListCache';
 import { buildLazarusRecoveryDraft } from './recovery';
 import { fetchLatestLazarusVersion, getLazarusPublishRelays } from './source';
 
@@ -75,10 +77,14 @@ async function publishBestEffort(ndk: NDK, event: NDKEvent, urls: string[]) {
 
 /** Refresh the app's local copy of the recovered kind, so the next edit
  * builds on the recovered version instead of the clobbered one. */
-function refreshLocalCopy(kind: number, pubkey: string) {
-  if (kind === 3) resetFollowListCache();
-  else if (kind === 0) profileCacheManager.invalidateProfile(pubkey);
-  else if (kind === 10000) muteListStore.invalidate();
+function refreshLocalCopy(event: NDKEvent, pubkey: string) {
+  if (event.kind === 3) resetFollowListCache();
+  else if (event.kind === 0) profileCacheManager.invalidateProfile(pubkey);
+  else if (event.kind === 10000) muteListStore.invalidate();
+  // A restored relay list replaces the write relays themselves: seed the
+  // cache from the recovered event (not a refetch — the cached read would
+  // otherwise keep naming the dead relays this restore just replaced).
+  else if (event.kind === 10002) relayListCache.seedFromEvent(pubkey, event);
   // Other registry kinds have no local store in this app.
 }
 
@@ -176,7 +182,7 @@ export async function publishLazarusRecovery(opts: {
     );
   }
 
-  const { write, extra } = await getLazarusPublishRelays(pubkey, respondingRelays);
+  const { write, extra } = await getLazarusPublishRelays(pubkey, respondingRelays, chosen);
   let published: Set<NDKRelay>;
   try {
     published = await event.publish(toRelaySet(ndk, write), PUBLISH_TIMEOUT_MS);
@@ -195,7 +201,7 @@ export async function publishLazarusRecovery(opts: {
   // the clobbered copy otherwise.
   void publishBestEffort(ndk, event, extra);
 
-  refreshLocalCopy(event.kind, pubkey);
+  refreshLocalCopy(event, pubkey);
 
   return {
     status: 'published',
