@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fixture from '../../test/fixtures/pow-graphql.json';
 import { createGithubClient } from './github.server';
-import { CALL_BUDGET, STALE_MS, isStale, refreshPow } from './refresh.server';
+import { CALL_BUDGET, STALE_MS, backoffUntil, isStale, refreshPow } from './refresh.server';
 import { tryAcquireLock, upsertRecords, type PowKV } from './store.server';
 import type { PrRecord } from './types';
 import { GET } from '../../routes/api/pow/+server';
@@ -43,6 +43,10 @@ function fakeFetch() {
 
 const NOW = new Date('2026-09-25T15:00:00Z');
 
+const offline = vi.fn(async () => {
+  throw new Error('test tried to reach the network');
+});
+
 describe('refreshPow', () => {
   it('syncs every repo, then a no-op refresh never re-reads the shards', async () => {
     const { kv, log } = memoryKV();
@@ -56,7 +60,7 @@ describe('refreshPow', () => {
     const second = await refreshPow(kv, createGithubClient(TOKEN, fakeFetch().fetchImpl), later);
     expect(second).toMatchObject({ upserted: 0, recomputed: false });
     expect(second.stored.etag).toBe(first.stored.etag);
-    expect(second.stored.checkedAt).toBe(later.toISOString());
+    expect(second.stored.lastSuccessAt).toBe(later.toISOString());
     expect(log.filter(([, k]) => k.startsWith('pow:prs:'))).toEqual([
       // upsertRecords reads the three touched shards to compare — never all 27,
       // and writes none of them.
@@ -100,6 +104,30 @@ describe('refreshPow', () => {
   });
 });
 
+describe('backoffUntil', () => {
+  const at = (ms: number) => new Date(NOW.getTime() + ms);
+  it('auth refusals wait an hour, whatever the headers said', () => {
+    expect(backoffUntil({ kind: 'auth', label: '401', retryAtMs: at(5_000).getTime() }, NOW)).toEqual(
+      at(STALE_MS)
+    );
+  });
+  it('rate limits wait for the reset GitHub gave', () => {
+    expect(
+      backoffUntil({ kind: 'rate_limited', label: '403', retryAtMs: at(600_000).getTime() }, NOW)
+    ).toEqual(at(600_000));
+  });
+  it('rate limits with no reset fall back to an hour', () => {
+    expect(backoffUntil({ kind: 'rate_limited', label: '403', retryAtMs: null }, NOW)).toEqual(
+      at(STALE_MS)
+    );
+  });
+  it('a reset already in the past still waits a minute', () => {
+    expect(
+      backoffUntil({ kind: 'rate_limited', label: '429', retryAtMs: at(-10_000).getTime() }, NOW)
+    ).toEqual(at(60_000));
+  });
+});
+
 describe('upsertRecords', () => {
   it('is idempotent by PR id', async () => {
     const { kv, data } = memoryKV();
@@ -135,6 +163,8 @@ describe('tryAcquireLock', () => {
 describe('GET /api/pow', () => {
   let logs: string[];
   beforeEach(() => {
+    // No test may reach the real GitHub: anything unstubbed fails loudly.
+    vi.stubGlobal('fetch', offline);
     logs = [];
     for (const level of ['log', 'warn', 'error'] as const) {
       vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
@@ -142,7 +172,13 @@ describe('GET /api/pow', () => {
       });
     }
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    const leaked = offline.mock.calls.length;
+    offline.mockClear();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    expect(leaked, 'a test reached for the network').toBe(0);
+  });
 
   function call(env: Record<string, unknown>, headers: Record<string, string> = {}) {
     const waitUntil = vi.fn();
@@ -195,7 +231,7 @@ describe('GET /api/pow', () => {
     await (await call(env).res).text();
 
     const stored = JSON.parse(data.get('pow:summary')!);
-    stored.checkedAt = new Date(Date.now() - STALE_MS - 1000).toISOString();
+    stored.lastSuccessAt = new Date(Date.now() - STALE_MS - 1000).toISOString();
     data.set('pow:summary', JSON.stringify(stored));
 
     const { res, waitUntil } = call(env);
@@ -233,50 +269,122 @@ describe('GET /api/pow', () => {
     vi.stubGlobal('fetch', fetchImpl);
     const { kv, data } = memoryKV();
     const env: Record<string, unknown> = { POW: kv, POW_GITHUB_TOKEN: TOKEN };
-    const goodBody = await (await call(env).res).text();
+    const fresh = await (await call(env).res).json();
     const stored = JSON.parse(data.get('pow:summary')!);
-    stored.checkedAt = new Date(Date.now() - STALE_MS - 1000).toISOString();
+    stored.lastSuccessAt = new Date(Date.now() - STALE_MS - 1000).toISOString();
     data.set('pow:summary', JSON.stringify(stored));
-    vi.unstubAllGlobals();
+    vi.stubGlobal('fetch', offline);
     logs.length = 0;
-    return { env, data, goodBody };
+    // What a reader saw before anything went wrong.
+    const good = { ...fresh, lastSuccessAt: stored.lastSuccessAt };
+    return { env, data, storedBody: stored.body as string, good };
   }
 
-  for (const [label, response] of [
-    ['HTTP 401', () => new Response('Bad credentials', { status: 401 })],
-    ['HTTP 403', () => new Response('Forbidden', { status: 403 })],
-    [
-      'GraphQL FORBIDDEN',
-      () =>
+  /** The served body minus the freshness meta. */
+  const withoutMeta = ({ lastSuccessAt: _a, stale: _b, ...rest }: Record<string, unknown>) => rest;
+
+  it('a healthy response carries lastSuccessAt and stale:false', async () => {
+    vi.stubGlobal('fetch', fakeFetch().fetchImpl);
+    const body = await (await call({ POW: memoryKV().kv, POW_GITHUB_TOKEN: TOKEN }).res).json();
+    expect(body.stale).toBe(false);
+    expect(Date.parse(body.lastSuccessAt)).not.toBeNaN();
+    expect(body.totals.prs).toBe(3);
+    vi.unstubAllGlobals();
+  });
+
+  const refusals: Array<{
+    label: string;
+    response: () => Response;
+    log: RegExp;
+    backoffMs: number;
+  }> = [
+    {
+      label: 'bare HTTP 401',
+      response: () => new Response('Bad credentials', { status: 401 }),
+      log: /^\[pow\] github_auth_failed status=401$/,
+      backoffMs: STALE_MS
+    },
+    {
+      label: 'bare HTTP 403',
+      response: () =>
+        new Response('Resource not accessible', {
+          status: 403,
+          headers: { 'x-ratelimit-remaining': '4000', 'x-ratelimit-reset': '9999999999' }
+        }),
+      log: /^\[pow\] github_auth_failed status=403$/,
+      backoffMs: STALE_MS
+    },
+    {
+      label: 'GraphQL NOT_FOUND',
+      response: () =>
         new Response(
-          JSON.stringify({ data: { repository: null }, errors: [{ type: 'FORBIDDEN', message: 'no' }] }),
+          JSON.stringify({ data: { repository: null }, errors: [{ type: 'NOT_FOUND', message: 'no' }] }),
           { status: 200 }
-        )
-    ]
-  ] as const) {
-    it(`a refused token (${label}) keeps serving the last good summary`, async () => {
-      const { env, data, goodBody } = await seededStale();
+        ),
+      log: /^\[pow\] github_auth_failed status=graphql_not_found$/,
+      backoffMs: STALE_MS
+    },
+    {
+      label: '403 with Retry-After',
+      response: () =>
+        new Response('secondary rate limit', { status: 403, headers: { 'Retry-After': '600' } }),
+      log: /^\[pow\] github_rate_limited status=403 retry_at=\S+Z$/,
+      backoffMs: 600_000
+    },
+    {
+      label: '403 with x-ratelimit-remaining: 0',
+      response: () =>
+        new Response('', {
+          status: 403,
+          headers: {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 1200)
+          }
+        }),
+      log: /^\[pow\] github_rate_limited status=403 retry_at=\S+Z$/,
+      backoffMs: 1_200_000
+    },
+    {
+      label: '403 rate-limit message, no headers',
+      response: () =>
+        new Response('You have exceeded a secondary rate limit', { status: 403 }),
+      log: /^\[pow\] github_rate_limited status=403 retry_at=\S+Z$/,
+      backoffMs: STALE_MS
+    }
+  ];
+
+  for (const { label, response, log, backoffMs } of refusals) {
+    it(`${label}: keeps serving the last good summary, marked stale, and backs off`, async () => {
+      const { env, data, storedBody, good } = await seededStale();
       const github = vi.fn(async () => response());
       vi.stubGlobal('fetch', github);
 
       const { res, waitUntil } = call(env);
       const r = await res;
       expect(r.status).toBe(200);
-      expect(await r.text()).toBe(goodBody);
+      expect(withoutMeta(await r.json())).toEqual(withoutMeta(good));
+      const t0 = Date.now();
       await waitUntil.mock.calls[0][0];
 
-      const status = label === 'GraphQL FORBIDDEN' ? 'graphql_forbidden' : label.slice(5);
-      expect(logs).toContain(`[pow] github_auth_failed status=${status}`);
-      const after = JSON.parse(data.get('pow:summary')!);
-      expect(after.body).toBe(goodBody);
-      expect(after.authFailedAt).toBeTruthy();
+      expect(logs.filter((l) => l.startsWith('[pow] github_'))).toHaveLength(1);
+      expect(logs.find((l) => l.startsWith('[pow] github_'))).toMatch(log);
 
-      // Backs off: once the 60s lock has lapsed, the next request still
-      // neither refreshes nor blanks.
+      const after = JSON.parse(data.get('pow:summary')!);
+      expect(after.body).toBe(storedBody);
+      const until = Date.parse(after.backoff.until);
+      expect(Math.abs(until - (t0 + backoffMs))).toBeLessThan(5_000);
+
+      // Visible on the endpoint: stale, same lastSuccessAt, new ETag.
       github.mockClear();
-      data.delete('pow:lock');
+      data.delete('pow:lock'); // the 60s lock would otherwise mask the backoff
       const next = call(env);
-      expect((await next.res).status).toBe(200);
+      const nextRes = await next.res;
+      expect(nextRes.status).toBe(200);
+      const nextBody = await nextRes.json();
+      expect(nextBody.stale).toBe(true);
+      expect(nextBody.lastSuccessAt).toBe(good.lastSuccessAt);
+      expect(nextRes.headers.get('etag')).not.toBe(r.headers.get('etag'));
+      // …and backs off: no refresh while the backoff stands.
       expect(next.waitUntil).not.toHaveBeenCalled();
       expect(github).not.toHaveBeenCalled();
 
@@ -285,25 +393,47 @@ describe('GET /api/pow', () => {
     });
   }
 
-  it('a removed token serves the last summary, and 503s only with none', async () => {
-    const { env, goodBody } = await seededStale();
+  it('retries once the backoff has passed', async () => {
+    const { env, data } = await seededStale();
+    const stored = JSON.parse(data.get('pow:summary')!);
+    stored.backoff = { reason: 'rate_limited', label: '403', until: new Date(Date.now() - 1).toISOString() };
+    data.set('pow:summary', JSON.stringify(stored));
+    vi.stubGlobal('fetch', fakeFetch().fetchImpl);
+    const { res, waitUntil } = call(env);
+    const body = await (await res).json();
+    expect(body.stale).toBe(true); // until a refresh succeeds
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    await waitUntil.mock.calls[0][0];
+    data.delete('pow:lock');
+    const after = await (await call(env).res).json();
+    expect(after.stale).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('a removed token serves the last summary as stale, and 503s only with none', async () => {
+    const { env, good } = await seededStale();
     delete env.POW_GITHUB_TOKEN;
     const res = await call(env).res;
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe(goodBody);
+    const body = await res.json();
+    expect(withoutMeta(body)).toEqual(withoutMeta(good));
+    expect(body.stale).toBe(true);
 
     const empty = await call({ POW: memoryKV().kv }).res;
     expect(empty.status).toBe(503);
     expect(await empty.json()).toEqual({ code: 'POW_UNCONFIGURED' });
   });
 
-  it('a successful refresh clears the auth backoff', async () => {
+  it('a successful refresh clears the backoff', async () => {
     const { kv, data } = memoryKV();
     await refreshPow(kv, createGithubClient(TOKEN, fakeFetch().fetchImpl), NOW);
     const stored = JSON.parse(data.get('pow:summary')!);
-    data.set('pow:summary', JSON.stringify({ ...stored, authFailedAt: NOW.toISOString() }));
+    data.set(
+      'pow:summary',
+      JSON.stringify({ ...stored, backoff: { reason: 'auth', label: '401', until: NOW.toISOString() } })
+    );
     const later = new Date(NOW.getTime() + 2 * STALE_MS);
     const out = await refreshPow(kv, createGithubClient(TOKEN, fakeFetch().fetchImpl), later);
-    expect(out.stored.authFailedAt).toBeUndefined();
+    expect(out.stored.backoff).toBeUndefined();
   });
 });

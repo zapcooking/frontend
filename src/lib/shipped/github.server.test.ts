@@ -3,6 +3,7 @@ import fixture from '../../test/fixtures/pow-graphql.json';
 import { isExcludedPath } from './config';
 import {
   GithubError,
+  classifyHttpRefusal,
   createGithubClient,
   fetchOne,
   syncRepo,
@@ -148,21 +149,92 @@ describe('fetchOne', () => {
   });
 });
 
+describe('classifyHttpRefusal', () => {
+  const NOW_MS = Date.parse('2026-09-25T15:00:00Z');
+  const RESET = Math.floor(NOW_MS / 1000) + 900; // 15 min out
+  const h = (headers: Record<string, string>) => new Headers(headers);
+
+  it('treats a bare 401/403 as auth, even with the usual rate-limit headers present', () => {
+    // GitHub sends x-ratelimit-* on every response; remaining > 0 is not a limit.
+    const usual = h({ 'x-ratelimit-remaining': '4999', 'x-ratelimit-reset': String(RESET) });
+    expect(classifyHttpRefusal(401, usual, 'Bad credentials', NOW_MS)).toEqual({
+      kind: 'auth',
+      label: '401',
+      retryAtMs: null
+    });
+    expect(classifyHttpRefusal(403, usual, 'Resource not accessible', NOW_MS)).toEqual({
+      kind: 'auth',
+      label: '403',
+      retryAtMs: null
+    });
+  });
+
+  it('403 with Retry-After (seconds) is a rate limit until then', () => {
+    expect(classifyHttpRefusal(403, h({ 'Retry-After': '120' }), '', NOW_MS)).toEqual({
+      kind: 'rate_limited',
+      label: '403',
+      retryAtMs: NOW_MS + 120_000
+    });
+  });
+
+  it('403 with Retry-After as an HTTP date is a rate limit until that date', () => {
+    const at = 'Fri, 25 Sep 2026 15:30:00 GMT';
+    expect(classifyHttpRefusal(403, h({ 'Retry-After': at }), '', NOW_MS)?.retryAtMs).toBe(
+      Date.parse(at)
+    );
+  });
+
+  it('403 with x-ratelimit-remaining: 0 is a rate limit until x-ratelimit-reset', () => {
+    expect(
+      classifyHttpRefusal(
+        403,
+        h({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(RESET) }),
+        '',
+        NOW_MS
+      )
+    ).toEqual({ kind: 'rate_limited', label: '403', retryAtMs: RESET * 1000 });
+  });
+
+  it('403 with a rate-limit message and no timing headers is a rate limit with no reset', () => {
+    expect(
+      classifyHttpRefusal(403, h({}), 'You have exceeded a secondary rate limit.', NOW_MS)
+    ).toEqual({ kind: 'rate_limited', label: '403', retryAtMs: null });
+  });
+
+  it('prefers Retry-After over x-ratelimit-reset', () => {
+    const both = h({ 'Retry-After': '30', 'x-ratelimit-reset': String(RESET) });
+    expect(classifyHttpRefusal(429, both, '', NOW_MS)?.retryAtMs).toBe(NOW_MS + 30_000);
+  });
+
+  it('other statuses are not refusals', () => {
+    expect(classifyHttpRefusal(500, h({ 'Retry-After': '5' }), 'rate limit', NOW_MS)).toBeNull();
+  });
+});
+
 describe('token handling', () => {
-  it('classifies refusals as auth failures, and nothing else', async () => {
-    const cases: Array<[Response, string | null]> = [
-      [new Response('', { status: 401 }), '401'],
-      [new Response('', { status: 403 }), '403'],
-      [new Response(JSON.stringify({ errors: [{ type: 'FORBIDDEN', message: 'x' }] })), 'graphql_forbidden'],
-      [new Response(JSON.stringify({ errors: [{ type: 'NOT_FOUND', message: 'x' }] })), 'graphql_not_found'],
+  it('classifies what the client sees: auth, rate limit, or plain failure', async () => {
+    const gql = (type: string) =>
+      new Response(JSON.stringify({ errors: [{ type, message: 'x' }] }), { status: 200 });
+    const cases: Array<[Response, { kind: string; label: string } | null]> = [
+      [new Response('', { status: 401 }), { kind: 'auth', label: '401' }],
+      [new Response('', { status: 403 }), { kind: 'auth', label: '403' }],
+      [
+        new Response('', { status: 403, headers: { 'Retry-After': '60' } }),
+        { kind: 'rate_limited', label: '403' }
+      ],
+      [new Response('', { status: 429 }), { kind: 'rate_limited', label: '429' }],
+      [gql('FORBIDDEN'), { kind: 'auth', label: 'graphql_forbidden' }],
+      [gql('NOT_FOUND'), { kind: 'auth', label: 'graphql_not_found' }],
+      [gql('RATE_LIMITED'), { kind: 'rate_limited', label: 'graphql_rate_limited' }],
       [new Response('', { status: 502 }), null],
-      [new Response(JSON.stringify({ errors: [{ type: 'RATE_LIMITED', message: 'x' }] })), null]
+      [gql('SERVICE_UNAVAILABLE'), null]
     ];
     for (const [response, expected] of cases) {
       const client = createGithubClient(TOKEN, (async () => response) as unknown as typeof fetch);
       const err = (await syncRepo(client, 'frontend', FRESH, 1).catch((e) => e)) as GithubError;
       expect(err).toBeInstanceOf(GithubError);
-      expect(err.authFailure).toBe(expected);
+      if (expected) expect(err.refusal).toMatchObject(expected);
+      else expect(err.refusal).toBeNull();
     }
   });
 

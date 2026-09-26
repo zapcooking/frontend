@@ -30,14 +30,19 @@ export interface StoredSummary {
   asOfDate: string;
   /** Every repo fully synced as of the last refresh. */
   complete: boolean;
-  /** Last refresh, whether or not it changed anything. Drives staleness. */
-  checkedAt: string;
+  /** Last refresh GitHub answered, whether or not it changed anything. Drives staleness. */
+  lastSuccessAt: string;
   /**
-   * Set when a refresh was refused by GitHub (expired/revoked token). The
-   * body stays as the last good summary; retries back off until STALE_MS
-   * after this instead of hitting GitHub on every request.
+   * Set when GitHub refused a refresh (expired/revoked token, or a rate
+   * limit). The body stays the last good summary; no refresh is tried
+   * before `until`. Cleared by the next successful refresh.
    */
-  authFailedAt?: string;
+  backoff?: {
+    reason: 'auth' | 'rate_limited';
+    /** HTTP status or GraphQL error type. */
+    label: string;
+    until: string;
+  };
 }
 
 export interface PowHead {

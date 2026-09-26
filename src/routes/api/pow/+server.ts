@@ -1,7 +1,10 @@
 /**
  * GET /api/pow — the /pow summary (merged PRs across REPOS since START).
  *
- *   200 { complete, ...Summary }  with ETag; 304 on If-None-Match
+ *   200 { lastSuccessAt, stale, complete, ...Summary }  with ETag; 304 on
+ *       If-None-Match. `stale` is true while GitHub is refusing us (or no
+ *       token is set) — the numbers are the last good ones, as of
+ *       lastSuccessAt.
  *   503 { code: 'POW_UNCONFIGURED' }  no POW binding, or no summary yet and
  *                                     no usable token (missing or refused)
  *   503 { code: 'POW_UNAVAILABLE' }   no summary yet and the cold start
@@ -14,15 +17,23 @@
  * next few requests.
  *
  * The token will expire someday, and /pow must go stale, not dead: once a
- * summary exists, a missing or refused token only stops refreshes. GitHub
- * refusals log `[pow] github_auth_failed status=…` and back off an hour.
+ * summary exists, a missing or refused token only stops refreshes.
+ * Refusals back off and log one of
+ *   [pow] github_auth_failed status=401|403|graphql_not_found|…  (1 hour)
+ *   [pow] github_rate_limited status=403|429|graphql_rate_limited retry_at=…
+ *       (until Retry-After / x-ratelimit-reset, else 1 hour)
  *
  * Never logs or returns the token, request headers, or raw error objects.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { GithubError, createGithubClient } from '$lib/shipped/github.server';
-import { isStale, recordAuthFailure, refreshPow } from '$lib/shipped/refresh.server';
+import {
+  isStale,
+  recordRefusal,
+  refreshPow,
+  servedSummary
+} from '$lib/shipped/refresh.server';
 import {
   readSummary,
   tryAcquireLock,
@@ -39,12 +50,12 @@ function errorText(e: unknown): string {
   return e instanceof Error ? `${e.name}: ${e.message}` : 'unknown error';
 }
 
-/** The auth-failure label (status or GraphQL type) if GitHub refused the token. */
-function authFailure(e: unknown): string | null {
-  return e instanceof GithubError ? e.authFailure : null;
+/** Set if GitHub refused (auth or rate limit) rather than failed. */
+function refusalOf(e: unknown) {
+  return e instanceof GithubError ? e.refusal : null;
 }
 
-/** Refresh, logging the outcome. Auth refusals are recorded, then rethrown. */
+/** Refresh, logging the outcome. Refusals are recorded as a backoff, then rethrown. */
 async function runRefresh(kv: PowKV, token: string): Promise<StoredSummary> {
   try {
     const outcome = await refreshPow(kv, createGithubClient(token));
@@ -55,24 +66,33 @@ async function runRefresh(kv: PowKV, token: string): Promise<StoredSummary> {
     );
     return outcome.stored;
   } catch (e) {
-    const auth = authFailure(e);
-    if (auth) {
-      console.error(`[pow] github_auth_failed status=${auth}`);
-      await recordAuthFailure(kv, new Date());
+    const refusal = refusalOf(e);
+    if (refusal) {
+      const until = await recordRefusal(kv, refusal, new Date());
+      console.error(
+        refusal.kind === 'auth'
+          ? `[pow] github_auth_failed status=${refusal.label}`
+          : `[pow] github_rate_limited status=${refusal.label} retry_at=${until.toISOString()}`
+      );
     }
     throw e;
   }
 }
 
-function respond(stored: StoredSummary, request: Request): Response {
+function respond(
+  stored: StoredSummary,
+  request: Request,
+  opts: { tokenMissing?: boolean } = {}
+): Response {
+  const { body, etag } = servedSummary(stored, opts);
   const headers = {
-    ETag: stored.etag,
+    ETag: etag,
     'Cache-Control': 'public, max-age=60'
   };
-  if (request.headers.get('if-none-match') === stored.etag) {
+  if (request.headers.get('if-none-match') === etag) {
     return new Response(null, { status: 304, headers });
   }
-  return new Response(stored.body, {
+  return new Response(body, {
     status: 200,
     headers: { ...headers, 'Content-Type': 'application/json' }
   });
@@ -96,15 +116,18 @@ export const GET: RequestHandler = async ({ request, platform }) => {
 
   if (!token) {
     console.warn('[pow] POW_GITHUB_TOKEN missing, serving last summary github_calls=0');
-    return stored ? respond(stored, request) : unconfigured();
+    return stored ? respond(stored, request, { tokenMissing: true }) : unconfigured();
   }
 
   if (!stored) {
     try {
       return respond(await runRefresh(kv, token), request);
     } catch (e) {
-      if (authFailure(e)) return unconfigured();
-      console.error(`[pow] cold start failed: ${errorText(e)}`);
+      // No summary to fall back on. A refused token is a config problem;
+      // a rate limit on the very first request is just "not yet".
+      const refusal = refusalOf(e);
+      if (refusal?.kind === 'auth') return unconfigured();
+      if (!refusal) console.error(`[pow] cold start failed: ${errorText(e)}`);
       return unavailable();
     }
   }
@@ -116,7 +139,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
     } else if (platform?.ctx && (await tryAcquireLock(kv, now))) {
       platform.ctx.waitUntil(
         runRefresh(kv, token).catch((e) => {
-          if (!authFailure(e)) console.error(`[pow] background refresh failed: ${errorText(e)}`);
+          if (!refusalOf(e)) console.error(`[pow] background refresh failed: ${errorText(e)}`);
         })
       );
       console.log('[pow] stale, refreshing in background');

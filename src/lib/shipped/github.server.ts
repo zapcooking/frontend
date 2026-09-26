@@ -17,24 +17,74 @@ import type { PrRecord } from './types';
 const GITHUB_GRAPHQL = 'https://api.github.com/graphql';
 const PAGE_SIZE = 50;
 
-/** GraphQL error types that mean the token can't see what we asked for. */
+/**
+ * GraphQL error types that mean the token can't see what we asked for. A
+ * fine-grained token that lost access to a repo reads as NOT_FOUND — as
+ * does a renamed or deleted repo, which the label keeps distinguishable.
+ */
 const AUTH_ERROR_TYPES = new Set(['UNAUTHORIZED', 'FORBIDDEN', 'NOT_FOUND']);
 
-export class GithubError extends Error {
-  /**
-   * Set when the token was refused: the HTTP status ('401', '403') or the
-   * GraphQL error type ('graphql_forbidden', …). A fine-grained token that
-   * lost access to a repo reads as NOT_FOUND, so that counts too. 403 can
-   * also be a secondary rate limit; either way the answer is the same —
-   * keep serving the last good summary.
-   */
-  readonly authFailure: string | null;
+/**
+ * GitHub said no, and retrying right away won't help. Either way the
+ * caller keeps serving the last good summary and backs off.
+ */
+export interface GithubRefusal {
+  kind: 'auth' | 'rate_limited';
+  /** HTTP status ('401', '403', '429') or GraphQL type ('graphql_not_found', …). */
+  label: string;
+  /** Rate limits only: from Retry-After or x-ratelimit-reset; null if neither. */
+  retryAtMs: number | null;
+}
 
-  constructor(message: string, authFailure: string | null = null) {
+export class GithubError extends Error {
+  readonly refusal: GithubRefusal | null;
+
+  constructor(message: string, refusal: GithubRefusal | null = null) {
     super(message);
     this.name = 'GithubError';
-    this.authFailure = authFailure;
+    this.refusal = refusal;
   }
+}
+
+/** Retry-After (seconds or HTTP date), else x-ratelimit-reset (epoch seconds). */
+function retryAtFromHeaders(headers: Headers, nowMs: number): number | null {
+  const retryAfter = headers.get('retry-after');
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds)) return nowMs + seconds * 1000;
+    const date = Date.parse(retryAfter);
+    if (!Number.isNaN(date)) return date;
+  }
+  const reset = headers.get('x-ratelimit-reset');
+  if (reset && Number.isFinite(Number(reset))) return Number(reset) * 1000;
+  return null;
+}
+
+/**
+ * Classify a non-2xx response. 429 is always a rate limit; a 403 is one
+ * when it carries Retry-After, x-ratelimit-remaining: 0, or a rate-limit
+ * message (GitHub's secondary limits). Only a bare 401/403 is an auth
+ * failure. Exported for tests.
+ */
+export function classifyHttpRefusal(
+  status: number,
+  headers: Headers,
+  bodyText: string,
+  nowMs: number
+): GithubRefusal | null {
+  const rateLimited =
+    status === 429 ||
+    (status === 403 &&
+      (headers.has('retry-after') ||
+        headers.get('x-ratelimit-remaining') === '0' ||
+        /rate limit/i.test(bodyText)));
+  if (rateLimited) {
+    return { kind: 'rate_limited', label: String(status), retryAtMs: retryAtFromHeaders(headers, nowMs) };
+  }
+  if (status === 401 || status === 403) {
+    return { kind: 'auth', label: String(status), retryAtMs: null };
+  }
+  return null;
 }
 
 export interface GithubClient {
@@ -61,8 +111,10 @@ export function createGithubClient(token: string, fetchImpl: typeof fetch = fetc
         body: JSON.stringify({ query, variables })
       });
       if (!res.ok) {
-        const auth = res.status === 401 || res.status === 403 ? String(res.status) : null;
-        throw new GithubError(`GitHub GraphQL HTTP ${res.status}`, auth);
+        // Read only to spot a rate-limit message; never logged or returned.
+        const text = await res.text().catch(() => '');
+        const refusal = classifyHttpRefusal(res.status, res.headers, text, Date.now());
+        throw new GithubError(`GitHub GraphQL HTTP ${res.status}`, refusal);
       }
       const body = (await res.json()) as {
         data?: T;
@@ -70,12 +122,22 @@ export function createGithubClient(token: string, fetchImpl: typeof fetch = fetc
       };
       if (body.errors?.length || !body.data) {
         const errors = body.errors ?? [];
-        const authType = errors.find((e) => e.type && AUTH_ERROR_TYPES.has(e.type))?.type;
         const messages = errors.map((e) => e.message ?? '?').join('; ');
-        throw new GithubError(
-          `GitHub GraphQL error: ${messages || 'no data'}`,
-          authType ? `graphql_${authType.toLowerCase()}` : null
-        );
+        let refusal: GithubRefusal | null = null;
+        if (errors.some((e) => e.type === 'RATE_LIMITED')) {
+          // GraphQL's primary limit arrives as HTTP 200 with this type.
+          refusal = {
+            kind: 'rate_limited',
+            label: 'graphql_rate_limited',
+            retryAtMs: retryAtFromHeaders(res.headers, Date.now())
+          };
+        } else {
+          const authType = errors.find((e) => e.type && AUTH_ERROR_TYPES.has(e.type))?.type;
+          if (authType) {
+            refusal = { kind: 'auth', label: `graphql_${authType.toLowerCase()}`, retryAtMs: null };
+          }
+        }
+        throw new GithubError(`GitHub GraphQL error: ${messages || 'no data'}`, refusal);
       }
       return body.data;
     }
@@ -248,7 +310,11 @@ export async function syncRepo(
     } = await client.query(LIST_QUERY, { owner: POW_ORG, name: repo, after });
     pages += 1;
     if (!data.repository) {
-      throw new GithubError(`repository ${repo} not visible to token`, 'graphql_not_found');
+      throw new GithubError(`repository ${repo} not visible to token`, {
+        kind: 'auth',
+        label: 'graphql_not_found',
+        retryAtMs: null
+      });
     }
     const { pageInfo, nodes } = data.repository.pullRequests;
 

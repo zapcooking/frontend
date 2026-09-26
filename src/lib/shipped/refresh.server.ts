@@ -7,7 +7,7 @@
  */
 
 import { REPOS } from './config';
-import { syncRepo, type GithubClient } from './github.server';
+import { syncRepo, type GithubClient, type GithubRefusal } from './github.server';
 import { rollup, zonedDate } from './rollup';
 import {
   readAllRecords,
@@ -30,19 +30,63 @@ export const STALE_MS = 60 * 60 * 1000;
  */
 export const CALL_BUDGET = 12;
 
+/** Floor on a header-derived backoff, so a reset time already past can't spin. */
+const MIN_BACKOFF_MS = 60 * 1000;
+
 export function isStale(stored: StoredSummary, now: Date): boolean {
-  const since = (iso: string) => now.getTime() - Date.parse(iso);
-  if (stored.authFailedAt && since(stored.authFailedAt) <= STALE_MS) return false;
-  return !stored.complete || since(stored.checkedAt) > STALE_MS;
+  if (stored.backoff && now.getTime() < Date.parse(stored.backoff.until)) return false;
+  return !stored.complete || now.getTime() - Date.parse(stored.lastSuccessAt) > STALE_MS;
 }
 
 /**
- * GitHub refused the token: keep the last good summary exactly as it is
- * and just note when, so retries back off. No-op if there's no summary.
+ * When to try again after a refusal: a rate limit's own reset time when
+ * GitHub gave one, otherwise STALE_MS from now.
  */
-export async function recordAuthFailure(kv: PowKV, now: Date): Promise<void> {
+export function backoffUntil(refusal: GithubRefusal, now: Date): Date {
+  const nowMs = now.getTime();
+  if (refusal.kind === 'rate_limited' && refusal.retryAtMs !== null) {
+    return new Date(Math.max(refusal.retryAtMs, nowMs + MIN_BACKOFF_MS));
+  }
+  return new Date(nowMs + STALE_MS);
+}
+
+/**
+ * GitHub refused: keep the last good summary exactly as it is and record
+ * the backoff. Returns when retries resume. No-op write if there's no summary.
+ */
+export async function recordRefusal(
+  kv: PowKV,
+  refusal: GithubRefusal,
+  now: Date
+): Promise<Date> {
+  const until = backoffUntil(refusal, now);
   const prev = await readSummary(kv);
-  if (prev) await writeSummary(kv, { ...prev, authFailedAt: now.toISOString() });
+  if (prev) {
+    await writeSummary(kv, {
+      ...prev,
+      backoff: { reason: refusal.kind, label: refusal.label, until: until.toISOString() }
+    });
+  }
+  return until;
+}
+
+/**
+ * The response for a stored summary: its body with `lastSuccessAt` and
+ * `stale` prepended, and an ETag covering both. `stale` is true while a
+ * refusal or its backoff stands (or no token is configured), so an expired
+ * token is visible on the endpoint itself.
+ */
+export function servedSummary(
+  stored: StoredSummary,
+  opts: { tokenMissing?: boolean } = {}
+): { body: string; etag: string } {
+  const stale = Boolean(stored.backoff) || Boolean(opts.tokenMissing);
+  const meta = `"lastSuccessAt":${JSON.stringify(stored.lastSuccessAt)},"stale":${stale},`;
+  const version = `${Date.parse(stored.lastSuccessAt).toString(36)}${stale ? 's' : ''}`;
+  return {
+    body: `{${meta}${stored.body.slice(1)}`,
+    etag: `${stored.etag.slice(0, -1)}.${version}"`
+  };
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -99,16 +143,16 @@ export async function refreshPow(
     const summary = rollup(await readAllRecords(kv, now), now);
     const body = JSON.stringify({ complete, ...summary });
     const etag = `"${(await sha256Hex(body)).slice(0, 32)}"`;
-    stored = { body, etag, asOfDate: today, complete, checkedAt: now.toISOString() };
+    stored = { body, etag, asOfDate: today, complete, lastSuccessAt: now.toISOString() };
     await writeHead(kv, {
       latestId: summary.recent[0]?.id ?? null,
       updatedAt: now.toISOString(),
       etag
     });
   } else {
-    // Drops any authFailedAt: GitHub just answered.
-    const { authFailedAt: _, ...rest } = prev!;
-    stored = { ...rest, checkedAt: now.toISOString() };
+    // Drops any backoff: GitHub just answered.
+    const { backoff: _, ...rest } = prev!;
+    stored = { ...rest, lastSuccessAt: now.toISOString() };
   }
   await writeSummary(kv, stored);
 
