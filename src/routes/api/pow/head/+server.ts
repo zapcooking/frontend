@@ -12,6 +12,7 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { etagMatches } from '$lib/shipped/serve.server';
 import { readHead } from '$lib/shipped/store.server';
 
 export const GET: RequestHandler = async ({ request, platform }) => {
@@ -38,7 +39,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
   }
 
   const headers = { ETag: head.etag, 'Cache-Control': 'public, max-age=10' };
-  if (request.headers.get('if-none-match') === head.etag) {
+  if (etagMatches(request.headers.get('if-none-match'), head.etag)) {
     return new Response(null, { status: 304, headers });
   }
   return new Response(JSON.stringify(head), {

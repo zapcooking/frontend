@@ -99,7 +99,12 @@ export function servedSummary(
   opts: { tokenMissing?: boolean } = {}
 ): { body: string; etag: string } {
   const stale = Boolean(stored.backoff) || Boolean(opts.tokenMissing);
-  const meta = `"lastSuccessAt":${JSON.stringify(stored.lastSuccessAt)},"stale":${stale},`;
+  // dataVersion is pow:head.etag without quotes: the poller asks for
+  // ?v=<it> and checks the body, never a header (the edge may weaken ETags).
+  const dataVersion = stored.etag.replace(/"/g, '');
+  const meta =
+    `"lastSuccessAt":${JSON.stringify(stored.lastSuccessAt)},"stale":${stale},` +
+    `"dataVersion":${JSON.stringify(dataVersion)},`;
   const version = `${Date.parse(stored.lastSuccessAt).toString(36)}${stale ? 's' : ''}`;
   return {
     body: `{${meta}${stored.body.slice(1)}`,
