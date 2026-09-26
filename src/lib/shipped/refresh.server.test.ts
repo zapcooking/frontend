@@ -18,7 +18,7 @@ const TOKEN = 'github_pat_TEST_SECRET_do_not_leak';
 
 function memoryKV() {
   const data = new Map<string, string>();
-  const log: Array<['get' | 'put', string]> = [];
+  const log: Array<['get' | 'put' | 'delete', string]> = [];
   const kv: PowKV = {
     async get(key, type) {
       log.push(['get', key]);
@@ -28,6 +28,10 @@ function memoryKV() {
     async put(key, value) {
       log.push(['put', key]);
       data.set(key, value);
+    },
+    async delete(key) {
+      log.push(['delete', key]);
+      data.delete(key);
     }
   };
   return { kv, data, log };
@@ -44,6 +48,7 @@ function fakeFetch() {
     pr.pageInfo.hasNextPage = false;
     pr.nodes = [pr.nodes[0]];
     pr.nodes[0].id = `PR_${variables.name}`;
+    pr.nodes[0].title = `Dash — ${variables.name}`;
     return new Response(JSON.stringify(page), { status: 200 });
   });
   return { fetchImpl: fetchImpl as unknown as typeof fetch, calls, spy: fetchImpl };
@@ -422,7 +427,7 @@ describe('EXCLUDE_VERSION resync', () => {
     const out = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
       clock: gh.clock
     });
-    expect(out.resyncStarted).toBe(false);
+    expect(out.resyncStarted).toBeNull();
     expect(out.githubCalls).toBe(3); // one page per repo, then the cursor stops it
     expect(counted3()).toBe(999_999);
   });
@@ -436,7 +441,7 @@ describe('EXCLUDE_VERSION resync', () => {
     const out = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
       clock: gh.clock
     });
-    expect(out.resyncStarted).toBe(true);
+    expect(out.resyncStarted).toBe('exclude_version');
     expect(out.stored.complete).toBe(true);
     expect(out.stored.excludeVersion).toBe(EXCLUDE_VERSION);
     expect(out.githubCalls).toBe(8 + 2); // every frontend page, from START
@@ -446,7 +451,7 @@ describe('EXCLUDE_VERSION resync', () => {
     const next = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
       clock: gh.clock
     });
-    expect(next.resyncStarted).toBe(false);
+    expect(next.resyncStarted).toBeNull();
   });
 
   it('a version mismatch makes even a fresh summary due for refresh, unless backing off', async () => {
@@ -483,7 +488,7 @@ describe('EXCLUDE_VERSION resync', () => {
     const out = await refreshPow(kv, createGithubClient(TOKEN, gh.fetchImpl), NOW, {
       clock: gh.clock
     });
-    expect(out.resyncStarted).toBe(false);
+    expect(out.resyncStarted).toBeNull();
     expect(out.githubCalls).toBe(8 + 2);
     expect(out.stored.complete).toBe(true);
     expect(counted3()).not.toBe(999_999);
@@ -500,7 +505,7 @@ describe('EXCLUDE_VERSION resync', () => {
     const out = await refreshPow(kv, createGithubClient(TOKEN, slow.fetchImpl), NOW, {
       clock: slow.clock
     });
-    expect(out.resyncStarted).toBe(true);
+    expect(out.resyncStarted).toBe('exclude_version');
     expect(out.deadlineHit).toBe(true);
 
     // Mid-resync, as a reader sees it: same PRs, nothing zeroed, not final.
@@ -620,7 +625,11 @@ describe('GET /api/pow', () => {
 
     const first = await call(env).res;
     expect(first.status).toBe(200);
-    expect(first.headers.get('content-type')).toBe('application/json');
+    expect(first.headers.get('content-type')).toBe('application/json; charset=utf-8');
+    // …and the bytes really are UTF-8: an em dash in a title round-trips.
+    expect(new TextDecoder('utf-8').decode(await first.clone().arrayBuffer())).toContain(
+      'Dash — frontend'
+    );
     const body = await first.json();
     expect(body.totals.prs).toBe(3);
     expect(body.complete).toBe(true);

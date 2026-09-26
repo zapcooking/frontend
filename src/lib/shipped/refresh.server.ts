@@ -38,6 +38,14 @@ export const CALL_BUDGET = 12;
  */
 export const REFRESH_DEADLINE_MS = 20_000;
 
+/**
+ * A full resync every this often. KV has no compare-and-swap, so a webhook
+ * write and a cursor sync touching the same month shard can lose one
+ * another's record; the lock narrows that window but can't close it. A
+ * periodic full walk re-fetches every PR and repairs any such loss.
+ */
+export const FULL_RESYNC_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** Floor on a header-derived backoff, so a reset time already past can't spin. */
 const MIN_BACKOFF_MS = 60 * 1000;
 
@@ -112,7 +120,7 @@ async function sha256Hex(text: string): Promise<string> {
  * once; a cut-off before that line just resets again (upserts are
  * idempotent, so a resync only ever recounts).
  */
-async function startResync(kv: PowKV, prev: StoredSummary): Promise<void> {
+async function startResync(kv: PowKV, prev: StoredSummary, now: Date): Promise<void> {
   for (const repo of REPOS) {
     await writeRepoState(kv, repo, { cursor: null, pending: null });
   }
@@ -122,8 +130,41 @@ async function startResync(kv: PowKV, prev: StoredSummary): Promise<void> {
     body,
     etag: `"${(await sha256Hex(body)).slice(0, 32)}"`,
     complete: false,
-    excludeVersion: EXCLUDE_VERSION
+    excludeVersion: EXCLUDE_VERSION,
+    lastFullSyncAt: now.toISOString()
   });
+}
+
+export type ResyncReason = 'exclude_version' | 'weekly';
+
+/** Why this summary needs a full resync now, if it does. */
+export function resyncReason(stored: StoredSummary | null, now: Date): ResyncReason | null {
+  if (!stored) return null; // a cold start is already a full walk
+  if ((stored.excludeVersion ?? 1) !== EXCLUDE_VERSION) return 'exclude_version';
+  if (stored.lastFullSyncAt && now.getTime() - Date.parse(stored.lastFullSyncAt) > FULL_RESYNC_MS) {
+    return 'weekly';
+  }
+  return null;
+}
+
+/**
+ * Recompute the summary body from every stored record and advance
+ * pow:head to it. Callers decide what else the stored summary carries.
+ */
+export async function rebuildSummary(
+  kv: PowKV,
+  now: Date,
+  complete: boolean
+): Promise<{ body: string; etag: string; asOfDate: string }> {
+  const summary = rollup(await readAllRecords(kv, now), now);
+  const body = JSON.stringify({ complete, ...summary });
+  const etag = `"${(await sha256Hex(body)).slice(0, 32)}"`;
+  await writeHead(kv, {
+    latestId: summary.recent[0]?.id ?? null,
+    updatedAt: now.toISOString(),
+    etag
+  });
+  return { body, etag, asOfDate: summary.asOfDate };
 }
 
 export interface RefreshOutcome {
@@ -137,8 +178,8 @@ export interface RefreshOutcome {
   wallMs: number;
   /** The deadline stopped the sync early (the next refresh resumes it). */
   deadlineHit: boolean;
-  /** This refresh found an EXCLUDE_VERSION mismatch and restarted the sync. */
-  resyncStarted: boolean;
+  /** This refresh restarted every repo's sync from START, and why. */
+  resyncStarted: ResyncReason | null;
 }
 
 export async function refreshPow(
@@ -155,8 +196,8 @@ export async function refreshPow(
   let deadlineHit = false;
 
   const before = await readSummary(kv);
-  const resyncStarted = before !== null && (before.excludeVersion ?? 1) !== EXCLUDE_VERSION;
-  if (resyncStarted) await startResync(kv, before!);
+  const resyncStarted = resyncReason(before, now);
+  if (resyncStarted) await startResync(kv, before!, now);
 
   // Round-robin the starting repo: under the deadline a slow first repo
   // would otherwise take every refresh and the last repo would never run.
@@ -196,11 +237,13 @@ export async function refreshPow(
   const recomputed =
     upserted > 0 || !prev || prev.asOfDate !== today || prev.complete !== complete;
 
+  // A cold start is itself a full walk; an older summary starts its weekly
+  // clock at its first refresh under this code.
+  const lastFullSyncAt = prev?.lastFullSyncAt ?? now.toISOString();
+
   let stored: StoredSummary;
   if (recomputed) {
-    const summary = rollup(await readAllRecords(kv, now), now);
-    const body = JSON.stringify({ complete, ...summary });
-    const etag = `"${(await sha256Hex(body)).slice(0, 32)}"`;
+    const { body, etag } = await rebuildSummary(kv, now, complete);
     stored = {
       body,
       etag,
@@ -208,17 +251,13 @@ export async function refreshPow(
       complete,
       excludeVersion: EXCLUDE_VERSION,
       nextRepoIndex,
+      lastFullSyncAt,
       lastSuccessAt: now.toISOString()
     };
-    await writeHead(kv, {
-      latestId: summary.recent[0]?.id ?? null,
-      updatedAt: now.toISOString(),
-      etag
-    });
   } else {
     // Drops any backoff: GitHub just answered.
     const { backoff: _, ...rest } = prev!;
-    stored = { ...rest, nextRepoIndex, lastSuccessAt: now.toISOString() };
+    stored = { ...rest, nextRepoIndex, lastFullSyncAt, lastSuccessAt: now.toISOString() };
   }
   await writeSummary(kv, stored);
 

@@ -38,6 +38,7 @@ import {
 } from '$lib/shipped/refresh.server';
 import {
   readSummary,
+  releaseLock,
   tryAcquireLock,
   type PowKV,
   type StoredSummary
@@ -75,7 +76,7 @@ async function runRefresh(kv: PowKV, token: string): Promise<StoredSummary> {
         `upserted=${outcome.upserted} recomputed=${outcome.recomputed} ` +
         `complete=${outcome.stored.complete} wall_ms=${outcome.wallMs} ` +
         `deadline_hit=${outcome.deadlineHit}` +
-        (outcome.resyncStarted ? ' resync_started=true' : '')
+        (outcome.resyncStarted ? ` resync_started=${outcome.resyncStarted}` : '')
     );
     return outcome.stored;
   } catch (e) {
@@ -92,26 +93,40 @@ async function runRefresh(kv: PowKV, token: string): Promise<StoredSummary> {
   }
 }
 
+/**
+ * `?v=` names the data version the caller expects (pow:head.etag, quotes
+ * optional) and gives each version its own edge-cache key. KV reads can lag
+ * a write by up to a minute elsewhere, so a `v` this location can't serve
+ * yet must never be cached under that key.
+ */
+function versionMismatch(request: Request, stored: StoredSummary): boolean {
+  const v = new URL(request.url).searchParams.get('v');
+  return v !== null && v.replace(/"/g, '') !== stored.etag.replace(/"/g, '');
+}
+
 function respond(
   stored: StoredSummary,
   request: Request,
   opts: { tokenMissing?: boolean } = {}
 ): Response {
   const { body, etag } = servedSummary(stored, opts);
+  const cacheable = stored.complete && !versionMismatch(request, stored);
   const headers = {
     ETag: etag,
     // While a backfill or resync is still running, never let the edge cache
     // hold a response: a cache hit skips this handler, so it would also
     // skip the refresh that moves the backfill along. Refreshes stay
     // lock- and backoff-gated either way.
-    'Cache-Control': stored.complete ? 'public, max-age=60' : 'no-store'
+    'Cache-Control': cacheable ? 'public, max-age=60' : 'no-store'
   };
   if (request.headers.get('if-none-match') === etag) {
     return new Response(null, { status: 304, headers });
   }
   return new Response(body, {
     status: 200,
-    headers: { ...headers, 'Content-Type': 'application/json' }
+    // Explicit charset: without it some browsers decode PR titles as
+    // Latin-1 and show "—" as "â€”".
+    headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8' }
   });
 }
 
@@ -137,6 +152,17 @@ export const GET: RequestHandler = async ({ request, platform }) => {
   }
 
   if (!stored) {
+    // One cold start at a time (best-effort, like every use of the lock).
+    let locked = false;
+    try {
+      locked = await tryAcquireLock(kv, new Date());
+    } catch (e) {
+      console.error(`[pow] cold start lock failed: ${errorText(e)}`);
+    }
+    if (!locked) {
+      console.log('[pow] cold start already running github_calls=0');
+      return unavailable(60);
+    }
     try {
       return respond(await runRefresh(kv, token), request);
     } catch (e) {
@@ -152,6 +178,8 @@ export const GET: RequestHandler = async ({ request, platform }) => {
       const now = new Date();
       const waitMs = backoffUntil(refusal, now).getTime() - now.getTime();
       return unavailable(Math.ceil(waitMs / 1000));
+    } finally {
+      await releaseLock(kv).catch(() => {});
     }
   }
 
