@@ -43,6 +43,8 @@ const MIN_BACKOFF_MS = 60 * 1000;
 
 export function isStale(stored: StoredSummary, now: Date): boolean {
   if (stored.backoff && now.getTime() < Date.parse(stored.backoff.until)) return false;
+  // A new EXCLUDE list takes effect on the next request, not up to an hour later.
+  if ((stored.excludeVersion ?? 1) !== EXCLUDE_VERSION) return true;
   return !stored.complete || now.getTime() - Date.parse(stored.lastSuccessAt) > STALE_MS;
 }
 

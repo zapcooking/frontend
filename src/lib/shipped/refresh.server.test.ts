@@ -339,6 +339,17 @@ describe('EXCLUDE_VERSION resync', () => {
     expect(next.resyncStarted).toBe(false);
   });
 
+  it('a version mismatch makes even a fresh summary due for refresh, unless backing off', async () => {
+    const { data } = await seeded();
+    const stored = JSON.parse(data.get('pow:summary')!);
+    const now = new Date(Date.parse(stored.lastSuccessAt) + 60_000);
+    expect(isStale(stored, now)).toBe(false);
+    expect(isStale({ ...stored, excludeVersion: EXCLUDE_VERSION - 1 }, now)).toBe(true);
+    expect(isStale({ ...stored, excludeVersion: undefined }, now)).toBe(true);
+    const backoff = { reason: 'auth', label: '401', until: new Date(now.getTime() + 60_000).toISOString() };
+    expect(isStale({ ...stored, excludeVersion: undefined, backoff }, now)).toBe(false);
+  });
+
   it('a refresh cut off right after starting the resync leaves it honest and resumable', async () => {
     const { kv, data, gh, counted3 } = await seeded();
     const stored = JSON.parse(data.get('pow:summary')!);
