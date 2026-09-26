@@ -7,16 +7,17 @@
  * Spec safeguards implemented here (SPEC.md "Recover"):
  *  - re-read the current version from the write relays immediately before
  *    signing; if a newer one appeared since the review, return 'changed' so
- *    the UI recomputes the delta and asks again; if no write relay can be
- *    reached, abort — the spec is silent on the unreachable case, and
- *    assuming the reviewed version is still current could overwrite an
- *    unseen edit;
+ *    the UI recomputes the delta and asks again; if no write relay answers,
+ *    abort, since assuming the reviewed version is still current could
+ *    overwrite an unseen edit, unless the user explicitly overrides after a
+ *    failed retry;
  *  - the recovered event is dated after the version it replaces
  *    (buildLazarusRecoveryDraft);
  *  - the signing account must be the list's author — checked again after
  *    signing, so an account switch mid-approval aborts the publish;
- *  - success is judged on the user's write relays; the other relays that
- *    answered the scan get the recovery as a best effort.
+ *  - success is judged on the user's write relays (for a relay list, the
+ *    ones the restored version names); the other relays that answered the
+ *    scan get the recovery as a best effort.
  */
 
 import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
@@ -176,7 +177,7 @@ export async function publishLazarusRecovery(opts: {
     );
   }
 
-  const { write, extra } = await getLazarusPublishRelays(pubkey, respondingRelays);
+  const { write, extra } = await getLazarusPublishRelays(pubkey, respondingRelays, chosen);
   let published: Set<NDKRelay>;
   try {
     published = await event.publish(toRelaySet(ndk, write), PUBLISH_TIMEOUT_MS);

@@ -129,6 +129,8 @@ describe('publishLazarusRecovery', () => {
     state.accepting = new Set(['wss://write-b']);
     const result = await restore(clobbered);
     expect(result.status === 'published' && result.publishedRelays).toEqual(['wss://write-b']);
+    // The chosen version goes along, so a relay list restore is judged on its relays
+    expect(getLazarusPublishRelays).toHaveBeenCalledWith(PUBKEY, [], healthy);
   });
 
   describe('the unreachable re-read override (spec 0.6.0)', () => {
