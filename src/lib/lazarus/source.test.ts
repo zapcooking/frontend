@@ -3,9 +3,10 @@ import type { Event, Filter } from 'nostr-tools';
 
 /** zap's Lazarus relay adapter: the I/O half the vendored core injects.
  * jank's service mocks are replaced here with mocks of zap's seams —
- * SimplePool.subscribeMany, the kind-10002 relay-list cache, and the app's
- * configured relays — pinning the same behaviors: relay-set assembly,
- * paging, timeout handling, and the newest-version pre-check. */
+ * SimplePool.ensureRelay and each relay's subscribe, the kind-10002
+ * relay-list cache, and the app's configured relays — pinning the same
+ * behaviors: relay-set assembly, paging, relay outcomes, and the
+ * newest-version pre-check. */
 
 vi.mock('$lib/nostr', () => ({
   getCurrentRelays: () => ['wss://default']
@@ -33,11 +34,11 @@ vi.mock('$lib/relayListCache', () => ({
   }
 }));
 
-const subscribeMany = vi.fn();
+const ensureRelay = vi.fn();
 const destroy = vi.fn();
 
 vi.mock('nostr-tools/pool', () => ({
-  SimplePool: vi.fn().mockImplementation(() => ({ subscribeMany, close: vi.fn(), destroy }))
+  SimplePool: vi.fn().mockImplementation(() => ({ ensureRelay, close: vi.fn(), destroy }))
 }));
 
 import { relayListCache } from '$lib/relayListCache';
@@ -78,24 +79,43 @@ function followListEvent(count: number, createdAt: number): Event {
 interface Handlers {
   onevent?: (event: Event) => void;
   oneose?: () => void;
-  onclose?: () => void;
+  onclose?: (reason: string) => void;
+  eoseTimeout?: number;
+}
+
+/**
+ * Relays answer through the pool, the way the scan asks them: `respond`
+ * plays each relay's side of a request, a microtask after it's made. Relays
+ * in `refuse` refuse the connection.
+ */
+function relays(
+  respond: (url: string, filter: Filter, handlers: Handlers) => void,
+  { refuse = [] }: { refuse?: string[] } = {}
+) {
+  ensureRelay.mockImplementation(async (url: string) => {
+    if (refuse.includes(url)) throw new Error('connection refused');
+    return {
+      url,
+      subscribe: (filters: Filter[], handlers: Handlers) => {
+        queueMicrotask(() => respond(url, filters[0], handlers));
+        return { close: vi.fn() };
+      }
+    };
+  });
 }
 
 /** Serve a fixed history from one relay through the mocked pool. */
 function serve(relay: string, events: Event[], honorUntil = true) {
-  subscribeMany.mockImplementation((urls: string[], filter: Filter, handlers: Handlers) => {
+  relays((url, filter, handlers) => {
     const { until, limit = 50 } = filter as { until?: number; limit?: number };
-    queueMicrotask(() => {
-      if (urls[0] === relay) {
-        events
-          .filter((event) => !honorUntil || until === undefined || event.created_at <= until)
-          .sort((a, b) => b.created_at - a.created_at)
-          .slice(0, limit)
-          .forEach((event) => handlers.onevent?.(event));
-      }
-      handlers.oneose?.();
-    });
-    return { close: vi.fn() };
+    if (url === relay) {
+      events
+        .filter((event) => !honorUntil || until === undefined || event.created_at <= until)
+        .sort((a, b) => b.created_at - a.created_at)
+        .slice(0, limit)
+        .forEach((event) => handlers.onevent?.(event));
+    }
+    handlers.oneose?.();
   });
 }
 
@@ -104,16 +124,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  subscribeMany.mockReset();
+  ensureRelay.mockReset();
   mockedRelayListGet.mockReset();
 });
 
-/** Every relay's connection fails before EOSE. */
+/** Every relay refuses the connection. */
 function failAll() {
-  subscribeMany.mockImplementation((_urls: string[], _filter: Filter, handlers: Handlers) => {
-    queueMicrotask(() => handlers.onclose?.());
-    return { close: vi.fn() };
-  });
+  ensureRelay.mockRejectedValue(new Error('connection refused'));
 }
 
 describe('getLazarusScanPlan', () => {
@@ -156,7 +173,7 @@ describe('getLazarusScanPlan', () => {
     expect(plan.relays).toContain('wss://hist.nostr.land');
   });
 
-  it('never substitutes the app relays when no relay answered the lookup', async () => {
+  it('never substitutes the app relays when every relay refuses the lookup', async () => {
     mockedRelayListGet.mockRejectedValueOnce(new Error('offline'));
     failAll();
     const plan = await getLazarusScanPlan('pubkey');
@@ -185,6 +202,38 @@ describe('getLazarusPublishRelays', () => {
     expect(await getLazarusPublishRelays('pubkey', ['wss://a/'])).toEqual({
       write: ['wss://default'],
       extra: ['wss://a']
+    });
+  });
+
+  it('judges a relay list restore on the write relays the restored version names', async () => {
+    // The current list names only a dead relay, the one the restore is meant to fix
+    mockedRelayListGet.mockResolvedValueOnce({ read: [], write: ['wss://dead/'], updatedAt: 0 });
+    const restoring = makeEvent({
+      kind: 10002,
+      tags: [
+        ['r', 'wss://alive/', 'write'],
+        ['r', 'wss://both/'],
+        ['r', 'wss://inbox/', 'read']
+      ]
+    });
+    expect(await getLazarusPublishRelays('pubkey', ['wss://hist.nostr.land'], restoring)).toEqual({
+      write: ['wss://alive', 'wss://both'],
+      // The current write relays still get it as a best effort
+      extra: ['wss://dead', 'wss://hist.nostr.land']
+    });
+  });
+
+  it('uses the app relays when the restored relay list names no write relays', async () => {
+    // Read-only restored list: falling back to `current` would judge the
+    // restore on the dead write relays it exists to replace.
+    mockedRelayListGet.mockResolvedValueOnce({ read: [], write: ['wss://dead/'], updatedAt: 0 });
+    const restoring = makeEvent({
+      kind: 10002,
+      tags: [['r', 'wss://inbox/', 'read']]
+    });
+    expect(await getLazarusPublishRelays('pubkey', [], restoring)).toEqual({
+      write: ['wss://default'],
+      extra: ['wss://dead']
     });
   });
 });
@@ -221,14 +270,37 @@ describe('zapLazarusRelaySource.fetchVersions', () => {
     vi.useFakeTimers();
     try {
       const close = vi.fn();
-      subscribeMany.mockImplementation(() => ({ close }));
+      const subscribe = vi.fn(() => ({ close }));
+      ensureRelay.mockImplementation(async (url: string) => ({ url, subscribe }));
       const pending = scanLazarusKind(3, 'test-pubkey', zapLazarusRelaySource);
       // Attach the rejection handler before the timers fire
       const failed = expect(pending).rejects.toThrow('No relay answered the scan');
       // The relay list lookup times out, then the scan
       await vi.advanceTimersByTimeAsync(12000);
       await failed;
-      expect(close).toHaveBeenCalledTimes(subscribeMany.mock.calls.length);
+      expect(subscribe).toHaveBeenCalled();
+      expect(close).toHaveBeenCalledTimes(subscribe.mock.calls.length);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('times a silent relay out before its own EOSE timeout can report an answer', async () => {
+    vi.useFakeTimers();
+    try {
+      // Like nostr-tools, a relay subscription reports EOSE by itself once its
+      // timeout passes, whether or not the relay sent one
+      ensureRelay.mockImplementation(async (url: string) => ({
+        url,
+        subscribe: (_filters: Filter[], handlers: Handlers) => {
+          const timer = setTimeout(() => handlers.oneose?.(), handlers.eoseTimeout ?? 4400);
+          return { close: () => clearTimeout(timer) };
+        }
+      }));
+      const pending = scanLazarusKind(3, 'test-pubkey', zapLazarusRelaySource);
+      const failed = expect(pending).rejects.toThrow('No relay answered the scan');
+      await vi.advanceTimersByTimeAsync(12000);
+      await failed;
     } finally {
       vi.useRealTimers();
     }
@@ -237,22 +309,27 @@ describe('zapLazarusRelaySource.fetchVersions', () => {
   it('records how each relay ended, keeping versions sent before a failure', async () => {
     mockedRelayListGet.mockResolvedValue({ read: [], write: ['wss://w1/'], updatedAt: 0 });
     const partial = followListEvent(5, 1000);
-    subscribeMany.mockImplementation((urls: string[], _filter: Filter, handlers: Handlers) => {
-      queueMicrotask(() => {
-        if (urls[0] === HISTORY_RELAY) {
+    relays(
+      (url, _filter, handlers) => {
+        if (url === HISTORY_RELAY) {
           // Sends a version, then its connection drops before EOSE
           handlers.onevent?.(partial);
-          return handlers.onclose?.();
+          return handlers.onclose?.('relay connection closed');
         }
-        if (urls[0] === 'wss://w1') return handlers.onclose?.();
+        // Requires authentication, which a scan never gives
+        if (url === 'wss://w1') return handlers.onclose?.('auth-required: sign in');
+        if (url === 'wss://nostr.mom') return handlers.onclose?.('blocked: rate limited');
         handlers.oneose?.();
-      });
-      return { close: vi.fn() };
-    });
+      },
+      { refuse: ['wss://purplepag.es'] }
+    );
     const scan = await scanLazarusKind(3, 'test-pubkey', zapLazarusRelaySource);
     expect(scan.candidates.map((c) => c.event.id)).toEqual([partial.id]);
     expect(scan.relayOutcomes?.[HISTORY_RELAY]).toBe('failed');
     expect(scan.relayOutcomes?.['wss://w1']).toBe('failed');
+    // A CLOSED before EOSE, and a refused connection, are failures, never empty answers
+    expect(scan.relayOutcomes?.['wss://nostr.mom']).toBe('failed');
+    expect(scan.relayOutcomes?.['wss://purplepag.es']).toBe('failed');
     expect(scan.relayOutcomes?.['wss://default']).toBe('answered');
     // The only write relay failed, so current is unconfirmed
     expect(scan.currentConfirmed).toBe(false);
@@ -265,14 +342,13 @@ describe('zapLazarusRelaySource.fetchVersions', () => {
     const full = followListEvent(40, 1000);
     const clobbered = followListEvent(3, 2000);
     const serveClobber = (writeRelayAnswers: boolean) =>
-      subscribeMany.mockImplementation((urls: string[], _filter: Filter, handlers: Handlers) => {
-        queueMicrotask(() => {
-          if (urls[0] === 'wss://w1' && !writeRelayAnswers) return handlers.onclose?.();
-          if (urls[0] === HISTORY_RELAY) [full, clobbered].forEach((e) => handlers.onevent?.(e));
+      relays(
+        (url, _filter, handlers) => {
+          if (url === HISTORY_RELAY) [full, clobbered].forEach((e) => handlers.onevent?.(e));
           handlers.oneose?.();
-        });
-        return { close: vi.fn() };
-      });
+        },
+        { refuse: writeRelayAnswers ? [] : ['wss://w1'] }
+      );
     serveClobber(true);
     expect((await scanLazarusKind(3, 'test-pubkey', zapLazarusRelaySource)).recommended?.event.id).toBe(
       full.id
@@ -286,12 +362,9 @@ describe('zapLazarusRelaySource.fetchVersions', () => {
   it('shows versions that arrived even when no relay answered', async () => {
     mockedRelayListGet.mockResolvedValue({ read: [], write: ['wss://w1/'], updatedAt: 0 });
     const partial = followListEvent(5, 1000);
-    subscribeMany.mockImplementation((urls: string[], _filter: Filter, handlers: Handlers) => {
-      queueMicrotask(() => {
-        if (urls[0] === HISTORY_RELAY) handlers.onevent?.(partial);
-        handlers.onclose?.();
-      });
-      return { close: vi.fn() };
+    relays((url, _filter, handlers) => {
+      if (url === HISTORY_RELAY) handlers.onevent?.(partial);
+      handlers.onclose?.('relay connection closed');
     });
     const scan = await scanLazarusKind(3, 'test-pubkey', zapLazarusRelaySource);
     expect(scan.candidates.map((c) => c.event.id)).toEqual([partial.id]);
@@ -346,14 +419,26 @@ describe('fetchLatestLazarusVersion', () => {
     });
     const older = followListEvent(5, 1000);
     const newer = followListEvent(6, 2000);
-    subscribeMany.mockImplementation((urls: string[], _filter: Filter, handlers: Handlers) => {
-      queueMicrotask(() => {
-        handlers.onevent?.(urls[0] === 'wss://w1' ? older : newer);
-        handlers.oneose?.();
-      });
-      return { close: vi.fn() };
+    relays((url, _filter, handlers) => {
+      handlers.onevent?.(url === 'wss://w1' ? older : newer);
+      handlers.oneose?.();
     });
     expect((await fetchLatestLazarusVersion(3, 'test-pubkey'))?.id).toBe(newer.id);
+  });
+
+  it('takes the lower id of two versions from the same second', async () => {
+    mockedRelayListGet.mockResolvedValue({
+      read: [],
+      write: ['wss://w1/', 'wss://w2/'],
+      updatedAt: 0
+    });
+    const higher = { ...followListEvent(5, 2000), id: 'b'.repeat(64) };
+    const lower = { ...followListEvent(6, 2000), id: 'a'.repeat(64) };
+    relays((url, _filter, handlers) => {
+      handlers.onevent?.(url === 'wss://w1' ? higher : lower);
+      handlers.oneose?.();
+    });
+    expect((await fetchLatestLazarusVersion(3, 'test-pubkey'))?.id).toBe(lower.id);
   });
 
   it('ignores foreign events a relay serves despite the filter', async () => {
@@ -365,12 +450,9 @@ describe('fetchLatestLazarusVersion', () => {
     const mine = followListEvent(5, 1000);
     const foreign = { ...followListEvent(9, 5000), pubkey: 'someone-else' } as Event;
     const otherKind = { ...followListEvent(9, 6000), kind: 1 } as Event;
-    subscribeMany.mockImplementation((_urls: string[], _filter: Filter, handlers: Handlers) => {
-      queueMicrotask(() => {
-        [mine, foreign, otherKind].forEach((event) => handlers.onevent?.(event));
-        handlers.oneose?.();
-      });
-      return { close: vi.fn() };
+    relays((_url, _filter, handlers) => {
+      [mine, foreign, otherKind].forEach((event) => handlers.onevent?.(event));
+      handlers.oneose?.();
     });
     expect((await fetchLatestLazarusVersion(3, 'test-pubkey'))?.id).toBe(mine.id);
   });
@@ -383,7 +465,11 @@ describe('fetchLatestLazarusVersion', () => {
     });
     vi.useFakeTimers();
     try {
-      subscribeMany.mockImplementation(() => ({ close: vi.fn() })); // never EOSEs
+      // Connects, but never EOSEs
+      ensureRelay.mockImplementation(async (url: string) => ({
+        url,
+        subscribe: () => ({ close: vi.fn() })
+      }));
       // Attach the rejection handler before the timers fire, or the
       // rejection lands unhandled in between awaits.
       const pending = expect(fetchLatestLazarusVersion(3, 'test-pubkey')).rejects.toThrow(
@@ -396,16 +482,15 @@ describe('fetchLatestLazarusVersion', () => {
     }
   });
 
-  it('fails closed when every write relay closes without answering', async () => {
+  it('fails closed when every write relay refuses the connection or closes the request', async () => {
     mockedRelayListGet.mockResolvedValue({
       read: [],
       write: ['wss://w1/', 'wss://w2/'],
       updatedAt: 0
     });
-    // A refused connection closes the subscription before EOSE, with nothing sent
-    subscribeMany.mockImplementation((_urls: string[], _filter: Filter, handlers: Handlers) => {
-      queueMicrotask(() => handlers.onclose?.());
-      return { close: vi.fn() };
+    // w1 refuses the connection; w2 sends CLOSED before EOSE
+    relays((_url, _filter, handlers) => handlers.onclose?.('error: shutting down'), {
+      refuse: ['wss://w1']
     });
     await expect(fetchLatestLazarusVersion(3, 'test-pubkey')).rejects.toThrow(
       'No write relay could be reached'
@@ -420,10 +505,13 @@ describe('fetchLatestLazarusVersion', () => {
     });
     vi.useFakeTimers();
     try {
-      subscribeMany.mockImplementation((urls: string[], _filter: Filter, handlers: Handlers) => {
-        if (urls[0] === 'wss://w1') queueMicrotask(() => handlers.oneose?.());
-        return { close: vi.fn() }; // w2 never answers
-      });
+      ensureRelay.mockImplementation(async (url: string) => ({
+        url,
+        subscribe: (_filters: Filter[], handlers: Handlers) => {
+          if (url === 'wss://w1') queueMicrotask(() => handlers.oneose?.());
+          return { close: vi.fn() }; // w2 never answers
+        }
+      }));
       const pending = fetchLatestLazarusVersion(3, 'test-pubkey');
       await vi.advanceTimersByTimeAsync(4000);
       expect(await pending).toBeUndefined();

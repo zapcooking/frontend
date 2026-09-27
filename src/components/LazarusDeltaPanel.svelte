@@ -64,15 +64,21 @@
 
   $: candidate, resetConfirms();
   $: resetKey, resetConfirms();
+  // Every restore attempt's outcome re-arms the override, so a confirmation
+  // given for one attempt is never carried into the next.
+  $: publishErrorCode, (overrideConfirmed = false);
 
   $: currentUnreadable = publishErrorCode === 'current-unreadable';
 
-  $: delta = profile?.ranking !== 'recency'
-    ? computeLazarusDelta(candidate.event, currentEvent, privateTags)
-    : undefined;
+  $: delta =
+    candidate.event.kind !== 0
+      ? computeLazarusDelta(candidate.event, currentEvent, privateTags)
+      : undefined;
   $: profileChanges =
     candidate.event.kind === 0 ? computeLazarusProfileChanges(candidate.event, currentEvent) : undefined;
   $: needsIntent = !!profile?.meaningfulEmpty;
+  $: currentEmpty =
+    !currentEvent || !profile || getLazarusItemRange(profile.itemCount(currentEvent)).max === 0;
   $: oversize = remoteSigner && pubkey ? !fitsLazarusRemoteRestore(candidate.event, pubkey) : false;
 
   // The row the user clicked sits right above this panel. Bring the panel
@@ -117,12 +123,21 @@
     </p>
     {#if decryptingPrivate}
       <p class="lz-note">Decrypting private items so the changes cover them too…</p>
-    {:else if delta.privateUnknown}
-      <p class="lz-warning">
-        <WarningIcon size={14} weight="fill" />
-        Some private items are encrypted and couldn't be decrypted here, so they aren't listed
-        below — they restore exactly as they were. Counts on the version rows are estimates.
-      </p>
+    {:else}
+      {#if delta.privateUnknownChosen}
+        <p class="lz-warning">
+          <WarningIcon size={14} weight="fill" />
+          This version's private items couldn't be decrypted here, so the changes leave them
+          out. They restore exactly as they were; counts on the version rows are estimates.
+        </p>
+      {/if}
+      {#if delta.privateUnknownCurrent}
+        <p class="lz-warning">
+          <WarningIcon size={14} weight="fill" />
+          Your current version's private items couldn't be decrypted here, so the changes leave
+          them out. Restoring replaces them, so it may remove items no count shows.
+        </p>
+      {/if}
     {/if}
     {#if delta.added.length}
       <details class="lz-details">
@@ -153,14 +168,21 @@
 
   {#if needsIntent}
     <div class="lz-intent">
+      <!-- What both versions mean, in the restore's direction -->
       <p>
         {#if getLazarusItemRange(candidate.itemCount).max === 0}
-          The current empty state announces that you do not use NIP-4e; restoring this
-          version re-lists these encryption keys and clients will encrypt direct messages
-          to them again.
+          This announces that you no longer use NIP-4e; clients stop encrypting direct messages
+          to your keys.
         {:else}
-          This restores your NIP-4e encryption keys. The current empty state would have
-          announced that you do not use NIP-4e.
+          This restores your NIP-4e encryption keys. Clients will encrypt direct messages to them
+          again.
+        {/if}
+      </p>
+      <p>
+        {#if currentEmpty}
+          The current empty state announces that you do not use NIP-4e.
+        {:else}
+          Your current version lists keys that clients encrypt direct messages to.
         {/if}
       </p>
       <label>
@@ -185,7 +207,7 @@
     </p>
   {:else if publishing}
     <p class="lz-note">Waiting for your signer…</p>
-  {:else if delta?.shrinks || (profileChanges && profileChanges.length > 0)}
+  {:else if delta?.needsShrinkConfirmation || (profileChanges && profileChanges.length > 0)}
     {#if !armShrinkConfirm}
       <button
         type="button"
@@ -196,7 +218,13 @@
         {delta?.shrinks ? `Continue — this removes ${delta.removedCount} item${delta.removedCount === 1 ? '' : 's'}` : 'Continue'}
       </button>
     {:else}
-      <p class="lz-warning">This restore shrinks your list below the current version.</p>
+      {#if delta?.shrinks}
+        <p class="lz-warning">This restore shrinks your list below the current version.</p>
+      {:else if delta?.privateUnknownCurrent}
+        <p class="lz-warning">
+          This restore replaces private items that couldn't be counted, so it may remove some.
+        </p>
+      {/if}
       <div class="lz-confirm-row">
         <button type="button" class="lz-cancel" on:click={() => (armShrinkConfirm = false)}>Cancel</button>
         <button
@@ -240,7 +268,7 @@
     {/if}
     <button type="button" class="lz-cancel" on:click={() => dispatch('restore')}>
       <ArrowClockwiseIcon size={14} />
-      Retry the check
+      Retry the restore
     </button>
   {/if}
   <button type="button" class="lz-cancel" on:click={() => dispatch('close')}>Close review</button>

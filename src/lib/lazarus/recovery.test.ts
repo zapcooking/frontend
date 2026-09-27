@@ -1,6 +1,6 @@
 import { generateSecretKey, getPublicKey, nip44, type Event } from 'nostr-tools';
 import { describe, expect, it } from 'vitest';
-import { getLazarusKindProfile, LAZARUS_REGISTRY } from './registry';
+import { getLazarusKindProfile, LAZARUS_REGISTRY, normalizeLazarusRelayUrl } from './registry';
 import {
   applyLazarusPrivateTags,
   buildLazarusRecoveryDraft,
@@ -84,6 +84,53 @@ describe('registry', () => {
     const profile = getLazarusKindProfile(10044);
     expect(profile?.meaningfulEmpty).toBe(true);
     expect(profile?.ranking).toBe('intent');
+  });
+
+  it('counts the n tags NIP-4e lists encryption keys in', () => {
+    const keyList = {
+      ...makeEvent({ kind: 10044 }),
+      tags: [
+        ['n', 'a'.repeat(64)],
+        ['n', 'b'.repeat(64)],
+        ['p', 'c'.repeat(64)]
+      ]
+    } as Event;
+    expect(getLazarusKindProfile(10044)?.itemCount(keyList).count).toBe(2);
+  });
+
+  it('counts each item once, and no tag without a value', () => {
+    const follows = {
+      ...makeEvent({ kind: 3 }),
+      tags: [['p', 'a'], ['p', 'a', 'wss://hint'], ['p', 'b'], ['p'], ['p', ''], ['alt', 'x']]
+    } as Event;
+    expect(LAZARUS_REGISTRY[3].itemCount(follows).count).toBe(2);
+  });
+
+  it("counts a profile's fields, so one wiped to {} is empty", () => {
+    const profile = (content: string) => ({ ...makeEvent({ kind: 0 }), content }) as Event;
+    const count = (content: string) => LAZARUS_REGISTRY[0].itemCount(profile(content)).count;
+    expect(count('{"name":"a","about":"b","bot":null}')).toBe(2);
+    expect(count('{}')).toBe(0);
+    expect(count('not json')).toBe(0);
+    expect(count('["name"]')).toBe(0);
+  });
+
+  it('compares relay URLs normalized on the relay kinds', () => {
+    const relayList = (kind: number, name: string) =>
+      ({
+        ...makeEvent({ kind }),
+        tags: [
+          [name, 'wss://Relay.Example/'],
+          [name, 'wss://relay.example'],
+          [name, 'wss://relay.example:443//']
+        ]
+      }) as Event;
+    expect(LAZARUS_REGISTRY[10002].itemCount(relayList(10002, 'r')).count).toBe(1);
+    expect(LAZARUS_REGISTRY[10050].itemCount(relayList(10050, 'relay')).count).toBe(1);
+    expect(LAZARUS_REGISTRY[10006].itemCount(relayList(10006, 'relay')).count).toBe(1);
+    expect(normalizeLazarusRelayUrl('wss://Relay.Example:443//path/')).toBe(
+      'wss://relay.example/path'
+    );
   });
 
   it('never returns profiles for unregistered kinds', () => {
@@ -259,10 +306,64 @@ describe('rankLazarusCandidates', () => {
     expect(result.recommended?.event.id).toBe(versions[5].id);
   });
 
+  it('takes the lowest id as current among versions from the same second', () => {
+    const higher = { ...followListEvent(10, 1000), id: 'b'.repeat(64) };
+    const lower = { ...followListEvent(12, 1000), id: 'a'.repeat(64) };
+    const result = rankLazarusCandidates(LAZARUS_REGISTRY[3], [
+      { event: higher, relayUrl: 'wss://a' },
+      { event: lower, relayUrl: 'wss://a' }
+    ]);
+    expect(result.current?.event.id).toBe(lower.id);
+  });
+
+  it('recommends the version before a small list was emptied', () => {
+    const small = followListEvent(3, 1000);
+    const emptied = followListEvent(0, 2000);
+    const result = rankLazarusCandidates(LAZARUS_REGISTRY[3], [
+      { event: emptied, relayUrl: 'wss://a' },
+      { event: small, relayUrl: 'wss://a' }
+    ]);
+    expect(result.recommended?.event.id).toBe(small.id);
+  });
+
+  it("measures a settled clobber from its episode's last drop", () => {
+    const hour = 60 * 60;
+    const full = followListEvent(100, 0);
+    const events = [
+      full,
+      followListEvent(10, hour),
+      // Edits on the clobbered list, then a second drop the same day: one episode
+      ...[2, 3, 4, 5, 6].map((h) => followListEvent(12, h * hour)),
+      followListEvent(2, 7 * hour),
+      followListEvent(3, 8 * 24 * hour)
+    ];
+    const result = rankLazarusCandidates(
+      LAZARUS_REGISTRY[3],
+      events.map((event) => ({ event, relayUrl: 'wss://a' }))
+    );
+    // One version follows the episode's last drop, so it isn't settled
+    expect(result.recommended?.event.id).toBe(full.id);
+  });
+
+  it('leaves versions of unknown size out of drops, and never recommends one', () => {
+    // 50 public mutes, and private ones that can be neither decrypted nor sized
+    const unsizable = { ...muteListEvent(50, 1000), content: 'A'.repeat(133) };
+    const current = muteListEvent(10, 2000);
+    const rank = (...events: Event[]) =>
+      rankLazarusCandidates(
+        LAZARUS_REGISTRY[10000],
+        events.map((event) => ({ event, relayUrl: 'wss://a' }))
+      );
+    expect(rank(current, unsizable).recommended).toBeUndefined();
+    // Consecutive means consecutive among versions of known size
+    const full = muteListEvent(50, 500);
+    expect(rank(current, unsizable, full).recommended?.event.id).toBe(full.id);
+  });
+
   it('recommends nothing for meaningful-empty kinds and requires intent', () => {
     const keys = {
       ...makeEvent({ kind: 10044, created_at: 1000 }),
-      tags: [['p', 'encryption-pubkey-1']]
+      tags: [['n', 'encryption-pubkey-1']]
     } as Event;
     const emptied = { ...makeEvent({ kind: 10044, created_at: 2000 }), tags: [] } as Event;
     const result = rankLazarusCandidates(LAZARUS_REGISTRY[10044], [
@@ -376,6 +477,37 @@ describe('computeLazarusDelta', () => {
     const delta = computeLazarusDelta(chosen, current);
     expect(delta.addedCount).toBe(1);
     expect(delta.removedCount).toBe(1);
+  });
+});
+
+describe('computeLazarusDelta items', () => {
+  it('counts a duplicated tag once, and ignores tags that are not items', () => {
+    const current = {
+      ...makeEvent({ kind: 3 }),
+      tags: [['p', 'a'], ['p', 'a'], ['client', 'x']]
+    } as Event;
+    const chosen = { ...makeEvent({ kind: 3 }), tags: [['p', 'a'], ['p'], ['client', 'y']] } as Event;
+    const delta = computeLazarusDelta(chosen, current);
+    expect(delta.addedCount).toBe(0);
+    expect(delta.removedCount).toBe(0);
+  });
+
+  it('compares relay URLs normalized', () => {
+    const relayList = (url: string) =>
+      ({ ...makeEvent({ kind: 10002 }), tags: [['r', url, 'write']] }) as Event;
+    const delta = computeLazarusDelta(relayList('wss://relay.example'), relayList('wss://Relay.Example/'));
+    expect(delta.addedCount + delta.removedCount).toBe(0);
+  });
+
+  it('counts removed profile fields toward a shrink', () => {
+    const profile = (fields: object) =>
+      ({ ...makeEvent({ kind: 0 }), content: JSON.stringify(fields) }) as Event;
+    const delta = computeLazarusDelta(
+      profile({ name: 'a' }),
+      profile({ name: 'b', about: 'c', lud16: 'd@e.f' })
+    );
+    expect(delta.removedCount).toBe(2);
+    expect(delta.needsShrinkConfirmation).toBe(true);
   });
 });
 
@@ -570,7 +702,7 @@ describe('groupLazarusCandidates', () => {
   it('keeps empty versions of meaningful-empty kinds, where empty is a valid option', () => {
     const events = [1000, 1001].map((createdAt, i) => ({
       ...makeEvent({ created_at: createdAt, kind: 10044 }),
-      tags: i === 0 ? [] : [['p', 'a'.repeat(64)]]
+      tags: i === 0 ? [] : [['n', 'a'.repeat(64)]]
     }));
     const scan = rankLazarusCandidates(
       LAZARUS_REGISTRY[10044],
@@ -759,5 +891,32 @@ describe('private items', () => {
     const current = privateMuteListEvent(privateTags(3), 2000);
     const chosen = privateMuteListEvent(privateTags(5), 1000);
     expect(computeLazarusDelta(chosen, current).privateUnknown).toBe(true);
+  });
+
+  it('says which side has private items that were not decrypted', () => {
+    const encrypted = privateMuteListEvent(privateTags(3), 2000);
+    const plain = { ...muteListEvent(0, 1000), tags: [['p', 'x']] };
+    const overEncrypted = computeLazarusDelta(plain, encrypted);
+    expect(overEncrypted.privateUnknownCurrent).toBe(true);
+    expect(overEncrypted.privateUnknownChosen).toBe(false);
+    // It adds an item, but replaces private items nobody counted
+    expect(overEncrypted.shrinks).toBe(false);
+    expect(overEncrypted.needsShrinkConfirmation).toBe(true);
+    const restoringEncrypted = computeLazarusDelta(encrypted, plain);
+    expect(restoringEncrypted.privateUnknownChosen).toBe(true);
+    expect(restoringEncrypted.privateUnknownCurrent).toBe(false);
+  });
+
+  it('treats identical encrypted content as the same private items', () => {
+    const tags = privateTags(4);
+    const current = privateMuteListEvent(tags, 2000);
+    const chosen = { ...current, id: 'f'.repeat(64), created_at: 1000, tags: [['p', 'x']] };
+    const delta = computeLazarusDelta(chosen, current);
+    expect(delta.privateUnknown).toBe(false);
+    expect(delta.needsShrinkConfirmation).toBe(false);
+    // Decrypting either one covers both
+    const decrypted = computeLazarusDelta(chosen, current, new Map([[current.id, tags]]));
+    expect(decrypted.added).toEqual([['p', 'x']]);
+    expect(decrypted.removedCount).toBe(0);
   });
 });
