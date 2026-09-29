@@ -459,13 +459,8 @@
   // NOTE: All URLs are normalized (no trailing slashes) to prevent duplicate connections
   const RELAY_POOLS = {
     recipes: ['wss://nos.lol', 'wss://relay.nostr.net'], // General relays with recipe content
-    fallback: ['wss://relay.primal.net', 'wss://nostr.wine', 'wss://antiprimal.net'], // Fast general relays for broader discovery
-    discovery: [
-      'wss://nostr.wine',
-      'wss://relay.primal.net',
-      'wss://purplepag.es',
-      'wss://antiprimal.net'
-    ], // Additional relays for discovery
+    fallback: ['wss://relay.primal.net', 'wss://nostr.wine'], // Fast general relays for broader discovery
+    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'], // Additional relays for discovery
     profiles: ['wss://purplepag.es'], // Profile metadata (356ms, specialized for kind:0)
     members: ['wss://pantry.zap.cooking'] // Private member relay (The Pantry)
   };
