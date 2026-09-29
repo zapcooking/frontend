@@ -46,18 +46,20 @@ const claimBody = (pubkey: string, username = 'chefanna') =>
   JSON.stringify({ username, pubkey, tier: 'pro_kitchen' });
 
 const fetchMock = vi.fn();
+let memberRecord: Record<string, unknown> = {};
 const pantryClaimCall = () =>
   (fetchMock.mock.calls as [string, RequestInit][]).find(([url]) => url === 'https://pantry.zap.cooking/api/nip05/claim');
 
 beforeEach(() => {
   env.MEMBERSHIP_ENABLED = 'true';
+  memberRecord = {
+    tier: 'standard',
+    subscription_end: new Date(Date.now() + 86_400_000).toISOString()
+  };
   env.RELAY_API_SECRET = 'test-secret';
   fetchMock.mockReset().mockImplementation(async (url: string) => {
     if (url.startsWith('https://pantry.zap.cooking/api/members/')) {
-      return new Response(
-        JSON.stringify({ subscription_end: new Date(Date.now() + 86_400_000).toISOString() }),
-        { status: 200 }
-      );
+      return new Response(JSON.stringify(memberRecord), { status: 200 });
     }
     if (url === 'https://pantry.zap.cooking/api/nip05/claim') {
       return new Response(JSON.stringify({ success: true }), { status: 200 });
@@ -114,6 +116,21 @@ describe('POST /api/nip05/claim', () => {
     const { res } = await claim(claimBody(PUBKEY), { auth: await nip98Header({}) });
     expect(res.status).toBe(401);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('stores the tier from the membership record, not the request body', async () => {
+    const body = JSON.stringify({ username: 'chefanna', pubkey: PUBKEY, tier: 'founders' });
+    const { res } = await claim(body);
+    expect(res.status).toBe(200);
+    expect(JSON.parse(pantryClaimCall()![1].body as string).tier).toBe('standard');
+  });
+
+  it('stores founders when the membership record carries a genesis payment id', async () => {
+    memberRecord = { tier: 'standard', payment_id: 'genesis_7' };
+    const body = JSON.stringify({ username: 'chefanna', pubkey: PUBKEY, tier: 'cook_plus' });
+    const { res } = await claim(body);
+    expect(res.status).toBe(200);
+    expect(JSON.parse(pantryClaimCall()![1].body as string).tier).toBe('founders');
   });
 
   it('stays closed when membership is disabled', async () => {

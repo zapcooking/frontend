@@ -15,7 +15,8 @@
  * {
  *   username: string,
  *   pubkey: string,
- *   tier: 'cook_plus' | 'pro_kitchen' | 'founders'
+ *   tier?: 'cook_plus' | 'pro_kitchen' | 'founders'  (accepted for compatibility;
+ *          ignored — the stored tier comes from the membership record)
  * }
  * 
  * Returns:
@@ -204,10 +205,20 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       });
     }
     
+    // The stored tier comes from the membership record, never from the
+    // request body — a signed-in member could otherwise claim any tier.
+    // (GET /api/members/:pubkey returns no payment_id today, so this is
+    // Pantry's own tier unless a founder payment_id is present.)
+    const paymentId = String(memberData.payment_id || '').toLowerCase();
+    const claimTier =
+      paymentId.startsWith('genesis_') || paymentId.startsWith('founder')
+        ? 'founders'
+        : memberData.tier || 'standard';
+
     console.log('[NIP-05] Claiming NIP-05 for member:', {
       pubkey: pubkey.substring(0, 16) + '...',
       username: normalizedUsername,
-      tier: tier || 'cook'
+      tier: claimTier
     });
     
     // Claim NIP-05 with members API
@@ -220,7 +231,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       body: JSON.stringify({
         username: normalizedUsername,
         pubkey,
-        tier: tier || 'cook'
+        tier: claimTier
       })
     });
     
