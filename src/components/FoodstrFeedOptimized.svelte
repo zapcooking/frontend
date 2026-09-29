@@ -37,6 +37,7 @@
   import type { NDKSubscription } from '@nostr-dev-kit/ndk';
   import { NDKEvent, NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
   import { MAX_HASHTAGS, hashtagCount as countHashtags } from '$lib/hashtags';
+  import { passesOnlyFoodStopgap } from '$lib/onlyFoodStopgap';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteReactionPills from './NoteReactionPills.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
@@ -1351,6 +1352,9 @@
 
   /** The one question every feed path asks before showing an event. */
   function passesFeedFilters(event: NDKEvent): boolean {
+    // Temporary stopgap — remove when curated feed replaces OnlyFood.
+    // Global Food only (not Following/Replies/Members/profile).
+    if (filterMode === 'global' && !authorPubkey && !passesOnlyFoodStopgap(event)) return false;
     if (isMuted(event)) return false;
     if (isHellthread(event)) return false;
     if (!foodFilterActive) return true;
