@@ -1,7 +1,10 @@
 import { browser } from '$app/environment';
 import type NDK from '@nostr-dev-kit/ndk';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
+import { get } from 'svelte/store';
 import { profileCacheManager } from './profileCache';
+import { ndk } from './nostr';
+import { signNip98AuthHeader } from './nip98';
 
 /**
  * NIP-05 Service
@@ -70,20 +73,35 @@ export async function claimNip05(
     return { success: false, error: 'Username must be 3-20 characters (letters, numbers, underscore only)' };
   }
   
+  // The server only accepts a claim signed (NIP-98) by the pubkey being claimed.
+  const bodyString = JSON.stringify({ username: trimmed, pubkey, tier });
+  let authorization: string;
+  try {
+    authorization = await signNip98AuthHeader(get(ndk), {
+      method: 'POST',
+      url: new URL('/api/nip05/claim', window.location.origin).toString(),
+      bodyString
+    });
+  } catch (error) {
+    console.warn('[NIP-05] NIP-98 signing unavailable:', error);
+    return { success: false, error: 'Your signer is needed to claim a username. Check your signer and try again.' };
+  }
+
   try {
     const response = await fetch('/api/nip05/claim', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        Authorization: authorization
       },
-      body: JSON.stringify({
-        username: trimmed,
-        pubkey,
-        tier
-      })
+      body: bodyString
     });
     
     const data = await response.json();
+
+    if (response.status === 401) {
+      return { success: false, error: 'Could not verify your signature. Please try again.' };
+    }
     
     if (!response.ok || !data.success) {
       return {
