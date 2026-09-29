@@ -75,25 +75,3 @@ export async function removePubkeyMute(
 	if (!removedPublic && !removedPrivate) return null;
 	return { tags, content };
 }
-
-/**
- * fetchMuteList() returns null both for "no list" and for a relay
- * failure. Before treating null as "no list" (and publishing a fresh
- * one-entry list over the real one), check whether the loaded MuteList
- * holds entries that can only have come from a relay copy: word / t / e
- * mutes, private mutes, or pubkeys the legacy localStorage list lacks.
- */
-export function hasRelayOnlyEntries(
-	list: {
-		pubkeys: { value: string; private?: boolean }[];
-		words: unknown[];
-		tags: unknown[];
-		threads: unknown[];
-	} | null,
-	localPubkeys: Iterable<string>
-): boolean {
-	if (!list) return false;
-	if (list.words.length > 0 || list.tags.length > 0 || list.threads.length > 0) return true;
-	const local = new Set(localPubkeys);
-	return list.pubkeys.some((p) => p.private || !local.has(p.value));
-}

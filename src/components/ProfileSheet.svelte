@@ -20,9 +20,7 @@
   import { ndk, userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { resolveProfileByPubkey, type ProfileData } from '$lib/profileResolver';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
-  import { fetchMuteList } from '$lib/mutableIntegration';
-  import { addPubkeyMute, hasRelayOnlyEntries, removePubkeyMute } from '$lib/muteListEdit';
-  import { decrypt, detectEncryptionMethod, encrypt } from '$lib/encryptionService';
+  import { setPubkeyMuted } from '$lib/muteToggle';
   import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
   import Modal from './Modal.svelte';
   import Avatar from './Avatar.svelte';
@@ -181,53 +179,14 @@
     }
   }
 
-  function readLocalMutes(): string[] {
-    try {
-      const stored = JSON.parse(localStorage.getItem('mutedUsers') || '[]');
-      return Array.isArray(stored) ? stored : [];
-    } catch {
-      return [];
-    }
-  }
-
   async function toggleMute() {
-    if (!get(userPublickey) || !hex || muteLoading) return;
+    const me = get(userPublickey);
+    if (!me || !hex || muteLoading) return;
 
     muteLoading = true;
     try {
-      // Edit the latest relay copy, not the in-memory store: the store
-      // merges localStorage mutes and decrypted private mutes, so
-      // republishing it would drop word/t/e entries and expose private ones.
-      const me = get(userPublickey);
-      const latest = await fetchMuteList(me);
-      if (!latest && hasRelayOnlyEntries(get(muteListStore).muteList, readLocalMutes())) {
-        throw new Error('mute list not reachable on relays; not overwriting it');
-      }
-      const existing = latest ? { tags: latest.tags, content: latest.content ?? '' } : null;
-      const edited = isMuted
-        ? await removePubkeyMute(existing, hex, {
-            decrypt: (ciphertext) => decrypt(me, ciphertext, detectEncryptionMethod(ciphertext)),
-            encrypt: async (plaintext) => (await encrypt(me, plaintext)).ciphertext
-          })
-        : addPubkeyMute(existing, hex);
-
-      if (edited) {
-        const muteEvent = new NDKEvent(get(ndk));
-        muteEvent.kind = 10000;
-        muteEvent.content = edited.content;
-        muteEvent.tags = edited.tags;
-        await muteEvent.publish();
-      }
-
-      try {
-        const stored = readLocalMutes();
-        const next = isMuted ? stored.filter((pk) => pk !== hex) : [...new Set([...stored, hex])];
-        localStorage.setItem('mutedUsers', JSON.stringify(next));
-      } catch {
-        // Private mode or a full quota — the relay copy still stands.
-      }
-      muteListStore.invalidate();
-      await muteListStore.load(true);
+      // Edits the latest relay copy; keeps every other entry (see $lib/muteToggle).
+      await setPubkeyMuted(me, hex, !isMuted);
     } catch (err) {
       console.error('[ProfileSheet] mute toggle failed:', err);
     } finally {

@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import {
 	addPubkeyMute,
 	removePubkeyMute,
-	hasRelayOnlyEntries,
 	type MuteListContent,
 	type MuteListCrypto
 } from './muteListEdit';
@@ -113,22 +112,5 @@ describe('mute round-trip', () => {
 		const muted = addPubkeyMute(before, C)!;
 		const unmuted = (await removePubkeyMute(muted, C, fakeCrypto()))!;
 		expect(unmuted).toEqual(before);
-	});
-});
-
-describe('hasRelayOnlyEntries', () => {
-	const empty = { pubkeys: [], words: [], tags: [], threads: [] };
-
-	it('is false for no list or a list that is only legacy localStorage mutes', () => {
-		expect(hasRelayOnlyEntries(null, [])).toBe(false);
-		expect(hasRelayOnlyEntries({ ...empty, pubkeys: [{ value: A }] }, [A])).toBe(false);
-	});
-
-	it('is true when the list holds word/t/e, private, or non-local entries', () => {
-		expect(hasRelayOnlyEntries({ ...empty, words: [{}] }, [])).toBe(true);
-		expect(hasRelayOnlyEntries({ ...empty, tags: [{}] }, [])).toBe(true);
-		expect(hasRelayOnlyEntries({ ...empty, threads: [{}] }, [])).toBe(true);
-		expect(hasRelayOnlyEntries({ ...empty, pubkeys: [{ value: A, private: true }] }, [A])).toBe(true);
-		expect(hasRelayOnlyEntries({ ...empty, pubkeys: [{ value: B }] }, [A])).toBe(true);
 	});
 });
