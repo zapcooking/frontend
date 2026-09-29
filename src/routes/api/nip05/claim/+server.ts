@@ -4,7 +4,13 @@
  * Claims a NIP-05 identifier for a paid member at @zap.cooking
  * 
  * POST /api/nip05/claim
- * 
+ *
+ * Requires a NIP-98 Authorization header (with a `payload` tag over the
+ * exact body). The signer must be the pubkey being claimed for: a
+ * pubkey is public, so without this anyone could claim — or replace —
+ * the NIP-05 of any active member. Auth failures return the same
+ * coarse 401 as /api/schedule; a signer/pubkey mismatch returns 403.
+ *
  * Body:
  * {
  *   username: string,
@@ -22,6 +28,8 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { verifyNip98 } from '$lib/nip98.server';
+import { authFailedResponse } from '$lib/scheduleApi.server';
 
 // Reserved usernames that cannot be claimed
 const RESERVED_USERNAMES = [
@@ -38,10 +46,25 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     return json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  // Body read ONCE — the same bytes feed the payload-hash check and the parse.
+  let bodyBytes: Uint8Array;
   try {
-    const body = await request.json();
-    const { username, pubkey, tier } = body;
-    
+    bodyBytes = new Uint8Array(await request.arrayBuffer());
+  } catch {
+    return json({ success: false, error: 'Invalid request body' }, { status: 400 });
+  }
+
+  const auth = await verifyNip98(request, { bodyBytes });
+  if (!auth.ok) {
+    console.warn(`[NIP-05] NIP-98 rejected (${auth.reason}) on claim`);
+    return authFailedResponse(auth.reason);
+  }
+
+  try {
+    const body = JSON.parse(new TextDecoder().decode(bodyBytes));
+    const { username, tier } = body;
+    let { pubkey } = body;
+
     // Validate required fields
     if (!username || !pubkey) {
       return json(
@@ -49,7 +72,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { status: 400 }
       );
     }
-    
+
+    // The signer may only claim for itself.
+    if (typeof pubkey !== 'string' || pubkey.toLowerCase() !== auth.pubkey.toLowerCase()) {
+      console.warn('[NIP-05] Claim rejected: signer does not match claimed pubkey');
+      return json(
+        { success: false, error: 'You can only claim a NIP-05 for your own account' },
+        { status: 403 }
+      );
+    }
+    pubkey = pubkey.toLowerCase();
+
     const normalizedUsername = username.trim().toLowerCase();
     
     // Validate username format
