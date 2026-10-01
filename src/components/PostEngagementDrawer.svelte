@@ -7,6 +7,7 @@
   import SmileyIcon from 'phosphor-svelte/lib/Smiley';
   import { ndk } from '$lib/nostr';
   import { formatCompactTime, formatSats } from '$lib/utils';
+  import { kindCaption } from '$lib/eventKindLabel';
   import {
     loadPostEngagementDetails,
     type PostEngagementDetails
@@ -168,6 +169,10 @@
           </section>
         {/if}
 
+        {#if event.kind != null}
+          <p class="kind-row">{kindCaption(event.kind)}</p>
+        {/if}
+
         {#if details.relays.length > 0}
           <section class="detail-section" aria-labelledby={`relays-${event.id}`}>
             <h3 id={`relays-${event.id}`} class="section-heading">
@@ -231,6 +236,19 @@
 
   .section-count {
     color: var(--color-caption);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Kind row ("KIND 1111 · COMMENT") — quiet metadata: caption size and
+     color, normal weight, a step dimmer than the section headings.
+     Intrinsic to the event, so it renders even when no relay-sourced
+     section does. */
+  .kind-row {
+    margin: 0;
+    color: var(--color-caption);
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.25rem;
     font-variant-numeric: tabular-nums;
   }
 

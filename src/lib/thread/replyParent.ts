@@ -59,6 +59,36 @@ export function getReplyParentId(event: ParentableEvent): string | null {
 }
 
 /**
+ * The id of the conversation root for an event, or null if it opens one.
+ *
+ * For a NIP-22 comment this is its uppercase `E` — read BEFORE any
+ * lowercase `e`, because a nested comment's `e` names its immediate
+ * parent, which is another comment mid-thread, not the root. Callers use
+ * this to target the thread fetch: sibling `#e`/`#E` filters keyed on the
+ * root reach the whole mixed kind-1/kind-1111 tree, where the focal id
+ * alone would only see direct replies.
+ *
+ * Kind-1 notes fall back to NIP-10: the marked `root` tag when present,
+ * else the first `e` (the deprecated positional form names the root first).
+ */
+export function getThreadRootId(event: ParentableEvent): string | null {
+  const tags = (event.tags || []).filter((t) => Array.isArray(t) && t.length > 1 && t[1]);
+
+  if (event.kind === 1111) {
+    const root = tags.find((t) => t[0] === 'E');
+    if (root) return root[1];
+  }
+
+  const eTags = tags.filter((t) => t[0] === 'e' && t[3] !== 'mention');
+  if (eTags.length === 0) return null;
+
+  const marked = eTags.find((t) => t[3] === 'root');
+  if (marked) return marked[1];
+
+  return eTags[0][1];
+}
+
+/**
  * Groups replies under their parents, chronologically.
  *
  * A relay answering `#e: <focus>` returns the whole subtree, not just

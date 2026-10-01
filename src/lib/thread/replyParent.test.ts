@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildReplyTree, getReplyParentId, type ParentableEvent } from './replyParent';
+import {
+  buildReplyTree,
+  getReplyParentId,
+  getThreadRootId,
+  type ParentableEvent
+} from './replyParent';
 
 const ev = (id: string, tags: string[][], extra: Partial<ParentableEvent> = {}): ParentableEvent => ({
   id,
@@ -91,6 +96,62 @@ describe('getReplyParentId (NIP-22)', () => {
   it('ignores a mention-marked e tag on a comment and falls back to the root', () => {
     const e = ev('c', [['E', 'article'], ['e', 'quoted', '', 'mention']], { kind: 1111 });
     expect(getReplyParentId(e)).toBe('article');
+  });
+});
+
+describe('getThreadRootId', () => {
+  it('re-roots a NIP-22 comment at its uppercase E, not its lowercase e parent', () => {
+    // The lowercase parent of a nested comment is another comment
+    // mid-thread — reading it as the root would truncate the fetch.
+    const e = ev(
+      'a',
+      [
+        ['E', 'conversation-root', '', 'root-author'],
+        ['K', '1'],
+        ['P', 'root-author'],
+        ['e', 'immediate-parent', '', 'parent-author']
+      ],
+      { kind: 1111 }
+    );
+    expect(getThreadRootId(e)).toBe('conversation-root');
+    expect(getReplyParentId(e)).toBe('immediate-parent');
+  });
+
+  it('falls back to the e tags when a comment carries no E', () => {
+    const e = ev('a', [['e', 'only-reference']], { kind: 1111 });
+    expect(getThreadRootId(e)).toBe('only-reference');
+  });
+
+  it('uses the marked root tag for kind-1 replies', () => {
+    const e = ev('a', [
+      ['e', 'root', '', 'root'],
+      ['e', 'parent', '', 'reply']
+    ]);
+    expect(getThreadRootId(e)).toBe('root');
+  });
+
+  it('takes the first e tag in the deprecated positional form', () => {
+    // Positional form names the root first, the parent last — the mirror
+    // image of getReplyParentId's last-tag rule.
+    const e = ev('a', [
+      ['e', 'root'],
+      ['e', 'parent']
+    ]);
+    expect(getThreadRootId(e)).toBe('root');
+    expect(getReplyParentId(e)).toBe('parent');
+  });
+
+  it('ignores mentions when resolving the positional root', () => {
+    const e = ev('a', [
+      ['e', 'quoted', '', 'mention'],
+      ['e', 'root'],
+      ['e', 'parent']
+    ]);
+    expect(getThreadRootId(e)).toBe('root');
+  });
+
+  it('returns null when the event opens a thread', () => {
+    expect(getThreadRootId(ev('a', [['p', 'pk']]))).toBeNull();
   });
 });
 
