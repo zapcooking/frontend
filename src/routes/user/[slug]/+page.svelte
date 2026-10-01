@@ -24,6 +24,7 @@
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
   import { mutedPubkeys } from '$lib/muteListStore';
+  import { setPubkeyMuted } from '$lib/muteToggle';
   import { requestProvider } from 'webln';
   import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
   import ProfileEditModal from '../../../components/ProfileEditModal.svelte';
@@ -473,24 +474,14 @@
     muteLoading = true;
 
     try {
-      const newMuted = isMuted
-        ? mutedUsers.filter((pk) => pk !== hexpubkey)
-        : [...mutedUsers, hexpubkey];
-
-      // Create new kind:10000 mute list event
-      const muteEvent = new NDKEvent($ndk);
-      muteEvent.kind = 10000;
-      muteEvent.content = '';
-      muteEvent.tags = newMuted.map((pk) => ['p', pk]);
-
-      await muteEvent.publish();
+      // Edits the latest relay copy; keeps every other entry (see $lib/muteToggle).
+      await setPubkeyMuted($userPublickey, hexpubkey, !isMuted);
 
       // Update local state
-      mutedUsers = newMuted;
+      mutedUsers = isMuted
+        ? mutedUsers.filter((pk) => pk !== hexpubkey)
+        : [...new Set([...mutedUsers, hexpubkey])];
       isMuted = !isMuted;
-
-      // Update localStorage
-      localStorage.setItem('mutedUsers', JSON.stringify(mutedUsers));
     } catch (error) {
       console.error('Error toggling mute:', error);
     } finally {

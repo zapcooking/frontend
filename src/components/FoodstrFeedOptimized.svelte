@@ -37,6 +37,7 @@
   import type { NDKSubscription } from '@nostr-dev-kit/ndk';
   import { NDKEvent, NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
   import { MAX_HASHTAGS, hashtagCount as countHashtags } from '$lib/hashtags';
+  import { passesOnlyFoodStopgap } from '$lib/onlyFoodStopgap';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteReactionPills from './NoteReactionPills.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
@@ -459,13 +460,8 @@
   // NOTE: All URLs are normalized (no trailing slashes) to prevent duplicate connections
   const RELAY_POOLS = {
     recipes: ['wss://nos.lol', 'wss://relay.nostr.net'], // General relays with recipe content
-    fallback: ['wss://relay.primal.net', 'wss://nostr.wine', 'wss://antiprimal.net'], // Fast general relays for broader discovery
-    discovery: [
-      'wss://nostr.wine',
-      'wss://relay.primal.net',
-      'wss://purplepag.es',
-      'wss://antiprimal.net'
-    ], // Additional relays for discovery
+    fallback: ['wss://relay.primal.net', 'wss://nostr.wine'], // Fast general relays for broader discovery
+    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'], // Additional relays for discovery
     profiles: ['wss://purplepag.es'], // Profile metadata (356ms, specialized for kind:0)
     members: ['wss://pantry.zap.cooking'] // Private member relay (The Pantry)
   };
@@ -1356,6 +1352,9 @@
 
   /** The one question every feed path asks before showing an event. */
   function passesFeedFilters(event: NDKEvent): boolean {
+    // Temporary stopgap — remove when curated feed replaces OnlyFood.
+    // Global Food only (not Following/Replies/Members/profile).
+    if (filterMode === 'global' && !authorPubkey && !passesOnlyFoodStopgap(event)) return false;
     if (isMuted(event)) return false;
     if (isHellthread(event)) return false;
     if (!foodFilterActive) return true;

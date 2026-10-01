@@ -164,6 +164,9 @@ importers:
       jsqr:
         specifier: ^1.4.0
         version: 1.4.0
+      linkify-it:
+        specifier: ^5.0.1
+        version: 5.0.2
       markdown-it:
         specifier: ^14.2.0
         version: 14.3.0
@@ -182,6 +185,9 @@ importers:
       timeago.js:
         specifier: ^4.0.2
         version: 4.0.2
+      tlds:
+        specifier: ^1.261.0
+        version: 1.261.0
       turndown:
         specifier: ^7.2.2
         version: 7.2.2
@@ -222,6 +228,9 @@ importers:
       '@types/dompurify':
         specifier: ^3.0.5
         version: 3.2.0
+      '@types/linkify-it':
+        specifier: ^5.0.0
+        version: 5.0.0
       '@types/markdown-it':
         specifier: ^13.0.7
         version: 13.0.9
@@ -4687,6 +4696,10 @@ packages:
   tinyspy@4.0.4:
     resolution: {integrity: sha512-azl+t0z7pw/z958Gy9svOTuzqIk6xq+NSheJzn5MMWtWTFywIacg2wUlzKFGtt3cthx0r2SxMK0yzJOR0IES7Q==}
     engines: {node: '>=14.0.0'}
+
+  tlds@1.261.0:
+    resolution: {integrity: sha512-QXqwfEl9ddlGBaRFXIvNKK6OhipSiLXuRuLJX5DErz0o0Q0rYxulWLdFryTkV5PkdZct5iMInwYEGe/eR++1AA==}
+    hasBin: true
 
   tldts-core@7.4.10:
     resolution: {integrity: sha512-KnQjp53ZekKgm/r3l+u8kJGGzYgrWdP8+Mql7a4vijh2WE0IrZWspQj/TpTxDho/YxO+AnOZnIjQcCD+q6iJsw==}
@@ -9858,6 +9871,8 @@ snapshots:
   tinyrainbow@2.0.0: {}
 
   tinyspy@4.0.4: {}
+
+  tlds@1.261.0: {}
 
   tldts-core@7.4.10:
     optional: true

@@ -20,6 +20,7 @@
   import { ndk, userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { resolveProfileByPubkey, type ProfileData } from '$lib/profileResolver';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
+  import { setPubkeyMuted } from '$lib/muteToggle';
   import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
   import Modal from './Modal.svelte';
   import Avatar from './Avatar.svelte';
@@ -179,26 +180,13 @@
   }
 
   async function toggleMute() {
-    if (!get(userPublickey) || !hex || muteLoading) return;
+    const me = get(userPublickey);
+    if (!me || !hex || muteLoading) return;
 
     muteLoading = true;
     try {
-      const current = Array.from(get(mutedPubkeys));
-      const next = isMuted ? current.filter((pk) => pk !== hex) : [...current, hex];
-
-      const muteEvent = new NDKEvent(get(ndk));
-      muteEvent.kind = 10000;
-      muteEvent.content = '';
-      muteEvent.tags = next.map((pk) => ['p', pk]);
-      await muteEvent.publish();
-
-      try {
-        localStorage.setItem('mutedUsers', JSON.stringify(next));
-      } catch {
-        // Private mode or a full quota — the relay copy still stands.
-      }
-      muteListStore.invalidate();
-      await muteListStore.load(true);
+      // Edits the latest relay copy; keeps every other entry (see $lib/muteToggle).
+      await setPubkeyMuted(me, hex, !isMuted);
     } catch (err) {
       console.error('[ProfileSheet] mute toggle failed:', err);
     } finally {

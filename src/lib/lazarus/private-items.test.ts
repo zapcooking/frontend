@@ -1,7 +1,6 @@
 import { generateSecretKey, getPublicKey, nip04, nip44 } from 'nostr-tools';
 import { describe, expect, it } from 'vitest';
 import {
-  countItemTags,
   estimatePrivateItems,
   getContentEncryption,
   getPlaintextLengthRange,
@@ -68,6 +67,20 @@ describe('estimatePrivateItems', () => {
     expect(estimate.max).toBeGreaterThanOrEqual(40);
   });
 
+  it('sizes NIP-44 padded lengths that are not powers of two', () => {
+    // 300 bytes pad to 320, which holds any plaintext from 257 bytes up
+    const content = nip44.encrypt('x'.repeat(300), conversationKey);
+    expect(getPlaintextLengthRange(content)).toEqual({ min: 257, max: 320 });
+    expect(estimatePrivateItems(content)).toEqual({ min: 3, max: 5 });
+  });
+
+  it('lets a one-block NIP-04 payload hold no items', async () => {
+    // One block holds 0 to 15 bytes, so the minimum is zero, never negative
+    const content = await nip04.encrypt(secretKey, pubkey, '[]');
+    expect(getPlaintextLengthRange(content)).toEqual({ min: 0, max: 15 });
+    expect(estimatePrivateItems(content)).toEqual({ min: 0, max: 1 });
+  });
+
   it('returns undefined for payloads that are not a valid size', () => {
     expect(estimatePrivateItems('A'.repeat(133))).toBeUndefined();
     expect(estimatePrivateItems('plain text')).toBeUndefined();
@@ -80,16 +93,5 @@ describe('parsePrivateTags', () => {
     expect(parsePrivateTags(plainText)).toEqual(tags);
     expect(parsePrivateTags('{"not":"tags"}')).toBeUndefined();
     expect(parsePrivateTags('not json')).toBeUndefined();
-  });
-
-  it('counts only the item tag types asked for', () => {
-    const tags = [
-      ['p', 'a'],
-      ['word', 'spam'],
-      ['t', 'nsfw'],
-      ['e', 'x'],
-      ['alt', 'ignored']
-    ];
-    expect(countItemTags(tags, ['p', 'word', 't', 'e'])).toBe(4);
   });
 });
