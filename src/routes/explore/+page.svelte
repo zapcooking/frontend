@@ -40,9 +40,57 @@
   import { exploreNavTick } from '$lib/exploreNav';
   import { dragScroll } from '$lib/dragScroll';
   import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
+  import FlameIcon from 'phosphor-svelte/lib/Flame';
+  import XIcon from 'phosphor-svelte/lib/X';
+  import GlobeIcon from 'phosphor-svelte/lib/Globe';
+  import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
+  import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
+  import {
+    startSectionChosen,
+    isStartSectionPromptDismissed,
+    dismissStartSectionPrompt,
+    saveStartSection,
+    type StartSection
+  } from '$lib/startSectionSettings';
+  import { showToast } from '$lib/toast';
 
   // Accept SvelteKit props to prevent warnings
   export let data: PageData;
+
+  // One-time "choose your start section" announcement. Client-only on
+  // purpose: visibility depends on per-browser localStorage and Explore is
+  // prerendered — rendering it during SSR would bake one visitor's state
+  // into shared HTML and flash on hydration.
+  let mounted = false;
+  let startPromptDismissed = false;
+  onMount(() => {
+    mounted = true;
+    startPromptDismissed = isStartSectionPromptDismissed();
+  });
+  // A choice arriving from a relay sync (member picked on another device)
+  // retires the banner reactively via $startSectionChosen. While the
+  // first-visit Cooking Tools tip popover is up, the announcement waits —
+  // the popover renders over this card's top-right corner and buries the
+  // dismiss button, so the two onboarding moments take turns instead.
+  $: showStartSectionPrompt =
+    mounted && !startPromptDismissed && !$startSectionChosen && !$cookingToolsTipVisible;
+
+  const START_PROMPT_LABELS: Record<StartSection, string> = {
+    feed: 'the Feed',
+    explore: 'Explore',
+    recipes: 'Recipes'
+  };
+  function chooseStartSection(section: StartSection) {
+    saveStartSection(section);
+    showToast('success', `Saved — you'll start on ${START_PROMPT_LABELS[section]}.`, 4000, {
+      label: 'Settings',
+      href: '/settings'
+    });
+  }
+  function dismissStartPrompt() {
+    startPromptDismissed = true;
+    dismissStartSectionPrompt();
+  }
 
   // One-time Cooking Tools tip (4.2 first-60-seconds improvement)
   // Visibility lives in a shared store so other components (e.g. the
@@ -352,6 +400,63 @@
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
   <div class="flex flex-col">
+    <!-- One-time announcement: pick your start section. Shows until the
+         visitor chooses (here, in Settings, or on any synced device) or
+         dismisses. -->
+    {#if showStartSectionPrompt}
+      <section
+        class="relative flex flex-col gap-3 p-4 rounded-xl mb-6"
+        style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-primary);"
+        data-section="start-section-prompt"
+      >
+        <button
+          type="button"
+          class="absolute top-2 right-2 p-1.5 rounded-full transition-opacity hover:opacity-60"
+          style="color: var(--color-text-secondary);"
+          aria-label="Dismiss announcement"
+          on:click={dismissStartPrompt}
+        >
+          <XIcon size={18} />
+        </button>
+        <div class="flex items-center gap-2 pr-8">
+          <SparkleIcon size={20} weight="fill" class="text-primary shrink-0" />
+          <p class="text-base font-semibold" style="color: var(--color-text-primary);">
+            New: choose where zap.cooking takes you
+          </p>
+        </div>
+        <p class="text-sm text-caption">
+          The Nostr feed is now the default start section. Make it yours — or pick Explore or
+          Recipes instead. You can change this anytime in Settings.
+        </p>
+        <div class="flex flex-wrap gap-2" role="group" aria-label="Choose your start section">
+          <button
+            type="button"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border transition-opacity hover:opacity-80 bg-blue-50 border-blue-300 dark:bg-blue-950/40 dark:border-blue-800"
+            on:click={() => chooseStartSection('explore')}
+          >
+            <GlobeIcon size={16} class="text-blue-500" />
+            Explore
+          </button>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border transition-opacity hover:opacity-80 bg-orange-50 border-orange-300 dark:bg-orange-950/40 dark:border-orange-800"
+            on:click={() => chooseStartSection('feed')}
+          >
+            <FlameIcon size={16} weight="fill" class="text-orange-500" />
+            Feed
+          </button>
+          <button
+            type="button"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border transition-opacity hover:opacity-80 bg-green-50 border-green-300 dark:bg-green-950/40 dark:border-green-800"
+            on:click={() => chooseStartSection('recipes')}
+          >
+            <ForkKnifeIcon size={16} class="text-green-600" />
+            Recipes
+          </button>
+        </div>
+      </section>
+    {/if}
+
     <!-- Cold-visitor join entry — logged-out only, above the fold -->
     {#if $userPublickey === ''}
       <HomepageJoinCta />
@@ -395,6 +500,42 @@
           </a>
         </section>
       {/if}
+
+      <!-- Jump to the live Nostr feed — recipes, longform, and collections
+           all had entry points on Explore, but the short-post feed had none.
+           Static by design: no feed fetch, so Explore stays prerenderable
+           and this card costs nothing to paint. -->
+      <a
+        href="/feed"
+        class="group flex items-center gap-4 p-4 rounded-xl"
+        style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
+        data-section="feed-jump"
+      >
+        <span class="flex items-center justify-center w-11 h-11 rounded-full shrink-0 bg-primary">
+          <FlameIcon size={22} weight="fill" class="text-white" />
+        </span>
+        <span class="flex flex-col min-w-0 gap-0.5 flex-1">
+          <span class="text-base font-semibold transition-colors group-hover:text-primary">
+            {#if $userPublickey}
+              Live from the feed
+            {:else}
+              Join the conversation
+            {/if}
+          </span>
+          <span class="text-sm text-caption">
+            {#if $userPublickey}
+              See what cooks everywhere are posting right now.
+            {:else}
+              The Nostr feed is open to everyone — see what cooks are posting.
+            {/if}
+          </span>
+        </span>
+        <CaretRightIcon
+          size={20}
+          weight="bold"
+          class="opacity-50 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 shrink-0"
+        />
+      </a>
 
       <!-- Fresh from the Kitchen -->
       <section class="flex flex-col gap-4" data-section="fresh-kitchen">
