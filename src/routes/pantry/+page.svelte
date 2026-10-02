@@ -259,7 +259,7 @@
           </svg>
         </a>
         <a
-          href="/community?tab=members"
+          href="/feed?tab=members"
           class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 font-medium transition-colors"
           style="border-color: var(--color-primary); color: var(--color-primary);"
         >

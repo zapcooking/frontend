@@ -154,7 +154,7 @@
     // Signed out: following is disabled, fall back to global
     if (!$userPublickey && activeTab === 'following') {
       activeTab = 'global';
-      goto('/community?tab=global', { noScroll: true, replaceState: true });
+      goto('/feed?tab=global', { noScroll: true, replaceState: true });
     }
 
     if ($userPublickey) {

@@ -99,7 +99,7 @@ export interface FeedNoteVM {
 }
 
 /** The feed tab the user is viewing. URL-bookmarkable via the
- * `?tab=` searchParam on `/community`. */
+ * `?tab=` searchParam on `/feed`. */
 export type FeedTab = 'global' | 'following' | 'replies' | 'members';
 
 /** Pagination cursor passed to `FeedSource.loadMore()`. Matches the
