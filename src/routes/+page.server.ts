@@ -1,5 +1,10 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import {
+  START_SECTION_COOKIE,
+  parseStartSection,
+  startSectionPath
+} from '$lib/startSectionConstants';
 
 /**
  * The homepage is just a doorway to the user's start section. Redirect on the
@@ -10,23 +15,14 @@ import type { PageServerLoad } from './$types';
  *
  * The destination comes from the `zapcooking_start_section` cookie, written by
  * `$lib/startSectionSettings` whenever the preference is saved or synced from
- * relays — localStorage is invisible here, the cookie is not. The mapping and
- * default below are mirrored by hand from that module (importing it would
- * pull NDK onto this hot path); its tests pin the two in sync. An absent or
- * unrecognized cookie lands on the default, which is the feed — the same
- * place the mobile apps land signed-in users. This must stay dynamic:
- * prerendering would bake one visitor's choice in for everyone.
+ * relays — localStorage is invisible here, the cookie is not. The default and
+ * path map are imported from `startSectionConstants.ts` (dependency-free, so
+ * nothing heavy lands on this hot path) — flipping
+ * `DEFAULT_START_SECTION` there changes this redirect with it. This must stay
+ * dynamic: prerendering would bake one visitor's choice in for everyone.
  */
 export const prerender = false;
 
-const START_SECTION_TARGETS: Record<string, string> = {
-  feed: '/feed',
-  explore: '/explore',
-  recipes: '/recipes'
-};
-const DEFAULT_TARGET = START_SECTION_TARGETS.feed;
-
 export const load: PageServerLoad = ({ cookies }) => {
-  const cookie = cookies.get('zapcooking_start_section');
-  throw redirect(307, START_SECTION_TARGETS[cookie ?? ''] ?? DEFAULT_TARGET);
+  throw redirect(307, startSectionPath(parseStartSection(cookies.get(START_SECTION_COOKIE))));
 };

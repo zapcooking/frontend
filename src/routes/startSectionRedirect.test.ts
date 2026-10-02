@@ -3,14 +3,16 @@ import { isRedirect } from '@sveltejs/kit';
 import { load } from './+page.server';
 import {
   START_SECTION_COOKIE,
+  DEFAULT_START_SECTION,
   startSectionPath,
   type StartSection
 } from '$lib/startSectionSettings';
 
 /**
- * The `/` +page.server.ts hand-copies the section→route mapping from
- * startSectionSettings.ts (importing that module would pull NDK onto the
- * hottest server path). These tests pin the copy to the original.
+ * The `/` redirect is wired to $lib/startSectionConstants (imported by both
+ * the server load and the client settings service), so these tests assert
+ * the wiring — cookie in, redirect out — with expectations derived from the
+ * same constants rather than re-typed literals that could drift.
  */
 
 function runLoad(cookieValue: string | undefined): unknown {
@@ -27,12 +29,12 @@ function runLoad(cookieValue: string | undefined): unknown {
 
 describe('/ start-section redirect', () => {
   const cases: Array<[string | undefined, string]> = [
-    ['feed', '/feed'],
-    ['explore', '/explore'],
-    ['recipes', '/recipes'],
-    [undefined, '/feed'],
-    ['garbage', '/feed'],
-    ['FEED', '/feed']
+    ['feed', startSectionPath('feed')],
+    ['explore', startSectionPath('explore')],
+    ['recipes', startSectionPath('recipes')],
+    [undefined, startSectionPath(DEFAULT_START_SECTION)],
+    ['garbage', startSectionPath(DEFAULT_START_SECTION)],
+    ['FEED', startSectionPath(DEFAULT_START_SECTION)]
   ];
 
   for (const [cookie, expected] of cases) {
@@ -44,13 +46,9 @@ describe('/ start-section redirect', () => {
     });
   }
 
-  it('mirrors startSectionPath for every known section', async () => {
-    const cookieTargets = {
-      feed: '/feed',
-      explore: '/explore',
-      recipes: '/recipes'
-    };
-    for (const section of Object.keys(cookieTargets) as StartSection[]) {
+  it('uses the shared constants for every known section', () => {
+    const sections: StartSection[] = ['feed', 'explore', 'recipes'];
+    for (const section of sections) {
       const thrown = runLoad(section);
       expect(isRedirect(thrown)).toBe(true);
       expect((thrown as any).location).toBe(startSectionPath(section));

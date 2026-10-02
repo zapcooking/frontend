@@ -24,49 +24,37 @@
 import { writable, get } from 'svelte/store';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { CLIENT_TAG_IDENTIFIER } from '$lib/consts';
+import { buildPoolRelaySet } from '$lib/eventFetch';
+import {
+  DEFAULT_START_SECTION,
+  START_SECTION_PATHS,
+  START_SECTION_COOKIE,
+  knownStartSection,
+  parseStartSection,
+  startSectionPath,
+  type StartSection
+} from '$lib/startSectionConstants';
+
+// Re-exported so client consumers (and tests) can keep importing
+// everything from this module; the canonical definitions live in
+// startSectionConstants.ts, shared with the `/` server redirect.
+export {
+  DEFAULT_START_SECTION,
+  START_SECTION_PATHS,
+  START_SECTION_COOKIE,
+  parseStartSection,
+  startSectionPath
+};
+export type { StartSection };
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES & CONSTANTS
 // ═══════════════════════════════════════════════════════════════
 
-export type StartSection = 'feed' | 'explore' | 'recipes';
-
-export const DEFAULT_START_SECTION: StartSection = 'feed';
-
-const START_SECTION_PATHS: Record<StartSection, string> = {
-  feed: '/feed',
-  explore: '/explore',
-  recipes: '/recipes'
-};
-
 const SETTINGS_KIND = 30078;
 const SETTINGS_D_TAG = 'start-section';
 const LOCAL_STORAGE_KEY = 'zapcooking_start_section';
 const PROMPT_DISMISSED_KEY = 'zapcooking_start_section_prompt_dismissed';
-
-/** Read by the `/` server load — keep in sync with src/routes/+page.server.ts. */
-export const START_SECTION_COOKIE = 'zapcooking_start_section';
-
-// ═══════════════════════════════════════════════════════════════
-// PURE HELPERS
-// ═══════════════════════════════════════════════════════════════
-
-function knownStartSection(raw: unknown): StartSection | null {
-  return raw === 'feed' || raw === 'explore' || raw === 'recipes' ? raw : null;
-}
-
-/**
- * Map an untrusted value (localStorage, cookie, relay event) to a section.
- * Anything we never wrote — missing key, corrupt value, a future value from
- * a newer client — falls back to the default rather than being coerced.
- */
-export function parseStartSection(raw: string | null | undefined): StartSection {
-  return knownStartSection(raw) ?? DEFAULT_START_SECTION;
-}
-
-export function startSectionPath(section: StartSection): string {
-  return START_SECTION_PATHS[section];
-}
 
 // ═══════════════════════════════════════════════════════════════
 // LOCAL PERSISTENCE (localStorage + cookie mirror)
@@ -200,11 +188,19 @@ export async function loadStartSectionSettings(): Promise<StartSection> {
     const ndkInstance = get(ndk);
     if (!ndkInstance) return local;
 
-    const events = await ndkInstance.fetchEvents({
-      kinds: [SETTINGS_KIND],
-      authors: [pubkey],
-      '#d': [SETTINGS_D_TAG]
-    });
+    // Explicit relay set — author-filtered fetches on a cold pool can
+    // compute an empty relay set via the outbox tracker, silently missing
+    // the event this sync is looking for (see eventFetch.ts; same pattern
+    // as authorContent.ts).
+    const events = await ndkInstance.fetchEvents(
+      {
+        kinds: [SETTINGS_KIND],
+        authors: [pubkey],
+        '#d': [SETTINGS_D_TAG]
+      },
+      undefined,
+      buildPoolRelaySet(ndkInstance)
+    );
     if (events.size === 0) return local;
 
     const latest = Array.from(events).sort(
