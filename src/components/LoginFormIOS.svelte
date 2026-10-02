@@ -18,6 +18,8 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
+  import { startSectionTarget } from '$lib/startSectionSettings';
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { showToast } from '$lib/toast';
@@ -86,9 +88,12 @@
             userPublickey.set('');
           }
 
-          // Redirect to explore page if authenticated
+          // Redirect after auth: an explicit ?redirect= param wins,
+          // otherwise the member's chosen start section (Settings →
+          // Appearance) — same rule as the main LoginOverlay flow.
           if (state.isAuthenticated) {
-            goto('/explore');
+            const redirectTo = $page.url.searchParams.get('redirect');
+            goto(redirectTo || startSectionTarget());
           }
         });
       }

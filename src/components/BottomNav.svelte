@@ -51,8 +51,8 @@
   <div class="grid grid-cols-5 nav-row">
 
     <!-- Feed -->
-    <a href="/community" class="nav-tab" class:active={pathname === '/' || pathname.startsWith('/community')}>
-      <FlameIcon size={28} weight={pathname === '/' || pathname.startsWith('/community') ? 'fill' : 'bold'} />
+    <a href="/feed" class="nav-tab" class:active={pathname === '/' || pathname.startsWith('/feed')}>
+      <FlameIcon size={28} weight={pathname === '/' || pathname.startsWith('/feed') ? 'fill' : 'bold'} />
       <span class="sr-only">Feed</span>
     </a>
 

@@ -43,10 +43,10 @@
 
   const primary: NavItem[] = [
     {
-      href: '/community',
+      href: '/feed',
       label: 'Feed',
       icon: FlameIcon,
-      match: (p) => p === '/' || p.startsWith('/community')
+      match: (p) => p === '/' || p.startsWith('/feed')
     },
     {
       href: '/recipes',

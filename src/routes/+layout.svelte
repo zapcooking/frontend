@@ -60,6 +60,7 @@
     sweepLegacyMnemonic
   } from '$lib/spark';
   import { loadOneTapZapSettings } from '$lib/autoZapSettings';
+  import { startSectionTarget, loadStartSectionSettings } from '$lib/startSectionSettings';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
@@ -142,9 +143,9 @@
   // immutable assets, so stale clients otherwise 404 on chunk imports when
   // navigating (broken tabs until a hard refresh).
   beforeNavigate(({ willUnload, to, cancel, from }) => {
-    // Remember the feed URL (tab included) when leaving /community so
+    // Remember the feed URL (tab included) when leaving /feed so
     // "back to feed" affordances return to the tab the user was on.
-    if (from?.url?.pathname === '/community') {
+    if (from?.url?.pathname === '/feed') {
       lastFeedUrl.set(from.url.pathname + from.url.search);
     }
     if ($updated && !willUnload && to?.url) {
@@ -307,6 +308,7 @@
   let walletWelcomeSeen = false;
   let walletWelcomeForce = false;
   let oneTapZapLoadedForPubkey = '';
+  let startSectionLoadedForPubkey = '';
   const WALLET_WELCOME_KEY = 'zapcooking_wallet_welcome_seen';
   const WALLET_WELCOME_FORCE_KEY = 'zapcooking_wallet_welcome_force';
   $: hasWallet =
@@ -353,7 +355,7 @@
     if (url.startsWith('bunker://')) {
       try {
         await authManager.authenticateWithNIP46(url);
-        goto('/explore');
+        goto(startSectionTarget());
       } catch (e) {
         console.error('[DeepLink] NIP-46 auth failed:', e);
         goto('/login');
@@ -524,8 +526,15 @@
             // Defer non-critical settings load to avoid competing with feed for relay bandwidth
             setTimeout(() => loadOneTapZapSettings(), 3000);
           }
+          if (startSectionLoadedForPubkey !== state.publicKey) {
+            startSectionLoadedForPubkey = state.publicKey;
+            // Same defer: the start-section choice syncs from the account's
+            // NIP-78 record without competing with the feed for relays.
+            setTimeout(() => loadStartSectionSettings(), 3000);
+          }
         } else {
           oneTapZapLoadedForPubkey = '';
+          startSectionLoadedForPubkey = '';
         }
 
         if (browser) {
