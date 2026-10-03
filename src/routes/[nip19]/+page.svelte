@@ -558,7 +558,7 @@
     return [...byId.values()].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
   })();
   $: parentToChildren = event
-    ? buildReplyTree<NDKEvent>(event.id, scopedThread.subtree)
+    ? buildReplyTree<NDKEvent>(event.id, scopedThread.subtree, event)
     : new Map<string, NDKEvent[]>();
   $: directReplies = (event && parentToChildren.get(event.id)) || [];
 
