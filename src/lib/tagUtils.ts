@@ -326,3 +326,57 @@ export function buildNip22CommentTags(
     return tags;
   }
 }
+
+/** The tag shape needed to reply to a NIP-22 comment (kind 1111). */
+export interface Nip22CommentTarget {
+  id: string;
+  pubkey: string;
+  kind?: number;
+  tags: string[][];
+}
+
+/**
+ * Tags for replying to a NIP-22 comment, whatever the thread's root kind.
+ *
+ * Copies the parent comment's uppercase root scope verbatim — the first
+ * non-empty tag of each name in `E`/`A`/`I`, plus `K` and `P`, in the
+ * parent's own order — then appends the reply scope pointing at the
+ * parent: lowercase `e`/`k`/`p`. The `e` tag's fourth element is the
+ * parent AUTHOR's pubkey, not a NIP-10 marker.
+ *
+ * Returns null when the parent comment carries none of `E`/`A`/`I` — an
+ * unscoped comment can't be threaded by anyone, so the caller falls back
+ * to a NIP-10 kind-1 reply instead of publishing a comment that no
+ * client (including ours) could place in a tree.
+ *
+ * This function is the single derivation for the reply: kind 1111 iff it
+ * returns tags, kind 1 otherwise, so the kind and the tag set can never
+ * disagree.
+ */
+export function buildNip22CommentReplyTags(
+  parent: Nip22CommentTarget,
+  relayHint = ''
+): string[][] | null {
+  const ROOT_SCOPE_NAMES = new Set(['E', 'A', 'I', 'K', 'P']);
+  const seenNames = new Set<string>();
+  const rootScope: string[][] = [];
+  for (const tag of parent.tags || []) {
+    const name = tag?.[0];
+    if (!name || !ROOT_SCOPE_NAMES.has(name)) continue;
+    if (tag.length < 2 || !tag[1]) continue;
+    if (seenNames.has(name)) continue; // one tag per name, parent's order
+    seenNames.add(name);
+    rootScope.push([...tag]);
+  }
+
+  const hasRootAddress =
+    seenNames.has('E') || seenNames.has('A') || seenNames.has('I');
+  if (!hasRootAddress) return null;
+
+  return [
+    ...rootScope,
+    ['e', parent.id, relayHint, parent.pubkey],
+    ['k', '1111'],
+    ['p', parent.pubkey]
+  ];
+}
