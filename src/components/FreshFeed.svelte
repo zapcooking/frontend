@@ -30,8 +30,8 @@
   import { passesFreshFilters, passesReaderFilters } from '$lib/freshFeed/posts';
   import { RECIPE_TAGS } from '$lib/consts';
   import {
-    BOX_EVERY,
     boxSlots,
+    interleave,
     buildPool,
     loadSeen,
     markSeen,
@@ -146,6 +146,7 @@
     }
     const added = r.events.map(wrap);
     posts = [...posts, ...added];
+    fillBox();
     if (added.length)
       prefetchReplyContexts(
         $ndk,
@@ -159,6 +160,7 @@
     const r = await client.recipes(RECIPE_TAGS);
     if (destroyed || r.state !== 'ok') return;
     boxPool = buildPool(r.events, Math.floor(Date.now() / 1000));
+    fillBox();
   }
 
   // A pick that was reported, or whose author was muted, leaves its slot empty.
@@ -172,10 +174,18 @@
       : p
   );
 
-  // Fill one pick per slot as the feed grows; a pick, once made, stays put.
-  $: fillBox(boxSlots(shown.length), boxPool, $muteListStore.muteList);
+  $: rendered = interleave(shown, boxShown);
 
-  function fillBox(slots: number, pool: RelayEvent[], muteList: typeof $muteListStore.muteList) {
+  /**
+   * One pick per slot as the feed grows; a pick, once made, stays put.
+   * Called after every change to the posts or the pool — not from a `$:`
+   * statement: it assigns boxPicks, and a reactive call would leave the
+   * `boxShown` statement above it stale for that update.
+   */
+  function fillBox() {
+    const muteList = $muteListStore.muteList;
+    const slots = boxSlots(filterPosts(posts, muteList, hidden).length);
+    const pool = boxPool;
     if (boxPicks.length >= slots || pool.length === 0) return;
     // Recipes already in the feed (members paging history) aren't picked.
     const inFeed = new Set(
@@ -284,6 +294,7 @@
   function showPending() {
     posts = [...pending, ...posts];
     pending = [];
+    fillBox();
     document.getElementById('app-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -501,12 +512,13 @@
       {/if}
 
       <div class="space-y-6">
-        {#each shown as post, i (post.raw.id)}
+        {#each rendered as row (row.key)}
           <FreshPostCard
-            raw={post.raw}
-            event={post.event}
-            visible={visibleNotes.has(post.raw.id)}
-            expanded={expanded.has(post.raw.id)}
+            label={row.box ? 'From the recipe box' : null}
+            raw={row.item.raw}
+            event={row.item.event}
+            visible={visibleNotes.has(row.item.raw.id)}
+            expanded={expanded.has(row.item.raw.id)}
             {lazy}
             on:zap={(e) => openZap(e.detail)}
             on:share={(e) => openShare(e.detail.url, e.detail.event)}
@@ -520,30 +532,6 @@
             on:report={(e) => openReport(e.detail)}
             on:error={(e) => (notice = e.detail)}
           />
-          {#if (i + 1) % BOX_EVERY === 0}
-            {@const box = boxShown[(i + 1) / BOX_EVERY - 1]}
-            {#if box}
-              <FreshPostCard
-                label="From the recipe box"
-                raw={box.raw}
-                event={box.event}
-                visible={visibleNotes.has(box.raw.id)}
-                expanded={expanded.has(box.raw.id)}
-                {lazy}
-                on:zap={(e) => openZap(e.detail)}
-                on:share={(e) => openShare(e.detail.url, e.detail.event)}
-                on:downloadImage={(e) => downloadImage(e.detail)}
-                on:openImage={(e) => {
-                  lightboxImages = e.detail.images;
-                  lightboxIndex = e.detail.index;
-                  lightboxOpen = true;
-                }}
-                on:toggleEngagement={(e) => toggleEngagement(e.detail)}
-                on:report={(e) => openReport(e.detail)}
-                on:error={(e) => (notice = e.detail)}
-              />
-            {/if}
-          {/if}
         {/each}
       </div>
 

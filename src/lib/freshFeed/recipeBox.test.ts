@@ -10,7 +10,8 @@ import {
   markSeen,
   SEEN_KEY,
   SEEN_MAX,
-  SEEN_TTL_SECONDS
+  SEEN_TTL_SECONDS,
+  interleave
 } from './recipeBox';
 import type { RelayEvent } from './relay';
 
@@ -141,5 +142,29 @@ describe('the device-local seen list', () => {
       }
     };
     expect(markSeen(new Map(), 'x', NOW, failing).has('x')).toBe(true);
+  });
+});
+
+describe('interleave', () => {
+  const post = (id: string) => ({ raw: { id } });
+  const posts = Array.from({ length: 20 }, (_, i) => post(`p${i}`));
+
+  it('puts the n-th pick after post 8·n, keyed apart from posts', () => {
+    const rows = interleave(posts, [post('r1'), post('r2')]);
+    expect(rows.map((r) => r.key).slice(7, 10)).toEqual(['p7', 'box:r1', 'p8']);
+    expect(rows.map((r) => r.key).slice(16, 19)).toEqual(['p15', 'box:r2', 'p16']);
+    expect(rows.filter((r) => r.box)).toHaveLength(2);
+  });
+
+  it('leaves no gap for a missing or dropped pick', () => {
+    const rows = interleave(posts, [null, post('r2')]);
+    expect(rows.map((r) => r.key).slice(7, 9)).toEqual(['p7', 'p8']);
+    expect(rows.filter((r) => r.box).map((r) => r.key)).toEqual(['box:r2']);
+  });
+
+  it('every pick past the first page renders once the feed is long enough', () => {
+    const picks = Array.from({ length: 7 }, (_, i) => post(`r${i}`));
+    const many = Array.from({ length: 59 }, (_, i) => post(`p${i}`));
+    expect(interleave(many, picks).filter((r) => r.box)).toHaveLength(7);
   });
 });

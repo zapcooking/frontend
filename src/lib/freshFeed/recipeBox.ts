@@ -119,3 +119,22 @@ export function markSeen(
   }
   return next;
 }
+
+/**
+ * The feed as rendered: posts, with the n-th pick after post 8·n. A missing
+ * pick (none left, or dropped by a mute or report) leaves no gap.
+ */
+export function interleave<T extends { raw: { id: string } }>(
+  posts: T[],
+  picks: (T | null)[]
+): { key: string; item: T; box: boolean }[] {
+  const out: { key: string; item: T; box: boolean }[] = [];
+  posts.forEach((p, i) => {
+    out.push({ key: p.raw.id, item: p, box: false });
+    if ((i + 1) % BOX_EVERY === 0) {
+      const pick = picks[(i + 1) / BOX_EVERY - 1];
+      if (pick) out.push({ key: `box:${pick.raw.id}`, item: pick, box: true });
+    }
+  });
+  return out;
+}
