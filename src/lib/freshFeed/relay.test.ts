@@ -280,3 +280,32 @@ describe('live tail', () => {
     expect(states).toEqual(['restricted']);
   });
 });
+
+describe('recipes (the recipe-box pool)', () => {
+  it('asks for tagged long-form recipes and kind 35000, any age, paging until short', async () => {
+    const many = Array.from({ length: 500 }, (_, i) => ev(`r${i}`, NOW - 1000 - i, 30023));
+    const older = [ev('rold', NOW - 99999, 30023)];
+    const relay = new FakeRelay([], (f) => {
+      if (f.kinds?.[0] === 35000) return { events: [ev('g1', NOW - 50, 35000)] };
+      return { events: f.until === undefined ? many : [many[499], ...older] };
+    });
+    const { c } = client(relay);
+    const r = await c.recipes(['zapcooking', 'nostrcooking']);
+    expect(relay.filters[0]).toEqual({
+      kinds: [30023],
+      '#t': ['zapcooking', 'nostrcooking'],
+      limit: 500
+    });
+    expect(relay.filters[1].until).toBe(NOW - 1499);
+    expect(relay.filters[2]).toEqual({ kinds: [35000], limit: 500 });
+    expect(relay.filters.every((f) => f.since === undefined)).toBe(true);
+    expect(r.state).toBe('ok');
+    expect(r.events.length).toBe(502);
+  });
+
+  it('reports a close as a state', async () => {
+    const relay = new FakeRelay([], () => ({ close: 'error: down' }));
+    const { c } = client(relay);
+    expect((await c.recipes(['zapcooking'])).state).toBe('unavailable');
+  });
+});

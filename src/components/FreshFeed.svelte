@@ -27,7 +27,17 @@
   import { freshSession } from '$lib/freshFeed/session';
   import { floorPrompt } from '$lib/freshFeed/floorPrompt';
   import type { PageEnd, PageResult, RelayEvent } from '$lib/freshFeed/relay';
-  import { passesFreshFilters } from '$lib/freshFeed/posts';
+  import { passesFreshFilters, passesReaderFilters } from '$lib/freshFeed/posts';
+  import { RECIPE_TAGS } from '$lib/consts';
+  import {
+    BOX_EVERY,
+    boxSlots,
+    buildPool,
+    loadSeen,
+    markSeen,
+    pickRandom,
+    recipeAddress
+  } from '$lib/freshFeed/recipeBox';
   import FreshPostCard from './FreshPostCard.svelte';
   import FreshReportModal from './FreshReportModal.svelte';
   import ZapModal from './ZapModal.svelte';
@@ -65,6 +75,14 @@
   let batchTimer: ReturnType<typeof setTimeout> | null = null;
   // Posts reported this session: hidden at once.
   let hidden = new Set<string>();
+
+  // "From the recipe box": older recipes, one after every eight posts,
+  // random from those this device hasn't shown ($lib/freshFeed/recipeBox).
+  let boxPool: RelayEvent[] = [];
+  let boxSeen = loadSeen(Math.floor(Date.now() / 1000));
+  let boxPicks: Post[] = [];
+  const boxTaken = new Set<string>();
+  const boxAddress = new Map<string, string>();
 
   // Dialogs
   let zapOpen = false;
@@ -137,7 +155,58 @@
     end = r.end ?? 'more';
   }
 
+  async function loadPool() {
+    const r = await client.recipes(RECIPE_TAGS);
+    if (destroyed || r.state !== 'ok') return;
+    boxPool = buildPool(r.events, Math.floor(Date.now() / 1000));
+  }
+
+  // A pick that was reported, or whose author was muted, leaves its slot empty.
+  $: boxShown = boxPicks.map((p) =>
+    hidden.has(p.raw.id) ||
+    !passesReaderFilters(p.raw, {
+      muteList: pk ? $muteListStore.muteList : null,
+      isHellthread: () => isHellthread(p.event)
+    })
+      ? null
+      : p
+  );
+
+  // Fill one pick per slot as the feed grows; a pick, once made, stays put.
+  $: fillBox(boxSlots(shown.length), boxPool, $muteListStore.muteList);
+
+  function fillBox(slots: number, pool: RelayEvent[], muteList: typeof $muteListStore.muteList) {
+    if (boxPicks.length >= slots || pool.length === 0) return;
+    // Recipes already in the feed (members paging history) aren't picked.
+    const inFeed = new Set(
+      posts
+        .filter((p) => p.raw.kind === 30023 || p.raw.kind === 35000)
+        .map((p) => recipeAddress(p.raw))
+    );
+    const usable = pool.filter(
+      (e) =>
+        !inFeed.has(recipeAddress(e)) &&
+        passesReaderFilters(e, {
+          muteList: pk ? muteList : null,
+          isHellthread: () => isHellthread(new NDKEvent($ndk, e))
+        })
+    );
+    const added: Post[] = [];
+    while (boxPicks.length + added.length < slots) {
+      const pick = pickRandom(usable, boxSeen, boxTaken);
+      if (!pick) break;
+      const address = recipeAddress(pick);
+      boxTaken.add(address);
+      boxAddress.set(pick.id, address);
+      added.push(wrap(pick));
+    }
+    if (added.length) boxPicks = [...boxPicks, ...added];
+  }
+
   async function loadFirst() {
+    // Picks never seen go back in the pool; seen ones are remembered.
+    boxPicks = [];
+    boxTaken.clear();
     loading = true;
     unavailable = false;
     moreFailed = false;
@@ -240,6 +309,8 @@
           observer.unobserve(entry.target);
           visibleNotes.add(eid);
           changed = true;
+          const address = boxAddress.get(eid);
+          if (address) boxSeen = markSeen(boxSeen, address, Math.floor(Date.now() / 1000));
         }
         if (changed) {
           visibleNotes = visibleNotes;
@@ -358,6 +429,7 @@
       muteListStore.load();
     }
     loadFirst();
+    loadPool();
   });
 
   onDestroy(() => {
@@ -429,7 +501,7 @@
       {/if}
 
       <div class="space-y-6">
-        {#each shown as post (post.raw.id)}
+        {#each shown as post, i (post.raw.id)}
           <FreshPostCard
             raw={post.raw}
             event={post.event}
@@ -448,6 +520,30 @@
             on:report={(e) => openReport(e.detail)}
             on:error={(e) => (notice = e.detail)}
           />
+          {#if (i + 1) % BOX_EVERY === 0}
+            {@const box = boxShown[(i + 1) / BOX_EVERY - 1]}
+            {#if box}
+              <FreshPostCard
+                label="From the recipe box"
+                raw={box.raw}
+                event={box.event}
+                visible={visibleNotes.has(box.raw.id)}
+                expanded={expanded.has(box.raw.id)}
+                {lazy}
+                on:zap={(e) => openZap(e.detail)}
+                on:share={(e) => openShare(e.detail.url, e.detail.event)}
+                on:downloadImage={(e) => downloadImage(e.detail)}
+                on:openImage={(e) => {
+                  lightboxImages = e.detail.images;
+                  lightboxIndex = e.detail.index;
+                  lightboxOpen = true;
+                }}
+                on:toggleEngagement={(e) => toggleEngagement(e.detail)}
+                on:report={(e) => openReport(e.detail)}
+                on:error={(e) => (notice = e.detail)}
+              />
+            {/if}
+          {/if}
         {/each}
       </div>
 

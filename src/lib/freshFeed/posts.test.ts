@@ -4,6 +4,7 @@ import {
   postKind,
   isOldEdit,
   passesFreshFilters,
+  passesReaderFilters,
   formatTimeAgo,
   mediaUrls,
   contentWithoutMedia,
@@ -150,5 +151,20 @@ describe('quotes and note links (copied from FoodstrFeedOptimized)', () => {
   it('links a note id to its page', () => {
     expect(noteHref(id)).toBe(`/${note}`);
     expect(noteHref('zz')).toBeNull();
+  });
+});
+
+describe('passesReaderFilters (recipe-box picks)', () => {
+  it('applies mutes and the hellthread rule but keeps old edits', () => {
+    const old = ev({ kind: 30023, tags: [['published_at', String(NOW - 90 * DAY)]] });
+    expect(passesReaderFilters(old, { muteList: null, isHellthread: noHell })).toBe(true);
+    expect(passesReaderFilters(old, { muteList: null, isHellthread: () => true })).toBe(false);
+    const muted: MuteList = {
+      pubkeys: [{ type: 'pubkey', value: old.pubkey }],
+      words: [],
+      tags: [],
+      threads: []
+    };
+    expect(passesReaderFilters(old, { muteList: muted, isHellthread: noHell })).toBe(false);
   });
 });
