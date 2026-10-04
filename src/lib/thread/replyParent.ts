@@ -59,6 +59,61 @@ export function getReplyParentId(event: ParentableEvent): string | null {
 }
 
 /**
+ * The id of the conversation root for an event, or null if it opens one.
+ *
+ * For a NIP-22 comment this is its uppercase `E` — read BEFORE any
+ * lowercase `e`, because a nested comment's `e` names its immediate
+ * parent, which is another comment mid-thread, not the root. Callers use
+ * this to target the thread fetch: sibling `#e`/`#E` filters keyed on the
+ * root reach the whole mixed kind-1/kind-1111 tree, where the focal id
+ * alone would only see direct replies.
+ *
+ * Kind-1 notes fall back to NIP-10: the marked `root` tag when present,
+ * else the first `e` (the deprecated positional form names the root first).
+ */
+export function getThreadRootId(event: ParentableEvent): string | null {
+  const tags = (event.tags || []).filter((t) => Array.isArray(t) && t.length > 1 && t[1]);
+
+  if (event.kind === 1111) {
+    const root = tags.find((t) => t[0] === 'E');
+    if (root) return root[1];
+  }
+
+  const eTags = tags.filter((t) => t[0] === 'e' && t[3] !== 'mention');
+  if (eTags.length === 0) return null;
+
+  const marked = eTags.find((t) => t[3] === 'root');
+  if (marked) return marked[1];
+
+  return eTags[0][1];
+}
+
+
+/**
+ * True when `event` is a kind-1 note replying to a kind-1111 comment.
+ *
+ * Comment threads are a 1111-only namespace: a kind 1 whose reply target
+ * is a comment belongs to the main feed, not the comment subtree, so the
+ * thread tree hides it and it must not count as a reply (the same rule as
+ * barrydeen/wisp#667 on Android and wisp-ios#481). Detection reads the
+ * `k` tag when the replying client emitted one, and otherwise resolves
+ * the reply target's kind through `parentKindOf` (the caller's id→kind
+ * map). An unresolvable parent returns false — an unknown parent counts
+ * as a normal reply rather than a dropped one.
+ */
+export function isStrayKind1OnComment(
+  event: ParentableEvent,
+  parentKindOf: (id: string) => number | undefined
+): boolean {
+  if (event.kind !== 1) return false;
+  const tags = (event.tags || []).filter((t) => Array.isArray(t) && t.length > 1 && t[1]);
+  if (tags.some((t) => t[0] === 'k' && t[1] === '1111')) return true;
+  const parentId = getReplyParentId(event);
+  if (parentId === null) return false;
+  return parentKindOf(parentId) === 1111;
+}
+
+/**
  * Groups replies under their parents, chronologically.
  *
  * A relay answering `#e: <focus>` returns the whole subtree, not just
@@ -74,10 +129,15 @@ export function getReplyParentId(event: ParentableEvent): string | null {
  * the note rather than replying to it. NIP-22 comments are exempt because
  * they quote with `q`, never `e`; a kind-1111 without `e`/`E` is a
  * top-level comment on the focused event and belongs under it.
+ *
+ * Also dropped: a stray kind-1 whose reply target is a kind-1111 comment
+ * (see `isStrayKind1OnComment`) — comment threads are a 1111-only
+ * namespace, so a kind 1 there is a main-feed note, not a reply.
  */
 export function buildReplyTree<E extends ParentableEvent>(
   focusId: string,
-  replies: E[]
+  replies: E[],
+  focus?: ParentableEvent
 ): Map<string, E[]> {
   const map = new Map<string, E[]>();
   if (!focusId) return map;
@@ -85,8 +145,16 @@ export function buildReplyTree<E extends ParentableEvent>(
   const known = new Set<string>([focusId]);
   for (const reply of replies) known.add(reply.id);
 
+  // Kind resolution for the stray check: every event in the set, plus the
+  // focused event when the caller passed it (a kind-1 directly answering
+  // the focused comment is as much a stray as one answering a nested one).
+  const kindById = new Map<string, number | undefined>();
+  for (const reply of replies) if (reply.kind) kindById.set(reply.id, reply.kind);
+  if (focus?.kind) kindById.set(focusId, focus.kind);
+
   for (const reply of replies) {
     if (reply.id === focusId) continue;
+    if (isStrayKind1OnComment(reply, (id) => kindById.get(id))) continue;
     const parentId = getReplyParentId(reply);
     if (parentId === null && reply.kind !== 1111) continue;
     const bucket = parentId && known.has(parentId) ? parentId : focusId;

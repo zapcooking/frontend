@@ -24,7 +24,8 @@
   import ThreadRow from '../../components/comments/ThreadRow.svelte';
   import ThreadMoreRow from '../../components/comments/ThreadMoreRow.svelte';
   import { flattenThread } from '$lib/thread/threadFlatten';
-  import { buildReplyTree, getReplyParentId } from '$lib/thread/replyParent';
+  import { buildReplyTree, getReplyParentId, getThreadRootId } from '$lib/thread/replyParent';
+  import { splitThreadByFocus } from '$lib/thread/threadScope';
   import ClientAttribution from '../../components/ClientAttribution.svelte';
   import PowBadge from '../../components/PowBadge.svelte';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
@@ -122,6 +123,10 @@
   let replies: NDKEvent[] = [];
   let loadingReplies = false;
   let processedReplies = new Set<string>();
+  // Ids named by kind-5 deletion events (NIP-09) arriving on the thread
+  // subscription. Applied reactively downstream so ordering never matters —
+  // a deletion landing before its target still removes it.
+  let deletedReplyIds = new Set<string>();
 
   // The replies subscription is closeOnEose:false (live for realtime
   // replies). It MUST be stopped when re-fetching for another note and
@@ -241,6 +246,25 @@
       // Failed to fetch parent thread
     }
 
+    // Re-root: for a comment, the conversation root is its uppercase `E` —
+    // the lowercase-`e` walk above dead-ends at the parent note and never
+    // reaches it. Fetch the root directly, best-effort, so a thread opened
+    // on a comment can still show where the conversation started; when the
+    // root is gone from every relay (comments can outlive it) the context
+    // collected so far plus the subtree below is what's left to show.
+    if (evt.kind === 1111) {
+      const rootId = getThreadRootId(evt);
+      if (
+        rootId &&
+        rootId !== evt.id &&
+        !seenIds.has(rootId) &&
+        !parents.some((p) => p.id === rootId)
+      ) {
+        const rootNote = await fetchParentById(rootId, buildParentRelaySet(evt));
+        if (rootNote) parents.unshift(rootNote);
+      }
+    }
+
     parentThread = parents;
     loadingParents = false;
   }
@@ -270,13 +294,18 @@
     loadingReplies = true;
     replies = [];
     processedReplies.clear();
+    deletedReplyIds = new Set();
 
     if (!event) return;
 
-    const filter = createCommentFilter(event);
+    // Sibling filters in ONE REQ (relay-side OR): `#e` walks the NIP-10
+    // tree (plus kind-5 deletions), `#E` the NIP-22 comment tree rooted at
+    // the conversation root. Merged into a single filter object they would
+    // AND and match nothing beyond top-level comments.
+    const filters = createCommentFilter(event);
 
     // Build a wider relay set: NDK's default pool + the relay that served the
-    // main event + any relay hints embedded in the event's e/p tags.
+    // main event + any relay hints embedded in the event's e/E/p tags.
     // This handles the common case where replies live on the author's write
     // relay but not on all of NDK's default pool relays.
     let relaySet: NDKRelaySet | undefined;
@@ -285,9 +314,9 @@
       // Relay that served the main event
       const sourceRelay = event.relay?.url || event.onRelays?.[0]?.url;
       if (sourceRelay) extraUrls.add(sourceRelay);
-      // Relay hints in event e/p tags (NIP-10 clients often include them)
+      // Relay hints in event e/E/p tags (NIP-10/NIP-22 clients include them)
       for (const tag of event.tags) {
-        if ((tag[0] === 'e' || tag[0] === 'p') && tag[2]?.startsWith('wss://')) {
+        if ((tag[0] === 'e' || tag[0] === 'E' || tag[0] === 'p') && tag[2]?.startsWith('wss://')) {
           extraUrls.add(tag[2]);
         }
       }
@@ -307,11 +336,20 @@
       }
     } catch { /* non-fatal — fall back to the default pool */ }
 
-    replySub = $ndk.subscribe(filter, { closeOnEose: false }, relaySet);
+    replySub = $ndk.subscribe(filters, { closeOnEose: false }, relaySet);
 
     replySub.on('event', (e: NDKEvent) => {
       if (processedReplies.has(e.id)) return;
       processedReplies.add(e.id);
+      if (e.kind === 5) {
+        // NIP-09 deletion of a thread event: its `e` tags name the ids to
+        // remove. Never rendered as a row itself.
+        const targets = e.tags.filter((t) => t[0] === 'e' && t[1]).map((t) => t[1] as string);
+        if (targets.length > 0) {
+          deletedReplyIds = new Set([...deletedReplyIds, ...targets]);
+        }
+        return;
+      }
       pendingReplies.push(e);
       if (replyFlushTimer === null) {
         replyFlushTimer = setTimeout(flushPendingReplies, REPLY_FLUSH_MS);
@@ -500,9 +538,27 @@
 
   // Every reply hangs off exactly one parent, resolved in one place, so
   // the ancestors above the note and the tree below it can't disagree.
-  $: visibleReplies = replies.filter((r) => !$mutedPubkeys.has(r.author?.hexpubkey || r.pubkey));
+  $: visibleReplies = replies.filter(
+    (r) =>
+      r.kind !== 5 &&
+      !deletedReplyIds.has(r.id) &&
+      !$mutedPubkeys.has(r.author?.hexpubkey || r.pubkey)
+  );
+  // The sibling-filter fetch returns the whole conversation — including
+  // the focused note's own ancestors, which match `#E` like any other
+  // comment. Split them off so a parent never renders as its own child,
+  // and merge them into the context rows the parent walk collected.
+  $: scopedThread = event
+    ? splitThreadByFocus<NDKEvent>(event, visibleReplies)
+    : { ancestors: [] as NDKEvent[], subtree: [] as NDKEvent[] };
+  $: contextRows = (() => {
+    const byId = new Map<string, NDKEvent>();
+    for (const p of parentThread) if (p.id && !byId.has(p.id)) byId.set(p.id, p);
+    for (const a of scopedThread.ancestors) if (a.id && !byId.has(a.id)) byId.set(a.id, a);
+    return [...byId.values()].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+  })();
   $: parentToChildren = event
-    ? buildReplyTree<NDKEvent>(event.id, visibleReplies)
+    ? buildReplyTree<NDKEvent>(event.id, scopedThread.subtree, event)
     : new Map<string, NDKEvent[]>();
   $: directReplies = (event && parentToChildren.get(event.id)) || [];
 
@@ -709,9 +765,9 @@
           </div>
         </div>
       </div>
-    {:else if parentThread.length > 0}
+    {:else if contextRows.length > 0}
       <div class="space-y-0">
-        {#each parentThread as parentNote, index}
+        {#each contextRows as parentNote, index}
           <div>
             <article class="py-3">
               <div class="flex space-x-3 -mx-2 px-2 py-2 rounded-lg">

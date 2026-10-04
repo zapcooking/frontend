@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildReplyTree, getReplyParentId, type ParentableEvent } from './replyParent';
+import {
+  buildReplyTree,
+  getReplyParentId,
+  getThreadRootId,
+  isStrayKind1OnComment,
+  type ParentableEvent
+} from './replyParent';
 
 const ev = (id: string, tags: string[][], extra: Partial<ParentableEvent> = {}): ParentableEvent => ({
   id,
@@ -94,6 +100,62 @@ describe('getReplyParentId (NIP-22)', () => {
   });
 });
 
+describe('getThreadRootId', () => {
+  it('re-roots a NIP-22 comment at its uppercase E, not its lowercase e parent', () => {
+    // The lowercase parent of a nested comment is another comment
+    // mid-thread — reading it as the root would truncate the fetch.
+    const e = ev(
+      'a',
+      [
+        ['E', 'conversation-root', '', 'root-author'],
+        ['K', '1'],
+        ['P', 'root-author'],
+        ['e', 'immediate-parent', '', 'parent-author']
+      ],
+      { kind: 1111 }
+    );
+    expect(getThreadRootId(e)).toBe('conversation-root');
+    expect(getReplyParentId(e)).toBe('immediate-parent');
+  });
+
+  it('falls back to the e tags when a comment carries no E', () => {
+    const e = ev('a', [['e', 'only-reference']], { kind: 1111 });
+    expect(getThreadRootId(e)).toBe('only-reference');
+  });
+
+  it('uses the marked root tag for kind-1 replies', () => {
+    const e = ev('a', [
+      ['e', 'root', '', 'root'],
+      ['e', 'parent', '', 'reply']
+    ]);
+    expect(getThreadRootId(e)).toBe('root');
+  });
+
+  it('takes the first e tag in the deprecated positional form', () => {
+    // Positional form names the root first, the parent last — the mirror
+    // image of getReplyParentId's last-tag rule.
+    const e = ev('a', [
+      ['e', 'root'],
+      ['e', 'parent']
+    ]);
+    expect(getThreadRootId(e)).toBe('root');
+    expect(getReplyParentId(e)).toBe('parent');
+  });
+
+  it('ignores mentions when resolving the positional root', () => {
+    const e = ev('a', [
+      ['e', 'quoted', '', 'mention'],
+      ['e', 'root'],
+      ['e', 'parent']
+    ]);
+    expect(getThreadRootId(e)).toBe('root');
+  });
+
+  it('returns null when the event opens a thread', () => {
+    expect(getThreadRootId(ev('a', [['p', 'pk']]))).toBeNull();
+  });
+});
+
 describe('buildReplyTree', () => {
   const at = (id: string, parent: string | null, created_at: number) =>
     ev(id, parent ? [['e', 'root'], ['e', parent]] : [['e', 'root']], { created_at });
@@ -147,5 +209,55 @@ describe('buildReplyTree', () => {
   it('never parents the focused note to itself', () => {
     const tree = buildReplyTree('root', [ev('root', [['e', 'root']]), at('b', 'root', 1)]);
     expect(tree.get('root')?.map((e) => e.id)).toEqual(['b']);
+  });
+});
+
+describe('isStrayKind1OnComment / stray replies in the tree', () => {
+  it('flags a kind-1 whose held parent is a comment', () => {
+    const stray = ev('s1', [['e', 'c1', '', 'reply']]);
+    expect(isStrayKind1OnComment(stray, (id) => (id === 'c1' ? 1111 : undefined))).toBe(true);
+  });
+
+  it('flags via the k tag without any parent cache', () => {
+    const stray = ev('s2', [
+      ['e', 'unknown-parent', '', 'reply'],
+      ['k', '1111']
+    ]);
+    expect(isStrayKind1OnComment(stray, () => undefined)).toBe(true);
+  });
+
+  it('keeps replies to notes, comments, and unresolvable parents', () => {
+    const kindOf = (id: string) => (id === 'root' ? 1 : undefined);
+    expect(isStrayKind1OnComment(ev('r1', [['e', 'root', '', 'reply']]), kindOf)).toBe(false);
+    const comment = ev('r2', [['e', 'c1']], { kind: 1111 });
+    expect(isStrayKind1OnComment(comment, () => 1111)).toBe(false);
+    expect(isStrayKind1OnComment(ev('r3', [['e', 'missing', '', 'reply']]), kindOf)).toBe(false);
+  });
+
+  it('drops a stray from the tree but keeps its comment siblings', () => {
+    const comment = ev('c1', [['E', 'root', '', 'pk'], ['e', 'root', '', 'pk']], {
+      kind: 1111,
+      created_at: 1
+    });
+    const stray = ev('s1', [['e', 'c1', '', 'reply']], { created_at: 2 });
+    const nested = ev(
+      'c2',
+      [
+        ['E', 'root', '', 'pk'],
+        ['e', 'c1', '', 'pk'],
+        ['k', '1111']
+      ],
+      { kind: 1111, created_at: 3 }
+    );
+    const tree = buildReplyTree('root', [comment, stray, nested]);
+    const placed = [...tree.values()].flat().map((e) => e.id).sort();
+    expect(placed).toEqual(['c1', 'c2']);
+  });
+
+  it('drops a kind-1 answering the focused comment itself', () => {
+    const focus = { id: 'top', kind: 1111, created_at: 0, tags: [['E', 'gone-root']] };
+    const stray = ev('s1', [['e', 'top', '', 'reply']]);
+    const tree = buildReplyTree('top', [stray], focus);
+    expect(tree.size).toBe(0);
   });
 });
