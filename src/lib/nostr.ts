@@ -3,6 +3,7 @@ import NDK from '@nostr-dev-kit/ndk';
 import NDKCacheAdapterDexie from '@nostr-dev-kit/ndk-cache-dexie';
 import { writable, get, type Writable } from 'svelte/store';
 import { standardRelays } from './consts';
+import { NDK_BLOCKED_RELAYS } from './relayAuthScope';
 import { createConnectionManager, getConnectionManager, resetConnectionManagerSingleton } from './connectionManager';
 import { scheduleNdkCacheMaintenance } from './ndkCacheMaintenance';
 
@@ -198,7 +199,9 @@ function createNdk(mode: RelayMode, relayUrls: string[]): NDK {
     explicitRelayUrls: config.explicitRelayUrls,
     // Cast due transitive NDK minor type mismatch (2.10.0 vs 2.10.x) in installed deps.
     cacheAdapter: dexieAdapter as any,
-    autoConnectUserRelays: false
+    autoConnectUserRelays: false,
+    // NDK's defaults plus relays the app never connects to ($lib/relayAuthScope).
+    blacklistRelayUrls: NDK_BLOCKED_RELAYS
   });
 }
 
