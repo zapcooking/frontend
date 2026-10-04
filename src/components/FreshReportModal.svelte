@@ -2,14 +2,20 @@
   /**
    * Report a Fresh post (NIP-56, kind 1984): the post and its author, one
    * reason, an optional note. Published through $ndk to the reader's own
-   * relays; the feed relay isn't told. "Also mute" (on by default) mutes
+   * relays; the feed relay isn't told. "Also mute" (off by default, every
+   * time the dialog opens) mutes
    * the author with the app's usual mute. The post is hidden from this
    * session's feed either way.
    */
   import { createEventDispatcher } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { setPubkeyMuted } from '$lib/muteToggle';
-  import { publishReport, REPORT_TYPES, type ReportType } from '$lib/freshFeed/social';
+  import {
+    publishReport,
+    REPORT_TYPES,
+    REPORT_ALSO_MUTE_DEFAULT,
+    type ReportType
+  } from '$lib/freshFeed/social';
   import type { RelayEvent } from '$lib/freshFeed/relay';
   import Modal from './Modal.svelte';
 
@@ -20,11 +26,15 @@
 
   let type: ReportType = 'spam';
   let note = '';
-  let alsoMute = true;
+  let alsoMute = REPORT_ALSO_MUTE_DEFAULT;
   let busy = false;
   let error = '';
 
-  $: if (open) error = '';
+  // Each report starts from the defaults.
+  $: if (open) {
+    error = '';
+    alsoMute = REPORT_ALSO_MUTE_DEFAULT;
+  }
 
   async function submit() {
     if (!post || busy || !$userPublickey) return;

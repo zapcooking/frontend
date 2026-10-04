@@ -144,6 +144,12 @@ export const REPORT_TYPES = [
 
 export type ReportType = (typeof REPORT_TYPES)[number]['value'];
 
+/**
+ * "Also mute this person" starts unticked: muting publishes the reader's
+ * mute list, so it should be a choice, not a side effect of reporting.
+ */
+export const REPORT_ALSO_MUTE_DEFAULT = false;
+
 /** A NIP-56 report of one post: the note and its author, same type. */
 export function reportTemplate(
   post: { id: string; pubkey: string },
