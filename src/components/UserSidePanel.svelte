@@ -13,7 +13,6 @@
   import TimerIcon from 'phosphor-svelte/lib/Timer';
   import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
-  import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
   import CheffyIcon from './icons/CheffyIcon.svelte';
   import SunIcon from 'phosphor-svelte/lib/Sun';
@@ -38,9 +37,6 @@
   import { profileCacheManager } from '$lib/profileCache';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
-  import { walletConnected } from '$lib/wallet/walletStore';
-  import { openWallet, type WalletView } from '$lib/wallet/walletModalStore';
-  import { weblnConnected } from '$lib/wallet/webln';
 
   // Use the store for open state
   $: open = $userSidePanelOpen;
@@ -126,11 +122,6 @@
   function navigate(path: string) {
     close();
     goto(path);
-  }
-
-  function openWalletPanel(view: WalletView = 'main') {
-    close();
-    openWallet(view);
   }
 
   // Gadgets (cooking tools) expandable section
@@ -325,21 +316,6 @@
             >
               <FloppyDiskIcon size={22} />
               <span class="font-medium">Drafts</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => openWalletPanel()}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <WalletIcon size={22} />
-              <span class="font-medium">Wallet</span>
-              {#if !$walletConnected && !$weblnConnected}
-                <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary"
-                  >Connect</span
-                >
-              {/if}
             </button>
           </li>
           <!-- Gadgets (cooking tools) — expandable -->

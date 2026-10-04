@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
+  import { slide } from 'svelte/transition';
   import { goto, afterNavigate } from '$app/navigation';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
@@ -14,27 +15,23 @@
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
-  import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
   import { totalUnreadCount } from '$lib/stores/messages';
-  import { walletConnected, openWallet, walletModalOpen } from '$lib/wallet';
-  import { weblnConnected } from '$lib/wallet/webln';
-  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
+  import { navBalanceVisible } from '$lib/wallet';
+  import { userPublickey } from '$lib/nostr';
+  import SidebarWallet from './SidebarWallet.svelte';
+  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
 
   $: pathname = $page.url.pathname;
-  $: hasWallet =
-    $walletConnected ||
-    $weblnConnected ||
-    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
   type NavItem = {
     href: string;
     label: string;
     icon: any;
     match: (path: string) => boolean;
-    badge?: 'messages' | 'wallet';
+    badge?: 'messages';
   };
 
   const homeItems: NavItem[] = [
@@ -49,11 +46,17 @@
 
   const kitchenItems: NavItem[] = [
     { href: '/my-kitchen', label: 'My Kitchen', icon: CookbookIcon, match: (p) => p.startsWith('/my-kitchen') },
-    { href: '/wallet', label: 'Wallet', icon: WalletIcon, match: () => $walletModalOpen, badge: 'wallet' },
     { href: '/nourish', label: 'Nourish', icon: LeafIcon, match: (p) => p.startsWith('/nourish') },
     { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
     { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
   ];
+
+  // My Kitchen collapses to save vertical space; defaults closed except
+  // when the user is already on one of its pages. Re-evaluated on every
+  // drawer mount ({#if $mobileNavOpen}), so it reflects the current page
+  // each time the drawer opens. ($page directly: the `pathname` reactive
+  // hasn't run at init time.)
+  let kitchenExpanded = kitchenItems.some((item) => item.match($page.url.pathname));
 
   function close() {
     mobileNavOpen.set(false);
@@ -145,13 +148,29 @@
 
       <!-- MY KITCHEN -->
       <div>
-        <h3 class="px-3 pb-2 font-semibold uppercase tracking-wider" style="color: var(--color-caption); font-size: 11px;">My Kitchen</h3>
-        <ul class="flex flex-col gap-0.5">
+        <!-- Expandable group header (defaults closed — see kitchenExpanded) -->
+        <button
+          type="button"
+          class="w-full flex items-center justify-between px-3 pb-2 font-semibold uppercase tracking-wider cursor-pointer transition-colors hover:opacity-80"
+          style="color: var(--color-caption); font-size: 11px;"
+          on:click={() => (kitchenExpanded = !kitchenExpanded)}
+          aria-expanded={kitchenExpanded}
+          aria-controls="kitchen-nav-mobile"
+        >
+          My Kitchen
+          <CaretDownIcon
+            size={11}
+            weight="bold"
+            class="transition-transform duration-200 {kitchenExpanded ? 'rotate-180' : ''}"
+          />
+        </button>
+        {#if kitchenExpanded}
+        <ul id="kitchen-nav-mobile" class="flex flex-col gap-0.5" transition:slide={{ duration: 200 }}>
           {#each kitchenItems as item}
             {@const active = item.match(pathname)}
             <li>
               <button
-                on:click={() => { if (item.badge === 'wallet') { close(); openWallet(); } else { navigate(item.href); } }}
+                on:click={() => navigate(item.href)}
                 class="nav-row w-full {active ? 'nav-row-active' : ''}"
                 style="color: var(--color-text-primary);"
               >
@@ -159,14 +178,24 @@
                   <svelte:component this={item.icon} size={20} />
                 </span>
                 <span class="font-medium">{item.label}</span>
-                {#if item.badge === 'wallet' && !hasWallet}
-                  <span class="ml-auto text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">Connect</span>
-                {/if}
               </button>
             </li>
           {/each}
         </ul>
+        {/if}
       </div>
+
+      <!-- Wallet lives in its own section (not a nav link): a balance
+           card, like the mobile app's wallet surface. Tapping it closes
+           the drawer and opens the wallet modal (the drawer stacks above
+           the modal, so it must close first). Hidden for logged-out
+           users and when the wallet widget is switched off in settings. -->
+      {#if $userPublickey && $navBalanceVisible}
+        <div>
+          <h3 class="px-3 pb-2 font-semibold uppercase tracking-wider" style="color: var(--color-caption); font-size: 11px;">Wallet</h3>
+          <SidebarWallet onBeforeOpen={close} />
+        </div>
+      {/if}
 
     </nav>
   </aside>

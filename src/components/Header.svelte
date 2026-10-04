@@ -12,27 +12,13 @@
   import IntelligenceIcon from './icons/IntelligenceIcon.svelte';
   import IntelligenceMenu from './IntelligenceMenu.svelte';
   import NotificationBell from './NotificationBell.svelte';
-  import DenominatedBalance from './DenominatedBalance.svelte';
   import { theme } from '$lib/themeStore';
-  import WalletBalance from './WalletBalance.svelte';
-  import LightningIcon from 'phosphor-svelte/lib/Lightning';
-  import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { mobileNavOpen } from '$lib/stores/mobileNav';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
   import { timerStore } from '$lib/timerStore';
-  import {
-    navBalanceVisible,
-    walletConnected,
-    walletBalance,
-    walletLoading,
-    balanceVisible,
-    openWallet
-  } from '$lib/wallet';
-  import { weblnConnected } from '$lib/wallet/webln';
-  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
   import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
   import {
@@ -81,10 +67,6 @@
 
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
-  $: hasNavWallet =
-    $walletConnected ||
-    $weblnConnected ||
-    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
   // Active state highlights the Intelligence icon when the user is
   // currently on one of the AI surfaces.
@@ -201,10 +183,14 @@
   <!-- Center: search bar (desktop). Left padding at xl sets the gap from
        the pipe's vertical line to 12px (10px here + the input's 2px margin),
        matching the header's 12px top/bottom padding so the search box has
-       equal visual padding on all three framed sides. -->
+       equal visual padding on all three framed sides. The xl max-width adds
+       the same 10px back on top of the feed column's 42rem (672px) so the
+       visible input box — after this container's 10px padding and the
+       autocomplete's 2px side margins — lands at exactly 672px, flush with
+       the feed column below it. -->
   <!-- focusin (not click) so keyboard tabbing into search also jumps to top. -->
   <div
-    class="hidden sm:flex flex-1 self-center print:hidden min-w-[280px] lg:max-w-xs xl:max-w-2xl xl:min-w-[500px] lg:pl-2.5"
+    class="hidden sm:flex flex-1 self-center print:hidden min-w-[280px] lg:max-w-xs xl:max-w-[calc(42rem+14px)] xl:min-w-[500px] lg:pl-2.5"
     on:focusin={scrollToTopOnSearch}
   >
     <TagsSearchAutocomplete
@@ -271,26 +257,6 @@
         </span>
       {/if}
     </button>
-
-    <!-- Wallet (logged in) -->
-    {#if $userPublickey && $navBalanceVisible}
-      {#if hasNavWallet}
-        <!-- Desktop full WalletBalance widget -->
-        <div class="hidden sm:block">
-          <WalletBalance />
-        </div>
-      {:else}
-        <button
-          type="button"
-          on:click={() => openWallet('setup')}
-          class="hidden sm:flex items-center gap-2 px-3 py-1.5 min-w-[154px] rounded-full text-sm font-medium transition-colors hover:bg-accent-gray cursor-pointer"
-          style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
-        >
-          <LightningIcon size={14} weight="fill" class="text-amber-500" aria-hidden="true" />
-          <span>Set up a Wallet</span>
-        </button>
-      {/if}
-    {/if}
 
     <!-- Notifications bell + dropdown (desktop only — mobile keeps the
          bottom-nav bell) -->
@@ -387,61 +353,6 @@
   }
   :global(.dark) .zh-intelligence-btn.is-active {
     color: rgb(233, 213, 255);
-  }
-
-  /* Mobile wallet pill — compact container split into two interactive
-     zones: a lightning icon (opens the wallet modal) and a balance
-     text (one-tap cycles SATS ↔ preferred fiat). Mobile only; desktop
-     uses the existing WalletBalance widget. The media query is
-     co-located with the component CSS so it beats the Tailwind
-     `sm:hidden` utility (which would otherwise lose to this rule's
-     specificity). */
-  .zh-wallet-mobile {
-    display: inline-flex;
-    align-items: stretch;
-    height: 30px;
-    border-radius: 999px;
-    background-color: var(--color-input-bg);
-    border: 1px solid var(--color-input-border, transparent);
-    color: var(--color-text-primary);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1;
-    overflow: hidden;
-    transition: background-color 140ms ease, border-color 140ms ease;
-  }
-  @media (min-width: 640px) {
-    .zh-wallet-mobile {
-      display: none;
-    }
-  }
-
-  /* When `.zh-wallet-mobile` is used as a single button (the "Set up"
-     branch), fall back to old behavior. */
-  button.zh-wallet-mobile {
-    cursor: pointer;
-    padding: 0 10px 0 8px;
-    gap: 6px;
-    align-items: center;
-  }
-  button.zh-wallet-mobile:active {
-    transform: scale(0.97);
-  }
-
-  :global(.dark) .zh-wallet-mobile {
-    /* Visible translucent fill (~2x previous) so the pill reads as a
-       distinct chip against the dark page bg. */
-    background-color: rgba(255, 255, 255, 0.08);
-    /* Amber-tinted border so the pill picks up the brand colour from
-       the lightning bolt and the wallet modal's amber gradient. */
-    border-color: rgba(251, 191, 36, 0.35);
-    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.08);
-  }
-  .zh-wallet-amount {
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.01em;
-    min-width: 2.5ch;
-    text-align: right;
   }
 
   /* Avatar — soft purple glow ring, scales softly on hover/tap */

@@ -3,9 +3,11 @@
   import { triggerExploreNav } from '$lib/exploreNav';
   import { goto } from '$app/navigation';
   import { theme } from '$lib/themeStore';
-  import { walletConnected, openWallet, walletModalOpen } from '$lib/wallet';
-  import { weblnConnected } from '$lib/wallet/webln';
-  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
+  import { userPublickey } from '$lib/nostr';
+  import { navBalanceVisible } from '$lib/wallet';
+  import SidebarWallet from './SidebarWallet.svelte';
+  import { slide } from 'svelte/transition';
+  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
 
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
@@ -14,7 +16,6 @@
 
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
-  import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
@@ -25,19 +26,14 @@
   $: pathname = $page.url.pathname;
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
-  $: hasWallet =
-    $walletConnected ||
-    $weblnConnected ||
-    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
   type NavItem = {
     href: string;
     label: string;
     icon: any;
     match?: (path: string) => boolean;
-    badge?: 'walletConnect' | 'members' | 'messagesDot';
+    badge?: 'members' | 'messagesDot';
     external?: boolean;
-    onClick?: () => void;
   };
 
 
@@ -102,14 +98,6 @@
       match: (p) => p.startsWith('/my-kitchen')
     },
     {
-      href: '/wallet',
-      label: 'Wallet',
-      icon: WalletIcon,
-      match: () => $walletModalOpen,
-      badge: 'walletConnect',
-      onClick: () => openWallet()
-    },
-    {
       href: '/nourish',
       label: 'Nourish',
       icon: LeafIcon,
@@ -128,6 +116,15 @@
       match: (p) => p.startsWith('/sponsors')
     }
   ];
+
+  // My Kitchen collapses to save vertical space; defaults closed except
+  // when the user is already on one of its pages (so the active link
+  // isn't hidden). One-time init — the sidebar isn't remounted on
+  // navigation, and an open/closed choice should survive browsing.
+  // ($page directly: the `pathname` reactive hasn't run at init time.)
+  let kitchenExpanded = kitchen.some((item) =>
+    item.match ? item.match($page.url.pathname) : $page.url.pathname === item.href
+  );
 
   function linkClasses(active: boolean) {
     return [
@@ -227,14 +224,25 @@
       </div>
 
       <div class="mt-1">
-        <h3
-          class="px-3 pb-2 font-semibold uppercase tracking-wider"
+        <!-- Expandable group header (defaults closed — see kitchenExpanded) -->
+        <button
+          type="button"
+          class="w-full flex items-center justify-between px-3 pb-2 font-semibold uppercase tracking-wider cursor-pointer transition-colors hover:opacity-80"
           style="color: var(--color-caption); font-size: 12px;"
+          on:click={() => (kitchenExpanded = !kitchenExpanded)}
+          aria-expanded={kitchenExpanded}
+          aria-controls="kitchen-nav-desktop"
         >
           My Kitchen
-        </h3>
-        <ul class="flex flex-col gap-1">
-          {#each kitchen as item (item.href)}
+          <CaretDownIcon
+            size={12}
+            weight="bold"
+            class="transition-transform duration-200 {kitchenExpanded ? 'rotate-180' : ''}"
+          />
+        </button>
+        {#if kitchenExpanded}
+          <ul id="kitchen-nav-desktop" class="flex flex-col gap-1" transition:slide={{ duration: 200 }}>
+            {#each kitchen as item (item.href)}
             {@const active = item.match ? item.match(pathname) : pathname === item.href}
             <li>
               <a
@@ -242,27 +250,38 @@
                 class={linkClasses(active)}
                 style="color: var(--color-text-primary);"
                 aria-current={active ? 'page' : undefined}
-                on:click={(e) => {
-                  if (item.onClick && !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
-                    e.preventDefault();
-                    item.onClick();
-                  }
-                }}
               >
                 <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
                   <svelte:component this={item.icon} size={20} />
                 </span>
                 <span class="font-medium">{item.label}</span>
-                {#if item.badge === 'walletConnect' && !hasWallet}
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">Connect</span>
-                {:else if item.badge === 'members'}
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Members</span>
+                {#if item.badge === 'members'}
+                  <span class="ml-auto">
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Members</span>
+                  </span>
                 {/if}
               </a>
             </li>
           {/each}
-        </ul>
+          </ul>
+        {/if}
       </div>
+
+      <!-- Wallet lives in its own section (not a nav link): a balance
+           card, like the mobile app's wallet surface. Tapping it opens
+           the wallet modal. Hidden for logged-out users and when the
+           wallet widget is switched off in settings. -->
+      {#if $userPublickey && $navBalanceVisible}
+        <div class="mt-1">
+          <h3
+            class="px-3 pb-2 font-semibold uppercase tracking-wider"
+            style="color: var(--color-caption); font-size: 12px;"
+          >
+            Wallet
+          </h3>
+          <SidebarWallet />
+        </div>
+      {/if}
     </nav>
   </div>
 </aside>

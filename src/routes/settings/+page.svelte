@@ -1269,7 +1269,7 @@
           <div class="flex items-center justify-between">
             <div class="flex-1">
               <div class="font-medium" style="color: var(--color-text-primary)">Wallet Widget</div>
-              <p class="text-sm text-caption mt-1">Show the wallet widget in the top navigation.</p>
+              <p class="text-sm text-caption mt-1">Show the wallet widget in the sidebar.</p>
             </div>
             <button
               role="switch"
