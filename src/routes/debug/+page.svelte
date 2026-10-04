@@ -288,7 +288,7 @@
     <h2 class="font-semibold mb-2">Test Links:</h2>
     <div class="space-y-2">
       <a href="/" class="block text-blue-600 hover:text-blue-800">Home</a>
-      <a href="/community" class="block text-blue-600 hover:text-blue-800">Community</a>
+      <a href="/feed" class="block text-blue-600 hover:text-blue-800">Feed</a>
       <a href="/create" class="block text-blue-600 hover:text-blue-800">Create Recipe</a>
     </div>
   </div>

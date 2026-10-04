@@ -31,6 +31,7 @@
   import SuggestedFollowsModal from './SuggestedFollowsModal.svelte';
   import { showToast } from '$lib/toast';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+  import { startSectionTarget } from '$lib/startSectionSettings';
   import {
     getGoogleSub,
     connectDrive,
@@ -287,7 +288,9 @@
             // Only hard-navigate if there's an explicit redirect param or we're on the /login route
             const redirectTo = $page.url.searchParams.get('redirect');
             if (redirectTo || $page.url.pathname === '/login') {
-              goto(redirectTo || '/explore');
+              // An explicit redirect param wins; otherwise the member's
+              // chosen start section (Settings → Appearance).
+              goto(redirectTo || startSectionTarget());
             }
           }
         });
@@ -698,7 +701,7 @@
     loginOverlayOpen.set(false);
     if ($page.url.pathname === '/login') {
       if (browser && window.history.length > 1) history.back();
-      else goto('/explore');
+      else goto(startSectionTarget());
     }
   }
 
@@ -1393,7 +1396,7 @@
       showSuggestedFollows = false;
       loginOverlayOpen.set(false);
       if (browser) localStorage.setItem('zapcooking_wallet_welcome_force', '1');
-      const redirectTo = $page.url.searchParams.get('redirect') || '/explore';
+      const redirectTo = $page.url.searchParams.get('redirect') || startSectionTarget();
       goto(redirectTo);
     }}
   />

@@ -5,10 +5,10 @@
   import { lastFeedUrl } from '$lib/feedOrigin';
 
   // Back to the feed tab the user came from (captured by the root
-  // layout on navigation away from /community), falling back to the
+  // layout on navigation away from /feed), falling back to the
   // feed root when the note was opened cold (link, notification…).
   function backToFeed() {
-    goto(get(lastFeedUrl) ?? '/community');
+    goto(get(lastFeedUrl) ?? '/feed');
   }
   import { browser } from '$app/environment';
   import { nip19 } from 'nostr-tools';

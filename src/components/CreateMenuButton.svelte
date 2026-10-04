@@ -282,19 +282,19 @@
         type="button"
         class="create-menu-item"
         tabindex={showMenu && !isCancelMode ? 0 : -1}
-        on:click={openRecipe}
+        on:click={openPost}
       >
-        <span class="create-menu-item-icon"><ForkKnifeIcon size={20} /></span>
-        <span>New recipe</span>
+        <span class="create-menu-item-icon"><PencilSimpleIcon size={20} /></span>
+        <span>New post</span>
       </button>
       <button
         type="button"
         class="create-menu-item"
         tabindex={showMenu && !isCancelMode ? 0 : -1}
-        on:click={openPost}
+        on:click={openRecipe}
       >
-        <span class="create-menu-item-icon"><PencilSimpleIcon size={20} /></span>
-        <span>New post</span>
+        <span class="create-menu-item-icon"><ForkKnifeIcon size={20} /></span>
+        <span>New recipe</span>
       </button>
       <button
         type="button"

@@ -3,6 +3,9 @@
   import { goto } from '$app/navigation';
   import { standardRelays } from '$lib/consts';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
+  import GlobeIcon from 'phosphor-svelte/lib/Globe';
+  import FlameIcon from 'phosphor-svelte/lib/Flame';
+  import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
@@ -49,6 +52,12 @@
   } from '$lib/autoZapSettings';
   import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
   import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
+  import {
+    startSection,
+    loadStartSectionSettings,
+    saveStartSection,
+    type StartSection
+  } from '$lib/startSectionSettings';
   import { POW_LEVELS, POW_DEFAULT_BITS, powLevelFor } from '$lib/pow';
   import {
     fetchUserTrustProvider,
@@ -324,6 +333,7 @@
     fetchMembershipStatus();
     loadWotProvider();
     loadTimerSettings();
+    loadStartSectionSettings();
     // Update connection status periodically
     const interval = setInterval(updateConnectedRelays, 5000);
     // Keep the key display in sync with auth changes (e.g. a passkey unlock
@@ -679,6 +689,62 @@
           >
             System
           </button>
+        </div>
+
+        <!-- Start section: where the app opens on sign-in or a cold visit.
+             Saved per account (NIP-78) with local + cookie mirrors, so the
+             `/` redirect and post-login goto() both honor it — see
+             $lib/startSectionSettings.ts. -->
+        <div
+          class="pt-4 flex flex-col gap-3"
+          style="border-top: 1px solid var(--color-input-border);"
+        >
+          <div>
+            <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">Start section</p>
+            <p class="text-xs text-caption mb-3">Where the app takes you when you sign in or open zap.cooking.</p>
+          </div>
+
+          <div class="flex flex-wrap gap-2" role="group" aria-label="Start section">
+            <button
+              type="button"
+              aria-pressed={$startSection === 'explore'}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
+                {$startSection === 'explore'
+                ? 'bg-primary text-white'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={$startSection !== 'explore' ? 'color: var(--color-text-primary)' : ''}
+              on:click={() => saveStartSection('explore')}
+            >
+              <GlobeIcon size={16} />
+              Explore
+            </button>
+            <button
+              type="button"
+              aria-pressed={$startSection === 'feed'}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
+                {$startSection === 'feed'
+                ? 'bg-primary text-white'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={$startSection !== 'feed' ? 'color: var(--color-text-primary)' : ''}
+              on:click={() => saveStartSection('feed')}
+            >
+              <FlameIcon size={16} />
+              Feed
+            </button>
+            <button
+              type="button"
+              aria-pressed={$startSection === 'recipes'}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
+                {$startSection === 'recipes'
+                ? 'bg-primary text-white'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={$startSection !== 'recipes' ? 'color: var(--color-text-primary)' : ''}
+              on:click={() => saveStartSection('recipes')}
+            >
+              <ForkKnifeIcon size={16} />
+              Recipes
+            </button>
+          </div>
         </div>
       </div>
     </Accordion>
