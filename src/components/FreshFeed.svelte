@@ -50,6 +50,8 @@
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
   import FreshFloorCard from './FreshFloorCard.svelte';
+  import FreshTopicsSheet from './FreshTopicsSheet.svelte';
+  import { loadTopics, type Topic, type TopicGroup } from '$lib/freshFeed/topicList';
 
   const { client, login } = freshSession();
   const loginState = login.state;
@@ -103,6 +105,17 @@
   let lightboxOpen = false;
   let reportOpen = false;
   let reportPost: RelayEvent | null = null;
+
+  // Topic feeds (members): the picker, and the open topic's own list.
+  let topicsOpen = false;
+  let topicGroups: TopicGroup[] = [];
+  let topicsLoading = false;
+  let topic: Topic | null = null;
+  let topicPosts: Post[] = [];
+  let topicSeen = new Set<string>();
+  let topicUntil: number | undefined;
+  let topicEnd: PageEnd | 'locked' | 'unavailable' = 'more';
+  let topicLoading = false;
 
   $: pk = $userPublickey ? $userPublickey.toLowerCase() : '';
   $: member = !!pk && $membershipStatusMap[pk]?.active === true;
@@ -461,11 +474,83 @@
     return { destroy: () => node.remove() };
   }
 
+  // --- Topic feeds ---
+
+  $: topicShown = topicPosts.filter(
+    (p) =>
+      !hidden.has(p.raw.id) &&
+      passesReaderFilters(p.raw, {
+        muteList: pk ? $muteListStore.muteList : null,
+        isHellthread: () => isHellthread(p.event)
+      })
+  );
+
+  async function openTopics() {
+    topicsOpen = true;
+    if (topicGroups.length) return;
+    topicsLoading = true;
+    topicGroups = await loadTopics();
+    topicsLoading = false;
+  }
+
+  function openTopic(t: Topic) {
+    topic = t;
+    topicPosts = [];
+    topicSeen = new Set();
+    topicUntil = undefined;
+    topicEnd = 'more';
+    document.getElementById('app-scroll')?.scrollTo({ top: 0 });
+    loadTopicPage();
+  }
+
+  function closeTopic() {
+    topic = null;
+    topicPosts = [];
+  }
+
+  async function loadTopicPage() {
+    if (!topic || topicLoading || topicEnd !== 'more') return;
+    const slug = topic.slug;
+    topicLoading = true;
+    const r = await client.topic(slug, topicSeen, topicUntil);
+    topicLoading = false;
+    if (destroyed || topic?.slug !== slug) return;
+    if (r.state === 'ok') {
+      topicPosts = [...topicPosts, ...spaceAuthors(topicPosts, r.events.map(wrap))];
+      topicUntil = r.nextUntil;
+      topicEnd = r.end ?? 'exhausted';
+    } else if (r.state === 'unavailable') {
+      topicEnd = 'unavailable';
+    } else {
+      // auth-required / restricted: the membership card or the login button.
+      topicEnd = 'locked';
+    }
+  }
+
+  async function topicLogin() {
+    let relay;
+    try {
+      relay = await client.connection();
+    } catch {
+      topicEnd = 'unavailable';
+      return;
+    }
+    if (await login.access(relay, true)) {
+      topicEnd = 'more';
+      loadTopicPage();
+    }
+  }
+
+  function retryTopic() {
+    topicEnd = 'more';
+    loadTopicPage();
+  }
+
   /** Infinite scroll: load the next page as the sentinel nears the view. */
-  function nearView(node: HTMLElement) {
+  function nearView(node: HTMLElement, load: () => void = loadMore) {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((x) => x.isIntersecting)) loadMore();
+        if (entries.some((x) => x.isIntersecting)) load();
       },
       { root: document.getElementById('app-scroll'), rootMargin: '800px 0px' }
     );
@@ -494,7 +579,7 @@
 
 <FeedErrorBoundary>
   <div class="max-w-2xl mx-auto">
-    {#if newCount > 0}
+    {#if newCount > 0 && !topic}
       <div class="fixed top-4 left-1/2 -translate-x-1/2 z-50">
         <button
           on:click={showPending}
@@ -513,101 +598,50 @@
       </div>
     {/if}
 
-    {#if loading}
+    {#if topic}
+      <div class="flex items-center gap-2 mb-4">
+        <button
+          type="button"
+          class="px-3 py-1.5 rounded-full text-sm hover:bg-accent-gray"
+          style="color: var(--color-text-primary); background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          on:click={closeTopic}
+          aria-label="Back to Fresh"
+        >
+          ‹ Back
+        </button>
+        <h2 class="text-base font-semibold" style="color: var(--color-text-primary)">
+          {topic.name}
+        </h2>
+      </div>
       <div class="space-y-6">
-        {#each Array(3) as _}
-          <FeedPostSkeleton />
+        {#each topicShown as post (post.raw.id)}
+          <FreshPostCard
+            raw={post.raw}
+            event={post.event}
+            visible={visibleNotes.has(post.raw.id)}
+            expanded={expanded.has(post.raw.id)}
+            {lazy}
+            on:zap={(e) => openZap(e.detail)}
+            on:share={(e) => openShare(e.detail.url, e.detail.event)}
+            on:downloadImage={(e) => downloadImage(e.detail)}
+            on:openImage={(e) => {
+              lightboxImages = e.detail.images;
+              lightboxIndex = e.detail.index;
+              lightboxOpen = true;
+            }}
+            on:toggleEngagement={(e) => toggleEngagement(e.detail)}
+            on:report={(e) => openReport(e.detail)}
+            on:error={(e) => (notice = e.detail)}
+          />
         {/each}
       </div>
-    {:else if unavailable}
-      <div class="py-12 text-center">
-        <div class="max-w-sm mx-auto space-y-6">
-          <div style="color: var(--color-caption)">
-            <p class="text-lg font-medium">The beta feed is temporarily unavailable</p>
-            <p class="text-sm">Please check your connection and try again.</p>
-          </div>
-          <button
-            on:click={loadFirst}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    {:else}
-      {#if shown.length === 0 && end !== 'more'}
-        <div class="py-12 text-center">
-          <div class="max-w-sm mx-auto space-y-6" style="color: var(--color-caption)">
-            <p class="text-lg font-medium">Nothing fresh yet</p>
-            <p class="text-sm">New posts from the curated food relay will show up here.</p>
-            <button
-              on:click={loadFirst}
-              class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-            >
-              Refresh
-            </button>
-          </div>
-        </div>
-      {/if}
-
-      {#if caughtUp}
-        <p class="text-sm text-center mb-4" style="color: var(--color-caption)">
-          You're caught up: nothing new since your last visit.
-        </p>
-      {/if}
-      <div class="space-y-6">
-        {#each rows as row (row.key)}
-          {#if row.divider}
-            <div
-              class="flex items-center gap-3 text-xs font-medium"
-              style="color: var(--color-caption)"
-              role="separator"
-            >
-              <span class="flex-1 h-px" style="background-color: var(--color-input-border)"></span>
-              <span>
-                You're caught up · {row.newCount} new {row.newCount === 1 ? 'post' : 'posts'} above
-              </span>
-              <span class="flex-1 h-px" style="background-color: var(--color-input-border)"></span>
-            </div>
-          {:else}
-            <FreshPostCard
-              label={row.box ? 'From the recipe box' : null}
-              raw={row.item.raw}
-              event={row.item.event}
-              visible={visibleNotes.has(row.item.raw.id)}
-              expanded={expanded.has(row.item.raw.id)}
-              {lazy}
-              on:zap={(e) => openZap(e.detail)}
-              on:share={(e) => openShare(e.detail.url, e.detail.event)}
-              on:downloadImage={(e) => downloadImage(e.detail)}
-              on:openImage={(e) => {
-                lightboxImages = e.detail.images;
-                lightboxIndex = e.detail.index;
-                lightboxOpen = true;
-              }}
-              on:toggleEngagement={(e) => toggleEngagement(e.detail)}
-              on:report={(e) => openReport(e.detail)}
-              on:error={(e) => (notice = e.detail)}
-            />
-          {/if}
-        {/each}
-      </div>
-
-      {#if end === 'more'}
-        <div use:nearView class="py-4 text-center">
-          {#if loadingMore}
-            <LoadingState type="spinner" size="lg" text="Loading more posts..." showText={true} />
-          {:else if moreFailed}
-            <button
-              on:click={loadMore}
-              class="px-4 py-2 bg-input rounded-lg hover:bg-accent-gray transition-colors"
-              style="color: var(--color-text-primary)"
-            >
-              Couldn't load more. Retry
-            </button>
+      {#if topicEnd === 'more'}
+        <div use:nearView={loadTopicPage} class="py-4 text-center">
+          {#if topicLoading}
+            <LoadingState type="spinner" size="lg" text="Loading posts..." showText={true} />
           {:else}
             <button
-              on:click={loadMore}
+              on:click={loadTopicPage}
               class="px-4 py-2 bg-input rounded-lg hover:bg-accent-gray transition-colors"
               style="color: var(--color-text-primary)"
             >
@@ -615,28 +649,181 @@
             </button>
           {/if}
         </div>
-      {:else if end === 'floor'}
-        {#if loadingMore}
-          <div class="py-4 text-center">
-            <LoadingState type="spinner" size="lg" text="Loading older posts..." showText={true} />
+      {:else if topicEnd === 'locked'}
+        {#if membershipKnown}
+          <FreshFloorCard {prompt} context="topic" on:login={topicLogin} />
+        {/if}
+      {:else if topicEnd === 'unavailable'}
+        <div class="py-8 text-center">
+          <p class="text-sm mb-3" style="color: var(--color-caption)">
+            Couldn't reach the feed relay.
+          </p>
+          <button
+            on:click={retryTopic}
+            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      {:else if topicShown.length === 0}
+        <p class="py-8 text-center text-sm" style="color: var(--color-caption)">
+          No posts on this topic yet.
+        </p>
+      {:else}
+        <p class="py-6 text-center text-sm" style="color: var(--color-caption)">
+          That's everything on {topic.name}.
+        </p>
+      {/if}
+    {:else}
+      <div class="flex justify-end mb-3">
+        <button
+          type="button"
+          class="px-3 py-1.5 rounded-full text-sm hover:bg-accent-gray"
+          style="color: var(--color-text-primary); background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+          on:click={openTopics}
+        >
+          Topics
+        </button>
+      </div>
+      {#if loading}
+        <div class="space-y-6">
+          {#each Array(3) as _}
+            <FeedPostSkeleton />
+          {/each}
+        </div>
+      {:else if unavailable}
+        <div class="py-12 text-center">
+          <div class="max-w-sm mx-auto space-y-6">
+            <div style="color: var(--color-caption)">
+              <p class="text-lg font-medium">The beta feed is temporarily unavailable</p>
+              <p class="text-sm">Please check your connection and try again.</p>
+            </div>
+            <button
+              on:click={loadFirst}
+              class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      {:else}
+        {#if shown.length === 0 && end !== 'more'}
+          <div class="py-12 text-center">
+            <div class="max-w-sm mx-auto space-y-6" style="color: var(--color-caption)">
+              <p class="text-lg font-medium">Nothing fresh yet</p>
+              <p class="text-sm">New posts from the curated food relay will show up here.</p>
+              <button
+                on:click={loadFirst}
+                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
         {/if}
-        {#if membershipKnown}
-          <FreshFloorCard {prompt} on:login={manualLogin} />
-        {/if}
-        {#if moreFailed}
-          <p class="text-sm text-center py-2" style="color: var(--color-caption)">
-            Couldn't reach the feed relay. Try again in a moment.
+
+        {#if caughtUp}
+          <p class="text-sm text-center mb-4" style="color: var(--color-caption)">
+            You're caught up: nothing new since your last visit.
           </p>
         {/if}
-      {:else if shown.length > 0}
-        <p class="py-6 text-center text-sm" style="color: var(--color-caption)">
-          You've reached the beginning of the Fresh feed.
-        </p>
+        <div class="space-y-6">
+          {#each rows as row (row.key)}
+            {#if row.divider}
+              <div
+                class="flex items-center gap-3 text-xs font-medium"
+                style="color: var(--color-caption)"
+                role="separator"
+              >
+                <span class="flex-1 h-px" style="background-color: var(--color-input-border)"
+                ></span>
+                <span>
+                  You're caught up · {row.newCount} new {row.newCount === 1 ? 'post' : 'posts'} above
+                </span>
+                <span class="flex-1 h-px" style="background-color: var(--color-input-border)"
+                ></span>
+              </div>
+            {:else}
+              <FreshPostCard
+                label={row.box ? 'From the recipe box' : null}
+                raw={row.item.raw}
+                event={row.item.event}
+                visible={visibleNotes.has(row.item.raw.id)}
+                expanded={expanded.has(row.item.raw.id)}
+                {lazy}
+                on:zap={(e) => openZap(e.detail)}
+                on:share={(e) => openShare(e.detail.url, e.detail.event)}
+                on:downloadImage={(e) => downloadImage(e.detail)}
+                on:openImage={(e) => {
+                  lightboxImages = e.detail.images;
+                  lightboxIndex = e.detail.index;
+                  lightboxOpen = true;
+                }}
+                on:toggleEngagement={(e) => toggleEngagement(e.detail)}
+                on:report={(e) => openReport(e.detail)}
+                on:error={(e) => (notice = e.detail)}
+              />
+            {/if}
+          {/each}
+        </div>
+
+        {#if end === 'more'}
+          <div use:nearView class="py-4 text-center">
+            {#if loadingMore}
+              <LoadingState type="spinner" size="lg" text="Loading more posts..." showText={true} />
+            {:else if moreFailed}
+              <button
+                on:click={loadMore}
+                class="px-4 py-2 bg-input rounded-lg hover:bg-accent-gray transition-colors"
+                style="color: var(--color-text-primary)"
+              >
+                Couldn't load more. Retry
+              </button>
+            {:else}
+              <button
+                on:click={loadMore}
+                class="px-4 py-2 bg-input rounded-lg hover:bg-accent-gray transition-colors"
+                style="color: var(--color-text-primary)"
+              >
+                Load More
+              </button>
+            {/if}
+          </div>
+        {:else if end === 'floor'}
+          {#if loadingMore}
+            <div class="py-4 text-center">
+              <LoadingState
+                type="spinner"
+                size="lg"
+                text="Loading older posts..."
+                showText={true}
+              />
+            </div>
+          {/if}
+          {#if membershipKnown}
+            <FreshFloorCard {prompt} on:login={manualLogin} />
+          {/if}
+          {#if moreFailed}
+            <p class="text-sm text-center py-2" style="color: var(--color-caption)">
+              Couldn't reach the feed relay. Try again in a moment.
+            </p>
+          {/if}
+        {:else if shown.length > 0}
+          <p class="py-6 text-center text-sm" style="color: var(--color-caption)">
+            You've reached the beginning of the Fresh feed.
+          </p>
+        {/if}
       {/if}
     {/if}
   </div>
 </FeedErrorBoundary>
+
+<FreshTopicsSheet
+  bind:open={topicsOpen}
+  groups={topicGroups}
+  loading={topicsLoading}
+  on:pick={(e) => openTopic(e.detail)}
+/>
 
 {#if zapEvent}
   <ZapModal

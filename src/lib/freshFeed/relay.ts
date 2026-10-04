@@ -291,6 +291,42 @@ export class FreshClient {
     return { state: 'ok', events: [...all.values()], end: 'exhausted' };
   }
 
+  /**
+   * One page of a topic feed (`search: "topic:<slug>"`, members only on the
+   * relay), newest first. Opening a topic is a moment that needs depth, so a
+   * signed-in member who isn't logged in yet is asked once here (lazy, as at
+   * the 14-day floor). Without member access nothing is sent and the page is
+   * `auth-required`. `seen` is the topic view's own de-duplication: posts
+   * already in the main feed still show in a topic.
+   */
+  async topic(
+    slug: string,
+    seen: Set<string>,
+    until?: number,
+    limit = PAGE_SIZE
+  ): Promise<PageResult> {
+    let relay: RelayLike;
+    try {
+      relay = await this.connection();
+    } catch (err) {
+      return { state: 'unavailable', events: [], reason: String(err) };
+    }
+    let member = this.member() || (this.login?.authed(relay) ?? false);
+    if (!member && this.login) member = await this.login.access(relay);
+    if (!member) return { state: 'auth-required', events: [] };
+    const filter: Filter = { kinds: FRESH_KINDS, search: `topic:${slug}`, limit };
+    if (until !== undefined) filter.until = until;
+    const res = await this.query(filter);
+    if (res.state !== 'ok') return this.closed(res, true);
+    const fresh = res.events
+      .filter((e) => !seen.has(e.id))
+      .sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? -1 : 1));
+    for (const e of fresh) seen.add(e.id);
+    const oldest = fresh.length ? fresh[fresh.length - 1].created_at : until;
+    const end: PageEnd = res.events.length < limit || fresh.length === 0 ? 'exhausted' : 'more';
+    return { state: 'ok', events: fresh, end, nextUntil: oldest };
+  }
+
   /** A close while logged in as a member: `restricted:` means not a member. */
   private closed(res: PageResult, member: boolean): PageResult {
     if (member && res.state === 'restricted') this.login?.denied();
