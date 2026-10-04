@@ -14,6 +14,8 @@
   export let readTime: number;
   export let tags: string[] = [];
   export let articleUrl: string;
+  /** The hover bookmark button (a placeholder that does nothing yet); Fresh hides it. */
+  export let showBookmark = true;
 
   let imageError = false;
   let imageLoaded = false;
@@ -82,6 +84,7 @@
     {/if}
 
     <!-- Bookmark Icon -->
+    {#if showBookmark}
     <button
       class="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-sm transition-colors opacity-0 group-hover:opacity-100"
       on:click={handleBookmarkClick}
@@ -89,6 +92,7 @@
     >
       <BookmarkIcon size={18} weight="regular" color="white" />
     </button>
+    {/if}
   </div>
 
   <!-- Content Section -->

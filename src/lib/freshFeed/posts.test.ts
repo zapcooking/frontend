@@ -6,8 +6,12 @@ import {
   passesFreshFilters,
   formatTimeAgo,
   mediaUrls,
-  contentWithoutMedia
+  contentWithoutMedia,
+  getQuotedNoteId,
+  decodeToEventIdHex,
+  noteHref
 } from './posts';
+import { nip19 } from 'nostr-tools';
 import type { RelayEvent } from './relay';
 import type { MuteList } from '$lib/muteFilter';
 
@@ -121,5 +125,30 @@ describe('copied FoodstrFeedOptimized helpers', () => {
   it('collapses a text duplicated in full', () => {
     const half = 'This soup is the best thing I cooked all week';
     expect(contentWithoutMedia(`${half} ${half}`)).toBe(half);
+  });
+});
+
+describe('quotes and note links (copied from FoodstrFeedOptimized)', () => {
+  const id = 'ab'.repeat(32);
+  const note = nip19.noteEncode(id);
+  const nevent = nip19.neventEncode({ id });
+
+  it('decodes hex, note1, nevent1 and nostr: URIs', () => {
+    expect(decodeToEventIdHex(id)).toBe(id);
+    expect(decodeToEventIdHex(note)).toBe(id);
+    expect(decodeToEventIdHex(`nostr:${nevent}`)).toBe(id);
+    expect(decodeToEventIdHex('not an id')).toBeNull();
+  });
+
+  it('prefers the q tag, then the first note reference in the text', () => {
+    const other = 'cd'.repeat(32);
+    expect(getQuotedNoteId({ tags: [['q', other]], content: `see nostr:${note}` })).toBe(other);
+    expect(getQuotedNoteId({ tags: [], content: `see nostr:${nevent} wow` })).toBe(id);
+    expect(getQuotedNoteId({ tags: [], content: 'no quote here' })).toBeNull();
+  });
+
+  it('links a note id to its page', () => {
+    expect(noteHref(id)).toBe(`/${note}`);
+    expect(noteHref('zz')).toBeNull();
   });
 });

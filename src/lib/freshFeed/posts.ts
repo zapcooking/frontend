@@ -1,3 +1,4 @@
+import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS } from '$lib/consts';
 import { isEventMutedBy, type MuteList } from '$lib/muteFilter';
 import { FREE_WINDOW_SECONDS, type RelayEvent } from './relay';
@@ -125,4 +126,64 @@ export function contentWithoutMedia(content: string): string {
     .replace(URL_REGEX, (url) => (isImageUrl(url) || isVideoUrl(url) ? '' : url))
     .trim();
   return deduplicateText(cleaned);
+}
+
+// --- From FoodstrFeedOptimized (quotes and note links) ---
+
+const HEX_RE = /^[0-9a-f]+$/i;
+
+function normalizeEventIdHex(input: string): string | null {
+  let s = (input || '').trim();
+  if (!s) return null;
+  if (s.startsWith('0x') || s.startsWith('0X')) s = s.slice(2);
+  if (!HEX_RE.test(s)) return null;
+  if (s.length > 64) return null;
+  s = s.toLowerCase();
+  if (s.length % 2 === 1) s = `0${s}`;
+  if (s.length < 64) s = s.padStart(64, '0');
+  return s.length === 64 ? s : null;
+}
+
+/** A note id from hex, `note1…`, `nevent1…` or a `nostr:` URI. */
+export function decodeToEventIdHex(input: string): string | null {
+  const raw = (input || '').trim();
+  if (!raw) return null;
+  const s = raw.startsWith('nostr:') ? raw.slice('nostr:'.length) : raw;
+  if (s.startsWith('note1') || s.startsWith('nevent1')) {
+    try {
+      const decoded = nip19.decode(s);
+      if (decoded.type === 'note') return normalizeEventIdHex(decoded.data as string);
+      if (decoded.type === 'nevent') return normalizeEventIdHex(decoded.data.id);
+    } catch {
+      // Fall through to hex normalization
+    }
+  }
+  return normalizeEventIdHex(s);
+}
+
+/** `/note1…` for a note id, or null. */
+export function noteHref(id: string | null | undefined): string | null {
+  const hex = id ? normalizeEventIdHex(id) : null;
+  if (!hex) return null;
+  try {
+    return `/${nip19.noteEncode(hex)}`;
+  } catch {
+    return null;
+  }
+}
+
+/** The quoted note: a `q` tag first, then the first `nostr:note1/nevent1` in the text. */
+export function getQuotedNoteId(e: Pick<RelayEvent, 'tags' | 'content'>): string | null {
+  try {
+    const q = e.tags.find((t) => Array.isArray(t) && t[0] === 'q');
+    const qId = q?.[1] ? decodeToEventIdHex(String(q[1])) : null;
+    if (qId) return qId;
+    if (!e.content) return null;
+    const match = e.content.match(
+      /nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/
+    );
+    return match?.[1] ? decodeToEventIdHex(match[1]) : null;
+  } catch {
+    return null;
+  }
 }
