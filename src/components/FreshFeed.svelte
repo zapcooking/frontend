@@ -5,44 +5,34 @@
    * Posts come from the isolated client in $lib/freshFeed (its own
    * connection, never $ndk's pool, never the local event cache). Raw events
    * are wrapped as NDKEvents for rendering only, so the shared post
-   * components (author, content, polls, recipe and article cards) work as
-   * they do in OnlyFood. Engagement, the post menu and the lightbox come in
-   * the next PR.
+   * components (FreshPostCard) work as they do in OnlyFood. Engagement,
+   * replies, zaps and every other action read and write through $ndk, the
+   * reader's own relays.
    *
    * Non-members read the last 14 days, then get the end-of-window card.
    * A signed-in member who reaches that point is asked to log in to the
    * relay once (lazily; see memberLogin.ts) and keeps scrolling into history.
    */
   import { onMount, onDestroy } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { batchFetchEngagement, cleanupEngagement, fetchEngagement } from '$lib/engagementCache';
+  import { prefetchReplyContexts } from '$lib/replyContext';
+  import { noteImage, saveImage, engagementFor } from '$lib/freshFeed/shareImage';
+  import type { EngagementData as ShareEngagementData } from '$lib/shareNoteImage';
   import { muteListStore } from '$lib/muteListStore';
   import { isHellthread } from '$lib/notificationUtils';
   import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membershipStatus';
-  import { eventToArticleData } from '$lib/articleUtils';
-  import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
-  import { imetaAltByUrl } from '$lib/feed/imeta';
   import { freshSession } from '$lib/freshFeed/session';
   import { floorPrompt } from '$lib/freshFeed/floorPrompt';
   import type { PageEnd, PageResult, RelayEvent } from '$lib/freshFeed/relay';
-  import {
-    passesFreshFilters,
-    postKind,
-    formatTimeAgo,
-    mediaUrls,
-    contentWithoutMedia
-  } from '$lib/freshFeed/posts';
-  import Avatar from './Avatar.svelte';
-  import AuthorName from './AuthorName.svelte';
-  import ClientAttribution from './ClientAttribution.svelte';
-  import PowBadge from './PowBadge.svelte';
-  import NoteContent from './NoteContent.svelte';
-  import MediaCarousel from './MediaCarousel.svelte';
-  import PollDisplay from './PollDisplay.svelte';
-  import RecipeCard from './RecipeCard.svelte';
-  import ArticleCard from './ArticleCard.svelte';
+  import { passesFreshFilters } from '$lib/freshFeed/posts';
+  import FreshPostCard from './FreshPostCard.svelte';
+  import FreshReportModal from './FreshReportModal.svelte';
+  import ZapModal from './ZapModal.svelte';
+  import ShareModal from './ShareModal.svelte';
+  import MediaLightbox from './MediaLightbox.svelte';
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
@@ -68,6 +58,31 @@
   let stopLive: (() => void) | null = null;
   let destroyed = false;
 
+  // Engagement mounts as a post nears the screen (OnlyFood's pattern).
+  let visibleNotes = new Set<string>();
+  let expanded = new Set<string>();
+  const batched = new Set<string>();
+  let batchTimer: ReturnType<typeof setTimeout> | null = null;
+  // Posts reported this session: hidden at once.
+  let hidden = new Set<string>();
+
+  // Dialogs
+  let zapOpen = false;
+  let zapEvent: NDKEvent | null = null;
+  let shareOpen = false;
+  let shareUrl = '';
+  let shareEvent: NDKEvent | null = null;
+  let shareBlob: Blob | null = null;
+  let shareName = 'zap-cooking-note.png';
+  let generatingShare = false;
+  let savingImage = false;
+  let notice: string | null = null;
+  let lightboxImages: { url: string; alt: string }[] = [];
+  let lightboxIndex = 0;
+  let lightboxOpen = false;
+  let reportOpen = false;
+  let reportPost: RelayEvent | null = null;
+
   $: pk = $userPublickey ? $userPublickey.toLowerCase() : '';
   $: member = !!pk && $membershipStatusMap[pk]?.active === true;
   // Until the app's membership lookup answers, a member would briefly see
@@ -76,17 +91,23 @@
   $: prompt = floorPrompt({ signedIn: !!pk, member, login: $loginState });
 
   // Mutes and the hellthread rule re-apply when the mute list loads or changes.
-  $: shown = filterPosts(posts, $muteListStore.muteList);
-  $: newCount = filterPosts(pending, $muteListStore.muteList).length;
+  $: shown = filterPosts(posts, $muteListStore.muteList, hidden);
+  $: newCount = filterPosts(pending, $muteListStore.muteList, hidden).length;
 
-  function filterPosts(list: Post[], muteList: typeof $muteListStore.muteList): Post[] {
+  function filterPosts(
+    list: Post[],
+    muteList: typeof $muteListStore.muteList,
+    hiddenIds: Set<string>
+  ): Post[] {
     const now = Math.floor(Date.now() / 1000);
-    return list.filter((p) =>
-      passesFreshFilters(p.raw, {
-        muteList: pk ? muteList : null,
-        isHellthread: (e) => isHellthread(p.event),
-        now
-      })
+    return list.filter(
+      (p) =>
+        !hiddenIds.has(p.raw.id) &&
+        passesFreshFilters(p.raw, {
+          muteList: pk ? muteList : null,
+          isHellthread: () => isHellthread(p.event),
+          now
+        })
     );
   }
 
@@ -105,7 +126,13 @@
       end = 'floor';
       return;
     }
-    posts = [...posts, ...r.events.map(wrap)];
+    const added = r.events.map(wrap);
+    posts = [...posts, ...added];
+    if (added.length)
+      prefetchReplyContexts(
+        $ndk,
+        added.map((p) => p.event)
+      ).catch(() => {});
     if (r.nextUntil !== undefined) nextUntil = r.nextUntil;
     end = r.end ?? 'more';
   }
@@ -196,21 +223,121 @@
     await loadFirst();
   }
 
-  // From FoodstrFeedOptimized: open the note unless a control was clicked
-  // or text is being selected.
-  function gotoNoteFromCard(e: MouseEvent, id: string) {
-    if (
-      e.target instanceof Element &&
-      e.target.closest('a, button, input, textarea, [role="button"], [data-stop-card-navigation]')
-    ) {
-      return;
-    }
-    if (window.getSelection()?.toString()) return;
-    goto(`/${nip19.noteEncode(id)}`);
+  // --- Engagement: one shared observer, batched fetches (as in OnlyFood) ---
+
+  let lazyObserver: IntersectionObserver | null = null;
+  const lazyTargets = new Map<Element, string>();
+
+  function lazy(node: HTMLElement, id: string) {
+    lazyObserver ??= new IntersectionObserver(
+      (entries, observer) => {
+        let changed = false;
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const eid = lazyTargets.get(entry.target);
+          if (eid === undefined) continue;
+          lazyTargets.delete(entry.target);
+          observer.unobserve(entry.target);
+          visibleNotes.add(eid);
+          changed = true;
+        }
+        if (changed) {
+          visibleNotes = visibleNotes;
+          scheduleBatch();
+        }
+      },
+      { root: document.getElementById('app-scroll'), rootMargin: '800px' }
+    );
+    lazyTargets.set(node, id);
+    lazyObserver.observe(node);
+    return {
+      destroy() {
+        lazyTargets.delete(node);
+        lazyObserver?.unobserve(node);
+      }
+    };
   }
 
-  function optimizedImage(url: string): string {
-    return optimizeImageUrl(url, { width: 640, quality: 85, format: getOptimalFormat() });
+  function scheduleBatch() {
+    if (batchTimer) clearTimeout(batchTimer);
+    batchTimer = setTimeout(async () => {
+      const ids = [...visibleNotes].filter((id) => !batched.has(id));
+      if (ids.length === 0) return;
+      ids.forEach((id) => batched.add(id));
+      for (let i = 0; i < ids.length; i += 20) {
+        try {
+          await batchFetchEngagement($ndk, ids.slice(i, i + 20), $userPublickey);
+        } catch (err) {
+          console.error('[Fresh] engagement fetch failed:', err);
+        }
+      }
+    }, 200);
+  }
+
+  function toggleEngagement(id: string) {
+    if (expanded.has(id)) expanded.delete(id);
+    else expanded.add(id);
+    expanded = expanded;
+  }
+
+  // --- Dialogs ---
+
+  function openZap(event: NDKEvent) {
+    zapEvent = event;
+    setTimeout(() => (zapOpen = true), 0);
+  }
+
+  function zapComplete(id: string) {
+    if ($userPublickey) fetchEngagement($ndk, id, $userPublickey);
+  }
+
+  function openShare(url: string, event: NDKEvent) {
+    shareUrl = url;
+    shareEvent = event;
+    shareBlob = null;
+    generatingShare = false;
+    shareOpen = true;
+  }
+
+  async function generateShareImage() {
+    if (!shareEvent || !browser) return;
+    generatingShare = true;
+    try {
+      const img = await noteImage($ndk, shareEvent, engagementFor(shareEvent.id));
+      if (img) {
+        shareBlob = img.blob;
+        shareName = img.filename;
+      } else notice = 'Failed to generate image. Please try again.';
+    } catch (err) {
+      notice = err instanceof Error ? err.message : 'Failed to generate image. Please try again.';
+    } finally {
+      generatingShare = false;
+    }
+  }
+
+  async function downloadImage(detail: { event: NDKEvent; engagementData: ShareEngagementData }) {
+    if (!browser) return;
+    savingImage = true;
+    try {
+      const img = await noteImage($ndk, detail.event, detail.engagementData);
+      if (!img) throw new Error('Failed to generate image');
+      await saveImage(img.blob, img.filename);
+    } catch (err) {
+      notice = err instanceof Error ? err.message : 'Failed to generate image';
+    } finally {
+      savingImage = false;
+    }
+  }
+
+  function openReport(post: RelayEvent) {
+    reportPost = post;
+    reportOpen = true;
+  }
+
+  /** Lightbox goes on <body> so no card's stacking context clips it. */
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
   }
 
   /** Infinite scroll: load the next page as the sentinel nears the view. */
@@ -236,6 +363,10 @@
   onDestroy(() => {
     destroyed = true;
     stopLive?.();
+    lazyObserver?.disconnect();
+    if (batchTimer) clearTimeout(batchTimer);
+    // Release the engagement subscriptions this feed opened.
+    batched.forEach((id) => cleanupEngagement(id));
   });
 </script>
 
@@ -299,81 +430,24 @@
 
       <div class="space-y-6">
         {#each shown as post (post.raw.id)}
-          {@const kind = postKind(post.raw)}
-          {#if kind === 'recipe'}
-            <RecipeCard event={post.event} />
-          {:else if kind === 'article'}
-            {@const article = eventToArticleData(post.event, true)}
-            {#if article}
-              <ArticleCard
-                event={post.event}
-                imageUrl={article.imageUrl}
-                title={article.title}
-                preview={article.preview}
-                readTime={article.readTimeMinutes}
-                tags={article.tags}
-                articleUrl={article.articleUrl}
-              />
-            {/if}
-          {:else}
-            {@const media = mediaUrls(post.raw.content)}
-            {@const text = contentWithoutMedia(post.raw.content)}
-            <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
-            <article
-              class="w-full cursor-pointer"
-              on:click={(e) => gotoNoteFromCard(e, post.raw.id)}
-              role="link"
-              tabindex="0"
-              on:keydown|self={(e) => {
-                if (e.key === 'Enter') goto(`/${nip19.noteEncode(post.raw.id)}`);
-              }}
-            >
-              <div class="flex items-center justify-between mb-3 px-2 sm:px-0">
-                <div class="flex items-center space-x-3 flex-1 min-w-0">
-                  <a href="/user/{nip19.npubEncode(post.raw.pubkey)}" class="flex-shrink-0">
-                    <Avatar pubkey={post.raw.pubkey} size={40} />
-                  </a>
-                  <div class="flex items-center space-x-2 flex-wrap min-w-0">
-                    <AuthorName
-                      event={post.event}
-                      className="font-semibold text-sm truncate min-w-0"
-                    />
-                    <span class="text-sm flex-shrink-0" style="color: var(--color-caption)">·</span>
-                    <span
-                      class="text-sm whitespace-nowrap flex-shrink-0"
-                      style="color: var(--color-caption)"
-                    >
-                      {formatTimeAgo(post.raw.created_at)}
-                    </span>
-                    <ClientAttribution tags={post.raw.tags} enableEnrichment={false} />
-                    <PowBadge id={post.raw.id} tags={post.raw.tags} />
-                  </div>
-                </div>
-              </div>
-
-              <div class="px-2 sm:px-0">
-                {#if kind === 'poll'}
-                  <PollDisplay event={post.event} />
-                {:else if text}
-                  <div
-                    class="text-sm leading-relaxed mb-3"
-                    style="color: var(--color-text-primary)"
-                  >
-                    <NoteContent content={text} />
-                  </div>
-                {/if}
-                {#if media.length > 0}
-                  <div class="mb-3">
-                    <MediaCarousel
-                      items={media}
-                      optimizeUrl={optimizedImage}
-                      altByUrl={imetaAltByUrl(post.event)}
-                    />
-                  </div>
-                {/if}
-              </div>
-            </article>
-          {/if}
+          <FreshPostCard
+            raw={post.raw}
+            event={post.event}
+            visible={visibleNotes.has(post.raw.id)}
+            expanded={expanded.has(post.raw.id)}
+            {lazy}
+            on:zap={(e) => openZap(e.detail)}
+            on:share={(e) => openShare(e.detail.url, e.detail.event)}
+            on:downloadImage={(e) => downloadImage(e.detail)}
+            on:openImage={(e) => {
+              lightboxImages = e.detail.images;
+              lightboxIndex = e.detail.index;
+              lightboxOpen = true;
+            }}
+            on:toggleEngagement={(e) => toggleEngagement(e.detail)}
+            on:report={(e) => openReport(e.detail)}
+            on:error={(e) => (notice = e.detail)}
+          />
         {/each}
       </div>
 
@@ -421,3 +495,86 @@
     {/if}
   </div>
 </FeedErrorBoundary>
+
+{#if zapEvent}
+  <ZapModal
+    bind:open={zapOpen}
+    event={zapEvent}
+    on:zap-complete={() => zapEvent && zapComplete(zapEvent.id)}
+  />
+{/if}
+
+<ShareModal
+  bind:open={shareOpen}
+  url={shareUrl}
+  title="Check out this post on Zap Cooking"
+  imageBlob={shareBlob}
+  imageName={shareName}
+  isGeneratingImage={generatingShare}
+  onGenerateImage={shareEvent ? generateShareImage : null}
+  authorPubkey={shareEvent?.pubkey ?? ''}
+/>
+
+<FreshReportModal
+  bind:open={reportOpen}
+  post={reportPost}
+  on:reported={(e) => {
+    hidden.add(e.detail.id);
+    hidden = hidden;
+  }}
+/>
+
+{#if savingImage}
+  <div
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+    style="backdrop-filter: blur(4px);"
+  >
+    <div
+      class="bg-input rounded-lg p-6 max-w-sm mx-4 text-center"
+      style="border: 1px solid var(--color-input-border);"
+      role="dialog"
+    >
+      <div
+        class="animate-spin rounded-full h-10 w-10 border-b-2 border-yellow-500 mx-auto mb-3"
+      ></div>
+      <p class="text-base font-semibold mb-1" style="color: var(--color-text-primary);">
+        Generating image...
+      </p>
+      <p class="text-xs" style="color: var(--color-text-secondary);">This may take a few seconds</p>
+    </div>
+  </div>
+{/if}
+
+{#if notice}
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+  <div
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+    style="backdrop-filter: blur(4px);"
+    on:click={() => (notice = null)}
+  >
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div
+      class="bg-input rounded-lg p-6 max-w-sm mx-4"
+      style="border: 1px solid var(--color-input-border);"
+      on:click|stopPropagation
+    >
+      <p class="text-sm mb-4" style="color: var(--color-text-primary);">{notice}</p>
+      <button
+        on:click={() => (notice = null)}
+        class="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+      >
+        Close
+      </button>
+    </div>
+  </div>
+{/if}
+
+{#if lightboxOpen}
+  <div use:portal>
+    <MediaLightbox
+      images={lightboxImages}
+      bind:index={lightboxIndex}
+      onClose={() => (lightboxOpen = false)}
+    />
+  </div>
+{/if}

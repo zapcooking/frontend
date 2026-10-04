@@ -341,6 +341,9 @@
           <span>Save Image</span>
         </button>
       {/if}
+      <!-- Extra items a feed adds for its own posts (Fresh: bookmark, follow,
+           mute, report). Empty by default, so other feeds' menus are unchanged. -->
+      <slot name="extra" close={closeMenu} />
     </div>
   {/if}
 </div>
