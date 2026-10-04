@@ -10,7 +10,7 @@
  * the components that render a post, not this module.
  *
  * Access tiers on the relay: everyone gets the last 14 days and recipes at
- * any age; members (NIP-42, PR 5) get everything. This client:
+ * any age; members (NIP-42, `memberLogin.ts`) get everything. This client:
  *   - asks non-members only for the free window (`since` = the floor), so
  *     old recipes don't leak into the newest-first feed (the recipe box shows
  *     those), and never sends a page that's entirely older than the floor;
@@ -69,11 +69,20 @@ export interface RelayLike {
 
 export type Connect = (url: string) => Promise<RelayLike>;
 
+/** Member access on a connection (`MemberLogin` in memberLogin.ts). */
+export interface MemberAccess {
+  authed(relay: RelayLike | null): boolean;
+  /** Log in if allowed (lazy, never after a decline); true = member access. */
+  access(relay: RelayLike): Promise<boolean>;
+  /** The relay says this reader isn't a member. */
+  denied(): void;
+}
+
 /** The default connection: nostr-tools, which verifies id and signature. */
 export const nostrToolsConnect: Connect = async (url) => {
   const { Relay } = await import('nostr-tools/relay');
   // No `onauth`: the challenge is kept and only signed when a member needs
-  // depth (PR 5), never automatically.
+  // depth (MemberLogin), never automatically.
   return (await Relay.connect(url)) as unknown as RelayLike;
 };
 
@@ -103,8 +112,10 @@ export interface ClientOptions {
   now?: () => number;
   /** Per request (default 10 s). */
   timeoutMs?: number;
-  /** Does the reader have member access on this connection (PR 5)? */
+  /** Force member requests (tests). */
   member?: () => boolean;
+  /** Member login, asked only when a page would go past the floor. */
+  login?: MemberAccess;
 }
 
 export class FreshClient {
@@ -113,6 +124,8 @@ export class FreshClient {
   private now: () => number;
   private timeoutMs: number;
   private member: () => boolean;
+  private login: MemberAccess | undefined;
+  private historyServed = false;
   private relay: RelayLike | null = null;
   private connecting: Promise<RelayLike> | null = null;
   private seen = new Set<string>();
@@ -123,6 +136,7 @@ export class FreshClient {
     this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
     this.timeoutMs = opts.timeoutMs ?? 10_000;
     this.member = opts.member ?? (() => false);
+    this.login = opts.login;
   }
 
   /** The start of the free window. */
@@ -157,10 +171,22 @@ export class FreshClient {
    * inclusive so posts sharing a timestamp aren't lost).
    */
   async page(until?: number, limit = PAGE_SIZE): Promise<PageResult> {
-    const member = this.member();
     const floor = this.floor();
-    if (!member && until !== undefined && until < floor) {
+    const pastFloor = until !== undefined && until < floor;
+    if (pastFloor && !this.member() && !this.login) {
       return { state: 'ok', events: [], end: 'floor' };
+    }
+    let relay: RelayLike;
+    try {
+      relay = await this.connection();
+    } catch (err) {
+      return { state: 'unavailable', events: [], reason: String(err) };
+    }
+    let member = this.member() || (this.login?.authed(relay) ?? false);
+    // The only place a login is asked for: a page past the free window.
+    if (pastFloor && !member) {
+      if (!(await this.login!.access(relay))) return { state: 'ok', events: [], end: 'floor' };
+      member = true;
     }
     const filter: Filter = { kinds: FRESH_KINDS, limit };
     if (until !== undefined) filter.until = until;
@@ -168,7 +194,7 @@ export class FreshClient {
 
     let asked = limit;
     let res = await this.query(filter);
-    if (res.state !== 'ok') return res;
+    if (res.state !== 'ok') return this.closed(res, member);
     let fresh = res.events.filter((e) => !this.seen.has(e.id));
     // A full page of posts we've all seen: more posts share the boundary
     // second than fit on a page. Ask for that second again at the relay's
@@ -176,14 +202,24 @@ export class FreshClient {
     if (fresh.length === 0 && res.events.length >= limit && until !== undefined) {
       asked = MAX_LIMIT;
       res = await this.query({ ...filter, limit: asked });
-      if (res.state !== 'ok') return res;
+      if (res.state !== 'ok') return this.closed(res, member);
       fresh = res.events.filter((e) => !this.seen.has(e.id));
       if (fresh.length === 0 && res.events.length >= MAX_LIMIT) {
         asked = limit;
         res = await this.query({ ...filter, until: until - 1 });
-        if (res.state !== 'ok') return res;
+        if (res.state !== 'ok') return this.closed(res, member);
         fresh = res.events.filter((e) => !this.seen.has(e.id));
       }
+    }
+    // A logged-in non-member gets an empty answer past the window, not an
+    // error: an empty first page of history after a login means "not a
+    // member" (members always have history there).
+    if (pastFloor && this.login?.authed(relay)) {
+      if (res.events.length === 0 && !this.historyServed) {
+        this.login.denied();
+        return { state: 'restricted', events: [] };
+      }
+      if (res.events.length) this.historyServed = true;
     }
     // Defensive: a non-member never gets anything older than the floor here.
     if (!member) fresh = fresh.filter((e) => e.created_at >= floor);
@@ -222,6 +258,12 @@ export class FreshClient {
       onclose: (reason) => onState?.(stateOf(reason), reason)
     });
     return () => sub.close();
+  }
+
+  /** A close while logged in as a member: `restricted:` means not a member. */
+  private closed(res: PageResult, member: boolean): PageResult {
+    if (member && res.state === 'restricted') this.login?.denied();
+    return res;
   }
 
   /** One request to EOSE, as a state. */
