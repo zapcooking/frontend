@@ -1,5 +1,7 @@
 <script lang="ts">
   import FoodstrFeedOptimized from '../../components/FoodstrFeedOptimized.svelte';
+  import FreshFeed from '../../components/FreshFeed.svelte';
+  import { freshPreference, isFreshVisible } from '$lib/freshFeed/visibility';
   import MemoriesCard from '../../components/MemoriesCard.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -22,7 +24,7 @@
 
   // Pull-to-refresh refs
   let pullToRefreshEl: PullToRefresh;
-  let feedComponent: FoodstrFeedOptimized;
+  let feedComponent: { refresh(): Promise<void> };
 
   async function handleRefresh() {
     try {
@@ -38,7 +40,7 @@
   export const data: PageData = {} as PageData;
 
   // Tab state - use local state for immediate reactivity
-  type FilterMode = 'global' | 'following' | 'replies' | 'members';
+  type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'fresh';
 
   // Local state for immediate UI updates
   // Default to global — faster load, more variety on login
@@ -53,6 +55,9 @@
   let createGroupOpen = false;
 
   $: showThread = selectedGroupId !== null;
+  // Fresh (beta): shown per $lib/freshFeed/visibility; hidden signed out.
+  $: freshVisible = isFreshVisible($userPublickey, $freshPreference);
+  $: if (activeTab === 'fresh' && !freshVisible) setTab('global');
   $: isLoggedIn = !!$userPublickey;
 
   function handleSelectGroup(e: CustomEvent<{ groupId: string }>) {
@@ -149,6 +154,9 @@
     const tab = $page.url.searchParams.get('tab');
     if (tab === 'following' || tab === 'replies' || tab === 'global' || tab === 'members') {
       activeTab = tab;
+    }
+    if (tab === 'fresh' && isFreshVisible($userPublickey, $freshPreference)) {
+      activeTab = 'fresh';
     }
 
     // Signed out: following is disabled, fall back to global
@@ -307,6 +315,23 @@
           {/if}
         </button>
 
+        {#if freshVisible}
+          <button
+            on:click={() => setTab('fresh')}
+            class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
+            style="color: {activeTab === 'fresh'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            Fresh <span class="text-[10px] uppercase tracking-wide opacity-70">beta</span>
+            {#if activeTab === 'fresh'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+              ></span>
+            {/if}
+          </button>
+        {/if}
+
       </div>
     </div>
 
@@ -351,6 +376,8 @@
       {#if isLoggedIn}
         <CreateGroupModal bind:open={createGroupOpen} on:created={handleGroupCreated} />
       {/if}
+    {:else if activeTab === 'fresh'}
+      <FreshFeed bind:this={feedComponent} />
     {:else}
       {#if $userPublickey}
         <MemoriesCard />
