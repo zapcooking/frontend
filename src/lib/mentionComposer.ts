@@ -498,97 +498,122 @@ export class MentionComposerController {
 		const ndkInstance = get(ndk);
 		const shouldSearchNdk = query.length >= 1 && ndkInstance;
 
-			if (shouldSearchPrimal || shouldSearchNdk) {
-				this.mentionSearching = true;
-				this.notifyStateChange();
-				try {
-					if (shouldSearchPrimal) {
-						const primalResults = await searchProfiles(query, 25);
-						for (const profile of primalResults) {
-							if (seenPubkeys.has(profile.pubkey)) continue;
+		if (shouldSearchPrimal || shouldSearchNdk) {
+			this.mentionSearching = true;
+			this.notifyStateChange();
 
-							const name =
-								profile.displayName || profile.name || profile.nip05?.split('@')[0] || 'Unknown';
-							const profileData: MentionSuggestion = {
-								name,
-								npub: profile.npub || nip19.npubEncode(profile.pubkey),
-								picture: profile.picture,
-								pubkey: profile.pubkey,
-								nip05: profile.nip05
-							};
-							matches.push(profileData);
-							seenPubkeys.add(profile.pubkey);
-							addToCache(profileData);
-						}
-					}
+			const merge = (pubkey: string, data: Omit<MentionSuggestion, 'pubkey' | 'npub'>) => {
+				if (seenPubkeys.has(pubkey)) return;
+				seenPubkeys.add(pubkey);
+				const profileData: MentionSuggestion = {
+					...data,
+					pubkey,
+					npub: nip19.npubEncode(pubkey)
+				};
+				matches.push(profileData);
+				addToCache(profileData);
+			};
 
-					if (shouldSearchNdk && ndkInstance) {
-						const searchResults = await ndkInstance.fetchEvents({
-							kinds: [0],
-							search: query,
-							limit: 50
-						});
+			try {
+				// THREE INDEPENDENT INDEXES, RUN IN PARALLEL AND ISOLATED.
+				// These used to await one another inside one try block: a
+				// hanging NDK relay search (fetchEvents has no timeout of
+				// its own) held the Nostr Archives merge hostage, and a
+				// Primal throw skipped it entirely — the dropdown showed
+				// only local cache matches while the right user sat in an
+				// index that had already answered. Whatever resolves,
+				// merges; whatever fails, merges nothing.
+				const tasks: Promise<void>[] = [];
 
-						for (const event of searchResults) {
-							if (seenPubkeys.has(event.pubkey)) continue;
-
-							try {
-								const profile = JSON.parse(event.content);
-								const name = profile.display_name || profile.name || '';
-								const nip05 = profile.nip05;
-
-								const profileData: MentionSuggestion = {
-									name: name || nip05?.split('@')[0] || profile.name || 'Unknown',
-									npub: nip19.npubEncode(event.pubkey),
-									picture: profile.picture,
-									pubkey: event.pubkey,
-									nip05
-								};
-								matches.push(profileData);
-								seenPubkeys.add(event.pubkey);
-								addToCache(profileData);
-							} catch {}
-						}
-					}
-
-					// Second independent index (sidecar's nostrarchives merge):
-					// keeps global name search alive when Primal is down, slow,
-					// or rate-limited. The module no-ops unless the user opted
-					// in through the one-time dropdown ask; failures return [].
-					if (query.length >= 2) {
-						const naResults = await naSuggest(query);
-						for (const s of naResults) {
-							if (seenPubkeys.has(s.pubkey)) continue;
-							const profileData: MentionSuggestion = {
-								name: s.name,
-								npub: nip19.npubEncode(s.pubkey),
-								picture: s.picture || undefined,
-								pubkey: s.pubkey
-							};
-							matches.push(profileData);
-							seenPubkeys.add(s.pubkey);
-							addToCache(profileData);
-						}
-					}
-				} catch (e) {
-					console.debug('Network search failed:', e);
-				} finally {
-					this.mentionSearching = false;
+				if (shouldSearchPrimal) {
+					tasks.push(
+						searchProfiles(query, 25)
+							.then((primalResults) => {
+								for (const profile of primalResults) {
+									merge(profile.pubkey, {
+										name:
+											profile.displayName ||
+											profile.name ||
+											profile.nip05?.split('@')[0] ||
+											'Unknown',
+										picture: profile.picture,
+										nip05: profile.nip05
+									});
+								}
+							})
+							.catch(() => {})
+					);
 				}
-			}
 
-		// Sort: prioritize exact matches
-		matches.sort((a, b) => {
-			const aExact =
-				a.name.toLowerCase().startsWith(queryLower) ||
-				a.nip05?.toLowerCase().startsWith(queryLower);
-			const bExact =
-				b.name.toLowerCase().startsWith(queryLower) ||
-				b.nip05?.toLowerCase().startsWith(queryLower);
-			if (aExact && !bExact) return -1;
-			if (!aExact && bExact) return 1;
-			return a.name.localeCompare(b.name);
-		});
+				if (shouldSearchNdk && ndkInstance) {
+					// Bounded: a relay that never sends EOSE must not hold
+					// the whole search open.
+					tasks.push(
+						Promise.race([
+							ndkInstance.fetchEvents({
+								kinds: [0],
+								search: query,
+								limit: 50
+							}),
+							new Promise<Set<never>>((resolve) => setTimeout(() => resolve(new Set()), 3000))
+						])
+							.then((searchResults) => {
+								for (const event of searchResults) {
+									try {
+										const profile = JSON.parse(event.content);
+										const name = profile.display_name || profile.name || '';
+										const nip05 = profile.nip05;
+										merge(event.pubkey, {
+											name: name || nip05?.split('@')[0] || profile.name || 'Unknown',
+											picture: profile.picture,
+											nip05
+										});
+									} catch {}
+								}
+							})
+							.catch(() => {})
+					);
+				}
+
+				// Second independent index (sidecar's nostrarchives merge):
+				// keeps global name search alive when Primal is down, slow,
+				// or rate-limited. Returns the API's rank order, which puts
+				// the exact name first.
+				tasks.push(
+					naSuggest(query)
+						.then((naResults) => {
+							for (const s of naResults) {
+								merge(s.pubkey, {
+									name: s.name,
+									picture: s.picture || undefined,
+									nip05: s.nip05 || undefined
+								});
+							}
+						})
+						.catch(() => {})
+				);
+
+				await Promise.allSettled(tasks);
+			} finally {
+				this.mentionSearching = false;
+			}
+		}
+
+		// Sort: name matches outrank NIP-05 matches. "oshi" must surface
+		// the user NAMED Oshi above accounts whose @-handle merely starts
+		// with it (oshinoko@…); the nip05's local part is what a user
+		// matches, not the full address. Ties keep insertion order
+		// (stable sort), which preserves each index's own ranking.
+		const tier = (p: MentionSuggestion): number => {
+			const name = p.name.toLowerCase();
+			if (name === queryLower) return 0;
+			if (name.startsWith(queryLower)) return 1;
+			const local = p.nip05?.split('@')[0]?.toLowerCase();
+			if (local === queryLower) return 2;
+			if (local?.startsWith(queryLower)) return 3;
+			return 4;
+		};
+		matches.sort((a, b) => tier(a) - tier(b) || a.name.localeCompare(b.name));
 
 		this.mentionSuggestions = matches.slice(0, 10);
 		this.selectedMentionIndex = 0;

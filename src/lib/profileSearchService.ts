@@ -131,36 +131,43 @@ export async function searchProfiles(query: string, limit: number = 10): Promise
     return [];
   }
 
-  const primal = getPrimalCache();
-  if (!primal) {
-    return [];
-  }
-
   try {
-    const results = await primal.searchProfiles(query, limit);
+    // Two independent indexes, run concurrently (sidecar's merge): the
+    // slower one must not delay the faster one, and either failing (or
+    // being unavailable — Primal's cache can be null) just means fewer
+    // results.
+    const primal = getPrimalCache();
+    const [primalResults, naResults] = await Promise.allSettled([
+      primal ? primal.searchProfiles(query, limit) : Promise.resolve([]),
+      naSuggest(query)
+    ]);
 
-    const filtered = results.filter((profile) => !profile.nip05?.endsWith('@mostr.pub'));
-
-    const searchResults = filtered.map(toSearchProfile);
-    searchResults.forEach((profile) => profileCache.set(profile.pubkey, profile));
-
-    // Second independent index (sidecar's nostrarchives merge): Primal is
-    // one websocket service; when it's down, slow, or rate-limited, the
-    // Nostr Archives suggest API keeps global name search alive. Disabled
-    // until the user opts in through the dropdown ask; failures return [].
-    const naResults = await naSuggest(query).catch(() => []);
-    const seen = new Set(searchResults.map((p) => p.pubkey));
-    for (const s of naResults) {
-      if (seen.has(s.pubkey)) continue;
-      seen.add(s.pubkey);
-      const profile: SearchProfile = {
-        pubkey: s.pubkey,
-        npub: nip19.npubEncode(s.pubkey),
-        name: s.name,
-        picture: s.picture || undefined
-      };
+    const searchResults: SearchProfile[] = [];
+    const seen = new Set<string>();
+    const push = (pubkey: string, data: Omit<SearchProfile, 'pubkey' | 'npub'>) => {
+      if (seen.has(pubkey)) return;
+      seen.add(pubkey);
+      const profile: SearchProfile = { pubkey, npub: nip19.npubEncode(pubkey), ...data };
       searchResults.push(profile);
-      profileCache.set(s.pubkey, profile);
+      profileCache.set(pubkey, profile);
+    };
+
+    if (primalResults.status === 'fulfilled') {
+      for (const profile of primalResults.value) {
+        if (profile.nip05?.endsWith('@mostr.pub')) continue;
+        push(profile.pubkey, {
+          name: profile.name,
+          displayName: profile.display_name,
+          picture: profile.picture,
+          nip05: profile.nip05,
+          about: profile.about
+        });
+      }
+    }
+    if (naResults.status === 'fulfilled') {
+      for (const s of naResults.value) {
+        push(s.pubkey, { name: s.name, picture: s.picture || undefined, nip05: s.nip05 || undefined });
+      }
     }
 
     // Callers cap their own UI (e.g. 5 in the search bar, 10 in mentions).

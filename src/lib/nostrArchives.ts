@@ -22,6 +22,7 @@ export interface NaSuggestion {
 	pubkey: string;
 	name: string;
 	picture: string | null;
+	nip05: string | null;
 }
 
 let cooldownUntil = 0;
@@ -69,10 +70,10 @@ export async function naSuggest(query: string, limit = 8): Promise<NaSuggestion[
 		const data = await resp.json();
 		return (data.suggestions || [])
 			.filter((s: { pubkey?: unknown }) => s && isHex64(s.pubkey))
-			.map((s: { pubkey: string; display_name?: string; preferred_name?: string; name?: string; picture?: string }) => {
+			.map((s: { pubkey: string; display_name?: string; preferred_name?: string; name?: string; picture?: string; nip05?: string }) => {
 				const pk = s.pubkey.toLowerCase();
 				const name = pickName(s) || shortNpub(pk);
-				return { pubkey: pk, name, picture: s.picture || null };
+				return { pubkey: pk, name, picture: s.picture || null, nip05: s.nip05 || null };
 			});
 	} catch {
 		return [];
