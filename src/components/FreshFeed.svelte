@@ -38,6 +38,7 @@
     pickRandom,
     recipeAddress
   } from '$lib/freshFeed/recipeBox';
+  import { beginVisit, recordNewest, withDivider } from '$lib/freshFeed/lastVisit';
   import FreshPostCard from './FreshPostCard.svelte';
   import FreshReportModal from './FreshReportModal.svelte';
   import ZapModal from './ZapModal.svelte';
@@ -147,6 +148,7 @@
     const added = r.events.map(wrap);
     posts = [...posts, ...added];
     fillBox();
+    if (posts[0]) recordNewest(posts[0].raw.created_at);
     if (added.length)
       prefetchReplyContexts(
         $ndk,
@@ -175,6 +177,12 @@
   );
 
   $: rendered = interleave(shown, boxShown);
+
+  // "New since your last visit": the previous visit's mark, fixed for this
+  // session (device-local; $lib/freshFeed/lastVisit).
+  const visitMark = beginVisit();
+  $: rows = withDivider(rendered, visitMark);
+  $: caughtUp = visitMark !== null && shown.length > 0 && shown[0].raw.created_at <= visitMark;
 
   /**
    * One pick per slot as the feed grows; a pick, once made, stays put.
@@ -295,6 +303,7 @@
     posts = [...pending, ...posts];
     pending = [];
     fillBox();
+    if (posts[0]) recordNewest(posts[0].raw.created_at);
     document.getElementById('app-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -511,27 +520,46 @@
         </div>
       {/if}
 
+      {#if caughtUp}
+        <p class="text-sm text-center mb-4" style="color: var(--color-caption)">
+          You're caught up: nothing new since your last visit.
+        </p>
+      {/if}
       <div class="space-y-6">
-        {#each rendered as row (row.key)}
-          <FreshPostCard
-            label={row.box ? 'From the recipe box' : null}
-            raw={row.item.raw}
-            event={row.item.event}
-            visible={visibleNotes.has(row.item.raw.id)}
-            expanded={expanded.has(row.item.raw.id)}
-            {lazy}
-            on:zap={(e) => openZap(e.detail)}
-            on:share={(e) => openShare(e.detail.url, e.detail.event)}
-            on:downloadImage={(e) => downloadImage(e.detail)}
-            on:openImage={(e) => {
-              lightboxImages = e.detail.images;
-              lightboxIndex = e.detail.index;
-              lightboxOpen = true;
-            }}
-            on:toggleEngagement={(e) => toggleEngagement(e.detail)}
-            on:report={(e) => openReport(e.detail)}
-            on:error={(e) => (notice = e.detail)}
-          />
+        {#each rows as row (row.key)}
+          {#if row.divider}
+            <div
+              class="flex items-center gap-3 text-xs font-medium"
+              style="color: var(--color-caption)"
+              role="separator"
+            >
+              <span class="flex-1 h-px" style="background-color: var(--color-input-border)"></span>
+              <span>
+                You're caught up · {row.newCount} new {row.newCount === 1 ? 'post' : 'posts'} above
+              </span>
+              <span class="flex-1 h-px" style="background-color: var(--color-input-border)"></span>
+            </div>
+          {:else}
+            <FreshPostCard
+              label={row.box ? 'From the recipe box' : null}
+              raw={row.item.raw}
+              event={row.item.event}
+              visible={visibleNotes.has(row.item.raw.id)}
+              expanded={expanded.has(row.item.raw.id)}
+              {lazy}
+              on:zap={(e) => openZap(e.detail)}
+              on:share={(e) => openShare(e.detail.url, e.detail.event)}
+              on:downloadImage={(e) => downloadImage(e.detail)}
+              on:openImage={(e) => {
+                lightboxImages = e.detail.images;
+                lightboxIndex = e.detail.index;
+                lightboxOpen = true;
+              }}
+              on:toggleEngagement={(e) => toggleEngagement(e.detail)}
+              on:report={(e) => openReport(e.detail)}
+              on:error={(e) => (notice = e.detail)}
+            />
+          {/if}
         {/each}
       </div>
 
