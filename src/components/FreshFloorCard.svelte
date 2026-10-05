@@ -9,6 +9,10 @@
    * membership link.
    */
   export let prompt: FloorPrompt;
+  /** Where the card shows: the end of the 14-day window, or a topic feed. */
+  export let context: 'floor' | 'topic' = 'floor';
+
+  $: topic = context === 'topic';
 
   const dispatch = createEventDispatcher<{ login: void }>();
 </script>
@@ -21,10 +25,12 @@
   >
     {#if prompt.kind === 'join'}
       <p class="font-medium" style="color: var(--color-text-primary)">
-        You're caught up on the last 14 days
+        {topic ? 'Topic feeds are for members' : "You're caught up on the last 14 days"}
       </p>
       <p class="text-sm mt-1" style="color: var(--color-caption)">
-        Members get the full history of the Fresh feed, plus topic feeds.
+        {topic
+          ? 'Members can follow topics like Sourdough or Kimchi, back through the full history.'
+          : 'Members get the full history of the Fresh feed, plus topic feeds.'}
       </p>
       <a
         href="/membership"
@@ -34,15 +40,15 @@
       </a>
     {:else if prompt.kind === 'pending'}
       <p class="text-sm" style="color: var(--color-caption)">
-        Approve the login in your signer to see older posts…
+        Approve the login in your signer to {topic ? 'open this topic' : 'see older posts'}…
       </p>
     {:else if prompt.kind === 'login'}
       <p class="font-medium" style="color: var(--color-text-primary)">
-        Older posts are for members
+        {topic ? 'Topic feeds are for members' : 'Older posts are for members'}
       </p>
       <p class="text-sm mt-1" style="color: var(--color-caption)">
-        Log in to the feed relay to keep scrolling. It only checks your membership; nothing is
-        logged.
+        Log in to the feed relay to {topic ? 'open topic feeds' : 'keep scrolling'}. It only checks
+        your membership; nothing is logged.
       </p>
       <button
         type="button"

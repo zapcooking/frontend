@@ -357,3 +357,64 @@ describe('nothing stored or sent elsewhere', () => {
       expect(src).not.toContain(api);
   });
 });
+
+describe('topic feeds', () => {
+  it('signed out or not a member: no prompt, nothing sent', async () => {
+    for (const o of [{ pubkey: '' }, { isMember: false }]) {
+      const { client, sign, relays } = setup(o);
+      const r = await client.topic('sourdough', new Set());
+      expect(r.state).toBe('auth-required');
+      expect(sign).not.toHaveBeenCalled();
+      expect(relays[0].filters).toHaveLength(0);
+    }
+  });
+
+  it('a member is logged in once, then asks with topic: search', async () => {
+    const { client, sign, relays } = setup();
+    const r = await client.topic('baking', new Set());
+    expect(r.state).toBe('ok');
+    expect(relays[0].filters[0]).toEqual({
+      kinds: [1, 30023, 35000, 1068],
+      search: 'topic:baking',
+      limit: 30
+    });
+    await client.topic('baking', new Set(), r.nextUntil);
+    expect(sign).toHaveBeenCalledTimes(1);
+  });
+
+  it('a decline is remembered: the next topic asks nothing', async () => {
+    const { client, sign } = setup({
+      sign: async () => {
+        throw new Error('no');
+      }
+    });
+    expect((await client.topic('pickles', new Set())).state).toBe('auth-required');
+    expect((await client.topic('kimchi', new Set())).state).toBe('auth-required');
+    expect(sign).toHaveBeenCalledTimes(1);
+  });
+
+  it('restricted: from the relay means not a member, without a retry', async () => {
+    const relay = new AuthFakeRelay({ closeReason: 'restricted: members only' });
+    const { client, login } = setup({ relays: [relay] });
+    // The fake answers restricted for past-floor requests; make the topic one look like that.
+    const orig = relay.subscribe.bind(relay);
+    relay.subscribe = (filters, p) => {
+      if (filters[0].search) {
+        queueMicrotask(() => p.onclose?.('restricted: members only'));
+        return { close: () => {} };
+      }
+      return orig(filters, p);
+    };
+    expect((await client.topic('pickles', new Set())).state).toBe('restricted');
+    expect(get(login.state)).toBe('not-member');
+  });
+
+  it("keeps its own de-duplication, apart from the main feed's", async () => {
+    const { client } = setup();
+    const main = await client.page();
+    const seen = new Set<string>();
+    const topic = await client.topic('baking', seen);
+    expect(main.events.map((e) => e.id)).toContain('new');
+    expect(topic.events.map((e) => e.id)).toContain('new');
+  });
+});
