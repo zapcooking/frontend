@@ -51,6 +51,7 @@ export interface Filter {
   ids?: string[];
   authors?: string[];
   search?: string;
+  '#t'?: string[];
 }
 
 /** What the client needs from a relay connection (nostr-tools `Relay`). */
@@ -258,6 +259,36 @@ export class FreshClient {
       onclose: (reason) => onState?.(stateOf(reason), reason)
     });
     return () => sub.close();
+  }
+
+  /**
+   * Every recipe the relay serves (public at any age, for everyone): kind
+   * 35000, and kind 30023 tagged with one of `recipeTags`. Paged back with
+   * an inclusive `until` until a page comes back short, up to `max` each.
+   * For the recipe box; these never enter the newest-first feed's paging.
+   */
+  async recipes(recipeTags: string[], max = 2000): Promise<PageResult> {
+    const all = new Map<string, RelayEvent>();
+    for (const base of [{ kinds: [30023], '#t': recipeTags }, { kinds: [35000] }] as Filter[]) {
+      let until: number | undefined;
+      let got = 0;
+      while (got < max) {
+        const f: Filter = { ...base, limit: MAX_LIMIT };
+        if (until !== undefined) f.until = until;
+        const res = await this.query(f);
+        if (res.state !== 'ok') return res;
+        let added = 0;
+        for (const e of res.events) {
+          if (all.has(e.id)) continue;
+          all.set(e.id, e);
+          added++;
+        }
+        got += added;
+        if (res.events.length < MAX_LIMIT || added === 0) break;
+        until = Math.min(...res.events.map((e) => e.created_at));
+      }
+    }
+    return { state: 'ok', events: [...all.values()], end: 'exhausted' };
   }
 
   /** A close while logged in as a member: `restricted:` means not a member. */

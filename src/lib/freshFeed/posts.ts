@@ -59,13 +59,21 @@ export interface FilterContext {
  * reach here (Fresh doesn't ask for them).
  */
 export function passesFreshFilters(e: RelayEvent, ctx: FilterContext): boolean {
+  if (!passesReaderFilters(e, ctx)) return false;
+  if (isOldEdit(e, ctx.now)) return false;
+  return true;
+}
+
+/** The reader's own rules only (mutes, hellthread): for recipe-box picks. */
+export function passesReaderFilters(
+  e: RelayEvent,
+  ctx: Pick<FilterContext, 'muteList' | 'isHellthread'>
+): boolean {
   if (
     isEventMutedBy(ctx.muteList, { id: e.id, pubkey: e.pubkey, content: e.content, tags: e.tags })
   )
     return false;
-  if (ctx.isHellthread(e)) return false;
-  if (isOldEdit(e, ctx.now)) return false;
-  return true;
+  return !ctx.isHellthread(e);
 }
 
 // --- From FoodstrFeedOptimized (formatTimeAgo, media helpers) ---

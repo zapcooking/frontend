@@ -59,6 +59,8 @@
   /** Near the screen: mount engagement. */
   export let visible = false;
   export let expanded = false;
+  /** A line above the card ("From the recipe box"). */
+  export let label: string | null = null;
   /** Registers this card for lazy engagement loading (the feed's observer). */
   export let lazy: (node: HTMLElement, id: string) => { destroy(): void };
 
@@ -136,6 +138,9 @@
     }
   }}
 >
+  {#if label}
+    <p class="text-xs font-medium mb-3" style="color: var(--color-caption)">{label}</p>
+  {/if}
   <div class="flex items-center justify-between mb-3">
     <div class="flex items-center space-x-3 flex-1 min-w-0">
       <a href="/user/{nip19.npubEncode(raw.pubkey)}" class="flex-shrink-0">
