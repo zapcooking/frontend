@@ -28,6 +28,7 @@ type Reply = { events?: RelayEvent[]; close?: string; hang?: boolean };
 /** A relay that answers each REQ from a list of posts, or by `respond`. */
 class FakeRelay implements RelayLike {
   filters: Filter[] = [];
+  eoseTimeouts: (number | undefined)[] = [];
   closedSubs = 0;
   connected = true;
   constructor(
@@ -40,10 +41,12 @@ class FakeRelay implements RelayLike {
       onevent?: (e: RelayEvent) => void;
       oneose?: () => void;
       onclose?: (r: string) => void;
+      eoseTimeout?: number;
     }
   ) {
     const f = filters[0];
     this.filters.push(f);
+    this.eoseTimeouts.push(p.eoseTimeout);
     const r = this.respond?.(f) ?? { events: this.match(f) };
     queueMicrotask(() => {
       if (r.hang) return;
@@ -97,6 +100,13 @@ describe('isolation', () => {
   it('never asks the relay to log in by itself (no onauth on the default connection)', () => {
     expect(src).not.toMatch(/onauth\s*=/);
     expect(src).not.toMatch(/\.auth\(/);
+  });
+
+  it("waits past its own timeout for EOSE (nostr-tools' 4.4 s default ended slow pages empty)", async () => {
+    const relay = new FakeRelay([ev('a', NOW - 10)]);
+    const { c } = client(relay, { timeoutMs: 10_000 });
+    await c.page();
+    expect(relay.eoseTimeouts[0]).toBeGreaterThan(10_000);
   });
 
   it('closes every finished request', async () => {
