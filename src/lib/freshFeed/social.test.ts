@@ -6,7 +6,8 @@ import {
   bookmarkRef,
   isBookmarked,
   reportTemplate,
-  REPORT_TYPES
+  REPORT_TYPES,
+  REPORT_ALSO_MUTE_DEFAULT
 } from './social';
 
 const A = 'a'.repeat(64);
@@ -105,6 +106,9 @@ describe('reports (NIP-56)', () => {
         ['p', A, 'spam']
       ]
     });
+  });
+  it('"Also mute this person" defaults to off', () => {
+    expect(REPORT_ALSO_MUTE_DEFAULT).toBe(false);
   });
   it('offers only NIP-56 report types', () => {
     const nip56 = ['nudity', 'malware', 'profanity', 'illegal', 'spam', 'impersonation', 'other'];
