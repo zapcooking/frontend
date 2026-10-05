@@ -39,6 +39,7 @@
     recipeAddress
   } from '$lib/freshFeed/recipeBox';
   import { beginVisit, recordNewest, withDivider } from '$lib/freshFeed/lastVisit';
+  import { spaceAuthors } from '$lib/freshFeed/spacing';
   import FreshPostCard from './FreshPostCard.svelte';
   import FreshReportModal from './FreshReportModal.svelte';
   import ZapModal from './ZapModal.svelte';
@@ -145,7 +146,8 @@
       end = 'floor';
       return;
     }
-    const added = r.events.map(wrap);
+    // Each new page is spaced by author; posts already on screen stay put.
+    const added = spaceAuthors(posts, r.events.map(wrap));
     posts = [...posts, ...added];
     fillBox();
     if (posts[0]) recordNewest(posts[0].raw.created_at);
@@ -300,7 +302,7 @@
   }
 
   function showPending() {
-    posts = [...pending, ...posts];
+    posts = [...spaceAuthors([], pending), ...posts];
     pending = [];
     fillBox();
     if (posts[0]) recordNewest(posts[0].raw.created_at);
