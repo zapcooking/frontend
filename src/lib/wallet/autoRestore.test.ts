@@ -42,7 +42,8 @@ vi.mock('./walletStore', async () => {
   return {
     wallets: writable(mocks.walletsItems),
     hasPersistedWallets: mocks.hasPersistedWallets,
-    fingerprintWalletData
+    fingerprintWalletData,
+    walletRestoring: writable(false)
   };
 });
 

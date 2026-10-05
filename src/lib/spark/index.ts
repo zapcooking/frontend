@@ -5,6 +5,7 @@
  * Rewritten following jumble-spark patterns for reliable event handling.
  */
 
+import { BREEZ_COMPLETION_TIMEOUT_SECS } from '$lib/wallet/paymentOutcome';
 import { browser } from '$app/environment';
 import { writable, get } from 'svelte/store';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -596,6 +597,26 @@ export async function disconnectWallet(): Promise<void> {
  * @param comment Optional comment for LNURL payments.
  * @returns The payment result.
  */
+/**
+ * The SDK send request for a prepared payment. Lightning invoices wait for
+ * the payment to complete (or fail) before returning, instead of returning
+ * while it's still in flight; callers decide by the returned payment's
+ * status ($lib/wallet/paymentOutcome), and still pending after the wait is
+ * reported as pending, never as sent. preferSpark: false keeps standard
+ * Lightning routing (the SDK default).
+ */
+export function buildSendPaymentRequest(inputType: string, prepareResponse: unknown): any {
+  const request: any = { prepareResponse };
+  if (inputType === 'bolt11Invoice') {
+    request.options = {
+      type: 'bolt11Invoice',
+      preferSpark: false,
+      completionTimeoutSecs: BREEZ_COMPLETION_TIMEOUT_SECS
+    };
+  }
+  return request;
+}
+
 export async function sendPayment(
   destination: string,
   amountSats?: number,
@@ -632,7 +653,9 @@ export async function sendPayment(
     const prepareRequest: any = { paymentRequest: destination };
     if (amountSats) prepareRequest.amount = BigInt(amountSats);
     const prepareResponse = await _sdkInstance.prepareSendPayment(prepareRequest);
-    const payment = await _sdkInstance.sendPayment({ prepareResponse });
+    const payment = await _sdkInstance.sendPayment(
+      buildSendPaymentRequest(parsedInput.type, prepareResponse)
+    );
     await refreshBalanceInternal();
     return payment;
   } catch (error) {
