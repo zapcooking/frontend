@@ -41,7 +41,7 @@
   /** Bring the selected chip into view (centred when possible), sideways only. */
   async function revealActive(smooth: boolean) {
     await tick();
-    const el = row?.querySelector<HTMLElement>('[aria-selected="true"]');
+    const el = row?.querySelector<HTMLElement>('[aria-pressed="true"]');
     if (!row || !el) return;
     const target = el.offsetLeft - (row.clientWidth - el.offsetWidth) / 2;
     row.scrollTo({ left: Math.max(0, target), behavior: smooth ? 'smooth' : 'auto' });
@@ -67,15 +67,14 @@
     bind:this={row}
     on:scroll={updateFade}
     class="chip-row flex gap-2 px-4"
-    role="tablist"
+    role="group"
     aria-label="Topics"
   >
     {#each chips as chip (chip.kind + chip.slug)}
       {@const selected = chip.kind !== 'more' && chip.slug === active}
       <button
         type="button"
-        role="tab"
-        aria-selected={selected}
+        aria-pressed={chip.kind === 'more' ? undefined : selected}
         class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors
           {selected ? 'bg-primary text-white' : 'hover:bg-accent-gray'}"
         style={selected

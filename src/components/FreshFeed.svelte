@@ -532,7 +532,14 @@
     else openTopic({ slug: chip.slug, name: chip.name, count14d: 0 });
   }
 
+  // Each selection (a chip, the sheet, All) gets a new generation: a page
+  // still in flight for an earlier one is dropped when it lands, and the new
+  // selection's first page starts at once instead of waiting on it.
+  let topicGen = 0;
+
   function openTopic(t: Topic) {
+    topicGen++;
+    topicLoading = false;
     topic = t;
     topicPosts = [];
     topicSeen = new Set();
@@ -543,17 +550,21 @@
   }
 
   function closeTopic() {
+    topicGen++;
+    topicLoading = false;
     topic = null;
     topicPosts = [];
   }
 
   async function loadTopicPage() {
     if (!topic || topicLoading || topicEnd !== 'more') return;
-    const slug = topic.slug;
+    const gen = topicGen;
     topicLoading = true;
-    const r = await client.topic(slug, topicSeen, topicUntil);
+    const r = await client.topic(topic.slug, topicSeen, topicUntil);
+    // A newer selection owns topicLoading and the list now.
+    if (gen !== topicGen) return;
     topicLoading = false;
-    if (destroyed || topic?.slug !== slug) return;
+    if (destroyed) return;
     if (r.state === 'ok') {
       topicPosts = [...topicPosts, ...spaceAuthors(topicPosts, r.events.map(wrap))];
       topicUntil = r.nextUntil;

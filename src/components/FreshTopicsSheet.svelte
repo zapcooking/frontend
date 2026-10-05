@@ -33,7 +33,11 @@
 <Modal bind:open compact noHeader autoHeight allowOverflow>
   <div class="topics-sheet flex flex-col min-h-0">
     <div class="flex items-center justify-between flex-shrink-0 pb-2">
-      <h2 class="text-lg font-semibold" style="color: var(--color-text-primary)">Topics</h2>
+      <!-- id="title": Modal's dialog is aria-labelledby="title" (its own
+           header, which also carries it, is off with noHeader). -->
+      <h2 id="title" class="text-lg font-semibold" style="color: var(--color-text-primary)">
+        Topics
+      </h2>
       <button
         type="button"
         class="flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2"
