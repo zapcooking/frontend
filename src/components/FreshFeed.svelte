@@ -26,7 +26,7 @@
   import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membershipStatus';
   import { freshSession } from '$lib/freshFeed/session';
   import { floorPrompt } from '$lib/freshFeed/floorPrompt';
-  import type { PageEnd, PageResult, RelayEvent } from '$lib/freshFeed/relay';
+  import { PAGE_SIZE, type PageEnd, type PageResult, type RelayEvent } from '$lib/freshFeed/relay';
   import { passesFreshFilters, passesReaderFilters } from '$lib/freshFeed/posts';
   import { RECIPE_TAGS } from '$lib/consts';
   import {
@@ -40,6 +40,7 @@
   } from '$lib/freshFeed/recipeBox';
   import { beginVisit, recordNewest, withDivider } from '$lib/freshFeed/lastVisit';
   import { spaceAuthors } from '$lib/freshFeed/spacing';
+  import { needsFullReload, reserveRenderedSlots, SCROLLED_PX } from '$lib/freshFeed/refreshTop';
   import FreshPostCard from './FreshPostCard.svelte';
   import FreshReportModal from './FreshReportModal.svelte';
   import ZapModal from './ZapModal.svelte';
@@ -82,7 +83,7 @@
   // random from those this device hasn't shown ($lib/freshFeed/recipeBox).
   let boxPool: RelayEvent[] = [];
   let boxSeen = loadSeen(Math.floor(Date.now() / 1000));
-  let boxPicks: Post[] = [];
+  let boxPicks: (Post | null)[] = [];
   const boxTaken = new Set<string>();
   const boxAddress = new Map<string, string>();
 
@@ -164,11 +165,18 @@
     const r = await client.recipes(RECIPE_TAGS);
     if (destroyed || r.state !== 'ok') return;
     boxPool = buildPool(r.events, Math.floor(Date.now() / 1000));
+    // Arriving after the reader scrolled: don't insert above them.
+    boxPicks = reserveRenderedSlots(
+      boxPicks,
+      boxSlots(filterPosts(posts, $muteListStore.muteList, hidden).length),
+      readerScrolled()
+    );
     fillBox();
   }
 
   // A pick that was reported, or whose author was muted, leaves its slot empty.
   $: boxShown = boxPicks.map((p) =>
+    !p ||
     hidden.has(p.raw.id) ||
     !passesReaderFilters(p.raw, {
       muteList: pk ? $muteListStore.muteList : null,
@@ -309,9 +317,29 @@
     document.getElementById('app-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  /** Pull-to-refresh on /feed. */
+  function readerScrolled(): boolean {
+    return (document.getElementById('app-scroll')?.scrollTop ?? 0) > SCROLLED_PX;
+  }
+
+  /**
+   * Pull-to-refresh on /feed: newer posts go on top (with any waiting behind
+   * "N new posts"); what's loaded stays put. A full reload only when the
+   * newer posts would leave a hole, or nothing has loaded yet.
+   */
   export async function refresh(): Promise<void> {
-    await loadFirst();
+    if (loading) return;
+    const top = posts.length ? Math.max(...posts.map((p) => p.raw.created_at)) : null;
+    if (top === null || unavailable) return loadFirst();
+    const r = await client.page();
+    if (destroyed) return;
+    if (r.state !== 'ok') {
+      moreFailed = true;
+      return;
+    }
+    if (needsFullReload(r.events, PAGE_SIZE, top)) return loadFirst();
+    const pendingIds = new Set(pending.map((p) => p.raw.id));
+    pending = [...r.events.filter((e) => !pendingIds.has(e.id)).map(wrap), ...pending];
+    if (pending.length) showPending();
   }
 
   // --- Engagement: one shared observer, batched fetches (as in OnlyFood) ---
