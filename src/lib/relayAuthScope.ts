@@ -9,25 +9,14 @@
  * inbox keep arriving. Any other relay that turns up in NDK's pool (another
  * author's outbox, a hint) gets no login: that would sign the reader's key
  * over to relays they never picked, and with browser or remote signers it
- * prompts them for it.
+ * prompts them for it. (This is how filter.nostr.wine, a paid relay that
+ * challenges every connection, reached readers through other authors'
+ * outbox lists; a subscriber who lists it still gets logged in.)
  *
  * Pure apart from `ownRelayLists`, so the rule is testable.
  */
 
 export const PANTRY_AUTH_RELAY = 'wss://pantry.zap.cooking';
-
-/**
- * Relays NDK never connects to. NDK's own defaults are repeated because
- * passing `blacklistRelayUrls` replaces them. filter.nostr.wine is a paid
- * relay that challenges every connection and serves nothing to
- * non-subscribers; it reached the pool through other authors' outbox lists
- * and prompted readers to log in.
- */
-export const NDK_BLOCKED_RELAYS = [
-  'wss://brb.io/',
-  'wss://nostr.mutinywallet.com/',
-  'wss://filter.nostr.wine/'
-];
 
 /** Comparable form of a relay URL: lower case, no trailing slash. */
 export function relayKey(url: string): string {
@@ -38,7 +27,6 @@ export function relayKey(url: string): string {
 export function isAuthAllowed(url: string, allowed: Iterable<string>): boolean {
   const key = relayKey(url);
   if (!key) return false;
-  if (NDK_BLOCKED_RELAYS.some((b) => relayKey(b) === key)) return false;
   if (key === relayKey(PANTRY_AUTH_RELAY)) return true;
   for (const a of allowed) if (relayKey(a) === key) return true;
   return false;
@@ -104,8 +92,6 @@ export async function shouldAutoAuth(
   configured: string[],
   own: () => Promise<string[]>
 ): Promise<boolean> {
-  const key = relayKey(url);
-  if (NDK_BLOCKED_RELAYS.some((b) => relayKey(b) === key)) return false;
   if (isAuthAllowed(url, configured)) return true;
   return isAuthAllowed(url, await own());
 }

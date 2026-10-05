@@ -6,7 +6,6 @@ import {
   ownRelayLists,
   resetOwnRelayLists,
   relayKey,
-  NDK_BLOCKED_RELAYS,
   PANTRY_AUTH_RELAY
 } from './relayAuthScope';
 
@@ -19,6 +18,12 @@ const CONFIGURED = ['wss://nos.lol', 'wss://relay.primal.net/', 'wss://nostr.win
 const none = async () => [] as string[];
 
 beforeEach(() => resetOwnRelayLists());
+
+describe('relayKey', () => {
+  it('compares URLs without case or trailing slashes', () => {
+    expect(relayKey('WSS://X.y/')).toBe('wss://x.y');
+  });
+});
 
 describe('isAuthAllowed', () => {
   it('always allows pantry, in any URL form', () => {
@@ -36,11 +41,12 @@ describe('isAuthAllowed', () => {
     expect(isAuthAllowed('', CONFIGURED)).toBe(false);
   });
 
-  it('never logs in to filter.nostr.wine, even if listed', () => {
+  it('filter.nostr.wine: no login unless the reader chose it', () => {
+    expect(isAuthAllowed('wss://filter.nostr.wine/', CONFIGURED)).toBe(false);
     expect(
       isAuthAllowed('wss://filter.nostr.wine/', [...CONFIGURED, 'wss://filter.nostr.wine'])
-    ).toBe(false);
-    // nostr.wine itself is a different relay and stays allowed when configured.
+    ).toBe(true);
+    // nostr.wine itself is a different relay.
     expect(isAuthAllowed('wss://nostr.wine/', CONFIGURED)).toBe(true);
   });
 });
@@ -62,10 +68,10 @@ describe('shouldAutoAuth', () => {
     expect(await shouldAutoAuth('wss://someones.relay/', CONFIGURED, none)).toBe(false);
   });
 
-  it('refuses filter.nostr.wine without even looking it up', async () => {
-    const own = vi.fn(async () => ['wss://filter.nostr.wine']);
-    expect(await shouldAutoAuth('wss://filter.nostr.wine/', CONFIGURED, own)).toBe(false);
-    expect(own).not.toHaveBeenCalled();
+  it("logs in to filter.nostr.wine when it's in the reader's own lists (a subscriber)", async () => {
+    expect(await shouldAutoAuth('wss://filter.nostr.wine/', CONFIGURED, none)).toBe(false);
+    const own = async () => ['wss://filter.nostr.wine'];
+    expect(await shouldAutoAuth('wss://filter.nostr.wine/', CONFIGURED, own)).toBe(true);
   });
 });
 
@@ -111,14 +117,5 @@ describe('own relay lists', () => {
   it('allows nothing extra when signed out or the fetch fails', async () => {
     expect(await ownRelayLists(vi.fn(), '')).toEqual([]);
     expect(await ownRelayLists(async () => Promise.reject(new Error('x')), 'me')).toEqual([]);
-  });
-});
-
-describe('NDK blocklist', () => {
-  it("keeps NDK's defaults and adds filter.nostr.wine, in NDK's URL form", () => {
-    for (const u of ['wss://brb.io/', 'wss://nostr.mutinywallet.com/', 'wss://filter.nostr.wine/'])
-      expect(NDK_BLOCKED_RELAYS).toContain(u);
-    for (const u of NDK_BLOCKED_RELAYS) expect(u.endsWith('/')).toBe(true);
-    expect(relayKey('wss://X.y/')).toBe('wss://x.y');
   });
 });
