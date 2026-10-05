@@ -136,6 +136,14 @@ describe('Breez (Spark)', () => {
     m.sendZap.mockRejectedValue(new Error('request timed out'));
     expect((await pay()).status).toBe('pending');
   });
+  it('the SDK rejecting during prepare with a plain string (wasm error) → failed, never thrown', async () => {
+    m.sendZap.mockRejectedValue(
+      'invalid type: string "lnbc1u1p4vgx…", expected internally tagged enum PaymentRequest'
+    );
+    const r = await pay();
+    expect(r.status).toBe('failed');
+    expect(r.error).toContain('expected internally tagged enum PaymentRequest');
+  });
   it('no Breez seed on this site (a preview) → "No wallet connected" at once, nothing attempted', async () => {
     m.sparkReady = false;
     m.stored = false;

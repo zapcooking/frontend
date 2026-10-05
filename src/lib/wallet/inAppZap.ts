@@ -49,6 +49,9 @@ export async function runInAppZap(d: InAppZapDeps): Promise<InAppZapOutcome | nu
     return { kind: 'error', message: result.error || 'Payment failed' };
   } catch (e) {
     if (d.abandoned?.()) return null;
-    return { kind: 'error', message: e instanceof Error ? e.message : 'Payment failed' };
+    // wasm-bindgen errors are often plain strings, not Error objects.
+    const message =
+      e instanceof Error ? e.message : typeof e === 'string' && e ? e : 'Payment failed';
+    return { kind: 'error', message };
   }
 }
