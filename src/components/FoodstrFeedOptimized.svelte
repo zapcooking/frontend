@@ -13,10 +13,13 @@
 </script>
 
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { get } from 'svelte/store';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
+  import { validateMarkdownTemplate } from '$lib/parser';
+  import { RECIPE_TAGS } from '$lib/consts';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
   import {
     ndk,
     userPublickey,
@@ -824,6 +827,52 @@
   // ═══════════════════════════════════════════════════════════════
   // UTILITY FUNCTIONS
   // ═══════════════════════════════════════════════════════════════
+
+  const dispatch = createEventDispatcher<{ 'view-reads': void }>();
+
+  // When an author-profile load finishes empty: does the author publish
+  // longform (kind 30023, the Reads surface)? The feed itself only
+  // queries kinds [1, 6, 1068], so an articles-only cook would other-
+  // wise be told they've "never posted". null = probe pending or failed
+  // (default copy).
+  let authorHasLongform: boolean | null = null;
+
+  async function probeAuthorLongform(pk: string): Promise<void> {
+    authorHasLongform = null;
+    try {
+      const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+      // Pool relay set, same rationale as the profile Reads tab: the
+      // outbox model routes an `authors` REQ only to the author's
+      // NIP-65 relays, not where this app publishes.
+      const relaySet = NDKRelaySet.fromRelayUrls(
+        [...RELAY_POOLS.recipes, ...RELAY_POOLS.fallback].map(normalizeRelayUrl),
+        $ndk,
+        false
+      );
+      const found = await $ndk.fetchEvents(
+        { kinds: [30023], authors: [pk], limit: 10 },
+        { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY },
+        relaySet
+      );
+      // Same exclusions as the profile Reads tab: recipe-format events
+      // and moderation-blocked content don't count as "publishes reads".
+      let hasRead = false;
+      for (const ev of found) {
+        const hasRecipeTag = ev.tags.some(
+          (tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || '')
+        );
+        if (hasRecipeTag) continue;
+        if (typeof validateMarkdownTemplate(ev.content) !== 'string') continue;
+        if (isBlockedFromReads(ev)) continue;
+        hasRead = true;
+        break;
+      }
+      // Only commit if the author hasn't changed while the probe ran.
+      if (authorPubkey === pk) authorHasLongform = hasRead;
+    } catch {
+      if (authorPubkey === pk) authorHasLongform = null;
+    }
+  }
 
   function sevenDaysAgo(): number {
     return Math.floor(Date.now() / 1000) - SEVEN_DAYS_SECONDS;
@@ -2667,6 +2716,13 @@
       // Always set loading to false, even if no events
       loading = false;
       error = false;
+
+      // Author view finished empty: probe for longform so the empty
+      // state can point at the Reads tab instead of "never posted".
+      if (authorPubkey) {
+        if (events.length === 0) probeAuthorLongform(authorPubkey);
+        else authorHasLongform = false;
+      }
 
       if (events.length > 0) {
         lastEventTime = Math.max(...events.map(getEventSortTime));
@@ -5110,6 +5166,17 @@
                     This cook hasn't posted anything tagged as cooking. Turn off Only Food above to
                     see everything they've posted.
                   </p>
+                {:else if authorHasLongform}
+                  <p class="text-lg font-medium">No standard posts found</p>
+                  <p class="text-sm">
+                    This cook publishes longform pieces — their reads live on the Reads tab.
+                  </p>
+                  <button
+                    on:click={() => dispatch('view-reads')}
+                    class="mt-3 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                  >
+                    View their Reads
+                  </button>
                 {:else}
                   <p class="text-lg font-medium">No posts yet</p>
                   <p class="text-sm">This cook hasn't posted anything yet.</p>
