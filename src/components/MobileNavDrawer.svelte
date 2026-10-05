@@ -53,12 +53,20 @@
     { href: '/pantry', label: 'The Pantry Relay', icon: BasketIcon, match: (p) => p.startsWith('/pantry') },
   ];
 
-  // My Kitchen collapses to save vertical space; defaults closed except
-  // when the user is already on one of its pages. Re-evaluated on every
-  // drawer mount ({#if $mobileNavOpen}), so it reflects the current page
-  // each time the drawer opens. ($page directly: the `pathname` reactive
-  // hasn't run at init time.)
+  // My Kitchen collapses to save vertical space; defaults open when the
+  // user is on one of its pages. The component is NOT remounted when the
+  // {#if $mobileNavOpen} block reopens, so a one-time init would go
+  // stale: reactively expand on match (never auto-collapse on the way
+  // out, the user's open/closed choice survives browsing). ($page
+  // directly: the `pathname` reactive hasn't run at init time.)
   let kitchenExpanded = kitchenItems.some((item) => item.match($page.url.pathname));
+
+  $: {
+    const onKitchenRoute = kitchenItems.some((item) => item.match($page.url.pathname));
+    if (onKitchenRoute && !kitchenExpanded) {
+      kitchenExpanded = true;
+    }
+  }
 
   function close() {
     mobileNavOpen.set(false);

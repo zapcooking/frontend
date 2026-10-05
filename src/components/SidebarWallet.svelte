@@ -42,6 +42,12 @@
   // WebLN balance state (mirrors WalletBalance.svelte)
   let weblnBalance: number | null = null;
   let weblnBalanceLoading = false;
+  // One auto-attempt per connection, ever: a rejected request must NOT
+  // re-arm the reactive trigger below (null + not-loading = fire again),
+  // or a failing provider gets an unbounded retry loop (once per card
+  // instance, and the card mounts in both the sidebar and the drawer).
+  // Re-entry only via the explicit refresh button or a fresh connection.
+  let weblnAttemptedForConnected = false;
 
   async function refreshWeblnBalance() {
     if (!$weblnConnected) return;
@@ -55,8 +61,13 @@
     }
   }
 
-  $: if ($weblnConnected && weblnBalance === null && !weblnBalanceLoading) {
+  $: if ($weblnConnected && !weblnAttemptedForConnected) {
+    weblnAttemptedForConnected = true;
     refreshWeblnBalance();
+  }
+  // Re-arm when the connection drops so a reconnect gets a fresh attempt.
+  $: if (!$weblnConnected && weblnAttemptedForConnected) {
+    weblnAttemptedForConnected = false;
   }
 
   // Balance source follows the header pill's precedence: browser WebLN,
@@ -88,13 +99,6 @@
     openWallet(hasWallet ? 'main' : 'setup');
   }
 
-  function handleCardKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      open();
-    }
-  }
-
   async function handleRefresh() {
     if ($weblnConnected) {
       await refreshWeblnBalance();
@@ -109,97 +113,119 @@
   }
 </script>
 
-<div
-  class="sidebar-wallet-card rounded-2xl"
-  role="button"
-  tabindex="0"
-  aria-label={hasWallet ? 'Open wallet' : 'Set up a wallet'}
-  on:click={open}
-  on:keydown={handleCardKeydown}
->
-  {#if $walletRestoring}
-    <!-- Auto-restore in flight: keep the card's silhouette with a
-         shimmering label instead of popping in later — the user DID
-         have a wallet, it's on its way back from their backup. -->
-    <div class="flex items-center gap-2.5 px-3 py-2.5" aria-live="polite">
-      <div class="wallet-orb">
-        <LightningIcon size={13} weight="fill" class="text-white" />
+<!-- One interactive element per control: the card itself is a real
+     <button> that opens the wallet, and the eye/refresh actions are
+     native buttons OUTSIDE it (siblings, absolutely positioned over the
+     card's top-right). A clickable div with role="button" wrapping
+     nested <button>s both traps keyboard events (Enter on the actions
+     bubbled to the card and opened the wallet) and fails the
+     nested-interactive-content ARIA rule. -->
+<div class="sidebar-wallet-wrap">
+  <button
+    type="button"
+    class="sidebar-wallet-card rounded-2xl"
+    aria-label={hasWallet ? 'Open wallet' : 'Set up a wallet'}
+    on:click={open}
+  >
+    {#if $walletRestoring}
+      <!-- Auto-restore in flight: keep the card's silhouette with a
+           shimmering label instead of popping in later (the user DID
+           have a wallet, it's on its way back from their backup). -->
+      <div class="flex items-center gap-2.5 px-3 py-2.5" aria-live="polite">
+        <div class="wallet-orb">
+          <LightningIcon size={13} weight="fill" class="text-white" />
+        </div>
+        <span class="t-shimmer text-sm font-medium" data-text="Restoring…">Restoring…</span>
       </div>
-      <span class="t-shimmer text-sm font-medium" data-text="Restoring…">Restoring…</span>
-    </div>
-  {:else if hasWallet}
-    <div class="flex items-center gap-2 px-2.5 py-2">
-      <div class="flex items-center gap-2.5 min-w-0 flex-1">
+    {:else if hasWallet}
+      <div class="flex items-center gap-2 px-2.5 py-2">
+        <div class="flex items-center gap-2.5 min-w-0 flex-1">
+          <div class="wallet-orb flex-shrink-0">
+            <LightningIcon size={13} weight="fill" class="text-white" />
+          </div>
+          <div class="min-w-0 leading-tight">
+            {#if showStableBalance}
+              <div class="balance-line">
+                {#if $balanceVisible}
+                  ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)}
+                  {$stableBalance.label}
+                {:else}
+                  $*** {$stableBalance.label}
+                {/if}
+              </div>
+            {:else}
+              <div class="balance-line">
+                <DenominatedBalance
+                  sats={balanceSats}
+                  visible={$balanceVisible}
+                  loading={balanceLoading}
+                />
+                <span class="unit-label">{unitLabel}</span>
+              </div>
+            {/if}
+          </div>
+        </div>
+        <!-- Spacer reserves the actions' corner so the balance never
+             slides under them. -->
+        <div class="card-actions-spacer" aria-hidden="true"></div>
+      </div>
+    {:else}
+      <div class="flex items-center gap-2.5 px-3 py-2.5">
         <div class="wallet-orb flex-shrink-0">
           <LightningIcon size={13} weight="fill" class="text-white" />
         </div>
-        <div class="min-w-0 leading-tight">
-          {#if showStableBalance}
-            <div class="balance-line">
-              {#if $balanceVisible}
-                ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)}
-                {$stableBalance.label}
-              {:else}
-                $*** {$stableBalance.label}
-              {/if}
-            </div>
-          {:else}
-            <div class="balance-line">
-              <DenominatedBalance
-                sats={balanceSats}
-                visible={$balanceVisible}
-                loading={balanceLoading}
-              />
-              <span class="unit-label">{unitLabel}</span>
-            </div>
-          {/if}
-        </div>
+        <span class="text-sm font-medium truncate">Set up a Wallet</span>
       </div>
+    {/if}
+  </button>
 
-      <div class="flex items-center flex-shrink-0">
-        <button
-          type="button"
-          class="card-action"
-          title={$balanceVisible ? 'Hide balance' : 'Show balance'}
-          aria-label={$balanceVisible ? 'Hide balance' : 'Show balance'}
-          on:click|stopPropagation={toggleBalanceVisibility}
-        >
-          {#if $balanceVisible}
-            <EyeClosedIcon size={14} weight="bold" />
-          {:else}
-            <EyeIcon size={14} weight="bold" />
-          {/if}
-        </button>
-        <button
-          type="button"
-          class="card-action"
-          title="Refresh balance"
-          aria-label="Refresh balance"
-          disabled={balanceLoading}
-          on:click|stopPropagation={handleRefresh}
-        >
-          <span class:animate-spin={balanceLoading}>
-            <ArrowClockwiseIcon size={14} weight="bold" />
-          </span>
-        </button>
-      </div>
-    </div>
-  {:else}
-    <div class="flex items-center gap-2.5 px-3 py-2.5">
-      <div class="wallet-orb flex-shrink-0">
-        <LightningIcon size={13} weight="fill" class="text-white" />
-      </div>
-      <span class="text-sm font-medium truncate">Set up a Wallet</span>
+  {#if !$walletRestoring && hasWallet}
+    <div class="card-actions">
+      <button
+        type="button"
+        class="card-action"
+        title={$balanceVisible ? 'Hide balance' : 'Show balance'}
+        aria-label={$balanceVisible ? 'Hide balance' : 'Show balance'}
+        on:click={toggleBalanceVisibility}
+      >
+        {#if $balanceVisible}
+          <EyeClosedIcon size={14} weight="bold" />
+        {:else}
+          <EyeIcon size={14} weight="bold" />
+        {/if}
+      </button>
+      <button
+        type="button"
+        class="card-action"
+        title="Refresh balance"
+        aria-label="Refresh balance"
+        disabled={balanceLoading}
+        on:click={handleRefresh}
+      >
+        <span class:animate-spin={balanceLoading}>
+          <ArrowClockwiseIcon size={14} weight="bold" />
+        </span>
+      </button>
     </div>
   {/if}
 </div>
 
 <style>
+  /* Wrapper positions the sibling action buttons over the card's
+     top-right corner. The card is a real <button>; the actions are its
+     siblings, not children, so keyboard events never cross streams. */
+  .sidebar-wallet-wrap {
+    position: relative;
+  }
+
   /* Card follows the old header pill's material (input-bg + hairline
      border) so it reads as a tappable chip inside the sidebar column.
      Dark mode swaps to the amber-tinted pill treatment the header used,
      picking up the brand colour from the lightning orb. */
   .sidebar-wallet-card {
+    display: block;
+    width: 100%;
+    text-align: left;
     background-color: var(--color-input-bg);
     border: 1px solid var(--color-input-border);
     color: var(--color-text-primary);
@@ -286,6 +312,24 @@
   .card-action:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+
+  /* Sibling action cluster: pinned over the card's top-right corner.
+     Transparent hit-area between the buttons so they read as part of
+     the card, but clicks land on the buttons, never the card beneath. */
+  .card-actions {
+    position: absolute;
+    top: 5px;
+    right: 6px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Reserves the actions' width inside the card row so a long balance
+     truncates before sliding under the buttons. */
+  .card-actions-spacer {
+    width: 62px;
+    flex-shrink: 0;
   }
 
   /* ── Restoring shimmer ── (same treatment as WalletBalance.svelte) */

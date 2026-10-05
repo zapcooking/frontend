@@ -128,14 +128,28 @@
     }
   ];
 
-  // My Kitchen collapses to save vertical space; defaults closed except
-  // when the user is already on one of its pages (so the active link
-  // isn't hidden). One-time init — the sidebar isn't remounted on
-  // navigation, and an open/closed choice should survive browsing.
-  // ($page directly: the `pathname` reactive hasn't run at init time.)
+  // My Kitchen collapses to save vertical space; defaults open when the
+  // user is already on one of its pages (so the active link isn't
+  // hidden). The sidebar isn't remounted on navigation, so a one-time
+  // init would leave the group collapsed when a link lands on a kitchen
+  // route from elsewhere: reactively expand on match, leave the choice
+  // untouched everywhere else. ($page directly: the `pathname` reactive
+  // hasn't run at init time.)
   let kitchenExpanded = kitchen.some((item) =>
     item.match ? item.match($page.url.pathname) : $page.url.pathname === item.href
   );
+
+  // Auto-expand only (never auto-collapse): arriving on a kitchen route
+  // while the group is closed reveals the active link; browsing away
+  // preserves whatever open/closed state the user last chose.
+  $: {
+    const onKitchenRoute = kitchen.some((item) =>
+      item.match ? item.match($page.url.pathname) : $page.url.pathname === item.href
+    );
+    if (onKitchenRoute && !kitchenExpanded) {
+      kitchenExpanded = true;
+    }
+  }
 
   function linkClasses(active: boolean) {
     return [
