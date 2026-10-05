@@ -589,7 +589,7 @@
     </div>
   </div>
 {:else}
-<form on:submit|preventDefault={publishRecipe} class="flex flex-col max-w-[760px] mx-auto gap-6">
+<form on:submit|preventDefault={publishRecipe} class="flex flex-col max-w-[760px] gap-6">
   <div class="flex justify-between items-center">
     <h1>Create Recipe</h1>
   </div>

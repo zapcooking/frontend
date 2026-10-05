@@ -644,7 +644,7 @@
   <title>Settings - zap.cooking</title>
 </svelte:head>
 
-<div class="max-w-2xl mx-auto">
+<div class="max-w-2xl">
   <h1 class="mb-6">Settings</h1>
 
   <div class="flex flex-col gap-4">

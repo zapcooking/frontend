@@ -123,7 +123,9 @@
 
       <!-- HOME -->
       <div>
-        <h3 class="px-3 pb-2 font-semibold uppercase tracking-wider" style="color: var(--color-caption); font-size: 11px;">Home</h3>
+        <!-- Unlabeled group: spacer keeps the items at the position the
+             removed heading held. -->
+        <div class="h-[24px]" aria-hidden="true"></div>
         <ul class="flex flex-col gap-0.5">
           {#each homeItems as item}
             {@const active = item.match(pathname)}

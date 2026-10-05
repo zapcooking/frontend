@@ -397,8 +397,11 @@
        (i.e. AFTER its padding). Setting top: var(--header-h) here would stack
        a second header-height on top, pinning the tabs at 2x the header height
        and leaving a header-tall gap that clips the top of the feed. top:0 pins
-       the tabs flush at the bottom of the header on every breakpoint. */
-    top: 0;
+       the tabs flush at the bottom of the header on every breakpoint.
+       -1px — slide 1px under the header (z-30, above this z-15) so sub-pixel
+       rounding between the header's painted height and the sticky pin point
+       can never leave a 1px sliver of scrolled-through content visible. */
+    top: -1px;
     z-index: 15; /* Below header (z-30) but above content */
     /* Frosted glass effect - matches header */
     /* Fallback for browsers that don't support color-mix */

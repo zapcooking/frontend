@@ -160,10 +160,13 @@
     class="h-full overflow-y-auto scrollbar-hide p-3"
     style="background-color: var(--color-bg-primary);"
   >
-    <!-- Logo aligned with header position -->
+    <!-- Logo on the header's center line: the button is exactly the
+         header row's height (51px, same var the header centers its
+         search bar and icons in) so logo, search and icons share one
+         optical axis. -->
     <button
       on:click={handleLogoClick}
-      class="block pl-2 py-2 cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
+      class="flex h-[var(--header-row-h)] items-center pl-2 cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
     >
       <img src="/zapcooking-text-light.svg" class="logo-light w-40 dark:hidden" alt="Zap Cooking" />
       <img
@@ -174,12 +177,10 @@
     </button>
     <nav class="flex flex-col gap-3 mt-3">
       <div>
-        <h3
-          class="px-3 pb-2 font-semibold uppercase tracking-wider"
-          style="color: var(--color-caption); font-size: 12px;"
-        >
-          Home
-        </h3>
+        <!-- The Home group runs unlabeled; this spacer holds the height
+             the removed heading occupied so the items (and the dotted
+             separator aligned to the Feed row) don't shift. -->
+        <div class="h-[25px]" aria-hidden="true"></div>
         <ul class="flex flex-col gap-1">
           {#each primary as item (item.href)}
             {@const active = item.match ? item.match(pathname) : pathname === item.href}

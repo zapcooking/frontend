@@ -307,8 +307,8 @@
 {/if}
 
 {#if altDialogOpen}
-  <Modal bind:open={altDialogOpen} compact autoHeight>
-    <span slot="title">Description</span>
+  <Modal bind:open={altDialogOpen} compact autoHeight floatingClose>
+    <span slot="title" class="alt-dialog-title">Description</span>
     <p class="alt-dialog-text">{altDialogText}</p>
   </Modal>
 {/if}
@@ -484,6 +484,23 @@
   .alt-badge:hover,
   .alt-badge:focus-visible {
     background: rgba(0, 0, 0, 0.9);
+  }
+
+  /* Modal header kicker — quiet all-caps label instead of a page-level
+     heading; the alt text itself is the content of this dialog. Flex
+     (block-level inside the h2) so the label escapes the h2's 18px
+     line-box strut — inline, the small text rides the strut baseline
+     and sits ~4px below the close button's center — and centers itself
+     in the same 32px box instead. */
+  .alt-dialog-title {
+    display: flex;
+    align-items: center;
+    min-height: 2rem;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-caption);
   }
 
   .alt-dialog-text {
