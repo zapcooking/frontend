@@ -60,9 +60,19 @@ export interface LoginDeps {
   sign: SignAuth;
   /** How long to wait for the signer (default 30 s). */
   timeoutMs?: number;
+  /** Between checks for a challenge on a fresh connection (default 250 ms). */
+  challengeWaitMs?: number;
 }
 
 export const LOGIN_TIMEOUT_MS = 30_000;
+
+/**
+ * A fresh connection (after a decline closed the last one) may not have
+ * received the relay's challenge yet when the "Log in to the feed" button
+ * asks; nostr-tools then throws "no challenge" before signing anything.
+ * Check again for about 3 s (inside the overall timeout) before giving up.
+ */
+export const CHALLENGE_CHECKS = 12;
 
 export class MemberLogin {
   private readonly _state = writable<LoginState>('idle');
@@ -122,26 +132,37 @@ export class MemberLogin {
   private async login(relay: AuthRelay): Promise<boolean> {
     this.set('pending');
     const timeoutMs = this.deps.timeoutMs ?? LOGIN_TIMEOUT_MS;
+    const waitMs = this.deps.challengeWaitMs ?? 250;
     const outcome = await new Promise<'ok' | 'declined' | 'failed'>((resolve) => {
-      const timer = setTimeout(() => resolve('declined'), timeoutMs);
-      const done = (o: 'ok' | 'declined' | 'failed') => {
+      let settled = false;
+      const timer = setTimeout(() => done('declined'), timeoutMs);
+      function done(o: 'ok' | 'declined' | 'failed') {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         resolve(o);
+      }
+      const sign = async (template: AuthTemplate) => {
+        try {
+          return await this.deps.sign(template);
+        } catch (err) {
+          // nostr-tools swallows this and never settles: settle here.
+          done('declined');
+          throw err;
+        }
       };
-      relay
-        .auth(async (template) => {
-          try {
-            return await this.deps.sign(template);
-          } catch (err) {
-            // nostr-tools swallows this and never settles: settle here.
-            done('declined');
-            throw err;
-          }
-        })
-        .then(
+      const attempt = (checksLeft: number) => {
+        if (settled) return;
+        relay.auth(sign).then(
           () => done('ok'),
-          () => done('failed')
+          (err) => {
+            const noChallenge = /no challenge/i.test(String(err?.message ?? err));
+            if (noChallenge && checksLeft > 0) setTimeout(() => attempt(checksLeft - 1), waitMs);
+            else done('failed');
+          }
         );
+      };
+      attempt(CHALLENGE_CHECKS);
     });
     // The account may have changed while the signer was open.
     if (this.owner !== (this.deps.pubkey() || null)) return false;

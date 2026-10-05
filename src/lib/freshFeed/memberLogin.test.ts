@@ -2,7 +2,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { get } from 'svelte/store';
 import { FreshClient, FREE_WINDOW_SECONDS, type Filter, type RelayEvent } from './relay';
-import { MemberLogin, type AuthTemplate, type SignedAuthEvent } from './memberLogin';
+import {
+  MemberLogin,
+  CHALLENGE_CHECKS,
+  type AuthTemplate,
+  type SignedAuthEvent
+} from './memberLogin';
 
 /**
  * Member login to the Fresh relay: lazy, members only, at most one prompt
@@ -34,13 +39,16 @@ class AuthFakeRelay {
       member?: boolean;
       okFalse?: boolean;
       noChallenge?: boolean;
+      /** The challenge arrives only after this many auth() calls. */
+      challengeAfter?: number;
       closeReason?: string;
       posts?: RelayEvent[];
     } = {}
   ) {}
   auth(sign: (t: AuthTemplate) => Promise<SignedAuthEvent>): Promise<string> {
     this.authCalls++;
-    if (this.opts.noChallenge) return Promise.reject(new Error('no challenge'));
+    if (this.opts.noChallenge || this.authCalls <= (this.opts.challengeAfter ?? 0))
+      return Promise.reject(new Error("can't perform auth, no challenge was received"));
     if (this.authPromise) return this.authPromise;
     this.authPromise = new Promise(async (resolve, reject) => {
       try {
@@ -107,7 +115,8 @@ function setup(
     pubkey: () => pubkey,
     isMember: () => o.isMember ?? true,
     sign,
-    timeoutMs: o.timeoutMs ?? 50
+    timeoutMs: o.timeoutMs ?? 50,
+    challengeWaitMs: 5
   });
   const relays = o.relays ?? [new AuthFakeRelay(), new AuthFakeRelay(), new AuthFakeRelay()];
   let n = 0;
@@ -214,14 +223,44 @@ describe('decline: remembered for the session, button only', () => {
     expect(get(login.state)).toBe('declined');
   });
 
-  it('no challenge from the relay: no prompt, no loop', async () => {
+  it('no challenge from the relay: no prompt, bounded checks, no loop', async () => {
     const relay = new AuthFakeRelay({ noChallenge: true });
-    const { client, sign, login } = setup({ relays: [relay, new AuthFakeRelay()] });
+    const { client, sign, login } = setup({
+      relays: [relay, new AuthFakeRelay()],
+      timeoutMs: 1000
+    });
     expect((await client.page(FLOOR - 1)).end).toBe('floor');
     await client.page(FLOOR - 1);
     expect(sign).not.toHaveBeenCalled();
-    expect(relay.authCalls).toBe(1);
+    expect(relay.authCalls).toBe(CHALLENGE_CHECKS + 1);
     expect(get(login.state)).toBe('declined');
+  });
+
+  it('a challenge that arrives a moment after connecting is waited for', async () => {
+    const relay = new AuthFakeRelay({ challengeAfter: 3 });
+    const { client, sign, login } = setup({ relays: [relay] });
+    const r = await client.page(FLOOR - 1);
+    expect(sign).toHaveBeenCalledTimes(1);
+    expect(get(login.state)).toBe('authed');
+    expect(r.events.map((e) => e.id)).toEqual(['old']);
+  });
+
+  it('"Log in to the feed" after a decline prompts again on the fresh connection', async () => {
+    let refuse = true;
+    // The fresh connection's challenge arrives late, as on the live relay.
+    const relays = [new AuthFakeRelay(), new AuthFakeRelay({ challengeAfter: 2 })];
+    const { client, sign, login } = setup({
+      relays,
+      sign: async (t) => {
+        if (refuse) throw new Error('no');
+        return { ...t, id: 'i', pubkey: ME, sig: 's' };
+      }
+    });
+    await client.page(FLOOR - 1);
+    expect(get(login.state)).toBe('declined');
+    refuse = false;
+    expect(await login.access(await client.connection(), true)).toBe(true);
+    expect(sign).toHaveBeenCalledTimes(2);
   });
 });
 
