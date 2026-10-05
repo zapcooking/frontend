@@ -8,6 +8,11 @@
   import SidebarWallet from './SidebarWallet.svelte';
   import { slide } from 'svelte/transition';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+  import TimerIcon from 'phosphor-svelte/lib/Timer';
+  import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
+  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
+  import BasketIcon from 'phosphor-svelte/lib/Basket';
+  import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
 
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
@@ -114,6 +119,12 @@
       label: 'Sponsors',
       icon: HandshakeIcon,
       match: (p) => p.startsWith('/sponsors')
+    },
+    {
+      href: '/pantry',
+      label: 'The Pantry Relay',
+      icon: BasketIcon,
+      match: (p) => p.startsWith('/pantry')
     }
   ];
 
@@ -264,6 +275,23 @@
               </a>
             </li>
           {/each}
+
+          <!-- Gadgets — a tool launcher, not a destination: one click
+               opens the cooking-tools widget (same as the header's
+               measuring cup), so no nested expander needed. -->
+          <li>
+            <button
+              type="button"
+              class="w-full flex items-center gap-3 px-3 py-1.5 rounded-xl transition-colors cursor-pointer nav-hover"
+              style="color: var(--color-text-primary);"
+              on:click={() => cookingToolsStore.toggle()}
+            >
+              <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
+                <MeasuringCupIcon size={20} />
+              </span>
+              <span class="font-medium">Gadgets</span>
+            </button>
+          </li>
           </ul>
         {/if}
       </div>

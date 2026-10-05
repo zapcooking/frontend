@@ -23,6 +23,7 @@
   import { userPublickey } from '$lib/nostr';
   import SidebarWallet from './SidebarWallet.svelte';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+  import BasketIcon from 'phosphor-svelte/lib/Basket';
 
   $: pathname = $page.url.pathname;
 
@@ -49,6 +50,7 @@
     { href: '/nourish', label: 'Nourish', icon: LeafIcon, match: (p) => p.startsWith('/nourish') },
     { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
     { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
+    { href: '/pantry', label: 'The Pantry Relay', icon: BasketIcon, match: (p) => p.startsWith('/pantry') },
   ];
 
   // My Kitchen collapses to save vertical space; defaults closed except
