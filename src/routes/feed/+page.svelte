@@ -256,7 +256,11 @@
             ? 'var(--color-text-primary)'
             : 'var(--color-text-secondary)'}"
         >
-          Fresh <span class="text-[10px] uppercase tracking-wide opacity-70">Beta</span>
+          <span class="whitespace-nowrap"
+            >Fresh<sup class="ml-0.5 text-[8px] font-semibold uppercase tracking-wide opacity-70"
+              >Beta</sup
+            ></span
+          >
           {#if activeTab === 'fresh'}
             <span
               class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
