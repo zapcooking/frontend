@@ -563,8 +563,10 @@
       queueMembershipLookup(pk);
       muteListStore.load();
     }
-    loadFirst();
-    loadPool();
+    // The recipe-box pool (~430 long-form recipes) waits for the first
+    // page: on one socket over a slow link it would otherwise hold up the
+    // first page's EOSE by seconds. It's first needed at post 8.
+    loadFirst().then(() => loadPool());
   });
 
   onDestroy(() => {
