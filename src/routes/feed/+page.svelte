@@ -2,6 +2,8 @@
   import FoodstrFeedOptimized from '../../components/FoodstrFeedOptimized.svelte';
   import FreshFeed from '../../components/FreshFeed.svelte';
   import { initialFeedTab, readStoredFeedTab, storeFeedTab, type FeedTab } from '$lib/feedTab';
+  import { isLockedPasskeySession } from '$lib/sessionLock';
+  import { getVaultRecord } from '$lib/passkeyVault';
   import MemoriesCard from '../../components/MemoriesCard.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -42,15 +44,26 @@
   // Tab state - use local state for immediate reactivity
   type FilterMode = FeedTab;
 
-  // Local state for immediate UI updates
-  // Default to global — faster load, more variety on login
+  // Signed-in features (Following) need an actual session. The stored
+  // pubkey alone isn't one: a locked passkey vault keeps it while staying
+  // unauthenticated until the user unlocks ($lib/sessionLock).
+  function hasSignedInSession(): boolean {
+    if (!$userPublickey) return false;
+    if (!browser) return true;
+    try {
+      return !isLockedPasskeySession(localStorage, getVaultRecord() !== null);
+    } catch {
+      return true;
+    }
+  }
+
   // Decided before the first render (not in onMount), so the landing tab's
   // feed is the only one that starts loading: ?tab= wins, then the tab this
   // device last chose, then Fresh ($lib/feedTab).
   let activeTab: FilterMode = initialFeedTab(
     $page.url.searchParams.get('tab'),
     browser ? readStoredFeedTab() : null,
-    !!$userPublickey
+    hasSignedInSession()
   );
 
   // Check if user has active membership (for Pantry tab)
@@ -159,7 +172,7 @@
   onMount(() => {
     const tab = $page.url.searchParams.get('tab');
     // Signed out: Following is disabled; a ?tab=following link lands on Fresh.
-    if (!$userPublickey && tab === 'following') {
+    if (tab === 'following' && !hasSignedInSession()) {
       goto('/feed?tab=fresh', { noScroll: true, replaceState: true });
     }
 

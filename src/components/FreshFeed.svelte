@@ -84,6 +84,7 @@
   // "From the recipe box": older recipes, one after every eight posts,
   // random from those this device hasn't shown ($lib/freshFeed/recipeBox).
   let boxPool: RelayEvent[] = [];
+  let poolRequested = false;
   let boxSeen = loadSeen(Math.floor(Date.now() / 1000));
   let boxPicks: (Post | null)[] = [];
   const boxTaken = new Set<string>();
@@ -176,7 +177,11 @@
 
   async function loadPool() {
     const r = await client.recipes(RECIPE_TAGS);
-    if (destroyed || r.state !== 'ok') return;
+    if (destroyed) return;
+    if (r.state !== 'ok') {
+      poolRequested = false; // the next successful first page tries again
+      return;
+    }
     boxPool = buildPool(r.events, Math.floor(Date.now() / 1000));
     // Arriving after the reader scrolled: don't insert above them.
     boxPicks = reserveRenderedSlots(
@@ -264,7 +269,17 @@
     posts = [];
     apply(r);
     loading = false;
-    if (!unavailable) startLive(since);
+    if (!unavailable) {
+      startLive(since);
+      // The recipe-box pool (~430 long-form recipes) waits for a successful
+      // first page: on one socket over a slow link it would otherwise hold up
+      // the first page's EOSE by seconds. Never after a failed load (a Retry
+      // that succeeds starts it) or once this feed is gone; once per feed.
+      if (!poolRequested) {
+        poolRequested = true;
+        loadPool();
+      }
+    }
   }
 
   async function loadMore() {
@@ -563,10 +578,7 @@
       queueMembershipLookup(pk);
       muteListStore.load();
     }
-    // The recipe-box pool (~430 long-form recipes) waits for the first
-    // page: on one socket over a slow link it would otherwise hold up the
-    // first page's EOSE by seconds. It's first needed at post 8.
-    loadFirst().then(() => loadPool());
+    loadFirst();
   });
 
   onDestroy(() => {
