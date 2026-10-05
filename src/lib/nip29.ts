@@ -12,7 +12,8 @@
  */
 
 import { get } from 'svelte/store';
-import { ndk, userPublickey } from '$lib/nostr';
+import { ndk, userPublickey, getCurrentRelays } from '$lib/nostr';
+import { shouldAutoAuth, ownRelayLists } from '$lib/relayAuthScope';
 import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
 import type NDK from '@nostr-dev-kit/ndk';
 
@@ -87,13 +88,17 @@ function initAuthTracking(): void {
 /**
  * Set NIP-42 auto-sign auth policy on the NDK instance (global default).
  *
+ * Scoped: it signs only for relays the reader chose (pantry, the app's
+ * relay list, the reader's own NIP-65 / DM inbox lists; see
+ * $lib/relayAuthScope). Every other relay in the pool gets no login.
+ *
  * We use ndk.relayAuthDefaultPolicy instead of relay.authPolicy because
  * NDKRelaySet.fromRelayUrls() may trigger pool auto-connect, causing the
  * AUTH challenge to arrive before we can set relay.authPolicy on the
  * specific relay instance. The global default is checked as a fallback
  * by NDK for all relays (see NDK source: onAuthRequested).
  */
-function ensureAuthPolicy(ndkInstance: NDK): void {
+export function ensureAuthPolicy(ndkInstance: NDK): void {
 	if (authPolicySet) return;
 	initAuthTracking();
 
@@ -103,6 +108,15 @@ function ensureAuthPolicy(ndkInstance: NDK): void {
 			relay.url === PANTRY_RELAY ||
 			relay.url === PANTRY_RELAY + '/' ||
 			relay.url?.replace(/\/$/, '') === PANTRY_RELAY;
+
+		if (
+			!isPantry &&
+			!(await shouldAutoAuth(relay.url, getCurrentRelays(), () =>
+				ownRelayLists((f) => ndkInstance.fetchEvents(f), get(userPublickey))
+			))
+		) {
+			return false;
+		}
 
 		if (!ndkInstance.signer) {
 			if (isPantry) console.log('[NIP-29] NIP-42 auth challenge received, skipping (no signer)');
@@ -135,9 +149,8 @@ function ensureAuthPolicy(ndkInstance: NDK): void {
 		}
 	};
 
-	// If there was an existing policy, we've replaced it with ours which
-	// handles all relays. This is fine — auto-signing AUTH is the standard
-	// NDK pattern (NDKRelayAuthPolicies.signIn).
+	// If there was an existing policy, we've replaced it with ours, which
+	// answers every relay's challenge but signs only for the allowed ones.
 
 	authPolicySet = true;
 }
