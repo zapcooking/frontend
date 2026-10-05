@@ -77,6 +77,17 @@ describe('the in-app zap sequence', () => {
     expect(d.onCompleted).not.toHaveBeenCalled();
   });
 
+  it('a payment call that throws (SDK error) becomes a clear error, never "sent"', async () => {
+    const { d } = deps({
+      pay: async () => {
+        throw 'invalid type: string, expected internally tagged enum PaymentRequest';
+      }
+    });
+    const out = await runInAppZap(d);
+    expect(out).toMatchObject({ kind: 'error' });
+    expect(d.onCompleted).not.toHaveBeenCalled();
+  });
+
   it('an invoice error is reported, nothing is paid', async () => {
     const { d } = deps({
       createInvoice: async () => {

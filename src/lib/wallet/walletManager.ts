@@ -493,8 +493,14 @@ export async function sendPayment(
     else if (result.status !== 'pending') removePendingTransaction(pendingId);
   }
   if (result.status === 'completed' || result.status === 'pending') {
-    await refreshBalance();
-    signalTransactionsRefresh();
+    // Never let a refresh error escape: the outcome above is what the zap
+    // UI must show (an escaped rejection only reaches the ErrorBoundary log).
+    try {
+      await refreshBalance();
+      signalTransactionsRefresh();
+    } catch (e) {
+      console.warn('[WalletManager] Balance refresh after payment failed:', e);
+    }
   }
   return result;
 }
