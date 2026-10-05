@@ -71,8 +71,12 @@
   function handleInputChange(event: Event) {
     const input = event.target as HTMLInputElement;
     tagquery = input.value;
+    runSearchFor(tagquery.trim());
+  }
 
-    const rawQuery = tagquery.trim();
+  // The search pipeline, callable directly — the Nostr Archives consent
+  // ask re-runs it after a decision without a synthetic input event.
+  function runSearchFor(rawQuery: string) {
     const normalizedQuery = rawQuery.toLowerCase();
 
     // Clear previous timeout

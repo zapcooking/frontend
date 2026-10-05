@@ -1,6 +1,7 @@
 import { nip19 } from 'nostr-tools';
 import { browser } from '$app/environment';
 import { getPrimalCache, type PrimalProfile } from '$lib/primalCache';
+import { naSuggest } from '$lib/nostrArchives';
 
 export interface SearchProfile {
   pubkey: string;
@@ -143,6 +144,26 @@ export async function searchProfiles(query: string, limit: number = 10): Promise
     const searchResults = filtered.map(toSearchProfile);
     searchResults.forEach((profile) => profileCache.set(profile.pubkey, profile));
 
+    // Second independent index (sidecar's nostrarchives merge): Primal is
+    // one websocket service; when it's down, slow, or rate-limited, the
+    // Nostr Archives suggest API keeps global name search alive. Disabled
+    // until the user opts in through the dropdown ask; failures return [].
+    const naResults = await naSuggest(query).catch(() => []);
+    const seen = new Set(searchResults.map((p) => p.pubkey));
+    for (const s of naResults) {
+      if (seen.has(s.pubkey)) continue;
+      seen.add(s.pubkey);
+      const profile: SearchProfile = {
+        pubkey: s.pubkey,
+        npub: nip19.npubEncode(s.pubkey),
+        name: s.name,
+        picture: s.picture || undefined
+      };
+      searchResults.push(profile);
+      profileCache.set(s.pubkey, profile);
+    }
+
+    // Callers cap their own UI (e.g. 5 in the search bar, 10 in mentions).
     return searchResults;
   } catch (error) {
     console.error('[ProfileSearch] Search error:', error);
