@@ -94,6 +94,11 @@ export class MentionComposerController {
 	private onStateChange: StateChangeCallback;
 	private onTextChange: TextChangeCallback;
 
+	// Monotonic id for the search in flight. Each keystroke bumps it; an
+	// async source resolving for a stale query drops its result instead
+	// of painting over the newer one.
+	private searchSeq = 0;
+
 	// Internal state
 	mentionQuery = '';
 	showMentionSuggestions = false;
@@ -471,10 +476,34 @@ export class MentionComposerController {
 		// Trigger follow list load (non-blocking)
 		loadFollowListProfiles();
 
+		const seq = ++this.searchSeq;
 		const queryLower = query.toLowerCase();
 		const matches: MentionSuggestion[] = [];
 		const seenPubkeys = new Set<string>();
 		const cache = getProfileCache();
+
+		// Sort + paint the current match set — called after the local cache
+		// AND after each index resolves, so a fast answer (Nostr Archives
+		// typically ~200ms) paints without waiting for the slowest index.
+		// The seq guard drops paints from a query that has since been
+		// superseded by a newer keystroke.
+		const paint = () => {
+			if (seq !== this.searchSeq) return;
+			const tier = (p: MentionSuggestion): number => {
+				const name = p.name.toLowerCase();
+				if (name === queryLower) return 0;
+				if (name.startsWith(queryLower)) return 1;
+				const local = p.nip05?.split('@')[0]?.toLowerCase();
+				if (local === queryLower) return 2;
+				if (local?.startsWith(queryLower)) return 3;
+				return 4;
+			};
+			matches.sort((a, b) => tier(a) - tier(b) || a.name.localeCompare(b.name));
+			this.mentionSuggestions = matches.slice(0, 10);
+			this.selectedMentionIndex = Math.min(this.selectedMentionIndex, this.mentionSuggestions.length - 1);
+			if (this.selectedMentionIndex < 0) this.selectedMentionIndex = 0;
+			this.notifyStateChange();
+		};
 
 		// Search local cache — by name AND NIP-05
 		for (const profile of cache.values()) {
@@ -489,9 +518,7 @@ export class MentionComposerController {
 
 		// Show local matches immediately
 		if (matches.length > 0) {
-			this.mentionSuggestions = matches.slice(0, 10);
-			this.selectedMentionIndex = 0;
-			this.notifyStateChange();
+			paint();
 		}
 
 		const shouldSearchPrimal = query.length >= 2;
@@ -522,7 +549,8 @@ export class MentionComposerController {
 				// Primal throw skipped it entirely — the dropdown showed
 				// only local cache matches while the right user sat in an
 				// index that had already answered. Whatever resolves,
-				// merges; whatever fails, merges nothing.
+				// merges AND PAINTS IMMEDIATELY — the final list never
+				// waits on the slowest index.
 				const tasks: Promise<void>[] = [];
 
 				if (shouldSearchPrimal) {
@@ -540,6 +568,7 @@ export class MentionComposerController {
 										nip05: profile.nip05
 									});
 								}
+								paint();
 							})
 							.catch(() => {})
 					);
@@ -570,6 +599,7 @@ export class MentionComposerController {
 										});
 									} catch {}
 								}
+								paint();
 							})
 							.catch(() => {})
 					);
@@ -589,35 +619,19 @@ export class MentionComposerController {
 									nip05: s.nip05 || undefined
 								});
 							}
+							paint();
 						})
 						.catch(() => {})
 				);
 
 				await Promise.allSettled(tasks);
 			} finally {
-				this.mentionSearching = false;
+				if (seq === this.searchSeq) this.mentionSearching = false;
 			}
 		}
 
-		// Sort: name matches outrank NIP-05 matches. "oshi" must surface
-		// the user NAMED Oshi above accounts whose @-handle merely starts
-		// with it (oshinoko@…); the nip05's local part is what a user
-		// matches, not the full address. Ties keep insertion order
-		// (stable sort), which preserves each index's own ranking.
-		const tier = (p: MentionSuggestion): number => {
-			const name = p.name.toLowerCase();
-			if (name === queryLower) return 0;
-			if (name.startsWith(queryLower)) return 1;
-			const local = p.nip05?.split('@')[0]?.toLowerCase();
-			if (local === queryLower) return 2;
-			if (local?.startsWith(queryLower)) return 3;
-			return 4;
-		};
-		matches.sort((a, b) => tier(a) - tier(b) || a.name.localeCompare(b.name));
-
-		this.mentionSuggestions = matches.slice(0, 10);
-		this.selectedMentionIndex = 0;
-		this.notifyStateChange();
+		// Final paint for the run that is still current.
+		paint();
 	}
 
 	private insertMentionNode(
