@@ -20,6 +20,7 @@
     notifications,
     visibleNotifications,
     notificationsLoading,
+    refetchNotifications,
     type Notification
   } from '$lib/notificationStore';
   import {
@@ -151,14 +152,21 @@
     }
     open = true;
     activeTab = 'all';
-    // The DM store only fills once its subscription runs (otherwise
-    // it starts on the /messages page). Kick it off on first open —
-    // it's idempotent — so the DMs tab populates. Deliberately NOT on
-    // mount: decrypting gift wraps can prompt some signers, and that
-    // should follow a user gesture.
+    // The panel opens instantly from the store (cache-first); this
+    // bounded re-query runs behind it so the rows catch up on anything
+    // the live subscription missed — a backgrounded mobile session or a
+    // relay that dropped and rejoined. Single-flight in the store.
     const ndkInstance = get(ndk);
     const pubkey = get(userPublickey);
     if (ndkInstance && pubkey) {
+      refetchNotifications(ndkInstance, pubkey).catch((e) =>
+        console.debug('[NotificationBell] Notification refetch failed:', e)
+      );
+      // The DM store only fills once its subscription runs (otherwise
+      // it starts on the /messages page). Kick it off on first open —
+      // it's idempotent — so the DMs tab populates. Deliberately NOT on
+      // mount: decrypting gift wraps can prompt some signers, and that
+      // should follow a user gesture.
       initMessageSubscription(ndkInstance, pubkey).catch((e) =>
         console.debug('[NotificationBell] Message subscription init failed:', e)
       );

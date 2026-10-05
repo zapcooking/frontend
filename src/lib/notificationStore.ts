@@ -1,8 +1,8 @@
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import type NDK from '@nostr-dev-kit/ndk';
-import { NDKKind } from '@nostr-dev-kit/ndk';
-import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
+import { NDKKind, NDKRelaySet } from '@nostr-dev-kit/ndk';
+import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
 import { mutedPubkeys } from '$lib/muteListStore';
 import { isHellthread } from '$lib/notificationUtils';
 import { decode as decodeBolt11 } from '@gandlaf21/bolt11-decode';
@@ -196,7 +196,154 @@ function recordZapToSparkSdk(event: NDKEvent): void {
 // Subscription manager
 let activeSubscription: NDKSubscription | null = null;
 
-export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFullRefresh = false) {
+// ── Own-note ids (sidecar's loadOwnNoteIds pattern) ─────────────────
+// The `#p` route only catches notifications that p-tag us. Replies to our
+// notes, reposts of them, and quote reposts are delivered against the note
+// ID — NIP-10/NIP-18 never require a p-tag — so the subscription needs our
+// recent note ids as an `#e`/`#q` filter. Per pubkey, ADD-TO rather than
+// replace: a set snapshot taken before a note we just published reached the
+// relays would take that note's notifications away until the next reload.
+const ownNoteIds = new Map<string, Set<string>>();
+const ownNoteIdsPromises = new Map<string, Promise<Set<string>>>();
+
+function ownNoteIdsFor(pubkey: string): Set<string> {
+  let ids = ownNoteIds.get(pubkey);
+  if (!ids) {
+    ids = new Set();
+    ownNoteIds.set(pubkey, ids);
+  }
+  return ids;
+}
+
+async function loadOwnNoteIds(ndk: NDK, pubkey: string): Promise<Set<string>> {
+  const ids = ownNoteIdsFor(pubkey);
+  if (ids.size > 0) return ids;
+  const existing = ownNoteIdsPromises.get(pubkey);
+  if (existing) return existing;
+  const promise = (async () => {
+    try {
+      const events = await ndk.fetchEvents(
+        { kinds: [1], authors: [pubkey], limit: 50 },
+        { closeOnEose: true, groupable: false }
+      );
+      const sorted = [...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      for (const e of sorted.slice(0, 50)) {
+        if (e.id) ids.add(e.id);
+      }
+    } catch {
+      // Non-fatal: the #p routes still cover the p-tagged majority.
+    }
+    return ids;
+  })();
+  ownNoteIdsPromises.set(pubkey, promise);
+  promise.finally(() => ownNoteIdsPromises.delete(pubkey));
+  return promise;
+}
+
+/**
+ * The one place notification query filters are built (sidecar's
+ * buildFilters): the subscription, the older-pages fetch and the bell's
+ * refetch all ask the same routes so their behaviors can't drift. The
+ * own-note id set is read at call time — a note published this session
+ * is in the set by the next rebuild.
+ */
+function buildNotificationFilters(
+  userPubkey: string,
+  since: number,
+  until?: number
+): NDKFilter[] {
+  const bound: NDKFilter = until ? { since, until } : { since };
+  const filters: NDKFilter[] = [
+    // Reactions to my posts (NIP-25)
+    { kinds: [7], '#p': [userPubkey], ...bound },
+    // Zap receipts (NIP-57)
+    { kinds: [9735], '#p': [userPubkey], ...bound },
+    // Replies and mentions (NIP-10)
+    { kinds: [1], '#p': [userPubkey], ...bound },
+    // Reposts of kind 1 notes (NIP-18)
+    { kinds: [6], '#p': [userPubkey], ...bound },
+    // Generic reposts — recipes, etc. (NIP-18 kind 16)
+    { kinds: [16], '#p': [userPubkey], ...bound },
+    // NIP-22 comments on my recipes (uppercase P = root event author)
+    { kinds: [1111 as NDKKind], '#P': [userPubkey], ...bound },
+    // NIP-22 replies to my comments (lowercase p = parent comment author)
+    { kinds: [1111 as NDKKind], '#p': [userPubkey], ...bound }
+  ];
+  const ids = [...ownNoteIdsFor(userPubkey)];
+  if (ids.length > 0) {
+    // Replies to my notes matched by id — catches the clients that don't
+    // p-tag the parent author. handleEvent re-checks threading so a note
+    // that merely cites my note deep in its e-tags doesn't notify.
+    filters.push({ kinds: [1], '#e': ids, ...bound });
+    // Reposts of my notes by id (kind 6's #p route above already covers
+    // the clients that p-tag; this is the ones that don't).
+    filters.push({ kinds: [6], '#e': ids, ...bound });
+    // Quote reposts (NIP-18 `q` tag) of my notes — there is no #p for a
+    // pure quote, so without this route quotes are invisible.
+    filters.push({ kinds: [1], '#q': ids, ...bound });
+  }
+  return filters;
+}
+
+/**
+ * Kind-1 events from the id-matched (`#e`/`#q`) routes need a relevance
+ * check the relay filter can't express: `#e` matches ANY e tag, so a note
+ * that cites one of mine deep in a thread but replies to someone else
+ * would otherwise notify. A p-tag of me is always relevant (that's a
+ * mention); otherwise the reply target (marker or last e tag) or the q
+ * tag must actually be one of my notes.
+ */
+function isRelevantKind1(event: NDKEvent, userPubkey: string): boolean {
+  if (event.tags.some((t) => t[0] === 'p' && t[1] === userPubkey)) return true;
+  const ids = ownNoteIdsFor(userPubkey);
+  if (ids.size === 0) return false;
+  if (event.tags.some((t) => t[0] === 'q' && t[1] && ids.has(t[1]))) return true;
+  const eTags = event.tags.filter((t) => t[0] === 'e');
+  const replyMarker = eTags.find((t) => t[3] === 'reply') || eTags.find((t) => t[3] === 'root');
+  const replyTarget = replyMarker ? replyMarker[1] : eTags.length > 0 ? eTags[eTags.length - 1][1] : undefined;
+  return !!replyTarget && ids.has(replyTarget);
+}
+
+/**
+ * Subscribe on the account's NIP-65 inbox relays when they resolve in
+ * time (that's where zap receipts and client notifications are
+ * delivered), unioned with the relays the pool already reached. Falls
+ * back to the pool untouched when no inbox list is available, so
+ * coverage never shrinks below the old behavior.
+ */
+async function buildSubscriptionRelaySet(
+  ndk: NDK,
+  userPubkey: string
+): Promise<NDKRelaySet | null> {
+  try {
+    const { getInboxRelays } = await import('$lib/relayListCache');
+    const lookup = getInboxRelays(userPubkey).catch(() => [] as string[]);
+    const inbox = await Promise.race([
+      lookup,
+      new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 2500))
+    ]);
+    if (!inbox || inbox.length === 0) return null;
+    const urls = new Set<string>();
+    for (const url of inbox.slice(0, 6)) urls.add(url);
+    for (const relay of ndk.pool?.relays?.values() || []) {
+      if (urls.size >= 12) break;
+      if (relay.url) urls.add(relay.url);
+    }
+    if (urls.size === 0) return null;
+    // true = open temporary connections for inbox relays the pool hasn't
+    // reached yet; without that a correct-but-unconnected inbox list
+    // would silently deliver nothing.
+    return NDKRelaySet.fromRelayUrls([...urls], ndk, true);
+  } catch {
+    return null;
+  }
+}
+
+export async function subscribeToNotifications(
+  ndk: NDK,
+  userPubkey: string,
+  forceFullRefresh = false
+) {
   if (activeSubscription) {
     activeSubscription.stop();
   }
@@ -220,25 +367,26 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
     forceFullRefresh ? '(forced refresh)' : ''
   );
 
-  // Subscribe to reactions, zaps, replies, mentions, and reposts
+  // Load our recent note ids BEFORE subscribing (bounded — sidecar caps
+  // the same loaders at 5s so a slow relay can't stall notifications) so
+  // the #e/#q routes are in the very first REQ rather than arriving a
+  // reload later.
+  await Promise.race([
+    loadOwnNoteIds(ndk, userPubkey),
+    new Promise((resolve) => setTimeout(resolve, 3000))
+  ]);
+
+  const filters = buildNotificationFilters(userPubkey, since);
+  const relaySet = await buildSubscriptionRelaySet(ndk, userPubkey);
+
+  // Subscribe to reactions, zaps, replies, mentions, and reposts —
+  // routes shared with the older-pages fetch and the bell refetch via
+  // buildNotificationFilters. The relay set targets the NIP-65 inbox
+  // when known (undefined = NDK's default pool behavior).
   activeSubscription = ndk.subscribe(
-    [
-      // Reactions to my posts (NIP-25)
-      { kinds: [7], '#p': [userPubkey], since },
-      // Zap receipts (NIP-57)
-      { kinds: [9735], '#p': [userPubkey], since },
-      // Replies and mentions (NIP-10)
-      { kinds: [1], '#p': [userPubkey], since },
-      // Reposts of kind 1 notes (NIP-18)
-      { kinds: [6], '#p': [userPubkey], since },
-      // Generic reposts — recipes, etc. (NIP-18 kind 16)
-      { kinds: [16], '#p': [userPubkey], since },
-      // NIP-22 comments on my recipes (uppercase P = root event author)
-      { kinds: [1111 as NDKKind], '#P': [userPubkey], since },
-      // NIP-22 replies to my comments (lowercase p = parent comment author)
-      { kinds: [1111 as NDKKind], '#p': [userPubkey], since }
-    ],
-    { closeOnEose: false }
+    filters,
+    { closeOnEose: false },
+    relaySet ?? undefined
   );
 
   // Buffer events received before EOSE so we can insert them in one
@@ -285,6 +433,11 @@ export function subscribeToNotifications(ndk: NDK, userPubkey: string, forceFull
     // Self-zap filtering happens in parseNotification after extracting the real sender.
     if (event.kind !== 9735 && event.pubkey === userPubkey) return;
     if (isHellthread(event)) return;
+    // The id-matched routes (`#e`/`#q` on our note ids) match ANY e/q tag
+    // at the relay — a kind-1 note that merely cites one of our notes deep
+    // in a thread must not notify unless it actually replies to, quotes,
+    // or mentions us.
+    if (event.kind === 1 && !isRelevantKind1(event, userPubkey)) return;
 
     const notification = parseNotification(event, userPubkey);
     if (!notification) return;
@@ -348,6 +501,72 @@ export function unsubscribeFromNotifications() {
   }
 }
 
+// ── Bell refetch (sidecar's cache.refetch pattern) ──────────────────
+// The live subscription only covers what arrives while it runs: on
+// mobile the app backgrounding kills the socket, and a relay that
+// dropped and rejoined mid-session leaves a gap. Opening the bell
+// runs ONE bounded re-query through the same processing path as the
+// backfill (dedupe by id via addBulk), so the alert screen catches up
+// without a reload. Single-flight: overlapping opens share the run in
+// flight instead of resetting each other.
+let refetchRun: Promise<number> | null = null;
+
+export function refetchNotifications(ndk: NDK, userPubkey: string): Promise<number> {
+  if (refetchRun) return refetchRun;
+  const run = (async () => {
+    const sevenDaysAgo = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+    const since = Math.min(sevenDaysAgo, notifications.getLastTimestamp());
+
+    // Fresh own-note ids: a note published this session is in the set by
+    // this rebuild, so its replies/quotes/reposts are asked for too.
+    await Promise.race([
+      loadOwnNoteIds(ndk, userPubkey),
+      new Promise((resolve) => setTimeout(resolve, 3000))
+    ]);
+
+    const storeEmpty = get(notifications).length === 0;
+    if (storeEmpty) notificationsLoading.set(true);
+
+    try {
+      const relaySet = await buildSubscriptionRelaySet(ndk, userPubkey);
+      const collected: NDKEvent[] = [];
+      return await new Promise<number>((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          try {
+            sub.stop();
+          } catch {}
+          const count = processCollectedEvents(collected, userPubkey);
+          resolve(count);
+        };
+        const sub = ndk.subscribe(
+          buildNotificationFilters(userPubkey, since),
+          { closeOnEose: true },
+          relaySet ?? undefined
+        );
+        sub.on('event', (event: NDKEvent) => {
+          if (event.kind !== 9735 && event.pubkey === userPubkey) return;
+          if (isHellthread(event)) return;
+          if (event.kind === 1 && !isRelevantKind1(event, userPubkey)) return;
+          collected.push(event);
+        });
+        sub.on('eose', finish);
+        // Capped: a relay that never sends EOSE must not leave the run open.
+        setTimeout(finish, 6000);
+      });
+    } finally {
+      if (storeEmpty) notificationsLoading.set(false);
+    }
+  })();
+  refetchRun = run;
+  run.finally(() => {
+    if (refetchRun === run) refetchRun = null;
+  });
+  return run;
+}
+
 /**
  * Fetch older notifications before a given timestamp
  * Returns the number of new notifications found
@@ -371,20 +590,19 @@ export async function fetchOlderNotifications(
   let newCount = 0;
   const collectedEvents: NDKEvent[] = [];
 
+  // Own-note ids read at call time so the id-matched routes cover notes
+  // published since the session subscription started.
+  await Promise.race([
+    loadOwnNoteIds(ndk, userPubkey),
+    new Promise((resolve) => setTimeout(resolve, 3000))
+  ]);
+
   return new Promise((resolve) => {
     const TIMEOUT_MS = 8000; // 8 second timeout
     let resolved = false;
 
     const sub = ndk.subscribe(
-      [
-        { kinds: [7], '#p': [userPubkey], since, until },
-        { kinds: [9735], '#p': [userPubkey], since, until },
-        { kinds: [1], '#p': [userPubkey], since, until },
-        { kinds: [6], '#p': [userPubkey], since, until },
-        { kinds: [16], '#p': [userPubkey], since, until },
-        { kinds: [1111 as NDKKind], '#P': [userPubkey], since, until },
-        { kinds: [1111 as NDKKind], '#p': [userPubkey], since, until }
-      ],
+      buildNotificationFilters(userPubkey, since),
       { closeOnEose: true }
     );
 
@@ -431,6 +649,12 @@ function processCollectedEvents(events: NDKEvent[], userPubkey: string): number 
 
     // Filter out hellthreads
     if (isHellthread(event)) {
+      continue;
+    }
+
+    // Same relevance gate as the live path — the older-pages fetch uses
+    // the shared filters, including the id-matched routes.
+    if (event.kind === 1 && !isRelevantKind1(event, userPubkey)) {
       continue;
     }
 
@@ -536,12 +760,24 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
       };
     }
 
-    case 1: { // Reply or mention
+    case 1: { // Reply, mention, or quote repost
       // NIP-10: events with e-tags are replies in a thread; events without are standalone notes.
       // Both types p-tag the user — "mention" here means no thread context, "comment" means
       // there is one. The Mentions UI tab shows both types (any note that tagged you).
       const eTags = event.tags.filter((t) => t[0] === 'e');
       const isReply = eTags.length > 0;
+
+      // NIP-18 quote repost: a `q` tag naming one of our notes with no
+      // thread e-tags. The `#q` subscription route is what makes these
+      // arrive at all — without it a pure quote never notifies.
+      const qTag = event.tags.find((t) => t[0] === 'q' && t[1]);
+      if (!isReply && qTag && ownNoteIdsFor(userPubkey).has(qTag[1])) {
+        return {
+          ...baseNotification,
+          type: 'repost',
+          eventId: qTag[1]
+        };
+      }
 
       // Get the event being replied to (prefer 'reply' marker, then 'root', then last e tag per NIP-10)
       let replyToEvent: string | undefined;
