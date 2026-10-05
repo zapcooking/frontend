@@ -305,7 +305,11 @@ export function isNwcConnectedTo(connectionUrl: string): boolean {
 /**
  * Execute a NIP-47 request
  */
-async function executeNip47Request(method: string, params: Record<string, any> = {}): Promise<any> {
+async function executeNip47Request(
+	method: string,
+	params: Record<string, any> = {},
+	timeoutMs = 10000
+): Promise<any> {
 	if (!nwcSecret || !nwcWalletPubkey || !nwcRelay) {
 		throw new Error('NWC not connected')
 	}
@@ -362,11 +366,12 @@ async function executeNip47Request(method: string, params: Record<string, any> =
 	)
 
 	const responsePromise = new Promise<any>((resolve, reject) => {
-		// 10 second timeout (reduced from 30s for better UX)
+		// 10 s by default; pay_invoice waits longer (a Lightning payment can
+		// take that long). A timeout doesn't mean the payment failed.
 		const timeout = setTimeout(() => {
 			sub.stop()
 			reject(new Error('NWC request timeout'))
-		}, 10000)
+		}, timeoutMs)
 
 		sub.on('event', async (responseEvent: NDKEvent) => {
 			try {
@@ -444,10 +449,13 @@ export async function getNwcBalance(retries = 3): Promise<number> {
 	}
 }
 
+/** How long to wait for a pay_invoice answer before reporting the payment as pending. */
+export const NWC_PAY_TIMEOUT_MS = 30000
+
 export async function payNwcInvoice(invoice: string): Promise<{ preimage: string }> {
 	if (!isNwcConnected()) throw new Error('NWC not connected')
-	const result = await executeNip47Request('pay_invoice', { invoice })
-	return { preimage: result.preimage }
+	const result = await executeNip47Request('pay_invoice', { invoice }, NWC_PAY_TIMEOUT_MS)
+	return { preimage: result?.preimage }
 }
 
 export async function createNwcInvoice(

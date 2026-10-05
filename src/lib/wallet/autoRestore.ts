@@ -24,17 +24,18 @@ import { browser } from '$app/environment';
 import { writable, get } from 'svelte/store';
 import { ndkReady, userPublickey } from '$lib/nostr';
 import { showToast } from '$lib/toast';
-import { wallets, hasPersistedWallets, fingerprintWalletData } from './walletStore';
+import {
+  wallets,
+  hasPersistedWallets,
+  fingerprintWalletData,
+  walletRestoring
+} from './walletStore';
 import { connectWallet } from './walletManager';
 import { restoreNwcFromNostr } from './nwcBackup';
 import { listSparkBackups, restoreSparkBackup, getSparkWalletId } from '$lib/spark';
 
-/**
- * True while a login auto-restore is in flight. The header mini-wallet
- * renders its restoring pill from this instead of implying the user has
- * no wallet during the fetch/decrypt round-trip.
- */
-export const walletRestoring = writable(false);
+// Lives in walletStore so walletManager can read it without an import cycle.
+export { walletRestoring } from './walletStore';
 
 interface LastWalletRecord {
   kind: 3 | 4;

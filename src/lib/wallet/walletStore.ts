@@ -542,3 +542,10 @@ export function getWalletKindName(kind: WalletKind): string {
       return 'Unknown';
   }
 }
+
+/**
+ * True while a login auto-restore is in flight. The header mini-wallet
+ * renders its restoring pill from this instead of implying the user has
+ * no wallet during the fetch/decrypt round-trip.
+ */
+export const walletRestoring = writable(false);
