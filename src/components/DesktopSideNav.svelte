@@ -249,6 +249,18 @@
         </ul>
       </div>
 
+      <!-- Wallet lives in its own section (not a nav link): a balance
+           card, like the mobile app's wallet surface. Tapping it opens
+           the wallet modal. Sits ABOVE the My Kitchen group so opening
+           that group doesn't shift the card, and carries no heading —
+           the widget is self-evident. Hidden for logged-out users and
+           when the wallet widget is switched off in settings. -->
+      {#if $userPublickey && $navBalanceVisible}
+        <div class="mt-1">
+          <SidebarWallet />
+        </div>
+      {/if}
+
       <div class="mt-1">
         <!-- Expandable group header (defaults closed — see kitchenExpanded) -->
         <button
@@ -309,22 +321,6 @@
           </ul>
         {/if}
       </div>
-
-      <!-- Wallet lives in its own section (not a nav link): a balance
-           card, like the mobile app's wallet surface. Tapping it opens
-           the wallet modal. Hidden for logged-out users and when the
-           wallet widget is switched off in settings. -->
-      {#if $userPublickey && $navBalanceVisible}
-        <div class="mt-1">
-          <h3
-            class="px-3 pb-2 font-semibold uppercase tracking-wider"
-            style="color: var(--color-caption); font-size: 12px;"
-          >
-            Wallet
-          </h3>
-          <SidebarWallet />
-        </div>
-      {/if}
     </nav>
   </div>
 </aside>
