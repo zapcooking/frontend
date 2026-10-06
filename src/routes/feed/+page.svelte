@@ -4,6 +4,8 @@
   import { initialFeedTab, readStoredFeedTab, storeFeedTab, type FeedTab } from '$lib/feedTab';
   import { isLockedPasskeySession } from '$lib/sessionLock';
   import { getVaultRecord } from '$lib/passkeyVault';
+  import { freshSession } from '$lib/freshFeed/session';
+  import { prefetchFirstPage } from '$lib/freshFeed/firstPage';
   import MemoriesCard from '../../components/MemoriesCard.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -65,6 +67,10 @@
     browser ? readStoredFeedTab() : null,
     hasSignedInSession()
   );
+
+  // Fresh is the landing tab: start its first page now, while the rest of
+  // the page hydrates and mounts, instead of when the feed mounts.
+  if (browser && activeTab === 'fresh') prefetchFirstPage(freshSession().client);
 
   // Check if user has active membership (for Pantry tab)
   let hasActiveMembership = false;
@@ -230,6 +236,9 @@
 </script>
 
 <svelte:head>
+  <!-- Fresh reads wss://feed.zap.cooking: resolve and connect early. -->
+  <link rel="preconnect" href="https://feed.zap.cooking" crossorigin="anonymous" />
+  <link rel="dns-prefetch" href="https://feed.zap.cooking" />
   <title>Community - zap.cooking</title>
   <meta
     name="description"

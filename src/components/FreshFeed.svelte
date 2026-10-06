@@ -25,6 +25,7 @@
   import { isHellthread } from '$lib/notificationUtils';
   import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membershipStatus';
   import { freshSession } from '$lib/freshFeed/session';
+  import { takeFirstPage } from '$lib/freshFeed/firstPage';
   import { floorPrompt } from '$lib/freshFeed/floorPrompt';
   import { PAGE_SIZE, type PageEnd, type PageResult, type RelayEvent } from '$lib/freshFeed/relay';
   import { passesFreshFilters, passesReaderFilters } from '$lib/freshFeed/posts';
@@ -85,6 +86,10 @@
 
   // "From the recipe box": older recipes, one after every eight posts,
   // random from those this device hasn't shown ($lib/freshFeed/recipeBox).
+  // The first page renders as its posts arrive (firstStreaming), before the
+  // relay's EOSE; firstGen drops a stream a refresh has replaced.
+  let firstStreaming = false;
+  let firstGen = 0;
   let boxPool: RelayEvent[] = [];
   let poolRequested = false;
   let boxSeen = loadSeen(Math.floor(Date.now() / 1000));
@@ -146,6 +151,13 @@
           now
         })
     );
+  }
+
+  /** Insert a streamed post by time, newest first (once per id). */
+  function insertNewestFirst(list: Post[], p: Post): Post[] {
+    if (list.some((x) => x.raw.id === p.raw.id)) return list;
+    const i = list.findIndex((x) => x.raw.created_at < p.raw.created_at);
+    return i === -1 ? [...list, p] : [...list.slice(0, i), p, ...list.slice(i)];
   }
 
   function wrap(raw: RelayEvent): Post {
@@ -264,10 +276,23 @@
     pending = [];
     stopLive?.();
     stopLive = null;
-    client.reset();
-    const since = Math.floor(Date.now() / 1000);
-    const r = await client.page();
-    if (destroyed) return;
+    posts = [];
+    // The live tail overlaps the first page a little (duplicates are
+    // skipped), so nothing posted while it loaded (or since /feed started
+    // it early) is missed.
+    const since = Math.floor(Date.now() / 1000) - 60;
+    const gen = ++firstGen;
+    firstStreaming = true;
+    const onEvent = (raw: RelayEvent) => {
+      if (destroyed || gen !== firstGen) return;
+      posts = insertNewestFirst(posts, wrap(raw));
+      loading = false;
+    };
+    const r = await takeFirstPage(client, onEvent).result;
+    if (destroyed || gen !== firstGen) return;
+    firstStreaming = false;
+    // The final list (author-spaced) replaces the streamed one; cards are
+    // keyed by post, so they're reused, not rebuilt.
     posts = [];
     apply(r);
     loading = false;
@@ -285,7 +310,8 @@
   }
 
   async function loadMore() {
-    if (loading || loadingMore || end !== 'more') return;
+    // Not while the first page is still streaming in: its `until` isn't known yet.
+    if (loading || loadingMore || firstStreaming || end !== 'more') return;
     loadingMore = true;
     moreFailed = false;
     apply(await client.page(nextUntil));

@@ -319,3 +319,45 @@ describe('recipes (the recipe-box pool)', () => {
     expect((await c.recipes(['zapcooking'])).state).toBe('unavailable');
   });
 });
+
+describe('streaming and the silence timeout', () => {
+  it('page() hands each post to onEvent as it arrives, filtered like the final page', async () => {
+    const relay = new FakeRelay([], () => ({
+      events: [ev('new', NOW - 10), ev('old', FLOOR - 100)]
+    }));
+    const { c } = client(relay);
+    const got: string[] = [];
+    const r = await c.page(undefined, 30, (e) => got.push(e.id));
+    expect(got).toEqual(['new']); // the old one is outside a non-member's window
+    expect(r.events.map((e) => e.id)).toEqual(['new']);
+  });
+
+  it('the request timeout restarts with every event (slow but steady pages finish)', async () => {
+    vi.useFakeTimers();
+    try {
+      let onevent!: (e: RelayEvent) => void;
+      let oneose!: () => void;
+      const relay: RelayLike = {
+        subscribe: (_f, p) => {
+          onevent = p.onevent!;
+          oneose = p.oneose!;
+          return { close: () => {} };
+        },
+        close: () => {}
+      };
+      const c = new FreshClient({ connect: async () => relay, now: () => NOW, timeoutMs: 1000 });
+      const pageP = c.page();
+      await vi.advanceTimersByTimeAsync(0);
+      for (let i = 0; i < 5; i++) {
+        await vi.advanceTimersByTimeAsync(800);
+        onevent(ev(`e${i}`, NOW - i));
+      }
+      oneose();
+      const r = await pageP;
+      expect(r.state).toBe('ok');
+      expect(r.events).toHaveLength(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
