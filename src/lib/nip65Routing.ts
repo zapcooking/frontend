@@ -51,12 +51,15 @@ export const INBOX_LOOKUP_TIMEOUT_MS = 1500;
  *   - All `p` tags reference the event's own author
  *   - The cache lookup fails / times out (additive feature, never blocks)
  */
-export async function getRecipientInboxRelays(event: NDKEvent): Promise<string[]> {
+export async function getRecipientInboxRelays(event: NDKEvent, author?: string): Promise<string[]> {
+  // The author: the event's own pubkey, or (unsigned, not filled in yet)
+  // the one the caller resolved.
+  const self = event.pubkey || author;
   const targets = new Set<string>();
   for (const tag of event.tags) {
     if (tag[0] !== 'p' || !tag[1] || !HEX64_RE.test(tag[1])) continue;
     // Skip self — no need to publish to our own inbox.
-    if (event.pubkey && tag[1] === event.pubkey) continue;
+    if (self && tag[1] === self) continue;
     targets.add(tag[1]);
   }
   if (targets.size === 0) return [];
@@ -103,11 +106,30 @@ export async function getOwnWriteRelays(pubkey: string | undefined): Promise<str
 export async function outboxTargetUrls(event: NDKEvent, author?: string): Promise<string[]> {
   if (isGroupEvent(event.tags)) return [PANTRY_URL];
   const { getCurrentRelays } = await import('$lib/nostr');
+  const me = event.pubkey || author;
   const [own, recipients] = await Promise.all([
-    getOwnWriteRelays(author || event.pubkey),
-    getRecipientInboxRelays(event)
+    getOwnWriteRelays(me),
+    getRecipientInboxRelays(event, me)
   ]);
   return outboxRelayUrls({ own, recipients, app: getCurrentRelays() });
+}
+
+/**
+ * The signed-in user's pubkey. `ndk.activeUser` is set only by some login
+ * paths (NIP-07, nsec and passkey logins set just `ndk.signer`), so ask the
+ * signer when it's missing. Undefined when neither knows.
+ */
+export async function resolveAuthorPubkey(ndk: NDK): Promise<string | undefined> {
+  const n = ndk as unknown as {
+    activeUser?: { pubkey?: string };
+    signer?: { user: () => Promise<{ pubkey?: string }> };
+  };
+  if (n.activeUser?.pubkey) return n.activeUser.pubkey;
+  try {
+    return (await n.signer?.user())?.pubkey || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -181,8 +203,7 @@ export async function buildInboxAwareRelaySet(opts: {
 
   // An unsigned event may not carry its pubkey yet (NDK fills it in when
   // it signs): fall back to the signed-in user.
-  const author =
-    event.pubkey || (ndk as unknown as { activeUser?: { pubkey?: string } }).activeUser?.pubkey;
+  const author = event.pubkey || (await resolveAuthorPubkey(ndk));
   const targetUrls = opts.baseUrls
     ? await unionInboxRelayUrls(event, opts.baseUrls)
     : await outboxTargetUrls(event, author);

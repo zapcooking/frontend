@@ -25,7 +25,12 @@ vi.mock('@nostr-dev-kit/ndk', () => ({
   }
 }));
 
-import { outboxTargetUrls, buildInboxAwareRelaySet, zapReceiptRelayUrls } from './nip65Routing';
+import {
+  outboxTargetUrls,
+  buildInboxAwareRelaySet,
+  zapReceiptRelayUrls,
+  resolveAuthorPubkey
+} from './nip65Routing';
 
 const event = (tags: string[][], pubkey = ME) => ({ tags, pubkey }) as never;
 
@@ -89,6 +94,43 @@ describe('outbox routing for engagement', () => {
       'wss://nos.lol',
       'wss://relay.damus.io'
     ]);
+  });
+});
+
+describe('the author of an unsigned event', () => {
+  it('is excluded as a recipient: a self-reply adds no own read relays', async () => {
+    const r = await outboxTargetUrls(
+      event(
+        [
+          ['p', ME],
+          ['p', THEM]
+        ],
+        ''
+      ),
+      ME
+    );
+    expect(r).not.toContain('wss://my-inbox.example');
+    expect(r).toContain('wss://relay.primal.net');
+  });
+
+  it('comes from the signer when ndk.activeUser is unset (NIP-07, nsec, passkey logins)', async () => {
+    const ndk = { signer: { user: async () => ({ pubkey: ME }) } };
+    expect(await resolveAuthorPubkey(ndk as never)).toBe(ME);
+    const got: string[] = [];
+    await buildInboxAwareRelaySet({
+      event: event([['p', THEM]], ''),
+      ndk: {
+        ...ndk,
+        pool: { getRelay: (url: string) => (got.push(url), { url, connect: async () => {} }) }
+      } as never
+    });
+    expect(got[0]).toBe('wss://pyramid.fiatjaf.com');
+  });
+
+  it('activeUser wins; no signer and no activeUser is undefined', async () => {
+    const ndk = { activeUser: { pubkey: THEM }, signer: { user: async () => ({ pubkey: ME }) } };
+    expect(await resolveAuthorPubkey(ndk as never)).toBe(THEM);
+    expect(await resolveAuthorPubkey({} as never)).toBeUndefined();
   });
 });
 

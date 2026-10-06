@@ -298,10 +298,10 @@ export class ZapManager {
 
   /** Receipt relays for a zap request (NIP-57 `relays` tag). */
   private async receiptRelays(recipient: string): Promise<string[]> {
-    const { zapReceiptRelayUrls } = await import('$lib/nip65Routing');
-    const urls = await zapReceiptRelayUrls(this.ndk.activeUser?.pubkey, recipient).catch(
-      () => [] as string[]
-    );
+    const { zapReceiptRelayUrls, resolveAuthorPubkey } = await import('$lib/nip65Routing');
+    const urls = await resolveAuthorPubkey(this.ndk)
+      .then((me) => zapReceiptRelayUrls(me, recipient))
+      .catch(() => [] as string[]);
     return urls.length ? urls : this.ndk.explicitRelayUrls || [];
   }
 
