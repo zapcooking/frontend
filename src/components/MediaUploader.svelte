@@ -352,7 +352,7 @@
                 on:click={() => openAltEditor(media)}
                 aria-label={$alts[media]?.trim() ? `Edit alt text for media ${actualIndex}` : `Add alt text for media ${actualIndex}`}
               >
-                {$alts[media]?.trim() ? '✓' : '+'}
+                {$alts[media]?.trim() ? '✓ ALT' : '+ ALT'}
               </button>
             {/if}
           </div>
@@ -462,13 +462,18 @@
     font-weight: 700;
     letter-spacing: 0.04em;
     line-height: 1.4;
+    white-space: nowrap;
     cursor: pointer;
     transition: background-color 0.15s ease-out;
   }
+  /* Small (thumbnail) variant stays top-left; nowrap keeps "✓ ALT" on
+     one line — in a ~80px tile the label used to wrap and render as a
+     bare checkmark square. */
   .mu-alt-toggle--small {
-    top: 1.75rem;
+    top: 0.25rem;
     left: 0.25rem;
     padding: 1px 5px;
+    font-size: 0.625rem;
   }
   .mu-alt-toggle:hover {
     background: rgba(0, 0, 0, 0.85);
