@@ -24,23 +24,25 @@ vi.mock('@nostr-dev-kit/ndk', () => ({
       signed.push(this.tags.find((t) => t[0] === 'relay') ?? []);
     }
   },
-  NDKRelaySet: { fromRelayUrls: () => ({ relays: new Set() }) }
+  NDKRelaySet: { fromRelayUrls: () => ({ relays: new Set() }) },
+  NDKPrivateKeySigner: class {}
 }));
 
 type Policy = (relay: { url: string }, challenge: string) => Promise<unknown>;
 
-async function install(ownLists: { kind: number; tags: string[][] }[] = []) {
+async function install(ownLists: { kind: number; tags: string[][] }[] = [], localKey = false) {
   vi.resetModules();
   signed.length = 0;
   const { ensureAuthPolicy } = await import('./nip29');
   const { resetOwnRelayLists } = await import('./relayAuthScope');
   resetOwnRelayLists();
+  const { NDKPrivateKeySigner } = await import('@nostr-dev-kit/ndk');
   const fake: {
     signer: object;
     relayAuthDefaultPolicy?: Policy;
     fetchEvents: () => Promise<Set<unknown>>;
   } = {
-    signer: {},
+    signer: localKey ? new (NDKPrivateKeySigner as unknown as new () => object)() : {},
     fetchEvents: async () => new Set(ownLists)
   };
   ensureAuthPolicy(fake as never);
@@ -69,5 +71,25 @@ describe('NDK auth policy scope', () => {
     expect(await policy({ url: 'wss://someones-outbox.example/' }, 'c')).toBe(false);
     expect(await policy({ url: 'wss://filter.nostr.wine/' }, 'c')).toBe(false);
     expect(signed).toEqual([]);
+  });
+
+  it('one signer prompt per relay per session: a reconnect’s new challenge is refused', async () => {
+    const policy = await install();
+    expect(await policy({ url: 'wss://nos.lol/' }, 'c1')).toBeTruthy();
+    expect(await policy({ url: 'wss://nos.lol' }, 'c2')).toBe(false);
+    expect(signed.map((t) => t[1])).toEqual(['wss://nos.lol/']);
+  });
+
+  it('pantry is exempt (Groups needs its login on every connection)', async () => {
+    const policy = await install();
+    expect(await policy({ url: 'wss://pantry.zap.cooking' }, 'c1')).toBeTruthy();
+    expect(await policy({ url: 'wss://pantry.zap.cooking' }, 'c2')).toBeTruthy();
+  });
+
+  it('a local key never prompts, so it is not limited', async () => {
+    const policy = await install([], true);
+    expect(await policy({ url: 'wss://nos.lol/' }, 'c1')).toBeTruthy();
+    expect(await policy({ url: 'wss://nos.lol/' }, 'c2')).toBeTruthy();
+    expect(signed).toHaveLength(2);
   });
 });

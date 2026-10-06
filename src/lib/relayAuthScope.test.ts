@@ -119,3 +119,17 @@ describe('own relay lists', () => {
     expect(await ownRelayLists(async () => Promise.reject(new Error('x')), 'me')).toEqual([]);
   });
 });
+
+describe('takeAuthPrompt', () => {
+  it('one per relay per account, by comparable URL; pantry and local keys unlimited', async () => {
+    const { takeAuthPrompt, resetAuthPromptsForTests } = await import('./relayAuthScope');
+    resetAuthPromptsForTests();
+    expect(takeAuthPrompt('wss://Pyramid.fiatjaf.com/', 'me', true)).toBe(true);
+    expect(takeAuthPrompt('wss://pyramid.fiatjaf.com', 'me', true)).toBe(false);
+    expect(takeAuthPrompt('wss://pyramid.fiatjaf.com', 'other', true)).toBe(true);
+    expect(takeAuthPrompt('wss://pantry.zap.cooking', 'me', true)).toBe(true);
+    expect(takeAuthPrompt('wss://pantry.zap.cooking', 'me', true)).toBe(true);
+    expect(takeAuthPrompt('wss://nos.lol', 'me', false)).toBe(true);
+    expect(takeAuthPrompt('wss://nos.lol', 'me', false)).toBe(true);
+  });
+});

@@ -95,3 +95,31 @@ export async function shouldAutoAuth(
   if (isAuthAllowed(url, configured)) return true;
   return isAuthAllowed(url, await own());
 }
+
+/**
+ * At most one signer prompt per login-required relay per session. Browser
+ * extension and remote (NIP-46) signers ask the reader to approve every
+ * NIP-42 login, and a relay challenges again on every reconnect, so
+ * publishing to the reader's own relays could otherwise prompt again and
+ * again. A relay gets one sign request per account per page load, whether
+ * it's approved, declined or fails; after a reconnect it stays logged out
+ * until a reload. Pantry (Groups) is exempt: its own login flow (nip29.ts)
+ * needs it. Signers that never prompt (a local key: nsec or passkey vault)
+ * aren't limited.
+ */
+const prompted = new Set<string>();
+
+export function takeAuthPrompt(url: string, pubkey: string, signerPrompts: boolean): boolean {
+  if (!signerPrompts) return true;
+  const key = relayKey(url);
+  if (key === relayKey(PANTRY_AUTH_RELAY)) return true;
+  const slot = `${pubkey}|${key}`;
+  if (prompted.has(slot)) return false;
+  prompted.add(slot);
+  return true;
+}
+
+/** Tests only. */
+export function resetAuthPromptsForTests(): void {
+  prompted.clear();
+}
