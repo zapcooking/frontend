@@ -19,6 +19,11 @@
  * Nothing about viewing is sent anywhere.
  */
 
+import { Relay } from 'nostr-tools/relay';
+
+/** Longer than any request waits: our own timeout ends requests (a day). */
+const LIBRARY_EOSE_OFF_MS = 24 * 60 * 60 * 1000;
+
 export const FRESH_RELAY_URL = 'wss://feed.zap.cooking';
 
 /** Notes, long-form recipes/articles, gated recipes, polls. */
@@ -83,7 +88,8 @@ export interface MemberAccess {
 
 /** The default connection: nostr-tools, which verifies id and signature. */
 export const nostrToolsConnect: Connect = async (url) => {
-  const { Relay } = await import('nostr-tools/relay');
+  // Imported up front (not on demand): Fresh is the /feed landing, and an
+  // extra chunk round-trip before the socket opens delayed first posts.
   // No `onauth`: the challenge is kept and only signed when a member needs
   // depth (MemberLogin), never automatically.
   return (await Relay.connect(url)) as unknown as RelayLike;
@@ -171,9 +177,16 @@ export class FreshClient {
   /**
    * One page, newest first, older than or at `until` (none = the newest).
    * Events already returned by this client are skipped (`until` is
-   * inclusive so posts sharing a timestamp aren't lost).
+   * inclusive so posts sharing a timestamp aren't lost). `onEvent` sees each
+   * post as it arrives (for rendering before the page ends), filtered the
+   * same way as the final page: not already shown, and within the free
+   * window for non-members.
    */
-  async page(until?: number, limit = PAGE_SIZE): Promise<PageResult> {
+  async page(
+    until?: number,
+    limit = PAGE_SIZE,
+    onEvent?: (e: RelayEvent) => void
+  ): Promise<PageResult> {
     const floor = this.floor();
     const pastFloor = until !== undefined && until < floor;
     if (pastFloor && !this.member() && !this.login) {
@@ -195,8 +208,15 @@ export class FreshClient {
     if (until !== undefined) filter.until = until;
     if (!member) filter.since = floor;
 
+    const stream = onEvent
+      ? (e: RelayEvent) => {
+          if (this.seen.has(e.id)) return;
+          if (!member && e.created_at < floor) return;
+          onEvent(e);
+        }
+      : undefined;
     let asked = limit;
-    let res = await this.query(filter);
+    let res = await this.query(filter, stream);
     if (res.state !== 'ok') return this.closed(res, member);
     let fresh = res.events.filter((e) => !this.seen.has(e.id));
     // A full page of posts we've all seen: more posts share the boundary
@@ -335,8 +355,12 @@ export class FreshClient {
     return res;
   }
 
-  /** One request to EOSE, as a state. */
-  private async query(filter: Filter): Promise<PageResult> {
+  /**
+   * One request to EOSE, as a state. The timeout is for silence: it restarts
+   * with every event, so a page streaming slowly over a weak link isn't cut
+   * off, while a relay that stops answering still times out.
+   */
+  private async query(filter: Filter, onEvent?: (e: RelayEvent) => void): Promise<PageResult> {
     let relay: RelayLike;
     try {
       relay = await this.connection();
@@ -353,17 +377,22 @@ export class FreshClient {
         sub.close();
         resolve(r);
       };
-      const timer = setTimeout(
-        () => finish({ state: 'unavailable', events: [], reason: 'request timeout' }),
-        this.timeoutMs
-      );
+      const timeout = () => finish({ state: 'unavailable', events: [], reason: 'request timeout' });
+      let timer = setTimeout(timeout, this.timeoutMs);
       const sub = relay.subscribe([filter], {
-        // nostr-tools fires oneose on its own after 4.4 s by default, which on
-        // a slow phone ended a page with whatever had arrived (often nothing:
-        // "Nothing fresh yet"). Wait past our own timeout instead, so a slow
-        // answer is either awaited or reported as unavailable, never empty.
-        eoseTimeout: this.timeoutMs + 1000,
-        onevent: (e) => events.push(e),
+        // nostr-tools ends a subscription on its own after a fixed time from
+        // when it was sent (4.4 s by default), never extended by events: on a
+        // slow phone that ended pages with whatever had arrived, or nothing
+        // ("Nothing fresh yet"). Our silence timeout above governs instead, so
+        // push the library's out of reach.
+        eoseTimeout: LIBRARY_EOSE_OFF_MS,
+        onevent: (e) => {
+          if (done) return;
+          events.push(e);
+          clearTimeout(timer);
+          timer = setTimeout(timeout, this.timeoutMs);
+          onEvent?.(e);
+        },
         oneose: () => finish({ state: 'ok', events }),
         onclose: (reason) => finish({ state: stateOf(reason), events: [], reason })
       });
