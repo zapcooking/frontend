@@ -1,17 +1,22 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { parseTopics, nip11Url, loadTopics, resetTopicsForTests } from './topicList';
+import { parseTopics, parseFeatured, nip11Url, loadTopics, resetTopicsForTests } from './topicList';
 
 const DOC = {
   name: 'feed.zap.cooking',
   topics: {
     namespace: 'cooking.zap.topic',
+    featured_topics: [
+      { slug: 'meat-seafood', label: 'Meat' },
+      { slug: 'cakes', label: ' Cakes ' }
+    ],
     parents: [
       {
         slug: 'baking',
         name: 'Baking',
+        count_14d: 27,
         topics: [
-          { slug: 'sourdough', name: 'Sourdough' },
-          { slug: 'bread', name: 'Bread' }
+          { slug: 'sourdough', name: 'Sourdough', count_14d: 6 },
+          { slug: 'bread', name: 'Bread', count_14d: 11 }
         ]
       },
       { slug: 'drinks', name: 'Drinks', topics: [{ slug: 'coffee', name: 'Coffee' }] }
@@ -22,8 +27,24 @@ const DOC = {
 beforeEach(() => resetTopicsForTests());
 
 describe('parseTopics', () => {
-  it('reads groups and topics in order', () => {
-    expect(parseTopics(DOC)).toEqual(DOC.topics.parents);
+  it('reads groups and topics in order, with their 14-day counts', () => {
+    expect(parseTopics(DOC)).toEqual([
+      {
+        slug: 'baking',
+        name: 'Baking',
+        count14d: 27,
+        topics: [
+          { slug: 'sourdough', name: 'Sourdough', count14d: 6 },
+          { slug: 'bread', name: 'Bread', count14d: 11 }
+        ]
+      },
+      {
+        slug: 'drinks',
+        name: 'Drinks',
+        count14d: 0,
+        topics: [{ slug: 'coffee', name: 'Coffee', count14d: 0 }]
+      }
+    ]);
   });
 
   it('is empty without a topics field, or with a malformed one', () => {
@@ -32,7 +53,7 @@ describe('parseTopics', () => {
     expect(parseTopics({ topics: { parents: 'nope' } })).toEqual([]);
   });
 
-  it('drops bad slugs, missing names, empty groups and extra fields', () => {
+  it('drops bad slugs, missing names, empty groups; bad counts read as 0', () => {
     const doc = {
       topics: {
         parents: [
@@ -41,9 +62,9 @@ describe('parseTopics', () => {
           {
             slug: 'ok',
             name: 'OK',
-            synonyms: ['x'],
+            count_14d: -3,
             topics: [
-              { slug: 'fine', name: 'Fine', synonyms: ['y'] },
+              { slug: 'fine', name: 'Fine', count_14d: 'many' },
               { slug: 'noname' },
               { slug: 'x;drop', name: 'X' }
             ]
@@ -52,8 +73,31 @@ describe('parseTopics', () => {
       }
     };
     expect(parseTopics(doc)).toEqual([
-      { slug: 'ok', name: 'OK', topics: [{ slug: 'fine', name: 'Fine' }] }
+      { slug: 'ok', name: 'OK', count14d: 0, topics: [{ slug: 'fine', name: 'Fine', count14d: 0 }] }
     ]);
+  });
+});
+
+describe('parseFeatured', () => {
+  it('reads slugs and trimmed short labels in order', () => {
+    expect(parseFeatured(DOC)).toEqual([
+      { slug: 'meat-seafood', label: 'Meat' },
+      { slug: 'cakes', label: 'Cakes' }
+    ]);
+  });
+  it('null when absent (the caller falls back), bad entries dropped', () => {
+    expect(parseFeatured({ topics: { parents: [] } })).toBeNull();
+    expect(
+      parseFeatured({
+        topics: {
+          featured_topics: [
+            { slug: 'ok', label: 'OK' },
+            { slug: 'Bad', label: 'x' },
+            { slug: 'nolabel' }
+          ]
+        }
+      })
+    ).toEqual([{ slug: 'ok', label: 'OK' }]);
   });
 });
 
@@ -63,19 +107,23 @@ describe('loadTopics', () => {
     expect(nip11Url()).toBe('https://feed.zap.cooking');
     const a = await loadTopics(fetchFn as unknown as typeof fetch);
     await loadTopics(fetchFn as unknown as typeof fetch);
-    expect(a).toHaveLength(2);
+    expect(a.groups).toHaveLength(2);
+    expect(a.featured).toHaveLength(2);
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn).toHaveBeenCalledWith('https://feed.zap.cooking', {
       headers: { Accept: 'application/nostr+json' }
     });
   });
 
-  it('returns [] on failure and tries again next time', async () => {
+  it('is empty on failure and tries again next time', async () => {
     const failing = vi.fn(async () => {
       throw new Error('offline');
     });
-    expect(await loadTopics(failing as unknown as typeof fetch)).toEqual([]);
+    expect(await loadTopics(failing as unknown as typeof fetch)).toEqual({
+      groups: [],
+      featured: null
+    });
     const ok = vi.fn(async () => new Response(JSON.stringify(DOC), { status: 200 }));
-    expect(await loadTopics(ok as unknown as typeof fetch)).toHaveLength(2);
+    expect((await loadTopics(ok as unknown as typeof fetch)).groups).toHaveLength(2);
   });
 });
