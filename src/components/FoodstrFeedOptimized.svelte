@@ -13,10 +13,14 @@
 </script>
 
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { get } from 'svelte/store';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
+  import { validateMarkdownTemplate } from '$lib/parser';
+  import { RECIPE_TAGS } from '$lib/consts';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
+  import { buildPoolRelaySet } from '$lib/eventFetch';
   import {
     ndk,
     userPublickey,
@@ -824,6 +828,75 @@
   // ═══════════════════════════════════════════════════════════════
   // UTILITY FUNCTIONS
   // ═══════════════════════════════════════════════════════════════
+
+  const dispatch = createEventDispatcher<{ 'view-reads': void }>();
+
+  // When an author-profile load finishes empty: does the author publish
+  // longform (kind 30023, the Reads surface)? The feed itself only
+  // queries kinds [1, 6, 1068], so an articles-only cook would other-
+  // wise be told they've "never posted". null = probe pending or failed
+  // (default copy).
+  let authorHasLongform: boolean | null = null;
+
+  // Pagination caps for the longform probe: one page covers nearly all
+  // real cases (most authors' newest 30 kind-30023 events decide the
+  // question); three pages bound the worst case (a prolific recipe-
+  // format longform author) so the empty state never waits on a full
+  // relay-history crawl.
+  const PROBE_PAGE_SIZE = 30;
+  const PROBE_MAX_PAGES = 3;
+
+  async function probeAuthorLongform(pk: string): Promise<void> {
+    authorHasLongform = null;
+    try {
+      // Pool relay set, identical discovery scope to the profile Reads
+      // tab (buildPoolRelaySet: explicit + every pool relay, so an
+      // article the Reads tab can find can't probe false here). A local
+      // four-relay subset would let the probe miss what the destination
+      // tab shows.
+      const relaySet = buildPoolRelaySet($ndk);
+      if (!relaySet) return;
+      // Page past the newest events until a readable longform shows up
+      // or relay history is exhausted: recipe-format and moderation-
+      // blocked events don't count, so a small first page is not proof
+      // of absence (an articles-only cook whose ten newest longforms are
+      // recipe-format would otherwise read as "never posted").
+      let hasRead = false;
+      let until: number | undefined;
+      for (let page = 0; page < PROBE_MAX_PAGES && !hasRead; page++) {
+        const found = await $ndk.fetchEvents(
+          {
+            kinds: [30023],
+            authors: [pk],
+            limit: PROBE_PAGE_SIZE,
+            ...(until ? { until } : {})
+          },
+          { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY },
+          relaySet
+        );
+        for (const ev of found) {
+          const hasRecipeTag = ev.tags.some(
+            (tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || '')
+          );
+          if (hasRecipeTag) continue;
+          if (typeof validateMarkdownTemplate(ev.content) !== 'string') continue;
+          if (isBlockedFromReads(ev)) continue;
+          hasRead = true;
+          break;
+        }
+        if (hasRead) break;
+        // Oldest event of this page seeds the next page's `until`; a
+        // short page means relay history is exhausted.
+        const oldest = [...found].sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0))[0];
+        if (!oldest?.created_at || found.size < PROBE_PAGE_SIZE) break;
+        until = oldest.created_at - 1;
+      }
+      // Only commit if the author hasn't changed while the probe ran.
+      if (authorPubkey === pk) authorHasLongform = hasRead;
+    } catch {
+      if (authorPubkey === pk) authorHasLongform = null;
+    }
+  }
 
   function sevenDaysAgo(): number {
     return Math.floor(Date.now() / 1000) - SEVEN_DAYS_SECONDS;
@@ -2667,6 +2740,18 @@
       // Always set loading to false, even if no events
       loading = false;
       error = false;
+
+      // Author view finished empty: probe for longform so the empty
+      // state can point at the Reads tab instead of "never posted".
+      // Posts (top-level) scope only: for the Replies feed the question
+      // "do they publish longform?" is irrelevant; an author with
+      // articles but no replies must keep the plain empty state, not a
+      // "No standard posts found" mislabel. (Skipped, not returned:
+      // cache-write and the realtime subscription below still run.)
+      if (authorPubkey && authorScope === 'top-level') {
+        if (events.length === 0) probeAuthorLongform(authorPubkey);
+        else authorHasLongform = false;
+      }
 
       if (events.length > 0) {
         lastEventTime = Math.max(...events.map(getEventSortTime));
@@ -5110,6 +5195,17 @@
                     This cook hasn't posted anything tagged as cooking. Turn off Only Food above to
                     see everything they've posted.
                   </p>
+                {:else if authorHasLongform}
+                  <p class="text-lg font-medium">No standard posts found</p>
+                  <p class="text-sm">
+                    This cook publishes longform pieces — their reads live on the Reads tab.
+                  </p>
+                  <button
+                    on:click={() => dispatch('view-reads')}
+                    class="mt-3 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                  >
+                    View their Reads
+                  </button>
                 {:else}
                   <p class="text-lg font-medium">No posts yet</p>
                   <p class="text-sm">This cook hasn't posted anything yet.</p>

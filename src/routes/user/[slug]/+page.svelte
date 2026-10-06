@@ -704,11 +704,15 @@
     }));
   }
 
+  // Jump from an empty posts feed to the author's longform (the feed
+  // component probes for kind-30023 content and offers the jump).
+  function goToReads() {
+    activeTab = 'reads';
+  }
+
   // Load user's longform articles (reads)
   async function loadReads() {
-    if (!hexpubkey || readsLoaded) return;
-
-    try {
+    if (!hexpubkey || readsLoaded) return;    try {
       const filter: NDKFilter = {
         authors: [hexpubkey],
         kinds: [30023],
@@ -2143,6 +2147,7 @@
         bind:this={foodstrFeedComponent}
         authorPubkey={hexpubkey}
         authorScope="top-level"
+        on:view-reads={goToReads}
       />
       <div bind:this={postsSentinel} class="py-4 text-center"></div>
     </div>
@@ -2152,6 +2157,7 @@
         bind:this={foodstrRepliesFeedComponent}
         authorPubkey={hexpubkey}
         authorScope="replies"
+        on:view-reads={goToReads}
       />
       <div bind:this={repliesSentinel} class="py-4 text-center"></div>
     </div>

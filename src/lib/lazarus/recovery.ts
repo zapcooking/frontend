@@ -32,6 +32,15 @@ import {
  *     signer and the click.
  */
 
+/**
+ * The Lazarus spec revision this vendored implementation follows —
+ * surfaced in the recovery UI so users (and other clients) can tell
+ * which document governs the behavior. Keep in sync with the header
+ * above when re-vendoring.
+ */
+export const LAZARUS_SPEC_VERSION = '0.6.2-draft';
+export const LAZARUS_SPEC_URL = 'https://github.com/dmnyc/lazarus/blob/main/SPEC.md';
+
 const SCAN_TIMEOUT_MS = 6000;
 /** Versions requested per relay. A relay that fills a page can be paged further back. */
 const SCAN_LIMIT = 50;

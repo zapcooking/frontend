@@ -719,6 +719,11 @@
              the search box that curves into the header's bottom divider. -->
           <span class="header-pipe" aria-hidden="true"></span>
         </div>
+        <!-- Soft separator (desktop): the pipe's vertical line continues
+             below the header as a dashed hairline, quieting the divide
+             between the sidebar and the content without introducing a
+             second surface color. -->
+        <span class="sidebar-separator" aria-hidden="true"></span>
       {/if}
       <!-- Full-page scroll container: clip horizontal overflow to prevent Safari horizontal scroll/gap.
            Top padding clears the fixed header via the CSS-deterministic
@@ -737,7 +742,7 @@
         <div
           class="{kitchenMode
             ? ''
-            : 'px-4 lg:pl-[26px]'} min-w-0 max-w-full flex flex-col min-h-full {kitchenMode ||
+            : 'px-4 pt-3 lg:pl-[26px]'} min-w-0 max-w-full flex flex-col min-h-full {kitchenMode ||
           $page.url.pathname.startsWith('/messages') ||
           $page.url.pathname.startsWith('/groups')
             ? ''
@@ -917,6 +922,40 @@
     :global(.dark) .header-pipe {
       border-left-color: rgba(255, 255, 255, 0.06);
       border-bottom-color: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  /* Soft separator between the sidebar and the content: a dotted
+     hairline in the gutter at the sidebar's edge, starting level with
+     the top of the "Feed" nav item so it stays clear of the search box
+     above. Dotted (not solid) so it reads as a quiet divider on the
+     shared canvas rather than a hard pane edge. */
+  .sidebar-separator {
+    display: none;
+  }
+  @media (min-width: 1024px) {
+    .sidebar-separator {
+      display: block;
+      position: fixed;
+      /* Sidebar: p-3 + logo row (--header-row-h) + nav mt-3 + unlabeled
+         Home-group spacer — lands the line at the Feed row's top edge
+         (100px). */
+      top: 100px;
+      bottom: 0;
+      left: calc(14rem + 2px); /* gutter between sidebar and content */
+      /* Dots carry ~half the ink of a solid line, so run the alpha
+         ~2x the pipe's to land at the same perceived weight. */
+      border-left: 1px dotted color-mix(in srgb, var(--color-input-border) 100%, transparent);
+      pointer-events: none;
+      z-index: 20;
+    }
+    :global(.dark) .sidebar-separator {
+      border-left-color: rgba(255, 255, 255, 0.12);
+    }
+  }
+  @media (min-width: 1280px) {
+    .sidebar-separator {
+      left: calc(20rem + 2px);
     }
   }
 </style>

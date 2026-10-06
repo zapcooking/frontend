@@ -146,7 +146,7 @@
   <meta name="description" content="Vote on polls from across the Nostr network" />
 </svelte:head>
 
-<div class="max-w-2xl mx-auto px-4 py-6">
+<div class="max-w-2xl px-4 py-6">
   <header class="mb-4">
     <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Polls</h1>
     <p class="text-sm mt-1" style="color: var(--color-text-secondary);">

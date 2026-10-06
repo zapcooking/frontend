@@ -28,6 +28,10 @@
   export let maxWidth: string | null = null;
   export let autoHeight = false;
   export let fullScreenMobile = false;
+  // Pin the close button 8px from the dialog's top-right corner
+  // (wallet-modal margins) instead of inlining it in the header row —
+  // for small dialogs where a 44px row button crowds the corner.
+  export let floatingClose = false;
   // While true the dialog stays open but stops handling Escape and Tab.
   // For a parent that stacks a second overlay (a lightbox portaled to
   // body) on top of this one: without this, Tab is pulled back into the
@@ -188,15 +192,29 @@
               >
                 <slot id="title" name="title" />
               </h2>
-              <button
-                class="self-center cursor-pointer flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2"
-                style="color: var(--color-text-primary)"
-                aria-label="Close"
-                on:click={close}
-              >
-                <CloseIcon size={24} />
-              </button>
+              {#if !floatingClose}
+                <button
+                  class="self-center cursor-pointer flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2"
+                  style="color: var(--color-text-primary)"
+                  aria-label="Close"
+                  on:click={close}
+                >
+                  <CloseIcon size={24} />
+                </button>
+              {/if}
             </div>
+          {/if}
+          {#if floatingClose}
+            <!-- Wallet-style floating close: pinned 8px from the dialog's
+                 top-right corner, above content. -->
+            <button
+              class="floating-close cursor-pointer flex items-center justify-center w-11 h-11"
+              style="color: var(--color-text-primary)"
+              aria-label="Close"
+              on:click={close}
+            >
+              <CloseIcon size={24} />
+            </button>
           {/if}
           <slot />
         </div>
@@ -219,6 +237,23 @@
         padding-left: 1.5rem;
         padding-right: 1.5rem;
       }
+    }
+    /* Floating close (floatingClose) — wallet-modal margins: pinned
+       8px from the dialog's top-right corner, transparent with a
+       subtle hover tint so it can hover over content. The dialog is
+       the positioned ancestor. */
+    .floating-close {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      z-index: 100;
+      background-color: transparent;
+      border: none;
+      border-radius: 9999px;
+      transition: background-color 0.15s ease-out;
+    }
+    .floating-close:hover {
+      background-color: rgba(255, 255, 255, 0.06);
     }
   </style>
 {/if}

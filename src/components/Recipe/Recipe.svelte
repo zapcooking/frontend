@@ -806,8 +806,8 @@
 
 <!-- Image description (NIP-92 alt text) -->
 {#if altDialogOpen}
-  <Modal bind:open={altDialogOpen} compact autoHeight>
-    <span slot="title">Description</span>
+  <Modal bind:open={altDialogOpen} compact autoHeight floatingClose>
+    <span slot="title" class="alt-dialog-title">Description</span>
     <p
       class="text-[0.9375rem] leading-normal whitespace-pre-wrap break-words"
       style="color: var(--color-text-primary);"
@@ -1465,6 +1465,22 @@
 </article>
 
 <style>
+  /* Alt-description modal header kicker — quiet all-caps label instead
+     of a page-level heading; the alt text itself is the content. Flex
+     (block-level inside the h2) so the label escapes the h2's 18px
+     line-box strut and centers itself in the same 32px box as the
+     close button. */
+  .alt-dialog-title {
+    display: flex;
+    align-items: center;
+    min-height: 2rem;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-caption);
+  }
+
   /* Nourish section — sits in recipe body between summary and ingredients */
   .nourish-section {
     padding: 0.5rem 0;

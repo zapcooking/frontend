@@ -22,6 +22,7 @@
     type LazarusScanResult,
     type LazarusSortOrder
   } from '$lib/lazarus/recovery';
+  import { LAZARUS_SPEC_VERSION, LAZARUS_SPEC_URL } from '$lib/lazarus/recovery';
   import { getContentEncryption, parsePrivateTags } from '$lib/lazarus/private-items';
   import { fitsNip46Request } from '$lib/lazarus/nip46';
   import { decrypt as decryptWithAppKey } from '$lib/encryptionService';
@@ -432,12 +433,22 @@
       {/each}
     </div>
 
-    {#if !scan && stage !== 'scanning'}
-      <button type="button" class="lz-scan" on:click={() => scanKind()} disabled={stage === 'publishing'}>
-        <ArrowClockwiseIcon size={16} />
-        Scan relay history
-      </button>
-    {/if}
+    <div class="lz-scan-row">
+      {#if !scan && stage !== 'scanning'}
+        <button type="button" class="lz-scan" on:click={() => scanKind()} disabled={stage === 'publishing'}>
+          <ArrowClockwiseIcon size={16} />
+          Scan relay history
+        </button>
+      {/if}
+      <!-- Spec disclosure, right-aligned beside the scan action:
+           names the document that governs this section's behavior. -->
+      <p class="lz-spec">
+        Uses the
+        <a href={LAZARUS_SPEC_URL} target="_blank" rel="noopener noreferrer">
+          Lazarus spec {LAZARUS_SPEC_VERSION}
+        </a>
+      </p>
+    </div>
 
     {#if stage === 'scanning'}
       <p class="lz-note">Scanning relays…</p>
@@ -725,6 +736,28 @@
     line-height: 1.6;
     margin: 0;
     font-size: 0.875rem;
+  }
+
+  /* Spec disclosure — right-aligned on the scan row: names the Lazarus
+     document that governs this section's behavior, linked for auditing
+     restores. */
+  .lz-scan-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .lz-spec {
+    margin: 0 0 0 auto;
+    font-size: 0.75rem;
+    color: var(--color-caption);
+  }
+  .lz-spec a {
+    color: var(--color-caption);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .lz-spec a:hover {
+    color: var(--color-text-primary);
   }
 
   .lz-kinds {

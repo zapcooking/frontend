@@ -187,7 +187,7 @@
     <PanLoader size="md" />
   </div>
 {:else}
-  <div class="flex flex-col gap-4 max-w-2xl mx-auto">
+  <div class="flex flex-col gap-4 max-w-2xl">
     <!-- Header -->
     <div class="flex flex-col gap-4">
       <!-- Back link and actions -->
