@@ -1,7 +1,9 @@
 <script lang="ts">
   import FoodstrFeedOptimized from '../../components/FoodstrFeedOptimized.svelte';
   import FreshFeed from '../../components/FreshFeed.svelte';
-  import { freshPreference, isFreshVisible } from '$lib/freshFeed/visibility';
+  import { initialFeedTab, readStoredFeedTab, storeFeedTab, type FeedTab } from '$lib/feedTab';
+  import { isLockedPasskeySession } from '$lib/sessionLock';
+  import { getVaultRecord } from '$lib/passkeyVault';
   import MemoriesCard from '../../components/MemoriesCard.svelte';
   import PullToRefresh from '../../components/PullToRefresh.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -40,11 +42,29 @@
   export const data: PageData = {} as PageData;
 
   // Tab state - use local state for immediate reactivity
-  type FilterMode = 'global' | 'following' | 'replies' | 'members' | 'fresh';
+  type FilterMode = FeedTab;
 
-  // Local state for immediate UI updates
-  // Default to global — faster load, more variety on login
-  let activeTab: FilterMode = 'global';
+  // Signed-in features (Following) need an actual session. The stored
+  // pubkey alone isn't one: a locked passkey vault keeps it while staying
+  // unauthenticated until the user unlocks ($lib/sessionLock).
+  function hasSignedInSession(): boolean {
+    if (!$userPublickey) return false;
+    if (!browser) return true;
+    try {
+      return !isLockedPasskeySession(localStorage, getVaultRecord() !== null);
+    } catch {
+      return true;
+    }
+  }
+
+  // Decided before the first render (not in onMount), so the landing tab's
+  // feed is the only one that starts loading: ?tab= wins, then the tab this
+  // device last chose, then Fresh ($lib/feedTab).
+  let activeTab: FilterMode = initialFeedTab(
+    $page.url.searchParams.get('tab'),
+    browser ? readStoredFeedTab() : null,
+    hasSignedInSession()
+  );
 
   // Check if user has active membership (for Pantry tab)
   let hasActiveMembership = false;
@@ -55,9 +75,6 @@
   let createGroupOpen = false;
 
   $: showThread = selectedGroupId !== null;
-  // Fresh (beta): shown per $lib/freshFeed/visibility; hidden signed out.
-  $: freshVisible = isFreshVisible($userPublickey, $freshPreference);
-  $: if (activeTab === 'fresh' && !freshVisible) setTab('global');
   $: isLoggedIn = !!$userPublickey;
 
   function handleSelectGroup(e: CustomEvent<{ groupId: string }>) {
@@ -120,6 +137,8 @@
     if (tab === activeTab) return;
 
     activeTab = tab;
+    // Remember the reader's choice for next time (device-local).
+    storeFeedTab(tab);
 
     // Update URL for bookmarking/sharing
     const url = new URL($page.url);
@@ -152,17 +171,9 @@
 
   onMount(() => {
     const tab = $page.url.searchParams.get('tab');
-    if (tab === 'following' || tab === 'replies' || tab === 'global' || tab === 'members') {
-      activeTab = tab;
-    }
-    if (tab === 'fresh' && isFreshVisible($userPublickey, $freshPreference)) {
-      activeTab = 'fresh';
-    }
-
-    // Signed out: following is disabled, fall back to global
-    if (!$userPublickey && activeTab === 'following') {
-      activeTab = 'global';
-      goto('/feed?tab=global', { noScroll: true, replaceState: true });
+    // Signed out: Following is disabled; a ?tab=following link lands on Fresh.
+    if (tab === 'following' && !hasSignedInSession()) {
+      goto('/feed?tab=fresh', { noScroll: true, replaceState: true });
     }
 
     if ($userPublickey) {
@@ -252,6 +263,25 @@
     >
       <div class="flex overflow-x-auto flex-nowrap scrollbar-hide">
         <button
+          on:click={() => setTab('fresh')}
+          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
+          style="color: {activeTab === 'fresh'
+            ? 'var(--color-text-primary)'
+            : 'var(--color-text-secondary)'}"
+        >
+          <span class="whitespace-nowrap"
+            >Fresh<sup class="ml-0.5 text-[8px] font-semibold uppercase tracking-wide opacity-70"
+              >Beta</sup
+            ></span
+          >
+          {#if activeTab === 'fresh'}
+            <span
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            ></span>
+          {/if}
+        </button>
+
+        <button
           on:click={() => setTab('global')}
           class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
           style="color: {activeTab === 'global'
@@ -314,23 +344,6 @@
             ></span>
           {/if}
         </button>
-
-        {#if freshVisible}
-          <button
-            on:click={() => setTab('fresh')}
-            class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
-            style="color: {activeTab === 'fresh'
-              ? 'var(--color-text-primary)'
-              : 'var(--color-text-secondary)'}"
-          >
-            Fresh <span class="text-[10px] uppercase tracking-wide opacity-70">beta</span>
-            {#if activeTab === 'fresh'}
-              <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-              ></span>
-            {/if}
-          </button>
-        {/if}
 
       </div>
     </div>

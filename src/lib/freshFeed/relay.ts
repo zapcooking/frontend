@@ -62,6 +62,8 @@ export interface RelayLike {
       onevent?: (evt: RelayEvent) => void;
       oneose?: () => void;
       onclose?: (reason: string) => void;
+      /** ms before nostr-tools gives up waiting for EOSE and fires oneose itself. */
+      eoseTimeout?: number;
     }
   ): { close(reason?: string): void };
   close(): void;
@@ -356,6 +358,11 @@ export class FreshClient {
         this.timeoutMs
       );
       const sub = relay.subscribe([filter], {
+        // nostr-tools fires oneose on its own after 4.4 s by default, which on
+        // a slow phone ended a page with whatever had arrived (often nothing:
+        // "Nothing fresh yet"). Wait past our own timeout instead, so a slow
+        // answer is either awaited or reported as unavailable, never empty.
+        eoseTimeout: this.timeoutMs + 1000,
         onevent: (e) => events.push(e),
         oneose: () => finish({ state: 'ok', events }),
         onclose: (reason) => finish({ state: stateOf(reason), events: [], reason })
