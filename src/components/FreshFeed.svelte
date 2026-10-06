@@ -286,7 +286,9 @@
     const onEvent = (raw: RelayEvent) => {
       if (destroyed || gen !== firstGen) return;
       posts = insertNewestFirst(posts, wrap(raw));
-      loading = false;
+      // Keep the skeleton until a post survives the display filters (mutes,
+      // hellthreads, old edits); otherwise the feed would sit blank.
+      if (loading && filterPosts(posts, $muteListStore.muteList, hidden).length) loading = false;
     };
     const r = await takeFirstPage(client, onEvent).result;
     if (destroyed || gen !== firstGen) return;
@@ -383,7 +385,9 @@
    * newer posts would leave a hole, or nothing has loaded yet.
    */
   export async function refresh(): Promise<void> {
-    if (loading) return;
+    // Not while the first page streams in: a second page on the same client
+    // would mark its posts seen and empty the first page's result.
+    if (loading || firstStreaming) return;
     const top = posts.length ? Math.max(...posts.map((p) => p.raw.created_at)) : null;
     if (top === null || unavailable) return loadFirst();
     const r = await client.page();

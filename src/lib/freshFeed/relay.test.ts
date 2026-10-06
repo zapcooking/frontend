@@ -341,21 +341,26 @@ describe('streaming and the silence timeout', () => {
         subscribe: (_f, p) => {
           onevent = p.onevent!;
           oneose = p.oneose!;
-          return { close: () => {} };
+          // Like nostr-tools 2.25: a fixed EOSE timer from when the
+          // subscription is sent, never extended by events.
+          const t = setTimeout(() => p.oneose!(), p.eoseTimeout ?? 4400);
+          return { close: () => clearTimeout(t) };
         },
         close: () => {}
       };
       const c = new FreshClient({ connect: async () => relay, now: () => NOW, timeoutMs: 1000 });
       const pageP = c.page();
       await vi.advanceTimersByTimeAsync(0);
-      for (let i = 0; i < 5; i++) {
+      // 20 events 800 ms apart: 16 s in all, past both the 1 s silence
+      // timeout's first window and the library's default EOSE timer.
+      for (let i = 0; i < 20; i++) {
         await vi.advanceTimersByTimeAsync(800);
         onevent(ev(`e${i}`, NOW - i));
       }
       oneose();
       const r = await pageP;
       expect(r.state).toBe('ok');
-      expect(r.events).toHaveLength(5);
+      expect(r.events).toHaveLength(20);
     } finally {
       vi.useRealTimers();
     }

@@ -21,6 +21,9 @@
 
 import { Relay } from 'nostr-tools/relay';
 
+/** Longer than any request waits: our own timeout ends requests (a day). */
+const LIBRARY_EOSE_OFF_MS = 24 * 60 * 60 * 1000;
+
 export const FRESH_RELAY_URL = 'wss://feed.zap.cooking';
 
 /** Notes, long-form recipes/articles, gated recipes, polls. */
@@ -377,11 +380,12 @@ export class FreshClient {
       const timeout = () => finish({ state: 'unavailable', events: [], reason: 'request timeout' });
       let timer = setTimeout(timeout, this.timeoutMs);
       const sub = relay.subscribe([filter], {
-        // nostr-tools fires oneose on its own after 4.4 s by default, which on
-        // a slow phone ended a page with whatever had arrived (often nothing:
-        // "Nothing fresh yet"). Wait past our own timeout instead, so a slow
-        // answer is either awaited or reported as unavailable, never empty.
-        eoseTimeout: this.timeoutMs + 1000,
+        // nostr-tools ends a subscription on its own after a fixed time from
+        // when it was sent (4.4 s by default), never extended by events: on a
+        // slow phone that ended pages with whatever had arrived, or nothing
+        // ("Nothing fresh yet"). Our silence timeout above governs instead, so
+        // push the library's out of reach.
+        eoseTimeout: LIBRARY_EOSE_OFF_MS,
         onevent: (e) => {
           if (done) return;
           events.push(e);
