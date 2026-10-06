@@ -75,6 +75,15 @@ export async function saveMnemonic(pubkey: string, mnemonic: string): Promise<vo
  * @param pubkey The user's Nostr public key (hex string).
  * @returns The decrypted mnemonic string, or null if not found or decryption fails.
  */
+/** Is a Breez wallet seed stored on this site for this account? (No decryption.) */
+export function hasStoredMnemonic(pubkey: string): boolean {
+	try {
+		return typeof localStorage !== 'undefined' && !!localStorage.getItem(`${LOCAL_STORAGE_KEY_PREFIX}${pubkey}`)
+	} catch {
+		return false
+	}
+}
+
 export async function loadMnemonic(pubkey: string): Promise<string | null> {
 	const raw = localStorage.getItem(`${LOCAL_STORAGE_KEY_PREFIX}${pubkey}`)
 	if (!raw) return null

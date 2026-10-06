@@ -68,7 +68,6 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import ClockIcon from 'phosphor-svelte/lib/Clock';
   import HammerIcon from 'phosphor-svelte/lib/Hammer';
-  import { freshPreference, isFreshVisible } from '$lib/freshFeed/visibility';
   import { getConnectionManager } from '$lib/connectionManager';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
@@ -1480,48 +1479,6 @@
         </div>
       </div>
     </Accordion>
-
-    <!-- Beta Section: the Fresh feed (a /feed tab reading only the curated
-         relay). Device-local switch; the default is on only for the keys in
-         $lib/freshFeed/visibility (see FRESH_DEFAULT_ON_PUBKEYS). -->
-    {#if $userPublickey}
-      <Accordion title="Beta" open={false}>
-        <div class="p-4 rounded-xl" style="border: 1px solid var(--color-input-border);">
-          <div class="flex items-center justify-between gap-4">
-            <div class="flex-1">
-              <span class="font-medium" style="color: var(--color-text-primary)"
-                >Try the new feed (beta)</span
-              >
-              <p class="text-sm text-caption mt-1">
-                Adds a Fresh tab with posts from Zap Cooking's curated food relay.
-              </p>
-            </div>
-            <button
-              role="switch"
-              aria-checked={isFreshVisible($userPublickey, $freshPreference)}
-              aria-label="Try the new feed (beta)"
-              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {isFreshVisible(
-                $userPublickey,
-                $freshPreference
-              )
-                ? 'bg-amber-500'
-                : 'bg-gray-300 dark:bg-gray-600'}"
-              on:click={() =>
-                freshPreference.setEnabled(!isFreshVisible($userPublickey, $freshPreference))}
-            >
-              <span
-                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {isFreshVisible(
-                  $userPublickey,
-                  $freshPreference
-                )
-                  ? 'translate-x-5'
-                  : ''}"
-              ></span>
-            </button>
-          </div>
-        </div>
-      </Accordion>
-    {/if}
 
     <!-- Web of Trust Section -->
     <Accordion title="Web of Trust" open={false}>

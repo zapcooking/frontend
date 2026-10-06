@@ -7,6 +7,8 @@
   import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
   import ZappersListModal from './ZappersListModal.svelte';
   import { canOneTapZap, sendOneTapZap, getOneTapAmount } from '$lib/oneTapZap';
+  import { showToast } from '$lib/toast';
+  import { PENDING_MESSAGE } from '$lib/wallet/paymentOutcome';
   import CustomAvatar from './CustomAvatar.svelte';
 
   export let event: NDKEvent;
@@ -219,12 +221,18 @@
           navigator.vibrate(200); // Longer single vibration for error
         }
         console.log('[NoteTotalZaps] One-tap zap failed:', result.error);
-        // If zap failed, we need to revert the optimistic update
-        // Refresh to get accurate counts (this will revert the optimistic update)
+        // The optimistic update was reverted inside sendOneTapZap; refresh
+        // to get accurate counts.
         fetchEngagement($ndk, event, $userPublickey);
 
-        if (onZapClick) {
-          // Fall back to modal if one-tap fails
+        if (result.status === 'pending') {
+          // May still go through: never offer another way to pay.
+          showToast('info', `${PENDING_MESSAGE}.`, 8000);
+        } else if (result.status === 'unavailable' || result.status === 'failed') {
+          showToast('error', result.error || 'Zap failed', 8000);
+        } else if (onZapClick) {
+          // Failed before any payment (no Lightning address, LNURL down):
+          // the modal explains it and offers a retry.
           onZapClick();
         }
       }
