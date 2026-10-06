@@ -22,10 +22,6 @@
   let showAutocomplete = false;
   let inputFocused = false;
 
-  // @handle / npub queries are unambiguous user lookups — pin Users to
-  // the top of the dropdown for them (otherwise Users sits below Posts).
-  $: looksLikeUserQuery =
-    /^@[a-z0-9-_.]{1,30}$/i.test(tagquery.trim()) || /^npub1[a-z0-9]+$/i.test(tagquery.trim());
   let inputEl: HTMLInputElement;
 
   // Auto-focus on mount for mobile overlays where HTML autofocus is unreliable
@@ -587,8 +583,16 @@
   </form>
 
   {#if showAutocomplete && (searchResults.note || searchResults.tags.length > 0 || searchResults.recipes.length > 0 || searchResults.posts.length > 0 || searchResults.users.length > 0 || isSearching)}
+    <!--
+      Section order: Users and Tags first. Typing a name is a people
+      lookup first; post full-text matches buried the user rows — and on
+      mobile, an iOS Safari bug (backdrop-filter on the header ancestor
+      breaks touch scrolling inside this dropdown) made anything below
+      the fold unreachable. Rows are capped so the priority sections fit
+      without scrolling.
+    -->
     <ul
-      class="max-h-[320px] overflow-y-auto absolute top-full left-0 w-full bg-input border shadow-lg rounded-xl mt-1 z-[60]"
+      class="search-ac-list max-h-[320px] overflow-y-auto absolute top-full left-0 w-full bg-input border shadow-lg rounded-xl mt-1 z-[60]"
       style="border-color: var(--color-input-border); color: var(--color-text-primary);"
     >
       {#if searchResults.note}
@@ -608,6 +612,28 @@
           <span class="text-xs text-caption font-mono">{searchResults.note.id.slice(0, 24)}...</span
           >
         </li>
+      {/if}
+
+      {#if searchResults.users.length > 0}
+        <li
+          class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b"
+          style="border-color: var(--color-input-border)"
+        >
+          👤 Users
+        </li>
+        {#each searchResults.users.slice(0, 5) as user (user.npub)}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+          <li
+            on:click={() => selectUser(user.npub)}
+            class="cursor-pointer px-3 py-2 hover:bg-accent-gray flex items-center gap-2"
+          >
+            {#if user.picture}
+              <img src={user.picture} alt="" class="w-6 h-6 rounded-full object-cover" />
+            {/if}
+            {user.name}
+          </li>
+        {/each}
       {/if}
 
       {#if searchResults.tags.length > 0}
@@ -635,9 +661,9 @@
           class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t"
           style="border-color: var(--color-input-border)"
         >
-          📖 Recipes
+          🍳 Recipes
         </li>
-        {#each searchResults.recipes as recipe (recipe.naddr)}
+        {#each searchResults.recipes.slice(0, 3) as recipe (recipe.naddr)}
           <!-- svelte-ignore a11y-click-events-have-key-events -->
           <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
           <li
@@ -649,31 +675,6 @@
         {/each}
       {/if}
 
-      <!-- Users rank above posts — typing a name is the most common
-           lookup, and post matches buried the user rows before. Explicit
-           @-handles and npubs pin users to the very top. -->
-      {#if searchResults.users.length > 0 && looksLikeUserQuery}
-        <li
-          class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b"
-          style="border-color: var(--color-input-border)"
-        >
-          👤 Users
-        </li>
-        {#each searchResults.users as user (user.npub)}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-          <li
-            on:click={() => selectUser(user.npub)}
-            class="cursor-pointer px-3 py-2 hover:bg-accent-gray flex items-center gap-2"
-          >
-            {#if user.picture}
-              <img src={user.picture} alt="" class="w-6 h-6 rounded-full object-cover" />
-            {/if}
-            {user.name}
-          </li>
-        {/each}
-      {/if}
-
       {#if searchResults.posts.length > 0}
         <li
           class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t"
@@ -681,7 +682,7 @@
         >
           💬 Posts
         </li>
-        {#each searchResults.posts as post (post.id)}
+        {#each searchResults.posts.slice(0, 3) as post (post.id)}
           <!-- svelte-ignore a11y-click-events-have-key-events -->
           <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
           <li
@@ -689,28 +690,6 @@
             class="cursor-pointer px-3 py-2 hover:bg-accent-gray"
           >
             <span class="text-sm line-clamp-2">{post.content}</span>
-          </li>
-        {/each}
-      {/if}
-
-      {#if searchResults.users.length > 0 && !looksLikeUserQuery}
-        <li
-          class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t"
-          style="border-color: var(--color-input-border)"
-        >
-          👤 Users
-        </li>
-        {#each searchResults.users as user (user.npub)}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-          <li
-            on:click={() => selectUser(user.npub)}
-            class="cursor-pointer px-3 py-2 hover:bg-accent-gray flex items-center gap-2"
-          >
-            {#if user.picture}
-              <img src={user.picture} alt="" class="w-6 h-6 rounded-full object-cover" />
-            {/if}
-            {user.name}
           </li>
         {/each}
       {/if}
@@ -735,3 +714,16 @@
     </ul>
   {/if}
 </div>
+
+<style>
+  /* Touch scrolling inside this dropdown is dead on iOS Safari: the
+     header ancestor carries backdrop-filter, which breaks touch scrolling
+     for positioned descendants. These properties restore the pan gesture;
+     the row caps above keep the priority sections fitting without needing
+     it at all. */
+  .search-ac-list {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+</style>
