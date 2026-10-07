@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { ndk, userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { NDKFilter, NDKUser, NDKUserProfile } from '@nostr-dev-kit/ndk';
@@ -421,7 +422,7 @@
       contactEvent.content = freshFollowContent; // Preserve relay configuration
       contactEvent.tags = newFollowTags; // Preserve full tag structure
 
-      await contactEvent.publish();
+      await contactEvent.publish(await outboxRelaySet(contactEvent, 'list'));
 
       // Update local state
       currentFollowTags = newFollowTags;

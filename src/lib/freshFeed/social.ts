@@ -1,3 +1,4 @@
+import { outboxRelaySet } from '$lib/outboxPublish';
 import { writable, get, type Readable } from 'svelte/store';
 import type NDK from '@nostr-dev-kit/ndk';
 import { NDKEvent, type NDKFilter } from '@nostr-dev-kit/ndk';
@@ -60,7 +61,7 @@ export async function setFollowing(ndk: NDK, me: string, hex: string, follow: bo
     ev.kind = 3;
     ev.content = existing?.content ?? '';
     ev.tags = tags;
-    await ev.publish();
+    await ev.publish(await outboxRelaySet(ev, 'list'));
   }
   const set = new Set((tags ?? existing?.tags ?? []).filter((t) => t[0] === 'p').map((t) => t[1]));
   followingOwner = me;
@@ -124,7 +125,7 @@ export async function setBookmarked(ndk: NDK, me: string, ref: string[], add: bo
     // Private bookmarks live encrypted in content: keep them as they are.
     ev.content = existing?.content ?? '';
     ev.tags = tags;
-    await ev.publish();
+    await ev.publish(await outboxRelaySet(ev, 'list'));
   }
   bookmarksOwner = me;
   bookmarksStore.set(tags ?? existing?.tags ?? []);

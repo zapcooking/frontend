@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -404,7 +405,7 @@
       addClientTagToEvent(newEvent);
 
       // Publish with timeout
-      const publishPromise = newEvent.publish();
+      const publishPromise = newEvent.publish(await outboxRelaySet(newEvent, 'list'));
       const timeoutPromise = new Promise<never>((_, reject) => 
         setTimeout(() => reject(new Error('Publish timeout after 10 seconds')), 10000)
       );
@@ -521,7 +522,7 @@
       const { addClientTagToEvent } = await import('$lib/nip89');
       addClientTagToEvent(newEvent);
 
-      await newEvent.publish();
+      await newEvent.publish(await outboxRelaySet(newEvent, 'list'));
       event = newEvent;
       closeEditModal();
     } catch (err) {
@@ -588,7 +589,7 @@
       const { addClientTagToEvent } = await import('$lib/nip89');
       addClientTagToEvent(newEvent);
 
-      await newEvent.publish();
+      await newEvent.publish(await outboxRelaySet(newEvent, 'list'));
       event = newEvent;
       
       // Reload to reflect changes
@@ -624,7 +625,7 @@
         ['a', `30001:${event.pubkey}:${event.tags.find(t => t[0] === 'd')?.[1]}`]
       ];
 
-      await deleteEvent.publish();
+      await deleteEvent.publish(await outboxRelaySet(deleteEvent, 'list'));
       goto('/my-kitchen');
     } catch (err) {
       console.error('Failed to delete list:', err);

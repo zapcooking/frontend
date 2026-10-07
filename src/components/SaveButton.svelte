@@ -8,6 +8,8 @@
    * - Visual feedback when recipe is already saved
    */
   
+  import { outboxRelaySet } from '$lib/outboxPublish';
+  
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -191,7 +193,7 @@
           ['d', DEFAULT_LIST_ID],
           ['title', 'Saved']
         ];
-        await newEvent.publish();
+        await newEvent.publish(await outboxRelaySet(newEvent, 'list'));
 
         defaultList = {
           id: DEFAULT_LIST_ID,
@@ -249,7 +251,7 @@
       const { addClientTagToEvent } = await import('$lib/nip89');
       addClientTagToEvent(newEvent);
 
-      await newEvent.publish();
+      await newEvent.publish(await outboxRelaySet(newEvent, 'list'));
 
       // Update local state
       const index = lists.findIndex(l => l.id === listId);
@@ -301,7 +303,7 @@
       const { addClientTagToEvent } = await import('$lib/nip89');
       addClientTagToEvent(newEvent);
 
-      await newEvent.publish();
+      await newEvent.publish(await outboxRelaySet(newEvent, 'list'));
 
       // Update local state
       const index = lists.findIndex(l => l.id === listId);

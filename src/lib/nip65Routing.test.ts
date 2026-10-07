@@ -29,7 +29,8 @@ import {
   outboxTargetUrls,
   buildInboxAwareRelaySet,
   zapReceiptRelayUrls,
-  resolveAuthorPubkey
+  resolveAuthorPubkey,
+  outboxRelaySet
 } from './nip65Routing';
 
 const event = (tags: string[][], pubkey = ME) => ({ tags, pubkey }) as never;
@@ -127,9 +128,25 @@ describe('the author of an unsigned event', () => {
     expect(got[0]).toBe('wss://pyramid.fiatjaf.com');
   });
 
-  it('activeUser wins; no signer and no activeUser is undefined', async () => {
+  it('prefers the current signer over a stale activeUser after switching accounts', async () => {
     const ndk = { activeUser: { pubkey: THEM }, signer: { user: async () => ({ pubkey: ME }) } };
-    expect(await resolveAuthorPubkey(ndk as never)).toBe(THEM);
+    expect(await resolveAuthorPubkey(ndk as never)).toBe(ME);
+
+    const got: string[] = [];
+    await buildInboxAwareRelaySet({
+      event: event([], ''),
+      ndk: {
+        ...ndk,
+        pool: { getRelay: (url: string) => (got.push(url), { url, connect: async () => {} }) }
+      } as never,
+      inbox: false
+    });
+    expect(got).toContain('wss://pyramid.fiatjaf.com');
+    expect(got).not.toContain('wss://their-outbox.example');
+  });
+
+  it('falls back to activeUser if there is no signer; neither is undefined', async () => {
+    expect(await resolveAuthorPubkey({ activeUser: { pubkey: THEM } } as never)).toBe(THEM);
     expect(await resolveAuthorPubkey({} as never)).toBeUndefined();
   });
 });
@@ -147,5 +164,43 @@ describe('zap receipt relays (NIP-57 relays tag)', () => {
   it('no relay lists known: the app list', async () => {
     lists.clear();
     expect(await zapReceiptRelayUrls(ME, THEM)).toEqual(['wss://nos.lol', 'wss://relay.damus.io']);
+  });
+});
+
+describe('outboxRelaySet (lists and reposts)', () => {
+  const ndk = {
+    activeUser: { pubkey: ME },
+    pool: { getRelay: (url: string) => ({ url, connect: async () => {} }) }
+  };
+  const withNdk = (tags: string[][]) => ({ tags, pubkey: '', ndk }) as never;
+
+  it('a list: own write relays and the app list; its p tags are entries, not recipients', async () => {
+    await outboxRelaySet(
+      withNdk([
+        ['p', THEM],
+        ['p', 'c'.repeat(64)]
+      ]),
+      'list'
+    );
+    expect(relaySets[0]).toEqual([
+      'wss://pyramid.fiatjaf.com',
+      'wss://nos.lol',
+      'wss://relay.damus.io'
+    ]);
+  });
+
+  it('a repost: also the original author’s read relays', async () => {
+    await outboxRelaySet(
+      withNdk([
+        ['e', 'x'],
+        ['p', THEM]
+      ]),
+      'engagement'
+    );
+    expect(relaySets[0]).toContain('wss://relay.primal.net');
+  });
+
+  it('no ndk on the event: undefined (NDK’s default pool)', async () => {
+    expect(await outboxRelaySet({ tags: [] } as never, 'list')).toBeUndefined();
   });
 });

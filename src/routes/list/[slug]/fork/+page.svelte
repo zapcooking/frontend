@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -135,7 +136,7 @@
           items: $items
         })
       );
-      await nevent.publish();
+      await nevent.publish(await outboxRelaySet(nevent, 'list'));
       resultMessage = 'Success!';
       let naddr = nip19.naddrEncode({
         identifier: listIdentifier(title),

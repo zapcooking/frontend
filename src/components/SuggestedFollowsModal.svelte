@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { ndk, ensureNdkConnected } from '$lib/nostr';
@@ -197,7 +198,7 @@
       contactEvent.content = existingContent;
       contactEvent.tags = [...otherTags, ...Array.from(mergedPubkeys).map((pk) => ['p', pk])];
 
-      await contactEvent.publish();
+      await contactEvent.publish(await outboxRelaySet(contactEvent, 'list'));
     } catch (error) {
       console.error('Error publishing follow list:', error);
     } finally {

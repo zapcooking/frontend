@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -79,7 +80,7 @@
       await repostEvent.sign();
       console.log('Repost event signed:', repostEvent.id);
 
-      await repostEvent.publish();
+      await repostEvent.publish(await outboxRelaySet(repostEvent, 'engagement'));
       console.log('Successfully reposted');
 
       // Secondary protection — mark by event id AFTER publish succeeds so the

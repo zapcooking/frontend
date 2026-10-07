@@ -103,33 +103,38 @@ export async function getOwnWriteRelays(pubkey: string | undefined): Promise<str
  * relays, then recipient inbox relays, then the app's relay list, capped.
  * A NIP-29 group event (an `h` tag) stays on pantry.
  */
-export async function outboxTargetUrls(event: NDKEvent, author?: string): Promise<string[]> {
+export async function outboxTargetUrls(
+  event: NDKEvent,
+  author?: string,
+  inbox = true
+): Promise<string[]> {
   if (isGroupEvent(event.tags)) return [PANTRY_URL];
   const { getCurrentRelays } = await import('$lib/nostr');
   const me = event.pubkey || author;
   const [own, recipients] = await Promise.all([
     getOwnWriteRelays(me),
-    getRecipientInboxRelays(event, me)
+    inbox ? getRecipientInboxRelays(event, me) : Promise.resolve([] as string[])
   ]);
   return outboxRelayUrls({ own, recipients, app: getCurrentRelays() });
 }
 
 /**
- * The signed-in user's pubkey. `ndk.activeUser` is set only by some login
- * paths (NIP-07, nsec and passkey logins set just `ndk.signer`), so ask the
- * signer when it's missing. Undefined when neither knows.
+ * The signed-in user's pubkey. Prefer the signer because `ndk.activeUser`
+ * can be stale after switching accounts; fall back to it when no signer
+ * user is available. Undefined when neither knows.
  */
 export async function resolveAuthorPubkey(ndk: NDK): Promise<string | undefined> {
   const n = ndk as unknown as {
     activeUser?: { pubkey?: string };
     signer?: { user: () => Promise<{ pubkey?: string }> };
   };
-  if (n.activeUser?.pubkey) return n.activeUser.pubkey;
   try {
-    return (await n.signer?.user())?.pubkey || undefined;
+    const pubkey = (await n.signer?.user())?.pubkey;
+    if (pubkey) return pubkey;
   } catch {
-    return undefined;
+    // Fall back to activeUser when the current signer cannot resolve its user.
   }
+  return n.activeUser?.pubkey;
 }
 
 /**
@@ -198,6 +203,8 @@ export async function buildInboxAwareRelaySet(opts: {
   event: NDKEvent;
   ndk: NDK;
   baseUrls?: string[];
+  /** false: no recipient inboxes (lists: their `p` tags aren't recipients). */
+  inbox?: boolean;
 }): Promise<NDKRelaySet | null> {
   const { event, ndk } = opts;
 
@@ -206,7 +213,7 @@ export async function buildInboxAwareRelaySet(opts: {
   const author = event.pubkey || (await resolveAuthorPubkey(ndk));
   const targetUrls = opts.baseUrls
     ? await unionInboxRelayUrls(event, opts.baseUrls)
-    : await outboxTargetUrls(event, author);
+    : await outboxTargetUrls(event, author, opts.inbox ?? true);
   if (targetUrls.length === 0) return null;
 
   const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
@@ -237,4 +244,32 @@ export async function buildInboxAwareRelaySet(opts: {
   await new Promise((resolve) => setTimeout(resolve, 100));
 
   return new NDKRelaySet(new Set(relays), ndk);
+}
+
+/**
+ * The relay set for publishing something the reader authored, by the
+ * outbox rule, for `event.publish(...)`. `undefined` (NDK's default: the
+ * connected pool) only when no relay could be resolved.
+ *
+ * - `kind: 'list'` — follow, mute, bookmark and cookbook lists (and their
+ *   deletions): the reader's own write relays and the app's relay list.
+ *   Their `p` tags are list entries, not recipients, so no inbox fan-out
+ *   (a follow list would otherwise reach every followed person's inbox).
+ * - `kind: 'engagement'` — reposts and the like: also the recipients' read
+ *   relays, as for reactions and comments.
+ */
+export async function outboxRelaySet(
+  event: NDKEvent,
+  kind: 'list' | 'engagement'
+): Promise<NDKRelaySet | undefined> {
+  const ndk = event.ndk;
+  if (!ndk) return undefined;
+  try {
+    return (
+      (await buildInboxAwareRelaySet({ event, ndk, inbox: kind === 'engagement' })) ?? undefined
+    );
+  } catch (e) {
+    console.warn('[nip65Routing] outbox relay set failed, using the pool:', e);
+    return undefined;
+  }
 }
