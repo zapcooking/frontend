@@ -30,7 +30,8 @@ import {
   buildInboxAwareRelaySet,
   zapReceiptRelayUrls,
   resolveAuthorPubkey,
-  outboxRelaySet
+  outboxRelaySet,
+  waitForConnected
 } from './nip65Routing';
 
 const event = (tags: string[][], pubkey = ME) => ({ tags, pubkey }) as never;
@@ -202,5 +203,70 @@ describe('outboxRelaySet (lists and reposts)', () => {
 
   it('no ndk on the event: undefined (NDK’s default pool)', async () => {
     expect(await outboxRelaySet({ tags: [] } as never, 'list')).toBeUndefined();
+  });
+});
+
+describe('waitForConnected (publish waits for the chosen relays)', () => {
+  const relay = (status: number) => {
+    const ls = new Set<() => void>();
+    return {
+      status,
+      once: (_e: 'connect', fn: () => void) => ls.add(fn),
+      removeListener: (_e: 'connect', fn: () => void) => ls.delete(fn),
+      open() {
+        this.status = 5;
+        for (const f of [...ls]) {
+          ls.delete(f);
+          f();
+        }
+      },
+      listeners: () => ls.size
+    };
+  };
+
+  it('resolves at once when every relay is already connected', async () => {
+    vi.useFakeTimers();
+    try {
+      let done = false;
+      waitForConnected([relay(5), relay(6)], 4000).then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(done).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for a slow relay (3 s, past NDK’s 2.5 s publish wait) and resolves when it opens', async () => {
+    vi.useFakeTimers();
+    try {
+      const fast = relay(5);
+      const slow = relay(4);
+      let done = false;
+      waitForConnected([fast, slow], 4000).then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(done).toBe(false);
+      slow.open();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(done).toBe(true);
+      expect(slow.listeners()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up after maxMs on a relay that never connects, and removes its listener', async () => {
+    vi.useFakeTimers();
+    try {
+      const dead = relay(1);
+      let done = false;
+      waitForConnected([dead], 4000).then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(3999);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(done).toBe(true);
+      expect(dead.listeners()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

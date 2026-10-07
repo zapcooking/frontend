@@ -83,6 +83,46 @@ export async function getRecipientInboxRelays(event: NDKEvent, author?: string):
   }
 }
 
+/** How long a publish waits for its chosen relays to finish connecting. */
+export const CONNECT_WAIT_MS = 4000;
+
+/** NDK's relay status for an open connection (NDKRelayStatus.CONNECTED and above). */
+const RELAY_CONNECTED = 5;
+
+/** What waitForConnected needs from an NDKRelay. */
+export interface ConnectableRelay {
+  status: number;
+  once(event: 'connect', fn: () => void): unknown;
+  removeListener(event: 'connect', fn: () => void): unknown;
+}
+
+/**
+ * Resolves once every relay is connected, or after `maxMs`, whichever comes
+ * first (already-connected relays don't wait). Never rejects.
+ */
+export function waitForConnected(relays: ConnectableRelay[], maxMs: number): Promise<void> {
+  const pending = relays.filter((r) => r.status < RELAY_CONNECTED);
+  if (pending.length === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    let left = pending.length;
+    const handlers: [ConnectableRelay, () => void][] = [];
+    const done = () => {
+      clearTimeout(timer);
+      for (const [r, h] of handlers) r.removeListener('connect', h);
+      resolve();
+    };
+    const timer = setTimeout(done, maxMs);
+    for (const r of pending) {
+      const h = () => {
+        left -= 1;
+        if (left === 0) done();
+      };
+      handlers.push([r, h]);
+      r.once('connect', h);
+    }
+  });
+}
+
 /** Race a lookup against INBOX_LOOKUP_TIMEOUT_MS; `fallback` on timeout or error. */
 function bounded<T>(p: Promise<T>, fallback: T): Promise<T> {
   return Promise.race([
@@ -233,15 +273,16 @@ export async function buildInboxAwareRelaySet(opts: {
 
   if (relays.length === 0) return null;
 
-  // Best-effort parallel connect; failures are tolerated because the
-  // NDKRelaySet publish path will skip relays that aren't ready and we
-  // just want fast-quorum confirmation, not strict all-relay delivery.
-  await Promise.all(
-    relays.map((r) =>
-      (r as unknown as { connect: () => Promise<unknown> }).connect().catch(() => {})
-    )
-  );
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  // Start every connection, then wait (bounded) until they're open. NDK's
+  // connect() returns before the socket opens, and its publish waits only
+  // 2.5 s for a relay that isn't connected yet before dropping it, so a
+  // slower relay (pyramid, an AUTH-heavy one) missed likes published while
+  // it was still connecting. A relay that fails or takes longer than
+  // CONNECT_WAIT_MS is left to NDK as before: best effort, not strict.
+  for (const r of relays) {
+    (r as unknown as { connect: () => Promise<unknown> }).connect().catch(() => {});
+  }
+  await waitForConnected(relays as unknown as ConnectableRelay[], CONNECT_WAIT_MS);
 
   return new NDKRelaySet(new Set(relays), ndk);
 }
