@@ -29,7 +29,8 @@ import {
   outboxTargetUrls,
   buildInboxAwareRelaySet,
   zapReceiptRelayUrls,
-  resolveAuthorPubkey
+  resolveAuthorPubkey,
+  outboxRelaySet
 } from './nip65Routing';
 
 const event = (tags: string[][], pubkey = ME) => ({ tags, pubkey }) as never;
@@ -147,5 +148,43 @@ describe('zap receipt relays (NIP-57 relays tag)', () => {
   it('no relay lists known: the app list', async () => {
     lists.clear();
     expect(await zapReceiptRelayUrls(ME, THEM)).toEqual(['wss://nos.lol', 'wss://relay.damus.io']);
+  });
+});
+
+describe('outboxRelaySet (lists and reposts)', () => {
+  const ndk = {
+    activeUser: { pubkey: ME },
+    pool: { getRelay: (url: string) => ({ url, connect: async () => {} }) }
+  };
+  const withNdk = (tags: string[][]) => ({ tags, pubkey: '', ndk }) as never;
+
+  it('a list: own write relays and the app list; its p tags are entries, not recipients', async () => {
+    await outboxRelaySet(
+      withNdk([
+        ['p', THEM],
+        ['p', 'c'.repeat(64)]
+      ]),
+      'list'
+    );
+    expect(relaySets[0]).toEqual([
+      'wss://pyramid.fiatjaf.com',
+      'wss://nos.lol',
+      'wss://relay.damus.io'
+    ]);
+  });
+
+  it('a repost: also the original author’s read relays', async () => {
+    await outboxRelaySet(
+      withNdk([
+        ['e', 'x'],
+        ['p', THEM]
+      ]),
+      'engagement'
+    );
+    expect(relaySets[0]).toContain('wss://relay.primal.net');
+  });
+
+  it('no ndk on the event: undefined (NDK’s default pool)', async () => {
+    expect(await outboxRelaySet({ tags: [] } as never, 'list')).toBeUndefined();
   });
 });

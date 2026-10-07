@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import UserPlusIcon from 'phosphor-svelte/lib/UserPlus';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -52,7 +53,7 @@
       contactEvent.content = existingContent;
       contactEvent.tags = [...otherTags, ...Array.from(followed).map((pk) => ['p', pk])];
 
-      await contactEvent.publish();
+      await contactEvent.publish(await outboxRelaySet(contactEvent, 'list'));
       justFollowed = true;
     } catch (error) {
       console.error('[FollowButton] Failed to follow:', error);

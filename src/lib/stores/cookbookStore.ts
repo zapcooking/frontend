@@ -8,6 +8,7 @@
  * Changes are persisted locally and queued for sync when offline.
  */
 
+import { outboxRelaySet } from '$lib/outboxPublish';
 import { writable, derived, get } from 'svelte/store';
 import { ndk, userPublickey, ensureNdkConnected } from '$lib/nostr';
 import { NDKEvent, type NDKFilter, type NDKSubscription } from '@nostr-dev-kit/ndk';
@@ -161,7 +162,7 @@ function createCookbookStore() {
         
         const { addClientTagToEvent } = await import('$lib/nip89');
         addClientTagToEvent(event);
-        await event.publish();
+        await event.publish(await outboxRelaySet(event, 'list'));
         break;
       }
       
@@ -170,7 +171,7 @@ function createCookbookStore() {
         const event = rebuildListEvent(list, ndkInstance);
         const { addClientTagToEvent } = await import('$lib/nip89');
         addClientTagToEvent(event);
-        await event.publish();
+        await event.publish(await outboxRelaySet(event, 'list'));
         break;
       }
       
@@ -179,7 +180,7 @@ function createCookbookStore() {
         const event = rebuildListEvent(list, ndkInstance);
         const { addClientTagToEvent } = await import('$lib/nip89');
         addClientTagToEvent(event);
-        await event.publish();
+        await event.publish(await outboxRelaySet(event, 'list'));
         break;
       }
       
@@ -188,7 +189,7 @@ function createCookbookStore() {
         const event = rebuildListEvent(list, ndkInstance);
         const { addClientTagToEvent } = await import('$lib/nip89');
         addClientTagToEvent(event);
-        await event.publish();
+        await event.publish(await outboxRelaySet(event, 'list'));
         break;
       }
       
@@ -197,7 +198,7 @@ function createCookbookStore() {
         const event = rebuildListEvent(list, ndkInstance);
         const { addClientTagToEvent } = await import('$lib/nip89');
         addClientTagToEvent(event);
-        await event.publish();
+        await event.publish(await outboxRelaySet(event, 'list'));
         break;
       }
       
@@ -208,7 +209,7 @@ function createCookbookStore() {
           ['e', op.payload.eventId],
           ['a', `30001:${pubkey}:${op.listId}`]
         ];
-        await deleteEvent.publish();
+        await deleteEvent.publish(await outboxRelaySet(deleteEvent, 'list'));
         break;
       }
     }
@@ -573,7 +574,7 @@ function createCookbookStore() {
         try {
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
-          await event.publish();
+          await event.publish(await outboxRelaySet(event, 'list'));
           
           // Mark as synced
           await offlineStorage.markCookbookSynced(identifier, pubkey);
@@ -684,7 +685,7 @@ function createCookbookStore() {
       await persistLocally(newList, pubkey, false);
 
       try {
-        await event.publish();
+        await event.publish(await outboxRelaySet(event, 'list'));
         await offlineStorage.markCookbookSynced(DEFAULT_LIST_ID, pubkey);
         update(s => ({
           ...s,
@@ -764,7 +765,7 @@ function createCookbookStore() {
 
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
-          await event.publish();
+          await event.publish(await outboxRelaySet(event, 'list'));
 
           // Update with synced event
           update(s => ({
@@ -845,7 +846,7 @@ function createCookbookStore() {
 
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
-          await event.publish();
+          await event.publish(await outboxRelaySet(event, 'list'));
 
           update(s => ({
             ...s,
@@ -941,7 +942,7 @@ function createCookbookStore() {
 
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
-          await event.publish();
+          await event.publish(await outboxRelaySet(event, 'list'));
 
           update(s => ({
             ...s,
@@ -1070,7 +1071,7 @@ function createCookbookStore() {
 
           if (!event.sig) await event.sign();
 
-          const publishPromise = event.publish();
+          const publishPromise = event.publish(await outboxRelaySet(event, 'list'));
           const timeoutPromise = new Promise<never>((_, reject) => 
             setTimeout(() => reject(new Error('Publish timeout after 10 seconds')), 10000)
           );
@@ -1159,7 +1160,7 @@ function createCookbookStore() {
 
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
-          await event.publish();
+          await event.publish(await outboxRelaySet(event, 'list'));
 
           update(s => ({
             ...s,
@@ -1211,7 +1212,7 @@ function createCookbookStore() {
             ['e', list.event.id],
             ['a', `30001:${list.event.pubkey}:${listId}`]
           ];
-          await deleteEvent.publish();
+          await deleteEvent.publish(await outboxRelaySet(deleteEvent, 'list'));
         } catch (error) {
           console.error('[CookbookStore] Failed to publish delete:', error);
           await offlineStorage.queueOperation('delete_list', listId, { eventId: list.event.id });

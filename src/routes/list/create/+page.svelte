@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -34,7 +35,7 @@
       if ($images.length === 1) {
         event.tags.push(['image', $images[0]]);
       }
-      let relays = await event.publish();
+      let relays = await event.publish(await outboxRelaySet(event, 'list'));
       relays.forEach((relay) => {
         relay.once('published', () => {
           console.log('published to', relay);

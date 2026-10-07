@@ -12,6 +12,7 @@
    * Self-sufficient on purpose: it resolves profile, follow and mute state
    * from a pubkey, so opening it from a feed costs the caller one prop.
    */
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { get } from 'svelte/store';
@@ -170,7 +171,7 @@
       contactEvent.kind = 3;
       contactEvent.content = existing?.content ?? '';
       contactEvent.tags = tags;
-      await contactEvent.publish();
+      await contactEvent.publish(await outboxRelaySet(contactEvent, 'list'));
       isFollowing = !isFollowing;
     } catch (err) {
       console.warn('[ProfileSheet] follow toggle failed:', err);
