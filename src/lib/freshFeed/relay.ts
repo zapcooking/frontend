@@ -57,6 +57,7 @@ export interface Filter {
   authors?: string[];
   search?: string;
   '#t'?: string[];
+  '#e'?: string[];
 }
 
 /** What the client needs from a relay connection (nostr-tools `Relay`). */
@@ -103,6 +104,17 @@ export type PageState =
   | 'unavailable'; // couldn't connect, timed out, or closed for another reason
 
 export type PageEnd = 'more' | 'floor' | 'exhausted';
+
+/** The feed relay's topic labeler: its kind-1985 events are the only labels trusted. */
+export const LABELER_PUBKEY = 'b67456993123c38852a12376437c4dcce92c2bbfda894f53e95b9af4b2ff9c1d';
+
+/** Label events are fetched for this many posts per request. */
+export const LABEL_BATCH = 100;
+
+/** A history page: posts plus the labeler's kind-1985 events for them. */
+export interface HistoryResult extends PageResult {
+  labels: RelayEvent[];
+}
 
 export interface PageResult {
   state: PageState;
@@ -347,6 +359,58 @@ export class FreshClient {
     const oldest = fresh.length ? fresh[fresh.length - 1].created_at : until;
     const end: PageEnd = res.events.length < limit || fresh.length === 0 ? 'exhausted' : 'more';
     return { state: 'ok', events: fresh, end, nextUntil: oldest };
+  }
+
+  /**
+   * Members: posts in [since, until] (inclusive), newest first, one page of
+   * up to `limit`, with the relay labeler's topic labels for them (kind
+   * 1985, `#e` in batches). For the archive views ($lib/freshFeed/archive),
+   * which page within the window with `until` = the previous `nextUntil`
+   * (inclusive; skip ids already shown).
+   *
+   * `authedOnly`: only if this connection is already logged in, never
+   * asking the signer (for a card that loads on its own). Non-members get
+   * 'auth-required' without a request being sent.
+   */
+  async history(
+    since: number,
+    until: number,
+    opts: { authedOnly?: boolean; limit?: number } = {}
+  ): Promise<HistoryResult> {
+    const limit = opts.limit ?? MAX_LIMIT;
+    let relay: RelayLike;
+    try {
+      relay = await this.connection();
+    } catch (err) {
+      return { state: 'unavailable', events: [], labels: [], reason: String(err) };
+    }
+    let member = this.member() || (this.login?.authed(relay) ?? false);
+    if (!member && this.login && !opts.authedOnly) member = await this.login.access(relay);
+    if (!member) return { state: 'auth-required', events: [], labels: [] };
+    const res = await this.query({ kinds: FRESH_KINDS, since, until, limit });
+    if (res.state !== 'ok') return { ...this.closed(res, true), labels: [] };
+    const events = res.events.sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? -1 : 1));
+    const labels: RelayEvent[] = [];
+    for (let i = 0; i < events.length; i += LABEL_BATCH) {
+      const ids = events.slice(i, i + LABEL_BATCH).map((e) => e.id);
+      const l = await this.query({
+        kinds: [1985],
+        authors: [LABELER_PUBKEY],
+        '#e': ids,
+        limit: ids.length * 2
+      });
+      if (l.state !== 'ok') return { ...this.closed(l, true), labels: [] };
+      labels.push(...l.events);
+    }
+    const oldest = events.length ? events[events.length - 1].created_at : since;
+    return {
+      state: 'ok',
+      events,
+      labels,
+      // A full page: more posts in the window, older than (or at) `oldest`.
+      end: events.length >= limit ? 'more' : 'exhausted',
+      nextUntil: oldest
+    };
   }
 
   /** A close while logged in as a member: `restricted:` means not a member. */
