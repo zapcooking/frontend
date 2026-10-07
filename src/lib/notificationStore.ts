@@ -215,21 +215,35 @@ function ownNoteIdsFor(pubkey: string): Set<string> {
   return ids;
 }
 
-async function loadOwnNoteIds(ndk: NDK, pubkey: string): Promise<Set<string>> {
+/** created_at of the newest own note loaded, per pubkey (refresh cursor). */
+const ownNoteNewestAt = new Map<string, number>();
+
+/**
+ * Load (first call) or refresh (later calls) the recent own-note ids. Every
+ * filter rebuild calls this, so a note published this session joins the set
+ * by the next rebuild. A refresh only asks for notes newer than the newest
+ * one already loaded; concurrent calls share the request in flight.
+ */
+export async function loadOwnNoteIds(ndk: NDK, pubkey: string): Promise<Set<string>> {
   const ids = ownNoteIdsFor(pubkey);
-  if (ids.size > 0) return ids;
   const existing = ownNoteIdsPromises.get(pubkey);
   if (existing) return existing;
   const promise = (async () => {
     try {
+      const newestAt = ownNoteNewestAt.get(pubkey);
       const events = await ndk.fetchEvents(
-        { kinds: [1], authors: [pubkey], limit: 50 },
+        newestAt === undefined
+          ? { kinds: [1], authors: [pubkey], limit: 50 }
+          : { kinds: [1], authors: [pubkey], since: newestAt, limit: 50 },
         { closeOnEose: true, groupable: false }
       );
       const sorted = [...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      let newest = newestAt ?? 0;
       for (const e of sorted.slice(0, 50)) {
         if (e.id) ids.add(e.id);
+        newest = Math.max(newest, e.created_at || 0);
       }
+      ownNoteNewestAt.set(pubkey, newest);
     } catch {
       // Non-fatal: the #p routes still cover the p-tagged majority.
     }

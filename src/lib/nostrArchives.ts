@@ -55,8 +55,11 @@ function pickName(p: { display_name?: string; preferred_name?: string; name?: st
  * Global username search → suggestions. Returns [] on any failure or
  * while cooling down after a rate limit.
  */
-export async function naSuggest(query: string, limit = 8): Promise<NaSuggestion[]> {
-	if (!browser || !query || query.length < 2 || !naAvailable()) return [];
+export async function naSuggest(rawQuery: string, limit = 8): Promise<NaSuggestion[]> {
+	// The index matches the literal query against names: "@oshi" finds
+	// nothing, "oshi" does.
+	const query = (rawQuery || '').trim().replace(/^@+/, '');
+	if (!browser || query.length < 2 || !naAvailable()) return [];
 	try {
 		const resp = await fetch(
 			`${NA_BASE}/v1/search/suggest?q=${encodeURIComponent(query)}&limit=${limit}`,

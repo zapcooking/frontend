@@ -273,19 +273,18 @@
   async function searchUsers(query: string) {
     const thisVersion = ++userSearchVersion;
     try {
-      // Use profileSearchService which leverages Primal Cache API
-      const profiles = await searchProfiles(query, 5);
-
-      // If another search started after this one, discard stale results
-      if (thisVersion !== userSearchVersion) return;
-
-      searchResults.users = profiles.map((profile) => ({
-        name: getDisplayName(profile),
-        npub: profile.npub,
-        picture: profile.picture
-      }));
-
-      searchResults = searchResults;
+      // Paint each index (Primal, Nostr Archives) as it answers, then the
+      // final ranked merge; a newer search discards this one's results.
+      const paintUsers = (profiles: SearchProfile[]) => {
+        if (thisVersion !== userSearchVersion) return;
+        searchResults.users = profiles.map((profile) => ({
+          name: getDisplayName(profile),
+          npub: profile.npub,
+          picture: profile.picture
+        }));
+        searchResults = searchResults;
+      };
+      paintUsers(await searchProfiles(query, 5, { onPartial: paintUsers }));
     } catch (e) {
       // If request was superseded, don't overwrite
       if (thisVersion !== userSearchVersion) return;

@@ -6,8 +6,7 @@
 import { nip19 } from 'nostr-tools';
 import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
-import { searchProfiles } from '$lib/profileSearchService';
-import { naSuggest } from '$lib/nostrArchives';
+import { searchProfiles, type SearchProfile } from '$lib/profileSearchService';
 import { sanitizeHTML } from '$lib/sanitize';
 import {
 	loadFollowListProfiles,
@@ -554,22 +553,26 @@ export class MentionComposerController {
 				const tasks: Promise<void>[] = [];
 
 				if (shouldSearchPrimal) {
+					// Both global name indexes (Primal + Nostr Archives) come
+					// through searchProfiles, which queries each once and
+					// reports each answer as it lands.
+					const mergeProfiles = (profiles: SearchProfile[]) => {
+						for (const profile of profiles) {
+							merge(profile.pubkey, {
+								name:
+									profile.displayName ||
+									profile.name ||
+									profile.nip05?.split('@')[0] ||
+									'Unknown',
+								picture: profile.picture,
+								nip05: profile.nip05
+							});
+						}
+						paint();
+					};
 					tasks.push(
-						searchProfiles(query, 25)
-							.then((primalResults) => {
-								for (const profile of primalResults) {
-									merge(profile.pubkey, {
-										name:
-											profile.displayName ||
-											profile.name ||
-											profile.nip05?.split('@')[0] ||
-											'Unknown',
-										picture: profile.picture,
-										nip05: profile.nip05
-									});
-								}
-								paint();
-							})
+						searchProfiles(query, 25, { onPartial: mergeProfiles })
+							.then(mergeProfiles)
 							.catch(() => {})
 					);
 				}
@@ -604,25 +607,6 @@ export class MentionComposerController {
 							.catch(() => {})
 					);
 				}
-
-				// Second independent index (sidecar's nostrarchives merge):
-				// keeps global name search alive when Primal is down, slow,
-				// or rate-limited. Returns the API's rank order, which puts
-				// the exact name first.
-				tasks.push(
-					naSuggest(query)
-						.then((naResults) => {
-							for (const s of naResults) {
-								merge(s.pubkey, {
-									name: s.name,
-									picture: s.picture || undefined,
-									nip05: s.nip05 || undefined
-								});
-							}
-							paint();
-						})
-						.catch(() => {})
-				);
 
 				await Promise.allSettled(tasks);
 			} finally {
