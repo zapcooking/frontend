@@ -681,25 +681,29 @@
   </div>
 
   {#if missingFields.length > 0}
-    <p class="text-sm text-caption text-right">
+    <p class="text-sm text-caption">
       Still needed: {missingFields.join(', ')}
     </p>
   {/if}
 
+  <!-- The draft status gets its own line: sharing the action row, the
+       message appeared and disappeared as drafts auto-saved and squeezed
+       the Save Draft button into changing shape. -->
+  {#if draftSaveMessage}
+    <p
+      class="text-sm text-right m-0 {currentDraftSyncStatus === 'synced'
+        ? 'text-green-500'
+        : currentDraftSyncStatus === 'error'
+          ? 'text-yellow-500'
+          : currentDraftSyncStatus === 'syncing'
+            ? 'text-blue-500'
+            : 'text-caption'}"
+    >
+      {draftSaveMessage}
+    </p>
+  {/if}
+
   <div class="flex justify-end items-center gap-2">
-    {#if draftSaveMessage}
-      <span
-        class="text-sm {currentDraftSyncStatus === 'synced'
-          ? 'text-green-500'
-          : currentDraftSyncStatus === 'error'
-            ? 'text-yellow-500'
-            : currentDraftSyncStatus === 'syncing'
-              ? 'text-blue-500'
-              : 'text-caption'}"
-      >
-        {draftSaveMessage}
-      </span>
-    {/if}
     <span
       class={resultMessage.includes('Error')
         ? 'text-red-500'
@@ -709,11 +713,15 @@
     >
       {resultMessage}
     </span>
+    <!-- shrink-0 + nowrap: "Save Draft" stays one line whatever text sits
+         beside it. The auto-save status used to share this row and squeeze
+         the button onto two lines as it came and went; it now has its own
+         line above, and the button never shrinks for resultMessage either. -->
     <button
       type="button"
       on:click={handleSaveDraft}
       disabled={isSavingDraft}
-      class="flex items-center gap-2 px-4 py-2.5 rounded-full bg-input hover:bg-accent-gray transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+      class="flex items-center gap-2 px-4 py-2.5 rounded-full bg-input hover:bg-accent-gray transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 whitespace-nowrap"
       title={$draftSyncState.syncAvailable
         ? 'Save draft to local & sync to relays'
         : 'Save draft locally (login with encryption to sync)'}
