@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { FollowSafetyError } from '$lib/followUpdate';
   /**
    * Fresh-only items in a post's "…" menu (PostActionsMenu's `extra` slot):
    * bookmark (notes and articles; recipes use "Save to cookbook"), follow,
@@ -53,7 +54,10 @@
       close();
     } catch (err) {
       console.error(`[Fresh] ${label} failed:`, err);
-      dispatch('error', `Couldn't ${label}. Please try again.`);
+      dispatch(
+        'error',
+        err instanceof FollowSafetyError ? err.message : `Couldn't ${label}. Please try again.`
+      );
     } finally {
       busy = false;
     }

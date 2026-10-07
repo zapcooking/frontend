@@ -12,7 +12,8 @@
    * Self-sufficient on purpose: it resolves profile, follow and mute state
    * from a pubkey, so opening it from a feed costs the caller one prop.
    */
-  import { outboxRelaySet } from '$lib/outboxPublish';
+  import { updateFollows, followErrorMessage } from '$lib/followUpdate';
+  import { showToast } from '$lib/toast';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { get } from 'svelte/store';
@@ -151,30 +152,17 @@
 
     followLoading = true;
     try {
-      // Fetch the latest list before modifying — publishing from stale
-      // local state could wipe follows made from another client.
-      const filter: NDKFilter = { authors: [me], kinds: [3], limit: 1 };
-      const contactEvents = await get(ndk).fetchEvents(filter);
-      const existing = Array.from(contactEvents)[0];
-      let tags: string[][] = existing?.tags.filter((t) => t[0] === 'p') ?? [];
-
-      if (isFollowing) {
-        // Safeguard: never publish an empty list when more existed.
-        const next = tags.filter((t) => t[1] !== hex);
-        if (next.length === 0 && tags.length > 1) return;
-        tags = next;
-      } else {
-        tags = [...tags, ['p', hex]];
-      }
-
-      const contactEvent = new NDKEvent(get(ndk));
-      contactEvent.kind = 3;
-      contactEvent.content = existing?.content ?? '';
-      contactEvent.tags = tags;
-      await contactEvent.publish(await outboxRelaySet(contactEvent, 'list'));
-      isFollowing = !isFollowing;
+      // Safe edit ($lib/followUpdate): the latest list from the reader's
+      // relays, or nothing published.
+      const follows = await updateFollows(
+        get(ndk),
+        me,
+        isFollowing ? { remove: [hex] } : { add: [hex] }
+      );
+      isFollowing = follows.has(hex);
     } catch (err) {
       console.warn('[ProfileSheet] follow toggle failed:', err);
+      showToast('error', followErrorMessage(err));
     } finally {
       followLoading = false;
     }
