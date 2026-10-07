@@ -4,6 +4,7 @@ import {
   FreshClient,
   FRESH_KINDS,
   FREE_WINDOW_SECONDS,
+  LABELER_PUBKEY,
   stateOf,
   type Filter,
   type RelayEvent,
@@ -423,5 +424,34 @@ describe('history (archive views, members)', () => {
     const r = await c.history(500, 1500, { limit: 2 });
     expect(r.end).toBe('more');
     expect(r.nextUntil).toBe(900);
+  });
+});
+
+describe('topicLabels', () => {
+  it('a non-member gets null (not asked) and no request is sent (labels are members-only)', async () => {
+    const relay = new FakeRelay([ev('l1', 1, 1985)]);
+    const { c } = client(relay);
+    expect(await c.topicLabels(['a', 'b'])).toBeNull();
+    expect(relay.filters).toHaveLength(0);
+  });
+
+  it("a member gets the labeler's kind 1985 for the ids", async () => {
+    const relay = new FakeRelay([], (f) =>
+      f.kinds?.includes(1985) ? { events: [ev('l1', 1, 1985)] } : undefined
+    );
+    const { c } = client(relay, { member: true });
+    const labels = await c.topicLabels(['a', 'b']);
+    expect(labels!.map((l) => l.id)).toEqual(['l1']);
+    expect(relay.filters[0]).toMatchObject({
+      kinds: [1985],
+      authors: [LABELER_PUBKEY],
+      '#e': ['a', 'b']
+    });
+  });
+
+  it('a closed request returns what it has instead of failing the card', async () => {
+    const relay = new FakeRelay([], () => ({ close: 'auth-required: members' }));
+    const { c } = client(relay, { member: true });
+    expect(await c.topicLabels(['a'])).toEqual([]);
   });
 });

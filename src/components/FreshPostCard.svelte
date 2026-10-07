@@ -43,6 +43,9 @@
   import CheffyMediaReview from './CheffyMediaReview.svelte';
   import PollDisplay from './PollDisplay.svelte';
   import RecipeCard from './RecipeCard.svelte';
+  import FreshRecipeBox from './FreshRecipeBox.svelte';
+  import FreshRecipeBoxHero from './FreshRecipeBoxHero.svelte';
+  import { recipeBoxData, sharedAgo } from '$lib/freshFeed/recipeBoxCard';
   import ArticleCard from './ArticleCard.svelte';
   import SaveButton from './SaveButton.svelte';
   import NoteReactionPills from './NoteReactionPills.svelte';
@@ -59,8 +62,12 @@
   /** Near the screen: mount engagement. */
   export let visible = false;
   export let expanded = false;
-  /** A line above the card ("From the recipe box"). */
+  /** A line above the card. */
   export let label: string | null = null;
+  /** "From the recipe box": a recipe shown as a recipe card (FreshRecipeBox). */
+  export let box = false;
+  /** The relay's top topic for the recipe-box recipe (members), or null. */
+  export let topic: string | null = null;
   /** Registers this card for lazy engagement loading (the feed's observer). */
   export let lazy: (node: HTMLElement, id: string) => { destroy(): void };
 
@@ -83,6 +90,9 @@
   $: text =
     kind === 'note' ? contentWithoutMedia(quotedId ? safeStrip(raw.content) : raw.content) : '';
   $: article = kind === 'article' ? eventToArticleData(event, true) : null;
+  $: boxData = box && kind === 'recipe' ? recipeBoxData(raw) : null;
+  let heroFailed = false;
+  $: hasHero = !!boxData?.image && !heroFailed;
 
   function safeStrip(content: string): string {
     try {
@@ -128,6 +138,7 @@
 <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role a11y-no-noninteractive-tabindex -->
 <article
   class="fresh-post w-full {kind === 'note' || kind === 'poll' ? 'cursor-pointer' : ''}"
+  class:recipe-box={!!boxData}
   on:click={gotoNote}
   role={kind === 'note' || kind === 'poll' ? 'link' : undefined}
   tabindex={kind === 'note' || kind === 'poll' ? 0 : undefined}
@@ -138,7 +149,10 @@
     }
   }}
 >
-  {#if label}
+  {#if boxData}
+    <span class="box-tab">From the recipe box</span>
+    <FreshRecipeBoxHero data={boxData} bind:failed={heroFailed} />
+  {:else if label}
     <p class="text-xs font-medium mb-3" style="color: var(--color-caption)">{label}</p>
   {/if}
   <div class="flex items-center justify-between mb-3">
@@ -150,7 +164,7 @@
         <AuthorName {event} className="font-semibold text-sm truncate min-w-0" />
         <span class="text-sm flex-shrink-0" style="color: var(--color-caption)">·</span>
         <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
-          {formatTimeAgo(raw.created_at)}
+          {boxData ? sharedAgo(boxData.sharedAt) : formatTimeAgo(raw.created_at)}
         </span>
         <ClientAttribution tags={raw.tags} enableEnrichment={false} />
         <PowBadge id={raw.id} tags={raw.tags} />
@@ -175,7 +189,9 @@
     </div>
   </div>
 
-  {#if kind === 'recipe'}
+  {#if boxData}
+    <FreshRecipeBox data={boxData} {event} {topic} {hasHero} {visible} />
+  {:else if kind === 'recipe'}
     <div class="mb-3">
       <RecipeCard {event} />
     </div>
@@ -333,7 +349,7 @@
         <div class="hover:bg-amber-50/50 rounded-full p-1 transition-colors">
           <NoteTotalZaps {event} onZapClick={() => dispatch('zap', event)} showPills={false} />
         </div>
-        {#if kind === 'recipe'}
+        {#if kind === 'recipe' && !boxData}
           <SaveButton {event} size="sm" variant="ghost" />
         {/if}
       {:else}
@@ -363,6 +379,47 @@
     background-color: var(--color-card-sunken);
     border-radius: 1rem;
     --media-bleed-x: 1.25rem;
+  }
+
+  /* "From the recipe box": a warm, paper-toned index card with a tab. */
+  .fresh-post.recipe-box {
+    --box-paper: #fbf6ec;
+    --box-edge: #ecdfc6;
+    --box-ink: #8a5a2b;
+    --box-chip: #f3e9d6;
+    --box-rule: rgba(176, 132, 82, 0.18);
+    position: relative;
+    margin-top: 1.125rem;
+    background-color: var(--box-paper);
+    border: 1px solid var(--box-edge);
+    box-shadow: 0 1px 2px rgba(120, 84, 40, 0.08);
+  }
+
+  :global(html.dark) .fresh-post.recipe-box {
+    --box-paper: #1f1a14;
+    --box-edge: #3a2f22;
+    --box-ink: #e2b47c;
+    --box-chip: #2b231a;
+    --box-rule: rgba(226, 180, 124, 0.12);
+    box-shadow: none;
+  }
+
+  /* The index-card tab, standing on the card's top edge. */
+  .box-tab {
+    position: absolute;
+    top: -1.125rem;
+    left: 1.25rem;
+    z-index: 1;
+    padding: 0.2rem 0.75rem 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--box-ink);
+    background: var(--box-paper);
+    border: 1px solid var(--box-edge);
+    border-bottom: none;
+    border-radius: 0.5rem 0.5rem 0 0;
   }
 
   .parent-quote-embed {
