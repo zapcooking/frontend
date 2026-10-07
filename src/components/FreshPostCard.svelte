@@ -190,7 +190,7 @@
   </div>
 
   {#if boxData}
-    <FreshRecipeBox data={boxData} {event} {topic} {hasHero} />
+    <FreshRecipeBox data={boxData} {event} {topic} {hasHero} {visible} />
   {:else if kind === 'recipe'}
     <div class="mb-3">
       <RecipeCard {event} />

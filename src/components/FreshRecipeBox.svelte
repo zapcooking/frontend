@@ -20,6 +20,8 @@
   export let topic: string | null = null;
   /** The hero shows the title; without one it goes here. */
   export let hasHero = false;
+  /** Near the screen: mount the save button (it loads the reader's cookbooks). */
+  export let visible = false;
 
   const CHIP_ICONS = { prep: ClockIcon, cook: CookingPotIcon, servings: UsersIcon };
 </script>
@@ -65,15 +67,20 @@
   {#if data.href}
     <a href={data.href} class="box-view">View recipe</a>
   {/if}
-  <SaveButton
-    {event}
-    size="md"
-    variant="secondary"
-    showText={true}
-    block={true}
-    text="Save to cookbook"
-    savedText="Saved"
-  />
+  {#if visible}
+    <SaveButton
+      {event}
+      size="md"
+      variant="secondary"
+      showText={true}
+      block={true}
+      text="Save to cookbook"
+      savedText="Saved"
+    />
+  {:else}
+    <!-- Holds the button's place until the card nears the screen. -->
+    <span class="box-save-placeholder" aria-hidden="true"></span>
+  {/if}
 </div>
 
 <style>
@@ -182,6 +189,14 @@
       grid-template-columns: auto auto;
       justify-content: start;
     }
+  }
+
+  .box-save-placeholder {
+    display: block;
+    height: 2.5rem;
+    min-width: 11rem;
+    border-radius: 999px;
+    background: var(--box-chip);
   }
 
   .box-view {

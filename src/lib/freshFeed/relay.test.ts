@@ -428,10 +428,10 @@ describe('history (archive views, members)', () => {
 });
 
 describe('topicLabels', () => {
-  it('a non-member gets [] and no request is sent (labels are members-only)', async () => {
+  it('a non-member gets null (not asked) and no request is sent (labels are members-only)', async () => {
     const relay = new FakeRelay([ev('l1', 1, 1985)]);
     const { c } = client(relay);
-    expect(await c.topicLabels(['a', 'b'])).toEqual([]);
+    expect(await c.topicLabels(['a', 'b'])).toBeNull();
     expect(relay.filters).toHaveLength(0);
   });
 
@@ -441,7 +441,7 @@ describe('topicLabels', () => {
     );
     const { c } = client(relay, { member: true });
     const labels = await c.topicLabels(['a', 'b']);
-    expect(labels.map((l) => l.id)).toEqual(['l1']);
+    expect(labels!.map((l) => l.id)).toEqual(['l1']);
     expect(relay.filters[0]).toMatchObject({
       kinds: [1985],
       authors: [LABELER_PUBKEY],

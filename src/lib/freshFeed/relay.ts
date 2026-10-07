@@ -427,17 +427,18 @@ export class FreshClient {
   /**
    * The labeler's topic labels (kind 1985) for these events — members only
    * on the relay, so this asks only on a connection that is already a
-   * member's, never prompting the signer; anyone else gets [].
+   * member's, never prompting the signer. null = not asked (not a member
+   * connection yet, or no connection): the caller can ask again later.
    */
-  async topicLabels(ids: string[]): Promise<RelayEvent[]> {
+  async topicLabels(ids: string[]): Promise<RelayEvent[] | null> {
     if (ids.length === 0) return [];
     let relay: RelayLike;
     try {
       relay = await this.connection();
     } catch {
-      return [];
+      return null;
     }
-    if (!this.member() && !(this.login?.authed(relay) ?? false)) return [];
+    if (!this.member() && !(this.login?.authed(relay) ?? false)) return null;
     const labels: RelayEvent[] = [];
     for (let i = 0; i < ids.length; i += LABEL_BATCH) {
       const batch = ids.slice(i, i + LABEL_BATCH);

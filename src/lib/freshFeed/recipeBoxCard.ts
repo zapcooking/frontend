@@ -1,5 +1,5 @@
 import { nip19 } from 'nostr-tools';
-import { extractRecipeDetails, parseMarkdownForEditing } from '$lib/parser';
+import { extractRecipeDetails, parseMarkdownForEditing, type RecipeDetails } from '$lib/parser';
 import { publishedAt } from './posts';
 import { TOPIC_NAMESPACE } from './archive';
 import { LABELER_PUBKEY, type RelayEvent } from './relay';
@@ -66,24 +66,39 @@ export function recipeBoxData(
   e: Pick<RelayEvent, 'kind' | 'pubkey' | 'tags' | 'content' | 'created_at'>
 ): RecipeBoxData {
   const tag = (k: string) => e.tags.find((t) => t[0] === k)?.[1]?.trim() || '';
-  const d = tag('d');
+  // The address uses the `d` value exactly as published (the recipe page
+  // queries it verbatim), as recipeAddress does; only display trims.
+  const rawD = e.tags.find((t) => t[0] === 'd')?.[1] ?? '';
+  const d = rawD.trim();
   let href: string | null = null;
-  if (d) {
+  if (rawD) {
     try {
-      href = `/recipe/${nip19.naddrEncode({ identifier: d, kind: e.kind, pubkey: e.pubkey })}`;
+      href = `/recipe/${nip19.naddrEncode({ identifier: rawD, kind: e.kind, pubkey: e.pubkey })}`;
     } catch {
       href = null;
     }
   }
   const content = e.content || '';
-  const details = extractRecipeDetails(content);
+  // The shared parsers can throw on malformed markdown (a Details line
+  // with no value); one bad recipe then shows no chips, not a broken feed.
+  let details: RecipeDetails = { prepTime: null, cookTime: null, servings: null };
+  try {
+    details = extractRecipeDetails(content);
+  } catch {
+    // keep the empty details
+  }
   const chips: RecipeBoxData['chips'] = [];
   if (details.prepTime)
     chips.push({ key: 'prep', label: `Prep ${clip(shortTime(details.prepTime))}` });
   if (details.cookTime)
     chips.push({ key: 'cook', label: `Cook ${clip(shortTime(details.cookTime))}` });
   if (details.servings) chips.push({ key: 'servings', label: `Serves ${clip(details.servings)}` });
-  const all = parseMarkdownForEditing(content).ingredients.map(plain).filter(Boolean);
+  let all: string[] = [];
+  try {
+    all = parseMarkdownForEditing(content).ingredients.map(plain).filter(Boolean);
+  } catch {
+    // no peek
+  }
   return {
     title: tag('title') || d || 'Untitled recipe',
     image: tag('image') || null,

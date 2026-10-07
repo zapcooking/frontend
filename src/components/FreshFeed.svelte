@@ -305,11 +305,25 @@
     }
   }
 
-  /** Members' topic labels for new picks; nothing is asked for anyone else. */
+  /**
+   * Members' topic labels for new picks; nothing is asked for anyone else.
+   * Picks made before the connection was a member's wait in
+   * `topicsPending` and are asked for once the feed login succeeds.
+   */
+  const topicsPending = new Set<string>();
   async function loadBoxTopics(ids: string[]) {
     const labels = await client.topicLabels(ids);
-    if (destroyed || labels.length === 0) return;
-    boxTopicLabels = [...boxTopicLabels, ...labels];
+    if (destroyed) return;
+    if (labels === null) {
+      for (const id of ids) topicsPending.add(id);
+      return;
+    }
+    if (labels.length) boxTopicLabels = [...boxTopicLabels, ...labels];
+  }
+  $: if ($loginState === 'authed' && topicsPending.size > 0) {
+    const ids = [...topicsPending];
+    topicsPending.clear();
+    loadBoxTopics(ids);
   }
 
   async function loadFirst() {

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { nip19 } from 'nostr-tools';
 import { recipeBoxData, sharedAgo, shortTime, topTopics } from './recipeBoxCard';
 import { LABELER_PUBKEY, type RelayEvent } from './relay';
 import { TOPIC_NAMESPACE } from './archive';
@@ -72,6 +73,20 @@ describe('recipeBoxData', () => {
     const r = recipeBoxData(recipe('## Details\n\n- 🍽️ Servings: 4\n\n## Ingredients\n\n- egg\n'));
     expect(r.chips.map((c) => c.key)).toEqual(['servings']);
     expect(r.ingredients).toEqual(['egg']);
+  });
+
+  it('a Details line with no value shows no chips instead of throwing', () => {
+    const content = '## Details\n\n- ⏲️ Prep time\n\n## Ingredients\n\n- egg\n';
+    const r = recipeBoxData(recipe(content));
+    expect(r.chips).toEqual([]);
+    expect(r.ingredients).toEqual(['egg']);
+  });
+
+  it('links with the d tag exactly as published (no trimming)', () => {
+    const r = recipeBoxData({ ...recipe(FULL), tags: [['d', ' bread ']] });
+    const decoded = nip19.decode(r.href!.replace('/recipe/', ''));
+    expect(decoded.type === 'naddr' && decoded.data.identifier).toBe(' bread ');
+    expect(r.title).toBe('bread');
   });
 
   it('dates the card by first publication (published_at), not the latest edit', () => {

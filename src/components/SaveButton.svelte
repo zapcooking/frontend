@@ -406,7 +406,7 @@
       on:pointerleave={handlePointerLeave}
       disabled={loading}
       class="flex items-center justify-center rounded-full transition duration-200 touch-none select-none {sizeClasses} {variantClasses} {showText ? 'px-4 gap-2' : ''} {block ? 'flex-1' : ''}"
-      aria-label={isSaved ? 'Recipe saved' : 'Save recipe'}
+      aria-label={showText ? undefined : isSaved ? 'Recipe saved' : 'Save recipe'}
       title={isSaved ? 'Recipe saved (hold for options)' : 'Save to My Kitchen (hold for options)'}
     >
       {#if loading}
