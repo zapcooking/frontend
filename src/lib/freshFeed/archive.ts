@@ -130,3 +130,8 @@ export function isEarlyDays(labeledCount: number, fullyLoaded: boolean): boolean
 export function yearsAgoLabel(n: number): string {
   return n === 1 ? '1 year ago' : `${n} years ago`;
 }
+
+/** Drop section headings left with no rows under them (after reader filters). */
+export function dropEmptyHeaders<T extends { header?: string }>(rows: T[]): T[] {
+  return rows.filter((r, i) => !r.header || (i + 1 < rows.length && !rows[i + 1].header));
+}

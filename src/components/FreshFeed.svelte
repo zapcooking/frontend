@@ -23,7 +23,11 @@
   import type { EngagementData as ShareEngagementData } from '$lib/shareNoteImage';
   import { muteListStore } from '$lib/muteListStore';
   import { isHellthread } from '$lib/notificationUtils';
-  import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membershipStatus';
+  import {
+    membershipStatusMap,
+    queueMembershipLookup,
+    refreshMembership
+  } from '$lib/stores/membershipStatus';
   import { freshSession } from '$lib/freshFeed/session';
   import { takeFirstPage } from '$lib/freshFeed/firstPage';
   import { floorPrompt } from '$lib/freshFeed/floorPrompt';
@@ -55,7 +59,13 @@
   import FreshTopicChips from './FreshTopicChips.svelte';
   import { loadTopics, type Topic, type TopicCatalog } from '$lib/freshFeed/topicList';
   import { buildTopicChips, type TopicChip } from '$lib/freshFeed/topicChips';
-  import { archiveMonths, isEarlyDays, yearsAgoLabel, type Month } from '$lib/freshFeed/archive';
+  import {
+    archiveMonths,
+    dropEmptyHeaders,
+    isEarlyDays,
+    yearsAgoLabel,
+    type Month
+  } from '$lib/freshFeed/archive';
   import { loadOnThisDay, MonthPager, type ArchiveState } from '$lib/freshFeed/archiveLoader';
   import FreshOnThisDayCard from './FreshOnThisDayCard.svelte';
 
@@ -151,7 +161,10 @@
   $: member = !!pk && $membershipStatusMap[pk]?.active === true;
   // Until the app's membership lookup answers, a member would briefly see
   // the membership pitch: hold the card back until then.
-  $: membershipKnown = !pk || pk in $membershipStatusMap;
+  // A failed lookup (`unresolved`) is unknown too, not "not a member": the
+  // archive offers a retry instead of the membership pitch.
+  $: membershipUnresolved = !!pk && $membershipStatusMap[pk]?.unresolved === true;
+  $: membershipKnown = !pk || (pk in $membershipStatusMap && !membershipUnresolved);
   $: prompt = floorPrompt({ signedIn: !!pk, member, login: $loginState });
 
   // Mutes and the hellthread rule re-apply when the mute list loads or changes.
@@ -648,6 +661,9 @@
     month = months.find((m) => m.key === key) ?? months[0];
     monthKey = month.key;
     pager = new MonthPager(client, month);
+    // The new pager owns the flag; a page still in flight for the old one
+    // returns without touching it.
+    monthLoading = false;
     monthDone = false;
     monthLabeled = 0;
     loadMonthPage();
@@ -659,8 +675,8 @@
     const gen = archiveGen;
     monthLoading = true;
     const r = await p.next();
+    if (destroyed || gen !== archiveGen || p !== pager) return;
     monthLoading = false;
-    if (destroyed || gen !== archiveGen) return;
     archiveState = r.state;
     archiveRows = [...archiveRows, ...wrapAll(r.posts).map((post) => ({ key: post.raw.id, post }))];
     monthDone = p.done;
@@ -674,26 +690,47 @@
 
   /** A member who declined the relay login: one prompt, on this click. */
   async function archiveLogin() {
+    // The login can wait on the signer for a while: if the reader closes or
+    // changes the view meanwhile, its outcome no longer applies.
+    const gen = archiveGen;
+    const view = archiveView;
+    const key = monthKey;
     let relay;
     try {
       relay = await client.connection();
     } catch {
-      archiveState = 'unavailable';
+      if (gen === archiveGen) archiveState = 'unavailable';
       return;
     }
-    if (!(await login.access(relay, true))) return;
-    if (archiveView === 'day') openOnThisDay();
-    else openTimeMachine(monthKey);
+    const ok = await login.access(relay, true);
+    if (destroyed || gen !== archiveGen || !ok) return;
+    if (view === 'day') openOnThisDay();
+    else if (view === 'month') openTimeMachine(key);
   }
 
-  $: archiveShown = archiveRows.filter(
-    (r) =>
-      !r.post ||
-      (!hidden.has(r.post.raw.id) &&
-        passesReaderFilters(r.post.raw, {
-          muteList: pk ? $muteListStore.muteList : null,
-          isHellthread: () => isHellthread(r.post!.event)
-        }))
+  /** A membership lookup that failed: try it again, then reopen the view. */
+  async function retryMembership() {
+    const gen = archiveGen;
+    const view = archiveView;
+    const key = monthKey;
+    await refreshMembership(pk);
+    if (destroyed || gen !== archiveGen) return;
+    if (view === 'day') openOnThisDay();
+    else if (view === 'month') openTimeMachine(key);
+  }
+
+  // Reader filters (mutes, reports, hellthreads), then drop a year heading
+  // whose posts were all filtered out.
+  $: archiveShown = dropEmptyHeaders(
+    archiveRows.filter(
+      (r) =>
+        !r.post ||
+        (!hidden.has(r.post.raw.id) &&
+          passesReaderFilters(r.post.raw, {
+            muteList: pk ? $muteListStore.muteList : null,
+            isHellthread: () => isHellthread(r.post!.event)
+          }))
+    )
   );
 
   // The caught-up card: counts only on a connection that's already logged
@@ -898,7 +935,20 @@
       {/if}
 
       {#if archiveState === 'auth-required' || archiveState === 'restricted'}
-        {#if archiveLocked}
+        {#if membershipUnresolved}
+          <div class="py-8 text-center">
+            <p class="text-sm mb-3" style="color: var(--color-caption)">
+              Couldn't check your membership.
+            </p>
+            <button
+              type="button"
+              class="px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+              on:click={retryMembership}
+            >
+              Retry
+            </button>
+          </div>
+        {:else if archiveLocked}
           {#if membershipKnown}
             <FreshOnThisDayCard mode="teaser" signedIn={!!pk} />
           {/if}

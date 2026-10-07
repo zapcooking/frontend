@@ -8,6 +8,7 @@ import {
   archiveMonths,
   monthWindow,
   isEarlyDays,
+  dropEmptyHeaders,
   LABELER_PUBKEY,
   TOPIC_NAMESPACE
 } from './archive';
@@ -92,5 +93,18 @@ describe('time machine months', () => {
     expect(isEarlyDays(5, true)).toBe(true);
     expect(isEarlyDays(5, false)).toBe(false);
     expect(isEarlyDays(20, true)).toBe(false);
+  });
+});
+
+describe('dropEmptyHeaders', () => {
+  it('drops a year heading whose posts were all filtered out (also a trailing one)', () => {
+    const rows = [
+      { header: '1 year ago' },
+      { header: '2 years ago' },
+      { id: 'p' },
+      { header: '3 years ago' }
+    ];
+    expect(dropEmptyHeaders(rows)).toEqual([{ header: '2 years ago' }, { id: 'p' }]);
+    expect(dropEmptyHeaders([{ header: 'x' }])).toEqual([]);
   });
 });
