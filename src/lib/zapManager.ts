@@ -296,6 +296,15 @@ export class ZapManager {
     }
   }
 
+  /** Receipt relays for a zap request (NIP-57 `relays` tag). */
+  private async receiptRelays(recipient: string): Promise<string[]> {
+    const { zapReceiptRelayUrls, resolveAuthorPubkey } = await import('$lib/nip65Routing');
+    const urls = await resolveAuthorPubkey(this.ndk)
+      .then((me) => zapReceiptRelayUrls(me, recipient))
+      .catch(() => [] as string[]);
+    return urls.length ? urls : this.ndk.explicitRelayUrls || [];
+  }
+
   /**
    * Complete zap flow from request to invoice
    */
@@ -337,7 +346,10 @@ export class ZapManager {
       pubkey,
       amount,
       comment,
-      relays: this.ndk.explicitRelayUrls || [],
+      // Where the LNURL server publishes the receipt: the outbox model
+      // (own write relays, the recipient's read relays, the app list), so
+      // the zap shows up for both sides and anyone following either.
+      relays: await this.receiptRelays(pubkey),
       extraTags
     });
 

@@ -14,8 +14,11 @@
  *   1. Resilient queue (publishQueue.ts) — supplies its own base relay
  *      URLs from the user's relayMode and unions inbox URLs in.
  *   2. Direct publishers (publishReaction.ts, comments/postComment.ts) —
- *      fall back to the NDK pool's relays when no base set is supplied,
- *      with inbox URLs unioned on top.
+ *      with no base set, the outbox model ($lib/outboxRelays): the
+ *      author's own write relays, then recipient inbox relays, then the
+ *      app's relay list. (Not the NDK pool: it also holds temporary
+ *      relays from other authors' outbox lists, and missed the author's
+ *      own write relays.)
  *
  * Both paths cap the total at MAX_PUBLISH_RELAYS to prevent a heavily
  * p-tagged event from fanning out to dozens of relays. NDK uses fast-
@@ -24,7 +27,8 @@
 
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKRelaySet, NDKRelay } from '@nostr-dev-kit/ndk';
-import { normalizeRelayUrl } from '$lib/relayListCache';
+import { normalizeRelayUrl, relayListCache } from '$lib/relayListCache';
+import { outboxRelayUrls, isGroupEvent, PANTRY_URL } from '$lib/outboxRelays';
 
 const HEX64_RE = /^[0-9a-fA-F]{64}$/;
 
@@ -47,18 +51,20 @@ export const INBOX_LOOKUP_TIMEOUT_MS = 1500;
  *   - All `p` tags reference the event's own author
  *   - The cache lookup fails / times out (additive feature, never blocks)
  */
-export async function getRecipientInboxRelays(event: NDKEvent): Promise<string[]> {
+export async function getRecipientInboxRelays(event: NDKEvent, author?: string): Promise<string[]> {
+  // The author: the event's own pubkey, or (unsigned, not filled in yet)
+  // the one the caller resolved.
+  const self = event.pubkey || author;
   const targets = new Set<string>();
   for (const tag of event.tags) {
     if (tag[0] !== 'p' || !tag[1] || !HEX64_RE.test(tag[1])) continue;
     // Skip self — no need to publish to our own inbox.
-    if (event.pubkey && tag[1] === event.pubkey) continue;
+    if (self && tag[1] === self) continue;
     targets.add(tag[1]);
   }
   if (targets.size === 0) return [];
 
   try {
-    const { relayListCache } = await import('$lib/relayListCache');
     const lookupPromise = relayListCache.getMany([...targets]);
     const timeoutPromise = new Promise<Map<string, { read: string[] }>>((resolve) =>
       setTimeout(() => resolve(new Map()), INBOX_LOOKUP_TIMEOUT_MS)
@@ -75,6 +81,77 @@ export async function getRecipientInboxRelays(event: NDKEvent): Promise<string[]
     console.warn('[nip65Routing] inbox lookup failed:', err);
     return [];
   }
+}
+
+/** Race a lookup against INBOX_LOOKUP_TIMEOUT_MS; `fallback` on timeout or error. */
+function bounded<T>(p: Promise<T>, fallback: T): Promise<T> {
+  return Promise.race([
+    p.catch(() => fallback),
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), INBOX_LOOKUP_TIMEOUT_MS))
+  ]);
+}
+
+/** The author's own write (outbox) relays from their kind 10002; [] if unknown. */
+export async function getOwnWriteRelays(pubkey: string | undefined): Promise<string[]> {
+  if (!pubkey || !HEX64_RE.test(pubkey)) return [];
+  const list = await bounded(relayListCache.get(pubkey), null);
+  return Array.isArray(list?.write) ? list!.write : [];
+}
+
+/**
+ * Outbox-model target URLs for an event the reader authored: own write
+ * relays, then recipient inbox relays, then the app's relay list, capped.
+ * A NIP-29 group event (an `h` tag) stays on pantry.
+ */
+export async function outboxTargetUrls(event: NDKEvent, author?: string): Promise<string[]> {
+  if (isGroupEvent(event.tags)) return [PANTRY_URL];
+  const { getCurrentRelays } = await import('$lib/nostr');
+  const me = event.pubkey || author;
+  const [own, recipients] = await Promise.all([
+    getOwnWriteRelays(me),
+    getRecipientInboxRelays(event, me)
+  ]);
+  return outboxRelayUrls({ own, recipients, app: getCurrentRelays() });
+}
+
+/**
+ * The signed-in user's pubkey. `ndk.activeUser` is set only by some login
+ * paths (NIP-07, nsec and passkey logins set just `ndk.signer`), so ask the
+ * signer when it's missing. Undefined when neither knows.
+ */
+export async function resolveAuthorPubkey(ndk: NDK): Promise<string | undefined> {
+  const n = ndk as unknown as {
+    activeUser?: { pubkey?: string };
+    signer?: { user: () => Promise<{ pubkey?: string }> };
+  };
+  if (n.activeUser?.pubkey) return n.activeUser.pubkey;
+  try {
+    return (await n.signer?.user())?.pubkey || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Where a zap receipt should be published (the zap request's NIP-57
+ * `relays` tag): the zapper's own write relays, the recipient's read
+ * relays, the app's relay list — the same outbox rule as other engagement.
+ */
+export async function zapReceiptRelayUrls(
+  me: string | undefined,
+  recipient: string
+): Promise<string[]> {
+  const { getCurrentRelays } = await import('$lib/nostr');
+  const [own, theirs] = await Promise.all([
+    getOwnWriteRelays(me),
+    HEX64_RE.test(recipient)
+      ? bounded(
+          relayListCache.getMany([recipient]).then((m) => m.get(recipient)?.read ?? []),
+          [] as string[]
+        )
+      : Promise.resolve([] as string[])
+  ]);
+  return outboxRelayUrls({ own, recipients: theirs, app: getCurrentRelays() });
 }
 
 /**
@@ -107,11 +184,11 @@ export async function unionInboxRelayUrls(event: NDKEvent, baseUrls: string[]): 
 /**
  * Build an NDKRelaySet for an event using NIP-65 inbox routing.
  *
- * When `baseUrls` is omitted, falls back to the NDK pool's current
- * relay list (matches the prior `event.publish()` no-args behavior),
- * and adds recipient inbox relays on top. Best-effort connect with a
- * short settle delay so freshly-instantiated relays have a chance to
- * open before we hand them to NDK's publish.
+ * When `baseUrls` is omitted, the outbox model (outboxTargetUrls): the
+ * author's own write relays, recipient inbox relays, the app's relay
+ * list. With `baseUrls`, those plus recipient inbox relays. Best-effort
+ * connect with a short settle delay so freshly-instantiated relays have
+ * a chance to open before we hand them to NDK's publish.
  *
  * Returns null when no relays could be resolved at all — caller should
  * either fall back to `event.publish()` (NDK default) or surface an
@@ -124,18 +201,12 @@ export async function buildInboxAwareRelaySet(opts: {
 }): Promise<NDKRelaySet | null> {
   const { event, ndk } = opts;
 
-  // Fall back to the pool's current relays when no base set is given.
-  let baseUrls = opts.baseUrls;
-  if (!baseUrls) {
-    baseUrls = [];
-    const poolRelays = (ndk as unknown as { pool?: { relays?: Map<string, unknown> } }).pool
-      ?.relays;
-    if (poolRelays) {
-      for (const [url] of poolRelays) baseUrls.push(url);
-    }
-  }
-
-  const targetUrls = await unionInboxRelayUrls(event, baseUrls);
+  // An unsigned event may not carry its pubkey yet (NDK fills it in when
+  // it signs): fall back to the signed-in user.
+  const author = event.pubkey || (await resolveAuthorPubkey(ndk));
+  const targetUrls = opts.baseUrls
+    ? await unionInboxRelayUrls(event, opts.baseUrls)
+    : await outboxTargetUrls(event, author);
   if (targetUrls.length === 0) return null;
 
   const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');

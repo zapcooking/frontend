@@ -13,8 +13,8 @@
 
 import { get } from 'svelte/store';
 import { ndk, userPublickey, getCurrentRelays } from '$lib/nostr';
-import { shouldAutoAuth, ownRelayLists } from '$lib/relayAuthScope';
-import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+import { shouldAutoAuth, ownRelayLists, takeAuthPrompt } from '$lib/relayAuthScope';
+import { NDKEvent, NDKRelaySet, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
 import type NDK from '@nostr-dev-kit/ndk';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
@@ -122,6 +122,13 @@ export function ensureAuthPolicy(ndkInstance: NDK): void {
 			if (isPantry) console.log('[NIP-29] NIP-42 auth challenge received, skipping (no signer)');
 			if (resolveAuthPromise) resolveAuthPromise();
 			return undefined;
+		}
+
+		// One signer prompt per relay per session (relayAuthScope). A local
+		// key never prompts; anything else (extension, remote signer) may.
+		const signerPrompts = !(ndkInstance.signer instanceof NDKPrivateKeySigner);
+		if (!takeAuthPrompt(relay.url, get(userPublickey) || '', signerPrompts)) {
+			return false;
 		}
 
 		if (isPantry) {
