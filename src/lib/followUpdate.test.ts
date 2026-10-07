@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const published: { tags: string[][]; created_at: number; content: string }[] = [];
+const signer = { pubkey: 'a'.repeat(64) };
 vi.mock('$lib/nip65Routing', () => ({
   getOwnWriteRelays: async () => ['wss://puravida.nostr.land', 'wss://pyramid.fiatjaf.com']
 }));
@@ -12,14 +13,23 @@ vi.mock('@nostr-dev-kit/ndk', () => ({
     content = '';
     tags: string[][] = [];
     created_at?: number;
-    async sign() {}
+    pubkey = '';
+    async sign() {
+      this.pubkey = signer.pubkey;
+    }
     async publish() {
       published.push({ tags: this.tags, created_at: this.created_at!, content: this.content });
     }
   }
 }));
 
-import { updateFollows, readFollowLists, FollowSafetyError, type QueryRelay } from './followUpdate';
+import {
+  updateFollows,
+  readFollowLists,
+  resetPublishedForTests,
+  FollowSafetyError,
+  type QueryRelay
+} from './followUpdate';
 import { resetSeenForTests, type ContactList } from './followSafety';
 
 const ME = 'a'.repeat(64);
@@ -50,7 +60,9 @@ function relays(
 
 beforeEach(() => {
   published.length = 0;
+  signer.pubkey = ME;
   resetSeenForTests();
+  resetPublishedForTests();
 });
 
 describe('updateFollows', () => {
@@ -112,5 +124,37 @@ describe('updateFollows', () => {
     await updateFollows({} as never, ME, { remove: ['f2'] }, live);
     expect(published).toHaveLength(2);
     expect(published[1].tags.filter((t) => t[0] === 'p')).toHaveLength(1094);
+  });
+
+  it('two quick follows from different buttons: both land (second builds on the first)', async () => {
+    // Relays keep serving the Sep 30 list: the first publish hasn't reached them yet.
+    const [a, b] = await Promise.all([
+      updateFollows({} as never, ME, { add: ['one'] }, relays()),
+      updateFollows({} as never, ME, { add: ['two'] }, relays())
+    ]);
+    expect(published).toHaveLength(2);
+    const last = published[1].tags.filter((t) => t[0] === 'p').map((t) => t[1]);
+    expect(last).toHaveLength(1098);
+    expect(last).toContain('one');
+    expect(last).toContain('two');
+    expect(published[1].created_at).toBeGreaterThan(published[0].created_at);
+    expect(a.size).toBe(1097);
+    expect(b.size).toBe(1098);
+  });
+
+  it('a failed edit does not block the next one in the queue', async () => {
+    const down: QueryRelay = async (url) => ({ url, ok: false, list: null });
+    const first = updateFollows({} as never, ME, { add: ['x'] }, down);
+    const second = updateFollows({} as never, ME, { add: ['y'] }, relays());
+    await expect(first).rejects.toBeInstanceOf(FollowSafetyError);
+    expect((await second).size).toBe(1097);
+  });
+
+  it('account switched during the read: signs as someone else → publishes nothing', async () => {
+    signer.pubkey = 'b'.repeat(64);
+    await expect(updateFollows({} as never, ME, { add: ['x'] }, relays())).rejects.toThrow(
+      /account changed/
+    );
+    expect(published).toHaveLength(0);
   });
 });
