@@ -27,6 +27,11 @@
   export let size: 'sm' | 'md' | 'lg' = 'md';
   export let variant: 'primary' | 'secondary' | 'ghost' = 'primary';
   export let showText = false;
+  /** Button text with showText (e.g. "Save to cookbook"). */
+  export let text = 'Save';
+  export let savedText = 'Saved';
+  /** Fill the container's width (a full-width button). */
+  export let block = false;
 
   const dispatch = createEventDispatcher<{
     saved: { listId: string };
@@ -43,11 +48,12 @@
   let savedInLists: Set<string> = new Set();
 
   // Size classes
-  $: sizeClasses = {
-    sm: 'w-8 h-8',
-    md: 'w-10 h-10',
-    lg: 'w-12 h-12'
-  }[size];
+  // With text the button sizes to its label; only the height is fixed.
+  $: sizeClasses = (
+    showText
+      ? { sm: 'h-8', md: 'h-10', lg: 'h-12' }
+      : { sm: 'w-8 h-8', md: 'w-10 h-10', lg: 'w-12 h-12' }
+  )[size];
 
   $: iconSize = {
     sm: 16,
@@ -387,15 +393,19 @@
   });
 </script>
 
-<div class="relative inline-flex" use:clickOutside on:click_outside={closeDropdown}>
+<div
+  class="relative {block ? 'flex w-full' : 'inline-flex'}"
+  use:clickOutside
+  on:click_outside={closeDropdown}
+>
   <!-- Main Save Button -->
-  <div class="flex items-center">
+  <div class="flex items-center {block ? 'flex-1' : ''}">
     <button
       on:pointerdown={handlePointerDown}
       on:pointerup={handlePointerUp}
       on:pointerleave={handlePointerLeave}
       disabled={loading}
-      class="flex items-center justify-center rounded-full transition duration-200 touch-none select-none {sizeClasses} {variantClasses} {showText ? 'px-4 gap-2' : ''}"
+      class="flex items-center justify-center rounded-full transition duration-200 touch-none select-none {sizeClasses} {variantClasses} {showText ? 'px-4 gap-2' : ''} {block ? 'flex-1' : ''}"
       aria-label={isSaved ? 'Recipe saved' : 'Save recipe'}
       title={isSaved ? 'Recipe saved (hold for options)' : 'Save to My Kitchen (hold for options)'}
     >
@@ -407,7 +417,7 @@
         <BookmarkIcon size={iconSize} weight="fill" />
       {/if}
       {#if showText}
-        <span class="text-sm font-medium">{isSaved ? 'Saved' : 'Save'}</span>
+        <span class="text-sm font-medium whitespace-nowrap">{isSaved ? savedText : text}</span>
       {/if}
     </button>
 

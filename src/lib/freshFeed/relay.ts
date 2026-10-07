@@ -424,6 +424,35 @@ export class FreshClient {
    * with every event, so a page streaming slowly over a weak link isn't cut
    * off, while a relay that stops answering still times out.
    */
+  /**
+   * The labeler's topic labels (kind 1985) for these events — members only
+   * on the relay, so this asks only on a connection that is already a
+   * member's, never prompting the signer; anyone else gets [].
+   */
+  async topicLabels(ids: string[]): Promise<RelayEvent[]> {
+    if (ids.length === 0) return [];
+    let relay: RelayLike;
+    try {
+      relay = await this.connection();
+    } catch {
+      return [];
+    }
+    if (!this.member() && !(this.login?.authed(relay) ?? false)) return [];
+    const labels: RelayEvent[] = [];
+    for (let i = 0; i < ids.length; i += LABEL_BATCH) {
+      const batch = ids.slice(i, i + LABEL_BATCH);
+      const l = await this.query({
+        kinds: [1985],
+        authors: [LABELER_PUBKEY],
+        '#e': batch,
+        limit: batch.length * 2
+      });
+      if (l.state !== 'ok') return labels;
+      labels.push(...l.events);
+    }
+    return labels;
+  }
+
   private async query(filter: Filter, onEvent?: (e: RelayEvent) => void): Promise<PageResult> {
     let relay: RelayLike;
     try {

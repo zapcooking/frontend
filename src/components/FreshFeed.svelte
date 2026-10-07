@@ -43,6 +43,7 @@
     pickRandom,
     recipeAddress
   } from '$lib/freshFeed/recipeBox';
+  import { topTopics } from '$lib/freshFeed/recipeBoxCard';
   import { beginVisit, recordNewest, withDivider } from '$lib/freshFeed/lastVisit';
   import { spaceAuthors } from '$lib/freshFeed/spacing';
   import { needsFullReload, reserveRenderedSlots, SCROLLED_PX } from '$lib/freshFeed/refreshTop';
@@ -109,6 +110,9 @@
   let boxPicks: (Post | null)[] = [];
   const boxTaken = new Set<string>();
   const boxAddress = new Map<string, string>();
+  // Topic chips on recipe-box cards: the relay's labels, members only.
+  let boxTopicLabels: RelayEvent[] = [];
+  $: boxTopics = topTopics(boxTopicLabels, catalog.groups);
 
   // Dialogs
   let zapOpen = false;
@@ -295,7 +299,17 @@
       boxAddress.set(pick.id, address);
       added.push(wrap(pick));
     }
-    if (added.length) boxPicks = [...boxPicks, ...added];
+    if (added.length) {
+      boxPicks = [...boxPicks, ...added];
+      loadBoxTopics(added.map((p) => p.raw.id));
+    }
+  }
+
+  /** Members' topic labels for new picks; nothing is asked for anyone else. */
+  async function loadBoxTopics(ids: string[]) {
+    const labels = await client.topicLabels(ids);
+    if (destroyed || labels.length === 0) return;
+    boxTopicLabels = [...boxTopicLabels, ...labels];
   }
 
   async function loadFirst() {
@@ -1172,7 +1186,8 @@
             {/if}
           {:else}
             <FreshPostCard
-              label={row.box ? 'From the recipe box' : null}
+              box={row.box}
+              topic={row.box ? (boxTopics.get(row.item.raw.id) ?? null) : null}
               raw={row.item.raw}
               event={row.item.event}
               visible={visibleNotes.has(row.item.raw.id)}
