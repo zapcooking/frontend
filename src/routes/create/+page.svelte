@@ -713,10 +713,10 @@
     >
       {resultMessage}
     </span>
-    <!-- shrink-0 + nowrap: the row's status text appears and disappears as
-         drafts auto-save, and the flex row used to squeeze this button
-         until "Save Draft" wrapped onto two lines — a visibly breathing
-         button. The status text shrinks first (min-w-0) instead. -->
+    <!-- shrink-0 + nowrap: "Save Draft" stays one line whatever text sits
+         beside it. The auto-save status used to share this row and squeeze
+         the button onto two lines as it came and went; it now has its own
+         line above, and the button never shrinks for resultMessage either. -->
     <button
       type="button"
       on:click={handleSaveDraft}
