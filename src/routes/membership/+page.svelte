@@ -24,7 +24,15 @@
     parseBillingPeriod,
     type BillingPeriod
   } from '$lib/cookPlusPricing';
-  import { COOK_PLUS_HEADLINE, COOK_PLUS_TOOLS, COOK_PLUS_PERKS } from '$lib/cookPlusCopy';
+  import {
+    COOK_PLUS_HEADLINE,
+    COOK_PLUS_TOOLS,
+    COOK_PLUS_PERKS,
+    FRESH_FEED_PERKS,
+    FRESH_FEED_FREE,
+    FRESH_FEED_PRIVACY,
+    FRESH_FEED_RELAY
+  } from '$lib/cookPlusCopy';
   import CustomAvatar from '../../components/CustomAvatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import CheffyAvatar from '../../components/CheffyAvatar.svelte';
@@ -42,6 +50,11 @@
   import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
   import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
   import BookmarkSimpleIcon from 'phosphor-svelte/lib/BookmarkSimple';
+  import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
+  import HashIcon from 'phosphor-svelte/lib/Hash';
+  import CalendarCheckIcon from 'phosphor-svelte/lib/CalendarCheck';
+  import HourglassIcon from 'phosphor-svelte/lib/Hourglass';
+  import PlugsConnectedIcon from 'phosphor-svelte/lib/PlugsConnected';
   import RocketIcon from 'phosphor-svelte/lib/Rocket';
   import ThumbsUpIcon from 'phosphor-svelte/lib/ThumbsUp';
   import UploadIcon from 'phosphor-svelte/lib/Upload';
@@ -184,6 +197,14 @@
     vote: ThumbsUpIcon
   };
 
+  const FRESH_ICONS: Record<string, typeof CookingPotIcon> = {
+    history: ClockCounterClockwiseIcon,
+    topics: HashIcon,
+    onthisday: CalendarCheckIcon,
+    timemachine: HourglassIcon,
+    apps: PlugsConnectedIcon
+  };
+
   // ── Sticky mobile CTA ──────────────────────────────────────────
   // Appears once both on-page purchase buttons have scrolled out of view,
   // on viewports below the desktop breakpoint (where the bottom nav lives).
@@ -253,6 +274,10 @@
       question: 'What happens to my recipes if I cancel?',
       answer:
         'Your recipes stay yours. Content you published remains on the network under your keys. You would lose Cook+ tools and member perks after your paid period ends, not the recipes you already saved or shared.'
+    },
+    {
+      question: 'How do I use the feed in another app?',
+      answer: `Add ${FRESH_FEED_RELAY} as a relay in an app that supports relay login (Amethyst, Coracle, Damus, noStrudel or Nostur; not Primal), then log in when the app asks.`
     },
     {
       question: 'How does billing work?',
@@ -927,6 +952,26 @@
           </li>
         {/each}
       </ul>
+    </section>
+
+    <!-- 6. Fresh feed: what membership adds, what stays free -->
+    <section class="included fresh-feed" aria-labelledby="fresh-feed-heading">
+      <h2 id="fresh-feed-heading" class="section-label">Fresh feed</h2>
+      <ul class="perk-grid">
+        {#each FRESH_FEED_PERKS as perk (perk.key)}
+          <li class="perk">
+            <span class="perk-icon" aria-hidden="true">
+              <svelte:component this={FRESH_ICONS[perk.key]} size={18} />
+            </span>
+            <span class="perk-text">
+              <span class="perk-label">{perk.label}</span>
+              <span class="perk-detail">{perk.detail}</span>
+            </span>
+          </li>
+        {/each}
+      </ul>
+      <p class="fresh-note">{FRESH_FEED_FREE}</p>
+      <p class="fresh-note">{FRESH_FEED_PRIVACY}</p>
     </section>
 
     <!-- Active Membership Management (legacy card, hidden when API dashboard shows) -->
@@ -2010,6 +2055,18 @@
   .perk-detail {
     font-size: 0.8rem;
     color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  .fresh-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    text-align: center;
+  }
+
+  .fresh-note + .fresh-note {
+    margin-top: 0.35rem;
   }
 
   /* ── Sticky mobile CTA ──────────────────────────────────────── */
