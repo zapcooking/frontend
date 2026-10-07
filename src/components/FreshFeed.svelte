@@ -850,7 +850,7 @@
         <div class="flex items-center gap-2 mb-4">
           <button
             type="button"
-            class="px-2 py-1 rounded-lg hover:bg-accent-gray disabled:opacity-40"
+            class="w-10 h-10 text-2xl leading-none rounded-lg hover:bg-accent-gray disabled:opacity-40"
             style="color: var(--color-text-primary)"
             aria-label="Older month"
             disabled={monthKey === months[months.length - 1].key}
@@ -869,7 +869,7 @@
           </select>
           <button
             type="button"
-            class="px-2 py-1 rounded-lg hover:bg-accent-gray disabled:opacity-40"
+            class="w-10 h-10 text-2xl leading-none rounded-lg hover:bg-accent-gray disabled:opacity-40"
             style="color: var(--color-text-primary)"
             aria-label="Newer month"
             disabled={monthKey === months[0].key}
