@@ -218,6 +218,12 @@ Note: The tag list is [here](https://github.com/github-tijlxyz/nostr.cooking/blo
 
 ---
 
+## Acknowledgments
+
+- [Nostr Archives](https://github.com/barrydeen/nostrarchives-api) — powers the global name index behind @-mention and user search, keeping username lookup alive when the primary profile cache is down.
+
+---
+
 ## License
 
 This project is open source. See the repository for license details.

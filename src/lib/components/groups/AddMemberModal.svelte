@@ -79,7 +79,12 @@
 		searching = true;
 		debounceTimer = setTimeout(async () => {
 			try {
-				results = await searchProfiles(query, 8);
+				const live = () => query === pubkeyInput.trim();
+				results = await searchProfiles(query, 8, {
+					onPartial: (partial) => {
+						if (live()) results = partial;
+					}
+				});
 			} catch {
 				results = [];
 			} finally {
