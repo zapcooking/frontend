@@ -54,16 +54,10 @@ export async function loadFollowing(ndk: NDK, me: string): Promise<Set<string>> 
 }
 
 export async function setFollowing(ndk: NDK, me: string, hex: string, follow: boolean) {
-  const existing = await latest(ndk, me, 3);
-  const tags = nextContactTags(existing?.tags ?? [], hex, follow);
-  if (tags) {
-    const ev = new NDKEvent(ndk);
-    ev.kind = 3;
-    ev.content = existing?.content ?? '';
-    ev.tags = tags;
-    await ev.publish(await outboxRelaySet(ev, 'list'));
-  }
-  const set = new Set((tags ?? existing?.tags ?? []).filter((t) => t[0] === 'p').map((t) => t[1]));
+  // Safe edit ($lib/followUpdate): throws FollowSafetyError, publishing
+  // nothing, when the latest list can't be read reliably.
+  const { updateFollows } = await import('$lib/followUpdate');
+  const set = await updateFollows(ndk, me, follow ? { add: [hex] } : { remove: [hex] });
   followingOwner = me;
   followingStore.set(set);
 }

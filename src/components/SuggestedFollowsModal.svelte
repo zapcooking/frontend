@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { outboxRelaySet } from '$lib/outboxPublish';
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { updateFollows, followErrorMessage } from '$lib/followUpdate';
+  import { showToast } from '$lib/toast';
   import { nip19 } from 'nostr-tools';
   import { ndk, ensureNdkConnected } from '$lib/nostr';
   import { profileCacheManager } from '$lib/profileCache';
@@ -171,36 +171,14 @@
     publishing = true;
 
     try {
-      // Fetch existing contact list to preserve relay config and existing follows
-      const activePubkey = $ndk?.activeUser?.pubkey;
-      let existingContent = '';
-      let existingTags: string[][] = [];
-
-      if (activePubkey) {
-        const existing = await $ndk.fetchEvent({
-          kinds: [3],
-          authors: [activePubkey],
-          limit: 1
-        });
-        if (existing) {
-          existingContent = existing.content || '';
-          existingTags = existing.tags || [];
-        }
-      }
-
-      const existingPTags = existingTags.filter((t) => t[0] === 'p');
-      const otherTags = existingTags.filter((t) => t[0] !== 'p');
-      const existingPubkeys = existingPTags.map((t) => t[1]);
-      const mergedPubkeys = new Set([...existingPubkeys, ...Array.from(selectedPubkeys)]);
-
-      const contactEvent = new NDKEvent($ndk);
-      contactEvent.kind = 3;
-      contactEvent.content = existingContent;
-      contactEvent.tags = [...otherTags, ...Array.from(mergedPubkeys).map((pk) => ['p', pk])];
-
-      await contactEvent.publish(await outboxRelaySet(contactEvent, 'list'));
+      // Safe edit: adds the picks to the latest list read from the reader's
+      // relays; a brand-new account (no list anywhere) starts one.
+      await updateFollows($ndk, userPubkey || $ndk?.activeUser?.pubkey || '', {
+        add: Array.from(selectedPubkeys)
+      });
     } catch (error) {
       console.error('Error publishing follow list:', error);
+      showToast('error', followErrorMessage(error));
     } finally {
       publishing = false;
       onComplete();

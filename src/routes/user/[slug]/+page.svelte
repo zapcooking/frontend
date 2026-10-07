@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { outboxRelaySet } from '$lib/outboxPublish';
+  import { updateFollows, followErrorMessage } from '$lib/followUpdate';
+  import { showToast } from '$lib/toast';
   import { ndk, userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { NDKFilter, NDKUser, NDKUserProfile } from '@nostr-dev-kit/ndk';
@@ -374,61 +375,18 @@
     followLoading = true;
 
     try {
-      // IMPORTANT: Always fetch the latest follow list before modifying
-      // This prevents accidentally publishing an empty list if local state is stale
-      const filter: NDKFilter = {
-        authors: [$userPublickey],
-        kinds: [3],
-        limit: 1
-      };
-
-      const contactEvents = await $ndk.fetchEvents(filter);
-      const existingContactList = Array.from(contactEvents)[0];
-
-      let freshFollowTags: string[][] = [];
-      let freshFollowContent: string = '';
-
-      if (existingContactList) {
-        freshFollowTags = existingContactList.tags.filter((tag) => tag[0] === 'p');
-        freshFollowContent = existingContactList.content || '';
-      }
-
-      // Update local cache with fresh data
-      currentFollowTags = freshFollowTags;
-      currentFollowContent = freshFollowContent;
-
-      let newFollowTags: string[][];
-
-      if (isFollowing) {
-        // Unfollow: remove the pubkey while preserving other tags
-        newFollowTags = freshFollowTags.filter((tag) => tag[1] !== hexpubkey);
-      } else {
-        // Follow: add new pubkey tag
-        newFollowTags = [...freshFollowTags, ['p', hexpubkey]];
-      }
-
-      // SAFEGUARD: Prevent publishing an empty follow list when unfollowing
-      // (unless user genuinely has only 1 follow and is unfollowing them)
-      if (isFollowing && newFollowTags.length === 0 && freshFollowTags.length > 1) {
-        console.error(
-          'Safety check failed: Would publish empty follow list but user has multiple follows. Aborting.'
-        );
-        throw new Error('Failed to update follow list. Please try again.');
-      }
-
-      // Create new kind:3 contact list event, preserving content (relay config)
-      const contactEvent = new NDKEvent($ndk);
-      contactEvent.kind = 3;
-      contactEvent.content = freshFollowContent; // Preserve relay configuration
-      contactEvent.tags = newFollowTags; // Preserve full tag structure
-
-      await contactEvent.publish(await outboxRelaySet(contactEvent, 'list'));
-
-      // Update local state
-      currentFollowTags = newFollowTags;
-      isFollowing = !isFollowing;
+      // Safe edit ($lib/followUpdate): reads the latest list from the
+      // reader's relays and refuses (nothing published) on a bad read.
+      const follows = await updateFollows(
+        $ndk,
+        $userPublickey,
+        isFollowing ? { remove: [hexpubkey] } : { add: [hexpubkey] }
+      );
+      currentFollowTags = [...follows].map((pk) => ['p', pk]);
+      isFollowing = follows.has(hexpubkey);
     } catch (error) {
       console.error('Error toggling follow:', error);
+      showToast('error', followErrorMessage(error));
     } finally {
       followLoading = false;
     }
@@ -639,11 +597,7 @@
   }
 
   function isDeletedEvent(ev: NDKEvent): boolean {
-    return (
-      ev.tags.some((t) => t[0] === 'deleted') ||
-      !ev.content ||
-      ev.content.trim() === ''
-    );
+    return ev.tags.some((t) => t[0] === 'deleted') || !ev.content || ev.content.trim() === '';
   }
 
   function getArticleUrl(event: NDKEvent): string {
@@ -713,7 +667,8 @@
 
   // Load user's longform articles (reads)
   async function loadReads() {
-    if (!hexpubkey || readsLoaded) return;    try {
+    if (!hexpubkey || readsLoaded) return;
+    try {
       const filter: NDKFilter = {
         authors: [hexpubkey],
         kinds: [30023],
@@ -893,13 +848,17 @@
       if (u.hostname.includes('i.ibb.co')) return true;
       if (u.hostname.includes('void.cat')) return true;
       return false;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
 
   function isMediaVideoUrl(url: string): boolean {
     try {
       return VIDEO_EXTENSIONS.test(new URL(url).pathname);
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
 
   function extractMediaFromEvent(event: NDKEvent): MediaItem[] {
@@ -984,7 +943,9 @@
           if (!resolved) {
             resolved = true;
             subscription.stop();
-            mediaItems = fetchedItems.sort((a, b) => (b.event.created_at || 0) - (a.event.created_at || 0));
+            mediaItems = fetchedItems.sort(
+              (a, b) => (b.event.created_at || 0) - (a.event.created_at || 0)
+            );
             mediaLoaded = true;
             oldestMediaTime = latestOldest;
             hasMoreMedia = seenEventIds.size >= 100;
@@ -996,7 +957,9 @@
           if (!resolved) {
             resolved = true;
             subscription.stop();
-            mediaItems = fetchedItems.sort((a, b) => (b.event.created_at || 0) - (a.event.created_at || 0));
+            mediaItems = fetchedItems.sort(
+              (a, b) => (b.event.created_at || 0) - (a.event.created_at || 0)
+            );
             mediaLoaded = true;
             oldestMediaTime = latestOldest;
             hasMoreMedia = seenEventIds.size >= 100;
@@ -1107,10 +1070,7 @@
   }
 
   /** Fetch NDK events with a timeout that resolves to an empty set (no unhandled rejections) */
-  function fetchEventsWithTimeout(
-    filter: NDKFilter,
-    timeoutMs = 8000
-  ): Promise<Set<NDKEvent>> {
+  function fetchEventsWithTimeout(filter: NDKFilter, timeoutMs = 8000): Promise<Set<NDKEvent>> {
     return new Promise<Set<NDKEvent>>((resolve, reject) => {
       const timer = setTimeout(() => resolve(new Set<NDKEvent>()), timeoutMs);
       $ndk
@@ -1142,7 +1102,10 @@
             profiles.push({
               pubkey: event.pubkey,
               npub: nip19.npubEncode(event.pubkey),
-              name: profileData.display_name || profileData.name || nip19.npubEncode(event.pubkey).slice(0, 12) + '...',
+              name:
+                profileData.display_name ||
+                profileData.name ||
+                nip19.npubEncode(event.pubkey).slice(0, 12) + '...',
               picture: profileData.picture,
               nip05: profileData.nip05,
               about: profileData.about
@@ -1243,9 +1206,7 @@
           );
           const contactList = Array.from(contactEvents)[0];
           if (contactList) {
-            followPubkeys = contactList.tags
-              .filter((t) => t[0] === 'p' && t[1])
-              .map((t) => t[1]);
+            followPubkeys = contactList.tags.filter((t) => t[0] === 'p' && t[1]).map((t) => t[1]);
             fetchSucceeded = true;
           } else if (!fetchSucceeded) {
             // Neither source returned data — may be a network/relay issue
@@ -1539,10 +1500,12 @@
   $: og_meta = {
     title: loaded ? `${profileTitleBase} - zap.cooking` : 'User Profile - zap.cooking',
     description: loaded
-      ? (profile?.about ? profile.about.slice(0, 155) : "View this user's recipes on zap.cooking")
+      ? profile?.about
+        ? profile.about.slice(0, 155)
+        : "View this user's recipes on zap.cooking"
       : 'A user on zap.cooking - Food is Open Source',
     image: loaded
-      ? (profile?.picture || 'https://zap.cooking/social-share.png')
+      ? profile?.picture || 'https://zap.cooking/social-share.png'
       : 'https://zap.cooking/social-share.png'
   };
 
@@ -1607,11 +1570,7 @@
     if (repliesSentinel && activeTab === 'replies') {
       repliesObserver = new IntersectionObserver(
         (entries) => {
-          if (
-            entries[0].isIntersecting &&
-            activeTab === 'replies' &&
-            foodstrRepliesFeedComponent
-          ) {
+          if (entries[0].isIntersecting && activeTab === 'replies' && foodstrRepliesFeedComponent) {
             if (
               foodstrRepliesFeedComponent &&
               typeof (foodstrRepliesFeedComponent as any).loadMore === 'function'
@@ -1943,14 +1902,15 @@
         class="flex items-center gap-1.5 text-sm transition-colors hover:opacity-70"
         style="color: var(--color-text-secondary)"
       >
-        <span class="font-semibold" style="color: var(--color-text-primary)">{profileStats.follows_count.toLocaleString()}</span>
+        <span class="font-semibold" style="color: var(--color-text-primary)"
+          >{profileStats.follows_count.toLocaleString()}</span
+        >
         <span>Following</span>
       </button>
-      <div
-        class="flex items-center gap-1.5 text-sm"
-        style="color: var(--color-text-secondary)"
-      >
-        <span class="font-semibold" style="color: var(--color-text-primary)">{profileStats.followers_count.toLocaleString()}</span>
+      <div class="flex items-center gap-1.5 text-sm" style="color: var(--color-text-secondary)">
+        <span class="font-semibold" style="color: var(--color-text-primary)"
+          >{profileStats.followers_count.toLocaleString()}</span
+        >
         <span>Followers</span>
       </div>
       {#if $userPublickey === hexpubkey}
@@ -1968,7 +1928,10 @@
   {/if}
 
   <!-- Tabs -->
-  <div class="border-b mb-4 overflow-x-auto scrollbar-hide" style="border-color: var(--color-input-border)">
+  <div
+    class="border-b mb-4 overflow-x-auto scrollbar-hide"
+    style="border-color: var(--color-input-border)"
+  >
     <div class="flex gap-1 min-w-max">
       <button
         on:click={() => (activeTab = 'recipes')}
@@ -2291,11 +2254,23 @@
       <!-- Loading skeleton -->
       <div class="flex flex-col gap-3">
         {#each Array(6) as _}
-          <div class="flex items-center gap-3 p-3 rounded-xl animate-pulse" style="background: var(--color-bg-secondary)">
-            <div class="w-10 h-10 rounded-full" style="background: var(--color-accent-gray, #e5e7eb)"></div>
+          <div
+            class="flex items-center gap-3 p-3 rounded-xl animate-pulse"
+            style="background: var(--color-bg-secondary)"
+          >
+            <div
+              class="w-10 h-10 rounded-full"
+              style="background: var(--color-accent-gray, #e5e7eb)"
+            ></div>
             <div class="flex-1">
-              <div class="h-4 w-32 rounded" style="background: var(--color-accent-gray, #e5e7eb)"></div>
-              <div class="h-3 w-48 rounded mt-1.5" style="background: var(--color-accent-gray, #e5e7eb)"></div>
+              <div
+                class="h-4 w-32 rounded"
+                style="background: var(--color-accent-gray, #e5e7eb)"
+              ></div>
+              <div
+                class="h-3 w-48 rounded mt-1.5"
+                style="background: var(--color-accent-gray, #e5e7eb)"
+              ></div>
             </div>
           </div>
         {/each}
@@ -2303,13 +2278,19 @@
     {:else if followingFetchFailed}
       <div class="py-12 text-center">
         <UsersIcon size={48} class="mx-auto mb-4 opacity-30" />
-        <p class="text-lg font-medium" style="color: var(--color-text-secondary)">Couldn't load following list</p>
-        <p class="text-sm mt-1" style="color: var(--color-text-secondary)">Relay didn't respond in time. Try again later.</p>
+        <p class="text-lg font-medium" style="color: var(--color-text-secondary)">
+          Couldn't load following list
+        </p>
+        <p class="text-sm mt-1" style="color: var(--color-text-secondary)">
+          Relay didn't respond in time. Try again later.
+        </p>
       </div>
     {:else if followingProfiles.length === 0}
       <div class="py-12 text-center">
         <UsersIcon size={48} class="mx-auto mb-4 opacity-30" />
-        <p class="text-lg font-medium" style="color: var(--color-text-secondary)">Not following anyone yet</p>
+        <p class="text-lg font-medium" style="color: var(--color-text-secondary)">
+          Not following anyone yet
+        </p>
       </div>
     {:else}
       <div class="flex flex-col gap-1">
@@ -2321,9 +2302,13 @@
           >
             <Avatar pubkey={fp.pubkey} src={fp.picture || null} size={40} />
             <div class="flex-1 min-w-0">
-              <div class="font-medium truncate" style="color: var(--color-text-primary)">{fp.name}</div>
+              <div class="font-medium truncate" style="color: var(--color-text-primary)">
+                {fp.name}
+              </div>
               {#if fp.nip05}
-                <div class="text-xs truncate" style="color: var(--color-text-secondary)">{fp.nip05}</div>
+                <div class="text-xs truncate" style="color: var(--color-text-secondary)">
+                  {fp.nip05}
+                </div>
               {/if}
             </div>
           </a>
@@ -2444,7 +2429,9 @@
     background: var(--color-accent-gray, #f3f4f6);
     border-radius: 2px;
     display: block;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease;
   }
 
   .media-tile:hover {
