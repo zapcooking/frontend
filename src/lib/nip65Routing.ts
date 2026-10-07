@@ -119,21 +119,22 @@ export async function outboxTargetUrls(
 }
 
 /**
- * The signed-in user's pubkey. `ndk.activeUser` is set only by some login
- * paths (NIP-07, nsec and passkey logins set just `ndk.signer`), so ask the
- * signer when it's missing. Undefined when neither knows.
+ * The signed-in user's pubkey. Prefer the signer because `ndk.activeUser`
+ * can be stale after switching accounts; fall back to it when no signer
+ * user is available. Undefined when neither knows.
  */
 export async function resolveAuthorPubkey(ndk: NDK): Promise<string | undefined> {
   const n = ndk as unknown as {
     activeUser?: { pubkey?: string };
     signer?: { user: () => Promise<{ pubkey?: string }> };
   };
-  if (n.activeUser?.pubkey) return n.activeUser.pubkey;
   try {
-    return (await n.signer?.user())?.pubkey || undefined;
+    const pubkey = (await n.signer?.user())?.pubkey;
+    if (pubkey) return pubkey;
   } catch {
-    return undefined;
+    // Fall back to activeUser when the current signer cannot resolve its user.
   }
+  return n.activeUser?.pubkey;
 }
 
 /**

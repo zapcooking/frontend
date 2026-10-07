@@ -128,9 +128,25 @@ describe('the author of an unsigned event', () => {
     expect(got[0]).toBe('wss://pyramid.fiatjaf.com');
   });
 
-  it('activeUser wins; no signer and no activeUser is undefined', async () => {
+  it('prefers the current signer over a stale activeUser after switching accounts', async () => {
     const ndk = { activeUser: { pubkey: THEM }, signer: { user: async () => ({ pubkey: ME }) } };
-    expect(await resolveAuthorPubkey(ndk as never)).toBe(THEM);
+    expect(await resolveAuthorPubkey(ndk as never)).toBe(ME);
+
+    const got: string[] = [];
+    await buildInboxAwareRelaySet({
+      event: event([], ''),
+      ndk: {
+        ...ndk,
+        pool: { getRelay: (url: string) => (got.push(url), { url, connect: async () => {} }) }
+      } as never,
+      inbox: false
+    });
+    expect(got).toContain('wss://pyramid.fiatjaf.com');
+    expect(got).not.toContain('wss://their-outbox.example');
+  });
+
+  it('falls back to activeUser if there is no signer; neither is undefined', async () => {
+    expect(await resolveAuthorPubkey({ activeUser: { pubkey: THEM } } as never)).toBe(THEM);
     expect(await resolveAuthorPubkey({} as never)).toBeUndefined();
   });
 });
