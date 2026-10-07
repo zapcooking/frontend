@@ -366,3 +366,62 @@ describe('streaming and the silence timeout', () => {
     }
   });
 });
+
+describe('history (archive views, members)', () => {
+  const LABELER = 'b67456993123c38852a12376437c4dcce92c2bbfda894f53e95b9af4b2ff9c1d';
+  const old = (id: string, at: number) => ev(id, at);
+  const posts = [old('a', 1000), old('b', 900), old('c', 800)];
+  const labelFor = (id: string) =>
+    ({
+      id: 'L' + id,
+      pubkey: LABELER,
+      created_at: NOW,
+      kind: 1985,
+      tags: [
+        ['L', 'cooking.zap.topic'],
+        ['l', 'bbq', 'cooking.zap.topic'],
+        ['e', id]
+      ],
+      content: '',
+      sig: 's'
+    }) as RelayEvent;
+  const respond = (f: Filter) =>
+    f.kinds?.includes(1985)
+      ? {
+          events: ((f as { '#e'?: string[] })['#e'] ?? []).filter((id) => id !== 'b').map(labelFor)
+        }
+      : undefined;
+
+  it('a non-member gets auth-required and no request is sent', async () => {
+    const relay = new FakeRelay(posts, respond);
+    const { c } = client(relay, { member: false });
+    const r = await c.history(500, 1500);
+    expect(r.state).toBe('auth-required');
+    expect(relay.filters).toEqual([]);
+  });
+
+  it('a member: the window’s posts (newest first), then the labeler’s labels by #e', async () => {
+    const relay = new FakeRelay(posts, respond);
+    const { c } = client(relay, { member: true });
+    const r = await c.history(500, 1500);
+    expect(r.state).toBe('ok');
+    expect(r.events.map((e) => e.id)).toEqual(['a', 'b', 'c']);
+    expect(r.labels.map((e) => e.id)).toEqual(['La', 'Lc']);
+    expect(relay.filters[0]).toMatchObject({ kinds: FRESH_KINDS, since: 500, until: 1500 });
+    expect(relay.filters[1]).toMatchObject({
+      kinds: [1985],
+      authors: [LABELER],
+      '#e': ['a', 'b', 'c']
+    });
+    expect(r.end).toBe('exhausted');
+    expect(r.nextUntil).toBe(800);
+  });
+
+  it('a full page says there is more, from the oldest post', async () => {
+    const relay = new FakeRelay(posts, respond);
+    const { c } = client(relay, { member: true });
+    const r = await c.history(500, 1500, { limit: 2 });
+    expect(r.end).toBe('more');
+    expect(r.nextUntil).toBe(900);
+  });
+});

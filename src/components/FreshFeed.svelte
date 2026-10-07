@@ -23,7 +23,11 @@
   import type { EngagementData as ShareEngagementData } from '$lib/shareNoteImage';
   import { muteListStore } from '$lib/muteListStore';
   import { isHellthread } from '$lib/notificationUtils';
-  import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membershipStatus';
+  import {
+    membershipStatusMap,
+    queueMembershipLookup,
+    refreshMembership
+  } from '$lib/stores/membershipStatus';
   import { freshSession } from '$lib/freshFeed/session';
   import { takeFirstPage } from '$lib/freshFeed/firstPage';
   import { floorPrompt } from '$lib/freshFeed/floorPrompt';
@@ -55,6 +59,15 @@
   import FreshTopicChips from './FreshTopicChips.svelte';
   import { loadTopics, type Topic, type TopicCatalog } from '$lib/freshFeed/topicList';
   import { buildTopicChips, type TopicChip } from '$lib/freshFeed/topicChips';
+  import {
+    archiveMonths,
+    dropEmptyHeaders,
+    isEarlyDays,
+    yearsAgoLabel,
+    type Month
+  } from '$lib/freshFeed/archive';
+  import { loadOnThisDay, MonthPager, type ArchiveState } from '$lib/freshFeed/archiveLoader';
+  import FreshOnThisDayCard from './FreshOnThisDayCard.svelte';
 
   const { client, login } = freshSession();
   const loginState = login.state;
@@ -125,11 +138,33 @@
   let topicEnd: PageEnd | 'locked' | 'unavailable' = 'more';
   let topicLoading = false;
 
+  // Archive views (members): "On this day" and the time machine
+  // ($lib/freshFeed/archive). Labeled posts only.
+  const TIME_MACHINE = '@time-machine';
+  let archiveView: 'day' | 'month' | null = null;
+  let archiveState: ArchiveState | 'loading' = 'loading';
+  let archiveRows: { key: string; header?: string; post?: Post }[] = [];
+  let archiveGen = 0;
+  const months = archiveMonths(new Date());
+  let month: Month = months[0];
+  let monthKey = month.key;
+  let pager: MonthPager | null = null;
+  let monthLoading = false;
+  let monthDone = false;
+  let monthLabeled = 0;
+  // The caught-up card's counts: loaded once, only on an already logged-in
+  // connection (null = not loaded).
+  let dayCounts: { yearsBack: number; count: number }[] | null = null;
+  let dayCardTried = false;
+
   $: pk = $userPublickey ? $userPublickey.toLowerCase() : '';
   $: member = !!pk && $membershipStatusMap[pk]?.active === true;
   // Until the app's membership lookup answers, a member would briefly see
   // the membership pitch: hold the card back until then.
-  $: membershipKnown = !pk || pk in $membershipStatusMap;
+  // A failed lookup (`unresolved`) is unknown too, not "not a member": the
+  // archive offers a retry instead of the membership pitch.
+  $: membershipUnresolved = !!pk && $membershipStatusMap[pk]?.unresolved === true;
+  $: membershipKnown = !pk || (pk in $membershipStatusMap && !membershipUnresolved);
   $: prompt = floorPrompt({ signedIn: !!pk, member, login: $loginState });
 
   // Mutes and the hellthread rule re-apply when the mute list loads or changes.
@@ -534,7 +569,12 @@
 
   // The chip row (All · featured · busy groups · More). A topic opened
   // from the full sheet that isn't a chip gets a chip of its own, after All.
-  $: chips = buildTopicChips(catalog.groups, catalog.featured);
+  // The time machine sits right after All.
+  $: chips = [
+    ...buildTopicChips(catalog.groups, catalog.featured).slice(0, 1),
+    { slug: TIME_MACHINE, label: 'Time machine', name: 'Time machine', kind: 'archive' as const },
+    ...buildTopicChips(catalog.groups, catalog.featured).slice(1)
+  ];
   $: chipRow =
     topic && !chips.some((c) => c.slug === topic?.slug)
       ? [
@@ -543,6 +583,8 @@
           ...chips.slice(1)
         ]
       : chips;
+  $: activeChip =
+    archiveView === 'month' ? TIME_MACHINE : archiveView === 'day' ? '@day' : (topic?.slug ?? '');
   // Topic feeds are for members: everyone else sees a lock on the chips.
   $: topicsLocked = !pk || $loginState === 'not-member' || (membershipKnown && !member);
 
@@ -558,9 +600,162 @@
   }
 
   function pickChip(chip: TopicChip) {
+    if (chip.kind === 'archive') return openTimeMachine();
+    closeArchive();
     if (chip.kind === 'all') closeTopic();
     else openTopic({ slug: chip.slug, name: chip.name, count14d: 0 });
   }
+
+  // --- Archive views ---
+
+  // Members only, the same rule as topic feeds: a non-member gets the
+  // teaser card and no request is sent.
+  $: archiveLocked = topicsLocked;
+
+  function wrapAll(list: RelayEvent[]): Post[] {
+    return list.map(wrap);
+  }
+
+  function closeArchive() {
+    archiveGen++;
+    archiveView = null;
+    archiveRows = [];
+    pager = null;
+  }
+
+  function startArchive(view: 'day' | 'month') {
+    closeTopic();
+    archiveGen++;
+    archiveView = view;
+    archiveRows = [];
+    archiveState = archiveLocked ? 'auth-required' : 'loading';
+    document.getElementById('app-scroll')?.scrollTo({ top: 0 });
+    return !archiveLocked;
+  }
+
+  async function openOnThisDay() {
+    if (!startArchive('day')) return;
+    const gen = archiveGen;
+    const r = await loadOnThisDay(client, new Date());
+    if (destroyed || gen !== archiveGen) return;
+    archiveState = r.state;
+    const fmt = (s: number) =>
+      new Date(s * 1000).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    archiveRows = r.sections.flatMap((sec) => [
+      {
+        key: 'h' + sec.yearsBack,
+        header: `${yearsAgoLabel(sec.yearsBack)} · ${fmt(sec.window.since)}`
+      },
+      ...wrapAll(sec.posts).map((post) => ({ key: post.raw.id, post }))
+    ]);
+    if (r.state === 'ok')
+      dayCounts = r.sections.map((x) => ({ yearsBack: x.yearsBack, count: x.posts.length }));
+  }
+
+  function openTimeMachine(key = monthKey) {
+    if (!startArchive('month')) return;
+    month = months.find((m) => m.key === key) ?? months[0];
+    monthKey = month.key;
+    pager = new MonthPager(client, month);
+    // The new pager owns the flag; a page still in flight for the old one
+    // returns without touching it.
+    monthLoading = false;
+    monthDone = false;
+    monthLabeled = 0;
+    loadMonthPage();
+  }
+
+  async function loadMonthPage() {
+    const p = pager;
+    if (!p || monthLoading || p.done) return;
+    const gen = archiveGen;
+    monthLoading = true;
+    const r = await p.next();
+    if (destroyed || gen !== archiveGen || p !== pager) return;
+    monthLoading = false;
+    archiveState = r.state;
+    archiveRows = [...archiveRows, ...wrapAll(r.posts).map((post) => ({ key: post.raw.id, post }))];
+    monthDone = p.done;
+    monthLabeled = p.labeled;
+  }
+
+  function stepMonth(delta: number) {
+    const i = months.findIndex((m) => m.key === monthKey) + delta;
+    if (i >= 0 && i < months.length) openTimeMachine(months[i].key);
+  }
+
+  /** A member who declined the relay login: one prompt, on this click. */
+  async function archiveLogin() {
+    // The login can wait on the signer for a while: if the reader closes or
+    // changes the view meanwhile, its outcome no longer applies.
+    const gen = archiveGen;
+    const view = archiveView;
+    const key = monthKey;
+    let relay;
+    try {
+      relay = await client.connection();
+    } catch {
+      if (gen === archiveGen) archiveState = 'unavailable';
+      return;
+    }
+    const ok = await login.access(relay, true);
+    if (destroyed || gen !== archiveGen || !ok) return;
+    if (view === 'day') openOnThisDay();
+    else if (view === 'month') openTimeMachine(key);
+  }
+
+  /** A membership lookup that failed: try it again, then reopen the view. */
+  async function retryMembership() {
+    const gen = archiveGen;
+    const view = archiveView;
+    const key = monthKey;
+    await refreshMembership(pk);
+    if (destroyed || gen !== archiveGen) return;
+    if (view === 'day') openOnThisDay();
+    else if (view === 'month') openTimeMachine(key);
+  }
+
+  // Reader filters (mutes, reports, hellthreads), then drop a year heading
+  // whose posts were all filtered out.
+  $: archiveShown = dropEmptyHeaders(
+    archiveRows.filter(
+      (r) =>
+        !r.post ||
+        (!hidden.has(r.post.raw.id) &&
+          passesReaderFilters(r.post.raw, {
+            muteList: pk ? $muteListStore.muteList : null,
+            isHellthread: () => isHellthread(r.post!.event)
+          }))
+    )
+  );
+
+  // The caught-up card: counts only on a connection that's already logged
+  // in (authedOnly: it never prompts the signer); otherwise an Open button.
+  async function loadDayCard() {
+    dayCardTried = true;
+    const r = await loadOnThisDay(client, new Date(), { authedOnly: true });
+    if (destroyed || r.state !== 'ok') return;
+    dayCounts = r.sections.map((x) => ({ yearsBack: x.yearsBack, count: x.posts.length }));
+  }
+  $: atCaughtUp = caughtUp || rows.some((r) => r.divider);
+  $: dayCardMode = (
+    !membershipKnown
+      ? null
+      : archiveLocked
+        ? 'teaser'
+        : dayCounts === null
+          ? 'invite'
+          : dayCounts.length
+            ? 'ready'
+            : null
+  ) as 'teaser' | 'invite' | 'ready' | null;
+  // (loadDayCard only sets dayCardTried synchronously, which nothing above
+  // depends on: no Svelte stale-statement trap.)
+  $: if (atCaughtUp && !archiveLocked && membershipKnown && !dayCardTried) loadDayCard();
 
   // Each selection (a chip, the sheet, All) gets a new generation: a page
   // still in flight for an earlier one is dropped when it lands, and the new
@@ -568,6 +763,7 @@
   let topicGen = 0;
 
   function openTopic(t: Topic) {
+    if (archiveView) closeArchive();
     topicGen++;
     topicLoading = false;
     topic = t;
@@ -660,7 +856,7 @@
 
 <FeedErrorBoundary>
   <div class="max-w-2xl mx-auto">
-    {#if newCount > 0 && !topic}
+    {#if newCount > 0 && !topic && !archiveView}
       <div class="fixed top-4 left-1/2 -translate-x-1/2 z-50">
         <button
           on:click={showPending}
@@ -681,12 +877,166 @@
 
     <FreshTopicChips
       chips={chipRow}
-      active={topic?.slug ?? ''}
+      active={activeChip}
       locked={topicsLocked}
       on:pick={(e) => pickChip(e.detail)}
       on:more={openTopics}
     />
-    {#if topic}
+    {#if archiveView}
+      {#if archiveView === 'month'}
+        <div class="flex items-center gap-2 mb-4">
+          <button
+            type="button"
+            class="w-10 h-10 text-2xl leading-none rounded-lg hover:bg-accent-gray disabled:opacity-40"
+            style="color: var(--color-text-primary)"
+            aria-label="Older month"
+            disabled={monthKey === months[months.length - 1].key}
+            on:click={() => stepMonth(1)}>‹</button
+          >
+          <select
+            class="flex-1 rounded-lg px-3 py-1.5 text-sm"
+            style="color: var(--color-text-primary); background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
+            aria-label="Month"
+            bind:value={monthKey}
+            on:change={() => openTimeMachine(monthKey)}
+          >
+            {#each months as m (m.key)}
+              <option value={m.key}>{m.label}</option>
+            {/each}
+          </select>
+          <button
+            type="button"
+            class="w-10 h-10 text-2xl leading-none rounded-lg hover:bg-accent-gray disabled:opacity-40"
+            style="color: var(--color-text-primary)"
+            aria-label="Newer month"
+            disabled={monthKey === months[0].key}
+            on:click={() => stepMonth(-1)}>›</button
+          >
+        </div>
+        {#if archiveState === 'ok' && isEarlyDays(monthLabeled, monthDone)}
+          <p class="text-xs mb-4 text-center" style="color: var(--color-caption)">
+            Early days: the archive is thin this far back.
+          </p>
+        {/if}
+      {:else}
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-semibold" style="color: var(--color-text-primary)">On this day</h2>
+          {#if !archiveLocked}
+            <button
+              type="button"
+              class="text-sm underline"
+              style="color: var(--color-caption)"
+              on:click={() => openTimeMachine()}
+            >
+              Browse by month
+            </button>
+          {/if}
+        </div>
+      {/if}
+
+      {#if archiveState === 'auth-required' || archiveState === 'restricted'}
+        {#if membershipUnresolved}
+          <div class="py-8 text-center">
+            <p class="text-sm mb-3" style="color: var(--color-caption)">
+              Couldn't check your membership.
+            </p>
+            <button
+              type="button"
+              class="px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+              on:click={retryMembership}
+            >
+              Retry
+            </button>
+          </div>
+        {:else if archiveLocked}
+          {#if membershipKnown}
+            <FreshOnThisDayCard mode="teaser" signedIn={!!pk} />
+          {/if}
+        {:else}
+          <div class="py-8 text-center">
+            <p class="text-sm mb-3" style="color: var(--color-caption)">
+              The archive is for members. Log in to the feed relay: it only checks your membership;
+              nothing is logged.
+            </p>
+            <button
+              type="button"
+              class="px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+              on:click={archiveLogin}
+            >
+              Log in to the feed
+            </button>
+          </div>
+        {/if}
+      {:else if archiveState === 'unavailable'}
+        <div class="py-8 text-center">
+          <p class="text-sm mb-3" style="color: var(--color-caption)">
+            Couldn't reach the feed relay.
+          </p>
+          <button
+            on:click={() => (archiveView === 'day' ? openOnThisDay() : openTimeMachine(monthKey))}
+            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      {:else}
+        <div class="space-y-6">
+          {#each archiveShown as row (row.key)}
+            {#if row.header}
+              <h3 class="text-sm font-medium pt-2" style="color: var(--color-caption)">
+                {row.header}
+              </h3>
+            {:else if row.post}
+              <FreshPostCard
+                raw={row.post.raw}
+                event={row.post.event}
+                visible={visibleNotes.has(row.post.raw.id)}
+                expanded={expanded.has(row.post.raw.id)}
+                {lazy}
+                on:zap={(e) => openZap(e.detail)}
+                on:share={(e) => openShare(e.detail.url, e.detail.event)}
+                on:downloadImage={(e) => downloadImage(e.detail)}
+                on:openImage={(e) => {
+                  lightboxImages = e.detail.images;
+                  lightboxIndex = e.detail.index;
+                  lightboxOpen = true;
+                }}
+                on:toggleEngagement={(e) => toggleEngagement(e.detail)}
+                on:report={(e) => openReport(e.detail)}
+                on:error={(e) => (notice = e.detail)}
+              />
+            {/if}
+          {/each}
+        </div>
+        {#if archiveState === 'loading' || (archiveView === 'month' && monthLoading)}
+          <div class="py-4">
+            <LoadingState type="spinner" size="lg" text="Loading the archive..." showText={true} />
+          </div>
+        {:else if archiveView === 'month' && !monthDone}
+          <div use:nearView={loadMonthPage} class="py-4 text-center">
+            <button
+              on:click={loadMonthPage}
+              class="px-4 py-2 bg-input rounded-lg hover:bg-accent-gray transition-colors"
+              style="color: var(--color-text-primary)"
+            >
+              Load More
+            </button>
+          </div>
+        {:else if archiveShown.length === 0}
+          <p class="py-8 text-center text-sm" style="color: var(--color-caption)">
+            {archiveView === 'day'
+              ? 'Nothing from this date in past years yet.'
+              : 'No posts in the archive for this month.'}
+          </p>
+        {:else}
+          <p class="py-6 text-center text-sm" style="color: var(--color-caption)">
+            {archiveView === 'day'
+              ? "That's this day in past years."
+              : `That's all of ${month.label}.`}
+          </p>
+        {/if}
+      {/if}
+    {:else if topic}
       <div class="space-y-6">
         {#each topicShown as post (post.raw.id)}
           <FreshPostCard
@@ -789,6 +1139,14 @@
         <p class="text-sm text-center mb-4" style="color: var(--color-caption)">
           You're caught up: nothing new since your last visit.
         </p>
+        {#if dayCardMode}
+          <FreshOnThisDayCard
+            mode={dayCardMode}
+            signedIn={!!pk}
+            counts={dayCounts ?? []}
+            on:open={openOnThisDay}
+          />
+        {/if}
       {/if}
       <div class="space-y-6">
         {#each rows as row (row.key)}
@@ -804,6 +1162,14 @@
               </span>
               <span class="flex-1 h-px" style="background-color: var(--color-input-border)"></span>
             </div>
+            {#if !caughtUp && dayCardMode}
+              <FreshOnThisDayCard
+                mode={dayCardMode}
+                signedIn={!!pk}
+                counts={dayCounts ?? []}
+                on:open={openOnThisDay}
+              />
+            {/if}
           {:else}
             <FreshPostCard
               label={row.box ? 'From the recipe box' : null}

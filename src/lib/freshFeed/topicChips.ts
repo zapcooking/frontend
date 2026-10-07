@@ -42,7 +42,7 @@ export interface TopicChip {
   label: string;
   /** The full name, for the topic feed's heading. */
   name: string;
-  kind: 'all' | 'featured' | 'activity' | 'more';
+  kind: 'all' | 'featured' | 'activity' | 'more' | 'archive';
 }
 
 export function buildTopicChips(
