@@ -50,8 +50,10 @@ export const queryRelayKind3: QueryRelay = async (url, pubkey, timeoutMs) => {
               if (!list || e.created_at > list.created_at) list = e;
             },
             oneose: () => {
-              sub.close();
+              // Settle first: closing the subscription calls onclose at once,
+              // which would otherwise record this answer as "no answer".
               resolve(true);
+              sub.close();
             },
             onclose: () => resolve(false)
           });
