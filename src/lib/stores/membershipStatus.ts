@@ -14,12 +14,15 @@ export interface MembershipStatus {
    * false so legacy boolean consumers keep treating the pubkey as a
    * non-member, but nothing that pitches membership may fire on it.
    */
-  state: MembershipState;
+  state?: MembershipState;
   /** Legacy alias of `state === 'unknown'`, kept for existing consumers. */
   unresolved?: true;
   /** When this answer was written (ms epoch); drives the TTLs below. */
-  checkedAt: number;
+  checkedAt?: number;
 }
+// `state` and `checkedAt` are optional only so that pure consumers (Cook+
+// discovery, promo bar) can keep building partial statuses in their tests;
+// every entry this store writes carries both.
 
 type MembershipResponse = Record<
   string,
@@ -99,8 +102,8 @@ function unknownPlaceholder(now = Date.now()): MembershipStatus {
  */
 function markUnresolved(pubkey: string, now = Date.now()): void {
   const prev = statusCache.get(pubkey);
-  if (prev && prev.state !== 'unknown') {
-    updateStore(pubkey, { ...prev, checkedAt: now - TTL_MS[prev.state] + TTL_MS.unknown });
+  if (prev && stateOf(prev) !== 'unknown') {
+    updateStore(pubkey, { ...prev, checkedAt: now - TTL_MS[stateOf(prev)] + TTL_MS.unknown });
     return;
   }
   updateStore(pubkey, unknownPlaceholder(now));
@@ -120,9 +123,13 @@ function normalizeStatus(
   };
 }
 
+function stateOf(status: MembershipStatus): MembershipState {
+  return status.state ?? (status.unresolved ? 'unknown' : status.active ? 'active' : 'inactive');
+}
+
 function isFresh(status: MembershipStatus | undefined, now = Date.now()): boolean {
-  if (!status) return false;
-  return now - status.checkedAt < TTL_MS[status.state];
+  if (!status || status.checkedAt === undefined) return false;
+  return now - status.checkedAt < TTL_MS[stateOf(status)];
 }
 
 function parseUnresolvedHeader(res: Response): Set<string> {
