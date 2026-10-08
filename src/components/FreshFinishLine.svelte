@@ -32,6 +32,8 @@
     older: void;
     login: void;
     seen: Special;
+    seenPosts: RelayEvent[];
+    seenRecipes: RelayEvent[];
     fewer: SpecialType;
     hideTopic: string;
     openTopic: string;
@@ -75,7 +77,10 @@
           <LoadingState type="spinner" size="md" text="Finding something good..." showText={true} />
         {:else}
           {#if content.day}
-            <FreshSpecialShell tab="On this day">
+            <FreshSpecialShell
+              tab="On this day"
+              on:seen={() => content?.day && dispatch('seenPosts', content.day.posts)}
+            >
               <h3 class="explore-title">🗓️ {today} in years past</h3>
               <FreshCardRow label="On this day">
                 {#each content.day.posts as raw (raw.id)}
@@ -97,7 +102,10 @@
             {/if}
           {/each}
           {#if content.recipes.length}
-            <FreshSpecialShell tab="From the recipe box">
+            <FreshSpecialShell
+              tab="From the recipe box"
+              on:seen={() => content && dispatch('seenRecipes', content.recipes)}
+            >
               <h3 class="explore-title">🧑‍🍳 Recipes to try</h3>
               <FreshCardRow label="Recipes to try">
                 {#each content.recipes as raw (raw.id)}

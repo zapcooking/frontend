@@ -66,8 +66,10 @@ export function specialsTabSession(): SpecialsSession {
 export class SpecialsLoader {
   spotlight: Special | null = null;
   memory: Special | null = null;
-  /** The relay said no (not a member there): stop asking this session. */
+  /** The relay said this reader isn't a member there: stop asking this session. */
   locked = false;
+  /** The relay wants a feed login first (declined or not yet asked). */
+  needsLogin = false;
   private spotlightBusy = false;
   private memoryBusy = false;
   private daySections: DaySection[] | null = null;
@@ -87,8 +89,23 @@ export class SpecialsLoader {
     return this.deps.now?.() ?? new Date();
   }
 
+  /**
+   * The relay refused: `restricted` (not a member there) ends it for the
+   * session; `auth-required` (no feed login yet, e.g. a declined prompt)
+   * waits until the reader logs in (`loggedIn`).
+   */
+  private refused(state: 'auth-required' | 'restricted'): void {
+    if (state === 'restricted') this.locked = true;
+    else this.needsLogin = true;
+  }
+
+  /** The reader logged in to the feed: ask again. */
+  loggedIn(): void {
+    this.needsLogin = false;
+  }
+
   private usable(): boolean {
-    return this.deps.member() && !this.locked;
+    return this.deps.member() && !this.locked && !this.needsLogin;
   }
 
   /** The next spotlight topic for a non-member teaser (no request). */
@@ -133,7 +150,7 @@ export class SpecialsLoader {
         SPECIALS.spotlight.fetchLimit
       );
       if (r.state === 'auth-required' || r.state === 'restricted') {
-        this.locked = true;
+        this.refused(r.state);
         return null;
       }
       if (r.state !== 'ok') return null;
@@ -176,7 +193,7 @@ export class SpecialsLoader {
     if (this.daySections) return this.daySections;
     const r = await loadOnThisDay(this.src, this.now);
     if (r.state === 'auth-required' || r.state === 'restricted') {
-      this.locked = true;
+      this.refused(r.state);
       return null;
     }
     if (r.state !== 'ok') return null;
@@ -219,7 +236,7 @@ export class SpecialsLoader {
       this.triedMonths.add(month.key);
       const r = await new MonthPager(this.src, month).next();
       if (r.state === 'auth-required' || r.state === 'restricted') {
-        this.locked = true;
+        this.refused(r.state);
         return null;
       }
       if (r.state !== 'ok') return null;

@@ -115,6 +115,9 @@
   // The finish line: drawn after the last post of the free window, so older
   // posts (members, "Older posts") follow below it instead of moving it.
   let finishAfter: string | null = null;
+  // Reached the end of the window, with or without a visible post to anchor
+  // the finish line (every post muted: it goes at the end of the list).
+  let reachedFloor = false;
   let exploreState: ExploreState = 'closed';
   let exploreContent: ExploreContent | null = null;
   let stopLive: (() => void) | null = null;
@@ -273,6 +276,7 @@
   }
 
   let poolSettled = false;
+  let poolLoad: Promise<void> | null = null;
   async function loadPool() {
     const r = await client.recipes(RECIPE_TAGS);
     if (destroyed) return;
@@ -535,6 +539,7 @@
     unavailable = false;
     moreFailed = false;
     finishAfter = null;
+    reachedFloor = false;
     exploreState = 'closed';
     exploreContent = null;
     end = 'more';
@@ -573,7 +578,7 @@
       // that succeeds starts it) or once this feed is gone; once per feed.
       if (!poolRequested) {
         poolRequested = true;
-        loadPool();
+        poolLoad = loadPool();
       }
     }
   }
@@ -600,10 +605,11 @@
   // The end of the free window: nothing older loads on its own (no
   // automatic archive); the finish line offers "Keep exploring", then
   // "Older posts".
-  $: if (end === 'floor' && !loading && !finishAfter && shown.length)
-    finishAfter = shown[shown.length - 1].raw.id;
+  $: if (end === 'floor' && !loading) reachedFloor = true;
+  $: if (reachedFloor && !finishAfter && shown.length) finishAfter = shown[shown.length - 1].raw.id;
+  $: finishAnchored = !!finishAfter && shown.some((p) => p.raw.id === finishAfter);
   $: finish = finishLine({
-    reached: finishAfter !== null,
+    reached: reachedFloor,
     atFloor: end === 'floor',
     membershipKnown,
     prompt,
@@ -613,10 +619,48 @@
   async function openExplore() {
     if (exploreState !== 'closed') return;
     exploreState = 'loading';
+    // Tapped before the recipe pool arrived: wait for it (or ask again
+    // after a failed load) so the recipe row isn't empty.
+    if (boxPool.length === 0) {
+      if (!poolRequested) {
+        poolRequested = true;
+        poolLoad = loadPool();
+      }
+      await poolLoad;
+    }
+    if (destroyed) return;
     const content = await loader.explore(pickRecipes(SPECIALS.explore.recipes));
     if (destroyed) return;
     exploreContent = content;
     exploreState = 'open';
+  }
+
+  // A member who logs in to the feed after a decline: archive requests may
+  // go again, and an explore section opened without them is reloaded.
+  $: if ($loginState === 'authed') reloadExploreAfterLogin();
+  async function reloadExploreAfterLogin() {
+    loader.loggedIn();
+    const c = exploreContent;
+    if (exploreState !== 'open' || !c || !member || c.day || c.spotlights.length) return;
+    exploreState = 'loading';
+    const content = await loader.explore(c.recipes);
+    if (destroyed) return;
+    exploreContent = content;
+    exploreState = 'open';
+  }
+
+  function postsSeen(events: RelayEvent[]) {
+    const now = Math.floor(Date.now() / 1000);
+    shownPosts = markShown(
+      shownPosts,
+      events.map((e) => e.id),
+      now
+    );
+  }
+
+  function recipesSeen(events: RelayEvent[]) {
+    const now = Math.floor(Date.now() / 1000);
+    for (const e of events) boxSeen = markSeen(boxSeen, recipeAddress(e), now);
   }
 
   /** Recipes for the explore row: random, unshown, not already on screen. */
@@ -1385,7 +1429,7 @@
         </div>
       </div>
     {:else}
-      {#if shown.length === 0 && end !== 'more'}
+      {#if shown.length === 0 && end !== 'more' && !reachedFloor}
         <div class="py-12 text-center">
           <div class="max-w-sm mx-auto space-y-6" style="color: var(--color-caption)">
             <p class="text-lg font-medium">Nothing fresh yet</p>
@@ -1501,6 +1545,8 @@
                 on:older={goDeeper}
                 on:login={manualLogin}
                 on:seen={(e) => cardSeen(e.detail)}
+                on:seenPosts={(e) => postsSeen(e.detail)}
+                on:seenRecipes={(e) => recipesSeen(e.detail)}
                 on:fewer={(e) => fewer(e.detail)}
                 on:hideTopic={(e) => hideSpotlightTopic(e.detail)}
                 on:openTopic={(e) => openTopicSlug(e.detail)}
@@ -1508,7 +1554,7 @@
             {/if}
           {/if}
         {/each}
-        {#if finishAfter && !shown.some((p) => p.raw.id === finishAfter)}
+        {#if reachedFloor && !finishAnchored}
           <FreshFinishLine
             state={finish}
             {prompt}
@@ -1518,6 +1564,8 @@
             on:older={goDeeper}
             on:login={manualLogin}
             on:seen={(e) => cardSeen(e.detail)}
+            on:seenPosts={(e) => postsSeen(e.detail)}
+            on:seenRecipes={(e) => recipesSeen(e.detail)}
             on:fewer={(e) => fewer(e.detail)}
             on:hideTopic={(e) => hideSpotlightTopic(e.detail)}
             on:openTopic={(e) => openTopicSlug(e.detail)}

@@ -204,3 +204,40 @@ describe('keep exploring', () => {
     expect(history).not.toHaveBeenCalled();
   });
 });
+
+describe('feed login', () => {
+  it('"auth-required" (a declined login) waits for a login; after it, requests go again', async () => {
+    let state: PageResult['state'] = 'auth-required';
+    const topic = vi.fn(
+      async (): Promise<PageResult> =>
+        state === 'ok'
+          ? { state: 'ok', events: [img('a'), img('b'), img('c')], end: 'exhausted' }
+          : { state, events: [] }
+    );
+    const src: SpecialsSource = {
+      topic,
+      history: async () => ({ state: 'ok', events: [], labels: [], end: 'exhausted' }),
+      floor: () => 1_000_000
+    };
+    const l = makeLoader(src, deps(true));
+    await l.prepareSpotlight();
+    expect(l.needsLogin).toBe(true);
+    expect(l.locked).toBe(false);
+    await l.prepareSpotlight();
+    expect(topic).toHaveBeenCalledTimes(1); // no retry before a login
+    state = 'ok';
+    l.loggedIn();
+    await l.prepareSpotlight();
+    expect(l.spotlight?.type).toBe('spotlight');
+  });
+
+  it('"restricted" (not a member there) stays final even after a login', async () => {
+    const { src, topic } = source({ state: 'restricted' });
+    const l = makeLoader(src, deps(true));
+    await l.prepareSpotlight();
+    l.loggedIn();
+    await l.prepareSpotlight();
+    expect(l.locked).toBe(true);
+    expect(topic).toHaveBeenCalledTimes(1);
+  });
+});
