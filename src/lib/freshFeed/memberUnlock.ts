@@ -61,6 +61,15 @@ export class MemberUnlock {
     if (this.state === 'idle' || this.state === 'offered') this.state = 'declined';
   }
 
+  /**
+   * The unlock card left the screen without a tap (the feed was left or
+   * reloaded): the next members-only slot may offer it again. Without this
+   * the state stuck at 'offered' and members lost the card for the tab.
+   */
+  withdraw(): void {
+    if (this.state === 'offered') this.state = 'idle';
+  }
+
   /** The unlock card was placed. */
   offer(): void {
     this.sync();

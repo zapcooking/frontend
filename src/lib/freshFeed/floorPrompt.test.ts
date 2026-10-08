@@ -17,8 +17,12 @@ describe('floorPrompt', () => {
     });
   });
 
-  it('the relay said not a member: the pitch, not the login button (no loop)', () => {
-    expect(floorPrompt({ signedIn: true, member: true, login: 'not-member' }).kind).toBe('join');
+  it("a relay denial for a member is a retry, never the pitch (the app's answer decides)", () => {
+    expect(floorPrompt({ signedIn: true, member: true, login: 'relay-denied' }).kind).toBe('relay-denied');
+  });
+
+  it('a relay denial for a non-member is still the pitch', () => {
+    expect(floorPrompt({ signedIn: true, member: false, login: 'relay-denied' }).kind).toBe('join');
   });
 
   it('a member who declined gets the manual button', () => {

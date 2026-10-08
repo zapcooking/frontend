@@ -38,6 +38,20 @@
       >
         {prompt.signedIn ? 'Become a member' : 'Learn about membership'}
       </a>
+    {:else if prompt.kind === 'relay-denied'}
+      <p class="font-medium" style="color: var(--color-text-primary)">
+        We couldn't confirm your membership with the feed relay
+      </p>
+      <p class="text-sm mt-1" style="color: var(--color-caption)">
+        Your membership is active; the relay disagreed for a moment. Try again in a minute.
+      </p>
+      <button
+        type="button"
+        class="mt-3 px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+        on:click={() => dispatch('login')}
+      >
+        Try again
+      </button>
     {:else if prompt.kind === 'pending'}
       <p class="text-sm" style="color: var(--color-caption)">
         Approve the login in your signer to {topic ? 'open this topic' : 'see older posts'}…

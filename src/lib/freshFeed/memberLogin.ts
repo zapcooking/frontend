@@ -14,8 +14,12 @@ import type { RelayLike } from './relay';
  * A decline, or no answer in 30 s (Alby silently drops requests from origins
  * it has rejected), is remembered in memory for the session: no automatic
  * re-prompt, only the "Log in to the feed" button (`access(relay, true)`).
- * If the relay then says the reader isn't a member (`restricted:`, or an
- * empty first page of history), that's remembered too, and nothing retries.
+ * If the relay then answers `restricted:`, that is the relay's verdict at
+ * that moment, not the app's: the relay checks membership through the same
+ * API and caches a failed check as "not a member" for a minute. So a denial
+ * is remembered for RELAY_DENIAL_TTL_MS and then automatic access may ask
+ * again; the app's own tri-state membership decides what the reader sees.
+ * An empty page is never read as a verdict.
  *
  * nostr-tools never settles a login whose signer throws and caches that
  * promise for the connection, so every failed attempt closes the connection;
@@ -50,7 +54,10 @@ export type LoginState =
   | 'pending' // waiting for the signer
   | 'authed' // logged in on the current connection
   | 'declined' // declined, timed out or failed: only the button logs in
-  | 'not-member'; // logged in, but the relay says not a member
+  | 'relay-denied'; // logged in, but the relay said restricted: (retryable after a while)
+
+/** How long a relay `restricted:` holds before automatic access may try again. */
+export const RELAY_DENIAL_TTL_MS = 60_000;
 
 export interface LoginDeps {
   /** The signed-in key (hex), or '' / null when signed out. */
@@ -62,6 +69,14 @@ export interface LoginDeps {
   timeoutMs?: number;
   /** Between checks for a challenge on a fresh connection (default 250 ms). */
   challengeWaitMs?: number;
+  /**
+   * Does signing open a prompt (extension, Amber, bunker)? A local key (nsec
+   * in the app, passkey vault) signs silently, so the feed may log such a
+   * member in on load without asking. Default: assume it prompts.
+   */
+  signerPrompts?: () => boolean;
+  /** Clock (ms), for the denial TTL. */
+  now?: () => number;
 }
 
 export const LOGIN_TIMEOUT_MS = 30_000;
@@ -79,11 +94,21 @@ export class MemberLogin {
   readonly state: Readable<LoginState> = { subscribe: this._state.subscribe };
 
   private current: LoginState = 'idle';
+  private deniedAt = 0;
   private authedOn: RelayLike | null = null;
   private inflight: Promise<boolean> | null = null;
   private owner: string | null = null;
 
   constructor(private deps: LoginDeps) {}
+
+  /** True when the signer never opens a prompt (a local key): safe to log in unasked. */
+  get silent(): boolean {
+    return !(this.deps.signerPrompts?.() ?? true);
+  }
+
+  private clock(): number {
+    return this.deps.now?.() ?? Date.now();
+  }
 
   /** Logged in on this connection? */
   authed(relay: RelayLike | null): boolean {
@@ -101,7 +126,10 @@ export class MemberLogin {
     this.syncOwner();
     if (this.authed(relay)) return true;
     if (!this.deps.pubkey() || !this.deps.isMember()) return false;
-    if (!manual && (this.current === 'declined' || this.current === 'not-member')) return false;
+    if (!manual && this.current === 'declined') return false;
+    if (!manual && this.current === 'relay-denied' && this.clock() - this.deniedAt < RELAY_DENIAL_TTL_MS) {
+      return false;
+    }
     if (!('auth' in relay) || typeof relay.auth !== 'function') return false;
     if (!this.inflight) {
       this.inflight = this.login(relay as AuthRelay).finally(() => {
@@ -111,10 +139,15 @@ export class MemberLogin {
     return this.inflight;
   }
 
-  /** The relay said this reader isn't a member: stop asking. */
+  /**
+   * The relay answered `restricted:` on this login. Hold for a while (the
+   * relay's own membership cache is a minute), then automatic access may ask
+   * again; the button may ask at once.
+   */
   denied(): void {
     this.authedOn = null;
-    this.set('not-member');
+    this.deniedAt = this.clock();
+    this.set('relay-denied');
   }
 
   /** Signed out or switched accounts: forget everything. */
