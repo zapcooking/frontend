@@ -48,6 +48,7 @@
         type="button"
         class="special-menu-button"
         aria-label="Card options"
+        aria-haspopup="menu"
         aria-expanded={open}
         on:click={() => (open = !open)}
       >

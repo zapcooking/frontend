@@ -389,7 +389,9 @@
    */
   async function decideSlots() {
     await tick();
-    if (destroyed || loading || firstStreaming || $prefs.off) return;
+    // Members and everyone else get different cards: wait for the answer
+    // (a signed-in member would otherwise use up the non-member teaser).
+    if (destroyed || loading || firstStreaming || $prefs.off || !membershipKnown) return;
     const anchors = slots.upTo(shown.length);
     const caps = capsFor(member, $prefs);
     const screenBottom = window.innerHeight;
@@ -430,6 +432,9 @@
     if (changed) placed = placed;
   }
 
+  // Slots waiting on the membership answer are decided once it arrives.
+  $: if (membershipKnown) decideSlots();
+
   function prepare(kind: 'spotlight' | 'memory') {
     const p = kind === 'spotlight' ? loader.prepareSpotlight() : loader.prepareMemory();
     p.then(() => decideSlots()).catch(() => {});
@@ -444,13 +449,19 @@
     startSpecials();
   }
 
-  /** The feed login signs with the app's signer: wait (briefly) until it's ready. */
+  /**
+   * The feed login signs with the app's signer: wait until it's ready, for
+   * as long as it takes (a passkey vault may be unlocked minutes later):
+   * every 0.5 s for the first 10 s, then every 3 s.
+   */
   async function startSpecials() {
-    for (let i = 0; i < 20 && !$ndk.signer; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-      if (destroyed) return;
+    for (let i = 0; !$ndk.signer; i++) {
+      await new Promise((r) => setTimeout(r, i < 20 ? 500 : 3000));
+      if (destroyed || !member) {
+        specialsStarted = false;
+        return;
+      }
     }
-    if (!$ndk.signer) return;
     prepare('spotlight');
     prepare('memory');
   }

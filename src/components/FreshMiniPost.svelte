@@ -78,8 +78,8 @@
     {#if title}<span class="mini-title">{title}</span>{/if}
     {#if text}<span class="mini-text" class:clamp-more={!image || imageFailed}>{text}</span>{/if}
     <span class="mini-meta">
-      <Avatar pubkey={raw.pubkey} size={20} showRing={false} />
-      <AuthorName {event} className="mini-author" />
+      <Avatar pubkey={raw.pubkey} size={20} showRing={false} interactive={false} />
+      <AuthorName {event} className="mini-author" interactive={false} />
       <span class="mini-age">· {sharedAgo(raw.created_at)}</span>
     </span>
   </span>
