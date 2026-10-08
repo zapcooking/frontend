@@ -12,7 +12,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('$app/environment', () => ({ dev: false, browser: false }));
 
 import { env } from '$env/dynamic/private';
-import { GET, LOOKUP_CONCURRENCY, UNRESOLVED_HEADER } from './+server';
+import { GET } from './+server';
+import { LOOKUP_CONCURRENCY, UNRESOLVED_HEADER } from '$lib/membership/contract';
 
 const A = 'a'.repeat(64); // active standard member
 const B = 'b'.repeat(64); // fetch rejects (network)

@@ -2,6 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
 import { checkMembership } from '$lib/membershipApi.server';
+import { UNRESOLVED_HEADER, LOOKUP_CONCURRENCY, REQUEST_BUDGET_MS } from '$lib/membership/contract';
 
 /**
  * One resolved entry. Contract (shared with feed-relay's trust refresh and the
@@ -24,11 +25,8 @@ type ApiMembershipStatus = {
   status?: string;
 };
 
-export const UNRESOLVED_HEADER = 'X-Membership-Unresolved';
-/** Parallel pantry lookups per request. */
-export const LOOKUP_CONCURRENCY = 25;
-/** After this, pubkeys not yet started are reported unresolved rather than looked up. */
-export const REQUEST_BUDGET_MS = 8000;
+// SvelteKit forbids non-handler exports from a +server.ts; the contract's
+// constants live in $lib/membership/contract.
 
 function normalizeTier(tier: string | null | undefined, paymentId?: string | null): string {
   // Founders are stored as tier:'standard' with payment_id like 'genesis_1'

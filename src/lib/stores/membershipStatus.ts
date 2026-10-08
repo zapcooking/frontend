@@ -42,8 +42,8 @@ export const TTL_MS: Record<MembershipState, number> = {
   unknown: 30_000
 };
 
-/** Response header listing pubkeys the server could not resolve (comma-separated hex). */
-export const UNRESOLVED_HEADER = 'x-membership-unresolved';
+import { UNRESOLVED_HEADER } from '$lib/membership/contract';
+export { UNRESOLVED_HEADER };
 
 const statusCache = new Map<string, MembershipStatus>();
 const inFlight = new Set<string>();
