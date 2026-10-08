@@ -241,3 +241,44 @@ describe('feed login', () => {
     expect(topic).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('no prompt before the tap', () => {
+  it('background spotlights and memories only ask on a logged-in connection (authedOnly)', async () => {
+    const topicOpts: unknown[] = [];
+    const historyOpts: unknown[] = [];
+    const src: SpecialsSource = {
+      topic: async (_s, _seen, _u, _l, opts) => {
+        topicOpts.push(opts);
+        return { state: 'auth-required', events: [] };
+      },
+      history: async (_since, _until, opts) => {
+        historyOpts.push(opts);
+        return { state: 'auth-required', events: [], labels: [] };
+      },
+      floor: () => 1_000_000
+    };
+    const l = makeLoader(src, deps(true));
+    await l.prepareSpotlight();
+    await l.prepareMemory();
+    expect(topicOpts).toEqual([{ authedOnly: true }]);
+    expect(historyOpts.every((o) => (o as { authedOnly?: boolean })?.authedOnly === true)).toBe(
+      true
+    );
+    expect(l.needsLogin).toBe(true); // → the feed offers "Tap to unlock"
+  });
+
+  it('"Keep exploring" is a tap, so it may ask', async () => {
+    const topicOpts: unknown[] = [];
+    const src: SpecialsSource = {
+      topic: async (_s, _seen, _u, _l, opts) => {
+        topicOpts.push(opts);
+        return { state: 'ok', events: [img('a'), img('b'), img('c')], end: 'exhausted' };
+      },
+      history: async () => ({ state: 'ok', events: [], labels: [], end: 'exhausted' }),
+      floor: () => 1_000_000
+    };
+    const l = makeLoader(src, deps(true));
+    await l.explore([]);
+    expect(topicOpts[0]).toEqual({ authedOnly: false });
+  });
+});

@@ -9,12 +9,14 @@ import type { DaySection } from './archive';
  * Fresh's special cards, as pure decisions ($lib/freshFeed/specialsConfig
  * has every number):
  *
- * - Where: the first card at a random position 6–8, then one every 7–10
- *   posts (jittered). Positions 1–5 are always posts.
- * - Which: recipe box → topic spotlight → memory → …, never the same type
- *   twice in a row (while another type can still appear), each type up to
- *   its per-session cap. A type the reader asked to see fewer of has a
- *   lower cap and takes only every other turn. A slot far below the screen
+ * - Where: the first card at a random position 6–8, then one every 7–9
+ *   posts (jittered), for as long as the reader scrolls. Positions 1–5 are
+ *   always posts.
+ * - Which: recipe → spotlight → recipe → spotlight → memory, repeating,
+ *   never the same type twice in a row (while another type is available);
+ *   a type out of unshown content (or capped) is skipped. A type the
+ *   reader asked to see fewer of has a lower cap and takes only every
+ *   other turn. A slot far below the screen
  *   waits for its own type; near the screen, the next ready type takes it;
  *   with nothing ready by the time the reader gets there, it is skipped.
  * - What: spotlight topics rotate across all topics (never the same parent
@@ -70,35 +72,45 @@ export function capsFor(member: boolean, prefs: RotationPrefs): Record<SpecialTy
 export class Rotation {
   counts: Record<SpecialType, number> = { recipe: 0, spotlight: 0, memory: 0 };
   last: SpecialType | null = null;
+  /** Next position in the (repeating) rotation pattern. */
   private next = 0;
+  /** Where the last `choose` found its type, for `record`. */
+  private chosenAt = -1;
   private turns: Record<SpecialType, number> = { recipe: 0, spotlight: 0, memory: 0 };
 
   /**
-   * The type for the next slot: the rotation's next type that is under its
-   * cap, has its turn (fewer: every Nth), has something ready, and isn't
-   * the last one shown, unless no other type can still appear for this
-   * reader (non-members after their one teaser get recipes only).
-   * `strict` (the slot is still far below the screen): only the rotation's
-   * own next type counts, so a card that is still loading isn't replaced by
-   * another one. null = wait (strict) or skip this slot.
+   * The type for the next slot: walking the pattern from where it left
+   * off, the first type that is under its cap, available to this reader,
+   * has its turn (fewer: every Nth), has something ready, and isn't the
+   * last one shown, unless no other type is still available.
+   * `available` (default: all) is false for a type that can't appear at all
+   * right now (members-only types for a reader who declined, a type out of
+   * unshown content). `strict` (the slot is still far below the screen):
+   * only the pattern's own next type counts, so a card that is still
+   * loading isn't replaced by another one. null = wait (strict) or skip.
    */
   choose(
     ready: (t: SpecialType) => boolean,
     caps: Record<SpecialType, number>,
     prefs: RotationPrefs,
-    strict = false
+    strict = false,
+    available: (t: SpecialType) => boolean = () => true
   ): SpecialType | null {
     const order = SPECIALS.rotation;
-    const open = (t: SpecialType) => this.counts[t] < caps[t];
+    const open = (t: SpecialType) => this.counts[t] < caps[t] && available(t);
     const repeatOk = !order.some((t) => t !== this.last && open(t));
     for (let i = 0; i < order.length; i++) {
-      const t = order[(this.next + i) % order.length];
+      const at = (this.next + i) % order.length;
+      const t = order[at];
       if (!open(t) || (t === this.last && !repeatOk)) continue;
       if (prefs.fewer[t]) {
         this.turns[t]++;
         if (this.turns[t] % SPECIALS.fewerTurnEvery !== 0) continue;
       }
-      if (ready(t)) return t;
+      if (ready(t)) {
+        this.chosenAt = at;
+        return t;
+      }
       if (strict) return null;
     }
     return null;
@@ -107,7 +119,12 @@ export class Rotation {
   record(t: SpecialType): void {
     this.counts[t]++;
     this.last = t;
-    this.next = (SPECIALS.rotation.indexOf(t) + 1) % SPECIALS.rotation.length;
+    const at =
+      this.chosenAt >= 0 && SPECIALS.rotation[this.chosenAt] === t
+        ? this.chosenAt
+        : SPECIALS.rotation.indexOf(t);
+    this.next = (at + 1) % SPECIALS.rotation.length;
+    this.chosenAt = -1;
   }
 }
 
@@ -245,6 +262,12 @@ export type Special =
   | ({ type: 'spotlight'; posts: RelayEvent[] } & TopicPick)
   | ({ type: 'teaser' } & TopicPick)
   | {
+      /** A members-only card while the feed isn't logged in ($lib/freshFeed/memberUnlock). */
+      type: 'unlock';
+      for: 'spotlight' | 'memory';
+      status: 'offer' | 'busy' | 'declined';
+    }
+  | {
       type: 'memory';
       variant: MemoryVariant;
       label: string;
@@ -254,7 +277,9 @@ export type Special =
     };
 
 export function rotationType(s: Special): SpecialType {
-  return s.type === 'teaser' ? 'spotlight' : s.type;
+  if (s.type === 'teaser') return 'spotlight';
+  if (s.type === 'unlock') return s.for;
+  return s.type;
 }
 
 /** A decided slot: after the post `anchorId`, this card (or nothing). */

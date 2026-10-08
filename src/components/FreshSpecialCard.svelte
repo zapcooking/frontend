@@ -24,21 +24,28 @@
     hideTopic: string;
     openTopic: string;
     seen: void;
+    unlock: void;
   }>();
 
   $: menu =
-    special.type === 'memory'
-      ? [{ label: 'Show fewer like this', action: () => dispatch('fewer', 'memory') }]
-      : [
-          { label: 'Show fewer like this', action: () => dispatch('fewer', 'spotlight') },
-          { label: 'Hide this topic', action: () => dispatch('hideTopic', special.slug) }
-        ];
+    special.type === 'unlock'
+      ? []
+      : special.type === 'memory'
+        ? [{ label: 'Show fewer like this', action: () => dispatch('fewer', 'memory') }]
+        : [
+            { label: 'Show fewer like this', action: () => dispatch('fewer', 'spotlight') },
+            { label: 'Hide this topic', action: () => dispatch('hideTopic', special.slug) }
+          ];
   $: tab =
-    special.type === 'memory'
-      ? special.label
-      : special.type === 'teaser'
-        ? 'Topic spotlight · Members'
-        : 'Topic spotlight';
+    special.type === 'unlock'
+      ? special.for === 'memory'
+        ? 'Memories · Members'
+        : 'Topic spotlight · Members'
+      : special.type === 'memory'
+        ? special.label
+        : special.type === 'teaser'
+          ? 'Topic spotlight · Members'
+          : 'Topic spotlight';
 </script>
 
 <FreshSpecialShell {tab} {menu} on:seen>
@@ -55,6 +62,30 @@
       See more {special.name}
       <ArrowRightIcon size={14} weight="bold" />
     </button>
+  {:else if special.type === 'unlock'}
+    <h3 class="special-title">
+      {special.for === 'memory' ? '🕰️ From the archive' : '✨ Topic spotlights'}
+    </h3>
+    {#if special.status === 'declined'}
+      <p class="teaser-text">
+        No problem. Recipes from the recipe box will keep coming; members-only cards are off for
+        this visit.
+      </p>
+    {:else}
+      <p class="teaser-text">
+        {special.for === 'memory'
+          ? 'Moments from the Fresh archive, for members.'
+          : 'The best of each topic from the Fresh archive, for members.'}
+      </p>
+      <button
+        type="button"
+        class="teaser-link"
+        disabled={special.status === 'busy'}
+        on:click={() => dispatch('unlock')}
+      >
+        {special.status === 'busy' ? 'Unlocking…' : '🔓 Tap to unlock with your membership'}
+      </button>
+    {/if}
   {:else if special.type === 'teaser'}
     <h3 class="special-title">{special.title} <span class="members">— members only</span></h3>
     <p class="teaser-text">Topic spotlights are for Zap Cooking members.</p>
@@ -110,13 +141,19 @@
     color: var(--color-text-secondary);
   }
 
+  .teaser-link:disabled {
+    opacity: 0.7;
+  }
+
   .teaser-link {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    height: 2.25rem;
-    padding: 0 1rem;
+    min-height: 2.25rem;
+    padding: 0.4rem 1rem;
     border-radius: 999px;
+    line-height: 1.3;
+    text-align: center;
     font-size: 0.875rem;
     font-weight: 600;
     color: #fff;

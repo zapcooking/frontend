@@ -165,6 +165,17 @@ export class FreshClient {
     return this.now() - FREE_WINDOW_SECONDS;
   }
 
+  /**
+   * Member access on the connection as it is now. A feed login belongs to
+   * one connection: after a reconnect it is gone, whatever the login state
+   * last said.
+   */
+  authedNow(): boolean {
+    if (this.member()) return true;
+    const relay = this.relay && this.relay.connected !== false ? this.relay : null;
+    return this.login?.authed(relay) ?? false;
+  }
+
   /** The open connection (one per client), connecting on first use. */
   async connection(): Promise<RelayLike> {
     if (this.relay && this.relay.connected !== false) return this.relay;
@@ -340,7 +351,8 @@ export class FreshClient {
     slug: string,
     seen: Set<string>,
     until?: number,
-    limit = PAGE_SIZE
+    limit = PAGE_SIZE,
+    opts: { authedOnly?: boolean } = {}
   ): Promise<PageResult> {
     let relay: RelayLike;
     try {
@@ -349,7 +361,7 @@ export class FreshClient {
       return { state: 'unavailable', events: [], reason: String(err) };
     }
     let member = this.member() || (this.login?.authed(relay) ?? false);
-    if (!member && this.login) member = await this.login.access(relay);
+    if (!member && this.login && !opts.authedOnly) member = await this.login.access(relay);
     if (!member) return { state: 'auth-required', events: [] };
     const filter: Filter = { kinds: FRESH_KINDS, search: `topic:${slug}`, limit };
     if (until !== undefined) filter.until = until;
