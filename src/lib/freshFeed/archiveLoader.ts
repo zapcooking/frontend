@@ -55,14 +55,16 @@ export class MonthPager {
 
   constructor(
     private src: HistorySource,
-    readonly month: Month
+    readonly month: Month,
+    /** authedOnly: only on an already logged-in connection (no signer prompt). */
+    private opts: { authedOnly?: boolean } = {}
   ) {
     this.until = month.window.until;
   }
 
   async next(): Promise<{ state: ArchiveState; posts: RelayEvent[] }> {
     if (this.done) return { state: 'ok', posts: [] };
-    const r = await this.src.history(this.month.window.since, this.until);
+    const r = await this.src.history(this.month.window.since, this.until, this.opts);
     if (r.state !== 'ok') return { state: r.state, posts: [] };
     const fresh = r.events.filter((e) => !this.seen.has(e.id));
     for (const e of fresh) this.seen.add(e.id);

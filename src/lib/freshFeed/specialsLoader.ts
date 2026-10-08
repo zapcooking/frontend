@@ -24,11 +24,22 @@ import type { TopicGroup } from './topicList';
  * anyone else nothing is ever requested (topics and the archive are
  * members-only on the relay). The recipe box and the non-member teaser need
  * no requests of their own.
+ *
+ * In the background it never asks the signer: requests go only on a
+ * connection that is already logged in to the feed, and otherwise come back
+ * "log in first" (`needsLogin`), which the feed turns into a "Tap to unlock"
+ * card. "Keep exploring" is a tap, so it may ask (`interactive`).
  */
 
 /** What the loader needs from FreshClient. */
 export interface SpecialsSource extends HistorySource {
-  topic(slug: string, seen: Set<string>, until?: number, limit?: number): Promise<PageResult>;
+  topic(
+    slug: string,
+    seen: Set<string>,
+    until?: number,
+    limit?: number,
+    opts?: { authedOnly?: boolean }
+  ): Promise<PageResult>;
   floor(): number;
 }
 
@@ -70,6 +81,11 @@ export class SpecialsLoader {
   locked = false;
   /** The relay wants a feed login first (declined or not yet asked). */
   needsLogin = false;
+  /** The reader asked (a tap): requests may ask the signer to log in. */
+  private interactive = false;
+  /** Types with no unshown content left this session (skipped in the rotation). */
+  private out = new Set<'spotlight' | 'memory'>();
+  private emptyMemories = 0;
   private spotlightBusy = false;
   private memoryBusy = false;
   private daySections: DaySection[] | null = null;
@@ -97,6 +113,11 @@ export class SpecialsLoader {
   private refused(state: 'auth-required' | 'restricted'): void {
     if (state === 'restricted') this.locked = true;
     else this.needsLogin = true;
+  }
+
+  /** Out of unshown content this session: skip the type in the rotation. */
+  isOut(t: 'spotlight' | 'memory'): boolean {
+    return this.out.has(t);
   }
 
   /** The reader logged in to the feed: ask again. */
@@ -129,6 +150,16 @@ export class SpecialsLoader {
     lastParent: string | null = this.session.lastParent
   ): Promise<Special | null> {
     if (!this.usable()) return null;
+    const anyLeft = pickTopic(this.deps.groups(), {
+      hidden: this.deps.hiddenTopics(),
+      used: this.session.usedTopics,
+      lastParent: null,
+      history: new Map()
+    });
+    if (!anyLeft && this.deps.groups().length) {
+      this.out.add('spotlight'); // every topic used (or hidden) this session
+      return null;
+    }
     const tried = new Set<string>();
     for (let i = 0; i < SPECIALS.spotlight.maxTopicTries; i++) {
       const t: TopicPick | null = pickTopic(this.deps.groups(), {
@@ -147,7 +178,8 @@ export class SpecialsLoader {
         t.slug,
         new Set(),
         this.src.floor() - 1,
-        SPECIALS.spotlight.fetchLimit
+        SPECIALS.spotlight.fetchLimit,
+        { authedOnly: !this.interactive }
       );
       if (r.state === 'auth-required' || r.state === 'restricted') {
         this.refused(r.state);
@@ -158,7 +190,11 @@ export class SpecialsLoader {
         shown: this.deps.shown(),
         exclude: this.deps.exclude()
       });
-      if (!posts) continue; // thin topic
+      if (!posts) {
+        // Thin (for this reader): don't ask for it again this session.
+        this.session.usedTopics.add(t.slug);
+        continue;
+      }
       this.session.usedTopics.add(t.slug);
       return { type: 'spotlight', ...t, posts };
     }
@@ -191,7 +227,7 @@ export class SpecialsLoader {
   async onThisDay(): Promise<DaySection[] | null> {
     if (!this.usable()) return null;
     if (this.daySections) return this.daySections;
-    const r = await loadOnThisDay(this.src, this.now);
+    const r = await loadOnThisDay(this.src, this.now, { authedOnly: !this.interactive });
     if (r.state === 'auth-required' || r.state === 'restricted') {
       this.refused(r.state);
       return null;
@@ -234,7 +270,7 @@ export class SpecialsLoader {
       if (months.length === 0) return null;
       const month = months[Math.min(months.length - 1, Math.floor(this.rng() * months.length))];
       this.triedMonths.add(month.key);
-      const r = await new MonthPager(this.src, month).next();
+      const r = await new MonthPager(this.src, month, { authedOnly: !this.interactive }).next();
       if (r.state === 'auth-required' || r.state === 'restricted') {
         this.refused(r.state);
         return null;
@@ -265,9 +301,12 @@ export class SpecialsLoader {
         if (m) {
           this.memory = m;
           this.session.lastMemory = v;
+          this.emptyMemories = 0;
           return;
         }
       }
+      // Nothing in either variant, repeatedly: the archive is used up for now.
+      if (this.usable() && ++this.emptyMemories >= 3) this.out.add('memory');
     } finally {
       this.memoryBusy = false;
     }
@@ -288,6 +327,17 @@ export class SpecialsLoader {
    */
   async explore(recipes: RelayEvent[]): Promise<ExploreContent> {
     const out: ExploreContent = { day: null, spotlights: [], recipes };
+    // A tap: one login may be asked for (never again after a decline).
+    this.needsLogin = false;
+    this.interactive = true;
+    try {
+      return await this.exploreContent(out);
+    } finally {
+      this.interactive = false;
+    }
+  }
+
+  private async exploreContent(out: ExploreContent): Promise<ExploreContent> {
     if (!this.usable()) return out;
     const sections = await this.onThisDay();
     if (sections) {

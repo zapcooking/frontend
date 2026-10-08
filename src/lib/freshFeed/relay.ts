@@ -340,7 +340,8 @@ export class FreshClient {
     slug: string,
     seen: Set<string>,
     until?: number,
-    limit = PAGE_SIZE
+    limit = PAGE_SIZE,
+    opts: { authedOnly?: boolean } = {}
   ): Promise<PageResult> {
     let relay: RelayLike;
     try {
@@ -349,7 +350,7 @@ export class FreshClient {
       return { state: 'unavailable', events: [], reason: String(err) };
     }
     let member = this.member() || (this.login?.authed(relay) ?? false);
-    if (!member && this.login) member = await this.login.access(relay);
+    if (!member && this.login && !opts.authedOnly) member = await this.login.access(relay);
     if (!member) return { state: 'auth-required', events: [] };
     const filter: Filter = { kinds: FRESH_KINDS, search: `topic:${slug}`, limit };
     if (until !== undefined) filter.until = until;

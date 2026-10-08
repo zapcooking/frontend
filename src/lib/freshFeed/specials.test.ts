@@ -67,7 +67,7 @@ const GROUPS: TopicGroup[] = (
 const NO_FEWER = { fewer: { recipe: false, spotlight: false, memory: false } };
 
 describe('slots: spacing and jitter', () => {
-  it('first card at position 6–8, then 7–10 posts apart, never in the first 5', () => {
+  it('first card at position 6–8, then 7–9 posts apart, never in the first 5', () => {
     for (let seed = 1; seed <= 300; seed++) {
       const anchors = new Slots(seeded(seed)).upTo(200);
       // A card after the a-th post sits at feed position a + 1 (+ earlier cards).
@@ -91,7 +91,7 @@ describe('slots: spacing and jitter', () => {
       for (let i = 1; i < a.length; i++) gaps.add(a[i] - a[i - 1]);
     }
     expect(firsts.size).toBe(3);
-    expect(gaps.size).toBe(4);
+    expect(gaps.size).toBe(3);
   });
 
   it('is stable: the same Slots returns the same positions as the feed grows', () => {
@@ -103,33 +103,64 @@ describe('slots: spacing and jitter', () => {
 
 describe('rotation', () => {
   const all = () => true;
-
-  it('recipe → spotlight → memory → recipe …, never the same type twice in a row', () => {
+  const run = (n: number, ready: (t: SpecialType) => boolean, member = true, prefs = NO_FEWER) => {
     const r = new Rotation();
-    const caps = { recipe: 9, spotlight: 9, memory: 9 };
+    const caps = capsFor(member, prefs);
     const seq: SpecialType[] = [];
-    for (let i = 0; i < 6; i++) {
-      const t = r.choose(all, caps, NO_FEWER)!;
+    for (let i = 0; i < n; i++) {
+      const t = r.choose(ready, caps, prefs);
+      if (!t) continue; // a skipped slot
       r.record(t);
       seq.push(t);
     }
-    expect(seq).toEqual(['recipe', 'spotlight', 'memory', 'recipe', 'spotlight', 'memory']);
+    return seq;
+  };
+
+  it('recipe → spotlight → recipe → spotlight → memory, repeating (a memory every 5th)', () => {
+    expect(run(10, all)).toEqual([
+      'recipe',
+      'spotlight',
+      'recipe',
+      'spotlight',
+      'memory',
+      'recipe',
+      'spotlight',
+      'recipe',
+      'spotlight',
+      'memory'
+    ]);
   });
 
-  it('per-session caps (members: recipe 3, spotlight 2, memory 2), then capped types are skipped', () => {
+  it('no caps exhaustion: ~150 posts of slots keep every type coming', () => {
+    const anchors = new Slots(seeded(11)).upTo(150);
+    expect(anchors.length).toBeGreaterThanOrEqual(16);
+    const seq = run(anchors.length, all);
+    expect(seq).toHaveLength(anchors.length);
+    const last5 = seq.slice(-5);
+    expect(new Set(last5)).toEqual(new Set(['recipe', 'spotlight', 'memory']));
+  });
+
+  it('never the same type twice in a row while another type is available', () => {
+    const seq = run(40, all);
+    for (let i = 1; i < seq.length; i++) expect(seq[i]).not.toBe(seq[i - 1]);
+  });
+
+  it('a type out of unshown content is skipped; the rest keep alternating', () => {
     const r = new Rotation();
     const caps = capsFor(true, NO_FEWER);
+    const noSpotlights = (t: SpecialType) => t !== 'spotlight';
     const seq: SpecialType[] = [];
-    for (let i = 0; i < 12; i++) {
-      const t = r.choose(all, caps, NO_FEWER);
-      if (!t) break;
+    for (let i = 0; i < 6; i++) {
+      const t = r.choose(all, caps, NO_FEWER, false, noSpotlights)!;
       r.record(t);
       seq.push(t);
     }
-    expect(seq.filter((t) => t === 'recipe')).toHaveLength(3);
-    expect(seq.filter((t) => t === 'spotlight')).toHaveLength(2);
-    expect(seq.filter((t) => t === 'memory')).toHaveLength(2);
-    for (let i = 1; i < seq.length; i++) expect(seq[i]).not.toBe(seq[i - 1]);
+    expect(seq).toEqual(['recipe', 'memory', 'recipe', 'memory', 'recipe', 'memory']);
+  });
+
+  it('only one type available (members-only declined, non-members after the teaser): it may repeat', () => {
+    const seq = run(6, all, false);
+    expect(seq).toEqual(['recipe', 'spotlight', 'recipe', 'recipe', 'recipe', 'recipe']);
   });
 
   it('a type with nothing ready yields to the next ready type; nothing ready skips the slot', () => {
@@ -140,26 +171,7 @@ describe('rotation', () => {
     expect(r.choose(() => false, caps, NO_FEWER)).toBeNull();
   });
 
-  it('never the same type twice in a row, even when it is the only one ready', () => {
-    const r = new Rotation();
-    r.record('recipe');
-    expect(r.choose((t) => t === 'recipe', capsFor(true, NO_FEWER), NO_FEWER)).toBeNull();
-  });
-
-  it('a type may repeat only when no other type can still appear (non-members after their teaser)', () => {
-    const caps = capsFor(false, NO_FEWER);
-    const r = new Rotation();
-    const seq: SpecialType[] = [];
-    for (let i = 0; i < 6; i++) {
-      const t = r.choose(() => true, caps, NO_FEWER);
-      if (!t) break;
-      r.record(t);
-      seq.push(t);
-    }
-    expect(seq).toEqual(['recipe', 'spotlight', 'recipe', 'recipe']);
-  });
-
-  it('strict (slot far below the screen): waits for the rotation’s own type instead of another', () => {
+  it('strict (slot far below the screen): waits for the pattern’s own type instead of another', () => {
     const r = new Rotation();
     const caps = capsFor(true, NO_FEWER);
     const notRecipe = (t: SpecialType) => t !== 'recipe';
@@ -167,32 +179,33 @@ describe('rotation', () => {
     expect(r.choose(notRecipe, caps, NO_FEWER, false)).toBe('spotlight');
   });
 
-  it('non-members: recipe cards plus at most one spotlight teaser, no memories', () => {
-    const caps = capsFor(false, NO_FEWER);
-    expect(caps).toEqual({ recipe: 3, spotlight: 1, memory: 0 });
+  it('non-members: unlimited recipe cards, at most one spotlight teaser, no memories', () => {
+    expect(capsFor(false, NO_FEWER)).toEqual({ recipe: Infinity, spotlight: 1, memory: 0 });
   });
 });
 
-describe('"Show fewer like this"', () => {
-  it('lowers the type cap', () => {
+describe('"Show fewer like this" overrides the defaults', () => {
+  it('gives the type a per-session cap', () => {
     const prefs = { fewer: { recipe: false, spotlight: true, memory: false } };
     expect(capsFor(true, prefs).spotlight).toBe(SPECIALS.fewerCap);
-    expect(capsFor(true, prefs).recipe).toBe(SPECIALS.caps.recipe);
+    expect(capsFor(true, prefs).recipe).toBe(Infinity);
   });
 
-  it('lowers the frequency: the type takes only every other turn', () => {
-    const prefs = { fewer: { recipe: true, spotlight: false, memory: false } };
-    const caps = { recipe: 9, spotlight: 9, memory: 9 };
+  it('lowers the frequency: the type takes only every other turn, then stops at its cap', () => {
+    const prefs = { fewer: { recipe: false, spotlight: true, memory: false } };
+    const caps = capsFor(true, prefs);
     const r = new Rotation();
     const seq: SpecialType[] = [];
-    for (let i = 0; i < 8; i++) {
-      const t = r.choose(() => true, caps, prefs)!;
+    for (let i = 0; i < 40; i++) {
+      const t = r.choose(() => true, caps, prefs);
+      if (!t) continue;
       r.record(t);
       seq.push(t);
     }
-    const recipes = seq.filter((t) => t === 'recipe').length;
-    expect(recipes).toBeGreaterThan(0);
-    expect(recipes).toBeLessThan(seq.filter((t) => t === 'spotlight').length);
+    const spot = seq.filter((t) => t === 'spotlight').length;
+    expect(spot).toBe(SPECIALS.fewerCap);
+    const first10 = seq.slice(0, 10).filter((t) => t === 'spotlight').length;
+    expect(first10).toBeLessThan(4); // normally 4 in 10
   });
 });
 

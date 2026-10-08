@@ -70,6 +70,7 @@
     specialsPrefs
   } from '$lib/freshFeed/specialsPrefs';
   import FreshSpecialCard from './FreshSpecialCard.svelte';
+  import { MemberUnlock } from '$lib/freshFeed/memberUnlock';
   import FreshFinishLine from './FreshFinishLine.svelte';
   import { finishLine, type ExploreState } from '$lib/freshFeed/finishLine';
   import { SPECIALS } from '$lib/freshFeed/specialsConfig';
@@ -314,7 +315,8 @@
   }
 
   function cardPosts(sp: Special): RelayEvent[] {
-    return sp.type === 'recipe' ? [sp.post] : sp.type === 'teaser' ? [] : sp.posts;
+    if (sp.type === 'recipe') return [sp.post];
+    return sp.type === 'teaser' || sp.type === 'unlock' ? [] : sp.posts;
   }
 
   /** Posts on screen in the feed or a card: no card repeats them. */
@@ -338,6 +340,15 @@
     },
     specialsSession
   );
+
+  // Members are never asked to log in to the feed on their own: the first
+  // members-only card is a "Tap to unlock" card ($lib/freshFeed/memberUnlock).
+  const unlock = new MemberUnlock(async () => {
+    const relay = await client.connection();
+    return login.access(relay, true);
+  });
+  let unlockTick = 0;
+  $: feedAuthed = $loginState === 'authed';
 
   function visiblePlaced(
     all: typeof placed,
@@ -381,13 +392,18 @@
       loadBoxTopics([recipe.id]);
       return { type: 'recipe', post: recipe };
     }
+    if (type === 'spotlight' && !member) {
+      // Non-members: a locked teaser from the topic list (no request).
+      const t = loader.teaser();
+      if (t?.type === 'teaser') specialsSession.usedTopics.add(t.slug);
+      return t;
+    }
+    if (!membersOnlyOpen()) {
+      unlock.offer();
+      unlockTick++;
+      return { type: 'unlock', for: type, status: 'offer' };
+    }
     if (type === 'spotlight') {
-      if (!member) {
-        // Non-members: a locked teaser from the topic list (no request).
-        const t = loader.teaser();
-        if (t?.type === 'teaser') specialsSession.usedTopics.add(t.slug);
-        return t;
-      }
       const sp = loader.takeSpotlight();
       prepare('spotlight');
       return sp;
@@ -395,6 +411,46 @@
     const m = loader.takeMemory();
     prepare('memory');
     return m;
+  }
+
+  /** Spotlights and memories can be loaded: the feed is logged in. */
+  function membersOnlyOpen(): boolean {
+    return member && (feedAuthed || unlock.open);
+  }
+
+  /** The unlock card's button: one login prompt, then the card fills in place. */
+  async function unlockCard(key: string) {
+    const slot = [...placed.values()].find((x) => x.key === key);
+    const sp = slot?.special;
+    if (!slot || !sp || sp.type !== 'unlock' || sp.status !== 'offer') return;
+    const setSpecial = (special: Special | null) => {
+      placed.set(slot.anchorId, { ...slot, special });
+      placed = placed;
+    };
+    setSpecial({ ...sp, status: 'busy' });
+    const ok = await unlock.tap();
+    unlockTick++;
+    if (destroyed) return;
+    if (!ok) {
+      setSpecial({ ...sp, status: 'declined' });
+      return;
+    }
+    loader.loggedIn();
+    let filled: Special | null = null;
+    for (const kind of sp.for === 'memory' ? ['memory', 'spotlight'] : ['spotlight', 'memory']) {
+      if (kind === 'spotlight') {
+        filled = await loader.buildSpotlight();
+        if (filled?.type === 'spotlight') specialsSession.lastParent = filled.parent;
+      } else {
+        await loader.prepareMemory();
+        filled = loader.takeMemory();
+      }
+      if (filled) break;
+    }
+    if (destroyed) return;
+    setSpecial(filled);
+    prepare('spotlight');
+    prepare('memory');
   }
 
   /**
@@ -427,18 +483,23 @@
         continue;
       }
       const recipe = nextRecipe();
+      const open = membersOnlyOpen();
+      // Members-only types: loaded content once the feed is logged in;
+      // before that, one "Tap to unlock" card; after a decline, none.
       const ready = (t: SpecialType) =>
         t === 'recipe'
           ? recipe !== null
-          : t === 'spotlight'
-            ? member
-              ? loader.spotlight !== null
-              : catalog.groups.length > 0 && loader.teaser() !== null
-            : member && loader.memory !== null;
+          : !member
+            ? t === 'spotlight' && catalog.groups.length > 0 && loader.teaser() !== null
+            : open
+              ? (t === 'spotlight' ? loader.spotlight : loader.memory) !== null
+              : unlock.canOffer;
+      const available = (t: SpecialType) =>
+        t === 'recipe' || !member || ((open || unlock.canOffer) && !loader.isOut(t));
       if (!(['recipe', 'spotlight', 'memory'] as SpecialType[]).some(ready)) break;
       // More than a screen away: wait for the rotation's own type.
       const strict = bottom > screenBottom * 2;
-      const type = specialsSession.rotation.choose(ready, caps, $prefs, strict);
+      const type = specialsSession.rotation.choose(ready, caps, $prefs, strict, available);
       const special = type ? takeSpecial(type, recipe) : null;
       if (!type || !special) break;
       specialsSession.rotation.record(type);
@@ -452,33 +513,26 @@
   // Slots waiting on the membership answer are decided once it arrives.
   $: if (membershipKnown) decideSlots();
 
+  /** Keep one of each ready; an empty or failed try is retried after 15 s. */
   function prepare(kind: 'spotlight' | 'memory') {
+    if (!membersOnlyOpen()) return;
     const p = kind === 'spotlight' ? loader.prepareSpotlight() : loader.prepareMemory();
-    p.then(() => decideSlots()).catch(() => {});
+    p.then(() => {
+      decideSlots();
+      const ready = kind === 'spotlight' ? loader.spotlight : loader.memory;
+      if (!ready && !loader.isOut(kind) && !loader.locked && !destroyed)
+        setTimeout(() => {
+          if (!destroyed) prepare(kind);
+        }, 15_000);
+    }).catch(() => {});
   }
 
   // Members: spotlights and memories start loading after the first page and
-  // the recipe pool (a declined feed login closes the connection, which
-  // would take a pool request in flight with it). Non-members never ask the
-  // relay for them.
+  // the recipe pool, only on a feed connection that is already logged in
+  // (no prompt: the first members-only card offers "Tap to unlock").
+  // Non-members never ask the relay for them.
   $: if (member && poolSettled && posts.length && !$prefs.off && !specialsStarted) {
     specialsStarted = true;
-    startSpecials();
-  }
-
-  /**
-   * The feed login signs with the app's signer: wait until it's ready, for
-   * as long as it takes (a passkey vault may be unlocked minutes later):
-   * every 0.5 s for the first 10 s, then every 3 s.
-   */
-  async function startSpecials() {
-    for (let i = 0; !$ndk.signer; i++) {
-      await new Promise((r) => setTimeout(r, i < 20 ? 500 : 3000));
-      if (destroyed || !member) {
-        specialsStarted = false;
-        return;
-      }
-    }
     prepare('spotlight');
     prepare('memory');
   }
@@ -640,6 +694,12 @@
   $: if ($loginState === 'authed') reloadExploreAfterLogin();
   async function reloadExploreAfterLogin() {
     loader.loggedIn();
+    if (member) {
+      unlock.loggedIn();
+      unlockTick++;
+      prepare('spotlight');
+      prepare('memory');
+    }
     const c = exploreContent;
     if (exploreState !== 'open' || !c || !member || c.day || c.spotlights.length) return;
     exploreState = 'loading';
@@ -1512,6 +1572,7 @@
                 on:fewer={(e) => fewer(e.detail)}
                 on:hideTopic={(e) => hideSpotlightTopic(e.detail)}
                 on:openTopic={(e) => openTopicSlug(e.detail)}
+                on:unlock={() => unlockCard(row.key)}
               />
             {/if}
           {:else}

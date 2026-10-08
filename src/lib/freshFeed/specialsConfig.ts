@@ -11,17 +11,21 @@ export const SPECIALS = {
   /** The first card's position in the feed (1-based, inclusive range). */
   firstPosition: { min: 6, max: 8 },
   /** Posts between two cards (inclusive range, jittered per gap). */
-  gap: { min: 7, max: 10 },
+  gap: { min: 7, max: 9 },
 
-  /** Rotation order; a type at its cap is skipped. */
-  rotation: ['recipe', 'spotlight', 'memory'] as SpecialType[],
-  /** Per-session caps (members). */
-  caps: { recipe: 3, spotlight: 2, memory: 2 } as Record<SpecialType, number>,
+  /**
+   * Rotation pattern, repeating; a type that is capped, turned off or out
+   * of unshown content is skipped. Recipes and spotlights lead, a memory
+   * every 5th card.
+   */
+  rotation: ['recipe', 'spotlight', 'recipe', 'spotlight', 'memory'] as SpecialType[],
+  /** Per-session caps (members): none, cards go on as long as the reader scrolls. */
+  caps: { recipe: Infinity, spotlight: Infinity, memory: Infinity } as Record<SpecialType, number>,
   /** Non-members and signed out: recipe cards, at most one locked spotlight teaser. */
-  freeCaps: { recipe: 3, spotlight: 1, memory: 0 } as Record<SpecialType, number>,
+  freeCaps: { recipe: Infinity, spotlight: 1, memory: 0 } as Record<SpecialType, number>,
 
-  /** "Show fewer like this": the type's cap becomes this… */
-  fewerCap: 1,
+  /** "Show fewer like this": the type's per-session cap becomes this… */
+  fewerCap: 3,
   /** …and it takes its rotation turn only every Nth time it comes up. */
   fewerTurnEvery: 2,
 
