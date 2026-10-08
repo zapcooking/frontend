@@ -176,3 +176,68 @@ describe('memories', () => {
     for (const [, until] of windows) expect(until).toBeLessThan(floor + 1);
   });
 });
+
+describe('keep exploring', () => {
+  const three = (p: string, pubkeyBase = p) =>
+    [1, 2, 3].map((n) => img(`${p}${n}`, `${pubkeyBase}-${n}`));
+
+  it('members: on this day, then two spotlights from different parent groups, then the recipes', async () => {
+    const { src, history } = source({
+      topics: { sourdough: three('s'), bread: three('b'), coffee: three('c') }
+    });
+    const l = makeLoader(src, deps(true));
+    const recipes = [img('r1')];
+    const e = await l.explore(recipes);
+    expect(history).toHaveBeenCalled();
+    expect(e.spotlights).toHaveLength(2);
+    const parents = e.spotlights.map((s) => (s.type === 'spotlight' ? s.parent : null));
+    expect(parents[0]).not.toBe(parents[1]);
+    expect(e.recipes).toBe(recipes);
+  });
+
+  it('non-members: only the recipes, and no request is sent', async () => {
+    const { src, topic, history } = source({ topics: { sourdough: three('s') } });
+    const l = makeLoader(src, deps(false));
+    const e = await l.explore([img('r1')]);
+    expect(e).toEqual({ day: null, spotlights: [], recipes: [img('r1')] });
+    expect(topic).not.toHaveBeenCalled();
+    expect(history).not.toHaveBeenCalled();
+  });
+});
+
+describe('feed login', () => {
+  it('"auth-required" (a declined login) waits for a login; after it, requests go again', async () => {
+    let state: PageResult['state'] = 'auth-required';
+    const topic = vi.fn(
+      async (): Promise<PageResult> =>
+        state === 'ok'
+          ? { state: 'ok', events: [img('a'), img('b'), img('c')], end: 'exhausted' }
+          : { state, events: [] }
+    );
+    const src: SpecialsSource = {
+      topic,
+      history: async () => ({ state: 'ok', events: [], labels: [], end: 'exhausted' }),
+      floor: () => 1_000_000
+    };
+    const l = makeLoader(src, deps(true));
+    await l.prepareSpotlight();
+    expect(l.needsLogin).toBe(true);
+    expect(l.locked).toBe(false);
+    await l.prepareSpotlight();
+    expect(topic).toHaveBeenCalledTimes(1); // no retry before a login
+    state = 'ok';
+    l.loggedIn();
+    await l.prepareSpotlight();
+    expect(l.spotlight?.type).toBe('spotlight');
+  });
+
+  it('"restricted" (not a member there) stays final even after a login', async () => {
+    const { src, topic } = source({ state: 'restricted' });
+    const l = makeLoader(src, deps(true));
+    await l.prepareSpotlight();
+    l.loggedIn();
+    await l.prepareSpotlight();
+    expect(l.locked).toBe(true);
+    expect(topic).toHaveBeenCalledTimes(1);
+  });
+});

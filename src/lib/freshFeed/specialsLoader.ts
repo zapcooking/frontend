@@ -1,6 +1,7 @@
 import { SPECIALS } from './specialsConfig';
 import {
   archiveStandout,
+  choosePosts,
   dayMemory,
   memoryLabel,
   nextMemoryVariant,
@@ -65,8 +66,10 @@ export function specialsTabSession(): SpecialsSession {
 export class SpecialsLoader {
   spotlight: Special | null = null;
   memory: Special | null = null;
-  /** The relay said no (not a member there): stop asking this session. */
+  /** The relay said this reader isn't a member there: stop asking this session. */
   locked = false;
+  /** The relay wants a feed login first (declined or not yet asked). */
+  needsLogin = false;
   private spotlightBusy = false;
   private memoryBusy = false;
   private daySections: DaySection[] | null = null;
@@ -86,8 +89,23 @@ export class SpecialsLoader {
     return this.deps.now?.() ?? new Date();
   }
 
+  /**
+   * The relay refused: `restricted` (not a member there) ends it for the
+   * session; `auth-required` (no feed login yet, e.g. a declined prompt)
+   * waits until the reader logs in (`loggedIn`).
+   */
+  private refused(state: 'auth-required' | 'restricted'): void {
+    if (state === 'restricted') this.locked = true;
+    else this.needsLogin = true;
+  }
+
+  /** The reader logged in to the feed: ask again. */
+  loggedIn(): void {
+    this.needsLogin = false;
+  }
+
   private usable(): boolean {
-    return this.deps.member() && !this.locked;
+    return this.deps.member() && !this.locked && !this.needsLogin;
   }
 
   /** The next spotlight topic for a non-member teaser (no request). */
@@ -132,7 +150,7 @@ export class SpecialsLoader {
         SPECIALS.spotlight.fetchLimit
       );
       if (r.state === 'auth-required' || r.state === 'restricted') {
-        this.locked = true;
+        this.refused(r.state);
         return null;
       }
       if (r.state !== 'ok') return null;
@@ -175,7 +193,7 @@ export class SpecialsLoader {
     if (this.daySections) return this.daySections;
     const r = await loadOnThisDay(this.src, this.now);
     if (r.state === 'auth-required' || r.state === 'restricted') {
-      this.locked = true;
+      this.refused(r.state);
       return null;
     }
     if (r.state !== 'ok') return null;
@@ -218,7 +236,7 @@ export class SpecialsLoader {
       this.triedMonths.add(month.key);
       const r = await new MonthPager(this.src, month).next();
       if (r.state === 'auth-required' || r.state === 'restricted') {
-        this.locked = true;
+        this.refused(r.state);
         return null;
       }
       if (r.state !== 'ok') return null;
@@ -261,4 +279,41 @@ export class SpecialsLoader {
     this.memory = null;
     return m;
   }
+
+  /**
+   * "Keep exploring" (the reader asked for it, so archive content is
+   * welcome): on this day, two spotlights from different parent groups, and
+   * the recipe row the caller picked. Non-members get only the recipes and
+   * nothing is requested for them.
+   */
+  async explore(recipes: RelayEvent[]): Promise<ExploreContent> {
+    const out: ExploreContent = { day: null, spotlights: [], recipes };
+    if (!this.usable()) return out;
+    const sections = await this.onThisDay();
+    if (sections) {
+      const all = [...sections]
+        .sort((a, b) => a.yearsBack - b.yearsBack)
+        .flatMap((s) => s.posts.filter(this.deps.accept));
+      const posts = choosePosts(all, {
+        shown: this.deps.shown(),
+        exclude: this.deps.exclude(),
+        max: SPECIALS.explore.dayPosts
+      });
+      if (posts.length) out.day = { posts };
+    }
+    let lastParent = this.session.lastParent;
+    for (let i = 0; i < SPECIALS.explore.spotlights && this.usable(); i++) {
+      const s = await this.buildSpotlight(lastParent);
+      if (!s || s.type !== 'spotlight') break;
+      out.spotlights.push(s);
+      lastParent = s.parent;
+    }
+    return out;
+  }
+}
+
+export interface ExploreContent {
+  day: { posts: RelayEvent[] } | null;
+  spotlights: Special[];
+  recipes: RelayEvent[];
 }

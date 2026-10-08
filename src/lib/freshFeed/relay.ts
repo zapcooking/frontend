@@ -216,14 +216,17 @@ export class FreshClient {
       if (!(await this.login!.access(relay))) return { state: 'ok', events: [], end: 'floor' };
       member = true;
     }
+    // The free window first, for everyone: history only when a page starts
+    // past it (the reader asked for older posts), never by paging on.
+    const history = member && pastFloor;
     const filter: Filter = { kinds: FRESH_KINDS, limit };
     if (until !== undefined) filter.until = until;
-    if (!member) filter.since = floor;
+    if (!history) filter.since = floor;
 
     const stream = onEvent
       ? (e: RelayEvent) => {
           if (this.seen.has(e.id)) return;
-          if (!member && e.created_at < floor) return;
+          if (!history && e.created_at < floor) return;
           onEvent(e);
         }
       : undefined;
@@ -256,14 +259,14 @@ export class FreshClient {
       }
       if (res.events.length) this.historyServed = true;
     }
-    // Defensive: a non-member never gets anything older than the floor here.
-    if (!member) fresh = fresh.filter((e) => e.created_at >= floor);
+    // Defensive: nothing older than the floor unless history was asked for.
+    if (!history) fresh = fresh.filter((e) => e.created_at >= floor);
     fresh.sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? -1 : 1));
     for (const e of fresh) this.seen.add(e.id);
 
     const oldest = fresh.length ? fresh[fresh.length - 1].created_at : until;
     let end: PageEnd = 'more';
-    if (res.events.length < asked) end = member ? 'exhausted' : 'floor';
+    if (res.events.length < asked) end = history ? 'exhausted' : 'floor';
     else if (fresh.length === 0) end = 'exhausted';
     return { state: 'ok', events: fresh, end, nextUntil: oldest };
   }

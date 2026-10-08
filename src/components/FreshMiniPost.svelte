@@ -102,17 +102,22 @@
     transform: translateY(-1px);
   }
 
+  /* The frame sets the size (4:3); a tall photo can't stretch the tile. */
   .mini-photo {
+    position: relative;
     display: block;
+    flex-shrink: 0;
     aspect-ratio: 4 / 3;
+    overflow: hidden;
     background: var(--box-chip);
   }
 
   .mini-photo img {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    display: block;
   }
 
   .mini-body {

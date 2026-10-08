@@ -455,3 +455,18 @@ describe('topicLabels', () => {
     expect(await c.topicLabels(['a'])).toEqual([]);
   });
 });
+
+describe('members and the free window', () => {
+  it('a member paging the feed stops at the window (no automatic archive); history only when asked', async () => {
+    const relay = new FakeRelay([ev('new', NOW - 100), ev('old', FLOOR - 100)]);
+    const { c } = client(relay, { member: true });
+    const first = await c.page();
+    expect(relay.filters[0].since).toBe(FLOOR);
+    expect(first.events.map((e) => e.id)).toEqual(['new']);
+    expect(first.end).toBe('floor');
+    // "Older posts": a page that starts before the window reads history.
+    const older = await c.page(FLOOR - 1);
+    expect(relay.filters[1].since).toBeUndefined();
+    expect(older.events.map((e) => e.id)).toEqual(['old']);
+  });
+});

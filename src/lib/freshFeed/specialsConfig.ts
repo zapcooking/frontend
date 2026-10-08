@@ -45,6 +45,16 @@ export const SPECIALS = {
     archiveMonthTries: 3
   },
 
+  /** "Keep exploring", below "You're all caught up" (opt-in). */
+  explore: {
+    /** "On this day" posts in the explore section. */
+    dayPosts: 6,
+    /** Topic spotlights (from different parent groups). */
+    spotlights: 2,
+    /** Recipes in the recipe-box row. */
+    recipes: 8
+  },
+
   /** Device-local memory of what was shown. */
   shownTtlSeconds: 90 * 24 * 60 * 60,
   shownMax: 1000,
