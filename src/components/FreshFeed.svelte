@@ -70,7 +70,6 @@
     specialsPrefs
   } from '$lib/freshFeed/specialsPrefs';
   import FreshSpecialCard from './FreshSpecialCard.svelte';
-  import { MemberUnlock } from '$lib/freshFeed/memberUnlock';
   import FreshFinishLine from './FreshFinishLine.svelte';
   import { finishLine, type ExploreState } from '$lib/freshFeed/finishLine';
   import { SPECIALS } from '$lib/freshFeed/specialsConfig';
@@ -97,7 +96,7 @@
   import { loadOnThisDay, MonthPager, type ArchiveState } from '$lib/freshFeed/archiveLoader';
   import FreshOnThisDayCard from './FreshOnThisDayCard.svelte';
 
-  const { client, login } = freshSession();
+  const { client, login, unlock } = freshSession();
   const loginState = login.state;
 
   interface Post {
@@ -342,13 +341,10 @@
   );
 
   // Members are never asked to log in to the feed on their own: the first
-  // members-only card is a "Tap to unlock" card ($lib/freshFeed/memberUnlock).
-  const unlock = new MemberUnlock(async () => {
-    const relay = await client.connection();
-    return login.access(relay, true);
-  });
+  // members-only card is a "Tap to unlock" card ($lib/freshFeed/memberUnlock,
+  // one per tab session). A decline anywhere holds for the session.
   let unlockTick = 0;
-  $: feedAuthed = $loginState === 'authed';
+  $: if ($loginState === 'declined') unlock.declinedElsewhere();
 
   function visiblePlaced(
     all: typeof placed,
@@ -413,9 +409,16 @@
     return m;
   }
 
-  /** Spotlights and memories can be loaded: the feed is logged in. */
+  /**
+   * Spotlights and memories can be loaded: the feed connection, as it is
+   * now, is logged in. A login lost to a reconnect offers the unlock card
+   * again instead of leaving members-only cards stuck.
+   */
   function membersOnlyOpen(): boolean {
-    return member && (feedAuthed || unlock.open);
+    if (!member) return false;
+    if (client.authedNow()) return true;
+    if (unlock.open) unlock.lost();
+    return false;
   }
 
   /** The unlock card's button: one login prompt, then the card fills in place. */

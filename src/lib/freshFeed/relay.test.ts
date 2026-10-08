@@ -470,3 +470,60 @@ describe('members and the free window', () => {
     expect(older.events.map((e) => e.id)).toEqual(['old']);
   });
 });
+
+describe('topic(): authedOnly never asks the signer', () => {
+  function withLogin(relay: FakeRelay, authed: () => boolean) {
+    const access = vi.fn(async () => true);
+    const login = {
+      authed: (r: RelayLike | null) => r !== null && authed(),
+      access,
+      denied: vi.fn()
+    };
+    const c = new FreshClient({ connect: async () => relay, now: () => NOW, login });
+    return { c, access };
+  }
+
+  it('authedOnly and not logged in: no access() call, no request, auth-required', async () => {
+    const relay = new FakeRelay([ev('a', FLOOR - 10)]);
+    const { c, access } = withLogin(relay, () => false);
+    const r = await c.topic('bread', new Set(), FLOOR - 1, 20, { authedOnly: true });
+    expect(r.state).toBe('auth-required');
+    expect(access).not.toHaveBeenCalled();
+    expect(relay.filters).toHaveLength(0);
+  });
+
+  it('authedOnly on a logged-in connection: asks the relay, no access() call', async () => {
+    const relay = new FakeRelay([ev('a', FLOOR - 10)]);
+    const { c, access } = withLogin(relay, () => true);
+    const r = await c.topic('bread', new Set(), FLOOR - 1, 20, { authedOnly: true });
+    expect(r.state).toBe('ok');
+    expect(access).not.toHaveBeenCalled();
+    expect(relay.filters[0].search).toBe('topic:bread');
+  });
+
+  it('the default (a reader opening a topic) may log in', async () => {
+    const relay = new FakeRelay([ev('a', FLOOR - 10)]);
+    const { c, access } = withLogin(relay, () => false);
+    await c.topic('bread', new Set(), FLOOR - 1, 20);
+    expect(access).toHaveBeenCalledTimes(1);
+  });
+
+  it('authedNow(): a reconnect drops the feed login', async () => {
+    const first = new FakeRelay();
+    const second = new FakeRelay();
+    let current: FakeRelay = first;
+    const authedOn = new Set<RelayLike>([first]);
+    const login = {
+      authed: (r: RelayLike | null) => r !== null && authedOn.has(r),
+      access: vi.fn(),
+      denied: vi.fn()
+    };
+    const c = new FreshClient({ connect: async () => current, now: () => NOW, login });
+    await c.connection();
+    expect(c.authedNow()).toBe(true);
+    first.close(); // connection lost
+    current = second;
+    await c.connection();
+    expect(c.authedNow()).toBe(false);
+  });
+});

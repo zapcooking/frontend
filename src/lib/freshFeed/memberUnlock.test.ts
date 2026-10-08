@@ -52,3 +52,38 @@ describe('tap to unlock', () => {
     expect(u.canOffer).toBe(false);
   });
 });
+
+describe('session and reconnects', () => {
+  it('a login lost to a reconnect offers the unlock card again (not stuck)', async () => {
+    const u = new MemberUnlock(async () => true);
+    u.offer();
+    await u.tap();
+    u.lost();
+    expect(u.open).toBe(false);
+    expect(u.canOffer).toBe(true);
+  });
+
+  it('a decline elsewhere (another feed login prompt) means no unlock prompts either', async () => {
+    const login = vi.fn(async () => true);
+    const u = new MemberUnlock(login);
+    u.declinedElsewhere();
+    expect(u.canOffer).toBe(false);
+    u.offer();
+    expect(await u.tap()).toBe(false);
+    expect(login).not.toHaveBeenCalled();
+  });
+
+  it('a decline is never undone by lost(); a different account starts over', async () => {
+    let account = 'alice';
+    const u = new MemberUnlock(
+      async () => false,
+      () => account
+    );
+    u.offer();
+    await u.tap();
+    u.lost();
+    expect(u.state).toBe('declined');
+    account = 'bob';
+    expect(u.canOffer).toBe(true);
+  });
+});

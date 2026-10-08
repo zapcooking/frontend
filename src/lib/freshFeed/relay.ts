@@ -165,6 +165,17 @@ export class FreshClient {
     return this.now() - FREE_WINDOW_SECONDS;
   }
 
+  /**
+   * Member access on the connection as it is now. A feed login belongs to
+   * one connection: after a reconnect it is gone, whatever the login state
+   * last said.
+   */
+  authedNow(): boolean {
+    if (this.member()) return true;
+    const relay = this.relay && this.relay.connected !== false ? this.relay : null;
+    return this.login?.authed(relay) ?? false;
+  }
+
   /** The open connection (one per client), connecting on first use. */
   async connection(): Promise<RelayLike> {
     if (this.relay && this.relay.connected !== false) return this.relay;
