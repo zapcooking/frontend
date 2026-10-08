@@ -86,4 +86,17 @@ describe('session and reconnects', () => {
     account = 'bob';
     expect(u.canOffer).toBe(true);
   });
+
+  it('an offered card that was never tapped is withdrawn, so a later visit offers it again', () => {
+    const u = new MemberUnlock(async () => true);
+    expect(u.canOffer).toBe(true);
+    u.offer();
+    expect(u.canOffer).toBe(false);
+    u.withdraw();
+    expect(u.canOffer).toBe(true);
+    u.offer();
+    u.declinedElsewhere();
+    u.withdraw();
+    expect(u.canOffer).toBe(false);
+  });
 });

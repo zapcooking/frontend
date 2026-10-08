@@ -4,6 +4,7 @@ import { get } from 'svelte/store';
 import { FreshClient, FREE_WINDOW_SECONDS, type Filter, type RelayEvent } from './relay';
 import {
   MemberLogin,
+  RELAY_DENIAL_TTL_MS,
   CHALLENGE_CHECKS,
   type AuthTemplate,
   type SignedAuthEvent
@@ -105,6 +106,8 @@ function setup(
     sign?: (t: AuthTemplate) => Promise<SignedAuthEvent>;
     relays?: AuthFakeRelay[];
     timeoutMs?: number;
+    now?: () => number;
+    signerPrompts?: () => boolean;
   } = {}
 ) {
   let pubkey = o.pubkey ?? ME;
@@ -116,7 +119,9 @@ function setup(
     isMember: () => o.isMember ?? true,
     sign,
     timeoutMs: o.timeoutMs ?? 50,
-    challengeWaitMs: 5
+    challengeWaitMs: 5,
+    now: o.now,
+    signerPrompts: o.signerPrompts
   });
   const relays = o.relays ?? [new AuthFakeRelay(), new AuthFakeRelay(), new AuthFakeRelay()];
   let n = 0;
@@ -264,29 +269,47 @@ describe('decline: remembered for the session, button only', () => {
   });
 });
 
-describe('not a member after all: stop, never retry', () => {
-  it('an empty first page of history after login means not a member', async () => {
+describe("the relay's verdict is not the app's", () => {
+  it('an empty first page of history is not a verdict: still logged in, still asking', async () => {
     const relay = new AuthFakeRelay({ member: false });
     const { client, login, sign } = setup({ relays: [relay] });
     const r = await client.page(FLOOR - 1);
-    expect(r.state).toBe('restricted');
-    expect(get(login.state)).toBe('not-member');
+    expect(r).toMatchObject({ state: 'ok', end: 'exhausted' });
+    expect(get(login.state)).toBe('authed');
+    const before = relay.filters.length;
+    await client.page(FLOOR - 1);
+    expect(relay.filters.length).toBe(before + 1);
+    expect(sign).toHaveBeenCalledTimes(1);
+  });
+
+  it('a restricted: close after login is a relay denial: held for a minute, then asked again', async () => {
+    let now = 1_000_000;
+    const relay = new AuthFakeRelay({ closeReason: 'restricted: members only' });
+    const { client, login } = setup({ relays: [relay, relay], now: () => now });
+    expect((await client.page(FLOOR - 1)).state).toBe('restricted');
+    expect(get(login.state)).toBe('relay-denied');
+    // Within the hold: automatic access sends nothing past the floor.
     const before = relay.filters.length;
     expect((await client.page(FLOOR - 1)).end).toBe('floor');
     expect(relay.filters.length).toBe(before);
-    expect(sign).toHaveBeenCalledTimes(1);
-  });
-
-  it('a restricted: close after login means not a member', async () => {
-    const relay = new AuthFakeRelay({ closeReason: 'restricted: members only' });
-    const { client, login, sign } = setup({ relays: [relay] });
+    // After the hold: automatic access asks the relay again (the connection's
+    // login is reused, nostr-tools keeps it) and the relay may deny again.
+    now += RELAY_DENIAL_TTL_MS + 1;
     expect((await client.page(FLOOR - 1)).state).toBe('restricted');
-    expect(get(login.state)).toBe('not-member');
-    await client.page(FLOOR - 1);
-    expect(sign).toHaveBeenCalledTimes(1);
+    expect(relay.filters.length).toBe(before + 1);
+    expect(get(login.state)).toBe('relay-denied');
   });
 
-  it('the end of real history is not mistaken for "not a member"', async () => {
+  it('the button retries a relay denial at once', async () => {
+    const relay = new AuthFakeRelay({ closeReason: 'restricted: members only' });
+    const { client, login } = setup({ relays: [relay, relay] });
+    await client.page(FLOOR - 1);
+    expect(get(login.state)).toBe('relay-denied');
+    expect(await login.access(await client.connection(), true)).toBe(true);
+    expect(get(login.state)).toBe('authed');
+  });
+
+  it('the end of real history is not mistaken for a verdict', async () => {
     const posts = [ev('h0', FLOOR - 86400)];
     const relay = new AuthFakeRelay({ posts });
     const { client, login } = setup({ relays: [relay] });
@@ -294,6 +317,14 @@ describe('not a member after all: stop, never retry', () => {
     const p2 = await client.page(p1.nextUntil! - 1);
     expect(p2).toMatchObject({ state: 'ok', end: 'exhausted' });
     expect(get(login.state)).toBe('authed');
+  });
+});
+
+describe('silent signers', () => {
+  it('a prompting signer (default) is not silent; a local key is', () => {
+    expect(setup().login.silent).toBe(false);
+    expect(setup({ signerPrompts: () => true }).login.silent).toBe(false);
+    expect(setup({ signerPrompts: () => false }).login.silent).toBe(true);
   });
 });
 
@@ -393,7 +424,7 @@ describe('topic feeds', () => {
     expect(sign).toHaveBeenCalledTimes(1);
   });
 
-  it('restricted: from the relay means not a member, without a retry', async () => {
+  it('restricted: from the relay on a topic is a relay denial (held, not permanent)', async () => {
     const relay = new AuthFakeRelay({ closeReason: 'restricted: members only' });
     const { client, login } = setup({ relays: [relay] });
     // The fake answers restricted for past-floor requests; make the topic one look like that.
@@ -406,7 +437,7 @@ describe('topic feeds', () => {
       return orig(filters, p);
     };
     expect((await client.topic('pickles', new Set())).state).toBe('restricted');
-    expect(get(login.state)).toBe('not-member');
+    expect(get(login.state)).toBe('relay-denied');
   });
 
   it("keeps its own de-duplication, apart from the main feed's", async () => {

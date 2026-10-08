@@ -74,8 +74,10 @@
     {:else}
       <p class="teaser-text">
         {special.for === 'memory'
-          ? 'Moments from the Fresh archive, for members.'
-          : 'The best of each topic from the Fresh archive, for members.'}
+          ? 'Moments from the Fresh archive, for members. '
+          : 'The best of each topic from the Fresh archive, for members. '}
+        Sign in to the feed relay with your key to see them here. Your signer will ask once;
+        nothing is posted.
       </p>
       <button
         type="button"
@@ -83,7 +85,7 @@
         disabled={special.status === 'busy'}
         on:click={() => dispatch('unlock')}
       >
-        {special.status === 'busy' ? 'Unlocking…' : '🔓 Tap to unlock with your membership'}
+        {special.status === 'busy' ? 'Signing in…' : '🔓 Sign in to the feed'}
       </button>
     {/if}
   {:else if special.type === 'teaser'}

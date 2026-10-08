@@ -146,7 +146,6 @@ export class FreshClient {
   private timeoutMs: number;
   private member: () => boolean;
   private login: MemberAccess | undefined;
-  private historyServed = false;
   private relay: RelayLike | null = null;
   private connecting: Promise<RelayLike> | null = null;
   private seen = new Set<string>();
@@ -260,16 +259,10 @@ export class FreshClient {
         fresh = res.events.filter((e) => !this.seen.has(e.id));
       }
     }
-    // A logged-in non-member gets an empty answer past the window, not an
-    // error: an empty first page of history after a login means "not a
-    // member" (members always have history there).
-    if (pastFloor && this.login?.authed(relay)) {
-      if (res.events.length === 0 && !this.historyServed) {
-        this.login.denied();
-        return { state: 'restricted', events: [] };
-      }
-      if (res.events.length) this.historyServed = true;
-    }
+    // An empty page is never a verdict on membership: the relay answers a
+    // logged-in reader it considers a non-member with an empty result, but
+    // so does a thin window, and the relay's own membership check can be a
+    // minute stale. Only an explicit `restricted:` close counts (see closed()).
     // Defensive: nothing older than the floor unless history was asked for.
     if (!history) fresh = fresh.filter((e) => e.created_at >= floor);
     fresh.sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? -1 : 1));
@@ -428,7 +421,7 @@ export class FreshClient {
     };
   }
 
-  /** A close while logged in as a member: `restricted:` means not a member. */
+  /** A close while logged in as a member: `restricted:` is the relay's (retryable) denial. */
   private closed(res: PageResult, member: boolean): PageResult {
     if (member && res.state === 'restricted') this.login?.denied();
     return res;

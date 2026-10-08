@@ -1,4 +1,5 @@
 import { get } from 'svelte/store';
+import { NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
 import { ndk, userPublickey } from '$lib/nostr';
 import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membershipStatus';
 import { FreshClient } from './relay';
@@ -26,7 +27,10 @@ export function freshSession(): { client: FreshClient; login: MemberLogin; unloc
     const login = new MemberLogin({
       pubkey: () => get(userPublickey),
       isMember,
-      sign: (template) => ndkAuthSigner(get(ndk))(template)
+      sign: (template) => ndkAuthSigner(get(ndk))(template),
+      // Same rule as the pantry relay's NIP-42 policy (nip29.ts): a local
+      // key signs without a prompt; everything else (extension, NIP-46) asks.
+      signerPrompts: () => !(get(ndk).signer instanceof NDKPrivateKeySigner)
     });
     const client = new FreshClient({ login });
     // "Tap to unlock" for the tab, like the login: a decline holds until a reload.

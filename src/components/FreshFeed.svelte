@@ -19,6 +19,7 @@
   import { browser } from '$app/environment';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { getAuthManager } from '$lib/authManager';
   import { batchFetchEngagement, cleanupEngagement, fetchEngagement } from '$lib/engagementCache';
   import { prefetchReplyContexts } from '$lib/replyContext';
   import { noteImage, saveImage, engagementFor } from '$lib/freshFeed/shareImage';
@@ -340,9 +341,29 @@
     specialsSession
   );
 
-  // Members are never asked to log in to the feed on their own: the first
-  // members-only card is a "Tap to unlock" card ($lib/freshFeed/memberUnlock,
-  // one per tab session). A decline anywhere holds for the session.
+  // A member whose key signs silently (nsec in the app, passkey vault) is
+  // logged in to the feed on load — no prompt, same as the pantry relay's
+  // NIP-42 policy. Members with a prompting signer (extension, Amber,
+  // bunker) are never asked on their own: the first members-only card is an
+  // opt-in "Sign in to the feed" card ($lib/freshFeed/memberUnlock, one per
+  // tab session). A decline anywhere holds for the session.
+  let autoLoginTried = false;
+  // The signer is restored asynchronously after the pubkey is known; the
+  // auth manager's store says when it is there (login.silent reads it).
+  let signerReady = false;
+  $: if (member && !loading && signerReady && !autoLoginTried && login.silent && $loginState === 'idle') {
+    autoLoginTried = true;
+    void autoLogin();
+  }
+  async function autoLogin() {
+    try {
+      const relay = await client.connection();
+      if (destroyed) return;
+      await login.access(relay);
+    } catch {
+      // Connection failed: the feed already shows its unavailable state.
+    }
+  }
   let unlockTick = 0;
   $: if ($loginState === 'declined') unlock.declinedElsewhere();
 
@@ -943,7 +964,9 @@
   $: activeChip =
     archiveView === 'month' ? TIME_MACHINE : archiveView === 'day' ? '@day' : (topic?.slug ?? '');
   // Topic feeds are for members: everyone else sees a lock on the chips.
-  $: topicsLocked = !pk || $loginState === 'not-member' || (membershipKnown && !member);
+  // (A relay `restricted:` is not a lock: the app's membership answer decides,
+  // and the topic view offers a retry.)
+  $: topicsLocked = !pk || (membershipKnown && !member);
 
   async function refreshCatalog() {
     topicsLoading = true;
@@ -1196,6 +1219,27 @@
       queueMembershipLookup(pk);
       muteListStore.load();
     }
+    // The signer is restored by the auth manager, which the layout creates
+    // in its own onMount — after this feed's (children mount first). Attach
+    // once it exists: read its state (it notifies on changes only) and
+    // follow changes from then on.
+    const ready = (s: { isAuthenticated: boolean; isLoading: boolean } | undefined) =>
+      !!s && s.isAuthenticated && !s.isLoading;
+    let unsubAuth: (() => void) | undefined;
+    let attachTimer: ReturnType<typeof setTimeout> | undefined;
+    const attachAuth = (tries = 40) => {
+      if (destroyed) return;
+      const auth = getAuthManager();
+      if (!auth) {
+        if (tries > 0) attachTimer = setTimeout(() => attachAuth(tries - 1), 250);
+        return;
+      }
+      signerReady = ready(auth.getState());
+      unsubAuth = auth.subscribe((s) => {
+        signerReady = ready(s);
+      });
+    };
+    attachAuth();
     loadFirst();
     // The chip catalog is a small HTTP GET (NIP-11), not on the socket.
     refreshCatalog();
@@ -1211,6 +1255,8 @@
     };
     scroller?.addEventListener('scroll', onScroll, { passive: true });
     return () => {
+      unsubAuth?.();
+      if (attachTimer) clearTimeout(attachTimer);
       scroller?.removeEventListener('scroll', onScroll);
       if (frame) cancelAnimationFrame(frame);
     };
@@ -1218,6 +1264,9 @@
 
   onDestroy(() => {
     destroyed = true;
+    // An unlock card that was never tapped is withdrawn, so a later visit can
+    // offer it again instead of leaving members-only cards stuck for the tab.
+    unlock.withdraw();
     stopLive?.();
     lazyObserver?.disconnect();
     if (batchTimer) clearTimeout(batchTimer);
