@@ -2,9 +2,10 @@ import { FREE_WINDOW_SECONDS, type RelayEvent } from './relay';
 import { isRecipe, publishedAt } from './posts';
 
 /**
- * "From the recipe box": older recipes woven into the Fresh feed, about one
- * after every eight posts, picked at random from the recipes this device
- * hasn't shown yet (so different readers see different recipes).
+ * "From the recipe box": older recipes woven into the Fresh feed as one of
+ * its special cards ($lib/freshFeed/specials decides where), picked at
+ * random from the recipes this device hasn't shown yet (so different
+ * readers see different recipes).
  *
  * Pool: kind 35000, and kind 30023 tagged zapcooking / nostrcooking, first
  * published (`published_at`, else `created_at`) more than 14 days ago; one
@@ -15,7 +16,6 @@ import { isRecipe, publishedAt } from './posts';
  * It never leaves the device.
  */
 
-export const BOX_EVERY = 8;
 export const SEEN_KEY = 'zapcooking_fresh_recipe_box_seen';
 export const SEEN_MAX = 1000;
 export const SEEN_TTL_SECONDS = 90 * 24 * 60 * 60;
@@ -61,11 +61,6 @@ export function pickRandom(
   });
   if (open.length === 0) return null;
   return open[Math.min(open.length - 1, Math.floor(random() * open.length))];
-}
-
-/** Where recipe-box slots go: after posts 8, 16, 24, … of `count` posts. */
-export function boxSlots(count: number): number {
-  return Math.floor(count / BOX_EVERY);
 }
 
 // --- The device-local "already shown" list ---
@@ -118,23 +113,4 @@ export function markSeen(
     }
   }
   return next;
-}
-
-/**
- * The feed as rendered: posts, with the n-th pick after post 8·n. A missing
- * pick (none left, or dropped by a mute or report) leaves no gap.
- */
-export function interleave<T extends { raw: { id: string } }>(
-  posts: T[],
-  picks: (T | null)[]
-): { key: string; item: T; box: boolean }[] {
-  const out: { key: string; item: T; box: boolean }[] = [];
-  posts.forEach((p, i) => {
-    out.push({ key: p.raw.id, item: p, box: false });
-    if ((i + 1) % BOX_EVERY === 0) {
-      const pick = picks[(i + 1) / BOX_EVERY - 1];
-      if (pick) out.push({ key: `box:${pick.raw.id}`, item: pick, box: true });
-    }
-  });
-  return out;
 }

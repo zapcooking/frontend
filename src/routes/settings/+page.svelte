@@ -19,6 +19,7 @@
   import Button from '../../components/Button.svelte';
   import Modal from '../../components/Modal.svelte';
   import Accordion from '../../components/Accordion.svelte';
+  import FreshSettings from '../../components/FreshSettings.svelte';
   import LazarusRecoverySection from '../../components/LazarusRecoverySection.svelte';
   import PasskeyVaultSection from '../../components/PasskeyVaultSection.svelte';
   import { resolveSecuritySections, resolveDisplayPubkey } from '$lib/securitySections';
@@ -1478,6 +1479,11 @@
           </div>
         </div>
       </div>
+    </Accordion>
+
+    <!-- Fresh Section: special-card choices (device-local) -->
+    <Accordion title="Fresh" open={false}>
+      <FreshSettings />
     </Accordion>
 
     <!-- Web of Trust Section -->

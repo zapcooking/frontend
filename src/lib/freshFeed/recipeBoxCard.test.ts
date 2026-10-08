@@ -111,6 +111,8 @@ describe('sharedAgo', () => {
     [now - 20 * 86400, 'Shared 20 days ago'],
     [now - 61 * 86400, 'Shared 2 months ago'],
     [now - 400 * 86400, 'Shared 1 year ago'],
+    [now - 360 * 86400, 'Shared 1 year ago'],
+    [now - 340 * 86400, 'Shared 11 months ago'],
     [now - 800 * 86400, 'Shared 2 years ago']
   ];
   it('counts days, then months, then years', () => {

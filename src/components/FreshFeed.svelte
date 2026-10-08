@@ -13,7 +13,7 @@
    * A signed-in member who reaches that point is asked to log in to the
    * relay once (lazily; see memberLogin.ts) and keeps scrolling into history.
    */
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -35,8 +35,6 @@
   import { passesFreshFilters, passesReaderFilters } from '$lib/freshFeed/posts';
   import { RECIPE_TAGS } from '$lib/consts';
   import {
-    boxSlots,
-    interleave,
     buildPool,
     loadSeen,
     markSeen,
@@ -46,7 +44,26 @@
   import { topTopics } from '$lib/freshFeed/recipeBoxCard';
   import { beginVisit, recordNewest, withDivider } from '$lib/freshFeed/lastVisit';
   import { spaceAuthors } from '$lib/freshFeed/spacing';
-  import { needsFullReload, reserveRenderedSlots, SCROLLED_PX } from '$lib/freshFeed/refreshTop';
+  import { needsFullReload } from '$lib/freshFeed/refreshTop';
+  import {
+    Slots,
+    capsFor,
+    placeSpecials,
+    type PlacedSlot,
+    type Special
+  } from '$lib/freshFeed/specials';
+  import type { SpecialType } from '$lib/freshFeed/specialsConfig';
+  import { SpecialsLoader, specialsTabSession } from '$lib/freshFeed/specialsLoader';
+  import {
+    hideTopic,
+    loadShown,
+    loadTopicHistory,
+    markShown,
+    markTopicShown,
+    showFewer,
+    specialsPrefs
+  } from '$lib/freshFeed/specialsPrefs';
+  import FreshSpecialCard from './FreshSpecialCard.svelte';
   import FreshPostCard from './FreshPostCard.svelte';
   import FreshReportModal from './FreshReportModal.svelte';
   import ZapModal from './ZapModal.svelte';
@@ -98,8 +115,9 @@
   // Posts reported this session: hidden at once.
   let hidden = new Set<string>();
 
-  // "From the recipe box": older recipes, one after every eight posts,
-  // random from those this device hasn't shown ($lib/freshFeed/recipeBox).
+  // Special cards ($lib/freshFeed/specials): the recipe box (older recipes,
+  // random from those this device hasn't shown), topic spotlights and
+  // memories, in jittered slots that are decided after the first page.
   // The first page renders as its posts arrive (firstStreaming), before the
   // relay's EOSE; firstGen drops a stream a refresh has replaced.
   let firstStreaming = false;
@@ -107,12 +125,25 @@
   let boxPool: RelayEvent[] = [];
   let poolRequested = false;
   let boxSeen = loadSeen(Math.floor(Date.now() / 1000));
-  let boxPicks: (Post | null)[] = [];
   const boxTaken = new Set<string>();
   const boxAddress = new Map<string, string>();
   // Topic chips on recipe-box cards: the relay's labels, members only.
   let boxTopicLabels: RelayEvent[] = [];
   $: boxTopics = topTopics(boxTopicLabels, catalog.groups);
+
+  // The reader's choices and this device's "already shown" memory never
+  // leave the device ($lib/freshFeed/specialsPrefs).
+  const prefs = specialsPrefs();
+  const specialsSession = specialsTabSession();
+  let slots = new Slots();
+  // Decided slots by anchor post id (special: null = skipped).
+  let placed = new Map<string, PlacedSlot & { key: string }>();
+  let decided = 0;
+  let slotSeq = 0;
+  let specialsStarted = false;
+  let shownPosts = loadShown(Math.floor(Date.now() / 1000));
+  let topicHistory = loadTopicHistory();
+  const wrapped = new Map<string, Post>();
 
   // Dialogs
   let zapOpen = false;
@@ -217,7 +248,7 @@
     // Each new page is spaced by author; posts already on screen stay put.
     const added = spaceAuthors(posts, r.events.map(wrap));
     posts = [...posts, ...added];
-    fillBox();
+    decideSlots();
     if (posts[0]) recordNewest(posts[0].raw.created_at);
     if (added.length)
       prefetchReplyContexts(
@@ -228,36 +259,23 @@
     end = r.end ?? 'more';
   }
 
+  let poolSettled = false;
   async function loadPool() {
     const r = await client.recipes(RECIPE_TAGS);
     if (destroyed) return;
+    poolSettled = true;
     if (r.state !== 'ok') {
       poolRequested = false; // the next successful first page tries again
       return;
     }
     boxPool = buildPool(r.events, Math.floor(Date.now() / 1000));
-    // Arriving after the reader scrolled: don't insert above them.
-    boxPicks = reserveRenderedSlots(
-      boxPicks,
-      boxSlots(filterPosts(posts, $muteListStore.muteList, hidden).length),
-      readerScrolled()
-    );
-    fillBox();
+    decideSlots();
   }
 
-  // A pick that was reported, or whose author was muted, leaves its slot empty.
-  $: boxShown = boxPicks.map((p) =>
-    !p ||
-    hidden.has(p.raw.id) ||
-    !passesReaderFilters(p.raw, {
-      muteList: pk ? $muteListStore.muteList : null,
-      isHellthread: () => isHellthread(p.event)
-    })
-      ? null
-      : p
-  );
-
-  $: rendered = interleave(shown, boxShown);
+  // A card whose recipe was reported, whose author was muted, or whose topic
+  // was hidden drops out; with special cards off, none show.
+  $: visibleSlots = visiblePlaced(placed, $prefs, hidden, $muteListStore.muteList);
+  $: rendered = placeSpecials(shown, visibleSlots);
 
   // "New since your last visit": the previous visit's mark, fixed for this
   // session (device-local; $lib/freshFeed/lastVisit).
@@ -265,43 +283,199 @@
   $: rows = withDivider(rendered, visitMark);
   $: caughtUp = visitMark !== null && shown.length > 0 && shown[0].raw.created_at <= visitMark;
 
-  /**
-   * One pick per slot as the feed grows; a pick, once made, stays put.
-   * Called after every change to the posts or the pool — not from a `$:`
-   * statement: it assigns boxPicks, and a reactive call would leave the
-   * `boxShown` statement above it stale for that update.
-   */
-  function fillBox() {
-    const muteList = $muteListStore.muteList;
-    const slots = boxSlots(filterPosts(posts, muteList, hidden).length);
-    const pool = boxPool;
-    if (boxPicks.length >= slots || pool.length === 0) return;
+  function postFor(raw: RelayEvent): Post {
+    let p = wrapped.get(raw.id);
+    if (!p) wrapped.set(raw.id, (p = wrap(raw)));
+    return p;
+  }
+
+  function accepted(e: RelayEvent): boolean {
+    return passesReaderFilters(e, {
+      muteList: pk ? $muteListStore.muteList : null,
+      isHellthread: () => isHellthread(postFor(e).event)
+    });
+  }
+
+  function cardPosts(sp: Special): RelayEvent[] {
+    return sp.type === 'recipe' ? [sp.post] : sp.type === 'teaser' ? [] : sp.posts;
+  }
+
+  /** Posts on screen in the feed or a card: no card repeats them. */
+  function onScreenIds(): Set<string> {
+    const ids = new Set(posts.map((p) => p.raw.id));
+    for (const slot of placed.values())
+      if (slot.special) for (const e of cardPosts(slot.special)) ids.add(e.id);
+    return ids;
+  }
+
+  const loader = new SpecialsLoader(
+    client,
+    {
+      member: () => member,
+      groups: () => catalog.groups,
+      hiddenTopics: () => $prefs.hiddenTopics,
+      shown: () => shownPosts,
+      exclude: onScreenIds,
+      accept: accepted,
+      topicHistory: () => topicHistory
+    },
+    specialsSession
+  );
+
+  function visiblePlaced(
+    all: typeof placed,
+    p: typeof $prefs,
+    hiddenIds: Set<string>,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _mutes: unknown
+  ): typeof placed {
+    if (p.off) return new Map();
+    const out: typeof placed = new Map();
+    for (const [id, slot] of all) {
+      const sp = slot.special;
+      if (!sp) continue;
+      if (sp.type === 'recipe' && (hiddenIds.has(sp.post.id) || !accepted(sp.post))) continue;
+      if ((sp.type === 'spotlight' || sp.type === 'teaser') && p.hiddenTopics.includes(sp.slug))
+        continue;
+      out.set(id, slot);
+    }
+    return out;
+  }
+
+  /** A random recipe-box recipe for the next slot (none until the pool loads). */
+  function nextRecipe(): RelayEvent | null {
+    if (boxPool.length === 0) return null;
     // Recipes already in the feed (members paging history) aren't picked.
     const inFeed = new Set(
       posts
         .filter((p) => p.raw.kind === 30023 || p.raw.kind === 35000)
         .map((p) => recipeAddress(p.raw))
     );
-    const usable = pool.filter(
-      (e) =>
-        !inFeed.has(recipeAddress(e)) &&
-        passesReaderFilters(e, {
-          muteList: pk ? muteList : null,
-          isHellthread: () => isHellthread(new NDKEvent($ndk, e))
-        })
-    );
-    const added: Post[] = [];
-    while (boxPicks.length + added.length < slots) {
-      const pick = pickRandom(usable, boxSeen, boxTaken);
-      if (!pick) break;
-      const address = recipeAddress(pick);
+    const usable = boxPool.filter((e) => !inFeed.has(recipeAddress(e)) && accepted(e));
+    return pickRandom(usable, boxSeen, boxTaken);
+  }
+
+  function takeSpecial(type: SpecialType, recipe: RelayEvent | null): Special | null {
+    if (type === 'recipe') {
+      if (!recipe) return null;
+      const address = recipeAddress(recipe);
       boxTaken.add(address);
-      boxAddress.set(pick.id, address);
-      added.push(wrap(pick));
+      boxAddress.set(recipe.id, address);
+      loadBoxTopics([recipe.id]);
+      return { type: 'recipe', post: recipe };
     }
-    if (added.length) {
-      boxPicks = [...boxPicks, ...added];
-      loadBoxTopics(added.map((p) => p.raw.id));
+    if (type === 'spotlight') {
+      if (!member) {
+        // Non-members: a locked teaser from the topic list (no request).
+        const t = loader.teaser();
+        if (t?.type === 'teaser') specialsSession.usedTopics.add(t.slug);
+        return t;
+      }
+      const sp = loader.takeSpotlight();
+      prepare('spotlight');
+      return sp;
+    }
+    const m = loader.takeMemory();
+    prepare('memory');
+    return m;
+  }
+
+  /**
+   * Decide the slots the feed has reached, in order: a slot gets the
+   * rotation's next ready card while its place is still below the screen;
+   * once the reader is at or past it, it is skipped, so nothing is ever
+   * inserted above (or into) what they're reading. A slot with nothing
+   * ready waits. Never while the first page loads.
+   */
+  async function decideSlots() {
+    await tick();
+    if (destroyed || loading || firstStreaming || $prefs.off) return;
+    const anchors = slots.upTo(shown.length);
+    const caps = capsFor(member, $prefs);
+    const screenBottom = window.innerHeight;
+    let changed = false;
+    while (decided < anchors.length) {
+      const anchor = shown[anchors[decided] - 1];
+      const el =
+        anchor && document.querySelector(`[data-fresh-row="${CSS.escape(anchor.raw.id)}"]`);
+      if (!anchor || !el) break;
+      const id = anchor.raw.id;
+      const bottom = el.getBoundingClientRect().bottom;
+      if (bottom <= screenBottom) {
+        placed.set(id, { anchorId: id, key: `sp:${slotSeq++}`, special: null });
+        decided++;
+        changed = true;
+        continue;
+      }
+      const recipe = nextRecipe();
+      const ready = (t: SpecialType) =>
+        t === 'recipe'
+          ? recipe !== null
+          : t === 'spotlight'
+            ? member
+              ? loader.spotlight !== null
+              : catalog.groups.length > 0 && loader.teaser() !== null
+            : member && loader.memory !== null;
+      if (!(['recipe', 'spotlight', 'memory'] as SpecialType[]).some(ready)) break;
+      // More than a screen away: wait for the rotation's own type.
+      const strict = bottom > screenBottom * 2;
+      const type = specialsSession.rotation.choose(ready, caps, $prefs, strict);
+      const special = type ? takeSpecial(type, recipe) : null;
+      if (!type || !special) break;
+      specialsSession.rotation.record(type);
+      placed.set(id, { anchorId: id, key: `sp:${slotSeq++}`, special });
+      decided++;
+      changed = true;
+    }
+    if (changed) placed = placed;
+  }
+
+  function prepare(kind: 'spotlight' | 'memory') {
+    const p = kind === 'spotlight' ? loader.prepareSpotlight() : loader.prepareMemory();
+    p.then(() => decideSlots()).catch(() => {});
+  }
+
+  // Members: spotlights and memories start loading after the first page and
+  // the recipe pool (a declined feed login closes the connection, which
+  // would take a pool request in flight with it). Non-members never ask the
+  // relay for them.
+  $: if (member && poolSettled && posts.length && !$prefs.off && !specialsStarted) {
+    specialsStarted = true;
+    startSpecials();
+  }
+
+  /** The feed login signs with the app's signer: wait (briefly) until it's ready. */
+  async function startSpecials() {
+    for (let i = 0; i < 20 && !$ndk.signer; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (destroyed) return;
+    }
+    if (!$ndk.signer) return;
+    prepare('spotlight');
+    prepare('memory');
+  }
+
+  function cardSeen(sp: Special) {
+    const now = Math.floor(Date.now() / 1000);
+    const ids = cardPosts(sp).map((e) => e.id);
+    if (ids.length) shownPosts = markShown(shownPosts, ids, now);
+    if (sp.type === 'spotlight') topicHistory = markTopicShown(topicHistory, sp.slug, now);
+  }
+
+  function fewer(type: SpecialType) {
+    showFewer(type);
+    notice = "Got it: you'll see fewer of these. Settings → Fresh undoes it.";
+  }
+
+  function hideSpotlightTopic(slug: string) {
+    hideTopic(slug);
+    notice = 'Topic hidden from spotlights. Settings → Fresh shows it again.';
+  }
+
+  function openTopicSlug(slug: string) {
+    for (const g of catalog.groups) {
+      const t = g.topics.find((x) => x.slug === slug);
+      if (t) return openTopic(t);
     }
   }
 
@@ -327,9 +501,12 @@
   }
 
   async function loadFirst() {
-    // Picks never seen go back in the pool; seen ones are remembered.
-    boxPicks = [];
+    // Picks never seen go back in the pool; seen ones are remembered. The
+    // session's caps and rotation carry on (specialsTabSession).
     boxTaken.clear();
+    slots = new Slots();
+    placed = new Map();
+    decided = 0;
     loading = true;
     unavailable = false;
     moreFailed = false;
@@ -361,6 +538,7 @@
     posts = [];
     apply(r);
     loading = false;
+    decideSlots();
     if (!unavailable) {
       startLive(since);
       // The recipe-box pool (~430 long-form recipes) waits for a successful
@@ -433,13 +611,9 @@
   function showPending() {
     posts = [...spaceAuthors([], pending), ...posts];
     pending = [];
-    fillBox();
+    decideSlots();
     if (posts[0]) recordNewest(posts[0].raw.created_at);
     document.getElementById('app-scroll')?.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  function readerScrolled(): boolean {
-    return (document.getElementById('app-scroll')?.scrollTop ?? 0) > SCROLLED_PX;
   }
 
   /**
@@ -870,6 +1044,21 @@
     loadFirst();
     // The chip catalog is a small HTTP GET (NIP-11), not on the socket.
     refreshCatalog();
+    // A slot waiting for its card is decided as the reader nears it.
+    const scroller = document.getElementById('app-scroll');
+    let frame = 0;
+    const onScroll = () => {
+      if (frame || decided >= slots.upTo(shown.length).length) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        decideSlots();
+      });
+    };
+    scroller?.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      scroller?.removeEventListener('scroll', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
   });
 
   onDestroy(() => {
@@ -1198,27 +1387,62 @@
                 on:open={openOnThisDay}
               />
             {/if}
+          {:else if row.box}
+            {#if row.special.type === 'recipe'}
+              {@const p = postFor(row.special.post)}
+              <FreshPostCard
+                box={true}
+                topic={boxTopics.get(p.raw.id) ?? null}
+                raw={p.raw}
+                event={p.event}
+                visible={visibleNotes.has(p.raw.id)}
+                expanded={expanded.has(p.raw.id)}
+                {lazy}
+                on:zap={(e) => openZap(e.detail)}
+                on:share={(e) => openShare(e.detail.url, e.detail.event)}
+                on:downloadImage={(e) => downloadImage(e.detail)}
+                on:openImage={(e) => {
+                  lightboxImages = e.detail.images;
+                  lightboxIndex = e.detail.index;
+                  lightboxOpen = true;
+                }}
+                on:toggleEngagement={(e) => toggleEngagement(e.detail)}
+                on:report={(e) => openReport(e.detail)}
+                on:error={(e) => (notice = e.detail)}
+                on:fewer={() => fewer('recipe')}
+              />
+            {:else}
+              {@const sp = row.special}
+              <FreshSpecialCard
+                special={sp}
+                toEvent={(raw) => postFor(raw).event}
+                on:seen={() => cardSeen(sp)}
+                on:fewer={(e) => fewer(e.detail)}
+                on:hideTopic={(e) => hideSpotlightTopic(e.detail)}
+                on:openTopic={(e) => openTopicSlug(e.detail)}
+              />
+            {/if}
           {:else}
-            <FreshPostCard
-              box={row.box}
-              topic={row.box ? (boxTopics.get(row.item.raw.id) ?? null) : null}
-              raw={row.item.raw}
-              event={row.item.event}
-              visible={visibleNotes.has(row.item.raw.id)}
-              expanded={expanded.has(row.item.raw.id)}
-              {lazy}
-              on:zap={(e) => openZap(e.detail)}
-              on:share={(e) => openShare(e.detail.url, e.detail.event)}
-              on:downloadImage={(e) => downloadImage(e.detail)}
-              on:openImage={(e) => {
-                lightboxImages = e.detail.images;
-                lightboxIndex = e.detail.index;
-                lightboxOpen = true;
-              }}
-              on:toggleEngagement={(e) => toggleEngagement(e.detail)}
-              on:report={(e) => openReport(e.detail)}
-              on:error={(e) => (notice = e.detail)}
-            />
+            <div data-fresh-row={row.item.raw.id}>
+              <FreshPostCard
+                raw={row.item.raw}
+                event={row.item.event}
+                visible={visibleNotes.has(row.item.raw.id)}
+                expanded={expanded.has(row.item.raw.id)}
+                {lazy}
+                on:zap={(e) => openZap(e.detail)}
+                on:share={(e) => openShare(e.detail.url, e.detail.event)}
+                on:downloadImage={(e) => downloadImage(e.detail)}
+                on:openImage={(e) => {
+                  lightboxImages = e.detail.images;
+                  lightboxIndex = e.detail.index;
+                  lightboxOpen = true;
+                }}
+                on:toggleEngagement={(e) => toggleEngagement(e.detail)}
+                on:report={(e) => openReport(e.detail)}
+                on:error={(e) => (notice = e.detail)}
+              />
+            </div>
           {/if}
         {/each}
       </div>

@@ -4,14 +4,12 @@ import {
   isBoxCandidate,
   buildPool,
   pickRandom,
-  boxSlots,
   pruneSeen,
   loadSeen,
   markSeen,
   SEEN_KEY,
   SEEN_MAX,
-  SEEN_TTL_SECONDS,
-  interleave
+  SEEN_TTL_SECONDS
 } from './recipeBox';
 import type { RelayEvent } from './relay';
 
@@ -98,10 +96,6 @@ describe('random from the unshown pool', () => {
     const seen = new Map(pool.map((e) => [recipeAddress(e), NOW]));
     expect(pickRandom(pool, seen, new Set())).toBeNull();
   });
-
-  it('one slot per eight posts', () => {
-    expect([0, 7, 8, 15, 16, 30].map(boxSlots)).toEqual([0, 0, 1, 1, 2, 3]);
-  });
 });
 
 describe('the device-local seen list', () => {
@@ -142,29 +136,5 @@ describe('the device-local seen list', () => {
       }
     };
     expect(markSeen(new Map(), 'x', NOW, failing).has('x')).toBe(true);
-  });
-});
-
-describe('interleave', () => {
-  const post = (id: string) => ({ raw: { id } });
-  const posts = Array.from({ length: 20 }, (_, i) => post(`p${i}`));
-
-  it('puts the n-th pick after post 8·n, keyed apart from posts', () => {
-    const rows = interleave(posts, [post('r1'), post('r2')]);
-    expect(rows.map((r) => r.key).slice(7, 10)).toEqual(['p7', 'box:r1', 'p8']);
-    expect(rows.map((r) => r.key).slice(16, 19)).toEqual(['p15', 'box:r2', 'p16']);
-    expect(rows.filter((r) => r.box)).toHaveLength(2);
-  });
-
-  it('leaves no gap for a missing or dropped pick', () => {
-    const rows = interleave(posts, [null, post('r2')]);
-    expect(rows.map((r) => r.key).slice(7, 9)).toEqual(['p7', 'p8']);
-    expect(rows.filter((r) => r.box).map((r) => r.key)).toEqual(['box:r2']);
-  });
-
-  it('every pick past the first page renders once the feed is long enough', () => {
-    const picks = Array.from({ length: 7 }, (_, i) => post(`r${i}`));
-    const many = Array.from({ length: 59 }, (_, i) => post(`p${i}`));
-    expect(interleave(many, picks).filter((r) => r.box)).toHaveLength(7);
   });
 });

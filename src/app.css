@@ -453,3 +453,38 @@ a.nostr-mention:hover {
     margin: 0.75in;
   }
 }
+
+/* Fresh special cards (recipe box, topic spotlight, memory): a warm,
+   paper-toned index card with a tab on its top edge. */
+.fresh-paper {
+  --box-paper: #fbf6ec;
+  --box-edge: #ecdfc6;
+  --box-ink: #8a5a2b;
+  --box-chip: #f3e9d6;
+  --box-rule: rgba(176, 132, 82, 0.18);
+}
+
+html.dark .fresh-paper {
+  --box-paper: #1f1a14;
+  --box-edge: #3a2f22;
+  --box-ink: #e2b47c;
+  --box-chip: #2b231a;
+  --box-rule: rgba(226, 180, 124, 0.12);
+}
+
+.fresh-paper .box-tab {
+  position: absolute;
+  top: -1.125rem;
+  left: 1.25rem;
+  z-index: 1;
+  padding: 0.2rem 0.75rem 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--box-ink);
+  background: var(--box-paper);
+  border: 1px solid var(--box-edge);
+  border-bottom: none;
+  border-radius: 0.5rem 0.5rem 0 0;
+}

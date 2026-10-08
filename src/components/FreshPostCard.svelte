@@ -79,6 +79,7 @@
     toggleEngagement: string;
     report: RelayEvent;
     error: string;
+    fewer: 'recipe';
   }>();
 
   $: kind = postKind(raw);
@@ -139,6 +140,7 @@
 <article
   class="fresh-post w-full {kind === 'note' || kind === 'poll' ? 'cursor-pointer' : ''}"
   class:recipe-box={!!boxData}
+  class:fresh-paper={!!boxData}
   on:click={gotoNote}
   role={kind === 'note' || kind === 'poll' ? 'link' : undefined}
   tabindex={kind === 'note' || kind === 'poll' ? 0 : undefined}
@@ -184,6 +186,19 @@
             on:report={(e) => dispatch('report', e.detail)}
             on:error={(e) => dispatch('error', e.detail)}
           />
+          {#if boxData}
+            <div class="my-1" style="border-top: 1px solid var(--color-input-border);"></div>
+            <button
+              class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+              style="color: var(--color-text-primary);"
+              on:click={() => {
+                close();
+                dispatch('fewer', 'recipe');
+              }}
+            >
+              <span>Show fewer like this</span>
+            </button>
+          {/if}
         </svelte:fragment>
       </PostActionsMenu>
     </div>
@@ -383,11 +398,6 @@
 
   /* "From the recipe box": a warm, paper-toned index card with a tab. */
   .fresh-post.recipe-box {
-    --box-paper: #fbf6ec;
-    --box-edge: #ecdfc6;
-    --box-ink: #8a5a2b;
-    --box-chip: #f3e9d6;
-    --box-rule: rgba(176, 132, 82, 0.18);
     position: relative;
     margin-top: 1.125rem;
     background-color: var(--box-paper);
@@ -396,30 +406,7 @@
   }
 
   :global(html.dark) .fresh-post.recipe-box {
-    --box-paper: #1f1a14;
-    --box-edge: #3a2f22;
-    --box-ink: #e2b47c;
-    --box-chip: #2b231a;
-    --box-rule: rgba(226, 180, 124, 0.12);
     box-shadow: none;
-  }
-
-  /* The index-card tab, standing on the card's top edge. */
-  .box-tab {
-    position: absolute;
-    top: -1.125rem;
-    left: 1.25rem;
-    z-index: 1;
-    padding: 0.2rem 0.75rem 0.25rem;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--box-ink);
-    background: var(--box-paper);
-    border: 1px solid var(--box-edge);
-    border-bottom: none;
-    border-radius: 0.5rem 0.5rem 0 0;
   }
 
   .parent-quote-embed {
