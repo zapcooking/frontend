@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { needsFullReload, reserveRenderedSlots } from './refreshTop';
+import { needsFullReload } from './refreshTop';
 
 const at = (t: number) => ({ created_at: t });
 
@@ -21,17 +21,5 @@ describe('needsFullReload', () => {
 
   it('reloads an empty feed', () => {
     expect(needsFullReload([at(1)], 30, null)).toBe(true);
-  });
-});
-
-describe('reserveRenderedSlots', () => {
-  it('leaves slots already on screen empty once the reader has scrolled', () => {
-    expect(reserveRenderedSlots([], 3, true)).toEqual([null, null, null]);
-    expect(reserveRenderedSlots(['a'], 3, true)).toEqual(['a', null, null]);
-  });
-
-  it('fills normally at the top, or when nothing is on screen yet', () => {
-    expect(reserveRenderedSlots([], 3, false)).toEqual([]);
-    expect(reserveRenderedSlots(['a', 'b', 'c'], 3, true)).toEqual(['a', 'b', 'c']);
   });
 });

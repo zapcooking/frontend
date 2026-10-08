@@ -8,6 +8,8 @@
 
   export let event: NDKEvent;
   export let className: string = 'font-semibold text-sm';
+  /** false: plain text (inside another link), not a button to the profile. */
+  export let interactive: boolean = true;
 
   let displayName: string = '';
   let isLoading: boolean = true;
@@ -87,19 +89,25 @@
   }
 </script>
 
-<button
-  class="{className} cursor-pointer"
-  style="color: {isHovering
-    ? '#ec4700'
-    : 'var(--color-text-primary)'}; background: none; border: none; padding: 0; text-decoration: none;"
-  on:click={handleClick}
-  on:mouseenter={() => (isHovering = true)}
-  on:mouseleave={() => (isHovering = false)}
-  disabled={!pubkey}
->
-  {#if isLoading}
-    <span class="animate-pulse" style="color: inherit;">Loading...</span>
-  {:else}
-    <span style="color: inherit;">{displayName}</span>
-  {/if}
-</button>
+{#if interactive}
+  <button
+    class="{className} cursor-pointer"
+    style="color: {isHovering
+      ? '#ec4700'
+      : 'var(--color-text-primary)'}; background: none; border: none; padding: 0; text-decoration: none;"
+    on:click={handleClick}
+    on:mouseenter={() => (isHovering = true)}
+    on:mouseleave={() => (isHovering = false)}
+    disabled={!pubkey}
+  >
+    {#if isLoading}
+      <span class="animate-pulse" style="color: inherit;">Loading...</span>
+    {:else}
+      <span style="color: inherit;">{displayName}</span>
+    {/if}
+  </button>
+{:else}
+  <span class={className} style="color: var(--color-text-primary);">
+    {isLoading ? '' : displayName}
+  </span>
+{/if}

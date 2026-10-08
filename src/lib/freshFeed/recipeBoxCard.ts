@@ -116,8 +116,10 @@ export function sharedAgo(timestamp: number, now = Math.floor(Date.now() / 1000)
   const ago = (n: number, unit: string) => `Shared ${n} ${unit}${n === 1 ? '' : 's'} ago`;
   if (days < 1) return 'Shared today';
   if (days < 30) return ago(days, 'day');
-  if (days < 365) return ago(Math.floor(days / 30), 'month');
-  return ago(Math.floor(days / 365), 'year');
+  // Within two weeks of a year counts as the year ("1 year ago", not "12 months").
+  const years = Math.floor((days + 14) / 365);
+  if (years >= 1) return ago(years, 'year');
+  return ago(Math.floor(days / 30), 'month');
 }
 
 /**

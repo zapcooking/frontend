@@ -56,22 +56,19 @@ export function resetVisitForTests(): void {
   sessionMark = undefined;
 }
 
-export type Row<T> =
-  | { key: string; item: T; box: boolean; divider?: false }
-  | { key: string; divider: true; newCount: number };
+export type DividerRow = { key: string; divider: true; newCount: number };
 
 /**
- * Put the "caught up" divider before the first post (not recipe-box pick)
+ * Put the "caught up" divider before the first post (not a special card)
  * the reader already saw, with the number of new posts above it. No divider
  * on a first visit, or when every post shown is new (the reader hasn't
  * reached the old ones yet) or none is.
  */
-export function withDivider<T extends { raw: { created_at: number } }>(
-  rows: { key: string; item: T; box: boolean }[],
-  mark: number | null
-): Row<T>[] {
+export function withDivider<
+  R extends { key: string; box: boolean; item?: { raw: { created_at: number } } }
+>(rows: R[], mark: number | null): ((R & { divider?: false }) | DividerRow)[] {
   if (mark === null) return rows;
-  const at = rows.findIndex((r) => !r.box && r.item.raw.created_at <= mark);
+  const at = rows.findIndex((r) => !r.box && r.item!.raw.created_at <= mark);
   if (at <= 0) return rows;
   const newCount = rows.slice(0, at).filter((r) => !r.box).length;
   return [...rows.slice(0, at), { key: 'divider', divider: true, newCount }, ...rows.slice(at)];

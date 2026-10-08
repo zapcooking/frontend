@@ -16,20 +16,3 @@ export function needsFullReload(
   if (fresh.length < pageSize) return false;
   return Math.min(...fresh.map((e) => e.created_at)) > topCreatedAt;
 }
-
-/**
- * When the recipe pool arrives after the reader has scrolled, the slots
- * already on screen stay empty (null), so nothing is inserted above them;
- * slots from later pages fill as usual.
- */
-export function reserveRenderedSlots<T>(
-  picks: (T | null)[],
-  renderedSlots: number,
-  readerScrolled: boolean
-): (T | null)[] {
-  if (!readerScrolled || picks.length >= renderedSlots) return picks;
-  return [...picks, ...Array<null>(renderedSlots - picks.length).fill(null)];
-}
-
-/** Has the reader scrolled away from the top of the feed? */
-export const SCROLLED_PX = 300;
