@@ -30,12 +30,42 @@ export interface MemberNotFoundResult {
 
 export type MemberCheckResult = MemberLookupResult | MemberNotFoundResult;
 
+const HEX64 = /^[0-9a-f]{64}$/;
+
+/** Thrown when a caller passes something that is not a hex pubkey. */
+export class InvalidPubkeyError extends Error {
+  constructor() {
+    super('Invalid pubkey: expected 64 lowercase hex characters');
+    this.name = 'InvalidPubkeyError';
+  }
+}
+
+/**
+ * Canonical form of a pubkey for the pantry API: trimmed, lowercase, 64 hex.
+ * Returns null for anything else (npub, uppercase-with-garbage, paths, empty).
+ *
+ * Uppercase hex is accepted and lowercased: the pantry SQL match is
+ * case-sensitive, so an uppercase pubkey used to read as "not found".
+ */
+export function normalizeMemberPubkey(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  const v = input.trim().toLowerCase();
+  return HEX64.test(v) ? v : null;
+}
+
 /**
  * Look up a single member by pubkey via the pantry API.
  * Returns the member record with active/expired status, or { found: false }.
+ *
+ * The pubkey is validated before it is interpolated into the URL: the
+ * request carries the server's bearer, so an unvalidated value (e.g. a
+ * body-supplied "../stats") would let a caller reach other authenticated
+ * pantry endpoints through this server. Throws InvalidPubkeyError.
  */
 export async function lookupMember(pubkey: string, apiSecret: string): Promise<MemberCheckResult> {
-  const res = await fetch(`https://pantry.zap.cooking/api/members/${pubkey}`, {
+  const pk = normalizeMemberPubkey(pubkey);
+  if (!pk) throw new InvalidPubkeyError();
+  const res = await fetch(`https://pantry.zap.cooking/api/members/${encodeURIComponent(pk)}`, {
     headers: {
       'Authorization': `Bearer ${apiSecret}`
     }

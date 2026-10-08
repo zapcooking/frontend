@@ -36,7 +36,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { NOURISH_CACHE_VERSION, NOURISH_PROMPT_VERSION, computeOverallScore } from '$lib/nourish/types';
-import { requireMembership } from '../membershipCheck';
+import { authenticateNourish, requireMembership } from '../membershipCheck';
 
 const SCAN_PROMPT = `You are a food analysis assistant for a cooking platform. Analyze the following food description and return nine food scores: eight Nourish health dimensions, and one Audience appeal dimension.
 
@@ -197,8 +197,16 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			return json({ success: false, error: 'OpenAI API key not configured' }, { status: 500 });
 		}
 
-		const body = await request.json();
-		const { pubkey, text, imageData } = body;
+		// Read the body ONCE as bytes: the NIP-98 payload hash is computed over
+		// exactly these bytes, and the JSON is parsed from the same buffer.
+		const bodyBytes = new Uint8Array(await request.arrayBuffer());
+		let body: any;
+		try {
+			body = JSON.parse(new TextDecoder().decode(bodyBytes));
+		} catch {
+			return json({ success: false, error: 'Invalid request body' }, { status: 400 });
+		}
+		const { text, imageData } = body;
 
 		const hasText = typeof text === 'string' && text.trim().length >= 3;
 		const hasImage = typeof imageData === 'string' && imageData.length > 0;
@@ -227,8 +235,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			);
 		}
 
-		// Membership check (fail-closed)
-		const membershipError = await requireMembership(pubkey, platform);
+		// Identity from the signature, then membership (fail-closed)
+		const auth = await authenticateNourish(request, bodyBytes, platform);
+		if (auth instanceof Response) return auth;
+		const membershipError = await requireMembership(auth.pubkey, platform);
 		if (membershipError) return membershipError;
 
 		// Build messages for OpenAI
