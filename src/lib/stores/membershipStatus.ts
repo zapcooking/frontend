@@ -2,25 +2,48 @@ import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 
 export type MembershipTier = 'cook_plus' | 'pro_kitchen' | 'founders' | 'member' | 'unknown';
+export type MembershipState = 'active' | 'inactive' | 'unknown';
 
 export interface MembershipStatus {
   active: boolean;
   tier: MembershipTier;
   expiresAt?: string;
   /**
-   * Set only on the placeholder written when the lookup itself failed
-   * (network/API error). `active` is still false so every existing consumer
-   * keeps treating the pubkey as a non-member, but surfaces that must not
-   * pitch to a possible member (Cook+ discovery) can tell this apart from
-   * an API answer of "not a member".
+   * Tri-state answer. `unknown` means the server could not resolve this
+   * pubkey (pantry outage, timeout, credential problem) — `active` is still
+   * false so legacy boolean consumers keep treating the pubkey as a
+   * non-member, but nothing that pitches membership may fire on it.
    */
+  state: MembershipState;
+  /** Legacy alias of `state === 'unknown'`, kept for existing consumers. */
   unresolved?: true;
+  /** When this answer was written (ms epoch); drives the TTLs below. */
+  checkedAt: number;
 }
 
-type MembershipResponse = Record<string, { active?: boolean; tier?: string; expiresAt?: string }>;
+type MembershipResponse = Record<
+  string,
+  { active?: boolean; state?: string; tier?: string; expiresAt?: string }
+>;
 
 const BATCH_DEBOUNCE_MS = 75;
 const MAX_BATCH_SIZE = 200;
+
+/**
+ * How long an answer is trusted before it is asked again. A confirmed member
+ * stays a member for a while; a "not a member" is re-asked soon (it is also
+ * what a brief pantry hiccup used to look like, and a payment may have landed);
+ * an unknown is retried quickly. Stale entries keep serving their last value
+ * until the new answer lands — a refresh never downgrades anyone to unknown.
+ */
+export const TTL_MS: Record<MembershipState, number> = {
+  active: 10 * 60_000,
+  inactive: 60_000,
+  unknown: 30_000
+};
+
+/** Response header listing pubkeys the server could not resolve (comma-separated hex). */
+export const UNRESOLVED_HEADER = 'x-membership-unresolved';
 
 const statusCache = new Map<string, MembershipStatus>();
 const inFlight = new Set<string>();
@@ -64,12 +87,52 @@ function updateStore(pubkey: string, status: MembershipStatus): void {
   mapStore.update((current) => ({ ...current, [pubkey]: status }));
 }
 
-function normalizeStatus(raw: { active?: boolean; tier?: string; expiresAt?: string }): MembershipStatus {
+function unknownPlaceholder(now = Date.now()): MembershipStatus {
+  return { active: false, tier: 'unknown', state: 'unknown', unresolved: true, checkedAt: now };
+}
+
+/**
+ * An unresolved answer never replaces a resolved one: the previous value
+ * (member or not) is kept and only its clock is reset so it is retried on the
+ * unknown TTL. With no previous value, the unknown placeholder is written so
+ * consumers can tell "not asked yet" from "asked, no answer".
+ */
+function markUnresolved(pubkey: string, now = Date.now()): void {
+  const prev = statusCache.get(pubkey);
+  if (prev && prev.state !== 'unknown') {
+    updateStore(pubkey, { ...prev, checkedAt: now - TTL_MS[prev.state] + TTL_MS.unknown });
+    return;
+  }
+  updateStore(pubkey, unknownPlaceholder(now));
+}
+
+function normalizeStatus(
+  raw: { active?: boolean; state?: string; tier?: string; expiresAt?: string },
+  now = Date.now()
+): MembershipStatus {
+  const active = raw?.active === true;
   return {
-    active: Boolean(raw?.active),
+    active,
     tier: normalizeTier(raw?.tier),
-    expiresAt: raw?.expiresAt
+    expiresAt: raw?.expiresAt,
+    state: active ? 'active' : 'inactive',
+    checkedAt: now
   };
+}
+
+function isFresh(status: MembershipStatus | undefined, now = Date.now()): boolean {
+  if (!status) return false;
+  return now - status.checkedAt < TTL_MS[status.state];
+}
+
+function parseUnresolvedHeader(res: Response): Set<string> {
+  const raw = res.headers?.get?.(UNRESOLVED_HEADER) || '';
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => /^[a-f0-9]{64}$/.test(s))
+  );
 }
 
 async function fetchBatch(pubkeys: string[], init?: RequestInit): Promise<void> {
@@ -88,26 +151,28 @@ async function fetchBatch(pubkeys: string[], init?: RequestInit): Promise<void> 
     }
 
     const payload = (await res.json()) as MembershipResponse;
+    const unresolved = parseUnresolvedHeader(res);
+    const now = Date.now();
     for (const pubkey of requested) {
       if (superseded(pubkey)) continue;
       const raw = payload?.[pubkey];
-      if (raw) {
-        updateStore(pubkey, normalizeStatus(raw));
+      if (raw && typeof raw.active === 'boolean') {
+        updateStore(pubkey, normalizeStatus(raw, now));
       } else {
-        updateStore(pubkey, { active: false, tier: 'unknown' });
+        // Omitted from the map (and listed in the header, or simply absent):
+        // the server could not answer. That is NOT "not a member".
+        if (!unresolved.has(pubkey)) {
+          console.warn('[membershipStatus] No answer for pubkey in payload:', pubkey);
+        }
+        markUnresolved(pubkey, now);
       }
     }
   } catch (error) {
     console.warn('[membershipStatus] Batch fetch failed:', error);
+    const now = Date.now();
     for (const pubkey of requested) {
-      // No epoch check needed here: this path only writes a placeholder for a
-      // pubkey with no value at all, so a refresh that wrote one is already
-      // safe. Adding the guard would change behaviour only when the refresh
-      // failed too, and then it would leave the pubkey with no entry instead
-      // of the placeholder this path has always written.
-      if (!statusCache.has(pubkey)) {
-        updateStore(pubkey, { active: false, tier: 'unknown', unresolved: true });
-      }
+      if (superseded(pubkey)) continue;
+      markUnresolved(pubkey, now);
     }
   } finally {
     requested.forEach((pk) => inFlight.delete(pk));
@@ -134,31 +199,48 @@ export function queueMembershipLookup(pubkey: string | null | undefined): void {
   if (!browser) return;
   const normalized = normalizePubkey(pubkey);
   if (!normalized) return;
-  if (statusCache.has(normalized) || inFlight.has(normalized)) return;
+  if (inFlight.has(normalized)) return;
+  if (isFresh(statusCache.get(normalized))) return;
   queued.add(normalized);
   scheduleFlush();
 }
 
 /**
+ * Re-ask for everything whose answer is stale or unknown. Wired to the tab
+ * becoming visible and the browser coming back online, so a member who hit a
+ * pantry hiccup is not stuck with a non-member screen until a reload.
+ */
+export function revalidateMembership(): void {
+  if (!browser) return;
+  const now = Date.now();
+  for (const [pubkey, status] of statusCache) {
+    if (!isFresh(status, now) && !inFlight.has(pubkey)) queued.add(pubkey);
+  }
+  if (queued.size > 0) scheduleFlush();
+}
+
+if (browser && typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') revalidateMembership();
+  });
+  window.addEventListener('online', revalidateMembership);
+}
+
+/**
  * Force a fresh lookup for one pubkey, ignoring anything already cached.
  *
- * `queueMembershipLookup` and `getMembership` both return early on a cached
- * pubkey, and the cache has no TTL — so a `{active:false}` read taken before a
- * payment completes is the answer every membership surface gets for the life of
- * the tab (avatar ring, belt badge, header, Cheffy). Call this once after a
- * payment is confirmed; every consumer reads `membershipStatusMap`, so the one
- * write reaches all of them.
+ * `queueMembershipLookup` and `getMembership` both return early on a fresh
+ * cached pubkey. Call this once after a payment is confirmed; every consumer
+ * reads `membershipStatusMap`, so the one write reaches all of them.
  *
  * Deliberately NOT wired into the debounced queue: this is a single known
  * pubkey at a known moment, not feed traffic, so it does not reintroduce the
  * per-avatar request storm that took `getMembership` out of `Avatar.svelte`.
  * Callers must keep it that way — one call per completed payment.
  *
- * Never rejects: a failed lookup is swallowed by `fetchBatch`. If a previous
- * value exists it is left in place; if the cache had no entry yet, the failure
- * path writes the inactive placeholder (`{active:false, tier:'unknown'}`) that
- * `fetchBatch` has always written for an unknown pubkey. Callers can await
- * without risking the page.
+ * Never rejects: a failed lookup is swallowed by `fetchBatch`. A previous
+ * value is kept (its clock reset); with no previous value the unknown
+ * placeholder is written. Callers can await without risking the page.
  */
 export async function refreshMembership(
   pubkey: string | null | undefined
@@ -183,10 +265,10 @@ export async function getMembership(pubkeys: string[]): Promise<Record<string, M
 
   if (normalized.length === 0) return {};
   if (!browser) {
-    return Object.fromEntries(normalized.map((pk) => [pk, { active: false, tier: 'unknown' as const }]));
+    return Object.fromEntries(normalized.map((pk) => [pk, unknownPlaceholder()]));
   }
 
-  const missing = normalized.filter((pk) => !statusCache.has(pk) && !inFlight.has(pk));
+  const missing = normalized.filter((pk) => !isFresh(statusCache.get(pk)) && !inFlight.has(pk));
   if (missing.length > 0) {
     for (let i = 0; i < missing.length; i += MAX_BATCH_SIZE) {
       await fetchBatch(missing.slice(i, i + MAX_BATCH_SIZE));
@@ -195,7 +277,7 @@ export async function getMembership(pubkeys: string[]): Promise<Record<string, M
 
   const result: Record<string, MembershipStatus> = {};
   for (const pubkey of normalized) {
-    result[pubkey] = statusCache.get(pubkey) || { active: false, tier: 'unknown' };
+    result[pubkey] = statusCache.get(pubkey) || unknownPlaceholder();
   }
   return result;
 }

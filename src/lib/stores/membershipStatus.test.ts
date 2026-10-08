@@ -53,7 +53,7 @@ describe('refreshMembership', () => {
     fetchMock.mockReturnValueOnce(respondWith(statusPayload(PK_A, false, 'member')));
     queueMembershipLookup(PK_A);
     await vi.advanceTimersByTimeAsync(100);
-    expect(get(membershipStatusMap)[PK_A]).toEqual({
+    expect(get(membershipStatusMap)[PK_A]).toMatchObject({
       active: false,
       tier: 'member',
       expiresAt: undefined
@@ -68,7 +68,7 @@ describe('refreshMembership', () => {
     const result = await refreshMembership(PK_A);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({ active: true, tier: 'cook_plus', expiresAt: undefined });
+    expect(result).toMatchObject({ active: true, tier: 'cook_plus', state: 'active' });
   });
 
   it('publishes the fresh status to membershipStatusMap for every consumer', async () => {
@@ -79,7 +79,7 @@ describe('refreshMembership', () => {
     fetchMock.mockReturnValueOnce(respondWith(statusPayload(PK_A, true, 'pro_kitchen')));
     await refreshMembership(PK_A);
 
-    expect(get(membershipStatusMap)[PK_A]).toEqual({
+    expect(get(membershipStatusMap)[PK_A]).toMatchObject({
       active: true,
       tier: 'pro_kitchen',
       expiresAt: undefined
@@ -123,7 +123,7 @@ describe('refreshMembership', () => {
     fetchMock.mockReturnValueOnce(Promise.resolve({ ok: false, status: 503 }));
     const result = await refreshMembership(PK_A);
 
-    expect(result).toEqual({ active: true, tier: 'cook_plus', expiresAt: undefined });
+    expect(result).toMatchObject({ active: true, tier: 'cook_plus', state: 'active' });
   });
 });
 
@@ -149,7 +149,7 @@ describe('refreshMembership vs. the debounced batch', () => {
     releaseBatch(null);
     await vi.advanceTimersByTimeAsync(10);
 
-    expect(get(membershipStatusMap)[PK_A]).toEqual({
+    expect(get(membershipStatusMap)[PK_A]).toMatchObject({
       active: true,
       tier: 'cook_plus',
       expiresAt: undefined
@@ -205,7 +205,7 @@ describe('refreshMembership vs. the debounced batch', () => {
     await vi.advanceTimersByTimeAsync(10);
 
     expect(get(membershipStatusMap)[PK_A].active).toBe(true);
-    expect(get(membershipStatusMap)[PK_B]).toEqual({
+    expect(get(membershipStatusMap)[PK_B]).toMatchObject({
       active: true,
       tier: 'founders',
       expiresAt: undefined
@@ -262,7 +262,7 @@ describe('existing batching behaviour is unchanged', () => {
     const result = await getMembership([PK_A]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(result[PK_A]).toEqual({ active: true, tier: 'founders', expiresAt: undefined });
+    expect(result[PK_A]).toMatchObject({ active: true, tier: 'founders', state: 'active' });
   });
 });
 
@@ -272,7 +272,7 @@ describe('failed-lookup placeholder', () => {
     queueMembershipLookup(PK_A);
     await vi.advanceTimersByTimeAsync(100);
 
-    expect(get(membershipStatusMap)[PK_A]).toEqual({
+    expect(get(membershipStatusMap)[PK_A]).toMatchObject({
       active: false,
       tier: 'unknown',
       unresolved: true
@@ -284,6 +284,6 @@ describe('failed-lookup placeholder', () => {
     queueMembershipLookup(PK_A);
     await vi.advanceTimersByTimeAsync(100);
 
-    expect(get(membershipStatusMap)[PK_A]).toEqual({ active: false, tier: 'unknown' });
+    expect(get(membershipStatusMap)[PK_A]).toMatchObject({ active: false, tier: 'unknown' });
   });
 });

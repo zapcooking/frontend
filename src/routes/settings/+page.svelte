@@ -416,6 +416,8 @@
 
   // Membership state
   let membershipLoading = false;
+  /** The check itself failed (503/network): show a retry, not the free-tier pitch. */
+  let membershipUnavailable = false;
   let membershipData: {
     found: boolean;
     isActive?: boolean;
@@ -472,9 +474,13 @@
       });
       if (res.ok) {
         membershipData = await res.json();
+        membershipUnavailable = false;
+      } else {
+        membershipUnavailable = true;
       }
     } catch (error) {
       console.error('Failed to fetch membership status:', error);
+      membershipUnavailable = true;
     } finally {
       membershipLoading = false;
     }
@@ -965,6 +971,11 @@
             </div>
             <Button on:click={() => goto('/membership')}>Renew Membership</Button>
           {/if}
+        {:else if membershipUnavailable}
+          <div class="p-4 rounded-xl text-center" style="border: 1px solid var(--color-input-border);">
+            <p class="text-sm" style="color: var(--color-text-secondary)">We couldn't load your membership right now.</p>
+          </div>
+          <Button on:click={fetchMembershipStatus}>Try again</Button>
         {:else}
           <!-- No membership / Free tier -->
           <div

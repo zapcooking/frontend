@@ -65,3 +65,24 @@ Readers encountering `schemaVersion > 1` MUST treat the pantry as **read-only**.
 - Mixed or unparseable units are **uncertain** and stay on the grocery list.
 - Pantry inventory is **never** auto-decremented when meals are planned or
   groceries are generated.
+
+## `GET /api/membership?pubkeys=<hex,hex,…>` response contract (since 2026-10-08)
+
+Readers: the web client store (`src/lib/stores/membershipStatus.ts`) and the feed relay's trust
+refresh (`feed-relay internal/membership`). Both must keep working across deploys, so:
+
+- The body is a flat JSON map keyed by lowercase hex pubkey. No other top-level keys appear
+  alongside results.
+- A present entry always has `active: boolean`, `tier: string`, `state: "active" | "inactive"`,
+  optionally `expiresAt` and `status` (raw pantry status: `active`, `grace`, `expired`, `cancelled`).
+  `active` follows the pantry's own `is_member` verdict: status `active` or `grace` with a future
+  `subscription_end`; founders are forced active.
+- A pubkey the server could not resolve (pantry unreachable, timed out, rejected the credential,
+  rate-limited, bad JSON, or the request budget ran out) is **omitted** from the map and listed in
+  the `X-Membership-Unresolved` response header (comma-separated hex). It is never present with
+  `active: false`: readers treat an absent pubkey as "no answer, keep what you had".
+- Partial answers are still HTTP 200 and carry `Cache-Control: no-store`; fully resolved answers
+  carry `Cache-Control: private, max-age=60`.
+- `{ "error": … }` with HTTP 503 is used only when the whole call cannot run (feature flag off or
+  server credential missing), never together with partial results.
+- At most 300 pubkeys per call; the server resolves them with bounded concurrency and an 8 s budget.

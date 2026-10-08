@@ -99,7 +99,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   }
 
   try {
-    const result = await lookupMember(pubkey, API_SECRET);
+    // normalizeMemberPubkey lowercases; the pantry match is case-sensitive.
+    const result = await lookupMember(pubkey.toLowerCase(), API_SECRET);
 
     if (!result.found) {
       return isOwner

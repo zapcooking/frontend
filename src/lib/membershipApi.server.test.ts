@@ -55,3 +55,74 @@ describe('hasActiveMembership', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('checkMembership (tri-state)', () => {
+  const okRecord = (status: string, end: string) =>
+    new Response(
+      JSON.stringify({
+        pubkey: PK,
+        tier: 'standard',
+        status,
+        is_member: ['active', 'grace'].includes(status) && new Date(end) > new Date(),
+        subscription_end: end,
+        subscription_start: '2026-01-01T00:00:00Z',
+        payment_id: 'cook_stripe_1',
+        payment_method: 'stripe'
+      }),
+      { status: 200 }
+    );
+  const future = new Date(Date.now() + 30 * 864e5).toISOString();
+  const past = new Date(Date.now() - 30 * 864e5).toISOString();
+
+  it('is unknown — never inactive — for every upstream failure', async () => {
+    const { checkMembership } = await import('./membershipApi.server');
+    const failures: Array<[string, () => Promise<Response>]> = [
+      ['401', async () => new Response('{"error":"Authorization required"}', { status: 401 })],
+      ['403', async () => new Response('{"error":"Invalid API key"}', { status: 403 })],
+      ['429', async () => new Response('slow down', { status: 429 })],
+      ['500', async () => new Response('boom', { status: 500 })],
+      ['502 html', async () => new Response('<html>502</html>', { status: 502 })],
+      ['network', async () => { throw new TypeError('fetch failed'); }],
+      ['timeout', async () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); }],
+      ['bad json', async () => new Response('not json', { status: 200 })]
+    ];
+    for (const [name, impl] of failures) {
+      fetchMock.mockImplementationOnce(impl);
+      const c = await checkMembership(PK, 'secret');
+      expect(c.state, name).toBe('unknown');
+    }
+  });
+
+  it('is active for status active or grace with a future end, inactive otherwise', async () => {
+    const { checkMembership } = await import('./membershipApi.server');
+    fetchMock.mockResolvedValueOnce(okRecord('active', future));
+    expect((await checkMembership(PK, 's')).state).toBe('active');
+    fetchMock.mockResolvedValueOnce(okRecord('grace', future));
+    expect((await checkMembership(PK, 's')).state).toBe('active');
+    fetchMock.mockResolvedValueOnce(okRecord('active', past));
+    expect((await checkMembership(PK, 's')).state).toBe('inactive');
+    fetchMock.mockResolvedValueOnce(okRecord('cancelled', future));
+    expect((await checkMembership(PK, 's')).state).toBe('inactive');
+    fetchMock.mockResolvedValueOnce(new Response('{"error":"Member not found"}', { status: 404 }));
+    expect(await checkMembership(PK, 's')).toMatchObject({ state: 'inactive', found: false, reason: 'not-found' });
+    expect(await checkMembership('../stats', 's')).toMatchObject({ state: 'inactive', found: false, reason: 'invalid-pubkey' });
+  });
+
+  it('a pantry that never answers is unknown after the timeout, not a hung call', async () => {
+    const { checkMembership } = await import('./membershipApi.server');
+    fetchMock.mockImplementationOnce(
+      (_: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))
+    );
+    const t0 = Date.now();
+    const c = await checkMembership(PK, 's', { timeoutMs: 30 });
+    expect(c.state).toBe('unknown');
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
+  it('attaches a timeout signal to the pantry request', async () => {
+    fetchMock.mockResolvedValueOnce(okRecord('active', future));
+    await lookupMember(PK, 's');
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+});
