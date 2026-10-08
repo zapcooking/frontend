@@ -11,6 +11,7 @@
   import type { SpecialType } from '$lib/freshFeed/specialsConfig';
   import FreshSpecialShell from './FreshSpecialShell.svelte';
   import FreshMiniPost from './FreshMiniPost.svelte';
+  import FreshCardRow from './FreshCardRow.svelte';
   import ArrowRightIcon from 'phosphor-svelte/lib/ArrowRight';
   import LockIcon from 'phosphor-svelte/lib/LockSimple';
 
@@ -43,13 +44,13 @@
 <FreshSpecialShell {tab} {menu} on:seen>
   {#if special.type === 'spotlight'}
     <h3 class="special-title">{special.title}</h3>
-    <div class="row" role="list">
+    <FreshCardRow label={special.title}>
       {#each special.posts as raw (raw.id)}
-        <div class="row-item" role="listitem">
+        <div role="listitem">
           <FreshMiniPost {raw} event={toEvent(raw)} />
         </div>
       {/each}
-    </div>
+    </FreshCardRow>
     <button type="button" class="see-more" on:click={() => dispatch('openTopic', special.slug)}>
       See more {special.name}
       <ArrowRightIcon size={14} weight="bold" />
@@ -86,39 +87,6 @@
   .members {
     font-weight: 600;
     color: var(--box-ink);
-  }
-
-  /* Swipeable on phones (scroll-snap), three across from 640px. */
-  .row {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: 72%;
-    gap: 0.625rem;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    margin: 0 calc(-1 * var(--media-bleed-x));
-    padding: 0 var(--media-bleed-x) 0.25rem;
-    scroll-padding: 0 var(--media-bleed-x);
-    scrollbar-width: none;
-  }
-
-  .row::-webkit-scrollbar {
-    display: none;
-  }
-
-  @media (min-width: 640px) {
-    .row {
-      grid-auto-flow: row;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      margin: 0;
-      padding: 0;
-      overflow: visible;
-    }
-  }
-
-  .row-item {
-    scroll-snap-align: start;
-    min-width: 0;
   }
 
   .see-more {

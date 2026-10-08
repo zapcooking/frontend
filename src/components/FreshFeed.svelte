@@ -9,9 +9,11 @@
    * replies, zaps and every other action read and write through $ndk, the
    * reader's own relays.
    *
-   * Non-members read the last 14 days, then get the end-of-window card.
-   * A signed-in member who reaches that point is asked to log in to the
-   * relay once (lazily; see memberLogin.ts) and keeps scrolling into history.
+   * Every reader reaches "You're all caught up" at the end of the last 14
+   * days ($lib/freshFeed/finishLine). "Keep exploring" opens an opt-in
+   * section of archive moments; members then page on into history with
+   * "Older posts" (logging in to the relay once; see memberLogin.ts).
+   * Non-members get the membership card there.
    */
   import { onMount, onDestroy, tick } from 'svelte';
   import { browser } from '$app/environment';
@@ -53,7 +55,11 @@
     type Special
   } from '$lib/freshFeed/specials';
   import type { SpecialType } from '$lib/freshFeed/specialsConfig';
-  import { SpecialsLoader, specialsTabSession } from '$lib/freshFeed/specialsLoader';
+  import {
+    SpecialsLoader,
+    specialsTabSession,
+    type ExploreContent
+  } from '$lib/freshFeed/specialsLoader';
   import {
     hideTopic,
     loadShown,
@@ -64,6 +70,9 @@
     specialsPrefs
   } from '$lib/freshFeed/specialsPrefs';
   import FreshSpecialCard from './FreshSpecialCard.svelte';
+  import FreshFinishLine from './FreshFinishLine.svelte';
+  import { finishLine, type ExploreState } from '$lib/freshFeed/finishLine';
+  import { SPECIALS } from '$lib/freshFeed/specialsConfig';
   import FreshPostCard from './FreshPostCard.svelte';
   import FreshReportModal from './FreshReportModal.svelte';
   import ZapModal from './ZapModal.svelte';
@@ -103,7 +112,11 @@
   let moreFailed = false;
   let end: PageEnd = 'more';
   let nextUntil: number | undefined;
-  let autoDeeperTried = false;
+  // The finish line: drawn after the last post of the free window, so older
+  // posts (members, "Older posts") follow below it instead of moving it.
+  let finishAfter: string | null = null;
+  let exploreState: ExploreState = 'closed';
+  let exploreContent: ExploreContent | null = null;
   let stopLive: (() => void) | null = null;
   let destroyed = false;
 
@@ -333,7 +346,7 @@
     const out: typeof placed = new Map();
     for (const [id, slot] of all) {
       const sp = slot.special;
-      if (!sp) continue;
+      if (!sp || id === finishAfter) continue;
       if (sp.type === 'recipe' && (hiddenIds.has(sp.post.id) || !accepted(sp.post))) continue;
       if ((sp.type === 'spotlight' || sp.type === 'teaser') && p.hiddenTopics.includes(sp.slug))
         continue;
@@ -521,7 +534,9 @@
     loading = true;
     unavailable = false;
     moreFailed = false;
-    autoDeeperTried = false;
+    finishAfter = null;
+    exploreState = 'closed';
+    exploreContent = null;
     end = 'more';
     nextUntil = undefined;
     pending = [];
@@ -582,21 +597,43 @@
     loadingMore = false;
   }
 
-  // A member who reaches the end of the window goes on into history; the
-  // login prompt appears here, and only once (a decline stops it).
-  $: if (
-    end === 'floor' &&
-    !loading &&
-    !loadingMore &&
-    !autoDeeperTried &&
-    member &&
-    $loginState !== 'declined' &&
-    $loginState !== 'not-member'
-  ) {
-    autoDeeperTried = true;
-    goDeeper();
+  // The end of the free window: nothing older loads on its own (no
+  // automatic archive); the finish line offers "Keep exploring", then
+  // "Older posts".
+  $: if (end === 'floor' && !loading && !finishAfter && shown.length)
+    finishAfter = shown[shown.length - 1].raw.id;
+  $: finish = finishLine({
+    reached: finishAfter !== null,
+    atFloor: end === 'floor',
+    membershipKnown,
+    prompt,
+    explore: exploreState
+  });
+
+  async function openExplore() {
+    if (exploreState !== 'closed') return;
+    exploreState = 'loading';
+    const content = await loader.explore(pickRecipes(SPECIALS.explore.recipes));
+    if (destroyed) return;
+    exploreContent = content;
+    exploreState = 'open';
   }
 
+  /** Recipes for the explore row: random, unshown, not already on screen. */
+  function pickRecipes(n: number): RelayEvent[] {
+    const out: RelayEvent[] = [];
+    for (let i = 0; i < n; i++) {
+      const r = nextRecipe();
+      if (!r) break;
+      const address = recipeAddress(r);
+      boxTaken.add(address);
+      boxAddress.set(r.id, address);
+      out.push(r);
+    }
+    return out;
+  }
+
+  /** The finish line's log-in button (a member who declined earlier). */
   async function manualLogin() {
     let relay;
     try {
@@ -605,7 +642,7 @@
       moreFailed = true;
       return;
     }
-    if (await login.access(relay, true)) await goDeeper();
+    await login.access(relay, true);
   }
 
   function startLive(since: number) {
@@ -1454,8 +1491,38 @@
                 on:error={(e) => (notice = e.detail)}
               />
             </div>
+            {#if row.item.raw.id === finishAfter}
+              <FreshFinishLine
+                state={finish}
+                {prompt}
+                content={exploreContent}
+                toEvent={(raw) => postFor(raw).event}
+                on:explore={openExplore}
+                on:older={goDeeper}
+                on:login={manualLogin}
+                on:seen={(e) => cardSeen(e.detail)}
+                on:fewer={(e) => fewer(e.detail)}
+                on:hideTopic={(e) => hideSpotlightTopic(e.detail)}
+                on:openTopic={(e) => openTopicSlug(e.detail)}
+              />
+            {/if}
           {/if}
         {/each}
+        {#if finishAfter && !shown.some((p) => p.raw.id === finishAfter)}
+          <FreshFinishLine
+            state={finish}
+            {prompt}
+            content={exploreContent}
+            toEvent={(raw) => postFor(raw).event}
+            on:explore={openExplore}
+            on:older={goDeeper}
+            on:login={manualLogin}
+            on:seen={(e) => cardSeen(e.detail)}
+            on:fewer={(e) => fewer(e.detail)}
+            on:hideTopic={(e) => hideSpotlightTopic(e.detail)}
+            on:openTopic={(e) => openTopicSlug(e.detail)}
+          />
+        {/if}
       </div>
 
       {#if end === 'more'}
@@ -1485,9 +1552,6 @@
           <div class="py-4 text-center">
             <LoadingState type="spinner" size="lg" text="Loading older posts..." showText={true} />
           </div>
-        {/if}
-        {#if membershipKnown}
-          <FreshFloorCard {prompt} on:login={manualLogin} />
         {/if}
         {#if moreFailed}
           <p class="text-sm text-center py-2" style="color: var(--color-caption)">

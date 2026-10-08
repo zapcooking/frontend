@@ -1,6 +1,7 @@
 import { SPECIALS } from './specialsConfig';
 import {
   archiveStandout,
+  choosePosts,
   dayMemory,
   memoryLabel,
   nextMemoryVariant,
@@ -261,4 +262,41 @@ export class SpecialsLoader {
     this.memory = null;
     return m;
   }
+
+  /**
+   * "Keep exploring" (the reader asked for it, so archive content is
+   * welcome): on this day, two spotlights from different parent groups, and
+   * the recipe row the caller picked. Non-members get only the recipes and
+   * nothing is requested for them.
+   */
+  async explore(recipes: RelayEvent[]): Promise<ExploreContent> {
+    const out: ExploreContent = { day: null, spotlights: [], recipes };
+    if (!this.usable()) return out;
+    const sections = await this.onThisDay();
+    if (sections) {
+      const all = [...sections]
+        .sort((a, b) => a.yearsBack - b.yearsBack)
+        .flatMap((s) => s.posts.filter(this.deps.accept));
+      const posts = choosePosts(all, {
+        shown: this.deps.shown(),
+        exclude: this.deps.exclude(),
+        max: SPECIALS.explore.dayPosts
+      });
+      if (posts.length) out.day = { posts };
+    }
+    let lastParent = this.session.lastParent;
+    for (let i = 0; i < SPECIALS.explore.spotlights && this.usable(); i++) {
+      const s = await this.buildSpotlight(lastParent);
+      if (!s || s.type !== 'spotlight') break;
+      out.spotlights.push(s);
+      lastParent = s.parent;
+    }
+    return out;
+  }
+}
+
+export interface ExploreContent {
+  day: { posts: RelayEvent[] } | null;
+  spotlights: Special[];
+  recipes: RelayEvent[];
 }

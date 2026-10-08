@@ -176,3 +176,31 @@ describe('memories', () => {
     for (const [, until] of windows) expect(until).toBeLessThan(floor + 1);
   });
 });
+
+describe('keep exploring', () => {
+  const three = (p: string, pubkeyBase = p) =>
+    [1, 2, 3].map((n) => img(`${p}${n}`, `${pubkeyBase}-${n}`));
+
+  it('members: on this day, then two spotlights from different parent groups, then the recipes', async () => {
+    const { src, history } = source({
+      topics: { sourdough: three('s'), bread: three('b'), coffee: three('c') }
+    });
+    const l = makeLoader(src, deps(true));
+    const recipes = [img('r1')];
+    const e = await l.explore(recipes);
+    expect(history).toHaveBeenCalled();
+    expect(e.spotlights).toHaveLength(2);
+    const parents = e.spotlights.map((s) => (s.type === 'spotlight' ? s.parent : null));
+    expect(parents[0]).not.toBe(parents[1]);
+    expect(e.recipes).toBe(recipes);
+  });
+
+  it('non-members: only the recipes, and no request is sent', async () => {
+    const { src, topic, history } = source({ topics: { sourdough: three('s') } });
+    const l = makeLoader(src, deps(false));
+    const e = await l.explore([img('r1')]);
+    expect(e).toEqual({ day: null, spotlights: [], recipes: [img('r1')] });
+    expect(topic).not.toHaveBeenCalled();
+    expect(history).not.toHaveBeenCalled();
+  });
+});
