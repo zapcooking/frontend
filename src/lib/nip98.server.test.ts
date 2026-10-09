@@ -110,10 +110,10 @@ describe('verifyNip98', () => {
     expect(result).toEqual({ ok: false, reason: 'invalid-signature' });
   });
 
-  it('rejects created_at more than 61s in the past', async () => {
+  it('rejects created_at well in the past', async () => {
     const body = '{}';
     const bodyBytes = new TextEncoder().encode(body);
-    const stale = Math.floor(Date.now() / 1000) - 61;
+    const stale = Math.floor(Date.now() / 1000) - 120;
     const event = await buildSignedAuthEvent({ bodyBytes, created_at: stale });
     const request = makeRequest({ body, authorization: encodeAuthHeader(event) });
 
@@ -121,10 +121,13 @@ describe('verifyNip98', () => {
     expect(result).toEqual({ ok: false, reason: 'stale-timestamp' });
   });
 
-  it('rejects created_at more than 61s in the future', async () => {
+  // 120 s, not 61: the test and the verifier take separate clock readings a
+  // few ms apart, so a 1-second margin fails whenever the second ticks in
+  // between (seen on CI). The rule under test is |now - created_at| > 60.
+  it('rejects created_at well in the future', async () => {
     const body = '{}';
     const bodyBytes = new TextEncoder().encode(body);
-    const future = Math.floor(Date.now() / 1000) + 61;
+    const future = Math.floor(Date.now() / 1000) + 120;
     const event = await buildSignedAuthEvent({ bodyBytes, created_at: future });
     const request = makeRequest({ body, authorization: encodeAuthHeader(event) });
 
