@@ -274,7 +274,26 @@
       ).catch(() => {});
     if (r.nextUntil !== undefined) nextUntil = r.nextUntil;
     end = r.end ?? 'more';
+    // A page that ended early (relay silence, dropped connection) is shown
+    // as it is, and the rest is asked for once on its own; after that the
+    // usual Load More / Retry is there.
+    if (r.partial) {
+      if (!partialRetryTimer && !partialRetried) {
+        partialRetried = true;
+        partialRetryTimer = setTimeout(() => {
+          partialRetryTimer = null;
+          if (!destroyed && !loading) loadMore();
+        }, PARTIAL_RETRY_MS);
+      }
+    } else {
+      partialRetried = false;
+    }
   }
+
+  /** One automatic continuation after a partial page, then manual. */
+  const PARTIAL_RETRY_MS = 1000;
+  let partialRetried = false;
+  let partialRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   let poolSettled = false;
   let poolLoad: Promise<void> | null = null;
@@ -1264,6 +1283,7 @@
 
   onDestroy(() => {
     destroyed = true;
+    if (partialRetryTimer) clearTimeout(partialRetryTimer);
     // An unlock card that was never tapped is withdrawn, so a later visit can
     // offer it again instead of leaving members-only cards stuck for the tab.
     unlock.withdraw();
