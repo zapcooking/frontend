@@ -12,6 +12,7 @@
    * A single photo fills the content column in a cropped 4:3 preview;
    * tapping it opens the complete image in the lightbox.
    */
+  import { retryOriginal } from '$lib/imageRetry';
   import { onDestroy } from 'svelte';
   import ArrowsOutSimpleIcon from 'phosphor-svelte/lib/ArrowsOutSimple';
   import VideoPreview from './VideoPreview.svelte';
@@ -81,9 +82,26 @@
     scroller.scrollTo({ left: index * step, behavior: 'smooth' });
   }
 
-  function handleImageError(e: Event) {
+  /**
+   * On the first error, fall back to the original URL once (the tile loads a
+   * rewritten one; some hosts reject it, the lightbox never did). The
+   * fallback is component state, not an imperative `img.src` write: Svelte
+   * re-applies the `src` binding on every re-render (the feed reassigns its
+   * post arrays constantly), which silently undid an imperative swap and
+   * hid the tile on the next error. Only a second error hides the tile.
+   */
+  let fallback = new Set<string>();
+  function srcFor(url: string): string {
+    return fallback.has(url) ? url : optimizeUrl(url);
+  }
+  function handleImageError(e: Event, original: string) {
     const target = e.target as HTMLImageElement;
-    if (target) target.style.display = 'none';
+    if (!target) return;
+    if (retryOriginal(fallback, target.getAttribute('src') ?? target.src, original)) {
+      fallback = fallback; // re-render: the binding now yields the original
+      return;
+    }
+    target.style.display = 'none';
   }
 
   // ── Mouse drag-to-swipe ─────────────────────────────────────────
@@ -197,13 +215,13 @@
         on:click={() => onItemClick(items[0], 0)}
       >
         <img
-          src={optimizeUrl(items[0])}
+          src={srcFor(items[0])}
           alt={altByUrl.get(items[0]) || ''}
           class="single-media-image"
           loading="lazy"
           decoding="async"
           draggable="false"
-          on:error={handleImageError}
+          on:error={(e) => handleImageError(e, items[0])}
         />
         <span class="expand-badge" title="Expand image" aria-hidden="true">
           <ArrowsOutSimpleIcon size={18} weight="bold" />
@@ -249,12 +267,12 @@
               on:click={() => onItemClick(url, index)}
             >
               <img
-                src={optimizeUrl(url)}
+                src={srcFor(url)}
                 alt={altByUrl.get(url) || ''}
                 loading="lazy"
                 decoding="async"
                 draggable="false"
-                on:error={handleImageError}
+                on:error={(e) => handleImageError(e, url)}
               />
             </button>
             {#if altByUrl.get(url)}

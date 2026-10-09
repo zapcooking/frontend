@@ -6,16 +6,30 @@
   export let data: RecipeBoxData;
   /** Set when the image fails to load (the card then shows no hero). */
   export let failed = false;
+  /** One fallback to the original URL (as state, so re-renders keep it), then the hero is dropped. */
+  let useOriginal = false;
 
   $: hero = data.image && !failed ? data.image : null;
   $: heroSrc = hero
-    ? optimizeImageUrl(hero, { width: 800, quality: 82, format: getOptimalFormat() })
+    ? useOriginal
+      ? hero
+      : optimizeImageUrl(hero, { width: 800, quality: 82, format: getOptimalFormat() })
     : null;
+  function onImageError() {
+    if (!useOriginal && heroSrc !== hero) useOriginal = true;
+    else failed = true;
+  }
 </script>
 
 {#if hero}
   <a href={data.href ?? undefined} class="box-hero" aria-label={data.title}>
-    <img src={heroSrc} alt="" loading="lazy" decoding="async" on:error={() => (failed = true)} />
+    <img
+      src={heroSrc}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      on:error={onImageError}
+    />
     <span class="box-hero-shade" aria-hidden="true"></span>
     <h3 class="box-hero-title">{data.title}</h3>
   </a>
