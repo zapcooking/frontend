@@ -33,6 +33,15 @@
   $: text = title ? tag('summary') : snippet(raw.content || '');
   $: href = link(raw, kind);
   let imageFailed = false;
+  /** One fallback to the original URL (as state, so re-renders keep it), then the photo is dropped. */
+  let useOriginal = false;
+  $: imageSrc = useOriginal
+    ? image
+    : optimizeImageUrl(image, { width: 480, quality: 80, format: getOptimalFormat() });
+  function onImageError() {
+    if (!useOriginal && imageSrc !== image) useOriginal = true;
+    else imageFailed = true;
+  }
 
   function snippet(content: string): string {
     let c = content;
@@ -66,11 +75,11 @@
   {#if image && !imageFailed}
     <span class="mini-photo">
       <img
-        src={optimizeImageUrl(image, { width: 480, quality: 80, format: getOptimalFormat() })}
+        src={imageSrc}
         alt=""
         loading="lazy"
         decoding="async"
-        on:error={() => (imageFailed = true)}
+        on:error={onImageError}
       />
     </span>
   {/if}
