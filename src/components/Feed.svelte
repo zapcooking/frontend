@@ -20,6 +20,8 @@
   import RecipeCard from './RecipeCard.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
   import { isHiddenRecipeEvent } from '$lib/consts';
+  import { muteListStore } from '$lib/muteListStore';
+  import { withoutMuted } from '$lib/muteFilter';
 
   export let events: NDKEvent[];
   export let hideHide = false;
@@ -65,8 +67,10 @@
   }
 
   // Reactive filtering - only re-runs when events array changes
-  // Uses memoized validation so each event is only validated once
-  $: filteredEvents = events.filter(isValidEvent);
+  // Uses memoized validation so each event is only validated once.
+  // The reader's mute list (NIP-51 + local) applies to every recipe grid:
+  // tag, list, explore and profile pages hand their events straight here.
+  $: filteredEvents = withoutMuted($muteListStore.muteList, events.filter(isValidEvent));
 </script>
 
 {#if filteredEvents.length > 0}

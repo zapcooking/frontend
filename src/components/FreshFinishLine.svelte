@@ -26,6 +26,8 @@
   export let prompt: FloorPrompt;
   export let content: ExploreContent | null = null;
   export let toEvent: (raw: RelayEvent) => NDKEvent;
+  /** Not a member: the full topic behind a spotlight is the membership pitch. */
+  export let locked = false;
 
   const dispatch = createEventDispatcher<{
     explore: void;
@@ -94,6 +96,7 @@
               <FreshSpecialCard
                 special={sp}
                 {toEvent}
+                {locked}
                 on:seen={() => dispatch('seen', sp)}
                 on:fewer
                 on:hideTopic

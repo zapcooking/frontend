@@ -5,6 +5,7 @@ import {
   FRESH_KINDS,
   FREE_WINDOW_SECONDS,
   LABELER_PUBKEY,
+  PREVIEW_LIMIT,
   stateOf,
   type Filter,
   type RelayEvent,
@@ -506,6 +507,42 @@ describe('topic(): authedOnly never asks the signer', () => {
     const { c, access } = withLogin(relay, () => false);
     await c.topic('bread', new Set(), FLOOR - 1, 20);
     expect(access).toHaveBeenCalledTimes(1);
+  });
+
+  it("preview: no access() call, the topic's newest posts in the free window, at most PREVIEW_LIMIT", async () => {
+    const relay = new FakeRelay([ev('a', FLOOR + 10), ev('b', FLOOR + 20), ev('old', FLOOR - 10)]);
+    const { c, access } = withLogin(relay, () => false);
+    const r = await c.topic('bread', new Set(), undefined, 40, { preview: true });
+    expect(r.state).toBe('ok');
+    expect(access).not.toHaveBeenCalled();
+    expect(relay.filters).toHaveLength(1);
+    expect(relay.filters[0]).toEqual({
+      kinds: FRESH_KINDS,
+      search: 'topic:bread',
+      since: FLOOR,
+      limit: PREVIEW_LIMIT
+    });
+    expect(r.events.map((e) => e.id)).toEqual(['b', 'a']);
+  });
+
+  it('preview on a logged-in connection: the same request, still no access() call', async () => {
+    const relay = new FakeRelay([ev('a', FLOOR + 10)]);
+    const { c, access } = withLogin(relay, () => true);
+    const r = await c.topic('bread', new Set(), undefined, undefined, { preview: true });
+    expect(r.state).toBe('ok');
+    expect(access).not.toHaveBeenCalled();
+    expect(relay.filters[0].since).toBe(FLOOR);
+    expect(relay.filters[0].limit).toBe(PREVIEW_LIMIT);
+  });
+
+  it('preview refused by a relay that does not serve it: auth-required, as a state, nothing else', async () => {
+    const relay = new FakeRelay([], () => ({
+      close: 'auth-required: topic: search is for members'
+    }));
+    const { c, access } = withLogin(relay, () => false);
+    const r = await c.topic('bread', new Set(), undefined, undefined, { preview: true });
+    expect(r.state).toBe('auth-required');
+    expect(access).not.toHaveBeenCalled();
   });
 
   it('authedNow(): a reconnect drops the feed login', async () => {
