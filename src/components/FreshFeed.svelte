@@ -47,7 +47,7 @@
   } from '$lib/freshFeed/recipeBox';
   import { topTopics } from '$lib/freshFeed/recipeBoxCard';
   import { beginVisit, recordNewest, withDivider } from '$lib/freshFeed/lastVisit';
-  import { spaceAuthors } from '$lib/freshFeed/spacing';
+  import { spaceAuthors, StreamSpacer } from '$lib/freshFeed/spacing';
   import { needsFullReload } from '$lib/freshFeed/refreshTop';
   import {
     Slots,
@@ -244,18 +244,17 @@
     );
   }
 
-  /** Insert a streamed post by time, newest first (once per id). */
-  function insertNewestFirst(list: Post[], p: Post): Post[] {
-    if (list.some((x) => x.raw.id === p.raw.id)) return list;
-    const i = list.findIndex((x) => x.raw.created_at < p.raw.created_at);
-    return i === -1 ? [...list, p] : [...list.slice(0, i), p, ...list.slice(i)];
-  }
-
   function wrap(raw: RelayEvent): Post {
     return { raw, event: new NDKEvent($ndk, raw) };
   }
 
-  function apply(r: PageResult) {
+  /**
+   * A page's posts into the feed. The first page streams (`firstPage`): its
+   * posts were placed as they arrived and stay where they are; the page's
+   * end only adds what is still missing. Later pages are spaced after what
+   * is on screen.
+   */
+  function apply(r: PageResult, firstPage?: StreamSpacer<Post>) {
     if (r.state === 'unavailable') {
       if (posts.length === 0) unavailable = true;
       else moreFailed = true;
@@ -267,8 +266,14 @@
       return;
     }
     // Each new page is spaced by author; posts already on screen stay put.
-    const added = spaceAuthors(posts, r.events.map(wrap));
-    posts = [...posts, ...added];
+    let added: Post[];
+    if (firstPage) {
+      added = firstPage.finish(r.events.filter((e) => !firstPage.has(e.id)).map(wrap));
+      posts = firstPage.placed;
+    } else {
+      added = spaceAuthors(posts, r.events.map(wrap));
+      posts = [...posts, ...added];
+    }
     decideSlots();
     if (posts[0]) recordNewest(posts[0].raw.created_at);
     if (added.length)
@@ -691,9 +696,12 @@
     const since = Math.floor(Date.now() / 1000) - 60;
     const gen = ++firstGen;
     firstStreaming = true;
+    // Posts are placed as they arrive, authors spaced on the way; nothing
+    // placed moves when the page ends (no row jump at EOSE).
+    const spacer = new StreamSpacer<Post>();
     const onEvent = (raw: RelayEvent) => {
       if (destroyed || gen !== firstGen) return;
-      posts = insertNewestFirst(posts, wrap(raw));
+      posts = spacer.push(wrap(raw));
       // Keep the skeleton until a post survives the display filters (mutes,
       // hellthreads, old edits); otherwise the feed would sit blank.
       if (loading && filterPosts(posts, $muteListStore.muteList, hidden).length) loading = false;
@@ -701,10 +709,9 @@
     const r = await takeFirstPage(client, onEvent).result;
     if (destroyed || gen !== firstGen) return;
     firstStreaming = false;
-    // The final list (author-spaced) replaces the streamed one; cards are
-    // keyed by post, so they're reused, not rebuilt.
-    posts = [];
-    apply(r);
+    // The page's end adds what didn't stream (and any held post) after what
+    // is on screen; the streamed rows stay exactly where the reader saw them.
+    apply(r, spacer);
     loading = false;
     decideSlots();
     if (!unavailable) {

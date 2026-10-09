@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { spaceAuthors } from './spacing';
+import { spaceAuthors, AUTHOR_GAP, StreamSpacer } from './spacing';
 
 const p = (id: string, pubkey: string) => ({ raw: { id, pubkey } });
 const authors = (list: { raw: { pubkey: string } }[]) => list.map((x) => x.raw.pubkey).join('');
@@ -46,5 +46,71 @@ describe('spaceAuthors', () => {
     const page = Array.from({ length: 30 }, (_, i) => p(String(i), 'ABAAC'[i % 5]));
     const out = spaceAuthors([], page);
     expect(out.map((x) => x.raw.id).sort()).toEqual(page.map((x) => x.raw.id).sort());
+  });
+});
+
+describe('the first page, streamed (StreamSpacer)', () => {
+  const post = (id: string, pubkey: string) => ({ raw: { id, pubkey, created_at: 0 } });
+
+  it('never moves or reorders what is already placed, while streaming or at EOSE', () => {
+    const sp = new StreamSpacer<ReturnType<typeof post>>();
+    // Two cooks posting in runs, like a real first page.
+    const stream = ['a1:A', 'a2:A', 'a3:A', 'b1:B', 'a4:A', 'c1:C', 'a5:A', 'a6:A', 'b2:B', 'd1:D'].map((s) => {
+      const [id, pk] = s.split(':');
+      return post(id, pk);
+    });
+    let prev: string[] = [];
+    for (const p of stream) {
+      const now = sp.push(p).map((x) => x.raw.id);
+      expect(now.slice(0, prev.length)).toEqual(prev); // the prefix is stable
+      prev = now;
+    }
+    // The page's final list comes in its own order (the relay's), not the
+    // arrival order: what streamed must still not move.
+    const added = sp.finish([post('e1', 'E'), ...[...stream].reverse(), post('a7', 'A')]);
+    const final = sp.placed.map((x) => x.raw.id);
+    expect(final.slice(0, prev.length)).toEqual(prev);
+    expect(added.map((x) => x.raw.id)).toEqual(final.slice(prev.length));
+    // Everything arrived exactly once.
+    expect([...final].sort()).toEqual([...stream.map((p) => p.raw.id), 'e1', 'a7'].sort());
+  });
+
+  it('holds a post that is too close to its author and places it when another author makes room', () => {
+    const sp = new StreamSpacer<ReturnType<typeof post>>();
+    sp.push(post('a1', 'A'));
+    expect(sp.push(post('a2', 'A')).map((x) => x.raw.id)).toEqual(['a1']); // held
+    expect(sp.push(post('b1', 'B')).map((x) => x.raw.id)).toEqual(['a1', 'b1']); // still too close
+    expect(sp.push(post('c1', 'C')).map((x) => x.raw.id)).toEqual(['a1', 'b1', 'c1', 'a2']); // room: placed
+  });
+
+  it('spaces authors as far as the stream allows (same rule as a loaded page)', () => {
+    const sp = new StreamSpacer<ReturnType<typeof post>>();
+    const stream = ['a1:A', 'a2:A', 'b1:B', 'b2:B', 'c1:C', 'c2:C', 'a3:A'].map((s) => {
+      const [id, pk] = s.split(':');
+      return post(id, pk);
+    });
+    for (const p of stream) sp.push(p);
+    sp.finish(stream);
+    const pks = sp.placed.map((x) => x.raw.pubkey);
+    for (let i = 1; i < pks.length; i++)
+      for (let d = 1; d < AUTHOR_GAP && i - d >= 0; d++) expect(pks[i]).not.toBe(pks[i - d]);
+  });
+
+  it('a page all from one cook still arrives whole, in order, at the end', () => {
+    const sp = new StreamSpacer<ReturnType<typeof post>>();
+    for (const id of ['a1', 'a2', 'a3']) sp.push(post(id, 'A'));
+    expect(sp.placed.map((x) => x.raw.id)).toEqual(['a1']);
+    sp.finish([]);
+    expect(sp.placed.map((x) => x.raw.id)).toEqual(['a1', 'a2', 'a3']);
+  });
+
+  it('EOSE adds only what did not stream; a duplicate is ignored', () => {
+    const sp = new StreamSpacer<ReturnType<typeof post>>();
+    sp.push(post('a1', 'A'));
+    sp.push(post('a1', 'A'));
+    const added = sp.finish([post('a1', 'A'), post('b1', 'B')]);
+    expect(added.map((x) => x.raw.id)).toEqual(['b1']);
+    expect(sp.placed.map((x) => x.raw.id)).toEqual(['a1', 'b1']);
+    expect(sp.has('b1')).toBe(true);
   });
 });
