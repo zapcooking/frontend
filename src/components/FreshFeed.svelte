@@ -63,11 +63,11 @@
     specialsTabSession,
     type ExploreContent
   } from '$lib/freshFeed/specialsLoader';
-  import { UnlockFlow } from '$lib/freshFeed/unlockFlow';
+  import { SpecialsFlow } from '$lib/freshFeed/specialsFlow';
+  import { declinedNow, topicGate } from '$lib/freshFeed/topicGate';
   import {
     hideTopic,
     loadShown,
-    setAutoUnlock,
     loadTopicHistory,
     markShown,
     markTopicShown,
@@ -75,6 +75,7 @@
     specialsPrefs
   } from '$lib/freshFeed/specialsPrefs';
   import FreshSpecialCard from './FreshSpecialCard.svelte';
+  import FreshMemberPitch from './FreshMemberPitch.svelte';
   import FreshFinishLine from './FreshFinishLine.svelte';
   import { finishLine, type ExploreState } from '$lib/freshFeed/finishLine';
   import { SPECIALS } from '$lib/freshFeed/specialsConfig';
@@ -101,7 +102,7 @@
   import { loadOnThisDay, MonthPager, type ArchiveState } from '$lib/freshFeed/archiveLoader';
   import FreshOnThisDayCard from './FreshOnThisDayCard.svelte';
 
-  const { client, login, unlock } = freshSession();
+  const { client, login } = freshSession();
   const loginState = login.state;
 
   interface Post {
@@ -196,7 +197,10 @@
   let topicLoading = false;
 
   // Archive views (members): "On this day" and the time machine
-  // ($lib/freshFeed/archive). Labeled posts only.
+  // ($lib/freshFeed/archive). Labeled posts only. The full views behind the
+  // preview cards: a non-member who opens one gets the membership pitch.
+  let pitch: { what: 'topic' | 'day' | 'archive'; name?: string } | null = null;
+  let pitchOpen = false;
   const TIME_MACHINE = '@time-machine';
   let archiveView: 'day' | 'month' | null = null;
   let archiveState: ArchiveState | 'loading' = 'loading';
@@ -357,8 +361,7 @@
   }
 
   function cardPosts(sp: Special): RelayEvent[] {
-    if (sp.type === 'recipe') return [sp.post];
-    return sp.type === 'teaser' || sp.type === 'unlock' ? [] : sp.posts;
+    return sp.type === 'recipe' ? [sp.post] : sp.posts;
   }
 
   /** Posts on screen in the feed or a card: no card repeats them. */
@@ -383,32 +386,31 @@
     specialsSession
   );
 
-  // Members-only cards between the unlock tap and the screen: when they may
-  // load, retries (empty, or a relay hold), and the tapped card's fill
-  // ($lib/freshFeed/unlockFlow).
-  const flow = new UnlockFlow({
-    login,
-    loader,
-    unlock,
-    authedNow: () => client.authedNow(),
-    member: () => member,
-    remembered: () => $prefs.autoUnlock,
-    signerReady: () => signerReady,
-    onReady: () => void decideSlots(),
-    onFill: (special) => fillUnlockCard(special)
-  });
+  // One spotlight and one memory kept ready, with retries (empty, or the
+  // relay refusing previews) ($lib/freshFeed/specialsFlow). Spotlights are
+  // previews for everyone; memories are members-only and load only on a
+  // logged-in feed connection. Nothing here logs in or asks the signer.
+  const flow = new SpecialsFlow({ loader, onReady: () => void decideSlots() });
 
   // A member whose key signs silently (nsec in the app, passkey vault) is
   // logged in to the feed on load — no prompt, same as the pantry relay's
-  // NIP-42 policy. Members with a prompting signer (extension, Amber,
-  // bunker) are never asked on their own: the first members-only card is an
-  // opt-in "Sign in to the feed" card ($lib/freshFeed/memberUnlock, one per
-  // tab session). A decline anywhere holds for the session.
+  // NIP-42 policy — so opening a topic or the archive is immediate. Members
+  // with a prompting signer (extension, Amber, bunker) are never asked on
+  // their own: the one prompt comes when they open a full view (a topic,
+  // "on this day", the time machine), once per session; a decline anywhere
+  // holds for the session (the view's button asks again, by hand).
   let autoLoginTried = false;
   // The signer is restored asynchronously after the pubkey is known; the
   // auth manager's store says when it is there (login.silent reads it).
   let signerReady = false;
-  $: if (member && !loading && signerReady && !autoLoginTried && login.silent && $loginState === 'idle') {
+  $: if (
+    member &&
+    !loading &&
+    signerReady &&
+    !autoLoginTried &&
+    login.silent &&
+    $loginState === 'idle'
+  ) {
     autoLoginTried = true;
     void autoLogin();
   }
@@ -421,8 +423,6 @@
       // Connection failed: the feed already shows its unavailable state.
     }
   }
-  let unlockTick = 0;
-  $: if ($loginState === 'declined') unlock.declinedElsewhere();
 
   function visiblePlaced(
     all: typeof placed,
@@ -437,8 +437,7 @@
       const sp = slot.special;
       if (!sp || id === finishAfter) continue;
       if (sp.type === 'recipe' && (hiddenIds.has(sp.post.id) || !accepted(sp.post))) continue;
-      if ((sp.type === 'spotlight' || sp.type === 'teaser') && p.hiddenTopics.includes(sp.slug))
-        continue;
+      if (sp.type === 'spotlight' && p.hiddenTopics.includes(sp.slug)) continue;
       out.set(id, slot);
     }
     return out;
@@ -466,17 +465,6 @@
       loadBoxTopics([recipe.id]);
       return { type: 'recipe', post: recipe };
     }
-    if (type === 'spotlight' && !member) {
-      // Non-members: a locked teaser from the topic list (no request).
-      const t = loader.teaser();
-      if (t?.type === 'teaser') specialsSession.usedTopics.add(t.slug);
-      return t;
-    }
-    if (!membersOnlyOpen()) {
-      unlock.offer();
-      unlockTick++;
-      return { type: 'unlock', for: type, status: 'offer' };
-    }
     if (type === 'spotlight') {
       const sp = loader.takeSpotlight();
       prepare('spotlight');
@@ -488,68 +476,6 @@
   }
 
   /**
-   * Spotlights and memories can be loaded: the feed connection, as it is
-   * now, is logged in. A login lost to a reconnect offers the unlock card
-   * again; a relay hold (restricted: for a minute after a failed membership
-   * lookup there) waits, with no new card and no new prompt.
-   */
-  function membersOnlyOpen(): boolean {
-    return flow.open();
-  }
-
-  /** The tapped unlock card, while its content is on its way. */
-  let unlockPendingAnchor: string | null = null;
-
-  function setSlotSpecial(anchorId: string, special: Special | null) {
-    const slot = placed.get(anchorId);
-    if (!slot) return;
-    placed.set(anchorId, { ...slot, special });
-    placed = placed;
-  }
-
-  /**
-   * The unlock card's button: one login prompt, then the card fills in
-   * place — at once, or when a retry brings its content (fillUnlockCard).
-   */
-  async function unlockCard(key: string) {
-    const slot = [...placed.values()].find((x) => x.key === key);
-    const sp = slot?.special;
-    if (!slot || !sp || sp.type !== 'unlock' || sp.status !== 'offer') return;
-    setSlotSpecial(slot.anchorId, { ...sp, status: 'busy' });
-    const r = await flow.tap(sp.for);
-    unlockTick++;
-    if (destroyed) return;
-    if (r === 'declined') {
-      setSlotSpecial(slot.anchorId, { ...sp, status: 'declined' });
-      return;
-    }
-    // Unlocked once by hand: later visits unlock on their own (Settings → Fresh turns it off).
-    setAutoUnlock(true);
-    if (r === 'loading') {
-      unlockPendingAnchor = slot.anchorId;
-      setSlotSpecial(slot.anchorId, { ...sp, status: 'loading' });
-      return;
-    }
-    if (r.type === 'spotlight') specialsSession.lastParent = r.parent;
-    setSlotSpecial(slot.anchorId, r);
-  }
-
-  /** The tapped card's content arrived (null: the relay kept refusing). */
-  function fillUnlockCard(special: Special | null) {
-    const anchorId = unlockPendingAnchor;
-    unlockPendingAnchor = null;
-    if (!anchorId || destroyed) return;
-    const sp = placed.get(anchorId)?.special;
-    if (!sp || sp.type !== 'unlock') return;
-    if (special === null) {
-      setSlotSpecial(anchorId, { ...sp, status: 'unavailable' });
-      return;
-    }
-    if (special.type === 'spotlight') specialsSession.lastParent = special.parent;
-    setSlotSpecial(anchorId, special);
-  }
-
-  /**
    * Decide the slots the feed has reached, in order: a slot gets the
    * rotation's next ready card while its place is still below the screen;
    * once the reader is at or past it, it is skipped, so nothing is ever
@@ -558,11 +484,9 @@
    */
   async function decideSlots() {
     await tick();
-    // Members and everyone else get different cards: wait for the answer
-    // (a signed-in member would otherwise use up the non-member teaser).
-    if (destroyed || loading || firstStreaming || $prefs.off || !membershipKnown) return;
+    if (destroyed || loading || firstStreaming || $prefs.off) return;
     const anchors = slots.upTo(shown.length);
-    const caps = capsFor(member, $prefs);
+    const caps = capsFor($prefs);
     const screenBottom = window.innerHeight;
     let changed = false;
     while (decided < anchors.length) {
@@ -582,31 +506,26 @@
         continue;
       }
       const recipe = nextRecipe();
-      // A remembered unlock logs in here, once, instead of offering the tap
-      // card; while it runs, members-only types wait (recipes go on).
-      if (
-        member &&
-        signerReady &&
-        $prefs.autoUnlock &&
-        !membersOnlyOpen() &&
-        unlock.canOffer &&
-        !flow.autoBusy
-      ) {
-        void flow.autoUnlock();
-      }
-      const open = membersOnlyOpen();
-      // Members-only types: loaded content once the feed is logged in;
-      // before that, one "Tap to unlock" card; after a decline, none.
+      // Spotlights: the preview the loader has ready (the same for
+      // everyone); while the relay refuses previews the type is not
+      // available at all, so recipe cards keep coming instead of waiting on
+      // it (the rotation never repeats a type while another is available).
+      // Memories: members only, and only once the feed login
+      // counts (a local key on load; a prompting signer after it opened a
+      // topic or the archive) — until then the type isn't available and the
+      // rotation skips it (an "available but never ready" type would stop
+      // the others from repeating). A type out of unshown content is
+      // skipped too.
       const ready = (t: SpecialType) =>
         t === 'recipe'
           ? recipe !== null
-          : !member
-            ? t === 'spotlight' && catalog.groups.length > 0 && loader.teaser() !== null
-            : open
-              ? (t === 'spotlight' ? loader.spotlight : loader.memory) !== null
-              : unlock.canOffer && !flow.autoBusy;
+          : (t === 'spotlight' ? loader.spotlight : loader.memory) !== null;
       const available = (t: SpecialType) =>
-        t === 'recipe' || !member || ((open || unlock.canOffer) && !loader.isOut(t));
+        t === 'recipe'
+          ? true
+          : t === 'spotlight'
+            ? !loader.isOut('spotlight') && loader.previewHoldLeftMs() === 0
+            : member && client.authedNow() && loader.memberAccess() && !loader.isOut('memory');
       if (!(['recipe', 'spotlight', 'memory'] as SpecialType[]).some(ready)) break;
       // More than a screen away: wait for the rotation's own type.
       const strict = bottom > screenBottom * 2;
@@ -621,26 +540,24 @@
     if (changed) placed = placed;
   }
 
-  // Slots waiting on the membership answer are decided once it arrives;
-  // so are slots waiting on the signer for a remembered unlock.
-  $: if (membershipKnown) decideSlots();
-  $: if (signerReady) decideSlots();
-
-  /** Keep one of each ready; an empty, failed or held try is retried (unlockFlow). */
+  /** Keep one of each ready; an empty or refused try is retried (specialsFlow). */
   function prepare(kind: 'spotlight' | 'memory') {
     flow.prepare(kind);
   }
 
-  // Members: spotlights and memories start loading after the first page,
-  // only on a feed connection that is already logged in (no prompt: the
-  // first members-only card offers "Tap to unlock"). Non-members never ask
-  // the relay for them. (They used to wait for the recipe pool too, from
-  // when a failed login closed the socket under it; a failed login keeps
-  // the socket now, and the pool is deferred.)
-  $: if (member && !loading && posts.length && !$prefs.off && !specialsStarted) {
+  // Spotlights (previews, for everyone) start loading after the first page,
+  // once the topic catalog is there to pick from; no login is involved.
+  // Memories (members) start when the feed login counts: at once for a
+  // local key logged in on load, otherwise after the login a topic or
+  // archive open made (reloadExploreAfterLogin). Never a prompt for a card.
+  let spotlightsStarted = false;
+  $: if (!loading && posts.length && !$prefs.off && !specialsStarted) {
     specialsStarted = true;
+    if (member && client.authedNow()) prepare('memory');
+  }
+  $: if (specialsStarted && catalog.groups.length && !spotlightsStarted) {
+    spotlightsStarted = true;
     prepare('spotlight');
-    prepare('memory');
   }
 
   function cardSeen(sp: Special) {
@@ -665,6 +582,20 @@
       const t = g.topics.find((x) => x.slug === slug);
       if (t) return openTopic(t);
     }
+  }
+
+  /** The gate on the full views: a non-member (or signed out) gets the pitch instead. */
+  function gated(what: 'topic' | 'day' | 'archive', name?: string): boolean {
+    if (topicGate({ signedIn: !!pk, member, membershipKnown }) === 'open') return false;
+    pitch = { what, name };
+    pitchOpen = true;
+    return true;
+  }
+
+  /** A memory card's link: the full "on this day", or the time machine at its month. */
+  function openMemory(sp: Extract<Special, { type: 'memory' }>) {
+    if (sp.variant === 'day') openOnThisDay();
+    else openTimeMachine(sp.monthKey ?? monthKey);
   }
 
   /**
@@ -787,10 +718,8 @@
   async function reloadExploreAfterLogin() {
     loader.loggedIn();
     if (member) {
-      unlock.loggedIn();
-      unlockTick++;
-      prepare('spotlight');
-      prepare('memory');
+      // Memory cards can load now (no prompt: the connection is logged in).
+      if (specialsStarted) prepare('memory');
       // The caught-up card's counts were asked for on a connection that
       // wasn't logged in (auth-required is not "no posts"): ask again.
       if (dayCounts === null) dayCardTried = false;
@@ -1073,8 +1002,8 @@
 
   // --- Archive views ---
 
-  // Members only, the same rule as topic feeds: a non-member gets the
-  // teaser card and no request is sent.
+  // Members only, the same rule as topic feeds: opening a view as a
+  // non-member is the membership pitch (gated), and no request is sent.
   $: archiveLocked = topicsLocked;
 
   function wrapAll(list: RelayEvent[]): Post[] {
@@ -1089,6 +1018,7 @@
   }
 
   function startArchive(view: 'day' | 'month') {
+    if (gated(view === 'day' ? 'day' : 'archive')) return false;
     closeTopic();
     archiveGen++;
     archiveView = view;
@@ -1101,8 +1031,12 @@
   async function openOnThisDay() {
     if (!startArchive('day')) return;
     const gen = archiveGen;
+    // A prompting signer is asked here, once per session (loadOnThisDay →
+    // history → the feed login); a decline goes back to the feed.
+    const loginBefore = $loginState;
     const r = await loadOnThisDay(client, new Date());
     if (destroyed || gen !== archiveGen) return;
+    if (r.state === 'auth-required' && declinedNow(loginBefore, $loginState)) return backToFeed();
     archiveState = r.state;
     const fmt = (s: number) =>
       new Date(s * 1000).toLocaleDateString(undefined, {
@@ -1139,9 +1073,11 @@
     if (!p || monthLoading || p.done) return;
     const gen = archiveGen;
     monthLoading = true;
+    const loginBefore = $loginState;
     const r = await p.next();
     if (destroyed || gen !== archiveGen || p !== pager) return;
     monthLoading = false;
+    if (r.state === 'auth-required' && declinedNow(loginBefore, $loginState)) return backToFeed();
     archiveState = r.state;
     archiveRows = [...archiveRows, ...wrapAll(r.posts).map((post) => ({ key: post.raw.id, post }))];
     monthDone = p.done;
@@ -1227,7 +1163,20 @@
   // selection's first page starts at once instead of waiting on it.
   let topicGen = 0;
 
+  /**
+   * The signer prompt was declined just now: back to the feed and its
+   * previews, with a word. The next open shows the view's own "Log in to
+   * the feed" button instead of prompting again (a decline holds for the
+   * session); nothing retries on its own.
+   */
+  function backToFeed() {
+    closeArchive();
+    closeTopic();
+    notice = 'No problem — the previews stay. Open a topic again whenever you want to log in.';
+  }
+
   function openTopic(t: Topic) {
+    if (gated('topic', t.name)) return;
     if (archiveView) closeArchive();
     topicGen++;
     topicLoading = false;
@@ -1251,11 +1200,15 @@
     if (!topic || topicLoading || topicEnd !== 'more') return;
     const gen = topicGen;
     topicLoading = true;
+    // A prompting signer is asked here, once per session (client.topic →
+    // the feed login); a decline goes back to the feed.
+    const loginBefore = $loginState;
     const r = await client.topic(topic.slug, topicSeen, topicUntil);
     // A newer selection owns topicLoading and the list now.
     if (gen !== topicGen) return;
     topicLoading = false;
     if (destroyed) return;
+    if (r.state === 'auth-required' && declinedNow(loginBefore, $loginState)) return backToFeed();
     if (r.state === 'ok') {
       topicPosts = [...topicPosts, ...spaceAuthors(topicPosts, r.events.map(wrap))];
       topicUntil = r.nextUntil;
@@ -1361,9 +1314,6 @@
     destroyed = true;
     flow.dispose();
     if (partialRetryTimer) clearTimeout(partialRetryTimer);
-    // An unlock card that was never tapped is withdrawn, so a later visit can
-    // offer it again instead of leaving members-only cards stuck for the tab.
-    unlock.withdraw();
     stopLive?.();
     lazyObserver?.disconnect();
     if (batchTimer) clearTimeout(batchTimer);
@@ -1718,11 +1668,12 @@
               <FreshSpecialCard
                 special={sp}
                 toEvent={(raw) => postFor(raw).event}
+                locked={topicsLocked}
                 on:seen={() => cardSeen(sp)}
                 on:fewer={(e) => fewer(e.detail)}
                 on:hideTopic={(e) => hideSpotlightTopic(e.detail)}
                 on:openTopic={(e) => openTopicSlug(e.detail)}
-                on:unlock={() => unlockCard(row.key)}
+                on:openMemory={(e) => openMemory(e.detail)}
               />
             {/if}
           {:else}
@@ -1751,6 +1702,7 @@
               <FreshFinishLine
                 state={finish}
                 {prompt}
+                locked={topicsLocked}
                 content={exploreContent}
                 toEvent={(raw) => postFor(raw).event}
                 on:explore={openExplore}
@@ -1770,6 +1722,7 @@
           <FreshFinishLine
             state={finish}
             {prompt}
+            locked={topicsLocked}
             content={exploreContent}
             toEvent={(raw) => postFor(raw).event}
             on:explore={openExplore}
@@ -1833,6 +1786,15 @@
   loading={topicsLoading}
   on:pick={(e) => openTopic(e.detail)}
 />
+
+{#if pitch}
+  <FreshMemberPitch
+    bind:open={pitchOpen}
+    what={pitch.what}
+    name={pitch.name ?? ''}
+    signedIn={!!pk}
+  />
+{/if}
 
 {#if zapEvent}
   <ZapModal

@@ -1,8 +1,11 @@
 <script lang="ts">
   /**
-   * A topic spotlight (a swipeable row of posts from one topic), a locked
-   * spotlight teaser (non-members), or a memory ("One year ago today" /
-   * "From the archive"). The recipe box is FreshPostCard's `box` mode.
+   * A topic spotlight (a swipeable row of posts from one topic) or a memory
+   * ("One year ago today" / "From the archive"). Both are previews everyone
+   * sees; the link at the bottom opens the full topic feed or archive view,
+   * which the feed gates for members (`locked`: a non-member sees a lock on
+   * the link and gets the membership pitch when they open it). The recipe
+   * box is FreshPostCard's `box` mode.
    */
   import { createEventDispatcher } from 'svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -18,34 +21,31 @@
   export let special: Exclude<Special, { type: 'recipe' }>;
   /** Wraps a post for its components (FreshFeed's `wrap`). */
   export let toEvent: (raw: RelayEvent) => NDKEvent;
+  /** The full view behind the card is for members and this reader isn't one. */
+  export let locked = false;
 
   const dispatch = createEventDispatcher<{
     fewer: SpecialType;
     hideTopic: string;
     openTopic: string;
+    openMemory: Extract<Special, { type: 'memory' }>;
     seen: void;
-    unlock: void;
   }>();
 
   $: menu =
-    special.type === 'unlock'
-      ? []
-      : special.type === 'memory'
-        ? [{ label: 'Show fewer like this', action: () => dispatch('fewer', 'memory') }]
-        : [
-            { label: 'Show fewer like this', action: () => dispatch('fewer', 'spotlight') },
-            { label: 'Hide this topic', action: () => dispatch('hideTopic', special.slug) }
-          ];
-  $: tab =
-    special.type === 'unlock'
-      ? special.for === 'memory'
-        ? 'Memories · Members'
-        : 'Topic spotlight · Members'
-      : special.type === 'memory'
-        ? special.label
-        : special.type === 'teaser'
-          ? 'Topic spotlight · Members'
-          : 'Topic spotlight';
+    special.type === 'memory'
+      ? [{ label: 'Show fewer like this', action: () => dispatch('fewer', 'memory') }]
+      : [
+          { label: 'Show fewer like this', action: () => dispatch('fewer', 'spotlight') },
+          { label: 'Hide this topic', action: () => dispatch('hideTopic', special.slug) }
+        ];
+  $: tab = special.type === 'memory' ? special.label : 'Topic spotlight';
+  $: more =
+    special.type === 'memory'
+      ? special.variant === 'day'
+        ? 'See all from this day'
+        : `Browse ${special.heading}`
+      : `See more ${special.name}`;
 </script>
 
 <FreshSpecialShell {tab} {menu} on:seen>
@@ -58,50 +58,6 @@
         </div>
       {/each}
     </FreshCardRow>
-    <button type="button" class="see-more" on:click={() => dispatch('openTopic', special.slug)}>
-      See more {special.name}
-      <ArrowRightIcon size={14} weight="bold" />
-    </button>
-  {:else if special.type === 'unlock'}
-    <h3 class="special-title">
-      {special.for === 'memory' ? '🕰️ From the archive' : '✨ Topic spotlights'}
-    </h3>
-    {#if special.status === 'declined'}
-      <p class="teaser-text">
-        No problem. Recipes from the recipe box will keep coming; members-only cards are off for
-        this visit.
-      </p>
-    {:else if special.status === 'loading'}
-      <p class="teaser-text">Signed in. Loading members-only cards…</p>
-    {:else if special.status === 'unavailable'}
-      <p class="teaser-text">
-        Signed in, but the feed relay isn't serving members-only cards right now. Recipes keep
-        coming; they'll be back on your next visit.
-      </p>
-    {:else}
-      <p class="teaser-text">
-        {special.for === 'memory'
-          ? 'Moments from the Fresh archive, for members. '
-          : 'The best of each topic from the Fresh archive, for members. '}
-        Sign in to the feed relay with your key to see them here. Your signer will ask once;
-        nothing is posted.
-      </p>
-      <button
-        type="button"
-        class="teaser-link"
-        disabled={special.status === 'busy'}
-        on:click={() => dispatch('unlock')}
-      >
-        {special.status === 'busy' ? 'Signing in…' : '🔓 Sign in to the feed'}
-      </button>
-    {/if}
-  {:else if special.type === 'teaser'}
-    <h3 class="special-title">{special.title} <span class="members">— members only</span></h3>
-    <p class="teaser-text">Topic spotlights are for Zap Cooking members.</p>
-    <a href="/membership" class="teaser-link">
-      <LockIcon size={14} weight="bold" />
-      See membership
-    </a>
   {:else}
     <h3 class="special-title">
       {special.variant === 'day' ? '🗓️' : '🕰️'}
@@ -113,6 +69,22 @@
       {/each}
     </div>
   {/if}
+  <button
+    type="button"
+    class="see-more"
+    on:click={() =>
+      special.type === 'memory'
+        ? dispatch('openMemory', special)
+        : dispatch('openTopic', special.slug)}
+  >
+    {more}
+    {#if locked}
+      <span class="members">· members</span>
+      <LockIcon size={13} weight="bold" aria-hidden="true" />
+    {:else}
+      <ArrowRightIcon size={14} weight="bold" />
+    {/if}
+  </button>
 </FreshSpecialShell>
 
 <style>
@@ -125,8 +97,8 @@
   }
 
   .members {
-    font-weight: 600;
-    color: var(--box-ink);
+    font-weight: 500;
+    color: var(--color-caption);
   }
 
   .see-more {
@@ -141,32 +113,6 @@
 
   .see-more:hover {
     text-decoration: underline;
-  }
-
-  .teaser-text {
-    margin: 0 0 0.875rem;
-    font-size: 0.875rem;
-    line-height: 1.5;
-    color: var(--color-text-secondary);
-  }
-
-  .teaser-link:disabled {
-    opacity: 0.7;
-  }
-
-  .teaser-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    min-height: 2.25rem;
-    padding: 0.4rem 1rem;
-    border-radius: 999px;
-    line-height: 1.3;
-    text-align: center;
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: #fff;
-    background: var(--color-primary);
   }
 
   .memory {
