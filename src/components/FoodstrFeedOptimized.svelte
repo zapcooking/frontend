@@ -1012,9 +1012,9 @@
     return result;
   }
 
-  function getOptimizedImageUrl(url: string): string {
+  function getOptimizedImageUrl(url: string, kind: 'single' | 'tile' = 'single'): string {
     return optimizeImageUrl(url, {
-      width: 640,
+      width: kind === 'single' ? 800 : 640,
       quality: 85,
       format: getOptimalFormat()
     });
@@ -5273,7 +5273,7 @@
       </div>
     {:else}
       <div class="space-y-3 w-full">
-        {#each events as event (event.id)}
+        {#each events as event, eventIndex (event.id)}
           <div
             use:renderZoneAction={event.id}
             class="feed-post-wrapper"
@@ -5583,6 +5583,7 @@
                         <MediaCarousel
                           items={mediaUrls}
                           optimizeUrl={getOptimizedImageUrl}
+                          priority={eventIndex === 0}
                           altByUrl={imetaAltByUrl(event)}
                           onItemClick={(url) => {
                             const imageUrls = mediaUrls.filter((u) => isImageUrl(u));

@@ -67,8 +67,21 @@
   // or the production /pow summary); the other three deliberately keep
   // their production ids — their
   // preview-isolation status is a separate follow-up decision.
+  // Plain-text vars live here, not in the dashboard: with a wrangler config
+  // present, Pages only lets the dashboard manage Secrets. `$env/dynamic/public`
+  // reads these from platform.env at request time and SvelteKit ships the
+  // PUBLIC_* ones to the browser.
+  "vars": {
+    // Class-1 image hosts (see CF_ORIGINS in src/lib/imageOptimizer.ts) go
+    // through /cdn-cgi/image/ on the zap.cooking zone.
+    "PUBLIC_IMAGE_RESIZER": "cloudflare"
+  },
   "env": {
     "preview": {
+      "vars": {
+        // *.pages.dev has no /cdn-cgi/image/ (404), so previews resize via weserv.
+        "PUBLIC_IMAGE_RESIZER": "weserv"
+      },
       "kv_namespaces": [
         {
           "binding": "SHORTLINKS",
