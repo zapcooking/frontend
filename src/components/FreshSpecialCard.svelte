@@ -71,6 +71,13 @@
         No problem. Recipes from the recipe box will keep coming; members-only cards are off for
         this visit.
       </p>
+    {:else if special.status === 'loading'}
+      <p class="teaser-text">Signed in. Loading members-only cards…</p>
+    {:else if special.status === 'unavailable'}
+      <p class="teaser-text">
+        Signed in, but the feed relay isn't serving members-only cards right now. Recipes keep
+        coming; they'll be back on your next visit.
+      </p>
     {:else}
       <p class="teaser-text">
         {special.for === 'memory'

@@ -77,8 +77,13 @@ export function specialsTabSession(): SpecialsSession {
 export class SpecialsLoader {
   spotlight: Special | null = null;
   memory: Special | null = null;
-  /** The relay said this reader isn't a member there: stop asking this session. */
-  locked = false;
+  /**
+   * The relay said `restricted:` on a logged-in connection. Not final: the
+   * relay holds a failed or unresolved membership lookup as "not a member"
+   * for a minute, so this is cleared by `loggedIn()` when the feed's login
+   * counts again (MemberLogin's hold ends, or a new login).
+   */
+  denied = false;
   /** The relay wants a feed login first (declined or not yet asked). */
   needsLogin = false;
   /** The reader asked (a tap): requests may ask the signer to log in. */
@@ -106,12 +111,13 @@ export class SpecialsLoader {
   }
 
   /**
-   * The relay refused: `restricted` (not a member there) ends it for the
-   * session; `auth-required` (no feed login yet, e.g. a declined prompt)
-   * waits until the reader logs in (`loggedIn`).
+   * The relay refused: `restricted` (the relay's membership check said no,
+   * held for a while) or `auth-required` (no feed login yet, e.g. a declined
+   * prompt). Either way nothing more is asked until `loggedIn()`. A refusal
+   * is never "no content": nothing is marked used, thin or tried by it.
    */
   private refused(state: 'auth-required' | 'restricted'): void {
-    if (state === 'restricted') this.locked = true;
+    if (state === 'restricted') this.denied = true;
     else this.needsLogin = true;
   }
 
@@ -120,13 +126,24 @@ export class SpecialsLoader {
     return this.out.has(t);
   }
 
-  /** The reader logged in to the feed: ask again. */
+  /**
+   * The feed's login counts (again): ask again, and forget what was
+   * gathered while it didn't. Results from a connection the relay treated
+   * as a non-member's are not content: an empty "on this day", months that
+   * came back empty, the memory type given up on. Idempotent while logged in.
+   */
   loggedIn(): void {
+    if (!this.needsLogin && !this.denied) return;
     this.needsLogin = false;
+    this.denied = false;
+    this.triedMonths.clear();
+    this.emptyMemories = 0;
+    this.out.delete('memory');
+    if (this.daySections && !this.daySections.some((s) => s.posts.length)) this.daySections = null;
   }
 
   private usable(): boolean {
-    return this.deps.member() && !this.locked && !this.needsLogin;
+    return this.deps.member() && !this.denied && !this.needsLogin;
   }
 
   /** The next spotlight topic for a non-member teaser (no request). */
@@ -269,13 +286,14 @@ export class SpecialsLoader {
       );
       if (months.length === 0) return null;
       const month = months[Math.min(months.length - 1, Math.floor(this.rng() * months.length))];
-      this.triedMonths.add(month.key);
       const r = await new MonthPager(this.src, month, { authedOnly: !this.interactive }).next();
       if (r.state === 'auth-required' || r.state === 'restricted') {
         this.refused(r.state);
         return null;
       }
       if (r.state !== 'ok') return null;
+      // Only an answered month is spent; a refused or dropped one may be asked again.
+      this.triedMonths.add(month.key);
       const post = archiveStandout(r.posts.filter(this.deps.accept), o);
       if (post)
         return {
