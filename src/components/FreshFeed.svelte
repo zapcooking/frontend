@@ -1590,7 +1590,7 @@
         {/if}
       {/if}
       <div class="space-y-6">
-        {#each rows as row (row.key)}
+        {#each rows as row, rowIndex (row.key)}
           {#if row.divider}
             <div
               class="flex items-center gap-3 text-xs font-medium"
@@ -1615,6 +1615,7 @@
             {#if row.special.type === 'recipe'}
               {@const p = postFor(row.special.post)}
               <FreshPostCard
+                priority={rowIndex === 0}
                 box={true}
                 topic={boxTopics.get(p.raw.id) ?? null}
                 raw={p.raw}
@@ -1650,6 +1651,7 @@
           {:else}
             <div data-fresh-row={row.item.raw.id}>
               <FreshPostCard
+                priority={rowIndex === 0}
                 raw={row.item.raw}
                 event={row.item.event}
                 visible={visibleNotes.has(row.item.raw.id)}

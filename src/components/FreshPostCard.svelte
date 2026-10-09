@@ -68,6 +68,8 @@
   export let box = false;
   /** The relay's top topic for the recipe-box recipe (members), or null. */
   export let topic: string | null = null;
+  /** First post on screen: its first image loads eagerly with high priority (LCP). */
+  export let priority = false;
   /** Registers this card for lazy engagement loading (the feed's observer). */
   export let lazy: (node: HTMLElement, id: string) => { destroy(): void };
 
@@ -103,8 +105,9 @@
     }
   }
 
-  function optimized(url: string): string {
-    return optimizeImageUrl(url, { width: 640, quality: 85, format: getOptimalFormat() });
+  /** Device-pixel widths: a single photo spans the card (~390 CSS px on a phone, 2x). */
+  function optimized(url: string, kind: 'single' | 'tile' = 'single'): string {
+    return optimizeImageUrl(url, { width: kind === 'single' ? 800 : 640, quality: 85, format: getOptimalFormat() });
   }
 
   function openMedia(url: string) {
@@ -330,6 +333,7 @@
           <MediaCarousel
             items={media}
             optimizeUrl={optimized}
+            {priority}
             altByUrl={alts}
             onItemClick={(url) => openMedia(url)}
           />

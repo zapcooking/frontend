@@ -22,7 +22,10 @@
   /** Called when an image tile is tapped (videos play inline). */
   export let onItemClick: (url: string, index: number) => void = () => {};
   /** Optional CDN/proxy rewrite applied to tile image sources. */
-  export let optimizeUrl: (url: string) => string = (url) => url;
+  /** The URL to load for a tile; `kind` says how wide it will be shown. */
+  export let optimizeUrl: (url: string, kind: 'single' | 'tile') => string = (url) => url;
+  /** The first image of the first post on screen: load it eagerly, with high priority (it is the LCP). */
+  export let priority = false;
   /** NIP-92 imeta alt text keyed by media URL (accessibility). */
   export let altByUrl: Map<string, string> = new Map();
 
@@ -91,8 +94,8 @@
    * hid the tile on the next error. Only a second error hides the tile.
    */
   let fallback = new Set<string>();
-  function srcFor(url: string): string {
-    return fallback.has(url) ? url : optimizeUrl(url);
+  function srcFor(url: string, kind: 'single' | 'tile'): string {
+    return fallback.has(url) ? url : optimizeUrl(url, kind);
   }
   function handleImageError(e: Event, original: string) {
     const target = e.target as HTMLImageElement;
@@ -215,10 +218,11 @@
         on:click={() => onItemClick(items[0], 0)}
       >
         <img
-          src={srcFor(items[0])}
+          src={srcFor(items[0], 'single')}
           alt={altByUrl.get(items[0]) || ''}
           class="single-media-image"
-          loading="lazy"
+          loading={priority ? 'eager' : 'lazy'}
+          fetchpriority={priority ? 'high' : 'auto'}
           decoding="async"
           draggable="false"
           on:error={(e) => handleImageError(e, items[0])}
@@ -267,9 +271,10 @@
               on:click={() => onItemClick(url, index)}
             >
               <img
-                src={srcFor(url)}
+                src={srcFor(url, 'tile')}
                 alt={altByUrl.get(url) || ''}
-                loading="lazy"
+                loading={priority && index === 0 ? 'eager' : 'lazy'}
+                fetchpriority={priority && index === 0 ? 'high' : 'auto'}
                 decoding="async"
                 draggable="false"
                 on:error={(e) => handleImageError(e, url)}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { imageResizer, isResizableHost } from '$lib/imageOptimizer';
   import { createEventDispatcher } from 'svelte';
   import { profileCacheManager } from '$lib/profileCache';
   import type { NDKUser } from '@nostr-dev-kit/ndk';
@@ -44,6 +45,30 @@
     return url.replace(/^https?:\/\//i, '');
   }
 
+  /**
+   * The avatar at its display size, through the configured resizer
+   * ($lib/imageOptimizer: Cloudflare Image Transformations on our zone, or
+   * images.weserv.nl). Profile pictures are routinely multi-megabyte
+   * originals (the audit measured a 3.7 MB JPEG and a 4.9 MB GIF behind
+   * 40 px avatars), so the raw URL is only the fallback now.
+   */
+  function toResized(url: string): string | null {
+    const resizer = imageResizer();
+    if (resizer === 'off') return null;
+    if (resizer === 'weserv') return toWeserv(url);
+    // Cloudflare only resizes from the zone's allowlisted origins; a profile
+    // picture elsewhere loads raw first (weserv stays the fallback).
+    let host = '';
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      return null;
+    }
+    if (!isResizableHost(host)) return null;
+    const px = Math.max(16, Math.round(size * 2));
+    return `/cdn-cgi/image/width=${px},height=${px},fit=cover,quality=80,format=auto/${url}`;
+  }
+
   // Unsigned, reliable image proxy. Good for avatars.
   function toWeserv(url: string): string {
     const u = stripProtocol(url);
@@ -57,6 +82,9 @@
   // enlarge the picture (a lightbox) want the same host that worked — the
   // raw URL may be blocked while weserv isn't — but not the `size`px crop.
   function toFullSize(url: string): string {
+    // A Cloudflare transformation URL embeds the original after the options.
+    const cf = url.match(/^\/cdn-cgi\/image\/[^/]+\/(https?:\/\/.+)$/i);
+    if (cf) return cf[1];
     try {
       const parsed = new URL(url);
       if (parsed.hostname === 'images.weserv.nl') {
@@ -177,9 +205,12 @@
       return candidates;
     }
 
-    // Normal case: try raw URL first, then weserv proxy fallback
+    // Normal case: the resized avatar first, the raw URL as fallback (and
+    // weserv as a last resort when the resizer is Cloudflare).
+    const resized = toResized(raw);
+    if (resized) candidates.push(resized);
     candidates.push(raw);
-    candidates.push(toWeserv(raw));
+    if (resized && !resized.includes('images.weserv.nl')) candidates.push(toWeserv(raw));
 
     return [...new Set(candidates)];
   }
