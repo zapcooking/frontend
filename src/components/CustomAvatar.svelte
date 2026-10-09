@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { imageResizer, isResizableHost } from '$lib/imageOptimizer';
+  import { avatarUrl } from '$lib/imageOptimizer';
   import { createEventDispatcher } from 'svelte';
   import { profileCacheManager } from '$lib/profileCache';
   import type { NDKUser } from '@nostr-dev-kit/ndk';
@@ -46,27 +46,15 @@
   }
 
   /**
-   * The avatar at its display size, through the configured resizer
-   * ($lib/imageOptimizer: Cloudflare Image Transformations on our zone, or
-   * images.weserv.nl). Profile pictures are routinely multi-megabyte
-   * originals (the audit measured a 3.7 MB JPEG and a 4.9 MB GIF behind
-   * 40 px avatars), so the raw URL is only the fallback now.
+   * The avatar at its display size (2x for the usual 2x screens), by the
+   * routing table in $lib/imageOptimizer: Cloudflare origins → our zone,
+   * native hosts → their own parameters, everything else → weserv. Profile
+   * pictures are routinely multi-megabyte originals (the audit measured a
+   * 3.7 MB JPEG and a 4.9 MB GIF behind 40 px avatars), so the raw URL is
+   * only the fallback now.
    */
   function toResized(url: string): string | null {
-    const resizer = imageResizer();
-    if (resizer === 'off') return null;
-    if (resizer === 'weserv') return toWeserv(url);
-    // Cloudflare only resizes from the zone's allowlisted origins; a profile
-    // picture elsewhere loads raw first (weserv stays the fallback).
-    let host = '';
-    try {
-      host = new URL(url).hostname;
-    } catch {
-      return null;
-    }
-    if (!isResizableHost(host)) return null;
-    const px = Math.max(16, Math.round(size * 2));
-    return `/cdn-cgi/image/width=${px},height=${px},fit=cover,quality=80,format=auto/${url}`;
+    return avatarUrl(url, size * 2);
   }
 
   // Unsigned, reliable image proxy. Good for avatars.
@@ -88,9 +76,14 @@
     try {
       const parsed = new URL(url);
       if (parsed.hostname === 'images.weserv.nl') {
-        for (const param of ['w', 'h', 'fit', 'a']) parsed.searchParams.delete(param);
+        const original = parsed.searchParams.get('url');
+        if (original && /^https?:\/\//i.test(original)) return original;
+        for (const param of ['w', 'h', 'fit', 'a', 'q', 'output']) parsed.searchParams.delete(param);
         return parsed.toString();
       }
+      // Native sizing (nostr.build, blossom.band): drop the parameters we added.
+      for (const param of ['w', 'h', 'q', 'f']) parsed.searchParams.delete(param);
+      return parsed.toString();
     } catch {
       // Not an absolute URL (data:/blob:) — return as-is.
     }
@@ -206,11 +199,11 @@
     }
 
     // Normal case: the resized avatar first, the raw URL as fallback (and
-    // weserv as a last resort when the resizer is Cloudflare).
+    // weserv as a last resort when the resized candidate was not weserv).
     const resized = toResized(raw);
     if (resized) candidates.push(resized);
     candidates.push(raw);
-    if (resized && !resized.includes('images.weserv.nl')) candidates.push(toWeserv(raw));
+    if (!resized || !resized.includes('images.weserv.nl')) candidates.push(toWeserv(raw));
 
     return [...new Set(candidates)];
   }

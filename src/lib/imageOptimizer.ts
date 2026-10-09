@@ -8,19 +8,7 @@
  * than the screen. Everyone else (primal, imgur, nostrcheck, satellite,
  * self-hosted Blossom servers…) ignored the parameters and served originals.
  *
- * Now each host gets what it understands:
- *   - nostr.build family: its own renditions (`w=` picks the one at or below
- *     the requested width, so 720p for anything a feed tile shows);
- *   - blossom.band: honours `w`/`q`/`f`, kept as is;
- *   - allowlisted hosts (RESIZABLE_HOSTS): a resizer — Cloudflare Image
- *     Transformations on our own zone (`/cdn-cgi/image/…`, first-party,
- *     edge-cached, format negotiated by the browser) or images.weserv.nl —
- *     chosen by PUBLIC_IMAGE_RESIZER ('cloudflare' | 'weserv' | 'off');
- *   - any other host: the original URL (the zone only resizes from the
- *     allowlisted origins, so zap.cooking is not an open image proxy).
- *
- * A tile whose resized URL fails falls back to the original once
- * ($lib/imageRetry), so a host that is down for the resizer still renders.
+ * See the ROUTING TABLE below for how each host is sized.
  */
 import { env } from '$env/dynamic/public';
 
@@ -44,67 +32,79 @@ export function imageResizer(): ImageResizer {
   return 'cloudflare';
 }
 
-export type ImageTail = 'original' | 'weserv';
-let tailOverride: ImageTail | null = null;
+/** Tests only. */
+export function __setImageResizerForTests(r: ImageResizer | null): void {
+  resizerOverride = r;
+}
 
 /**
- * What a host OUTSIDE the allowlist gets: the original image (default — the
- * zone must never become an open proxy, and the long tail of hosts is
- * ~14 % of feed image URLs) or images.weserv.nl, a third-party resizer that
- * is not billed to us. PUBLIC_IMAGE_TAIL ('original' | 'weserv').
+ * ROUTING TABLE — the single place that decides how a feed image is sized.
+ * Keep in sync with the Cloudflare dashboard (Images → Transformations →
+ * zap.cooking → Sources, mode "Specified origins"). The dashboard caps the
+ * list at 10 origins INCLUDING zap.cooking itself, so exactly 9 external
+ * origins fit; a host that is in the code list but not in the dashboard is
+ * refused by the zone (403) and costs a failed request before the fallback.
+ * The code list and the dashboard list must change together.
+ * Last synced: 2026-10-09 (Seth configured the dashboard; this list copies it).
+ *
+ *   1. CF_ORIGINS  → Cloudflare Image Transformations on our zone
+ *                    (/cdn-cgi/image/…; first-party, edge-cached, billed to us,
+ *                    bounded by this allowlist). Exact hostname match.
+ *   2. native      → the host's own sizing parameters, no zone URL
+ *                    (image.nostr.build, i.nostr.build renditions; *.blossom.band w/q/f).
+ *   3. tail        → everything else through images.weserv.nl (third party,
+ *                    not billed to us). This is the code default; no env needed.
+ * PUBLIC_IMAGE_RESIZER ('cloudflare' | 'weserv' | 'off') is a kill switch for
+ * class 1 only: 'weserv' sends CF_ORIGINS through weserv too (used on the
+ * pages.dev preview, where the zone's /cdn-cgi/image/ does not exist), 'off'
+ * loads them raw. Avatars (CustomAvatar) use the same table via avatarUrl().
  */
-export function imageTail(): ImageTail {
-  if (tailOverride) return tailOverride;
-  return String(env.PUBLIC_IMAGE_TAIL || '').toLowerCase() === 'weserv' ? 'weserv' : 'original';
-}
+export const CF_ORIGINS: ReadonlySet<string> = new Set([
+  'blossom.primal.net',
+  'r2a.primal.net', // where blossom.primal.net redirects; the zone follows redirects
+  'i.imgur.com',
+  'share.yabu.me',
+  'files.peakd.com',
+  'live.staticflickr.com',
+  'files.catbox.moe',
+  'cdn.nostrcheck.me',
+  'blossom.ditto.pub'
+]);
 
-/** Tests only. */
-export function __setImageResizerForTests(r: ImageResizer | null, tail: ImageTail | null = null): void {
-  resizerOverride = r;
-  tailOverride = tail;
-}
-
-/** Hosts that implement nostr.build's rendition parameters. */
-const NOSTR_BUILD = /(^|\.)nostr\.build$/i;
-/** Hosts that honour `w`/`q`/`f` query parameters themselves. */
+/** nostr.build hosts that serve renditions via `w=` (and accept q/f). */
+const NOSTR_BUILD_NATIVE: ReadonlySet<string> = new Set(['image.nostr.build', 'i.nostr.build']);
+/** Hosts that honour `w`/`h`/`q`/`f` themselves. */
 const QUERY_NATIVE = [/(^|\.)blossom\.band$/i];
 /** Already a resizer URL: never wrap twice. */
 const RESIZER_HOST = /(^|\.)images\.weserv\.nl$/i;
 const CF_PATH = /^\/cdn-cgi\/image\//;
 
-/**
- * Hosts the resizer may fetch from. The Cloudflare zone is configured for
- * these origins only (Images → Transformations → Sources), so a URL for any
- * other host would be refused there; the client therefore sends such images
- * un-resized rather than paying a failed request plus a fallback. The list
- * is the audit census: every host above ~1 % of image posts in the Fresh and
- * Global feeds (2026-10-08, 571 image URLs in 383 posts) plus redirect
- * targets. Together with the native-sizing hosts above it covers ~86 % of
- * feed image URLs.
- */
-export const RESIZABLE_HOSTS: ReadonlyArray<string | RegExp> = [
-  'blossom.primal.net',
-  'r2a.primal.net', // where blossom.primal.net redirects
-  'i.imgur.com',
-  'image.nostr.build', // (served natively; listed for completeness)
-  'i.nostr.build',
-  /(^|\.)blossom\.band$/i, // per-user subdomains
-  'share.yabu.me',
-  'files.peakd.com',
-  'live.staticflickr.com',
-  'files.catbox.moe',
-  'relay.utxo.one',
-  'cdn.nostrcheck.me',
-  'blossom.mypathtofire.de',
-  'yosuke4061.com',
-  'blossom.ditto.pub',
-  'upload.wikimedia.org',
-  'spatia-arcana.com'
-];
+export type ImageRoute = 'cloudflare' | 'native' | 'weserv' | 'skip';
 
-export function isResizableHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  return RESIZABLE_HOSTS.some((m) => (typeof m === 'string' ? h === m : m.test(h)));
+/** Which class a URL's host falls in (see the routing table above). */
+export function imageRoute(url: string): ImageRoute {
+  if (isSkippable(url)) return 'skip';
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return 'skip';
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'skip';
+  if (RESIZER_HOST.test(u.hostname) || CF_PATH.test(u.pathname)) return 'skip';
+  const h = u.hostname.toLowerCase();
+  if (NOSTR_BUILD_NATIVE.has(h) || QUERY_NATIVE.some((re) => re.test(h))) return 'native';
+  if (CF_ORIGINS.has(h)) return 'cloudflare';
+  return 'weserv';
+}
+
+function weservUrl(url: string, q: Record<string, string>): string {
+  const params = new URLSearchParams({ url, ...q, output: 'webp' });
+  return `https://images.weserv.nl/?${params.toString()}`;
+}
+
+function cloudflareUrl(url: string, opts: string[]): string {
+  return `/cdn-cgi/image/${[...opts, 'format=auto'].join(',')}/${url}`;
 }
 
 function isSkippable(url: string): boolean {
@@ -123,70 +123,65 @@ function isSkippable(url: string): boolean {
  * nothing applies.
  */
 export function optimizeImageUrl(url: string, options: ImageOptimizationOptions = {}): string {
-  if (isSkippable(url)) return url;
-
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return url;
-  }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return url;
-  if (RESIZER_HOST.test(u.hostname) || CF_PATH.test(u.pathname)) return url;
-
+  const route = imageRoute(url);
+  if (route === 'skip') return url;
+  const u = new URL(url);
   const width = options.width;
   const quality = options.quality ?? 85;
 
-  if (NOSTR_BUILD.test(u.hostname)) {
-    // nostr.build serves the rendition at or below `w` (640 → 360p, which
-    // is too soft on a 2x screen); ask for 720p for anything tile-sized.
-    const w = width !== undefined && width <= 480 ? 640 : 1280;
-    u.searchParams.set('w', String(w));
+  if (route === 'native') {
+    if (NOSTR_BUILD_NATIVE.has(u.hostname.toLowerCase())) {
+      // nostr.build serves the rendition at or below `w` (640 → 360p, too
+      // soft on a 2x screen); ask for 720p for anything tile-sized.
+      u.searchParams.set('w', String(width !== undefined && width <= 480 ? 640 : 1280));
+    } else {
+      if (width) u.searchParams.set('w', String(width));
+      if (options.height) u.searchParams.set('h', String(options.height));
+    }
     u.searchParams.set('q', String(quality));
     u.searchParams.set('f', 'webp');
     return u.toString();
   }
 
-  if (QUERY_NATIVE.some((re) => re.test(u.hostname))) {
-    if (width) u.searchParams.set('w', String(width));
-    if (options.height) u.searchParams.set('h', String(options.height));
-    u.searchParams.set('q', String(quality));
+  if (!width) return url;
+  const viaCloudflare = route === 'cloudflare' && imageResizer() === 'cloudflare';
+  if (route === 'cloudflare' && imageResizer() === 'off') return url;
+  if (!viaCloudflare) {
+    const q: Record<string, string> = { w: String(width), q: String(quality), fit: 'inside', we: '' };
+    if (options.height) q.h = String(options.height);
+    return weservUrl(url, q);
+  }
+  // fit=scale-down never enlarges; format=auto lets the browser's Accept pick AVIF/WebP.
+  const opts = [`width=${width}`, options.height ? `height=${options.height}` : '', `quality=${quality}`, 'fit=scale-down'].filter(Boolean);
+  return cloudflareUrl(url, opts);
+}
+
+/**
+ * An avatar at `px` device pixels, cropped square, by the same routing table:
+ * CF origins → zone; native hosts → their parameters; everything else → weserv.
+ * Returns null when nothing applies (data:, blob:, resizer URLs) so the
+ * caller loads the raw URL.
+ */
+export function avatarUrl(url: string, px: number): string | null {
+  const route = imageRoute(url);
+  if (route === 'skip') return null;
+  const size = Math.max(16, Math.round(px));
+  if (route === 'native') {
+    const u = new URL(url);
+    if (NOSTR_BUILD_NATIVE.has(u.hostname.toLowerCase())) u.searchParams.set('w', '640');
+    else {
+      u.searchParams.set('w', String(size));
+      u.searchParams.set('h', String(size));
+    }
+    u.searchParams.set('q', '80');
     u.searchParams.set('f', 'webp');
     return u.toString();
   }
-
-  const resizer = imageResizer();
-  if (resizer === 'off' || !width) return url;
-  // Not an allowlisted origin: the zone would refuse it. Load the original,
-  // or go through weserv when the tail is configured that way.
-  const useWeserv = resizer === 'weserv' || (!isResizableHost(u.hostname) && imageTail() === 'weserv');
-  if (!isResizableHost(u.hostname) && !useWeserv) return url;
-
-  if (useWeserv) {
-    const q = new URLSearchParams({
-      url: url,
-      w: String(width),
-      q: String(quality),
-      output: 'webp',
-      fit: 'inside',
-      we: '' // without enlargement
-    });
-    if (options.height) q.set('h', String(options.height));
-    return `https://images.weserv.nl/?${q.toString()}`;
+  if (route === 'cloudflare' && imageResizer() === 'off') return null;
+  if (route === 'cloudflare' && imageResizer() === 'cloudflare') {
+    return cloudflareUrl(url, [`width=${size}`, `height=${size}`, 'fit=cover', 'quality=80']);
   }
-
-  // Cloudflare Image Transformations on our zone. fit=scale-down never
-  // enlarges; format=auto lets the browser's Accept pick AVIF/WebP.
-  const opts = [
-    `width=${width}`,
-    options.height ? `height=${options.height}` : '',
-    `quality=${quality}`,
-    'format=auto',
-    'fit=scale-down'
-  ]
-    .filter(Boolean)
-    .join(',');
-  return `/cdn-cgi/image/${opts}/${url}`;
+  return weservUrl(url, { w: String(size), h: String(size), fit: 'cover', a: 'attention', q: '80' });
 }
 
 /**
