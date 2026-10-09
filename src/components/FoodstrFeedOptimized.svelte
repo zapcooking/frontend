@@ -13,6 +13,7 @@
 </script>
 
 <script lang="ts">
+  import { feedScrollTarget, feedScrollTop, isAtTop } from '$lib/feed/scrollTop';
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { get } from 'svelte/store';
   import { browser } from '$app/environment';
@@ -3379,6 +3380,9 @@
    * Throttled to prevent performance issues
    */
   let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+  // The element the 'scroll' listener is attached to (the app scroller, or
+  // the window as a fallback), kept so it is removed from the same target.
+  let scrollTarget: EventTarget | null = null;
   function handleFeedScroll() {
     if (typeof window === 'undefined') return;
 
@@ -3388,9 +3392,11 @@
       scrollThrottleTimer = null;
     }, 100);
 
-    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    // The feed scrolls inside #app-scroll, not the window (the window's scroll offset
+    // stayed 0 and this listener never fired, so "at top" was always true).
+    const scrollTop = feedScrollTop(scrollTarget instanceof HTMLElement ? scrollTarget : null);
     const wasAtTop = isScrolledToTop;
-    isScrolledToTop = scrollTop < 100;
+    isScrolledToTop = isAtTop(scrollTop);
 
     // If user scrolled to top and there are pending posts, auto-load them
     if (isScrolledToTop && !wasAtTop && pendingNewEvents.length > 0) {
@@ -4748,9 +4754,13 @@
       muteListStore.load();
     }
 
-    // Add scroll listener for "new posts" button behavior
+    // Add scroll listener for "new posts" button behavior — on the app
+    // scroller, which is what actually scrolls (see $lib/feed/scrollTop).
     if (typeof window !== 'undefined') {
-      window.addEventListener('scroll', handleFeedScroll, { passive: true });
+      scrollTarget = feedScrollTarget();
+      scrollTarget.addEventListener('scroll', handleFeedScroll, { passive: true });
+      // Start from the real position: a remount while scrolled must not read as "at top".
+      isScrolledToTop = isAtTop(feedScrollTop(scrollTarget instanceof HTMLElement ? scrollTarget : null));
     }
 
     // Register callback to stop subscriptions when relays are switched
@@ -4868,9 +4878,8 @@
 
   onDestroy(async () => {
     // Remove scroll listener and clear throttle timer
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('scroll', handleFeedScroll);
-    }
+    scrollTarget?.removeEventListener('scroll', handleFeedScroll);
+    scrollTarget = null;
     if (scrollThrottleTimer) {
       clearTimeout(scrollThrottleTimer);
       scrollThrottleTimer = null;
