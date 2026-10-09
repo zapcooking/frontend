@@ -17,14 +17,17 @@ const mocks = vi.hoisted(() => ({
   connectWallet: vi.fn(),
   restoreNwcFromNostr: vi.fn(),
   listSparkBackups: vi.fn(),
-  restoreSparkBackup: vi.fn()
+  restoreSparkBackup: vi.fn(),
+  // Tests that need the check to pause mid-flight swap in a deferred
+  // ndkReady; the default stays an instantly-resolved promise.
+  ndkReadyGate: null as null | { promise: Promise<void>; resolve: () => void }
 }));
 
 vi.mock('$lib/nostr', async () => {
   const { writable } = await import('svelte/store');
   return {
     ndk: writable({}),
-    ndkReady: Promise.resolve(),
+    ndkReady: mocks.ndkReadyGate ? mocks.ndkReadyGate.promise : Promise.resolve(),
     userPublickey: writable(mocks.fakePubkey)
   };
 });
@@ -43,7 +46,8 @@ vi.mock('./walletStore', async () => {
     wallets: writable(mocks.walletsItems),
     hasPersistedWallets: mocks.hasPersistedWallets,
     fingerprintWalletData,
-    walletRestoring: writable(false)
+    walletRestoring: writable(false),
+    walletSetupCheckPending: writable(false)
   };
 });
 
@@ -200,5 +204,40 @@ describe('autoRestoreWalletAtLogin', () => {
     mocks.restoreNwcFromNostr.mockRejectedValue(new Error('denied'));
 
     await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
+  });
+
+  it('holds the setup check pending from entry until the check settles', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    // Defer ndkReady so the check is provably mid-flight.
+    let resolveNdkReady: () => void = () => {};
+    mocks.ndkReadyGate = {
+      promise: new Promise<void>((resolve) => {
+        resolveNdkReady = resolve;
+      }),
+      resolve: () => resolveNdkReady()
+    };
+    vi.resetModules();
+    mod = await import('./autoRestore');
+
+    mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
+    const inFlight = mod.autoRestoreWalletAtLogin(mocks.fakePubkey);
+
+    // The caller delays this check and the relays are still connecting:
+    // "Set up a Wallet" must stay hidden for the whole window.
+    expect(get(walletSetupCheckPending)).toBe(true);
+
+    mocks.ndkReadyGate!.resolve();
+    await inFlight;
+    expect(get(walletSetupCheckPending)).toBe(false);
+  });
+
+  it('clears the pending flag on the no-record early exit', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
+    expect(get(walletSetupCheckPending)).toBe(false);
   });
 });

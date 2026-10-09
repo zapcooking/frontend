@@ -28,7 +28,8 @@ import {
   wallets,
   hasPersistedWallets,
   fingerprintWalletData,
-  walletRestoring
+  walletRestoring,
+  walletSetupCheckPending
 } from './walletStore';
 import { connectWallet } from './walletManager';
 import { restoreNwcFromNostr } from './nwcBackup';
@@ -89,14 +90,31 @@ let attemptedPubkey = '';
  * Call shortly after login. Returns true when a wallet was restored.
  */
 export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined): Promise<boolean> {
-  if (!browser || !pubkey || attemptedPubkey === pubkey) return false;
+  if (!browser) return false;
+
+  // From login until this check settles, the UI must not claim
+  // "Set up a Wallet" — the caller delays this check by design and
+  // ndkReady below can take seconds more, and the answer can still come
+  // back "restored". Every exit path below clears the flag.
+  walletSetupCheckPending.set(true);
+
+  if (!pubkey || attemptedPubkey === pubkey) {
+    walletSetupCheckPending.set(false);
+    return false;
+  }
 
   // The device still has wallets (possibly still-encrypted envelopes) —
   // the regular init/decrypt path owns reconnecting them; don't race it.
-  if (get(wallets).length > 0 || hasPersistedWallets()) return false;
+  if (get(wallets).length > 0 || hasPersistedWallets()) {
+    walletSetupCheckPending.set(false);
+    return false;
+  }
 
   const record = getLastWalletRecord(pubkey);
-  if (!record) return false;
+  if (!record) {
+    walletSetupCheckPending.set(false);
+    return false;
+  }
 
   attemptedPubkey = pubkey;
   await ndkReady;
@@ -139,5 +157,6 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
     return false;
   } finally {
     walletRestoring.set(false);
+    walletSetupCheckPending.set(false);
   }
 }

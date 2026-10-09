@@ -549,3 +549,13 @@ export function getWalletKindName(kind: WalletKind): string {
  * no wallet during the fetch/decrypt round-trip.
  */
 export const walletRestoring = writable(false);
+
+/**
+ * True from login until the "does this account have a wallet?" question
+ * has been answered one way or the other. The auto-restore check is
+ * deliberately delayed after login and then waits on relay connections,
+ * so until it settles the UI must not claim "Set up a Wallet" — the
+ * answer can still come back "restored". Distinct from walletRestoring,
+ * which is only true once an actual restore attempt is in flight.
+ */
+export const walletSetupCheckPending = writable(false);
