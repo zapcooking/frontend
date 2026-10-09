@@ -10,6 +10,11 @@
  * - unlocked: logged in; members-only cards just work
  * - declined: no members-only cards this session, and no more prompts
  *
+ * A remembered unlock ("Auto-unlock member content", specialsPrefs) may
+ * try the login once per session without a tap (`auto`): on success the
+ * cards just work; on a decline or failure the next members-only slot
+ * offers the tap card once, and nothing asks again on its own.
+ *
  * One per tab session (freshSession), so leaving Fresh and coming back
  * doesn't forget a decline; a different account starts over.
  */
@@ -17,6 +22,10 @@ export type UnlockState = 'idle' | 'offered' | 'unlocking' | 'unlocked' | 'decli
 
 export class MemberUnlock {
   state: UnlockState = 'idle';
+  /** The automatic attempt was made this session (at most one). */
+  autoTried = false;
+  /** …and it was declined or failed: the tap card is still owed, once. */
+  autoFailed = false;
 
   private owner: string | null | undefined;
 
@@ -31,7 +40,11 @@ export class MemberUnlock {
 
   private sync(): void {
     const who = this.account() || null;
-    if (this.owner !== undefined && who !== this.owner) this.state = 'idle';
+    if (this.owner !== undefined && who !== this.owner) {
+      this.state = 'idle';
+      this.autoTried = false;
+      this.autoFailed = false;
+    }
     this.owner = who;
   }
 
@@ -55,10 +68,32 @@ export class MemberUnlock {
     if (this.state === 'unlocked') this.state = 'idle';
   }
 
-  /** A feed login was declined some other way: no unlock prompts either. */
+  /**
+   * A feed login was declined some other way: no unlock prompts either.
+   * Not after the automatic attempt's own decline: that one still owes the
+   * reader the tap card, once.
+   */
   declinedElsewhere(): void {
     this.sync();
+    if (this.autoFailed) return;
     if (this.state === 'idle' || this.state === 'offered') this.state = 'declined';
+  }
+
+  /**
+   * The remembered unlock: one automatic login per session, without a tap,
+   * when the first members-only slot comes up. False when it wasn't made
+   * (already tried, not idle) or was declined; then the tap card follows.
+   */
+  async auto(): Promise<boolean> {
+    this.sync();
+    if (this.state === 'unlocked') return true;
+    if (this.state !== 'idle' || this.autoTried) return false;
+    this.autoTried = true;
+    this.state = 'unlocking';
+    const ok = await this.login().catch(() => false);
+    if (this.state === 'unlocking') this.state = ok ? 'unlocked' : 'idle';
+    if (!ok) this.autoFailed = true;
+    return this.state === 'unlocked';
   }
 
   /**

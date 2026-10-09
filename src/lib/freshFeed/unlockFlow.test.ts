@@ -196,7 +196,7 @@ async function settle(rounds = 40) {
   for (let i = 0; i < rounds; i++) await new Promise((r) => setTimeout(r, 0));
 }
 
-function setup(o: { decline?: boolean } = {}) {
+function setup(o: { decline?: boolean; remembered?: boolean; silent?: boolean; signerReady?: () => boolean } = {}) {
   const sign = vi.fn(async (t: AuthTemplate): Promise<SignedAuthEvent> => {
     if (o.decline) throw new Error('User rejected');
     return finalizeEvent(t, memberSk) as unknown as SignedAuthEvent;
@@ -205,7 +205,7 @@ function setup(o: { decline?: boolean } = {}) {
     pubkey: () => memberPk,
     isMember: () => true,
     sign,
-    signerPrompts: () => true,
+    signerPrompts: () => !o.silent,
     timeoutMs: 2_000,
     challengeWaitMs: 1,
     now: () => nowMs
@@ -236,6 +236,8 @@ function setup(o: { decline?: boolean } = {}) {
     unlock,
     authedNow: () => client.authedNow(),
     member: () => true,
+    remembered: () => o.remembered ?? false,
+    signerReady: o.signerReady,
     onReady,
     onFill: (s) => fills.push(s),
     setTimer: timers.set
@@ -371,5 +373,80 @@ describe('what was gathered before the login is not content', () => {
     expect((r as Special).type).toBe('spotlight');
     // The first pick is still available after the login: it was not spent.
     expect((r as Special & { slug: string }).slug).toBe('sourdough');
+  });
+});
+
+describe('the remembered unlock ("Auto-unlock member content")', () => {
+  it('second visit, toggle on: the first members-only slot logs in without a tap — one prompt, one AUTH, no tap card', async () => {
+    const { sign, flow, unlock, loader, client } = setup({ remembered: true });
+    await client.page();
+    expect(await flow.autoUnlock()).toBe(true);
+    expect(sign).toHaveBeenCalledTimes(1);
+    expect(server.authFrames).toHaveLength(1);
+    expect(unlock.state).toBe('unlocked');
+    expect(unlock.canOffer).toBe(false);
+    await settle();
+    expect(loader.takeSpotlight()?.type).toBe('spotlight');
+    // Later slots: nothing more is asked of the signer.
+    expect(await flow.autoUnlock()).toBe(true);
+    expect(sign).toHaveBeenCalledTimes(1);
+  });
+
+  it('declined automatic login: a single tap card follows; its tap asks once more; never a third request', async () => {
+    const { sign, flow, unlock, client, login } = setup({ remembered: true, decline: true });
+    await client.page();
+    expect(await flow.autoUnlock()).toBe(false);
+    expect(sign).toHaveBeenCalledTimes(1);
+    expect(server.authFrames).toHaveLength(0);
+    expect(login.authed(await client.connection())).toBe(false);
+    expect(unlock.canOffer).toBe(true); // the tap card, once
+    // Every later slot this session: no automatic request.
+    for (let i = 0; i < 3; i++) expect(await flow.autoUnlock()).toBe(false);
+    expect(sign).toHaveBeenCalledTimes(1);
+    unlock.offer();
+    expect(unlock.canOffer).toBe(false);
+    expect(await flow.tap('spotlight')).toBe('declined'); // the tap: one more prompt
+    expect(sign).toHaveBeenCalledTimes(2);
+    expect(unlock.state).toBe('declined');
+    expect(unlock.canOffer).toBe(false);
+    expect(await flow.autoUnlock()).toBe(false);
+    expect(sign).toHaveBeenCalledTimes(2);
+  });
+
+  it('toggle off: no automatic request; the tap card as before', async () => {
+    const { sign, flow, unlock, client } = setup({ remembered: false });
+    await client.page();
+    expect(await flow.autoUnlock()).toBe(false);
+    expect(sign).not.toHaveBeenCalled();
+    expect(server.authFrames).toHaveLength(0);
+    expect(unlock.canOffer).toBe(true);
+  });
+
+  it('a silent signer (local key) is not its business: FreshFeed logs it in on load, toggle or not', async () => {
+    const { sign, flow, client } = setup({ remembered: true, silent: true });
+    await client.page();
+    expect(await flow.autoUnlock()).toBe(false);
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it('waits for the signer to be attached: no attempt (and none spent) until then', async () => {
+    let ready = false;
+    const { sign, flow, unlock, client } = setup({ remembered: true, signerReady: () => ready });
+    await client.page();
+    expect(await flow.autoUnlock()).toBe(false);
+    expect(sign).not.toHaveBeenCalled();
+    expect(unlock.autoTried).toBe(false); // not spent: the attempt is still to come
+    ready = true;
+    expect(await flow.autoUnlock()).toBe(true);
+    expect(sign).toHaveBeenCalledTimes(1);
+    expect(server.authFrames).toHaveLength(1);
+  });
+
+  it('never more than one signer request per session without a tap, whatever the slots do', async () => {
+    const { sign, flow, client } = setup({ remembered: true, decline: true });
+    await client.page();
+    await Promise.all([flow.autoUnlock(), flow.autoUnlock(), flow.autoUnlock()]);
+    for (let i = 0; i < 5; i++) await flow.autoUnlock();
+    expect(sign).toHaveBeenCalledTimes(1);
   });
 });

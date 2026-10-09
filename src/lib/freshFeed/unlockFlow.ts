@@ -14,6 +14,11 @@ import type { Special } from './specials';
  *   lookup) just waits, with no new card and no new prompt.
  * - `prepare(kind)`: keeps one spotlight / memory ready, retrying an empty
  *   or refused try: after 15 s, or when the relay's hold ends.
+ * - `autoUnlock()`: the remembered unlock ("Auto-unlock member content"):
+ *   when a members-only slot comes up and the feed isn't logged in, one
+ *   login attempt per session without a tap. Prompting signers only (a
+ *   local key is logged in on load by FreshFeed's own silent path). A
+ *   decline or failure leaves the tap card to the next slot, once.
  * - `tap(for)`: the unlock card's button. One signer prompt; when the feed
  *   is logged in, the tapped card gets the first ready card of its kind
  *   (the other kind if its own has nothing) — at once, or when a retry
@@ -38,6 +43,10 @@ export interface UnlockFlowDeps {
   authedNow: () => boolean;
   /** The app's membership answer for the viewer. */
   member: () => boolean;
+  /** "Auto-unlock member content" is on for this device. */
+  remembered?: () => boolean;
+  /** The app's signer is attached (FreshFeed's signerReady); until then no automatic attempt. */
+  signerReady?: () => boolean;
   /** A card became ready (or not): decide slots again. */
   onReady: () => void;
   /** The tapped card's content arrived later (null: gave up). */
@@ -70,6 +79,41 @@ export class UnlockFlow {
       delete this.retry[kind];
       if (!this.disposed) this.prepare(kind);
     }, ms);
+  }
+
+  /** An automatic login is in flight (the slot waits, no tap card yet). */
+  autoBusy = false;
+
+  /**
+   * The remembered unlock, when a members-only slot needs it: at most one
+   * automatic signer request per session, and none for a silent signer (it
+   * is logged in on load), when the login was declined elsewhere, or when
+   * the device's toggle is off. Resolves to whether the feed is open now.
+   */
+  async autoUnlock(): Promise<boolean> {
+    if (this.open()) return true;
+    if (this.autoBusy) return false;
+    if (!this.d.remembered?.() || this.d.login.silent) return false;
+    // The app restores the signer after the pubkey is known: an attempt
+    // before that would throw "not signed in" and count as the decline.
+    if (this.d.signerReady && !this.d.signerReady()) return false;
+
+    if (!this.d.unlock.canOffer || this.d.unlock.autoTried) return false;
+    if (this.d.login.held) return false;
+    this.autoBusy = true;
+    try {
+      const ok = await this.d.unlock.auto();
+      if (this.disposed) return false;
+      if (ok) {
+        this.d.loader.loggedIn();
+        this.prepare('spotlight');
+        this.prepare('memory');
+      }
+      return ok;
+    } finally {
+      this.autoBusy = false;
+      if (!this.disposed) this.d.onReady();
+    }
   }
 
   /** May members-only cards load now? (see above) */
