@@ -14,7 +14,9 @@ import {
 	type KitchenFormData,
 	type ImplicitKitchen,
 	type KitchenDisplay,
-	type KitchenMemberTier
+	type KitchenMemberTier,
+	KITCHEN_MEMBER_TIERS,
+	MEMBER_TIER_BOOST
 } from './types';
 import { MARKETPLACE_RELAYS } from './products';
 import { addClientTagToEvent } from '$lib/nip89';
@@ -97,17 +99,6 @@ function hasValidDisplayName(name: string | undefined | null): boolean {
 	if (/^Chef [0-9a-f]{8}$/i.test(trimmed)) return false;
 	return true;
 }
-
-/**
- * Membership tier priority boost values
- * Members get a significant quality score boost so their stores appear first
- */
-const MEMBER_TIER_BOOST: Record<string, number> = {
-	founders: 50,
-	pro_kitchen: 40,
-	cook_plus: 30,
-	member: 25
-};
 
 /**
  * Compute a quality score for a store display (0-150)
@@ -770,10 +761,9 @@ export async function fetchAllKitchenDisplays(
 	const allSellerPubkeys = qualifiedDisplays.map((d) => d.pubkey);
 	try {
 		const membershipStatuses = await getMembership(allSellerPubkeys);
-		const validTiers: KitchenMemberTier[] = ['member', 'cook_plus', 'pro_kitchen', 'founders'];
 		for (const d of qualifiedDisplays) {
 			const status = membershipStatuses[d.pubkey];
-			if (status?.active && validTiers.includes(status.tier as KitchenMemberTier)) {
+			if (status?.active && KITCHEN_MEMBER_TIERS.includes(status.tier as KitchenMemberTier)) {
 				d.memberTier = status.tier as KitchenMemberTier;
 			}
 		}

@@ -3,6 +3,7 @@
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import CrownIcon from 'phosphor-svelte/lib/Crown';
   import FireIcon from 'phosphor-svelte/lib/Fire';
+  import InfinityIcon from 'phosphor-svelte/lib/Infinity';
   import type { MembershipTier } from '$lib/membershipStore';
 
   // Also accept 'member' — the tier string returned by the membership
@@ -49,12 +50,19 @@
       color: 'text-amber-600',
       bgColor: 'bg-amber-100 dark:bg-amber-900/30',
       borderColor: 'border-amber-300 dark:border-amber-700'
+    },
+    // Lifetime: its own paid tier (backend-managed, passed through).
+    lifetime: {
+      icon: InfinityIcon,
+      name: 'Lifetime',
+      color: 'text-violet-600',
+      bgColor: 'bg-violet-100 dark:bg-violet-900/30',
+      borderColor: 'border-violet-300 dark:border-violet-700'
     }
   };
 
-  // A tier the badge has no design for (lifetime, or whatever the backend
-  // sends next: passed through, never collapsed) gets the member look with
-  // its own name.
+  // A tier the badge has no design for (whatever the backend sends next:
+  // passed through, never collapsed) gets the member look with its own name.
   $: config =
     (tierConfig as Record<string, (typeof tierConfig)['open']>)[tier] ??
     { ...tierConfig.member, name: tierLabel(tier) };
