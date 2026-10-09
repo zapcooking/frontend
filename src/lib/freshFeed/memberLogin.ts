@@ -22,8 +22,9 @@ import type { RelayLike } from './relay';
  * An empty page is never read as a verdict.
  *
  * nostr-tools never settles a login whose signer throws and caches that
- * promise for the connection, so every failed attempt closes the connection;
- * the next attempt gets a fresh one and a fresh challenge.
+ * promise for the connection; a failed attempt clears that cache (the relay
+ * keeps the challenge until the socket closes) so the next attempt can sign
+ * again on the same connection — closing it used to kill the live tail.
  *
  * Nothing is stored, and nothing goes anywhere but the AUTH event to
  * wss://feed.zap.cooking. The relay uses the login only for the access check.
@@ -204,7 +205,11 @@ export class MemberLogin {
       this.set('authed');
       return true;
     }
-    relay.close();
+    // nostr-tools caches the auth promise per connection and never settles
+    // it when the signer throws, so a retry on this connection would hang.
+    // Clear that cache instead of closing the socket: closing took the live
+    // tail (and every other subscription) down with it.
+    if ('authPromise' in relay) relay.authPromise = undefined;
     this.set('declined');
     return false;
   }

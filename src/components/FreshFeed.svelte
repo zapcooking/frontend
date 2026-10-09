@@ -19,6 +19,7 @@
   import { browser } from '$app/environment';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { ndk, userPublickey } from '$lib/nostr';
+  import type { LiveTail } from '$lib/freshFeed/relay';
   import { getAuthManager } from '$lib/authManager';
   import { batchFetchEngagement, cleanupEngagement, fetchEngagement } from '$lib/engagementCache';
   import { prefetchReplyContexts } from '$lib/replyContext';
@@ -122,6 +123,7 @@
   let exploreState: ExploreState = 'closed';
   let exploreContent: ExploreContent | null = null;
   let stopLive: (() => void) | null = null;
+  let liveTail: LiveTail | null = null;
   let destroyed = false;
 
   // Engagement mounts as a post nears the screen (OnlyFood's pattern).
@@ -288,6 +290,7 @@
     } else {
       partialRetried = false;
     }
+    void reviveLive();
   }
 
   /** One automatic continuation after a partial page, then manual. */
@@ -794,13 +797,27 @@
 
   function startLive(since: number) {
     client
-      .subscribeNew(since, (raw) => {
+      .liveTail(since, (raw) => {
         pending = [wrap(raw), ...pending];
       })
-      .then((stop) => {
-        if (destroyed) stop();
-        else stopLive = stop;
+      .then((tail) => {
+        if (destroyed) tail.stop();
+        else {
+          liveTail = tail;
+          stopLive = () => tail.stop();
+        }
       });
+  }
+
+  /**
+   * The socket under the live tail closed (iOS suspends sockets in the
+   * background; idle drops): subscribe again from the newest post seen when
+   * the tab comes back, the network returns, or any page request succeeds
+   * (which already opened a fresh connection).
+   */
+  async function reviveLive() {
+    if (destroyed || !liveTail?.lost) return;
+    await liveTail.revive();
   }
 
   function showPending() {
@@ -1262,6 +1279,13 @@
     loadFirst();
     // The chip catalog is a small HTTP GET (NIP-11), not on the socket.
     refreshCatalog();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void reviveLive();
+    };
+    const onOnline = () => void reviveLive();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('pageshow', onOnline);
     // A slot waiting for its card is decided as the reader nears it.
     const scroller = document.getElementById('app-scroll');
     let frame = 0;
@@ -1274,6 +1298,9 @@
     };
     scroller?.addEventListener('scroll', onScroll, { passive: true });
     return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('pageshow', onOnline);
       unsubAuth?.();
       if (attachTimer) clearTimeout(attachTimer);
       scroller?.removeEventListener('scroll', onScroll);
