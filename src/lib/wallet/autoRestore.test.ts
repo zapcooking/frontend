@@ -47,7 +47,8 @@ vi.mock('./walletStore', async () => {
     hasPersistedWallets: mocks.hasPersistedWallets,
     fingerprintWalletData,
     walletRestoring: writable(false),
-    walletSetupCheckPending: writable(false)
+    walletSetupCheckPending: writable(false),
+    lastWalletRecordKey: (pubkey: string) => `zapcooking_last_wallet_${pubkey}`
   };
 });
 
@@ -72,6 +73,7 @@ beforeEach(async () => {
   vi.stubEnv('VITE_BREEZ_API_KEY', 'test-key');
   mocks.hasPersistedWallets.mockReturnValue(false);
   mocks.walletsItems.length = 0;
+  mocks.ndkReadyGate = null;
 
   store = new Map();
   vi.stubGlobal('localStorage', {
@@ -82,6 +84,14 @@ beforeEach(async () => {
   });
 
   mod = await import('./autoRestore');
+
+  // The mocked walletStore module can outlive vi.resetModules(); put its
+  // stores back to pristine values so one test's wallets/pending state
+  // can't leak into the next.
+  const storeMod = await import('./walletStore');
+  storeMod.wallets.set([]);
+  storeMod.walletRestoring.set(false);
+  storeMod.walletSetupCheckPending.set(false);
 });
 
 describe('last-wallet record', () => {
@@ -126,7 +136,8 @@ describe('autoRestoreWalletAtLogin', () => {
 
   it('skips when the device still has wallets in the store', async () => {
     mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
-    mocks.walletsItems.push({ id: 1 });
+    const { wallets } = await import('./walletStore');
+    wallets.set([{ id: 1 }]);
     await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
     expect(mocks.restoreNwcFromNostr).not.toHaveBeenCalled();
   });
@@ -233,7 +244,7 @@ describe('autoRestoreWalletAtLogin', () => {
     expect(get(walletSetupCheckPending)).toBe(false);
   });
 
-  it('clears the pending flag on the no-record early exit', async () => {
+  it('leaves the flag untouched on the no-record early exit (login evaluation owns it)', async () => {
     const { walletSetupCheckPending } = await import('./walletStore');
     const { get } = await import('svelte/store');
 
@@ -248,13 +259,48 @@ describe('autoRestoreWalletAtLogin', () => {
     mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
     mocks.hasPersistedWallets.mockReturnValue(true);
 
-    // Envelopes on device, store still empty (decryption in flight): the
-    // answer is "wallet exists", never "Set up a Wallet".
+    // Login event: the local evaluation sees persisted (encrypted)
+    // wallets and holds the answer pending.
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(true);
+
+    // The deferred check itself must not settle it either.
     await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
     expect(get(walletSetupCheckPending)).toBe(true);
 
     // Decrypt path materializes the wallet → check settles.
     wallets.set([{ id: 1 }]);
+    expect(get(walletSetupCheckPending)).toBe(false);
+  });
+});
+
+describe('evaluateWalletSetupState', () => {
+  it('answers "no wallet" immediately with no record and nothing persisted', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(false);
+  });
+
+  it('holds pending when a last-used record exists', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(true);
+  });
+
+  it('holds pending when persisted wallets exist, and answers logged-out at once', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    mocks.hasPersistedWallets.mockReturnValue(true);
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(true);
+
+    mod.evaluateWalletSetupState(null);
     expect(get(walletSetupCheckPending)).toBe(false);
   });
 });

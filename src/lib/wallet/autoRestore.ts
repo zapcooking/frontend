@@ -29,7 +29,8 @@ import {
   hasPersistedWallets,
   fingerprintWalletData,
   walletRestoring,
-  walletSetupCheckPending
+  walletSetupCheckPending,
+  lastWalletRecordKey
 } from './walletStore';
 import { connectWallet } from './walletManager';
 import { restoreNwcFromNostr } from './nwcBackup';
@@ -45,7 +46,34 @@ interface LastWalletRecord {
 }
 
 function recordKey(pubkey: string): string {
-  return `zapcooking_last_wallet_${pubkey}`;
+  return lastWalletRecordKey(pubkey);
+}
+
+/**
+ * Cheap, synchronous answer to "does this account obviously have a
+ * wallet?" — runs at the login event so the sidebar card never flashes
+ * "Set up a Wallet" while slower checks (the deferred auto-restore,
+ * envelope decryption) are still ahead. True only means the question
+ * can't be answered "no" yet, not that a wallet is connected.
+ */
+export function evaluateWalletSetupState(pubkey: string | null | undefined): void {
+  if (!browser) return;
+  if (!pubkey) {
+    walletSetupCheckPending.set(false);
+    return;
+  }
+  // Wallets already usable → answered.
+  if (get(wallets).length > 0) {
+    walletSetupCheckPending.set(false);
+    return;
+  }
+  // Persisted (possibly encrypted) wallets or a last-used record → the
+  // answer stays pending until those paths settle.
+  if (hasPersistedWallets() || getLastWalletRecord(pubkey)) {
+    walletSetupCheckPending.set(true);
+    return;
+  }
+  walletSetupCheckPending.set(false);
 }
 
 /** Remember the active wallet so the next login can put it back. */
@@ -90,18 +118,12 @@ let attemptedPubkey = '';
  * Call shortly after login. Returns true when a wallet was restored.
  */
 export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined): Promise<boolean> {
-  if (!browser) return false;
+  if (!browser || !pubkey || attemptedPubkey === pubkey) return false;
 
-  // From login until this check settles, the UI must not claim
-  // "Set up a Wallet" — the caller delays this check by design and
-  // ndkReady below can take seconds more, and the answer can still come
-  // back "restored". Every exit path below clears the flag.
-  walletSetupCheckPending.set(true);
-
-  if (!pubkey || attemptedPubkey === pubkey) {
-    walletSetupCheckPending.set(false);
-    return false;
-  }
+  // Whether the flag is currently pending was already decided by
+  // evaluateWalletSetupState at the login event (and its initial value
+  // covers page reloads); this function only HOLDS it through an actual
+  // restore and clears it when the answer is known.
 
   // The device still has wallets (possibly still-encrypted envelopes) —
   // the regular init/decrypt path owns reconnecting them; don't race it.
@@ -135,11 +157,11 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
   }
 
   const record = getLastWalletRecord(pubkey);
-  if (!record) {
-    walletSetupCheckPending.set(false);
-    return false;
-  }
+  if (!record) return false;
 
+  // A backup restore is genuinely in the pipe: hold the flag for the
+  // whole ndkReady + relay round-trip.
+  walletSetupCheckPending.set(true);
   attemptedPubkey = pubkey;
   await ndkReady;
   walletRestoring.set(true);

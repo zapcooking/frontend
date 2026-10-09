@@ -37,6 +37,7 @@ export {
   rememberActiveWallet,
   getLastWalletRecord,
   autoRestoreWalletAtLogin,
+  evaluateWalletSetupState,
   walletRestoring
 } from './autoRestore';
 

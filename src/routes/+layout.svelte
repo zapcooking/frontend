@@ -53,6 +53,7 @@
     rememberActiveWallet,
     getLastWalletRecord,
     autoRestoreWalletAtLogin,
+    evaluateWalletSetupState,
     walletSetupCheckPending
   } from '$lib/wallet';
   import {
@@ -487,11 +488,12 @@
         // Sync with legacy userPublickey store for compatibility
         if (state.isAuthenticated && state.publicKey) {
           userPublickey.set(state.publicKey);
-          // From the login event until the wallet check settles, the
-          // sidebar card must not claim "Set up a Wallet": the restore
-          // check is deferred below and can still come back "restored".
-          // autoRestoreWalletAtLogin clears the flag on every outcome.
-          walletSetupCheckPending.set(true);
+          // Synchronously answer "does this account obviously have a
+          // wallet?" so the sidebar card never flashes "Set up a Wallet"
+          // while the deferred restore check / envelope decryption are
+          // still ahead. autoRestoreWalletAtLogin holds the flag through
+          // an actual restore and clears it on every outcome.
+          evaluateWalletSetupState(state.publicKey);
           // Upgrade a legacy V1 Spark mnemonic (key = sha256(pubkey), so
           // readable by anyone with localStorage access) without waiting
           // for the user to open the wallet. Deferred so it never competes
