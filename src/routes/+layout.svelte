@@ -38,7 +38,6 @@
   import { clearDecryptCache } from '$lib/encryptionService';
   import { clearUnwrapCache } from '$lib/nip17';
   import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
-  import { preconnectPantry } from '$lib/nip29';
   import { installNsecPasteGuard } from '$lib/nsecPasteGuard';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
@@ -81,8 +80,6 @@
   import { detectPlatform } from '$lib/platform';
   // Startup coordination — defer non-critical services until feed renders
   import { feedInitialLoadDone } from '$lib/startupState';
-  // Prewarm outbox relay list cache early (on login, regardless of page)
-  import { prewarmOutboxCache } from '$lib/followOutbox';
   // Refresh engagement counts when the tab returns from background
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement, clearAllEngagementCaches } from '$lib/engagementCache';
@@ -493,11 +490,13 @@
           setTimeout(() => void sweepLegacyMnemonic(state.publicKey), 2500);
           // Message subscriptions are lazy — initialized when user navigates to /messages.
           // This avoids flooding browser signers with NIP-44 decrypt requests on login.
-          // Pre-connect pantry relay shortly after login so groups load instantly
-          // when user navigates to /groups (auth signing is only ~35ms, no contention risk)
-          setTimeout(() => preconnectPantry($ndk), 1000);
-          // Prewarm outbox relay list cache so feed loads faster regardless of which page user lands on
-          setTimeout(() => prewarmOutboxCache($ndk, state.publicKey).catch(() => {}), 2000);
+          // The pantry relay (Groups) connects when /groups needs it (nip29
+          // ensurePantryConnected): a pre-connect here opened a socket, sent
+          // REQs the relay refused, and asked NIP-07 signers for an AUTH on
+          // every login. The Following feed's relay lists load when that tab
+          // opens (followOutbox → relayListCache): a login-time prewarm of
+          // every follow's list made NDK's outbox tracker fetch each follow's
+          // kind-3 contact list too — 30 MB on one /feed load.
           // Logout wipes wallet data by design; put the last-used wallet
           // back from the user's Nostr backups. Deferred so first paint
           // and the feed win the relay/signer bandwidth — the restore can
@@ -626,7 +625,13 @@
   onMount(() => {
     if (browser) {
       try {
-        indexedDB.deleteDatabase('zapcooking-garden-cache');
+        // Once per browser: the delete of a nonexistent database is a no-op,
+        // but each attempt still opens IndexedDB during app boot.
+        const DONE = 'zc:garden-cache-dropped';
+        if (!localStorage.getItem(DONE)) {
+          indexedDB.deleteDatabase('zapcooking-garden-cache');
+          localStorage.setItem(DONE, '1');
+        }
       } catch {
         // ignore — implicitly retried on the next app load
       }
