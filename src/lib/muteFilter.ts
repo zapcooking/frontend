@@ -113,3 +113,15 @@ export function isEventMutedBy(
 
   return false;
 }
+
+/**
+ * The events a reader's mute list leaves visible (pubkey, word, tag and
+ * thread mutes). No list (signed out, not loaded yet) leaves everything.
+ */
+export function withoutMuted<T extends MutableEventLike>(
+  muteList: MuteList | null | undefined,
+  events: T[]
+): T[] {
+  if (!muteList) return events;
+  return events.filter((e) => !isEventMutedBy(muteList, e));
+}

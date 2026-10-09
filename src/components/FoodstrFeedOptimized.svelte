@@ -1361,6 +1361,14 @@
    * thread mutes — the full NIP-51 list merged with the legacy localStorage
    * one (see muteListStore). A kind 6 repost is judged by the note it carries.
    */
+  // The mute list arrives after the first posts are on screen (it is
+  // fetched after NDK connects): drop what it hides from the list already
+  // rendered, and again whenever it changes (a mute from a profile sheet).
+  $: if ($muteListStore.muteList && events.length) {
+    const kept = events.filter((e) => !isMuted(e));
+    if (kept.length !== events.length) events = kept;
+  }
+
   function isMuted(event: NDKEvent): boolean {
     if (!$userPublickey) return false;
 
@@ -2496,7 +2504,8 @@
             return false;
           }
 
-          // Check muted users
+          // Check muted users (the device's local mutes at once; the full
+          // NIP-51 list — words, tags, threads, private mutes — once loaded)
           if ($userPublickey) {
             const mutedUsers = getMutedUsers();
             const authorKey = getAuthorKey(event);
@@ -2504,6 +2513,7 @@
               console.log('[Feed] Members: Filtered out muted user event:', event.id);
               return false;
             }
+            if (isMuted(event)) return false;
           }
 
           // For members feed, show ALL content (don't apply food filter)
@@ -2605,6 +2615,7 @@
                   const mutedUsers = getMutedUsers();
                   const authorKey = getAuthorKey(event);
                   if (authorKey && mutedUsers.includes(authorKey)) return false;
+                  if (isMuted(event)) return false;
                 }
                 if (isReply(event)) return false;
                 if (!passesFeedFilters(event)) return false;
@@ -2696,11 +2707,12 @@
 
       // Filter, dedupe, and sort - exclude followed users from Global feed
       const validEvents = allFetchedEvents.filter((event) => {
-        // Check muted users first
+        // Check muted users first (local mutes at once, the NIP-51 list once loaded)
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
           const authorKey = getAuthorKey(event);
           if (authorKey && mutedUsers.includes(authorKey)) return false;
+          if (isMuted(event)) return false;
         }
 
         // Global feed: exclude replies (only show top-level notes)
