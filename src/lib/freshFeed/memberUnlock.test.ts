@@ -100,3 +100,71 @@ describe('session and reconnects', () => {
     expect(u.canOffer).toBe(false);
   });
 });
+
+describe('the remembered unlock (auto)', () => {
+  it('one automatic login per session; on success the cards just work and no tap card is offered', async () => {
+    const login = vi.fn(async () => true);
+    const u = new MemberUnlock(login);
+    expect(await u.auto()).toBe(true);
+    expect(login).toHaveBeenCalledTimes(1);
+    expect(u.open).toBe(true);
+    expect(u.canOffer).toBe(false);
+    expect(await u.auto()).toBe(true); // already unlocked: nothing asked
+    expect(login).toHaveBeenCalledTimes(1);
+  });
+
+  it('declined: the tap card is offered once; its tap asks again; nothing asks on its own', async () => {
+    let answer = false;
+    const login = vi.fn(async () => answer);
+    const u = new MemberUnlock(login);
+    expect(await u.auto()).toBe(false);
+    expect(login).toHaveBeenCalledTimes(1);
+    expect(u.state).toBe('idle');
+    expect(u.canOffer).toBe(true); // the tap card, once
+    expect(await u.auto()).toBe(false); // never a second automatic request
+    expect(login).toHaveBeenCalledTimes(1);
+    // The decline reached the login state too: that must not retire the tap card.
+    u.declinedElsewhere();
+    expect(u.canOffer).toBe(true);
+    u.offer();
+    expect(u.canOffer).toBe(false);
+    answer = true;
+    expect(await u.tap()).toBe(true); // the tap: one more prompt
+    expect(login).toHaveBeenCalledTimes(2);
+    expect(u.open).toBe(true);
+  });
+
+  it('declined twice (auto, then the tap): no members-only cards and no more prompts this session', async () => {
+    const login = vi.fn(async () => false);
+    const u = new MemberUnlock(login);
+    await u.auto();
+    u.offer();
+    expect(await u.tap()).toBe(false);
+    expect(u.state).toBe('declined');
+    expect(u.canOffer).toBe(false);
+    expect(await u.auto()).toBe(false);
+    expect(login).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failing signer counts as a decline for the automatic attempt too', async () => {
+    const u = new MemberUnlock(async () => {
+      throw new Error('no signer');
+    });
+    expect(await u.auto()).toBe(false);
+    expect(u.autoFailed).toBe(true);
+    expect(u.canOffer).toBe(true);
+  });
+
+  it('a different account starts over (one automatic attempt for it)', async () => {
+    let who = 'a';
+    const login = vi.fn(async () => false);
+    const u = new MemberUnlock(login, () => who);
+    await u.auto();
+    expect(u.autoTried).toBe(true);
+    who = 'b';
+    expect(u.canOffer).toBe(true);
+    expect(u.autoTried).toBe(false);
+    await u.auto();
+    expect(login).toHaveBeenCalledTimes(2);
+  });
+});

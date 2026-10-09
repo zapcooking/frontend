@@ -10,6 +10,7 @@ import {
   loadTopicHistory,
   resetPrefs,
   resetPrefsForTests,
+  setAutoUnlock,
   setSpecialsOff,
   showFewer,
   specialsPrefs,
@@ -29,6 +30,20 @@ function memory() {
 beforeEach(() => resetPrefsForTests());
 
 describe('choices (device-local)', () => {
+  it('"Auto-unlock member content" is off by default, persists on the device, and Reset turns it off', () => {
+    const s = memory();
+    expect(get(specialsPrefs(s)).autoUnlock).toBe(false);
+    setAutoUnlock(true, s);
+    expect(get(specialsPrefs(s)).autoUnlock).toBe(true);
+    resetPrefsForTests();
+    expect(get(specialsPrefs(s)).autoUnlock).toBe(true); // read back from the device
+    setAutoUnlock(false, s);
+    expect(get(specialsPrefs(s)).autoUnlock).toBe(false);
+    setAutoUnlock(true, s);
+    resetPrefs(s);
+    expect(get(specialsPrefs(s)).autoUnlock).toBe(false);
+  });
+
   it('"Show fewer like this", "Hide this topic" and "off" persist on the device', () => {
     const s = memory();
     showFewer('spotlight', s);
@@ -53,7 +68,8 @@ describe('choices (device-local)', () => {
     expect(p).toEqual({
       fewer: { recipe: false, spotlight: false, memory: false },
       hiddenTopics: [],
-      off: false
+      off: false,
+      autoUnlock: false
     });
   });
 

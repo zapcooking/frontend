@@ -66,6 +66,7 @@
   import {
     hideTopic,
     loadShown,
+    setAutoUnlock,
     loadTopicHistory,
     markShown,
     markTopicShown,
@@ -373,6 +374,8 @@
     unlock,
     authedNow: () => client.authedNow(),
     member: () => member,
+    remembered: () => $prefs.autoUnlock,
+    signerReady: () => signerReady,
     onReady: () => void decideSlots(),
     onFill: (special) => fillUnlockCard(special)
   });
@@ -502,6 +505,8 @@
       setSlotSpecial(slot.anchorId, { ...sp, status: 'declined' });
       return;
     }
+    // Unlocked once by hand: later visits unlock on their own (Settings → Fresh turns it off).
+    setAutoUnlock(true);
     if (r === 'loading') {
       unlockPendingAnchor = slot.anchorId;
       setSlotSpecial(slot.anchorId, { ...sp, status: 'loading' });
@@ -556,6 +561,18 @@
         continue;
       }
       const recipe = nextRecipe();
+      // A remembered unlock logs in here, once, instead of offering the tap
+      // card; while it runs, members-only types wait (recipes go on).
+      if (
+        member &&
+        signerReady &&
+        $prefs.autoUnlock &&
+        !membersOnlyOpen() &&
+        unlock.canOffer &&
+        !flow.autoBusy
+      ) {
+        void flow.autoUnlock();
+      }
       const open = membersOnlyOpen();
       // Members-only types: loaded content once the feed is logged in;
       // before that, one "Tap to unlock" card; after a decline, none.
@@ -566,7 +583,7 @@
             ? t === 'spotlight' && catalog.groups.length > 0 && loader.teaser() !== null
             : open
               ? (t === 'spotlight' ? loader.spotlight : loader.memory) !== null
-              : unlock.canOffer;
+              : unlock.canOffer && !flow.autoBusy;
       const available = (t: SpecialType) =>
         t === 'recipe' || !member || ((open || unlock.canOffer) && !loader.isOut(t));
       if (!(['recipe', 'spotlight', 'memory'] as SpecialType[]).some(ready)) break;
@@ -583,8 +600,10 @@
     if (changed) placed = placed;
   }
 
-  // Slots waiting on the membership answer are decided once it arrives.
+  // Slots waiting on the membership answer are decided once it arrives;
+  // so are slots waiting on the signer for a remembered unlock.
   $: if (membershipKnown) decideSlots();
+  $: if (signerReady) decideSlots();
 
   /** Keep one of each ready; an empty, failed or held try is retried (unlockFlow). */
   function prepare(kind: 'spotlight' | 'memory') {
