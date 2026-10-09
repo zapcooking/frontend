@@ -62,6 +62,7 @@
     specialsTabSession,
     type ExploreContent
   } from '$lib/freshFeed/specialsLoader';
+  import { UnlockFlow } from '$lib/freshFeed/unlockFlow';
   import {
     hideTopic,
     loadShown,
@@ -363,6 +364,19 @@
     specialsSession
   );
 
+  // Members-only cards between the unlock tap and the screen: when they may
+  // load, retries (empty, or a relay hold), and the tapped card's fill
+  // ($lib/freshFeed/unlockFlow).
+  const flow = new UnlockFlow({
+    login,
+    loader,
+    unlock,
+    authedNow: () => client.authedNow(),
+    member: () => member,
+    onReady: () => void decideSlots(),
+    onFill: (special) => fillUnlockCard(special)
+  });
+
   // A member whose key signs silently (nsec in the app, passkey vault) is
   // logged in to the feed on load — no prompt, same as the pantry relay's
   // NIP-42 policy. Members with a prompting signer (extension, Amber,
@@ -455,48 +469,61 @@
   /**
    * Spotlights and memories can be loaded: the feed connection, as it is
    * now, is logged in. A login lost to a reconnect offers the unlock card
-   * again instead of leaving members-only cards stuck.
+   * again; a relay hold (restricted: for a minute after a failed membership
+   * lookup there) waits, with no new card and no new prompt.
    */
   function membersOnlyOpen(): boolean {
-    if (!member) return false;
-    if (client.authedNow()) return true;
-    if (unlock.open) unlock.lost();
-    return false;
+    return flow.open();
   }
 
-  /** The unlock card's button: one login prompt, then the card fills in place. */
+  /** The tapped unlock card, while its content is on its way. */
+  let unlockPendingAnchor: string | null = null;
+
+  function setSlotSpecial(anchorId: string, special: Special | null) {
+    const slot = placed.get(anchorId);
+    if (!slot) return;
+    placed.set(anchorId, { ...slot, special });
+    placed = placed;
+  }
+
+  /**
+   * The unlock card's button: one login prompt, then the card fills in
+   * place — at once, or when a retry brings its content (fillUnlockCard).
+   */
   async function unlockCard(key: string) {
     const slot = [...placed.values()].find((x) => x.key === key);
     const sp = slot?.special;
     if (!slot || !sp || sp.type !== 'unlock' || sp.status !== 'offer') return;
-    const setSpecial = (special: Special | null) => {
-      placed.set(slot.anchorId, { ...slot, special });
-      placed = placed;
-    };
-    setSpecial({ ...sp, status: 'busy' });
-    const ok = await unlock.tap();
+    setSlotSpecial(slot.anchorId, { ...sp, status: 'busy' });
+    const r = await flow.tap(sp.for);
     unlockTick++;
     if (destroyed) return;
-    if (!ok) {
-      setSpecial({ ...sp, status: 'declined' });
+    if (r === 'declined') {
+      setSlotSpecial(slot.anchorId, { ...sp, status: 'declined' });
       return;
     }
-    loader.loggedIn();
-    let filled: Special | null = null;
-    for (const kind of sp.for === 'memory' ? ['memory', 'spotlight'] : ['spotlight', 'memory']) {
-      if (kind === 'spotlight') {
-        filled = await loader.buildSpotlight();
-        if (filled?.type === 'spotlight') specialsSession.lastParent = filled.parent;
-      } else {
-        await loader.prepareMemory();
-        filled = loader.takeMemory();
-      }
-      if (filled) break;
+    if (r === 'loading') {
+      unlockPendingAnchor = slot.anchorId;
+      setSlotSpecial(slot.anchorId, { ...sp, status: 'loading' });
+      return;
     }
-    if (destroyed) return;
-    setSpecial(filled);
-    prepare('spotlight');
-    prepare('memory');
+    if (r.type === 'spotlight') specialsSession.lastParent = r.parent;
+    setSlotSpecial(slot.anchorId, r);
+  }
+
+  /** The tapped card's content arrived (null: the relay kept refusing). */
+  function fillUnlockCard(special: Special | null) {
+    const anchorId = unlockPendingAnchor;
+    unlockPendingAnchor = null;
+    if (!anchorId || destroyed) return;
+    const sp = placed.get(anchorId)?.special;
+    if (!sp || sp.type !== 'unlock') return;
+    if (special === null) {
+      setSlotSpecial(anchorId, { ...sp, status: 'unavailable' });
+      return;
+    }
+    if (special.type === 'spotlight') specialsSession.lastParent = special.parent;
+    setSlotSpecial(anchorId, special);
   }
 
   /**
@@ -559,18 +586,9 @@
   // Slots waiting on the membership answer are decided once it arrives.
   $: if (membershipKnown) decideSlots();
 
-  /** Keep one of each ready; an empty or failed try is retried after 15 s. */
+  /** Keep one of each ready; an empty, failed or held try is retried (unlockFlow). */
   function prepare(kind: 'spotlight' | 'memory') {
-    if (!membersOnlyOpen()) return;
-    const p = kind === 'spotlight' ? loader.prepareSpotlight() : loader.prepareMemory();
-    p.then(() => {
-      decideSlots();
-      const ready = kind === 'spotlight' ? loader.spotlight : loader.memory;
-      if (!ready && !loader.isOut(kind) && !loader.locked && !destroyed)
-        setTimeout(() => {
-          if (!destroyed) prepare(kind);
-        }, 15_000);
-    }).catch(() => {});
+    flow.prepare(kind);
   }
 
   // Members: spotlights and memories start loading after the first page and
@@ -745,6 +763,9 @@
       unlockTick++;
       prepare('spotlight');
       prepare('memory');
+      // The caught-up card's counts were asked for on a connection that
+      // wasn't logged in (auth-required is not "no posts"): ask again.
+      if (dayCounts === null) dayCardTried = false;
     }
     const c = exploreContent;
     if (exploreState !== 'open' || !c || !member || c.day || c.spotlights.length) return;
@@ -1310,6 +1331,7 @@
 
   onDestroy(() => {
     destroyed = true;
+    flow.dispose();
     if (partialRetryTimer) clearTimeout(partialRetryTimer);
     // An unlock card that was never tapped is withdrawn, so a later visit can
     // offer it again instead of leaving members-only cards stuck for the tab.

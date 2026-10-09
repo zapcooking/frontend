@@ -111,10 +111,38 @@ export class MemberLogin {
     return this.deps.now?.() ?? Date.now();
   }
 
-  /** Logged in on this connection? */
+  /**
+   * Logged in on this connection? A relay denial (`restricted:`) holds this
+   * false for RELAY_DENIAL_TTL_MS; the login itself stays on the connection
+   * (NIP-42 is per socket; the relay's membership cache is what was stale),
+   * so once the hold ends the same login counts again, with no new prompt.
+   */
   authed(relay: RelayLike | null): boolean {
     this.syncOwner();
+    this.recover(relay);
     return relay !== null && relay === this.authedOn && this.current === 'authed';
+  }
+
+  /** Held by a relay denial right now (logged in, but the relay said restricted:). */
+  get held(): boolean {
+    return this.current === 'relay-denied' && this.clock() - this.deniedAt < RELAY_DENIAL_TTL_MS;
+  }
+
+  /** When the current relay denial began (ms clock), 0 when not denied. */
+  get deniedSince(): number {
+    return this.current === 'relay-denied' ? this.deniedAt : 0;
+  }
+
+  /** Milliseconds until a relay denial's hold ends (0 when not held). */
+  holdLeftMs(): number {
+    if (this.current !== 'relay-denied') return 0;
+    return Math.max(0, RELAY_DENIAL_TTL_MS - (this.clock() - this.deniedAt));
+  }
+
+  /** The hold ended on the connection that is still logged in: authed again. */
+  private recover(relay: RelayLike | null): void {
+    if (this.current !== 'relay-denied' || this.held) return;
+    if (relay !== null && relay === this.authedOn && relay.connected !== false) this.set('authed');
   }
 
   /**
@@ -142,11 +170,12 @@ export class MemberLogin {
 
   /**
    * The relay answered `restricted:` on this login. Hold for a while (the
-   * relay's own membership cache is a minute), then automatic access may ask
-   * again; the button may ask at once.
+   * relay caches a failed or unresolved membership lookup as "not a member"
+   * for a minute), then the same login counts again and automatic access
+   * may ask again; the button may ask at once.
    */
   denied(): void {
-    this.authedOn = null;
+    // The connection keeps its login: only the relay's verdict is held.
     this.deniedAt = this.clock();
     this.set('relay-denied');
   }

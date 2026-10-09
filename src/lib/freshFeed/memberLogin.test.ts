@@ -294,10 +294,18 @@ describe("the relay's verdict is not the app's", () => {
     const before = relay.filters.length;
     expect((await client.page(FLOOR - 1)).end).toBe('floor');
     expect(relay.filters.length).toBe(before);
-    // After the hold: automatic access asks the relay again (the connection's
-    // login is reused, nostr-tools keeps it) and the relay may deny again.
+    expect(login.held).toBe(true);
+    expect(login.holdLeftMs()).toBeGreaterThan(0);
+    // After the hold: the connection's login counts again on its own (NIP-42
+    // is per socket; only the relay's verdict was held), so automatic access
+    // asks the relay again without another auth, and the relay may deny again.
+    const auths = relay.authCalls;
     now += RELAY_DENIAL_TTL_MS + 1;
+    expect(login.held).toBe(false);
+    expect(login.authed(await client.connection())).toBe(true);
+    expect(get(login.state)).toBe('authed');
     expect((await client.page(FLOOR - 1)).state).toBe('restricted');
+    expect(relay.authCalls).toBe(auths);
     expect(relay.filters.length).toBe(before + 1);
     expect(get(login.state)).toBe('relay-denied');
   });

@@ -265,7 +265,13 @@ export type Special =
       /** A members-only card while the feed isn't logged in ($lib/freshFeed/memberUnlock). */
       type: 'unlock';
       for: 'spotlight' | 'memory';
-      status: 'offer' | 'busy' | 'declined';
+      /**
+       * offer: the tap card; busy: the signer is open; loading: logged in,
+       * the card's content is on its way (the relay may hold a stale "not a
+       * member" for a minute); unavailable: logged in, but the relay kept
+       * refusing; declined: the login was declined this session.
+       */
+      status: 'offer' | 'busy' | 'loading' | 'unavailable' | 'declined';
     }
   | {
       type: 'memory';

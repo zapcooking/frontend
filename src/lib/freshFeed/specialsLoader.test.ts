@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SpecialsLoader, SpecialsSession, type SpecialsSource } from './specialsLoader';
-import type { HistoryResult, PageResult, RelayEvent } from './relay';
+import { LABELER_PUBKEY, type HistoryResult, type PageResult, type RelayEvent } from './relay';
 import type { TopicGroup } from './topicList';
 
 const GROUPS: TopicGroup[] = [
@@ -131,11 +131,11 @@ describe('members', () => {
     expect(topic.mock.calls.map((c: unknown[]) => c[0])).not.toContain('bread');
   });
 
-  it('a relay "not a member" stops all further requests this session', async () => {
+  it('a relay "not a member" holds further requests until the login counts again', async () => {
     const { src, topic } = source({ state: 'restricted' });
     const l = makeLoader(src, deps(true));
     await l.prepareSpotlight();
-    expect(l.locked).toBe(true);
+    expect(l.denied).toBe(true);
     await l.prepareSpotlight();
     await l.prepareMemory();
     expect(topic).toHaveBeenCalledTimes(1);
@@ -222,7 +222,7 @@ describe('feed login', () => {
     const l = makeLoader(src, deps(true));
     await l.prepareSpotlight();
     expect(l.needsLogin).toBe(true);
-    expect(l.locked).toBe(false);
+    expect(l.denied).toBe(false);
     await l.prepareSpotlight();
     expect(topic).toHaveBeenCalledTimes(1); // no retry before a login
     state = 'ok';
@@ -231,14 +231,90 @@ describe('feed login', () => {
     expect(l.spotlight?.type).toBe('spotlight');
   });
 
-  it('"restricted" (not a member there) stays final even after a login', async () => {
-    const { src, topic } = source({ state: 'restricted' });
+  it('"restricted" is a hold, not a verdict: once the login counts again, requests go again', async () => {
+    // The relay answers restricted: for a minute after a failed or unresolved
+    // membership lookup (feed-relay access.go, IsMember fail-closed). Before
+    // this a single restricted: ended members-only cards for the session.
+    let state: PageResult['state'] = 'restricted';
+    const topic = vi.fn(
+      async (): Promise<PageResult> =>
+        state === 'ok'
+          ? { state: 'ok', events: [img('a'), img('b'), img('c')], end: 'exhausted' }
+          : { state, events: [] }
+    );
+    const src: SpecialsSource = {
+      topic,
+      history: async () => ({ state: 'ok', events: [], labels: [], end: 'exhausted' }),
+      floor: () => 1_000_000
+    };
     const l = makeLoader(src, deps(true));
     await l.prepareSpotlight();
-    l.loggedIn();
+    expect(l.denied).toBe(true);
     await l.prepareSpotlight();
-    expect(l.locked).toBe(true);
-    expect(topic).toHaveBeenCalledTimes(1);
+    expect(topic).toHaveBeenCalledTimes(1); // nothing more while held
+    state = 'ok';
+    l.loggedIn();
+    expect(l.denied).toBe(false);
+    await l.prepareSpotlight();
+    expect(l.spotlight?.type).toBe('spotlight');
+  });
+
+  it('results gathered while the relay refused the login are not reused after it', async () => {
+    // An empty "on this day" and the months that came back empty were the
+    // relay's answer to a connection it took for a non-member's: forgotten
+    // on login, asked again.
+    let denied = true;
+    const label = (id: string): RelayEvent => ({
+      id: `label-${id}`,
+      pubkey: LABELER_PUBKEY,
+      created_at: 1,
+      kind: 1985,
+      tags: [
+        ['e', id],
+        ['l', 'bread', 'cooking.zap.topic']
+      ],
+      content: '',
+      sig: ''
+    });
+    const history = vi.fn(async (since: number): Promise<HistoryResult> => {
+      if (denied) return { state: 'ok', events: [], labels: [], end: 'exhausted' };
+      const events = [1, 2, 3].map((n) => ({ ...img(`m${n}`, `pk-m${n}`), created_at: since + n * 60 }));
+      return { state: 'ok', events, labels: events.map((e) => label(e.id)), end: 'exhausted' };
+    });
+    const src: SpecialsSource = {
+      topic: async () => ({ state: 'ok', events: [], end: 'exhausted' }),
+      history,
+      floor: () => Math.floor(new Date(2026, 9, 7).getTime() / 1000) - 14 * 86400
+    };
+    const session = new SpecialsSession();
+    const l = new SpecialsLoader(
+      src,
+      {
+        member: () => true,
+        groups: () => [],
+        hiddenTopics: () => [],
+        shown: () => new Map(),
+        exclude: () => new Set(),
+        accept: () => true,
+        topicHistory: () => new Map(),
+        now: () => new Date(2026, 9, 7),
+        rng: () => 0
+      },
+      session
+    );
+    // Three empty prepares while the relay held: the memory type is given up on.
+    for (let i = 0; i < 3; i++) await l.prepareMemory();
+    expect(l.memory).toBeNull();
+    expect(l.isOut('memory')).toBe(true);
+    const asked = history.mock.calls.length;
+    // The hold ends (the relay said restricted: elsewhere; the login counts again).
+    l.needsLogin = true; // what a refusal leaves behind
+    denied = false;
+    l.loggedIn();
+    expect(l.isOut('memory')).toBe(false);
+    await l.prepareMemory();
+    expect(history.mock.calls.length).toBeGreaterThan(asked); // asked again, not served from the empty cache
+    expect(l.memory?.type).toBe('memory');
   });
 });
 
