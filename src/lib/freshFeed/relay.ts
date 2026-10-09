@@ -124,6 +124,13 @@ export interface PageResult {
   reason?: string;
   /** The `until` for the next page. */
   nextUntil?: number;
+  /**
+   * State 'ok' but the page ended early (the relay went silent or the
+   * connection dropped before EOSE): `events` is what arrived, `end` is
+   * 'more', and `nextUntil` continues from the oldest received. The feed
+   * shows it and asks again from there instead of dropping the posts.
+   */
+  partial?: true;
 }
 
 export interface ClientOptions {
@@ -247,7 +254,7 @@ export class FreshClient {
     // A full page of posts we've all seen: more posts share the boundary
     // second than fit on a page. Ask for that second again at the relay's
     // max, then, if even that is all seen, step past the second.
-    if (fresh.length === 0 && res.events.length >= limit && until !== undefined) {
+    if (!res.partial && fresh.length === 0 && res.events.length >= limit && until !== undefined) {
       asked = MAX_LIMIT;
       res = await this.query({ ...filter, limit: asked });
       if (res.state !== 'ok') return this.closed(res, member);
@@ -269,6 +276,11 @@ export class FreshClient {
     for (const e of fresh) this.seen.add(e.id);
 
     const oldest = fresh.length ? fresh[fresh.length - 1].created_at : until;
+    if (res.partial) {
+      // An early end says nothing about how much is left: continue from the
+      // oldest post that arrived.
+      return { state: 'ok', events: fresh, end: 'more', nextUntil: oldest, partial: true, reason: res.reason };
+    }
     let end: PageEnd = 'more';
     if (res.events.length < asked) end = history ? 'exhausted' : 'floor';
     else if (fresh.length === 0) end = 'exhausted';
@@ -365,8 +377,11 @@ export class FreshClient {
       .sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? -1 : 1));
     for (const e of fresh) seen.add(e.id);
     const oldest = fresh.length ? fresh[fresh.length - 1].created_at : until;
-    const end: PageEnd = res.events.length < limit || fresh.length === 0 ? 'exhausted' : 'more';
-    return { state: 'ok', events: fresh, end, nextUntil: oldest };
+    const end: PageEnd =
+      !res.partial && (res.events.length < limit || fresh.length === 0) ? 'exhausted' : 'more';
+    return res.partial
+      ? { state: 'ok', events: fresh, end, nextUntil: oldest, partial: true, reason: res.reason }
+      : { state: 'ok', events: fresh, end, nextUntil: oldest };
   }
 
   /**
@@ -416,8 +431,9 @@ export class FreshClient {
       events,
       labels,
       // A full page: more posts in the window, older than (or at) `oldest`.
-      end: events.length >= limit ? 'more' : 'exhausted',
-      nextUntil: oldest
+      end: res.partial || events.length >= limit ? 'more' : 'exhausted',
+      nextUntil: oldest,
+      ...(res.partial ? { partial: true as const, reason: res.reason } : {})
     };
   }
 
@@ -479,7 +495,14 @@ export class FreshClient {
         sub.close();
         resolve(r);
       };
-      const timeout = () => finish({ state: 'unavailable', events: [], reason: 'request timeout' });
+      // Silence or a dropped connection after posts arrived: a partial page,
+      // not a failure. (What arrived was already streamed to the screen;
+      // dropping it showed "unavailable" over posts the reader could see.)
+      const endedEarly = (reason: string) =>
+        events.length > 0
+          ? finish({ state: 'ok', events, partial: true, reason })
+          : finish({ state: 'unavailable', events: [], reason });
+      const timeout = () => endedEarly('request timeout');
       let timer = setTimeout(timeout, this.timeoutMs);
       const sub = relay.subscribe([filter], {
         // nostr-tools ends a subscription on its own after a fixed time from
@@ -496,7 +519,13 @@ export class FreshClient {
           onEvent?.(e);
         },
         oneose: () => finish({ state: 'ok', events }),
-        onclose: (reason) => finish({ state: stateOf(reason), events: [], reason })
+        onclose: (reason) => {
+          // auth-required / restricted are verdicts on the request, not a
+          // lost connection: they drop the page as before.
+          const st = stateOf(reason);
+          if (st === 'unavailable') endedEarly(reason);
+          else finish({ state: st, events: [], reason });
+        }
       });
     });
   }
