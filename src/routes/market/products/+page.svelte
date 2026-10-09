@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { ndk, userPublickey } from '$lib/nostr';
 	import { fetchProductsWithStaleCount } from '$lib/marketplace/products';
+	import { KITCHEN_MEMBER_TIERS } from '$lib/marketplace/types';
 	import { fetchTrustRanks } from '$lib/marketplace/kitchens';
 	import { getMembership } from '$lib/stores/membershipStatus';
 	import { PRODUCT_CATEGORIES, type Product, type ProductCategory } from '$lib/marketplace/types';
@@ -105,10 +106,9 @@
 			});
 
 			getMembership(sellerPubkeys).then((statuses) => {
-				const validTiers = ['member', 'cook_plus', 'pro_kitchen', 'founders'];
 				const members = new Set<string>();
 				for (const [pubkey, status] of Object.entries(statuses)) {
-					if (status.active && validTiers.includes(status.tier)) {
+					if (status.active && (KITCHEN_MEMBER_TIERS as readonly string[]).includes(status.tier)) {
 						members.add(pubkey);
 					}
 				}
