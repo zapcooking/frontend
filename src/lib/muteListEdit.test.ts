@@ -114,3 +114,30 @@ describe('mute round-trip', () => {
 		expect(unmuted).toEqual(before);
 	});
 });
+
+describe('withoutMuted (every recipe grid and feed row)', () => {
+  const list = {
+    pubkeys: [{ type: 'pubkey' as const, value: 'bad'.padEnd(64, '0'), private: false }],
+    words: [{ type: 'word' as const, value: 'spam', private: false }],
+    tags: [],
+    threads: [{ type: 'thread' as const, value: 'thread1', private: false }]
+  };
+  const ev = (id: string, pubkey: string, content = 'hello', tags: string[][] = []) => ({ id, pubkey, content, tags });
+
+  it('drops muted authors, words and threads, keeps the rest', async () => {
+    const { withoutMuted } = await import('./muteFilter');
+    const out = withoutMuted(list, [
+      ev('a', 'bad'.padEnd(64, '0')),
+      ev('b', 'ok'.padEnd(64, '0'), 'buy spam now'),
+      ev('thread1', 'ok'.padEnd(64, '0')),
+      ev('c', 'ok'.padEnd(64, '0'))
+    ]);
+    expect(out.map((e) => e.id)).toEqual(['c']);
+  });
+
+  it('with no list (signed out, not loaded) leaves everything', async () => {
+    const { withoutMuted } = await import('./muteFilter');
+    const events = [ev('a', 'bad'.padEnd(64, '0'))];
+    expect(withoutMuted(null, events)).toBe(events);
+  });
+});

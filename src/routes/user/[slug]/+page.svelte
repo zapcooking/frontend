@@ -25,7 +25,7 @@
   import UsersIcon from 'phosphor-svelte/lib/Users';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
-  import { mutedPubkeys } from '$lib/muteListStore';
+  import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
   import { setPubkeyMuted } from '$lib/muteToggle';
   import { requestProvider } from 'webln';
   import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
@@ -392,36 +392,19 @@
     }
   }
 
+  /**
+   * Is this profile muted? From the reader's merged mute list (the device's
+   * local mutes plus the NIP-51 list, $lib/muteListStore). This used to
+   * fetch kind 10000 itself and write its public p-tags over
+   * localStorage.mutedUsers on every profile visit — every local-only mute
+   * was lost, and private (encrypted) NIP-51 mutes were never seen.
+   */
   async function checkMuteStatus() {
     if (!$userPublickey || !hexpubkey) return;
-
     try {
-      // Load mute list from localStorage first (fast)
-      const storedMutes = localStorage.getItem('mutedUsers');
-      if (storedMutes) {
-        mutedUsers = JSON.parse(storedMutes);
-        isMuted = mutedUsers.includes(hexpubkey);
-      }
-
-      // Also fetch from Nostr (kind:10000 = mute list)
-      const muteFilter: NDKFilter = {
-        authors: [$userPublickey],
-        kinds: [10000],
-        limit: 1
-      };
-
-      const muteEvents = await $ndk.fetchEvents(muteFilter);
-      const muteList = Array.from(muteEvents)[0];
-
-      if (muteList) {
-        // Extract muted pubkeys from 'p' tags
-        mutedUsers = muteList.tags.filter((tag) => tag[0] === 'p').map((tag) => tag[1]);
-
-        // Update localStorage
-        localStorage.setItem('mutedUsers', JSON.stringify(mutedUsers));
-
-        isMuted = mutedUsers.includes(hexpubkey);
-      }
+      await muteListStore.load();
+      mutedUsers = [...$mutedPubkeys];
+      isMuted = $mutedPubkeys.has(hexpubkey);
     } catch (error) {
       console.error('Error checking mute status:', error);
     }

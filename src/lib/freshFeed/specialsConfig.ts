@@ -19,10 +19,15 @@ export const SPECIALS = {
    * every 5th card.
    */
   rotation: ['recipe', 'spotlight', 'recipe', 'spotlight', 'memory'] as SpecialType[],
-  /** Per-session caps (members): none, cards go on as long as the reader scrolls. */
+  /**
+   * Per-session caps: none, cards go on as long as the reader scrolls, and
+   * the caps are the same for everyone. What a reader gets differs by
+   * access, not by cap: spotlights are previews from the relay's anonymous
+   * preview query (every reader); memories come from the authenticated
+   * history query (logged-in members only). Opening the full topic or
+   * archive view is the gate.
+   */
   caps: { recipe: Infinity, spotlight: Infinity, memory: Infinity } as Record<SpecialType, number>,
-  /** Non-members and signed out: recipe cards, at most one locked spotlight teaser. */
-  freeCaps: { recipe: Infinity, spotlight: 1, memory: 0 } as Record<SpecialType, number>,
 
   /** "Show fewer like this": the type's per-session cap becomes this… */
   fewerCap: 3,
@@ -34,10 +39,19 @@ export const SPECIALS = {
     posts: 3,
     /** A topic with fewer eligible posts than this is skipped. */
     minPosts: 3,
-    /** Posts asked for per topic (older than the free window). */
-    fetchLimit: 40,
     /** Topics tried before giving up on preparing one spotlight. */
     maxTopicTries: 4
+  },
+
+  /**
+   * The anonymous preview (relay.ts PREVIEW_LIMIT caps the posts). A relay
+   * that refuses previews (not deployed, or a hold) is asked again after
+   * `retryMs`, doubling per refusal in a row up to `retryMaxMs`; nothing is
+   * ever marked used or thin by a refusal.
+   */
+  preview: {
+    retryMs: 60_000,
+    retryMaxMs: 10 * 60_000
   },
 
   memory: {

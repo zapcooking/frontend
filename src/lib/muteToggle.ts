@@ -25,6 +25,15 @@ export type MuteListFetch =
   | { status: 'unavailable' };
 
 const FETCH_TIMEOUT_MS = 8_000;
+/**
+ * NDK reports EOSE once about half the pool has answered (plus up to a
+ * second), and with closeOnEose the subscription is gone before a slower
+ * relay sends the list. An empty EOSE therefore waits this long for a late
+ * copy before it counts as "absent" — the store caches an absence for
+ * minutes, and a reader's mutes were silently missing when purplepag.es and
+ * nostr.wine (no copy) answered before nos.lol and primal (the copy).
+ */
+export const EOSE_GRACE_MS = 1_500;
 
 /**
  * Fetch the newest kind 10000 for `pubkey`, distinguishing a confirmed
@@ -36,7 +45,7 @@ const FETCH_TIMEOUT_MS = 8_000;
 export function fetchMuteListStrict(
   ndkInstance: NDK,
   pubkey: string,
-  opts: { relaySet?: NDKRelaySet; timeoutMs?: number } = {}
+  opts: { relaySet?: NDKRelaySet; timeoutMs?: number; graceMs?: number } = {}
 ): Promise<MuteListFetch> {
   const relaySet = opts.relaySet ?? buildPoolRelaySet(ndkInstance);
   if (!relaySet) return Promise.resolve({ status: 'unavailable' });
@@ -46,7 +55,8 @@ export function fetchMuteListStrict(
     let settled = false;
     const sub = ndkInstance.subscribe(
       { kinds: [10000], authors: [pubkey] },
-      { closeOnEose: true, cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY },
+      // Not closeOnEose: `finish` stops it, after the grace below.
+      { closeOnEose: false, cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY },
       relaySet
     );
     const finish = (result: MuteListFetch) => {
@@ -65,9 +75,13 @@ export function fetchMuteListStrict(
       if (!newest || (event.created_at ?? 0) > (newest.created_at ?? 0)) newest = event;
     });
     // NDK only emits eose after at least one relay actually sent EOSE.
-    sub.on('eose', () =>
-      finish(newest ? { status: 'found', event: newest } : { status: 'absent' })
-    );
+    sub.on('eose', () => {
+      if (newest) return finish({ status: 'found', event: newest });
+      setTimeout(
+        () => finish(newest ? { status: 'found', event: newest } : { status: 'absent' }),
+        opts.graceMs ?? EOSE_GRACE_MS
+      );
+    });
   });
 }
 

@@ -4,6 +4,8 @@
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import ArticleFeed from './ArticleFeed.svelte';
+  import { muteListStore } from '$lib/muteListStore';
+  import { isEventMutedBy } from '$lib/muteFilter';
   import {
     TOP_RELAY_FOOD_HASHTAGS,
     isValidLongformArticle,
@@ -46,6 +48,7 @@
   // Format for ArticleFeed component
   $: formattedArticles = displayArticles
     .filter((a) => a.imageUrl && _moderationVersion >= 0 && !isBlockedFromReads(a.event)) // Require images for explore display
+    .filter((a) => !isEventMutedBy($muteListStore.muteList, a.event)) // the reader's mutes (NIP-51 + local)
     .slice(0, 20)
     .map((a) => ({
       event: a.event,
