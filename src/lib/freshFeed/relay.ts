@@ -74,9 +74,29 @@ export interface RelayLike {
   ): { close(reason?: string): void };
   close(): void;
   readonly connected?: boolean;
+  /**
+   * nostr-tools caches the first auth() promise per connection and never
+   * settles it when the signer throws; clearing this lets a later login try
+   * again on the same connection instead of closing the socket (which took
+   * the live tail with it). See MemberLogin.
+   */
+  authPromise?: unknown;
 }
 
 export type Connect = (url: string) => Promise<RelayLike>;
+
+/** A live subscription that can be revived on a new connection after a drop. */
+export interface LiveTail {
+  /** Stop for good (leaving the feed). */
+  stop(): void;
+  /** The connection carrying this tail closed; nothing is arriving. */
+  readonly lost: boolean;
+  /**
+   * Subscribe again on the current (or a new) connection, from the newest
+   * post this tail has seen, when the tail was lost. True when revived.
+   */
+  revive(): Promise<boolean>;
+}
 
 /** Member access on a connection (`MemberLogin` in memberLogin.ts). */
 export interface MemberAccess {
@@ -296,22 +316,70 @@ export class FreshClient {
     onEvent: (evt: RelayEvent) => void,
     onState?: (state: PageState, reason?: string) => void
   ): Promise<() => void> {
-    let relay: RelayLike;
-    try {
-      relay = await this.connection();
-    } catch (err) {
-      onState?.('unavailable', String(err));
-      return () => {};
-    }
-    const sub = relay.subscribe([{ kinds: FRESH_KINDS, since }], {
-      onevent: (e) => {
-        if (this.seen.has(e.id)) return;
-        this.seen.add(e.id);
-        onEvent(e);
+    const tail = await this.liveTail(since, onEvent, onState);
+    return () => tail.stop();
+  }
+
+  /**
+   * The live tail as something that survives a dropped connection: when the
+   * socket closes under it (iOS suspends sockets in the background; the OS
+   * or the relay drops idle ones), `lost` turns true and `revive()` opens a
+   * fresh subscription on the current connection from the newest post seen.
+   * nostr-tools itself never reconnects here, and a later page() opened a
+   * new socket WITHOUT the live request — new posts silently stopped.
+   */
+  async liveTail(
+    since: number,
+    onEvent: (evt: RelayEvent) => void,
+    onState?: (state: PageState, reason?: string) => void
+  ): Promise<LiveTail> {
+    let newest = since - 1;
+    let sub: { close(reason?: string): void } | null = null;
+    let lost = false;
+    let stopped = false;
+    const open = async (): Promise<boolean> => {
+      let relay: RelayLike;
+      try {
+        relay = await this.connection();
+      } catch (err) {
+        lost = true;
+        onState?.('unavailable', String(err));
+        return false;
+      }
+      if (stopped) return false;
+      const mine = relay.subscribe([{ kinds: FRESH_KINDS, since: newest + 1 }], {
+        onevent: (e) => {
+          if (e.created_at > newest) newest = e.created_at;
+          if (this.seen.has(e.id)) return;
+          this.seen.add(e.id);
+          onEvent(e);
+        },
+        onclose: (reason) => {
+          if (sub !== mine) return; // an older subscription's close
+          const state = stateOf(reason);
+          if (state === 'unavailable' && !stopped) lost = true;
+          onState?.(state, reason);
+        }
+      });
+      sub = mine;
+      lost = false;
+      return true;
+    };
+    await open();
+    return {
+      stop: () => {
+        stopped = true;
+        sub?.close();
+        sub = null;
       },
-      onclose: (reason) => onState?.(stateOf(reason), reason)
-    });
-    return () => sub.close();
+      get lost() {
+        return lost;
+      },
+      revive: async () => {
+        if (stopped || !lost) return false;
+        return open();
+      }
+    };
   }
 
   /**

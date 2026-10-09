@@ -186,7 +186,10 @@ describe('decline: remembered for the session, button only', () => {
     const r = await client.page(FLOOR - 1);
     expect(r).toMatchObject({ state: 'ok', end: 'floor' });
     expect(get(login.state)).toBe('declined');
-    expect(relays[0].connected).toBe(false); // nostr-tools' stuck login is dropped with it
+    // The connection stays open (closing it took the live tail with it);
+    // nostr-tools' stuck auth promise is cleared instead.
+    expect(relays[0].connected).toBe(true);
+    expect((relays[0] as any).authPromise).toBeUndefined();
     for (let i = 0; i < 3; i++) await client.page(FLOOR - 1);
     expect(sign).toHaveBeenCalledTimes(1);
   });
@@ -200,7 +203,7 @@ describe('decline: remembered for the session, button only', () => {
     expect(sign).toHaveBeenCalledTimes(1);
   });
 
-  it('"Log in to the feed" asks again once, on a fresh connection', async () => {
+  it('"Log in to the feed" asks again once, on the same connection', async () => {
     let refuse = true;
     const { client, sign, login, relays } = setup({
       sign: async (t) => {
@@ -211,7 +214,7 @@ describe('decline: remembered for the session, button only', () => {
     await client.page(FLOOR - 1);
     refuse = false;
     const relay = await client.connection();
-    expect(relay).toBe(relays[1]);
+    expect(relay).toBe(relays[0]);
     expect(await login.access(relay, true)).toBe(true);
     expect(sign).toHaveBeenCalledTimes(2);
     const r = await client.page(FLOOR - 1);
@@ -250,9 +253,8 @@ describe('decline: remembered for the session, button only', () => {
     expect(r.events.map((e) => e.id)).toEqual(['old']);
   });
 
-  it('"Log in to the feed" after a decline prompts again on the fresh connection', async () => {
+  it('"Log in to the feed" after a decline prompts again on the same connection', async () => {
     let refuse = true;
-    // The fresh connection's challenge arrives late, as on the live relay.
     const relays = [new AuthFakeRelay(), new AuthFakeRelay({ challengeAfter: 2 })];
     const { client, sign, login } = setup({
       relays,
