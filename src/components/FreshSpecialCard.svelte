@@ -1,11 +1,15 @@
 <script lang="ts">
   /**
    * A topic spotlight (a swipeable row of posts from one topic) or a memory
-   * ("One year ago today" / "From the archive"). Both are previews everyone
-   * sees; the link at the bottom opens the full topic feed or archive view,
-   * which the feed gates for members (`locked`: a non-member sees a lock on
-   * the link and gets the membership pitch when they open it). The recipe
-   * box is FreshPostCard's `box` mode.
+   * ("One year ago today" / "From the archive"). A spotlight is a preview
+   * everyone sees (the relay's anonymous preview query, the same for every
+   * reader); a memory is members-only (it comes from the authenticated
+   * history query, and SpecialsLoader loads one only on a logged-in member
+   * connection — a non-member never gets a memory card). The link at the
+   * bottom opens the full topic feed or archive view, which the feed gates
+   * for members (`locked`: a non-member sees a lock on the link and gets the
+   * membership pitch when they open it). The recipe box is FreshPostCard's
+   * `box` mode.
    */
   import { createEventDispatcher } from 'svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';

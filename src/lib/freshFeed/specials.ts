@@ -258,10 +258,13 @@ export function memoryLabel(variant: MemoryVariant, yearsBack = 1): string {
 // --- The feed with its cards ---
 
 /**
- * A card in the feed. Spotlights and memories are previews (a few posts
- * from the relay's anonymous preview query, the same for everyone); the
- * full topic feed or archive view behind each is for members, which the
- * feed gates when the card is opened.
+ * A card in the feed. A spotlight is a preview: a few posts from the
+ * relay's anonymous topic preview query, the same for everyone. A memory
+ * is members-only: its posts come from the authenticated history query
+ * (there is no anonymous preview of history, and nothing waits for one),
+ * so only a logged-in member's feed carries memory cards. The full topic
+ * feed or archive view behind either card is for members, which the feed
+ * gates when the card is opened.
  */
 export type Special =
   | { type: 'recipe'; post: RelayEvent }

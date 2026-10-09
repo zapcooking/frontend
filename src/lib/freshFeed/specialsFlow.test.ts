@@ -305,8 +305,8 @@ describe('a non-member', () => {
     if (card?.type !== 'spotlight') throw new Error('not a spotlight');
     expect(card.posts).toHaveLength(SPECIALS.spotlight.posts);
     // The click: the gate, not a request.
-    expect(topicGate({ signedIn: true, member: false, membershipKnown: true })).toBe('pitch');
-    expect(topicGate({ signedIn: false, member: false, membershipKnown: false })).toBe('pitch');
+    expect(topicGate({ auth: 'in', member: false, membership: 'answered' })).toBe('pitch');
+    expect(topicGate({ auth: 'out', member: false, membership: 'pending' })).toBe('pitch');
     expect(server.reqs.filter((r) => r.answered === 'auth-required')).toHaveLength(0);
   });
 });
@@ -341,7 +341,7 @@ describe('a member on a local key (silent signer)', () => {
     const full = topicReqs().filter((q) => q.filter.since === undefined);
     expect(full).toHaveLength(1);
     expect(full[0].authed).toBe(true);
-    expect(topicGate({ signedIn: true, member: true, membershipKnown: true })).toBe('open');
+    expect(topicGate({ auth: 'in', member: true, membership: 'answered' })).toBe('open');
   });
 });
 

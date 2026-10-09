@@ -20,9 +20,12 @@ export const SPECIALS = {
    */
   rotation: ['recipe', 'spotlight', 'recipe', 'spotlight', 'memory'] as SpecialType[],
   /**
-   * Per-session caps: none, cards go on as long as the reader scrolls. The
-   * same for everyone: every card is a preview (the relay's anonymous
-   * preview query); opening the full topic or archive view is the gate.
+   * Per-session caps: none, cards go on as long as the reader scrolls, and
+   * the caps are the same for everyone. What a reader gets differs by
+   * access, not by cap: spotlights are previews from the relay's anonymous
+   * preview query (every reader); memories come from the authenticated
+   * history query (logged-in members only). Opening the full topic or
+   * archive view is the gate.
    */
   caps: { recipe: Infinity, spotlight: Infinity, memory: Infinity } as Record<SpecialType, number>,
 

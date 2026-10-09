@@ -64,7 +64,14 @@
     type ExploreContent
   } from '$lib/freshFeed/specialsLoader';
   import { SpecialsFlow } from '$lib/freshFeed/specialsFlow';
-  import { declinedNow, topicGate } from '$lib/freshFeed/topicGate';
+  import {
+    declinedNow,
+    topicGate,
+    GATE_WAIT_MS,
+    type Gate,
+    type AuthGateState,
+    type MembershipGateState
+  } from '$lib/freshFeed/topicGate';
   import {
     hideTopic,
     loadShown,
@@ -226,6 +233,18 @@
   // archive offers a retry instead of the membership pitch.
   $: membershipUnresolved = !!pk && $membershipStatusMap[pk]?.unresolved === true;
   $: membershipKnown = !pk || (pk in $membershipStatusMap && !membershipUnresolved);
+  // For the gate on the full views: the lookup is in flight ('pending': the
+  // view waits for it), failed ('unresolved': the view opens with its
+  // retry) or answered. A restore or lookup that never answers stops
+  // holding a view after GATE_WAIT_MS, as unresolved (for the session: an
+  // answer that does arrive later takes over, as 'answered').
+  let gateWaitedOut = false;
+  $: membershipState = (
+    membershipKnown ? 'answered' : membershipUnresolved || gateWaitedOut ? 'unresolved' : 'pending'
+  ) as MembershipGateState;
+  $: gateAuth = (
+    !pk ? 'out' : authState === 'pending' && gateWaitedOut ? 'in' : authState
+  ) as AuthGateState;
   $: prompt = floorPrompt({ signedIn: !!pk, member, login: $loginState });
 
   // Mutes and the hellthread rule re-apply when the mute list loads or changes.
@@ -402,11 +421,14 @@
   let autoLoginTried = false;
   // The signer is restored asynchronously after the pubkey is known; the
   // auth manager's store says when it is there (login.silent reads it).
-  let signerReady = false;
+  // 'pending' until the manager is attached and its restore is done; 'out'
+  // is signed out, or a passkey vault still locked: the pubkey stays in
+  // storage for a locked vault, so `pk` alone never means a signer.
+  let authState: AuthGateState = 'pending';
   $: if (
     member &&
     !loading &&
-    signerReady &&
+    authState === 'in' &&
     !autoLoginTried &&
     login.silent &&
     $loginState === 'idle'
@@ -585,11 +607,39 @@
   }
 
   /** The gate on the full views: a non-member (or signed out) gets the pitch instead. */
-  function gated(what: 'topic' | 'day' | 'archive', name?: string): boolean {
-    if (topicGate({ signedIn: !!pk, member, membershipKnown }) === 'open') return false;
-    pitch = { what, name };
-    pitchOpen = true;
-    return true;
+  /**
+   * The gate on a full view: 'open' (go), 'pitch' (the pitch is up; the
+   * caller opens nothing), or 'wait' (the signer restore or the membership
+   * lookup hasn't answered: the caller shows its view loading, and `again`
+   * re-opens it once they have, so the one prompt or the pitch still
+   * belongs to this click). A view the reader closes meanwhile stays
+   * closed.
+   */
+  let pendingOpen: { view: 'topic' | 'archive'; again: () => void } | null = null;
+  let gateTimer: ReturnType<typeof setTimeout> | undefined;
+  function gate(
+    what: 'topic' | 'day' | 'archive',
+    name: string | undefined,
+    again: () => void
+  ): Gate {
+    const g = topicGate({ auth: gateAuth, member, membership: membershipState });
+    if (g === 'wait') {
+      pendingOpen = { view: what === 'topic' ? 'topic' : 'archive', again };
+      clearTimeout(gateTimer);
+      gateTimer = setTimeout(() => (gateWaitedOut = true), GATE_WAIT_MS);
+      return g;
+    }
+    pendingOpen = null;
+    if (g === 'pitch') {
+      pitch = { what, name };
+      pitchOpen = true;
+    }
+    return g;
+  }
+  $: if (pendingOpen && gateAuth !== 'pending' && membershipState !== 'pending') {
+    const { view, again } = pendingOpen;
+    pendingOpen = null;
+    if (view === 'topic' ? topic !== null : archiveView !== null) again();
   }
 
   /** A memory card's link: the full "on this day", or the time machine at its month. */
@@ -980,7 +1030,7 @@
   // Topic feeds are for members: everyone else sees a lock on the chips.
   // (A relay `restricted:` is not a lock: the app's membership answer decides,
   // and the topic view offers a retry.)
-  $: topicsLocked = !pk || (membershipKnown && !member);
+  $: topicsLocked = !pk || authState === 'out' || (membershipKnown && !member);
 
   async function refreshCatalog() {
     topicsLoading = true;
@@ -1017,19 +1067,26 @@
     pager = null;
   }
 
-  function startArchive(view: 'day' | 'month') {
-    if (gated(view === 'day' ? 'day' : 'archive')) return false;
+  /** Opens the view; true when the caller should load it now. */
+  function startArchive(view: 'day' | 'month', again: () => void) {
+    const g = gate(view === 'day' ? 'day' : 'archive', undefined, again);
+    if (g === 'pitch') {
+      // A view that was waiting on the gate closes under the pitch.
+      if (archiveView) closeArchive();
+      return false;
+    }
     closeTopic();
     archiveGen++;
     archiveView = view;
     archiveRows = [];
+    // 'wait': the spinner, until the gate re-opens the view.
     archiveState = archiveLocked ? 'auth-required' : 'loading';
     document.getElementById('app-scroll')?.scrollTo({ top: 0 });
-    return !archiveLocked;
+    return g === 'open' && !archiveLocked;
   }
 
   async function openOnThisDay() {
-    if (!startArchive('day')) return;
+    if (!startArchive('day', openOnThisDay)) return;
     const gen = archiveGen;
     // A prompting signer is asked here, once per session (loadOnThisDay →
     // history → the feed login); a decline goes back to the feed.
@@ -1056,9 +1113,9 @@
   }
 
   function openTimeMachine(key = monthKey) {
-    if (!startArchive('month')) return;
     month = months.find((m) => m.key === key) ?? months[0];
     monthKey = month.key;
+    if (!startArchive('month', () => openTimeMachine(key))) return;
     pager = new MonthPager(client, month);
     // The new pager owns the flag; a page still in flight for the old one
     // returns without touching it.
@@ -1176,17 +1233,24 @@
   }
 
   function openTopic(t: Topic) {
-    if (gated('topic', t.name)) return;
+    const g = gate('topic', t.name, () => openTopic(t));
+    if (g === 'pitch') {
+      // A view that was waiting on the gate closes under the pitch.
+      if (topic) closeTopic();
+      return;
+    }
     if (archiveView) closeArchive();
     topicGen++;
-    topicLoading = false;
     topic = t;
     topicPosts = [];
     topicSeen = new Set();
     topicUntil = undefined;
     topicEnd = 'more';
+    // 'wait': the spinner (loadTopicPage holds while topicLoading), until
+    // the gate re-opens the topic.
+    topicLoading = g === 'wait';
     document.getElementById('app-scroll')?.scrollTo({ top: 0 });
-    loadTopicPage();
+    if (g === 'open') loadTopicPage();
   }
 
   function closeTopic() {
@@ -1261,8 +1325,11 @@
     // in its own onMount — after this feed's (children mount first). Attach
     // once it exists: read its state (it notifies on changes only) and
     // follow changes from then on.
-    const ready = (s: { isAuthenticated: boolean; isLoading: boolean } | undefined) =>
-      !!s && s.isAuthenticated && !s.isLoading;
+    // Every restore path flips isLoading on synchronously in the manager's
+    // constructor, so an attached manager that is neither loading nor
+    // authenticated is at rest: signed out, or a locked passkey vault.
+    const fromAuth = (s: { isAuthenticated: boolean; isLoading: boolean }): AuthGateState =>
+      s.isLoading ? 'pending' : s.isAuthenticated ? 'in' : 'out';
     let unsubAuth: (() => void) | undefined;
     let attachTimer: ReturnType<typeof setTimeout> | undefined;
     const attachAuth = (tries = 40) => {
@@ -1270,11 +1337,13 @@
       const auth = getAuthManager();
       if (!auth) {
         if (tries > 0) attachTimer = setTimeout(() => attachAuth(tries - 1), 250);
+        // No manager in 10 s (the layout always creates one): the pubkey decides.
+        else authState = pk ? 'in' : 'out';
         return;
       }
-      signerReady = ready(auth.getState());
+      authState = fromAuth(auth.getState());
       unsubAuth = auth.subscribe((s) => {
-        signerReady = ready(s);
+        authState = fromAuth(s);
       });
     };
     attachAuth();
@@ -1311,6 +1380,7 @@
   });
 
   onDestroy(() => {
+    clearTimeout(gateTimer);
     destroyed = true;
     flow.dispose();
     if (partialRetryTimer) clearTimeout(partialRetryTimer);
@@ -1418,7 +1488,7 @@
           </div>
         {:else if archiveLocked}
           {#if membershipKnown}
-            <FreshOnThisDayCard mode="teaser" signedIn={!!pk} />
+            <FreshOnThisDayCard mode="teaser" signedIn={authState === 'in'} />
           {/if}
         {:else}
           <div class="py-8 text-center">
@@ -1610,7 +1680,7 @@
         {#if dayCardMode}
           <FreshOnThisDayCard
             mode={dayCardMode}
-            signedIn={!!pk}
+            signedIn={authState === 'in'}
             counts={dayCounts ?? []}
             on:open={openOnThisDay}
           />
@@ -1633,7 +1703,7 @@
             {#if !caughtUp && dayCardMode}
               <FreshOnThisDayCard
                 mode={dayCardMode}
-                signedIn={!!pk}
+                signedIn={authState === 'in'}
                 counts={dayCounts ?? []}
                 on:open={openOnThisDay}
               />
@@ -1792,7 +1862,7 @@
     bind:open={pitchOpen}
     what={pitch.what}
     name={pitch.name ?? ''}
-    signedIn={!!pk}
+    signedIn={authState === 'in'}
   />
 {/if}
 
