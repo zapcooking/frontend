@@ -9,6 +9,7 @@
   // service for the base paid tier. tierConfig has a 'member' entry, so
   // this has always been a runtime-valid input; the declared type just
   // didn't admit it.
+  import { tierLabel } from '$lib/membership/tier';
   export let tier: MembershipTier | 'member';
   export let size: 'sm' | 'md' | 'lg' = 'md';
   export let showLabel: boolean = false;
@@ -51,7 +52,12 @@
     }
   };
 
-  $: config = tierConfig[tier] || tierConfig.open;
+  // A tier the badge has no design for (lifetime, or whatever the backend
+  // sends next: passed through, never collapsed) gets the member look with
+  // its own name.
+  $: config =
+    (tierConfig as Record<string, (typeof tierConfig)['open']>)[tier] ??
+    { ...tierConfig.member, name: tierLabel(tier) };
   $: IconComponent = config.icon;
   $: sizeConfig = {
     sm: { iconSize: 12, text: 'text-[10px]', padding: 'p-0.5', gap: 'gap-0.5' },
