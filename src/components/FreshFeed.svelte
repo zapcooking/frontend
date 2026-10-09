@@ -48,6 +48,7 @@
   import { topTopics } from '$lib/freshFeed/recipeBoxCard';
   import { beginVisit, recordNewest, withDivider } from '$lib/freshFeed/lastVisit';
   import { spaceAuthors, StreamSpacer } from '$lib/freshFeed/spacing';
+  import { recipePool } from '$lib/freshFeed/recipePool';
   import { needsFullReload } from '$lib/freshFeed/refreshTop';
   import {
     Slots,
@@ -305,14 +306,26 @@
   let partialRetried = false;
   let partialRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
-  let poolSettled = false;
   let poolLoad: Promise<void> | null = null;
+  /**
+   * The recipe-box pool, when a card first needs it (a slot within a few
+   * screens, or Keep exploring), from the tab's cache when it has it
+   * ($lib/freshFeed/recipePool). Not on load: it is the biggest download of
+   * a /feed visit and most readers never reach the first card.
+   */
+  function ensurePool(): Promise<void> {
+    if (!poolLoad) {
+      poolRequested = true;
+      poolLoad = loadPool();
+    }
+    return poolLoad;
+  }
   async function loadPool() {
-    const r = await client.recipes(RECIPE_TAGS);
+    const r = await recipePool(client, RECIPE_TAGS);
     if (destroyed) return;
-    poolSettled = true;
     if (r.state !== 'ok') {
-      poolRequested = false; // the next successful first page tries again
+      poolRequested = false; // the next need tries again
+      poolLoad = null;
       return;
     }
     boxPool = buildPool(r.events, Math.floor(Date.now() / 1000));
@@ -559,6 +572,9 @@
       if (!anchor || !el) break;
       const id = anchor.raw.id;
       const bottom = el.getBoundingClientRect().bottom;
+      // The first card is a few screens down: ask for the recipe pool once
+      // the reader is within reach of it, not on load.
+      if (!poolRequested && bottom <= screenBottom * 3) void ensurePool();
       if (bottom <= screenBottom) {
         placed.set(id, { anchorId: id, key: `sp:${slotSeq++}`, special: null });
         decided++;
@@ -615,11 +631,13 @@
     flow.prepare(kind);
   }
 
-  // Members: spotlights and memories start loading after the first page and
-  // the recipe pool, only on a feed connection that is already logged in
-  // (no prompt: the first members-only card offers "Tap to unlock").
-  // Non-members never ask the relay for them.
-  $: if (member && poolSettled && posts.length && !$prefs.off && !specialsStarted) {
+  // Members: spotlights and memories start loading after the first page,
+  // only on a feed connection that is already logged in (no prompt: the
+  // first members-only card offers "Tap to unlock"). Non-members never ask
+  // the relay for them. (They used to wait for the recipe pool too, from
+  // when a failed login closed the socket under it; a failed login keeps
+  // the socket now, and the pool is deferred.)
+  $: if (member && !loading && posts.length && !$prefs.off && !specialsStarted) {
     specialsStarted = true;
     prepare('spotlight');
     prepare('memory');
@@ -714,17 +732,7 @@
     apply(r, spacer);
     loading = false;
     decideSlots();
-    if (!unavailable) {
-      startLive(since);
-      // The recipe-box pool (~430 long-form recipes) waits for a successful
-      // first page: on one socket over a slow link it would otherwise hold up
-      // the first page's EOSE by seconds. Never after a failed load (a Retry
-      // that succeeds starts it) or once this feed is gone; once per feed.
-      if (!poolRequested) {
-        poolRequested = true;
-        poolLoad = loadPool();
-      }
-    }
+    if (!unavailable) startLive(since);
   }
 
   async function loadMore() {
@@ -765,13 +773,7 @@
     exploreState = 'loading';
     // Tapped before the recipe pool arrived: wait for it (or ask again
     // after a failed load) so the recipe row isn't empty.
-    if (boxPool.length === 0) {
-      if (!poolRequested) {
-        poolRequested = true;
-        poolLoad = loadPool();
-      }
-      await poolLoad;
-    }
+    if (boxPool.length === 0) await ensurePool();
     if (destroyed) return;
     const content = await loader.explore(pickRecipes(SPECIALS.explore.recipes));
     if (destroyed) return;

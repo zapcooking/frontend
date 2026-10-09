@@ -186,11 +186,6 @@
       checkMembership();
     }
 
-    // Initialize group subscription for Pantry tab
-    if (browser && !$groupsInitialized && !$groupsLoading) {
-      initGroupSubscription($ndk, $userPublickey || undefined);
-    }
-
     // Setup scroll listener for tab fade
     if (typeof window !== 'undefined') {
       // Find the scrollable container (app-scroll from layout)
@@ -217,10 +212,19 @@
     }
   });
 
-  // Re-initialize groups when user logs in after anonymous browsing
-  $: if (browser && isLoggedIn && $groupsInitialized && $groupsInitAnonymous) {
-    clearGroups();
-    initGroupSubscription($ndk, $userPublickey!);
+  // Groups (the Pantry tab) start when that tab is open and the reader is
+  // signed in — not on every /feed mount: the pantry relay refuses a
+  // signed-out reader's requests (auth-required), so those were four
+  // refused subscriptions per visit, plus a live one that never closed.
+  // /groups has its own start. A reader who signs in after an anonymous
+  // start (from /groups) gets a fresh, authenticated one here.
+  $: if (browser && activeTab === 'members' && isLoggedIn) {
+    if ($groupsInitialized && $groupsInitAnonymous) {
+      clearGroups();
+      initGroupSubscription($ndk, $userPublickey!);
+    } else if (!$groupsInitialized && !$groupsLoading) {
+      initGroupSubscription($ndk, $userPublickey!);
+    }
   }
 
   onDestroy(() => {

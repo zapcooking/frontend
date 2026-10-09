@@ -698,6 +698,24 @@ export async function fetchExtendedMessages(
 // ═══════════════════════════════════════════════════════════════
 
 /**
+ * A live subscription the relay refused (`auth-required:` / `restricted:`,
+ * i.e. not logged in there or not a member) will never deliver: stop it
+ * instead of keeping it for the tab's lifetime. Any other close (a dropped
+ * socket) is left to NDK and the reconnect handler.
+ */
+export function stopWhenRefused(sub: {
+	on: (event: 'closed', cb: (relay: unknown, reason: string) => void) => unknown;
+	stop: () => void;
+}): void {
+	sub.on('closed', (_relay, reason) => {
+		if (/^(auth-required|restricted):/.test(String(reason))) {
+			console.log('[NIP-29] Subscription refused by the relay:', String(reason).slice(0, 60));
+			sub.stop();
+		}
+	});
+}
+
+/**
  * Subscribe to live kind 9 chat messages across all groups on pantry.
  */
 export async function subscribeToGroupMessages(
@@ -738,6 +756,8 @@ export async function subscribeToGroupMessages(
 	sub.on('eose', () => {
 		console.log('[NIP-29] Group message subscription EOSE, seen', seenIds.size, 'events');
 	});
+
+	stopWhenRefused(sub);
 
 	return {
 		stop: () => {
