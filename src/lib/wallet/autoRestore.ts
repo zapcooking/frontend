@@ -105,8 +105,32 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
 
   // The device still has wallets (possibly still-encrypted envelopes) —
   // the regular init/decrypt path owns reconnecting them; don't race it.
-  if (get(wallets).length > 0 || hasPersistedWallets()) {
+  if (get(wallets).length > 0) {
+    // Already usable — the balance card can take over immediately.
     walletSetupCheckPending.set(false);
+    return false;
+  }
+  if (hasPersistedWallets()) {
+    // Encrypted envelopes only: loadWallets holds them OUT of the store
+    // until the signer decrypts them (5s poll), so the wallet exists but
+    // isn't visible yet. The answer here is never "no wallet" — keep the
+    // setup CTA hidden until decryption materializes it. Bounded: if the
+    // signer never decrypts (denied, gone), settle anyway so the card
+    // can't shimmer forever; the decrypt poll itself keeps retrying.
+    const pubkeyAtCheck = pubkey;
+    let settled = false;
+    function settleNow() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      unsubscribe();
+      // A different account may have logged in while we watched.
+      if (get(userPublickey) === pubkeyAtCheck) walletSetupCheckPending.set(false);
+    }
+    const unsubscribe = wallets.subscribe((list) => {
+      if (list.length > 0) settleNow();
+    });
+    const timeout = setTimeout(settleNow, 20000);
     return false;
   }
 

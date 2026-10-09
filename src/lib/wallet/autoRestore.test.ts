@@ -240,4 +240,21 @@ describe('autoRestoreWalletAtLogin', () => {
     await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
     expect(get(walletSetupCheckPending)).toBe(false);
   });
+
+  it('keeps the setup check pending while encrypted envelopes await decryption', async () => {
+    const { walletSetupCheckPending, wallets } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
+    mocks.hasPersistedWallets.mockReturnValue(true);
+
+    // Envelopes on device, store still empty (decryption in flight): the
+    // answer is "wallet exists", never "Set up a Wallet".
+    await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
+    expect(get(walletSetupCheckPending)).toBe(true);
+
+    // Decrypt path materializes the wallet → check settles.
+    wallets.set([{ id: 1 }]);
+    expect(get(walletSetupCheckPending)).toBe(false);
+  });
 });
