@@ -1,7 +1,8 @@
 import { outboxRelaySet } from '$lib/outboxPublish';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { get } from 'svelte/store';
-import { ndk } from '$lib/nostr';
+import { ndk, ensureNdkConnected } from '$lib/nostr';
+import { fetchMuteListStrict } from '$lib/muteToggle';
 import { encrypt, decrypt, detectEncryptionMethod } from '$lib/encryptionService';
 
 // Mute-list types and the pure checks that read them live in `muteFilter.ts`
@@ -18,19 +19,13 @@ export async function fetchMuteList(pubkey: string): Promise<NDKEvent | null> {
   if (!ndkInstance || !pubkey) return null;
 
   try {
-    const events = await ndkInstance.fetchEvents({
-      kinds: [10000],
-      authors: [pubkey]
-    });
-
-    if (events.size === 0) return null;
-
-    // Get most recent
-    const sortedEvents = Array.from(events).sort(
-      (a, b) => (b.created_at || 0) - (a.created_at || 0)
-    );
-
-    return sortedEvents[0];
+    // On a cold load this runs before the pool has a connected relay; an
+    // author-filtered request then gets no relay at all ("No relays found
+    // for filter") and never resolves. Wait for the connection, and ask the
+    // pool relays explicitly with a timeout ($lib/muteToggle).
+    await ensureNdkConnected();
+    const r = await fetchMuteListStrict(ndkInstance, pubkey);
+    return r.status === 'found' ? r.event : null;
   } catch (error) {
     console.error('Failed to fetch mute list:', error);
     return null;
