@@ -900,9 +900,7 @@
           <div class="text-sm text-caption italic">Loading membership status...</div>
         {:else if membershipData?.found && membershipData.member}
           {@const member = membershipData.member}
-          {@const validTier = ['open', 'cook_plus', 'pro_kitchen', 'founders'].includes(member.tier)
-            ? member.tier
-            : 'cook_plus'}
+          {@const validTier = member.tier || 'open'}
           {@const expiryDate = new Date(member.subscription_end)}
 
           <!-- Current Plan + Details -->

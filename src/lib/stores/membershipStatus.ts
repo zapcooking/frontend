@@ -1,7 +1,10 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 
-export type MembershipTier = 'cook_plus' | 'pro_kitchen' | 'founders' | 'member' | 'unknown';
+import { normalizeTier as normalizeBackendTier, tierLabel, type Tier } from '$lib/membership/tier';
+
+/** A known tier, 'unknown' (not resolved yet), or any tier the backend sent (passed through). */
+export type MembershipTier = Tier | 'unknown';
 export type MembershipState = 'active' | 'inactive' | 'unknown';
 
 export interface MembershipStatus {
@@ -77,12 +80,7 @@ function normalizePubkey(pubkey: string | null | undefined): string | null {
 }
 
 function normalizeTier(tier: string | undefined): MembershipTier {
-  const value = String(tier || '').trim().toLowerCase();
-  if (value === 'cook_plus' || value === 'cook-plus' || value === 'cook plus') return 'cook_plus';
-  if (value === 'pro_kitchen' || value === 'pro-kitchen' || value === 'pro kitchen') return 'pro_kitchen';
-  if (value === 'founders' || value === 'founder' || value === 'genesis_founder' || value === 'genesis-founder' || value === 'genesis founder') return 'founders';
-  if (value === 'member') return 'member';
-  return 'unknown';
+  return normalizeBackendTier(tier, null, 'unknown');
 }
 
 function updateStore(pubkey: string, status: MembershipStatus): void {
@@ -290,18 +288,7 @@ export async function getMembership(pubkeys: string[]): Promise<Record<string, M
 }
 
 export function getMembershipLabel(tier: MembershipTier): string {
-  switch (tier) {
-    case 'cook_plus':
-      return 'Cook+ Member';
-    case 'pro_kitchen':
-      return 'Pro Kitchen Member ⚡';
-    case 'founders':
-      return 'Founders Member';
-    case 'member':
-      return 'Member';
-    default:
-      return 'Member';
-  }
+  return tierLabel(tier);
 }
 
 // Test helper for deterministic batching tests.

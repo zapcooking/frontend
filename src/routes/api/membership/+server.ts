@@ -1,3 +1,4 @@
+import { normalizeTier as normalizeBackendTier } from '$lib/membership/tier';
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { env } from '$env/dynamic/private';
@@ -28,16 +29,10 @@ type ApiMembershipStatus = {
 // SvelteKit forbids non-handler exports from a +server.ts; the contract's
 // constants live in $lib/membership/contract.
 
+// Tiers are backend-managed: known spellings normalised, lifetime its own
+// tier, anything else passed through unchanged ($lib/membership/tier).
 function normalizeTier(tier: string | null | undefined, paymentId?: string | null): string {
-  // Founders are stored as tier:'standard' with payment_id like 'genesis_1'
-  const pid = String(paymentId || '').trim().toLowerCase();
-  if (pid.startsWith('genesis_') || pid.startsWith('founder')) return 'founders';
-
-  const value = String(tier || '').trim().toLowerCase();
-  if (value === 'cook_plus' || value === 'cook-plus' || value === 'cook plus') return 'cook_plus';
-  if (value === 'pro_kitchen' || value === 'pro-kitchen' || value === 'pro kitchen') return 'pro_kitchen';
-  if (value === 'founders' || value === 'founder' || value === 'genesis_founder' || value === 'genesis-founder' || value === 'genesis founder') return 'founders';
-  return 'member';
+  return normalizeBackendTier(tier, paymentId, 'member');
 }
 
 function parsePubkeys(url: URL): string[] {
