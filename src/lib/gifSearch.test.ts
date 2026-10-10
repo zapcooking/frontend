@@ -6,8 +6,10 @@ import {
   gifSearchUrl,
   gifSuggestUrl,
   gifTopicsFor,
+  pageAdvanced,
   parseGifPage,
-  parseGifSuggestions
+  parseGifSuggestions,
+  shouldLoadMore
 } from './gifSearch';
 
 // Ported from Sidecar's test/gif-picker.test.js, the reference implementation.
@@ -184,4 +186,23 @@ describe('gifTopicsFor', () => {
   it('reorders without dropping a topic', () => {
     expect(gifTopicsFor(at(21))).toHaveLength(gifTopicsFor(at(9)).length);
   });
+});
+
+describe('paging', () => {
+	const at = (o: Partial<Parameters<typeof shouldLoadMore>[0]>) =>
+		shouldLoadMore({ loading: false, nextOffset: 24, scrollTop: 0, clientHeight: 600, scrollHeight: 700, ...o });
+
+	it('loads the next page near the bottom, not while loading or after the last page', () => {
+		expect(at({})).toBe(true); // 0 + 600 >= 700 − 160
+		expect(at({ scrollHeight: 2000 })).toBe(false);
+		expect(at({ loading: true })).toBe(false);
+		expect(at({ nextOffset: null })).toBe(false);
+	});
+
+	it('re-checks only when the cursor moved forward (a duplicates-only page can not stall or loop)', () => {
+		expect(pageAdvanced(0, 24)).toBe(true);
+		expect(pageAdvanced(24, 24)).toBe(false);
+		expect(pageAdvanced(48, 24)).toBe(false);
+		expect(pageAdvanced(176, null)).toBe(false);
+	});
 });

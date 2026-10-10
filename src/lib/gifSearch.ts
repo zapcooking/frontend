@@ -176,3 +176,29 @@ export async function gifRequest(url: string, signal?: AbortSignal): Promise<unk
     throw new Error(res && !res.ok ? gifErrorMessage(res.status) : gifErrorMessage(0));
   }
 }
+
+/** Within this many px of the grid's bottom the next page loads. */
+export const LOAD_MORE_MARGIN_PX = 160;
+
+/** Whether the grid should load its next page now. */
+export function shouldLoadMore(s: {
+  loading: boolean;
+  nextOffset: number | null;
+  scrollTop: number;
+  clientHeight: number;
+  scrollHeight: number;
+}): boolean {
+  if (s.loading || s.nextOffset === null) return false;
+  return s.scrollTop + s.clientHeight >= s.scrollHeight - LOAD_MORE_MARGIN_PX;
+}
+
+/**
+ * Whether a page moved the cursor forward. The picker re-checks the bottom
+ * only then, so a page of duplicates (which doesn't grow the grid and so
+ * fires no scroll event) can't stall paging, and a cursor that doesn't move
+ * can't loop.
+ */
+export function pageAdvanced(offset: number, next: number | null): boolean {
+  return next !== null && next > offset;
+}
+

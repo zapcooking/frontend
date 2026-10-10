@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { createEventDispatcher, onDestroy, tick } from 'svelte';
   import Modal from './Modal.svelte';
   import MagnifyingGlassIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
@@ -11,8 +11,10 @@
     gifSearchUrl,
     gifSuggestUrl,
     gifTopicsFor,
+    pageAdvanced,
     parseGifPage,
     parseGifSuggestions,
+    shouldLoadMore,
     type Gif
   } from '$lib/gifSearch';
 
@@ -99,6 +101,7 @@
   }
 
   async function load(offset: number) {
+    let advanced = false;
     if (pageCtrl) pageCtrl.abort();
     const mine = new AbortController();
     pageCtrl = mine;
@@ -110,6 +113,7 @@
       nextOffset = page.next;
       if (!offset && !page.gifs.length) setStatus(`No GIFs found for “${query}”.`);
       else setStatus('');
+      advanced = pageAdvanced(offset, page.next);
     } catch (e) {
       if (pageCtrl !== mine || (e instanceof Error && e.name === 'AbortError')) return;
       setStatus(e instanceof Error ? e.message : gifErrorMessage(0), true);
@@ -118,6 +122,12 @@
         pageCtrl = null;
         loading = false;
       }
+    }
+    // A page of duplicates or rejected items doesn't grow the grid, so no
+    // scroll event follows: check the bottom again once the DOM has it.
+    if (advanced) {
+      await tick();
+      handleScroll();
     }
   }
 
@@ -184,8 +194,15 @@
   }
 
   function handleScroll() {
-    if (loading || nextOffset === null || !gridEl) return;
-    if (gridEl.scrollTop + gridEl.clientHeight >= gridEl.scrollHeight - 160) load(nextOffset);
+    if (!gridEl) return;
+    const go = shouldLoadMore({
+      loading,
+      nextOffset,
+      scrollTop: gridEl.scrollTop,
+      clientHeight: gridEl.clientHeight,
+      scrollHeight: gridEl.scrollHeight
+    });
+    if (go && nextOffset !== null) load(nextOffset);
   }
 
   function pick(gif: Gif) {
