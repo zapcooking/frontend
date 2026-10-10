@@ -146,6 +146,14 @@
     if (from?.url?.pathname === '/feed') {
       lastFeedUrl.set(from.url.pathname + from.url.search);
     }
+    // Landing routes ship no client JS (csr = false), so the client router
+    // can't render them: a client-side navigation to one (link, goto, back
+    // button) becomes a page load.
+    if (!willUnload && to?.url && to.url.origin === location.origin && isLandingRoute(to.route?.id)) {
+      cancel();
+      location.href = to.url.href;
+      return;
+    }
     if ($updated && !willUnload && to?.url) {
       // Cancel the client-side navigation first so SvelteKit doesn't start
       // resolving (stale) route chunks before the full-page load takes over.
