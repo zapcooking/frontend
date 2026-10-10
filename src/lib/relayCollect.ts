@@ -1,11 +1,13 @@
 /**
- * Raw-WebSocket relay reads for the /explore landing page (server only).
+ * Raw-WebSocket relay reads: the /explore landing data (in the Worker) and
+ * the curated Reads tab (in the browser).
  *
  * No NDK and no nostr-tools relay class: nostr-tools' AbstractRelay needs
  * MessageChannel, which workerd lacks, so it stops after the first frame
- * (see recipePackOg.server.ts for the single-event version of this). Every
- * read has a hard timeout and resolves with whatever arrived; nothing here
- * throws.
+ * (see recipePackOg.server.ts for the single-event version of this). In the
+ * browser this also keeps reads anonymous: an AUTH challenge is ignored, so
+ * no signer is ever prompted. Every read has a hard timeout and resolves with
+ * whatever arrived; nothing here throws.
  */
 
 export interface NostrEvent {

@@ -1,7 +1,5 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { triggerExploreNav } from '$lib/exploreNav';
-  import { goto } from '$app/navigation';
   import { theme } from '$lib/themeStore';
   import { userPublickey } from '$lib/nostr';
   import { navBalanceVisible } from '$lib/wallet';
@@ -167,13 +165,6 @@
     ].join(' ');
   }
 
-  function handleLogoClick() {
-    if ($page.url.pathname === '/explore') {
-      triggerExploreNav();
-    } else {
-      goto('/explore');
-    }
-  }
 </script>
 
 <!-- Stays visible (dimmed and blurred like the rest of the page)
@@ -189,8 +180,8 @@
          header row's height (51px, same var the header centers its
          search bar and icons in) so logo, search and icons share one
          optical axis. -->
-    <button
-      on:click={handleLogoClick}
+    <a
+      href="/explore"
       class="flex h-[var(--header-row-h)] items-center pl-2 cursor-pointer transition-transform duration-150 active:scale-95 active:opacity-80"
     >
       <img src="/zapcooking-text-light.svg" class="logo-light w-40 dark:hidden" alt="Zap Cooking" />
@@ -199,7 +190,7 @@
         class="logo-dark w-40 hidden dark:block"
         alt="Zap Cooking"
       />
-    </button>
+    </a>
     <nav class="flex flex-col gap-3 mt-3">
       <div>
         <!-- The Home group runs unlabeled; this spacer holds the height

@@ -1,9 +1,10 @@
 /**
  * Routes rendered as the chrome-less, no-JS landing page (`csr = false`):
- * the root layout renders only the page for these, hooks skip CORS so the
- * edge cache holds one response for everyone. /explore joins at cutover.
+ * the root layout renders only the page for these (and sends client-side
+ * navigations to them as full page loads), hooks skip CORS so the edge
+ * cache holds one response for everyone.
  */
-export const LANDING_ROUTE_IDS: ReadonlySet<string> = new Set(['/explore/next']);
+export const LANDING_ROUTE_IDS: ReadonlySet<string> = new Set(['/explore']);
 
 export function isLandingRoute(routeId: string | null | undefined): boolean {
 	return !!routeId && LANDING_ROUTE_IDS.has(routeId);

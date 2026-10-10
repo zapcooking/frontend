@@ -23,18 +23,18 @@ async function run() {
 	return { out, headers };
 }
 
-describe('/explore/next', () => {
+describe('/explore', () => {
 	it('ships no client JS (csr = false) and is never prerendered', () => {
 		expect(mod.csr).toBe(false);
 		expect(mod.prerender).toBe(false);
 	});
 
-	it('is edge-cacheable and not indexed until the cutover', async () => {
+	it('is edge-cacheable and indexable (noindex dropped at the cutover)', async () => {
 		getLandingData.mockResolvedValueOnce(emptyLandingData(1));
 		getLandingPaid.mockResolvedValueOnce({ boosts: [], sponsors: [] });
 		const { headers } = await run();
 		expect(headers['cache-control']).toBe('public, max-age=60, s-maxage=180');
-		expect(headers['x-robots-tag']).toBe('noindex');
+		expect(headers['x-robots-tag']).toBeUndefined();
 	});
 
 	it('paid boosts render even when every relay section came back empty', async () => {
