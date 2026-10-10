@@ -4,15 +4,17 @@ import { NOSCRIPT_DARK_STYLE, landingJsonLd, ogImage } from './meta';
 import { emptyLandingData } from './landingData.server';
 
 describe('landing routes', () => {
-	it('only /explore/next is a landing route until the cutover', () => {
-		expect(isLandingRoute('/explore/next')).toBe(true);
-		expect(isLandingRoute('/explore')).toBe(false);
+	it('/explore is the landing route; its old preview and sub-paths are not', () => {
+		expect(isLandingRoute('/explore')).toBe(true);
+		expect(isLandingRoute('/explore/next')).toBe(false);
+		expect(isLandingRoute('/explore/all')).toBe(false);
 		expect(isLandingRoute('/feed')).toBe(false);
 		expect(isLandingRoute(null)).toBe(false);
-		expect(isLandingPath('/explore/next')).toBe(true);
-		expect(isLandingPath('/explore/next/')).toBe(true);
-		expect(isLandingPath('/explore/next/__data.json')).toBe(false);
-		expect(isLandingPath('/api/explore/next')).toBe(false);
+		expect(isLandingPath('/explore')).toBe(true);
+		expect(isLandingPath('/explore/')).toBe(true);
+		expect(isLandingPath('/explore/__data.json')).toBe(false);
+		expect(isLandingPath('/explore/next')).toBe(false);
+		expect(isLandingPath('/api/explore')).toBe(false);
 	});
 
 	it('is edge-cacheable for everyone (shared, never private)', () => {
