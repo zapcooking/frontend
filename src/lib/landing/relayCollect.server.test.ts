@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { collect, raceKeyed, unionKeyed } from './relayCollect.server';
+import { MAX_EVENTS_PER_SUB, collect, raceKeyed, unionKeyed } from './relayCollect.server';
 import { FakeWebSocket, ev, pk, relay, relays } from './fakeRelay.testutil';
 
 const A = 'wss://a.test';
@@ -30,6 +30,26 @@ describe('collect', () => {
 		expect(Date.now() - t0).toBeLessThan(400);
 		expect(r.done.notes).toBe(false);
 		expect(r.events.notes).toEqual([]);
+	});
+
+	it('drops malformed events: tags must be arrays of strings', async () => {
+		const good = ev({ kind: 1, pubkey: pk('a'), tags: [['t', 'food']] });
+		const nullTag = { ...ev({ kind: 1, pubkey: pk('b') }), tags: [null] } as unknown as ReturnType<typeof ev>;
+		const numTag = { ...ev({ kind: 1, pubkey: pk('c') }), tags: [['t', 5]] } as unknown as ReturnType<typeof ev>;
+		const notArray = { ...ev({ kind: 1, pubkey: pk('d') }), tags: ['t'] } as unknown as ReturnType<typeof ev>;
+		relay(A, [good, nullTag, numTag, notArray]);
+		const r = await collect(A, { x: { kinds: [1] } }, { timeoutMs: 500 });
+		expect(r.events.x.map((e) => e.id)).toEqual([good.id]);
+	});
+
+	it('never keeps more than the filter limit, or the global cap, even from a relay that ignores limit', async () => {
+		const many = Array.from({ length: MAX_EVENTS_PER_SUB + 50 }, (_, i) => ev({ kind: 1, pubkey: pk('a'), created_at: 1_800_000_000 - i }));
+		const r1 = relay(A, many);
+		r1.ignoreLimit = true;
+		const capped = await collect(A, { x: { kinds: [1], limit: 5 } }, { timeoutMs: 1000 });
+		expect(capped.events.x).toHaveLength(5);
+		const unbounded = await collect(A, { x: { kinds: [1] } }, { timeoutMs: 1000 });
+		expect(unbounded.events.x).toHaveLength(MAX_EVENTS_PER_SUB);
 	});
 
 	it('records CLOSED reasons and treats them as done', async () => {

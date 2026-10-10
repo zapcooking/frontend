@@ -6,7 +6,10 @@
  *   30004 d=explore-hero    `a` refs: 1st = cover, next = picks
  *   30004 d=explore-reads   `a` refs: food reads
  *   30015 d=explore-topics  `t` tags: topic slugs
- *   30000 d=feed-foodies    `p` tags: cooks (also the feed relay's trust list)
+ *   30000 d=feed-foodies    `p` tags: cooks (also the feed relay's trust list).
+ *       It holds far more cooks than the page shows (12), so the page shows a
+ *       window that starts one cook later each UTC day and wraps: list order
+ *       is kept within the window (rotateDaily), everyone gets a turn.
  */
 
 /** zap.cooking's org pubkey (the `_` NIP-05 name). */

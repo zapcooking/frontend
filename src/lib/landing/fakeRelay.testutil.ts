@@ -16,6 +16,8 @@ export interface FakeRelay {
 	reqs: Record<string, unknown>[];
 	/** ms before EOSE. */
 	delayMs?: number;
+	/** Send every match, ignoring the filter's limit (a misbehaving relay). */
+	ignoreLimit?: boolean;
 }
 
 export const relays = new Map<string, FakeRelay>();
@@ -86,7 +88,8 @@ export class FakeWebSocket {
 				this.onmessage?.({ data: JSON.stringify(['CLOSED', subId, 'auth-required: test']) });
 				return;
 			}
-			for (const e of query(r.events, filter)) {
+			const { limit: _limit, ...unlimited } = filter;
+			for (const e of query(r.events, r.ignoreLimit ? unlimited : filter)) {
 				this.onmessage?.({ data: JSON.stringify(['EVENT', subId, e]) });
 			}
 			this.onmessage?.({ data: JSON.stringify(['EOSE', subId]) });

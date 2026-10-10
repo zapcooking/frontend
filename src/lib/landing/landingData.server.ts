@@ -132,9 +132,11 @@ export function parseNip11Topics(doc: unknown): Nip11Topics | null {
 			count14d: typeof x.count_14d === 'number' ? x.count_14d : null
 		});
 	};
-	for (const p of Array.isArray(t.parents) ? (t.parents as Record<string, unknown>[]) : []) {
+	const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
+	for (const p of Array.isArray(t.parents) ? t.parents : []) {
+		if (!isObj(p)) continue;
 		add(p);
-		for (const c of Array.isArray(p.topics) ? (p.topics as Record<string, unknown>[]) : []) add(c);
+		for (const c of Array.isArray(p.topics) ? p.topics : []) if (isObj(c)) add(c);
 	}
 	return { featured, bySlug };
 }
@@ -265,7 +267,12 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 
 	const [feed2, profileRes] = await Promise.all([
 		collect(FEED_RELAY, round2Feed, { timeoutMs }),
-		unionKeyed(PROFILE_RELAYS, { p: { kinds: [0], authors: [...bylinePubkeys].slice(0, 150) } }, { timeoutMs })
+		unionKeyed(
+			PROFILE_RELAYS,
+			// One kind 0 per author is enough; the limit also bounds what a relay may send.
+			{ p: { kinds: [0], authors: [...bylinePubkeys].slice(0, 150), limit: Math.min(bylinePubkeys.size, 150) } },
+			{ timeoutMs }
+		)
 	]);
 	const profiles = newestProfiles(profileRes.events.p.filter(verify));
 

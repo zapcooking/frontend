@@ -12,6 +12,7 @@ import {
 	emptyLandingData,
 	getLandingData,
 	mergeWithLastGood,
+	parseNip11Topics,
 	type CacheLike,
 	type LandingData
 } from './landingData.server';
@@ -177,6 +178,21 @@ describe('buildLandingData', () => {
 		for (const url of [FEED_RELAY, ...LIST_RELAYS, ...READS_RELAYS, ...PROFILE_RELAYS]) relay(url, [], 'down');
 		const d = await buildLandingData({ ...deps, fetchNip11: async () => null });
 		expect(d).toEqual({ ...emptyLandingData(NOW) });
+	});
+});
+
+describe('parseNip11Topics', () => {
+	it('treats malformed topic entries as missing data, never throws', () => {
+		const t = parseNip11Topics({
+			topics: {
+				featured_topics: [null, { slug: 'coffee', label: 'Coffee' }, 7],
+				parents: [null, 'x', [], { slug: 'baking', name: 'Baking', count_14d: 46, topics: [null, { slug: 'bread', count_14d: 19 }, 3] }]
+			}
+		});
+		expect(t?.featured.map((f) => f.slug)).toEqual(['coffee']);
+		expect([...t!.bySlug.keys()]).toEqual(['baking', 'bread']);
+		expect(parseNip11Topics({ topics: null })).toBeNull();
+		expect(parseNip11Topics(null)).toBeNull();
 	});
 });
 

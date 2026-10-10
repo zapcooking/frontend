@@ -46,6 +46,12 @@ describe('chooseCover (D14: the cover photo must be on a fast-resize host)', () 
 		expect(chooseCover([], []).cover).toBeNull();
 	});
 
+	it('no fast photo anywhere: no cover, but the candidates still fill the picks', () => {
+		const r = chooseCover([card('slow1', SLOW), card('slow2', SLOW), card('slow3', SLOW)], []);
+		expect(r.cover).toBeNull();
+		expect(r.picks.map((p) => p.coordinate)).toEqual(['slow1', 'slow2']);
+	});
+
 	it('classifies hosts by the routing table', () => {
 		expect(isFastResizeImage(FAST)).toBe(true);
 		expect(isFastResizeImage(FAST_CF)).toBe(true);
@@ -90,7 +96,7 @@ describe('cards', () => {
 });
 
 describe('rotateDaily', () => {
-	it('is stable within a UTC day and moves by one each day', () => {
+	it('keeps list order inside the window (cyclic), stable within a UTC day, moving by one each day', () => {
 		const items = ['a', 'b', 'c', 'd'];
 		const day = 86400 * 1000;
 		expect(rotateDaily(items, 2, day)).toEqual(rotateDaily(items, 2, day + 86399));

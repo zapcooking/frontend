@@ -34,18 +34,30 @@ export interface CollectOptions {
 	signal?: AbortSignal;
 }
 
+/** Most events kept per subscription, whatever `limit` a relay honours. */
+export const MAX_EVENTS_PER_SUB = 500;
+
 function isEventShape(e: unknown): e is NostrEvent {
 	const x = e as NostrEvent;
 	return (
 		!!x &&
+		typeof x === 'object' &&
 		typeof x.id === 'string' &&
 		typeof x.pubkey === 'string' &&
 		typeof x.created_at === 'number' &&
 		typeof x.kind === 'number' &&
 		Array.isArray(x.tags) &&
+		// Every tag an array of strings: downstream tag readers never see null or numbers.
+		x.tags.every((t) => Array.isArray(t) && t.every((v) => typeof v === 'string')) &&
 		typeof x.content === 'string' &&
 		typeof x.sig === 'string'
 	);
+}
+
+/** Events to keep for a filter: its own limit (when sane), never more than the cap. */
+function capFor(filter: Filter): number {
+	const l = filter.limit;
+	return typeof l === 'number' && l > 0 ? Math.min(l, MAX_EVENTS_PER_SUB) : MAX_EVENTS_PER_SUB;
 }
 
 /**
@@ -58,6 +70,7 @@ export function collect(
 	opts: CollectOptions
 ): Promise<CollectResult> {
 	const keys = Object.keys(subs);
+	const caps = Object.fromEntries(keys.map((k) => [k, capFor(subs[k])]));
 	const result: CollectResult = { events: {}, done: {}, closed: {} };
 	for (const k of keys) {
 		result.events[k] = [];
@@ -115,7 +128,8 @@ export function collect(
 			const key = subIds.get(data[1] as string);
 			if (!key) return; // AUTH challenges, NOTICEs, stale subs
 			if (data[0] === 'EVENT' && isEventShape(data[2])) {
-				result.events[key].push(data[2]);
+				// A relay that ignores `limit` can't grow memory past the cap.
+				if (result.events[key].length < caps[key]) result.events[key].push(data[2]);
 			} else if (data[0] === 'EOSE' || data[0] === 'CLOSED') {
 				if (data[0] === 'CLOSED') result.closed[key] = String(data[2] ?? '');
 				result.done[key] = true;

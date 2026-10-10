@@ -225,6 +225,8 @@ export function capPerAuthor<T extends { author: CardAuthor }>(items: T[], perAu
  * the first candidate whose photo is on a fast-resize host; when the
  * editor's first choice isn't, the next valid one is promoted and the rest
  * keep their order as picks. `fallback` fills an empty cover and short picks.
+ * With no fast photo anywhere the cover is null (the page shows its static
+ * editorial cover) and the candidates still fill the picks.
  */
 export function chooseCover(
 	candidates: LongformCard[],
@@ -238,7 +240,7 @@ export function chooseCover(
 		return true;
 	});
 	const coverIdx = pool.findIndex((c) => isFastResizeImage(c.image));
-	if (coverIdx < 0) return { cover: null, picks: [] };
+	if (coverIdx < 0) return { cover: null, picks: pool.slice(0, picks) };
 	const cover = pool[coverIdx];
 	const rest = pool.filter((_, i) => i !== coverIdx);
 	return { cover, picks: rest.slice(0, picks) };
