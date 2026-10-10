@@ -103,12 +103,17 @@ describe('slots: spacing and jitter', () => {
 
 describe('rotation', () => {
   const all = () => true;
-  const run = (n: number, ready: (t: SpecialType) => boolean, member = true, prefs = NO_FEWER) => {
+  const run = (
+    n: number,
+    ready: (t: SpecialType) => boolean,
+    available: (t: SpecialType) => boolean = () => true,
+    prefs = NO_FEWER
+  ) => {
     const r = new Rotation();
-    const caps = capsFor(member, prefs);
+    const caps = capsFor(prefs);
     const seq: SpecialType[] = [];
     for (let i = 0; i < n; i++) {
-      const t = r.choose(ready, caps, prefs);
+      const t = r.choose(ready, caps, prefs, false, available);
       if (!t) continue; // a skipped slot
       r.record(t);
       seq.push(t);
@@ -147,7 +152,7 @@ describe('rotation', () => {
 
   it('a type out of unshown content is skipped; the rest keep alternating', () => {
     const r = new Rotation();
-    const caps = capsFor(true, NO_FEWER);
+    const caps = capsFor(NO_FEWER);
     const noSpotlights = (t: SpecialType) => t !== 'spotlight';
     const seq: SpecialType[] = [];
     for (let i = 0; i < 6; i++) {
@@ -158,14 +163,14 @@ describe('rotation', () => {
     expect(seq).toEqual(['recipe', 'memory', 'recipe', 'memory', 'recipe', 'memory']);
   });
 
-  it('only one type available (members-only declined, non-members after the teaser): it may repeat', () => {
-    const seq = run(6, all, false);
-    expect(seq).toEqual(['recipe', 'spotlight', 'recipe', 'recipe', 'recipe', 'recipe']);
+  it('only one type available (the others out of unshown content): it may repeat', () => {
+    const seq = run(6, all, (t) => t === 'recipe');
+    expect(seq).toEqual(['recipe', 'recipe', 'recipe', 'recipe', 'recipe', 'recipe']);
   });
 
   it('a type with nothing ready yields to the next ready type; nothing ready skips the slot', () => {
     const r = new Rotation();
-    const caps = capsFor(true, NO_FEWER);
+    const caps = capsFor(NO_FEWER);
     r.record('recipe');
     expect(r.choose((t) => t !== 'spotlight', caps, NO_FEWER)).toBe('memory');
     expect(r.choose(() => false, caps, NO_FEWER)).toBeNull();
@@ -173,27 +178,27 @@ describe('rotation', () => {
 
   it('strict (slot far below the screen): waits for the pattern’s own type instead of another', () => {
     const r = new Rotation();
-    const caps = capsFor(true, NO_FEWER);
+    const caps = capsFor(NO_FEWER);
     const notRecipe = (t: SpecialType) => t !== 'recipe';
     expect(r.choose(notRecipe, caps, NO_FEWER, true)).toBeNull();
     expect(r.choose(notRecipe, caps, NO_FEWER, false)).toBe('spotlight');
   });
 
-  it('non-members: unlimited recipe cards, at most one spotlight teaser, no memories', () => {
-    expect(capsFor(false, NO_FEWER)).toEqual({ recipe: Infinity, spotlight: 1, memory: 0 });
+  it('the same caps for everyone: every card is a preview, nothing is capped per session', () => {
+    expect(capsFor(NO_FEWER)).toEqual({ recipe: Infinity, spotlight: Infinity, memory: Infinity });
   });
 });
 
 describe('"Show fewer like this" overrides the defaults', () => {
   it('gives the type a per-session cap', () => {
     const prefs = { fewer: { recipe: false, spotlight: true, memory: false } };
-    expect(capsFor(true, prefs).spotlight).toBe(SPECIALS.fewerCap);
-    expect(capsFor(true, prefs).recipe).toBe(Infinity);
+    expect(capsFor(prefs).spotlight).toBe(SPECIALS.fewerCap);
+    expect(capsFor(prefs).recipe).toBe(Infinity);
   });
 
   it('lowers the frequency: the type takes only every other turn, then stops at its cap', () => {
     const prefs = { fewer: { recipe: false, spotlight: true, memory: false } };
-    const caps = capsFor(true, prefs);
+    const caps = capsFor(prefs);
     const r = new Rotation();
     const seq: SpecialType[] = [];
     for (let i = 0; i < 40; i++) {

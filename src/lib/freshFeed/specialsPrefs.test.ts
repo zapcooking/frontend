@@ -10,7 +10,6 @@ import {
   loadTopicHistory,
   resetPrefs,
   resetPrefsForTests,
-  setAutoUnlock,
   setSpecialsOff,
   showFewer,
   specialsPrefs,
@@ -30,18 +29,29 @@ function memory() {
 beforeEach(() => resetPrefsForTests());
 
 describe('choices (device-local)', () => {
-  it('"Auto-unlock member content" is off by default, persists on the device, and Reset turns it off', () => {
+  it('an earlier "Auto-unlock member content" choice is dropped from the device on first read', () => {
+    // Nothing in the feed is unlocked any more (every card is a preview):
+    // the stored key is forgotten, the other choices kept.
     const s = memory();
-    expect(get(specialsPrefs(s)).autoUnlock).toBe(false);
-    setAutoUnlock(true, s);
-    expect(get(specialsPrefs(s)).autoUnlock).toBe(true);
-    resetPrefsForTests();
-    expect(get(specialsPrefs(s)).autoUnlock).toBe(true); // read back from the device
-    setAutoUnlock(false, s);
-    expect(get(specialsPrefs(s)).autoUnlock).toBe(false);
-    setAutoUnlock(true, s);
-    resetPrefs(s);
-    expect(get(specialsPrefs(s)).autoUnlock).toBe(false);
+    s.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        fewer: { recipe: false, spotlight: true, memory: false },
+        hiddenTopics: ['tea'],
+        off: false,
+        autoUnlock: true
+      })
+    );
+    const p = get(specialsPrefs(s));
+    expect(p).toEqual({
+      fewer: { recipe: false, spotlight: true, memory: false },
+      hiddenTopics: ['tea'],
+      off: false
+    });
+    expect('autoUnlock' in p).toBe(false);
+    const stored = JSON.parse(s.m.get(PREFS_KEY)!);
+    expect('autoUnlock' in stored).toBe(false); // rewritten without it
+    expect(stored.hiddenTopics).toEqual(['tea']);
   });
 
   it('"Show fewer like this", "Hide this topic" and "off" persist on the device', () => {
@@ -68,8 +78,7 @@ describe('choices (device-local)', () => {
     expect(p).toEqual({
       fewer: { recipe: false, spotlight: false, memory: false },
       hiddenTopics: [],
-      off: false,
-      autoUnlock: false
+      off: false
     });
   });
 

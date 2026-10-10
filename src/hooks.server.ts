@@ -14,6 +14,7 @@ import {
 } from '$lib/recipeOgHtml.server';
 import type { RecipeOgMeta } from '$lib/recipeOgMeta';
 import { loadReadsModerationLists } from '$lib/reads/moderation.server';
+import { isLandingPath, stripFontPreload } from '$lib/landing/route';
 
 /**
  * Log the real server-side error (with stack) instead of letting SvelteKit
@@ -203,8 +204,12 @@ export const handle: Handle = async ({ event, resolve }) => {
   const authIntent = hasAuthIntent(event.request);
   const useWildcard = !authIntent || process.env.NODE_ENV === 'development';
 
-  // Apply CORS to API routes and all browser-originating requests.
-  const shouldApplyCors = ENABLE_CORS_ALL || isApiRoute || Boolean(origin);
+  // Apply CORS to API routes and all browser-originating requests. Not to
+  // landing pages: they're edge-cached for everyone, and a stored
+  // `Access-Control-Allow-Origin: <origin>` + `Vary: Origin` from the first
+  // request would be served to every reader.
+  const shouldApplyCors =
+    !isLandingPath(event.url.pathname) && (ENABLE_CORS_ALL || isApiRoute || Boolean(origin));
 
   if (event.request.method === 'OPTIONS' && shouldApplyCors) {
     if (authIntent && origin && !trustedOrigin) {
@@ -221,7 +226,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   const response = ogTagBlock
     ? await resolve(event, { transformPageChunk: createOgPageTransformer(ogTagBlock) })
-    : await resolve(event);
+    : isLandingPath(event.url.pathname)
+      ? await resolve(event, { transformPageChunk: ({ html }) => stripFontPreload(html) })
+      : await resolve(event);
 
   if (!shouldApplyCors) {
     return response;

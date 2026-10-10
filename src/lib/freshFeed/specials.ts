@@ -60,8 +60,8 @@ export interface RotationPrefs {
   fewer: Record<SpecialType, boolean>;
 }
 
-export function capsFor(member: boolean, prefs: RotationPrefs): Record<SpecialType, number> {
-  const base = member ? SPECIALS.caps : SPECIALS.freeCaps;
+export function capsFor(prefs: RotationPrefs): Record<SpecialType, number> {
+  const base = SPECIALS.caps;
   const out = { ...base };
   for (const t of SPECIALS.rotation)
     if (prefs.fewer[t]) out[t] = Math.min(base[t], SPECIALS.fewerCap);
@@ -84,8 +84,8 @@ export class Rotation {
    * has its turn (fewer: every Nth), has something ready, and isn't the
    * last one shown, unless no other type is still available.
    * `available` (default: all) is false for a type that can't appear at all
-   * right now (members-only types for a reader who declined, a type out of
-   * unshown content). `strict` (the slot is still far below the screen):
+   * right now (a type out of unshown content, previews the relay
+   * refuses). `strict` (the slot is still far below the screen):
    * only the pattern's own next type counts, so a card that is still
    * loading isn't replaced by another one. null = wait (strict) or skip.
    */
@@ -257,22 +257,18 @@ export function memoryLabel(variant: MemoryVariant, yearsBack = 1): string {
 
 // --- The feed with its cards ---
 
+/**
+ * A card in the feed. A spotlight is a preview: a few posts from the
+ * relay's anonymous topic preview query, the same for everyone. A memory
+ * is members-only: its posts come from the authenticated history query
+ * (there is no anonymous preview of history, and nothing waits for one),
+ * so only a logged-in member's feed carries memory cards. The full topic
+ * feed or archive view behind either card is for members, which the feed
+ * gates when the card is opened.
+ */
 export type Special =
   | { type: 'recipe'; post: RelayEvent }
   | ({ type: 'spotlight'; posts: RelayEvent[] } & TopicPick)
-  | ({ type: 'teaser' } & TopicPick)
-  | {
-      /** A members-only card while the feed isn't logged in ($lib/freshFeed/memberUnlock). */
-      type: 'unlock';
-      for: 'spotlight' | 'memory';
-      /**
-       * offer: the tap card; busy: the signer is open; loading: logged in,
-       * the card's content is on its way (the relay may hold a stale "not a
-       * member" for a minute); unavailable: logged in, but the relay kept
-       * refusing; declined: the login was declined this session.
-       */
-      status: 'offer' | 'busy' | 'loading' | 'unavailable' | 'declined';
-    }
   | {
       type: 'memory';
       variant: MemoryVariant;
@@ -280,11 +276,11 @@ export type Special =
       /** The day ("October 7, 2025") or month ("March 2024") it comes from. */
       heading: string;
       posts: RelayEvent[];
+      /** "From the archive": the month's key, for opening the time machine there. */
+      monthKey?: string;
     };
 
 export function rotationType(s: Special): SpecialType {
-  if (s.type === 'teaser') return 'spotlight';
-  if (s.type === 'unlock') return s.for;
   return s.type;
 }
 

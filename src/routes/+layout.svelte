@@ -8,6 +8,7 @@
   import { goto, beforeNavigate } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
   import { lastFeedUrl } from '$lib/feedOrigin';
+  import { isLandingRoute } from '$lib/landing/route';
   import BottomNav from '../components/BottomNav.svelte';
   import DesktopSideNav from '../components/DesktopSideNav.svelte';
   import NotificationSubscriber from '../components/NotificationSubscriber.svelte';
@@ -38,7 +39,6 @@
   import { clearDecryptCache } from '$lib/encryptionService';
   import { clearUnwrapCache } from '$lib/nip17';
   import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
-  import { preconnectPantry } from '$lib/nip29';
   import { installNsecPasteGuard } from '$lib/nsecPasteGuard';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
@@ -83,8 +83,6 @@
   import { detectPlatform } from '$lib/platform';
   // Startup coordination — defer non-critical services until feed renders
   import { feedInitialLoadDone } from '$lib/startupState';
-  // Prewarm outbox relay list cache early (on login, regardless of page)
-  import { prewarmOutboxCache } from '$lib/followOutbox';
   // Refresh engagement counts when the tab returns from background
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement, clearAllEngagementCaches } from '$lib/engagementCache';
@@ -149,6 +147,14 @@
     // "back to feed" affordances return to the tab the user was on.
     if (from?.url?.pathname === '/feed') {
       lastFeedUrl.set(from.url.pathname + from.url.search);
+    }
+    // Landing routes ship no client JS (csr = false), so the client router
+    // can't render them: a client-side navigation to one (link, goto, back
+    // button) becomes a page load.
+    if (!willUnload && to?.url && to.url.origin === location.origin && isLandingRoute(to.route?.id)) {
+      cancel();
+      location.href = to.url.href;
+      return;
     }
     if ($updated && !willUnload && to?.url) {
       // Cancel the client-side navigation first so SvelteKit doesn't start
@@ -289,7 +295,11 @@
   // The persistent Cheffy messenger is hidden on the full Cheffy page
   // (redundant), the chrome-less messaging surfaces, and auth flows.
   $: showCheffy = isCheffyRoute($page.url.pathname);
+  // Landing routes ($lib/landing/route) are server-rendered with no client
+  // JS: the layout renders only the page (its own header, footer and meta).
+  $: landing = isLandingRoute($page.route.id);
   $: hasCustomOgTags =
+    landing ||
     $page.url.pathname.startsWith('/recipe/') ||
     $page.url.pathname.startsWith('/r/') ||
     $page.url.pathname.startsWith('/pack/') ||
@@ -501,11 +511,13 @@
           setTimeout(() => void sweepLegacyMnemonic(state.publicKey), 2500);
           // Message subscriptions are lazy — initialized when user navigates to /messages.
           // This avoids flooding browser signers with NIP-44 decrypt requests on login.
-          // Pre-connect pantry relay shortly after login so groups load instantly
-          // when user navigates to /groups (auth signing is only ~35ms, no contention risk)
-          setTimeout(() => preconnectPantry($ndk), 1000);
-          // Prewarm outbox relay list cache so feed loads faster regardless of which page user lands on
-          setTimeout(() => prewarmOutboxCache($ndk, state.publicKey).catch(() => {}), 2000);
+          // The pantry relay (Groups) connects when /groups needs it (nip29
+          // ensurePantryConnected): a pre-connect here opened a socket, sent
+          // REQs the relay refused, and asked NIP-07 signers for an AUTH on
+          // every login. The Following feed's relay lists load when that tab
+          // opens (followOutbox → relayListCache): a login-time prewarm of
+          // every follow's list made NDK's outbox tracker fetch each follow's
+          // kind-3 contact list too — 30 MB on one /feed load.
           // Logout wipes wallet data by design; put the last-used wallet
           // back from the user's Nostr backups. Deferred so first paint
           // and the feed win the relay/signer bandwidth — the restore can
@@ -635,7 +647,13 @@
   onMount(() => {
     if (browser) {
       try {
-        indexedDB.deleteDatabase('zapcooking-garden-cache');
+        // Once per browser: the delete of a nonexistent database is a no-op,
+        // but each attempt still opens IndexedDB during app boot.
+        const DONE = 'zc:garden-cache-dropped';
+        if (!localStorage.getItem(DONE)) {
+          indexedDB.deleteDatabase('zapcooking-garden-cache');
+          localStorage.setItem(DONE, '1');
+        }
       } catch {
         // ignore — implicitly retried on the next app load
       }
@@ -704,6 +722,9 @@
   {/if}
 </svelte:head>
 
+{#if landing}
+  <slot />
+{:else}
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
   <div
     class="h-screen scroll-smooth overflow-hidden transition-colors duration-200 safe-area-container"
@@ -822,6 +843,7 @@
     </div>
   </div>
 </ErrorBoundary>
+{/if}
 
 <style>
   .kitchen-scroll {
