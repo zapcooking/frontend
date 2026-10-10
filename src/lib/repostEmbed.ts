@@ -13,7 +13,8 @@
  * so the lookup returns null after `timeoutMs` rather than hanging the
  * caller in a loading state.
  */
-import { NDKEvent, NDKRelaySet, type NDK } from '@nostr-dev-kit/ndk';
+import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
 
 export const REPOST_EMBED_TIMEOUT_MS = 8000;
 

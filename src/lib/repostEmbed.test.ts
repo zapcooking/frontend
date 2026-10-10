@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fetchEventViaRepostEmbed, REPOST_EMBED_TIMEOUT_MS } from './repostEmbed';
-import { NDKEvent, type NDK } from '@nostr-dev-kit/ndk';
+import { NDKEvent } from '@nostr-dev-kit/ndk';
+import type NDK from '@nostr-dev-kit/ndk';
 
 vi.mock('$app/environment', () => ({ browser: true }));
 
