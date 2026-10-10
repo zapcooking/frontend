@@ -52,7 +52,9 @@
     activeWallet,
     rememberActiveWallet,
     getLastWalletRecord,
-    autoRestoreWalletAtLogin
+    autoRestoreWalletAtLogin,
+    evaluateWalletSetupState,
+    walletSetupCheckPending
   } from '$lib/wallet';
   import {
     disconnectWallet as disconnectSparkWallet,
@@ -496,6 +498,12 @@
         // Sync with legacy userPublickey store for compatibility
         if (state.isAuthenticated && state.publicKey) {
           userPublickey.set(state.publicKey);
+          // Synchronously answer "does this account obviously have a
+          // wallet?" so the sidebar card never flashes "Set up a Wallet"
+          // while the deferred restore check / envelope decryption are
+          // still ahead. autoRestoreWalletAtLogin holds the flag through
+          // an actual restore and clears it on every outcome.
+          evaluateWalletSetupState(state.publicKey);
           // Upgrade a legacy V1 Spark mnemonic (key = sha256(pubkey), so
           // readable by anyone with localStorage access) without waiting
           // for the user to open the wallet. Deferred so it never competes
@@ -529,6 +537,7 @@
           clearAllEngagementCaches();
           disconnectSparkWallet().catch(() => {});
           clearAllWallets();
+          walletSetupCheckPending.set(false);
           clearAllSparkWallets();
         }
 
