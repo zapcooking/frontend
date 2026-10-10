@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 
 /**
  * Server-side proxy for gifs.nostr.build's GIF search API (`/search` and
@@ -20,15 +21,54 @@ const OFFSET_MAX = 199;
 const SUGGEST_LIMIT = 6;
 const UPSTREAM_TIMEOUT_MS = 8000;
 
+/**
+ * Per-IP caps on requests that reach the upstream (one shared bucket for
+ * search + suggest). Repeat queries are answered by the edge cache before
+ * this code runs, so only misses count. Typing is debounced (350 ms) and a
+ * query pages at most 9 times, so these sit far above real use while
+ * keeping a third party from burning the shared key's upstream limits.
+ */
+export const GIF_PER_HOUR = 300;
+export const GIF_PER_DAY = 1500;
+
+type RateLimitKV = Parameters<typeof checkPerIpRateLimit>[0];
+
+export interface GifProxyContext {
+  /** The caller's IP (SvelteKit getClientAddress). */
+  ip: string;
+  /** KV namespace for the per-IP counters; missing = unmetered (logged). */
+  kv: RateLimitKV;
+}
+
 export async function proxyGifRequest(
   endpoint: 'search' | 'suggest',
-  params: URLSearchParams
+  params: URLSearchParams,
+  ctx: GifProxyContext
 ): Promise<Response> {
   const key = env.GIFS_NOSTR_BUILD_API_KEY;
   if (!key) throw error(503, 'GIF search is not configured');
 
   const q = (params.get('q') || '').trim().slice(0, QUERY_MAX);
   if (!q) throw error(400, 'Missing search term');
+
+  if (!ctx.kv) console.warn('[gif-proxy] rate-limit KV not bound — GIF search is unmetered');
+  const rl = await checkPerIpRateLimit(ctx.kv, {
+    ip: ctx.ip,
+    scope: 'gif-search',
+    perHour: GIF_PER_HOUR,
+    perDay: GIF_PER_DAY
+  });
+  if (rl.limited) {
+    // The picker maps 429 to "Too many searches. Try again in a minute."
+    return new Response(JSON.stringify(rl.body), {
+      status: 429,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+        'Retry-After': String(rl.body.retryAfter)
+      }
+    });
+  }
 
   const upstream = new URLSearchParams({ q, safe: '1' });
   if (endpoint === 'search') {
