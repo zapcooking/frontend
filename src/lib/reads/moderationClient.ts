@@ -29,6 +29,13 @@ const postedHits = new Set<string>();
 /** Reactive compiled lists so feed UIs can re-filter after overlay load. */
 export const readsModerationVersion = writable(0);
 
+/**
+ * True once the first overlay fetch has settled (loaded or failed). "All
+ * reads" waits for it, so an org-blocked or hidden article never renders
+ * while the lists are still on their way.
+ */
+export const readsModerationReady = writable(false);
+
 function bumpVersion() {
 	readsModerationVersion.update((n) => n + 1);
 }
@@ -72,6 +79,7 @@ async function fetchOverlay(): Promise<void> {
 			// Seed lists still apply.
 		} finally {
 			overlayInFlight = null;
+			readsModerationReady.set(true);
 		}
 	})();
 

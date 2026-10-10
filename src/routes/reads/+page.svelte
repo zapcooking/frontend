@@ -30,6 +30,14 @@
   import { get } from 'svelte/store';
   import { fetchCuratedReads } from '$lib/reads/curatedReads';
   import { loadReadsSource, saveReadsSource, type ReadsSource } from '$lib/reads/readsSource';
+  import {
+    ensureReadsModerationLoaded,
+    isBlockedFromReads,
+    readsModerationReady,
+    readsModerationVersion
+  } from '$lib/reads/moderationClient';
+  import { createSpamClassifier, type SpamReason } from '$lib/reads/spamRules';
+  import { cleanCover, toSpamEvent } from '$lib/reads/allReadsView';
 
   $: isSignedIn = $userPublickey !== '';
   $: draftCount = $drafts.length;
@@ -99,9 +107,29 @@
     return TOP_RELAY_FOOD_HASHTAGS;
   }
 
+  // "All reads" spam rules (the curated tab is the relay's job). Flagged
+  // articles fold under a reveal line in FeedSection; the cover never holds
+  // one, nor anything the moderation lists hide.
+  const classifySpam = createSpamClassifier();
+  const NO_SPAM: Map<string, SpamReason> = new Map();
+  $: allSpamReasons = source === 'all' ? classifySpam(articles.map(toSpamEvent)) : NO_SPAM;
+  // Swapped in place: the next check finds the replacement clean, so the
+  // candidate scan runs only when a flagged or newly blocked article is in it.
+  $: if (source === 'all' && $readsModerationVersion >= 0) {
+    const next = cleanCover(
+      cover,
+      () => articles.filter((a) => isValidLongformArticle(a.event)),
+      (a) => allSpamReasons.has(a.id) || isBlockedFromReads(a.event),
+      (clean) => curateCover(clean)
+    );
+    if (next !== cover) cover = next;
+  }
+
   $: shownArticles = source === 'curated' ? curatedArticles : articles;
   $: shownCover = source === 'curated' ? curatedCover : cover;
-  $: shownLoading = source === 'curated' ? curatedLoading && !curatedLoaded : loading;
+  // The open search waits for the moderation lists, so a blocked or hidden
+  // article never renders while they're on their way.
+  $: shownLoading = source === 'curated' ? curatedLoading && !curatedLoaded : loading || !$readsModerationReady;
 
   // Cover article IDs to exclude from feed
   $: coverArticleIds = shownCover
@@ -139,6 +167,7 @@
   function startAll() {
     if (allStarted) return;
     allStarted = true;
+    ensureReadsModerationLoaded();
     loadArticles();
   }
 
@@ -969,6 +998,7 @@
       loading={shownLoading}
       {coverArticleIds}
       loadingMore={source === 'curated' ? false : loadingMore}
+      spamReasons={allSpamReasons}
       {followedPubkeys}
       {isSignedIn}
       on:loadMore={handleLoadMore}
