@@ -6,6 +6,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { formatDistanceToNow } from 'date-fns';
   import { getPlaceholderImage } from '$lib/placeholderImages';
+  import { readsImage } from '$lib/reads/readsImage';
 
   export let event: NDKEvent;
   export let imageUrl: string | null = null;
@@ -16,24 +17,33 @@
   export let articleUrl: string;
   /** The hover bookmark button (a placeholder that does nothing yet); Fresh hides it. */
   export let showBookmark = true;
+  /**
+   * Load a sized rendition through the image routing table (srcset), falling
+   * back to the original, then the placeholder. /reads turns it on; other
+   * users of this card keep the original URL for now.
+   */
+  export let routeImage = false;
 
-  let imageError = false;
+  // 0 = routed rendition (or the original when routeImage is off), 1 = original, 2 = placeholder.
+  let attempt = 0;
   let imageLoaded = false;
 
-  // Use placeholder image when no image or on error
-  $: displayImageUrl = imageError
-    ? getPlaceholderImage(event?.id)
-    : imageUrl || getPlaceholderImage(event?.id);
+  $: placeholder = getPlaceholderImage(event?.id);
+  $: img = routeImage
+    ? readsImage(imageUrl, 'card', attempt, placeholder)
+    : { src: attempt === 0 && imageUrl ? imageUrl : placeholder, srcset: undefined, sizes: undefined };
 
   function handleImageError() {
-    imageError = true;
+    // Unrouted: straight to the placeholder, as before.
+    attempt = routeImage ? Math.min(attempt + 1, 2) : 2;
+    imageLoaded = false;
   }
 
   function handleImageLoad(e: Event) {
-    const img = e.target as HTMLImageElement;
+    const el = e.target as HTMLImageElement;
     // Treat tiny images (likely error pages/placeholders) as broken
-    if (img.naturalWidth < 10 || img.naturalHeight < 10) {
-      imageError = true;
+    if (el.naturalWidth < 10 || el.naturalHeight < 10) {
+      handleImageError();
       return;
     }
     imageLoaded = true;
@@ -70,7 +80,10 @@
     style="height: 200px; aspect-ratio: 16/9; overflow: hidden; border-radius: 8px 8px 0 0;"
   >
     <img
-      src={displayImageUrl}
+      src={img.src}
+      srcset={img.srcset}
+      sizes={img.srcset ? img.sizes : undefined}
+      decoding="async"
       alt={title}
       class="w-full h-full object-cover transition-opacity duration-200 {imageLoaded
         ? 'opacity-100'
