@@ -3,7 +3,6 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
-  import { triggerExploreNav } from '$lib/exploreNav';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
   import ListIcon from 'phosphor-svelte/lib/List';
@@ -127,13 +126,6 @@
     cookingToolsStore.toggle();
   }
 
-  function handleLogoClick() {
-    if ($page.url.pathname === '/explore') {
-      triggerExploreNav();
-    } else {
-      goto('/explore');
-    }
-  }
 
   /**
    * Engaging search jumps the page back to the top, so results/typing aren't
@@ -162,8 +154,8 @@
       <ListIcon size={22} weight="bold" />
     </button>
 
-    <button
-      on:click={handleLogoClick}
+    <a
+      href="/explore"
       class="zh-logo cursor-pointer transition-transform duration-150 active:scale-95"
       aria-label="zap.cooking home"
     >
@@ -177,7 +169,7 @@
         class="w-24 sm:w-32 my-1.5 sm:my-2 hidden dark:block"
         alt="zap.cooking"
       />
-    </button>
+    </a>
   </div>
 
   <!-- Center: search bar (desktop). Left padding at xl sets the gap from
