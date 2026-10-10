@@ -20,7 +20,7 @@ import {
 	unionKeyed,
 	type Filter,
 	type NostrEvent
-} from './relayCollect.server';
+} from '$lib/relayCollect';
 import {
 	LANDING_LISTS,
 	ORG_PUBKEY,
