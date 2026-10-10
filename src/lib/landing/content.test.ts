@@ -72,6 +72,18 @@ describe('cards', () => {
 		expect(longformCard(ev({ kind: 30023, pubkey: pk('a'), tags: [['d', 'x'], ['title', 'No photo']] }))).toBeNull();
 	});
 
+	it('published_at in milliseconds is read as seconds', () => {
+		const ms = ev({
+			kind: 30023,
+			pubkey: pk('a'),
+			created_at: 1_700_000_000,
+			tags: [['d', 'borscht'], ['title', 'Borscht'], ['image', FAST], ['published_at', '1700000000000']]
+		});
+		expect(longformCard(ms)?.publishedAt).toBe(1_700_000_000);
+		const s = ev({ kind: 30023, pubkey: pk('a'), tags: [['d', 'x'], ['title', 'X'], ['image', FAST], ['published_at', '1700000000']] });
+		expect(longformCard(s)?.publishedAt).toBe(1_700_000_000);
+	});
+
 	it('Fresh cards: photos only, no replies, no content warnings, media URLs stripped', () => {
 		const note = ev({ kind: 1, pubkey: pk('a'), content: `Sunday bread ${FAST}` });
 		expect(noteCard(note)).toMatchObject({ image: FAST, text: 'Sunday bread' });

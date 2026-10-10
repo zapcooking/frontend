@@ -5,7 +5,7 @@ import {
 	FRESH_FOR_MS,
 	LIST_RELAYS,
 	PROFILE_RELAYS,
-	READS_RELAYS,
+	HERO_FALLBACK_RELAYS,
 	SINCE_PAD_SECONDS,
 	__resetLandingMemo,
 	buildLandingData,
@@ -79,13 +79,13 @@ function seed() {
 		orgList(30004, 'explore-hero', [['a', `30023:${pk('4')}:newest`]], { pubkey: pk('e') })
 	];
 	// primal is a list, reads and profile relay at once.
-	expect(LIST_RELAYS[0]).toBe(READS_RELAYS[0]);
-	expect(PROFILE_RELAYS[1]).toBe(READS_RELAYS[0]);
+	expect(LIST_RELAYS[0]).toBe(HERO_FALLBACK_RELAYS[0]);
+	expect(PROFILE_RELAYS[1]).toBe(HERO_FALLBACK_RELAYS[0]);
 	relay(LIST_RELAYS[0], [...lists, article('outside-read', OUTSIDER), profile(pk('4'), 'Four')]);
 	relay(LIST_RELAYS[1], [], 'down');
 	relay(LIST_RELAYS[2], [], 'hang');
 	relay(PROFILE_RELAYS[0], [profile(COOK, 'Cook'), profile(WRITER, 'Writer')]);
-	for (const url of new Set([...READS_RELAYS, ...LIST_RELAYS, ...PROFILE_RELAYS])) if (!relays.has(url)) relay(url, [], 'down');
+	for (const url of new Set([...HERO_FALLBACK_RELAYS, ...LIST_RELAYS, ...PROFILE_RELAYS])) if (!relays.has(url)) relay(url, [], 'down');
 	return feed;
 }
 
@@ -128,8 +128,9 @@ describe('buildLandingData', () => {
 		// Cooks: list order, only those with a profile.
 		expect(d.cooks.map((c) => c.name)).toEqual(['Cook', 'Writer']);
 
-		// Reads: curated order; the outsider's article came from a public relay.
-		expect(d.reads.map((c) => c.title)).toEqual(['Read outside-read', 'Read trusted-read']);
+		// Reads: curated first (feed relay only; the outsider's article, on public relays only, is
+		// skipped), then the newest food long-form from the last 90 days.
+		expect(d.reads.map((c) => c.title)).toEqual(['Read trusted-read', 'Read food-fallback']);
 	});
 
 	it('asks the feed relay for Fresh from a minute inside its window (no AUTH-grace stall)', async () => {
@@ -158,11 +159,74 @@ describe('buildLandingData', () => {
 		expect(d.cooks).toEqual([]);
 	});
 
-	it('without a reads list, falls back to articles with a food hashtag only', async () => {
-		seed();
+	it('without a reads list: food articles from the last 90 days, shown only when 2 qualify', async () => {
+		const feed = seed();
 		relay(LIST_RELAYS[0], []);
+		// One qualifies (the bitcoin/politics one has no food tag): no section, no padding.
+		expect((await buildLandingData(deps)).reads).toEqual([]);
+
+		feed.events.push(
+			article('second-food', pk('8'), [['t', 'fermentation']]),
+			// Published 100 days ago, edited last week: outside the window.
+			ev({
+				kind: 30023,
+				pubkey: pk('9'),
+				created_at: NOW - 7 * 86400,
+				tags: [['d', 'old-food'], ['title', 'Read old-food'], ['image', IMG('old')], ['t', 'food'], ['published_at', String(NOW - 100 * 86400)]]
+			}),
+			// A recipe-type article (with a food tag too) has its own section.
+			{ ...recipe('recipe-not-read', pk('a'), IMG('rr'), NOW - 3000), tags: [['d', 'recipe-not-read'], ['title', 'Read recipe-not-read'], ['image', IMG('rr')], ['t', 'zapcooking'], ['t', 'food']] }
+		);
 		const d = await buildLandingData(deps);
-		expect(d.reads.map((c) => c.title)).toEqual(['Read food-fallback']);
+		expect(d.reads.map((c) => c.title).sort()).toEqual(['Read food-fallback', 'Read second-food']);
+		expect(d.settled).toContain('reads');
+	});
+
+	it('one curated read and nothing else qualifying: the curated one alone', async () => {
+		seed();
+		relay(LIST_RELAYS[0], [orgList(30004, 'explore-reads', [['a', `30023:${WRITER}:trusted-read`]])]);
+		const feed = relays.get(FEED_RELAY)!;
+		feed.events = feed.events.filter((e) => !e.tags.some((t) => t[0] === 'd' && t[1] === 'food-fallback'));
+		const d = await buildLandingData(deps);
+		expect(d.reads.map((c) => c.title)).toEqual(['Read trusted-read']);
+	});
+
+	it('an article by an author outside the trust set never renders, even when curated', async () => {
+		seed();
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		// The outsider's article is on every public relay, and is the only curated read.
+		for (const url of HERO_FALLBACK_RELAYS) relay(url, [article('outside-read', OUTSIDER)]);
+		relay(LIST_RELAYS[0], [orgList(30004, 'explore-reads', [['a', `30023:${OUTSIDER}:outside-read`]])]);
+		const d = await buildLandingData(deps);
+		expect(d.reads.map((c: { title: string }) => c.title)).not.toContain('Read outside-read');
+		expect(warn.mock.calls.some((c: unknown[]) => String(c[0]).includes(`explore-reads: skipped 30023:${OUTSIDER}:outside-read`))).toBe(true);
+		warn.mockRestore();
+	});
+
+	it('a curated hero recipe the feed relay lacks still comes from a public relay', async () => {
+		seed();
+		const outsideRecipe = recipe('outside-cover', OUTSIDER, IMG('oc'), NOW - 5000);
+		relay(LIST_RELAYS[0], [
+			orgList(30004, 'explore-hero', [['a', `30023:${OUTSIDER}:outside-cover`]]),
+			outsideRecipe
+		]);
+		const d = await buildLandingData(deps);
+		expect(d.cover?.title).toBe('Recipe outside-cover');
+	});
+
+	it('profiles merge across relays; the newest kind 0 per pubkey wins, whichever relay sent it', async () => {
+		seed();
+		const older = ev({ kind: 0, pubkey: COOK, created_at: NOW - 900, content: JSON.stringify({ name: 'Old name' }) });
+		const newer = ev({ kind: 0, pubkey: COOK, created_at: NOW - 100, content: JSON.stringify({ name: 'New name' }) });
+		// purplepag.es answers with the newer one, primal with the older one, and vice versa.
+		for (const [first, second] of [[newer, older], [older, newer]]) {
+			relay(PROFILE_RELAYS[0], [first, profile(WRITER, 'Writer')]);
+			const primal = relays.get(PROFILE_RELAYS[1])!;
+			primal.events = [...primal.events.filter((e) => e.kind !== 0 || e.pubkey !== COOK), second];
+			const d = await buildLandingData(deps);
+			expect(d.cooks.find((c) => c.pubkey === COOK)?.name).toBe('New name');
+			expect(d.cooks.find((c) => c.pubkey === WRITER)?.name).toBe('Writer');
+		}
 	});
 
 	it('applies reads moderation to curated and fallback articles', async () => {
@@ -171,13 +235,13 @@ describe('buildLandingData', () => {
 			...deps,
 			moderation: { blockedPubkeys: [OUTSIDER], blockedEventIds: [], blockedNaddrs: [], denylist: [] }
 		});
-		expect(d.reads.map((c) => c.title)).toEqual(['Read trusted-read']);
+		expect(d.reads.map((c) => c.title)).toEqual(['Read trusted-read', 'Read food-fallback']);
 	});
 
 	it('comes back empty, without throwing, when every relay is down', async () => {
-		for (const url of [FEED_RELAY, ...LIST_RELAYS, ...READS_RELAYS, ...PROFILE_RELAYS]) relay(url, [], 'down');
+		for (const url of [FEED_RELAY, ...LIST_RELAYS, ...HERO_FALLBACK_RELAYS, ...PROFILE_RELAYS]) relay(url, [], 'down');
 		const d = await buildLandingData({ ...deps, fetchNip11: async () => null });
-		expect(d).toEqual({ ...emptyLandingData(NOW) });
+		expect(d).toEqual({ ...emptyLandingData(NOW), settled: [] });
 	});
 });
 
@@ -218,6 +282,14 @@ describe('last good data', () => {
 		expect(data.fresh).toEqual(good.fresh);
 		expect(data.topics).toEqual(next.topics);
 		expect(stale.sort()).toEqual(['cover', 'fresh']);
+	});
+
+	it('an empty reads section the relay answered in full stays hidden (no last-good revival)', () => {
+		const lastWithReads = { ...good, reads: [good.cover!] };
+		const settledEmpty = { ...emptyLandingData(2), settled: ['reads' as const] };
+		expect(mergeWithLastGood(settledEmpty, lastWithReads).data.reads).toEqual([]);
+		// An unanswered reads query (relay down) does fall back.
+		expect(mergeWithLastGood(emptyLandingData(2), lastWithReads).data.reads).toEqual(lastWithReads.reads);
 	});
 
 	function memCache(): CacheLike & { store: Map<string, string> } {

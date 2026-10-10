@@ -8,6 +8,7 @@
   import { goto, beforeNavigate } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
   import { lastFeedUrl } from '$lib/feedOrigin';
+  import { isLandingRoute } from '$lib/landing/route';
   import BottomNav from '../components/BottomNav.svelte';
   import DesktopSideNav from '../components/DesktopSideNav.svelte';
   import NotificationSubscriber from '../components/NotificationSubscriber.svelte';
@@ -284,7 +285,11 @@
   // The persistent Cheffy messenger is hidden on the full Cheffy page
   // (redundant), the chrome-less messaging surfaces, and auth flows.
   $: showCheffy = isCheffyRoute($page.url.pathname);
+  // Landing routes ($lib/landing/route) are server-rendered with no client
+  // JS: the layout renders only the page (its own header, footer and meta).
+  $: landing = isLandingRoute($page.route.id);
   $: hasCustomOgTags =
+    landing ||
     $page.url.pathname.startsWith('/recipe/') ||
     $page.url.pathname.startsWith('/r/') ||
     $page.url.pathname.startsWith('/pack/') ||
@@ -700,6 +705,9 @@
   {/if}
 </svelte:head>
 
+{#if landing}
+  <slot />
+{:else}
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
   <div
     class="h-screen scroll-smooth overflow-hidden transition-colors duration-200 safe-area-container"
@@ -818,6 +826,7 @@
     </div>
   </div>
 </ErrorBoundary>
+{/if}
 
 <style>
   .kitchen-scroll {

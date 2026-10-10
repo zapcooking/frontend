@@ -109,6 +109,14 @@ function clip(s: string, max: number): string {
 	return `${(sp > max * 0.6 ? cut.slice(0, sp) : cut).trimEnd()}…`;
 }
 
+/**
+ * `published_at` in seconds. Some clients write milliseconds, which would
+ * read as a date thousands of years ahead and sort first in every window.
+ */
+export function seconds(n: number): number {
+	return Number.isFinite(n) && n > 1e11 ? Math.floor(n / 1000) : n;
+}
+
 /** A recipe/article card, or null when it can't be shown (no title, no image, hidden). */
 export function longformCard(e: NostrEvent): LongformCard | null {
 	if (e.kind !== 30023 && e.kind !== 35000) return null;
@@ -123,7 +131,7 @@ export function longformCard(e: NostrEvent): LongformCard | null {
 	if (!title || !image || !link) return null;
 	const recipe = isRecipeEvent(e);
 	const summary = tag(e, 'summary');
-	const published = Number(tag(e, 'published_at'));
+	const published = seconds(Number(tag(e, 'published_at')));
 	return {
 		type: recipe ? 'recipe' : 'article',
 		coordinate,
