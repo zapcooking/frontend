@@ -30,6 +30,7 @@
   import PowBadge from '../../components/PowBadge.svelte';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
+  import { fetchEventViaRepostEmbed, repostLookupRelayUrls } from '$lib/repostEmbed';
   import { createCommentFilter } from '$lib/commentFilters';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
@@ -461,37 +462,63 @@
         const subscription = $ndk.subscribe(filter, { closeOnEose: false }, eventRelaySet);
         let resolved = false;
 
-        subscription.on('event', async (receivedEvent: NDKEvent) => {
-          if (!event) {
-            event = receivedEvent;
-            // Fetch parent thread and replies
-            fetchParentThread(receivedEvent);
-            fetchReplies(receivedEvent.id);
-          }
+        function finishWithEvent(receivedEvent: NDKEvent) {
+          if (event) return;
+          event = receivedEvent;
+          // Fetch parent thread and replies
+          fetchParentThread(receivedEvent);
+          fetchReplies(receivedEvent.id);
+          loading = false;
+        }
+
+        subscription.on('event', (receivedEvent: NDKEvent) => {
+          if (!event) finishWithEvent(receivedEvent);
         });
 
-        subscription.on('eose', () => {
-          if (!resolved) {
-            resolved = true;
+        async function settle() {
+          if (resolved) return;
+          resolved = true;
+          try {
             subscription.stop();
-            if (!event) {
-              error = true;
-            }
+          } catch {
+            // NDK subscriptions can throw on repeated stop; swallow.
+          }
+          if (event) {
+            loading = false;
+            return;
+          }
+
+          // Year-old or thinly-relayed events are often gone from every pool
+          // relay even though a REPOST of them is easy to find — kind-6/16
+          // wrappers embed the full original event JSON. Before declaring the
+          // note missing, reconstruct it from a repost's embedded copy; the
+          // reconstructed event carries the original id/tags, so the parent
+          // walk, replies, and commenting all work off it. The lookup fans
+          // out past the (often 1-2 relay) pool to the big aggregators where
+          // those reposts survive.
+          const poolUrls = Array.from($ndk.pool?.relays?.keys?.() ?? []);
+          const viaRepost = await fetchEventViaRepostEmbed(
+            $ndk,
+            eventId,
+            undefined,
+            repostLookupRelayUrls(poolUrls)
+          );
+          if (event) {
+            loading = false;
+            return;
+          }
+          if (viaRepost) {
+            finishWithEvent(viaRepost);
+          } else {
+            error = true;
             loading = false;
           }
-        });
+        }
+
+        subscription.on('eose', () => void settle());
 
         // Handle timeout - resolve with whatever we have
-        setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            subscription.stop();
-            if (!event) {
-              error = true;
-            }
-            loading = false;
-          }
-        }, 5000);
+        setTimeout(() => void settle(), 5000);
       } else {
         error = true;
         loading = false;
