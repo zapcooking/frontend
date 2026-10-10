@@ -146,6 +146,7 @@
             readTime={article.readTimeMinutes}
             tags={article.tags}
             articleUrl={article.articleUrl}
+            routeImage
           />
         </div>
       {/each}
