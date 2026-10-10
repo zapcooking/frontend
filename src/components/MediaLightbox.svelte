@@ -374,9 +374,14 @@
     pointer-events: auto;
   }
 
+  /* Fill the pane and letterbox with object-fit rather than rendering at
+     natural size: a small GIF (220×164, say) otherwise floats tiny in the
+     middle of the fullscreen overlay when the user expands it. Large
+     images are unchanged — contain caps them at the pane like max-w/max-h
+     did — and the aspect ratio is always preserved. */
   .lightbox-image {
-    max-width: 100%;
-    max-height: 100%;
+    width: 100%;
+    height: 100%;
     object-fit: contain;
     border-radius: 0.5rem;
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
