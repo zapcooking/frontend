@@ -6,7 +6,7 @@
 import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS, isHiddenRecipeATag } from '$lib/consts';
 import { imageRoute } from '$lib/imageOptimizer';
-import type { NostrEvent } from './relayCollect.server';
+import type { NostrEvent } from '$lib/relayCollect';
 
 export interface CardAuthor {
 	pubkey: string;

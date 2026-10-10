@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MAX_EVENTS_PER_SUB, collect, raceKeyed, unionKeyed } from './relayCollect.server';
-import { FakeWebSocket, ev, pk, relay, relays } from './fakeRelay.testutil';
+import { MAX_EVENTS_PER_SUB, collect, raceKeyed, unionKeyed } from './relayCollect';
+import { FakeWebSocket, ev, pk, relay, relays } from './landing/fakeRelay.testutil';
 
 const A = 'wss://a.test';
 const B = 'wss://b.test';

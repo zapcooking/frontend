@@ -5,7 +5,7 @@
  * as thin or as full as a real relay's would be.
  */
 
-import type { NostrEvent } from './relayCollect.server';
+import type { NostrEvent } from '$lib/relayCollect';
 
 export type RelayMode = 'ok' | 'down' | 'hang' | 'closed';
 
