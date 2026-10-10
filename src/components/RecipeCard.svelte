@@ -5,6 +5,7 @@
   import RecipeCardSkeleton from './RecipeCardSkeleton.svelte';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { lazyLoad } from '$lib/lazyLoad';
+  import { hideImagelessRecipesSetting, hasRecipeImage } from '$lib/recipeImageFilterSettings';
 
   export let event: NDKEvent;
   export let list = false;
@@ -13,6 +14,15 @@
   let imageUrl = '';
   let optimizedImageUrl = '';
   let isLoading = true;
+  // Set when the cover image fails to load (or a nostr.build URL turns out to
+  // be the CDN's 404 art). Combined with the "hide recipes without images"
+  // setting this removes the card from the grid instead of showing a blank
+  // tile; with the setting off the usual magnifier placeholder shows.
+  let imageBroken = false;
+
+  // With the setting on, cards with no usable image tag never render (Feed
+  // filters them too — this keeps RecipeCard safe if reused elsewhere).
+  $: hideForMissingImage = $hideImagelessRecipesSetting && !!event && !hasRecipeImage(event);
 
   // Simple reactive computations
   $: {
@@ -56,6 +66,9 @@
 <RecipeErrorBoundary>
   {#if isLoading}
     <RecipeCardSkeleton />
+  {:else if hideForMissingImage || ($hideImagelessRecipesSetting && imageBroken)}
+    <!-- Cover missing or failed to load and the member chose to hide
+         imageless recipes — render nothing so the grid stays clean. -->
   {:else}
     <a
       href={link}
@@ -63,7 +76,12 @@
     >
       <div class="relative image-container image-placeholder">
         <div
-          use:lazyLoad={{ url: optimizedImageUrl }}
+          use:lazyLoad={{
+            url: optimizedImageUrl,
+            onError: () => {
+              imageBroken = true;
+            }
+          }}
           class="absolute inset-0 image hover:scale-105 transition-transform duration-700 ease-in-out"
         />
       </div>
