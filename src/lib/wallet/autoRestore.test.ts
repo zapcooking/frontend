@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { Wallet } from './walletStore';
 
 /**
  * Login auto-restore: the last-used wallet is remembered per pubkey and
@@ -61,6 +62,8 @@ vi.mock('$lib/spark', () => ({
 }));
 
 const NWC_URL = 'nostr+walletconnect://64bexample?secret=sekrit&relay=wss%3A%2F%2Frelay.com';
+/** A complete Wallet: the store is typed, and svelte-check type-checks tests. */
+const TEST_WALLET: Wallet = { id: 1, kind: 3, name: 'Test NWC', active: true, data: NWC_URL };
 
 type AutoRestoreModule = typeof import('./autoRestore');
 
@@ -137,7 +140,7 @@ describe('autoRestoreWalletAtLogin', () => {
   it('skips when the device still has wallets in the store', async () => {
     mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
     const { wallets } = await import('./walletStore');
-    wallets.set([{ id: 1 }]);
+    wallets.set([TEST_WALLET]);
     await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
     expect(mocks.restoreNwcFromNostr).not.toHaveBeenCalled();
   });
@@ -269,7 +272,7 @@ describe('autoRestoreWalletAtLogin', () => {
     expect(get(walletSetupCheckPending)).toBe(true);
 
     // Decrypt path materializes the wallet → check settles.
-    wallets.set([{ id: 1 }]);
+    wallets.set([TEST_WALLET]);
     expect(get(walletSetupCheckPending)).toBe(false);
   });
 });
