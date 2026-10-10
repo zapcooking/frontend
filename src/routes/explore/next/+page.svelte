@@ -12,7 +12,7 @@
   import { responsiveImg } from '$lib/landing/responsiveImg';
   import { shortName, tagHref, topicCountLabel } from '$lib/landing/display';
   import { userHref } from '$lib/landing/content';
-  import { landingJsonLd, landingMeta, NOSCRIPT_DARK_STYLE } from '$lib/landing/meta';
+  import { ANDROID_APP_URL, landingJsonLd, landingMeta, NOSCRIPT_DARK_STYLE } from '$lib/landing/meta';
   import LandingHeader from '../../../components/landing/LandingHeader.svelte';
   import LandingImage from '../../../components/landing/LandingImage.svelte';
   import LongformTile from '../../../components/landing/LongformTile.svelte';
@@ -27,12 +27,14 @@
 
   const avatar = (url: string | undefined, px: number) => (url ? avatarUrl(url, px) || url : undefined);
 
-  const FREE_TOOLS = [
+  const FREE_TOOLS: { name: string; href: string; body: string; external?: boolean }[] = [
     { name: 'Recipes', href: '/recipes', body: 'Thousands of recipes from cooks everywhere, free to cook and share.' },
     { name: 'The feed', href: '/feed', body: 'What cooks are making right now, straight from the kitchen.' },
     { name: 'Recipe Packs', href: '/packs', body: 'Collections of recipes put together by the community.' },
     { name: 'Share a recipe', href: '/create', body: 'Publish your own. You keep it, everyone can cook it.' },
-    { name: 'Import a recipe', href: '/souschef', body: 'Paste a link and get a clean recipe you can save.' }
+    { name: 'Import a recipe', href: '/souschef', body: 'Paste a link and get a clean recipe you can save.' },
+    // Android only: there is no iOS App Store listing.
+    { name: 'Android app', href: ANDROID_APP_URL, body: 'Zap Cooking for Android, on Google Play.', external: true }
   ];
 </script>
 
@@ -234,7 +236,7 @@
           <h2 id="reads-h" class="font-display">Food reads</h2>
           <a href="/reads" class="more">More reads <span aria-hidden="true">→</span></a>
         </div>
-        <ul class="grid-2" role="list">
+        <ul class="grid-2" class:single={d.reads.length === 1} role="list">
           {#each d.reads as r (r.coordinate)}
             <li><LongformTile card={r} ratio="16 / 9" sizes="(min-width: 768px) 50vw, 100vw" widths={[480, 768, 1024]} showSummary /></li>
           {/each}
@@ -261,7 +263,7 @@
       <ul class="grid-tools" role="list">
         {#each FREE_TOOLS as tool (tool.href)}
           <li>
-            <a href={tool.href} class="tool">
+            <a href={tool.href} class="tool" rel={tool.external ? 'noopener' : undefined} target={tool.external ? '_blank' : undefined}>
               <h3 class="font-display text-lg">{tool.name}</h3>
               <p>{tool.body}</p>
             </a>
@@ -489,6 +491,10 @@
     .grid-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+  }
+  /* One curated read: a single feature card, not half an empty grid. */
+  .grid-2.single {
+    grid-template-columns: minmax(0, 40rem);
   }
   .row {
     display: flex;

@@ -11,6 +11,9 @@ export const SITE = 'https://zap.cooking';
 export const LANDING_CANONICAL = `${SITE}/explore`;
 const DEFAULT_IMAGE = `${SITE}/social-share.png`;
 
+/** The Android app (there is no iOS App Store listing). */
+export const ANDROID_APP_URL = 'https://play.google.com/store/apps/details?id=cooking.zap.app';
+
 export interface LandingMeta {
 	title: string;
 	description: string;
@@ -50,7 +53,8 @@ export function landingJsonLd(d: Pick<LandingData, 'cover' | 'picks' | 'reads'>)
 				'@id': `${SITE}/#org`,
 				name: 'Zap Cooking',
 				url: SITE,
-				logo: `${SITE}/favicon.svg`
+				logo: `${SITE}/favicon.svg`,
+				sameAs: [ANDROID_APP_URL]
 			},
 			{
 				'@type': 'CollectionPage',

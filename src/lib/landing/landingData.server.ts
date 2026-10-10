@@ -54,8 +54,12 @@ export const FEED_RELAY = 'wss://feed.zap.cooking';
 export const FEED_RELAY_HTTP = 'https://feed.zap.cooking';
 /** Where the org's lists live (the feed relay doesn't serve them). */
 export const LIST_RELAYS = ['wss://relay.primal.net', 'wss://relay.snort.social', 'wss://nos.lol'];
-/** Curated articles the feed relay doesn't store. */
-export const READS_RELAYS = ['wss://relay.primal.net', 'wss://nos.lol', 'wss://nostr.wine'];
+/**
+ * Curated hero recipes the feed relay doesn't hold. Never used for reads:
+ * public-relay long-form search is where spam gets in, so reads come only
+ * from the feed relay (trusted authors + its food rules).
+ */
+export const HERO_FALLBACK_RELAYS = ['wss://relay.primal.net', 'wss://nos.lol', 'wss://nostr.wine'];
 /** Kind 0 for cooks and bylines (the feed relay's window hides older profiles). */
 export const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.primal.net'];
 
@@ -80,6 +84,10 @@ export const LIMITS = {
 	topics: 8,
 	cooks: 12,
 	reads: 4,
+	/** The reads section shows only with at least this many cards (else curated only, or hidden). */
+	minReads: 2,
+	/** Uncurated reads: food long-form from trusted authors published in this window. */
+	readsWindowDays: 90,
 	picks: 2,
 	/** Topic counts below this aren't shown. */
 	minTopicCount: 5
@@ -95,6 +103,12 @@ export interface LandingData {
 	topics: TopicTile[];
 	cooks: Cook[];
 	reads: LongformCard[];
+	/**
+	 * Sections whose empty result is real (the relay answered in full), so the
+	 * last good version must not come back. Only reads uses it: an empty
+	 * reads section is hidden on purpose, never padded.
+	 */
+	settled?: SectionName[];
 }
 
 export type SectionName = 'cover' | 'newRecipes' | 'fresh' | 'topics' | 'cooks' | 'reads';
@@ -210,7 +224,9 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 			{
 				fresh: { kinds: FRESH_KINDS, since, limit: 30 },
 				recipes: { kinds: [30023, 35000], '#t': RECIPE_T_TAGS, limit: 30 },
-				articles: { kinds: [30023], limit: 60 }
+				// 30023 only can't reach past the window (recipes are public at any
+				// age), so `since` here is just the 90-day reads window, by created_at.
+				articles: { kinds: [30023], since: t - LIMITS.readsWindowDays * 86400, limit: 300 }
 			},
 			{ timeoutMs }
 		),
@@ -276,20 +292,29 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 	]);
 	const profiles = newestProfiles(profileRes.events.p.filter(verify));
 
-	// Curated refs: the feed relay first; whatever it lacks, first valid public answer.
+	// Curated refs: the feed relay first. A hero recipe it lacks may come from
+	// public relays (first valid answer); a read it lacks is skipped (below).
 	const resolved = new Map<string, NostrEvent>();
 	for (const e of newestByCoordinate(feed2.events.refs ?? [])) {
 		const d = dTag(e);
 		if (d && verify(e)) resolved.set(`${e.kind}:${e.pubkey}:${d}`, e);
 	}
-	const missing = allRefs.filter((r) => !resolved.has(coordinateKey(r)));
+	for (const r of readRefs) {
+		if (!resolved.has(coordinateKey(r))) {
+			console.warn(
+				`[landing] explore-reads: skipped ${coordinateKey(r)}: not on the feed relay ` +
+					'(author outside the trust network, or not food). Add the author to the trust network first.'
+			);
+		}
+	}
+	const missing = heroRefs.filter((r) => !resolved.has(coordinateKey(r)));
 	if (missing.length) {
 		const subs: Record<string, Filter> = {};
 		missing.forEach((r, i) => {
 			subs[`r${i}`] = { kinds: [r.kind], authors: [r.pubkey], '#d': [r.identifier], limit: 1 };
 		});
 		const won = await raceKeyed(
-			READS_RELAYS,
+			HERO_FALLBACK_RELAYS,
 			subs,
 			(k, evs) => {
 				const r = missing[Number(k.slice(1))];
@@ -317,10 +342,19 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 		1
 	).slice(0, LIMITS.newRecipes);
 
+	// Reads: curated first, then the newest food long-form by trusted authors
+	// from the last 90 days (feed relay only, no recipe-type articles). Fewer
+	// than 2 in all: the curated ones alone, or no section; never padding.
 	const curatedReads = refCards(readRefs);
-	const reads = (
-		curatedReads.length ? curatedReads : capPerAuthor(fallbackArticles, 1)
-	).slice(0, LIMITS.reads);
+	const readsFloor = t - LIMITS.readsWindowDays * 86400;
+	const seen = new Set(curatedReads.map((c) => c.coordinate));
+	const windowed = capPerAuthor(
+		fallbackArticles.filter((c) => c.publishedAt >= readsFloor && !seen.has(c.coordinate)),
+		1
+	);
+	const combined = [...curatedReads, ...windowed].slice(0, LIMITS.reads);
+	const reads = combined.length >= LIMITS.minReads ? combined : curatedReads;
+	const settled: SectionName[] = feed.done.articles ? ['reads'] : [];
 
 	const topics: TopicTile[] = [];
 	slugs.forEach((slug, i) => {
@@ -360,7 +394,8 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 		fresh: fresh.map(withAuthor),
 		topics,
 		cooks,
-		reads: reads.map(withAuthor)
+		reads: reads.map(withAuthor),
+		settled
 	};
 }
 
@@ -391,6 +426,7 @@ export function mergeWithLastGood(next: LandingData, last: LandingData | null): 
 		stale.push('cover');
 	}
 	for (const k of ['newRecipes', 'fresh', 'topics', 'cooks', 'reads'] as const) {
+		if (next.settled?.includes(k)) continue;
 		if (next[k].length === 0 && last[k].length > 0) {
 			(data as Record<string, unknown>)[k] = last[k];
 			stale.push(k);
