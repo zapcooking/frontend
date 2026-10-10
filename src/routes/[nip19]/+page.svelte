@@ -30,7 +30,7 @@
   import PowBadge from '../../components/PowBadge.svelte';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
-  import { fetchEventViaRepostEmbed } from '$lib/repostEmbed';
+  import { fetchEventViaRepostEmbed, repostLookupRelayUrls } from '$lib/repostEmbed';
   import { createCommentFilter } from '$lib/commentFilters';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
@@ -493,8 +493,16 @@
           // wrappers embed the full original event JSON. Before declaring the
           // note missing, reconstruct it from a repost's embedded copy; the
           // reconstructed event carries the original id/tags, so the parent
-          // walk, replies, and commenting all work off it.
-          const viaRepost = await fetchEventViaRepostEmbed($ndk, eventId);
+          // walk, replies, and commenting all work off it. The lookup fans
+          // out past the (often 1-2 relay) pool to the big aggregators where
+          // those reposts survive.
+          const poolUrls = Array.from($ndk.pool?.relays?.keys?.() ?? []);
+          const viaRepost = await fetchEventViaRepostEmbed(
+            $ndk,
+            eventId,
+            undefined,
+            repostLookupRelayUrls(poolUrls)
+          );
           if (event) {
             loading = false;
             return;
