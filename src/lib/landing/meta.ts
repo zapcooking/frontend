@@ -90,4 +90,6 @@ export const NOSCRIPT_DARK_STYLE =
 	'--color-bg-secondary:#1f2937;--color-card-sunken:#0c111c}' +
 	'html .landing.landing.landing{--landing-accent-text:#ff8a5c}' +
 	'.logo-l{display:none!important}.logo-d{display:block!important}' +
+	// The footer's Support link: Tailwind's dark: variant needs html.dark (orange-400).
+	'.landing .text-orange-700{color:#fb923c!important}' +
 	'body{background-color:#111827}}</style></noscript>';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LANDING_CACHE_CONTROL, isLandingPath, isLandingRoute, stripFontPreload } from './route';
-import { landingJsonLd, ogImage } from './meta';
+import { NOSCRIPT_DARK_STYLE, landingJsonLd, ogImage } from './meta';
 import { emptyLandingData } from './landingData.server';
 
 describe('landing routes', () => {
@@ -45,6 +45,11 @@ describe('landing meta', () => {
 			author: { pubkey: 'a'.repeat(64) },
 			publishedAt: 1
 		}
+	});
+
+	it('no-JS dark mode also lightens the footer Support link (orange-700 is 3.4:1 on #111827)', () => {
+		expect(NOSCRIPT_DARK_STYLE).toContain('@media (prefers-color-scheme: dark)');
+		expect(NOSCRIPT_DARK_STYLE).toMatch(/\.landing \.text-orange-700\{color:#fb923c!important\}/);
 	});
 
 	it('JSON-LD can never close its <script> early', () => {
