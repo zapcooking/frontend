@@ -1545,7 +1545,8 @@
 <GifPicker
   bind:open={showGifPicker}
   on:select={(e) => {
-    media = [...media, { url: e.detail.url, isVideo: false }];
+    // The GIF's own title as its description to start from.
+    media = [...media, { url: e.detail.url, isVideo: false, alt: e.detail.title || '' }];
   }}
 />
 

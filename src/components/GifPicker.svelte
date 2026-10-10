@@ -1,109 +1,226 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import Modal from './Modal.svelte';
   import MagnifyingGlassIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
-  import { uploadGif } from '$lib/mediaUpload';
-  import { ndk } from '$lib/nostr';
-  import { get } from 'svelte/store';
+  import {
+    GIF_COL_WIDTH,
+    GIF_QUERY_MAX,
+    gifErrorMessage,
+    gifRequest,
+    gifSearchUrl,
+    gifSuggestUrl,
+    gifTopicsFor,
+    parseGifPage,
+    parseGifSuggestions,
+    type Gif
+  } from '$lib/gifSearch';
 
   export let open = false;
 
   const dispatch = createEventDispatcher<{ select: { url: string; title: string } }>();
-  const API_KEY = import.meta.env.VITE_GIPHY_API_KEY || '';
-  const API_BASE = 'https://api.giphy.com/v1/gifs';
-
-  interface GiphyGif {
-    id: string;
-    title: string;
-    images: {
-      fixed_width_small: { url: string; width: string; height: string };
-      downsized: { url: string };
-      original: { url: string };
-    };
-  }
 
   let query = '';
-  let gifs: GiphyGif[] = [];
-  let loading = false;
-  let uploading = false;
-  let debounceTimer: ReturnType<typeof setTimeout>;
   let searchInputEl: HTMLInputElement;
+  let gridEl: HTMLDivElement;
+  let statusText = '';
+  let statusIsError = false;
+  let chips: string[] = [];
 
-  $: if (open && API_KEY) {
-    loadTrending();
+  // Columns packed shortest-first, so GIFs of every shape fit without
+  // cropping. CSS columns would do the packing, but reflow every earlier GIF
+  // on each new page.
+  let columns: Gif[][] = [];
+  let colHeights: number[] = [];
+  let placed: Gif[] = [];
+  const seen = new Set<string>();
+
+  let nextOffset: number | null = null;
+  let loading = false;
+  let pageCtrl: AbortController | null = null;
+  let suggestCtrl: AbortController | null = null;
+  let typingTimer: ReturnType<typeof setTimeout>;
+  let resizeObserver: ResizeObserver | null = null;
+
+  $: if (open && gridEl) {
+    openPicker();
   }
 
-  $: if (open && searchInputEl) {
-    setTimeout(() => searchInputEl?.focus(), 100);
+  // Re-measure the column count if the picker's width changes while open.
+  $: watchGridSize(gridEl, open);
+
+  function watchGridSize(el: HTMLDivElement | null, isOpen: boolean) {
+    if (!isOpen || !el || typeof ResizeObserver !== 'function') return;
+    resizeObserver?.disconnect();
+    resizeObserver = new ResizeObserver(() => {
+      if (open && columns.length !== columnsFor()) layout(columnsFor());
+    });
+    resizeObserver.observe(el);
   }
 
-  async function loadTrending() {
-    if (loading) return;
+  onDestroy(() => resizeObserver?.disconnect());
+
+  function columnsFor(): number {
+    // As many columns as the width takes, about GIF_COL_WIDTH each, two to
+    // five. Two in the narrowest case; more where two would stretch every
+    // GIF awkwardly wide.
+    const width = gridEl?.clientWidth || 0;
+    return Math.max(2, Math.min(5, Math.round(width / GIF_COL_WIDTH) || 2));
+  }
+
+  // Rebuild the columns and lay out what is already showing again, in order.
+  function layout(n: number) {
+    const items = placed;
+    columns = Array.from({ length: n }, () => [] as Gif[]);
+    colHeights = columns.map(() => 0);
+    placed = [];
+    seen.clear();
+    place(items);
+  }
+
+  function place(gifs: Gif[]) {
+    const nextColumns = columns.map((c) => [...c]);
+    const nextHeights = [...colHeights];
+    for (const gif of gifs) {
+      if (seen.has(gif.url)) continue;
+      seen.add(gif.url);
+      placed.push(gif);
+      const col = nextHeights.indexOf(Math.min(...nextHeights));
+      nextHeights[col] += gif.height / gif.width;
+      nextColumns[col] = [...nextColumns[col], gif];
+    }
+    columns = nextColumns;
+    colHeights = nextHeights;
+  }
+
+  function setStatus(text: string, isError = false) {
+    statusText = text;
+    statusIsError = isError;
+  }
+
+  async function load(offset: number) {
+    if (pageCtrl) pageCtrl.abort();
+    const mine = new AbortController();
+    pageCtrl = mine;
     loading = true;
     try {
-      const res = await fetch(`${API_BASE}/trending?api_key=${API_KEY}&limit=24&rating=g`);
-      const data = await res.json();
-      gifs = data.data || [];
+      const page = parseGifPage(await gifRequest(gifSearchUrl(query, offset), mine.signal));
+      if (pageCtrl !== mine) return;
+      place(page.gifs);
+      nextOffset = page.next;
+      if (!offset && !page.gifs.length) setStatus(`No GIFs found for “${query}”.`);
+      else setStatus('');
     } catch (e) {
-      console.error('[GifPicker] Failed to load trending:', e);
-      gifs = [];
+      if (pageCtrl !== mine || (e instanceof Error && e.name === 'AbortError')) return;
+      setStatus(e instanceof Error ? e.message : gifErrorMessage(0), true);
     } finally {
-      loading = false;
+      if (pageCtrl === mine) {
+        pageCtrl = null;
+        loading = false;
+      }
     }
   }
 
-  async function searchGifs(q: string) {
-    if (!q.trim()) {
-      loadTrending();
+  // NOTHING LOADS UNTIL SOMETHING IS ASKED FOR. An empty query clears the
+  // grid and says what to do, rather than searching for a default nobody
+  // chose.
+  function search(q: string) {
+    clearTimeout(typingTimer);
+    query = String(q || '').trim();
+    if (pageCtrl) {
+      pageCtrl.abort();
+      pageCtrl = null;
+      loading = false;
+    }
+    placed = [];
+    layout(columnsFor());
+    nextOffset = null;
+    if (gridEl) gridEl.scrollTop = 0;
+    if (!query) {
+      setStatus('Search or pick a topic.');
       return;
     }
-    loading = true;
+    load(0);
+  }
+
+  async function suggest(q: string) {
+    if (suggestCtrl) suggestCtrl.abort();
+    const mine = new AbortController();
+    suggestCtrl = mine;
     try {
-      const res = await fetch(
-        `${API_BASE}/search?api_key=${API_KEY}&q=${encodeURIComponent(q)}&limit=24&rating=g`
-      );
-      const data = await res.json();
-      gifs = data.data || [];
-    } catch (e) {
-      console.error('[GifPicker] Search failed:', e);
-      gifs = [];
+      const terms = parseGifSuggestions(await gifRequest(gifSuggestUrl(q), mine.signal));
+      if (suggestCtrl === mine && query.trim() === q) chips = terms;
+    } catch {
+      // Suggestions are a nicety: a failure leaves the chips as they were.
     } finally {
-      loading = false;
+      if (suggestCtrl === mine) suggestCtrl = null;
     }
   }
 
+  // Searched once typing pauses, not per keystroke: each search is a request
+  // through the proxy and each one replaces the grid.
   function handleInput() {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      searchGifs(query);
-    }, 300);
+    clearTimeout(typingTimer);
+    const q = query.trim();
+    if (!q) chips = gifTopicsFor();
+    typingTimer = setTimeout(() => {
+      search(q);
+      if (q) suggest(q);
+    }, 350);
   }
 
-  async function selectGif(gif: GiphyGif) {
-    if (uploading) return;
-    const gifUrl = gif.images.downsized?.url || gif.images.original?.url;
-    uploading = true;
-    try {
-      const res = await fetch(gifUrl);
-      const blob = await res.blob();
-      const file = new File([blob], `${gif.id}.gif`, { type: blob.type || 'image/gif' });
-      const hostedUrl = await uploadGif(get(ndk), file);
-      dispatch('select', { url: hostedUrl, title: gif.title });
-      close();
-    } catch (e) {
-      console.error('[GifPicker] Upload failed, falling back to Giphy URL:', e);
-      dispatch('select', { url: gifUrl, title: gif.title });
-      close();
-    } finally {
-      uploading = false;
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      search(query);
     }
+    // Escape: the Modal around the picker closes it.
+  }
+
+  function handleChip(term: string) {
+    query = term;
+    chips = gifTopicsFor();
+    search(term);
+  }
+
+  function handleScroll() {
+    if (loading || nextOffset === null || !gridEl) return;
+    if (gridEl.scrollTop + gridEl.clientHeight >= gridEl.scrollHeight - 160) load(nextOffset);
+  }
+
+  function pick(gif: Gif) {
+    // Every result is already hosted on a Nostr media host: its URL is
+    // attached the way a pasted image URL is, and nothing is uploaded.
+    dispatch('select', { url: gif.url, title: gif.title });
+    close();
+  }
+
+  function openPicker() {
+    // Measured once it is showing: a hidden picker has no width to divide.
+    if (columns.length !== columnsFor()) layout(columnsFor());
+    // A search cut off by closing is run again on the next open.
+    if (!seen.size && !pageCtrl) {
+      chips = gifTopicsFor();
+      search(query);
+    }
+    setTimeout(() => searchInputEl?.focus(), 100);
   }
 
   function close() {
     open = false;
-    query = '';
-    gifs = [];
+    clearTimeout(typingTimer);
+    if (pageCtrl) {
+      pageCtrl.abort();
+      pageCtrl = null;
+      loading = false;
+    }
+    if (suggestCtrl) {
+      suggestCtrl.abort();
+      suggestCtrl = null;
+    }
+    if (!seen.size) setStatus('');
+    resizeObserver?.disconnect();
+    resizeObserver = null;
   }
 </script>
 
@@ -111,6 +228,12 @@
   <h1 slot="title">GIFs</h1>
 
   <div class="gif-picker">
+    <!-- Attribution the gifs.nostr.build registration asks for -->
+    <p class="gif-credit">
+      GIFs from
+      <a href="https://nostr.build" target="_blank" rel="noopener noreferrer">nostr.build</a>
+    </p>
+
     <!-- Search -->
     <div class="gif-search">
       <div class="gif-search-icon">
@@ -120,69 +243,61 @@
         bind:this={searchInputEl}
         bind:value={query}
         on:input={handleInput}
+        on:keydown={handleKeydown}
         type="text"
+        maxlength={GIF_QUERY_MAX}
+        autocomplete="off"
+        spellcheck="false"
         placeholder="Search GIFs..."
         class="gif-search-input"
+        aria-label="Search GIFs"
       />
     </div>
 
-    <!-- Grid -->
-    <div class="gif-grid-container" class:gif-grid-uploading={uploading}>
-      {#if uploading}
-        <div class="gif-upload-overlay">
-          <SpinnerIcon size={28} class="animate-spin" />
-          <span>Uploading…</span>
-        </div>
-      {/if}
-      {#if loading && gifs.length === 0}
+    <!-- Topic chips while the field is empty, suggestions while typing -->
+    {#if chips.length}
+      <div class="gif-chips">
+        {#each chips as term (term)}
+          <button class="gif-chip" type="button" on:click={() => handleChip(term)}>{term}</button>
+        {/each}
+      </div>
+    {/if}
+
+    <!-- Grid: columns packed shortest-first, load more on scroll -->
+    <div class="gif-grid" bind:this={gridEl} on:scroll={handleScroll}>
+      {#if loading && columns.every((c) => c.length === 0)}
         <div class="gif-loading">
           <SpinnerIcon size={24} class="animate-spin" />
         </div>
-      {:else if !API_KEY}
-        <div class="gif-grid">
-          {#each [
-            { id: 'test-gif', title: 'Test GIF', url: 'https://c.tenor.com/ozqCVlQw6M4AAAAd/tenor.gif' },
-            { id: 'test-webp', title: 'Test WebP', url: 'https://i.giphy.com/xT5LMzIK1AdZJ4cYW4.webp' },
-          ] as t}
-            <button class="gif-tile" disabled={uploading} title={t.title}
-              on:click={() => selectGif({ id: t.id, title: t.title, images: { fixed_width_small: { url: t.url, width: '200', height: '200' }, downsized: { url: t.url }, original: { url: t.url } } })}>
-              <img src={t.url} alt={t.title} class="gif-thumb" />
-            </button>
-          {/each}
-        </div>
-      {:else if gifs.length === 0 && query}
-        <div class="gif-empty">
-          <p>No GIFs found for "{query}"</p>
-        </div>
       {:else}
-        <div class="gif-grid">
-          {#each gifs as gif (gif.id)}
-            <button
-              class="gif-tile"
-              on:click={() => selectGif(gif)}
-              disabled={uploading}
-              title={gif.title}
-            >
-              <img
-                src={gif.images.fixed_width_small.url}
-                alt={gif.title}
-                loading="lazy"
-                class="gif-thumb"
-              />
-            </button>
-          {/each}
-        </div>
+        {#each columns as col, i (i)}
+          <div class="gif-col">
+            {#each col as gif (gif.url)}
+              <button
+                class="gif-cell"
+                type="button"
+                title={gif.title || 'GIF'}
+                aria-label={gif.title || 'GIF'}
+                on:click={() => pick(gif)}
+              >
+                <img
+                  src={gif.preview}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  referrerpolicy="no-referrer"
+                  style:aspect-ratio={`${gif.width} / ${gif.height}`}
+                />
+              </button>
+            {/each}
+          </div>
+        {/each}
       {/if}
     </div>
 
-    <!-- GIPHY Attribution (required by API terms) -->
-    <div class="gif-attribution">
-      <img
-        src="https://giphy.com/static/img/powered-by-giphy.png"
-        alt="Powered by GIPHY"
-        class="gif-attribution-img"
-      />
-    </div>
+    {#if statusText}
+      <p class="gif-status" class:error={statusIsError}>{statusText}</p>
+    {/if}
   </div>
 </Modal>
 
@@ -190,8 +305,23 @@
   .gif-picker {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     width: 100%;
+  }
+
+  .gif-credit {
+    margin: 0;
+    font-size: 12px;
+    color: var(--color-caption);
+  }
+
+  .gif-credit a {
+    color: inherit;
+    text-decoration: underline;
+  }
+
+  .gif-credit a:hover {
+    color: var(--color-primary);
   }
 
   .gif-search {
@@ -229,94 +359,82 @@
     color: var(--color-caption);
   }
 
-  .gif-grid-container {
-    position: relative;
+  .gif-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .gif-chip {
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--color-input-border);
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+
+  .gif-chip:hover {
+    border-color: var(--color-primary);
+  }
+
+  .gif-grid {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    min-height: 96px;
     max-height: 50vh;
     overflow-y: auto;
     border-radius: 8px;
   }
 
-  .gif-grid-uploading {
-    pointer-events: none;
-  }
-
-  .gif-upload-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 10;
+  .gif-col {
+    flex: 1 1 0;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    background: rgba(0, 0, 0, 0.55);
-    border-radius: 8px;
-    color: #fff;
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .gif-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     gap: 6px;
   }
 
-  .gif-tile {
-    aspect-ratio: 1;
-    overflow: hidden;
-    border-radius: 8px;
-    cursor: pointer;
-    background: var(--color-accent-gray, #e5e7eb);
-    border: none;
-    padding: 0;
-    transition: opacity 0.15s, transform 0.15s;
-  }
-
-  .gif-tile:hover {
-    opacity: 0.85;
-    transform: scale(1.03);
-  }
-
-  .gif-thumb {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+  .gif-cell {
     display: block;
+    padding: 0;
+    border: none;
+    background: var(--color-accent-gray, #e5e7eb);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  .gif-cell img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .gif-cell:hover img {
+    opacity: 0.85;
   }
 
   .gif-loading {
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 100%;
     padding: 48px 0;
     color: var(--color-caption);
   }
 
-  .gif-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 48px 0;
+  .gif-status {
+    margin: 0;
+    font-size: 13px;
     color: var(--color-caption);
-    font-size: 14px;
+    text-align: center;
   }
 
-  .gif-attribution {
-    display: flex;
-    justify-content: center;
-    padding-top: 4px;
-  }
-
-  .gif-attribution-img {
-    height: 16px;
-    opacity: 0.6;
-  }
-
-  @media (min-width: 768px) {
-    .gif-grid {
-      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-      gap: 8px;
-    }
+  .gif-status.error {
+    color: var(--color-danger);
   }
 </style>
