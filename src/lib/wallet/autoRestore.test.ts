@@ -307,3 +307,42 @@ describe('evaluateWalletSetupState', () => {
     expect(get(walletSetupCheckPending)).toBe(false);
   });
 });
+
+describe('the same account logging out and back in during a session', () => {
+  it('settles the setup check on the second login (one restore attempt per session)', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+    mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
+    mocks.restoreNwcFromNostr.mockResolvedValue(null); // the backup has nothing to restore
+
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    await mod.autoRestoreWalletAtLogin(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(false);
+
+    // Logout clears the flag; the same account logs in again.
+    walletSetupCheckPending.set(false);
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(true);
+    await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
+    expect(get(walletSetupCheckPending)).toBe(false);
+    expect(mocks.restoreNwcFromNostr).toHaveBeenCalledTimes(1);
+  });
+
+  it('a duplicate call while a restore runs leaves the answer to that restore', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+    mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
+    let release!: (v: string | null) => void;
+    mocks.restoreNwcFromNostr.mockReturnValue(new Promise((r) => (release = r)));
+
+    const first = mod.autoRestoreWalletAtLogin(mocks.fakePubkey);
+    await Promise.resolve();
+    await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
+    expect(get(walletSetupCheckPending)).toBe(true); // still the first attempt's to answer
+    release(null);
+    await first;
+    expect(get(walletSetupCheckPending)).toBe(false);
+    expect(mocks.restoreNwcFromNostr).toHaveBeenCalledTimes(1);
+  });
+});
+

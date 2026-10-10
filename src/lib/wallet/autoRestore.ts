@@ -112,13 +112,16 @@ export function getLastWalletRecord(pubkey: string | null | undefined): LastWall
 // behind the user's back, since each attempt can ask the signer (NIP-07
 // extension, bunker) to decrypt.
 let attemptedPubkey = '';
+// The pubkey whose restore is running right now: its finally settles the
+// setup-check flag, so a duplicate call meanwhile leaves the answer to it.
+let restoringPubkey = '';
 
 /**
  * Restore + connect the remembered wallet from the user's Nostr backups.
  * Call shortly after login. Returns true when a wallet was restored.
  */
 export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined): Promise<boolean> {
-  if (!browser || !pubkey || attemptedPubkey === pubkey) return false;
+  if (!browser || !pubkey || restoringPubkey === pubkey) return false;
 
   // Whether the flag is currently pending was already decided by
   // evaluateWalletSetupState at the login event (and its initial value
@@ -159,10 +162,19 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
   const record = getLastWalletRecord(pubkey);
   if (!record) return false;
 
+  if (attemptedPubkey === pubkey) {
+    // Already tried for this account this session (the same account logged
+    // out and back in): no restore will run again, so nothing else would
+    // answer the question — settle it, or the card stays on "Wallet…".
+    walletSetupCheckPending.set(false);
+    return false;
+  }
+
   // A backup restore is genuinely in the pipe: hold the flag for the
   // whole ndkReady + relay round-trip.
   walletSetupCheckPending.set(true);
   attemptedPubkey = pubkey;
+  restoringPubkey = pubkey;
   await ndkReady;
   walletRestoring.set(true);
 
@@ -202,6 +214,7 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
     console.warn('[Wallet] Auto-restore at login failed:', e);
     return false;
   } finally {
+    restoringPubkey = '';
     walletRestoring.set(false);
     walletSetupCheckPending.set(false);
   }
