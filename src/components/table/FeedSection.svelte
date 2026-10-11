@@ -5,7 +5,7 @@
   import { filterByCategory, sortArticles, limitArticlesPerAuthor, deduplicatePreviewArticles, isRelevantToReads, type ArticleData, type SortOption } from '$lib/articleUtils';
   import { isBlockedFromReads, readsModerationVersion } from '$lib/reads/moderationClient';
   import { SPAM_REASON_LABELS, type SpamReason } from '$lib/reads/spamRules';
-  import { spamView } from '$lib/reads/allReadsView';
+  import { readsFold, type AuthorTrustLike } from '$lib/reads/allReadsView';
 
   export let articles: ArticleData[] = [];
   export let loading: boolean = false;
@@ -15,6 +15,8 @@
   export let isSignedIn: boolean = false;
   /** "All reads" only: articles the spam rules flagged (id → reason), folded under a reveal line. */
   export let spamReasons: Map<string, SpamReason> = new Map();
+  /** "All reads" only: each author's trust (absent = still looking). Null: no trust fold (curated tab). */
+  export let authorTrust: ReadonlyMap<string, AuthorTrustLike> | null = null;
 
   const dispatch = createEventDispatcher<{ loadMore: void }>();
 
@@ -44,11 +46,15 @@
   $: dedupedArticles = deduplicatePreviewArticles(feedArticles);
   $: authorLimitedArticles = limitArticlesPerAuthor(dedupedArticles, 3); // Max 3 per author
   $: categoryArticles = filterByCategory(authorLimitedArticles, selectedCategory);
-  // Never hidden silently: flagged articles are counted, and shown marked on request.
+  // Never hidden silently: spam and articles from accounts with no trust
+  // connection are counted on separate lines, and shown marked on request.
   let revealSpam = false;
-  $: view = spamView(categoryArticles, spamReasons, revealSpam);
+  let revealStrangers = false;
+  $: view = readsFold(categoryArticles, spamReasons, authorTrust, { spam: revealSpam, strangers: revealStrangers });
   $: filteredArticles = view.shown;
   $: spamCount = view.spamCount;
+  $: strangerCount = view.strangerCount;
+  $: isStranger = (a: ArticleData) => !spamReasons.has(a.id) && authorTrust?.get(a.author.pubkey.toLowerCase()) === 'stranger';
   $: sortedArticles = sortArticles(filteredArticles, selectedSort, followedPubkeys);
 
   // Pagination - show all filtered articles (infinite scroll handles fetching more)
@@ -117,6 +123,17 @@
       {/if}
     </p>
   {/if}
+  {#if !loading && strangerCount > 0}
+    <p class="spam-line" data-testid="stranger-line">
+      {#if revealStrangers}
+        {strangerCount} from accounts we don't know yet, shown marked ·
+        <button type="button" class="spam-toggle" on:click={() => (revealStrangers = false)}>hide</button>
+      {:else}
+        {strangerCount} from accounts we don't know yet ·
+        <button type="button" class="spam-toggle" on:click={() => (revealStrangers = true)}>show</button>
+      {/if}
+    </p>
+  {/if}
 
   {#if loading}
     <!-- Loading Grid -->
@@ -158,9 +175,11 @@
     <!-- Article Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {#each displayedArticles as article (article.id)}
-        <div class="article-card-wrapper" class:spam-marked={spamReasons.has(article.id)}>
+        <div class="article-card-wrapper" class:spam-marked={spamReasons.has(article.id) || isStranger(article)}>
           {#if spamReasons.has(article.id)}
             <span class="spam-mark" data-testid="spam-mark">Likely spam: {SPAM_REASON_LABELS[spamReasons.get(article.id) ?? 'short']}</span>
+          {:else if isStranger(article)}
+            <span class="spam-mark" data-testid="stranger-mark">Account we don't know yet</span>
           {/if}
           <ArticleCard
             event={article.event}
@@ -230,6 +249,10 @@
     margin: 1rem 0 0.75rem;
     font-size: 0.8125rem;
     color: var(--color-caption);
+  }
+
+  .spam-line + .spam-line {
+    margin-top: -0.5rem;
   }
 
   .spam-toggle {

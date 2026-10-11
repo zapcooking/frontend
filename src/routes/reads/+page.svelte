@@ -37,7 +37,8 @@
     readsModerationVersion
   } from '$lib/reads/moderationClient';
   import { createSpamClassifier, type SpamReason } from '$lib/reads/spamRules';
-  import { cleanCover, toSpamEvent } from '$lib/reads/allReadsView';
+  import { cleanCover, foldReason, toSpamEvent } from '$lib/reads/allReadsView';
+  import { ensureAuthorTrust, readsAuthorTrust } from '$lib/reads/authorTrustClient';
 
   $: isSignedIn = $userPublickey !== '';
   $: draftCount = $drafts.length;
@@ -107,29 +108,43 @@
     return TOP_RELAY_FOOD_HASHTAGS;
   }
 
-  // "All reads" spam rules (the curated tab is the relay's job). Flagged
-  // articles fold under a reveal line in FeedSection; the cover never holds
-  // one, nor anything the moderation lists hide.
+  // "All reads" spam rules and trust check (the curated tab is the relay's
+  // job). Spam folds under one reveal line in FeedSection, whoever wrote it;
+  // authors with no trust connection (not in the feed relay's trust set, no
+  // verified NIP-05) under another. The cover never holds either, an author
+  // still being looked up, or anything the moderation lists hide.
   const classifySpam = createSpamClassifier();
   const NO_SPAM: Map<string, SpamReason> = new Map();
   $: allSpamReasons = source === 'all' ? classifySpam(articles.map(toSpamEvent)) : NO_SPAM;
+  $: if (source === 'all') ensureAuthorTrust(articles.map((a) => a.author.pubkey));
+  $: allAuthorTrust = source === 'all' ? $readsAuthorTrust : null;
   // Swapped in place: the next check finds the replacement clean, so the
-  // candidate scan runs only when a flagged or newly blocked article is in it.
+  // candidate scan runs only when a folded or newly blocked article is in it.
   $: if (source === 'all' && $readsModerationVersion >= 0) {
     const next = cleanCover(
       cover,
       () => articles.filter((a) => isValidLongformArticle(a.event)),
-      (a) => allSpamReasons.has(a.id) || isBlockedFromReads(a.event),
+      (a) => foldReason(a, allSpamReasons, $readsAuthorTrust) !== null || isBlockedFromReads(a.event),
       (clean) => curateCover(clean)
     );
     if (next !== cover) cover = next;
   }
+  // The first answers are held for (bounded): the page opens on checked
+  // authors instead of filling in. Later arrivals from new authors wait
+  // unseen for their own answer.
+  const TRUST_HOLD_MS = 4000;
+  let trustHoldOver = false;
+  $: trustPending = source === 'all' && articles.some((a) => !$readsAuthorTrust.has(a.author.pubkey.toLowerCase()));
 
   $: shownArticles = source === 'curated' ? curatedArticles : articles;
   $: shownCover = source === 'curated' ? curatedCover : cover;
   // The open search waits for the moderation lists, so a blocked or hidden
-  // article never renders while they're on their way.
-  $: shownLoading = source === 'curated' ? curatedLoading && !curatedLoaded : loading || !$readsModerationReady;
+  // article never renders while they're on their way, and (bounded) for the
+  // first trust answers.
+  $: shownLoading =
+    source === 'curated'
+      ? curatedLoading && !curatedLoaded
+      : loading || !$readsModerationReady || (trustPending && !trustHoldOver);
 
   // Cover article IDs to exclude from feed
   $: coverArticleIds = shownCover
@@ -168,6 +183,7 @@
     if (allStarted) return;
     allStarted = true;
     ensureReadsModerationLoaded();
+    setTimeout(() => (trustHoldOver = true), TRUST_HOLD_MS);
     loadArticles();
   }
 
@@ -977,7 +993,7 @@
       </button>
     </div>
     {#if source === 'all'}
-      <p class="reads-note">Everything tagged as food on Nostr, unfiltered.</p>
+      <p class="reads-note">Everything tagged as food on Nostr.</p>
     {:else if curatedLoaded && curatedArticles.length === 0}
       <p class="reads-note">
         {#if curatedComplete}
@@ -999,6 +1015,7 @@
       {coverArticleIds}
       loadingMore={source === 'curated' ? false : loadingMore}
       spamReasons={allSpamReasons}
+      authorTrust={allAuthorTrust}
       {followedPubkeys}
       {isSignedIn}
       on:loadMore={handleLoadMore}
