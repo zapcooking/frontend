@@ -423,49 +423,44 @@
     </a>
   </div>
 
-  <!-- Sub-tabs: Discover / Mine / Saved -->
-  <div class="flex w-full border-b" style="border-color: var(--color-input-border)">
+  <!-- Sub-tabs: Discover / Mine / Saved. Pill chips instead of a second
+       underline tab bar — the stacked rows read as duplicate navigation. -->
+  <div class="flex items-center gap-2">
     <button
       on:click={() => setTab('discover')}
-      class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
-      style="color: {tab === 'discover'
-        ? 'var(--color-text-primary)'
-        : 'var(--color-text-secondary)'}"
+      aria-pressed={tab === 'discover'}
+      class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
+      class:bg-primary={tab === 'discover'}
+      class:text-white={tab === 'discover'}
+      style={tab !== 'discover'
+        ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
+        : ''}
     >
       Discover
-      {#if tab === 'discover'}
-        <span
-          class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-        ></span>
-      {/if}
     </button>
     <button
       on:click={() => setTab('mine')}
-      class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
-      style="color: {tab === 'mine'
-        ? 'var(--color-text-primary)'
-        : 'var(--color-text-secondary)'}"
+      aria-pressed={tab === 'mine'}
+      class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
+      class:bg-primary={tab === 'mine'}
+      class:text-white={tab === 'mine'}
+      style={tab !== 'mine'
+        ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
+        : ''}
     >
       Mine
-      {#if tab === 'mine'}
-        <span
-          class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-        ></span>
-      {/if}
     </button>
     <button
       on:click={() => setTab('saved')}
-      class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
-      style="color: {tab === 'saved'
-        ? 'var(--color-text-primary)'
-        : 'var(--color-text-secondary)'}"
+      aria-pressed={tab === 'saved'}
+      class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
+      class:bg-primary={tab === 'saved'}
+      class:text-white={tab === 'saved'}
+      style={tab !== 'saved'
+        ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
+        : ''}
     >
       Saved
-      {#if tab === 'saved'}
-        <span
-          class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-        ></span>
-      {/if}
     </button>
   </div>
 

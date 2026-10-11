@@ -22,6 +22,7 @@
   import { isHiddenRecipeEvent } from '$lib/consts';
   import { muteListStore } from '$lib/muteListStore';
   import { withoutMuted } from '$lib/muteFilter';
+  import { hideImagelessRecipesSetting, hasRecipeImage } from '$lib/recipeImageFilterSettings';
 
   export let events: NDKEvent[];
   export let hideHide = false;
@@ -70,7 +71,16 @@
   // Uses memoized validation so each event is only validated once.
   // The reader's mute list (NIP-51 + local) applies to every recipe grid:
   // tag, list, explore and profile pages hand their events straight here.
-  $: filteredEvents = withoutMuted($muteListStore.muteList, events.filter(isValidEvent));
+  //
+  // "Hide recipes without images" (device-local setting) also applies to every
+  // recipe grid. List grids are exempt: list events often have no cover image
+  // and fall back to a placeholder by design.
+  $: filteredEvents = withoutMuted(
+    $muteListStore.muteList,
+    events
+      .filter(isValidEvent)
+      .filter((e) => lists || !$hideImagelessRecipesSetting || hasRecipeImage(e))
+  );
 </script>
 
 {#if filteredEvents.length > 0}
