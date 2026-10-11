@@ -40,6 +40,62 @@
   // rendering an empty pager.
   $: if (count === 0) onClose();
 
+  // ── Declared minimum display size ───────────────────────────────
+  // A small image (220×164 GIF, say) must not render at natural size in
+  // a fullscreen overlay: upscale it to at least MIN_DISPLAY_* (pane
+  // permitting). Large media is only ever scaled DOWN to fit.
+  //
+  // The element is sized to the final box explicitly instead of relying
+  // on width/height 100% + object-fit: with contain, the painted content
+  // can be letterboxed inside the element box, and border-radius/shadow
+  // would follow the box — rounding invisible corners. Explicit sizing
+  // makes the box match the visible image exactly.
+  const MIN_DISPLAY_W = 720;
+  const MIN_DISPLAY_H = 540;
+  let naturalSizes: Record<number, { w: number; h: number }> = {};
+  let displaySizes: Record<number, { width: string; height: string }> = {};
+
+  function sizeImage(i: number) {
+    const dim = naturalSizes[i];
+    const pane = scroller?.children[i] as HTMLElement | undefined;
+    if (!dim?.w || !dim?.h || !pane) return;
+    const cs = getComputedStyle(pane);
+    const contentW = pane.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const contentH = pane.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    if (contentW <= 0 || contentH <= 0) return;
+
+    const fit = Math.min(contentW / dim.w, contentH / dim.h);
+    let scale: number;
+    if (fit < 1) {
+      // Larger than the pane: scale down to fit, no minimum applies.
+      scale = fit;
+    } else {
+      // Fits as-is: keep natural size unless that's below the minimum.
+      const minScale = Math.max(MIN_DISPLAY_W / dim.w, MIN_DISPLAY_H / dim.h);
+      scale = Math.min(fit, Math.max(1, minScale));
+    }
+    displaySizes = {
+      ...displaySizes,
+      [i]: {
+        width: `${Math.round(dim.w * scale)}px`,
+        height: `${Math.round(dim.h * scale)}px`
+      }
+    };
+  }
+
+  function sizeAllLoaded() {
+    Object.keys(naturalSizes)
+      .map(Number)
+      .forEach(sizeImage);
+  }
+
+  function handleImgLoad(i: number, e: Event) {
+    const img = e.target as HTMLImageElement;
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    naturalSizes = { ...naturalSizes, [i]: { w: img.naturalWidth, h: img.naturalHeight } };
+    sizeImage(i);
+  }
+
   let scroller: HTMLDivElement;
   let rootEl: HTMLDivElement;
   let closeButtonEl: HTMLButtonElement;
@@ -199,7 +255,7 @@
   });
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window on:keydown={handleKeydown} on:resize={sizeAllLoaded} />
 
 <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
 <div
@@ -231,8 +287,10 @@
           src={urlOf(img)}
           alt={altOf(img) || (i === index ? 'Full size preview' : '')}
           class="lightbox-image"
+          style={displaySizes[i] ? `width:${displaySizes[i].width};height:${displaySizes[i].height};` : ''}
           loading="lazy"
           draggable="false"
+          on:load={(e) => handleImgLoad(i, e)}
           on:click|stopPropagation
         />
         {#if altOf(img)}
@@ -374,6 +432,10 @@
     pointer-events: auto;
   }
 
+  /* The element box is sized explicitly (see the declared-minimum logic
+     above) so it matches the visible image exactly — rounded corners and
+     the shadow track the picture, not a letterboxing container. The
+     max-* guards cover the pre-load frame, where no explicit size exists. */
   .lightbox-image {
     max-width: 100%;
     max-height: 100%;
