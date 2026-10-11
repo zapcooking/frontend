@@ -21,7 +21,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import type { LiveTail } from '$lib/freshFeed/relay';
   import { getAuthManager } from '$lib/authManager';
-  import { batchFetchEngagement, cleanupEngagement, fetchEngagement } from '$lib/engagementCache';
+  import { batchFetchEngagement, cleanupEngagement, fetchEngagement, optimisticZapUpdate, markSelfZapCompleted } from '$lib/engagementCache';
   import { prefetchReplyContexts } from '$lib/replyContext';
   import { noteImage, saveImage, engagementFor } from '$lib/freshFeed/shareImage';
   import type { EngagementData as ShareEngagementData } from '$lib/shareNoteImage';
@@ -945,8 +945,15 @@
     setTimeout(() => (zapOpen = true), 0);
   }
 
-  function zapComplete(id: string) {
-    if ($userPublickey) fetchEngagement($ndk, id, $userPublickey);
+  function zapComplete(id: string, amount?: number) {
+    // Optimistic bolt: count + userZapped flip immediately (yellow filled
+    // bolt + shimmer), so the icon answers the send without waiting for
+    // the engagement round trip to confirm it.
+    if ($userPublickey) {
+      optimisticZapUpdate(id, (amount ?? 0) * 1000, $userPublickey);
+      markSelfZapCompleted(id);
+      fetchEngagement($ndk, id, $userPublickey);
+    }
   }
 
   function openShare(url: string, event: NDKEvent) {
@@ -1870,7 +1877,7 @@
   <ZapModal
     bind:open={zapOpen}
     event={zapEvent}
-    on:zap-complete={() => zapEvent && zapComplete(zapEvent.id)}
+    on:zap-complete={(e) => zapEvent && zapComplete(zapEvent.id, e.detail?.amount)}
   />
 {/if}
 
