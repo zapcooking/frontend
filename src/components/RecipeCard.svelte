@@ -22,7 +22,11 @@
 
   // With the setting on, cards with no usable image tag never render (Feed
   // filters them too — this keeps RecipeCard safe if reused elsewhere).
-  $: hideForMissingImage = $hideImagelessRecipesSetting && !!event && !hasRecipeImage(event);
+  // List cards are exempt even on image failure: list events are
+  // placeholder-by-design and Feed's own list exemption would be undone
+  // here otherwise.
+  $: hideForMissingImage =
+    $hideImagelessRecipesSetting && !list && !!event && (!hasRecipeImage(event) || imageBroken);
 
   // Simple reactive computations
   $: {
@@ -66,7 +70,7 @@
 <RecipeErrorBoundary>
   {#if isLoading}
     <RecipeCardSkeleton />
-  {:else if hideForMissingImage || ($hideImagelessRecipesSetting && imageBroken)}
+  {:else if hideForMissingImage}
     <!-- Cover missing or failed to load and the member chose to hide
          imageless recipes — render nothing so the grid stays clean. -->
   {:else}

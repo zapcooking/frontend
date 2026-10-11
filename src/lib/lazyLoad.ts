@@ -66,6 +66,10 @@ export function lazyLoad(node: HTMLElement, params: LazyLoadParams) {
     return {
       update(p: LazyLoadParams) {
         currentOnError = p.onError;
+        // Track the swap like the observed branch does — the nostr.build
+        // dead-file check compares results against currentUrl, so a stale
+        // value here would silently disable detection after an update.
+        currentUrl = p.url;
         loadImage(p.url);
       },
       destroy() {}

@@ -7,6 +7,7 @@
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { GATED_RECIPE_KIND, GATED_RECIPE_TAG } from '$lib/consts';
+  import { hideImagelessRecipesSetting, hasRecipeImage } from '$lib/recipeImageFilterSettings';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import LockIcon from 'phosphor-svelte/lib/Lock';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
@@ -50,10 +51,16 @@
   })();
 
   // Filter and sort events by created_at descending (most recent first)
-  $: filteredEvents = showMyRecipesOnly && $userPublickey 
+  $: filteredEvents = showMyRecipesOnly && $userPublickey
     ? events.filter(e => e.pubkey === $userPublickey)
     : events;
   $: sortedEvents = [...filteredEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  // "Hide recipes without images" (device-local, default on) promises all
+  // recipe grids — premium's relay grid included. Server-stored locked
+  // teasers are image-less by design and stay visible regardless.
+  $: visibleSortedEvents = $hideImagelessRecipesSetting
+    ? sortedEvents.filter((e) => hasRecipeImage(e))
+    : sortedEvents;
   $: sortedServerRecipes = [...combinedRecipes.serverOnlyRecipes].sort((a, b) => b.createdAt - a.createdAt);
   
   // Count my recipes for display
@@ -314,6 +321,7 @@
     <div class="flex items-center gap-2 mt-3">
       <button
         on:click={() => showMyRecipesOnly = false}
+        aria-pressed={!showMyRecipesOnly}
         class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
         class:bg-primary={!showMyRecipesOnly}
         class:text-white={!showMyRecipesOnly}
@@ -325,6 +333,7 @@
       </button>
       <button
         on:click={() => showMyRecipesOnly = true}
+        aria-pressed={showMyRecipesOnly}
         class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
         class:bg-primary={showMyRecipesOnly}
         class:text-white={showMyRecipesOnly}
@@ -342,7 +351,7 @@
     <div class="flex items-center justify-center py-12">
       <div class="animate-spin rounded-full h-8 w-8 border-2 border-amber-500 border-t-transparent"></div>
     </div>
-  {:else if sortedEvents.length === 0 && sortedServerRecipes.length === 0}
+  {:else if visibleSortedEvents.length === 0 && sortedServerRecipes.length === 0}
     <div class="flex flex-col items-center justify-center py-12 gap-4">
       <div class="p-4 rounded-full bg-gradient-to-br from-amber-500/10 to-orange-500/10">
         <LockIcon size={48} class="text-amber-500/50" />
@@ -364,7 +373,7 @@
     </div>
   {:else}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {#each sortedEvents as event (event.id)}
+      {#each visibleSortedEvents as event (event.id)}
         {@const naddr = getRecipeNaddr(event)}
         {@const title = getRecipeTitle(event)}
         {@const image = getRecipeImage(event)}

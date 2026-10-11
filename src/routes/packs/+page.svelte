@@ -428,6 +428,7 @@
   <div class="flex items-center gap-2">
     <button
       on:click={() => setTab('discover')}
+      aria-pressed={tab === 'discover'}
       class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
       class:bg-primary={tab === 'discover'}
       class:text-white={tab === 'discover'}
@@ -439,6 +440,7 @@
     </button>
     <button
       on:click={() => setTab('mine')}
+      aria-pressed={tab === 'mine'}
       class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
       class:bg-primary={tab === 'mine'}
       class:text-white={tab === 'mine'}
@@ -450,6 +452,7 @@
     </button>
     <button
       on:click={() => setTab('saved')}
+      aria-pressed={tab === 'saved'}
       class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
       class:bg-primary={tab === 'saved'}
       class:text-white={tab === 'saved'}
