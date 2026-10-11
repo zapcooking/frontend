@@ -3,12 +3,17 @@
   import { get } from 'svelte/store';
   import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
-  import CommentIcon from 'phosphor-svelte/lib/ChatTeardropText';
+  // Rounded bubble with a tail — the iOS bar's bubble.right glyph
+  // (ChatCircle reads as a tailless round bubble).
+  import CommentIcon from 'phosphor-svelte/lib/Chat';
   import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
 
   export let event: NDKEvent;
+  /** When set, the comment button invokes this (opens the reply modal)
+   *  instead of toggling the feed's inline thread or navigating. */
+  export let onComment: (() => void) | null = null;
 
   const store = getEngagementStore(event.id);
 
@@ -19,6 +24,10 @@
   });
 
   function handleCommentClick() {
+    if (onComment) {
+      onComment();
+      return;
+    }
     // In the feed, FeedComments.svelte renders with class="inline-comments" +
     // data-event-id and listens for 'toggleComments' — use that when available.
     const feedCommentsEl = document
@@ -44,7 +53,7 @@
   on:click={handleCommentClick}
   title="View comments"
 >
-  <CommentIcon size={24} class="text-caption" />
+  <CommentIcon size={20} class="text-caption" />
   <span class="text-caption">
     {#if $store.loading}<span class="opacity-0">0</span>{:else}{$store.comments.count}{/if}
   </span>

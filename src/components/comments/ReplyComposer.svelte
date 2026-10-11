@@ -95,6 +95,9 @@
 	/** Compact variant — smaller padding/font for inline-reply composers. */
 	export let compact = false;
 
+	/** Focus the editor on mount (modal composers). */
+	export let autoFocus = false;
+
 	/**
 	 * Fired after a successful post with the published event. Used by callers
 	 * that want optimistic add (`sub.addLocal(event)`) or a refresh hook.
@@ -380,6 +383,11 @@
 
 	onMount(() => {
 		loadTimerSettings();
+		if (autoFocus) {
+			// The mention controller binds the editor reactively; wait a tick
+			// so focus lands after wiring rather than being overwritten.
+			setTimeout(() => composerEl?.focus(), 0);
+		}
 	});
 
 	// ── Proof of work ─────────────────────────────────────────────
@@ -1403,6 +1411,10 @@
 
 	.reply-composer-preview {
 		overflow-y: auto;
+		/* A media-heavy draft rendered at natural height dwarfed the modal —
+		   the preview's job is to confirm the content, not to re-display it
+		   full-size above its own attachment thumbnail. */
+		max-height: 16rem;
 	}
 
 	.btn-gif,
