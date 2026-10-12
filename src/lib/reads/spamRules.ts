@@ -10,7 +10,6 @@
  * authors and applies its own food rules.
  */
 
-import { hashtagCount, MAX_HASHTAGS } from '$lib/hashtags';
 import { normalizeForScan } from './moderation';
 
 export interface SpamEventLike {
@@ -52,6 +51,8 @@ export const ADULT_PLATFORM_DOMAINS: readonly string[] = [
  * Explicit adult words, matched whole-word after normalizeForScan (so
  * "n.s.f.w" and homoglyphs still hit). Deliberately narrow: words with food
  * meanings ("naked cake", "nude lipstick" colours, "foodporn") aren't here.
+ * One word alone isn't a hit (Nostr newsletters mention "NSFW filtering");
+ * it takes ADULT_MIN_KEYWORDS different ones, or a platform link.
  */
 export const ADULT_KEYWORDS: readonly string[] = [
 	'onlyfans',
@@ -72,11 +73,17 @@ export const ADULT_KEYWORDS: readonly string[] = [
 	'sexting'
 ];
 
-/** Hashtag stuffing: the relay's (and web's) kind-1 cap, counted the same way. */
-export const SPAM_MAX_HASHTAGS = MAX_HASHTAGS;
+/** Different adult words it takes, without a platform link. */
+export const ADULT_MIN_KEYWORDS = 2;
+/**
+ * Hashtag stuffing: more distinct `t` tags than this. Long-form isn't held
+ * to the kind-1 cap (5): articles routinely carry 6–10 topic tags, and
+ * inline "#" in a long body is mostly markdown, so only `t` tags count.
+ */
+export const SPAM_MAX_HASHTAGS = 20;
 /** Link-dominated: fewer prose words than this alongside any link… */
 export const LINKS_MIN_PROSE_WORDS = 60;
-/** …or URLs making up more than this share of the article's characters. */
+/** …or link URLs (images not counted) making up more than this share of the article's characters. */
 export const LINKS_MAX_URL_SHARE = 0.5;
 /** Very short: fewer words than this (URLs and markup not counted). */
 export const MIN_ARTICLE_WORDS = 120;
@@ -85,6 +92,8 @@ export const DUPLICATE_MIN_CHARS = 200;
 
 const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>()[\]"']+/gi;
 const NOSTR_REF_RE = /\bnostr:[a-z0-9]+/gi;
+/** A URL to an image file: a photo-heavy article isn't a link farm. */
+const IMAGE_URL_RE = /\.(?:jpe?g|png|gif|webp|avif|heic|svg)(?:[?#]|$)/i;
 
 function tagValues(tags: string[][], name: string): string[] {
 	return tags.filter((t) => t[0] === name && typeof t[1] === 'string').map((t) => t[1]);
@@ -114,7 +123,7 @@ function adultKeywordPatterns(): RegExp[] {
 	return keywordPatterns;
 }
 
-/** Links to an adult platform, or explicit adult words, anywhere in the article. */
+/** A link to an adult platform, or ADULT_MIN_KEYWORDS different adult words, anywhere in the article. */
 export function isAdultSpam(e: SpamEventLike): boolean {
 	const fields = [e.content, ...tagValues(e.tags, 'title'), ...tagValues(e.tags, 'summary'), ...tagValues(e.tags, 'image')];
 	for (const field of fields) {
@@ -124,12 +133,12 @@ export function isAdultSpam(e: SpamEventLike): boolean {
 		}
 	}
 	const text = normalizeForScan([...fields, ...tagValues(e.tags, 't')].join(' '));
-	return adultKeywordPatterns().some((p) => p.test(text));
+	return adultKeywordPatterns().filter((p) => p.test(text)).length >= ADULT_MIN_KEYWORDS;
 }
 
-/** More hashtags than the feed's cap: the greater of body hashtags and `t` tags. */
+/** More than SPAM_MAX_HASHTAGS distinct `t` tags. */
 export function isHashtagStuffed(e: SpamEventLike): boolean {
-	return hashtagCount(e.content, e.tags) > SPAM_MAX_HASHTAGS;
+	return new Set(tagValues(e.tags, 't').map((t) => t.trim().toLowerCase()).filter(Boolean)).size > SPAM_MAX_HASHTAGS;
 }
 
 /**
@@ -149,12 +158,12 @@ export function wordCount(text: string): number {
 	return text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 }
 
-/** Links with almost no prose around them, or mostly URL characters. */
+/** Links with almost no prose around them, or mostly link-URL characters (image URLs don't count toward the share). */
 export function isLinkDominated(e: SpamEventLike): boolean {
 	const urls = e.content.match(URL_RE) ?? [];
 	if (urls.length === 0) return false;
 	if (wordCount(proseOf(e.content)) < LINKS_MIN_PROSE_WORDS) return true;
-	const urlChars = urls.reduce((n, u) => n + u.length, 0);
+	const urlChars = urls.filter((u) => !IMAGE_URL_RE.test(u)).reduce((n, u) => n + u.length, 0);
 	const total = e.content.replace(/\s+/g, '').length;
 	return total > 0 && urlChars / total > LINKS_MAX_URL_SHARE;
 }

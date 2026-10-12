@@ -89,10 +89,14 @@ describe('adult content', () => {
 		expect(isAdultSpam(article({ content: FOOD_BODY + ' https://manyvids.com.example/x' }))).toBe(false);
 	});
 
-	it('catches explicit adult keywords past the first 500 characters', () => {
-		const e = article({ content: FOOD_BODY + '\n- [Leaked nudes gallery](https://spam.example/x)' });
+	it('catches two different adult words past the first 500 characters', () => {
+		const e = article({ content: FOOD_BODY + '\n- [Leaked nudes, NSFW gallery](https://spam.example/x)' });
 		expect(e.content.indexOf('nudes')).toBeGreaterThan(500);
 		expect(isAdultSpam(e)).toBe(true);
+	});
+
+	it('one adult word alone is not a hit (a newsletter on "NSFW filtering")', () => {
+		expect(isAdultSpam(article({ content: FOOD_BODY + ' Clients now support NSFW filtering. NSFW!' }))).toBe(false);
 	});
 
 	it('keeps every platform in one list', () => {
@@ -102,6 +106,11 @@ describe('adult content', () => {
 });
 
 describe('hashtag stuffing', () => {
+	it('long-form allows the 6–10 topic tags articles usually carry', () => {
+		expect(SPAM_MAX_HASHTAGS).toBe(20);
+		expect(isHashtagStuffed(article({ t: Array.from({ length: 10 }, (_, i) => `tag${i}`) }))).toBe(false);
+	});
+
 	it(`catches more than ${SPAM_MAX_HASHTAGS} t tags`, () => {
 		const t = Array.from({ length: SPAM_MAX_HASHTAGS + 1 }, (_, i) => `tag${i}`);
 		expect(isHashtagStuffed(article({ t }))).toBe(true);
@@ -112,9 +121,15 @@ describe('hashtag stuffing', () => {
 		expect(isHashtagStuffed(article({ t }))).toBe(false);
 	});
 
-	it('counts inline hashtags too', () => {
+	it('counts only t tags, not inline hashtags in the body', () => {
 		const inline = Array.from({ length: SPAM_MAX_HASHTAGS + 1 }, (_, i) => `#tag${i}`).join(' ');
-		expect(isHashtagStuffed(article({ t: [], content: FOOD_BODY + ' ' + inline }))).toBe(true);
+		expect(isHashtagStuffed(article({ t: [], content: FOOD_BODY + ' ' + inline }))).toBe(false);
+	});
+
+	it('counts distinct tags (Bitcoin and bitcoin are one)', () => {
+		const t = Array.from({ length: SPAM_MAX_HASHTAGS }, (_, i) => `tag${i}`);
+		expect(isHashtagStuffed(article({ t: [...t, ...t.map((x) => x.toUpperCase()), ' tag0 '] }))).toBe(false);
+		expect(isHashtagStuffed(article({ t: [...t, 'one more'] }))).toBe(true);
 	});
 
 	it('does not count markdown headings', () => {
@@ -139,6 +154,13 @@ describe('link-dominated content', () => {
 	it('catches a body that is mostly URL characters', () => {
 		const urls = Array.from({ length: 60 }, (_, i) => `https://spam.example/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/${i}`).join(' ');
 		expect(isLinkDominated(article({ content: FOOD_BODY + ' ' + urls }))).toBe(true);
+	});
+
+	it('image URLs do not count toward the URL share (a photo-heavy article)', () => {
+		const photos = Array.from({ length: 60 }, (_, i) => `![p](https://substackcdn.example/image/fetch/w_1456/aaaaaaaa/${i}.jpeg?x=1)`).join('\n');
+		expect(isLinkDominated(article({ content: FOOD_BODY + '\n' + photos }))).toBe(false);
+		const links = photos.replace(/\.jpeg\?x=1/g, '/page');
+		expect(isLinkDominated(article({ content: FOOD_BODY + '\n' + links }))).toBe(true);
 	});
 
 	it('leaves a link-free short note to the short rule', () => {
