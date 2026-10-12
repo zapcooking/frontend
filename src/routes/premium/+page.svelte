@@ -7,6 +7,7 @@
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
   import { GATED_RECIPE_KIND, GATED_RECIPE_TAG } from '$lib/consts';
+  import { hideImagelessRecipesSetting, hasRecipeImage } from '$lib/recipeImageFilterSettings';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import LockIcon from 'phosphor-svelte/lib/Lock';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
@@ -50,10 +51,16 @@
   })();
 
   // Filter and sort events by created_at descending (most recent first)
-  $: filteredEvents = showMyRecipesOnly && $userPublickey 
+  $: filteredEvents = showMyRecipesOnly && $userPublickey
     ? events.filter(e => e.pubkey === $userPublickey)
     : events;
   $: sortedEvents = [...filteredEvents].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  // "Hide recipes without images" (device-local, default on) promises all
+  // recipe grids — premium's relay grid included. Server-stored locked
+  // teasers are image-less by design and stay visible regardless.
+  $: visibleSortedEvents = $hideImagelessRecipesSetting
+    ? sortedEvents.filter((e) => hasRecipeImage(e))
+    : sortedEvents;
   $: sortedServerRecipes = [...combinedRecipes.serverOnlyRecipes].sort((a, b) => b.createdAt - a.createdAt);
   
   // Count my recipes for display
@@ -226,31 +233,32 @@
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
 <div class="flex flex-col gap-4 max-w-full md:max-w-none">
-  <!-- Tabs (shared with /recipes) -->
+  <!-- Top tab bar — mirrors /recipes and /packs so navigation stays consistent.
+       Recipes / Packs / Premium ⚡️ — Premium is active here. -->
   <div class="flex flex-col gap-3">
-    <div class="flex items-center justify-between gap-4">
-      <div class="flex gap-1 border-b" style="border-color: var(--color-input-border)">
-        <a
-          href="/recipes"
-          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
-          style="color: var(--color-text-secondary)"
-        >
-          Recent
-        </a>
-        <a
-          href="/recipes"
-          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
-          style="color: var(--color-text-secondary)"
-        >
-          All
-        </a>
-        <button
-          class="px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer"
-          style="color: var(--color-text-primary)"
-        >
-          Premium ⚡️
-          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
-        </button>
+    <div class="flex w-full border-b" style="border-color: var(--color-input-border)">
+      <a
+        href="/recipes"
+        class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
+        style="color: var(--color-text-secondary)"
+      >
+        Recipes
+      </a>
+      <a
+        href="/packs"
+        class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
+        style="color: var(--color-text-secondary)"
+      >
+        Packs
+      </a>
+      <div
+        class="flex-1 py-2.5 text-sm font-medium transition-colors relative text-center"
+        style="color: var(--color-text-primary)"
+      >
+        Premium ⚡️
+        <span
+          class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+        ></span>
       </div>
     </div>
   </div>
@@ -268,49 +276,28 @@
         </p>
       </div>
     </div>
-
+  </div>
+  
+  <!-- Create action leads the content in reading order (left edge, under the
+       title). The one-line explainer lives beside it as plain text — no frame —
+       and the All/My filters sit on their own row below as pill chips matching
+       the packs page's Discover/Mine/Saved. -->
+  <div class="flex items-center gap-3 flex-wrap">
     {#if $userPublickey}
       <button
         on:click={() => goto('/create/gated')}
-        class="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium hover:opacity-90 transition-opacity shadow-lg"
+        class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:opacity-90 transition-opacity shadow-lg"
       >
-        <PlusIcon size={18} weight="bold" />
+        <PlusIcon size={16} weight="bold" />
         Create Premium Recipe
       </button>
     {/if}
-  </div>
-  
-  <!-- Filter Tabs -->
-  {#if $userPublickey}
-    <div class="flex items-center gap-2">
-      <button
-        on:click={() => showMyRecipesOnly = false}
-        class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        class:bg-amber-500={!showMyRecipesOnly}
-        class:text-white={!showMyRecipesOnly}
-        style={showMyRecipesOnly ? 'color: var(--color-text-secondary); background: var(--color-input-bg);' : ''}
-      >
-        All Recipes ({events.length})
-      </button>
-      <button
-        on:click={() => showMyRecipesOnly = true}
-        class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        class:bg-amber-500={showMyRecipesOnly}
-        class:text-white={showMyRecipesOnly}
-        style={!showMyRecipesOnly ? 'color: var(--color-text-secondary); background: var(--color-input-bg);' : ''}
-      >
-        My Recipes ({myRecipeCount})
-      </button>
-    </div>
-  {/if}
-  
-  <!-- Info Banner -->
-  <div class="p-4 rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20">
-    <div class="flex items-start gap-3">
-      <LightningIcon size={20} weight="fill" class="text-amber-500 mt-0.5 flex-shrink-0" />
+
+    <div class="flex items-center gap-2 min-w-0">
+      <LightningIcon size={16} weight="fill" class="text-amber-500 flex-shrink-0" />
       <div>
         <!--
-          This banner is the only text on the page saying what the page is, so it orients and
+          This line is the only text on the page saying what the page is, so it orients and
           stops there. It used to read "Lightning-Gated Recipes — Creators can monetize their
           exclusive recipes with Lightning payments. Pay once, get permanent access.", and
           every clause of that was a claim we could not keep: "exclusive" and "monetize"
@@ -320,21 +307,51 @@
           the author" would assert more than the record knows. "Set when it was published" is
           the one system claim left in it and it holds: the only write that can reach an
           existing record is the PATCH at store-gated/+server.ts:131, which touches naddr
-          alone, and a repeat POST is refused with a 409 at :87-92 before storing.
+          alone, and a repeat POST is refused with a 409 at :87-92 before storing. The bold
+          "Premium recipes." lead-in was dropped — the H1 beside it already says it.
         -->
         <p class="text-sm" style="color: var(--color-text-primary);">
-          <strong>Premium recipes.</strong> Each one has a price on it, set when it was published.
+          Each one has a price on it, set when it was published.
         </p>
       </div>
     </div>
   </div>
+
+  {#if $userPublickey}
+    <div class="flex items-center gap-2 mt-3">
+      <button
+        on:click={() => showMyRecipesOnly = false}
+        aria-pressed={!showMyRecipesOnly}
+        class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
+        class:bg-primary={!showMyRecipesOnly}
+        class:text-white={!showMyRecipesOnly}
+        style={showMyRecipesOnly
+          ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
+          : ''}
+      >
+        All Recipes ({events.length})
+      </button>
+      <button
+        on:click={() => showMyRecipesOnly = true}
+        aria-pressed={showMyRecipesOnly}
+        class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
+        class:bg-primary={showMyRecipesOnly}
+        class:text-white={showMyRecipesOnly}
+        style={!showMyRecipesOnly
+          ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
+          : ''}
+      >
+        My Recipes ({myRecipeCount})
+      </button>
+    </div>
+  {/if}
 
   <!-- Recipe Grid -->
   {#if !loaded && serverStoredRecipes.length === 0}
     <div class="flex items-center justify-center py-12">
       <div class="animate-spin rounded-full h-8 w-8 border-2 border-amber-500 border-t-transparent"></div>
     </div>
-  {:else if sortedEvents.length === 0 && sortedServerRecipes.length === 0}
+  {:else if visibleSortedEvents.length === 0 && sortedServerRecipes.length === 0}
     <div class="flex flex-col items-center justify-center py-12 gap-4">
       <div class="p-4 rounded-full bg-gradient-to-br from-amber-500/10 to-orange-500/10">
         <LockIcon size={48} class="text-amber-500/50" />
@@ -356,7 +373,7 @@
     </div>
   {:else}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {#each sortedEvents as event (event.id)}
+      {#each visibleSortedEvents as event (event.id)}
         {@const naddr = getRecipeNaddr(event)}
         {@const title = getRecipeTitle(event)}
         {@const image = getRecipeImage(event)}
@@ -490,20 +507,6 @@
           </div>
         </a>
       {/each}
-    </div>
-  {/if}
-
-  <!-- Create CTA for logged in users -->
-  {#if $userPublickey && (sortedEvents.length > 0 || sortedServerRecipes.length > 0)}
-    <div class="flex justify-center pt-4">
-      <button
-        on:click={() => goto('/create/gated')}
-        class="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors hover:bg-amber-500/10"
-        style="border-color: var(--color-input-border); color: var(--color-text-secondary)"
-      >
-        <LightningIcon size={18} weight="bold" class="text-amber-500" />
-        Create Your Premium Recipe
-      </button>
     </div>
   {/if}
 </div>
