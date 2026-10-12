@@ -9,6 +9,20 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { CLIENT_TAG_IDENTIFIER } from './consts';
 
 /**
+ * The logged-in user's pubkey, read straight from localStorage so this
+ * module stays importable from non-browser bundles. The handler address in
+ * the client tag points at the headlight the SAME user publishes at login
+ * (see nip89Headlight.ts) — self-consistent per author.
+ */
+function loggedInPubkey(): string | null {
+  try {
+    return localStorage.getItem('nostrcooking_loggedInPublicKey');
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Ensures a client tag array has the correct identifier
  * @param tags - Array of tag arrays
  * @returns Tags array with client tag added/updated if needed
@@ -39,12 +53,27 @@ export function ensureClientTag(tags: string[][]): string[][] {
  * @returns The same event with client tag ensured
  */
 export function addClientTagToEvent(event: NDKEvent): NDKEvent {
-  // Get current tags (may be empty array initially)
   const currentTags = event.tags || [];
-  
-  // Ensure client tag is present
-  event.tags = ensureClientTag([...currentTags]);
-  
+  const pubkey = event.pubkey || loggedInPubkey() || '';
+  const handlerAddress = pubkey ? `31990:${pubkey}:zap-cooking` : '';
+
+  const idx = currentTags.findIndex((tag) => tag.length > 0 && tag[0] === 'client');
+  let clientTag: string[];
+  if (idx >= 0) {
+    clientTag = [...currentTags[idx]];
+    if (clientTag.length < 2 || !clientTag[1]) clientTag[1] = CLIENT_TAG_IDENTIFIER;
+  } else {
+    clientTag = ['client', CLIENT_TAG_IDENTIFIER];
+  }
+  // Full NIP-89 form: attach the handler address so clients can resolve our
+  // kind-31990 headlight (logo, name, web action) and brand the embed.
+  if (handlerAddress && clientTag.length < 3) clientTag.push(handlerAddress);
+
+  const next = [...currentTags];
+  if (idx >= 0) next[idx] = clientTag;
+  else next.push(clientTag);
+
+  event.tags = next;
   return event;
 }
 
