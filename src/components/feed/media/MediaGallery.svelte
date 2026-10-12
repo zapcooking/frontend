@@ -36,11 +36,14 @@
   <div class="gallery layout-{layout}">
     {#if layout === 'one'}
       <!-- Single image: 1:1 square cropped to fit. The full uncropped
-           frame is shown in the Lightbox on tap. -->
+           frame is shown in the Lightbox on tap. Loading stays the tile's
+           lazy default — this component also renders feed rows far below
+           the viewport, and forcing eager here would fetch every
+           one-image post on mount. The feed's first-paint hero passes
+           its own eager flag down via the item, not through the gallery. -->
       <MediaTile
         item={visibleItems[0]}
         aspectRatio={heroAspect}
-        loading="eager"
         corner="none"
         on:open={() => open(0)}
       />

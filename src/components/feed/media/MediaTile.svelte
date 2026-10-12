@@ -45,6 +45,12 @@
   let mediaLoaded = false;
   let mediaErrored = false;
   let fallbackIndex = -1;
+  // Poster failures are handled separately from the media URL chain: the
+  // poster <img> shares this component with the image branch, but a bad
+  // poster must fall straight to the empty tile, not consume one of the
+  // video URL's fallbacks (which would only change currentUrl, never the
+  // poster src — the error would loop with nowhere to go).
+  let posterErrored = false;
 
   $: currentUrl = (() => {
     if (fallbackIndex < 0) return item.url;
@@ -105,7 +111,7 @@
          actual <video> only mounts in the Lightbox when the user
          taps in. Falls back to a plain bg-secondary tile when no
          poster URL is available. -->
-    {#if item.poster}
+    {#if item.poster && !posterErrored}
       <img
         class="media-element"
         class:is-loaded={mediaLoaded}
@@ -114,7 +120,10 @@
         {loading}
         decoding="async"
         on:load={handleLoaded}
-        on:error={handleError}
+        on:error={() => {
+          posterErrored = true;
+          mediaLoaded = true; // stop showing the blurhash skeleton
+        }}
       />
     {/if}
     {#if !mediaErrored}

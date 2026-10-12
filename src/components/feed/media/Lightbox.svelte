@@ -87,12 +87,17 @@
 
   function lockScroll() {
     if (document.body.dataset.lightboxLocked === '1') return;
-    scrollLockY = window.scrollY;
+    // The app scrolls inside #app-scroll, not the window (window.scrollY
+    // is normally 0 here) — lock that container too, and restore its
+    // position on unlock.
+    scrollLockY = document.getElementById('app-scroll')?.scrollTop ?? window.scrollY;
     document.body.dataset.lightboxLocked = '1';
     document.body.style.position = 'fixed';
     document.body.style.top = `-${scrollLockY}px`;
     document.body.style.left = '0';
     document.body.style.right = '0';
+    const scroller = document.getElementById('app-scroll');
+    if (scroller) scroller.style.overflow = 'hidden';
   }
 
   function unlockScroll() {
@@ -101,8 +106,11 @@
     document.body.style.top = '';
     document.body.style.left = '';
     document.body.style.right = '';
+    const scroller = document.getElementById('app-scroll');
+    if (scroller) scroller.style.overflow = '';
     delete document.body.dataset.lightboxLocked;
     window.scrollTo(0, scrollLockY);
+    if (scroller) scroller.scrollTop = scrollLockY;
   }
 
   function handleKeydown(e: KeyboardEvent) {

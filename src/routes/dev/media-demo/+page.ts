@@ -8,3 +8,14 @@
  * an undefined browser global.
  */
 export const ssr = false;
+
+import { redirect } from '@sveltejs/kit';
+import type { PageLoad } from './$types';
+
+// Dev-only tooling — redirect away in production builds. (Checked via
+// PROD so the branch survives DEV being inlined+eliminated at build.)
+export const load: PageLoad = () => {
+	if (import.meta.env.PROD) {
+		throw redirect(307, '/');
+	}
+};

@@ -3,7 +3,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseImeta, isImageUrl, isVideoUrl } from './imeta';
+import { parseImeta, isImageUrl, isVideoUrl, imetaAltByUrl, buildImetaTag, buildImetaTagWithAlt, imetaTagsByUrl, withImetaAlt } from './imeta';
+import { scanNostrRefs } from '../nostrRefScan';
+import { filterImageUrls } from '../imageUrls';
 
 describe('parseImeta', () => {
   it('returns empty for events with no media', () => {
@@ -295,5 +297,263 @@ describe('parseImeta poster', () => {
       ]
     };
     expect(parseImeta(event)[0].poster).toBe('https://x/v-image.jpg');
+  });
+});
+
+describe('imetaAltByUrl', () => {
+  it('maps imeta urls to their alt text', () => {
+    const event = {
+      content: '',
+      tags: [
+        ['imeta', 'url https://x/a.jpg', 'm image/jpeg', 'alt A bowl of soup'],
+        ['imeta', 'url https://x/b.jpg', 'alt A plate of noodles']
+      ]
+    };
+    const map = imetaAltByUrl(event);
+    expect(map.get('https://x/a.jpg')).toBe('A bowl of soup');
+    expect(map.get('https://x/b.jpg')).toBe('A plate of noodles');
+    expect(map.size).toBe(2);
+  });
+
+  it('omits imeta entries without url or without alt', () => {
+    const event = {
+      content: '',
+      tags: [
+        ['imeta', 'm image/jpeg'],
+        ['imeta', 'url https://x/a.jpg', 'dim 10x10'],
+        ['imeta', 'url https://x/b.jpg', 'alt has alt']
+      ]
+    };
+    const map = imetaAltByUrl(event);
+    expect(map.size).toBe(1);
+    expect(map.get('https://x/b.jpg')).toBe('has alt');
+  });
+
+  it('returns an empty map when there are no imeta tags', () => {
+    expect(imetaAltByUrl({ content: 'hi', tags: [] }).size).toBe(0);
+    expect(imetaAltByUrl({}).size).toBe(0);
+  });
+});
+
+describe('buildImetaTagWithAlt', () => {
+  it('emits url and alt slots per NIP-92', () => {
+    expect(buildImetaTagWithAlt('https://x/a.jpg', 'A bowl of soup')).toEqual([
+      'imeta',
+      'url https://x/a.jpg',
+      'alt A bowl of soup'
+    ]);
+  });
+
+  it('keeps single line breaks in alt (JSON escapes them on the wire)', () => {
+    const tag = buildImetaTagWithAlt('https://x/a.jpg', 'two\nlines');
+    expect(tag[2]).toBe('alt two\nlines');
+  });
+
+  it('caps runs of blank lines at one paragraph gap', () => {
+    const tag = buildImetaTagWithAlt('https://x/a.jpg', 'a\n\n\n\n\nb');
+    expect(tag[2]).toBe('alt a\n\nb');
+  });
+
+  it('normalizes CRLF to LF in alt', () => {
+    const tag = buildImetaTagWithAlt('https://x/a.jpg', 'a\r\nb');
+    expect(tag[2]).toBe('alt a\nb');
+  });
+
+  it('round-trips multi-line alt through a serialized event', () => {
+    const alt = 'First paragraph\n\nSecond paragraph';
+    const tag = buildImetaTagWithAlt('https://x/a.jpg', alt);
+    // JSON round-trip mirrors what hits the relay and comes back.
+    const wire = JSON.parse(JSON.stringify({ content: '', tags: [tag] }));
+    expect(parseImeta(wire)[0].alt).toBe(alt);
+    expect(imetaAltByUrl(wire).get('https://x/a.jpg')).toBe(alt);
+  });
+
+  it('caps runaway line runs in alt received from other clients', () => {
+    const event = {
+      content: '',
+      tags: [['imeta', 'url https://x/a.jpg', 'alt a\n\n\n\n\nb']]
+    };
+    expect(imetaAltByUrl(event).get('https://x/a.jpg')).toBe('a\n\nb');
+    expect(parseImeta(event)[0].alt).toBe('a\n\nb');
+  });
+
+  it('omits the alt slot when the text is only whitespace', () => {
+    // ' \n ' is truthy, so an emptiness check before normalizing would let
+    // it through and emit a bare `alt ` with nothing behind it.
+    expect(buildImetaTagWithAlt('https://x/a.jpg', ' \n ')).toEqual([
+      'imeta',
+      'url https://x/a.jpg'
+    ]);
+  });
+
+  it('keeps the alt paragraph policy off non-alt slots', () => {
+    const tag = buildImetaTag('https://x/a.jpg', {
+      alt: 'a\n\n\n\nb',
+      blurhash: 'LEHV6n\n  WB2yk8'
+    });
+    // alt keeps its paragraph gap; blurhash flattens as it always did.
+    expect(tag).toEqual([
+      'imeta',
+      'url https://x/a.jpg',
+      'alt a\n\nb',
+      'blurhash LEHV6n WB2yk8'
+    ]);
+  });
+
+  it('round-trips through parseImeta', () => {
+    const tag = buildImetaTagWithAlt('https://x/a.jpg', 'A bowl of soup');
+    const items = parseImeta({ content: `https://x/a.jpg`, tags: [tag] });
+    expect(items[0].alt).toBe('A bowl of soup');
+    expect(items[0].url).toBe('https://x/a.jpg');
+  });
+
+  // Real note, published from Amethyst, fetched live from relay.damus.io
+  // (id 3957043a41de5c28…). Regression test for reading another client's
+  // imeta: blossom URL + x/size/m/dim/blurhash/ox/alt slots.
+  it('reads alt from a real Amethyst note (interop)', () => {
+    const url =
+      'https://npub1sjvt6lzmhj66gc3tjc5l4g3uhxz5lhaf4tqe2c0n5m92a0amffxq7veejj.blossom.band/ae8469f64b830b6eed6b1040cbfc4aaedb463c05cb2535fde0a062b652f2bd8f.jpg';
+    const event = {
+      content: `test image with alt text\n${url}`,
+      tags: [
+        ['r', url],
+        ['p', '8498bd7c5bbcb5a4622b9629faa23cb9854fdfa9aac19561f3a6caaebfbb4a4c'],
+        [
+          'imeta',
+          `url ${url}`,
+          'x ae8469f64b830b6eed6b1040cbfc4aaedb463c05cb2535fde0a062b652f2bd8f',
+          'size 78925',
+          'm image/jpeg',
+          'dim 1080x2340',
+          'blurhash [57nB:~l=#m-~Xtb$lnh044oNfXf4q9FNfJz~Xx.%3M{~V.2-Ww4Mybpt8sp9HE3NeI.E3IDNbI:',
+          'ox ae8469f64b830b6eed6b1040cbfc4aaedb463c05cb2535fde0a062b652f2bd8f',
+          'alt TV test pattern'
+        ],
+        ['client', 'Amethyst']
+      ]
+    };
+
+    // parseImeta carries the full NIP-92 field set.
+    const items = parseImeta(event);
+    expect(items).toEqual([
+      {
+        url,
+        mime: 'image/jpeg',
+        dim: { w: 1080, h: 2340 },
+        blurhash: '[57nB:~l=#m-~Xtb$lnh044oNfXf4q9FNfJz~Xx.%3M{~V.2-Ww4Mybpt8sp9HE3NeI.E3IDNbI:',
+        alt: 'TV test pattern',
+        hash: 'ae8469f64b830b6eed6b1040cbfc4aaedb463c05cb2535fde0a062b652f2bd8f'
+      }
+    ]);
+
+    // The render path's lookup: URLs extracted from the note body must
+    // string-match the imeta `url` slot exactly, so the alt map hits.
+    const bodyUrls = scanNostrRefs(event.content)
+      .filter((ref) => ref.type === 'url' && ref.url)
+      .map((ref) => ref.url as string);
+    const imageUrls = filterImageUrls(bodyUrls);
+    expect(imageUrls).toEqual([url]);
+
+    const altMap = imetaAltByUrl(event);
+    expect(altMap.get(imageUrls[0])).toBe('TV test pattern');
+  });
+});
+
+describe('isImageUrl', () => {
+  it('accepts common image extensions', () => {
+    expect(isImageUrl('https://x.com/a.jpg')).toBe(true);
+    expect(isImageUrl('https://x.com/a.JPEG')).toBe(true);
+    expect(isImageUrl('https://x.com/a.png?cache=1')).toBe(true);
+    expect(isImageUrl('https://x.com/a.webp')).toBe(true);
+    expect(isImageUrl('https://x.com/a.avif')).toBe(true);
+  });
+  it('accepts known image hosts', () => {
+    expect(isImageUrl('https://image.nostr.build/abc')).toBe(true);
+    expect(isImageUrl('https://primal.b-cdn.net/foo')).toBe(true);
+    expect(isImageUrl('https://i.ibb.co/bar')).toBe(true);
+  });
+  it('rejects malformed URLs and non-images', () => {
+    expect(isImageUrl('not a url')).toBe(false);
+    expect(isImageUrl('https://example.com/page')).toBe(false);
+  });
+});
+
+describe('isVideoUrl', () => {
+  it('accepts common video extensions', () => {
+    expect(isVideoUrl('https://x.com/a.mp4')).toBe(true);
+    expect(isVideoUrl('https://x.com/a.webm')).toBe(true);
+    expect(isVideoUrl('https://x.com/a.MOV')).toBe(true);
+  });
+  it('rejects non-video URLs', () => {
+    expect(isVideoUrl('https://x.com/a.jpg')).toBe(false);
+    expect(isVideoUrl('not a url')).toBe(false);
+  });
+});
+
+describe('imetaTagsByUrl / withImetaAlt (fork/edit round-trip)', () => {
+  const rich = [
+    'imeta',
+    'url https://cdn.example/soup.jpg',
+    'm image/jpeg',
+    'dim 1920x1080',
+    'blurhash LkO~xq',
+    'alt Old description',
+    'x abc123',
+    'fallback https://mirror.example/soup.jpg'
+  ];
+
+  it('maps each imeta url to its full tag row', () => {
+    const map = imetaTagsByUrl({ tags: [rich, ['image', 'https://cdn.example/soup.jpg']] });
+    expect(map.size).toBe(1);
+    expect(map.get('https://cdn.example/soup.jpg')).toBe(rich);
+  });
+
+  it('replaces only the alt slot, keeping other fields and their order', () => {
+    const out = withImetaAlt(rich, 'A bowl of tomato soup');
+    expect(out).toEqual([
+      'imeta',
+      'url https://cdn.example/soup.jpg',
+      'm image/jpeg',
+      'dim 1920x1080',
+      'blurhash LkO~xq',
+      'alt A bowl of tomato soup',
+      'x abc123',
+      'fallback https://mirror.example/soup.jpg'
+    ]);
+    // Source row is not mutated
+    expect(rich[5]).toBe('alt Old description');
+  });
+
+  it('appends alt when the source row had none', () => {
+    const out = withImetaAlt(['imeta', 'url https://x/a.png', 'm image/png'], 'Cat');
+    expect(out).toEqual(['imeta', 'url https://x/a.png', 'm image/png', 'alt Cat']);
+  });
+
+  it('strips alt when the new value is empty, preserving the rest', () => {
+    const out = withImetaAlt(rich, '   ');
+    expect(out).toEqual([
+      'imeta',
+      'url https://cdn.example/soup.jpg',
+      'm image/jpeg',
+      'dim 1920x1080',
+      'blurhash LkO~xq',
+      'x abc123',
+      'fallback https://mirror.example/soup.jpg'
+    ]);
+  });
+
+  it('keeps line breaks and collapses duplicate alt slots', () => {
+    const out = withImetaAlt(['imeta', 'url https://x/a.png', 'alt one', 'alt two'], 'multi\nline');
+    expect(out).toEqual(['imeta', 'url https://x/a.png', 'alt multi\nline']);
+  });
+
+  it('caps blank-line runs when replacing alt on an existing tag', () => {
+    const out = withImetaAlt(['imeta', 'url https://x/a.png'], 'a\n\n\n\nb');
+    expect(out).toEqual(['imeta', 'url https://x/a.png', 'alt a\n\nb']);
+  });
+
+  it('round-trips through imetaAltByUrl', () => {
+    const tag = withImetaAlt(rich, 'New text');
+    expect(imetaAltByUrl({ tags: [tag] }).get('https://cdn.example/soup.jpg')).toBe('New text');
   });
 });
