@@ -532,6 +532,10 @@
           // prompt NIP-07 users for one decrypt.
           setTimeout(() => void autoRestoreWalletAtLogin(state.publicKey), 2500);
         } else {
+          // A settled unauthenticated state must never keep a pubkey around
+          // (locked vault, failed NIP-07 restore): clear it before the
+          // transition guard below.
+          userPublickey.set('');
           // Logout cleanup only on a genuine authenticated → logged-out
           // transition. Intermediate unauthenticated states (the isLoading
           // ping while a NIP-07/NIP-46 session restores on refresh) must
@@ -541,7 +545,6 @@
           if (!wasAuthenticated) {
             return;
           }
-          userPublickey.set('');
           stopMessageSubscription();
           clearMessages();
           clearDecryptCache();

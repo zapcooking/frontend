@@ -15,7 +15,7 @@
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
-  import { ndk } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
   import { isReply, getParentNoteId, fetchReplyContext } from '$lib/replyContext';
   import { stripQuotedNoteReferences } from '$lib/feed/noteContent';
   import { eventToArticleData } from '$lib/articleUtils';
@@ -366,7 +366,19 @@
     <div class="flex items-center gap-9 flex-shrink-0">
       {#if visible}
         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-          <NoteTotalComments {event} onComment={() => (replyModalOpen = true)} />
+          <NoteTotalComments
+            {event}
+            onComment={() => {
+              // Same caller-level gate the Foodstr feed uses: ReplyComposer
+              // doesn't disable submission for signed-out visitors.
+              if (!$userPublickey) {
+                window.location.href =
+                  '/login?redirect=' + encodeURIComponent(window.location.pathname);
+                return;
+              }
+              replyModalOpen = true;
+            }}
+          />
         </div>
         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
           <NoteTotalLikes {event} />

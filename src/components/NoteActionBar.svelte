@@ -171,14 +171,15 @@
     display: flex;
     align-items: center;
     /* iOS spaces the row with a fixed gap between controls (their targets
-       carry the 44pt spacing internally). space-between read fine at phone
-       width but smeared the controls across a desktop column. */
-    gap: 2.25rem;
+       carry the 44pt spacing internally). The gap flexes down on narrow
+       cards — five controls plus multi-digit counts must not overflow a
+       phone-width column. */
+    gap: clamp(0.75rem, 4vw, 2.25rem);
     color: var(--color-text-secondary);
   }
 
   .compact .action-row {
-    gap: 1.25rem;
+    gap: clamp(0.625rem, 3vw, 1.25rem);
   }
 
   .trailing-actions {

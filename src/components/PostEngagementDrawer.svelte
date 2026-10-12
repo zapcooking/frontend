@@ -189,10 +189,6 @@
           </section>
         {/if}
 
-        {#if event.kind != null}
-          <p class="kind-row">{kindCaption(event.kind)}</p>
-        {/if}
-
         {#if details.relays.length > 0}
           <section class="detail-section" aria-labelledby={`relays-${event.id}`}>
             <h3 id={`relays-${event.id}`} class="section-heading">
@@ -207,10 +203,16 @@
             </div>
           </section>
         {/if}
+      </div>
 
-        <!-- Intrinsic metadata rows (iOS drawer parity): the absolute time
-             the header's relative stamp abstracts away, and the client tag
-             moved out of the note header. -->
+      <!-- Intrinsic metadata rows (iOS drawer parity) — rendered in EVERY
+           settled state, including empty/error: the timestamp and client
+           belong to the note, not to whatever engagement the relays
+           happened to return. -->
+      <div class="drawer-meta">
+        {#if event.kind != null}
+          <p class="kind-row">{kindCaption(event.kind)}</p>
+        {/if}
         {#if event.created_at}
           <div class="meta-row">
             <ClockIcon size={14} weight="bold" />
@@ -275,6 +277,15 @@
   .section-count {
     color: var(--color-caption);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Intrinsic metadata block (kind, full timestamp, client attribution) —
+     rendered below the scroll area in every settled state. */
+  .drawer-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    padding: 0 0.75rem 0.75rem;
   }
 
   /* Kind row ("KIND 1111 · COMMENT") — quiet metadata: caption size and

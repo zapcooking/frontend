@@ -49,6 +49,11 @@
 
 {#if open}
 	<Modal bind:open noHeader floatingClose compact maxWidth="40rem" autoHeight>
+		<!-- Modal always points aria-labelledby="title" at an element with
+		     that id; noHeader removes the built-in one, so provide a
+		     screen-reader-only replacement rather than an unnamed dialog. -->
+		<span id="title" class="sr-only">Reply to note</span>
+
 		<!-- Extra top padding clears the wallet-style floating close (8px
 		     inset, 44px target); the quote starts below it at full width. -->
 		<div class="reply-quote">

@@ -4562,6 +4562,12 @@
   let replyModalOpen = false;
   let replyModalTarget: NDKEvent | null = null;
   function openReplyModal(event: NDKEvent) {
+    // ReplyComposer relies on caller-level auth gating: a signed-out
+    // visitor would compose a reply only to fail at signing.
+    if (!$userPublickey) {
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+      return;
+    }
     replyModalTarget = event;
     setTimeout(() => {
       replyModalOpen = true;

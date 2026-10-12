@@ -21,6 +21,8 @@ import { showToast } from '$lib/toast';
  */
 
 const LIST_D_TAG = 'bookmarks';
+// Only used when creating a brand-new list — an existing event keeps its
+// own title (see publishList).
 const LIST_TITLE = 'Bookmarks';
 
 interface NoteBookmarksState {
@@ -44,26 +46,47 @@ function createNoteBookmarksStore() {
   // created_at of the last list we published, so quick on/off toggles
   // force strictly increasing timestamps (see publishList).
   let lastPublishCreatedAt = 0;
+  // The newest relay copy we've seen, kept verbatim: publishing must
+  // preserve every tag we don't manage (title, address tags, private
+  // NIP-44 content written by other clients) — see publishList.
+  let lastFetchedEvent: NDKEvent | null = null;
 
-  /** The user's bookmark-set event, or null when they have none yet. */
+  /**
+   * The user's bookmark-set event, or null when they have none yet.
+   *
+   * Collects through EOSE plus a short grace period and keeps the newest
+   * copy by created_at: a fast relay answering with an older replaceable
+   * event must not win over a slower relay holding the newer one —
+   * publishing on top of a stale set would delete the newer bookmarks.
+   */
   async function fetchListEvent(pubkey: string): Promise<NDKEvent | null> {
     const ndkInstance = get(ndk);
     if (!ndkInstance) return null;
     await ensureNdkConnected();
     return new Promise<NDKEvent | null>((resolve) => {
+      let newest: NDKEvent | null = null;
+      let settled = false;
       const sub = ndkInstance.subscribe(
         { kinds: [30003], authors: [pubkey], '#d': [LIST_D_TAG], limit: 1 },
         { closeOnEose: true }
       );
-      const timeout = setTimeout(() => resolve(null), 6000);
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(hardTimer);
+        try {
+          sub.stop();
+        } catch {
+          /* already closed via closeOnEose */
+        }
+        resolve(newest);
+      };
+      // Hard cap; the normal exit is EOSE + grace for late relays.
+      const hardTimer = setTimeout(finish, 6000);
       sub.on('event', (event: NDKEvent) => {
-        clearTimeout(timeout);
-        resolve(event);
+        if (!newest || (event.created_at ?? 0) > (newest.created_at ?? 0)) newest = event;
       });
-      sub.on('eose', () => {
-        clearTimeout(timeout);
-        resolve(null);
-      });
+      sub.on('eose', () => setTimeout(finish, 800));
     });
   }
 
@@ -82,6 +105,7 @@ function createNoteBookmarksStore() {
       update((s) => ({ ...s, loading: true }));
       try {
         const event = await fetchListEvent(pubkey);
+        lastFetchedEvent = event;
         const ids = new Set<string>();
         if (event) {
           for (const tag of event.tags) {
@@ -104,6 +128,15 @@ function createNoteBookmarksStore() {
     const pubkey = get(userPublickey);
     if (!ndkInstance || !pubkey) return false;
 
+    // Build on the last fetched relay copy: replace only the `e` tags we
+    // manage and keep every other tag plus the encrypted content verbatim —
+    // other NIP-51 clients store address bookmarks, metadata and private
+    // bookmarks in this same event, and rebuilding it from scratch would
+    // erase their data.
+    const kept = (lastFetchedEvent?.tags ?? []).filter((t) => t[0] !== 'e');
+    if (!kept.some((t) => t[0] === 'd')) kept.unshift(['d', LIST_D_TAG]);
+    if (!kept.some((t) => t[0] === 'title')) kept.push(['title', LIST_TITLE]);
+
     const event = new NDKEvent(ndkInstance);
     event.kind = 30003;
     // Successive toggles can land in the same second; replaceable events
@@ -112,11 +145,8 @@ function createNoteBookmarksStore() {
     // Force strictly increasing timestamps within the session.
     event.created_at = Math.max(Math.floor(Date.now() / 1000), lastPublishCreatedAt + 1);
     lastPublishCreatedAt = event.created_at;
-    event.tags = [
-      ['d', LIST_D_TAG],
-      ['title', LIST_TITLE],
-      ...[...ids].map((id) => ['e', id])
-    ];
+    event.tags = [...kept.map((t) => [...t]), ...[...ids].map((id) => ['e', id])];
+    event.content = lastFetchedEvent?.content ?? '';
     addClientTagToEvent(event);
     try {
       await event.publish(await outboxRelaySet(event, 'list'));

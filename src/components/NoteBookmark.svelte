@@ -5,7 +5,6 @@
    * saved). Writes NIP-51 kind 30003 d=bookmarks via noteBookmarksStore,
    * the same list the iOS client reads.
    */
-  import { onMount } from 'svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import BookmarkIcon from 'phosphor-svelte/lib/Bookmark';
   import { noteBookmarksStore } from '$lib/noteBookmarksStore';
@@ -15,10 +14,10 @@
 
   let busy = false;
 
-  onMount(() => {
-    // One relay fetch per session/account; the store dedupes.
-    noteBookmarksStore.load();
-  });
+  // Reactive, not onMount-only: a visitor logging in without the feed
+  // remounting must re-check, or every card keeps showing the empty
+  // signed-out state until the first toggle. The store dedupes loads.
+  $: if ($userPublickey) noteBookmarksStore.load();
 
   $: saved = $noteBookmarksStore.ids.has(event.id.toLowerCase());
 
