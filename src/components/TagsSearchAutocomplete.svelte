@@ -18,6 +18,13 @@
   // feed. Tag pickers leave it unset and keep picking the first match.
   export let onSubmitQuery: ((query: string) => void) | null = null;
 
+  // The global search bars (Header, MobileSearchOverlay) pass onSubmitQuery;
+  // tag pickers (TagsComboBox in the recipe editors) don't. A tag picker only
+  // ever completes tags: no user/recipe/note rows, no network queries, and
+  // submitting adds a tag — the recipe being edited has unsaved state, so a
+  // pick must never navigate away.
+  $: isTagPicker = !onSubmitQuery;
+
   let tagquery = '';
   let showAutocomplete = false;
   let inputFocused = false;
@@ -86,6 +93,23 @@
       searchResults = { tags: [], recipes: [], users: [], note: null };
       showAutocomplete = false;
       cancelNetworkSearch();
+      return;
+    }
+
+    // Tag pickers complete from the static tag list only. Everything past
+    // this point (NIP-19 navigation, recipe cache, user API, NIP-50 relays)
+    // exists for the search bars and must not run per keystroke in a tag
+    // field.
+    if (isTagPicker) {
+      searchResults = {
+        tags: recipeTags
+          .filter((tag) => tag.title.toLowerCase().includes(normalizedQuery))
+          .slice(0, 5),
+        recipes: [],
+        users: [],
+        note: null
+      };
+      showAutocomplete = true;
       return;
     }
 
@@ -428,8 +452,10 @@
     // Initialize empty search results
     searchResults = { tags: [], recipes: [], users: [], note: null };
 
-    // Preload recipes in background for fast search
-    preloadRecipes();
+    // Recipe cache preload (and its relay subscription) is only needed by
+    // the search bars; tag pickers complete from the static tag list and
+    // never show recipe rows.
+    if (!isTagPicker) preloadRecipes();
   });
 
   onDestroy(() => {
@@ -447,6 +473,13 @@
     class="flex"
     on:submit|preventDefault={() => {
       if (tagquery.trim()) {
+        // Tag pickers never navigate — the query becomes a tag, preferring
+        // the first suggestion so Enter completes "mexi" to "Mexican".
+        if (isTagPicker) {
+          selectTag(searchResults.tags[0]?.title ?? tagquery.trim());
+          return;
+        }
+
         // If it's a note identifier, navigate directly
         if (searchResults.note) {
           selectNote(searchResults.note.id);
@@ -502,7 +535,7 @@
     <input type="submit" class="hidden" />
   </form>
 
-  {#if showAutocomplete && (searchResults.note || searchResults.tags.length > 0 || searchResults.recipes.length > 0 || searchResults.users.length > 0 || isSearching)}
+  {#if showAutocomplete && (isTagPicker || searchResults.note || searchResults.tags.length > 0 || searchResults.recipes.length > 0 || searchResults.users.length > 0 || isSearching)}
     <!--
       Section order: Users and Tags first. Typing a name is a people
       lookup first; post full-text matches buried the user rows — and on
@@ -605,7 +638,9 @@
 
       {#if !recipeCacheLoading && !isSearching && !searchResults.note && searchResults.tags.length === 0 && searchResults.recipes.length === 0 && searchResults.users.length === 0 && tagquery.length > 0}
         <li class="px-3 py-2 text-sm text-caption text-center">
-          {#if !recipeCacheLoaded}
+          {#if isTagPicker}
+            Press Enter to add "{tagquery}" as a tag
+          {:else if !recipeCacheLoaded}
             ⏳ Loading recipes...
           {:else}
             No results found

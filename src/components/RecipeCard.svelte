@@ -8,6 +8,14 @@
 
   export let event: NDKEvent;
   export let list = false;
+  /**
+   * Where the card is shown. 'grid' is the poster tile for the recipe
+   * grids (160px column, 2:3 portrait). 'feed' is the Fresh feed
+   * presentation: a full-column hero at the feed's single-photo aspect
+   * (4:3, matching MediaCarousel) with the title underneath — the grid
+   * poster at 160px reads as a thumbnail inside a full-width post card.
+   */
+  export let variant: 'grid' | 'feed' = 'grid';
 
   let link = '';
   let imageUrl = '';
@@ -59,9 +67,13 @@
   {:else}
     <a
       href={link}
-      class="flex flex-col gap-3 w-full max-w-[160px] min-h-[320px] justify-self-center hover:text-primary transition-colors duration-300"
+      class="flex flex-col gap-3 w-full {variant === 'grid'
+        ? 'max-w-[160px] min-h-[320px] justify-self-center'
+        : ''} hover:text-primary transition-colors duration-300"
     >
-      <div class="relative image-container image-placeholder">
+      <div
+        class="relative image-container image-placeholder {variant === 'feed' ? 'feed-hero' : ''}"
+      >
         <div
           use:lazyLoad={{ url: optimizedImageUrl }}
           class="absolute inset-0 image hover:scale-105 transition-transform duration-700 ease-in-out"
@@ -69,7 +81,9 @@
       </div>
 
       <h5
-        class="text-md leading-tight line-clamp-2 min-h-[2.5rem] flex-shrink-0"
+        class="leading-tight line-clamp-2 flex-shrink-0 {variant === 'feed'
+          ? 'text-base'
+          : 'text-md min-h-[2.5rem]'}"
         style="color: var(--color-text-primary)"
       >
         {title}
@@ -84,6 +98,14 @@
     @apply w-full aspect-[2/3] rounded-2xl overflow-hidden relative;
     min-height: 237px;
     max-height: 237px;
+  }
+  /* Fresh feed: full-column hero at the feed's single-photo aspect and
+     corner radius (MediaCarousel), instead of the grid poster's portrait
+     tile. The height caps only exist to align grid rows. */
+  .image-container.feed-hero {
+    @apply aspect-[4/3] rounded-[14px];
+    min-height: 0;
+    max-height: none;
   }
   .image {
     @apply w-full h-full cursor-pointer object-cover bg-cover bg-center;
