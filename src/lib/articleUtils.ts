@@ -8,6 +8,7 @@ import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS } from './consts';
 import { validateMarkdownTemplate } from './parser';
 import { isBlockedFromReads } from './reads/moderationClient';
+import { KNOWN_BROKEN_IMAGE_URL_PATTERNS } from './placeholderImages';
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -209,20 +210,12 @@ export const FALLBACK_GRADIENTS = [
  * Extract the best image from an event
  * Priority: image tag → first content image → null
  */
-// Known broken image URL patterns that render error pages instead of images
-const BROKEN_IMAGE_PATTERNS = [
-  /^https?:\/\/[^/]*\/Ooops/i,
-  /placeholder\.(com|net)/i,
-  /via\.placeholder/i,
-  /placehold\.it/i,
-];
-
 function isValidImageUrl(url: string): boolean {
   if (!url || url.trim().length === 0) return false;
   // Must start with http(s)
   if (!/^https?:\/\//i.test(url)) return false;
-  // Reject known broken patterns
-  for (const pattern of BROKEN_IMAGE_PATTERNS) {
+  // Reject known broken patterns (shared with recipe image handling)
+  for (const pattern of KNOWN_BROKEN_IMAGE_URL_PATTERNS) {
     if (pattern.test(url)) return false;
   }
   return true;
