@@ -18,6 +18,12 @@
   import { extractImageUrls } from '$lib/imageUrls';
   import { get } from 'svelte/store';
   import { getEngagementStore } from '$lib/engagementCache';
+  import EyeSlashIcon from 'phosphor-svelte/lib/EyeSlash';
+  import { userPublickey } from '$lib/nostr';
+  import { muteListStore } from '$lib/muteListStore';
+  import { setEventMuted, setPubkeyMuted } from '$lib/muteToggle';
+  import { getReplyParentId, getThreadRootId } from '$lib/thread/replyParent';
+  import { showToast } from '$lib/toast';
 
   export let event: NDKEvent;
 
@@ -226,6 +232,73 @@
     dispatch('downloadImage', { event, engagementData });
     closeMenu();
   }
+
+  // ── Mute section ──────────────────────────────────────────────
+  // Three scopes from one menu: the author (pubkey mute), the whole
+  // conversation (the thread root as an `e` mute), or this note and its
+  // direct replies (the note id as an `e` mute). All land on the member's
+  // NIP-51 kind-10000 list; labels flip Mute/Unmute from the store state.
+
+  let muting = false;
+
+  $: authorPubkey = event?.author?.hexpubkey || event?.pubkey || '';
+  $: isOwnNote = Boolean($userPublickey) && authorPubkey === $userPublickey;
+  $: threadId = event ? getThreadRootId(event) ?? event.id : '';
+  $: userMuted = Boolean(
+    $userPublickey &&
+      $muteListStore.muteList?.pubkeys.some((p) => p.value === authorPubkey)
+  );
+  $: threadMuted = Boolean(
+    threadId && $muteListStore.muteList?.threads.some((t) => t.value === threadId)
+  );
+  $: noteMuted = Boolean(
+    event?.id && $muteListStore.muteList?.threads.some((t) => t.value === event.id)
+  );
+  // "Mute note and replies" only adds information on a mid-thread note —
+  // on a top-level note it would be the thread mute under another name.
+  $: isTopLevelNote = event ? getReplyParentId(event) === null : true;
+
+  async function handleMuteUser() {
+    closeMenu();
+    if (!$userPublickey || muting) return;
+    muting = true;
+    try {
+      await setPubkeyMuted($userPublickey, authorPubkey, !userMuted);
+      showToast('info', userMuted ? 'User unmuted' : 'User muted');
+    } catch {
+      showToast('error', "Couldn't update your mute list — please try again.");
+    } finally {
+      muting = false;
+    }
+  }
+
+  async function handleMuteThread() {
+    closeMenu();
+    if (!$userPublickey || muting || !threadId) return;
+    muting = true;
+    try {
+      await setEventMuted($userPublickey, threadId, !threadMuted);
+      showToast('info', threadMuted ? 'Thread unmuted' : 'Thread muted');
+    } catch {
+      showToast('error', "Couldn't update your mute list — please try again.");
+    } finally {
+      muting = false;
+    }
+  }
+
+  async function handleMuteNote() {
+    closeMenu();
+    if (!$userPublickey || muting || !event?.id) return;
+    muting = true;
+    try {
+      await setEventMuted($userPublickey, event.id, !noteMuted);
+      showToast('info', noteMuted ? 'Note unmuted' : 'Note and replies muted');
+    } catch {
+      showToast('error', "Couldn't update your mute list — please try again.");
+    } finally {
+      muting = false;
+    }
+  }
 </script>
 
 <div class="relative">
@@ -330,6 +403,37 @@
                three-line wrap against single-line neighbors. -->
           <span class="whitespace-nowrap">Ask Cheffy about this photo</span>
         </button>
+      {/if}
+      {#if $userPublickey}
+        <div class="my-1" style="border-top: 1px solid var(--color-input-border);"></div>
+        {#if !isOwnNote}
+          <button
+            on:click={handleMuteUser}
+            class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+            style="color: var(--color-text-primary);"
+          >
+            <EyeSlashIcon size={16} class="text-caption" />
+            <span>{userMuted ? 'Unmute user' : 'Mute user'}</span>
+          </button>
+        {/if}
+        <button
+          on:click={handleMuteThread}
+          class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+          style="color: var(--color-text-primary);"
+        >
+          <EyeSlashIcon size={16} class="text-caption" />
+          <span>{threadMuted ? 'Unmute thread' : 'Mute thread'}</span>
+        </button>
+        {#if !isTopLevelNote}
+          <button
+            on:click={handleMuteNote}
+            class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+            style="color: var(--color-text-primary);"
+          >
+            <EyeSlashIcon size={16} class="text-caption" />
+            <span>{noteMuted ? 'Unmute note' : 'Mute note and replies'}</span>
+          </button>
+        {/if}
       {/if}
       {#if engagementData}
         <button
