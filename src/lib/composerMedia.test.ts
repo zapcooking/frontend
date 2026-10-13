@@ -202,6 +202,22 @@ describe('attachableUrlCandidates', () => {
     expect(attachableUrlCandidates('')).toEqual([]);
     expect(attachableUrlCandidates('just saying hi')).toEqual([]);
   });
+
+  it('offers nothing for a page link — a GitHub issue is a link, not media', () => {
+    expect(attachableUrlCandidates('https://github.com/CodyTseng/jumble/issues/885')).toEqual([]);
+  });
+
+  it('offers only the media URL on a URL-only line that also holds a page link', () => {
+    expect(
+      attachableUrlCandidates('https://a/1.png https://github.com/a/b/issues/1')
+    ).toEqual(['https://a/1.png']);
+  });
+
+  it('offers known image hosts without a file extension', () => {
+    expect(attachableUrlCandidates('https://image.nostr.build/abc123')).toEqual([
+      'https://image.nostr.build/abc123'
+    ]);
+  });
 });
 
 describe('removeBareUrlOccurrence', () => {
