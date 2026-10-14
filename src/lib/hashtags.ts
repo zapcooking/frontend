@@ -26,8 +26,12 @@ export const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
  *
  * Raised from 5 to 20 after the cap review: a live sample of 100 raw events
  * rejected 69 on the old cap — about 61 were 100+ tag aggregators, correctly
- * blocked, but the 6–20 band was mostly genuine food posts. 20 also matches
- * the shipped iOS and Android clients, so all three platforms now agree.
+ * blocked, but the 6–20 band was mostly genuine food posts.
+ *
+ * Platform status: iOS matches at 20. ANDROID IS STILL AT 5
+ * (OnlyFoodFilter.kt, `MAX_HASHTAGS`) — until its update ships, posts with
+ * 6–20 tags are hidden from Android's OnlyFood feed even though the web
+ * accepts them. The Android bump must land before this is claimed aligned.
  *
  * iOS and Android carry their own copies of this cap with no shared package.
  * A change here must be made in all three:

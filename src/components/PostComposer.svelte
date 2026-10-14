@@ -1109,7 +1109,13 @@
                      tap again to remove it. Nothing is added automatically. -->
                 <div class="tag-pills" data-testid="tag-suggestions">
                   <div class="tag-pills-header">
-                    <span class="tag-pills-hint">Tap a tag so this shows up in OnlyFood.</span>
+                    <span class="tag-pills-hint">
+                      {#if tagsAtCap}
+                        At the {MAX_HASHTAGS}-tag limit — remove one to add another.
+                      {:else}
+                        Tap a tag so this shows up in OnlyFood.
+                      {/if}
+                    </span>
                     <span class="tag-pills-count" class:over={tagsOverCap} aria-live="polite">
                       {tagCount}/{MAX_HASHTAGS} tags{#if tagsOverCap} · over the food feed limit{/if}
                     </span>
@@ -2163,7 +2169,6 @@
   }
 
   .tag-pills-count {
-    flex-shrink: 0;
     flex-shrink: 0;
     margin-left: auto;
     font-size: 0.6875rem;

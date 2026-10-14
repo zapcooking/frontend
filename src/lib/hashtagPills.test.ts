@@ -137,6 +137,10 @@ describe('cap', () => {
   });
 
   it('still lets a selected pill toggle off at the cap', () => {
-    expect(toggleHashtag('#a #b #c #d #foodstr', 'foodstr')).toBe('#a #b #c #d');
+    // Built from the cap fixture so this exercises the real at-cap path
+    // (a literal five-tag string stopped reaching the cap at MAX_HASHTAGS=20).
+    expect(toggleHashtag(atCapTags, 'a')).toBe(
+      Array.from({ length: MAX_HASHTAGS - 1 }, (_, i) => `#${String.fromCharCode(98 + i)}`).join(' ')
+    );
   });
 });
