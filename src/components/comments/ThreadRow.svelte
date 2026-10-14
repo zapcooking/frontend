@@ -37,6 +37,12 @@
   /** Whether the reader has folded this branch. */
   export let collapsed: boolean = false;
   export let onToggleCollapse: (() => void) | undefined = undefined;
+  /** Author of the note this row answers, for the "Replying to" line. */
+  export let replyingToPubkey: string | undefined = undefined;
+  /** Opens the reply modal for this row. Absent = no reply affordance. */
+  export let onReply: (() => void) | undefined = undefined;
+  /** Opens the reply modal from the row's comment button. */
+  export let onCommentClick: (() => void) | undefined = undefined;
   /** Author of the root note, badged as OP wherever they appear. */
   export let rootAuthor: string | undefined = undefined;
   export let formatTime: (timestamp: number) => string;
@@ -153,6 +159,16 @@
       </span>
     </div>
 
+    <!-- Answers-at-a-glance: the reference clients label every reply with
+         the note it answers, so an expanded branch reads as a conversation
+         rather than a stack of non sequiturs. -->
+    {#if replyingToPubkey}
+      <div class="replying-to">
+        <span>Replying to</span>
+        <CustomName pubkey={replyingToPubkey} interactive={false} />
+      </div>
+    {/if}
+
     <div
       class="leading-normal {isReply ? 'text-[14px]' : 'text-[15px]'}"
       style="color: var(--color-text-primary)"
@@ -168,25 +184,38 @@
     <div class="mt-2" on:click|stopPropagation>
       {#if engagementReady}
         <NoteReactionPills {event} />
-        <NoteActionBar {event} variant={isReply ? 'compact' : 'default'} showCheffy={!isReply} />
+        <NoteActionBar {event} variant={isReply ? 'compact' : 'default'} showCheffy={!isReply} onCommentClick={onCommentClick} />
       {:else}
         <div class="engagement-placeholder" aria-hidden="true"></div>
       {/if}
-      {#if descendantCount > 0 && onToggleCollapse}
-        <button
-          type="button"
-          class="collapse-toggle"
-          aria-expanded={!collapsed}
-          on:click={onToggleCollapse}
-        >
-          {#if collapsed}
-            <CaretRightIcon size={12} weight="bold" />
-            <span>Show {descendantCount} {replyWord}</span>
-          {:else}
-            <CaretDownIcon size={12} weight="bold" />
-            <span>Hide {replyWord}</span>
+      {#if (onReply || (descendantCount > 0 && onToggleCollapse))}
+        <div class="row-inline-actions">
+          {#if onReply}
+            <button
+              type="button"
+              class="row-reply-btn"
+              on:click={onReply}
+            >
+              Reply
+            </button>
           {/if}
-        </button>
+          {#if descendantCount > 0 && onToggleCollapse}
+            <button
+              type="button"
+              class="collapse-toggle"
+              aria-expanded={!collapsed}
+              on:click={onToggleCollapse}
+            >
+              {#if collapsed}
+                <CaretRightIcon size={12} weight="bold" />
+                <span>Show {descendantCount} {replyWord}</span>
+              {:else}
+                <CaretDownIcon size={12} weight="bold" />
+                <span>Hide {replyWord}</span>
+              {/if}
+            </button>
+          {/if}
+        </div>
       {/if}
     </div>
   </article>
@@ -260,6 +289,37 @@
 
   .username-link:hover {
     color: var(--color-primary) !important;
+  }
+
+  /* "Replying to @name" — caption line between the header and the body. */
+  .replying-to {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    color: var(--color-caption);
+    margin: -0.25rem 0 0.375rem;
+  }
+
+  .row-inline-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+  }
+
+  .row-reply-btn {
+    padding: 0.25rem 0;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-caption);
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+
+  .row-reply-btn:hover {
+    color: var(--color-primary);
   }
 
   .row-permalink:hover {

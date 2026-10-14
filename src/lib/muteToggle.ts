@@ -6,7 +6,7 @@ import { ndk } from '$lib/nostr';
 import { buildPoolRelaySet } from '$lib/eventFetch';
 import { decrypt, detectEncryptionMethod, encrypt } from '$lib/encryptionService';
 import { muteListStore } from '$lib/muteListStore';
-import { addPubkeyMute, removePubkeyMute, type MuteListContent } from '$lib/muteListEdit';
+import { addEventMute, addPubkeyMute, removeEventMute, removePubkeyMute, type MuteListContent } from '$lib/muteListEdit';
 
 /**
  * Mute / unmute one pubkey from a profile surface (ProfileSheet, /user/[slug])
@@ -138,6 +138,37 @@ export async function setPubkeyMuted(me: string, hex: string, mute: boolean): Pr
   } catch {
     // Private mode or a full quota — the relay copy still stands.
   }
+  muteListStore.invalidate();
+  await muteListStore.load(true);
+}
+
+/**
+ * Mute / unmute an event id — a whole thread (the conversation root) or a
+ * single note and its direct replies — as a public `e` tag on the same
+ * kind-10000 list the pubkey mutes live on. Same safety rules as
+ * `setPubkeyMuted`: the edit starts from the strict relay copy and aborts
+ * rather than publish over a list it could not fetch.
+ */
+export async function setEventMuted(me: string, eventId: string, mute: boolean): Promise<void> {
+  const ndkInstance = get(ndk);
+  const fetched = await fetchMuteListStrict(ndkInstance, me);
+  if (fetched.status === 'unavailable') {
+    throw new Error('Mute list not reachable on relays; not overwriting it');
+  }
+  const existing =
+    fetched.status === 'found'
+      ? { tags: fetched.event.tags, content: fetched.event.content ?? '' }
+      : null;
+  const edited = mute ? addEventMute(existing, eventId) : removeEventMute(existing, eventId);
+
+  if (edited) {
+    const muteEvent = new NDKEvent(ndkInstance);
+    muteEvent.kind = 10000;
+    muteEvent.content = edited.content;
+    muteEvent.tags = edited.tags;
+    await muteEvent.publish(await outboxRelaySet(muteEvent, 'list'));
+  }
+
   muteListStore.invalidate();
   await muteListStore.load(true);
 }

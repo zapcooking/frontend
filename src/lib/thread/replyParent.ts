@@ -119,10 +119,9 @@ export function isStrayKind1OnComment(
  * A relay answering `#e: <focus>` returns the whole subtree, not just
  * direct replies, so most of these events name a parent that is another
  * reply. Anything whose parent isn't in the set — a deeper descendant
- * whose intermediate note never arrived, or a reply to an ancestor of the
- * note being viewed — is attached to the focused note rather than
- * dropped. A note the reader can see out of place beats one that silently
- * isn't there.
+ * whose intermediate note never arrived — is attached to the focused note
+ * rather than dropped. A note the reader can see out of place beats one
+ * that silently isn't there.
  *
  * The one thing that is dropped: a kind-1 note with no parent at all. It
  * matched the `#e` filter, so its only `e` tags are `mention`s — it quotes
@@ -133,11 +132,23 @@ export function isStrayKind1OnComment(
  * Also dropped: a stray kind-1 whose reply target is a kind-1111 comment
  * (see `isStrayKind1OnComment`) — comment threads are a 1111-only
  * namespace, so a kind 1 there is a main-feed note, not a reply.
+ *
+ * `ancestorIds` names the focused note's own ancestor chain (the context
+ * rows above it). Replies answering one of those belong to an ancestor's
+ * branch, not to the focused note — grafting them underneath read as
+ * "this reply answers the note you're looking at" when it answers
+ * something above it, which is exactly how a conversation stops making
+ * sense. They — and their whole descendant chains, transitively — are
+ * excluded here so each note's thread view shows only its own conversation.
+ * The thread root's own view passes an empty set and still renders
+ * everything. Orphans whose parent never arrived still graft onto the
+ * focus: with no parent visible there is nothing else to attach to.
  */
 export function buildReplyTree<E extends ParentableEvent>(
   focusId: string,
   replies: E[],
-  focus?: ParentableEvent
+  focus?: ParentableEvent,
+  ancestorIds?: Set<string>
 ): Map<string, E[]> {
   const map = new Map<string, E[]>();
   if (!focusId) return map;
@@ -152,12 +163,33 @@ export function buildReplyTree<E extends ParentableEvent>(
   for (const reply of replies) if (reply.kind) kindById.set(reply.id, reply.kind);
   if (focus?.kind) kindById.set(focusId, focus.kind);
 
+  // Replies answering an ancestor of the focus — and everything descending
+  // from them — stay out of the focused note's tree. Fixed-point pass,
+  // since a descendant can arrive before the excluded parent it hangs off.
+  const excluded = new Set<string>(ancestorIds ?? []);
+  if (excluded.size > 0) {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const reply of replies) {
+        if (excluded.has(reply.id)) continue;
+        const parentId = getReplyParentId(reply);
+        if (parentId && excluded.has(parentId)) {
+          excluded.add(reply.id);
+          changed = true;
+        }
+      }
+    }
+  }
+
   for (const reply of replies) {
     if (reply.id === focusId) continue;
+    if (excluded.has(reply.id)) continue;
     if (isStrayKind1OnComment(reply, (id) => kindById.get(id))) continue;
     const parentId = getReplyParentId(reply);
     if (parentId === null && reply.kind !== 1111) continue;
-    const bucket = parentId && known.has(parentId) ? parentId : focusId;
+    const bucket =
+      parentId && known.has(parentId) && !excluded.has(parentId) ? parentId : focusId;
     const existing = map.get(bucket);
     if (existing) existing.push(reply);
     else map.set(bucket, [reply]);
