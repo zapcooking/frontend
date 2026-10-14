@@ -261,3 +261,55 @@ describe('isStrayKind1OnComment / stray replies in the tree', () => {
     expect(tree.size).toBe(0);
   });
 });
+
+describe('buildReplyTree (ancestor exclusion)', () => {
+  const ancestors = new Set(['anc']);
+
+  it('drops a reply that answers an ancestor of the focus', () => {
+    const replyToAncestor = ev('r1', [['e', 'anc', '', 'reply']]);
+    const direct = ev('r2', [['e', 'focus', '', 'reply']], { created_at: 2 });
+    const tree = buildReplyTree('focus', [replyToAncestor, direct], undefined, ancestors);
+    const placed = [...tree.values()].flat().map((e) => e.id);
+    expect(placed).toEqual(['r2']);
+  });
+
+  it('drops a whole descendant chain under an excluded reply', () => {
+    // r1 answers the ancestor; r2 answers r1. Both stay out of the focus's
+    // tree — r2 belongs to the ancestor's branch, not the focus's.
+    const r1 = ev('r1', [['e', 'anc', '', 'reply']], { created_at: 1 });
+    const r2 = ev('r2', [['e', 'r1', '', 'reply']], { created_at: 2 });
+    const direct = ev('r3', [['e', 'focus', '', 'reply']], { created_at: 3 });
+    const tree = buildReplyTree('focus', [r2, r1, direct], undefined, ancestors);
+    const placed = [...tree.values()].flat().map((e) => e.id);
+    expect(placed).toEqual(['r3']);
+  });
+
+  it('resolves regardless of arrival order — child before excluded parent', () => {
+    const r1 = ev('r1', [['e', 'anc', '', 'reply']], { created_at: 1 });
+    const r2 = ev('r2', [['e', 'r1', '', 'reply']], { created_at: 2 });
+    const tree = buildReplyTree('focus', [r2, r1], undefined, ancestors);
+    expect(tree.size).toBe(0);
+  });
+
+  it('keeps a nested reply whose parent is a visible reply of the focus', () => {
+    const direct = ev('r1', [['e', 'focus', '', 'reply']], { created_at: 1 });
+    const nested = ev('r2', [['e', 'r1', '', 'reply']], { created_at: 2 });
+    const tree = buildReplyTree('focus', [direct, nested], undefined, ancestors);
+    expect((tree.get('focus') || []).map((e) => e.id)).toEqual(['r1']);
+    expect((tree.get('r1') || []).map((e) => e.id)).toEqual(['r2']);
+  });
+
+  it('still grafts an orphan whose parent never arrived, excluded set or not', () => {
+    const orphan = ev('r1', [['e', 'missing', '', 'reply']]);
+    const tree = buildReplyTree('focus', [orphan], undefined, ancestors);
+    expect((tree.get('focus') || []).map((e) => e.id)).toEqual(['r1']);
+  });
+
+  it('renders the full tree when no ancestors are passed (root view)', () => {
+    const replyToAncestor = ev('r1', [['e', 'anc', '', 'reply']], { created_at: 1 });
+    const nested = ev('r2', [['e', 'r1', '', 'reply']], { created_at: 2 });
+    const tree = buildReplyTree('focus', [replyToAncestor, nested]);
+    expect((tree.get('focus') || []).map((e) => e.id)).toEqual(['r1']);
+    expect((tree.get('r1') || []).map((e) => e.id)).toEqual(['r2']);
+  });
+});

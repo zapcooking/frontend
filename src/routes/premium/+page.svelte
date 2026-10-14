@@ -59,8 +59,11 @@
   // recipe grids — premium's relay grid included. Server-stored locked
   // teasers are image-less by design and stay visible regardless.
   $: visibleSortedEvents = $hideImagelessRecipesSetting
-    ? sortedEvents.filter((e) => hasRecipeImage(e))
+    ? sortedEvents.filter((e) => hasRecipeImage(e) && !brokenCoverIds.has(e.id))
     : sortedEvents;
+  // Covers whose <img> fired on:error at runtime — the tag was present but
+  // the file is gone. Svelte re-runs the filter when the Set is reassigned.
+  let brokenCoverIds = new Set<string>();
   $: sortedServerRecipes = [...combinedRecipes.serverOnlyRecipes].sort((a, b) => b.createdAt - a.createdAt);
   
   // Count my recipes for display
@@ -387,11 +390,17 @@
         >
           <!-- Image -->
           <div class="relative aspect-video overflow-hidden">
-            {#if image}
-              <img 
-                src={image} 
+            {#if image && !brokenCoverIds.has(event.id)}
+              <img
+                src={image}
                 alt={title}
                 class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                on:error={() => {
+                  // The images-only setting promises failed covers are
+                  // removed; premium's plain <img> has to report failures
+                  // the way RecipeCard's lazy loader does.
+                  brokenCoverIds = new Set([...brokenCoverIds, event.id]);
+                }}
               />
             {:else}
               <div class="w-full h-full bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center">
