@@ -346,13 +346,13 @@ Map<eventId, {
 
 ### 2. **Hashtag Spam Filter**
 
-**Risk:** Posts with >5 hashtags are filtered out.
+**Risk:** Posts with >20 hashtags are filtered out.
 
 **Location:** `FoodstrFeedOptimized.svelte` lines 441-445
 
 ```typescript
 const hashtagCount = getHashtagCount(event);
-if (hashtagCount > MAX_HASHTAGS) {  // MAX_HASHTAGS = 5
+if (hashtagCount > MAX_HASHTAGS) {  // MAX_HASHTAGS = 20 (raised from 5; see src/lib/hashtags.ts)
   return false;
 }
 ```
@@ -555,6 +555,6 @@ if (hashtagCount > MAX_HASHTAGS) {  // MAX_HASHTAGS = 5
 
 - **Hashtag-first:** Posts with food hashtags are always included
 - **Content analysis:** Posts without hashtags analyzed for food keywords
-- **Spam protection:** Max 5 hashtags, muted users filtered
+- **Spam protection:** Max 20 hashtags (raised from 5), muted users filtered
 - **False positive mitigation:** Hard/soft word system reduces non-food posts
 
