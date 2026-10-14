@@ -14,6 +14,7 @@
   import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
+  import { isEventMutedBy } from '$lib/muteFilter';
   import { onMount, onDestroy } from 'svelte';
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
@@ -26,7 +27,6 @@
   import { flattenThread } from '$lib/thread/threadFlatten';
   import { buildReplyTree, getReplyParentId, getThreadRootId } from '$lib/thread/replyParent';
   import { splitThreadByFocus } from '$lib/thread/threadScope';
-  import ClientAttribution from '../../components/ClientAttribution.svelte';
   import PowBadge from '../../components/PowBadge.svelte';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
@@ -34,6 +34,7 @@
   import { createCommentFilter } from '$lib/commentFilters';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
+  import ReplyModal from '../../components/comments/ReplyModal.svelte';
   import ReplyComposer from '../../components/comments/ReplyComposer.svelte';
   import RightRail from '../../components/RightRail.svelte';
   import RailCard from '../../components/RailCard.svelte';
@@ -565,11 +566,13 @@
 
   // Every reply hangs off exactly one parent, resolved in one place, so
   // the ancestors above the note and the tree below it can't disagree.
+  // Mutes (author, word, tag, thread, and note-and-replies) apply through
+  // the same position-aware check the feeds use.
   $: visibleReplies = replies.filter(
     (r) =>
       r.kind !== 5 &&
       !deletedReplyIds.has(r.id) &&
-      !$mutedPubkeys.has(r.author?.hexpubkey || r.pubkey)
+      !isEventMutedBy($muteListStore.muteList, r)
   );
   // The sibling-filter fetch returns the whole conversation — including
   // the focused note's own ancestors, which match `#E` like any other
@@ -584,10 +587,77 @@
     for (const a of scopedThread.ancestors) if (a.id && !byId.has(a.id)) byId.set(a.id, a);
     return [...byId.values()].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
   })();
+  // Replies answering one of these belong to an ancestor's branch, not to
+  // the focused note's conversation — buildReplyTree keeps them (and their
+  // whole descendant chains) out of the tree under the note, so a thread
+  // view shows only the replies that actually answer the note or its
+  // visible replies. The root view passes an empty set: everything renders.
+  $: ancestorIds = new Set(contextRows.map((r) => r.id).filter(Boolean));
   $: parentToChildren = event
-    ? buildReplyTree<NDKEvent>(event.id, scopedThread.subtree, event)
+    ? buildReplyTree<NDKEvent>(event.id, scopedThread.subtree, event, ancestorIds)
     : new Map<string, NDKEvent[]>();
   $: directReplies = (event && parentToChildren.get(event.id)) || [];
+
+  // id → author for everything in view, so each reply row can say which
+  // note it answers ("Replying to @x").
+  $: authorById = (() => {
+    const m = new Map<string, string>();
+    const put = (e?: NDKEvent | null) => {
+      const id = e?.id;
+      const pk = e?.author?.hexpubkey || e?.pubkey;
+      if (id && pk && !m.has(id)) m.set(id, pk);
+    };
+    put(event);
+    for (const r of contextRows) put(r);
+    for (const r of scopedThread.subtree) put(r);
+    return m;
+  })();
+  $: replyTargetByRowId = (() => {
+    const m = new Map<string, string | undefined>();
+    for (const item of threadItems) {
+      if (item.kind !== 'post') continue;
+      const parentId = getReplyParentId(item.event);
+      m.set(item.event.id, parentId ? authorById.get(parentId) : undefined);
+    }
+    return m;
+  })();
+
+  // The conversation root, when it's in view — the root-scope source for
+  // replies published from the modal. Falls back to the focused note (same
+  // root tag the inline composer always wrote).
+  $: threadRootEvent = (() => {
+    if (!event) return undefined;
+    const rootId = getThreadRootId(event);
+    if (!rootId || rootId === event.id) return event;
+    return contextRows.find((r) => r.id === rootId) ?? event;
+  })();
+
+  // Reply modal state. `replyModalTarget` is the specific note being
+  // answered, undefined = the focused note itself. Replying to the thread
+  // root is a top-level reply — no replyTo, so no reply tag is written.
+  let replyModalOpen = false;
+  let replyModalTarget: NDKEvent | undefined = undefined;
+
+  function openReplyModal(target?: NDKEvent) {
+    if (!$userPublickey) {
+      goto('/login?redirect=' + encodeURIComponent($page.url.pathname));
+      return;
+    }
+    replyModalTarget = target;
+    replyModalOpen = true;
+  }
+
+  $: replyModalBase = replyModalTarget ?? event;
+  $: replyModalReplyTo =
+    replyModalBase && threadRootEvent && replyModalBase.id !== threadRootEvent.id
+      ? replyModalBase
+      : undefined;
+
+  // Top-level notes (thread roots) get the composer inline, directly below
+  // the note like the iOS detail view. Reply-focused views keep the
+  // modal-first flow — a composer stranded under a nested thread was
+  // exactly what read confusingly.
+  $: isTopLevelFocus = event ? getReplyParentId(event) === null : false;
 
   // People in this note: author first, then anyone mentioned (p-tags), then
   // reply authors — deduped, mute-filtered, and capped for the rail.
@@ -846,6 +916,7 @@
                       event={parentNote}
                       variant="compact"
                       showEngagementDetails={true}
+                      onCommentClick={() => openReplyModal(parentNote)}
                     />
                   </div>
                 </div>
@@ -888,8 +959,9 @@
               <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
                 {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
               </span>
-              <ClientAttribution tags={event.tags} enableEnrichment={true} />
-            <PowBadge id={event.id} tags={event.tags} />
+              <!-- Client attribution moved into the engagement drawer (iOS
+                   drawer parity) — the header keeps relative time + PoW. -->
+              <PowBadge id={event.id} tags={event.tags} />
             </div>
           </div>
         </div>
@@ -906,8 +978,38 @@
            and three ❤️ read as bare "0" here while every other client
            showed the pills. -->
       <NoteReactionPills {event} />
-      <NoteActionBar {event} showCheffy={false} />
+      <NoteActionBar {event} showCheffy={false} onCommentClick={() => openReplyModal()} />
     </article>
+
+    <!-- Inline reply box directly below a top-level note (iOS detail-view
+         parity); reply-focused views use the modal instead. -->
+    {#if isTopLevelFocus && $userPublickey}
+      <div
+        class="mt-1 px-4 py-3.5 rounded-lg"
+        style="background-color: var(--color-card-sunken)"
+      >
+        <div class="flex space-x-3 items-start">
+          <div class="flex-shrink-0">
+            <Avatar pubkey={$userPublickey} size={32} />
+          </div>
+          <div class="flex-1 min-w-0 -mt-3">
+            <ReplyComposer
+              parentEvent={event}
+              placeholder="Post your reply..."
+              submitLabel="Reply"
+              onPosted={handleReplyPosted}
+            />
+          </div>
+        </div>
+      </div>
+    {:else if isTopLevelFocus}
+      <div
+        class="mt-1 px-4 py-3.5 rounded-lg text-sm"
+        style="background-color: var(--color-card-sunken); color: var(--color-caption)"
+      >
+        <a href="/login" class="text-primary hover:underline font-medium">Log in</a> to reply
+      </div>
+    {/if}
 
     <!-- Replies Section -->
     <div class="mt-1">
@@ -942,6 +1044,9 @@
                 descendantCount={item.descendantCount}
                 collapsed={item.collapsed}
                 onToggleCollapse={() => toggleBranchCollapse(item.event.id)}
+                replyingToPubkey={replyTargetByRowId.get(item.event.id)}
+                onReply={() => openReplyModal(item.event)}
+                onCommentClick={() => openReplyModal(item.event)}
                 rootAuthor={event?.author?.hexpubkey || event?.pubkey}
                 formatTime={formatTimeAgo}
               />
@@ -962,24 +1067,18 @@
         </div>
       {/if}
 
-      <!-- Reply Input -->
-      {#if $userPublickey}
-        <div class="mt-4 px-4 py-3.5 rounded-lg" style="background-color: var(--color-card-sunken)">
-          <div class="flex space-x-3 items-start">
-            <div class="flex-shrink-0">
-              <Avatar pubkey={$userPublickey} size={32} />
-            </div>
-            <div class="flex-1 min-w-0 -mt-3">
-              <ReplyComposer
-                parentEvent={event}
-                placeholder="Write a reply..."
-                submitLabel="Reply"
-                onPosted={handleReplyPosted}
-              />
-            </div>
-          </div>
-        </div>
-      {:else}
+      <!-- Reply affordance for reply-focused views (top-level notes have
+           the inline box above): opens the composer in a modal. -->
+      {#if !isTopLevelFocus && $userPublickey}
+        <button
+          type="button"
+          class="reply-pseudo-input"
+          on:click={() => openReplyModal()}
+        >
+          <Avatar pubkey={$userPublickey} size={32} />
+          <span class="reply-pseudo-placeholder">Post your reply...</span>
+        </button>
+      {:else if !isTopLevelFocus}
         <div
           class="mt-4 px-4 py-3.5 rounded-lg text-sm"
           style="background-color: var(--color-card-sunken); color: var(--color-caption)"
@@ -987,6 +1086,13 @@
           <a href="/login" class="text-primary hover:underline font-medium">Log in</a> to reply
         </div>
       {/if}
+
+      <ReplyModal
+        bind:open={replyModalOpen}
+        parentEvent={threadRootEvent ?? event}
+        replyTo={replyModalReplyTo}
+        onPosted={handleReplyPosted}
+      />
     </div>
   {/if}
   </div>
@@ -1026,5 +1132,31 @@
   /* Username hover - orange color */
   .username-link:hover {
     color: var(--color-primary) !important;
+  }
+
+  /* Slim reply affordance — looks like the composer box it replaced, but
+     only opens the modal. The composer itself never lives in the page. */
+  .reply-pseudo-input {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-input-border);
+    border-radius: 0.75rem;
+    background-color: var(--color-card-sunken);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s ease;
+  }
+
+  .reply-pseudo-input:hover {
+    border-color: var(--color-primary);
+  }
+
+  .reply-pseudo-placeholder {
+    color: var(--color-caption);
+    font-size: 0.9375rem;
   }
 </style>
