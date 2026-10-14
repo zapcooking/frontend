@@ -153,6 +153,10 @@ function imetaToMediaItem(tag: string[]): MediaItem | null {
   if (dim) item.dim = dim;
   if (slots.blurhash) item.blurhash = slots.blurhash;
   if (slots.alt) item.alt = normalizeAltBreaks(slots.alt);
+  // NIP-92 doesn't officially specify a poster slot, but several clients
+  // attach one for videos via `image` (most common) or `thumb`.
+  if (slots.image) item.poster = slots.image;
+  else if (slots.thumb) item.poster = slots.thumb;
   if (slots.x) item.hash = slots.x;
   if (slots.fallback) {
     item.fallback = slots.fallback
