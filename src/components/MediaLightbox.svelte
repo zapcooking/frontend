@@ -251,7 +251,12 @@
     const dx = lastMoveX - dragStartX;
     const nearest = Math.round(scroller.scrollLeft / w);
     let target = nearest;
-    const flicked = Math.abs(flickVelocity) > 0.5 && dragMoved;
+    // A quick sub-threshold move followed by a hold-and-release still had
+    // the old sample's velocity armed — invalidate it if the last move is
+    // stale, so only a genuinely recent flick navigates.
+    const FLICK_SAMPLE_MAX_AGE_MS = 120;
+    const flickFresh = lastMoveT !== 0 && performance.now() - lastMoveT <= FLICK_SAMPLE_MAX_AGE_MS;
+    const flicked = flickFresh && Math.abs(flickVelocity) > 0.5 && dragMoved;
     // Flick: a short-but-decisive drag advances one pane in the drag
     // direction even if the nearest snap point is still the start.
     if (Math.abs(dx) > 40) {

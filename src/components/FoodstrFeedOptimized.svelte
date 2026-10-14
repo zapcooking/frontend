@@ -552,6 +552,9 @@
     );
   }
   let selectedImageIndex = 0;
+  // The event whose images the modal shows — drives the blurhash map, so
+  // it must be set by openImageModal, not borrowed from zap/share state.
+  let imageModalEvent: NDKEvent | null = null;
 
   // Lazy loading for engagement components
   let visibleNotes = new Set<string>();
@@ -4565,9 +4568,11 @@
     _imageUrl: string,
     allImages: string[],
     index: number,
-    altByUrl?: Map<string, string>
+    altByUrl?: Map<string, string>,
+    sourceEvent?: NDKEvent
   ) {
     selectedEventImages = allImages.map((url) => ({ url, alt: altByUrl?.get(url) || '' }));
+    imageModalEvent = sourceEvent ?? null;
     selectedImageIndex = index;
     imageModalOpen = true;
   }
@@ -5616,7 +5621,8 @@
                               url,
                               imageUrls,
                               imageIndex >= 0 ? imageIndex : 0,
-                              imetaAltByUrl(event)
+                              imetaAltByUrl(event),
+                              event
                             );
                           }}
                         />
@@ -5816,7 +5822,7 @@
   <div use:portal={portalTarget}>
     <MediaLightbox
       images={selectedEventImages}
-      blurhashByUrl={blurhashMapFor(selectedEvent)}
+      blurhashByUrl={blurhashMapFor(imageModalEvent)}
       bind:index={selectedImageIndex}
       onClose={closeImageModal}
     />
