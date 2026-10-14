@@ -11,6 +11,8 @@
    * backdrop gutters, outside the photo frame.
    */
   import { onMount, onDestroy } from 'svelte';
+  import { fade } from 'svelte/transition';
+  import { blurhashToDataUrl } from '$lib/feed/blurhash';
   import { portal } from './Modal.svelte';
 
   /** Image URLs, or `{ url, alt }` objects when NIP-92 imeta alt text
@@ -18,12 +20,28 @@
   export let images: (string | { url: string; alt?: string })[] = [];
   export let index = 0;
   export let onClose: () => void = () => {};
+  /** NIP-92 blurhash keyed by media URL: paints a decoded placeholder
+   * behind the image while it loads (and as ambient fill in the
+   * letterbox gutters afterwards). Optional. */
+  export let blurhashByUrl: Map<string, string> = new Map();
 
   function urlOf(img: string | { url: string; alt?: string }): string {
     return typeof img === 'string' ? img : img.url;
   }
   function altOf(img: string | { url: string; alt?: string }): string {
     return typeof img === 'string' ? '' : img.alt || '';
+  }
+  function blurhashBg(url: string): string {
+    const hash = blurhashByUrl.get(url);
+    if (!hash) return '';
+    try {
+      const dataUrl = blurhashToDataUrl(hash);
+      return dataUrl
+        ? `background-image:url(${dataUrl});background-size:cover;background-position:center;`
+        : '';
+    } catch {
+      return '';
+    }
   }
 
   // Render at document.body so the lightbox escapes any transformed /
@@ -177,6 +195,14 @@
   let snapDisabled = false;
   let snapRestoreTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Flick detection: track the pointer's instantaneous horizontal
+  // velocity (px/ms, signed — negative = dragging left). A short, fast
+  // release past ~0.5 px/ms (500 px/s) navigates even when the drag
+  // distance is small, matching how casual flicks feel everywhere else.
+  let lastMoveX = 0;
+  let lastMoveT = 0;
+  let flickVelocity = 0;
+
   function handlePointerDown(e: PointerEvent) {
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
     isPointerDown = true;
@@ -185,6 +211,9 @@
     dragStartY = e.clientY;
     dragStartScrollLeft = scroller.scrollLeft;
     dragStartIndex = index;
+    lastMoveX = 0;
+    lastMoveT = 0;
+    flickVelocity = 0;
   }
 
   function handlePointerMove(e: PointerEvent) {
@@ -195,6 +224,12 @@
       endDrag(e);
       return;
     }
+    const now = performance.now();
+    if (lastMoveT !== 0) {
+      flickVelocity = (e.clientX - lastMoveX) / Math.max(1, now - lastMoveT);
+    }
+    lastMoveX = e.clientX;
+    lastMoveT = now;
     const dx = e.clientX - dragStartX;
     const dy = e.clientY - dragStartY;
     if (!dragMoved && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
@@ -213,14 +248,24 @@
     const w = paneWidth();
     if (!w) return;
 
-    const dx = e.clientX - dragStartX;
+    const dx = lastMoveX - dragStartX;
     const nearest = Math.round(scroller.scrollLeft / w);
     let target = nearest;
+    // A quick sub-threshold move followed by a hold-and-release still had
+    // the old sample's velocity armed — invalidate it if the last move is
+    // stale, so only a genuinely recent flick navigates.
+    const FLICK_SAMPLE_MAX_AGE_MS = 120;
+    const flickFresh = lastMoveT !== 0 && performance.now() - lastMoveT <= FLICK_SAMPLE_MAX_AGE_MS;
+    const flicked = flickFresh && Math.abs(flickVelocity) > 0.5 && dragMoved;
     // Flick: a short-but-decisive drag advances one pane in the drag
     // direction even if the nearest snap point is still the start.
     if (Math.abs(dx) > 40) {
       target =
         dx < 0 ? Math.max(dragStartIndex + 1, nearest) : Math.min(dragStartIndex - 1, nearest);
+    } else if (flicked && flickVelocity < 0 && dragStartIndex < count - 1) {
+      target = Math.max(dragStartIndex + 1, nearest);
+    } else if (flicked && flickVelocity > 0 && dragStartIndex > 0) {
+      target = Math.min(dragStartIndex - 1, nearest);
     }
     target = Math.max(0, Math.min(count - 1, target));
 
@@ -261,6 +306,7 @@
 <div
   bind:this={rootEl}
   class="fixed inset-0 z-[10001] bg-black/85 overflow-hidden"
+  transition:fade={{ duration: 150 }}
   use:portal={portalTarget ?? document.body}
   on:click={onClose}
   role="dialog"
@@ -281,7 +327,7 @@
     on:click|capture={suppressClickAfterDrag}
   >
     {#each images as img, i}
-      <div class="lightbox-pane">
+      <div class="lightbox-pane" style={blurhashBg(urlOf(img))}>
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
         <img
           src={urlOf(img)}

@@ -17,7 +17,7 @@
   import CheffyMediaReview from './CheffyMediaReview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import { isImageUrl, filterImageUrls } from '$lib/imageUrls';
-  import { imetaAltByUrl } from '$lib/feed/imeta';
+  import { imetaAltByUrl, parseImeta } from '$lib/feed/imeta';
   import MediaLightbox from './MediaLightbox.svelte';
   import LightningInvoiceCard from './LightningInvoiceCard.svelte';
   import QuotesIcon from 'phosphor-svelte/lib/Quotes';
@@ -62,6 +62,13 @@
 
   // NIP-92 imeta alt text, keyed by media URL, for screen readers.
   $: altByUrl = event ? imetaAltByUrl(event) : new Map();
+  $: blurhashByUrl = event
+    ? new Map(
+        parseImeta(event)
+          .filter((m) => m.blurhash)
+          .map((m) => [m.url, m.blurhash as string])
+      )
+    : new Map();
 
   const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv)(\?.*)?$/i;
 
@@ -594,6 +601,7 @@
 {#if imageModalOpen}
   <MediaLightbox
     images={allImageUrls.map((url) => ({ url, alt: altByUrl.get(url) || '' }))}
+    blurhashByUrl={blurhashByUrl}
     bind:index={selectedImageIndex}
     onClose={closeImageModal}
   />

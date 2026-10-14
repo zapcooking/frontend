@@ -1,8 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.928",  "private": true,
-  "scripts": {
+  "version": "4.2.928",  "scripts": {
     "dev": "vite dev",
     "build": "NODE_OPTIONS=--max-old-space-size=6144 vite build",
     "build:mobile": "NODE_OPTIONS=--max-old-space-size=6144 SKIP_ENV_VALIDATION=1 ADAPTER=static vite build",
