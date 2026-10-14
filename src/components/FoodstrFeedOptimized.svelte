@@ -73,7 +73,7 @@
   } from '$lib/shareNoteImage';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
   import { stripQuotedNoteReferences } from '$lib/feed/noteContent';
-  import { imetaAltByUrl } from '$lib/feed/imeta';
+  import { imetaAltByUrl, parseImeta } from '$lib/feed/imeta';
   import { compressedCacheManager } from '$lib/compressedCache';
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
@@ -543,7 +543,22 @@
   let selectedEvent: NDKEvent | null = null;
   let imageModalOpen = false;
   let selectedEventImages: (string | { url: string; alt?: string })[] = [];
+
+  // Blurhash placeholder map for the lightbox, parsed from the selected
+  // event's NIP-92 imeta tags (Svelte 4 templates can't hold TS casts,
+  // so the map is built here in the script).
+  function blurhashMapFor(ev: NDKEvent | null): Map<string, string> {
+    if (!ev) return new Map();
+    return new Map(
+      parseImeta(ev)
+        .filter((m) => m.blurhash)
+        .map((m) => [m.url, m.blurhash as string])
+    );
+  }
   let selectedImageIndex = 0;
+  // The event whose images the modal shows — drives the blurhash map, so
+  // it must be set by openImageModal, not borrowed from zap/share state.
+  let imageModalEvent: NDKEvent | null = null;
 
   // Lazy loading for engagement components
   let visibleNotes = new Set<string>();
@@ -4581,9 +4596,11 @@
     _imageUrl: string,
     allImages: string[],
     index: number,
-    altByUrl?: Map<string, string>
+    altByUrl?: Map<string, string>,
+    sourceEvent?: NDKEvent
   ) {
     selectedEventImages = allImages.map((url) => ({ url, alt: altByUrl?.get(url) || '' }));
+    imageModalEvent = sourceEvent ?? null;
     selectedImageIndex = index;
     imageModalOpen = true;
   }
@@ -5633,7 +5650,8 @@
                               url,
                               imageUrls,
                               imageIndex >= 0 ? imageIndex : 0,
-                              imetaAltByUrl(event)
+                              imetaAltByUrl(event),
+                              event
                             );
                           }}
                         />
@@ -5846,6 +5864,7 @@
   <div use:portal={portalTarget}>
     <MediaLightbox
       images={selectedEventImages}
+      blurhashByUrl={blurhashMapFor(imageModalEvent)}
       bind:index={selectedImageIndex}
       onClose={closeImageModal}
     />
