@@ -141,3 +141,46 @@ describe('withoutMuted (every recipe grid and feed row)', () => {
     expect(withoutMuted(null, events)).toBe(events);
   });
 });
+
+describe('event mutes (thread / note-and-replies)', () => {
+	const EVENT = 'e'.repeat(64);
+
+	it('adds a public e mute to an absent list', async () => {
+		const { addEventMute } = await import('./muteListEdit');
+		const edited = addEventMute(null, EVENT);
+		expect(edited?.tags).toEqual([['e', EVENT]]);
+		expect(edited?.content).toBe('');
+	});
+
+	it('adds the e tag without disturbing existing tags or private content', async () => {
+		const { addEventMute } = await import('./muteListEdit');
+		const before = existingList();
+		const edited = addEventMute(before, EVENT)!;
+		expect(edited.tags.some((t) => t[0] === 'e' && t[1] === EVENT)).toBe(true);
+		// every original tag survives verbatim, in order
+		expect(edited.tags.slice(0, before.tags.length)).toEqual(before.tags);
+		expect(edited.content).toBe(before.content);
+	});
+
+	it('returns null when the event is already muted publicly', async () => {
+		const { addEventMute, addPubkeyMute } = await import('./muteListEdit');
+		const seeded = addPubkeyMute(null, A)!;
+		const once = addEventMute(seeded, EVENT)!;
+		expect(addEventMute(once, EVENT)).toBeNull();
+	});
+
+	it('removes the e mute and keeps private content byte-for-byte', async () => {
+		const { addEventMute, removeEventMute } = await import('./muteListEdit');
+		const before = existingList();
+		const withMute = addEventMute(before, EVENT)!;
+		const removed = removeEventMute(withMute, EVENT)!;
+		expect(removed.tags).toEqual(before.tags);
+		expect(removed.content).toBe(before.content);
+	});
+
+	it('returns null when the public list does not mute the event', async () => {
+		const { removeEventMute } = await import('./muteListEdit');
+		expect(removeEventMute(null, EVENT)).toBeNull();
+		expect(removeEventMute(existingList(), EVENT)).toBeNull();
+	});
+});

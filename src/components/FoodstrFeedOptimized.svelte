@@ -48,6 +48,8 @@
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import NoteRepost from './NoteRepost.svelte';
+  import NoteBookmark from './NoteBookmark.svelte';
+  import ReplyModal from './comments/ReplyModal.svelte';
   import CheffyMediaReview from './CheffyMediaReview.svelte';
   import PostEngagementDrawer from './PostEngagementDrawer.svelte';
   import PostEngagementToggle from './PostEngagementToggle.svelte';
@@ -105,6 +107,8 @@
     getEngagementStore,
     fetchEngagement,
     cleanupEngagement,
+    optimisticZapUpdate,
+    markSelfZapCompleted,
     type EngagementData
   } from '$lib/engagementCache';
 
@@ -4505,7 +4509,14 @@
   let zapAnimatingNotes = new Set<string>();
   let zapAnimationTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
-  function handleZapComplete(eventId: string) {
+  function handleZapComplete(eventId: string, amount?: number) {
+    // Optimistic bolt: the count and userZapped flip immediately (yellow
+    // filled bolt + shimmer) before the engagement refetch confirms it.
+    if ($userPublickey) {
+      optimisticZapUpdate(eventId, (amount ?? 0) * 1000, $userPublickey);
+      markSelfZapCompleted(eventId);
+    }
+
     // Clear any existing timeout for this note
     const existingTimeout = zapAnimationTimeouts.get(eventId);
     if (existingTimeout) {
@@ -4543,6 +4554,23 @@
     // Use setTimeout to allow component to mount before opening
     setTimeout(() => {
       zapModal = true;
+    }, 0);
+  }
+
+  // Reply modal — the card's comment button opens the composer over the
+  // feed (iOS parity) instead of navigating to the thread page.
+  let replyModalOpen = false;
+  let replyModalTarget: NDKEvent | null = null;
+  function openReplyModal(event: NDKEvent) {
+    // ReplyComposer relies on caller-level auth gating: a signed-out
+    // visitor would compose a reply only to fail at signing.
+    if (!$userPublickey) {
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+      return;
+    }
+    replyModalTarget = event;
+    setTimeout(() => {
+      replyModalOpen = true;
     }, 0);
   }
 
@@ -5371,7 +5399,8 @@
                       >
                         {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
                       </span>
-                      <ClientAttribution tags={event.tags} enableEnrichment={false} />
+                      <!-- Client attribution moved into the engagement drawer
+                           (iOS drawer parity), same as the thread page. -->
                       <PowBadge id={event.id} tags={event.tags} />
                     </div>
                   </div>
@@ -5636,14 +5665,18 @@
                     class="flex items-center justify-between flex-wrap gap-2 px-2 sm:px-0 py-1"
                     use:lazyLoadAction={event.id}
                   >
-                    <div class="flex items-center space-x-1 flex-shrink-0">
+                    <!-- Order mirrors the iOS bar: reply · heart · repost · zap. -->
+                    <div class="flex items-center gap-9 flex-shrink-0">
                       {#if visibleNotes.has(event.id)}
                         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-                          <NoteTotalLikes {event} />
+                          <NoteTotalComments
+                            {event}
+                            onComment={() => openReplyModal(event)}
+                          />
                         </div>
 
                         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-                          <NoteTotalComments {event} />
+                          <NoteTotalLikes {event} />
                         </div>
 
                         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
@@ -5667,6 +5700,7 @@
 
                     {#if visibleNotes.has(event.id)}
                       <div class="ml-auto flex items-center gap-0.5">
+                        <NoteBookmark {event} />
                         <PostEngagementToggle
                           expanded={expandedEngagements.has(event.id)}
                           on:toggle={() => toggleEngagementDrawer(event.id)}
@@ -5722,7 +5756,15 @@
   <ZapModal
     bind:open={zapModal}
     event={selectedEvent}
-    on:zap-complete={() => selectedEvent && handleZapComplete(selectedEvent.id)}
+    on:zap-complete={(e) => selectedEvent && handleZapComplete(selectedEvent.id, e.detail?.amount)}
+  />
+{/if}
+
+{#if replyModalTarget}
+  <ReplyModal
+    bind:open={replyModalOpen}
+    parentEvent={replyModalTarget}
+    onPosted={() => (replyModalTarget = null)}
   />
 {/if}
 

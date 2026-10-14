@@ -46,8 +46,23 @@
     const current = $store.zaps.lastSelfZapAt;
     if (current && current !== prevLastSelfZapAt) {
       triggerSparkleBurst();
+      triggerBoltShimmer();
     }
     prevLastSelfZapAt = current;
+  }
+
+  // Shimmer: two quick brightness glints across the bolt when your own zap
+  // lands, so the icon answers the send instantly — before any engagement
+  // refetch can confirm it. Runs alongside the sparkle burst.
+  let boltShimmer = false;
+  let shimmerTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function triggerBoltShimmer() {
+    boltShimmer = true;
+    if (shimmerTimer) clearTimeout(shimmerTimer);
+    shimmerTimer = setTimeout(() => {
+      boltShimmer = false;
+    }, 1200);
   }
 
   // Long press handling
@@ -69,6 +84,9 @@
     }
     if (sparkleTimer) {
       clearTimeout(sparkleTimer);
+    }
+    if (shimmerTimer) {
+      clearTimeout(shimmerTimer);
     }
   });
 
@@ -266,7 +284,7 @@
     style="color: var(--color-text-primary)"
   >
     <button
-      class="hover:bg-input rounded p-1 select-none touch-none"
+      class="rounded p-1 select-none touch-none"
       style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
       on:mousedown={handlePressStart}
       on:mouseup={handlePressEnd}
@@ -283,7 +301,7 @@
         ? `Zap ${getOneTapAmount()} sats (hold for custom amount)`
         : 'Send a zap'}
     >
-      <LightningIcon size={24} class="text-caption" weight="regular" />
+      <LightningIcon size={20} class="text-caption" weight="regular" />
     </button>
     <span class="text-caption opacity-0">0</span>
   </div>
@@ -324,7 +342,7 @@
   >
     <!-- Zap Button -->
     <button
-      class="hover:bg-input rounded p-1 transition-colors select-none touch-none flex-shrink-0"
+      class="rounded p-1 transition-colors select-none touch-none flex-shrink-0"
       class:opacity-50={isZapping}
       class:cursor-wait={isZapping}
       style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
@@ -354,7 +372,7 @@
           size={18}
           class="{isZapping || totalSats > 0 ? 'text-yellow-500' : 'text-caption'} {isZapping
             ? 'animate-pulse'
-            : ''}"
+            : ''} {boltShimmer ? 'bolt-shimmer' : ''}"
           weight={isZapping || $store.zaps.userZapped ? 'fill' : 'regular'}
         />
         {#if sparkleBurstCount > 0}
@@ -406,7 +424,7 @@
   >
     <!-- Zap Icon Button -->
     <button
-      class="hover:bg-input rounded p-1 transition-colors select-none touch-none"
+      class="rounded p-1 transition-colors select-none touch-none"
       class:opacity-50={isZapping}
       class:cursor-wait={isZapping}
       style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
@@ -432,7 +450,9 @@
           size={24}
           class="{isZapping || $store.zaps.totalAmount > 0
             ? 'text-yellow-500'
-            : 'text-caption'} {isZapping ? 'animate-pulse' : ''}"
+            : 'text-caption'} {isZapping ? 'animate-pulse' : ''} {boltShimmer
+            ? 'bolt-shimmer'
+            : ''}"
           weight={isZapping || $store.zaps.userZapped ? 'fill' : 'regular'}
         />
         {#if sparkleBurstCount > 0}
@@ -501,6 +521,31 @@
     line-height: 0;
     overflow: visible;
   }
+
+  /* Two quick brightness glints when your own zap lands — the bolt answers
+     the send instantly, before any engagement refetch confirms it. The
+     class is applied via a string interpolation, so it needs :global under
+     the scoped wrap for Svelte to keep the rule. */
+  .bolt-sparkle-wrap :global(.bolt-shimmer) {
+    animation: bolt-shimmer 1.1s ease-in-out;
+  }
+
+  @keyframes bolt-shimmer {
+    0%,
+    100% {
+      filter: brightness(1);
+    }
+    25% {
+      filter: brightness(1.9) drop-shadow(0 0 6px rgba(250, 204, 21, 0.85));
+    }
+    50% {
+      filter: brightness(1.05);
+    }
+    75% {
+      filter: brightness(1.7) drop-shadow(0 0 5px rgba(250, 204, 21, 0.65));
+    }
+  }
+
   .sparkle {
     position: absolute;
     top: 50%;

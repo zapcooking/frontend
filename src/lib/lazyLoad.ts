@@ -49,12 +49,18 @@ export function lazyLoad(node: HTMLElement, params: LazyLoadParams) {
     if (!url) return;
     const img = new Image();
     img.onload = () => {
+      // An older request can still resolve after an action update swapped
+      // the URL — its result must not overwrite the current image.
+      if (url !== currentUrl) return;
       node.style.backgroundImage = `url("${url}")`;
       node.classList.add('image-loaded');
       node.classList.remove('image-error');
       if (isNostrBuildImageUrl(url)) verifyNostrBuildImage(url);
     };
     img.onerror = () => {
+      // Same staleness rule: only the current URL may signal an error,
+      // or a late failure would hide a card whose new image is valid.
+      if (url !== currentUrl) return;
       signalError();
     };
     img.src = url;

@@ -2,6 +2,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
+  import NoteBookmark from './NoteBookmark.svelte';
   import NoteRepost from './NoteRepost.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import CheffyNoteReviewTrigger from './CheffyNoteReviewTrigger.svelte';
@@ -34,6 +35,11 @@
 
   /** Override compact mode's default of hiding the engagement details drawer. */
   export let showEngagementDetails: boolean | undefined = undefined;
+
+  /** When set, the comment button invokes this (opens the reply modal)
+   *  instead of the NoteTotalComments default (toggle inline thread /
+   *  navigate to the thread page). */
+  export let onCommentClick: (() => void) | null = null;
 
   let zapModalOpen = false;
   let engagementOpen = false;
@@ -105,15 +111,18 @@
   {/if}
 
   <div class="action-row">
+    <!-- Order mirrors the iOS client's PostCardView actionBar:
+         reply · heart · repost · zap, then bookmark + cheffy + details
+         chevron pinned to the far right. -->
+    {#if showComments}
+      <div class={iconWrapClass}>
+        <NoteTotalComments {event} onComment={onCommentClick} />
+      </div>
+    {/if}
+
     <div class={iconWrapClass}>
       <NoteTotalLikes {event} />
     </div>
-
-    {#if showComments}
-      <div class={iconWrapClass}>
-        <NoteTotalComments {event} />
-      </div>
-    {/if}
 
     {#if showRepost}
       <div class={iconWrapClass}>
@@ -125,19 +134,21 @@
       <NoteTotalZaps {event} onZapClick={openZapModal} />
     </div>
 
-    {#if (!isCompact && showCheffy) || canShowEngagementDetails}
-      <div class="trailing-actions">
-        {#if !isCompact && showCheffy}
-          <CheffyNoteReviewTrigger {event} wrapClass={iconWrapClass} />
-        {/if}
-        {#if canShowEngagementDetails}
-          <PostEngagementToggle
-            expanded={engagementOpen}
-            on:toggle={() => (engagementOpen = !engagementOpen)}
-          />
-        {/if}
+    <!-- Bookmark + (cheffy) + details chevron pin to the far right. -->
+    <div class="trailing-actions">
+      <div class={iconWrapClass}>
+        <NoteBookmark {event} />
       </div>
-    {/if}
+      {#if !isCompact && showCheffy}
+        <CheffyNoteReviewTrigger {event} wrapClass={iconWrapClass} />
+      {/if}
+      {#if canShowEngagementDetails}
+        <PostEngagementToggle
+          expanded={engagementOpen}
+          on:toggle={() => (engagementOpen = !engagementOpen)}
+        />
+      {/if}
+    </div>
   </div>
 
   {#if canShowEngagementDetails}
@@ -159,12 +170,16 @@
   .action-row {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    /* iOS spaces the row with a fixed gap between controls (their targets
+       carry the 44pt spacing internally). The gap flexes down on narrow
+       cards — five controls plus multi-digit counts must not overflow a
+       phone-width column. */
+    gap: clamp(0.75rem, 4vw, 2.25rem);
     color: var(--color-text-secondary);
   }
 
   .compact .action-row {
-    gap: 0.125rem;
+    gap: clamp(0.625rem, 3vw, 1.25rem);
   }
 
   .trailing-actions {
