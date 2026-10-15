@@ -50,7 +50,11 @@ type TextChangeCallback = (text: string) => void;
 
 // Regex to detect @mention trigger before cursor.
 // Uses [^@] instead of [^\s@] to allow spaces in names (PR #143 fix #1).
-const MENTION_TRIGGER_REGEX = /@([^@]*)$/;
+// The @ must sit at a word boundary: typing an email or Lightning address
+// (daniel@breez.tips) must not open the mention popup just because the
+// domain names a cached profile. Character-class boundary rather than
+// lookbehind — embedded WebViews ship without lookbehind support.
+export const MENTION_TRIGGER_REGEX = /(?:^|[^\p{L}\p{N}_])@([^@]*)$/u;
 
 // Zero-width space (U+200B). Inserted around mention pills as caret-landing
 // spacers so the selection has somewhere to sit on either side of the
