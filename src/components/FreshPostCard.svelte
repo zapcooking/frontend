@@ -218,8 +218,8 @@
   {#if boxData}
     <FreshRecipeBox data={boxData} {event} {topic} {hasHero} {visible} />
   {:else if kind === 'recipe'}
-    <div class="mb-3 recipe-in-feed">
-      <RecipeCard {event} />
+    <div class="mb-3">
+      <RecipeCard {event} variant="feed" />
     </div>
   {:else if kind === 'article'}
     {#if article}
@@ -489,16 +489,5 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-  }
-
-  /* RecipeCard's hover zoom is a recipe-GRID poster affordance (a slow
-     scale-up on a 160px tile). Inside the feed it's the only image that
-     moves on hover — every other photo is a static MediaCarousel — so
-     neutralize it here. The grid keeps its zoom (the class is scoped to
-     this wrapper; !important beats the Tailwind utility's equal
-     specificity deterministically). */
-  .recipe-in-feed :global(.image) {
-    transform: none !important;
-    transition: none !important;
   }
 </style>
