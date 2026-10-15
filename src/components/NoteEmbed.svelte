@@ -17,8 +17,8 @@
   import { formatAmount } from '$lib/utils';
   import NoteContent from './NoteContent.svelte';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
-import { parseClientTag } from '$lib/clientTag';
-  import { RECIPE_TAGS } from '$lib/consts';
+  import { parseClientTag } from '$lib/clientTag';
+  import { CLIENT_TAG_IDENTIFIER, RECIPE_TAGS } from '$lib/consts';
 
   export let nostrString: string;
   export let boostAmount: number = 0; // Optional boost amount in sats (passed from parent)
@@ -327,7 +327,7 @@ import { parseClientTag } from '$lib/clientTag';
   // (its `client` tag), badge the cover so the source is identifiable at a
   // glance inside our own embeds — the same treatment the handler
   // headlight (see nip89Headlight.ts) asks of other clients.
-  $: isZapCookingEmbed = event ? parseClientTag(event.tags)?.name === 'Zap Cooking' : false;
+  $: isZapCookingEmbed = event ? parseClientTag(event.tags)?.name === CLIENT_TAG_IDENTIFIER : false;
   $: articleTitle = event && isLongform ? tagValue(event, 'title') : '';
   $: articleSummary = event && isLongform ? tagValue(event, 'summary') : '';
   $: articleImage =

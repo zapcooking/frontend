@@ -62,7 +62,6 @@
     sweepLegacyMnemonic
   } from '$lib/spark';
   import { loadOneTapZapSettings } from '$lib/autoZapSettings';
-  import { ensureHandlerHeadlight } from '$lib/nip89Headlight';
   import { startSectionTarget, loadStartSectionSettings } from '$lib/startSectionSettings';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
@@ -518,10 +517,6 @@
           // for the user to open the wallet. Deferred so it never competes
           // with first paint; no-ops when there's nothing to migrate.
           setTimeout(() => void sweepLegacyMnemonic(state.publicKey), 2500);
-          // Publish the NIP-89 handler headlight once per session so other
-          // clients can brand our shared naddr embeds with the logo/action.
-          // Deferred behind the wallet work; silent on any failure.
-          setTimeout(() => void ensureHandlerHeadlight(), 9000);
           // Message subscriptions are lazy — initialized when user navigates to /messages.
           // This avoids flooding browser signers with NIP-44 decrypt requests on login.
           // The pantry relay (Groups) connects when /groups needs it (nip29

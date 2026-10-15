@@ -7,20 +7,18 @@
 
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { CLIENT_TAG_IDENTIFIER } from './consts';
+import { ORG_PUBKEY } from './landing/curation';
+
+/** The `d` tag of Zap Cooking's kind-31990 handler event. */
+export const HANDLER_D = 'zap-cooking';
 
 /**
- * The logged-in user's pubkey, read straight from localStorage so this
- * module stays importable from non-browser bundles. The handler address in
- * the client tag points at the headlight the SAME user publishes at login
- * (see nip89Headlight.ts) — self-consistent per author.
+ * Zap Cooking's NIP-89 handler, published once by the org account (see
+ * nip89Headlight.ts). Every event we publish points here, whoever signs
+ * it: the address names the app, never the author, so an anonymous post
+ * carries nothing that links it to the user's account.
  */
-function loggedInPubkey(): string | null {
-  try {
-    return localStorage.getItem('nostrcooking_loggedInPublicKey');
-  } catch {
-    return null;
-  }
-}
+export const ZAP_COOKING_HANDLER_ADDRESS = `31990:${ORG_PUBKEY}:${HANDLER_D}`;
 
 /**
  * Ensures a client tag array has the correct identifier
@@ -54,8 +52,6 @@ export function ensureClientTag(tags: string[][]): string[][] {
  */
 export function addClientTagToEvent(event: NDKEvent): NDKEvent {
   const currentTags = event.tags || [];
-  const pubkey = event.pubkey || loggedInPubkey() || '';
-  const handlerAddress = pubkey ? `31990:${pubkey}:zap-cooking` : '';
 
   const idx = currentTags.findIndex((tag) => tag.length > 0 && tag[0] === 'client');
   let clientTag: string[];
@@ -65,9 +61,11 @@ export function addClientTagToEvent(event: NDKEvent): NDKEvent {
   } else {
     clientTag = ['client', CLIENT_TAG_IDENTIFIER];
   }
-  // Full NIP-89 form: attach the handler address so clients can resolve our
-  // kind-31990 headlight (logo, name, web action) and brand the embed.
-  if (handlerAddress && clientTag.length < 3) clientTag.push(handlerAddress);
+  // Full NIP-89 form: attach our handler address so clients can resolve the
+  // kind-31990 headlight (logo, name, open-in action) and brand the embed.
+  // Only on our own tag: another client's tag (kept as-is, e.g. a list
+  // republished from elsewhere) must not point at our handler.
+  if (clientTag[1] === CLIENT_TAG_IDENTIFIER && clientTag.length < 3) clientTag.push(ZAP_COOKING_HANDLER_ADDRESS);
 
   const next = [...currentTags];
   if (idx >= 0) next[idx] = clientTag;
