@@ -34,6 +34,7 @@
   import { zapLazarusRelaySource, closeLazarusScanPool, retryLazarusRelays } from '$lib/lazarus/source';
   import { publishLazarusRecovery, LazarusPublishError } from '$lib/lazarus/lazarusPublish';
   import LazarusDeltaPanel from './LazarusDeltaPanel.svelte';
+  import LazarusWordmark from './LazarusWordmark.svelte';
   import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
   import WarningIcon from 'phosphor-svelte/lib/Warning';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
@@ -440,10 +441,13 @@
           Scan relay history
         </button>
       {/if}
-      <!-- Spec disclosure, right-aligned beside the scan action:
-           names the document that governs this section's behavior. -->
+      <!-- Spec disclosure, right-aligned beside the scan action: the Lazarus
+           wordmark — same color as the text it sits with — names the document
+           that governs this section's behavior. -->
       <p class="lz-spec">
-        Uses the
+        <span class="lz-spec-mark" aria-hidden="true">
+          <LazarusWordmark height={16} />
+        </span>
         <a href={LAZARUS_SPEC_URL} target="_blank" rel="noopener noreferrer">
           Lazarus spec {LAZARUS_SPEC_VERSION}
         </a>
@@ -750,6 +754,14 @@
     margin: 0 0 0 auto;
     font-size: 0.75rem;
     color: var(--color-caption);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  /* The mark inherits the spec line's caption color (currentColor in the
+     svg) — no dimming, it reads as part of the sentence it sits in. */
+  .lz-spec-mark {
+    display: inline-flex;
   }
   .lz-spec a {
     color: var(--color-caption);
