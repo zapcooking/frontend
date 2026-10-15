@@ -22,3 +22,28 @@ describe('browserTrustDeps.nip05Claims', () => {
 		expect(claims?.get(real.pubkey)).toBe('bob@real.example');
 	});
 });
+
+describe('a 429 from /api/reads/nip05', () => {
+	it('folds the claimant for now and caches nothing for them', async () => {
+		const { resolveAuthorTrust, TRUST_CACHE_KEY } = await import('./authorTrust');
+		const author = 'c'.repeat(64);
+		const store = new Map<string, string>();
+		const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+		const fetch = vi.fn(async () => new Response('{"error":"rate_limited"}', { status: 429 }));
+		vi.stubGlobal('fetch', fetch);
+		try {
+			const v = await resolveAuthorTrust([author], {
+				...browserTrustDeps,
+				now: () => 1_000,
+				storage,
+				askRelay: async () => new Set<string>(),
+				nip05Claims: async () => new Map([[author, 'bob@example.com']])
+			});
+			expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('/api/reads/nip05');
+			expect(v.get(author)).toBe('stranger');
+			expect(JSON.parse(store.get(TRUST_CACHE_KEY) ?? '{}')).toEqual({});
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+});

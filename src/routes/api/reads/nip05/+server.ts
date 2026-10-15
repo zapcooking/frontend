@@ -2,16 +2,33 @@
  * POST /api/reads/nip05 — which "All reads" authors have a verified NIP-05.
  *
  * Body: {"checks": [{"pubkey": "<64 hex>", "nip05": "name@domain"}, …]} (≤ 50).
- * Answer: {"verified": [pubkeys whose nostr.json names them]}, request order.
+ * Answer: {"verified": [...], "deferred": [...]}, pubkeys in request order:
+ * named by their nostr.json, or not checkable this time (ask again later).
  *
  * The browser asks only about authors the feed relay doesn't already
- * trust. Each identifier's answer is edge-cached (see nip05Verify.server).
+ * trust. Each identifier's answer is edge-cached, and one request fetches
+ * from at most 10 domains (see nip05Verify.server). Per client IP,
+ * NIP05_PER_MINUTE requests a minute; over that, 429.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { NIP05_MAX_CHECKS, verifyNip05Claims, type Nip05Check } from '$lib/reads/nip05Verify.server';
 
 const MAX_BODY_BYTES = 32 * 1024;
+/**
+ * A first page load sends 1–3 requests (≤ 10 domains each), and a reload
+ * inside the hour usually none (the browser caches answers). 20 leaves room
+ * for several tabs and reloads behind one NAT, while one IP can make the
+ * Worker fetch from at most 200 domains a minute.
+ */
+export const NIP05_PER_MINUTE = 20;
+
+/** The rate limiting binding's shape: one call per request, keyed by client IP. */
+export interface RateLimiter {
+	limit(opts: { key: string }): Promise<{ success: boolean }>;
+}
+
+let warnedNoLimiter = false;
 const HEX64 = /^[0-9a-f]{64}$/;
 
 function parseChecks(body: unknown): Nip05Check[] | null {
@@ -53,7 +70,27 @@ async function readCapped(request: Request, max: number): Promise<string | null>
 	return new TextDecoder().decode(bytes);
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, platform, getClientAddress }) => {
+	const limiter = (platform?.env as { NIP05_RATE_LIMITER?: RateLimiter } | undefined)?.NIP05_RATE_LIMITER;
+	if (limiter) {
+		let ip = 'unknown';
+		try {
+			ip = getClientAddress();
+		} catch {
+			// Local dev: no client address.
+		}
+		let allowed = true;
+		try {
+			allowed = (await limiter.limit({ key: `nip05:${ip}` })).success;
+		} catch (err) {
+			console.warn('[reads] nip05 rate limiter failed, allowing:', err);
+		}
+		if (!allowed) return json({ error: 'rate_limited' }, { status: 429, headers: { 'retry-after': '60' } });
+	} else if (!warnedNoLimiter) {
+		warnedNoLimiter = true;
+		console.warn('[reads] NIP05_RATE_LIMITER not bound: /api/reads/nip05 is not rate limited');
+	}
+
 	const text = await readCapped(request, MAX_BODY_BYTES);
 	if (text === null) return json({ error: 'Body too large' }, { status: 413 });
 	let body: unknown;
@@ -67,6 +104,6 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const cache =
 		typeof caches !== 'undefined' ? ((caches as unknown as { default?: Cache }).default ?? null) : null;
-	const verified = await verifyNip05Claims(checks, { cache });
-	return json({ verified }, { headers: { 'cache-control': 'no-store' } });
+	const { verified, deferred } = await verifyNip05Claims(checks, { cache });
+	return json({ verified, deferred }, { headers: { 'cache-control': 'no-store' } });
 };

@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 const A = 'a'.repeat(64);
 
 const { verifyNip05Claims } = vi.hoisted(() => ({
-	verifyNip05Claims: vi.fn(async (checks: { pubkey: string }[]) => checks.map((c) => c.pubkey))
+	verifyNip05Claims: vi.fn(async (checks: { pubkey: string }[]) => ({ verified: checks.map((c) => c.pubkey), deferred: [] }))
 }));
 vi.mock('$lib/reads/nip05Verify.server', () => ({ NIP05_MAX_CHECKS: 50, verifyNip05Claims }));
 
@@ -16,7 +16,7 @@ describe('POST /api/reads/nip05', () => {
 	it('answers {verified} for valid checks', async () => {
 		const res = await call(JSON.stringify({ checks: [{ pubkey: A, nip05: 'bob@example.com' }] }));
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ verified: [A] });
+		expect(await res.json()).toEqual({ verified: [A], deferred: [] });
 	});
 
 	const bad: [string, string][] = [
@@ -76,5 +76,33 @@ describe('POST /api/reads/nip05', () => {
 	it('accepts exactly 50 checks', async () => {
 		const res = await call(JSON.stringify({ checks: Array(50).fill({ pubkey: A, nip05: 'b@example.com' }) }));
 		expect(res.status).toBe(200);
+	});
+
+	describe('rate limit', () => {
+		const body = JSON.stringify({ checks: [{ pubkey: A, nip05: 'b@example.com' }] });
+		const withLimiter = (limit: (o: { key: string }) => Promise<{ success: boolean }>, ip = '203.0.113.7') =>
+			POST({
+				request: new Request('http://x/api/reads/nip05', { method: 'POST', body }),
+				platform: { env: { NIP05_RATE_LIMITER: { limit } } },
+				getClientAddress: () => ip
+			} as unknown as Parameters<typeof POST>[0]);
+
+		it('429 over the limit, before any lookup', async () => {
+			verifyNip05Claims.mockClear();
+			const res = await withLimiter(async () => ({ success: false }));
+			expect(res.status).toBe(429);
+			expect(res.headers.get('retry-after')).toBe('60');
+			expect(verifyNip05Claims).not.toHaveBeenCalled();
+		});
+
+		it('keys the limit by client IP', async () => {
+			const limit = vi.fn(async () => ({ success: true }));
+			expect((await withLimiter(limit)).status).toBe(200);
+			expect(limit).toHaveBeenCalledWith({ key: 'nip05:203.0.113.7' });
+		});
+
+		it('a failing limiter lets the request through', async () => {
+			expect((await withLimiter(async () => Promise.reject(new Error('x')))).status).toBe(200);
+		});
 	});
 });

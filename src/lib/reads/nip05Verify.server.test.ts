@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { NIP05_HIT_TTL_S, NIP05_MAX_BYTES, NIP05_MISS_TTL_S, lookupNip05, verifyNip05Claims } from './nip05Verify.server';
+import {
+	NIP05_HIT_TTL_S,
+	NIP05_MAX_BYTES,
+	NIP05_MAX_DOMAINS,
+	NIP05_MAX_IN_FLIGHT,
+	NIP05_MISS_TTL_S,
+	lookupNip05,
+	verifyNip05Claims
+} from './nip05Verify.server';
 
 const A = 'a'.repeat(64);
 const B = 'b'.repeat(64);
@@ -92,13 +100,85 @@ describe('verifyNip05Claims', () => {
 			],
 			{ fetch }
 		);
-		expect(verified).toEqual([A]);
+		expect(verified).toEqual({ verified: [A], deferred: [] });
 		expect(fetch).toHaveBeenCalledTimes(1);
 	});
 
 	it('never fetches an identifier that fails parsing', async () => {
 		const fetch = vi.fn(async () => jsonRes({ names: { _: A } }));
-		expect(await verifyNip05Claims([{ pubkey: A, nip05: 'x@127.0.0.1' }], { fetch })).toEqual([]);
+		expect(await verifyNip05Claims([{ pubkey: A, nip05: 'x@127.0.0.1' }], { fetch })).toEqual({ verified: [], deferred: [] });
 		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	const pkN = (n: number) => n.toString(16).padStart(64, '0');
+
+	it('50 claims on 50 domains: at most 10 fetches, the rest deferred', async () => {
+		const fetch = vi.fn(async (url: string) => {
+			const host = new URL(url).hostname;
+			const n = Number(host.slice(1, host.indexOf('.')));
+			return jsonRes({ names: { bob: pkN(n) } });
+		});
+		const checks = Array.from({ length: 50 }, (_, i) => ({ pubkey: pkN(i), nip05: `bob@d${i}.example.com` }));
+		const out = await verifyNip05Claims(checks, { fetch: fetch as unknown as typeof globalThis.fetch });
+		// Literal 10, not the constant: raising the cap must fail this test.
+		expect(NIP05_MAX_DOMAINS).toBe(10);
+		expect(fetch.mock.calls.length).toBeLessThanOrEqual(10);
+		expect(out.verified).toEqual(checks.slice(0, 10).map((c) => c.pubkey));
+		expect(out.deferred).toEqual(checks.slice(10).map((c) => c.pubkey));
+	});
+
+	it('claims sharing a domain share one fetch; names that body leaves out are deferred', async () => {
+		const fetch = vi.fn(async () => jsonRes({ names: { bob: A } }));
+		const out = await verifyNip05Claims(
+			[
+				{ pubkey: A, nip05: 'bob@example.com' },
+				{ pubkey: B, nip05: 'carol@example.com' }
+			],
+			{ fetch }
+		);
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(out).toEqual({ verified: [A], deferred: [B] });
+	});
+
+	it('a static nostr.json verifies every name on its domain from one fetch, and caches each', async () => {
+		const cache = new MemCache();
+		const fetch = vi.fn(async () => jsonRes({ names: { bob: A, carol: B } }));
+		const checks = [
+			{ pubkey: A, nip05: 'bob@example.com' },
+			{ pubkey: B, nip05: 'carol@example.com' }
+		];
+		expect(await verifyNip05Claims(checks, { fetch, cache })).toEqual({ verified: [A, B], deferred: [] });
+		expect(await verifyNip05Claims(checks, { fetch, cache })).toEqual({ verified: [A, B], deferred: [] });
+		expect(fetch).toHaveBeenCalledTimes(1);
+	});
+
+	it('a host error defers its claims (uncached), a clean miss does not', async () => {
+		const fetch = vi.fn(async (url: string) =>
+			url.includes('down.example.com') ? new Response('', { status: 502 }) : jsonRes({ names: {} })
+		);
+		const out = await verifyNip05Claims(
+			[
+				{ pubkey: A, nip05: 'bob@down.example.com' },
+				{ pubkey: B, nip05: 'bob@example.com' }
+			],
+			{ fetch: fetch as unknown as typeof globalThis.fetch }
+		);
+		expect(out).toEqual({ verified: [], deferred: [A] });
+	});
+
+	it(`never more than ${NIP05_MAX_IN_FLIGHT} fetches in flight`, async () => {
+		let active = 0;
+		let peak = 0;
+		const fetch = vi.fn(async () => {
+			active++;
+			peak = Math.max(peak, active);
+			await new Promise((r) => setTimeout(r, 5));
+			active--;
+			return jsonRes({ names: {} });
+		});
+		const checks = Array.from({ length: 10 }, (_, i) => ({ pubkey: pkN(i), nip05: `bob@d${i}.example.com` }));
+		await verifyNip05Claims(checks, { fetch });
+		expect(fetch).toHaveBeenCalledTimes(10);
+		expect(peak).toBe(5);
 	});
 });

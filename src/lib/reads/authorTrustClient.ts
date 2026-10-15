@@ -86,9 +86,12 @@ export const browserTrustDeps: TrustDeps = {
 				{ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ checks }) },
 				NIP05_CHECK_TIMEOUT_MS
 			);
+			// 429 and errors: "not verified for now" (the resolver folds them uncached).
 			if (!res.ok) return null;
-			const verified = ((await res.json()) as { verified?: unknown }).verified;
-			return Array.isArray(verified) ? new Set(verified.filter((v): v is string => typeof v === 'string')) : null;
+			const body = (await res.json()) as { verified?: unknown; deferred?: unknown };
+			if (!Array.isArray(body.verified)) return null;
+			const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+			return { verified: new Set(strings(body.verified)), deferred: new Set(strings(body.deferred)) };
 		} catch {
 			return null;
 		}

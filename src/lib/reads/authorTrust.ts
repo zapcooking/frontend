@@ -8,6 +8,10 @@
  *             relays down): shown normally, never cached, asked again next
  *             visit. A 429 or 503 isn't "untrusted".
  *
+ * A NIP-05 that couldn't be checked this time (the check route rate
+ * limited or failing, or the claim deferred) folds as a stranger for now
+ * but isn't cached, so the next visit checks it again.
+ *
  * Trusted and stranger answers are cached per author for an hour, so a
  * normal page view sends at most one /trust request. The relay asks for
  * browser-only calls (Workers share outbound IPs and its limit is per IP),
@@ -28,6 +32,8 @@ export const TRUST_CACHE_KEY = 'zapcooking_reads_trust_v1';
 export const TRUST_CACHE_MAX = 3000;
 /** Most NIP-05 claims per /api/reads/nip05 request. */
 export const NIP05_CHECK_BATCH = 50;
+/** Most distinct domains per /api/reads/nip05 request (the route defers the rest). */
+export const NIP05_CHECK_DOMAINS = 10;
 
 const HEX64 = /^[0-9a-f]{64}$/;
 
@@ -44,8 +50,13 @@ export interface TrustDeps {
 	askRelay: (pubkeys: string[]) => Promise<Set<string> | null>;
 	/** NIP-05 each author claims in their profile (absent = none), or null when no profile relay answered. */
 	nip05Claims: (pubkeys: string[]) => Promise<Map<string, string> | null>;
-	/** The authors whose claim verifies, or null when the check itself failed. */
-	verifyNip05: (checks: { pubkey: string; nip05: string }[]) => Promise<Set<string> | null>;
+	/**
+	 * The authors whose claim verifies, and those the route couldn't check
+	 * this time; null when the check itself failed (429, error, offline).
+	 */
+	verifyNip05: (
+		checks: { pubkey: string; nip05: string }[]
+	) => Promise<{ verified: Set<string>; deferred: Set<string> } | null>;
 }
 
 function readCache(storage: StorageLike | null | undefined): CacheShape {
@@ -100,6 +111,32 @@ export function chunk<T>(items: T[], size: number): T[][] {
 	return out;
 }
 
+/** The domain a NIP-05 claims (lower-cased), for batching; the route does the real parsing. */
+function claimDomain(nip05: string): string {
+	const s = nip05.trim().toLowerCase();
+	return s.slice(s.lastIndexOf('@') + 1);
+}
+
+/** NIP-05 checks in batches the route takes whole: ≤ 50 claims and ≤ 10 domains each. */
+export function nip05Batches<C extends { nip05: string }>(checks: C[]): C[][] {
+	const out: C[][] = [];
+	let batch: C[] = [];
+	let domains = new Set<string>();
+	for (const c of checks) {
+		const d = claimDomain(c.nip05);
+		const full = batch.length >= NIP05_CHECK_BATCH || (!domains.has(d) && domains.size >= NIP05_CHECK_DOMAINS);
+		if (full) {
+			out.push(batch);
+			batch = [];
+			domains = new Set();
+		}
+		batch.push(c);
+		domains.add(d);
+	}
+	if (batch.length) out.push(batch);
+	return out;
+}
+
 /** A /trust response body → the trusted subset of what was asked, or null when it isn't one. */
 export function parseTrustResponse(body: unknown, asked: string[]): Set<string> | null {
 	const trusted = (body as { trusted?: unknown } | null)?.trusted;
@@ -128,6 +165,8 @@ export async function resolveAuthorTrust(pubkeys: string[], deps: TrustDeps): Pr
 
 	const fresh = new Map<string, TrustVerdict>();
 	const notTrusted: string[] = [];
+	/** Claimants whose NIP-05 couldn't be checked this time: folded, not cached. */
+	const unchecked = new Set<string>();
 	for (const batch of chunk(ask, TRUST_BATCH)) {
 		let trusted: Set<string> | null = null;
 		try {
@@ -151,23 +190,24 @@ export async function resolveAuthorTrust(pubkeys: string[], deps: TrustDeps): Pr
 		}
 		const checks = claims ? notTrusted.filter((pk) => claims!.has(pk)).map((pk) => ({ pubkey: pk, nip05: claims!.get(pk)! })) : [];
 		const verified = new Set<string>();
-		let checkFailed = false;
-		const answers = await Promise.all(
-			chunk(checks, NIP05_CHECK_BATCH).map((b) => deps.verifyNip05(b).catch(() => null))
-		);
-		for (const a of answers) {
-			if (!a) checkFailed = true;
-			else for (const pk of a) verified.add(pk);
-		}
+		const batches = nip05Batches(checks);
+		const answers = await Promise.all(batches.map((b) => deps.verifyNip05(b).catch(() => null)));
+		answers.forEach((a, i) => {
+			if (!a) for (const c of batches[i]) unchecked.add(c.pubkey);
+			else {
+				for (const pk of a.verified) verified.add(pk);
+				for (const pk of a.deferred) unchecked.add(pk);
+			}
+		});
 		for (const pk of notTrusted) {
 			if (!claims) fresh.set(pk, 'unknown');
 			else if (verified.has(pk)) fresh.set(pk, 'trusted');
-			else if (checkFailed && claims.has(pk)) fresh.set(pk, 'unknown');
 			else fresh.set(pk, 'stranger');
 		}
 	}
 
-	writeTrustCache(deps.storage, fresh, deps.now());
+	const cacheable = new Map([...fresh].filter(([pk]) => !unchecked.has(pk) || fresh.get(pk) === 'trusted'));
+	writeTrustCache(deps.storage, cacheable, deps.now());
 	for (const [pk, v] of fresh) out.set(pk, v);
 	return out;
 }

@@ -34,7 +34,10 @@ function deps(over: Partial<TrustDeps> = {}): TrustDeps & { storage: MemStorage 
 		storage: new MemStorage(),
 		askRelay: vi.fn(async (pks: string[]) => new Set(pks.filter((p) => p === MEMBER))),
 		nip05Claims: vi.fn(async () => new Map([[VERIFIED, 'v@example.com'], [CLAIMS_ONLY, 'c@example.com']])),
-		verifyNip05: vi.fn(async (checks: { pubkey: string }[]) => new Set(checks.map((c) => c.pubkey).filter((p) => p === VERIFIED))),
+		verifyNip05: vi.fn(async (checks: { pubkey: string }[]) => ({
+			verified: new Set(checks.map((c) => c.pubkey).filter((p) => p === VERIFIED)),
+			deferred: new Set<string>()
+		})),
 		...over
 	} as TrustDeps & { storage: MemStorage };
 }
@@ -80,10 +83,38 @@ describe('resolveAuthorTrust', () => {
 		expect(v.get(NOBODY)).toBe('unknown');
 	});
 
-	it('the NIP-05 check failing → claimants unknown, authors with no claim still strangers', async () => {
-		const v = await resolveAuthorTrust([VERIFIED, NOBODY], deps({ verifyNip05: async () => null }));
-		expect(v.get(VERIFIED)).toBe('unknown');
-		expect(v.get(NOBODY)).toBe('stranger');
+	it('the NIP-05 check failing (429, error) → claimants fold as strangers but are not cached', async () => {
+		for (const verifyNip05 of [async () => null, async () => Promise.reject(new Error('x'))]) {
+			const d = deps({ verifyNip05 });
+			const v = await resolveAuthorTrust([VERIFIED, NOBODY], d);
+			expect(v.get(VERIFIED)).toBe('stranger');
+			expect(v.get(NOBODY)).toBe('stranger');
+			expect(Object.keys(JSON.parse(d.storage.getItem(TRUST_CACHE_KEY)!))).toEqual([NOBODY]);
+
+			// The next visit asks again, and a working route verifies them.
+			const next = deps({ storage: d.storage });
+			expect((await resolveAuthorTrust([VERIFIED], next)).get(VERIFIED)).toBe('trusted');
+			expect(next.verifyNip05).toHaveBeenCalledTimes(1);
+		}
+	});
+
+	it('a deferred claim folds as a stranger, uncached; checked ones are cached', async () => {
+		const d = deps({
+			verifyNip05: async () => ({ verified: new Set<string>(), deferred: new Set([VERIFIED]) })
+		});
+		const v = await resolveAuthorTrust([VERIFIED, CLAIMS_ONLY], d);
+		expect(v.get(VERIFIED)).toBe('stranger');
+		expect(v.get(CLAIMS_ONLY)).toBe('stranger');
+		expect(Object.keys(JSON.parse(d.storage.getItem(TRUST_CACHE_KEY)!))).toEqual([CLAIMS_ONLY]);
+	});
+
+	it('sends NIP-05 checks in batches of at most 10 domains and 50 claims', async () => {
+		const many = Array.from({ length: 25 }, (_, i) => pk(i + 500));
+		const verifyNip05 = vi.fn(async () => ({ verified: new Set<string>(), deferred: new Set<string>() }));
+		const nip05Claims = async () => new Map(many.map((p, i) => [p, `n${i}@d${i}.example.com`]));
+		await resolveAuthorTrust(many, deps({ verifyNip05, nip05Claims }));
+		const sizes = (verifyNip05.mock.calls as unknown as [{ nip05: string }[]][]).map(([b]) => b.length);
+		expect(sizes).toEqual([10, 10, 5]);
 	});
 
 	it('asks the relay in batches of 250, each author once, lower-cased, skipping malformed keys', async () => {
@@ -97,9 +128,11 @@ describe('resolveAuthorTrust', () => {
 	});
 
 	it('caches trusted and stranger for an hour, never unknown', async () => {
-		const d = deps({ verifyNip05: async () => null });
-		await resolveAuthorTrust([MEMBER, VERIFIED, NOBODY], d);
-		expect(Object.keys(JSON.parse(d.storage.getItem(TRUST_CACHE_KEY)!)).sort()).toEqual([MEMBER, NOBODY]);
+		const d = deps({ askRelay: async () => null });
+		await resolveAuthorTrust([NOBODY], d);
+		expect(d.storage.getItem(TRUST_CACHE_KEY)).toBe('{}');
+		await resolveAuthorTrust([MEMBER, NOBODY], deps({ storage: d.storage }));
+		expect(Object.keys(JSON.parse(d.storage.getItem(TRUST_CACHE_KEY)!)).sort()).toEqual([MEMBER, NOBODY].sort());
 
 		const again = deps({ storage: d.storage });
 		const v = await resolveAuthorTrust([MEMBER, NOBODY], again);

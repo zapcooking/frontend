@@ -12,7 +12,7 @@ function fakeDeps(): TrustDeps {
 		storage: null,
 		askRelay: vi.fn(async (pks: string[]) => new Set(pks.filter((p) => p === pk(1)))),
 		nip05Claims: vi.fn(async () => new Map<string, string>()),
-		verifyNip05: vi.fn(async () => new Set<string>())
+		verifyNip05: vi.fn(async () => ({ verified: new Set<string>(), deferred: new Set<string>() }))
 	};
 }
 
