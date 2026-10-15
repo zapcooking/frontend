@@ -124,6 +124,46 @@ describe('parseImeta', () => {
     expect(parseImeta(event)[0].hash).toBe('abc123def456');
   });
 
+  it('captures a video poster from the `image` slot', () => {
+    const event = {
+      content: '',
+      tags: [
+        [
+          'imeta',
+          'url https://x/v.mp4',
+          'm video/mp4',
+          'image https://x/v-poster.jpg'
+        ]
+      ]
+    };
+    expect(parseImeta(event)[0].poster).toBe('https://x/v-poster.jpg');
+  });
+
+  it('falls back to the `thumb` slot for the poster when `image` is absent', () => {
+    const event = {
+      content: '',
+      tags: [
+        ['imeta', 'url https://x/v.mp4', 'm video/mp4', 'thumb https://x/v-thumb.jpg']
+      ]
+    };
+    expect(parseImeta(event)[0].poster).toBe('https://x/v-thumb.jpg');
+  });
+
+  it('prefers `image` over `thumb` when both are present', () => {
+    const event = {
+      content: '',
+      tags: [
+        [
+          'imeta',
+          'url https://x/v.mp4',
+          'image https://x/v-image.jpg',
+          'thumb https://x/v-thumb.jpg'
+        ]
+      ]
+    };
+    expect(parseImeta(event)[0].poster).toBe('https://x/v-image.jpg');
+  });
+
   it('falls back to URL extraction when no imeta tags are present', () => {
     const event = {
       content: 'check out https://nostr.build/i/photo.jpg and https://example.com/movie.mp4',
@@ -184,6 +224,79 @@ describe('parseImeta', () => {
       tags: []
     };
     expect(parseImeta(event)).toHaveLength(1);
+  });
+});
+
+describe('isImageUrl', () => {
+  it('accepts common image extensions', () => {
+    expect(isImageUrl('https://x.com/a.jpg')).toBe(true);
+    expect(isImageUrl('https://x.com/a.JPEG')).toBe(true);
+    expect(isImageUrl('https://x.com/a.png?cache=1')).toBe(true);
+    expect(isImageUrl('https://x.com/a.webp')).toBe(true);
+    expect(isImageUrl('https://x.com/a.avif')).toBe(true);
+  });
+  it('accepts known image hosts', () => {
+    expect(isImageUrl('https://image.nostr.build/abc')).toBe(true);
+    expect(isImageUrl('https://primal.b-cdn.net/foo')).toBe(true);
+    expect(isImageUrl('https://i.ibb.co/bar')).toBe(true);
+  });
+  it('rejects malformed URLs and non-images', () => {
+    expect(isImageUrl('not a url')).toBe(false);
+    expect(isImageUrl('https://example.com/page')).toBe(false);
+  });
+});
+
+describe('isVideoUrl', () => {
+  it('accepts common video extensions', () => {
+    expect(isVideoUrl('https://x.com/a.mp4')).toBe(true);
+    expect(isVideoUrl('https://x.com/a.webm')).toBe(true);
+    expect(isVideoUrl('https://x.com/a.MOV')).toBe(true);
+  });
+  it('rejects non-video URLs', () => {
+    expect(isVideoUrl('https://x.com/a.jpg')).toBe(false);
+    expect(isVideoUrl('not a url')).toBe(false);
+  });
+});
+
+describe('parseImeta poster', () => {
+  it('captures a video poster from the `image` slot', () => {
+    const event = {
+      content: '',
+      tags: [
+        [
+          'imeta',
+          'url https://x/v.mp4',
+          'm video/mp4',
+          'image https://x/v-poster.jpg'
+        ]
+      ]
+    };
+    expect(parseImeta(event)[0].poster).toBe('https://x/v-poster.jpg');
+  });
+
+  it('falls back to the `thumb` slot for the poster when `image` is absent', () => {
+    const event = {
+      content: '',
+      tags: [
+        ['imeta', 'url https://x/v.mp4', 'm video/mp4', 'thumb https://x/v-thumb.jpg']
+      ]
+    };
+    expect(parseImeta(event)[0].poster).toBe('https://x/v-thumb.jpg');
+  });
+
+  it('prefers `image` over `thumb` when both are present', () => {
+    const event = {
+      content: '',
+      tags: [
+        [
+          'imeta',
+          'url https://x/v.mp4',
+          'image https://x/v-image.jpg',
+          'thumb https://x/v-thumb.jpg'
+        ]
+      ]
+    };
+    expect(parseImeta(event)[0].poster).toBe('https://x/v-image.jpg');
   });
 });
 

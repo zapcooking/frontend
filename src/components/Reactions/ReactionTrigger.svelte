@@ -140,7 +140,7 @@
   {#if hasUserReacted && userEmoji}
     <span class={compact ? 'text-lg' : 'text-xl'}>{userEmoji}</span>
   {:else}
-    <HeartIcon size={compact ? 20 : 24} weight="regular" class="text-caption" />
+    <HeartIcon size={20} weight="regular" class="text-caption" />
   {/if}
   <span class="text-caption {compact ? 'text-sm' : ''}">
     {#if $store.loading}<span class="opacity-0">0</span>{:else}{$store.reactions.count}{/if}
