@@ -35,9 +35,22 @@
 	$: target = replyTo ?? parentEvent;
 	$: targetPubkey = target?.author?.hexpubkey || target?.pubkey || '';
 
+	let composer: ReplyComposer;
+
 	function handlePosted(posted: NDKEvent) {
 		dispatch('posted', posted);
 		onPosted?.(posted);
+		open = false;
+	}
+
+	// Backdrop / Esc / the floating X run through the Modal's cleanup —
+	// the composer state is intact here, so flush on the way out. The
+	// composer's own Cancel button flushes before clearing and dispatches
+	// 'cancel' (handler below) — it must not save again post-clear, which
+	// would snapshot emptiness and delete the draft it just saved.
+	function handleCleanupClose() {
+		composer?.saveDraft?.();
+		dispatch('cancel');
 		open = false;
 	}
 
@@ -48,7 +61,15 @@
 </script>
 
 {#if open}
-	<Modal bind:open noHeader floatingClose compact maxWidth="40rem" autoHeight>
+	<Modal
+		bind:open
+		noHeader
+		floatingClose
+		compact
+		maxWidth="40rem"
+		autoHeight
+		cleanup={handleCleanupClose}
+	>
 		<!-- Modal always points aria-labelledby="title" at an element with
 		     that id; noHeader removes the built-in one, so provide a
 		     screen-reader-only replacement rather than an unnamed dialog. -->
@@ -82,8 +103,10 @@
 		</div>
 
 		<ReplyComposer
+			bind:this={composer}
 			{parentEvent}
 			{replyTo}
+			draftKey={target?.id}
 			placeholder="Write a reply..."
 			submitLabel="Reply"
 			showCancel={true}
