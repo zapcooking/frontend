@@ -107,30 +107,40 @@ describe('typed tag shows as selected', () => {
 });
 
 describe('cap', () => {
-  const five = '#a #b #c #d #e';
+  // Fixtures derive from MAX_HASHTAGS so they track the constant.
+  const atCapTags = Array.from({ length: MAX_HASHTAGS }, (_, i) =>
+    `#${String.fromCharCode(97 + i)}`
+  ).join(' ');
+  const underCapTags = Array.from({ length: MAX_HASHTAGS - 1 }, (_, i) =>
+    `#${String.fromCharCode(97 + i)}`
+  ).join(' ');
 
   it('counts as the feed counts', () => {
     expect(suggestedTagCount('')).toBe(0);
     expect(suggestedTagCount('x #foodstr\n\n#coffee.')).toBe(2);
-    expect(suggestedTagCount(five)).toBe(MAX_HASHTAGS);
+    expect(suggestedTagCount(atCapTags)).toBe(MAX_HASHTAGS);
   });
 
   it('is at the cap at exactly MAX_HASHTAGS and not below', () => {
-    expect(atHashtagCap('#a #b #c #d')).toBe(false);
-    expect(atHashtagCap(five)).toBe(true);
-    expect(overHashtagCap(five)).toBe(false);
+    expect(atHashtagCap(underCapTags)).toBe(false);
+    expect(atHashtagCap(atCapTags)).toBe(true);
+    expect(overHashtagCap(atCapTags)).toBe(false);
   });
 
   it('is over the cap only past MAX_HASHTAGS, which typing can reach', () => {
-    expect(overHashtagCap(`${five} #f`)).toBe(true);
-    expect(atHashtagCap(`${five} #f`)).toBe(true);
+    expect(overHashtagCap(`${atCapTags} #over`)).toBe(true);
+    expect(atHashtagCap(`${atCapTags} #over`)).toBe(true);
   });
 
   it('ignores a tap on an unselected pill at the cap', () => {
-    expect(toggleHashtag(five, 'foodstr')).toBe(five);
+    expect(toggleHashtag(atCapTags, 'foodstr')).toBe(atCapTags);
   });
 
   it('still lets a selected pill toggle off at the cap', () => {
-    expect(toggleHashtag('#a #b #c #d #foodstr', 'foodstr')).toBe('#a #b #c #d');
+    // Built from the cap fixture so this exercises the real at-cap path
+    // (a literal five-tag string stopped reaching the cap at MAX_HASHTAGS=20).
+    expect(toggleHashtag(atCapTags, 'a')).toBe(
+      Array.from({ length: MAX_HASHTAGS - 1 }, (_, i) => `#${String.fromCharCode(98 + i)}`).join(' ')
+    );
   });
 });

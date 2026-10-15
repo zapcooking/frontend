@@ -1,19 +1,23 @@
 <script lang="ts">
   import { slide } from 'svelte/transition';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import AppWindowIcon from 'phosphor-svelte/lib/AppWindow';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
   import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
+  import ClockIcon from 'phosphor-svelte/lib/Clock';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import SmileyIcon from 'phosphor-svelte/lib/Smiley';
   import { ndk } from '$lib/nostr';
   import { formatCompactTime, formatSats } from '$lib/utils';
   import { kindCaption } from '$lib/eventKindLabel';
+  import { parseClientTag } from '$lib/clientTag';
   import {
     loadPostEngagementDetails,
     type PostEngagementDetails
   } from '$lib/postEngagementDetails';
   import PostEngagementPerson from './PostEngagementPerson.svelte';
   import ZapCommentContent from './ZapCommentContent.svelte';
+  import ClientAttribution from './ClientAttribution.svelte';
 
   export let event: NDKEvent;
   export let open = false;
@@ -64,6 +68,22 @@
   function relayLabel(url: string): string {
     return url.replace(/^wss?:\/\//, '').replace(/\/$/, '');
   }
+
+  /** "Oct 10, 2026 · 5:05 PM" — the full timestamp the header's relative
+   *  time abstracts away (iOS drawer parity). */
+  function absoluteTimestamp(ts?: number): string {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    const date = d.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return `${date} · ${time}`;
+  }
+
+  $: hasClientTag = Boolean(parseClientTag(event.tags || []));
 
   $: hasDetails =
     details.reactions.length > 0 ||
@@ -169,10 +189,6 @@
           </section>
         {/if}
 
-        {#if event.kind != null}
-          <p class="kind-row">{kindCaption(event.kind)}</p>
-        {/if}
-
         {#if details.relays.length > 0}
           <section class="detail-section" aria-labelledby={`relays-${event.id}`}>
             <h3 id={`relays-${event.id}`} class="section-heading">
@@ -189,6 +205,28 @@
         {/if}
       </div>
 
+      <!-- Intrinsic metadata rows (iOS drawer parity) — rendered in EVERY
+           settled state, including empty/error: the timestamp and client
+           belong to the note, not to whatever engagement the relays
+           happened to return. -->
+      <div class="drawer-meta">
+        {#if event.kind != null}
+          <p class="kind-row">{kindCaption(event.kind)}</p>
+        {/if}
+        {#if event.created_at}
+          <div class="meta-row">
+            <ClockIcon size={14} weight="bold" />
+            <span>{absoluteTimestamp(event.created_at)}</span>
+          </div>
+        {/if}
+        {#if hasClientTag}
+          <div class="meta-row">
+            <AppWindowIcon size={14} weight="bold" />
+            <ClientAttribution tags={event.tags} enableEnrichment={true} bare />
+          </div>
+        {/if}
+      </div>
+
       {#if loading}
         <div class="loading-line" aria-label="Refreshing post activity"></div>
       {/if}
@@ -199,8 +237,10 @@
 <style>
   .drawer {
     position: relative;
-    margin-top: 0.25rem;
-    border-top: 1px solid color-mix(in srgb, var(--color-input-border) 75%, transparent);
+    /* iOS drawer: an inset rounded card, not a ruled section — no top
+       border line. */
+    margin: 0.375rem 0 0.25rem;
+    border-radius: 0.75rem;
     background: var(--color-card-sunken);
     color: var(--color-text-primary);
     overflow: hidden;
@@ -239,6 +279,15 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Intrinsic metadata block (kind, full timestamp, client attribution) —
+     rendered below the scroll area in every settled state. */
+  .drawer-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    padding: 0 0.75rem 0.75rem;
+  }
+
   /* Kind row ("KIND 1111 · COMMENT") — quiet metadata: caption size and
      color, normal weight, a step dimmer than the section headings.
      Intrinsic to the event, so it renders even when no relay-sourced
@@ -249,6 +298,18 @@
     font-size: 0.75rem;
     font-weight: 400;
     line-height: 1.25rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Intrinsic metadata rows (full timestamp, client attribution) — same
+     quiet register as the kind row, with a small leading glyph. */
+  .meta-row {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--color-caption);
+    font-size: 0.8125rem;
+    line-height: 1.35rem;
     font-variant-numeric: tabular-nums;
   }
 
