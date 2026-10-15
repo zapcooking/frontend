@@ -8,23 +8,24 @@
  * The browser asks only about authors the feed relay doesn't already
  * trust. Each identifier's answer is edge-cached, and one request fetches
  * from at most 10 domains (see nip05Verify.server). Per client IP,
- * NIP05_PER_MINUTE requests a minute; over that, 429.
+ * 20 requests a minute; over that, 429.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { NIP05_MAX_CHECKS, verifyNip05Claims, type Nip05Check } from '$lib/reads/nip05Verify.server';
 
 const MAX_BODY_BYTES = 32 * 1024;
-/**
- * A first page load sends 1–3 requests (≤ 10 domains each), and a reload
- * inside the hour usually none (the browser caches answers). 20 leaves room
- * for several tabs and reloads behind one NAT, while one IP can make the
- * Worker fetch from at most 200 domains a minute.
+/*
+ * The limit itself (20 requests a minute per IP) is the limiter's config,
+ * not code here. Why 20: a first page load sends 1–3 requests (≤ 10
+ * domains each), and a reload inside the hour usually none (the browser
+ * caches answers). 20 leaves room for several tabs and reloads behind one
+ * NAT, while one IP can make the Worker fetch from at most 200 domains a
+ * minute.
  */
-export const NIP05_PER_MINUTE = 20;
 
 /** The rate limiting binding's shape: one call per request, keyed by client IP. */
-export interface RateLimiter {
+interface RateLimiter {
 	limit(opts: { key: string }): Promise<{ success: boolean }>;
 }
 
