@@ -75,3 +75,35 @@ export async function removePubkeyMute(
 	if (!removedPublic && !removedPrivate) return null;
 	return { tags, content };
 }
+
+const isEventTag = (tag: string[], id: string) => tag[0] === 'e' && tag[1] === id;
+
+/** Add `id` as a public event mute (thread, or note-and-replies). Returns
+ *  null when it is already muted — nothing to publish. */
+export function addEventMute(
+	existing: MuteListContent | null,
+	id: string
+): MuteListContent | null {
+	const tags = existing?.tags ?? [];
+	if (tags.some((t) => isEventTag(t, id))) return null;
+	return {
+		tags: [...tags.map((t) => [...t]), ['e', id]],
+		content: existing?.content ?? ''
+	};
+}
+
+/**
+ * Remove the public event mute of `id`. Private (encrypted) content passes
+ * through untouched — a privately muted event keeps its private mute until
+ * it is removed from a client that can decrypt it. Returns null when the
+ * public list doesn't mute `id` (nothing to publish).
+ */
+export function removeEventMute(
+	existing: MuteListContent | null,
+	id: string
+): MuteListContent | null {
+	if (!existing) return null;
+	const tags = existing.tags.filter((t) => !isEventTag(t, id)).map((t) => [...t]);
+	if (tags.length === existing.tags.length) return null;
+	return { tags, content: existing.content };
+}

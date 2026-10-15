@@ -361,7 +361,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: center;
+    object-position: center 25%;
     -webkit-user-drag: none;
     user-select: none;
     transition: opacity 0.15s ease-out;
@@ -473,6 +473,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center 25%;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;

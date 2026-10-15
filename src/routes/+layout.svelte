@@ -317,6 +317,13 @@
     error: null
   };
   let unsubscribe: (() => void) | null = null;
+  // Whether the PREVIOUS auth callback saw a logged-in member. The auth
+  // manager emits intermediate unauthenticated states during session
+  // restore (authenticateWithNIP07's isLoading ping, NIP-46 reconnect) —
+  // treating those as logout wiped the persisted wallets on every page
+  // refresh, which forced the Nostr-backup auto-restore (a full wallet
+  // rescan + "restored" toast) to run again every load.
+  let wasAuthenticated = false;
   let feedInitialLoadTimeout: ReturnType<typeof setTimeout> | null = null;
   let walletWelcomeSeen = false;
   let walletWelcomeForce = false;
@@ -497,7 +504,8 @@
         authState = state;
 
         // Sync with legacy userPublickey store for compatibility
-        if (state.isAuthenticated && state.publicKey) {
+        const isAuthenticatedNow = Boolean(state.isAuthenticated && state.publicKey);
+        if (isAuthenticatedNow) {
           userPublickey.set(state.publicKey);
           // Synchronously answer "does this account obviously have a
           // wallet?" so the sidebar card never flashes "Set up a Wallet"
@@ -529,7 +537,19 @@
           // prompt NIP-07 users for one decrypt.
           setTimeout(() => void autoRestoreWalletAtLogin(state.publicKey), 2500);
         } else {
+          // A settled unauthenticated state must never keep a pubkey around
+          // (locked vault, failed NIP-07 restore): clear it before the
+          // transition guard below.
           userPublickey.set('');
+          // Logout cleanup only on a genuine authenticated → logged-out
+          // transition. Intermediate unauthenticated states (the isLoading
+          // ping while a NIP-07/NIP-46 session restores on refresh) must
+          // NOT run it: wiping the persisted wallets there forced the
+          // Nostr-backup auto-restore — a full wallet rescan and a
+          // "restored" toast — on every single page load.
+          if (!wasAuthenticated) {
+            return;
+          }
           stopMessageSubscription();
           clearMessages();
           clearDecryptCache();
@@ -587,6 +607,11 @@
             }
           }
         }
+
+        // The early return above leaves this untouched: intermediate
+        // restore pings are pre-auth, so the next real state still compares
+        // against the last settled one.
+        wasAuthenticated = isAuthenticatedNow;
       });
 
       // Initialize wallet manager to restore saved wallets
