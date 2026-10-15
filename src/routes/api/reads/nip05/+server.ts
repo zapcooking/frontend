@@ -26,9 +26,36 @@ function parseChecks(body: unknown): Nip05Check[] | null {
 	return out;
 }
 
+/** The body as text, or null once it passes `max` bytes (checked while streaming, before buffering more). */
+async function readCapped(request: Request, max: number): Promise<string | null> {
+	const declared = Number(request.headers.get('content-length'));
+	if (Number.isFinite(declared) && declared > max) return null;
+	if (!request.body) return '';
+	const reader = request.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		size += value.byteLength;
+		if (size > max) {
+			void reader.cancel().catch(() => {});
+			return null;
+		}
+		chunks.push(value);
+	}
+	const bytes = new Uint8Array(size);
+	let at = 0;
+	for (const c of chunks) {
+		bytes.set(c, at);
+		at += c.byteLength;
+	}
+	return new TextDecoder().decode(bytes);
+}
+
 export const POST: RequestHandler = async ({ request }) => {
-	const text = await request.text();
-	if (text.length > MAX_BODY_BYTES) return json({ error: 'Body too large' }, { status: 413 });
+	const text = await readCapped(request, MAX_BODY_BYTES);
+	if (text === null) return json({ error: 'Body too large' }, { status: 413 });
 	let body: unknown;
 	try {
 		body = JSON.parse(text);

@@ -115,7 +115,12 @@
   // still being looked up, or anything the moderation lists hide.
   const classifySpam = createSpamClassifier();
   const NO_SPAM: Map<string, SpamReason> = new Map();
-  $: allSpamReasons = source === 'all' ? classifySpam(articles.map(toSpamEvent)) : NO_SPAM;
+  // Only what moderation lets render: a blocked copy of an article mustn't
+  // fold the real one as a duplicate. Re-runs when the lists change.
+  $: allSpamReasons =
+    source === 'all' && $readsModerationVersion >= 0
+      ? classifySpam(articles.filter((a) => !isBlockedFromReads(a.event)).map(toSpamEvent))
+      : NO_SPAM;
   $: if (source === 'all') ensureAuthorTrust(articles.map((a) => a.author.pubkey));
   $: allAuthorTrust = source === 'all' ? $readsAuthorTrust : null;
   // Swapped in place: the next check finds the replacement clean, so the

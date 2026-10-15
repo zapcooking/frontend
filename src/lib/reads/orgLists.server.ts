@@ -8,7 +8,7 @@
  */
 
 import { verifyEvent } from 'nostr-tools/pure';
-import { raceKeyed, type NostrEvent } from '$lib/relayCollect';
+import { unionKeyed, type NostrEvent } from '$lib/relayCollect';
 import { ORG_PUBKEY, pickOrgList } from '$lib/landing/curation';
 import { LIST_RELAYS } from '$lib/landing/landingData.server';
 import {
@@ -70,12 +70,15 @@ export async function fetchOrgListsFromRelays(
 		subs[name] = { kinds: [kind], authors: [ORG_PUBKEY], '#d': [d], limit: 2 };
 	}
 	const verify = (e: NostrEvent) => verifyEvent(e as Parameters<typeof verifyEvent>[0]);
-	return raceKeyed(
-		LIST_RELAYS,
-		subs,
-		(k, evs) => pickOrgList(evs, ORG_MODERATION_LISTS[k as OrgModerationListName], verify),
-		{ timeoutMs }
-	);
+	// Every relay's answer, not the first: a fast relay holding a stale list
+	// must not keep a newer block/hide update from taking effect.
+	const { events } = await unionKeyed(LIST_RELAYS, subs, { timeoutMs });
+	const out: Partial<Record<OrgModerationListName, NostrEvent>> = {};
+	for (const name of Object.keys(subs) as OrgModerationListName[]) {
+		const best = pickOrgList(events[name] ?? [], ORG_MODERATION_LISTS[name], verify);
+		if (best) out[name] = best;
+	}
+	return out;
 }
 
 /** New lists over the last good ones: a missing list keeps its old copy, an older copy never replaces a newer one. */

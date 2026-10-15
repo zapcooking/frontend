@@ -4,13 +4,15 @@
  * rules). Authors not in the store yet are pending.
  *
  * Profiles come from public relays anonymously (raw WebSocket, no NDK, so
- * no signer prompt). Their signatures aren't checked: a forged kind 0 can
- * only point at a NIP-05 whose nostr.json must already name the author.
+ * no signer prompt). Their signatures are checked, so a relay can't attach
+ * a NIP-05 the author never claimed, or shadow their real profile with a
+ * forged newer one.
  */
 
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import { unionKeyed } from '$lib/relayCollect';
+import { verifyEvent } from 'nostr-tools/pure';
+import { unionKeyed, type NostrEvent } from '$lib/relayCollect';
 import {
 	TRUST_TIMEOUT_MS,
 	TRUST_URL,
@@ -43,6 +45,14 @@ async function withTimeout(url: string, init: RequestInit, ms: number): Promise<
 	}
 }
 
+function isSigned(e: NostrEvent): boolean {
+	try {
+		return verifyEvent(e as Parameters<typeof verifyEvent>[0]);
+	} catch {
+		return false;
+	}
+}
+
 export const browserTrustDeps: TrustDeps = {
 	now: () => Date.now(),
 	storage: browser && typeof localStorage !== 'undefined' ? localStorage : null,
@@ -67,7 +77,7 @@ export const browserTrustDeps: TrustDeps = {
 		});
 		const { events, anyDone } = await unionKeyed(PROFILE_RELAYS, subs, { timeoutMs: PROFILE_TIMEOUT_MS });
 		if (!Object.values(anyDone).some(Boolean)) return null;
-		return nip05ClaimsFromProfiles(Object.values(events).flat());
+		return nip05ClaimsFromProfiles(Object.values(events).flat().filter(isSigned));
 	},
 	async verifyNip05(checks) {
 		try {
