@@ -1,5 +1,5 @@
 /**
- * Shared image-URL detection.
+ * Shared image- and video-URL detection: what NoteContent renders as media.
  *
  * Single source of truth for "does this URL point at an image?" and
  * "which image URLs does this raw note content contain?". The host-aware
@@ -54,6 +54,21 @@ export function isImageUrl(url: string): boolean {
     // label, not a substring.
     if (hostname.split('.').includes('imgproxy')) return true;
     return false;
+  } catch {
+    return false;
+  }
+}
+
+const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv)(\?.*)?$/i;
+
+/**
+ * True when the URL's pathname carries a video extension NoteContent
+ * plays inline. Extension only: no host is assumed to serve video.
+ * Invalid URLs are never videos.
+ */
+export function isVideoUrl(url: string): boolean {
+  try {
+    return VIDEO_EXTENSIONS.test(new URL(url).pathname);
   } catch {
     return false;
   }

@@ -218,6 +218,24 @@ describe('attachableUrlCandidates', () => {
       'https://image.nostr.build/abc123'
     ]);
   });
+
+  // Regressions: these pass feed/imeta's looser classifiers but NoteContent
+  // won't render them as media, so they must not be offered.
+  it('offers nothing for a look-alike host (substring, not subdomain)', () => {
+    expect(attachableUrlCandidates('https://imgur.com.evil.example/page')).toEqual([]);
+    expect(attachableUrlCandidates('https://notimgur.com/page')).toEqual([]);
+  });
+
+  it('offers nothing for an .m4v NoteContent does not play', () => {
+    expect(attachableUrlCandidates('https://a/clip.m4v')).toEqual([]);
+  });
+
+  it('offers a real imgur subdomain and a playable video', () => {
+    expect(attachableUrlCandidates('https://i.imgur.com/abc https://a/clip.mp4')).toEqual([
+      'https://i.imgur.com/abc',
+      'https://a/clip.mp4'
+    ]);
+  });
 });
 
 describe('removeBareUrlOccurrence', () => {

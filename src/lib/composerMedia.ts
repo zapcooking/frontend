@@ -19,7 +19,8 @@
  * what it published before any of this existed.
  */
 
-import { buildImetaTag, isImageUrl, isVideoUrl, normalizeAltBreaks } from './feed/imeta';
+import { buildImetaTag, normalizeAltBreaks } from './feed/imeta';
+import { isImageUrl, isVideoUrl } from './imageUrls';
 
 /** A single bare http(s) URL token: scheme, then no whitespace. */
 const BARE_URL_TOKEN = /^https?:\/\/\S+$/i;
@@ -109,8 +110,9 @@ export function stripAttachmentUrlLines(text: string, urls: string[]): string {
  * occurrence), and accepting one leaves the rest as candidates on their
  * own. A line with any non-URL word is authored prose and offers nothing.
  *
- * "Media" is what the feed itself can render — the image/video classifiers
- * from $lib/feed/imeta (file extension or a known media host). A link to a
+ * "Media" is what the feed itself can render: the image/video classifiers
+ * NoteContent uses, from $lib/imageUrls (file extension, or an exact known
+ * media host; never a host-name substring). A link to a
  * page — a GitHub issue, a blog post — is just a link: it stays text and
  * the composer offers nothing for it.
  *
@@ -130,7 +132,7 @@ export function attachableUrlCandidates(text: string): string[] {
   return out;
 }
 
-/** A URL the app can render as media, per the feed's own classifiers. */
+/** A URL NoteContent renders as media (same classifiers, $lib/imageUrls). */
 function isMediaUrl(url: string): boolean {
   return isImageUrl(url) || isVideoUrl(url);
 }
