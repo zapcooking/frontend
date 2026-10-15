@@ -30,6 +30,15 @@
   import { get } from 'svelte/store';
   import { fetchCuratedReads } from '$lib/reads/curatedReads';
   import { loadReadsSource, saveReadsSource, type ReadsSource } from '$lib/reads/readsSource';
+  import {
+    ensureReadsModerationLoaded,
+    isBlockedFromReads,
+    readsModerationReady,
+    readsModerationVersion
+  } from '$lib/reads/moderationClient';
+  import { createSpamClassifier, type SpamReason } from '$lib/reads/spamRules';
+  import { cleanCover, foldReason, toSpamEvent, withoutTrustedDuplicates } from '$lib/reads/allReadsView';
+  import { ensureAuthorTrust, readsAuthorTrust } from '$lib/reads/authorTrustClient';
 
   $: isSignedIn = $userPublickey !== '';
   $: draftCount = $drafts.length;
@@ -99,9 +108,51 @@
     return TOP_RELAY_FOOD_HASHTAGS;
   }
 
+  // "All reads" spam rules and trust check (the curated tab is the relay's
+  // job). Spam folds under one reveal line in FeedSection, whoever wrote it;
+  // authors with no trust connection (not in the feed relay's trust set, no
+  // verified NIP-05) under another. The cover never holds either, an author
+  // still being looked up, or anything the moderation lists hide.
+  const classifySpam = createSpamClassifier();
+  const NO_SPAM: Map<string, SpamReason> = new Map();
+  // Only what moderation lets render: a blocked copy of an article mustn't
+  // fold the real one as a duplicate. Re-runs when the lists change.
+  $: rawSpamReasons =
+    source === 'all' && $readsModerationVersion >= 0
+      ? classifySpam(articles.filter((a) => !isBlockedFromReads(a.event)).map(toSpamEvent))
+      : NO_SPAM;
+  $: if (source === 'all') ensureAuthorTrust(articles.map((a) => a.author.pubkey));
+  $: allAuthorTrust = source === 'all' ? $readsAuthorTrust : null;
+  // A trusted author's article never folds as copied: a throwaway key
+  // republishing it would otherwise hide the original.
+  $: allSpamReasons = withoutTrustedDuplicates(rawSpamReasons, articles, allAuthorTrust);
+  // Swapped in place: the next check finds the replacement clean, so the
+  // candidate scan runs only when a folded or newly blocked article is in it.
+  $: if (source === 'all' && $readsModerationVersion >= 0) {
+    const next = cleanCover(
+      cover,
+      () => articles.filter((a) => isValidLongformArticle(a.event)),
+      (a) => foldReason(a, allSpamReasons, $readsAuthorTrust) !== null || isBlockedFromReads(a.event),
+      (clean) => curateCover(clean)
+    );
+    if (next !== cover) cover = next;
+  }
+  // The first answers are held for (bounded): the page opens on checked
+  // authors instead of filling in. Later arrivals from new authors wait
+  // unseen for their own answer.
+  const TRUST_HOLD_MS = 4000;
+  let trustHoldOver = false;
+  $: trustPending = source === 'all' && articles.some((a) => !$readsAuthorTrust.has(a.author.pubkey.toLowerCase()));
+
   $: shownArticles = source === 'curated' ? curatedArticles : articles;
   $: shownCover = source === 'curated' ? curatedCover : cover;
-  $: shownLoading = source === 'curated' ? curatedLoading && !curatedLoaded : loading;
+  // The open search waits for the moderation lists, so a blocked or hidden
+  // article never renders while they're on their way, and (bounded) for the
+  // first trust answers.
+  $: shownLoading =
+    source === 'curated'
+      ? curatedLoading && !curatedLoaded
+      : loading || !$readsModerationReady || (trustPending && !trustHoldOver);
 
   // Cover article IDs to exclude from feed
   $: coverArticleIds = shownCover
@@ -139,6 +190,8 @@
   function startAll() {
     if (allStarted) return;
     allStarted = true;
+    ensureReadsModerationLoaded();
+    setTimeout(() => (trustHoldOver = true), TRUST_HOLD_MS);
     loadArticles();
   }
 
@@ -948,7 +1001,7 @@
       </button>
     </div>
     {#if source === 'all'}
-      <p class="reads-note">Everything tagged as food on Nostr, unfiltered.</p>
+      <p class="reads-note">Everything tagged as food on Nostr.</p>
     {:else if curatedLoaded && curatedArticles.length === 0}
       <p class="reads-note">
         {#if curatedComplete}
@@ -969,6 +1022,8 @@
       loading={shownLoading}
       {coverArticleIds}
       loadingMore={source === 'curated' ? false : loadingMore}
+      spamReasons={allSpamReasons}
+      authorTrust={allAuthorTrust}
       {followedPubkeys}
       {isSignedIn}
       on:loadMore={handleLoadMore}

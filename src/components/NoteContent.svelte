@@ -16,7 +16,7 @@
   import MediaCarousel from './MediaCarousel.svelte';
   import CheffyMediaReview from './CheffyMediaReview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
-  import { isImageUrl, filterImageUrls } from '$lib/imageUrls';
+  import { isImageUrl, isVideoUrl, filterImageUrls } from '$lib/imageUrls';
   import { imetaAltByUrl, parseImeta } from '$lib/feed/imeta';
   import MediaLightbox from './MediaLightbox.svelte';
   import LightningInvoiceCard from './LightningInvoiceCard.svelte';
@@ -70,16 +70,6 @@
       )
     : new Map();
 
-  const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv)(\?.*)?$/i;
-
-  function isVideoUrl(url: string): boolean {
-    try {
-      const urlObj = new URL(url);
-      return VIDEO_EXTENSIONS.test(urlObj.pathname);
-    } catch {
-      return false;
-    }
-  }
 
   function handleImageError(e: Event) {
     const target = e.target as HTMLImageElement;

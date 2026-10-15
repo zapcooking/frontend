@@ -54,7 +54,15 @@ export function pickList<E extends ListEventLike>(
 	name: LandingListName,
 	verify: (e: E) => boolean
 ): E | null {
-	const { kind, d } = LANDING_LISTS[name];
+	return pickOrgList(events, LANDING_LISTS[name], verify);
+}
+
+/** pickList for any org list: exact org pubkey, kind and d-tag, signature checked. */
+export function pickOrgList<E extends ListEventLike>(
+	events: E[],
+	{ kind, d }: { kind: number; d: string },
+	verify: (e: E) => boolean
+): E | null {
 	let best: E | null = null;
 	for (const e of events) {
 		if (e.pubkey !== ORG_PUBKEY || e.kind !== kind || dTag(e) !== d) continue;

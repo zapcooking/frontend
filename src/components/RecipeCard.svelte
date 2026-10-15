@@ -98,7 +98,9 @@
               imageBroken = true;
             }
           }}
-          class="absolute inset-0 image hover:scale-105 transition-transform duration-700 ease-in-out"
+          class="absolute inset-0 image {variant === 'grid'
+            ? 'hover:scale-105 transition-transform duration-700 ease-in-out'
+            : ''}"
         />
       </div>
 
