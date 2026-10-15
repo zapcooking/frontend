@@ -756,6 +756,9 @@
     white-space: nowrap;
   }
   .lz-spec {
+    /* Desktop: the disclosure right-aligns as a unit at the row's right
+       edge — spec name first, wordmark following it. */
+    margin-left: auto;
     font-size: 0.75rem;
     color: var(--color-caption);
     display: flex;
@@ -771,17 +774,21 @@
     transform: translateY(1px);
   }
 
-  /* Phones: the scan button gets its own row (its label never stacks),
-       and the spec line spans the full width under it — text left,
-       wordmark pushed to the right edge of the frame. */
+  /* Phones: the scan button spans the full width on its own row (its label
+     never stacks), and the spec line spans the width under it — text left,
+     wordmark pushed to the right edge of the frame. */
   @media (max-width: 639.98px) {
     .lz-scan-row {
       flex-direction: column;
       align-items: flex-start;
       gap: 0.625rem;
     }
+    .lz-scan {
+      align-self: stretch;
+    }
     .lz-spec {
       width: 100%;
+      margin-left: 0;
       justify-content: space-between;
     }
   }
