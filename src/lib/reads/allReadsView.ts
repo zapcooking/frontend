@@ -49,6 +49,28 @@ export function cleanCover<A, C extends CoverLike<A>>(
 /** An author's trust as the feed sees it; absent = still being looked up. */
 export type AuthorTrustLike = 'trusted' | 'stranger' | 'unknown';
 
+/**
+ * The spam reasons minus "duplicate" on trusted authors' articles. Anyone
+ * can republish a trusted author's article from a throwaway key, which
+ * would otherwise fold the original as copied; the untrusted copies still
+ * fold. Two trusted authors sharing a body (a co-post) fold neither.
+ * Returns `spam` itself when nothing changes.
+ */
+export function withoutTrustedDuplicates<R extends string>(
+	spam: Map<string, R>,
+	articles: { id: string; author: { pubkey: string } }[],
+	trust: ReadonlyMap<string, AuthorTrustLike> | null
+): Map<string, R> {
+	if (!trust) return spam;
+	let out: Map<string, R> | null = null;
+	for (const a of articles) {
+		if (spam.get(a.id) !== 'duplicate' || trust.get(a.author.pubkey.toLowerCase()) !== 'trusted') continue;
+		out ??= new Map(spam);
+		out.delete(a.id);
+	}
+	return out ?? spam;
+}
+
 /** Which reveal line an article sits under, if any. */
 export type FoldReason = 'spam' | 'stranger' | 'pending';
 

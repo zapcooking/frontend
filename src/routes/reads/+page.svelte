@@ -37,7 +37,7 @@
     readsModerationVersion
   } from '$lib/reads/moderationClient';
   import { createSpamClassifier, type SpamReason } from '$lib/reads/spamRules';
-  import { cleanCover, foldReason, toSpamEvent } from '$lib/reads/allReadsView';
+  import { cleanCover, foldReason, toSpamEvent, withoutTrustedDuplicates } from '$lib/reads/allReadsView';
   import { ensureAuthorTrust, readsAuthorTrust } from '$lib/reads/authorTrustClient';
 
   $: isSignedIn = $userPublickey !== '';
@@ -117,12 +117,15 @@
   const NO_SPAM: Map<string, SpamReason> = new Map();
   // Only what moderation lets render: a blocked copy of an article mustn't
   // fold the real one as a duplicate. Re-runs when the lists change.
-  $: allSpamReasons =
+  $: rawSpamReasons =
     source === 'all' && $readsModerationVersion >= 0
       ? classifySpam(articles.filter((a) => !isBlockedFromReads(a.event)).map(toSpamEvent))
       : NO_SPAM;
   $: if (source === 'all') ensureAuthorTrust(articles.map((a) => a.author.pubkey));
   $: allAuthorTrust = source === 'all' ? $readsAuthorTrust : null;
+  // A trusted author's article never folds as copied: a throwaway key
+  // republishing it would otherwise hide the original.
+  $: allSpamReasons = withoutTrustedDuplicates(rawSpamReasons, articles, allAuthorTrust);
   // Swapped in place: the next check finds the replacement clean, so the
   // candidate scan runs only when a folded or newly blocked article is in it.
   $: if (source === 'all' && $readsModerationVersion >= 0) {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { cleanCover, foldReason, readsFold, toSpamEvent } from './allReadsView';
+import { cleanCover, foldReason, readsFold, toSpamEvent, withoutTrustedDuplicates } from './allReadsView';
 
 const a = (id: string) => ({ id, author: { pubkey: 'p' + id }, event: { content: 'c' + id, tags: [['t', 'food']] } });
 
@@ -87,5 +87,42 @@ describe('cleanCover', () => {
 
 	it('maps an article to what the spam rules read', () => {
 		expect(toSpamEvent(a('9'))).toEqual({ id: '9', pubkey: 'p9', content: 'c9', tags: [['t', 'food']] });
+	});
+});
+
+describe('withoutTrustedDuplicates', () => {
+	const art = (id: string, pubkey: string) => ({ id, author: { pubkey } });
+	const articles = [art('orig', 'AA'), art('copy', 'bb'), art('pitch', 'aa')];
+	const spam = new Map<string, string>([
+		['orig', 'duplicate'],
+		['copy', 'duplicate'],
+		['pitch', 'links']
+	]);
+
+	it("drops 'duplicate' on a trusted author's article; the stranger's copy still folds", () => {
+		const trust = new Map([
+			['aa', 'trusted' as const],
+			['bb', 'stranger' as const]
+		]);
+		const out = withoutTrustedDuplicates(spam, articles, trust);
+		expect([...out]).toEqual([
+			['copy', 'duplicate'],
+			['pitch', 'links']
+		]);
+		expect(spam.size).toBe(3);
+	});
+
+	it('keeps the other reasons on trusted authors', () => {
+		const out = withoutTrustedDuplicates(spam, articles, new Map([['aa', 'trusted' as const]]));
+		expect(out.get('pitch')).toBe('links');
+	});
+
+	it('keeps duplicates while the author is pending or unknown', () => {
+		expect(withoutTrustedDuplicates(spam, articles, new Map([['aa', 'unknown' as const]]))).toBe(spam);
+		expect(withoutTrustedDuplicates(spam, articles, new Map())).toBe(spam);
+	});
+
+	it('no trust map (curated tab): unchanged', () => {
+		expect(withoutTrustedDuplicates(spam, articles, null)).toBe(spam);
 	});
 });
