@@ -445,12 +445,12 @@
            wordmark — same color as the text it sits with — names the document
            that governs this section's behavior. -->
       <p class="lz-spec">
-        <span class="lz-spec-mark" aria-hidden="true">
-          <LazarusWordmark height={16} />
-        </span>
         <a href={LAZARUS_SPEC_URL} target="_blank" rel="noopener noreferrer">
           Lazarus spec {LAZARUS_SPEC_VERSION}
         </a>
+        <span class="lz-spec-mark" aria-hidden="true">
+          <LazarusWordmark height={16} />
+        </span>
       </p>
     </div>
 
@@ -742,16 +742,20 @@
     font-size: 0.875rem;
   }
 
-  /* Spec disclosure — right-aligned on the scan row: names the Lazarus
-     document that governs this section's behavior, linked for auditing
-     restores. */
+  /* Spec disclosure on the scan row: names the Lazarus document that
+     governs this section's behavior, linked for auditing restores. */
   .lz-scan-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.75rem;
   }
+  .lz-scan {
+    /* The button's label never stacks, even when the spec wraps under. */
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
   .lz-spec {
-    margin: 0 0 0 auto;
     font-size: 0.75rem;
     color: var(--color-caption);
     display: flex;
@@ -762,6 +766,24 @@
      svg) — no dimming, it reads as part of the sentence it sits in. */
   .lz-spec-mark {
     display: inline-flex;
+    /* The wordmark has no descenders, while the text beside it does —
+       nudge the mark down a touch so both optically center on the row. */
+    transform: translateY(1px);
+  }
+
+  /* Phones: the scan button gets its own row (its label never stacks),
+       and the spec line spans the full width under it — text left,
+       wordmark pushed to the right edge of the frame. */
+  @media (max-width: 639.98px) {
+    .lz-scan-row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.625rem;
+    }
+    .lz-spec {
+      width: 100%;
+      justify-content: space-between;
+    }
   }
   .lz-spec a {
     color: var(--color-caption);
