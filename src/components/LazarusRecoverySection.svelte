@@ -34,6 +34,7 @@
   import { zapLazarusRelaySource, closeLazarusScanPool, retryLazarusRelays } from '$lib/lazarus/source';
   import { publishLazarusRecovery, LazarusPublishError } from '$lib/lazarus/lazarusPublish';
   import LazarusDeltaPanel from './LazarusDeltaPanel.svelte';
+  import LazarusWordmark from './LazarusWordmark.svelte';
   import ArrowClockwiseIcon from 'phosphor-svelte/lib/ArrowClockwise';
   import WarningIcon from 'phosphor-svelte/lib/Warning';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
@@ -440,13 +441,16 @@
           Scan relay history
         </button>
       {/if}
-      <!-- Spec disclosure, right-aligned beside the scan action:
-           names the document that governs this section's behavior. -->
+      <!-- Spec disclosure, right-aligned beside the scan action: the Lazarus
+           wordmark — same color as the text it sits with — names the document
+           that governs this section's behavior. -->
       <p class="lz-spec">
-        Uses the
         <a href={LAZARUS_SPEC_URL} target="_blank" rel="noopener noreferrer">
           Lazarus spec {LAZARUS_SPEC_VERSION}
         </a>
+        <span class="lz-spec-mark" aria-hidden="true">
+          <LazarusWordmark height={16} />
+        </span>
       </p>
     </div>
 
@@ -738,18 +742,55 @@
     font-size: 0.875rem;
   }
 
-  /* Spec disclosure — right-aligned on the scan row: names the Lazarus
-     document that governs this section's behavior, linked for auditing
-     restores. */
+  /* Spec disclosure on the scan row: names the Lazarus document that
+     governs this section's behavior, linked for auditing restores. */
   .lz-scan-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.75rem;
   }
+  .lz-scan {
+    /* The button's label never stacks, even when the spec wraps under. */
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
   .lz-spec {
-    margin: 0 0 0 auto;
+    /* Desktop: the disclosure right-aligns as a unit at the row's right
+       edge — spec name first, wordmark following it. */
+    margin-left: auto;
     font-size: 0.75rem;
     color: var(--color-caption);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  /* The mark inherits the spec line's caption color (currentColor in the
+     svg) — no dimming, it reads as part of the sentence it sits in. */
+  .lz-spec-mark {
+    display: inline-flex;
+    /* The wordmark has no descenders, while the text beside it does —
+       nudge the mark down a touch so both optically center on the row. */
+    transform: translateY(1px);
+  }
+
+  /* Phones: the scan button spans the full width on its own row (its label
+     never stacks), and the spec line spans the width under it — text left,
+     wordmark pushed to the right edge of the frame. */
+  @media (max-width: 639.98px) {
+    .lz-scan-row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.625rem;
+    }
+    .lz-scan {
+      align-self: stretch;
+    }
+    .lz-spec {
+      width: 100%;
+      margin-left: 0;
+      justify-content: space-between;
+    }
   }
   .lz-spec a {
     color: var(--color-caption);
