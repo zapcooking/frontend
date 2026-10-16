@@ -28,7 +28,7 @@
   export let showNostrEmbeds: boolean = true;
   export let embedDepth: number = 0; // Track nesting depth to prevent infinite recursion
   export let collapsible: boolean = true; // Enable collapsible long content
-  export let maxLength: number = 500; // Character limit before collapse
+  export let maxLength: number = 1000; // Character limit before collapse — was 500, then 1500; 1000 keeps long recipes expandable without dominating the feed
   export let event: NDKEvent | undefined = undefined;
 
   let isExpanded: boolean = false;
@@ -426,6 +426,7 @@
      trailing image) on every note. Per-span pre-wrap keeps the author's real
      newlines while letting the container collapse template whitespace. -->
 <div class="break-words note-content {className} w-full">
+  <div class="note-content-body" class:collapsed={shouldCollapse && !isExpanded}>
   {#each renderParts as part, i}
     {#if part.type === 'text'}<span class="whitespace-pre-wrap break-words">{part.content}</span>
     {:else if part.type === 'media-gallery'}
@@ -565,6 +566,7 @@
       <LightningInvoiceCard invoice={part.invoice} />
     {/if}
   {/each}
+  </div>
 
   {#if shouldCollapse}
     <div class="mt-3 flex justify-center">
@@ -598,6 +600,17 @@
 {/if}
 
 <style>
+  /* Collapsed previews fade the last ~2 lines out under the "View more"
+     toggle instead of ending on a hard half-line: the fade tells the
+     reader text continues, and (with the line-complete cut) never hides
+     the start of a sentence, only its tail. */
+  .note-content-body.collapsed {
+    max-height: 30rem;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 5.5rem), transparent);
+    mask-image: linear-gradient(to bottom, black calc(100% - 5.5rem), transparent);
+  }
+
   /* First block element gets more top margin */
   .note-content :global(> div:first-of-type),
   .note-content :global(> a:first-of-type) {
