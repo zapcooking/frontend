@@ -14,6 +14,7 @@
    *   scrolls into view another one takes its place, or the panel goes.
    */
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { Unsubscriber } from 'svelte/store';
   import LockIcon from 'phosphor-svelte/lib/LockSimple';
@@ -31,6 +32,7 @@
     type SuggestedRow
   } from '$lib/freshFeed/discovery';
   import { contentWithoutMedia, formatTimeAgo, noteHref } from '$lib/freshFeed/posts';
+  import { prefersReducedMotion } from '$lib/motion';
   import RightRail from './RightRail.svelte';
   import RailCard from './RailCard.svelte';
   import Avatar from './Avatar.svelte';
@@ -72,6 +74,15 @@
   }
 
   // --- Around the table ---
+
+  /**
+   * The panel fades in when a conversation first qualifies (reply counts
+   * arrive a moment after the feed) and when another one takes its place,
+   * instead of popping in. It is the column's last panel, so nothing above
+   * it moves; the photo frame has a fixed height, so nothing inside does.
+   */
+  const FADE_MS = 280;
+  const fadeIn = { duration: prefersReducedMotion() ? 0 : FADE_MS };
 
   const now = () => Math.floor(Date.now() / 1000);
   /** Real reply counts, from the shared engagement cache (the cards' own numbers). */
@@ -210,35 +221,37 @@
     {/if}
 
     {#if picked && pickedEvent}
-      <RailCard panel title="Around the table">
-        <!-- Keyed: AuthorName and Avatar load their profile once, on mount,
+      <div in:fade={fadeIn}>
+        <RailCard panel title="Around the table">
+          <!-- Keyed: AuthorName and Avatar load their profile once, on mount,
              so a new pick needs fresh ones. -->
-        {#key picked.id}
-          <a class="talk" href={noteHref(picked.id)}>
-            {#if pickedPhoto}
-              <span class="talk-photo">
-                <img
-                  src={pickedPhoto}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  on:error={() => imageError(pickedImage, pickedPhoto)}
-                />
+          {#key picked.id}
+            <a class="talk" href={noteHref(picked.id)} in:fade={fadeIn}>
+              {#if pickedPhoto}
+                <span class="talk-photo">
+                  <img
+                    src={pickedPhoto}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    on:error={() => imageError(pickedImage, pickedPhoto)}
+                  />
+                </span>
+              {/if}
+              {#if pickedText}<span class="talk-text">{pickedText}</span>{/if}
+              <span class="talk-by">
+                <Avatar pubkey={picked.pubkey} size={24} showRing={false} interactive={false} />
+                <AuthorName event={pickedEvent} className="talk-author" interactive={false} />
+                <span class="talk-age">· {formatTimeAgo(picked.created_at)}</span>
               </span>
-            {/if}
-            {#if pickedText}<span class="talk-text">{pickedText}</span>{/if}
-            <span class="talk-by">
-              <Avatar pubkey={picked.pubkey} size={24} showRing={false} interactive={false} />
-              <AuthorName event={pickedEvent} className="talk-author" interactive={false} />
-              <span class="talk-age">· {formatTimeAgo(picked.created_at)}</span>
-            </span>
-            <span class="talk-replies">
-              {pickedReplies}
-              {pickedReplies === 1 ? 'reply' : 'replies'} · Join the conversation
-            </span>
-          </a>
-        {/key}
-      </RailCard>
+              <span class="talk-replies">
+                {pickedReplies}
+                {pickedReplies === 1 ? 'reply' : 'replies'} · Join the conversation
+              </span>
+            </a>
+          {/key}
+        </RailCard>
+      </div>
     {/if}
   {/if}
 </RightRail>
