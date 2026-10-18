@@ -255,7 +255,9 @@
     <!-- Orientation text for signed-out users -->
     {#if $userPublickey === ''}
       <div class="mb-6 pt-4 pb-2">
-        <p class="text-2xl font-semibold text-white">Food is Open Source ⚡</p>
+        <p class="text-2xl font-semibold" style="color: var(--color-text-primary)">
+          Food is Open Source ⚡
+        </p>
         <p class="text-sm text-caption mt-2">
           People share meals, recipes, and food ideas here. <a
             href="/login"
