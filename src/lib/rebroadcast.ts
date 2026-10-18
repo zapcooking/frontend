@@ -73,6 +73,83 @@ export function rebroadcastRelayUrls(
 }
 
 /**
+ * One-shot raw fetch of an event by id straight from a relay socket.
+ * Bypasses every NDK query/cache layer: some cached instances come back
+ * without signature bytes even though the relay holds the signed payload.
+ */
+function fetchSignedRawViaWs(url: string, id: string, timeoutMs = 4000): Promise<any | null> {
+  return new Promise((resolve) => {
+    let ws: WebSocket;
+    let done = false;
+    const finish = (v: any) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { ws.close(); } catch { /* already closed */ }
+      resolve(v);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    try {
+      ws = new WebSocket(url);
+    } catch {
+      finish(null);
+      return;
+    }
+    ws.onopen = () => {
+      ws.send(JSON.stringify(['REQ', 'rb-' + Math.random().toString(36).slice(2), { ids: [id] }]));
+    };
+    ws.onmessage = (m) => {
+      try {
+        const d = JSON.parse(m.data);
+        if (d[0] === 'EVENT' && d[2]?.id === id) finish(d[2]);
+        else if (d[0] === 'EOSE') finish(null);
+      } catch { /* ignore malformed frames */ }
+    };
+    ws.onerror = () => finish(null);
+  });
+}
+
+/**
+ * Ensure we hold a SIGNED instance of the event before publishing.
+ *
+ * Events surfaced from NDK's local cache (Dexie) can come back as
+ * reconstructed instances without a `sig` on the object, even though the
+ * signed bytes exist on the relays. Rebroadcasting an old, thinly-relayed
+ * note is the core use case and those are almost always cache-served, so a
+ * missing sig here is normal, not an error: try the in-hand instance, then
+ * a direct one-shot wire fetch from pool relays (id-verified), then NDK's
+ * own fetch, and only fail if no signed copy exists anywhere.
+ */
+async function ensureSignedEvent(event: any): Promise<any> {
+  if (event?.sig) return event;
+  const ndkInstance = get(ndk);
+  if (!event?.id) throw new Error('Event has no id; cannot rebroadcast.');
+
+  const { NDKEvent } = await import('@nostr-dev-kit/ndk');
+
+  // Direct wire fetch from up to 3 pool relays.
+  const urls = rebroadcastRelayUrls(ndkInstance, []);
+  for (const url of urls.slice(0, 3)) {
+    const raw = await fetchSignedRawViaWs(url, event.id);
+    if (raw) {
+      const rebuilt = new NDKEvent(ndkInstance, raw);
+      if (rebuilt.sig && rebuilt.id === event.id) return rebuilt;
+    }
+  }
+
+  const live = await Promise.race([
+    ndkInstance.fetchEvent({ ids: [event.id] }, { closeOnEose: true, groupable: false }),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), REBROADCAST_TIMEOUT_MS))
+  ]);
+  if (live?.sig) return live;
+
+  const fresh = new NDKEvent(ndkInstance, { ...event.rawEvent ? event.rawEvent() : event });
+  if (fresh.sig) return fresh;
+
+  throw new Error("Couldn't find a signed copy of this note to rebroadcast.");
+}
+
+/**
  * Rebroadcast an already-signed event to expanded relays.
  *
  * @param event any signed NDKEvent (kind 1 short note, 30023 long form, …).
@@ -84,7 +161,8 @@ export async function rebroadcastEvent(
   previouslyConfirmedUrls: string[] = []
 ): Promise<RebroadcastResult> {
   if (!browser) throw new Error('Rebroadcast is browser-only');
-  if (!event?.sig) throw new Error('Event is not signed');
+
+  const signed = await ensureSignedEvent(event);
 
   const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
   const ndkInstance = get(ndk);
@@ -107,7 +185,7 @@ export async function rebroadcastEvent(
 
   const result: RebroadcastResult = { confirmed: [], failed: [] };
   try {
-    const published = await event.publish(relaySet, REBROADCAST_TIMEOUT_MS);
+    const published = await signed.publish(relaySet, REBROADCAST_TIMEOUT_MS);
     const confirmedKeys = new Set<string>();
     if (published && published.size > 0) {
       for (const relay of published) {
