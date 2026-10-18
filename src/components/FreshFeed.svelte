@@ -98,6 +98,7 @@
   import FreshTopicsSheet from './FreshTopicsSheet.svelte';
   import FreshTopicChips from './FreshTopicChips.svelte';
   import { loadTopics, type Topic, type TopicCatalog } from '$lib/freshFeed/topicList';
+  import { NO_DISCOVERY, specialPostIds, type FreshDiscovery } from '$lib/freshFeed/discovery';
   import { buildTopicChips, type TopicChip } from '$lib/freshFeed/topicChips';
   import {
     archiveMonths,
@@ -194,7 +195,7 @@
 
   // Topic feeds (members): the picker, and the open topic's own list.
   let topicsOpen = false;
-  let catalog: TopicCatalog = { groups: [], featured: null };
+  let catalog: TopicCatalog = { groups: [], featured: null, suggested: null };
   let topicsLoading = false;
   let topic: Topic | null = null;
   let topicPosts: Post[] = [];
@@ -1018,7 +1019,8 @@
 
   // The chip row (All · featured · busy groups · More). A topic opened
   // from the full sheet that isn't a chip gets a chip of its own, after All.
-  // The time machine sits right after All.
+  // The time machine sits right after All (below lg; from lg up the chip
+  // hides and the /feed tab row has the button).
   $: chips = [
     ...buildTopicChips(catalog.groups, catalog.featured).slice(0, 1),
     { slug: TIME_MACHINE, label: 'Time machine', name: 'Time machine', kind: 'archive' as const },
@@ -1062,6 +1064,35 @@
   // Members only, the same rule as topic feeds: opening a view as a
   // non-member is the membership pitch (gated), and no request is sent.
   $: archiveLocked = topicsLocked;
+
+  // --- The page around Fresh: the desktop discovery column and the tab
+  // row's Time machine (bind:discovery, and the two calls below) ---
+
+  export let discovery: FreshDiscovery = NO_DISCOVERY;
+  $: discovery = {
+    posts: shown.map((p) => p.raw),
+    specialIds: specialPostIds(rendered.flatMap((r) => (r.box ? [r.special] : []))),
+    viewOpen: topic !== null || archiveView !== null,
+    topicsLocked,
+    timeMachineLocked: archiveLocked,
+    timeMachineOpen: archiveView === 'month'
+  };
+
+  /** A topic picked outside the chip row: the same as tapping its chip. */
+  export function pickTopic(t: Topic) {
+    closeArchive();
+    openTopic(t);
+  }
+
+  /** The Time machine, from the tab row: the same as its chip. */
+  export function pickTimeMachine() {
+    openTimeMachine();
+  }
+
+  /** The full topic list (the sheet behind the chip row's "More"). */
+  export function browseTopics() {
+    openTopics();
+  }
 
   function wrapAll(list: RelayEvent[]): Post[] {
     return list.map(wrap);
