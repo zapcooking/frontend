@@ -5,7 +5,8 @@
    * chip filters Fresh in place; the active one is highlighted and scrolled
    * into view. Topic feeds are for members: for everyone else the chips
    * show a small lock and open the membership card (nothing is requested
-   * from the relay).
+   * from the relay). The Time machine chip is for phones and tablets: from
+   * lg up it sits at the end of the /feed tab row instead.
    *
    * One line that scrolls sideways with touch (momentum on iOS), no
    * scrollbar, a fade at the right edge while more chips are off-screen.
@@ -76,7 +77,8 @@
         type="button"
         aria-pressed={chip.kind === 'more' ? undefined : selected}
         class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors
-          {selected ? 'bg-primary text-white' : 'hover:bg-accent-gray'}"
+          {selected ? 'bg-primary text-white' : 'hover:bg-accent-gray'}
+          {chip.kind === 'archive' ? 'lg:hidden' : ''}"
         style={selected
           ? ''
           : 'color: var(--color-text-primary); background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);'}

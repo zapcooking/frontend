@@ -1,6 +1,11 @@
 <script lang="ts">
   import FoodstrFeedOptimized from '../../components/FoodstrFeedOptimized.svelte';
   import FreshFeed from '../../components/FreshFeed.svelte';
+  import FeedDiscoveryRail from '../../components/FeedDiscoveryRail.svelte';
+  import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
+  import LockIcon from 'phosphor-svelte/lib/LockSimple';
+  import { NO_DISCOVERY, type FreshDiscovery } from '$lib/freshFeed/discovery';
+  import type { Topic } from '$lib/freshFeed/topicList';
   import { initialFeedTab, readStoredFeedTab, storeFeedTab, type FeedTab } from '$lib/feedTab';
   import { isLockedPasskeySession } from '$lib/sessionLock';
   import { getVaultRecord } from '$lib/passkeyVault';
@@ -28,7 +33,14 @@
 
   // Pull-to-refresh refs
   let pullToRefreshEl: PullToRefresh;
-  let feedComponent: { refresh(): Promise<void> };
+  let feedComponent: {
+    refresh(): Promise<void>;
+    /** Fresh only: open a topic / the time machine as their chips do. */
+    pickTopic?(t: Topic): void;
+    pickTimeMachine?(): void;
+  };
+  /** What Fresh tells the discovery column and the tab row's Time machine. */
+  let freshDiscovery: FreshDiscovery = NO_DISCOVERY;
 
   async function handleRefresh() {
     try {
@@ -251,166 +263,202 @@
 </svelte:head>
 
 <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
-  <div class="px-4 max-w-2xl community-page w-full">
-    <!-- Orientation text for signed-out users -->
-    {#if $userPublickey === ''}
-      <div class="mb-6 pt-4 pb-2">
-        <p class="text-2xl font-semibold" style="color: var(--color-text-primary)">
-          Food is Open Source ⚡
-        </p>
-        <p class="text-sm text-caption mt-2">
-          People share meals, recipes, and food ideas here. <a
-            href="/login"
-            class="text-caption hover:opacity-80 underline">Sign in</a
-          > to share your own and follow cooks you like.
-        </p>
-      </div>
-    {/if}
+  <!-- The feed column, and beside Fresh the desktop discovery column
+       (FeedDiscoveryRail: from 1440px; nothing below). -->
+  <div class="feed-columns">
+    <div class="px-4 max-w-2xl community-page w-full min-w-0">
+      <!-- Orientation text for signed-out users -->
+      {#if $userPublickey === ''}
+        <div class="mb-6 pt-4 pb-2">
+          <p class="text-2xl font-semibold" style="color: var(--color-text-primary)">
+            Food is Open Source ⚡
+          </p>
+          <p class="text-sm text-caption mt-2">
+            People share meals, recipes, and food ideas here. <a
+              href="/login"
+              class="text-caption hover:opacity-80 underline">Sign in</a
+            > to share your own and follow cooks you like.
+          </p>
+        </div>
+      {/if}
 
-    <!-- Filter Tabs -->
-    <div
-      class="mb-4 border-b tabs-container transition-all duration-300 ease-in-out"
-      style="border-color: var(--color-input-border); opacity: {tabsVisible
-        ? 1
-        : 0}; pointer-events: {tabsVisible ? 'auto' : 'none'}; transform: translateY({tabsVisible
-        ? '0'
-        : '-10px'});"
-    >
-      <div class="flex overflow-x-auto flex-nowrap scrollbar-hide">
-        <button
-          on:click={() => setTab('fresh')}
-          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
-          style="color: {activeTab === 'fresh'
-            ? 'var(--color-text-primary)'
-            : 'var(--color-text-secondary)'}"
-        >
-          <span class="whitespace-nowrap"
-            >Fresh<sup class="ml-0.5 text-[8px] font-semibold uppercase tracking-wide opacity-70"
-              >Beta</sup
-            ></span
-          >
-          {#if activeTab === 'fresh'}
-            <span
-              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-            ></span>
-          {/if}
-        </button>
-
-        <button
-          on:click={() => setTab('global')}
-          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
-          style="color: {activeTab === 'global'
-            ? 'var(--color-text-primary)'
-            : 'var(--color-text-secondary)'}"
-        >
-          Global
-          {#if activeTab === 'global'}
-            <span
-              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-            ></span>
-          {/if}
-        </button>
-
-        <button
-          on:click={() => setTab('following')}
-          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
-          style="color: {activeTab === 'following'
-            ? 'var(--color-text-primary)'
-            : 'var(--color-text-secondary)'}"
-          disabled={!$userPublickey}
-          class:opacity-50={!$userPublickey}
-          class:cursor-not-allowed={!$userPublickey}
-          class:cursor-pointer={$userPublickey}
-        >
-          Following
-          {#if activeTab === 'following'}
-            <span
-              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-            ></span>
-          {/if}
-        </button>
-
-        <button
-          on:click={() => setTab('replies')}
-          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
-          style="color: {activeTab === 'replies'
-            ? 'var(--color-text-primary)'
-            : 'var(--color-text-secondary)'}"
-        >
-          Replies
-          {#if activeTab === 'replies'}
-            <span
-              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-            ></span>
-          {/if}
-        </button>
-
-        <button
-          on:click={() => setTab('members')}
-          class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
-          style="color: {activeTab === 'members'
-            ? 'var(--color-text-primary)'
-            : 'var(--color-text-secondary)'}"
-        >
-          Groups
-          {#if activeTab === 'members'}
-            <span
-              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-            ></span>
-          {/if}
-        </button>
-
-      </div>
-    </div>
-
-    <!-- Pantry tab: Groups UI -->
-    {#if activeTab === 'members'}
+      <!-- Filter Tabs -->
       <div
-        class="flex rounded-xl overflow-hidden border"
-        style="height: calc(100vh - 10rem); border-color: var(--color-input-border); background-color: var(--color-bg-secondary);"
+        class="mb-4 border-b tabs-container transition-all duration-300 ease-in-out"
+        style="border-color: var(--color-input-border); opacity: {tabsVisible
+          ? 1
+          : 0}; pointer-events: {tabsVisible ? 'auto' : 'none'}; transform: translateY({tabsVisible
+          ? '0'
+          : '-10px'});"
       >
-        <!-- Group List (left panel) -->
-        <div
-          class="w-full lg:w-80 xl:w-96 flex-shrink-0 border-r {showThread
-            ? 'hidden lg:block'
-            : 'block'}"
-          style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
-        >
-          <GroupList
-            {selectedGroupId}
-            {isLoggedIn}
-            on:select={handleSelectGroup}
-            on:createGroup={handleCreateGroup}
-          />
-        </div>
+        <div class="flex overflow-x-auto flex-nowrap scrollbar-hide">
+          <button
+            on:click={() => setTab('fresh')}
+            class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
+            style="color: {activeTab === 'fresh'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            <span class="whitespace-nowrap"
+              >Fresh<sup class="ml-0.5 text-[8px] font-semibold uppercase tracking-wide opacity-70"
+                >Beta</sup
+              ></span
+            >
+            {#if activeTab === 'fresh'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+              ></span>
+            {/if}
+          </button>
 
-        <!-- Group Thread (right panel) -->
-        <div
-          class="flex-1 min-w-0 {showThread ? 'block' : 'hidden lg:block'}"
-          style="background-color: var(--color-bg-primary);"
-        >
-          {#if selectedGroupId}
-            <GroupThread groupId={selectedGroupId} {isLoggedIn} on:back={handleBack} />
-          {:else}
-            <div class="flex items-center justify-center h-full">
-              <p class="text-sm" style="color: var(--color-caption);">
-                {isLoggedIn ? 'Select a group or create a new one.' : 'Select a group to view.'}
-              </p>
-            </div>
+          <button
+            on:click={() => setTab('global')}
+            class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
+            style="color: {activeTab === 'global'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            Global
+            {#if activeTab === 'global'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+              ></span>
+            {/if}
+          </button>
+
+          <button
+            on:click={() => setTab('following')}
+            class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
+            style="color: {activeTab === 'following'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+            disabled={!$userPublickey}
+            class:opacity-50={!$userPublickey}
+            class:cursor-not-allowed={!$userPublickey}
+            class:cursor-pointer={$userPublickey}
+          >
+            Following
+            {#if activeTab === 'following'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+              ></span>
+            {/if}
+          </button>
+
+          <button
+            on:click={() => setTab('replies')}
+            class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
+            style="color: {activeTab === 'replies'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            Replies
+            {#if activeTab === 'replies'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+              ></span>
+            {/if}
+          </button>
+
+          <button
+            on:click={() => setTab('members')}
+            class="flex-1 py-2 text-sm font-medium transition-colors relative text-center"
+            style="color: {activeTab === 'members'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            Groups
+            {#if activeTab === 'members'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+              ></span>
+            {/if}
+          </button>
+
+          <!-- Fresh's Time machine, at the end of the row from lg up (below lg it
+               stays a chip in Fresh's topic row). Same view and the same
+               members-only gate as the chip. -->
+          {#if activeTab === 'fresh'}
+            <button
+              type="button"
+              on:click={() => feedComponent?.pickTimeMachine?.()}
+              aria-pressed={freshDiscovery.timeMachineOpen}
+              class="hidden lg:inline-flex flex-none items-center gap-1.5 py-2 pl-3 pr-1 text-sm font-medium transition-colors relative whitespace-nowrap"
+              style="color: {freshDiscovery.timeMachineOpen
+                ? 'var(--color-text-primary)'
+                : 'var(--color-text-secondary)'}"
+            >
+              <ClockCounterClockwiseIcon size={16} weight="bold" />
+              Time machine
+              {#if freshDiscovery.timeMachineLocked}
+                <LockIcon size={11} weight="bold" class="opacity-60" aria-label="Members" />
+              {/if}
+              {#if freshDiscovery.timeMachineOpen}
+                <span
+                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                ></span>
+              {/if}
+            </button>
           {/if}
         </div>
       </div>
 
-      {#if isLoggedIn}
-        <CreateGroupModal bind:open={createGroupOpen} on:created={handleGroupCreated} />
+      <!-- Pantry tab: Groups UI -->
+      {#if activeTab === 'members'}
+        <div
+          class="flex rounded-xl overflow-hidden border"
+          style="height: calc(100vh - 10rem); border-color: var(--color-input-border); background-color: var(--color-bg-secondary);"
+        >
+          <!-- Group List (left panel) -->
+          <div
+            class="w-full lg:w-80 xl:w-96 flex-shrink-0 border-r {showThread
+              ? 'hidden lg:block'
+              : 'block'}"
+            style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
+          >
+            <GroupList
+              {selectedGroupId}
+              {isLoggedIn}
+              on:select={handleSelectGroup}
+              on:createGroup={handleCreateGroup}
+            />
+          </div>
+
+          <!-- Group Thread (right panel) -->
+          <div
+            class="flex-1 min-w-0 {showThread ? 'block' : 'hidden lg:block'}"
+            style="background-color: var(--color-bg-primary);"
+          >
+            {#if selectedGroupId}
+              <GroupThread groupId={selectedGroupId} {isLoggedIn} on:back={handleBack} />
+            {:else}
+              <div class="flex items-center justify-center h-full">
+                <p class="text-sm" style="color: var(--color-caption);">
+                  {isLoggedIn ? 'Select a group or create a new one.' : 'Select a group to view.'}
+                </p>
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        {#if isLoggedIn}
+          <CreateGroupModal bind:open={createGroupOpen} on:created={handleGroupCreated} />
+        {/if}
+      {:else if activeTab === 'fresh'}
+        <FreshFeed bind:this={feedComponent} bind:discovery={freshDiscovery} />
+      {:else}
+        {#if $userPublickey}
+          <MemoriesCard />
+        {/if}
+        <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
       {/if}
-    {:else if activeTab === 'fresh'}
-      <FreshFeed bind:this={feedComponent} />
-    {:else}
-      {#if $userPublickey}
-        <MemoriesCard />
-      {/if}
-      <FoodstrFeedOptimized bind:this={feedComponent} filterMode={activeTab} />
+    </div>
+    {#if activeTab === 'fresh'}
+      <FeedDiscoveryRail
+        discovery={freshDiscovery}
+        on:topic={(e) => feedComponent?.pickTopic?.(e.detail)}
+        on:tab={(e) => setTab(e.detail)}
+      />
     {/if}
   </div>
 </PullToRefresh>
@@ -444,6 +492,12 @@
       opacity 0.3s ease-in-out,
       transform 0.3s ease-in-out;
     will-change: opacity, transform;
+  }
+
+  .feed-columns {
+    display: flex;
+    align-items: flex-start;
+    gap: 2rem;
   }
 
   /* Bottom padding to prevent fixed mobile nav from covering content */
