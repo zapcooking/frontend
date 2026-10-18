@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   suggestedRows,
-  moreFeeds,
   isQuestion,
+  firstImage,
   pickConversation,
   conversationPool,
+  SUGGESTED_SHOWN,
   TOP_ROWS_EXCLUDED,
   type ConversationCandidate
 } from './discovery';
@@ -14,23 +15,45 @@ const NOW = 1_760_000_000;
 const H = 3600;
 
 describe('suggestedRows', () => {
-  it("keeps the relay's order; the blurb wins, else the 14-day count", () => {
+  it("keeps the relay's order: name, blurb, picture and the 14-day pill", () => {
     const list = parseSuggested({
       topics: {
         suggested: [
           { slug: 'soups-stews', label: 'Soups & stews', count_14d: 35 },
-          { slug: 'beer', label: 'Beer & brewing', blurb: 'Homebrew and pints', count_14d: 11 },
-          { slug: 'pasta', label: 'Pasta & noodles', count_14d: 1 },
+          {
+            slug: 'beer',
+            label: 'Beer & brewing',
+            blurb: 'Brewed, poured, shared.',
+            image: 'https://img.example/beer.jpg',
+            count_14d: 11
+          },
           { slug: 'tea', label: 'Tea' }
         ]
       }
     });
     expect(suggestedRows(list)).toEqual([
-      { slug: 'soups-stews', name: 'Soups & stews', detail: '35 posts in the last 2 weeks' },
-      { slug: 'beer', name: 'Beer & brewing', detail: 'Homebrew and pints' },
-      { slug: 'pasta', name: 'Pasta & noodles', detail: '1 post in the last 2 weeks' },
-      { slug: 'tea', name: 'Tea', detail: '' }
+      { slug: 'soups-stews', name: 'Soups & stews', blurb: '', image: '', pill: '35 new' },
+      {
+        slug: 'beer',
+        name: 'Beer & brewing',
+        blurb: 'Brewed, poured, shared.',
+        image: 'https://img.example/beer.jpg',
+        pill: '11 new'
+      },
+      { slug: 'tea', name: 'Tea', blurb: '', image: '', pill: '' }
     ]);
+  });
+
+  it(`shows the first ${SUGGESTED_SHOWN}, in order`, () => {
+    const list = parseSuggested({
+      topics: {
+        suggested: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((slug) => ({
+          slug,
+          label: slug.toUpperCase()
+        }))
+      }
+    });
+    expect(suggestedRows(list).map((r) => r.slug)).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 
   it('has no rows (the section hides) when the list is missing, empty or malformed', () => {
@@ -43,7 +66,7 @@ describe('suggestedRows', () => {
 });
 
 describe('parseSuggested', () => {
-  it('drops bad entries and repeats, trims labels and blurbs', () => {
+  it('drops bad entries and repeats, trims labels and blurbs, keeps only web pictures', () => {
     expect(
       parseSuggested({
         topics: {
@@ -51,25 +74,38 @@ describe('parseSuggested', () => {
             { slug: 'Bad Slug', label: 'x' },
             { slug: 'ok', label: '  ' },
             null,
-            { slug: 'beef', label: ' Beef ', blurb: '  ', count_14d: '40' },
-            { slug: 'beef', label: 'Beef again' }
+            {
+              slug: 'beef',
+              label: ' Beef ',
+              blurb: '  ',
+              image: 'javascript:alert(1)',
+              count_14d: '40'
+            },
+            { slug: 'beef', label: 'Beef again' },
+            { slug: 'pasta', label: 'Pasta', image: ' https://img.example/p.webp ' }
           ]
         }
       })
-    ).toEqual([{ slug: 'beef', label: 'Beef', count14d: 40 }]);
+    ).toEqual([
+      { slug: 'beef', label: 'Beef', count14d: 40 },
+      { slug: 'pasta', label: 'Pasta', image: 'https://img.example/p.webp', count14d: 0 }
+    ]);
     expect(parseSuggested({ topics: {} })).toBeNull();
   });
 });
 
-describe('moreFeeds', () => {
-  it('lists Following only for a signed-in reader', () => {
-    expect(moreFeeds(true).map((f) => f.label)).toEqual([
-      'Following',
-      'Recipes',
-      'Reads',
-      'Groups'
-    ]);
-    expect(moreFeeds(false).map((f) => f.label)).toEqual(['Recipes', 'Reads', 'Groups']);
+describe('firstImage', () => {
+  it('takes the image tag, else the first image link, else nothing', () => {
+    expect(
+      firstImage({
+        tags: [['image', 'https://a.example/t.jpg']],
+        content: 'x https://b.example/c.png'
+      })
+    ).toBe('https://a.example/t.jpg');
+    expect(
+      firstImage({ tags: [], content: 'Look https://b.example/page https://b.example/c.png' })
+    ).toBe('https://b.example/c.png');
+    expect(firstImage({ tags: [], content: 'Just words?' })).toBe('');
   });
 });
 

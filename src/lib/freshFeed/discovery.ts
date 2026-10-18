@@ -1,54 +1,41 @@
 import type { RelayEvent } from './relay';
+import { isImageUrl, mediaUrls } from './posts';
 import type { Special } from './specials';
 import type { SuggestedTopic } from './topicList';
 
 /**
  * The desktop discovery column beside Fresh (FeedDiscoveryRail): "Find
- * your people" from the relay's suggested topics, "More feeds" (links to
- * feeds that already exist) and "Around the table" (one real conversation
- * from the Fresh posts on this page). Pure, so the rules are testable.
+ * your people" from the relay's suggested topics and "Around the table"
+ * (one real conversation from the Fresh posts on this page). Pure, so the
+ * rules are testable.
  */
+
+/** "Find your people" shows this many suggested topics, then "Browse all topics". */
+export const SUGGESTED_SHOWN = 5;
 
 export interface SuggestedRow {
   slug: string;
   name: string;
-  /** The blurb, else "N posts in the last 2 weeks"; '' when there's neither. */
-  detail: string;
+  /** The admins' one-liner; '' when the list has none. */
+  blurb: string;
+  /** The topic's picture; '' for the neutral tile. */
+  image: string;
+  /** The pill ("12 new", from count_14d); '' when the relay counts none. */
+  pill: string;
 }
 
-/** One row per suggested topic, in the relay's order; [] hides the section. */
+/**
+ * The first SUGGESTED_SHOWN suggested topics, in the relay's order;
+ * [] (the section hides) when the list is missing or empty.
+ */
 export function suggestedRows(list: SuggestedTopic[] | null): SuggestedRow[] {
-  return (list ?? []).map((t) => ({
+  return (list ?? []).slice(0, SUGGESTED_SHOWN).map((t) => ({
     slug: t.slug,
     name: t.label,
-    detail:
-      t.blurb ||
-      (t.count14d > 0
-        ? `${t.count14d} ${t.count14d === 1 ? 'post' : 'posts'} in the last 2 weeks`
-        : '')
+    blurb: t.blurb ?? '',
+    image: t.image ?? '',
+    pill: t.count14d > 0 ? `${t.count14d} new` : ''
   }));
-}
-
-export interface MoreFeed {
-  label: string;
-  detail: string;
-  /** A /feed tab (switched in place)... */
-  tab?: 'following' | 'members';
-  /** ...or another route. */
-  href?: string;
-  signedInOnly?: boolean;
-}
-
-/** Feeds that already exist, as links. Following needs a signed-in reader (its tab is disabled otherwise). */
-export const MORE_FEEDS: MoreFeed[] = [
-  { label: 'Following', detail: 'People you follow', tab: 'following', signedInOnly: true },
-  { label: 'Recipes', detail: 'Browse every recipe', href: '/recipes' },
-  { label: 'Reads', detail: 'Articles and long reads', href: '/reads' },
-  { label: 'Groups', detail: 'Chat with other cooks', tab: 'members' }
-];
-
-export function moreFeeds(signedIn: boolean): MoreFeed[] {
-  return MORE_FEEDS.filter((f) => signedIn || !f.signedInOnly);
 }
 
 // --- Around the table ---
@@ -112,6 +99,12 @@ export function pickConversation(
       b.c.createdAt - a.c.createdAt
   );
   return eligible[0]?.c.id ?? null;
+}
+
+/** The note's first picture (an `image` tag, else the first image link), or ''. */
+export function firstImage(e: Pick<RelayEvent, 'content' | 'tags'>): string {
+  const tag = e.tags.find((t) => t[0] === 'image')?.[1]?.trim();
+  return tag || mediaUrls(e.content || '').find((u) => isImageUrl(u)) || '';
 }
 
 /** The posts whose reply counts are worth fetching: notes in the window, past the top rows. */

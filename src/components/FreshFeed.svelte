@@ -1089,6 +1089,11 @@
     openTimeMachine();
   }
 
+  /** The full topic list (the sheet behind the chip row's "More"). */
+  export function browseTopics() {
+    openTopics();
+  }
+
   function wrapAll(list: RelayEvent[]): Post[] {
     return list.map(wrap);
   }

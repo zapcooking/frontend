@@ -38,6 +38,7 @@
     /** Fresh only: open a topic / the time machine as their chips do. */
     pickTopic?(t: Topic): void;
     pickTimeMachine?(): void;
+    browseTopics?(): void;
   };
   /** What Fresh tells the discovery column and the tab row's Time machine. */
   let freshDiscovery: FreshDiscovery = NO_DISCOVERY;
@@ -457,7 +458,7 @@
       <FeedDiscoveryRail
         discovery={freshDiscovery}
         on:topic={(e) => feedComponent?.pickTopic?.(e.detail)}
-        on:tab={(e) => setTab(e.detail)}
+        on:browse={() => feedComponent?.browseTopics?.()}
       />
     {/if}
   </div>

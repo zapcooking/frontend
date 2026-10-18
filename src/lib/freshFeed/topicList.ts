@@ -31,6 +31,8 @@ export interface SuggestedTopic {
   label: string;
   /** The admins' one-liner, when the list has one. */
   blurb?: string;
+  /** A picture for the topic (http/https), when the list has one. */
+  image?: string;
   /** Posts in the last 14 days (0 when the relay doesn't say). */
   count14d: number;
 }
@@ -112,15 +114,24 @@ export function parseSuggested(doc: unknown): SuggestedTopic[] | null {
   if (!Array.isArray(s)) return null;
   const out: SuggestedTopic[] = [];
   for (const x of s) {
-    const t = x as { slug?: unknown; label?: unknown; blurb?: unknown; count_14d?: unknown } | null;
+    const t = x as {
+      slug?: unknown;
+      label?: unknown;
+      blurb?: unknown;
+      image?: unknown;
+      count_14d?: unknown;
+    } | null;
     if (!t || typeof t.slug !== 'string' || !SLUG.test(t.slug)) continue;
     if (typeof t.label !== 'string' || !t.label.trim()) continue;
     if (out.some((o) => o.slug === t.slug)) continue;
     const blurb = typeof t.blurb === 'string' ? t.blurb.trim() : '';
+    const image =
+      typeof t.image === 'string' && /^https?:\/\/\S+$/.test(t.image.trim()) ? t.image.trim() : '';
     out.push({
       slug: t.slug,
       label: t.label.trim(),
       ...(blurb ? { blurb } : {}),
+      ...(image ? { image } : {}),
       count14d: count(t)
     });
   }

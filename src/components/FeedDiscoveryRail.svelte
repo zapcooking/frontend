@@ -1,17 +1,17 @@
 <script lang="ts">
   /**
    * The desktop discovery column beside Fresh on /feed (from 1440px; hidden
-   * below, where nothing here loads). Three sections, each with its own job:
+   * below, where nothing here loads). Two panels, each with its own job:
    *
-   * - Find your people: the relay's suggested topics (NIP-11
-   *   `topics.suggested`, in its order). A row opens that topic in Fresh,
-   *   exactly like its chip (members open it; everyone else gets the
-   *   membership card). Hidden when the list is missing.
-   * - More feeds: links to feeds that already exist.
+   * - Find your people: the first suggested topics (NIP-11
+   *   `topics.suggested`, in its order), then "Browse all topics" (the topic
+   *   sheet). A row opens that topic in Fresh, exactly like its chip
+   *   (members open it; everyone else gets the membership card). Hidden
+   *   when the list is missing.
    * - Around the table: one real conversation from the Fresh posts on this
    *   page ($lib/freshFeed/discovery pickConversation). Never a post in the
    *   first rows, in a special card or on screen in the feed: when its row
-   *   scrolls into view another one takes its place, or the section goes.
+   *   scrolls into view another one takes its place, or the panel goes.
    */
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -19,10 +19,12 @@
   import LockIcon from 'phosphor-svelte/lib/LockSimple';
   import { ndk, userPublickey } from '$lib/nostr';
   import { batchFetchEngagement, getEngagementStore } from '$lib/engagementCache';
+  import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
+  import { retryOriginal } from '$lib/imageRetry';
   import { loadTopics, type Topic } from '$lib/freshFeed/topicList';
   import {
     conversationPool,
-    moreFeeds,
+    firstImage,
     pickConversation,
     suggestedRows,
     type FreshDiscovery,
@@ -36,10 +38,7 @@
 
   export let discovery: FreshDiscovery;
 
-  const dispatch = createEventDispatcher<{
-    topic: Topic;
-    tab: 'following' | 'members';
-  }>();
+  const dispatch = createEventDispatcher<{ topic: Topic; browse: void }>();
 
   /** Matches RightRail's `wide` breakpoint: below it nothing is loaded. */
   const WIDE = '(min-width: 1440px)';
@@ -54,7 +53,23 @@
     loadTopics().then((c) => (rows = suggestedRows(c.suggested)));
   }
 
-  $: feeds = moreFeeds(!!$userPublickey);
+  // --- Pictures: through the image pipeline, one retry on the original,
+  // then a picture is dropped (the thumbnail falls back to the neutral tile).
+
+  let original = new Set<string>();
+  let failed = new Set<string>();
+  function src(url: string, width: number, onOriginal: Set<string>): string {
+    return onOriginal.has(url)
+      ? url
+      : optimizeImageUrl(url, { width, quality: 80, format: getOptimalFormat() });
+  }
+  function imageError(url: string, current: string) {
+    if (retryOriginal(original, current, url)) original = original;
+    else {
+      failed.add(url);
+      failed = failed;
+    }
+  }
 
   // --- Around the table ---
 
@@ -101,6 +116,8 @@
   $: picked = pickedId ? (discovery.posts.find((e) => e.id === pickedId) ?? null) : null;
   $: pickedEvent = picked ? new NDKEvent($ndk, picked) : null;
   $: pickedText = picked ? snippet(picked.content) : '';
+  $: pickedImage = picked ? firstImage(picked) : '';
+  $: pickedPhoto = pickedImage && !failed.has(pickedImage) ? src(pickedImage, 640, original) : '';
   $: pickedReplies = pickedId ? (replies.get(pickedId) ?? 0) : 0;
 
   function snippet(content: string): string {
@@ -152,69 +169,69 @@
 <RightRail wide>
   {#if active}
     {#if rows.length}
-      <RailCard title="Find your people">
-        <div class="section">
-          <p class="lead">Start with something you love</p>
-          <ul class="list">
-            {#each rows as row (row.slug)}
-              <li>
-                <button type="button" class="row" on:click={() => openTopic(row)}>
-                  <span class="row-text">
-                    <span class="row-name">{row.name}</span>
-                    {#if row.detail}<span class="row-detail">{row.detail}</span>{/if}
-                  </span>
-                  {#if discovery.topicsLocked}
-                    <LockIcon size={12} weight="bold" class="opacity-60" aria-label="Members" />
+      <RailCard panel title="Find your people">
+        <p class="lead">Start with something you love</p>
+        <ul class="list">
+          {#each rows as row (row.slug)}
+            {@const thumb = row.image && !failed.has(row.image) ? src(row.image, 96, original) : ''}
+            <li>
+              <button type="button" class="row" on:click={() => openTopic(row)}>
+                <span class="thumb" aria-hidden="true">
+                  {#if thumb}
+                    <img
+                      src={thumb}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      on:error={() => imageError(row.image, thumb)}
+                    />
                   {/if}
-                </button>
-              </li>
-            {/each}
-          </ul>
-        </div>
+                </span>
+                <span class="row-text">
+                  <span class="row-name">{row.name}</span>
+                  {#if row.blurb}<span class="row-blurb">{row.blurb}</span>{/if}
+                </span>
+                {#if row.pill}
+                  <span class="pill" title="{row.pill.split(' ')[0]} posts in the last 2 weeks"
+                    >{row.pill}</span
+                  >
+                {/if}
+                {#if discovery.topicsLocked}
+                  <LockIcon size={12} weight="bold" class="lock" aria-label="Members" />
+                {/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+        <button type="button" class="browse" on:click={() => dispatch('browse')}>
+          Browse all topics
+        </button>
       </RailCard>
     {/if}
 
-    <RailCard title="More feeds">
-      <ul class="list">
-        {#each feeds as f (f.label)}
-          <li>
-            {#if f.tab}
-              {@const tab = f.tab}
-              <a
-                class="row"
-                href="/feed?tab={tab}"
-                on:click|preventDefault={() => dispatch('tab', tab)}
-              >
-                <span class="row-text">
-                  <span class="row-name">{f.label}</span>
-                  <span class="row-detail">{f.detail}</span>
-                </span>
-              </a>
-            {:else}
-              <a class="row" href={f.href}>
-                <span class="row-text">
-                  <span class="row-name">{f.label}</span>
-                  <span class="row-detail">{f.detail}</span>
-                </span>
-              </a>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    </RailCard>
-
     {#if picked && pickedEvent}
-      <RailCard title="Around the table">
+      <RailCard panel title="Around the table">
         <!-- Keyed: AuthorName and Avatar load their profile once, on mount,
              so a new pick needs fresh ones. -->
         {#key picked.id}
           <a class="talk" href={noteHref(picked.id)}>
+            {#if pickedPhoto}
+              <span class="talk-photo">
+                <img
+                  src={pickedPhoto}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  on:error={() => imageError(pickedImage, pickedPhoto)}
+                />
+              </span>
+            {/if}
+            {#if pickedText}<span class="talk-text">{pickedText}</span>{/if}
             <span class="talk-by">
               <Avatar pubkey={picked.pubkey} size={24} showRing={false} interactive={false} />
               <AuthorName event={pickedEvent} className="talk-author" interactive={false} />
               <span class="talk-age">· {formatTimeAgo(picked.created_at)}</span>
             </span>
-            {#if pickedText}<span class="talk-text">{pickedText}</span>{/if}
             <span class="talk-replies">
               {pickedReplies}
               {pickedReplies === 1 ? 'reply' : 'replies'} · Join the conversation
@@ -227,31 +244,22 @@
 </RightRail>
 
 <style>
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
   .lead {
     font-size: 0.875rem;
     color: var(--color-text-secondary);
-    margin-top: -0.75rem;
+    margin-top: -0.375rem;
   }
-  /* Compact rows, so all three sections fit beside the feed on a laptop
-     screen (the column scrolls on its own when they don't). */
   .list {
     display: flex;
     flex-direction: column;
-    margin: -0.375rem -0.625rem;
+    margin: 0 -0.5rem;
   }
   .row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
+    gap: 0.75rem;
     width: 100%;
-    min-height: 2.75rem;
-    padding: 0.3125rem 0.625rem;
+    padding: 0.375rem 0.5rem;
     border-radius: 0.75rem;
     text-align: left;
     color: var(--color-text-primary);
@@ -261,35 +269,106 @@
     background-color: var(--color-input-bg);
   }
   .row:focus-visible,
+  .browse:focus-visible,
   .talk:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
+  /* 48px, rounded; a neutral tile until the relay sends pictures. */
+  .thumb {
+    position: relative;
+    flex: none;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background-color: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+  }
+  .thumb img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
   .row-text {
     display: flex;
     flex-direction: column;
+    flex: 1;
     min-width: 0;
   }
   .row-name {
     font-size: 0.9375rem;
     font-weight: 600;
+    line-height: 1.3;
   }
-  .row-detail {
+  .row-blurb {
     font-size: 0.8125rem;
+    line-height: 1.35;
     color: var(--color-caption);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
+  }
+  .pill {
+    flex: none;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
     white-space: nowrap;
+    color: var(--color-text-secondary);
+    background-color: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+  }
+  .row :global(.lock) {
+    flex: none;
+    opacity: 0.6;
+  }
+  .browse {
+    align-self: flex-start;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-primary);
+    border-radius: 0.375rem;
+  }
+  .browse:hover {
+    text-decoration: underline;
   }
   .talk {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.875rem 1rem;
-    border-radius: 0.75rem;
-    border: 1px solid var(--color-input-border);
-    background-color: var(--color-input-bg);
+    gap: 0.625rem;
     color: var(--color-text-primary);
+  }
+  /* The post's first picture: ~120px, cropped. */
+  .talk-photo {
+    position: relative;
+    display: block;
+    height: 7.5rem;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background-color: var(--color-input-bg);
+  }
+  .talk-photo img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .talk-text {
+    font-size: 1.0625rem;
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
   }
   .talk-by {
     display: flex;
@@ -308,16 +387,6 @@
   .talk-age {
     color: var(--color-caption);
     white-space: nowrap;
-  }
-  .talk-text {
-    font-size: 0.875rem;
-    line-height: 1.45;
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    overflow-wrap: anywhere;
   }
   .talk-replies {
     font-size: 0.8125rem;
