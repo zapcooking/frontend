@@ -6,13 +6,17 @@
    * The card at the end of Fresh's free window (14 days). Members who
    * declined the relay login get the "Log in to the feed" button (one prompt
    * per click, never automatic); everyone else who isn't a member gets the
-   * membership link.
+   * membership link. Under a topic's preview (non-members) it is the
+   * "members see more" card.
    */
   export let prompt: FloorPrompt;
-  /** Where the card shows: the end of the 14-day window, or a topic feed. */
-  export let context: 'floor' | 'topic' = 'floor';
+  /** Where the card shows: the end of the 14-day window, a topic feed, or under a topic's preview. */
+  export let context: 'floor' | 'topic' | 'preview' = 'floor';
+  /** The topic's name, for the preview card. */
+  export let name = '';
 
-  $: topic = context === 'topic';
+  $: topic = context !== 'floor';
+  $: preview = context === 'preview';
 
   const dispatch = createEventDispatcher<{ login: void }>();
 </script>
@@ -25,12 +29,18 @@
   >
     {#if prompt.kind === 'join'}
       <p class="font-medium" style="color: var(--color-text-primary)">
-        {topic ? 'Topic feeds are for members' : "You're caught up on the last 14 days"}
+        {preview
+          ? `Members see more${name ? ` of ${name}` : ''}`
+          : topic
+            ? 'Topic feeds are for members'
+            : "You're caught up on the last 14 days"}
       </p>
       <p class="text-sm mt-1" style="color: var(--color-caption)">
-        {topic
-          ? 'Members can follow topics like Sourdough or Kimchi, back through the full history.'
-          : 'Members get the full history of the Fresh feed, plus topic feeds.'}
+        {preview
+          ? "That's the newest from the last 14 days. Members see every post on it, back through the full history, and every other topic."
+          : topic
+            ? 'Members can follow topics like Sourdough or Kimchi, back through the full history.'
+            : 'Members get the full history of the Fresh feed, plus topic feeds.'}
       </p>
       <a
         href="/membership"
