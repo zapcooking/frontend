@@ -29,11 +29,12 @@
     display: none;
   }
 
+  /* A grid track's % is of the content box, which the bleed margin and
+     padding above already bring back to the card's inner width — so the
+     bleed is not subtracted again here. */
   @media (min-width: 640px) {
     .row {
-      grid-auto-columns: calc(
-        (100% - 2 * var(--media-bleed-x) - (var(--cols) - 1) * 0.625rem) / var(--cols)
-      );
+      grid-auto-columns: calc((100% - (var(--cols) - 1) * 0.625rem) / var(--cols));
     }
   }
 
