@@ -57,3 +57,17 @@ export function topicGate(o: {
 export function declinedNow(before: string, after: string): boolean {
   return before !== 'declined' && after === 'declined';
 }
+
+/**
+ * What opening a topic shows. Topics differ from the archive views here:
+ * where the gate says `pitch` (signed out, or not a member), a topic opens
+ * its preview instead of the membership pitch — the relay's newest posts on
+ * it from the free window, at most PREVIEW_LIMIT, as a fixed set followed by
+ * the "members see more" card. The relay closes paging for non-members
+ * (`auth-required` / `restricted`), so a preview never pages.
+ */
+export type TopicView = 'full' | 'preview' | 'wait';
+
+export function topicView(g: Gate): TopicView {
+  return g === 'open' ? 'full' : g === 'pitch' ? 'preview' : 'wait';
+}
