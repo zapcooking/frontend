@@ -170,6 +170,7 @@
 
   onDestroy(() => {
     stopReplySubscription();
+    if (arrivalFlashTimer) clearTimeout(arrivalFlashTimer);
   });
 
   // Fetch parent thread recursively
@@ -532,6 +533,10 @@
 
   $: if (browser && $page.params.nip19 && $page.params.nip19 !== loadedNip19) {
     loadedNip19 = $page.params.nip19;
+    // Re-arm the arrival scroll on every visit. The route component is
+    // reused across notes, so reply A → its root → A again would otherwise
+    // still match the guard (the root never resets it) and skip the scroll.
+    resetArrival();
     loadEvent($page.params.nip19);
   }
 
@@ -610,6 +615,12 @@
   let scrolledForEventId: string | null = null;
   let arrivalFlash = false;
   let arrivalFlashTimer: ReturnType<typeof setTimeout> | null = null;
+  function resetArrival() {
+    scrolledForEventId = null;
+    arrivalFlash = false;
+    if (arrivalFlashTimer) clearTimeout(arrivalFlashTimer);
+    arrivalFlashTimer = null;
+  }
   $: if (
     event &&
     !loadingParents &&
@@ -963,6 +974,10 @@
          and Iris, and gives a wider, more readable reading column than
          indenting the body under the avatar. Parent-thread context notes
          above keep the compact indented layout. -->
+    <!-- When the thread opens on a reply, the focused note plus everything
+         below it must be at least a viewport tall, or the arrival scroll
+         clamps at the page bottom and leaves the parent half in view. -->
+    <div class:focus-runway={contextRows.length > 0}>
     <article class="py-4 focused-note" bind:this={mainNoteEl} class:arrival-flash={arrivalFlash}>
       <div class="flex items-start justify-between gap-3 mb-2">
         <div class="flex items-center gap-3 min-w-0">
@@ -1123,6 +1138,7 @@
         onPosted={handleReplyPosted}
       />
     </div>
+    </div>
   {/if}
   </div>
 
@@ -1193,6 +1209,13 @@
      on a reply — keep it clear of the fixed header. */
   .focused-note {
     scroll-margin-top: calc(var(--header-h, 4rem) + 0.5rem);
+  }
+
+  /* Reply-focused views reserve a viewport of room from the focused note
+     down, so scrollIntoView can always put it under the header. */
+  .focus-runway {
+    min-height: calc(100vh - var(--header-h, 4rem) - 0.5rem);
+    min-height: calc(100dvh - var(--header-h, 4rem) - 0.5rem);
   }
 
   /* Brief tint that marks where a reply arrival landed, fading out. */
