@@ -34,30 +34,99 @@ export function membershipUnavailable(
   return all.length > 0 && all.every((s) => s?.unresolved === true);
 }
 
+/**
+ * Did one subscription get a real answer? Only an EOSE is one: a timeout, a
+ * dropped socket or a CLOSED (auth-required, rate limit) is not, so it
+ * neither counts as "this relay has nothing" nor starts the listings' grace.
+ */
+export function pageAnswered(r: {
+  done: Record<string, boolean>;
+  closed: Record<string, string>;
+}): boolean {
+  return r.done.p === true && !('p' in r.closed);
+}
+
 export interface PageEvent {
+  id: string;
   pubkey: string;
   created_at: number;
 }
 
+export interface Page {
+  events: PageEvent[];
+  /** The relay answered in full (EOSE). A timeout, a dropped socket or a CLOSED is not an answer. */
+  answered: boolean;
+}
+
+export interface Authors {
+  authors: Set<string>;
+  /** At least one page was answered: an empty result is real, not a failure. */
+  answered: boolean;
+  /** Some pages were answered and a later one wasn't (the connection dropped part-way): usable, not complete. */
+  partial: boolean;
+}
+
 /**
  * The authors in a relay's history of some kind, newest first, paged with
- * `until` (inclusive on most relays, so each next page starts one second
- * before the oldest seen). Stops at an empty page, a page that doesn't get
- * older, or after `maxPages`.
+ * an inclusive `until`. The cursor stays on the oldest second seen while
+ * pages keep bringing new events (a page can end part-way through a second;
+ * repeats are skipped by id), and steps back a second once a page brings
+ * nothing new. Stops at an empty page, a page newer than asked for (the
+ * relay ignored `until`), or after `maxPages`.
+ *
+ * Known limit: when a single second holds more events than a relay returns
+ * per page, the rest of that second can't be reached (nostr has no offset).
  */
 export async function collectAuthors(
-  fetchPage: (until: number | undefined) => Promise<PageEvent[]>,
+  fetchPage: (until: number | undefined) => Promise<Page>,
   maxPages: number
-): Promise<Set<string>> {
+): Promise<Authors> {
   const authors = new Set<string>();
+  const seen = new Set<string>();
+  let answered = false;
+  let partial = false;
   let until: number | undefined;
   for (let i = 0; i < maxPages; i++) {
     const page = await fetchPage(until);
-    if (page.length === 0) break;
-    for (const e of page) authors.add(e.pubkey);
-    const oldest = Math.min(...page.map((e) => e.created_at));
-    if (until !== undefined && oldest >= until) break;
-    until = oldest - 1;
+    if (page.answered) answered = true;
+    else if (answered) partial = true;
+    if (page.events.length === 0) break;
+    const oldest = Math.min(...page.events.map((e) => e.created_at));
+    if (until !== undefined && oldest > until) break;
+    let fresh = 0;
+    for (const e of page.events) {
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+      authors.add(e.pubkey);
+      fresh++;
+    }
+    until = fresh > 0 ? oldest : oldest - 1;
   }
-  return authors;
+  return { authors, answered, partial };
+}
+
+export interface ListingEvent {
+  id: string;
+  pubkey: string;
+  kind: number;
+}
+
+/**
+ * The relay events the market may show: a listing kind, by a member, with
+ * a valid id and signature. The relays are untrusted: they could send a
+ * kind or an author that wasn't asked for, or an event with a member's
+ * pubkey that the member never signed. A bad event is dropped on its own.
+ */
+export function memberListingEvents<E extends ListingEvent>(
+  events: E[],
+  o: { members: ReadonlySet<string>; kinds: readonly number[]; verify: (e: E) => boolean }
+): E[] {
+  return events.filter((e) => {
+    if (!o.kinds.includes(e.kind) || !o.members.has(e.pubkey)) return false;
+    try {
+      return o.verify(e);
+    } catch {
+      return false;
+    }
+  });
 }

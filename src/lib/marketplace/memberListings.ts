@@ -1,10 +1,18 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
+import { verifyEvent } from 'nostr-tools/pure';
 import { collect, type Filter, type NostrEvent } from '$lib/relayCollect';
 import { getMembership } from '$lib/stores/membershipStatus';
 import { MARKETPLACE_RELAYS, productsFromEvents } from './products';
 import { STALL_KIND, PRODUCT_KIND, PRODUCT_KIND_LEGACY, type Product } from './types';
-import { activeMemberSellers, collectAuthors, membershipUnavailable } from './memberSellers';
+import {
+  activeMemberSellers,
+  collectAuthors,
+  memberListingEvents,
+  membershipUnavailable,
+  pageAnswered,
+  type Page
+} from './memberSellers';
 
 /**
  * The market's listings: members' only ($lib/marketplace/memberSellers).
@@ -18,7 +26,13 @@ import { activeMemberSellers, collectAuthors, membershipUnavailable } from './me
  *
  * Raw anonymous reads ($lib/relayCollect), each with a short timeout: one of
  * the two marketplace relays often never answers, and must not hold the
- * page (it used to cost the full NDK timeout, 15 s).
+ * page (it used to cost the full NDK timeout, 15 s). The relays are not
+ * trusted: every listing shown is checked to be a listing, by a member,
+ * with a valid signature.
+ *
+ * Known limit: a member who lists without making a shop is found only
+ * while one of their listings is among the newest on a relay. Finding them
+ * at any age needs an authoritative member list (for the market rebuild).
  */
 
 const PAGE = 100;
@@ -35,15 +49,21 @@ const SELLERS_TTL_MS = 5 * 60 * 1000;
 let sellers: { at: number; pubkeys: Promise<Set<string>> } | null = null;
 
 function page(url: string, kinds: number[]) {
-  return async (until: number | undefined) => {
+  return async (until: number | undefined): Promise<Page> => {
     const filter: Filter = { kinds, limit: PAGE };
     if (until !== undefined) filter.until = until;
     const r = await collect(url, { p: filter }, { timeoutMs: PAGE_TIMEOUT_MS });
-    return r.events.p ?? [];
+    return { events: r.events.p ?? [], answered: pageAnswered(r) };
   };
 }
 
-/** Every shop owner, plus the sellers of the newest listings, on the marketplace relays. */
+/**
+ * Every shop owner, plus the sellers of the newest listings, on the
+ * marketplace relays. Rejects when no relay answered at all (offline, both
+ * relays down): that is a retryable failure, not "no sellers", and it is
+ * not kept. A list from a relay that dropped part-way is used but not kept
+ * either; a relay that never answers (down) doesn't stop it being kept.
+ */
 export function candidateSellers(): Promise<Set<string>> {
   if (sellers && Date.now() - sellers.at < SELLERS_TTL_MS) return sellers.pubkeys;
   const pubkeys = Promise.all(
@@ -51,15 +71,24 @@ export function candidateSellers(): Promise<Set<string>> {
       collectAuthors(page(url, [STALL_KIND]), STALL_PAGES),
       collectAuthors(page(url, [PRODUCT_KIND, PRODUCT_KIND_LEGACY]), 1)
     ])
-  ).then((sets) => new Set(sets.flatMap((s) => [...s])));
-  sellers = { at: Date.now(), pubkeys };
-  pubkeys.catch(() => (sellers = null));
+  ).then((results) => {
+    if (!results.some((r) => r.answered)) throw new Error('No marketplace relay answered');
+    // A relay that dropped part-way: use what came, but look again next time.
+    if (results.some((r) => r.partial) && sellers === entry) sellers = null;
+    return new Set(results.flatMap((r) => [...r.authors]));
+  });
+  const entry = { at: Date.now(), pubkeys };
+  sellers = entry;
+  pubkeys.catch(() => {
+    if (sellers === entry) sellers = null;
+  });
   return pubkeys;
 }
 
 /**
  * One filter on every relay, merged by id; settles LISTINGS_GRACE_MS after
- * the first relay finishes, or at the timeout, whichever comes first.
+ * the first relay answers in full (EOSE: a CLOSED rejection doesn't count),
+ * or at the timeout, whichever comes first.
  */
 async function graceUnion(urls: string[], filter: Filter): Promise<NostrEvent[]> {
   const controller = new AbortController();
@@ -67,7 +96,7 @@ async function graceUnion(urls: string[], filter: Filter): Promise<NostrEvent[]>
   const runs = urls.map((url) =>
     collect(url, { p: filter }, { timeoutMs: LISTINGS_TIMEOUT_MS, signal: controller.signal }).then(
       (r) => {
-        if (r.done.p && grace === undefined)
+        if (pageAnswered(r) && grace === undefined)
           grace = setTimeout(() => controller.abort(), LISTINGS_GRACE_MS);
         return r.events.p ?? [];
       }
@@ -102,8 +131,13 @@ export async function fetchMemberProducts(ndk: NDK): Promise<MemberListings> {
     authors: [...members],
     limit: 500
   });
+  const listings = memberListingEvents(raw, {
+    members,
+    kinds: [PRODUCT_KIND, PRODUCT_KIND_LEGACY],
+    verify: (e) => verifyEvent(e as Parameters<typeof verifyEvent>[0])
+  });
   const { fresh, staleCount } = productsFromEvents(
-    raw.map((e) => new NDKEvent(ndk, e as ConstructorParameters<typeof NDKEvent>[1]))
+    listings.map((e) => new NDKEvent(ndk, e as ConstructorParameters<typeof NDKEvent>[1]))
   );
   return { products: fresh, staleCount, members, unavailable: false };
 }
