@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { ndk, userPublickey } from '$lib/nostr';
-	import { fetchProductsWithStaleCount } from '$lib/marketplace/products';
-	import { KITCHEN_MEMBER_TIERS } from '$lib/marketplace/types';
+	import { fetchMemberProducts } from '$lib/marketplace/memberListings';
 	import { fetchTrustRanks } from '$lib/marketplace/kitchens';
-	import { getMembership } from '$lib/stores/membershipStatus';
 	import { PRODUCT_CATEGORIES, type Product, type ProductCategory } from '$lib/marketplace/types';
 	import ProductCard from '../../../components/marketplace/ProductCard.svelte';
 	import CategoryFilter from '../../../components/marketplace/CategoryFilter.svelte';
@@ -19,8 +17,6 @@
 	let staleListingsHidden = 0;
 	let trustRanks = new Map<string, number>();
 	let trustPersonalized = false;
-	let memberPubkeys = new Set<string>();
-	let membersOnly = false;
 	let loading = true;
 	let error: string | null = null;
 	let sortBy: 'latest' | 'price-low' | 'price-high' = 'latest';
@@ -38,26 +34,21 @@
 		return counts;
 	}
 
-	$: filteredProducts = filterAndSortProducts(allProducts, sortBy, searchQuery, membersOnly, selectedCategory);
+	$: filteredProducts = filterAndSortProducts(allProducts, sortBy, searchQuery, selectedCategory);
 
 	// Count active filters for the badge
-	$: activeFilterCount = (membersOnly ? 1 : 0) + (selectedCategory ? 1 : 0) + (searchQuery.trim() ? 1 : 0) + (sortBy !== 'latest' ? 1 : 0);
+	$: activeFilterCount = (selectedCategory ? 1 : 0) + (searchQuery.trim() ? 1 : 0) + (sortBy !== 'latest' ? 1 : 0);
 
 	function filterAndSortProducts(
 		products: Product[],
 		sort: string,
 		search: string,
-		filterMembers: boolean,
 		category: ProductCategory | null
 	) {
 		let filtered = products;
 
 		if (category) {
 			filtered = filtered.filter((p) => p.category === category);
-		}
-
-		if (filterMembers) {
-			filtered = filtered.filter((p) => memberPubkeys.has(p.pubkey));
 		}
 
 		if (search.trim()) {
@@ -94,7 +85,13 @@
 		error = null;
 
 		try {
-			const result = await fetchProductsWithStaleCount($ndk, { limit: 100, timeoutMs: 15000 });
+			// Members' listings only: the marketplace relays are open, and the
+			// newest listings there are not ours to show ($lib/marketplace/memberSellers).
+			const result = await fetchMemberProducts($ndk);
+			if (result.unavailable) {
+				error = "Couldn't check which sellers are members. Please try again.";
+				return;
+			}
 			allProducts = result.products;
 			staleListingsHidden = result.staleCount;
 
@@ -103,16 +100,6 @@
 			fetchTrustRanks($ndk, sellerPubkeys, $userPublickey || undefined).then(({ ranks, personalized }) => {
 				trustRanks = ranks;
 				trustPersonalized = personalized;
-			});
-
-			getMembership(sellerPubkeys).then((statuses) => {
-				const members = new Set<string>();
-				for (const [pubkey, status] of Object.entries(statuses)) {
-					if (status.active && (KITCHEN_MEMBER_TIERS as readonly string[]).includes(status.tier)) {
-						members.add(pubkey);
-					}
-				}
-				memberPubkeys = members;
 			});
 		} catch (e) {
 			console.error('[Products Page] Failed to load products:', e);
@@ -128,7 +115,6 @@
 
 	function clearFilters() {
 		selectedCategory = null;
-		membersOnly = false;
 		searchQuery = '';
 		searchOpen = false;
 		sortBy = 'latest';
@@ -232,15 +218,6 @@
 			</select>
 		</div>
 
-		<!-- Members only toggle -->
-		<button
-			type="button"
-			class="mod-btn {membersOnly ? 'mod-active' : ''}"
-			on:click={() => (membersOnly = !membersOnly)}
-		>
-			<span class="text-xs">Members</span>
-		</button>
-
 		<!-- Clear all (shown when filters active) -->
 		{#if activeFilterCount > 0}
 			<button
@@ -288,7 +265,7 @@
 			<div class="empty-icon-wrap mx-auto mb-6">
 				<PackageIcon size={72} weight="thin" class="opacity-60" />
 			</div>
-			{#if staleListingsHidden > 0 && !searchQuery && !membersOnly}
+			{#if staleListingsHidden > 0 && !searchQuery}
 				<h3 class="text-2xl font-semibold mb-2" style="color: var(--color-text-primary)">
 					No recent products
 				</h3>
@@ -303,7 +280,8 @@
 					{#if searchQuery}
 						No products match your search. Try a different term.
 					{:else}
-						Be the first to list! Sell ingredients, tools, courses, and more.
+						The market shows listings from Zap Cooking members. Be the first to list! Sell
+						ingredients, tools, courses, and more.
 					{/if}
 				</p>
 			{/if}
@@ -321,7 +299,7 @@
 	{:else}
 		<div class="flex items-center gap-3 mb-4">
 			<p class="text-sm" style="color: var(--color-text-secondary)">
-				{filteredProducts.length} product{filteredProducts.length === 1 ? '' : 's'}
+				{filteredProducts.length} product{filteredProducts.length === 1 ? '' : 's'} from Zap Cooking members
 			</p>
 			{#if staleListingsHidden > 0}
 				<p class="text-xs" style="color: var(--color-text-secondary); opacity: 0.7;">
@@ -379,12 +357,6 @@
 	.mod-btn:hover {
 		color: var(--color-text-primary);
 		border-color: rgba(255, 255, 255, 0.1);
-	}
-
-	.mod-active {
-		background-color: rgba(249, 115, 22, 0.15);
-		color: #f97316;
-		border-color: rgba(249, 115, 22, 0.4);
 	}
 
 	.mod-clear {

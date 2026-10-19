@@ -67,6 +67,7 @@
   import {
     declinedNow,
     topicGate,
+    topicView,
     GATE_WAIT_MS,
     type Gate,
     type AuthGateState,
@@ -98,6 +99,7 @@
   import FreshTopicsSheet from './FreshTopicsSheet.svelte';
   import FreshTopicChips from './FreshTopicChips.svelte';
   import { loadTopics, type Topic, type TopicCatalog } from '$lib/freshFeed/topicList';
+  import { NO_DISCOVERY, specialPostIds, type FreshDiscovery } from '$lib/freshFeed/discovery';
   import { buildTopicChips, type TopicChip } from '$lib/freshFeed/topicChips';
   import {
     archiveMonths,
@@ -194,13 +196,15 @@
 
   // Topic feeds (members): the picker, and the open topic's own list.
   let topicsOpen = false;
-  let catalog: TopicCatalog = { groups: [], featured: null };
+  let catalog: TopicCatalog = { groups: [], featured: null, suggested: null };
   let topicsLoading = false;
   let topic: Topic | null = null;
   let topicPosts: Post[] = [];
   let topicSeen = new Set<string>();
   let topicUntil: number | undefined;
-  let topicEnd: PageEnd | 'locked' | 'unavailable' = 'more';
+  let topicEnd: PageEnd | 'locked' | 'unavailable' | 'preview' = 'more';
+  /** The open topic is the non-members' preview (a fixed set, never paged). */
+  let topicPreview = false;
   let topicLoading = false;
 
   // Archive views (members): "On this day" and the time machine
@@ -620,7 +624,9 @@
   function gate(
     what: 'topic' | 'day' | 'archive',
     name: string | undefined,
-    again: () => void
+    again: () => void,
+    /** False for topics: they open their preview instead of the pitch. */
+    pitchNow = true
   ): Gate {
     const g = topicGate({ auth: gateAuth, member, membership: membershipState });
     if (g === 'wait') {
@@ -630,7 +636,7 @@
       return g;
     }
     pendingOpen = null;
-    if (g === 'pitch') {
+    if (g === 'pitch' && pitchNow) {
       pitch = { what, name };
       pitchOpen = true;
     }
@@ -1018,7 +1024,8 @@
 
   // The chip row (All · featured · busy groups · More). A topic opened
   // from the full sheet that isn't a chip gets a chip of its own, after All.
-  // The time machine sits right after All.
+  // The time machine sits right after All (below lg; from lg up the chip
+  // hides and the /feed tab row has the button).
   $: chips = [
     ...buildTopicChips(catalog.groups, catalog.featured).slice(0, 1),
     { slug: TIME_MACHINE, label: 'Time machine', name: 'Time machine', kind: 'archive' as const },
@@ -1062,6 +1069,34 @@
   // Members only, the same rule as topic feeds: opening a view as a
   // non-member is the membership pitch (gated), and no request is sent.
   $: archiveLocked = topicsLocked;
+
+  // --- The page around Fresh: the desktop discovery column and the tab
+  // row's Time machine (bind:discovery, and the two calls below) ---
+
+  export let discovery: FreshDiscovery = NO_DISCOVERY;
+  $: discovery = {
+    posts: shown.map((p) => p.raw),
+    specialIds: specialPostIds(rendered.flatMap((r) => (r.box ? [r.special] : []))),
+    viewOpen: topic !== null || archiveView !== null,
+    timeMachineLocked: archiveLocked,
+    timeMachineOpen: archiveView === 'month'
+  };
+
+  /** A topic picked outside the chip row: the same as tapping its chip. */
+  export function pickTopic(t: Topic) {
+    closeArchive();
+    openTopic(t);
+  }
+
+  /** The Time machine, from the tab row: the same as its chip. */
+  export function pickTimeMachine() {
+    openTimeMachine();
+  }
+
+  /** The full topic list (the sheet behind the chip row's "More"). */
+  export function browseTopics() {
+    openTopics();
+  }
 
   function wrapAll(list: RelayEvent[]): Post[] {
     return list.map(wrap);
@@ -1239,13 +1274,13 @@
     notice = 'No problem — the previews stay. Open a topic again whenever you want to log in.';
   }
 
+  /**
+   * Members get the full topic feed; everyone else its preview (the
+   * relay's newest posts on it from the free window, at most five, then
+   * the "members see more" card) — $lib/freshFeed/topicGate topicView.
+   */
   function openTopic(t: Topic) {
-    const g = gate('topic', t.name, () => openTopic(t));
-    if (g === 'pitch') {
-      // A view that was waiting on the gate closes under the pitch.
-      if (topic) closeTopic();
-      return;
-    }
+    const view = topicView(gate('topic', t.name, () => openTopic(t), false));
     if (archiveView) closeArchive();
     topicGen++;
     topic = t;
@@ -1253,16 +1288,18 @@
     topicSeen = new Set();
     topicUntil = undefined;
     topicEnd = 'more';
+    topicPreview = view === 'preview';
     // 'wait': the spinner (loadTopicPage holds while topicLoading), until
     // the gate re-opens the topic.
-    topicLoading = g === 'wait';
+    topicLoading = view === 'wait';
     document.getElementById('app-scroll')?.scrollTo({ top: 0 });
-    if (g === 'open') loadTopicPage();
+    if (view !== 'wait') loadTopicPage();
   }
 
   function closeTopic() {
     topicGen++;
     topicLoading = false;
+    topicPreview = false;
     topic = null;
     topicPosts = [];
   }
@@ -1274,7 +1311,9 @@
     // A prompting signer is asked here, once per session (client.topic →
     // the feed login); a decline goes back to the feed.
     const loginBefore = $loginState;
-    const r = await client.topic(topic.slug, topicSeen, topicUntil);
+    const r = topicPreview
+      ? await client.topic(topic.slug, topicSeen, undefined, undefined, { preview: true })
+      : await client.topic(topic.slug, topicSeen, topicUntil);
     // A newer selection owns topicLoading and the list now.
     if (gen !== topicGen) return;
     topicLoading = false;
@@ -1283,9 +1322,15 @@
     if (r.state === 'ok') {
       topicPosts = [...topicPosts, ...spaceAuthors(topicPosts, r.events.map(wrap))];
       topicUntil = r.nextUntil;
-      topicEnd = r.end ?? 'exhausted';
+      // A preview is one fixed set: the card follows it, nothing pages.
+      topicEnd = topicPreview ? 'preview' : (r.end ?? 'exhausted');
     } else if (r.state === 'unavailable') {
       topicEnd = 'unavailable';
+    } else if (!topicPreview && prompt.kind === 'join') {
+      // The full feed refused a reader who isn't a member (a failed lookup
+      // opened it): the preview, as for any non-member.
+      topicPreview = true;
+      loadTopicPage();
     } else {
       // auth-required / restricted: the membership card or the login button.
       topicEnd = 'locked';
@@ -1423,7 +1468,7 @@
     <FreshTopicChips
       chips={chipRow}
       active={activeChip}
-      locked={topicsLocked}
+      locked={archiveLocked}
       on:pick={(e) => pickChip(e.detail)}
       on:more={openTopics}
     />
@@ -1618,6 +1663,17 @@
             </button>
           {/if}
         </div>
+      {:else if topicEnd === 'preview'}
+        {#if topicShown.length === 0}
+          <p class="py-6 text-center text-sm" style="color: var(--color-caption)">
+            No posts on {topic.name} in the last 14 days.
+          </p>
+        {/if}
+        <FreshFloorCard
+          prompt={{ kind: 'join', signedIn: authState === 'in' }}
+          context="preview"
+          name={topic.name}
+        />
       {:else if topicEnd === 'locked'}
         {#if membershipKnown}
           <FreshFloorCard {prompt} context="topic" on:login={topicLogin} />

@@ -111,17 +111,23 @@ export function replacePlainMentions(
 	profileCache: Map<string, CachedProfile>
 ): string {
 	let output = text;
+	// The @ must sit at a word boundary: email and Lightning addresses embed
+	// `@<name>` mid-word (daniel@breez.tips), and a domain that names a
+	// cached profile would otherwise be rewritten into a mention pill,
+	// splicing an npub into the address. Character-class boundary rather
+	// than lookbehind — embedded WebViews ship without lookbehind support.
 	output = output.replace(
-		/@npub1[023456789acdefghjklmnpqrstuvwxyz]{58}/g,
-		(match) => `nostr:${match.slice(1)}`
+		/(^|[^\p{L}\p{N}_])@(npub1[023456789acdefghjklmnpqrstuvwxyz]{58})/giu,
+		(_match, pre: string, npub: string) => `${pre}nostr:${npub}`
 	);
 	for (const profile of profileCache.values()) {
 		if (!profile.name) continue;
 		const mentionText = `@${profile.name}`;
-		const mentionRegex = new RegExp(`${escapeRegex(mentionText)}(?=\\s|$|[.,!?;:])`, 'gi');
-		if (mentionRegex.test(output)) {
-			output = output.replace(mentionRegex, `nostr:${profile.npub}`);
-		}
+		const mentionRegex = new RegExp(
+			`(^|[^\\p{L}\\p{N}_])${escapeRegex(mentionText)}(?=\\s|$|[.,!?;:])`,
+			'giu'
+		);
+		output = output.replace(mentionRegex, (_match, pre: string) => `${pre}nostr:${profile.npub}`);
 	}
 	return output;
 }

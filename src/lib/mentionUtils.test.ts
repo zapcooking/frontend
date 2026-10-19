@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { htmlToPlainText } from './mentionUtils';
+import { nip19 } from 'nostr-tools';
+import type { CachedProfile } from '$lib/followListCache';
+import { htmlToPlainText, replacePlainMentions } from './mentionUtils';
 
 /**
  * htmlToPlainText serializes the composer's contenteditable DOM back to the
@@ -114,5 +116,86 @@ describe('htmlToPlainText', () => {
 	it('keeps a mention on its own line after a block', () => {
 		const pill = el('SPAN', [txt('@alice')], { mention: 'nostr:npub1alice' });
 		expect(htmlToPlainText(root([el('DIV', [txt('intro')]), pill]))).toBe('intro\nnostr:npub1alice');
+	});
+});
+
+// --- replacePlainMentions ---
+
+const BREEZ_PUBKEY = '79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
+const BREEZ_NPUB = nip19.npubEncode(BREEZ_PUBKEY);
+
+function cacheWithName(name: string): Map<string, CachedProfile> {
+	return new Map([['key', { name, npub: BREEZ_NPUB, pubkey: BREEZ_PUBKEY }]]);
+}
+
+describe('replacePlainMentions', () => {
+	it('rewrites a real @Name mention to nostr:npub', () => {
+		expect(replacePlainMentions('Shoutout @Breez!', cacheWithName('Breez'))).toBe(
+			`Shoutout nostr:${BREEZ_NPUB}!`
+		);
+	});
+
+	// Regression: a Lightning address like daniel@breez.tips published as
+	// "daniel" + a @Breez mention + ".tips" — the @Name scan only checked
+	// what FOLLOWS the match, so a domain naming a cached profile matched
+	// mid-word and the npub was spliced into the address.
+	it('leaves a Lightning address alone even when the domain names a profile', () => {
+		const text = 'Don’t forget about us, Breez ⚡️\n\ndaniel@breez.tips';
+		expect(replacePlainMentions(text, cacheWithName('Breez'))).toBe(text);
+	});
+
+	// The exact shape of the published note that broke: a legit mention on
+	// the first line, a Lightning address on the second.
+	it('rewrites the real mention and spares the address in the same note', () => {
+		const input = 'Don’t forget about us, @Breez!\n\n⚡️ daniel@breez.tips';
+		expect(replacePlainMentions(input, cacheWithName('Breez'))).toBe(
+			`Don’t forget about us, nostr:${BREEZ_NPUB}!\n\n⚡️ daniel@breez.tips`
+		);
+	});
+
+	it('is case-insensitive in both directions of the boundary', () => {
+		expect(replacePlainMentions('hey @breez,', cacheWithName('Breez'))).toBe(
+			`hey nostr:${BREEZ_NPUB},`
+		);
+		expect(replacePlainMentions('daniel@BREEZ.tips', cacheWithName('Breez'))).toBe(
+			'daniel@BREEZ.tips'
+		);
+	});
+
+	it('still mentions at the start of text and after punctuation', () => {
+		expect(replacePlainMentions('@Breez hi', cacheWithName('Breez'))).toBe(
+			`nostr:${BREEZ_NPUB} hi`
+		);
+		expect(replacePlainMentions('(@Breez!', cacheWithName('Breez'))).toBe(
+			`(nostr:${BREEZ_NPUB}!`
+		);
+		expect(replacePlainMentions('thanks.@Breez', cacheWithName('Breez'))).toBe(
+			`thanks.nostr:${BREEZ_NPUB}`
+		);
+	});
+
+	it('mentions after a newline', () => {
+		expect(replacePlainMentions('line one\n@Breez', cacheWithName('Breez'))).toBe(
+			`line one\nnostr:${BREEZ_NPUB}`
+		);
+	});
+
+	it('rewrites adjacent mentions separated by one punctuation char', () => {
+		expect(replacePlainMentions('@Breez,@Breez', cacheWithName('Breez'))).toBe(
+			`nostr:${BREEZ_NPUB},nostr:${BREEZ_NPUB}`
+		);
+	});
+
+	it('leaves an @npub embedded in an address alone and rewrites a bare one', () => {
+		const embedded = `x@${BREEZ_NPUB}.tips`;
+		expect(replacePlainMentions(embedded, cacheWithName('Breez'))).toBe(embedded);
+		expect(replacePlainMentions(`ping @${BREEZ_NPUB}`, cacheWithName('Breez'))).toBe(
+			`ping nostr:${BREEZ_NPUB}`
+		);
+	});
+
+	it('treats accented letters as word characters before the @', () => {
+		const text = 'jürgen@breez.tips';
+		expect(replacePlainMentions(text, cacheWithName('Breez'))).toBe(text);
 	});
 });
