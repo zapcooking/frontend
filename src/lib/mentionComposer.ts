@@ -50,7 +50,22 @@ type TextChangeCallback = (text: string) => void;
 
 // Regex to detect @mention trigger before cursor.
 // Uses [^@] instead of [^\s@] to allow spaces in names (PR #143 fix #1).
-const MENTION_TRIGGER_REGEX = /@([^@]*)$/;
+// The @ must sit at a word boundary: typing an email or Lightning address
+// (daniel@breez.tips) must not open the mention popup just because the
+// domain names a cached profile. Character-class boundary rather than
+// lookbehind — embedded WebViews ship without lookbehind support.
+export const MENTION_TRIGGER_REGEX = /(?:^|[^\p{L}\p{N}_])@([^@]*)$/u;
+
+/**
+ * How many characters before the caret a picked mention replaces: the @ and
+ * the query only. The trigger's match also holds the boundary character in
+ * front of the @ (`(`, `.`, an emoji), which must stay. Null when no
+ * mention is being typed.
+ */
+export function mentionReplaceLength(textBeforeCursor: string): number | null {
+	const m = textBeforeCursor.match(MENTION_TRIGGER_REGEX);
+	return m ? m[1].length + 1 : null;
+}
 
 // Zero-width space (U+200B). Inserted around mention pills as caret-landing
 // spacers so the selection has somewhere to sit on either side of the
@@ -402,11 +417,10 @@ export class MentionComposerController {
 
 		const selection = window.getSelection();
 		if (!selection || selection.rangeCount === 0) return;
-		const textBeforeCursor = getTextBeforeCursor(this.composerEl);
-		const mentionMatch = textBeforeCursor.match(MENTION_TRIGGER_REGEX);
+		const replace = mentionReplaceLength(getTextBeforeCursor(this.composerEl));
 
-		if (mentionMatch?.[0]) {
-			deleteCharsBeforeCursor(mentionMatch[0].length);
+		if (replace !== null) {
+			deleteCharsBeforeCursor(replace);
 		}
 
 		// PR #143 fix #2: insert leading space if preceded by non-whitespace
