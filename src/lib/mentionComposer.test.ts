@@ -6,7 +6,7 @@ vi.mock('$lib/nostr', () => ({ ndk: { subscribe: vi.fn() } }));
 vi.mock('$lib/profileSearchService', () => ({ searchProfiles: vi.fn().mockResolvedValue([]) }));
 vi.mock('$lib/sanitize', () => ({ sanitizeHTML: (s: string) => s }));
 
-import { MENTION_TRIGGER_REGEX } from './mentionComposer';
+import { MENTION_TRIGGER_REGEX, mentionReplaceLength } from './mentionComposer';
 
 /**
  * The mention autocomplete may only open when the @ sits at a word
@@ -32,5 +32,35 @@ describe('MENTION_TRIGGER_REGEX', () => {
 
 	it('treats accented letters as word characters before the @', () => {
 		expect('jürgen@breez'.match(MENTION_TRIGGER_REGEX)).toBeNull();
+	});
+});
+
+/**
+ * Picking a suggestion replaces the @ and the query, never the boundary
+ * character in front of the @ that the trigger also matches.
+ */
+describe('mentionReplaceLength', () => {
+	/** The text left before the caret once the picked mention's span is removed. */
+	const afterDelete = (text: string) => {
+		const n = mentionReplaceLength(text);
+		return n === null ? null : text.slice(0, text.length - n);
+	};
+
+	it('keeps the punctuation or emoji before the @', () => {
+		expect(afterDelete('(@breez')).toBe('(');
+		expect(afterDelete('thanks.@breez')).toBe('thanks.');
+		expect(afterDelete('⚡@breez')).toBe('⚡');
+		expect(afterDelete('hey @br')).toBe('hey ');
+	});
+
+	it('replaces the whole mention at the start of the text, including an empty query', () => {
+		expect(afterDelete('@breez')).toBe('');
+		expect(afterDelete('so @')).toBe('so ');
+		expect(afterDelete('line one\n@Jo Ann')).toBe('line one\n');
+	});
+
+	it('is null when no mention is being typed (an address keeps every character)', () => {
+		expect(mentionReplaceLength('daniel@breez.tips')).toBeNull();
+		expect(mentionReplaceLength('no mention here')).toBeNull();
 	});
 });
