@@ -100,6 +100,28 @@ describe('pickReads', () => {
     ).toEqual(['ok']);
   });
 
+  it('de-duplicates previews only among covered articles that pass the Reads filter', () => {
+    // A preview names its full article (as a "full" tag does); the stand-in
+    // drops a preview whose full article is in the list it is given.
+    const withFull = (a: ReturnType<typeof read>, full?: string) => ({ ...a, full });
+    const dedupe = <T extends { id: string; full?: string }>(list: T[]) =>
+      list.filter((a) => !a.full || !list.some((b) => b.id === a.full));
+    const list = [
+      withFull(read('preview', 'a', 50), 'full'), // covered
+      withFull(read('full', 'a', 40, null)), // no cover: not eligible
+      withFull(read('preview2', 'b', 30), 'full2'),
+      withFull(read('full2', 'b', 20)) // hidden by the Reads filter
+    ];
+    expect(
+      pickReads(list, {
+        keep: (a) => a.id !== 'full2',
+        spam: none,
+        exclude: new Set(),
+        dedupe
+      }).map((a) => a.id)
+    ).toEqual(['preview', 'preview2']);
+  });
+
   it('is empty (the panel hides) when nothing qualifies', () => {
     expect(pickReads([], { keep, spam: none, exclude: new Set() })).toEqual([]);
     expect(pickReads([read('1', 'a', 1, null)], { keep, spam: none, exclude: new Set() })).toEqual(

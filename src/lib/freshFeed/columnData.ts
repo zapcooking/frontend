@@ -1,19 +1,9 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
-import { get } from 'svelte/store';
 import type { Cook } from '$lib/landing/content';
 import { fetchCuratedReads } from '$lib/reads/curatedReads';
-import {
-  deduplicatePreviewArticles,
-  eventToArticleData,
-  isRelevantToReads,
-  type ArticleData
-} from '$lib/articleUtils';
-import {
-  ensureReadsModerationLoaded,
-  isBlockedFromReads,
-  readsModerationReady
-} from '$lib/reads/moderationClient';
+import { eventToArticleData, isRelevantToReads, type ArticleData } from '$lib/articleUtils';
+import { isBlockedFromReads, readsModerationAvailable } from '$lib/reads/moderationClient';
 import { createSpamClassifier, type SpamReason } from '$lib/reads/spamRules';
 import { toSpamEvent } from '$lib/reads/allReadsView';
 import { loadFollowing } from './social';
@@ -54,20 +44,14 @@ export async function readerFollowing(ndk: NDK, me: string): Promise<Set<string>
 
 const MODERATION_WAIT_MS = 8000;
 
-function moderationReady(): Promise<boolean> {
-  if (get(readsModerationReady)) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    const t = setTimeout(() => {
-      unsub();
-      resolve(false);
-    }, MODERATION_WAIT_MS);
-    const unsub = readsModerationReady.subscribe((ready) => {
-      if (!ready) return;
-      clearTimeout(t);
-      queueMicrotask(() => unsub());
-      resolve(true);
-    });
-  });
+/**
+ * The curated hides are really here: an overlay fetch succeeded (a failed
+ * one is tried again; `readsModerationReady` alone is also set by a
+ * failure). False after a failure or the timeout: the panel stays hidden.
+ */
+function moderationLoaded(): Promise<boolean> {
+  const timeout = new Promise<boolean>((r) => setTimeout(() => r(false), MODERATION_WAIT_MS));
+  return Promise.race([readsModerationAvailable().catch(() => false), timeout]);
 }
 
 export interface FreshReads {
@@ -79,14 +63,13 @@ export interface FreshReads {
 
 /**
  * The Reads section's curated articles (feed relay: trusted authors only),
- * mapped and de-duplicated as /reads does, plus the spam rules' verdicts.
- * Null when the curated hides couldn't be loaded: nothing is shown that
- * /reads would hide.
+ * mapped as /reads maps them, plus the spam rules' verdicts. Null when the
+ * curated hides couldn't be loaded (failed or timed out): nothing is shown
+ * that /reads would hide.
  */
 export async function loadFreshReads(ndk: NDK): Promise<FreshReads | null> {
-  ensureReadsModerationLoaded();
-  const [{ events }, ready] = await Promise.all([fetchCuratedReads(), moderationReady()]);
-  if (!ready) return null;
+  const [{ events }, loaded] = await Promise.all([fetchCuratedReads(), moderationLoaded()]);
+  if (!loaded) return null;
   const seen = new Set<string>();
   const list: ArticleData[] = [];
   for (const raw of events) {
@@ -99,10 +82,11 @@ export async function loadFreshReads(ndk: NDK): Promise<FreshReads | null> {
       list.push(article);
     }
   }
-  const articles = deduplicatePreviewArticles(list);
+  // Preview de-duplication happens after the cover and Reads filters, in
+  // the selection (pickReads), as /reads orders them.
   return {
-    articles,
-    spam: createSpamClassifier()(articles.map(toSpamEvent)),
+    articles: list,
+    spam: createSpamClassifier()(list.map(toSpamEvent)),
     keep: (a) => isRelevantToReads(a) && !isBlockedFromReads(a.event)
   };
 }

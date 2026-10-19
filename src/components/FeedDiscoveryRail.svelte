@@ -50,6 +50,8 @@
   } from '$lib/freshFeed/columnData';
   import { feedAuthors, pickCooks, pickReads } from '$lib/freshFeed/columnPicks';
   import type { Cook } from '$lib/landing/content';
+  import { deduplicatePreviewArticles } from '$lib/articleUtils';
+  import { readsModerationVersion } from '$lib/reads/moderationClient';
   import FollowButton from './FollowButton.svelte';
   import RightRail from './RightRail.svelte';
   import RailCard from './RailCard.svelte';
@@ -227,17 +229,32 @@
   }
 
   let cookList: Cook[] | null = null;
+  /** The reader's follows; undefined while they're loading for the current reader. */
   let following: Set<string> | null | undefined = undefined;
+  /** Whose follows `following` is (or is being loaded) for. */
+  let followingFor: string | null = null;
+  let followingGen = 0;
   let cooksAsked = false;
   function wantCooks() {
     if (cooksAsked) return;
     cooksAsked = true;
-    const me = $userPublickey;
-    Promise.all([loadCooks(), readerFollowing($ndk, me)]).then(([list, f]) => {
-      following = f;
-      cookList = list;
+    loadCooks().then((list) => (cookList = list));
+  }
+  /**
+   * The follows of whoever is reading now: loaded when the panel first
+   * loads and again whenever the reader changes (sign in, sign out, another
+   * account), so their exclusions are never another reader's. A late answer
+   * for an earlier reader is ignored.
+   */
+  function loadReaderFollowing(me: string) {
+    const gen = ++followingGen;
+    followingFor = me;
+    following = undefined;
+    readerFollowing($ndk, me).then((f) => {
+      if (gen === followingGen) following = f;
     });
   }
+  $: if (cooksAsked && $userPublickey !== followingFor) loadReaderFollowing($userPublickey);
 
   // Fresh reads' marker waits for Cooks to follow to be decided (its
   // panel, or none), so it is measured where it will actually sit.
@@ -260,13 +277,17 @@
     cookList && following !== undefined
       ? pickCooks(cookList, { viewer: $userPublickey, following, exclude: onScreenPeople })
       : [];
-  $: readsShown = reads
-    ? pickReads(reads.articles, {
-        keep: reads.keep,
-        spam: reads.spam,
-        exclude: new Set([...onScreenPeople, ...cooksShown.map((c) => c.pubkey.toLowerCase())])
-      })
-    : [];
+  // Re-picked whenever the curated hides change (an overlay refresh, a
+  // local block): `keep` reads them indirectly, so the version is named here.
+  $: readsShown =
+    reads && $readsModerationVersion >= 0
+      ? pickReads(reads.articles, {
+          keep: reads.keep,
+          spam: reads.spam,
+          dedupe: deduplicatePreviewArticles,
+          exclude: new Set([...onScreenPeople, ...cooksShown.map((c) => c.pubkey.toLowerCase())])
+        })
+      : [];
 
   function openTopic(row: SuggestedRow) {
     dispatch('topic', { slug: row.slug, name: row.name, count14d: 0 });
@@ -390,7 +411,11 @@
       </div>
     {/if}
 
-    <div class="lazy" use:near={{ go: wantReads, armed: settled && cookList !== null }} aria-hidden="true"></div>
+    <div
+      class="lazy"
+      use:near={{ go: wantReads, armed: settled && cookList !== null }}
+      aria-hidden="true"
+    ></div>
     {#if readsShown.length}
       <div in:fade={fadeIn}>
         <RailCard panel title="Fresh reads">

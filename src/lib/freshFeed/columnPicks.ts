@@ -50,10 +50,12 @@ export interface ReadLike {
 }
 
 /**
- * The newest articles for "Fresh reads": the Reads section's curated
- * articles (already filtered as /reads filters them: `keep`), with a cover
- * image, not flagged by the spam rules, one per author, never by someone
- * already on screen in the column (`exclude`).
+ * The newest articles for "Fresh reads", in /reads' order of operations
+ * (table/FeedSection): first the articles with a cover that pass the Reads
+ * filter (`keep`: relevance, curated hides), then preview de-duplication
+ * (`dedupe`: a preview whose full article is listed drops out — so a full
+ * article without a cover can't remove its covered preview), then the spam
+ * rules, one per author, and never someone already on screen (`exclude`).
  */
 export function pickReads<A extends ReadLike>(
   articles: A[],
@@ -61,15 +63,17 @@ export function pickReads<A extends ReadLike>(
     keep: (a: A) => boolean;
     spam: ReadonlyMap<string, unknown>;
     exclude: ReadonlySet<string>;
+    dedupe?: (list: A[]) => A[];
   },
   n = READS_SHOWN
 ): A[] {
+  const eligible = articles.filter((a) => !!a.imageUrl && o.keep(a));
+  const deduped = o.dedupe ? o.dedupe(eligible) : eligible;
   const authors = new Set<string>();
   const out: A[] = [];
-  for (const a of [...articles].sort((x, y) => y.publishedAt - x.publishedAt)) {
+  for (const a of [...deduped].sort((x, y) => y.publishedAt - x.publishedAt)) {
     const pk = a.author.pubkey.toLowerCase();
-    if (!a.imageUrl || o.spam.has(a.id) || authors.has(pk) || o.exclude.has(pk)) continue;
-    if (!o.keep(a)) continue;
+    if (o.spam.has(a.id) || authors.has(pk) || o.exclude.has(pk)) continue;
     authors.add(pk);
     out.push(a);
     if (out.length === n) break;
