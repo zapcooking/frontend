@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { declinedNow, topicGate } from './topicGate';
+import { declinedNow, topicGate, topicView } from './topicGate';
 
 describe('topicGate: the full view behind a preview card', () => {
   it('a member opens it (the view logs in on the way if it must)', () => {
@@ -46,5 +46,33 @@ describe('declinedNow: was the prompt at this click declined?', () => {
   it('idle → authed, or anything else: not a decline', () => {
     expect(declinedNow('idle', 'authed')).toBe(false);
     expect(declinedNow('pending', 'idle')).toBe(false);
+  });
+});
+
+describe('topicView: what opening a topic shows', () => {
+  it('a member gets the full feed', () => {
+    expect(topicView(topicGate({ auth: 'in', member: true, membership: 'answered' }))).toBe('full');
+  });
+
+  it('signed out, a locked vault and a signed-in non-member get the preview, not the pitch', () => {
+    expect(topicView(topicGate({ auth: 'out', member: false, membership: 'pending' }))).toBe(
+      'preview'
+    );
+    expect(topicView(topicGate({ auth: 'out', member: true, membership: 'answered' }))).toBe(
+      'preview'
+    );
+    expect(topicView(topicGate({ auth: 'in', member: false, membership: 'answered' }))).toBe(
+      'preview'
+    );
+  });
+
+  it('waits while the signer or the lookup is unanswered; a failed lookup opens the full feed', () => {
+    expect(topicView(topicGate({ auth: 'pending', member: false, membership: 'pending' }))).toBe(
+      'wait'
+    );
+    expect(topicView(topicGate({ auth: 'in', member: false, membership: 'pending' }))).toBe('wait');
+    expect(topicView(topicGate({ auth: 'in', member: false, membership: 'unresolved' }))).toBe(
+      'full'
+    );
   });
 });

@@ -3,9 +3,12 @@
    * The topic chip row under the /feed tabs on Fresh: All, the featured
    * topics, a few busy groups, More ($lib/freshFeed/topicChips). Tapping a
    * chip filters Fresh in place; the active one is highlighted and scrolled
-   * into view. Topic feeds are for members: for everyone else the chips
-   * show a small lock and open the membership card (nothing is requested
-   * from the relay).
+   * into view. Members get the full topic feed, everyone else its preview
+   * (the newest five, then the "members see more" card). The Time machine
+   * is for members: for everyone else its chip shows a small lock and opens
+   * the membership card (nothing is requested from the relay). It is for
+   * phones and tablets: from
+   * lg up it sits at the end of the /feed tab row instead.
    *
    * One line that scrolls sideways with touch (momentum on iOS), no
    * scrollbar, a fade at the right edge while more chips are off-screen.
@@ -21,6 +24,7 @@
   export let chips: TopicChip[] = [];
   /** The open topic's slug; '' = All. */
   export let active = '';
+  /** The archive (Time machine) is closed to this reader: its chip shows a lock. */
   export let locked = false;
 
   const dispatch = createEventDispatcher<{ pick: TopicChip; more: void }>();
@@ -76,14 +80,15 @@
         type="button"
         aria-pressed={chip.kind === 'more' ? undefined : selected}
         class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors
-          {selected ? 'bg-primary text-white' : 'hover:bg-accent-gray'}"
+          {selected ? 'bg-primary text-white' : 'hover:bg-accent-gray'}
+          {chip.kind === 'archive' ? 'lg:hidden' : ''}"
         style={selected
           ? ''
           : 'color: var(--color-text-primary); background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);'}
         on:click={() => tap(chip)}
       >
         {chip.label}
-        {#if locked && chip.slug && chip.kind !== 'more'}
+        {#if locked && chip.kind === 'archive'}
           <LockIcon size={11} weight="bold" class="opacity-60" aria-label="Members" />
         {/if}
       </button>
