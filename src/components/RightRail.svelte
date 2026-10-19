@@ -5,13 +5,41 @@
   // alone. Sticky so it stays in view while the main column scrolls.
   //
   // `wide` (the /feed discovery column) appears from 1440px instead, where
-  // the sidebar, the 672px feed column and this rail still fit, and scrolls
-  // on its own when it is taller than the window.
+  // the sidebar, the 672px feed column and this rail still fit. It is
+  // sticky at the bottom: it scrolls with the feed, and once its bottom
+  // reaches the bottom of the window it stays there (a column shorter than
+  // the window stays at the top). Its parent must stretch it to the feed's
+  // height (no `align-items: flex-start`), or there is nowhere to stick.
+  import { onMount } from 'svelte';
+
   export let wide = false;
+
+  /** Space kept above a short column / below a tall one. */
+  const EDGE = 16;
+  let inner: HTMLDivElement;
+  let top: string | undefined;
+
+  onMount(() => {
+    if (!wide || typeof ResizeObserver === 'undefined') return;
+    const scroller = document.getElementById('app-scroll');
+    if (!scroller) return;
+    // Sticky offsets count from the scroller's content box (below the
+    // header padding), so the window's usable height excludes the padding.
+    const update = () => {
+      const cs = getComputedStyle(scroller);
+      const view = scroller.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      top = `${Math.min(EDGE, view - inner.offsetHeight - EDGE)}px`;
+    };
+    const ro = new ResizeObserver(update);
+    ro.observe(inner);
+    ro.observe(scroller);
+    update();
+    return () => ro.disconnect();
+  });
 </script>
 
 <aside class="right-rail" class:wide>
-  <div class="right-rail-inner">
+  <div class="right-rail-inner" bind:this={inner} style:top>
     <slot />
   </div>
 </aside>
@@ -47,13 +75,8 @@
     flex-direction: column;
     gap: 1.5rem;
   }
-  /* The feed scroller (#app-scroll) already sits below the header, so a
-     sticky child pins from its top edge (see the /feed tab row). */
+  /* The column's `top` is set from its height (see the script). */
   .wide .right-rail-inner {
     top: 1rem;
-    max-height: calc(100dvh - var(--header-h, 4rem) - 2rem);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
   }
 </style>

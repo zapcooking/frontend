@@ -495,9 +495,10 @@
     will-change: opacity, transform;
   }
 
+  /* The discovery column stretches to the feed's height: its panels stick
+     inside it (RightRail `wide`). */
   .feed-columns {
     display: flex;
-    align-items: flex-start;
     gap: 2rem;
   }
 
