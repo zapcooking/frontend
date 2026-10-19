@@ -12,6 +12,16 @@
    *   page ($lib/freshFeed/discovery pickConversation). Never a post in the
    *   first rows, in a special card or on screen in the feed: when its row
    *   scrolls into view another one takes its place, or the panel goes.
+   * - Cooks to follow: three cooks from the org's `feed-foodies` list (the
+   *   /explore cooks, /api/landing/cooks), never the reader, someone they
+   *   follow, or anyone already on screen; Follow for signed-in readers.
+   * - Fresh reads: the newest curated articles with a cover, filtered as
+   *   /reads filters them, plus its spam rules; one per author.
+   *
+   * The lower two load only when they are about to scroll into view, and
+   * fade in; a panel with nothing good to show is not shown at all. The
+   * column scrolls with the feed and stays pinned once its bottom reaches
+   * the bottom of the window (RightRail `wide`).
    */
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import { fade } from 'svelte/transition';
@@ -32,6 +42,17 @@
   } from '$lib/freshFeed/discovery';
   import { contentWithoutMedia, formatTimeAgo, noteHref } from '$lib/freshFeed/posts';
   import { prefersReducedMotion } from '$lib/motion';
+  import {
+    loadCooks,
+    loadFreshReads,
+    readerFollowing,
+    type FreshReads
+  } from '$lib/freshFeed/columnData';
+  import { feedAuthors, pickCooks, pickReads } from '$lib/freshFeed/columnPicks';
+  import type { Cook } from '$lib/landing/content';
+  import { deduplicatePreviewArticles } from '$lib/articleUtils';
+  import { readsModerationVersion } from '$lib/reads/moderationClient';
+  import FollowButton from './FollowButton.svelte';
   import RightRail from './RightRail.svelte';
   import RailCard from './RailCard.svelte';
   import Avatar from './Avatar.svelte';
@@ -48,10 +69,14 @@
   const onMq = () => (active = !!mq?.matches);
 
   let rows: SuggestedRow[] = [];
+  let topicsDecided = false;
   let topicsAsked = false;
   $: if (active && !topicsAsked) {
     topicsAsked = true;
-    loadTopics().then((c) => (rows = suggestedRows(c.suggested)));
+    loadTopics().then((c) => {
+      rows = suggestedRows(c.suggested);
+      topicsDecided = true;
+    });
   }
 
   // --- Pictures: through the image pipeline, one retry on the original,
@@ -159,6 +184,111 @@
     rowObserver.observe(el);
   }
 
+  // --- Cooks to follow, Fresh reads: loaded when about to scroll into view ---
+
+  /**
+   * The panels above have settled: the topics are decided, the feed's
+   * first page is in, and "Around the table" has picked or had a few
+   * seconds to. Until then every marker sits near the top of a short
+   * column and would load at once.
+   */
+  const SETTLE_MS = 4000;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  let waited = false;
+  $: if (active && discovery.posts.length && !settleTimer)
+    settleTimer = setTimeout(() => (waited = true), SETTLE_MS);
+  $: settled = topicsDecided && discovery.posts.length > 0 && (!!picked || waited);
+
+  /**
+   * Calls `go` once, when the node comes within 150px of the window — and
+   * only once the column has settled (`armed`), so its position is real.
+   */
+  function near(node: HTMLElement, o: { go: () => void; armed: boolean }) {
+    let io: IntersectionObserver | null = null;
+    const arm = (armed: boolean) => {
+      if (!armed || io) return;
+      if (typeof IntersectionObserver === 'undefined') return o.go();
+      io = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((e) => e.isIntersecting)) return;
+          io?.disconnect();
+          o.go();
+        },
+        { root: document.getElementById('app-scroll'), rootMargin: '150px 0px' }
+      );
+      io.observe(node);
+    };
+    arm(o.armed);
+    return {
+      update: (next: { go: () => void; armed: boolean }) => {
+        o = next;
+        arm(next.armed);
+      },
+      destroy: () => io?.disconnect()
+    };
+  }
+
+  let cookList: Cook[] | null = null;
+  /** The reader's follows; undefined while they're loading for the current reader. */
+  let following: Set<string> | null | undefined = undefined;
+  /** Whose follows `following` is (or is being loaded) for. */
+  let followingFor: string | null = null;
+  let followingGen = 0;
+  let cooksAsked = false;
+  function wantCooks() {
+    if (cooksAsked) return;
+    cooksAsked = true;
+    loadCooks().then((list) => (cookList = list));
+  }
+  /**
+   * The follows of whoever is reading now: loaded when the panel first
+   * loads and again whenever the reader changes (sign in, sign out, another
+   * account), so their exclusions are never another reader's. A late answer
+   * for an earlier reader is ignored.
+   */
+  function loadReaderFollowing(me: string) {
+    const gen = ++followingGen;
+    followingFor = me;
+    following = undefined;
+    readerFollowing($ndk, me).then((f) => {
+      if (gen === followingGen) following = f;
+    });
+  }
+  $: if (cooksAsked && $userPublickey !== followingFor) loadReaderFollowing($userPublickey);
+
+  // Fresh reads' marker waits for Cooks to follow to be decided (its
+  // panel, or none), so it is measured where it will actually sit.
+  let reads: FreshReads | null | undefined = undefined;
+  let readsAsked = false;
+  function wantReads() {
+    if (readsAsked) return;
+    readsAsked = true;
+    loadFreshReads($ndk).then((r) => (reads = r));
+  }
+
+  // Nobody twice on screen: the feed's first authors and the conversation's
+  // author aren't suggested as cooks; neither they nor the cooks shown are
+  // picked for Fresh reads.
+  $: onScreenPeople = new Set([
+    ...feedAuthors(discovery.posts),
+    ...(picked ? [picked.pubkey.toLowerCase()] : [])
+  ]);
+  $: cooksShown =
+    cookList && following !== undefined
+      ? pickCooks(cookList, { viewer: $userPublickey, following, exclude: onScreenPeople })
+      : [];
+  // Re-picked whenever the curated hides change (an overlay refresh, a
+  // local block): `keep` reads them indirectly, so the version is named here.
+  $: readsShown =
+    reads && $readsModerationVersion >= 0
+      ? pickReads(reads.articles, {
+          keep: reads.keep,
+          spam: reads.spam,
+          dedupe: deduplicatePreviewArticles,
+          exclude: new Set([...onScreenPeople, ...cooksShown.map((c) => c.pubkey.toLowerCase())])
+        })
+      : [];
+
   function openTopic(row: SuggestedRow) {
     dispatch('topic', { slug: row.slug, name: row.name, count14d: 0 });
   }
@@ -172,6 +302,7 @@
   onDestroy(() => {
     mq?.removeEventListener('change', onMq);
     rowObserver?.disconnect();
+    clearTimeout(settleTimer);
     watched.forEach((u) => u());
   });
 </script>
@@ -249,6 +380,73 @@
         </RailCard>
       </div>
     {/if}
+
+    <div class="lazy" use:near={{ go: wantCooks, armed: settled }} aria-hidden="true"></div>
+    {#if cooksShown.length}
+      <div in:fade={fadeIn}>
+        <RailCard panel title="Cooks to follow">
+          <ul class="list">
+            {#each cooksShown as c (c.pubkey)}
+              <li>
+                <a class="row" href={c.href}>
+                  <Avatar
+                    pubkey={c.pubkey}
+                    imageUrl={c.picture ?? null}
+                    size={40}
+                    showRing={false}
+                    interactive={false}
+                  />
+                  <span class="row-text">
+                    <span class="row-name">{c.name}</span>
+                    {#if c.about}<span class="row-blurb one-line">{c.about}</span>{/if}
+                  </span>
+                  {#if $userPublickey}
+                    <FollowButton pubkey={c.pubkey} size="sm" />
+                  {/if}
+                </a>
+              </li>
+            {/each}
+          </ul>
+        </RailCard>
+      </div>
+    {/if}
+
+    <div
+      class="lazy"
+      use:near={{ go: wantReads, armed: settled && cookList !== null }}
+      aria-hidden="true"
+    ></div>
+    {#if readsShown.length}
+      <div in:fade={fadeIn}>
+        <RailCard panel title="Fresh reads">
+          <ul class="list reads">
+            {#each readsShown as a (a.id)}
+              {@const cover =
+                a.imageUrl && !failed.has(a.imageUrl) ? src(a.imageUrl, 160, original) : ''}
+              <li>
+                <a class="row read" href={a.articleUrl}>
+                  <span class="read-cover" aria-hidden="true">
+                    {#if cover}
+                      <img
+                        src={cover}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        on:error={() => a.imageUrl && imageError(a.imageUrl, cover)}
+                      />
+                    {/if}
+                  </span>
+                  <span class="row-text">
+                    <span class="read-title">{a.title}</span>
+                    <AuthorName event={a.event} className="read-author" interactive={false} />
+                  </span>
+                </a>
+              </li>
+            {/each}
+          </ul>
+        </RailCard>
+      </div>
+    {/if}
   {/if}
 </RightRail>
 
@@ -311,6 +509,50 @@
     font-size: 0.9375rem;
     font-weight: 600;
     line-height: 1.3;
+  }
+  /* Lazy-load markers: no height, so a hidden panel leaves no gap. */
+  .lazy {
+    height: 0;
+    margin: -0.75rem 0;
+  }
+  .row-blurb.one-line {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+  .read {
+    align-items: flex-start;
+  }
+  /* A 4:3 cover thumbnail beside the title. */
+  .read-cover {
+    position: relative;
+    flex: none;
+    width: 4.5rem;
+    height: 3.375rem;
+    border-radius: 0.625rem;
+    overflow: hidden;
+    background-color: var(--color-input-bg);
+  }
+  .read-cover img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .read-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .row :global(.read-author) {
+    font-size: 0.8125rem;
+    color: var(--color-caption);
+    margin-top: 0.125rem;
   }
   .row-blurb {
     font-size: 0.8125rem;
