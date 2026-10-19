@@ -6,8 +6,8 @@
    * - Find your people: the first suggested topics (NIP-11
    *   `topics.suggested`, in its order), then "Browse all topics" (the topic
    *   sheet). A row opens that topic in Fresh, exactly like its chip
-   *   (members open it; everyone else gets the membership card). Hidden
-   *   when the list is missing.
+   *   (members the full feed, everyone else its preview). Hidden when the
+   *   list is missing.
    * - Around the table: one real conversation from the Fresh posts on this
    *   page ($lib/freshFeed/discovery pickConversation). Never a post in the
    *   first rows, in a special card or on screen in the feed: when its row
@@ -17,7 +17,6 @@
   import { fade } from 'svelte/transition';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { Unsubscriber } from 'svelte/store';
-  import LockIcon from 'phosphor-svelte/lib/LockSimple';
   import { ndk, userPublickey } from '$lib/nostr';
   import { batchFetchEngagement, getEngagementStore } from '$lib/engagementCache';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
@@ -207,9 +206,6 @@
                     >{row.pill}</span
                   >
                 {/if}
-                {#if discovery.topicsLocked}
-                  <LockIcon size={12} weight="bold" class="lock" aria-label="Members" />
-                {/if}
               </button>
             </li>
           {/each}
@@ -336,10 +332,6 @@
     color: var(--color-text-secondary);
     background-color: var(--color-input-bg);
     border: 1px solid var(--color-input-border);
-  }
-  .row :global(.lock) {
-    flex: none;
-    opacity: 0.6;
   }
   .browse {
     align-self: flex-start;

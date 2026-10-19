@@ -67,6 +67,7 @@
   import {
     declinedNow,
     topicGate,
+    topicView,
     GATE_WAIT_MS,
     type Gate,
     type AuthGateState,
@@ -201,7 +202,9 @@
   let topicPosts: Post[] = [];
   let topicSeen = new Set<string>();
   let topicUntil: number | undefined;
-  let topicEnd: PageEnd | 'locked' | 'unavailable' = 'more';
+  let topicEnd: PageEnd | 'locked' | 'unavailable' | 'preview' = 'more';
+  /** The open topic is the non-members' preview (a fixed set, never paged). */
+  let topicPreview = false;
   let topicLoading = false;
 
   // Archive views (members): "On this day" and the time machine
@@ -621,7 +624,9 @@
   function gate(
     what: 'topic' | 'day' | 'archive',
     name: string | undefined,
-    again: () => void
+    again: () => void,
+    /** False for topics: they open their preview instead of the pitch. */
+    pitchNow = true
   ): Gate {
     const g = topicGate({ auth: gateAuth, member, membership: membershipState });
     if (g === 'wait') {
@@ -631,7 +636,7 @@
       return g;
     }
     pendingOpen = null;
-    if (g === 'pitch') {
+    if (g === 'pitch' && pitchNow) {
       pitch = { what, name };
       pitchOpen = true;
     }
@@ -1073,7 +1078,6 @@
     posts: shown.map((p) => p.raw),
     specialIds: specialPostIds(rendered.flatMap((r) => (r.box ? [r.special] : []))),
     viewOpen: topic !== null || archiveView !== null,
-    topicsLocked,
     timeMachineLocked: archiveLocked,
     timeMachineOpen: archiveView === 'month'
   };
@@ -1270,13 +1274,13 @@
     notice = 'No problem — the previews stay. Open a topic again whenever you want to log in.';
   }
 
+  /**
+   * Members get the full topic feed; everyone else its preview (the
+   * relay's newest posts on it from the free window, at most five, then
+   * the "members see more" card) — $lib/freshFeed/topicGate topicView.
+   */
   function openTopic(t: Topic) {
-    const g = gate('topic', t.name, () => openTopic(t));
-    if (g === 'pitch') {
-      // A view that was waiting on the gate closes under the pitch.
-      if (topic) closeTopic();
-      return;
-    }
+    const view = topicView(gate('topic', t.name, () => openTopic(t), false));
     if (archiveView) closeArchive();
     topicGen++;
     topic = t;
@@ -1284,16 +1288,18 @@
     topicSeen = new Set();
     topicUntil = undefined;
     topicEnd = 'more';
+    topicPreview = view === 'preview';
     // 'wait': the spinner (loadTopicPage holds while topicLoading), until
     // the gate re-opens the topic.
-    topicLoading = g === 'wait';
+    topicLoading = view === 'wait';
     document.getElementById('app-scroll')?.scrollTo({ top: 0 });
-    if (g === 'open') loadTopicPage();
+    if (view !== 'wait') loadTopicPage();
   }
 
   function closeTopic() {
     topicGen++;
     topicLoading = false;
+    topicPreview = false;
     topic = null;
     topicPosts = [];
   }
@@ -1305,7 +1311,9 @@
     // A prompting signer is asked here, once per session (client.topic →
     // the feed login); a decline goes back to the feed.
     const loginBefore = $loginState;
-    const r = await client.topic(topic.slug, topicSeen, topicUntil);
+    const r = topicPreview
+      ? await client.topic(topic.slug, topicSeen, undefined, undefined, { preview: true })
+      : await client.topic(topic.slug, topicSeen, topicUntil);
     // A newer selection owns topicLoading and the list now.
     if (gen !== topicGen) return;
     topicLoading = false;
@@ -1314,9 +1322,15 @@
     if (r.state === 'ok') {
       topicPosts = [...topicPosts, ...spaceAuthors(topicPosts, r.events.map(wrap))];
       topicUntil = r.nextUntil;
-      topicEnd = r.end ?? 'exhausted';
+      // A preview is one fixed set: the card follows it, nothing pages.
+      topicEnd = topicPreview ? 'preview' : (r.end ?? 'exhausted');
     } else if (r.state === 'unavailable') {
       topicEnd = 'unavailable';
+    } else if (!topicPreview && prompt.kind === 'join') {
+      // The full feed refused a reader who isn't a member (a failed lookup
+      // opened it): the preview, as for any non-member.
+      topicPreview = true;
+      loadTopicPage();
     } else {
       // auth-required / restricted: the membership card or the login button.
       topicEnd = 'locked';
@@ -1454,7 +1468,7 @@
     <FreshTopicChips
       chips={chipRow}
       active={activeChip}
-      locked={topicsLocked}
+      locked={archiveLocked}
       on:pick={(e) => pickChip(e.detail)}
       on:more={openTopics}
     />
@@ -1649,6 +1663,17 @@
             </button>
           {/if}
         </div>
+      {:else if topicEnd === 'preview'}
+        {#if topicShown.length === 0}
+          <p class="py-6 text-center text-sm" style="color: var(--color-caption)">
+            No posts on {topic.name} in the last 14 days.
+          </p>
+        {/if}
+        <FreshFloorCard
+          prompt={{ kind: 'join', signedIn: authState === 'in' }}
+          context="preview"
+          name={topic.name}
+        />
       {:else if topicEnd === 'locked'}
         {#if membershipKnown}
           <FreshFloorCard {prompt} context="topic" on:login={topicLogin} />

@@ -134,7 +134,6 @@ export interface FreshDiscovery {
   specialIds: Set<string>;
   /** A topic or archive view is open instead of the main feed. */
   viewOpen: boolean;
-  topicsLocked: boolean;
   timeMachineLocked: boolean;
   timeMachineOpen: boolean;
 }
@@ -143,7 +142,6 @@ export const NO_DISCOVERY: FreshDiscovery = {
   posts: [],
   specialIds: new Set(),
   viewOpen: false,
-  topicsLocked: true,
   timeMachineLocked: true,
   timeMachineOpen: false
 };
