@@ -24,6 +24,8 @@
   import { setEventMuted, setPubkeyMuted } from '$lib/muteToggle';
   import { getReplyParentId, getThreadRootId } from '$lib/thread/replyParent';
   import { showToast } from '$lib/toast';
+  import { rebroadcastEvent } from '$lib/rebroadcast';
+  import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
 
   export let event: NDKEvent;
 
@@ -233,6 +235,35 @@
     closeMenu();
   }
 
+  // ── Rebroadcast ────────────────────────────────────────────────
+  // Re-publishes this already-signed event to relays beyond the ones the
+  // original publish reached (pool ∪ standard relays). Same event id, no
+  // new note: it expands relay coverage, unlike a repost.
+  let rebroadcasting = false;
+
+  async function handleRebroadcast() {
+    if (!$userPublickey || rebroadcasting || !event?.id) return;
+    rebroadcasting = true;
+    try {
+      const result = await rebroadcastEvent(event);
+      if (result.confirmed.length > 0) {
+        // An OK is an acknowledgement, not proof of a new copy: a relay
+        // that already held the note (and we didn't know it) also says OK.
+        showToast(
+          'info',
+          `Rebroadcast: ${result.confirmed.length} relay${result.confirmed.length === 1 ? '' : 's'} accepted the note`
+        );
+      } else {
+        showToast('error', 'No relay accepted the note');
+      }
+    } catch (err: any) {
+      showToast('error', err?.message || "Couldn't rebroadcast, please try again.");
+    } finally {
+      rebroadcasting = false;
+      closeMenu();
+    }
+  }
+
   // ── Mute section ──────────────────────────────────────────────
   // Three scopes from one menu: the author (pubkey mute), the whole
   // conversation (the thread root as an `e` mute), or this note and its
@@ -406,6 +437,21 @@
       {/if}
       {#if $userPublickey}
         <div class="my-1" style="border-top: 1px solid var(--color-input-border);"></div>
+        <button
+          on:click={handleRebroadcast}
+          disabled={rebroadcasting}
+          class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2 disabled:opacity-50"
+          style="color: var(--color-text-primary);"
+          title="Send this note to more relays so more people can find it"
+        >
+          {#if rebroadcasting}
+            <span class="animate-spin inline-block">◌</span>
+            <span>Rebroadcasting…</span>
+          {:else}
+            <BroadcastIcon size={16} class="text-caption" />
+            <span>Rebroadcast</span>
+          {/if}
+        </button>
         {#if !isOwnNote}
           <button
             on:click={handleMuteUser}
