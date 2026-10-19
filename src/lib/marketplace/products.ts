@@ -65,6 +65,32 @@ export function filterStaleListings(products: Product[]): { fresh: Product[]; st
 }
 
 /**
+ * The listings the market shows from a set of events: active ones with a
+ * photo, the newest version of each (pubkey + d-tag, across relays and
+ * kinds), no older than MARKETPLACE_LISTING_MAX_AGE_DAYS, newest first; and
+ * how many were left out as stale.
+ */
+export function productsFromEvents(events: Iterable<NDKEvent>): {
+	fresh: Product[];
+	staleCount: number;
+} {
+	const seen = new Map<string, Product>();
+	for (const event of events) {
+		const product = parseProductEvent(event);
+		if (product && product.status === 'active' && product.images.length > 0) {
+			const key = `${product.pubkey}:${product.id}`;
+			const existing = seen.get(key);
+			if (!existing || product.createdAt > existing.createdAt) {
+				seen.set(key, product);
+			}
+		}
+	}
+	const { fresh, staleCount } = filterStaleListings([...seen.values()]);
+	fresh.sort((a, b) => b.publishedAt - a.publishedAt);
+	return { fresh, staleCount };
+}
+
+/**
  * Fetch products and return both the filtered results and how many stale
  * listings were hidden. Reads stale count from the per-key cache entry
  * populated by fetchProducts().
@@ -303,28 +329,7 @@ export async function fetchProducts(
 
 		const events = await Promise.race([fetchPromise, timeoutPromise]);
 
-		const products: Product[] = [];
-
-		// Deduplicate by d-tag + pubkey (parameterized replaceable events).
-		// Keep the newest event when the same product appears from multiple relays.
-		const seen = new Map<string, Product>();
-		for (const event of events) {
-			const product = parseProductEvent(event);
-			if (product && product.status === 'active' && product.images.length > 0) {
-				const key = `${product.pubkey}:${product.id}`;
-				const existing = seen.get(key);
-				if (!existing || product.createdAt > existing.createdAt) {
-					seen.set(key, product);
-				}
-			}
-		}
-		products.push(...seen.values());
-
-		// Filter out stale listings older than MARKETPLACE_LISTING_MAX_AGE_DAYS
-		const { fresh, staleCount } = filterStaleListings(products);
-
-		// Sort by published date, newest first
-		fresh.sort((a, b) => b.publishedAt - a.publishedAt);
+		const { fresh, staleCount } = productsFromEvents(events);
 
 		// Cache the result (including stale count for fetchProductsWithStaleCount)
 		productCache.set(cacheKey, { data: fresh, staleCount, timestamp: Date.now() });
