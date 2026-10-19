@@ -247,12 +247,14 @@
     try {
       const result = await rebroadcastEvent(event);
       if (result.confirmed.length > 0) {
+        // An OK is an acknowledgement, not proof of a new copy: a relay
+        // that already held the note (and we didn't know it) also says OK.
         showToast(
           'info',
-          `Rebroadcast to ${result.confirmed.length} more relay${result.confirmed.length === 1 ? '' : 's'}`
+          `Rebroadcast: ${result.confirmed.length} relay${result.confirmed.length === 1 ? '' : 's'} accepted the note`
         );
       } else {
-        showToast('error', 'No additional relay accepted the note');
+        showToast('error', 'No relay accepted the note');
       }
     } catch (err: any) {
       showToast('error', err?.message || "Couldn't rebroadcast, please try again.");

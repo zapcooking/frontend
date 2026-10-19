@@ -11,9 +11,9 @@
  * Relay selection: the union of
  *   1. the relays currently in the NDK pool, and
  *   2. the app's standardRelays (consts.ts),
- * minus relays that already confirmed the event (best-effort knowledge:
- * receipt sets aren't queryable after the fact, so a caller may pass the
- * confirmed set; when unknown, everything is simply attempted).
+ * minus relays known to hold the event (best-effort: the event's own
+ * relay / onRelays, the relay a signed copy was recovered from, and any
+ * set the caller passes; relays not known to hold it are attempted).
  *
  * Publishing uses NDK directly (not publishQueue): the queue exists to
  * make AUTHORING resilient (signing, offline persistence, retries). A
@@ -24,6 +24,7 @@
  */
 
 import { get } from 'svelte/store';
+import { verifyEvent, type Event as NostrEvent } from 'nostr-tools';
 import { browser } from '$app/environment';
 import { ndk } from '$lib/nostr';
 import { standardRelays } from '$lib/consts';
@@ -110,41 +111,90 @@ function fetchSignedRawViaWs(url: string, id: string, timeoutMs = 4000): Promise
 }
 
 /**
- * Ensure we hold a SIGNED instance of the event before publishing.
+ * Returns the event's NIP-01 fields when its id and signature check out
+ * against `id`, else null. Relay- and cache-supplied payloads are untrusted:
+ * a tampered copy would stop recovery and then be rejected by every honest
+ * relay, so a bad one must fall through to the next source instead.
+ */
+function verifiedPayload(raw: any, id: string): NostrEvent | null {
+  if (!raw || raw.id !== id || typeof raw.sig !== 'string' || !raw.sig) return null;
+  const payload: NostrEvent = {
+    id: raw.id,
+    pubkey: raw.pubkey,
+    created_at: raw.created_at,
+    kind: raw.kind,
+    tags: raw.tags,
+    content: raw.content,
+    sig: raw.sig
+  };
+  try {
+    return verifyEvent(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Relay URLs an event is known to have come from or been published to. */
+function knownHolderUrls(event: any): string[] {
+  const urls: string[] = [];
+  try {
+    for (const r of event?.onRelays ?? []) if (r?.url) urls.push(r.url);
+  } catch {
+    /* plain objects have no onRelays */
+  }
+  if (event?.relay?.url) urls.push(event.relay.url);
+  return urls;
+}
+
+/**
+ * Ensure we hold a SIGNED NDKEvent before publishing.
  *
  * Events surfaced from NDK's local cache (Dexie) can come back as
  * reconstructed instances without a `sig` on the object, even though the
- * signed bytes exist on the relays. Rebroadcasting an old, thinly-relayed
+ * signed bytes exist on the relays, and feed caches hand over plain objects
+ * that carry a sig but no `publish()`. Rebroadcasting an old, thinly-relayed
  * note is the core use case and those are almost always cache-served, so a
- * missing sig here is normal, not an error: try the in-hand instance, then
- * a direct one-shot wire fetch from pool relays (id-verified), then NDK's
- * own fetch, and only fail if no signed copy exists anywhere.
+ * missing sig here is normal, not an error: use the in-hand copy, then a
+ * direct one-shot wire fetch from pool relays, then NDK's own relay fetch
+ * (cache bypassed), verifying every candidate, and only fail if no valid
+ * signed copy exists anywhere.
+ *
+ * `sourceUrls` names relays the signed copy was recovered from, so the
+ * caller can skip them as known holders.
  */
-async function ensureSignedEvent(event: any): Promise<any> {
-  if (event?.sig) return event;
-  const ndkInstance = get(ndk);
+export async function ensureSignedEvent(event: any): Promise<{ signed: any; sourceUrls: string[] }> {
   if (!event?.id) throw new Error('Event has no id; cannot rebroadcast.');
+  const ndkInstance = get(ndk);
+  const { NDKEvent, NDKSubscriptionCacheUsage } = await import('@nostr-dev-kit/ndk');
 
-  const { NDKEvent } = await import('@nostr-dev-kit/ndk');
+  // A live NDKEvent with its signature is publishable as-is.
+  if (event instanceof NDKEvent && event.sig) return { signed: event, sourceUrls: [] };
+
+  // A signed plain object (e.g. a feed's instant cache): verify it and
+  // rebuild an NDKEvent around it so it has publish().
+  const inHand = verifiedPayload(event, event.id);
+  if (inHand) return { signed: new NDKEvent(ndkInstance, inHand), sourceUrls: [] };
 
   // Direct wire fetch from up to 3 pool relays.
   const urls = rebroadcastRelayUrls(ndkInstance, []);
   for (const url of urls.slice(0, 3)) {
-    const raw = await fetchSignedRawViaWs(url, event.id);
-    if (raw) {
-      const rebuilt = new NDKEvent(ndkInstance, raw);
-      if (rebuilt.sig && rebuilt.id === event.id) return rebuilt;
-    }
+    const raw = verifiedPayload(await fetchSignedRawViaWs(url, event.id), event.id);
+    if (raw) return { signed: new NDKEvent(ndkInstance, raw), sourceUrls: [url] };
   }
 
-  const live = await Promise.race([
-    ndkInstance.fetchEvent({ ids: [event.id] }, { closeOnEose: true, groupable: false }),
+  // Relay-only: the default cache policy could hand back the same
+  // signatureless cached copy that sent us here.
+  const live: any = await Promise.race([
+    ndkInstance.fetchEvent(
+      { ids: [event.id] },
+      { closeOnEose: true, groupable: false, cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY }
+    ),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), REBROADCAST_TIMEOUT_MS))
   ]);
-  if (live?.sig) return live;
-
-  const fresh = new NDKEvent(ndkInstance, { ...event.rawEvent ? event.rawEvent() : event });
-  if (fresh.sig) return fresh;
+  const fetched = verifiedPayload(live?.rawEvent ? live.rawEvent() : live, event.id);
+  if (fetched) {
+    return { signed: new NDKEvent(ndkInstance, fetched), sourceUrls: knownHolderUrls(live) };
+  }
 
   throw new Error("Couldn't find a signed copy of this note to rebroadcast.");
 }
@@ -153,8 +203,8 @@ async function ensureSignedEvent(event: any): Promise<any> {
  * Rebroadcast an already-signed event to expanded relays.
  *
  * @param event any signed NDKEvent (kind 1 short note, 30023 long form, …).
- * @param previouslyConfirmedUrls relay URLs known to already hold the event;
- *        they are skipped. Pass nothing to attempt every pool ∪ standard relay.
+ * @param previouslyConfirmedUrls extra relay URLs known to already hold the
+ *        event; they are skipped along with the event's own relay/onRelays.
  */
 export async function rebroadcastEvent(
   event: any,
@@ -162,11 +212,17 @@ export async function rebroadcastEvent(
 ): Promise<RebroadcastResult> {
   if (!browser) throw new Error('Rebroadcast is browser-only');
 
-  const signed = await ensureSignedEvent(event);
+  const { signed, sourceUrls } = await ensureSignedEvent(event);
 
   const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
   const ndkInstance = get(ndk);
-  const urls = rebroadcastRelayUrls(ndkInstance, previouslyConfirmedUrls);
+  // Known holders are excluded BEFORE the cap, so they can't use up the
+  // 12 slots, and their duplicate OKs can't count as new coverage.
+  const urls = rebroadcastRelayUrls(ndkInstance, [
+    ...previouslyConfirmedUrls,
+    ...knownHolderUrls(event),
+    ...sourceUrls
+  ]);
 
   if (urls.length === 0) {
     throw new Error('No relays available for rebroadcast.');
