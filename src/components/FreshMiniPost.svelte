@@ -87,9 +87,11 @@
     {#if title}<span class="mini-title">{title}</span>{/if}
     {#if text}<span class="mini-text" class:clamp-more={!image || imageFailed}>{text}</span>{/if}
     <span class="mini-meta">
-      <Avatar pubkey={raw.pubkey} size={20} showRing={false} interactive={false} />
-      <AuthorName {event} className="mini-author" interactive={false} />
-      <span class="mini-age">· {sharedAgo(raw.created_at)}</span>
+      <span class="mini-by">
+        <Avatar pubkey={raw.pubkey} size={20} showRing={false} interactive={false} />
+        <AuthorName {event} className="mini-author" interactive={false} />
+      </span>
+      <span class="mini-age">{sharedAgo(raw.created_at)}</span>
     </span>
   </span>
 </a>
@@ -171,17 +173,26 @@
     line-clamp: 4;
   }
 
+  /* The name gets its own line: beside "Shared 3 days ago" a ~200px tile
+     left it two or three letters. */
   .mini-meta {
     display: flex;
-    align-items: center;
-    gap: 0.35rem;
+    flex-direction: column;
+    gap: 0.2rem;
     margin-top: auto;
     font-size: 0.75rem;
     color: var(--color-caption);
     min-width: 0;
   }
 
-  .mini-meta :global(.mini-author) {
+  .mini-by {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+
+  .mini-by :global(.mini-author) {
     font-weight: 600;
     font-size: 0.75rem;
     color: var(--color-text-primary);
@@ -193,6 +204,7 @@
 
   .mini-age {
     white-space: nowrap;
-    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

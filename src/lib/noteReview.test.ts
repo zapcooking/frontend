@@ -244,6 +244,7 @@ import {
 } from './noteReview';
 import { PostCommentError } from './comments/postComment';
 import { CLIENT_TAG_IDENTIFIER } from './consts';
+import { ZAP_COOKING_HANDLER_ADDRESS } from './nip89';
 
 const HEX_ID = 'e'.repeat(64);
 const HEX_PK = 'a'.repeat(64);
@@ -447,7 +448,7 @@ describe('client tag on the built event (real postComment)', () => {
       expect(outcome.ok).toBe(true);
       if (outcome.ok) {
         expect(outcome.event.kind).toBe(1); // plain NIP-10 reply to a kind-1 note
-        expect(outcome.event.tags).toContainEqual(['client', CLIENT_TAG_IDENTIFIER]);
+        expect(outcome.event.tags).toContainEqual(['client', CLIENT_TAG_IDENTIFIER, ZAP_COOKING_HANDLER_ADDRESS]);
         const eTag = outcome.event.tags.find((t) => t[0] === 'e' && t[1] === parentEvent.id);
         expect(eTag).toBeDefined();
         const pTag = outcome.event.tags.find((t) => t[0] === 'p' && t[1] === parentEvent.pubkey);
