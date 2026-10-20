@@ -33,6 +33,31 @@ const MAX_CACHE_SIZE = 1000;
 // In-memory cache
 let profileCache: ProfileCache = {};
 
+// Every profile that enters the cache — a relay fetch or a seed — is
+// announced here, so already-mounted UI (profileStore) can pick up a
+// profile that arrived through some other component's lookup.
+type ProfileCachedListener = (pubkey: string, profile: ProfileData) => void;
+const profileCachedListeners = new Set<ProfileCachedListener>();
+
+/** Subscribe to profiles entering the cache; returns an unsubscribe. */
+export function onProfileCached(listener: ProfileCachedListener): () => void {
+  profileCachedListeners.add(listener);
+  return () => {
+    profileCachedListeners.delete(listener);
+  };
+}
+
+function cacheProfile(pubkey: string, profile: ProfileData): void {
+  profileCache[pubkey] = profile;
+  for (const listener of [...profileCachedListeners]) {
+    try {
+      listener(pubkey, profile);
+    } catch (error) {
+      console.warn('profile cache listener failed:', error);
+    }
+  }
+}
+
 // Cache management functions
 function isCacheValid(profile: ProfileData): boolean {
   return Date.now() - profile.lastFetched < CACHE_DURATION;
@@ -136,6 +161,15 @@ const PURPLEPAG_MAX_FILTERS = 50;
  */
 const MISS_CACHE_DURATION = 60 * 1000;
 const confirmedMisses = new Map<string, number>();
+
+/**
+ * Whether `pubkey` is a confirmed miss right now (purplepag.es answered
+ * without it; see confirmedMisses). Read-only: lets callers that got
+ * `null` tell "no profile exists" from "relays didn't answer".
+ */
+export function isProfileMissConfirmed(pubkey: string): boolean {
+  return isConfirmedMiss(pubkey);
+}
 
 function isConfirmedMiss(pubkey: string): boolean {
   const expiry = confirmedMisses.get(pubkey);
@@ -495,7 +529,7 @@ export async function resolveProfile(nostrString: string, ndkInstance: NDK): Pro
     // Fetch from relays, including any hint relays embedded in the nprofile.
     const profile = await fetchProfileFromRelays(pubkey, ndkInstance, hintRelays);
     if (profile) {
-      profileCache[pubkey] = profile;
+      cacheProfile(pubkey, profile);
       cleanupCache();
     }
 
@@ -528,7 +562,7 @@ export async function resolveProfileByPubkey(pubkey: string, ndkInstance: NDK): 
     // Fetch from relays
     const profile = await fetchProfileFromRelays(pubkey, ndkInstance);
     if (profile) {
-      profileCache[pubkey] = profile;
+      cacheProfile(pubkey, profile);
       cleanupCache();
     }
 
@@ -626,7 +660,7 @@ export function seedProfileCache(pubkey: string, data: { name?: string; display_
   const existing = profileCache[pubkey];
   if (existing && isCacheValid(existing)) return;
   confirmedMisses.delete(pubkey);
-  profileCache[pubkey] = { pubkey, ...data, lastFetched: Date.now() };
+  cacheProfile(pubkey, { pubkey, ...data, lastFetched: Date.now() });
 }
 
 // Clear cache (useful for testing or manual refresh)
