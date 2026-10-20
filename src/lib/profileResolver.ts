@@ -89,21 +89,76 @@ export function decodeNostrProfileFull(nostrString: string): { pubkey: string; r
   }
 }
 
-// Profile fetch timeout
+// Profile fetch timeout: the longest the pool pass waits for its
+// subscription to settle. On expiry it resolves with whatever it has
+// collected; it never discards events that already arrived.
 const PROFILE_FETCH_TIMEOUT = 5000; // 5 seconds
 
 /**
- * Relays we'll always consult for kind:0 lookups, in addition to NDK's
- * default pool. Purplepag.es is the de-facto Nostr profile relay —
- * many users publish kind:0 there (or it's the only relay their
- * NIP-65 client targeted). Without including it, profiles that don't
- * happen to live on nos.lol / damus / primal silently 404 and render
- * as the anon-chef fallback. nostr.wine is a common secondary mirror.
+ * Relays added to the pool pass (one authors:[...] filter), on top of
+ * NDK's pool and any nprofile hints, so users with a custom relay list
+ * still reach common profile mirrors.
  */
 const PROFILE_RELAY_URLS = [
-  'wss://purplepag.es',
+  'wss://relay.primal.net',
   'wss://nostr.wine'
 ];
+
+/**
+ * purplepag.es — the de-facto kind:0 relay — gets its own request.
+ *
+ * It returns roughly one event per requested author per REQ AND keeps
+ * old kind:0 versions, so an authors:[50] filter comes back as 50 events
+ * covering only ~25 pubkeys (accounts that republish their profile eat
+ * the budget; `limit` doesn't change it, and NIP-11 doesn't say). One
+ * filter per author (limit 1) in a single REQ resolved 91/100 feed
+ * authors vs 51 — and purplepag held every profile that existed
+ * anywhere. Per-author filters go to purplepag ONLY: relay.damus.io
+ * drops the connection on a 50-filter REQ.
+ *
+ * The pass runs in parallel with the pool pass, waits (bounded) for the
+ * relay to actually connect — NDK's early-EOSE rule doesn't count relays
+ * that are still connecting, so a not-yet-connected purplepag used to be
+ * cut off — and reports whether its answer is a confirmed one.
+ */
+const PURPLEPAG_URL = 'wss://purplepag.es';
+const PURPLEPAG_CONNECT_TIMEOUT = 3000;
+const PURPLEPAG_REQ_TIMEOUT = 4000;
+/** Max per-author filters in one REQ — the size verified against purplepag. */
+const PURPLEPAG_MAX_FILTERS = 50;
+
+/**
+ * Confirmed misses: purplepag connected, answered EOSE without the
+ * author, and nothing else had it either. Cached briefly so a feed full
+ * of profile-less authors doesn't re-query on every mount. Unconfirmed
+ * misses (purplepag down, slow, CLOSED, NOTICE) are never cached — the
+ * next resolve retries. Any positive result clears the entry.
+ */
+const MISS_CACHE_DURATION = 60 * 1000;
+const confirmedMisses = new Map<string, number>();
+
+function isConfirmedMiss(pubkey: string): boolean {
+  const expiry = confirmedMisses.get(pubkey);
+  if (expiry === undefined) return false;
+  if (Date.now() < expiry) return true;
+  confirmedMisses.delete(pubkey);
+  return false;
+}
+
+/**
+ * Dedupe key for a relay URL: scheme and host are case-insensitive (URL
+ * lowercases them), but path and query are not — wss://r.example/Profile
+ * and wss://r.example/profile are different endpoints. Trailing slashes
+ * are dropped so wss://purplepag.es and wss://purplepag.es/ match.
+ */
+function relayKey(url: string): string {
+  try {
+    const u = new URL(url.trim());
+    return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}${u.search}`;
+  } catch {
+    return url.trim().replace(/\/+$/, '');
+  }
+}
 
 // ─── Batched kind:0 fetching ─────────────────────────────────────────
 // ProfileLink, AuthorName, CommentCard and friends each resolve profiles
@@ -125,33 +180,170 @@ interface ProfileBatchEntry {
 let profileBatchQueue: ProfileBatchEntry[] = [];
 let profileBatchTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** Pool relays + canonical profile relays + the batch's nprofile hints. */
+/** Pool relays + profile mirrors + the batch's nprofile hints (not purplepag). */
 async function buildProfileRelaySet(
   ndkInstance: NDK,
   hintRelayLists: Array<string[] | undefined>
 ): Promise<NDKRelaySet | undefined> {
   const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
-  const relayUrls = new Set<string>();
+  const relayUrls = new Map<string, string>();
+  const add = (url: string) => {
+    const key = relayKey(url);
+    // purplepag has its own per-author request (see PURPLEPAG_URL).
+    if (key !== relayKey(PURPLEPAG_URL) && !relayUrls.has(key)) relayUrls.set(key, url);
+  };
   if (ndkInstance.pool?.relays) {
-    for (const [url] of ndkInstance.pool.relays) relayUrls.add(url);
+    for (const [url] of ndkInstance.pool.relays) add(url);
   }
-  for (const url of PROFILE_RELAY_URLS) relayUrls.add(url);
+  for (const url of PROFILE_RELAY_URLS) add(url);
   for (const hints of hintRelayLists) {
-    if (hints) for (const url of hints) relayUrls.add(url);
+    if (hints) for (const url of hints) add(url);
   }
 
   const relays = [];
-  for (const url of relayUrls) {
+  for (const url of relayUrls.values()) {
     // getRelay(url, connect, temporary) — NDK 2.10.0. Creation is
     // unconditional when the relay is missing; the third argument is
     // temporary, which arms a 30s removal timer (skipped for relays in
-    // explicitRelayUrls). purplepag.es etc. may not be in the pool yet;
-    // this opens a connection in the background. fetchEvents will queue
-    // against not-yet-ready relays and resolve at EOSE.
+    // explicitRelayUrls).
     const relay = ndkInstance.pool?.getRelay(url, true, true);
     if (relay) relays.push(relay);
   }
   return relays.length > 0 ? new NDKRelaySet(new Set(relays), ndkInstance) : undefined;
+}
+
+/** Keep the newest kind:0 per pubkey (profiles get republished). */
+function keepNewest(into: Map<string, NDKEvent>, event: NDKEvent): void {
+  if (!event?.pubkey) return;
+  const existing = into.get(event.pubkey);
+  if (!existing || (event.created_at || 0) > (existing.created_at || 0)) {
+    into.set(event.pubkey, event);
+  }
+}
+
+/**
+ * Pool pass: one authors:[...] REQ across the pool relay set. Events are
+ * collected as they stream; it settles on NDK's EOSE or the timeout and
+ * keeps everything received either way (fetchEvents + a timeout that
+ * resolved to an empty Set used to drop a whole chunk).
+ */
+function runPoolPass(
+  ndkInstance: NDK,
+  chunk: string[],
+  relaySet: NDKRelaySet | undefined,
+  into: Map<string, NDKEvent>
+): Promise<void> {
+  return new Promise((resolve) => {
+    let sub: ReturnType<NDK['subscribe']> | undefined;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      sub?.stop();
+      resolve();
+    };
+    const timer = setTimeout(finish, PROFILE_FETCH_TIMEOUT);
+    try {
+      sub = ndkInstance.subscribe(
+        { kinds: [0], authors: chunk },
+        { closeOnEose: false, groupable: false },
+        relaySet,
+        false
+      );
+      sub.on('event', (event: NDKEvent) => keepNewest(into, event));
+      sub.on('eose', finish);
+      Promise.resolve(sub.start()).catch(finish);
+    } catch {
+      finish();
+    }
+  });
+}
+
+/** Resolve true once the relay is connected, false after `timeoutMs`. */
+function waitForConnected(relay: any, connectedStatus: number, timeoutMs: number): Promise<boolean> {
+  if (relay.status >= connectedStatus) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const onReady = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      relay.off?.('ready', onReady);
+      resolve(relay.status >= connectedStatus);
+    }, timeoutMs);
+    relay.once('ready', onReady);
+  });
+}
+
+/**
+ * purplepag pass: one REQ with a {kinds:[0], authors:[pk], limit:1}
+ * filter per author (≤ PURPLEPAG_MAX_FILTERS). Resolves true only when
+ * purplepag connected and sent EOSE for every REQ with no CLOSED or
+ * NOTICE — i.e. its silence about an author is a confirmed miss.
+ */
+async function runPurplepagPass(
+  ndkInstance: NDK,
+  chunk: string[],
+  into: Map<string, NDKEvent>
+): Promise<boolean> {
+  const { NDKRelaySet, NDKRelayStatus, NDKSubscriptionCacheUsage } = await import(
+    '@nostr-dev-kit/ndk'
+  );
+  const relay: any = ndkInstance.pool?.getRelay(PURPLEPAG_URL, true, true);
+  if (!relay) return false;
+  if (!(await waitForConnected(relay, NDKRelayStatus.CONNECTED, PURPLEPAG_CONNECT_TIMEOUT))) {
+    return false;
+  }
+
+  const requestSlice = (pubkeys: string[]) =>
+    new Promise<boolean>((resolve) => {
+      let sub: ReturnType<NDK['subscribe']> | undefined;
+      let done = false;
+      let noticed = false;
+      const onNotice = () => {
+        noticed = true;
+      };
+      const finish = (confirmed: boolean) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        relay.off?.('notice', onNotice);
+        sub?.stop();
+        resolve(confirmed && !noticed);
+      };
+      const timer = setTimeout(() => finish(false), PURPLEPAG_REQ_TIMEOUT);
+      relay.on?.('notice', onNotice);
+      try {
+        // groupable:false + an explicit single-relay set: NDK sends these
+        // as ONE REQ with separate filters (compileFilters only merges
+        // across grouped subscriptions). ONLY_RELAY: 'eose' then comes
+        // from purplepag itself, never from the cache.
+        sub = ndkInstance.subscribe(
+          pubkeys.map((pk) => ({ kinds: [0], authors: [pk], limit: 1 })),
+          {
+            closeOnEose: false,
+            groupable: false,
+            cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY
+          },
+          new NDKRelaySet(new Set([relay]), ndkInstance),
+          false
+        );
+        sub.on('event', (event: NDKEvent) => keepNewest(into, event));
+        sub.on('eose', () => finish(true));
+        sub.on('closed', () => finish(false));
+        Promise.resolve(sub.start()).catch(() => finish(false));
+      } catch {
+        finish(false);
+      }
+    });
+
+  const slices: string[][] = [];
+  for (let i = 0; i < chunk.length; i += PURPLEPAG_MAX_FILTERS) {
+    slices.push(chunk.slice(i, i + PURPLEPAG_MAX_FILTERS));
+  }
+  const results = await Promise.all(slices.map(requestSlice));
+  return results.every(Boolean);
 }
 
 async function flushProfileBatch(ndkInstance: NDK): Promise<void> {
@@ -168,29 +360,22 @@ async function flushProfileBatch(ndkInstance: NDK): Promise<void> {
         ndkInstance,
         queue.filter((e) => chunk.includes(e.pubkey)).map((e) => e.hintRelays)
       );
-      const fetchPromise = ndkInstance.fetchEvents(
-        { kinds: [0], authors: chunk },
-        undefined,
-        relaySet
-      );
-      const timeoutPromise = new Promise<Set<NDKEvent>>((resolve) =>
-        setTimeout(() => resolve(new Set()), PROFILE_FETCH_TIMEOUT)
-      );
-      const events = await Promise.race([fetchPromise, timeoutPromise]);
-
-      // A pubkey may have several kind:0 events (republished profiles);
-      // keep the newest by created_at, matching fetchEvent's behavior.
-      for (const event of events) {
-        if (!event.pubkey) continue;
-        const existing = eventsByPubkey.get(event.pubkey);
-        if (!existing || (event.created_at || 0) > (existing.created_at || 0)) {
-          eventsByPubkey.set(event.pubkey, event);
-        }
+      // Both passes start together and write into the same map, so the
+      // newest kind:0 wins across them. purplepag-only authors (10–25%
+      // of a feed) don't wait behind the pool pass.
+      const [, purplepagConfirmed] = await Promise.all([
+        runPoolPass(ndkInstance, chunk, relaySet, eventsByPubkey),
+        runPurplepagPass(ndkInstance, chunk, eventsByPubkey).catch(() => false)
+      ]);
+      if (purplepagConfirmed) {
+        const expiry = Date.now() + MISS_CACHE_DURATION;
+        for (const pk of chunk) if (!eventsByPubkey.has(pk)) confirmedMisses.set(pk, expiry);
       }
     }
 
     for (const entry of queue) {
       const event = eventsByPubkey.get(entry.pubkey);
+      if (event) confirmedMisses.delete(entry.pubkey);
       entry.resolve(event ? parseProfileEvent(entry.pubkey, event) : null);
     }
   } catch {
@@ -212,6 +397,9 @@ function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK, hintRelays?: s
 
   const inflight = inflightProfileFetches.get(pubkey);
   if (inflight) return inflight;
+  // A cached miss covers the relays that were asked, not an nprofile's
+  // hints — a lookup that brings relay hints always goes to the relays.
+  if (!hintRelays?.length && isConfirmedMiss(pubkey)) return Promise.resolve(null);
 
   const promise = new Promise<ProfileData | null>((resolve) => {
     profileBatchQueue.push({ pubkey, hintRelays, resolve });
@@ -437,12 +625,14 @@ export function seedProfileCache(pubkey: string, data: { name?: string; display_
   if (!pubkey) return;
   const existing = profileCache[pubkey];
   if (existing && isCacheValid(existing)) return;
+  confirmedMisses.delete(pubkey);
   profileCache[pubkey] = { pubkey, ...data, lastFetched: Date.now() };
 }
 
 // Clear cache (useful for testing or manual refresh)
 export function clearProfileCache(): void {
   profileCache = {};
+  confirmedMisses.clear();
 }
 
 // Get cache stats (useful for debugging)
