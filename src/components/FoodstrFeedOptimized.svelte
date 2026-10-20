@@ -5380,7 +5380,7 @@
                   renders a <button>. Nesting <button> inside <a> is invalid
                   HTML and breaks keyboard / screen-reader behavior.
                 -->
-                    <CustomName pubkey={reposterPubkey} className="text-xs font-medium" />
+                    <CustomName pubkey={reposterPubkey} className="text-xs font-medium" interactive={false} />
                   </a>
                 {/if}
 

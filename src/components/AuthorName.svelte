@@ -1,6 +1,7 @@
 <script lang="ts">
   import { nip19 } from 'nostr-tools';
   import { profileFor, authorLabel } from '$lib/profileStore';
+  import NameLabel from './NameLabel.svelte';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
 
   export let event: NDKEvent;
@@ -41,46 +42,10 @@
     on:mouseleave={() => (isHovering = false)}
     disabled={!pubkey}
   >
-    {#if label.kind === 'skeleton'}
-      <span class="author-skeleton skeleton-bg" aria-busy="true" aria-label="Loading author"></span>
-    {:else}
-      <span style="color: inherit;">{label.text}</span>
-    {/if}
+    <NameLabel {label} let:text><span style="color: inherit;">{text}</span></NameLabel>
   </button>
 {:else}
   <span class={className} style="color: var(--color-text-primary);">
-    {#if label.kind === 'skeleton'}
-      <span class="author-skeleton skeleton-bg" aria-busy="true" aria-label="Loading author"></span>
-    {:else}
-      {label.text}
-    {/if}
+    <NameLabel {label} />
   </span>
 {/if}
-
-<style>
-  /* Neutral stand-in while the profile resolves: about a name's width,
-     the text's height, so rows don't jump when the name lands. */
-  .author-skeleton {
-    display: inline-block;
-    width: 6em;
-    max-width: 100%;
-    height: 0.9em;
-    border-radius: 0.25em;
-    vertical-align: middle;
-    animation: author-skeleton-pulse 1.5s ease-in-out infinite;
-  }
-  @keyframes author-skeleton-pulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.45;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .author-skeleton {
-      animation: none;
-    }
-  }
-</style>
