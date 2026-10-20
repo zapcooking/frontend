@@ -849,25 +849,8 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
 async function sendLocalNotificationForNostrEvent(notification: Notification): Promise<void> {
   if (!browser) return;
 
-  // Check if app is in foreground - if so, don't send notification (user is already seeing it)
-  let isAppActive = true;
-  try {
-    const { Capacitor } = await import('@capacitor/core');
-    if (Capacitor.isNativePlatform()) {
-      const { App } = await import('@capacitor/app');
-      const state = await App.getState();
-      isAppActive = state.isActive;
-    } else {
-      // On web, assume active if document is visible
-      isAppActive = !document.hidden;
-    }
-  } catch (error) {
-    // If we can't check app state, assume active (safer)
-    isAppActive = !document.hidden;
-  }
-
-  // Only send notification if app is backgrounded
-  if (isAppActive) {
+  // Only send notification if the tab is backgrounded (user is otherwise already seeing it)
+  if (!document.hidden) {
     return;
   }
 

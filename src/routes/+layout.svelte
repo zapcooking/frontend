@@ -352,110 +352,6 @@
     scrollActiveSurfaceToTop(document.getElementById('app-scroll'));
   }
 
-  // Handle deep links from Capacitor (for NIP-46 pairing)
-  async function handleDeepLink(url: string) {
-    console.log('[DeepLink] Received:', url);
-
-    if (!authManager) {
-      console.warn('[DeepLink] Auth manager not initialized');
-      return;
-    }
-
-    // Check if we have a pending NIP-46 pairing
-    if (authManager.hasPendingNip46Pairing()) {
-      console.log('[DeepLink] Has pending NIP-46 pairing, restarting listener...');
-      await authManager.restartNip46ListenerIfPending();
-      goto('/login');
-      return;
-    }
-
-    // Handle bunker:// URLs for direct NIP-46 auth
-    // Note: nostrconnect:// is NOT handled here - it's for signers to scan, not direct input
-    if (url.startsWith('bunker://')) {
-      try {
-        await authManager.authenticateWithNIP46(url);
-        goto(startSectionTarget());
-      } catch (e) {
-        console.error('[DeepLink] NIP-46 auth failed:', e);
-        goto('/login');
-      }
-    }
-  }
-
-  // Setup Capacitor deep link listeners
-  async function setupCapacitorListeners() {
-    if (!browser) return;
-
-    console.log('[Capacitor] Setting up listeners...');
-
-    try {
-      // Import Capacitor core to check if we're in a native environment
-      const { Capacitor } = await import('@capacitor/core');
-
-      if (!Capacitor.isNativePlatform()) {
-        console.log('[Capacitor] Not a native platform, skipping listener setup');
-        return;
-      }
-
-      console.log('[Capacitor] Native platform detected:', Capacitor.getPlatform());
-
-      const { App } = await import('@capacitor/app');
-
-      // Listen for deep links when app is open
-      await App.addListener('appUrlOpen', (event) => {
-        console.log('[Capacitor] appUrlOpen:', event.url);
-        handleDeepLink(event.url);
-      });
-      console.log('[Capacitor] appUrlOpen listener registered');
-
-      // Listen for app state changes (resume)
-      await App.addListener('appStateChange', async (state) => {
-        console.log('[Capacitor] appStateChange:', state.isActive ? 'active' : 'inactive');
-
-        if (state.isActive) {
-          console.log('[Capacitor] App became active, checking for pending NIP-46 pairing...');
-          if (authManager?.hasPendingNip46Pairing()) {
-            console.log('[Capacitor] Found pending NIP-46 pairing, restarting listener');
-            try {
-              await authManager.restartNip46ListenerIfPending();
-            } catch (e) {
-              console.error('[Capacitor] Error restarting NIP-46 listener:', e);
-            }
-          } else {
-            console.log('[Capacitor] No pending NIP-46 pairing found');
-          }
-        }
-      });
-      console.log('[Capacitor] appStateChange listener registered');
-
-      // Also listen for resume event as backup
-      await App.addListener('resume', async () => {
-        console.log('[Capacitor] resume event received');
-        if (authManager?.hasPendingNip46Pairing()) {
-          console.log('[Capacitor] Resume with pending NIP-46 pairing, restarting listener');
-          try {
-            await authManager.restartNip46ListenerIfPending();
-          } catch (e) {
-            console.error('[Capacitor] Error restarting NIP-46 listener on resume:', e);
-          }
-        }
-      });
-      console.log('[Capacitor] resume listener registered');
-
-      // Check for launch URL (app opened via deep link)
-      const launchUrl = await App.getLaunchUrl();
-      if (launchUrl?.url) {
-        console.log('[Capacitor] Launch URL:', launchUrl.url);
-        handleDeepLink(launchUrl.url);
-      }
-
-      console.log('[Capacitor] All listeners initialized successfully');
-    } catch (e) {
-      // Capacitor not available (web environment) or error during setup
-      console.log('[Capacitor] Setup error or not available:', e);
-    }
-  }
-
   onMount(async () => {
     try {
       // Block accidental nsec pastes everywhere except the login/key-import
@@ -620,9 +516,6 @@
           if (wallet) rememberActiveWallet(wallet);
         });
       }
-
-      // Setup Capacitor deep link listeners
-      setupCapacitorListeners();
 
       // Safety timeout: if user never visits the feed (e.g. lands on /recipe/*),
       // ensure notifications and other deferred services still start after 10s
