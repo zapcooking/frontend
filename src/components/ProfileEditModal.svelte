@@ -9,9 +9,9 @@
   import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircle';
   import Button from './Button.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { uploadToNostrBuild } from '$lib/mediaUpload';
   import { profileCacheManager } from '$lib/profileCache';
+  import { changedFormFields, updateOwnKind0 } from '$lib/ownKind0';
 
   export let open = false;
   export let profile: any = null;
@@ -31,6 +31,8 @@
     lud16: '',
     noffer: ''
   };
+  // The form as it opened: saving applies only what differs from it.
+  let initialFormData = { ...formData };
 
   // Advanced section visibility — image URL fields (picture / banner)
   // live under here so the main form stays focused on identity fields.
@@ -208,6 +210,7 @@
       lud16: profile.lud16 || '',
       noffer: rawNoffer
     };
+    initialFormData = { ...formData };
     error = null;
     showAdvanced = false;
   }
@@ -298,33 +301,6 @@
     }
   }
 
-  async function fetchCurrentProfile(): Promise<Record<string, any> | null> {
-    try {
-      const user = $ndk.getUser({ pubkey: $userPublickey });
-      await user.fetchProfile();
-
-      if (!user.profile) return null;
-
-      // Get the raw profile content - preserve all fields
-      const events = await $ndk.fetchEvents({
-        kinds: [0],
-        authors: [$userPublickey],
-        limit: 1
-      });
-
-      if (events.size === 0) return null;
-
-      const latestEvent = Array.from(events).sort((a, b) =>
-        (b.created_at || 0) - (a.created_at || 0)
-      )[0];
-
-      return JSON.parse(latestEvent.content);
-    } catch (e) {
-      console.error('[ProfileEdit] Failed to fetch current profile:', e);
-      return null;
-    }
-  }
-
   async function saveProfile() {
     if (!$userPublickey || saving) return;
 
@@ -340,73 +316,23 @@
     error = null;
 
     try {
-      // Step 1: Fetch current profile to preserve all fields
-      const currentProfile = await fetchCurrentProfile();
+      // Only the fields the user changed are applied, onto the latest raw
+      // kind:0 — every other field passes through. If that kind:0 can't
+      // be loaded for certain, nothing is published (Kind0LoadError).
+      const changes = changedFormFields(initialFormData, formData);
+      if (Object.keys(changes).length > 0) {
+        const { relayCount } = await updateOwnKind0($ndk, $userPublickey, changes);
+        console.log('[ProfileEdit] Profile published to', relayCount, 'relays');
 
-      // Step 2: Merge form data with existing profile (preserve all fields)
-      const updatedProfile: Record<string, any> = {
-        ...(currentProfile || {}),
-        // Update only the fields we're editing
-        display_name: formData.display_name.trim(),
-        name: formData.name.trim(),
-        about: formData.about.trim(),
-        picture: formData.picture.trim(),
-        banner: formData.banner.trim(),
-        nip05: formData.nip05.trim(),
-        website: formData.website.trim(),
-        lud16: formData.lud16.trim(),
-        noffer: formData.noffer.trim()
-      };
+        // CustomName/CustomAvatar still read profileCache until they move
+        // to the profile store; the resolver cache is already updated.
+        profileCacheManager.invalidateProfile($userPublickey);
 
-      // Remove empty strings (optional - keeps profile clean)
-      Object.keys(updatedProfile).forEach(key => {
-        if (updatedProfile[key] === '') {
-          delete updatedProfile[key];
-        }
-      });
+        // Wait briefly for relays to propagate
+        await new Promise(resolve => setTimeout(resolve, 1500));
 
-      // Step 4: Safety check - ensure we're not losing data
-      if (currentProfile) {
-        const currentKeys = Object.keys(currentProfile).filter(k => currentProfile[k]);
-        const updatedKeys = Object.keys(updatedProfile).filter(k => updatedProfile[k]);
-        const editedFields = Object.keys(formData);
-
-        // Check if we would lose any fields that had values
-        const lostFields = currentKeys.filter(
-          k => !updatedKeys.includes(k) && !editedFields.includes(k)
-        );
-
-        if (lostFields.length > 0) {
-          console.warn('[ProfileEdit] Would lose fields:', lostFields);
-          // Re-add lost fields
-          lostFields.forEach(field => {
-            updatedProfile[field] = currentProfile[field];
-          });
-        }
+        onProfileUpdated();
       }
-
-      // Step 5: Create and publish kind:0 event
-      const profileEvent = new NDKEvent($ndk);
-      profileEvent.kind = 0;
-      profileEvent.content = JSON.stringify(updatedProfile);
-      profileEvent.tags = [];
-
-      await profileEvent.sign();
-      const publishedRelays = await profileEvent.publish();
-
-      console.log('[ProfileEdit] Profile published to', publishedRelays.size, 'relays');
-
-      if (publishedRelays.size === 0) {
-        throw new Error('Failed to publish profile - no relays confirmed');
-      }
-
-      // Step 6: Clear cache and notify parent
-      profileCacheManager.invalidateProfile($userPublickey);
-
-      // Wait briefly for relays to propagate
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      onProfileUpdated();
       close();
 
     } catch (err: any) {

@@ -315,7 +315,10 @@ describe('profileResolver batching', () => {
     const pool = subs.find((s) => !s.isPurplepag)!;
     const pp = subs.find((s) => s.isPurplepag);
     expect(pp).toBeDefined();
-    expect(pp!.startedAt - pool.startedAt).toBeLessThan(50);
+    // Before the pool's EOSE (2s), i.e. not after it. Not a tighter bound:
+    // the passes' mocked dynamic imports settle in real time, so on a slow
+    // runner the fake clock can step to the end of tick(200) in between.
+    expect(pp!.startedAt - pool.startedAt).toBeLessThan(2000);
     await tick(2100);
     expect((await pending)?.name).toBe('from purplepag');
   });
