@@ -42,6 +42,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { Fetch } from 'hurdak';
   import { profileCacheManager } from '$lib/profileCache';
+  import { updateOwnPicture, Kind0LoadError } from '$lib/ownKind0';
   import { RECIPE_TAGS } from '$lib/consts';
   import ArticleFeed from '../../../components/ArticleFeed.svelte';
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
@@ -1368,58 +1369,14 @@
         const newPictureUrl = result.data[0].url;
         console.log('[Profile Upload] New picture URL:', newPictureUrl);
 
-        // Get current profile
-        const currentUser = $ndk.getUser({ pubkey: $userPublickey });
-        await currentUser.fetchProfile();
+        // Change `picture` only, on the latest raw kind:0: every other
+        // field (banner, website, custom keys…) passes through. If that
+        // kind:0 can't be loaded for certain, nothing is published.
+        const { relayCount } = await updateOwnPicture($ndk, $userPublickey, newPictureUrl);
+        console.log('[Profile Upload] Profile updated on', relayCount, 'relays');
 
-        // Update profile metadata (kind 0)
-        const metaEvent = new NDKEvent($ndk);
-        metaEvent.kind = 0;
-        metaEvent.tags = [];
-
-        // Preserve existing profile data, update picture
-        const profileContent: any = {
-          picture: newPictureUrl
-        };
-
-        if (currentUser.profile?.displayName) {
-          profileContent.display_name = currentUser.profile.displayName;
-        }
-        if (currentUser.profile?.name) {
-          profileContent.name = currentUser.profile.name;
-        }
-        if (currentUser.profile?.about) {
-          profileContent.about = currentUser.profile.about;
-        }
-        if (currentUser.profile?.nip05) {
-          profileContent.nip05 = currentUser.profile.nip05;
-        }
-        if (currentUser.profile?.lud16) {
-          profileContent.lud16 = currentUser.profile.lud16;
-        }
-        if (currentUser.profile?.lud06) {
-          profileContent.lud06 = currentUser.profile.lud06;
-        }
-
-        metaEvent.content = JSON.stringify(profileContent);
-        console.log('[Profile Upload] Publishing profile update:', profileContent);
-
-        // Publish and wait for relay confirmations
-        const publishedRelays = await metaEvent.publish();
-        console.log('[Profile Upload] Published to relays:', publishedRelays.size);
-
-        // Wait for at least one relay to confirm
-        if (publishedRelays.size > 0) {
-          console.log(
-            '[Profile Upload] Profile updated successfully on',
-            publishedRelays.size,
-            'relays'
-          );
-        } else {
-          console.warn('[Profile Upload] No relays confirmed the publish');
-        }
-
-        // Clear profile cache so it refreshes
+        // CustomName/CustomAvatar still read profileCache until they move
+        // to the profile store; the resolver cache is already updated.
         profileCacheManager.invalidateProfile($userPublickey);
 
         // Small delay to allow relays to propagate
@@ -1446,7 +1403,9 @@
       }
     } catch (err) {
       console.error('[Profile Upload] Error:', err);
-      alert('Failed to upload image. Please try again.');
+      alert(
+        err instanceof Kind0LoadError ? err.message : 'Failed to upload image. Please try again.'
+      );
     } finally {
       uploadingPicture = false;
       // Reset input

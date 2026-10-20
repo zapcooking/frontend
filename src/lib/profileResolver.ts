@@ -669,6 +669,17 @@ export function seedProfileCache(pubkey: string, data: { name?: string; display_
   cacheProfile(pubkey, { pubkey, ...data, lastFetched: Date.now() });
 }
 
+// Cache a kind:0 the user just published, so names update without a
+// refetch (relays may not serve the new version for a moment). The cache
+// write notifies onProfileCached listeners, i.e. every mounted name.
+export function ingestProfileEvent(pubkey: string, event: NDKEvent): void {
+  if (!pubkey || event.pubkey !== pubkey || event.kind !== 0) return;
+  const profile = parseProfileEvent(pubkey, event);
+  if (!profile) return;
+  confirmedMisses.delete(pubkey);
+  cacheProfile(pubkey, profile);
+}
+
 // Clear cache (useful for testing or manual refresh)
 export function clearProfileCache(): void {
   profileCache = {};
