@@ -6,8 +6,6 @@
   "scripts": {
     "dev": "vite dev",
     "build": "NODE_OPTIONS=--max-old-space-size=6144 vite build",
-    "build:mobile": "NODE_OPTIONS=--max-old-space-size=6144 SKIP_ENV_VALIDATION=1 ADAPTER=static vite build",
-    "build:android": "NODE_OPTIONS=--max-old-space-size=6144 SKIP_ENV_VALIDATION=1 CAPACITOR=true vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -30,13 +28,6 @@
   "dependencies": {
     "@branta-ops/branta": "^3.2.1",
     "@breeztech/breez-sdk-spark": "0.23.1",
-    "@capacitor/android": "^8.0.0",
-    "@capacitor/app": "^8.0.0",
-    "@capacitor/cli": "^8.0.0",
-    "@capacitor/core": "^8.0.0",
-    "@capacitor/ios": "^8.0.0",
-    "@capacitor/local-notifications": "^8.0.0",
-    "@capacitor/splash-screen": "^8.0.0",
     "@gandlaf21/bolt11-decode": "^3.0.6",
     "@getalby/bitcoin-connect": "^3.12.3",
     "@getalby/lightning-tools": "^6.0.0",
@@ -81,7 +72,6 @@
     "webln": "^0.3.2"
   },
   "devDependencies": {
-    "@capacitor/assets": "^3.0.5",
     "@sveltejs/adapter-cloudflare": "^7.2.8",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/adapter-vercel": "^6.3.3",
