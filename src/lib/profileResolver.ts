@@ -18,6 +18,11 @@ export interface ProfileData {
    * profile editor; we surface a Pay affordance when present.
    * See https://github.com/shocknet/CLINK/blob/main/specs/clink-offers.md */
   noffer?: string;
+  /** created_at of the kind:0 this was parsed from — the profile's
+   * version. Absent for seeded entries, which count as oldest. Compare
+   * versions on this, never on lastFetched (our fetch time: a later
+   * fetch can return an older kind:0 from a stale relay). */
+  created_at?: number;
   lastFetched: number;
 }
 
@@ -497,6 +502,7 @@ function parseProfileEvent(pubkey: string, event: NDKEvent): ProfileData | null 
     nip05: typeof parsed.nip05 === 'string' ? parsed.nip05 : undefined,
     lud16: typeof parsed.lud16 === 'string' ? parsed.lud16 : undefined,
     noffer,
+    created_at: typeof event.created_at === 'number' ? event.created_at : undefined,
     lastFetched: Date.now()
   };
 }

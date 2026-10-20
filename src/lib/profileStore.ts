@@ -71,10 +71,22 @@ function clearRetry(entry: Entry): void {
   }
 }
 
+/**
+ * Whether `next` is at least as new a version as `current`, by the kind:0
+ * event's created_at (not lastFetched — our fetch time; a later fetch can
+ * return an older kind:0 from a stale relay). Seeded profiles carry no
+ * created_at and count as oldest.
+ */
+function isAtLeastAsNew(next: ProfileData, current: ProfileData): boolean {
+  return (next.created_at ?? -Infinity) >= (current.created_at ?? -Infinity);
+}
+
 function onCached(pubkey: string, profile: ProfileData): void {
   const entry = entries.get(pubkey);
   if (!entry || !entry.alive) return;
   clearRetry(entry);
+  // A name already shown is only replaced by an at-least-as-new version.
+  if (entry.state.status === 'found' && !isAtLeastAsNew(profile, entry.state.profile)) return;
   setState(entry, { status: 'found', profile });
 }
 
@@ -91,12 +103,12 @@ async function request(pubkey: string, entry: Entry, isRetry: boolean): Promise<
   if (!entry.alive) return;
   if (entry.state.status === 'found') {
     // Already showing a name (from onCached, or a retained entry being
-    // reconciled on remount). Take the result only if it's a different,
-    // at-least-as-new profile — never a downgrade to a miss, and never
-    // over a newer listener update. A cache hit returns the same object,
-    // so it causes no notification.
+    // reconciled on remount). Take the result only if it's a different
+    // profile whose kind:0 is at least as new (isAtLeastAsNew) — never a
+    // downgrade to a miss, and never over a newer listener update. A cache
+    // hit returns the same object, so it causes no notification.
     const current = entry.state.profile;
-    if (profile && profile !== current && (profile.lastFetched ?? 0) >= (current.lastFetched ?? 0)) {
+    if (profile && profile !== current && isAtLeastAsNew(profile, current)) {
       setState(entry, { status: 'found', profile });
     }
     return;

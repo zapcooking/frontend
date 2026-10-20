@@ -276,8 +276,8 @@ describe('profileStore', () => {
   });
 
   it('unsubscribe → cache refresh → resubscribe picks up the refreshed profile', async () => {
-    const v1 = { ...profile(PK, 'old name'), lastFetched: 1 };
-    const v2 = { ...profile(PK, 'new name'), lastFetched: 2 };
+    const v1 = { ...profile(PK, 'old name'), created_at: 100 };
+    const v2 = { ...profile(PK, 'new name'), created_at: 200 };
     resolver.resolve.mockResolvedValueOnce(v1);
     const a = watch(PK);
     await vi.advanceTimersByTimeAsync(0);
@@ -296,9 +296,9 @@ describe('profileStore', () => {
   });
 
   it('reconciling never overwrites a newer listener update, nor downgrades to a miss', async () => {
-    const v1 = { ...profile(PK, 'v1'), lastFetched: 1 };
-    const v2 = { ...profile(PK, 'v2'), lastFetched: 2 };
-    const v3 = { ...profile(PK, 'v3'), lastFetched: 3 };
+    const v1 = { ...profile(PK, 'v1'), created_at: 100 };
+    const v2 = { ...profile(PK, 'v2'), created_at: 200 };
+    const v3 = { ...profile(PK, 'v3'), created_at: 300 };
     resolver.resolve.mockResolvedValueOnce(v1);
     const a = watch(PK);
     await vi.advanceTimersByTimeAsync(0);
@@ -318,6 +318,53 @@ describe('profileStore', () => {
     await vi.advanceTimersByTimeAsync(PROFILE_RETRY_DELAY_MS * 2);
     expect(c.last()).toEqual({ status: 'found', profile: v3 });
     c.unsubscribe();
+  });
+
+  it('versions compare on kind:0 created_at, not lastFetched: a later fetch of an older kind:0 never wins', async () => {
+    // Shown: kind:0 from t=200, fetched long ago.
+    const shown = { ...profile(PK, 'current'), created_at: 200, lastFetched: 1 };
+    // Later fetch (newer lastFetched) returning an OLDER kind:0 from a stale relay.
+    const stale = { ...profile(PK, 'stale'), created_at: 100, lastFetched: 9_999 };
+    resolver.resolve.mockResolvedValueOnce(shown);
+    const a = watch(PK);
+    await vi.advanceTimersByTimeAsync(0);
+    a.unsubscribe();
+
+    // Reconcile on remount returns the stale version: ignored.
+    resolver.resolve.mockResolvedValueOnce(stale);
+    const b = watch(PK);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(b.last()).toEqual({ status: 'found', profile: shown });
+    expect(b.states).toHaveLength(1);
+
+    // Same through the cache listener (another component's stale fetch).
+    deliverLate(PK, stale);
+    expect(b.last()).toEqual({ status: 'found', profile: shown });
+    expect(b.states).toHaveLength(1);
+
+    // A genuinely newer kind:0 still replaces it.
+    const newer = { ...profile(PK, 'newer'), created_at: 300, lastFetched: 2 };
+    deliverLate(PK, newer);
+    expect(b.last()).toEqual({ status: 'found', profile: newer });
+    b.unsubscribe();
+  });
+
+  it('a seeded profile (no created_at) counts as oldest', async () => {
+    const fetched = { ...profile(PK, 'from relays'), created_at: 100 };
+    resolver.resolve.mockResolvedValueOnce(fetched);
+    const w = watch(PK);
+    await vi.advanceTimersByTimeAsync(0);
+    deliverLate(PK, profile(PK, 'seeded, partial')); // no created_at
+    expect(w.last()).toEqual({ status: 'found', profile: fetched });
+    w.unsubscribe();
+
+    // …but a seed still fills a row that has no name yet.
+    resolver.resolve.mockReturnValueOnce(new Promise(() => {}));
+    const other = 'd'.repeat(64);
+    const row = watch(other);
+    deliverLate(other, profile(other, 'seeded'));
+    expect(row.last()).toEqual({ status: 'found', profile: profile(other, 'seeded') });
+    row.unsubscribe();
   });
 
   it('1,001 simultaneously mounted authors all resolve (eviction never takes a mounted row)', async () => {
