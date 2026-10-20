@@ -2,7 +2,6 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
-  import { profileActions, profiles, loadingProfiles, profileErrors } from '$lib/profileStore';
   import { decodeNostrProfile, resolveProfile, formatDisplayName } from '$lib/profileResolver';
   import { getAnonChefName } from '$lib/anonName';
   import { ndk } from '$lib/nostr';
