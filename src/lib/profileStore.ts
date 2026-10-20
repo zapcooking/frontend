@@ -30,7 +30,9 @@ import { getAnonChefName } from './anonName';
  * An unconfirmed `null` is retried once, PROFILE_RETRY_DELAY_MS later.
  * When the last subscriber leaves, a pending retry is cancelled, and
  * missing/unconfirmed entries are dropped so a later mount asks again.
- * Found entries are kept (bounded) so remounts render the name at once.
+ * Found entries are kept (bounded) so remounts render the name at once;
+ * a remount then reconciles with the resolver in case it refreshed the
+ * profile while nothing was listening.
  */
 export type ProfileState =
   | { status: 'loading' }
@@ -85,8 +87,20 @@ async function request(pubkey: string, entry: Entry, isRetry: boolean): Promise<
   } catch {
     profile = null;
   }
-  // Dropped while in flight, or already filled by onCached.
-  if (!entry.alive || entry.state.status === 'found') return;
+  // Dropped while in flight: never write.
+  if (!entry.alive) return;
+  if (entry.state.status === 'found') {
+    // Already showing a name (from onCached, or a retained entry being
+    // reconciled on remount). Take the result only if it's a different,
+    // at-least-as-new profile — never a downgrade to a miss, and never
+    // over a newer listener update. A cache hit returns the same object,
+    // so it causes no notification.
+    const current = entry.state.profile;
+    if (profile && profile !== current && (profile.lastFetched ?? 0) >= (current.lastFetched ?? 0)) {
+      setState(entry, { status: 'found', profile });
+    }
+    return;
+  }
   if (profile) {
     setState(entry, { status: 'found', profile });
     return;
@@ -131,15 +145,25 @@ function acquire(pubkey: string): Entry {
       alive: true
     };
     entries.set(pubkey, entry);
-    evictKeptProfiles();
   }
   entry.subscribers++;
   activeSubscribers++;
+  // Counted first, so eviction can't pick the entry being acquired even
+  // when every other entry is mounted.
+  evictKeptProfiles();
   // No fetches, timers or listeners during SSR: the server renders the
   // loading state (a skeleton) and the browser takes over.
   if (browser) {
     if (!stopListening) stopListening = onProfileCached(onCached);
-    if (!entry.requested) void request(pubkey, entry, false);
+    if (!entry.requested) {
+      void request(pubkey, entry, false);
+    } else if (entry.subscribers === 1 && entry.state.status === 'found') {
+      // A retained name being remounted: nothing was listening while it
+      // had no subscribers, so reconcile with the resolver (a cache hit,
+      // or a fetch once the cache entry has expired). The current name
+      // stays on screen meanwhile.
+      void request(pubkey, entry, false);
+    }
   }
   return entry;
 }

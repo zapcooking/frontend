@@ -261,15 +261,73 @@ describe('profileStore', () => {
     for (const row of rows) row.unsubscribe();
   });
 
-  it('keeps found profiles across remounts without refetching', async () => {
-    resolver.resolve.mockResolvedValue(profile(PK, 'kept'));
+  it('remount shows the kept name at once; reconciling a cache hit adds no update', async () => {
+    const kept = profile(PK, 'kept');
+    resolver.resolve.mockResolvedValue(kept); // the resolver's cached object
     const a = watch(PK);
     await vi.advanceTimersByTimeAsync(0);
     a.unsubscribe();
     const b = watch(PK);
-    expect(b.states).toEqual([{ status: 'found', profile: profile(PK, 'kept') }]);
-    expect(resolver.resolve).toHaveBeenCalledTimes(1);
+    expect(b.states).toEqual([{ status: 'found', profile: kept }]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolver.resolve).toHaveBeenCalledTimes(2); // reconciled
+    expect(b.states).toHaveLength(1); // same object: no extra notification
     b.unsubscribe();
+  });
+
+  it('unsubscribe → cache refresh → resubscribe picks up the refreshed profile', async () => {
+    const v1 = { ...profile(PK, 'old name'), lastFetched: 1 };
+    const v2 = { ...profile(PK, 'new name'), lastFetched: 2 };
+    resolver.resolve.mockResolvedValueOnce(v1);
+    const a = watch(PK);
+    await vi.advanceTimersByTimeAsync(0);
+    a.unsubscribe();
+    expect(__profileStoreStats().listening).toBe(false);
+
+    // The resolver refreshes the profile while nothing is listening.
+    deliverLate(PK, v2); // no listener attached: nobody hears it
+    resolver.resolve.mockResolvedValueOnce(v2);
+
+    const b = watch(PK);
+    expect(b.states).toEqual([{ status: 'found', profile: v1 }]); // old name shown meanwhile
+    await vi.advanceTimersByTimeAsync(0);
+    expect(b.last()).toEqual({ status: 'found', profile: v2 });
+    b.unsubscribe();
+  });
+
+  it('reconciling never overwrites a newer listener update, nor downgrades to a miss', async () => {
+    const v1 = { ...profile(PK, 'v1'), lastFetched: 1 };
+    const v2 = { ...profile(PK, 'v2'), lastFetched: 2 };
+    const v3 = { ...profile(PK, 'v3'), lastFetched: 3 };
+    resolver.resolve.mockResolvedValueOnce(v1);
+    const a = watch(PK);
+    await vi.advanceTimersByTimeAsync(0);
+    a.unsubscribe();
+
+    const reconcile = deferred<any>();
+    resolver.resolve.mockReturnValueOnce(reconcile.promise);
+    const b = watch(PK);
+    deliverLate(PK, v3); // newer, via another lookup
+    reconcile.resolve(v2); // older result lands after it
+    await vi.advanceTimersByTimeAsync(0);
+    expect(b.last()).toEqual({ status: 'found', profile: v3 });
+    b.unsubscribe();
+
+    resolver.resolve.mockResolvedValueOnce(null);
+    const c = watch(PK);
+    await vi.advanceTimersByTimeAsync(PROFILE_RETRY_DELAY_MS * 2);
+    expect(c.last()).toEqual({ status: 'found', profile: v3 });
+    c.unsubscribe();
+  });
+
+  it('1,001 simultaneously mounted authors all resolve (eviction never takes a mounted row)', async () => {
+    const pubkeys = Array.from({ length: 1001 }, (_, i) => i.toString(16).padStart(64, '0'));
+    resolver.resolve.mockImplementation(async (pk: string) => profile(pk, `n${pk.slice(-3)}`));
+    const rows = pubkeys.map((pk) => watch(pk));
+    await vi.advanceTimersByTimeAsync(0);
+    for (const row of rows) expect(row.last()).toMatchObject({ status: 'found' });
+    expect(__profileStoreStats().entries).toBe(1001);
+    for (const row of rows) row.unsubscribe();
   });
 
   it('prefetchProfiles warms the resolver in the browser', async () => {
