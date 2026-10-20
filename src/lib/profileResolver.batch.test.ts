@@ -232,6 +232,17 @@ describe('profileResolver batching', () => {
     expect((await pending)?.name).toBe('new');
   });
 
+  it("carries the kind:0 event's created_at as the profile version", async () => {
+    const { resolveProfileByPubkey } = await import('./profileResolver');
+    const { ndk } = makeNdk({
+      script: answerFrom({ ver: [kind0('ver', 'Versioned', 1_700_000_123)] }, 'pool'),
+      purplepagConnected: true
+    });
+    const pending = resolveProfileByPubkey('ver', ndk);
+    await tick(200);
+    expect((await pending)?.created_at).toBe(1_700_000_123);
+  });
+
   it('newest kind:0 wins across the pool and purplepag passes', async () => {
     const { resolveProfileByPubkey } = await import('./profileResolver');
     const { ndk } = makeNdk({
