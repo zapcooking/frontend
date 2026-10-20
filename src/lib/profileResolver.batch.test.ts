@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type NDK from '@nostr-dev-kit/ndk';
+import { nip19 } from 'nostr-tools';
 
 vi.mock('./nostr', () => ({ ndk: {} }));
 
@@ -411,5 +412,42 @@ describe('profileResolver batching', () => {
       await retry;
       expect(subs.length).toBeGreaterThan(before);
     }
+  });
+
+  it('relay hints bypass a cached miss', async () => {
+    const { resolveProfileByPubkey, resolveProfile } = await import('./profileResolver');
+    const pk = 'a'.repeat(64);
+    const HINT = 'wss://hint.example';
+    const { ndk, subs } = makeNdk({
+      script: (sub) => {
+        if (sub.relayUrls.includes(HINT)) sub.event(kind0(pk, 'Hinted Cook'));
+        sub.eose();
+      },
+      purplepagConnected: true
+    });
+    const first = resolveProfileByPubkey(pk, ndk);
+    await tick(200);
+    expect(await first).toBeNull(); // confirmed miss, cached
+
+    const hinted = resolveProfile(nip19.nprofileEncode({ pubkey: pk, relays: [HINT] }), ndk);
+    await tick(200);
+    expect((await hinted)?.name).toBe('Hinted Cook');
+    expect(subs.some((s) => s.relayUrls.includes(HINT))).toBe(true);
+  });
+
+  it('keeps relays whose URLs differ only in path case', async () => {
+    const { resolveProfile } = await import('./profileResolver');
+    const pk = 'b'.repeat(64);
+    const { ndk, subs, relay } = makeNdk({ script: answerFrom({}), purplepagConnected: true });
+    relay('wss://relay.example/Profile');
+    const pending = resolveProfile(
+      nip19.nprofileEncode({ pubkey: pk, relays: ['wss://relay.example/profile'] }),
+      ndk
+    );
+    await tick(200);
+    await pending;
+    const pool = subs.find((s) => !s.isPurplepag)!;
+    expect(pool.relayUrls).toContain('wss://relay.example/Profile');
+    expect(pool.relayUrls).toContain('wss://relay.example/profile');
   });
 });

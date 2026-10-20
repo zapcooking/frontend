@@ -145,8 +145,19 @@ function isConfirmedMiss(pubkey: string): boolean {
   return false;
 }
 
+/**
+ * Dedupe key for a relay URL: scheme and host are case-insensitive (URL
+ * lowercases them), but path and query are not — wss://r.example/Profile
+ * and wss://r.example/profile are different endpoints. Trailing slashes
+ * are dropped so wss://purplepag.es and wss://purplepag.es/ match.
+ */
 function relayKey(url: string): string {
-  return url.trim().toLowerCase().replace(/\/+$/, '');
+  try {
+    const u = new URL(url.trim());
+    return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}${u.search}`;
+  } catch {
+    return url.trim().replace(/\/+$/, '');
+  }
 }
 
 // ─── Batched kind:0 fetching ─────────────────────────────────────────
@@ -386,7 +397,9 @@ function fetchProfileFromRelays(pubkey: string, ndkInstance: NDK, hintRelays?: s
 
   const inflight = inflightProfileFetches.get(pubkey);
   if (inflight) return inflight;
-  if (isConfirmedMiss(pubkey)) return Promise.resolve(null);
+  // A cached miss covers the relays that were asked, not an nprofile's
+  // hints — a lookup that brings relay hints always goes to the relays.
+  if (!hintRelays?.length && isConfirmedMiss(pubkey)) return Promise.resolve(null);
 
   const promise = new Promise<ProfileData | null>((resolve) => {
     profileBatchQueue.push({ pubkey, hintRelays, resolve });
