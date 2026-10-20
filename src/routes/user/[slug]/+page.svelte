@@ -40,9 +40,6 @@
   import ImageSquareIcon from 'phosphor-svelte/lib/ImageSquare';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import { onMount, onDestroy } from 'svelte';
-  import { Fetch } from 'hurdak';
-  import { profileCacheManager } from '$lib/profileCache';
-  import { updateOwnPicture, Kind0LoadError } from '$lib/ownKind0';
   import { RECIPE_TAGS } from '$lib/consts';
   import ArticleFeed from '../../../components/ArticleFeed.svelte';
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
@@ -149,10 +146,7 @@
   let muteLoading = false;
   let mutedUsers: string[] = [];
 
-  // Profile picture upload state
-  let uploadingPicture = false;
-  let pictureInputEl: HTMLInputElement | null = null;
-  let avatarRefreshKey = 0; // Used to force Avatar remount after picture change
+  let avatarRefreshKey = 0; // Used to force Avatar remount after a profile edit
 
   // Profile edit modal state
   let profileEditModal = false;
@@ -1276,160 +1270,6 @@
       setTimeout(() => {
         npubToast = false;
       }, 2000);
-    }
-  }
-
-  async function uploadProfilePicture(body: FormData) {
-    const url = 'https://nostr.build/api/v2/upload/profile';
-
-    // Check if we have a signer
-    if (!$ndk.signer) {
-      console.error('[Profile Upload] No signer available');
-      throw new Error('Not authenticated - please sign in again');
-    }
-
-    console.log('[Profile Upload] Creating NIP-98 auth event...');
-
-    const template = new NDKEvent($ndk);
-    template.kind = 27235;
-    template.created_at = Math.floor(Date.now() / 1000);
-    template.content = '';
-    template.tags = [
-      ['u', url],
-      ['method', 'POST']
-    ];
-
-    await template.sign();
-
-    console.log('[Profile Upload] Event signed, uploading...');
-
-    const authEvent = {
-      id: template.id,
-      pubkey: template.pubkey,
-      created_at: template.created_at,
-      kind: template.kind,
-      tags: template.tags,
-      content: template.content,
-      sig: template.sig
-    };
-
-    const result = await Fetch.fetchJson(url, {
-      body,
-      method: 'POST',
-      headers: {
-        Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
-      }
-    });
-
-    console.log('[Profile Upload] Upload result:', result);
-    return result;
-  }
-
-  async function handlePictureUpload(event: Event) {
-    console.log('[Profile Upload] handlePictureUpload called');
-    const target = event.target as HTMLInputElement;
-    if (!target.files || target.files.length === 0) {
-      console.log('[Profile Upload] No files selected');
-      return;
-    }
-    if (!$userPublickey || hexpubkey !== $userPublickey) {
-      console.log('[Profile Upload] Not own profile or not logged in');
-      return;
-    }
-
-    uploadingPicture = true;
-    console.log('[Profile Upload] Starting upload...');
-
-    try {
-      const file = target.files[0];
-      console.log('[Profile Upload] File:', file.name, file.type, file.size);
-
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        alert('Please upload an image file');
-        uploadingPicture = false;
-        return;
-      }
-
-      // Validate file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        alert('Image must be less than 10MB');
-        uploadingPicture = false;
-        return;
-      }
-
-      const body = new FormData();
-      body.append('file[]', file);
-      body.append('media_type', 'avatar');
-
-      const result = await uploadProfilePicture(body);
-      console.log('[Profile Upload] Upload complete, result:', result);
-
-      if (result && result.data && result.data[0]?.url) {
-        const newPictureUrl = result.data[0].url;
-        console.log('[Profile Upload] New picture URL:', newPictureUrl);
-
-        // Change `picture` only, on the latest raw kind:0: every other
-        // field (banner, website, custom keys…) passes through. If that
-        // kind:0 can't be loaded for certain, nothing is published.
-        const { relayCount } = await updateOwnPicture($ndk, $userPublickey, newPictureUrl);
-        console.log('[Profile Upload] Profile updated on', relayCount, 'relays');
-
-        // CustomName/CustomAvatar still read profileCache until they move
-        // to the profile store; the resolver cache is already updated.
-        profileCacheManager.invalidateProfile($userPublickey);
-
-        // Small delay to allow relays to propagate
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-
-        // Update local profile immediately with new picture
-        if (profile) {
-          profile = { ...profile, picture: newPictureUrl, image: newPictureUrl };
-        }
-
-        // Set override URL so avatar shows new picture immediately (global store updates header too)
-        console.log('[Profile Upload] Setting userProfilePictureOverride store to:', newPictureUrl);
-        userProfilePictureOverride.set(newPictureUrl);
-        console.log('[Profile Upload] Store value after set:', $userProfilePictureOverride);
-
-        // Force Avatar to remount with fresh data
-        avatarRefreshKey++;
-
-        // Reload profile data with force refresh
-        await loadData(true);
-      } else {
-        console.error('[Profile Upload] No URL in result:', result);
-        alert('Failed to upload image');
-      }
-    } catch (err) {
-      console.error('[Profile Upload] Error:', err);
-      alert(
-        err instanceof Kind0LoadError ? err.message : 'Failed to upload image. Please try again.'
-      );
-    } finally {
-      uploadingPicture = false;
-      // Reset input
-      if (pictureInputEl) {
-        pictureInputEl.value = '';
-      }
-    }
-  }
-
-  function triggerPictureUpload() {
-    console.log('[Profile Upload] triggerPictureUpload called');
-    console.log('[Profile Upload] userPublickey:', $userPublickey);
-    console.log('[Profile Upload] hexpubkey:', hexpubkey);
-    console.log('[Profile Upload] pictureInputEl:', pictureInputEl);
-
-    if (!$userPublickey || hexpubkey !== $userPublickey) {
-      console.log('[Profile Upload] Not own profile, skipping');
-      return;
-    }
-    if (pictureInputEl) {
-      console.log('[Profile Upload] Triggering file input click');
-      pictureInputEl.click();
-    } else {
-      console.error('[Profile Upload] pictureInputEl is not available');
     }
   }
 

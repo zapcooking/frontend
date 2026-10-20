@@ -1,11 +1,13 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import {
   NDKEvent,
+  NDKPrivateKeySigner,
   NDKRelaySet,
   NDKRelayStatus,
   NDKSubscriptionCacheUsage,
   type NDKRelay
 } from '@nostr-dev-kit/ndk';
+import { getPublicKey } from 'nostr-tools';
 import { getOutboxRelays } from './relayListCache';
 import { ingestProfileEvent } from './profileResolver';
 
@@ -218,17 +220,37 @@ export async function loadLatestKind0(ndk: NDK, pubkey: string): Promise<LoadedK
 }
 
 /**
+ * Keys other clients write for the same field. The profile form shows a
+ * field from whichever of these the profile has, so a change must reach
+ * the ones present too: a cleared display name would otherwise keep
+ * showing from `displayName`, and a cleared picture from `image`.
+ * (The form's noffer fallbacks `offer` / `clink_offer` are left out: no
+ * standard says they mean noffer, so another client may use them.)
+ */
+export const PROFILE_FIELD_ALIASES: Record<string, string[]> = {
+  display_name: ['displayName'],
+  picture: ['image'],
+  about: ['bio']
+};
+
+/**
  * Set (string) or remove (undefined / '') fields on a copy of `content`.
- * Every key not named in `changes` passes through untouched.
+ * Every key not named in `changes` passes through untouched, except
+ * `aliases` of a changed key that the content already has: those get the
+ * same change (never added when absent).
  */
 export function applyKind0Changes(
   content: Record<string, unknown>,
-  changes: Record<string, string | undefined>
+  changes: Record<string, string | undefined>,
+  aliases: Record<string, string[]> = {}
 ): Record<string, unknown> {
   const next: Record<string, unknown> = { ...content };
   for (const [key, value] of Object.entries(changes)) {
-    if (value === undefined || value === '') delete next[key];
-    else next[key] = value;
+    const present = (aliases[key] ?? []).filter((alias) => alias in content);
+    for (const k of [key, ...present]) {
+      if (value === undefined || value === '') delete next[k];
+      else next[k] = value;
+    }
   }
   return next;
 }
@@ -247,9 +269,10 @@ export interface Kind0PublishResult {
 export async function updateOwnKind0(
   ndk: NDK,
   pubkey: string,
-  changes: Record<string, string | undefined>
+  changes: Record<string, string | undefined>,
+  aliases: Record<string, string[]> = {}
 ): Promise<Kind0PublishResult> {
-  return publishKind0Changes(ndk, pubkey, await loadLatestKind0(ndk, pubkey), changes);
+  return publishKind0Changes(ndk, pubkey, await loadLatestKind0(ndk, pubkey), changes, aliases);
 }
 
 /** The publish half of updateOwnKind0, for callers that inspect the load first. */
@@ -257,13 +280,14 @@ export async function publishKind0Changes(
   ndk: NDK,
   pubkey: string,
   loaded: LoadedKind0,
-  changes: Record<string, string | undefined>
+  changes: Record<string, string | undefined>,
+  aliases: Record<string, string[]> = {}
 ): Promise<Kind0PublishResult> {
   const base = loaded.status === 'found' ? loaded.content : {};
 
   const event = new NDKEvent(ndk);
   event.kind = 0;
-  event.content = JSON.stringify(applyKind0Changes(base, changes));
+  event.content = JSON.stringify(applyKind0Changes(base, changes, aliases));
   // Tags (NIP-39 identities, custom emoji…) are part of the profile too.
   event.tags = loaded.status === 'found' ? loaded.event.tags.map((t) => [...t]) : [];
   // A replaceable event only replaces an older one: never sign a
@@ -273,11 +297,44 @@ export async function publishKind0Changes(
   event.created_at = Math.max(now, previous + 1);
 
   await event.sign();
+  // The signer is global: if it changed account since the load (a late
+  // session restore, an account switch), this content belongs to someone
+  // else and would replace the signer's own profile.
+  if (event.pubkey !== pubkey) throw new Error(KIND0_WRONG_SIGNER_MESSAGE);
   const relays = await event.publish();
   if (relays.size === 0) {
     throw new Error('No relay accepted the profile update. Please try again.');
   }
   ingestProfileEvent(pubkey, event);
+  return { event, relayCount: relays.size };
+}
+
+export const KIND0_WRONG_SIGNER_MESSAGE =
+  'You were signed in as a different account while saving, so nothing was changed. Please try again.';
+
+/**
+ * A brand-new account's first kind:0, from `{}`, signed with ITS OWN key.
+ *
+ * Signup flows generate a key, sign in with it, then publish the profile.
+ * The global ndk.signer can change in between — a stored NIP-46/NIP-07
+ * session that was still restoring lands late — and signing with it would
+ * replace that EXISTING user's profile with this fresh one. Never sign a
+ * from-`{}` profile with anything but the key it was generated for.
+ */
+export async function publishNewAccountKind0(
+  ndk: NDK,
+  privateKey: Uint8Array,
+  content: Record<string, string>
+): Promise<Kind0PublishResult> {
+  const pubkey = getPublicKey(privateKey);
+  const event = new NDKEvent(ndk);
+  event.kind = 0;
+  event.tags = [];
+  event.content = JSON.stringify(content);
+  await event.sign(new NDKPrivateKeySigner(privateKey));
+  if (event.pubkey !== pubkey) throw new Error(KIND0_WRONG_SIGNER_MESSAGE);
+  const relays = await event.publish();
+  if (relays.size > 0) ingestProfileEvent(pubkey, event);
   return { event, relayCount: relays.size };
 }
 
