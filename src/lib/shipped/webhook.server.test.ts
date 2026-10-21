@@ -23,7 +23,7 @@ async function sign(body: Uint8Array | string, secret = SECRET): Promise<string>
     false,
     ['sign']
   );
-  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, bytes));
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, bytes as BufferSource));
   return 'sha256=' + [...mac].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
