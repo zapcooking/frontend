@@ -16,29 +16,43 @@ vi.mock('./nip98', () => ({ signNip98AuthHeader: vi.fn() }));
 const outbox = vi.hoisted(() => ({ urls: [] as string[] }));
 const published = vi.hoisted(() => ({ events: [] as any[], acceptedBy: 3 }));
 const USER = vi.hoisted(() => 'a'.repeat(64));
+/** Who the global ndk.signer is signed in as. */
+const globalSigner = vi.hoisted(() => ({ pubkey: 'a'.repeat(64) }));
 
-vi.mock('@nostr-dev-kit/ndk', () => ({
-  NDKEvent: class NDKEvent {
-    kind?: number;
-    content = '';
-    tags: string[][] = [];
-    created_at?: number;
-    pubkey = '';
-    constructor(public ndk?: unknown) {}
-    async sign() {
-      this.pubkey = USER;
-    }
-    async publish() {
-      published.events.push(this);
-      return new Set(Array.from({ length: published.acceptedBy }, (_, i) => ({ url: `r${i}` })));
-    }
-  },
-  NDKRelaySet: class NDKRelaySet {
-    constructor(public relays: Set<any>, _ndk: unknown) {}
-  },
-  NDKRelayStatus: { CONNECTED: 5 },
-  NDKSubscriptionCacheUsage: { ONLY_RELAY: 'ONLY_RELAY' }
-}));
+vi.mock('@nostr-dev-kit/ndk', async () => {
+  const { getPublicKey } = await import('nostr-tools');
+  return {
+    NDKEvent: class NDKEvent {
+      kind?: number;
+      content = '';
+      tags: string[][] = [];
+      created_at?: number;
+      pubkey = '';
+      constructor(public ndk?: unknown) {}
+      async sign(signer?: { pubkey: string }) {
+        this.pubkey = signer ? signer.pubkey : globalSigner.pubkey;
+      }
+      async publish() {
+        published.events.push(this);
+        return new Set(Array.from({ length: published.acceptedBy }, (_, i) => ({ url: `r${i}` })));
+      }
+    },
+    NDKPrivateKeySigner: class NDKPrivateKeySigner {
+      pubkey: string;
+      constructor(privateKey: Uint8Array) {
+        this.pubkey = getPublicKey(privateKey);
+      }
+    },
+    NDKRelaySet: class NDKRelaySet {
+      constructor(
+        public relays: Set<any>,
+        _ndk: unknown
+      ) {}
+    },
+    NDKRelayStatus: { CONNECTED: 5 },
+    NDKSubscriptionCacheUsage: { ONLY_RELAY: 'ONLY_RELAY' }
+  };
+});
 
 import {
   applyKind0Changes,
@@ -46,9 +60,13 @@ import {
   loadLatestKind0,
   updateOwnKind0,
   updateOwnPicture,
+  publishNewAccountKind0,
   Kind0LoadError,
-  KIND0_LOAD_TIMEOUT_MS
+  KIND0_LOAD_TIMEOUT_MS,
+  KIND0_WRONG_SIGNER_MESSAGE,
+  PROFILE_FIELD_ALIASES
 } from './ownKind0';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { clearProfileCache, onProfileCached } from './profileResolver';
 import { updateProfileWithNip05 } from './nip05Service';
 import { syncLightningAddressToProfile } from './spark/profileSync';
@@ -103,7 +121,8 @@ function makeNdk(scripts: Record<string, RelayScript>, poolUrls: string[] = [POO
       if (!stopped) for (const fn of handlers.get(ev) ?? []) fn(...a);
     };
     return {
-      on: (ev: string, fn: (...a: any[]) => void) => handlers.set(ev, [...(handlers.get(ev) ?? []), fn]),
+      on: (ev: string, fn: (...a: any[]) => void) =>
+        handlers.set(ev, [...(handlers.get(ev) ?? []), fn]),
       start: () =>
         queueMicrotask(() => {
           for (const e of script.events ?? []) fire('event', e);
@@ -152,6 +171,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-10-19T12:00:00Z'));
   published.events = [];
   published.acceptedBy = 3;
+  globalSigner.pubkey = USER;
   outbox.urls = [];
   clearProfileCache();
 });
@@ -188,7 +208,9 @@ describe('refusals publish nothing', () => {
       [PURPLEPAG]: { reply: 'silent' },
       [POOL]: { reply: 'silent' }
     });
-    await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({ code: 'timeout' });
+    await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({
+      code: 'timeout'
+    });
     expect(published.events).toHaveLength(0);
   });
 
@@ -212,7 +234,9 @@ describe('refusals publish nothing', () => {
         [POOL]: { events: [kind0(RICH, 1000)] },
         [PRIMAL]: { reply: 'silent' }
       });
-      await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({ code: 'timeout' });
+      await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({
+        code: 'timeout'
+      });
       expect(published.events).toHaveLength(0);
     }
   });
@@ -221,7 +245,9 @@ describe('refusals publish nothing', () => {
     for (const content of ['{"name": "cook",', '["name"]', '"cook"', 'null']) {
       published.events = [];
       const ndk = makeNdk({ [PURPLEPAG]: { events: [kind0(content, 1000)] } });
-      await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({ code: 'malformed' });
+      await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({
+        code: 'malformed'
+      });
       expect(published.events).toHaveLength(0);
     }
   });
@@ -231,14 +257,18 @@ describe('refusals publish nothing', () => {
       [PURPLEPAG]: { events: [kind0('{broken', 2000)] },
       [POOL]: { events: [kind0(RICH, 1000)] }
     });
-    await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({ code: 'malformed' });
+    await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({
+      code: 'malformed'
+    });
     expect(published.events).toHaveLength(0);
   });
 
   it('no relay connects', async () => {
     const off = { connected: false };
     const ndk = makeNdk({ [PURPLEPAG]: off, [POOL]: off, [PRIMAL]: off, [WINE]: off });
-    await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({ code: 'no-relays' });
+    await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({
+      code: 'no-relays'
+    });
     expect(published.events).toHaveLength(0);
   });
 
@@ -260,13 +290,17 @@ describe('brand-new account (no kind:0 anywhere)', () => {
 
   it('empty but purplepag unreachable: refused', async () => {
     const ndk = makeNdk({ [PURPLEPAG]: { connected: false } });
-    await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({ code: 'timeout' });
+    await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({
+      code: 'timeout'
+    });
     expect(published.events).toHaveLength(0);
   });
 
   it('empty but one connected relay stayed silent: refused', async () => {
     const ndk = makeNdk({ [PRIMAL]: { reply: 'silent' } });
-    await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({ code: 'timeout' });
+    await expect(settle(updateOwnPicture(ndk, USER, 'x'))).rejects.toMatchObject({
+      code: 'timeout'
+    });
     expect(published.events).toHaveLength(0);
   });
 });
@@ -364,11 +398,97 @@ describe('applyKind0Changes / changedFormFields', () => {
   it('an untouched field shown from a stale copy does not revert a newer value', async () => {
     // The form opened with picture "stale.png"; the latest kind:0 has a
     // newer picture saved from another client. Editing `about` keeps it.
-    const ndk = makeNdk({ [PURPLEPAG]: { events: [kind0({ ...RICH, picture: 'newer.png' }, 1000)] } });
+    const ndk = makeNdk({
+      [PURPLEPAG]: { events: [kind0({ ...RICH, picture: 'newer.png' }, 1000)] }
+    });
     const initial = { about: '', picture: 'stale.png' };
     const changes = changedFormFields(initial, { about: 'hello', picture: 'stale.png' });
     await settle(updateOwnKind0(ndk, USER, changes));
     expect(lastContent()).toEqual({ ...RICH, picture: 'newer.png', about: 'hello' });
+  });
+});
+
+describe('edit dialog: clearing a field', () => {
+  // The dialog's own path: changedFormFields(initial, current) → updateOwnKind0.
+  const FORM = { display_name: 'The Cook', name: 'cook', about: '', website: 'https://cook.test' };
+  const save = (ndk: any, current: Record<string, string>) =>
+    settle(
+      updateOwnKind0(
+        ndk,
+        USER,
+        changedFormFields(FORM, { ...FORM, ...current }),
+        PROFILE_FIELD_ALIASES
+      )
+    );
+
+  it('an emptied website is removed from the published event; everything else survives', async () => {
+    const ndk = makeNdk({ [PURPLEPAG]: { events: [kind0(RICH, 1000)] } });
+    await save(ndk, { website: '' });
+    const { website: _w, ...rest } = RICH;
+    expect(published.events).toHaveLength(1);
+    expect(lastContent()).toEqual(rest);
+  });
+
+  it('whitespace-only counts as cleared', async () => {
+    const ndk = makeNdk({ [PURPLEPAG]: { events: [kind0(RICH, 1000)] } });
+    await save(ndk, { website: '   ' });
+    expect('website' in lastContent()).toBe(false);
+  });
+
+  it('a cleared field also leaves the aliases the dialog read it from', async () => {
+    // displayName/image/bio are what some clients write instead of (or
+    // beside) display_name/picture/about; left behind, they keep showing.
+    const both = { ...RICH, displayName: 'The Cook', image: RICH.picture, bio: 'b' };
+    const ndk = makeNdk({ [PURPLEPAG]: { events: [kind0(both, 1000)] } });
+    await save(ndk, { display_name: '' });
+    expect(lastContent()).not.toHaveProperty('display_name');
+    expect(lastContent()).not.toHaveProperty('displayName');
+    expect(lastContent()).toMatchObject({ image: RICH.picture, bio: 'b', name: 'cook' });
+  });
+
+  it('a renamed field updates the aliases present, and adds none', async () => {
+    const ndk = makeNdk({
+      [PURPLEPAG]: { events: [kind0({ ...RICH, displayName: 'The Cook' }, 1000)] }
+    });
+    await save(ndk, { display_name: 'Chef' });
+    expect(lastContent()).toMatchObject({ display_name: 'Chef', displayName: 'Chef' });
+    expect(lastContent()).not.toHaveProperty('image');
+    expect(lastContent()).not.toHaveProperty('bio');
+  });
+  it('an alias the profile does not have is never added', async () => {
+    const ndk = makeNdk({ [PURPLEPAG]: { events: [kind0(RICH, 1000)] } });
+    await save(ndk, { display_name: 'Chef', about: 'new bio' });
+    expect(lastContent()).toEqual({ ...RICH, display_name: 'Chef', about: 'new bio' });
+  });
+});
+
+describe('signing account', () => {
+  it('a profile update is refused when the signer is no longer the loaded account', async () => {
+    globalSigner.pubkey = 'b'.repeat(64);
+    const ndk = makeNdk({ [PURPLEPAG]: { events: [kind0(RICH, 1000)] } });
+    await expect(settle(updateOwnKind0(ndk, USER, { about: 'x' }))).rejects.toThrow(
+      KIND0_WRONG_SIGNER_MESSAGE
+    );
+    expect(published.events).toHaveLength(0);
+  });
+
+  it('signup: the new profile is signed by the generated key, not the global signer', async () => {
+    // A stored session restoring late swapped the global signer back to an
+    // existing account between sign-in and publish.
+    globalSigner.pubkey = USER;
+    const key = generateSecretKey();
+    const heard: string[] = [];
+    const stop = onProfileCached((pk) => heard.push(pk));
+
+    await publishNewAccountKind0(makeNdk({}), key, { name: 'newcook', about: 'hi' });
+    stop();
+
+    expect(published.events).toHaveLength(1);
+    expect(published.events[0].pubkey).toBe(getPublicKey(key));
+    expect(published.events[0].kind).toBe(0);
+    expect(published.events[0].tags).toEqual([]);
+    expect(lastContent()).toEqual({ name: 'newcook', about: 'hi' });
+    expect(heard).toEqual([getPublicKey(key)]);
   });
 });
 
@@ -394,7 +514,9 @@ describe('spark syncLightningAddressToProfile', () => {
   });
 
   it('already set: publishes nothing', async () => {
-    const ndk = makeNdk({ [PURPLEPAG]: { events: [kind0({ ...RICH, lud16: 'me@breez.tips' }, 1000)] } });
+    const ndk = makeNdk({
+      [PURPLEPAG]: { events: [kind0({ ...RICH, lud16: 'me@breez.tips' }, 1000)] }
+    });
     expect(await settle(syncLightningAddressToProfile('me@breez.tips', USER, ndk))).toBe(true);
     expect(published.events).toHaveLength(0);
   });

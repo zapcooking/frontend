@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { publishNewAccountKind0 } from '$lib/ownKind0';
   import { browser } from '$app/environment';
   import { ndk, userPublickey } from '$lib/nostr';
   import { onMount, onDestroy } from 'svelte';
@@ -98,14 +99,10 @@
       }
     }
 
-    if (step == 2 && name !== '') {
+    if (step == 2 && name !== '' && generatedKeys) {
       // Create profile
-      const metaEvent = new NDKEvent($ndk);
-      metaEvent.kind = 0;
-      metaEvent.tags = [];
-
       // Build profile content with username
-      const profileContent: any = {
+      const profileContent: Record<string, string> = {
         displayName: name,
         picture
       };
@@ -116,19 +113,13 @@
         profileContent.nip05 = `${username.trim()}@zap.cooking`;
       }
 
-      metaEvent.content = JSON.stringify(profileContent);
-      let relays = await metaEvent.publish();
+      // Signed with the key generated in step 1, never the global signer:
+      // a stored session still restoring could have replaced it since, and
+      // this fresh profile would then overwrite that user's real one.
+      await publishNewAccountKind0($ndk, generatedKeys.privateKey, profileContent);
 
       // Small delay to allow relays to propagate
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      relays.forEach((relay) => {
-        relay.once('published', () => {
-          console.log('published to', relay);
-        });
-        relay.once('publish:failed', (relay, err) => {
-          console.log('publish failed to', relay, err);
-        });
-      });
     }
 
     if (step == 3) {

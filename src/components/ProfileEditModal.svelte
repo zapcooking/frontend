@@ -11,7 +11,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { uploadToNostrBuild } from '$lib/mediaUpload';
   import { profileCacheManager } from '$lib/profileCache';
-  import { changedFormFields, updateOwnKind0 } from '$lib/ownKind0';
+  import { changedFormFields, updateOwnKind0, PROFILE_FIELD_ALIASES } from '$lib/ownKind0';
 
   export let open = false;
   export let profile: any = null;
@@ -319,9 +319,15 @@
       // Only the fields the user changed are applied, onto the latest raw
       // kind:0 — every other field passes through. If that kind:0 can't
       // be loaded for certain, nothing is published (Kind0LoadError).
+      // A cleared field is removed, with the aliases the form read it from.
       const changes = changedFormFields(initialFormData, formData);
       if (Object.keys(changes).length > 0) {
-        const { relayCount } = await updateOwnKind0($ndk, $userPublickey, changes);
+        const { relayCount } = await updateOwnKind0(
+          $ndk,
+          $userPublickey,
+          changes,
+          PROFILE_FIELD_ALIASES
+        );
         console.log('[ProfileEdit] Profile published to', relayCount, 'relays');
 
         // CustomName/CustomAvatar still read profileCache until they move
