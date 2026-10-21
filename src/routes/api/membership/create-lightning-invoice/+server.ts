@@ -197,7 +197,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     await storeInvoiceMetadata(
       kv,
       receiveRequestId,
-      { pubkey, tier: tier as 'cook' | 'pro', period: period as 'annual' | 'monthly' },
+      {
+        pubkey,
+        tier: tier as 'cook' | 'pro',
+        period: period as 'annual' | 'monthly',
+        product: 'membership'
+      },
       paymentHash
     );
     

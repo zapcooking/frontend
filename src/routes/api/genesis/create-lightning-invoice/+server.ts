@@ -156,7 +156,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     await storeInvoiceMetadata(
       kv,
       receiveRequestId,
-      { pubkey, tier: 'pro', period: 'annual' },
+      { pubkey, tier: 'pro', period: 'annual', product: 'genesis' },
       paymentHash
     );
 
