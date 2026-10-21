@@ -32,7 +32,9 @@ const PK = 'c'.repeat(64);
  * Minimal NDK: every relay is connected; each subscription runs `answer`,
  * which may emit events/EOSE (or nothing, for relays that never reply).
  */
-function makeNdk(answer: (sub: { isPurplepag: boolean; event: (e: any) => void; eose: () => void }) => void) {
+function makeNdk(
+  answer: (sub: { isPurplepag: boolean; urls: string[]; event: (e: any) => void; eose: () => void }) => void
+) {
   const relays = new Map<string, any>();
   const getRelay = (url: string) => {
     if (!relays.has(url)) {
@@ -53,6 +55,7 @@ function makeNdk(answer: (sub: { isPurplepag: boolean; event: (e: any) => void; 
       start: () =>
         answer({
           isPurplepag: urls.length === 1 && urls[0] === PURPLEPAG,
+          urls,
           event: (e) => fire('event', e),
           eose: () => fire('eose')
         }),
@@ -78,9 +81,9 @@ async function tick(ms: number) {
   }
 }
 
-function watch(pubkey: string) {
+function watch(pubkey: string, hints?: string[]) {
   const states: ProfileState[] = [];
-  const unsubscribe = profileFor(pubkey).subscribe((s) => states.push(s));
+  const unsubscribe = profileFor(pubkey, hints).subscribe((s) => states.push(s));
   return { states, unsubscribe, last: () => states[states.length - 1] };
 }
 
@@ -134,4 +137,32 @@ describe('profileStore with the real resolver', () => {
     expect(__profileStoreStats()).toEqual({ entries: 1, listening: false, pendingRetries: 0 });
   });
 
+  it('a profile only on a mention\'s hinted relay reaches the plain row too', async () => {
+    const HINT = 'wss://only-here.test';
+    const kind0 = {
+      kind: 0,
+      pubkey: PK,
+      created_at: 1000,
+      content: JSON.stringify({ name: 'Hinted Cook' })
+    };
+    // Every relay answers EOSE; only the hinted relay holds the profile.
+    const ndk = makeNdk((sub) => {
+      if (sub.urls.includes(HINT)) sub.event(kind0);
+      sub.eose();
+    });
+    ndkStore.current.set(ndk);
+
+    const row = watch(PK); // e.g. the note's AuthorName
+    await tick(200);
+    await tick(100);
+    expect(row.last()).toEqual({ status: 'missing' }); // confirmed miss without the hint
+
+    const mention = watch(PK, [HINT]); // ProfileLink for nostr:nprofile…(relays: [HINT])
+    await tick(200);
+    await tick(100);
+    expect(mention.last()).toMatchObject({ status: 'found', profile: { name: 'Hinted Cook' } });
+    expect(row.last()).toEqual(mention.last());
+    row.unsubscribe();
+    mention.unsubscribe();
+  });
 });

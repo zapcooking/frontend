@@ -41,12 +41,17 @@ vi.mock('./nostr', async () => {
 // another component's lookup (or a seed) would.
 const resolver = vi.hoisted(() => ({
   resolve: vi.fn(),
+  /** resolveProfile(nprofile): called with the decoded pubkey + relays. */
+  resolveHinted: vi.fn(),
+  // Set below (nip19 isn't importable inside a hoisted mock factory).
+  decodeHinted: (_s: string, _ndk: unknown): any => null,
   confirmed: vi.fn((_pk: string) => false),
   resolveProfiles: vi.fn(async () => new Map()),
   listeners: new Set<(pk: string, p: any) => void>()
 }));
 vi.mock('./profileResolver', () => ({
   resolveProfileByPubkey: (pk: string, ndk: unknown) => resolver.resolve(pk, ndk),
+  resolveProfile: (s: string, ndk: unknown) => resolver.decodeHinted(s, ndk),
   isProfileMissConfirmed: (pk: string) => resolver.confirmed(pk),
   resolveProfiles: (s: string[], ndk: unknown) => resolver.resolveProfiles(s, ndk),
   onProfileCached: (fn: (pk: string, p: any) => void) => {
@@ -59,6 +64,7 @@ vi.mock('./profileResolver', () => ({
 import {
   profileFor,
   authorLabel,
+  nameLabelFor,
   shortNpub,
   prefetchProfiles,
   PROFILE_RETRY_DELAY_MS,
@@ -71,9 +77,9 @@ const PK = 'a'.repeat(64);
 const profile = (pubkey: string, name: string) => ({ pubkey, name, lastFetched: 0 });
 
 /** Subscribe and record every value the store pushes. */
-function watch(pubkey: string) {
+function watch(pubkey: string, hints?: string[]) {
   const states: ProfileState[] = [];
-  const unsubscribe = profileFor(pubkey).subscribe((s) => states.push(s));
+  const unsubscribe = profileFor(pubkey, hints).subscribe((s) => states.push(s));
   return { states, unsubscribe, last: () => states[states.length - 1] };
 }
 
@@ -84,6 +90,11 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+resolver.decodeHinted = (s: string, ndk: unknown) => {
+  const d = nip19.decode(s.replace(/^nostr:/, '')) as any;
+  return resolver.resolveHinted(d.data.pubkey, d.data.relays, ndk);
+};
+
 const deliverLate = (pk: string, p: any) => {
   for (const fn of [...resolver.listeners]) fn(pk, p);
 };
@@ -93,6 +104,7 @@ describe('profileStore', () => {
     vi.useFakeTimers();
     env.browser = true;
     resolver.resolve.mockReset();
+    resolver.resolveHinted.mockReset();
     resolver.confirmed.mockReset().mockReturnValue(false);
     resolver.resolveProfiles.mockClear();
     resolver.listeners.clear();
@@ -380,6 +392,214 @@ describe('profileStore', () => {
   it('prefetchProfiles warms the resolver in the browser', async () => {
     await prefetchProfiles(['nostr:nprofile1abc']);
     expect(resolver.resolveProfiles).toHaveBeenCalledWith(['nostr:nprofile1abc'], {});
+  });
+});
+
+describe('profileStore relay hints (ProfileLink / nprofile mentions)', () => {
+  const HINT_A = 'wss://hint-a.test';
+  const HINT_B = 'wss://hint-b.test';
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    env.browser = true;
+    resolver.resolve.mockReset();
+    resolver.resolveHinted.mockReset();
+    resolver.confirmed.mockReset().mockReturnValue(false);
+    resolver.listeners.clear();
+    __resetProfileStore();
+  });
+  afterEach(() => {
+    __resetProfileStore();
+    vi.useRealTimers();
+  });
+
+  it('a hinted subscriber looks up through the nprofile path with its hints', async () => {
+    resolver.resolveHinted.mockResolvedValue(profile(PK, 'hinted'));
+    const w = watch(PK, [HINT_A]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolver.resolve).not.toHaveBeenCalled();
+    expect(resolver.resolveHinted).toHaveBeenCalledWith(PK, [HINT_A], {});
+    expect(w.last()).toEqual({ status: 'found', profile: profile(PK, 'hinted') });
+    w.unsubscribe();
+  });
+
+  it('hints from different subscribers share ONE store: a hint-found name reaches every row', async () => {
+    const created0 = created.length;
+    // Row 1 (no hints) is still in flight when row 2 brings a hint.
+    const first = deferred<any>();
+    resolver.resolve.mockReturnValueOnce(first.promise);
+    resolver.resolveHinted.mockResolvedValue(profile(PK, 'via hint'));
+    const plain = watch(PK);
+    const hinted = watch(PK, [HINT_A]);
+    expect(created.length - created0).toBe(1); // one store, not two
+
+    // The hintless lookup finds nothing; the store asks again with the
+    // hint that arrived meanwhile — before concluding anything.
+    first.resolve(null);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolver.resolveHinted).toHaveBeenCalledWith(PK, [HINT_A], {});
+    expect(plain.last()).toEqual({ status: 'found', profile: profile(PK, 'via hint') });
+    expect(hinted.last()).toEqual(plain.last());
+    expect(plain.states.map((s) => s.status)).toEqual(['loading', 'found']);
+    plain.unsubscribe();
+    hinted.unsubscribe();
+  });
+
+  it('a new hint after a confirmed miss asks the hinted relays; the anon name stays until found', async () => {
+    resolver.resolve.mockResolvedValue(null);
+    resolver.confirmed.mockReturnValue(true);
+    const plain = watch(PK);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plain.last()).toEqual({ status: 'missing' });
+
+    const hinted = deferred<any>();
+    resolver.resolveHinted.mockReturnValueOnce(hinted.promise);
+    const mention = watch(PK, [HINT_A]);
+    expect(resolver.resolveHinted).toHaveBeenCalledWith(PK, [HINT_A], {});
+    expect(mention.last()).toEqual({ status: 'missing' });
+    hinted.resolve(profile(PK, 'found on hint'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plain.last()).toEqual({ status: 'found', profile: profile(PK, 'found on hint') });
+    expect(mention.last()).toEqual(plain.last());
+    plain.unsubscribe();
+    mention.unsubscribe();
+  });
+
+  it('a late hint that finds nothing leaves the short npub as it was (no flicker, no anon)', async () => {
+    resolver.resolve.mockResolvedValue(null);
+    const plain = watch(PK);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(PROFILE_RETRY_DELAY_MS);
+    expect(plain.last()).toEqual({ status: 'unconfirmed' });
+    const sets = plain.states.length;
+
+    resolver.resolveHinted.mockResolvedValue(null);
+    const mention = watch(PK, [HINT_A]);
+    await vi.advanceTimersByTimeAsync(PROFILE_RETRY_DELAY_MS * 2);
+    expect(resolver.resolveHinted).toHaveBeenCalledTimes(1);
+    expect(plain.states.length).toBe(sets);
+    expect(mention.last()).toEqual({ status: 'unconfirmed' });
+    plain.unsubscribe();
+    mention.unsubscribe();
+  });
+
+  it('hints are merged and deduped; known hints trigger no new lookup', async () => {
+    resolver.resolve.mockResolvedValue(null);
+    resolver.confirmed.mockReturnValue(true);
+    resolver.resolveHinted.mockResolvedValue(null);
+    const a = watch(PK, [HINT_A]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolver.resolveHinted).toHaveBeenLastCalledWith(PK, [HINT_A], {});
+    const again = watch(PK, [HINT_A + '/']); // same relay
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolver.resolveHinted).toHaveBeenCalledTimes(1);
+    const b = watch(PK, [HINT_B, 'not-a-relay']);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolver.resolveHinted).toHaveBeenCalledTimes(2);
+    expect(resolver.resolveHinted).toHaveBeenLastCalledWith(PK, [HINT_A, HINT_B], {});
+    a.unsubscribe();
+    again.unsubscribe();
+    b.unsubscribe();
+  });
+
+  it("the unconfirmed retry includes every known hint", async () => {
+    resolver.resolveHinted.mockResolvedValue(null);
+    const w = watch(PK, [HINT_A]);
+    await vi.advanceTimersByTimeAsync(0);
+    const w2 = watch(PK, [HINT_B]); // arrives while waiting for the retry
+    await vi.advanceTimersByTimeAsync(PROFILE_RETRY_DELAY_MS);
+    expect(resolver.resolveHinted).toHaveBeenLastCalledWith(PK, [HINT_A, HINT_B], {});
+    expect(w.last()).toEqual({ status: 'unconfirmed' });
+    w.unsubscribe();
+    w2.unsubscribe();
+  });
+});
+
+// The label each component renders, computed with the component's own
+// expression: CustomName = nameLabelFor(pk, $profileFor(pk)); ProfileLink
+// = authorLabel(pk, $profileFor(pk, nprofile relays)). (Components can't
+// be mounted in this vitest setup; these drive the same store + label.)
+const HINT = 'wss://mention-hint.test';
+const COMPONENTS = [
+  {
+    name: 'CustomName',
+    lookup: () => resolver.resolve,
+    mount(pk: string) {
+      const labels: ReturnType<typeof authorLabel>[] = [];
+      const unsubscribe = profileFor(pk).subscribe((st) => labels.push(nameLabelFor(pk, st)));
+      return { labels, unsubscribe };
+    }
+  },
+  {
+    name: 'ProfileLink',
+    lookup: () => resolver.resolveHinted,
+    mount(pk: string) {
+      const decoded = nip19.decode(nip19.nprofileEncode({ pubkey: pk, relays: [HINT] })) as any;
+      const labels: ReturnType<typeof authorLabel>[] = [];
+      const unsubscribe = profileFor(decoded.data.pubkey, decoded.data.relays).subscribe((st) =>
+        labels.push(authorLabel(decoded.data.pubkey, st))
+      );
+      return { labels, unsubscribe };
+    }
+  }
+];
+
+for (const component of COMPONENTS) describe(`${component.name} label`, () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    env.browser = true;
+    resolver.resolve.mockReset();
+    resolver.resolveHinted.mockReset();
+    resolver.confirmed.mockReset().mockReturnValue(false);
+    resolver.listeners.clear();
+    __resetProfileStore();
+  });
+  afterEach(() => {
+    __resetProfileStore();
+    vi.useRealTimers();
+  });
+
+  const text = (labels: ReturnType<typeof authorLabel>[]) =>
+    labels.map((l) => (l.kind === 'skeleton' ? 'skeleton' : l.text));
+
+  it('confirmed miss → anon name (skeleton first, never a short npub)', async () => {
+    component.lookup().mockResolvedValue(null);
+    resolver.confirmed.mockReturnValue(true);
+    const m = component.mount(PK);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(text(m.labels)).toEqual(['skeleton', getAnonChefName(PK)]);
+    m.unsubscribe();
+  });
+
+  it('unconfirmed → a real short npub after exactly one retry, never the anon name', async () => {
+    component.lookup().mockResolvedValue(null);
+    const m = component.mount(PK);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(text(m.labels)).toEqual(['skeleton']);
+    await vi.advanceTimersByTimeAsync(PROFILE_RETRY_DELAY_MS);
+    await vi.advanceTimersByTimeAsync(PROFILE_RETRY_DELAY_MS * 3);
+    expect(component.lookup()).toHaveBeenCalledTimes(2);
+    expect(text(m.labels)).toEqual(['skeleton', shortNpub(PK)]);
+    expect(nip19.npubEncode(PK).startsWith(shortNpub(PK).split('…')[0])).toBe(true);
+    m.unsubscribe();
+  });
+
+  it('a late profile replaces the placeholder without a remount', async () => {
+    component.lookup().mockResolvedValue(null);
+    const m = component.mount(PK);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(PROFILE_RETRY_DELAY_MS);
+    deliverLate(PK, profile(PK, 'Late Cook'));
+    expect(text(m.labels)).toEqual(['skeleton', shortNpub(PK), 'Late Cook']);
+    m.unsubscribe();
+  });
+});
+
+describe('nameLabelFor (CustomName)', () => {
+  it('no pubkey yet is a skeleton, not an anon author', () => {
+    expect(nameLabelFor('', null)).toEqual({ kind: 'skeleton' });
+    expect(nameLabelFor(undefined, { status: 'missing' })).toEqual({ kind: 'skeleton' });
+    expect(nameLabelFor(PK, { status: 'missing' })).toEqual({ kind: 'text', text: getAnonChefName(PK) });
   });
 });
 
