@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mixed replies, one thread — zap.cooking</title>
+<style>
+  :root {
+    --c-bg: #17120e;
+    --c-panel: #241c15;
+    --c-panel-2: #2c2118;
+    --c-text: #f5efe6;
+    --c-muted: rgba(245, 239, 230, 0.58);
+    --c-faint: rgba(245, 239, 230, 0.34);
+    --c-accent: #f97316;
+    --c-accent-deep: #c2570d;
+    --c-sand: #d9c6a5;
+    --c-hairline: rgba(245, 239, 230, 0.14);
+    --font-sans: -apple-system, "SF Pro Display", Inter, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  html, body { margin: 0; padding: 0; background: var(--c-bg); }
+  .poster {
+    width: 720px;
+    position: relative;
+    background: var(--c-bg);
+    color: var(--c-text);
+    font-family: var(--font-sans), sans-serif;
+    padding: 56px 52px 44px 52px;
+    box-sizing: border-box;
+  }
+
+  /* ── Header ── */
+  .kicker {
+    font-size: 16px; font-weight: 600; letter-spacing: 4px;
+    text-transform: uppercase; color: var(--c-accent);
+    margin-bottom: 18px;
+  }
+  h1 {
+    font-size: 58px; font-weight: 900; line-height: 1.04;
+    letter-spacing: -1.5px; margin: 0 0 16px 0;
+  }
+  .subtitle {
+    font-size: 24px; font-weight: 400; line-height: 1.35;
+    color: var(--c-muted); margin: 0 0 8px 0;
+  }
+  .subtitle strong { color: var(--c-text); font-weight: 700; }
+
+  .rule { border: 0; border-top: 1px solid var(--c-hairline); margin: 36px 0 30px 0; }
+
+  /* ── Sections ── */
+  .sec-num {
+    font-family: var(--font-mono), monospace; font-size: 16px; font-weight: 700;
+    color: var(--c-accent); letter-spacing: 2px; margin-bottom: 8px;
+  }
+  h2 {
+    font-size: 30px; font-weight: 800; letter-spacing: -0.4px;
+    margin: 0 0 14px 0; line-height: 1.15;
+  }
+  p.body {
+    font-size: 24px; line-height: 1.42; margin: 0 0 14px 0;
+    text-align: left; color: var(--c-text);
+  }
+  p.body .dim { color: var(--c-muted); }
+  .code-ish { font-family: var(--font-mono), monospace; font-size: 0.82em; color: var(--c-sand); }
+
+  /* ── The thread diagram ── */
+  .thread { margin: 22px 0 6px 6px; }
+  .node { position: relative; padding-left: 44px; margin-bottom: 26px; }
+  .node::before {           /* connector spine */
+    content: ""; position: absolute; left: 13px; top: -14px; bottom: 8px;
+    width: 2px; background: var(--c-hairline);
+  }
+  .node:first-child::before { display: none; }
+  .node::after {            /* node dot */
+    content: ""; position: absolute; left: 7px; top: 8px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--c-bg); border: 3px solid var(--c-sand);
+    box-sizing: border-box;
+  }
+  .node.comment::after { border-color: var(--c-accent); }
+  .node-label {
+    font-family: var(--font-mono), monospace; font-size: 17px; font-weight: 700;
+    letter-spacing: 1px; margin-bottom: 6px; color: var(--c-sand);
+  }
+  .node.comment .node-label { color: var(--c-accent); }
+  .node-content { font-size: 24px; line-height: 1.3; margin-bottom: 8px; }
+  .tagrows {
+    background: var(--c-panel); border-radius: 10px;
+    padding: 14px 16px; display: inline-block;
+  }
+  .tagrow {
+    font-family: var(--font-mono), monospace; font-size: 17px; line-height: 1.55;
+    white-space: nowrap;
+  }
+  .tagrow .up { color: var(--c-accent); font-weight: 700; }
+  .tagrow .low { color: var(--c-sand); font-weight: 700; }
+  .tagrow .val { color: var(--c-muted); }
+  .tagrow .note { color: var(--c-faint); }
+  .node-caption {
+    font-size: 16px; line-height: 1.4; color: var(--c-faint);
+    margin-top: 8px; max-width: 520px;
+  }
+  .node-caption b { color: var(--c-muted); font-weight: 600; }
+
+  /* ── Filter code panel ── */
+  .codepanel {
+    background: var(--c-panel); border-radius: 12px;
+    padding: 22px 24px; margin: 20px 0 10px 0;
+  }
+  .codeline {
+    font-family: var(--font-mono), monospace; font-size: 16.5px; line-height: 1.8;
+    white-space: pre; color: var(--c-text);
+  }
+  .codeline .k { color: var(--c-accent); font-weight: 700; }
+  .codeline .t { color: var(--c-accent); }
+  .codeline .n { color: var(--c-sand); }
+  .codeline .c { color: var(--c-faint); }
+
+  /* ── Write policy ── */
+  .policy { margin-top: 20px; }
+  .policy-row { display: flex; flex-wrap: wrap; gap: 0 18px; margin-bottom: 20px; }
+  .policy-when {
+    font-family: var(--font-mono), monospace; font-size: 17px; font-weight: 700;
+    color: var(--c-muted); flex: 0 0 208px; padding-top: 3px;
+  }
+  .policy-what { flex: 1 1 340px; min-width: 300px; }
+  .policy-head { font-size: 24px; font-weight: 800; margin-bottom: 4px; }
+  .policy-head .k1111 { color: var(--c-accent); }
+  .policy-sub { font-size: 20px; line-height: 1.4; color: var(--c-muted); }
+
+  /* ── Parity strip ── */
+  .parity { display: flex; flex-wrap: wrap; gap: 14px 36px; margin-top: 18px; }
+  .parity-item { flex: 1 1 180px; min-width: 170px; }
+  .parity-label {
+    font-size: 16px; letter-spacing: 2.5px; text-transform: uppercase;
+    color: var(--c-faint); margin-bottom: 6px; font-weight: 600;
+  }
+  .parity-value { font-size: 21px; font-weight: 700; line-height: 1.3; }
+  .parity-value .mono { font-family: var(--font-mono), monospace; font-size: 18px; color: var(--c-accent); }
+
+  /* ── Footer ── */
+  .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--c-hairline); }
+  .footer-line {
+    font-size: 16px; line-height: 1.65; color: var(--c-faint);
+  }
+  .footer-line b { color: var(--c-muted); font-weight: 600; }
+  .wordmark {
+    font-size: 19px; font-weight: 800; letter-spacing: 0.5px;
+    color: var(--c-text); margin-bottom: 8px;
+  }
+  .wordmark .bolt { color: var(--c-accent); }
+</style>
+</head>
+<body>
+<div class="poster">
+
+  <div class="kicker">zap.cooking · engineering</div>
+  <h1>Mixed replies,<br>one thread.</h1>
+  <p class="subtitle">Nostr answers a note two ways: <strong>kind 1 replies</strong> (NIP-10) and
+  <strong>kind 1111 comments</strong> (NIP-22). Here is how we read, write and count both&nbsp;— in one tree.</p>
+
+  <hr class="rule">
+
+  <div class="sec-num">01 — THE FAILURE</div>
+  <h2>A working query hides half the thread</h2>
+  <p class="body">A comment carries its <span class="code-ish">e</span> = <span class="dim">the note it answers</span>,
+  and its <span class="code-ish">E</span> = <span class="dim">the thread root</span>. So
+  <span class="code-ish">#e = root</span> — the query that works for kind-1 threads — only ever finds
+  <b>top-level comments</b>. Every reply-to-a-comment below them is invisible.</p>
+
+  <div class="thread">
+    <div class="node">
+      <div class="node-label">NOTE · kind 1</div>
+      <div class="node-content">the root note</div>
+    </div>
+    <div class="node">
+      <div class="node-label">REPLY · kind 1</div>
+      <div class="node-content">a NIP-10 reply</div>
+      <div class="tagrows">
+        <div class="tagrow"><span class="low">e</span> <span class="val">[root,</span> <span class="note">""</span><span class="val">,</span> <span class="note">"root"</span><span class="val">]</span> &nbsp; <span class="low">e</span> <span class="val">[note,</span> <span class="note">""</span><span class="val">,</span> <span class="note">"reply"</span><span class="val">]</span></div>
+      </div>
+      <div class="node-caption">root + reply <b>markers</b>; every descendant repeats the root</div>
+    </div>
+    <div class="node comment">
+      <div class="node-label">COMMENT · kind 1111</div>
+      <div class="node-content">replying to that note</div>
+      <div class="tagrows">
+        <div class="tagrow"><span class="up">E</span> <span class="val">[root]</span> &nbsp; <span class="up">K</span> <span class="val">[1]</span> &nbsp; <span class="up">P</span> <span class="val">[root-author]</span> &nbsp; <span class="note">← root scope</span></div>
+        <div class="tagrow"><span class="low">e</span> <span class="val">[note]</span> &nbsp; <span class="low">k</span> <span class="val">[1]</span> &nbsp; <span class="low">p</span> <span class="val">[note-author]</span> &nbsp; <span class="note">← parent scope</span></div>
+      </div>
+    </div>
+    <div class="node comment">
+      <div class="node-label">COMMENT · kind 1111</div>
+      <div class="node-content">replying to that comment</div>
+      <div class="tagrows">
+        <div class="tagrow"><span class="up">E</span> <span class="val">[root]</span> &nbsp; <span class="note">— unchanged,&nbsp;— still the root</span></div>
+        <div class="tagrow"><span class="low">e</span> <span class="val">[comment-above]</span> &nbsp; <span class="low">k</span> <span class="val">[1111]</span></div>
+      </div>
+      <div class="node-caption"><b>uppercase E always names the root; lowercase e walks parent to parent.</b>
+      Slot 3 of a comment's <span class="code-ish">e</span> is the parent <b>author</b> — never a NIP-10 marker.</div>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <div class="sec-num">02 — THE READ</div>
+  <h2>One REQ, two sibling filters</h2>
+  <div class="codepanel">
+    <div class="codeline"><span class="n">["REQ",</span> <span class="t">"thread"</span><span class="n">,</span></div>
+    <div class="codeline">  <span class="n">{</span> <span class="k">"kinds"</span><span class="n">: [1, 5, 1111],</span> <span class="k">"#e"</span><span class="n">: [root, focal] },</span></div>
+    <div class="codeline">  <span class="n">{</span> <span class="k">"kinds"</span><span class="n">: [1111],</span>       <span class="k">"#E"</span><span class="n">: [root, focal] } ]</span></div>
+  </div>
+  <p class="body">The <span class="code-ish">#e</span> filter walks the NIP-10 tree (plus deletions);
+  the <span class="code-ish">#E</span> filter returns the whole comment tree. Relays
+  <span class="code-ish">OR</span> sibling filters&nbsp;— merged into one object, the tags
+  <span class="code-ish">AND</span> and match nothing new. <span class="dim">Verified live: on a
+  four-deep chain, <span class="code-ish">#e</span> returns 1 event,
+  <span class="code-ish">#E</span> returns 4.</span></p>
+
+  <hr class="rule">
+
+  <div class="sec-num">03 — THE WRITE</div>
+  <h2>Reply in the dialect the thread speaks</h2>
+  <div class="policy">
+    <div class="policy-row">
+      <div class="policy-when">target = comment</div>
+      <div class="policy-what">
+        <div class="policy-head">kind <span class="k1111">1111</span></div>
+        <div class="policy-sub">copy its <span class="code-ish">E/A/I + K + P</span> root scope verbatim, append
+        <span class="code-ish">e / k / p</span> pointing at the parent</div>
+      </div>
+    </div>
+    <div class="policy-row">
+      <div class="policy-when">target = anything else</div>
+      <div class="policy-what">
+        <div class="policy-head">kind 1</div>
+        <div class="policy-sub">plain NIP-10 tags — the default, because every client renders them everywhere</div>
+      </div>
+    </div>
+    <div class="policy-row">
+      <div class="policy-when">comment has no E/A/I</div>
+      <div class="policy-what">
+        <div class="policy-head">kind 1 fallback</div>
+        <div class="policy-sub">never publish a reply that nobody — including us — could place in a tree</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <div class="sec-num">04 — THE PARITY</div>
+  <h2>A comment is a reply</h2>
+  <div class="parity">
+    <div class="parity-item">
+      <div class="parity-label">Counts</div>
+      <div class="parity-value">toward the parent it answered&nbsp;— never the root</div>
+    </div>
+    <div class="parity-item">
+      <div class="parity-label">Notifications</div>
+      <div class="parity-value">"replied to your comment" · "your post" · "in your thread"</div>
+    </div>
+    <div class="parity-item">
+      <div class="parity-label">Details</div>
+      <div class="parity-value"><span class="mono">KIND 1111 · COMMENT</span> beside "Posted via…"</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="wordmark"><span class="bolt">⚡</span> zap.cooking</div>
+    <div class="footer-line">Ported from <b>zapcooking_ios</b> PRs <b>#161</b> + <b>#145</b>&nbsp;· conventions confirmed against
+    Ditto's client code</div>
+    <div class="footer-line"><span class="code-ish">#E</span> indexing verified on relay.azzamo.net · nostr.wine ·
+    nos.lol · relay.ditto.pub</div>
+  </div>
+
+</div>
+</body>
+</html>

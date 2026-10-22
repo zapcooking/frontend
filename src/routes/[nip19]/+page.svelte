@@ -24,8 +24,7 @@
   import NoteActionBar from '../../components/NoteActionBar.svelte';
   import NoteReactionPills from '../../components/NoteReactionPills.svelte';
   import ThreadRow from '../../components/comments/ThreadRow.svelte';
-  import ThreadMoreRow from '../../components/comments/ThreadMoreRow.svelte';
-  import { flattenThread } from '$lib/thread/threadFlatten';
+  import SubReplyList from '../../components/comments/SubReplyList.svelte';
   import { buildReplyTree, getReplyParentId, getThreadRootId } from '$lib/thread/replyParent';
   import { splitThreadByFocus } from '$lib/thread/threadScope';
   import PowBadge from '../../components/PowBadge.svelte';
@@ -654,16 +653,6 @@
     for (const r of scopedThread.subtree) put(r);
     return m;
   })();
-  $: replyTargetByRowId = (() => {
-    const m = new Map<string, string | undefined>();
-    for (const item of threadItems) {
-      if (item.kind !== 'post') continue;
-      const parentId = getReplyParentId(item.event);
-      m.set(item.event.id, parentId ? authorById.get(parentId) : undefined);
-    }
-    return m;
-  })();
-
   // The conversation root, when it's in view — the root-scope source for
   // replies published from the modal. Falls back to the focused note (same
   // root tag the inline composer always wrote).
@@ -743,48 +732,10 @@
     return order.slice(0, 12);
   })();
 
-  // Progressive disclosure state. Expanding past the depth cap or a
-  // fan-out row is additive — nothing folds on its own — while a branch
-  // the reader collapses stays folded until they reopen it.
-  let expandedBranchIds = new Set<string>();
-  let expandedFanOutIds = new Set<string>();
-  let collapsedBranchIds = new Set<string>();
-
-  function expandBranch(id: string) {
-    expandedBranchIds = new Set(expandedBranchIds).add(id);
-    if (collapsedBranchIds.has(id)) {
-      const next = new Set(collapsedBranchIds);
-      next.delete(id);
-      collapsedBranchIds = next;
-    }
-  }
-
-  function toggleBranchCollapse(id: string) {
-    const next = new Set(collapsedBranchIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    collapsedBranchIds = next;
-  }
-
-  function expandFanOut(id: string) {
-    expandedFanOutIds = new Set(expandedFanOutIds).add(id);
-  }
-
-  // The root note is passed in so depths match the Android client — root
-  // at 0, its replies at 1 — which is what gives a direct reply a rail
-  // back to the note it answers. The root's own row is then dropped,
-  // since this page renders it as a header card above the list.
-  $: threadItems = event
-    ? flattenThread<NDKEvent>({
-        rootId: event.id,
-        rootEvent: event,
-        parentToChildren,
-        collapsedIds: collapsedBranchIds,
-        expandedIds: expandedBranchIds,
-        expandedFanOut: expandedFanOutIds
-      }).filter((item) => !(item.kind === 'post' && item.event.id === event?.id))
-    : [];
-
+  // Progressive disclosure, jumble-style: direct replies render
+  // chronologically in the root list, and each one's nested conversation
+  // folds behind a "Show replies" toggle under it. The toggle lives in
+  // SubReplyList — the parent row carries none.
 </script>
 
 <svelte:head>
@@ -1100,38 +1051,29 @@
           No replies yet. {#if !$userPublickey}<button type="button" class="underline hover:opacity-80" style="color: var(--color-primary)" on:click={() => (isTopLevelFocus ? requireAuth({ kind: 'reply', reason: 'Sign in to reply' }) : openReplyModal())}>Sign in</button> to reply!{:else}Be the first to reply!{/if}
         </p>
       {:else}
-        <!-- A flat list of rows, each carrying its own depth. Replies
-             used to render one level deep, capped at two children, with
-             a link that navigated away for the rest. -->
+        <!-- Jumble-style reply list: direct replies in chronological order,
+             each with its nested conversation folded beneath it — so a
+             direct reply to this note is never buried under another
+             branch's subtree. The drawer of sub-replies owns its own
+             toggle; the parent row carries none. -->
         <div class="thread-replies">
-          {#each threadItems as item (item.key)}
-            {#if item.kind === 'post'}
-              <ThreadRow
-                event={item.event}
-                depth={item.depth}
-                connectorStartsMidAir={item.connectorStartsMidAir}
-                descendantCount={item.descendantCount}
-                collapsed={item.collapsed}
-                onToggleCollapse={() => toggleBranchCollapse(item.event.id)}
-                replyingToPubkey={replyTargetByRowId.get(item.event.id)}
-                onReply={() => openReplyModal(item.event)}
-                onCommentClick={() => openReplyModal(item.event)}
-                rootAuthor={event?.author?.hexpubkey || event?.pubkey}
-                formatTime={formatTimeAgo}
-              />
-            {:else if item.kind === 'collapsed'}
-              <ThreadMoreRow
-                depth={item.depth}
-                hiddenCount={item.hiddenCount}
-                onExpand={() => expandBranch(item.anchor.id)}
-              />
-            {:else}
-              <ThreadMoreRow
-                depth={item.depth}
-                hiddenCount={item.hiddenCount}
-                onExpand={() => expandFanOut(item.parent.id)}
-              />
-            {/if}
+          {#each directReplies as reply (reply.id)}
+            <ThreadRow
+              event={reply}
+              depth={0}
+              onReply={() => openReplyModal(reply)}
+              onCommentClick={() => openReplyModal(reply)}
+              rootAuthor={event?.author?.hexpubkey || event?.pubkey}
+              formatTime={formatTimeAgo}
+            />
+            <SubReplyList
+              parentEvent={reply}
+              {parentToChildren}
+              {authorById}
+              rootAuthor={event?.author?.hexpubkey || event?.pubkey}
+              formatTime={formatTimeAgo}
+              onReply={openReplyModal}
+            />
           {/each}
         </div>
       {/if}
