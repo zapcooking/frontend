@@ -62,10 +62,6 @@
   import Ingredients from './Ingredients.svelte';
   import AddToListModal from '../grocery/AddToListModal.svelte';
   import PrintRecipeModal from './PrintRecipeModal.svelte';
-  import GatedRecipePayment from '../GatedRecipePayment.svelte';
-  import { checkIfGated, backfillGatedRecipe } from '$lib/nip108/client';
-  import type { GatedRecipeMetadata } from '$lib/nip108/types';
-  import { GATED_RECIPE_KIND } from '$lib/consts';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import FlagIcon from 'phosphor-svelte/lib/Flag';
   import NourishModal from '../nourish/NourishModal.svelte';
@@ -77,7 +73,6 @@
   import ReportArticleModal from '../reads/ReportArticleModal.svelte';
 
   export let event: NDKEvent;
-  export let isPremium = false;
   export let naddr: string = '';
 
   // Compute naddr if not provided
@@ -180,11 +175,6 @@
     if (copyTimeout) clearTimeout(copyTimeout);
   });
 
-  // Gated recipe state
-  let gatedMetadata: GatedRecipeMetadata | null = null;
-  let unlockedRecipe: NDKEvent | null = null;
-  let checkingGated = true;
-
   // Track if author has a lightning address (can receive zaps)
   let authorCanReceiveZaps = true; // Default to true while loading
   let authorLightningCheckComplete = false;
@@ -218,113 +208,7 @@
       authorCanReceiveZaps = false;
     }
     authorLightningCheckComplete = true;
-
-    // Check if recipe is gated (skip if parent already handled access)
-    if (!isPremium) {
-      const isAuthorOfRecipe = $userPublickey && $userPublickey === event.author.pubkey;
-
-      try {
-        checkingGated = true;
-        let metadata = await checkIfGated(event, $ndk);
-
-        // Backfill: if server store is empty but relay has full content,
-        // re-encrypt and store so the payment flow works for everyone
-        if (metadata && !metadata.serverHasData && event.content?.includes('## Ingredients')) {
-          const backfilled = await backfillGatedRecipe(event, $ndk, metadata.gatedNoteId, metadata.cost);
-          if (backfilled) {
-            const refreshed = await checkIfGated(event, $ndk);
-            if (refreshed && refreshed.serverHasData) {
-              metadata = refreshed;
-            }
-          }
-        }
-
-        if (metadata) {
-          // Author sees their own recipe without gating
-          if (isAuthorOfRecipe) {
-            // Don't set gatedMetadata — let recipe render normally
-          } else {
-            gatedMetadata = metadata;
-          }
-        } else if (event.kind === GATED_RECIPE_KIND && event.getMatchingTags('gated').length > 0) {
-          // Kind 35000 event with a gated tag but checkIfGated returned null
-          const gatedTag = event.getMatchingTags('gated')[0];
-          const noteId = gatedTag[1] || '';
-          const cost = parseInt(gatedTag[2] || '0', 10);
-
-          // Try backfill if relay has full content
-          if (noteId && event.content?.includes('## Ingredients')) {
-            const backfilled = await backfillGatedRecipe(event, $ndk, noteId, cost);
-            if (backfilled) {
-              const refreshed = await checkIfGated(event, $ndk);
-              if (refreshed) {
-                if (!isAuthorOfRecipe) {
-                  gatedMetadata = refreshed;
-                }
-              }
-            }
-          }
-
-          // If backfill failed or no full content, show fallback gated state
-          if (!gatedMetadata && !isAuthorOfRecipe) {
-            gatedMetadata = {
-              gatedNoteId: noteId,
-              announcementNoteId: noteId,
-              cost,
-              endpoint: '/api/nip108/payment',
-              iv: '',
-              authorPubkey: event.pubkey,
-              serverHasData: false
-            };
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to check if recipe is gated:', error);
-        if (event.kind === GATED_RECIPE_KIND && event.getMatchingTags('gated').length > 0) {
-          const gatedTag = event.getMatchingTags('gated')[0];
-          const noteId = gatedTag[1] || '';
-          const cost = parseInt(gatedTag[2] || '0', 10);
-
-          // Try backfill even in error case
-          if (noteId && event.content?.includes('## Ingredients')) {
-            try {
-              const backfilled = await backfillGatedRecipe(event, $ndk, noteId, cost);
-              if (backfilled) {
-                const refreshed = await checkIfGated(event, $ndk);
-                if (refreshed && !isAuthorOfRecipe) {
-                  gatedMetadata = refreshed;
-                }
-              }
-            } catch {
-              // Backfill also failed
-            }
-          }
-
-          if (!gatedMetadata && !isAuthorOfRecipe) {
-            gatedMetadata = {
-              gatedNoteId: noteId,
-              announcementNoteId: noteId,
-              cost,
-              endpoint: '/api/nip108/payment',
-              iv: '',
-              authorPubkey: event.pubkey,
-              serverHasData: false
-            };
-          }
-        }
-      } finally {
-        checkingGated = false;
-      }
-    } else {
-      checkingGated = false;
-    }
   });
-
-  function handleUnlocked(recipe: NDKEvent) {
-    unlockedRecipe = recipe;
-    // Replace the event with unlocked recipe
-    event = recipe;
-  }
 
   function handleZapComplete() {
     // Increment key to force TotalZaps to remount and refetch
@@ -511,13 +395,13 @@
       // For addressable events the most reliable deletion method is to publish a
       // replacement event with the same kind and 'd' tag but marked as deleted.
       // This overwrites the original on relays.
-      // This component renders two recipe kinds — public (30023) and premium
-      // (GATED_RECIPE_KIND, 35000) — and the tombstone must carry the SAME kind as
-      // the event being deleted, or it lands at a different address and overwrites
-      // whatever else lives there. Public and premium recipes derive their 'd' tag
-      // from the title identically (/create:343, /create/gated:187), so a hardcoded
-      // 30023 here blanks the author's public recipe when they delete a premium one
-      // of the same name.
+      // This component renders two recipe kinds — public (30023) and the
+      // retired premium kind (GATED_RECIPE_KIND, 35000, still on relays) — and
+      // the tombstone must carry the SAME kind as the event being deleted, or
+      // it lands at a different address and overwrites whatever else lives
+      // there. Both kinds derived their 'd' tag from the title identically, so
+      // a hardcoded 30023 here would blank the author's public recipe when
+      // they delete a premium one of the same name.
       const deleteKind = event.kind ?? 30023;
       const deleteEvent = new NDKEvent($ndk);
       deleteEvent.kind = deleteKind;
@@ -841,18 +725,7 @@
      margin as the feed on desktop (the layout's px-4/lg:pl-[26px]), which
      centering here used to break. -->
 <article class="max-w-[760px]">
-  {#if checkingGated}
-    <div class="flex items-center justify-center p-8">
-      <div class="text-caption">Loading {isActualRecipe ? 'recipe' : 'article'}...</div>
-    </div>
-  {:else if gatedMetadata && !unlockedRecipe}
-    <!-- Show gated payment UI -->
-    <GatedRecipePayment
-      {gatedMetadata}
-      gatedNoteId={gatedMetadata.gatedNoteId}
-      onUnlocked={handleUnlocked}
-    />
-  {:else if event}
+  {#if event}
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-4">
         <h1>

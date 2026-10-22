@@ -438,13 +438,6 @@
         class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
       ></span>
     </div>
-    <a
-      href="/premium"
-      class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
-      style="color: var(--color-text-secondary)"
-    >
-      Premium ⚡️
-    </a>
   </div>
 
   <!-- Sub-tabs: Discover / Mine / Saved -->

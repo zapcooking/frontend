@@ -35,7 +35,11 @@ declare global {
             get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
             put(key: string, value: string, options?: { expirationTtl?: number; expiration?: number }): Promise<void>;
           };
-          /** KV namespace for NIP-108 lightning-gated recipe storage */
+          /**
+           * General-purpose KV for small server stores: Lightning invoice
+           * metadata, promo codes, reads moderation lists, rate-limit buckets.
+           * (Named for the retired NIP-108 gated-recipe store it once held.)
+           */
           GATED_CONTENT?: {
             get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
             put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;

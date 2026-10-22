@@ -116,10 +116,11 @@ export function isHiddenRecipeATag(aTag: string | undefined | null): boolean {
   return isHiddenRecipeCoordinate(Number(kind), pubkey, dParts.join(':'));
 }
 
-// Gated/Premium recipe kind (addressable event in 30000-39999 range)
-// Using 35000 to differentiate from regular recipes (30023)
+// Kind used by the retired NIP-108 "premium recipes" experiment (addressable,
+// 30000-39999 range). The paywall and its endpoints are gone, but kind-35000
+// recipes still exist on relays, so routing, feeds, OG and scheduling keep
+// treating them as recipes and rendering whatever content the event carries.
 export const GATED_RECIPE_KIND = 35000;
-export const GATED_RECIPE_TAG = 'zapcooking-premium'; // Tag for filtering premium recipes
 
 export const recipeTags: recipeTagSimple[] = [
   { title: 'Alcohol', emoji: '🍸' },
