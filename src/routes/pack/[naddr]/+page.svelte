@@ -38,6 +38,7 @@
   import { isOnline } from '$lib/connectionMonitor';
   import { cookbookStore, cookbookLists } from '$lib/stores/cookbookStore';
   import { buildPackUrl } from '$lib/recipePack';
+  import { isExploreCurationDTag } from '$lib/landing/curation';
   import {
     membershipStatusMap,
     queueMembershipLookup,
@@ -109,6 +110,8 @@
       const decoded = nip19.decode(slug);
       if (decoded.type !== 'naddr') throw new Error('not naddr');
       pointer = decoded.data as nip19.AddressPointer;
+      // The org's /explore curation lists share kind 30004; they aren't packs.
+      if (isExploreCurationDTag(pointer.identifier)) throw new Error('not a pack');
     } catch {
       notFound = true;
       loaded = true;

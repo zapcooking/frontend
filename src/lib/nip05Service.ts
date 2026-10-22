@@ -1,10 +1,10 @@
 import { browser } from '$app/environment';
 import type NDK from '@nostr-dev-kit/ndk';
-import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { get } from 'svelte/store';
 import { profileCacheManager } from './profileCache';
 import { ndk } from './nostr';
 import { signNip98AuthHeader } from './nip98';
+import { updateOwnKind0 } from './ownKind0';
 
 /**
  * NIP-05 Service
@@ -146,8 +146,11 @@ export function generateSuggestedUsername(pubkey: string, displayName?: string):
 }
 
 /**
- * Update user's profile with NIP-05 identifier
- * Preserves all existing profile fields
+ * Update user's profile with NIP-05 identifier.
+ * Changes only `nip05`; every other field of the latest kind:0 is kept
+ * (see ownKind0). Returns false — publishing nothing — when the current
+ * profile can't be loaded for certain; callers tell the user to retry
+ * or add it in profile settings.
  */
 export async function updateProfileWithNip05(
   ndk: NDK,
@@ -155,55 +158,13 @@ export async function updateProfileWithNip05(
   nip05: string
 ): Promise<boolean> {
   try {
-    // Fetch current profile event to preserve all fields
-    const events = await ndk.fetchEvents({
-      kinds: [0],
-      authors: [pubkey],
-      limit: 1
-    });
+    const { relayCount } = await updateOwnKind0(ndk, pubkey, { nip05 });
+    console.log('[NIP-05] Profile updated with NIP-05, published to', relayCount, 'relays');
 
-    let currentProfile: Record<string, any> = {};
-    
-    if (events.size > 0) {
-      // Get the latest profile event
-      const latestEvent = (Array.from(events) as NDKEvent[]).sort((a, b) =>
-        (b.created_at || 0) - (a.created_at || 0)
-      )[0];
-      
-      // Parse existing profile content
-      try {
-        currentProfile = JSON.parse(latestEvent.content || '{}');
-      } catch (e) {
-        console.warn('[NIP-05] Failed to parse existing profile, starting fresh');
-        currentProfile = {};
-      }
-    }
-    
-    // Merge NIP-05 into existing profile
-    const updatedProfile = {
-      ...currentProfile,
-      nip05: nip05
-    };
-    
-    // Create and publish updated profile event
-    const metaEvent = new NDKEvent(ndk);
-    metaEvent.kind = 0;
-    metaEvent.tags = [];
-    metaEvent.content = JSON.stringify(updatedProfile);
-    
-    await metaEvent.sign();
-    const publishedRelays = await metaEvent.publish();
-    
-    if (publishedRelays.size === 0) {
-      console.error('[NIP-05] Failed to publish profile - no relays confirmed');
-      return false;
-    }
-    
-    console.log('[NIP-05] Profile updated with NIP-05, published to', publishedRelays.size, 'relays');
-    
-    // Invalidate profile cache so the updated profile is fetched fresh
+    // CustomName/CustomAvatar still read profileCache until they move to
+    // the profile store; the resolver cache is already updated.
     profileCacheManager.invalidateProfile(pubkey);
-    
+
     return true;
   } catch (error) {
     console.error('Failed to update profile with NIP-05:', error);

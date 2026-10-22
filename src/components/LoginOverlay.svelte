@@ -13,6 +13,7 @@
 
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, VaultConflictError, type AuthState } from '$lib/authManager';
+  import { publishNewAccountKind0 } from '$lib/ownKind0';
   import {
     detectSupport,
     detectHybridTransport,
@@ -609,6 +610,7 @@
 
   async function useGeneratedKeys(skipProfile = false, replaceVault = false) {
     if (!generatedKeys || !authManager) return;
+    const signupKey = generatedKeys.privateKey;
     const profileName = newAccountUsername.trim();
     const profileBio = newAccountBio.trim();
     const profilePicture = newAccountPicture;
@@ -632,16 +634,12 @@
       }
       const hasProfileData = !skipProfile && (profileName || profileBio || profilePicture);
       if (hasProfileData) {
-        const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-        const metaEvent = new NDKEvent($ndk);
-        metaEvent.kind = 0;
-        metaEvent.tags = [];
-        const profileContent: any = {};
+        const profileContent: Record<string, string> = {};
         if (profileName) profileContent.name = profileName;
         if (profileBio) profileContent.about = profileBio;
         if (profilePicture) profileContent.picture = profilePicture;
-        metaEvent.content = JSON.stringify(profileContent);
-        await metaEvent.publish();
+        // Signed with the generated key itself, never the global signer.
+        await publishNewAccountKind0($ndk, signupKey, profileContent);
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
       const freshState = authManager.getState?.() ?? authState;

@@ -7,7 +7,6 @@
   import {
     resetFewer,
     resetPrefs,
-    setAutoUnlock,
     setSpecialsOff,
     specialsPrefs,
     unhideTopic
@@ -23,8 +22,7 @@
   ];
 
   $: fewer = TYPES.filter((t) => $prefs.fewer[t.type]);
-  $: changed =
-    $prefs.off || $prefs.autoUnlock || fewer.length > 0 || $prefs.hiddenTopics.length > 0;
+  $: changed = $prefs.off || fewer.length > 0 || $prefs.hiddenTopics.length > 0;
 </script>
 
 <div class="flex flex-col gap-4">
@@ -47,36 +45,6 @@
       >
         <span
           class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {!$prefs.off
-            ? 'translate-x-5'
-            : ''}"
-        ></span>
-      </button>
-    </div>
-  </div>
-
-  <div class="p-4 rounded-xl" style="border: 1px solid var(--color-input-border);">
-    <div class="flex items-center justify-between gap-4">
-      <div class="flex-1">
-        <span class="font-medium" style="color: var(--color-text-primary)"
-          >Auto-unlock member content</span
-        >
-        <p class="text-sm text-caption mt-1">
-          Members: once you've signed in to the feed relay, sign in again on later visits when the
-          first members-only card comes up. Your signer may ask once per visit; off, the card asks
-          you to tap first.
-        </p>
-      </div>
-      <button
-        role="switch"
-        aria-checked={$prefs.autoUnlock}
-        aria-label="Auto-unlock member content"
-        class="relative w-12 h-7 rounded-full transition-colors cursor-pointer flex-shrink-0 {$prefs.autoUnlock
-          ? 'bg-primary'
-          : 'bg-gray-300 dark:bg-gray-600'}"
-        on:click={() => setAutoUnlock(!$prefs.autoUnlock)}
-      >
-        <span
-          class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$prefs.autoUnlock
             ? 'translate-x-5'
             : ''}"
         ></span>

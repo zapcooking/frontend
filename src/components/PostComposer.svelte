@@ -1108,6 +1108,18 @@
                 <!-- Hashtag suggestion pills. Tap to add the tag to the body,
                      tap again to remove it. Nothing is added automatically. -->
                 <div class="tag-pills" data-testid="tag-suggestions">
+                  <div class="tag-pills-header">
+                    <span class="tag-pills-hint">
+                      {#if tagsAtCap}
+                        At the {MAX_HASHTAGS}-tag limit — remove one to add another.
+                      {:else}
+                        Tap a tag so this shows up in OnlyFood.
+                      {/if}
+                    </span>
+                    <span class="tag-pills-count" class:over={tagsOverCap} aria-live="polite">
+                      {tagCount}/{MAX_HASHTAGS} tags{#if tagsOverCap} · over the food feed limit{/if}
+                    </span>
+                  </div>
                   <div class="tag-pills-row" role="group" aria-label="Suggested hashtags">
                     {#each SUGGESTED_HASHTAGS as tag (tag)}
                       {@const selected = isHashtagSelected(content, tag)}
@@ -1123,9 +1135,6 @@
                       >#{tag}</button>
                     {/each}
                   </div>
-                  <span class="tag-pills-count" class:over={tagsOverCap} aria-live="polite">
-                    {tagCount}/{MAX_HASHTAGS} tags{#if tagsOverCap} · over the food feed limit{/if}
-                  </span>
                 </div>
               {/if}
 
@@ -1545,7 +1554,8 @@
 <GifPicker
   bind:open={showGifPicker}
   on:select={(e) => {
-    media = [...media, { url: e.detail.url, isVideo: false }];
+    // The GIF's own title as its description to start from.
+    media = [...media, { url: e.detail.url, isVideo: false, alt: e.detail.title || '' }];
   }}
 />
 
@@ -2081,10 +2091,27 @@
      there is no fade or arrow. The counter sits outside the scroller. */
   .tag-pills {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    flex-direction: column;
+    gap: 0.25rem;
     padding: 0.25rem 0.5rem 0.5rem;
     min-width: 0;
+  }
+
+  /* Hint left, counter right — matches the OnlyFood mobile composer. */
+  .tag-pills-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .tag-pills-hint {
+    font-size: 0.6875rem;
+    color: var(--color-caption);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .tag-pills-row {

@@ -249,17 +249,51 @@ export class AuthManager {
         // nostrcooking_loggedInPublicKey) and wipe storage when none exists.
         return;
       } else if (storedPublicKey) {
+        // NIP-07 restore: the extension injects window.nostr at
+        // document_idle, which regularly loses the race against this
+        // module's init on a cold load — and wiping the session here is
+        // what made users "appear logged out until refresh" (the refresh
+        // only worked because by then the extension had injected). Wait
+        // for the injection before giving up, and on failure keep the
+        // stored pubkey so the next load (or an extension appearing)
+        // can still restore.
+        const injected = await this.waitForNostrExtension();
         try {
+          if (!injected) {
+            throw new Error('Nostr extension not detected (waited for window.nostr)');
+          }
           await this.authenticateWithNIP07();
         } catch (error) {
           console.error('Failed to restore NIP-07 authentication:', error);
-          this.clearStorage();
+          this.updateState({
+            isAuthenticated: false,
+            user: null,
+            publicKey: '',
+            authMethod: null,
+            isLoading: false,
+            error: error instanceof Error ? error.message : 'Authentication failed'
+          });
         }
       }
     } catch (error) {
       console.error('Error during authentication initialization:', error);
       this.clearStorage();
     }
+  }
+
+  // Poll briefly for a NIP-07 extension injecting window.nostr. Browser
+  // extensions run at document_idle, so on a cold load the app's init
+  // often runs first; a couple of seconds covers Alby/nos2x startup
+  // without noticeably delaying the logged-out fallback.
+  private async waitForNostrExtension(timeoutMs = 5000): Promise<boolean> {
+    if (!browser) return false;
+    if (window.nostr) return true;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (window.nostr) return true;
+    }
+    return false;
   }
 
   // Authenticate with NIP-07 browser extension

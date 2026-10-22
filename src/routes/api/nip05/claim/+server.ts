@@ -111,7 +111,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
     
     // Validate tier
-    if (tier && !['cook', 'pro', 'cook_plus', 'pro_kitchen', 'founders'].includes(tier)) {
+    // Tiers are backend-managed (lifetime, or whatever pantry calls it next):
+    // the value is only passed along, so any short token is accepted.
+    if (tier && !(typeof tier === 'string' && /^[a-z0-9_-]{1,32}$/i.test(tier))) {
       return json(
         { success: false, error: 'Invalid tier' },
         { status: 400 }

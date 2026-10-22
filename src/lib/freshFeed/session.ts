@@ -5,7 +5,6 @@ import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membersh
 import { FreshClient } from './relay';
 import { MemberLogin } from './memberLogin';
 import { ndkAuthSigner } from './authSigner';
-import { MemberUnlock } from './memberUnlock';
 
 /**
  * One Fresh client and member login per tab session, so a declined login
@@ -13,7 +12,7 @@ import { MemberUnlock } from './memberUnlock';
  * "Log in to the feed" button. Membership is the app's own answer
  * (`active`, never the tier); the relay has the final say.
  */
-let session: { client: FreshClient; login: MemberLogin; unlock: MemberUnlock } | null = null;
+let session: { client: FreshClient; login: MemberLogin } | null = null;
 
 function isMember(): boolean {
   const pk = get(userPublickey);
@@ -22,7 +21,7 @@ function isMember(): boolean {
   return get(membershipStatusMap)[pk.toLowerCase()]?.active === true;
 }
 
-export function freshSession(): { client: FreshClient; login: MemberLogin; unlock: MemberUnlock } {
+export function freshSession(): { client: FreshClient; login: MemberLogin } {
   if (!session) {
     const login = new MemberLogin({
       pubkey: () => get(userPublickey),
@@ -33,12 +32,7 @@ export function freshSession(): { client: FreshClient; login: MemberLogin; unloc
       signerPrompts: () => !(get(ndk).signer instanceof NDKPrivateKeySigner)
     });
     const client = new FreshClient({ login });
-    // "Tap to unlock" for the tab, like the login: a decline holds until a reload.
-    const unlock = new MemberUnlock(
-      async () => login.access(await client.connection(), true),
-      () => get(userPublickey)
-    );
-    session = { client, login, unlock };
+    session = { client, login };
   }
   return session;
 }

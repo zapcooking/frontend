@@ -52,6 +52,7 @@
     MAX_ZAP_MESSAGE_LENGTH
   } from '$lib/autoZapSettings';
   import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+  import { hideImagelessRecipesSetting } from '$lib/recipeImageFilterSettings';
   import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
   import {
     startSection,
@@ -900,9 +901,7 @@
           <div class="text-sm text-caption italic">Loading membership status...</div>
         {:else if membershipData?.found && membershipData.member}
           {@const member = membershipData.member}
-          {@const validTier = ['open', 'cook_plus', 'pro_kitchen', 'founders'].includes(member.tier)
-            ? member.tier
-            : 'cook_plus'}
+          {@const validTier = member.tier || 'open'}
           {@const expiryDate = new Date(member.subscription_end)}
 
           <!-- Current Plan + Details -->
@@ -1487,6 +1486,40 @@
             <span>Disabled</span>
             <span>Current: {currentThreshold} mentions</span>
             <span>Very strict</span>
+          </div>
+        </div>
+
+        <!-- Hide recipes without images -->
+        <div
+          class="p-4 rounded-xl"
+          style="border: 1px solid var(--color-input-border);"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex-1 pr-4">
+              <span class="font-medium" style="color: var(--color-text-primary)"
+                >Hide recipes without images</span
+              >
+              <p class="text-sm text-caption mt-1">
+                Keep recipe grids to recipes with a working cover photo. Cards whose cover fails
+                to load are removed too.
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={$hideImagelessRecipesSetting}
+              aria-label="Hide recipes without images"
+              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$hideImagelessRecipesSetting
+                ? 'bg-primary'
+                : 'bg-gray-300 dark:bg-gray-600'}"
+              on:click={() =>
+                hideImagelessRecipesSetting.setEnabled(!$hideImagelessRecipesSetting)}
+            >
+              <span
+                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$hideImagelessRecipesSetting
+                  ? 'translate-x-5'
+                  : ''}"
+              ></span>
+            </button>
           </div>
         </div>
       </div>

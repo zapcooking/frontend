@@ -15,7 +15,7 @@
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
-  import { ndk } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
   import { isReply, getParentNoteId, fetchReplyContext } from '$lib/replyContext';
   import { stripQuotedNoteReferences } from '$lib/feed/noteContent';
   import { eventToArticleData } from '$lib/articleUtils';
@@ -48,6 +48,8 @@
   import { recipeBoxData, sharedAgo } from '$lib/freshFeed/recipeBoxCard';
   import ArticleCard from './ArticleCard.svelte';
   import SaveButton from './SaveButton.svelte';
+  import NoteBookmark from './NoteBookmark.svelte';
+  import ReplyModal from './comments/ReplyModal.svelte';
   import NoteReactionPills from './NoteReactionPills.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
@@ -82,7 +84,12 @@
     report: RelayEvent;
     error: string;
     fewer: 'recipe';
+    replied: NDKEvent;
   }>();
+
+  // The card's comment button opens the reply modal (iOS parity); the
+  // inline CommentThread below the card remains for expanded reads.
+  let replyModalOpen = false;
 
   $: kind = postKind(raw);
   $: media = kind === 'note' ? mediaUrls(raw.content) : [];
@@ -171,7 +178,8 @@
         <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
           {boxData ? sharedAgo(boxData.sharedAt) : formatTimeAgo(raw.created_at)}
         </span>
-        <ClientAttribution tags={raw.tags} enableEnrichment={false} />
+        <!-- Client attribution moved into the engagement drawer (iOS drawer
+             parity), same as the thread page header. -->
         <PowBadge id={raw.id} tags={raw.tags} />
       </div>
     </div>
@@ -211,7 +219,7 @@
     <FreshRecipeBox data={boxData} {event} {topic} {hasHero} {visible} />
   {:else if kind === 'recipe'}
     <div class="mb-3">
-      <RecipeCard {event} />
+      <RecipeCard {event} variant="feed" />
     </div>
   {:else if kind === 'article'}
     {#if article}
@@ -354,13 +362,26 @@
   {/if}
 
   <div class="flex items-center justify-between flex-wrap gap-2 py-1" use:lazy={raw.id}>
-    <div class="flex items-center space-x-1 flex-shrink-0">
+    <!-- Order mirrors the iOS bar: reply · heart · repost · zap. -->
+    <div class="flex items-center gap-9 flex-shrink-0">
       {#if visible}
         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-          <NoteTotalLikes {event} />
+          <NoteTotalComments
+            {event}
+            onComment={() => {
+              // Same caller-level gate the Foodstr feed uses: ReplyComposer
+              // doesn't disable submission for signed-out visitors.
+              if (!$userPublickey) {
+                window.location.href =
+                  '/login?redirect=' + encodeURIComponent(window.location.pathname);
+                return;
+              }
+              replyModalOpen = true;
+            }}
+          />
         </div>
         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-          <NoteTotalComments {event} />
+          <NoteTotalLikes {event} />
         </div>
         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
           <NoteRepost {event} />
@@ -380,6 +401,10 @@
     </div>
     {#if visible}
       <div class="ml-auto flex items-center gap-0.5">
+        {#if kind === 'note'}
+          <!-- Bookmark — same list the thread page and iOS write. -->
+          <NoteBookmark {event} />
+        {/if}
         <PostEngagementToggle {expanded} on:toggle={() => dispatch('toggleEngagement', raw.id)} />
       </div>
     {/if}
@@ -389,6 +414,12 @@
     <PostEngagementDrawer {event} open={expanded} />
     <CommentThread variant="feed" {event} />
   {/if}
+
+  <ReplyModal
+    bind:open={replyModalOpen}
+    parentEvent={event}
+    onPosted={() => dispatch('replied', event)}
+  />
 </article>
 
 <style>

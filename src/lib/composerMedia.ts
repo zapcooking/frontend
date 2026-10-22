@@ -20,6 +20,7 @@
  */
 
 import { buildImetaTag, normalizeAltBreaks } from './feed/imeta';
+import { isImageUrl, isVideoUrl } from './imageUrls';
 
 /** A single bare http(s) URL token: scheme, then no whitespace. */
 const BARE_URL_TOKEN = /^https?:\/\/\S+$/i;
@@ -103,25 +104,37 @@ export function stripAttachmentUrlLines(text: string, urls: string[]): string {
 }
 
 /**
- * Bare http(s) URLs offered as attachment slots: every URL occurrence on a
- * line that contains ONLY URLs (whitespace-separated) — so a run of pasted
- * links all surface, duplicates included (each accept consumes one
+ * Bare http(s) URLs offered as attachment slots: every MEDIA URL occurrence
+ * on a line that contains ONLY URLs (whitespace-separated) — so a run of
+ * pasted links all surface, duplicates included (each accept consumes one
  * occurrence), and accepting one leaves the rest as candidates on their
  * own. A line with any non-URL word is authored prose and offers nothing.
  *
- * Deliberately more liberal than [stripAttachmentUrlLines]: the migration
- * strip only takes exact single-URL lines because it guesses; this feeds an
- * explicit user-tapped offer, so no guess is involved. Paste itself inserts
- * text — the offer is the only thing that converts.
+ * "Media" is what the feed itself can render: the image/video classifiers
+ * NoteContent uses, from $lib/imageUrls (file extension, or an exact known
+ * media host; never a host-name substring). A link to a
+ * page — a GitHub issue, a blog post — is just a link: it stays text and
+ * the composer offers nothing for it.
+ *
+ * Deliberately more liberal than [stripAttachmentUrlLines] about LINE SHAPE:
+ * the migration strip only takes exact single-URL lines because it guesses;
+ * this feeds an explicit user-tapped offer, so no guess is involved. Paste
+ * itself inserts text — the offer is the only thing that converts.
  */
 export function attachableUrlCandidates(text: string): string[] {
   if (!text) return [];
   const out: string[] = [];
   for (const line of text.split('\n')) {
     const tokens = line.trim().split(/\s+/).filter(Boolean);
-    if (tokens.length && tokens.every((t) => BARE_URL_TOKEN.test(t))) out.push(...tokens);
+    if (tokens.length && tokens.every((t) => BARE_URL_TOKEN.test(t)))
+      out.push(...tokens.filter(isMediaUrl));
   }
   return out;
+}
+
+/** A URL NoteContent renders as media (same classifiers, $lib/imageUrls). */
+function isMediaUrl(url: string): boolean {
+  return isImageUrl(url) || isVideoUrl(url);
 }
 
 /**

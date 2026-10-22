@@ -4,19 +4,28 @@
   import { formatDistanceToNow } from 'date-fns';
   import type { ArticleData } from '$lib/articleUtils';
   import { getPlaceholderImage } from '$lib/placeholderImages';
+  import { readsImage } from '$lib/reads/readsImage';
 
   export let article: ArticleData;
   export let size: 'hero' | 'secondary' | 'tertiary';
 
-  let imageError = false;
+  // 0 = routed rendition, 1 = original URL, 2 = placeholder ($lib/reads/readsImage).
+  let attempt = 0;
   let imageLoaded = false;
+  let shownId = article.id;
+  $: if (article.id !== shownId) {
+    shownId = article.id;
+    attempt = 0;
+    imageLoaded = false;
+  }
 
-  $: displayImageUrl = imageError
-    ? getPlaceholderImage(article.id)
-    : article.imageUrl || getPlaceholderImage(article.id);
+  $: img = readsImage(article.imageUrl, size, attempt, getPlaceholderImage(article.id));
 
   function handleImageError() {
-    imageError = true;
+    if (attempt < 2) {
+      attempt += 1;
+      imageLoaded = false;
+    }
   }
 
   function handleImageLoad() {
@@ -84,6 +93,8 @@
   $: avatarSize = ({ hero: 44, secondary: 28, tertiary: 20 } as const)[size];
   $: tagsToShow = size === 'hero' ? 4 : 2;
   $: imgLoading = (size === 'hero' ? 'eager' : 'lazy') as 'eager' | 'lazy';
+  // The cover hero is the page's LCP candidate.
+  $: imgPriority = (size === 'hero' ? 'high' : 'auto') as 'high' | 'auto';
 </script>
 
 <!-- Image Section -->
@@ -91,10 +102,14 @@
   {#if classes.aspectWrapper[size]}
     <div class={classes.aspectWrapper[size]}>
       <img
-        src={displayImageUrl}
+        src={img.src}
+        srcset={img.srcset}
+        sizes={img.srcset ? img.sizes : undefined}
         alt={article.title}
         class="{classes.img[size]} {imageLoaded ? 'opacity-100' : 'opacity-0'}"
         loading={imgLoading}
+        fetchpriority={imgPriority}
+        decoding="async"
         on:error={handleImageError}
         on:load={handleImageLoad}
       />
@@ -116,10 +131,13 @@
     </div>
   {:else}
     <img
-      src={displayImageUrl}
+      src={img.src}
+      srcset={img.srcset}
+      sizes={img.srcset ? img.sizes : undefined}
       alt={article.title}
       class="{classes.img[size]} {imageLoaded ? 'opacity-100' : 'opacity-0'}"
       loading={imgLoading}
+      decoding="async"
       on:error={handleImageError}
       on:load={handleImageLoad}
     />

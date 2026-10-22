@@ -77,6 +77,6 @@ describe('hashtagCount', () => {
   });
 
   it('exposes the cap the feed filters on', () => {
-    expect(MAX_HASHTAGS).toBe(5);
+    expect(MAX_HASHTAGS).toBe(20);
   });
 });

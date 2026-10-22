@@ -8,11 +8,15 @@
  * so vanity resolutions don't hammer the pantry.
  */
 
+// The only source of static names: `static/.well-known/nostr.json` used to
+// carry a copy, and Cloudflare Pages served that file before the route
+// below ever ran — so member names from pantry never reached NIP-05 clients.
 export const STATIC_NAMES: Record<string, string> = {
   jack: 'c5fb6ecc876e0458e3eca9918e370cbcd376901c58460512fe537a46e58c38bb',
   _: '319ad3e790634dbe86f14db9c2995b26ee3c6228be55f89c4c7fea9acc01d50a',
   seth: 'a723805cda67251191c8786f4da58f797e6977582301354ba8e91bcb0342dc9c',
-  daniel: 'ee6ea13ab9fe5c4a68eaf9b1a34fe014a66b40117c50ee2a614f4cda959b6e74'
+  daniel: 'ee6ea13ab9fe5c4a68eaf9b1a34fe014a66b40117c50ee2a614f4cda959b6e74',
+  mishroom: 'f6f30bb15f46869271c245e352921fffc1eef5776d286e3e4894e0ae905a1ad5'
 };
 
 const PANTRY_NOSTR_JSON = 'https://pantry.zap.cooking/.well-known/nostr.json';
@@ -70,4 +74,10 @@ export async function resolveHandlePubkey(handle: string): Promise<string | null
   const names = await loadHandleDirectory();
   const pubkey = names[normalized];
   return typeof pubkey === 'string' && /^[0-9a-f]{64}$/.test(pubkey) ? pubkey : null;
+}
+
+/** Tests only. */
+export function resetHandleDirectoryForTests(): void {
+  directory = null;
+  directoryInFlight = null;
 }

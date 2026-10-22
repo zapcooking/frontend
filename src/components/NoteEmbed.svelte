@@ -17,7 +17,8 @@
   import { formatAmount } from '$lib/utils';
   import NoteContent from './NoteContent.svelte';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
-  import { RECIPE_TAGS } from '$lib/consts';
+  import { parseClientTag } from '$lib/clientTag';
+  import { CLIENT_TAG_IDENTIFIER, RECIPE_TAGS } from '$lib/consts';
 
   export let nostrString: string;
   export let boostAmount: number = 0; // Optional boost amount in sats (passed from parent)
@@ -322,6 +323,11 @@
   // from other clients without one fall back to the previous rendering
   // rather than showing an empty card.
   $: isLongform = !!event && event.kind === 30023 && !!tagValue(event, 'title');
+  // NIP-89 branding: when the embedded event was published by Zap Cooking
+  // (its `client` tag), badge the cover so the source is identifiable at a
+  // glance inside our own embeds — the same treatment the handler
+  // headlight (see nip89Headlight.ts) asks of other clients.
+  $: isZapCookingEmbed = event ? parseClientTag(event.tags)?.name === CLIENT_TAG_IDENTIFIER : false;
   $: articleTitle = event && isLongform ? tagValue(event, 'title') : '';
   $: articleSummary = event && isLongform ? tagValue(event, 'summary') : '';
   $: articleImage =
@@ -503,13 +509,23 @@
     {#if isLongform}
       <!-- Long-form card: metadata tags, not the markdown body -->
       <div class="article-embed">
-        <img
-          class="article-embed-image"
-          src={articleImage}
-          alt=""
-          loading="lazy"
-          on:error={handleImageError}
-        />
+        <div class="article-embed-media">
+          <img
+            class="article-embed-image"
+            src={articleImage}
+            alt=""
+            loading="lazy"
+            on:error={handleImageError}
+          />
+          {#if isZapCookingEmbed}
+            <img
+              src="/zapcooking-text-dark.svg"
+              alt="Zap Cooking"
+              class="zap-source-mark"
+              loading="lazy"
+            />
+          {/if}
+        </div>
         <div class="article-embed-body">
           <p class="article-embed-title">{articleTitle}</p>
           {#if articleSummary}
@@ -575,25 +591,71 @@
   }
 
   /* Long-form card: thumbnail beside title/summary/tags. */
+  /* Phones: the cover spans the card on top at a wide crop, title/summary
+     below. Desktop: the cover moves to a left column (1.91:1, the social
+     image aspect) with the text beside it — Jumble's stacked/side split.
+     object-cover keeps every crop edge-to-edge, no letterboxing. */
   .article-embed {
     display: flex;
+    flex-direction: column;
     gap: 0.625rem;
-    margin-top: 0.375rem;
-    align-items: flex-start;
+    margin-top: 0.5rem;
+  }
+
+  .article-embed-media {
+    position: relative;
+  }
+
+  /* Source mark for Zap Cooking embeds — the white wordmark (orange dot
+     included), small enough to sit inside the cover comfortably. The
+     drop shadow keeps it legible on light photos. Mirrors what other
+     clients can do with our kind-31990 handler headlight. */
+  .zap-source-mark {
+    position: absolute;
+    left: 0.4rem;
+    bottom: 0.4rem;
+    /* The masthead wordmark is very wide (917x123): size by the cover's
+       width so it spans a comfortable chunk of the thumbnail at any embed
+       size. The filter stack draws a hard 1px black copy of the wordmark's
+       own shape offset beneath it (so light photos can't swallow the white
+       text) plus a soft ambient shadow. */
+    width: clamp(60px, 42%, 108px);
+    height: auto;
+    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 0 3px rgba(0, 0, 0, 0.45));
+    pointer-events: none;
   }
 
   .article-embed-image {
-    flex-shrink: 0;
-    width: 5rem;
-    height: 5rem;
+    width: 100%;
+    aspect-ratio: 16 / 9;
     object-fit: cover;
-    border-radius: 0.375rem;
+    border-radius: 0.5rem;
     background: var(--color-bg-secondary);
   }
 
   .article-embed-body {
     min-width: 0;
-    flex: 1;
+  }
+
+  @media (min-width: 768px) {
+    .article-embed {
+      flex-direction: row;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    /* The cover lives inside the branding wrapper (the NIP-89 source mark
+       anchors to it), so the fixed column belongs to the wrapper. */
+    .article-embed-media {
+      width: 11rem;
+      flex-shrink: 0;
+    }
+    .article-embed-image {
+      width: 100%;
+      aspect-ratio: 1.91 / 1;
+    }
+    .article-embed-body {
+      flex: 1;
+    }
   }
 
   .article-embed-title {
@@ -613,8 +675,8 @@
   .article-embed-summary {
     font-size: 0.8125rem;
     color: var(--color-caption);
-    line-height: 1.4;
-    margin: 0.1875rem 0 0;
+    line-height: 1.5;
+    margin: 0.25rem 0 0;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;

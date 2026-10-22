@@ -34,6 +34,14 @@ export const FREE_WINDOW_SECONDS = 14 * 24 * 60 * 60;
 
 export const PAGE_SIZE = 30;
 
+/**
+ * The anonymous topic preview: the relay answers a few of a topic's newest
+ * posts within the free window to anyone, no login. The cap is the relay's
+ * (shared contract with feed-relay); asking for more gets at most this
+ * many. History (the archive) has no preview: it stays members-only.
+ */
+export const PREVIEW_LIMIT = 5;
+
 /** The relay's max_limit (NIP-11). */
 export const MAX_LIMIT = 500;
 
@@ -299,7 +307,14 @@ export class FreshClient {
     if (res.partial) {
       // An early end says nothing about how much is left: continue from the
       // oldest post that arrived.
-      return { state: 'ok', events: fresh, end: 'more', nextUntil: oldest, partial: true, reason: res.reason };
+      return {
+        state: 'ok',
+        events: fresh,
+        end: 'more',
+        nextUntil: oldest,
+        partial: true,
+        reason: res.reason
+      };
     }
     let end: PageEnd = 'more';
     if (res.events.length < asked) end = history ? 'exhausted' : 'floor';
@@ -419,13 +434,19 @@ export class FreshClient {
    * the 14-day floor). Without member access nothing is sent and the page is
    * `auth-required`. `seen` is the topic view's own de-duplication: posts
    * already in the main feed still show in a topic.
+   *
+   * `preview`: the anonymous preview instead — the topic's newest posts in
+   * the free window, at most PREVIEW_LIMIT, sent as the connection is (no
+   * login, never the signer). The relay answers it for everyone; a relay
+   * that doesn't serve previews closes it `auth-required`, which the caller
+   * treats as "not now", never as "no content".
    */
   async topic(
     slug: string,
     seen: Set<string>,
     until?: number,
     limit = PAGE_SIZE,
-    opts: { authedOnly?: boolean } = {}
+    opts: { authedOnly?: boolean; preview?: boolean } = {}
   ): Promise<PageResult> {
     let relay: RelayLike;
     try {
@@ -434,10 +455,19 @@ export class FreshClient {
       return { state: 'unavailable', events: [], reason: String(err) };
     }
     let member = this.member() || (this.login?.authed(relay) ?? false);
-    if (!member && this.login && !opts.authedOnly) member = await this.login.access(relay);
-    if (!member) return { state: 'auth-required', events: [] };
-    const filter: Filter = { kinds: FRESH_KINDS, search: `topic:${slug}`, limit };
-    if (until !== undefined) filter.until = until;
+    if (!opts.preview) {
+      if (!member && this.login && !opts.authedOnly) member = await this.login.access(relay);
+      if (!member) return { state: 'auth-required', events: [] };
+    }
+    const filter: Filter = opts.preview
+      ? {
+          kinds: FRESH_KINDS,
+          search: `topic:${slug}`,
+          since: this.floor(),
+          limit: Math.min(limit, PREVIEW_LIMIT)
+        }
+      : { kinds: FRESH_KINDS, search: `topic:${slug}`, limit };
+    if (until !== undefined && !opts.preview) filter.until = until;
     const res = await this.query(filter);
     if (res.state !== 'ok') return this.closed(res, true);
     const fresh = res.events
@@ -461,7 +491,9 @@ export class FreshClient {
    *
    * `authedOnly`: only if this connection is already logged in, never
    * asking the signer (for a card that loads on its own). Non-members get
-   * 'auth-required' without a request being sent.
+   * 'auth-required' without a request being sent. There is no anonymous
+   * preview of history: the archive is members-only on the relay, and
+   * nothing here waits for one.
    */
   async history(
     since: number,

@@ -4,6 +4,8 @@
   import ArticleCard from '../ArticleCard.svelte';
   import { filterByCategory, sortArticles, limitArticlesPerAuthor, deduplicatePreviewArticles, isRelevantToReads, type ArticleData, type SortOption } from '$lib/articleUtils';
   import { isBlockedFromReads, readsModerationVersion } from '$lib/reads/moderationClient';
+  import { SPAM_REASON_LABELS, type SpamReason } from '$lib/reads/spamRules';
+  import { readsFold, type AuthorTrustLike } from '$lib/reads/allReadsView';
 
   export let articles: ArticleData[] = [];
   export let loading: boolean = false;
@@ -11,6 +13,10 @@
   export let coverArticleIds: string[] = []; // Exclude cover articles from feed
   export let followedPubkeys: Set<string> = new Set(); // For "For You" sort
   export let isSignedIn: boolean = false;
+  /** "All reads" only: articles the spam rules flagged (id → reason), folded under a reveal line. */
+  export let spamReasons: Map<string, SpamReason> = new Map();
+  /** "All reads" only: each author's trust (absent = still looking). Null: no trust fold (curated tab). */
+  export let authorTrust: ReadonlyMap<string, AuthorTrustLike> | null = null;
 
   const dispatch = createEventDispatcher<{ loadMore: void }>();
 
@@ -39,7 +45,16 @@
   );
   $: dedupedArticles = deduplicatePreviewArticles(feedArticles);
   $: authorLimitedArticles = limitArticlesPerAuthor(dedupedArticles, 3); // Max 3 per author
-  $: filteredArticles = filterByCategory(authorLimitedArticles, selectedCategory);
+  $: categoryArticles = filterByCategory(authorLimitedArticles, selectedCategory);
+  // Never hidden silently: spam and articles from accounts with no trust
+  // connection are counted on separate lines, and shown marked on request.
+  let revealSpam = false;
+  let revealStrangers = false;
+  $: view = readsFold(categoryArticles, spamReasons, authorTrust, { spam: revealSpam, strangers: revealStrangers });
+  $: filteredArticles = view.shown;
+  $: spamCount = view.spamCount;
+  $: strangerCount = view.strangerCount;
+  $: isStranger = (a: ArticleData) => !spamReasons.has(a.id) && authorTrust?.get(a.author.pubkey.toLowerCase()) === 'stranger';
   $: sortedArticles = sortArticles(filteredArticles, selectedSort, followedPubkeys);
 
   // Pagination - show all filtered articles (infinite scroll handles fetching more)
@@ -97,6 +112,29 @@
   <!-- Filter Bar -->
   <FilterBar bind:selectedCategory bind:selectedSort showForYou={isSignedIn} />
 
+  {#if !loading && spamCount > 0}
+    <p class="spam-line" data-testid="spam-line">
+      {#if revealSpam}
+        {spamCount} likely spam shown, marked ·
+        <button type="button" class="spam-toggle" on:click={() => (revealSpam = false)}>hide</button>
+      {:else}
+        {spamCount} hidden as likely spam ·
+        <button type="button" class="spam-toggle" on:click={() => (revealSpam = true)}>show</button>
+      {/if}
+    </p>
+  {/if}
+  {#if !loading && strangerCount > 0}
+    <p class="spam-line" data-testid="stranger-line">
+      {#if revealStrangers}
+        {strangerCount} from accounts we don't know yet, shown marked ·
+        <button type="button" class="spam-toggle" on:click={() => (revealStrangers = false)}>hide</button>
+      {:else}
+        {strangerCount} from accounts we don't know yet ·
+        <button type="button" class="spam-toggle" on:click={() => (revealStrangers = true)}>show</button>
+      {/if}
+    </p>
+  {/if}
+
   {#if loading}
     <!-- Loading Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -137,7 +175,12 @@
     <!-- Article Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {#each displayedArticles as article (article.id)}
-        <div class="article-card-wrapper">
+        <div class="article-card-wrapper" class:spam-marked={spamReasons.has(article.id) || isStranger(article)}>
+          {#if spamReasons.has(article.id)}
+            <span class="spam-mark" data-testid="spam-mark">Likely spam: {SPAM_REASON_LABELS[spamReasons.get(article.id) ?? 'short']}</span>
+          {:else if isStranger(article)}
+            <span class="spam-mark" data-testid="stranger-mark">Account we don't know yet</span>
+          {/if}
           <ArticleCard
             event={article.event}
             imageUrl={article.imageUrl}
@@ -146,6 +189,7 @@
             readTime={article.readTimeMinutes}
             tags={article.tags}
             articleUrl={article.articleUrl}
+            routeImage
           />
         </div>
       {/each}
@@ -193,6 +237,38 @@
   .article-card-wrapper {
     display: flex;
     min-height: 480px;
+  }
+
+  .article-card-wrapper.spam-marked {
+    flex-direction: column;
+    gap: 0.375rem;
+    opacity: 0.75;
+  }
+
+  .spam-line {
+    margin: 1rem 0 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--color-caption);
+  }
+
+  .spam-line + .spam-line {
+    margin-top: -0.5rem;
+  }
+
+  .spam-toggle {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .spam-mark {
+    align-self: flex-start;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    color: var(--color-caption);
+    border: 1px solid var(--color-input-border);
   }
 
   @media (min-width: 768px) {

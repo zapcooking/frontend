@@ -1,989 +1,689 @@
 <script lang="ts">
-  import { onMount, onDestroy, tick } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { recipeTags, CURATED_TAG_SECTIONS, type recipeTagSimple } from '$lib/consts';
-  import {
-    fetchCollectionsWithImages,
-    fetchPopularCooks,
-    fetchDiscoverRecipes,
-    type Collection,
-    type PopularCook
-  } from '$lib/exploreUtils';
-  import TagChip from '../../components/TagChip.svelte';
-  import CollectionCard from '../../components/CollectionCard.svelte';
-  import ProfileAvatar from '../../components/ProfileAvatar.svelte';
-  import TrendingRecipeCard from '../../components/TrendingRecipeCard.svelte';
-  import BoostedRecipeCard from '../../components/BoostedRecipeCard.svelte';
-  import SponsorBanner from '../../components/SponsorBanner.svelte';
-  import PullToRefresh from '../../components/PullToRefresh.svelte';
-  import LongformFoodFeed from '../../components/LongformFoodFeed.svelte';
-  import LandingImportHero from '../../components/LandingImportHero.svelte';
-  import HomepageJoinCta from '../../components/HomepageJoinCta.svelte';
-  import CheffyHomeCard from '../../components/CheffyHomeCard.svelte';
-  import CheffyExploreInvite from '../../components/CheffyExploreInvite.svelte';
-  import type { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { nip19 } from 'nostr-tools';
-  import { init, markOnce } from '$lib/perf/explorePerf';
-  import { userPublickey, ensureNdkConnected } from '$lib/nostr';
-  import {
-    membershipStatusMap,
-    queueMembershipLookup,
-    type MembershipStatus
-  } from '$lib/stores/membershipStatus';
-  import { cookingToolsOpen, cookingToolsStore } from '$lib/stores/cookingToolsWidget';
-  import {
-    cookingToolsTipVisible,
-    dismissCookingToolsTip as dismissCookingToolsTipShared
-  } from '$lib/cookingToolsTip';
-  import { browser } from '$app/environment';
+  /**
+   * /explore: the magazine landing page, the front door to Zap Cooking.
+   * Server-rendered with `csr = false`: no client JS, the root layout renders
+   * only this page (see $lib/landing/route), and every section is in the
+   * HTML so the page is complete with JavaScript off.
+   */
   import type { PageData } from './$types';
-  import { exploreNavTick } from '$lib/exploreNav';
-  import { dragScroll } from '$lib/dragScroll';
-  import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
-  import FlameIcon from 'phosphor-svelte/lib/Flame';
-  import XIcon from 'phosphor-svelte/lib/X';
-  import GlobeIcon from 'phosphor-svelte/lib/Globe';
-  import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
-  import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
-  import {
-    startSectionChosen,
-    isStartSectionPromptDismissed,
-    dismissStartSectionPrompt,
-    saveStartSection,
-    type StartSection
-  } from '$lib/startSectionSettings';
-  import { showToast } from '$lib/toast';
+  import { CURATED_TAG_SECTIONS } from '$lib/consts';
+  import { COOK_PLUS_TOOLS } from '$lib/cookPlusCopy';
+  import { avatarUrl } from '$lib/imageOptimizer';
+  import { responsiveImg } from '$lib/landing/responsiveImg';
+  import { shortName, tagHref, topicCountLabel } from '$lib/landing/display';
+  import { userHref } from '$lib/landing/content';
+  import { ANDROID_APP_URL, landingJsonLd, landingMeta, NOSCRIPT_DARK_STYLE } from '$lib/landing/meta';
+  import LandingHeader from '../../components/landing/LandingHeader.svelte';
+  import LandingImage from '../../components/landing/LandingImage.svelte';
+  import LongformTile from '../../components/landing/LongformTile.svelte';
+  import Footer from '../../components/Footer.svelte';
 
-  // Accept SvelteKit props to prevent warnings
   export let data: PageData;
 
-  // One-time "choose your start section" announcement. Client-only on
-  // purpose: visibility depends on per-browser localStorage and Explore is
-  // prerendered — rendering it during SSR would bake one visitor's state
-  // into shared HTML and flash on hydration.
-  let mounted = false;
-  let startPromptDismissed = false;
-  onMount(() => {
-    mounted = true;
-    startPromptDismissed = isStartSectionPromptDismissed();
-  });
-  // A choice arriving from a relay sync (member picked on another device)
-  // retires the banner reactively via $startSectionChosen. While the
-  // first-visit Cooking Tools tip popover is up, the announcement waits —
-  // the popover renders over this card's top-right corner and buries the
-  // dismiss button, so the two onboarding moments take turns instead.
-  $: showStartSectionPrompt =
-    mounted && !startPromptDismissed && !$startSectionChosen && !$cookingToolsTipVisible;
+  $: d = data.landing;
+  $: paid = data.paid;
+  $: meta = landingMeta(d);
+  $: hero = d.cover ? responsiveImg(d.cover.image, [480, 768, 1200], '(min-width: 1024px) 66vw, 100vw') : null;
 
-  const START_PROMPT_LABELS: Record<StartSection, string> = {
-    feed: 'the Feed',
-    explore: 'Explore',
-    recipes: 'Recipes'
-  };
-  function chooseStartSection(section: StartSection) {
-    saveStartSection(section);
-    showToast('success', `Saved — you'll start on ${START_PROMPT_LABELS[section]}.`, 4000, {
-      label: 'Settings',
-      href: '/settings'
-    });
-  }
-  function dismissStartPrompt() {
-    startPromptDismissed = true;
-    dismissStartSectionPrompt();
-  }
+  const avatar = (url: string | undefined, px: number) => (url ? avatarUrl(url, px) || url : undefined);
 
-  // One-time Cooking Tools tip (4.2 first-60-seconds improvement)
-  // Visibility lives in a shared store so other components (e.g. the
-  // header wallet dropdown) can dismiss it.
-  let cookingToolsTipEl: HTMLDivElement | null = null;
-  let tipPointerX = '2.5rem';
-  let tipTop = '0.5rem';
-  let tipLeft = '0.75rem';
-  let tipPointerScheduled = false;
-  $: showCookingToolsTip = $cookingToolsTipVisible;
-  function dismissCookingToolsTip() {
-    dismissCookingToolsTipShared();
-  }
-  function openCookingTools() {
-    cookingToolsStore.open('timer');
-    dismissCookingToolsTip();
-  }
-
-  // Portal action to render the tip at document body level (above sticky header).
-  function portal(node: HTMLElement) {
-    document.body.appendChild(node);
-
-    return {
-      destroy() {
-        if (node.parentNode) {
-          node.parentNode.removeChild(node);
-        }
-      }
-    };
-  }
-
-  async function syncTipPointer() {
-    if (!browser || !showCookingToolsTip || tipPointerScheduled) return;
-    tipPointerScheduled = true;
-    await tick();
-    requestAnimationFrame(() => {
-      tipPointerScheduled = false;
-      updateTipPointer();
-    });
-  }
-
-  function updateTipPointer() {
-    if (!browser || !showCookingToolsTip || !cookingToolsTipEl) return;
-    const anchor = document.querySelector<HTMLElement>('[data-cooking-tools-button]');
-    if (!anchor) return;
-
-    const tipRect = cookingToolsTipEl.getBoundingClientRect();
-    const anchorRect = anchor.getBoundingClientRect();
-    const anchorCenter = anchorRect.left + anchorRect.width / 2;
-    const arrowOffset = 16;
-
-    // Preferred arrow inset from the tip's left edge
-    const arrowInset = 28;
-    const leftMargin = 8;
-    const rightMargin = 12;
-    const viewportWidth = window.innerWidth;
-
-    // Position the balloon so the arrow lands on the anchor center
-    const idealLeft = anchorCenter - arrowInset;
-    const clampedLeft = Math.min(
-      Math.max(idealLeft, leftMargin),
-      viewportWidth - tipRect.width - rightMargin
-    );
-
-    // Recalculate the arrow's actual offset within the (possibly clamped) balloon
-    const actualPointerX = anchorCenter - clampedLeft;
-    const minPointerX = 18;
-    const maxPointerX = Math.max(minPointerX, tipRect.width - 18);
-
-    tipTop = `${Math.max(anchorRect.bottom + arrowOffset, 8)}px`;
-    tipLeft = `${clampedLeft}px`;
-    tipPointerX = `${Math.min(Math.max(actualPointerX, minPointerX), maxPointerX)}px`;
-  }
-
-  $: if (showCookingToolsTip) {
-    syncTipPointer();
-  }
-
-  $: if (showCookingToolsTip && $cookingToolsOpen) {
-    dismissCookingToolsTip();
-  }
-
-  // Pull-to-refresh refs
-  let pullToRefreshEl: PullToRefresh;
-
-  // t0_explore_nav_start: Earliest point for the Explore route
-  init();
-  markOnce('t0_explore_nav_start');
-
-  // New data for Explore sections
-  let collections: Collection[] = [];
-  let popularCooks: PopularCook[] = [];
-  let discoverRecipes: NDKEvent[] = [];
-  let boostedRecipes: {
-    naddr: string;
-    recipeTitle: string;
-    recipeImage: string;
-    authorPubkey: string;
-    tier: string;
-    expiresAt: number;
-  }[] = [];
-  let sponsorBanners: {
-    id: string;
-    title: string;
-    description: string;
-    imageUrl: string;
-    linkUrl: string;
-  }[] = [];
-  let loadingCollections = true;
-  let loadingCooks = true;
-  let loadingDiscover = true;
-  let cultureExpanded = false;
-
-  $: cultureSection = CURATED_TAG_SECTIONS.find((s) => s.title === 'Explore by culture');
-
-  // t2_explore_first_content_rendered: When Explore renders its first recipe cards
-  // Track when discoverRecipes first becomes non-empty (matches template condition)
-  let t2Marked = false;
-  $: if (!t2Marked && discoverRecipes?.length > 0) {
-    markOnce('t2_explore_first_content_rendered');
-    t2Marked = true;
-  }
-
-  async function loadExploreData() {
-    // t1_explore_shell_rendered: When Explore UI shell is mounted
-    markOnce('t1_explore_shell_rendered');
-
-    // Reset loading states
-    loadingCollections = true;
-    loadingCooks = true;
-    loadingDiscover = true;
-    // Load collections immediately (static data, no network)
-    collections = await fetchCollectionsWithImages();
-    loadingCollections = false;
-
-    // Fetch boosted recipes (no relay needed, hits our API)
-    fetch('/api/boost/active')
-      .then((r) => (r.ok ? r.json() : { boosts: [] }))
-      .then((data) => {
-        boostedRecipes = data.boosts || [];
-      })
-      .catch(() => {
-        boostedRecipes = [];
-      });
-
-    // Fetch headline sponsor banners
-    fetch('/api/sponsor/active?tier=headline')
-      .then((r) => (r.ok ? r.json() : { sponsors: [] }))
-      .then((data) => {
-        sponsorBanners = data.sponsors || [];
-      })
-      .catch(() => {
-        sponsorBanners = [];
-      });
-
-    // Wait for at least one relay connection before firing subscription-based fetches.
-    // Without this gate, cold loads race against NDK connection and can throw.
-    await ensureNdkConnected();
-
-    // Start discover recipes immediately (don't block on other data)
-    fetchDiscoverRecipes(12)
-      .then((discoverData) => {
-        discoverRecipes = discoverData;
-        loadingDiscover = false;
-      })
-      .catch(() => {
-        loadingDiscover = false;
-      });
-
-    // Load popular cooks (uses cache for instant load)
-    fetchPopularCooks(12)
-      .then((cooksData) => {
-        popularCooks = cooksData;
-        loadingCooks = false;
-      })
-      .catch(() => {
-        loadingCooks = false;
-      });
-  }
-
-  async function handleRefresh() {
-    try {
-      await loadExploreData();
-      // Wait a bit for data to load
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    } finally {
-      // Always complete the pull-to-refresh
-      pullToRefreshEl?.complete();
-    }
-  }
-
-  onMount(() => {
-    let cleanup: (() => void) | undefined;
-    void (async () => {
-      syncTipPointer();
-      await loadExploreData();
-
-      if (browser) {
-        let ticking = false;
-        const handleLayoutChange = () => {
-          if (!ticking) {
-            ticking = true;
-            requestAnimationFrame(() => {
-              syncTipPointer();
-              ticking = false;
-            });
-          }
-        };
-        const scrollContainer = document.getElementById('app-scroll');
-        window.addEventListener('resize', handleLayoutChange);
-        scrollContainer?.addEventListener('scroll', handleLayoutChange, { passive: true });
-        return () => {
-          window.removeEventListener('resize', handleLayoutChange);
-          scrollContainer?.removeEventListener('scroll', handleLayoutChange);
-        };
-      }
-    })().then((result) => {
-      cleanup = result;
-    });
-
-    return () => {
-      cleanup?.();
-    };
-  });
-
-  // Logo tap while on /explore → scroll to top + refresh
-  let lastExploreTick = 0;
-  $: if ($exploreNavTick !== lastExploreTick) {
-    lastExploreTick = $exploreNavTick;
-    if (browser) {
-      const el = document.getElementById('app-scroll');
-      if (el) el.scrollTo({ top: 0, behavior: 'smooth' });
-      else window.scrollTo({ top: 0, behavior: 'smooth' });
-      void loadExploreData();
-    }
-  }
-
-  // Membership status for teaser strip
-  let exploreMembershipMap: Record<string, MembershipStatus> = {};
-  const unsubExploreMembership = membershipStatusMap.subscribe((value) => {
-    exploreMembershipMap = value;
-  });
-
-  $: if ($userPublickey) {
-    queueMembershipLookup($userPublickey);
-  }
-
-  $: exploreMembershipStatus = $userPublickey
-    ? exploreMembershipMap[$userPublickey.trim().toLowerCase()]
-    : undefined;
-  // Only show teaser once lookup has resolved (avoid flash for members)
-  $: isNonMember = exploreMembershipStatus !== undefined && !exploreMembershipStatus.active;
-
-  onDestroy(() => {
-    unsubExploreMembership();
-  });
-
-  function navigateToTag(tag: recipeTagSimple) {
-    goto(`/tag/${tag.title}`);
-  }
-
-  function handleCollectionClick(collection: Collection) {
-    if (collection.tag) {
-      goto(`/tag/${collection.tag}`);
-    }
-  }
-
-  function getCultureTags(showAll: boolean): recipeTagSimple[] {
-    const cultureSection = CURATED_TAG_SECTIONS.find((s) => s.title === 'Explore by culture');
-    if (!cultureSection) return [];
-
-    const allTags = cultureSection.tags
-      .map((tagName) => recipeTags.find((t) => t.title === tagName))
-      .filter((tag): tag is recipeTagSimple => tag !== undefined);
-
-    return showAll ? allTags : allTags.slice(0, 10);
-  }
-
-  $: allCultureTags = getCultureTags(true);
-  $: visibleCultureTags = cultureExpanded ? allCultureTags : allCultureTags.slice(0, 10);
-  $: hasMoreCultures = allCultureTags.length > 10;
+  const FREE_TOOLS: { name: string; href: string; body: string; external?: boolean }[] = [
+    { name: 'Recipes', href: '/recipes', body: 'Thousands of recipes from cooks everywhere, free to cook and share.' },
+    { name: 'The feed', href: '/feed', body: 'What cooks are making right now, straight from the kitchen.' },
+    { name: 'Recipe Packs', href: '/packs', body: 'Collections of recipes put together by the community.' },
+    { name: 'Share a recipe', href: '/create', body: 'Publish your own. You keep it, everyone can cook it.' },
+    { name: 'Import a recipe', href: '/souschef', body: 'Paste a link and get a clean recipe you can save.' },
+    // Android only: there is no iOS App Store listing.
+    { name: 'Android app', href: ANDROID_APP_URL, body: 'Zap Cooking for Android, on Google Play.', external: true }
+  ];
 </script>
 
 <svelte:head>
-  <title>Explore - zap.cooking</title>
-  <meta name="description" content="Discover recipes, collections, and cooks on zap.cooking" />
-  <meta property="og:url" content="https://zap.cooking/explore" />
+  <title>{meta.title}</title>
+  <meta name="description" content={meta.description} />
+  <link rel="canonical" href={meta.canonical} />
+  <meta property="og:title" content={meta.title} />
+  <meta property="og:description" content={meta.description} />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Explore - zap.cooking" />
-  <meta
-    property="og:description"
-    content="Discover recipes, collections, and cooks on zap.cooking"
-  />
-  <!-- og:image / twitter:image / twitter:card come from the `{#if !hasCustomOgTags}`
-       block in +layout.svelte's <svelte:head>. This route is not in `hasCustomOgTags`,
-       so the layout's set is emitted here and a page-level copy would be a second,
-       silently-drifting claim. -->
-
-  <meta property="twitter:domain" content="zap.cooking" />
-  <meta property="twitter:url" content="https://zap.cooking/explore" />
-  <meta name="twitter:title" content="Explore - zap.cooking" />
-  <meta
-    name="twitter:description"
-    content="Discover recipes, collections, and cooks on zap.cooking"
-  />
+  <meta property="og:url" content={meta.canonical} />
+  <meta property="og:image" content={meta.image} />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content={meta.title} />
+  <meta name="twitter:description" content={meta.description} />
+  <meta name="twitter:image" content={meta.image} />
+  {#if hero}
+    <link
+      rel="preload"
+      as="image"
+      href={hero.src}
+      imagesrcset={hero.srcset}
+      imagesizes={hero.sizes}
+      fetchpriority="high"
+    />
+  {/if}
+  {@html `<script type="application/ld+json">${landingJsonLd(d)}</script>`}
+  {@html NOSCRIPT_DARK_STYLE}
 </svelte:head>
 
-<PullToRefresh bind:this={pullToRefreshEl} on:refresh={handleRefresh}>
-  <div class="flex flex-col">
-    <!-- One-time announcement: pick your start section. Shows until the
-         visitor chooses (here, in Settings, or on any synced device) or
-         dismisses. -->
-    {#if showStartSectionPrompt}
-      <section
-        class="relative flex flex-col gap-3 p-4 rounded-xl mb-6"
-        style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-primary);"
-        data-section="start-section-prompt"
-      >
-        <button
-          type="button"
-          class="absolute top-2 right-2 p-1.5 rounded-full transition-opacity hover:opacity-60"
-          style="color: var(--color-text-secondary);"
-          aria-label="Dismiss announcement"
-          on:click={dismissStartPrompt}
-        >
-          <XIcon size={18} />
-        </button>
-        <div class="flex items-center gap-2 pr-8">
-          <SparkleIcon size={20} weight="fill" class="text-primary shrink-0" />
-          <p class="text-base font-semibold" style="color: var(--color-text-primary);">
-            New: choose where zap.cooking takes you
+<div class="landing">
+  <LandingHeader />
+
+  <main id="main" class="mx-auto max-w-6xl px-4 pb-16">
+    <!-- Masthead -->
+    <div class="masthead">
+      <p class="kicker">Updated daily</p>
+      <h1 class="font-display">Recipes, cooks and food stories, open to everyone.</h1>
+      <p class="dek">
+        Zap Cooking is a kitchen on Nostr: cook from thousands of recipes, follow the people who make them,
+        and send them a zap when a dish turns out great.
+      </p>
+      <p class="cta-row">
+        <a href="/login" class="btn-primary">Join free</a>
+        <a href="/recipes" class="btn-quiet">Browse recipes <span aria-hidden="true">→</span></a>
+      </p>
+    </div>
+
+    <!-- 1. Cover story + picks -->
+    <section aria-labelledby="cover-h" class="cover-grid">
+      {#if d.cover}
+        <article class="cover">
+          <a href={d.cover.href} class="cover-link">
+            <LandingImage
+              url={d.cover.image}
+              alt={d.cover.title}
+              ratio="4 / 3"
+              widths={[480, 768, 1200]}
+              sizes="(min-width: 1024px) 66vw, 100vw"
+              hero
+            />
+            <p class="kicker mt-4">Cover story</p>
+            <h2 id="cover-h" class="font-display cover-title">{d.cover.title}</h2>
+          </a>
+          {#if d.cover.summary}<p class="dek">{d.cover.summary}</p>{/if}
+          <p class="byline">
+            by <a href={userHref(d.cover.author.pubkey)}>{d.cover.author.name || shortName(d.cover.author.pubkey)}</a>
           </p>
+        </article>
+      {:else}
+        <!-- Never an empty cover: an editorial one when no photo is available. -->
+        <article class="cover cover-static">
+          <p class="kicker">Cover story</p>
+          <h2 id="cover-h" class="font-display cover-title">Food is open source.</h2>
+          <p class="dek">Every recipe here belongs to the cook who wrote it, and anyone can cook it.</p>
+          <p><a href="/recipes" class="btn-primary">Start cooking</a></p>
+        </article>
+      {/if}
+      {#if d.picks.length}
+        <aside aria-label="Editor's picks" class="picks">
+          <p class="kicker">Editor's picks</p>
+          {#each d.picks as pick (pick.coordinate)}
+            <LongformTile card={pick} sizes="(min-width: 1024px) 30vw, 100vw" widths={[320, 480, 640]} />
+          {/each}
+        </aside>
+      {/if}
+    </section>
+
+    <!-- 1b. Boosted recipes (paid) -->
+    {#if paid.boosts.length}
+      <section aria-labelledby="boosted-h" class="band">
+        <div class="band-head">
+          <h2 id="boosted-h" class="font-display">Boosted recipes</h2>
+          <p class="paid-label">Paid placement</p>
         </div>
-        <p class="text-sm text-caption">
-          The Nostr feed is now the default start section. Make it yours — or pick Explore or
-          Recipes instead. You can change this anytime in Settings.
-        </p>
-        <div class="flex flex-wrap gap-2" role="group" aria-label="Choose your start section">
-          <button
-            type="button"
-            class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border transition-opacity hover:opacity-80 bg-blue-50 border-blue-300 dark:bg-blue-950/40 dark:border-blue-800"
-            on:click={() => chooseStartSection('explore')}
-          >
-            <GlobeIcon size={16} class="text-blue-500" />
-            Explore
-          </button>
-          <button
-            type="button"
-            class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border transition-opacity hover:opacity-80 bg-orange-50 border-orange-300 dark:bg-orange-950/40 dark:border-orange-800"
-            on:click={() => chooseStartSection('feed')}
-          >
-            <FlameIcon size={16} weight="fill" class="text-orange-500" />
-            Feed
-          </button>
-          <button
-            type="button"
-            class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium border transition-opacity hover:opacity-80 bg-green-50 border-green-300 dark:bg-green-950/40 dark:border-green-800"
-            on:click={() => chooseStartSection('recipes')}
-          >
-            <ForkKnifeIcon size={16} class="text-green-600" />
-            Recipes
-          </button>
-        </div>
+        <ul class="grid-4" role="list">
+          {#each paid.boosts as b (b.id)}
+            <li>
+              <a href={b.href} class="tile-plain">
+                {#if b.image}
+                  <LandingImage url={b.image} alt={b.title} ratio="4 / 3" sizes="(min-width: 1024px) 25vw, 50vw" widths={[320, 480, 640]} />
+                {/if}
+                <span class="badge-paid">Boosted</span>
+                <h3 class="font-display text-lg leading-snug">{b.title}</h3>
+              </a>
+            </li>
+          {/each}
+        </ul>
       </section>
     {/if}
 
-    <!-- Cold-visitor join entry — logged-out only, above the fold -->
-    {#if $userPublickey === ''}
-      <HomepageJoinCta />
+    <!-- 2. Fresh from the kitchen -->
+    {#if d.fresh.length}
+      <section aria-labelledby="fresh-h" class="band">
+        <div class="band-head">
+          <h2 id="fresh-h" class="font-display">Fresh from the kitchen</h2>
+          <a href="/feed" class="more">See the Fresh feed <span aria-hidden="true">→</span></a>
+        </div>
+        <ul class="row" role="list" aria-label="Recent posts">
+          {#each d.fresh as note (note.id)}
+            <li class="row-item">
+              <a href={note.href} class="tile-plain">
+                <LandingImage url={note.image} alt={note.text || `A photo by ${note.author.name || 'a cook'}`} ratio="1 / 1" sizes="(min-width: 1024px) 16vw, 45vw" widths={[240, 360, 480]} />
+                {#if note.text}<p class="note-text">{note.text}</p>{/if}
+                <p class="byline">{note.author.name || shortName(note.author.pubkey)}</p>
+              </a>
+            </li>
+          {/each}
+        </ul>
+      </section>
     {/if}
 
-    <!-- Explore Content -->
-    <div class="flex flex-col gap-8 sm:gap-14">
-      <!-- Supported by our partners -->
-      {#if sponsorBanners.length > 0}
-        <section class="flex flex-col gap-3" data-section="partners">
-          <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
-            Supported by our partners
-          </h2>
-          {#if sponsorBanners.length === 1}
-            <SponsorBanner
-              title={sponsorBanners[0].title}
-              description={sponsorBanners[0].description}
-              imageUrl={sponsorBanners[0].imageUrl}
-              linkUrl={sponsorBanners[0].linkUrl}
-            />
-          {:else}
-            <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
-              {#each sponsorBanners as sponsor (sponsor.id)}
-                <div class="flex-shrink-0 sponsor-scroll-item">
-                  <SponsorBanner
-                    title={sponsor.title}
-                    description={sponsor.description}
-                    imageUrl={sponsor.imageUrl}
-                    linkUrl={sponsor.linkUrl}
-                  />
-                </div>
-              {/each}
-            </div>
-          {/if}
-          <a
-            href="/sponsors"
-            class="text-xs font-medium transition-colors self-start"
-            style="color: var(--color-primary);"
-          >
-            View Sponsors &rarr;
-          </a>
-        </section>
-      {/if}
-
-      <!-- Jump to the live Nostr feed — recipes, longform, and collections
-           all had entry points on Explore, but the short-post feed had none.
-           Static by design: no feed fetch, so Explore stays prerenderable
-           and this card costs nothing to paint. -->
-      <a
-        href="/feed"
-        class="group flex items-center gap-4 p-4 rounded-xl"
-        style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
-        data-section="feed-jump"
-      >
-        <span class="flex items-center justify-center w-11 h-11 rounded-full shrink-0 bg-primary">
-          <FlameIcon size={22} weight="fill" class="text-white" />
-        </span>
-        <span class="flex flex-col min-w-0 gap-0.5 flex-1">
-          <span class="text-base font-semibold transition-colors group-hover:text-primary">
-            {#if $userPublickey}
-              Live from the feed
-            {:else}
-              Join the conversation
-            {/if}
-          </span>
-          <span class="text-sm text-caption">
-            {#if $userPublickey}
-              See what cooks everywhere are posting right now.
-            {:else}
-              The Nostr feed is open to everyone — see what cooks are posting.
-            {/if}
-          </span>
-        </span>
-        <CaretRightIcon
-          size={20}
-          weight="bold"
-          class="opacity-50 transition-all group-hover:opacity-100 group-hover:translate-x-0.5 shrink-0"
-        />
-      </a>
-
-      <!-- Fresh from the Kitchen -->
-      <section class="flex flex-col gap-4" data-section="fresh-kitchen">
-        <a
-          href="/recipes"
-          class="group flex items-center gap-2 w-fit transition-colors hover:text-primary"
-        >
-          <h2 class="text-2xl font-bold flex items-center gap-2 transition-colors group-hover:text-primary">
-            <span>🍳</span>
-            <span>Fresh from the Kitchen</span>
-          </h2>
-          <CaretRightIcon
-            size={18}
-            weight="bold"
-            class="opacity-50 transition-all group-hover:opacity-100 group-hover:translate-x-0.5"
-          />
-        </a>
-        {#if loadingDiscover}
-          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
-            {#each Array(6) as _}
-              <div class="flex-shrink-0 w-56 h-72 rounded-xl animate-pulse skeleton-bg"></div>
-            {/each}
-          </div>
-        {:else if discoverRecipes.length > 0}
-          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
-            {#each boostedRecipes as boost (boost.naddr)}
-              <BoostedRecipeCard
-                naddr={boost.naddr}
-                title={boost.recipeTitle}
-                imageUrl={boost.recipeImage}
-                authorPubkey={boost.authorPubkey}
-              />
-            {/each}
-            {#each discoverRecipes.filter((r) => r && r.author?.pubkey) as recipe (recipe.id || recipe.created_at)}
-              <TrendingRecipeCard event={recipe} />
-            {/each}
-          </div>
-        {:else}
-          <!-- Friendly empty state when network returns no recipes (4.2 improvement) -->
-          <div
-            class="flex flex-col items-center justify-center py-8 px-4 rounded-xl text-center"
-            style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
-          >
-            <p class="text-sm text-caption max-w-xs">
-              Recipes will appear here as the community shares. Try the <strong>Timer</strong> (pot
-              icon above) or <strong>Collections</strong> below.
-            </p>
-          </div>
-        {/if}
-      </section>
-
-      <!-- Cheffy entry point — compact kitchen-companion card. Members
-           get a direct prompt handoff to /cheffy; everyone else can see
-           and understand Cheffy (auth + membership enforced on the
-           /cheffy page, never here). -->
-      <CheffyHomeCard />
-
-      <!-- Free AI recipe import — full card for anon visitors, compact pill
-           for logged-in non-premium users, hidden for Pro Kitchen / Founders. -->
-      <LandingImportHero />
-
-      <!-- Popular Cooks -->
-      <section class="flex flex-col gap-4">
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <span>👨‍🍳</span>
-          <span>Popular Cooks</span>
-        </h2>
-        {#if loadingCooks}
-          <div class="flex gap-4 overflow-x-auto pt-8 pb-4 -mt-6 -mx-4 px-4">
-            {#each Array(6) as _}
-              <div class="flex-shrink-0 w-20 flex flex-col items-center gap-2">
-                <div class="w-16 h-16 rounded-full animate-pulse skeleton-bg"></div>
-                <div class="h-4 w-16 rounded animate-pulse skeleton-bg"></div>
-              </div>
-            {/each}
-          </div>
-        {:else if popularCooks.length > 0}
-          <div
-            class="flex gap-4 overflow-x-auto pt-8 pb-4 -mt-6 -mx-4 px-4 scrollbar-hide touch-pan-x"
-            use:dragScroll
-          >
-            {#each popularCooks as cook}
-              <ProfileAvatar pubkey={cook.pubkey} showZapIndicator={false} />
-            {/each}
-          </div>
-        {/if}
-      </section>
-
-      <!-- Membership teaser — premium feel -->
-      {#if !$userPublickey || isNonMember}
-        <section class="membership-teaser" aria-label="Membership teaser">
-          <div class="membership-teaser-glow"></div>
-          <div class="relative z-10 text-center px-4 py-6">
-            <p
-              class="text-xs uppercase tracking-widest font-semibold mb-2"
-              style="color: rgba(249,115,22,0.9);"
-            >
-              Cook+
-            </p>
-            <h3 class="text-lg font-bold text-white">Unlock your kitchen</h3>
-            <p class="text-sm mt-1.5 text-gray-300">AI tools, private groups, and more.</p>
-            <a href="/membership" class="membership-teaser-cta">Unlock Cook+</a>
-          </div>
-        </section>
-      {/if}
-
-      <!-- Food Stories & Articles -->
-      <section class="flex flex-col gap-4">
-        <div class="px-4 -mx-4 sm:px-0 sm:mx-0">
-          <a
-            href="/reads"
-            class="group flex items-center gap-2 w-fit transition-colors hover:text-primary"
-          >
-            <h2 class="text-2xl font-bold flex items-center gap-2 transition-colors group-hover:text-primary">
-              <span>📖</span>
-              <span>Food Stories & Articles</span>
-            </h2>
-            <CaretRightIcon
-              size={18}
-              weight="bold"
-              class="opacity-50 transition-all group-hover:opacity-100 group-hover:translate-x-0.5"
-            />
-          </a>
-          <p class="text-sm text-caption">
-            Recent longform articles about food, farming, homesteading, and food culture.
-          </p>
+    <!-- 2b. New recipes -->
+    {#if d.newRecipes.length}
+      <section aria-labelledby="new-h" class="band">
+        <div class="band-head">
+          <h2 id="new-h" class="font-display">New recipes</h2>
+          <a href="/recent" class="more">All new recipes <span aria-hidden="true">→</span></a>
         </div>
-        <div class="-mx-4 px-4 sm:mx-0 sm:px-0">
-          <LongformFoodFeed />
-        </div>
-      </section>
-
-      <!-- Top Collections -->
-      <section class="flex flex-col gap-4">
-        <h2 class="text-2xl font-bold flex items-center gap-2">
-          <span>📚</span>
-          <span>Top Collections</span>
-        </h2>
-        {#if loadingCollections}
-          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4">
-            {#each Array(5) as _}
-              <div class="flex-shrink-0 w-64 h-40 rounded-xl animate-pulse skeleton-bg"></div>
-            {/each}
-          </div>
-        {:else if collections.length > 0}
-          <div class="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
-            {#each collections as collection}
-              <CollectionCard
-                title={collection.title}
-                subtitle={collection.subtitle}
-                imageUrl={collection.imageUrl}
-                onClick={() => handleCollectionClick(collection)}
-              />
-            {/each}
-          </div>
-        {/if}
-      </section>
-
-      <!-- What are you cooking? — Intent Cards -->
-      <section class="flex flex-col gap-3" data-cheffy-invite-anchor>
-        <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
-          What are you cooking?
-        </h2>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          {#each [{ emoji: '⚡', label: 'Quick', sub: 'Ready in 20 min', tag: 'Quick' }, { emoji: '🌅', label: 'Breakfast', sub: 'Start your day right', tag: 'Breakfast' }, { emoji: '🍰', label: 'Dessert', sub: 'Something sweet', tag: 'Dessert' }, { emoji: '🍷', label: 'Drinks', sub: 'Something to sip', tag: 'Drinks' }, { emoji: '🥗', label: 'Easy', sub: 'Simple & satisfying', tag: 'Easy' }, { emoji: '🍜', label: 'Lunch', sub: 'Midday meals', tag: 'Lunch' }, { emoji: '🍽️', label: 'Supper', sub: 'End the day well', tag: 'Supper' }, { emoji: '🍿', label: 'Snack', sub: 'Quick bites', tag: 'Snack' }] as card}
-            <button type="button" class="intent-card" on:click={() => goto(`/tag/${card.tag}`)}>
-              <span class="text-2xl">{card.emoji}</span>
-              <span class="text-sm font-semibold" style="color: var(--color-text-primary);"
-                >{card.label}</span
-              >
-              <span class="text-[11px] leading-tight" style="color: var(--color-text-secondary);"
-                >{card.sub}</span
-              >
-            </button>
+        <ul class="grid-4" role="list">
+          {#each d.newRecipes as r (r.coordinate)}
+            <li><LongformTile card={r} /></li>
           {/each}
-        </div>
+        </ul>
       </section>
+    {/if}
 
-      <!-- Browse by Category — visual horizontal scroll -->
-      <section class="flex flex-col gap-3">
-        <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
-          Browse by category
-        </h2>
-        <div class="flex gap-2.5 overflow-x-auto py-2 -mx-4 px-4 scrollbar-hide touch-pan-x" use:dragScroll>
-          {#each [{ emoji: '🥩', label: 'Beef' }, { emoji: '🍗', label: 'Chicken' }, { emoji: '🥓', label: 'Pork' }, { emoji: '🐟', label: 'Fish' }, { emoji: '🦐', label: 'Seafood' }, { emoji: '🦃', label: 'Turkey' }, { emoji: '🌱', label: 'Vegan' }, { emoji: '🥗', label: 'Salad' }, { emoji: '🍝', label: 'Pasta' }, { emoji: '🍜', label: 'Noodles' }, { emoji: '🍕', label: 'Pizza' }, { emoji: '🥘', label: 'Soup' }, { emoji: '🥪', label: 'Sandwich' }, { emoji: '🍚', label: 'Rice' }, { emoji: '🍞', label: 'Bread' }, { emoji: '🥚', label: 'Eggs' }, { emoji: '🥔', label: 'Potato' }, { emoji: '🧀', label: 'Cheese' }, { emoji: '🍄', label: 'Mushrooms' }, { emoji: '🍅', label: 'Tomato' }, { emoji: '🧄', label: 'Garlic' }, { emoji: '🌶️', label: 'Peppers' }, { emoji: '🍫', label: 'Chocolate' }, { emoji: '🍎', label: 'Apple' }] as cat}
-            <button type="button" class="category-chip" on:click={() => goto(`/tag/${cat.label}`)}>
-              <span class="text-xl">{cat.emoji}</span>
-              <span class="text-xs font-medium" style="color: var(--color-text-primary);"
-                >{cat.label}</span
-              >
-            </button>
+    <!-- 3. Topics -->
+    {#if d.topics.length}
+      <section aria-labelledby="topics-h" class="band">
+        <div class="band-head">
+          <h2 id="topics-h" class="font-display">Topics</h2>
+          <a href="/feed" class="more">Open the feed <span aria-hidden="true">→</span></a>
+        </div>
+        <ul class="grid-4" role="list">
+          {#each d.topics as t (t.slug)}
+            <li>
+              <a href={t.href} class="topic">
+                <LandingImage url={t.image} alt="" ratio="3 / 2" sizes="(min-width: 1024px) 25vw, 50vw" widths={[320, 480]} />
+                <span class="topic-text">
+                  <span class="topic-name font-display">{t.name}</span>
+                  {#if t.count !== null}<span class="topic-count">{topicCountLabel(t.count)}</span>{/if}
+                </span>
+              </a>
+            </li>
           {/each}
-        </div>
+        </ul>
       </section>
+    {/if}
 
-      <!-- Explore by Culture -->
-      {#if cultureSection}
-        <section class="flex flex-col gap-3">
-          <div class="flex items-center justify-between">
-            <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
-              Explore by culture
-            </h2>
-            {#if hasMoreCultures}
-              <button
-                on:click={() => (cultureExpanded = !cultureExpanded)}
-                type="button"
-                class="text-xs font-medium transition-colors"
-                style="color: var(--color-primary);"
-              >
-                {cultureExpanded ? 'Show less' : 'Show all'}
-              </button>
-            {/if}
-          </div>
-          <div class="flex flex-wrap gap-2">
-            {#each visibleCultureTags as tag (tag.title)}
-              <TagChip {tag} onClick={() => navigateToTag(tag)} />
-            {/each}
-          </div>
-        </section>
-      {/if}
-    </div>
-  </div>
-</PullToRefresh>
-
-<!-- First-use Cheffy experience invite (non-members only; self-gating) -->
-<CheffyExploreInvite />
-
-<!-- One-time Cooking Tools tip (4.2 first-60-seconds) -->
-{#if showCookingToolsTip}
-  <div use:portal>
-    <div class="cooking-tools-tip-wrapper" aria-live="polite">
-      <div
-        bind:this={cookingToolsTipEl}
-        class="flex items-start gap-3 p-4 cooking-tools-tip"
-        style={`--tip-pointer-x: ${tipPointerX}; --tip-top: ${tipTop}; --tip-left: ${tipLeft};`}
-      >
-        <span class="text-2xl flex-shrink-0" aria-hidden="true">🍳</span>
-        <div class="flex-1 min-w-0">
-          <p
-            class="text-[11px] uppercase tracking-[0.14em] font-semibold mb-1"
-            style="color: var(--color-text-secondary);"
-          >
-            Kitchen tip:
-          </p>
-          <p class="text-sm font-medium" style="color: var(--color-text-primary);">
-            Tap the pot icon above for cooking timer & unit converter.
-          </p>
-          <div class="flex flex-wrap gap-2 mt-2">
-            <button
-              type="button"
-              on:click={openCookingTools}
-              class="text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
-              style="background-color: var(--color-primary); color: white;"
-            >
-              Try it
-            </button>
-            <button
-              type="button"
-              on:click={dismissCookingToolsTip}
-              class="text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
-              style="color: var(--color-text-secondary);"
-            >
-              Got it
-            </button>
-          </div>
+    <!-- 4. Cooks to follow -->
+    {#if d.cooks.length}
+      <section aria-labelledby="cooks-h" class="band">
+        <div class="band-head">
+          <h2 id="cooks-h" class="font-display">Cooks to follow</h2>
         </div>
-      </div>
-    </div>
-  </div>
-{/if}
+        <ul class="row" role="list" aria-label="Cooks">
+          {#each d.cooks as c (c.pubkey)}
+            <li class="cook">
+              <a href={c.href} class="cook-link">
+                {#if c.picture}
+                  <img src={avatar(c.picture, 160)} alt="" width="80" height="80" loading="lazy" decoding="async" class="cook-avatar" />
+                {:else}
+                  <span class="cook-avatar cook-initial" aria-hidden="true">{c.name.slice(0, 1).toUpperCase()}</span>
+                {/if}
+                <span class="cook-name">{c.name}</span>
+              </a>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    <!-- 5. Food reads -->
+    {#if d.reads.length}
+      <section aria-labelledby="reads-h" class="band">
+        <div class="band-head">
+          <h2 id="reads-h" class="font-display">Food reads</h2>
+          <a href="/reads" class="more">More reads <span aria-hidden="true">→</span></a>
+        </div>
+        <ul class="grid-2" class:single={d.reads.length === 1} role="list">
+          {#each d.reads as r (r.coordinate)}
+            <li><LongformTile card={r} ratio="16 / 9" sizes="(min-width: 768px) 50vw, 100vw" widths={[480, 768, 1024]} showSummary /></li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    <!-- 6. Browse by tag -->
+    <section aria-labelledby="tags-h" class="band">
+      <div class="band-head"><h2 id="tags-h" class="font-display">Browse by tag</h2></div>
+      {#each CURATED_TAG_SECTIONS as group (group.title)}
+        <h3 class="tag-group">{group.title}</h3>
+        <ul class="chips" role="list">
+          {#each group.tags as tag (tag)}
+            <li><a href={tagHref(tag)} class="chip">{tag}</a></li>
+          {/each}
+        </ul>
+      {/each}
+    </section>
+
+    <!-- 7. What you can do here -->
+    <section aria-labelledby="tools-h" class="band">
+      <div class="band-head"><h2 id="tools-h" class="font-display">What you can do here</h2></div>
+      <ul class="grid-tools" role="list">
+        {#each FREE_TOOLS as tool (tool.href)}
+          <li>
+            <a href={tool.href} class="tool" rel={tool.external ? 'noopener' : undefined} target={tool.external ? '_blank' : undefined}>
+              <h3 class="font-display text-lg">{tool.name}</h3>
+              <p>{tool.body}</p>
+            </a>
+          </li>
+        {/each}
+      </ul>
+    </section>
+
+    <!-- 8. Membership -->
+    <section aria-labelledby="member-h" class="band membership">
+      <h2 id="member-h" class="font-display">Membership</h2>
+      <p class="dek">Members get the kitchen tools, private groups, and the archive of everything they've posted.</p>
+      <ul class="member-tools" role="list">
+        {#each COOK_PLUS_TOOLS as tool (tool.key)}
+          <li><strong>{tool.name}.</strong> {tool.short}</li>
+        {/each}
+      </ul>
+      <p><a href="/membership" class="btn-primary">About membership</a></p>
+    </section>
+
+    <!-- 9. Partners (paid) -->
+    {#if paid.sponsors.length}
+      <section aria-labelledby="partners-h" class="band">
+        <div class="band-head">
+          <h2 id="partners-h" class="font-display">Supported by our partners</h2>
+          <a href="/sponsors" class="more">About sponsors <span aria-hidden="true">→</span></a>
+        </div>
+        <ul class="grid-2" role="list">
+          {#each paid.sponsors as s (s.id)}
+            <li>
+              <a href={s.linkUrl} class="sponsor" rel="sponsored noopener" target="_blank">
+                <span class="badge-paid">Sponsored</span>
+                {#if s.imageUrl}
+                  <img src={s.imageUrl} alt="" loading="lazy" decoding="async" class="sponsor-img" />
+                {/if}
+                <span class="sponsor-title font-display">{s.title}</span>
+                {#if s.description}<span class="sponsor-desc">{s.description}</span>{/if}
+              </a>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+  </main>
+
+  <div class="mx-auto max-w-6xl px-4"><Footer /></div>
+</div>
 
 <style>
-  /* Hide scrollbar but keep functionality */
-  :global(.scrollbar-hide) {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  :global(.scrollbar-hide::-webkit-scrollbar) {
-    display: none;
-  }
-
-  /* Smooth horizontal scroll */
-  :global(.scrollbar-hide) {
-    scroll-behavior: smooth;
-  }
-
-  /* Mobile-first tap targets */
-  @media (max-width: 640px) {
-    button {
-      min-height: 44px;
-    }
-  }
-
-  .cooking-tools-tip-wrapper {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 40;
-    --tip-bg: #ffffff;
-    --tip-border: var(--color-input-border);
-  }
-
-  .cooking-tools-tip {
-    position: absolute;
-    top: var(--tip-top, 0.5rem);
-    left: var(--tip-left, 0.75rem);
-    max-width: min(260px, 78vw);
-    border-radius: 18px;
-    border: 2px solid var(--tip-border);
-    background: var(--tip-bg);
+  .landing {
+    /* White on accent-bg and accent-text on the page pass 4.5:1 in both themes. */
+    --landing-accent-text: #b83900;
+    --landing-accent-bg: #b83900;
+    --landing-muted: var(--color-text-secondary);
+    min-height: 100vh;
+    /* System text: no web-font download competing with the hero image. */
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: var(--color-bg-primary);
     color: var(--color-text-primary);
-    box-shadow:
-      0 16px 28px rgba(18, 26, 33, 0.18),
-      0 6px 12px rgba(18, 26, 33, 0.1);
-    z-index: 41;
-    pointer-events: auto;
+  }
+  :global(html.dark) .landing {
+    --landing-accent-text: #ff8a5c;
+    --landing-accent-bg: #b83900;
+  }
+  .landing :global(.font-display) {
+    font-family: 'Iowan Old Style', 'Palatino Linotype', Charter, 'Bitstream Charter', Georgia, serif;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .landing :global(.text-secondary-landing) {
+    color: var(--landing-muted);
+  }
+  .landing :global(.text-caption-landing) {
+    color: var(--color-caption);
+  }
+  .landing a {
+    color: inherit;
+  }
+  .landing :global(a:focus-visible) {
+    outline: 2px solid var(--landing-accent-text);
+    outline-offset: 3px;
+    border-radius: 6px;
   }
 
-  .cooking-tools-tip::before,
-  .cooking-tools-tip::after {
-    content: '';
-    position: absolute;
-    top: -16px;
-    left: var(--tip-pointer-x, 2.5rem);
-    transform: translateX(-50%);
-    border-left: 14px solid transparent;
-    border-right: 14px solid transparent;
+  .kicker {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--landing-accent-text);
   }
-
-  .cooking-tools-tip::before {
-    border-bottom: 16px solid var(--tip-border);
+  .masthead {
+    padding: 2.5rem 0 2rem;
+    border-bottom: 1px solid var(--color-input-border);
+    margin-bottom: 2rem;
+    max-width: 48rem;
   }
-
-  .cooking-tools-tip::after {
-    top: -14px;
-    border-bottom: 14px solid var(--tip-bg);
+  .masthead h1 {
+    font-size: clamp(2rem, 5vw, 3.25rem);
+    line-height: 1.1;
+    margin: 0.5rem 0 1rem;
   }
-
-  @media (max-width: 640px) {
-    .cooking-tools-tip {
-      max-width: min(240px, 90vw);
-    }
+  .dek {
+    font-size: 1.05rem;
+    line-height: 1.6;
+    color: var(--landing-muted);
+    margin: 0.5rem 0;
   }
-
-  :global(html.dark) .cooking-tools-tip-wrapper {
-    --tip-bg: var(--color-bg-secondary);
-    --tip-border: var(--color-input-border);
-  }
-
-  /* Intent cards */
-  .intent-card {
+  .cta-row {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.25rem;
-    padding: 0.875rem 0.5rem;
-    border-radius: 1rem;
-    border: 1px solid var(--color-input-border);
-    background-color: var(--color-bg-secondary);
-    cursor: pointer;
-    transition:
-      border-color 0.15s,
-      transform 0.1s;
-    min-height: 88px;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
   }
-
-  .intent-card:hover {
-    border-color: var(--color-primary, #f97316);
-    transform: translateY(-1px);
-  }
-
-  .intent-card:active {
-    transform: scale(0.97);
-  }
-
-  /* Category chips — horizontal scroll */
-  .category-chip {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.75rem 1rem;
-    border-radius: 1rem;
-    border: 1px solid var(--color-input-border);
-    background-color: var(--color-bg-secondary);
-    cursor: pointer;
-    flex-shrink: 0;
-    min-width: 72px;
-    transition:
-      border-color 0.15s,
-      transform 0.1s;
-  }
-
-  .category-chip:hover {
-    border-color: var(--color-primary, #f97316);
-    transform: translateY(-1px);
-  }
-
-  .category-chip:active {
-    transform: scale(0.96);
-  }
-
-  /* Membership teaser — premium night-sky feel */
-  .membership-teaser {
-    position: relative;
-    border-radius: 1.25rem;
-    overflow: hidden;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  }
-
-  .membership-teaser-glow {
-    position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(ellipse at 30% 20%, rgba(249, 115, 22, 0.15) 0%, transparent 60%),
-      radial-gradient(ellipse at 70% 80%, rgba(249, 115, 22, 0.1) 0%, transparent 50%);
-    pointer-events: none;
-  }
-
-  .membership-teaser-cta {
+  .btn-primary {
     display: inline-block;
-    margin-top: 1rem;
-    padding: 0.625rem 1.5rem;
-    border-radius: 9999px;
-    font-size: 0.875rem;
+    padding: 0.65rem 1.2rem;
+    border-radius: 999px;
+    background: var(--landing-accent-bg);
+    color: #fff !important;
     font-weight: 600;
-    color: white;
-    background: linear-gradient(135deg, #f97316, #ea580c);
-    box-shadow: 0 0 20px rgba(249, 115, 22, 0.3);
-    transition:
-      transform 0.15s,
-      box-shadow 0.15s;
     text-decoration: none;
   }
-
-  .membership-teaser-cta:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 0 28px rgba(249, 115, 22, 0.45);
+  .btn-quiet {
+    display: inline-block;
+    padding: 0.65rem 0.5rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .btn-quiet:hover,
+  .more:hover,
+  .byline a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 
-  .sponsor-scroll-item {
-    width: 340px;
+  .cover-grid {
+    display: grid;
+    gap: 2rem;
   }
-
-  @media (max-width: 480px) {
-    .sponsor-scroll-item {
-      width: 280px;
+  @media (min-width: 1024px) {
+    .cover-grid {
+      grid-template-columns: 2fr 1fr;
     }
+  }
+  .cover-link {
+    display: block;
+    text-decoration: none;
+  }
+  .cover-title {
+    font-size: clamp(1.6rem, 3.5vw, 2.5rem);
+    line-height: 1.15;
+    margin: 0.35rem 0 0.25rem;
+  }
+  .cover-link:hover .cover-title {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .cover-static {
+    padding: 3rem 2rem;
+    border-radius: 1rem;
+    background: var(--color-bg-secondary);
+  }
+  .byline {
+    font-size: 0.875rem;
+    color: var(--color-caption);
+    margin-top: 0.35rem;
+  }
+  .picks {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  @media (min-width: 1024px) {
+    .picks {
+      border-left: 1px solid var(--color-input-border);
+      padding-left: 2rem;
+    }
+  }
+
+  .band {
+    margin-top: 3.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-input-border);
+  }
+  .band-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .band-head h2,
+  .membership h2 {
+    font-size: clamp(1.4rem, 2.6vw, 1.9rem);
+    line-height: 1.2;
+  }
+  .more {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--landing-accent-text);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .grid-4 {
+    display: grid;
+    gap: 1.5rem 1rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (min-width: 1024px) {
+    .grid-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  .grid-2 {
+    display: grid;
+    gap: 2rem;
+  }
+  @media (min-width: 768px) {
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  /* One curated read: a single feature card, not half an empty grid. */
+  .grid-2.single {
+    grid-template-columns: minmax(0, 40rem);
+  }
+  .row {
+    display: flex;
+    gap: 1rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 0.5rem;
+  }
+  .row-item {
+    flex: 0 0 min(45%, 12rem);
+    scroll-snap-align: start;
+  }
+  @media (min-width: 1024px) {
+    .row-item {
+      flex: 1 1 0;
+    }
+  }
+  .tile-plain {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    text-decoration: none;
+  }
+  .note-text {
+    font-size: 0.9rem;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .topic {
+    position: relative;
+    display: block;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    text-decoration: none;
+  }
+  .topic-text {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: 2.5rem 0.9rem 0.8rem;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(to top, rgb(0 0 0 / 0.78), rgb(0 0 0 / 0));
+    color: #fff;
+  }
+  .topic-name {
+    font-size: 1.2rem;
+  }
+  .topic-count {
+    font-size: 0.8rem;
+    opacity: 0.95;
+  }
+  .topic:hover .topic-name {
+    text-decoration: underline;
+  }
+
+  .cook {
+    flex: 0 0 6.5rem;
+    scroll-snap-align: start;
+  }
+  .cook-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+    text-align: center;
+  }
+  .cook-avatar {
+    width: 5rem;
+    height: 5rem;
+    border-radius: 999px;
+    object-fit: cover;
+    background: var(--color-card-sunken);
+  }
+  .cook-initial {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.75rem;
+    font-weight: 700;
+  }
+  .cook-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .tag-group {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 1rem 0 0.6rem;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .chip {
+    display: inline-block;
+    padding: 0.35rem 0.8rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-input-border);
+    font-size: 0.875rem;
+    text-decoration: none;
+  }
+  .chip:hover {
+    border-color: var(--landing-accent-text);
+  }
+
+  .grid-tools {
+    display: grid;
+    gap: 1rem;
+  }
+  @media (min-width: 768px) {
+    .grid-tools {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  .tool {
+    display: block;
+    height: 100%;
+    padding: 1.1rem 1.2rem;
+    border-radius: 0.9rem;
+    background: var(--color-bg-secondary);
+    text-decoration: none;
+  }
+  .tool p {
+    margin-top: 0.35rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--landing-muted);
+  }
+  .tool:hover h3 {
+    text-decoration: underline;
+  }
+
+  .membership {
+    padding: 1.75rem 1.5rem;
+    border-radius: 1rem;
+    border-top: none;
+    background: var(--color-bg-secondary);
+  }
+  .member-tools {
+    margin: 1rem 0 1.25rem;
+    display: grid;
+    gap: 0.5rem;
+    line-height: 1.5;
+  }
+
+  .paid-label {
+    font-size: 0.8rem;
+    color: var(--color-caption);
+  }
+  .badge-paid {
+    align-self: flex-start;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-caption);
+    color: var(--color-text-primary);
+  }
+  .sponsor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem;
+    border-radius: 0.9rem;
+    border: 1px solid var(--color-input-border);
+    text-decoration: none;
+  }
+  .sponsor-img {
+    width: 100%;
+    aspect-ratio: 3 / 1;
+    object-fit: cover;
+    border-radius: 0.5rem;
+  }
+  .sponsor-title {
+    font-size: 1.1rem;
+  }
+  .sponsor-desc {
+    font-size: 0.9rem;
+    color: var(--landing-muted);
   }
 </style>
