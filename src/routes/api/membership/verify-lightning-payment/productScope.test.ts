@@ -82,8 +82,11 @@ describe('membership verify-lightning-payment product scope', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(mocks.registerMember).toHaveBeenCalledWith(
-      expect.objectContaining({ pubkey: PUBKEY, tier: 'cook', period: 'monthly' })
-    );
+    expect(mocks.registerMember).toHaveBeenCalledTimes(1);
+    expect(mocks.registerMember.mock.calls[0][0]).toMatchObject({
+      pubkey: PUBKEY,
+      tier: 'cook',
+      period: 'monthly'
+    });
   });
 });
