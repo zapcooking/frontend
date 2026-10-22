@@ -40,7 +40,7 @@ export const DISCOVERY_SHOW_DELAY_MS = 2_000;
 
 /**
  * Routes where the generic modal must never appear. Prefix match on path
- * segments (`/create` covers `/create/gated`, not `/created`).
+ * segments (`/create` covers `/create/anything`, not `/created`).
  */
 export const DISCOVERY_EXCLUDED_PREFIXES = [
   // Onboarding and auth

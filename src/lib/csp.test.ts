@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 // Loaded via a computed specifier so svelte-check cannot follow the import:
 // svelte.config.js pulls in the adapter packages, whose ambient .d.ts files
 // merge required properties into App.Platform and break the typing of every
-// endpoint that takes `platform` (vault-sync, nip108). Vitest still resolves
+// endpoint that takes `platform` (vault-sync). Vitest still resolves
 // this at runtime.
 const configModule = '../../svelte.config' + '.js';
 const config: any = (await import(configModule)).default;

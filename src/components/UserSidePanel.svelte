@@ -16,7 +16,6 @@
   import GearIcon from 'phosphor-svelte/lib/Gear';
   import SignOutIcon from 'phosphor-svelte/lib/SignOut';
   import FlameIcon from 'phosphor-svelte/lib/Flame';
-  import LightningIcon from 'phosphor-svelte/lib/Lightning';
 
   // Components and stores
   import CustomAvatar from './CustomAvatar.svelte';
@@ -259,20 +258,6 @@
                 <span class="font-medium">Cheffy</span>
                 <span
                   class="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 font-medium"
-                  >Pro</span
-                >
-              </button>
-            </li>
-            <li>
-              <button
-                on:click={() => navigate('/premium')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <LightningIcon size={22} weight="fill" class="text-amber-500" />
-                <span class="font-medium">Premium Recipes</span>
-                <span
-                  class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium"
                   >Pro</span
                 >
               </button>
