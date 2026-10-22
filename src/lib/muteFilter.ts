@@ -8,6 +8,8 @@
  * part that needs tests.
  */
 
+import { getReplyParentId, getThreadRootId } from './thread/replyParent';
+
 // Type definitions (from mutable)
 export interface MutedPubkey {
   type: 'pubkey';
@@ -78,7 +80,8 @@ export function hasMutedTag(muteList: MuteList, eventTags: string[][]): boolean 
 }
 
 /**
- * Check if thread is muted
+ * Check if thread is muted (by exact id — see isEventInMutedConversation
+ * for the position-aware check the feeds use).
  */
 export function isThreadMuted(muteList: MuteList, eventId: string): boolean {
   return muteList.threads.some((item) => item.value === eventId);
@@ -87,9 +90,42 @@ export function isThreadMuted(muteList: MuteList, eventId: string): boolean {
 /** The parts of an event the mute checks read. */
 export interface MutableEventLike {
   id?: string;
+  kind?: number;
   pubkey?: string;
   content?: string;
   tags?: string[][];
+}
+
+/**
+ * Is this event inside a muted conversation?
+ *
+ * A muted `e` id hides an event when it names any position the event
+ * occupies in its conversation: the event itself (mute note), its thread
+ * root (mute thread — the whole conversation), or its immediate parent
+ * (mute note and replies). Deeper descendants of a muted mid-thread note
+ * answer *other* replies, so they stay visible — muting "note and replies"
+ * is not a transitive thread mute.
+ */
+function isEventInMutedConversation(muteList: MuteList, event: MutableEventLike): boolean {
+  if (muteList.threads.length === 0) return false;
+
+  const ids = new Set<string>();
+  if (event.id) {
+    ids.add(event.id);
+    try {
+      const root = getThreadRootId({ id: event.id, kind: event.kind, tags: event.tags ?? [] });
+      if (root) ids.add(root);
+    } catch {
+      // Malformed tags — the event-id check above still applies.
+    }
+    try {
+      const parent = getReplyParentId({ id: event.id, kind: event.kind, tags: event.tags ?? [] });
+      if (parent) ids.add(parent);
+    } catch {
+      // Same.
+    }
+  }
+  return muteList.threads.some((item) => item.value && ids.has(item.value));
 }
 
 /**
@@ -109,7 +145,19 @@ export function isEventMutedBy(
   if (event.pubkey && isPubkeyMuted(muteList, event.pubkey)) return true;
   if (containsMutedWord(muteList, event.content ?? '')) return true;
   if (hasMutedTag(muteList, event.tags ?? [])) return true;
-  if (event.id && isThreadMuted(muteList, event.id)) return true;
+  if (isEventInMutedConversation(muteList, event)) return true;
 
   return false;
+}
+
+/**
+ * The events a reader's mute list leaves visible (pubkey, word, tag and
+ * thread mutes). No list (signed out, not loaded yet) leaves everything.
+ */
+export function withoutMuted<T extends MutableEventLike>(
+  muteList: MuteList | null | undefined,
+  events: T[]
+): T[] {
+  if (!muteList) return events;
+  return events.filter((e) => !isEventMutedBy(muteList, e));
 }

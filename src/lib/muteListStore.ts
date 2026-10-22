@@ -33,33 +33,77 @@ function createMuteListStore() {
     lastFetched: null
   });
 
-  return {
-    subscribe,
+  // Several components ask at mount (feeds, notifications, a profile): one
+  // fetch serves them all.
+  let inflight: Promise<void> | null = null;
 
-    async load(force: boolean = false) {
-      const currentState = get({ subscribe });
-      const pubkey = get(userPublickey);
+  async function loadOnce(force: boolean): Promise<void> {
+    const currentState = get({ subscribe });
+    const pubkey = get(userPublickey);
 
-      if (!pubkey) {
-        set({ muteList: null, loading: false, error: null, lastFetched: null });
-        return;
+    if (!pubkey) {
+      set({ muteList: null, loading: false, error: null, lastFetched: null });
+      return;
+    }
+
+    // Use cache if recent and not forced
+    if (!force && currentState.muteList && currentState.lastFetched) {
+      const age = Date.now() - currentState.lastFetched;
+      if (age < CACHE_DURATION) {
+        return; // Use cached data
       }
+    }
 
-      // Use cache if recent and not forced
-      if (!force && currentState.muteList && currentState.lastFetched) {
-        const age = Date.now() - currentState.lastFetched;
-        if (age < CACHE_DURATION) {
-          return; // Use cached data
+    update((state) => ({ ...state, loading: true, error: null }));
+
+    try {
+      // Start with localStorage mutes (legacy system)
+      const localMutes = getLocalStorageMutes();
+      console.log('[MuteListStore] localStorage mutes:', localMutes);
+      const baseMuteList: MuteList = {
+        pubkeys: localMutes.map((pk) => ({
+          type: 'pubkey' as const,
+          value: pk,
+          private: false
+        })),
+        words: [],
+        tags: [],
+        threads: []
+      };
+
+      // Try to fetch NIP-51 mute list and merge
+      const event = await fetchMuteList(pubkey);
+      if (event) {
+        const nip51MuteList = await parseMuteListEvent(event);
+        // Merge NIP-51 mutes with localStorage mutes (dedupe by pubkey)
+        const existingPubkeys = new Set(baseMuteList.pubkeys.map((p) => p.value));
+        for (const pk of nip51MuteList.pubkeys) {
+          if (!existingPubkeys.has(pk.value)) {
+            baseMuteList.pubkeys.push(pk);
+          }
         }
+        baseMuteList.words.push(...nip51MuteList.words);
+        baseMuteList.tags.push(...nip51MuteList.tags);
+        baseMuteList.threads.push(...nip51MuteList.threads);
       }
 
-      update((state) => ({ ...state, loading: true, error: null }));
-
-      try {
-        // Start with localStorage mutes (legacy system)
-        const localMutes = getLocalStorageMutes();
-        console.log('[MuteListStore] localStorage mutes:', localMutes);
-        const baseMuteList: MuteList = {
+      console.log(
+        '[MuteListStore] Setting mute list with',
+        baseMuteList.pubkeys.length,
+        'muted pubkeys'
+      );
+      set({
+        muteList: baseMuteList,
+        loading: false,
+        error: null,
+        lastFetched: Date.now()
+      });
+    } catch (error) {
+      console.error('Failed to load mute list:', error);
+      // Even on error, load localStorage mutes
+      const localMutes = getLocalStorageMutes();
+      set({
+        muteList: {
           pubkeys: localMutes.map((pk) => ({
             type: 'pubkey' as const,
             value: pk,
@@ -68,55 +112,23 @@ function createMuteListStore() {
           words: [],
           tags: [],
           threads: []
-        };
+        },
+        loading: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        lastFetched: Date.now()
+      });
+    }
+  }
 
-        // Try to fetch NIP-51 mute list and merge
-        const event = await fetchMuteList(pubkey);
-        if (event) {
-          const nip51MuteList = await parseMuteListEvent(event);
-          // Merge NIP-51 mutes with localStorage mutes (dedupe by pubkey)
-          const existingPubkeys = new Set(baseMuteList.pubkeys.map((p) => p.value));
-          for (const pk of nip51MuteList.pubkeys) {
-            if (!existingPubkeys.has(pk.value)) {
-              baseMuteList.pubkeys.push(pk);
-            }
-          }
-          baseMuteList.words.push(...nip51MuteList.words);
-          baseMuteList.tags.push(...nip51MuteList.tags);
-          baseMuteList.threads.push(...nip51MuteList.threads);
-        }
+  return {
+    subscribe,
 
-        console.log(
-          '[MuteListStore] Setting mute list with',
-          baseMuteList.pubkeys.length,
-          'muted pubkeys'
-        );
-        set({
-          muteList: baseMuteList,
-          loading: false,
-          error: null,
-          lastFetched: Date.now()
-        });
-      } catch (error) {
-        console.error('Failed to load mute list:', error);
-        // Even on error, load localStorage mutes
-        const localMutes = getLocalStorageMutes();
-        set({
-          muteList: {
-            pubkeys: localMutes.map((pk) => ({
-              type: 'pubkey' as const,
-              value: pk,
-              private: false
-            })),
-            words: [],
-            tags: [],
-            threads: []
-          },
-          loading: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          lastFetched: Date.now()
-        });
-      }
+    load(force: boolean = false): Promise<void> {
+      if (inflight) return inflight;
+      inflight = loadOnce(force).finally(() => {
+        inflight = null;
+      });
+      return inflight;
     },
 
     invalidate() {

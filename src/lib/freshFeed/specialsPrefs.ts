@@ -9,10 +9,10 @@ import { SPECIALS, type SpecialType } from './specialsConfig';
  * - `fewer`: "Show fewer like this", per card type.
  * - `hiddenTopics`: "Hide this topic" (spotlight slugs).
  * - `off`: special cards turned off entirely (Settings → Fresh).
- * - `autoUnlock`: "Auto-unlock member content": after one unlock, later
- *   visits log in to the feed relay on their own when the first
- *   members-only card comes up (the signer may ask once per visit). On
- *   after the first successful unlock; off from Settings → Fresh.
+ *   (An earlier `autoUnlock` choice — "Auto-unlock member content", from
+ *   when members-only cards had to be unlocked in the feed — is dropped
+ *   from the stored value on first read: every card is a preview now and
+ *   nothing in the feed is unlocked.)
  * - Shown posts: ids shown in spotlight / memory cards (never shown twice),
  *   pruned after 90 days, capped.
  * - Topic history: when each spotlight topic was last shown, so later
@@ -27,17 +27,18 @@ export interface SpecialsPrefs {
   fewer: Record<SpecialType, boolean>;
   hiddenTopics: string[];
   off: boolean;
-  autoUnlock: boolean;
 }
 
 export function defaultPrefs(): SpecialsPrefs {
   return {
     fewer: { recipe: false, spotlight: false, memory: false },
     hiddenTopics: [],
-    off: false,
-    autoUnlock: false
+    off: false
   };
 }
+
+/** Keys an earlier version stored that are dropped on first read. */
+const LEGACY_KEYS = ['autoUnlock'] as const;
 
 export interface StorageLike {
   getItem(k: string): string | null;
@@ -79,7 +80,7 @@ export function loadPrefs(s: StorageLike | null = storage()): SpecialsPrefs {
   if (Array.isArray(raw.hiddenTopics))
     p.hiddenTopics = [...new Set(raw.hiddenTopics.filter((x) => typeof x === 'string'))];
   p.off = raw.off === true;
-  p.autoUnlock = raw.autoUnlock === true;
+  if (LEGACY_KEYS.some((k) => k in raw)) writeJson(s, PREFS_KEY, p); // migrate: forget the key
   return p;
 }
 
@@ -101,8 +102,7 @@ function update(fn: (p: SpecialsPrefs) => void, s: StorageLike | null = storage(
     const next: SpecialsPrefs = {
       fewer: { ...cur.fewer },
       hiddenTopics: [...cur.hiddenTopics],
-      off: cur.off,
-      autoUnlock: cur.autoUnlock
+      off: cur.off
     };
     fn(next);
     writeJson(s, PREFS_KEY, next);
@@ -130,11 +130,6 @@ export function resetFewer(type: SpecialType, s?: StorageLike | null): void {
 
 export function setSpecialsOff(off: boolean, s?: StorageLike | null): void {
   update((p) => (p.off = off), s);
-}
-
-/** "Auto-unlock member content" (on after the first unlock; Settings → Fresh). */
-export function setAutoUnlock(on: boolean, s?: StorageLike | null): void {
-  update((p) => (p.autoUnlock = on), s);
 }
 
 /** Settings → Fresh "Reset": every choice back to the default. */

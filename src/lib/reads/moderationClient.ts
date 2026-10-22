@@ -5,7 +5,7 @@
  */
 
 import { browser } from '$app/environment';
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { DEFAULT_READS_MODERATION, type ReadsModerationLists } from './moderationConfig';
 import {
 	compileModerationLists,
@@ -28,6 +28,21 @@ const postedHits = new Set<string>();
 
 /** Reactive compiled lists so feed UIs can re-filter after overlay load. */
 export const readsModerationVersion = writable(0);
+
+/**
+ * True once the first overlay fetch has settled (loaded or failed). "All
+ * reads" waits for it, so an org-blocked or hidden article never renders
+ * while the lists are still on their way.
+ */
+export const readsModerationReady = writable(false);
+
+/**
+ * True once an overlay fetch has succeeded: the curated hides are really
+ * here. Unlike `readsModerationReady` (which a failed fetch also sets),
+ * this is what a surface that must never show a hidden article waits for
+ * (the /feed column's Fresh reads).
+ */
+export const readsModerationLoaded = writable(false);
 
 function bumpVersion() {
 	readsModerationVersion.update((n) => n + 1);
@@ -67,15 +82,28 @@ async function fetchOverlay(): Promise<void> {
 				denylist: Array.isArray(data.denylist) ? data.denylist : []
 			};
 			overlayFetchedAt = Date.now();
+			readsModerationLoaded.set(true);
 			bumpVersion();
 		} catch {
 			// Seed lists still apply.
 		} finally {
 			overlayInFlight = null;
+			readsModerationReady.set(true);
 		}
 	})();
 
 	return overlayInFlight;
+}
+
+/**
+ * Fetches the overlay unless it is fresh (a failed one is tried again), and
+ * says whether the curated hides are loaded — for surfaces that must stay
+ * hidden rather than show an article the hides would remove.
+ */
+export async function readsModerationAvailable(): Promise<boolean> {
+	if (!browser) return false;
+	await fetchOverlay();
+	return get(readsModerationLoaded);
 }
 
 export function ensureReadsModerationLoaded(): void {

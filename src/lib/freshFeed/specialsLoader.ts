@@ -20,15 +20,26 @@ import type { TopicGroup } from './topicList';
 
 /**
  * Gets the next spotlight and memory card ready ahead of their slots, one
- * of each at a time, after the first page has loaded. Members only: for
- * anyone else nothing is ever requested (topics and the archive are
- * members-only on the relay). The recipe box and the non-member teaser need
- * no requests of their own.
+ * of each at a time, after the first page has loaded.
  *
- * In the background it never asks the signer: requests go only on a
- * connection that is already logged in to the feed, and otherwise come back
- * "log in first" (`needsLogin`), which the feed turns into a "Tap to unlock"
- * card. "Keep exploring" is a tap, so it may ask (`interactive`).
+ * Spotlights are previews, the same for everyone: a few of a topic's
+ * newest posts in the free window from the relay's anonymous preview
+ * query, sent as the connection is — no login, never the signer. Opening
+ * the full topic feed behind a card is the members' gate, and the feed's
+ * business. A relay that refuses a preview (`auth-required:` because it
+ * doesn't serve them, or `restricted:` while it holds a stale verdict on a
+ * member's logged-in connection) is asked again later (`previewHold`),
+ * with a growing wait. A refusal is never "no content": nothing is marked
+ * used, thin or tried by it, and nothing is locked for the session.
+ *
+ * Memories ("on this day", "from the archive") are members-only: the
+ * archive stays gated on the relay and there is no anonymous preview of
+ * it (decided 2026-10-09; nothing here waits for one). In the background
+ * they are asked for only on a connection that is already logged in
+ * (`authedOnly`); for a member whose login hasn't happened yet the type
+ * simply isn't available until it does (`loggedIn()`), and the signer is
+ * never asked for a card. Non-members get no memory cards. "Keep
+ * exploring" is a tap, so its full "on this day" may ask the signer once.
  */
 
 /** What the loader needs from FreshClient. */
@@ -38,7 +49,7 @@ export interface SpecialsSource extends HistorySource {
     seen: Set<string>,
     until?: number,
     limit?: number,
-    opts?: { authedOnly?: boolean }
+    opts?: { authedOnly?: boolean; preview?: boolean }
   ): Promise<PageResult>;
   floor(): number;
 }
@@ -57,6 +68,8 @@ export interface LoaderDeps {
   now?: () => Date;
   rng?: Rng;
 }
+
+export type Kind = 'spotlight' | 'memory';
 
 /** One tab's session: caps and "no repeat" span the whole visit. */
 export class SpecialsSession {
@@ -78,23 +91,27 @@ export class SpecialsLoader {
   spotlight: Special | null = null;
   memory: Special | null = null;
   /**
-   * The relay said `restricted:` on a logged-in connection. Not final: the
-   * relay holds a failed or unresolved membership lookup as "not a member"
-   * for a minute, so this is cleared by `loggedIn()` when the feed's login
-   * counts again (MemberLogin's hold ends, or a new login).
+   * The relay said `restricted:` to a members-only request (memories) on a
+   * logged-in connection. Not final: the relay holds a failed or unresolved
+   * membership lookup for a while, so this is cleared by `loggedIn()` when
+   * the feed's login counts again.
    */
   denied = false;
-  /** The relay wants a feed login first (declined or not yet asked). */
+  /** The relay wants a feed login for members-only content (not yet made, or declined). */
   needsLogin = false;
-  /** The reader asked (a tap): requests may ask the signer to log in. */
+  /** The reader asked (a tap): members-only requests may ask the signer to log in. */
   private interactive = false;
   /** Types with no unshown content left this session (skipped in the rotation). */
-  private out = new Set<'spotlight' | 'memory'>();
+  private out = new Set<Kind>();
   private emptyMemories = 0;
   private spotlightBusy = false;
   private memoryBusy = false;
+  /** "On this day" (members, labeled), loaded once per session. */
   private daySections: DaySection[] | null = null;
   private triedMonths = new Set<string>();
+  /** When the relay last refused a preview (ms clock), and how many times in a row. */
+  private previewRefusedAt: number | null = null;
+  private previewRefusals = 0;
 
   constructor(
     private src: SpecialsSource,
@@ -110,11 +127,50 @@ export class SpecialsLoader {
     return this.deps.now?.() ?? new Date();
   }
 
+  private clock(): number {
+    return this.now.getTime();
+  }
+
+  // --- The anonymous preview (everyone) ---
+
+  /** Milliseconds until a refused preview may be asked for again (0 = now). */
+  previewHoldLeftMs(): number {
+    if (this.previewRefusedAt === null) return 0;
+    const wait = Math.min(
+      SPECIALS.preview.retryMs * 2 ** Math.max(0, this.previewRefusals - 1),
+      SPECIALS.preview.retryMaxMs
+    );
+    return Math.max(0, this.previewRefusedAt + wait - this.clock());
+  }
+
   /**
-   * The relay refused: `restricted` (the relay's membership check said no,
-   * held for a while) or `auth-required` (no feed login yet, e.g. a declined
-   * prompt). Either way nothing more is asked until `loggedIn()`. A refusal
-   * is never "no content": nothing is marked used, thin or tried by it.
+   * The relay refused a preview: hold, with a growing wait; nothing else
+   * changes. Refusals during one hold (a spotlight and a memory asked for
+   * together) count once.
+   */
+  private refusedPreview(): void {
+    if (this.previewRefusedAt !== null && this.previewHoldLeftMs() > 0) return;
+    this.previewRefusedAt = this.clock();
+    this.previewRefusals++;
+  }
+
+  /** A preview was answered: the hold (and its backoff) is over. */
+  private previewServed(): void {
+    this.previewRefusedAt = null;
+    this.previewRefusals = 0;
+  }
+
+  private previewsOpen(): boolean {
+    return this.previewHoldLeftMs() === 0;
+  }
+
+  // --- Members-only content (memories, "Keep exploring") ---
+
+  /**
+   * The relay refused a members-only request: `restricted` (the relay's
+   * membership check said no, held for a while) or `auth-required` (no
+   * feed login yet, or a declined one). Nothing more of that kind is asked
+   * until `loggedIn()`. Never "no content".
    */
   private refused(state: 'auth-required' | 'restricted'): void {
     if (state === 'restricted') this.denied = true;
@@ -122,15 +178,21 @@ export class SpecialsLoader {
   }
 
   /** Out of unshown content this session: skip the type in the rotation. */
-  isOut(t: 'spotlight' | 'memory'): boolean {
+  isOut(t: Kind): boolean {
     return this.out.has(t);
   }
 
+  /** Members-only content is waiting for the feed login (or a relay hold) to count. */
+  waitingForLogin(): boolean {
+    return this.needsLogin || this.denied;
+  }
+
   /**
-   * The feed's login counts (again): ask again, and forget what was
-   * gathered while it didn't. Results from a connection the relay treated
-   * as a non-member's are not content: an empty "on this day", months that
-   * came back empty, the memory type given up on. Idempotent while logged in.
+   * The feed's login counts (again): members-only requests may go again,
+   * and what was gathered while it didn't is forgotten. Results answered
+   * to a connection the relay treated as a non-member's are not content:
+   * an empty "on this day", months that came back empty, the memory type
+   * given up on. Idempotent while logged in. Previews don't depend on it.
    */
   loggedIn(): void {
     if (!this.needsLogin && !this.denied) return;
@@ -142,31 +204,23 @@ export class SpecialsLoader {
     if (this.daySections && !this.daySections.some((s) => s.posts.length)) this.daySections = null;
   }
 
-  private usable(): boolean {
+  /** May members-only content be asked for? A member, with no login or relay hold pending. */
+  memberAccess(): boolean {
     return this.deps.member() && !this.denied && !this.needsLogin;
   }
 
-  /** The next spotlight topic for a non-member teaser (no request). */
-  teaser(): Special | null {
-    const t = pickTopic(this.deps.groups(), {
-      hidden: this.deps.hiddenTopics(),
-      used: this.session.usedTopics,
-      lastParent: this.session.lastParent,
-      history: this.deps.topicHistory(),
-      rng: this.rng
-    });
-    return t ? { type: 'teaser', ...t } : null;
-  }
+  // --- Spotlights ---
 
   /**
    * A spotlight for `lastParent` (default: the session's last one): tries up
-   * to maxTopicTries topics, skipping thin ones. Returns null when none is
-   * ready (and remembers a relay "no").
+   * to maxTopicTries topics, skipping thin ones, each from the relay's
+   * anonymous preview. Returns null when none is ready (a refusal starts
+   * the preview hold).
    */
   async buildSpotlight(
     lastParent: string | null = this.session.lastParent
   ): Promise<Special | null> {
-    if (!this.usable()) return null;
+    if (!this.previewsOpen()) return null;
     const anyLeft = pickTopic(this.deps.groups(), {
       hidden: this.deps.hiddenTopics(),
       used: this.session.usedTopics,
@@ -189,20 +243,13 @@ export class SpecialsLoader {
       });
       if (!t) return null;
       tried.add(t.slug);
-      // Older than the free window: the topic's archive, not posts the
-      // reader is scrolling past in the feed right now.
-      const r = await this.src.topic(
-        t.slug,
-        new Set(),
-        this.src.floor() - 1,
-        SPECIALS.spotlight.fetchLimit,
-        { authedOnly: !this.interactive }
-      );
+      const r = await this.src.topic(t.slug, new Set(), undefined, undefined, { preview: true });
       if (r.state === 'auth-required' || r.state === 'restricted') {
-        this.refused(r.state);
+        this.refusedPreview();
         return null;
       }
       if (r.state !== 'ok') return null;
+      this.previewServed();
       const posts = spotlightPosts(r.events.filter(this.deps.accept), {
         shown: this.deps.shown(),
         exclude: this.deps.exclude()
@@ -220,7 +267,7 @@ export class SpecialsLoader {
 
   /** Keep one spotlight ready for the main feed. */
   async prepareSpotlight(): Promise<void> {
-    if (this.spotlight || this.spotlightBusy || !this.usable()) return;
+    if (this.spotlight || this.spotlightBusy || !this.previewsOpen()) return;
     this.spotlightBusy = true;
     try {
       const s = await this.buildSpotlight();
@@ -240,9 +287,15 @@ export class SpecialsLoader {
     return s;
   }
 
-  /** "On this day" sections, loaded once per session. */
+  // --- Memories (members only) ---
+
+  /**
+   * "On this day" (members, labeled posts), once per session. In the
+   * background only on an already logged-in connection; a tap ("Keep
+   * exploring") may ask the signer once.
+   */
   async onThisDay(): Promise<DaySection[] | null> {
-    if (!this.usable()) return null;
+    if (!this.memberAccess()) return null;
     if (this.daySections) return this.daySections;
     const r = await loadOnThisDay(this.src, this.now, { authedOnly: !this.interactive });
     if (r.state === 'auth-required' || r.state === 'restricted') {
@@ -279,6 +332,7 @@ export class SpecialsLoader {
     // Random time-machine months (not tried yet) until one has a post worth
     // showing.
     for (let i = 0; i < SPECIALS.memory.archiveMonthTries; i++) {
+      if (!this.memberAccess()) return null;
       // Months that end before the free window: the archive, not this week.
       const floor = this.src.floor();
       const months = archiveMonths(this.now).filter(
@@ -301,20 +355,21 @@ export class SpecialsLoader {
           variant,
           label: memoryLabel('archive'),
           heading: month.label,
-          posts: [post]
+          posts: [post],
+          monthKey: month.key
         };
     }
     return null;
   }
 
-  /** Keep one memory ready, alternating "on this day" and "from the archive". */
+  /** Keep one memory ready (members), alternating "on this day" and "from the archive". */
   async prepareMemory(): Promise<void> {
-    if (this.memory || this.memoryBusy || !this.usable()) return;
+    if (this.memory || this.memoryBusy || !this.memberAccess()) return;
     this.memoryBusy = true;
     try {
       const first = nextMemoryVariant(this.session.lastMemory);
       for (const v of [first, nextMemoryVariant(first)]) {
-        if (!this.usable()) return;
+        if (!this.memberAccess()) return;
         const m = await this.buildMemory(v);
         if (m) {
           this.memory = m;
@@ -324,7 +379,7 @@ export class SpecialsLoader {
         }
       }
       // Nothing in either variant, repeatedly: the archive is used up for now.
-      if (this.usable() && ++this.emptyMemories >= 3) this.out.add('memory');
+      if (this.memberAccess() && ++this.emptyMemories >= 3) this.out.add('memory');
     } finally {
       this.memoryBusy = false;
     }
@@ -337,15 +392,16 @@ export class SpecialsLoader {
     return m;
   }
 
+  // --- Keep exploring ---
+
   /**
-   * "Keep exploring" (the reader asked for it, so archive content is
-   * welcome): on this day, two spotlights from different parent groups, and
-   * the recipe row the caller picked. Non-members get only the recipes and
-   * nothing is requested for them.
+   * "Keep exploring" (the reader asked for it): on this day for members
+   * (one login may be asked for, never again after a decline), two preview
+   * spotlights from different parent groups, and the recipe row the caller
+   * picked. Non-members get the spotlights and the recipes.
    */
   async explore(recipes: RelayEvent[]): Promise<ExploreContent> {
     const out: ExploreContent = { day: null, spotlights: [], recipes };
-    // A tap: one login may be asked for (never again after a decline).
     this.needsLogin = false;
     this.interactive = true;
     try {
@@ -356,7 +412,6 @@ export class SpecialsLoader {
   }
 
   private async exploreContent(out: ExploreContent): Promise<ExploreContent> {
-    if (!this.usable()) return out;
     const sections = await this.onThisDay();
     if (sections) {
       const all = [...sections]
@@ -370,7 +425,7 @@ export class SpecialsLoader {
       if (posts.length) out.day = { posts };
     }
     let lastParent = this.session.lastParent;
-    for (let i = 0; i < SPECIALS.explore.spotlights && this.usable(); i++) {
+    for (let i = 0; i < SPECIALS.explore.spotlights && this.previewsOpen(); i++) {
       const s = await this.buildSpotlight(lastParent);
       if (!s || s.type !== 'spotlight') break;
       out.spotlights.push(s);

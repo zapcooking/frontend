@@ -9,6 +9,7 @@
   import { RECIPE_TAGS, isHiddenRecipeCoordinate } from '$lib/consts';
   import { feedCacheService } from '$lib/feedCache';
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
+  import { hideImagelessRecipesSetting } from '$lib/recipeImageFilterSettings';
 
   function isDisplayableRecipe(event: NDKEvent): boolean {
     const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
@@ -607,6 +608,28 @@
   </div>
 
   <div class="flex flex-col gap-2">
+    <!-- Compact "Images only" switch — same setting as Settings → Content
+         Filters, surfaced next to the grid it filters. -->
+    <div class="flex items-center justify-end gap-2 pb-3">
+      <span class="text-xs" style="color: var(--color-text-secondary)">Images only</span>
+      <button
+        role="switch"
+        aria-checked={$hideImagelessRecipesSetting}
+        aria-label="Hide recipes without images"
+        title="Hide recipes without images (applies to all recipe grids)"
+        class="relative w-9 h-5 rounded-full transition-colors cursor-pointer flex-shrink-0 {$hideImagelessRecipesSetting
+          ? 'bg-primary'
+          : 'bg-gray-300 dark:bg-gray-600'}"
+        on:click={() => hideImagelessRecipesSetting.setEnabled(!$hideImagelessRecipesSetting)}
+      >
+        <span
+          class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform {$hideImagelessRecipesSetting
+            ? 'translate-x-4'
+            : ''}"
+        ></span>
+      </button>
+    </div>
+
     <Feed events={displayEvents} hideHide={true} {loaded} />
 
     {#if loaded && !exhausted}

@@ -8,6 +8,7 @@
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
   import { standardRelays, isHiddenRecipeATag } from '$lib/consts';
   import { RECIPE_PACK_KIND, RECIPE_PACK_TAG, ZAP_COOKING_TAG } from '$lib/recipePack';
+  import { sortAndDedupePacks } from '$lib/recipePackFilter';
   import { savedPacksStore, savedPackATags } from '$lib/savedPacksStore';
   import RecipePackCard from '../../components/RecipePackCard.svelte';
   import PanLoader from '../../components/PanLoader.svelte';
@@ -107,7 +108,7 @@
       );
 
       const events = (await Promise.race([fetchPromise, timeoutPromise])) as Set<NDKEvent>;
-      discoverEvents = sortAndDedupe(Array.from(events));
+      discoverEvents = sortAndDedupePacks(Array.from(events));
       discoverLoaded = true; // mark loaded only on success — error path leaves it false so Retry works
     } catch (e: any) {
       console.error('[packs] discover load failed', e);
@@ -159,7 +160,7 @@
         return;
       }
 
-      mineEvents = sortAndDedupe(Array.from(events));
+      mineEvents = sortAndDedupePacks(Array.from(events));
       mineLoaded = true;
     } catch (e: any) {
       console.error('[packs] mine load failed', e);
@@ -171,31 +172,6 @@
         mineLoading = false;
       }
     }
-  }
-
-  // Replaceable events: drop anything missing a `d` tag (Recipe Packs are
-  // addressable so a missing `d` means malformed/spam — we'd also have no
-  // way to build a working /pack/<naddr> link), then keep only the newest
-  // event per (pubkey, d-tag), then sort newest-first.
-  function sortAndDedupe(events: NDKEvent[]): NDKEvent[] {
-    const valid = events.filter((e) => {
-      const dTag = e.tags?.find((t) => t[0] === 'd')?.[1];
-      // Need a non-empty d-tag AND at least one recipe `a` reference.
-      // Empty packs would render as empty cards; bare-d packs would
-      // collide in the dedupe map by pubkey alone.
-      return !!dTag && e.tags?.some((t) => t[0] === 'a');
-    });
-
-    const byKey = new Map<string, NDKEvent>();
-    for (const e of valid) {
-      const dTag = e.tags!.find((t) => t[0] === 'd')![1];
-      const key = `${e.pubkey}:${dTag}`;
-      const existing = byKey.get(key);
-      if (!existing || (e.created_at || 0) > (existing.created_at || 0)) {
-        byKey.set(key, e);
-      }
-    }
-    return Array.from(byKey.values()).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
   }
 
   /**
@@ -277,7 +253,7 @@
 
       // Drop result if user changed mid-fetch.
       if (reqId !== savedRequestId) return;
-      savedEvents = sortAndDedupe(fetched);
+      savedEvents = sortAndDedupePacks(fetched);
       savedLoaded = true;
     } catch (e: any) {
       console.error('[packs] saved load failed', e);
@@ -440,49 +416,44 @@
     </div>
   </div>
 
-  <!-- Sub-tabs: Discover / Mine / Saved -->
-  <div class="flex w-full border-b" style="border-color: var(--color-input-border)">
+  <!-- Sub-tabs: Discover / Mine / Saved. Pill chips instead of a second
+       underline tab bar — the stacked rows read as duplicate navigation. -->
+  <div class="flex items-center gap-2">
     <button
       on:click={() => setTab('discover')}
-      class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
-      style="color: {tab === 'discover'
-        ? 'var(--color-text-primary)'
-        : 'var(--color-text-secondary)'}"
+      aria-pressed={tab === 'discover'}
+      class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
+      class:bg-primary={tab === 'discover'}
+      class:text-white={tab === 'discover'}
+      style={tab !== 'discover'
+        ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
+        : ''}
     >
       Discover
-      {#if tab === 'discover'}
-        <span
-          class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-        ></span>
-      {/if}
     </button>
     <button
       on:click={() => setTab('mine')}
-      class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
-      style="color: {tab === 'mine'
-        ? 'var(--color-text-primary)'
-        : 'var(--color-text-secondary)'}"
+      aria-pressed={tab === 'mine'}
+      class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
+      class:bg-primary={tab === 'mine'}
+      class:text-white={tab === 'mine'}
+      style={tab !== 'mine'
+        ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
+        : ''}
     >
       Mine
-      {#if tab === 'mine'}
-        <span
-          class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-        ></span>
-      {/if}
     </button>
     <button
       on:click={() => setTab('saved')}
-      class="flex-1 py-2.5 text-sm font-medium transition-colors relative cursor-pointer text-center"
-      style="color: {tab === 'saved'
-        ? 'var(--color-text-primary)'
-        : 'var(--color-text-secondary)'}"
+      aria-pressed={tab === 'saved'}
+      class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
+      class:bg-primary={tab === 'saved'}
+      class:text-white={tab === 'saved'}
+      style={tab !== 'saved'
+        ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
+        : ''}
     >
       Saved
-      {#if tab === 'saved'}
-        <span
-          class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
-        ></span>
-      {/if}
     </button>
   </div>
 

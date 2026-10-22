@@ -22,11 +22,16 @@ export const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
  * The food feed's hashtag spam cap. A note with more hashtags than this is
  * dropped wherever the food filter is active, counted as `hashtagCount`
  * counts: the greater of content hashtags and `t` tags. The composer shows
- * the same number as "n/5 tags" and disables its suggestion pills at it.
+ * the same number as "n/20 tags" and disables its suggestion pills at it.
  *
- * 5 is under review. A live sample of 100 raw events rejected 69 on this cap.
- * About 61 of those were 100+ tag aggregators, correctly blocked, but the
- * 6–20 band was mostly genuine food posts, so the natural break is near 20.
+ * Raised from 5 to 20 after the cap review: a live sample of 100 raw events
+ * rejected 69 on the old cap — about 61 were 100+ tag aggregators, correctly
+ * blocked, but the 6–20 band was mostly genuine food posts.
+ *
+ * Platform status: iOS matches at 20. ANDROID IS STILL AT 5
+ * (OnlyFoodFilter.kt, `MAX_HASHTAGS`) — until its update ships, posts with
+ * 6–20 tags are hidden from Android's OnlyFood feed even though the web
+ * accepts them. The Android bump must land before this is claimed aligned.
  *
  * iOS and Android carry their own copies of this cap with no shared package.
  * A change here must be made in all three:
@@ -34,7 +39,7 @@ export const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
  *   - zapcooking/zapcooking_ios:      OnlyFoodFilter.swift  (`maxHashtags`)
  *   - zapcooking/zap_cooking_android: app/src/main/kotlin/cooking/zap/app/repo/OnlyFoodFilter.kt (`MAX_HASHTAGS`)
  */
-export const MAX_HASHTAGS = 5;
+export const MAX_HASHTAGS = 20;
 
 /** How many hashtag tokens the body carries, as the feed counts them. */
 export function countContentHashtags(content: string): number {

@@ -18,6 +18,12 @@ export interface HistorySource {
   ): Promise<HistoryResult>;
 }
 
+/** How a window is asked for. */
+export interface WindowOpts {
+  /** Only on an already logged-in connection (no signer prompt). */
+  authedOnly?: boolean;
+}
+
 export type ArchiveState = PageState | 'ok';
 
 /**
@@ -29,7 +35,7 @@ export type ArchiveState = PageState | 'ok';
 export async function loadOnThisDay(
   src: HistorySource,
   now: Date,
-  opts: { authedOnly?: boolean } = {}
+  opts: WindowOpts = {}
 ): Promise<{ state: ArchiveState; sections: DaySection[] }> {
   const sections: DaySection[] = [];
   for (const yearsBack of [1, 2, 3]) {
@@ -56,8 +62,7 @@ export class MonthPager {
   constructor(
     private src: HistorySource,
     readonly month: Month,
-    /** authedOnly: only on an already logged-in connection (no signer prompt). */
-    private opts: { authedOnly?: boolean } = {}
+    private opts: WindowOpts = {}
   ) {
     this.until = month.window.until;
   }

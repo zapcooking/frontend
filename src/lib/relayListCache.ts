@@ -565,8 +565,8 @@ class RelayListCacheManager implements RelayListCache {
         cleanupOldEntries().catch(() => {});
       }, CONFIG.CLEANUP_INTERVAL_MS);
       
-      // Initialize DB on construction
-      initDB().catch(() => {});
+      // The IndexedDB opens on first use (get/prefetch/seed), not at
+      // module load: /feed's first paint doesn't need it.
     }
   }
   

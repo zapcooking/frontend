@@ -8,6 +8,7 @@
   import { goto, beforeNavigate } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
   import { lastFeedUrl } from '$lib/feedOrigin';
+  import { isLandingRoute } from '$lib/landing/route';
   import BottomNav from '../components/BottomNav.svelte';
   import DesktopSideNav from '../components/DesktopSideNav.svelte';
   import NotificationSubscriber from '../components/NotificationSubscriber.svelte';
@@ -38,7 +39,6 @@
   import { clearDecryptCache } from '$lib/encryptionService';
   import { clearUnwrapCache } from '$lib/nip17';
   import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
-  import { preconnectPantry } from '$lib/nip29';
   import { installNsecPasteGuard } from '$lib/nsecPasteGuard';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
@@ -52,7 +52,9 @@
     activeWallet,
     rememberActiveWallet,
     getLastWalletRecord,
-    autoRestoreWalletAtLogin
+    autoRestoreWalletAtLogin,
+    evaluateWalletSetupState,
+    walletSetupCheckPending
   } from '$lib/wallet';
   import {
     disconnectWallet as disconnectSparkWallet,
@@ -81,8 +83,6 @@
   import { detectPlatform } from '$lib/platform';
   // Startup coordination — defer non-critical services until feed renders
   import { feedInitialLoadDone } from '$lib/startupState';
-  // Prewarm outbox relay list cache early (on login, regardless of page)
-  import { prewarmOutboxCache } from '$lib/followOutbox';
   // Refresh engagement counts when the tab returns from background
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement, clearAllEngagementCaches } from '$lib/engagementCache';
@@ -147,6 +147,14 @@
     // "back to feed" affordances return to the tab the user was on.
     if (from?.url?.pathname === '/feed') {
       lastFeedUrl.set(from.url.pathname + from.url.search);
+    }
+    // Landing routes ship no client JS (csr = false), so the client router
+    // can't render them: a client-side navigation to one (link, goto, back
+    // button) becomes a page load.
+    if (!willUnload && to?.url && to.url.origin === location.origin && isLandingRoute(to.route?.id)) {
+      cancel();
+      location.href = to.url.href;
+      return;
     }
     if ($updated && !willUnload && to?.url) {
       // Cancel the client-side navigation first so SvelteKit doesn't start
@@ -287,7 +295,11 @@
   // The persistent Cheffy messenger is hidden on the full Cheffy page
   // (redundant), the chrome-less messaging surfaces, and auth flows.
   $: showCheffy = isCheffyRoute($page.url.pathname);
+  // Landing routes ($lib/landing/route) are server-rendered with no client
+  // JS: the layout renders only the page (its own header, footer and meta).
+  $: landing = isLandingRoute($page.route.id);
   $: hasCustomOgTags =
+    landing ||
     $page.url.pathname.startsWith('/recipe/') ||
     $page.url.pathname.startsWith('/r/') ||
     $page.url.pathname.startsWith('/pack/') ||
@@ -304,6 +316,13 @@
     error: null
   };
   let unsubscribe: (() => void) | null = null;
+  // Whether the PREVIOUS auth callback saw a logged-in member. The auth
+  // manager emits intermediate unauthenticated states during session
+  // restore (authenticateWithNIP07's isLoading ping, NIP-46 reconnect) —
+  // treating those as logout wiped the persisted wallets on every page
+  // refresh, which forced the Nostr-backup auto-restore (a full wallet
+  // rescan + "restored" toast) to run again every load.
+  let wasAuthenticated = false;
   let feedInitialLoadTimeout: ReturnType<typeof setTimeout> | null = null;
   let walletWelcomeSeen = false;
   let walletWelcomeForce = false;
@@ -331,110 +350,6 @@
   function scrollToTop() {
     if (!browser) return;
     scrollActiveSurfaceToTop(document.getElementById('app-scroll'));
-  }
-
-  // Handle deep links from Capacitor (for NIP-46 pairing)
-  async function handleDeepLink(url: string) {
-    console.log('[DeepLink] Received:', url);
-
-    if (!authManager) {
-      console.warn('[DeepLink] Auth manager not initialized');
-      return;
-    }
-
-    // Check if we have a pending NIP-46 pairing
-    if (authManager.hasPendingNip46Pairing()) {
-      console.log('[DeepLink] Has pending NIP-46 pairing, restarting listener...');
-      await authManager.restartNip46ListenerIfPending();
-      goto('/login');
-      return;
-    }
-
-    // Handle bunker:// URLs for direct NIP-46 auth
-    // Note: nostrconnect:// is NOT handled here - it's for signers to scan, not direct input
-    if (url.startsWith('bunker://')) {
-      try {
-        await authManager.authenticateWithNIP46(url);
-        goto(startSectionTarget());
-      } catch (e) {
-        console.error('[DeepLink] NIP-46 auth failed:', e);
-        goto('/login');
-      }
-    }
-  }
-
-  // Setup Capacitor deep link listeners
-  async function setupCapacitorListeners() {
-    if (!browser) return;
-
-    console.log('[Capacitor] Setting up listeners...');
-
-    try {
-      // Import Capacitor core to check if we're in a native environment
-      const { Capacitor } = await import('@capacitor/core');
-
-      if (!Capacitor.isNativePlatform()) {
-        console.log('[Capacitor] Not a native platform, skipping listener setup');
-        return;
-      }
-
-      console.log('[Capacitor] Native platform detected:', Capacitor.getPlatform());
-
-      const { App } = await import('@capacitor/app');
-
-      // Listen for deep links when app is open
-      await App.addListener('appUrlOpen', (event) => {
-        console.log('[Capacitor] appUrlOpen:', event.url);
-        handleDeepLink(event.url);
-      });
-      console.log('[Capacitor] appUrlOpen listener registered');
-
-      // Listen for app state changes (resume)
-      await App.addListener('appStateChange', async (state) => {
-        console.log('[Capacitor] appStateChange:', state.isActive ? 'active' : 'inactive');
-
-        if (state.isActive) {
-          console.log('[Capacitor] App became active, checking for pending NIP-46 pairing...');
-          if (authManager?.hasPendingNip46Pairing()) {
-            console.log('[Capacitor] Found pending NIP-46 pairing, restarting listener');
-            try {
-              await authManager.restartNip46ListenerIfPending();
-            } catch (e) {
-              console.error('[Capacitor] Error restarting NIP-46 listener:', e);
-            }
-          } else {
-            console.log('[Capacitor] No pending NIP-46 pairing found');
-          }
-        }
-      });
-      console.log('[Capacitor] appStateChange listener registered');
-
-      // Also listen for resume event as backup
-      await App.addListener('resume', async () => {
-        console.log('[Capacitor] resume event received');
-        if (authManager?.hasPendingNip46Pairing()) {
-          console.log('[Capacitor] Resume with pending NIP-46 pairing, restarting listener');
-          try {
-            await authManager.restartNip46ListenerIfPending();
-          } catch (e) {
-            console.error('[Capacitor] Error restarting NIP-46 listener on resume:', e);
-          }
-        }
-      });
-      console.log('[Capacitor] resume listener registered');
-
-      // Check for launch URL (app opened via deep link)
-      const launchUrl = await App.getLaunchUrl();
-      if (launchUrl?.url) {
-        console.log('[Capacitor] Launch URL:', launchUrl.url);
-        handleDeepLink(launchUrl.url);
-      }
-
-      console.log('[Capacitor] All listeners initialized successfully');
-    } catch (e) {
-      // Capacitor not available (web environment) or error during setup
-      console.log('[Capacitor] Setup error or not available:', e);
-    }
   }
 
   onMount(async () => {
@@ -484,8 +399,15 @@
         authState = state;
 
         // Sync with legacy userPublickey store for compatibility
-        if (state.isAuthenticated && state.publicKey) {
+        const isAuthenticatedNow = Boolean(state.isAuthenticated && state.publicKey);
+        if (isAuthenticatedNow) {
           userPublickey.set(state.publicKey);
+          // Synchronously answer "does this account obviously have a
+          // wallet?" so the sidebar card never flashes "Set up a Wallet"
+          // while the deferred restore check / envelope decryption are
+          // still ahead. autoRestoreWalletAtLogin holds the flag through
+          // an actual restore and clears it on every outcome.
+          evaluateWalletSetupState(state.publicKey);
           // Upgrade a legacy V1 Spark mnemonic (key = sha256(pubkey), so
           // readable by anyone with localStorage access) without waiting
           // for the user to open the wallet. Deferred so it never competes
@@ -493,18 +415,32 @@
           setTimeout(() => void sweepLegacyMnemonic(state.publicKey), 2500);
           // Message subscriptions are lazy — initialized when user navigates to /messages.
           // This avoids flooding browser signers with NIP-44 decrypt requests on login.
-          // Pre-connect pantry relay shortly after login so groups load instantly
-          // when user navigates to /groups (auth signing is only ~35ms, no contention risk)
-          setTimeout(() => preconnectPantry($ndk), 1000);
-          // Prewarm outbox relay list cache so feed loads faster regardless of which page user lands on
-          setTimeout(() => prewarmOutboxCache($ndk, state.publicKey).catch(() => {}), 2000);
+          // The pantry relay (Groups) connects when /groups needs it (nip29
+          // ensurePantryConnected): a pre-connect here opened a socket, sent
+          // REQs the relay refused, and asked NIP-07 signers for an AUTH on
+          // every login. The Following feed's relay lists load when that tab
+          // opens (followOutbox → relayListCache): a login-time prewarm of
+          // every follow's list made NDK's outbox tracker fetch each follow's
+          // kind-3 contact list too — 30 MB on one /feed load.
           // Logout wipes wallet data by design; put the last-used wallet
           // back from the user's Nostr backups. Deferred so first paint
           // and the feed win the relay/signer bandwidth — the restore can
           // prompt NIP-07 users for one decrypt.
           setTimeout(() => void autoRestoreWalletAtLogin(state.publicKey), 2500);
         } else {
+          // A settled unauthenticated state must never keep a pubkey around
+          // (locked vault, failed NIP-07 restore): clear it before the
+          // transition guard below.
           userPublickey.set('');
+          // Logout cleanup only on a genuine authenticated → logged-out
+          // transition. Intermediate unauthenticated states (the isLoading
+          // ping while a NIP-07/NIP-46 session restores on refresh) must
+          // NOT run it: wiping the persisted wallets there forced the
+          // Nostr-backup auto-restore — a full wallet rescan and a
+          // "restored" toast — on every single page load.
+          if (!wasAuthenticated) {
+            return;
+          }
           stopMessageSubscription();
           clearMessages();
           clearDecryptCache();
@@ -517,6 +453,7 @@
           clearAllEngagementCaches();
           disconnectSparkWallet().catch(() => {});
           clearAllWallets();
+          walletSetupCheckPending.set(false);
           clearAllSparkWallets();
         }
 
@@ -561,6 +498,11 @@
             }
           }
         }
+
+        // The early return above leaves this untouched: intermediate
+        // restore pings are pre-auth, so the next real state still compares
+        // against the last settled one.
+        wasAuthenticated = isAuthenticatedNow;
       });
 
       // Initialize wallet manager to restore saved wallets
@@ -574,9 +516,6 @@
           if (wallet) rememberActiveWallet(wallet);
         });
       }
-
-      // Setup Capacitor deep link listeners
-      setupCapacitorListeners();
 
       // Safety timeout: if user never visits the feed (e.g. lands on /recipe/*),
       // ensure notifications and other deferred services still start after 10s
@@ -626,7 +565,13 @@
   onMount(() => {
     if (browser) {
       try {
-        indexedDB.deleteDatabase('zapcooking-garden-cache');
+        // Once per browser: the delete of a nonexistent database is a no-op,
+        // but each attempt still opens IndexedDB during app boot.
+        const DONE = 'zc:garden-cache-dropped';
+        if (!localStorage.getItem(DONE)) {
+          indexedDB.deleteDatabase('zapcooking-garden-cache');
+          localStorage.setItem(DONE, '1');
+        }
       } catch {
         // ignore — implicitly retried on the next app load
       }
@@ -695,6 +640,9 @@
   {/if}
 </svelte:head>
 
+{#if landing}
+  <slot />
+{:else}
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
   <div
     class="h-screen scroll-smooth overflow-hidden transition-colors duration-200 safe-area-container"
@@ -813,6 +761,7 @@
     </div>
   </div>
 </ErrorBoundary>
+{/if}
 
 <style>
   .kitchen-scroll {

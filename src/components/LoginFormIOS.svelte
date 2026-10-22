@@ -22,6 +22,7 @@
   import { startSectionTarget } from '$lib/startSectionSettings';
   import { nip19 } from 'nostr-tools';
   import { createAuthManager, type AuthState } from '$lib/authManager';
+  import { publishNewAccountKind0 } from '$lib/ownKind0';
   import { showToast } from '$lib/toast';
   import { onMount, onDestroy } from 'svelte';
 
@@ -198,6 +199,7 @@
 
   async function useGeneratedKeys(skipProfile = false) {
     if (!generatedKeys || !authManager) return;
+    const signupKey = generatedKeys.privateKey;
 
     // Capture profile data before any state changes
     const profileName = newAccountUsername.trim();
@@ -222,12 +224,7 @@
       if (hasProfileData) {
         console.log('[Profile] Publishing kind-0 metadata...');
 
-        const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-        const metaEvent = new NDKEvent($ndk);
-        metaEvent.kind = 0;
-        metaEvent.tags = [];
-
-        const profileContent: any = {};
+        const profileContent: Record<string, string> = {};
 
         if (profileName) {
           profileContent.name = profileName;
@@ -241,11 +238,9 @@
           profileContent.picture = profilePicture;
         }
 
-        metaEvent.content = JSON.stringify(profileContent);
-        console.log('[Profile] Event content:', metaEvent.content);
-
-        const relays = await metaEvent.publish();
-        console.log('[Profile] Published to relays:', relays);
+        // Signed with the generated key itself, never the global signer.
+        const { relayCount } = await publishNewAccountKind0($ndk, signupKey, profileContent);
+        console.log('[Profile] Published to relays:', relayCount);
 
         // Wait for relay propagation
         await new Promise((resolve) => setTimeout(resolve, 2000));

@@ -492,6 +492,15 @@
       { icon: LightningIcon, label: 'Lightning-Gated Recipes' },
       { icon: StorefrontIcon, label: 'Market Access' },
       { icon: StarIcon, label: 'Founders Recognition' }
+    ],
+    // Lifetime: its own paid tier (backend-managed, passed through), every feature for good.
+    lifetime: [
+      { icon: CrownIcon, label: 'Lifetime Access — All Features' },
+      { icon: RobotIcon, label: 'Sous Chef & Nourish' },
+      { icon: CookingPotIcon, label: 'Cheffy — Kitchen Companion' },
+      { icon: LightningIcon, label: 'Lightning-Gated Recipes' },
+      { icon: StorefrontIcon, label: 'Market Access' },
+      { icon: StarIcon, label: 'Member Badge & Collections' }
     ]
   };
 

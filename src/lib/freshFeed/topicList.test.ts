@@ -121,7 +121,8 @@ describe('loadTopics', () => {
     });
     expect(await loadTopics(failing as unknown as typeof fetch)).toEqual({
       groups: [],
-      featured: null
+      featured: null,
+      suggested: null
     });
     const ok = vi.fn(async () => new Response(JSON.stringify(DOC), { status: 200 }));
     expect((await loadTopics(ok as unknown as typeof fetch)).groups).toHaveLength(2);

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { Wallet } from './walletStore';
 
 /**
  * Login auto-restore: the last-used wallet is remembered per pubkey and
@@ -17,14 +18,17 @@ const mocks = vi.hoisted(() => ({
   connectWallet: vi.fn(),
   restoreNwcFromNostr: vi.fn(),
   listSparkBackups: vi.fn(),
-  restoreSparkBackup: vi.fn()
+  restoreSparkBackup: vi.fn(),
+  // Tests that need the check to pause mid-flight swap in a deferred
+  // ndkReady; the default stays an instantly-resolved promise.
+  ndkReadyGate: null as null | { promise: Promise<void>; resolve: () => void }
 }));
 
 vi.mock('$lib/nostr', async () => {
   const { writable } = await import('svelte/store');
   return {
     ndk: writable({}),
-    ndkReady: Promise.resolve(),
+    ndkReady: mocks.ndkReadyGate ? mocks.ndkReadyGate.promise : Promise.resolve(),
     userPublickey: writable(mocks.fakePubkey)
   };
 });
@@ -43,7 +47,9 @@ vi.mock('./walletStore', async () => {
     wallets: writable(mocks.walletsItems),
     hasPersistedWallets: mocks.hasPersistedWallets,
     fingerprintWalletData,
-    walletRestoring: writable(false)
+    walletRestoring: writable(false),
+    walletSetupCheckPending: writable(false),
+    lastWalletRecordKey: (pubkey: string) => `zapcooking_last_wallet_${pubkey}`
   };
 });
 
@@ -56,6 +62,8 @@ vi.mock('$lib/spark', () => ({
 }));
 
 const NWC_URL = 'nostr+walletconnect://64bexample?secret=sekrit&relay=wss%3A%2F%2Frelay.com';
+/** A complete Wallet: the store is typed, and svelte-check type-checks tests. */
+const TEST_WALLET: Wallet = { id: 1, kind: 3, name: 'Test NWC', active: true, data: NWC_URL };
 
 type AutoRestoreModule = typeof import('./autoRestore');
 
@@ -68,6 +76,7 @@ beforeEach(async () => {
   vi.stubEnv('VITE_BREEZ_API_KEY', 'test-key');
   mocks.hasPersistedWallets.mockReturnValue(false);
   mocks.walletsItems.length = 0;
+  mocks.ndkReadyGate = null;
 
   store = new Map();
   vi.stubGlobal('localStorage', {
@@ -78,6 +87,14 @@ beforeEach(async () => {
   });
 
   mod = await import('./autoRestore');
+
+  // The mocked walletStore module can outlive vi.resetModules(); put its
+  // stores back to pristine values so one test's wallets/pending state
+  // can't leak into the next.
+  const storeMod = await import('./walletStore');
+  storeMod.wallets.set([]);
+  storeMod.walletRestoring.set(false);
+  storeMod.walletSetupCheckPending.set(false);
 });
 
 describe('last-wallet record', () => {
@@ -122,7 +139,8 @@ describe('autoRestoreWalletAtLogin', () => {
 
   it('skips when the device still has wallets in the store', async () => {
     mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
-    mocks.walletsItems.push({ id: 1 });
+    const { wallets } = await import('./walletStore');
+    wallets.set([TEST_WALLET]);
     await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
     expect(mocks.restoreNwcFromNostr).not.toHaveBeenCalled();
   });
@@ -201,4 +219,130 @@ describe('autoRestoreWalletAtLogin', () => {
 
     await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
   });
+
+  it('holds the setup check pending from entry until the check settles', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    // Defer ndkReady so the check is provably mid-flight.
+    let resolveNdkReady: () => void = () => {};
+    mocks.ndkReadyGate = {
+      promise: new Promise<void>((resolve) => {
+        resolveNdkReady = resolve;
+      }),
+      resolve: () => resolveNdkReady()
+    };
+    vi.resetModules();
+    mod = await import('./autoRestore');
+
+    mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
+    const inFlight = mod.autoRestoreWalletAtLogin(mocks.fakePubkey);
+
+    // The caller delays this check and the relays are still connecting:
+    // "Set up a Wallet" must stay hidden for the whole window.
+    expect(get(walletSetupCheckPending)).toBe(true);
+
+    mocks.ndkReadyGate!.resolve();
+    await inFlight;
+    expect(get(walletSetupCheckPending)).toBe(false);
+  });
+
+  it('leaves the flag untouched on the no-record early exit (login evaluation owns it)', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
+    expect(get(walletSetupCheckPending)).toBe(false);
+  });
+
+  it('keeps the setup check pending while encrypted envelopes await decryption', async () => {
+    const { walletSetupCheckPending, wallets } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
+    mocks.hasPersistedWallets.mockReturnValue(true);
+
+    // Login event: the local evaluation sees persisted (encrypted)
+    // wallets and holds the answer pending.
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(true);
+
+    // The deferred check itself must not settle it either.
+    await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
+    expect(get(walletSetupCheckPending)).toBe(true);
+
+    // Decrypt path materializes the wallet → check settles.
+    wallets.set([TEST_WALLET]);
+    expect(get(walletSetupCheckPending)).toBe(false);
+  });
 });
+
+describe('evaluateWalletSetupState', () => {
+  it('answers "no wallet" immediately with no record and nothing persisted', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(false);
+  });
+
+  it('holds pending when a last-used record exists', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(true);
+  });
+
+  it('holds pending when persisted wallets exist, and answers logged-out at once', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+
+    mocks.hasPersistedWallets.mockReturnValue(true);
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(true);
+
+    mod.evaluateWalletSetupState(null);
+    expect(get(walletSetupCheckPending)).toBe(false);
+  });
+});
+
+describe('the same account logging out and back in during a session', () => {
+  it('settles the setup check on the second login (one restore attempt per session)', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+    mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
+    mocks.restoreNwcFromNostr.mockResolvedValue(null); // the backup has nothing to restore
+
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    await mod.autoRestoreWalletAtLogin(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(false);
+
+    // Logout clears the flag; the same account logs in again.
+    walletSetupCheckPending.set(false);
+    mod.evaluateWalletSetupState(mocks.fakePubkey);
+    expect(get(walletSetupCheckPending)).toBe(true);
+    await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
+    expect(get(walletSetupCheckPending)).toBe(false);
+    expect(mocks.restoreNwcFromNostr).toHaveBeenCalledTimes(1);
+  });
+
+  it('a duplicate call while a restore runs leaves the answer to that restore', async () => {
+    const { walletSetupCheckPending } = await import('./walletStore');
+    const { get } = await import('svelte/store');
+    mod.rememberActiveWallet({ kind: 3, data: NWC_URL });
+    let release!: (v: string | null) => void;
+    mocks.restoreNwcFromNostr.mockReturnValue(new Promise((r) => (release = r)));
+
+    const first = mod.autoRestoreWalletAtLogin(mocks.fakePubkey);
+    await Promise.resolve();
+    await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(false);
+    expect(get(walletSetupCheckPending)).toBe(true); // still the first attempt's to answer
+    release(null);
+    await first;
+    expect(get(walletSetupCheckPending)).toBe(false);
+    expect(mocks.restoreNwcFromNostr).toHaveBeenCalledTimes(1);
+  });
+});
+

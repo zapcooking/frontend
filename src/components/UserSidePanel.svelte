@@ -22,7 +22,8 @@
   import { theme } from '$lib/themeStore';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { getAuthManager } from '$lib/authManager';
-  import { profileCacheManager } from '$lib/profileCache';
+  import { profileFor, authorLabel } from '$lib/profileStore';
+  import NameLabel from './NameLabel.svelte';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
 
   // Use the store for open state
@@ -33,9 +34,10 @@
   let touchCurrentX = 0;
   let isSwiping = false;
 
-  // Profile display name
-  let displayName = '';
-  let lastPubkey = '';
+  // Profile display name ($lib/profileStore: skeleton while it resolves,
+  // updates live — e.g. right after the user edits their profile).
+  $: nameState = $userPublickey ? profileFor($userPublickey) : null;
+  $: nameLabel = authorLabel($userPublickey, nameState ? $nameState : null);
 
   // Feature flag: Set to true to show Pro features in the menu
   const SHOW_PRO_FEATURES = false;
@@ -71,45 +73,6 @@
     connectedRelays = relays
       ? [...relays.values()].filter((r) => r.status >= NDKRelayStatus.CONNECTED).length
       : 0;
-  }
-
-  // Load profile when pubkey changes
-  $: if ($userPublickey && $userPublickey !== lastPubkey) {
-    lastPubkey = $userPublickey;
-    loadDisplayName($userPublickey);
-  }
-
-  async function loadDisplayName(pubkey: string) {
-    if (!pubkey) {
-      displayName = '';
-      return;
-    }
-
-    // Start with truncated npub as fallback
-    displayName = nip19.npubEncode(pubkey).slice(0, 12) + '...';
-
-    try {
-      // Try cache first
-      const cachedUser = profileCacheManager.getCachedProfile(pubkey);
-      if (cachedUser?.profile) {
-        const name = cachedUser.profile.displayName || cachedUser.profile.name;
-        if (name) {
-          displayName = name;
-          return;
-        }
-      }
-
-      // Fetch from relays
-      const user = await profileCacheManager.getProfile(pubkey);
-      if (user?.profile) {
-        const name = user.profile.displayName || user.profile.name;
-        if (name) {
-          displayName = name;
-        }
-      }
-    } catch (e) {
-      console.warn('[UserSidePanel] Failed to load display name:', e);
-    }
   }
 
   function close() {
@@ -240,7 +203,7 @@
         >
           <CustomAvatar pubkey={$userPublickey} size={48} imageUrl={$userProfilePictureOverride} className="flex-shrink-0" />
           <span class="font-semibold text-base truncate min-w-0" style="color: var(--color-text-primary);">
-            {displayName}
+            <NameLabel label={nameLabel} />
           </span>
         </button>
         <button

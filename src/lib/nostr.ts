@@ -5,6 +5,7 @@ import { writable, get, type Writable } from 'svelte/store';
 import { standardRelays } from './consts';
 import { createConnectionManager, getConnectionManager, resetConnectionManagerSingleton } from './connectionManager';
 import { scheduleNdkCacheMaintenance } from './ndkCacheMaintenance';
+import { limitOutboxTracking } from './outboxTracking';
 
 // Storage keys
 const RELAYS_STORAGE_KEY = 'nostrcooking_relays';
@@ -192,7 +193,7 @@ function createNdk(mode: RelayMode, relayUrls: string[]): NDK {
     outboxRelayUrls: config.outboxRelayUrls
   });
   
-  return new NDK({
+  const instance = new NDK({
     outboxRelayUrls: config.outboxRelayUrls,
     enableOutboxModel: config.enableOutboxModel,
     explicitRelayUrls: config.explicitRelayUrls,
@@ -200,6 +201,11 @@ function createNdk(mode: RelayMode, relayUrls: string[]): NDK {
     cacheAdapter: dexieAdapter as any,
     autoConnectUserRelays: false
   });
+  // The outbox model stays on for publishing (the user's write relays);
+  // its per-author kind-3/10002 fan-out for reads is kept to the active
+  // user ($lib/outboxTracking).
+  limitOutboxTracking(instance);
+  return instance;
 }
 
 /**

@@ -9,6 +9,7 @@
  */
 
 import { isHiddenRecipeATag } from './consts';
+import { isExploreCurationDTag } from './landing/curation';
 
 const RELAYS = [
 	'wss://relay.primal.net',
@@ -178,6 +179,8 @@ export async function fetchPackMetadata(
 	dTag: string,
 	kind: number
 ): Promise<PackMetadata | null> {
+	// The org's /explore curation lists share kind 30004; they aren't packs.
+	if (isExploreCurationDTag(dTag)) return null;
 	const evt = await raceRelays({ kinds: [kind], authors: [pubkey], '#d': [dTag] });
 	if (!evt) return null;
 

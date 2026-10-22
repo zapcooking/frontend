@@ -13,7 +13,9 @@
     walletBalance,
     walletConnected,
     walletLoading,
-    walletRestoring
+    walletRestoring,
+    wallets,
+    walletSetupCheckPending
   } from '$lib/wallet';
   import { weblnConnected, getWeblnBalance } from '$lib/wallet/webln';
   import {
@@ -37,7 +39,14 @@
   export let onBeforeOpen: (() => void) | undefined = undefined;
 
   $: bcConnected = $bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected;
-  $: hasWallet = $walletConnected || $weblnConnected || bcConnected;
+  // A wallet present in the store but not yet (re)connected — e.g. an
+  // encrypted envelope still awaiting decrypt — is still a wallet: the
+  // card must not offer setup while one exists.
+  $: hasWallet = $walletConnected || $weblnConnected || bcConnected || $wallets.length > 0;
+  // True from login until the "does this account have a wallet?" check
+  // settles (autoRestoreWalletAtLogin clears it on every outcome) or an
+  // actual restore is in flight.
+  $: checkPending = $walletRestoring || $walletSetupCheckPending;
 
   // WebLN balance state (mirrors WalletBalance.svelte)
   let weblnBalance: number | null = null;
@@ -124,18 +133,24 @@
   <button
     type="button"
     class="sidebar-wallet-card rounded-2xl"
-    aria-label={hasWallet ? 'Open wallet' : 'Set up a wallet'}
+    aria-label={hasWallet ? 'Open wallet' : checkPending ? 'Wallet' : 'Set up a wallet'}
     on:click={open}
   >
-    {#if $walletRestoring}
-      <!-- Auto-restore in flight: keep the card's silhouette with a
-           shimmering label instead of popping in later (the user DID
-           have a wallet, it's on its way back from their backup). -->
+    {#if checkPending}
+      <!-- Check/restore in flight: keep the card's silhouette with a
+           shimmering label instead of implying "Set up a Wallet" before
+           the answer is known (a restoring wallet is on its way back
+           from the user's backup). -->
       <div class="flex items-center gap-2.5 px-3 py-2.5" aria-live="polite">
         <div class="wallet-orb">
           <LightningIcon size={13} weight="fill" class="text-white" />
         </div>
-        <span class="t-shimmer text-sm font-medium" data-text="Restoring…">Restoring…</span>
+        <span
+          class="t-shimmer text-sm font-medium"
+          data-text={$walletRestoring ? 'Restoring…' : 'Wallet…'}
+        >
+          {$walletRestoring ? 'Restoring…' : 'Wallet…'}
+        </span>
       </div>
     {:else if hasWallet}
       <div class="flex items-center gap-2 px-2.5 py-2">
@@ -179,7 +194,7 @@
     {/if}
   </button>
 
-  {#if !$walletRestoring && hasWallet}
+  {#if !checkPending && hasWallet}
     <div class="card-actions">
       <button
         type="button"

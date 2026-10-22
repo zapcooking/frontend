@@ -273,6 +273,11 @@ if (browser) {
     hasLoadedFromStorage = true;
     if (saved.length > 0) {
       wallets.set(saved);
+      // Plaintext wallets are usable as-is: the setup question is
+      // answered, so the sidebar card needn't shimmer for the ones that
+      // loaded ready. (Encrypted envelopes keep it pending until
+      // decryption materializes them.)
+      if (pendingEncrypted.length === 0) walletSetupCheckPending.set(false);
     }
     if (pendingEncrypted.length > 0) {
       scheduleEnvelopeDecrypt();
@@ -549,3 +554,38 @@ export function getWalletKindName(kind: WalletKind): string {
  * no wallet during the fetch/decrypt round-trip.
  */
 export const walletRestoring = writable(false);
+
+/**
+ * Storage key of the per-pubkey "last used wallet" record written by
+ * autoRestore (lives here so the initial setup-check read below and
+ * autoRestore can never drift apart).
+ */
+export function lastWalletRecordKey(pubkey: string): string {
+  return `zapcooking_last_wallet_${pubkey}`;
+}
+
+/**
+ * True from login until the "does this account have a wallet?" question
+ * has been answered one way or the other. The answer can still come
+ * back "restored" while the deferred auto-restore check and the envelope
+ * decryption are in flight, so the UI must not claim "Set up a Wallet"
+ * yet. Distinct from walletRestoring, which is only true once an actual
+ * restore attempt is running.
+ *
+ * The INITIAL value is computed from storage because on a page reload
+ * the logged-in sidebar mounts long before the auth callback fires:
+ * a session marker plus persisted wallets or a last-used record means
+ * the question is open, anything else can answer "no wallet" at once.
+ */
+function initialSetupCheckPending(): boolean {
+  if (!browser) return false;
+  try {
+    const pubkey = localStorage.getItem('nostrcooking_loggedInPublicKey');
+    if (!pubkey) return false;
+    if (hasPersistedWallets()) return true;
+    return !!localStorage.getItem(lastWalletRecordKey(pubkey));
+  } catch {
+    return false;
+  }
+}
+export const walletSetupCheckPending = writable(initialSetupCheckPending());

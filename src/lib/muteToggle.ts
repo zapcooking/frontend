@@ -6,7 +6,7 @@ import { ndk } from '$lib/nostr';
 import { buildPoolRelaySet } from '$lib/eventFetch';
 import { decrypt, detectEncryptionMethod, encrypt } from '$lib/encryptionService';
 import { muteListStore } from '$lib/muteListStore';
-import { addPubkeyMute, removePubkeyMute, type MuteListContent } from '$lib/muteListEdit';
+import { addEventMute, addPubkeyMute, removeEventMute, removePubkeyMute, type MuteListContent } from '$lib/muteListEdit';
 
 /**
  * Mute / unmute one pubkey from a profile surface (ProfileSheet, /user/[slug])
@@ -25,6 +25,15 @@ export type MuteListFetch =
   | { status: 'unavailable' };
 
 const FETCH_TIMEOUT_MS = 8_000;
+/**
+ * NDK reports EOSE once about half the pool has answered (plus up to a
+ * second), and with closeOnEose the subscription is gone before a slower
+ * relay sends the list. An empty EOSE therefore waits this long for a late
+ * copy before it counts as "absent" — the store caches an absence for
+ * minutes, and a reader's mutes were silently missing when purplepag.es and
+ * nostr.wine (no copy) answered before nos.lol and primal (the copy).
+ */
+export const EOSE_GRACE_MS = 1_500;
 
 /**
  * Fetch the newest kind 10000 for `pubkey`, distinguishing a confirmed
@@ -36,7 +45,7 @@ const FETCH_TIMEOUT_MS = 8_000;
 export function fetchMuteListStrict(
   ndkInstance: NDK,
   pubkey: string,
-  opts: { relaySet?: NDKRelaySet; timeoutMs?: number } = {}
+  opts: { relaySet?: NDKRelaySet; timeoutMs?: number; graceMs?: number } = {}
 ): Promise<MuteListFetch> {
   const relaySet = opts.relaySet ?? buildPoolRelaySet(ndkInstance);
   if (!relaySet) return Promise.resolve({ status: 'unavailable' });
@@ -46,7 +55,8 @@ export function fetchMuteListStrict(
     let settled = false;
     const sub = ndkInstance.subscribe(
       { kinds: [10000], authors: [pubkey] },
-      { closeOnEose: true, cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY },
+      // Not closeOnEose: `finish` stops it, after the grace below.
+      { closeOnEose: false, cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY },
       relaySet
     );
     const finish = (result: MuteListFetch) => {
@@ -65,9 +75,13 @@ export function fetchMuteListStrict(
       if (!newest || (event.created_at ?? 0) > (newest.created_at ?? 0)) newest = event;
     });
     // NDK only emits eose after at least one relay actually sent EOSE.
-    sub.on('eose', () =>
-      finish(newest ? { status: 'found', event: newest } : { status: 'absent' })
-    );
+    sub.on('eose', () => {
+      if (newest) return finish({ status: 'found', event: newest });
+      setTimeout(
+        () => finish(newest ? { status: 'found', event: newest } : { status: 'absent' }),
+        opts.graceMs ?? EOSE_GRACE_MS
+      );
+    });
   });
 }
 
@@ -124,6 +138,37 @@ export async function setPubkeyMuted(me: string, hex: string, mute: boolean): Pr
   } catch {
     // Private mode or a full quota — the relay copy still stands.
   }
+  muteListStore.invalidate();
+  await muteListStore.load(true);
+}
+
+/**
+ * Mute / unmute an event id — a whole thread (the conversation root) or a
+ * single note and its direct replies — as a public `e` tag on the same
+ * kind-10000 list the pubkey mutes live on. Same safety rules as
+ * `setPubkeyMuted`: the edit starts from the strict relay copy and aborts
+ * rather than publish over a list it could not fetch.
+ */
+export async function setEventMuted(me: string, eventId: string, mute: boolean): Promise<void> {
+  const ndkInstance = get(ndk);
+  const fetched = await fetchMuteListStrict(ndkInstance, me);
+  if (fetched.status === 'unavailable') {
+    throw new Error('Mute list not reachable on relays; not overwriting it');
+  }
+  const existing =
+    fetched.status === 'found'
+      ? { tags: fetched.event.tags, content: fetched.event.content ?? '' }
+      : null;
+  const edited = mute ? addEventMute(existing, eventId) : removeEventMute(existing, eventId);
+
+  if (edited) {
+    const muteEvent = new NDKEvent(ndkInstance);
+    muteEvent.kind = 10000;
+    muteEvent.content = edited.content;
+    muteEvent.tags = edited.tags;
+    await muteEvent.publish(await outboxRelaySet(muteEvent, 'list'));
+  }
+
   muteListStore.invalidate();
   await muteListStore.load(true);
 }

@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { ndk, getCurrentRelayGeneration, userPublickey } from '$lib/nostr';
-  import { NDKRelaySet } from '@nostr-dev-kit/ndk';
+  import { NDKEvent as NDKEventClass, NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import CoverSection from '../../components/table/CoverSection.svelte';
   import FeedSection from '../../components/table/FeedSection.svelte';
@@ -28,6 +28,17 @@
   import { loadFollowListProfiles, getFollowedPubkeys, followListReady } from '$lib/followListCache';
   import { articleStore, addArticles as addToSharedStore, refreshCover as refreshSharedCover } from '$lib/articleStore';
   import { get } from 'svelte/store';
+  import { fetchCuratedReads } from '$lib/reads/curatedReads';
+  import { loadReadsSource, saveReadsSource, type ReadsSource } from '$lib/reads/readsSource';
+  import {
+    ensureReadsModerationLoaded,
+    isBlockedFromReads,
+    readsModerationReady,
+    readsModerationVersion
+  } from '$lib/reads/moderationClient';
+  import { createSpamClassifier, type SpamReason } from '$lib/reads/spamRules';
+  import { cleanCover, foldReason, toSpamEvent, withoutTrustedDuplicates } from '$lib/reads/allReadsView';
+  import { ensureAuthorTrust, readsAuthorTrust } from '$lib/reads/authorTrustClient';
 
   $: isSignedIn = $userPublickey !== '';
   $: draftCount = $drafts.length;
@@ -42,6 +53,19 @@
   $: if ($followListReady) {
     followedPubkeys = getFollowedPubkeys();
   }
+
+  // Two sources, kept in separate state so a late "All reads" callback can
+  // never write into the curated view (and switching back keeps each one).
+  //  - curated (default): the feed relay, trusted authors + its food rules.
+  //  - all: the open hashtag search below (Primal + outbox), opt-in.
+  let source: ReadsSource = 'curated';
+  let allStarted = false;
+  let curatedArticles: ArticleData[] = [];
+  let curatedCover: CuratedCover | null = null;
+  let curatedLoading = false;
+  let curatedLoaded = false;
+  let curatedComplete = true;
+  let curatedRun = 0;
 
   let articles: ArticleData[] = [];
   let cover: CuratedCover | null = null;
@@ -84,14 +108,100 @@
     return TOP_RELAY_FOOD_HASHTAGS;
   }
 
+  // "All reads" spam rules and trust check (the curated tab is the relay's
+  // job). Spam folds under one reveal line in FeedSection, whoever wrote it;
+  // authors with no trust connection (not in the feed relay's trust set, no
+  // verified NIP-05) under another. The cover never holds either, an author
+  // still being looked up, or anything the moderation lists hide.
+  const classifySpam = createSpamClassifier();
+  const NO_SPAM: Map<string, SpamReason> = new Map();
+  // Only what moderation lets render: a blocked copy of an article mustn't
+  // fold the real one as a duplicate. Re-runs when the lists change.
+  $: rawSpamReasons =
+    source === 'all' && $readsModerationVersion >= 0
+      ? classifySpam(articles.filter((a) => !isBlockedFromReads(a.event)).map(toSpamEvent))
+      : NO_SPAM;
+  $: if (source === 'all') ensureAuthorTrust(articles.map((a) => a.author.pubkey));
+  $: allAuthorTrust = source === 'all' ? $readsAuthorTrust : null;
+  // A trusted author's article never folds as copied: a throwaway key
+  // republishing it would otherwise hide the original.
+  $: allSpamReasons = withoutTrustedDuplicates(rawSpamReasons, articles, allAuthorTrust);
+  // Swapped in place: the next check finds the replacement clean, so the
+  // candidate scan runs only when a folded or newly blocked article is in it.
+  $: if (source === 'all' && $readsModerationVersion >= 0) {
+    const next = cleanCover(
+      cover,
+      () => articles.filter((a) => isValidLongformArticle(a.event)),
+      (a) => foldReason(a, allSpamReasons, $readsAuthorTrust) !== null || isBlockedFromReads(a.event),
+      (clean) => curateCover(clean)
+    );
+    if (next !== cover) cover = next;
+  }
+  // The first answers are held for (bounded): the page opens on checked
+  // authors instead of filling in. Later arrivals from new authors wait
+  // unseen for their own answer.
+  const TRUST_HOLD_MS = 4000;
+  let trustHoldOver = false;
+  $: trustPending = source === 'all' && articles.some((a) => !$readsAuthorTrust.has(a.author.pubkey.toLowerCase()));
+
+  $: shownArticles = source === 'curated' ? curatedArticles : articles;
+  $: shownCover = source === 'curated' ? curatedCover : cover;
+  // The open search waits for the moderation lists, so a blocked or hidden
+  // article never renders while they're on their way, and (bounded) for the
+  // first trust answers.
+  $: shownLoading =
+    source === 'curated'
+      ? curatedLoading && !curatedLoaded
+      : loading || !$readsModerationReady || (trustPending && !trustHoldOver);
+
   // Cover article IDs to exclude from feed
-  $: coverArticleIds = cover
+  $: coverArticleIds = shownCover
     ? [
-        cover.hero?.id,
-        ...(cover.secondary?.map((a) => a.id) || []),
-        ...(cover.tertiary?.map((a) => a.id) || [])
+        shownCover.hero?.id,
+        ...(shownCover.secondary?.map((a) => a.id) || []),
+        ...(shownCover.tertiary?.map((a) => a.id) || [])
       ].filter((id): id is string => !!id)
     : [];
+
+  /** The curated tab: one anonymous REQ to the feed relay, never the open search. */
+  async function loadCurated(forceRefresh: boolean = false) {
+    const run = ++curatedRun;
+    curatedLoading = true;
+    const { events, complete } = await fetchCuratedReads();
+    if (run !== curatedRun) return;
+    const list: ArticleData[] = [];
+    const seen = new Set<string>();
+    for (const raw of events) {
+      const event = new NDKEventClass($ndk ?? undefined, raw);
+      const article = eventToArticleData(event, true);
+      if (article && !seen.has(article.id)) {
+        seen.add(article.id);
+        list.push(article);
+      }
+    }
+    list.sort((a, b) => b.publishedAt - a.publishedAt);
+    curatedArticles = list;
+    curatedCover = list.length ? curateCover(list, forceRefresh) : null;
+    curatedComplete = complete;
+    curatedLoading = false;
+    curatedLoaded = true;
+  }
+
+  function startAll() {
+    if (allStarted) return;
+    allStarted = true;
+    ensureReadsModerationLoaded();
+    setTimeout(() => (trustHoldOver = true), TRUST_HOLD_MS);
+    loadArticles();
+  }
+
+  function setSource(next: ReadsSource) {
+    if (next === source) return;
+    source = next;
+    if (browser) saveReadsSource(localStorage, next);
+    if (next === 'all') startAll();
+    else if (!curatedLoaded) loadCurated();
+  }
 
   // Process events into articles
   // Feed shows ALL articles, cover is always food-editorial
@@ -755,12 +865,15 @@
   }
 
   function handleLoadMore() {
+    // The curated tab is the relay's whole archive in one answer: no paging.
+    if (source === 'curated') return;
     loadMoreArticles();
   }
 
   async function handleRefresh() {
     try {
-      await loadArticles(true);
+      if (source === 'curated') await loadCurated(true);
+      else await loadArticles(true);
       await new Promise((resolve) => setTimeout(resolve, 1000));
     } finally {
       pullToRefreshEl?.complete();
@@ -768,11 +881,15 @@
   }
 
   function handleManualRefresh() {
-    loadArticles(true);
+    if (source === 'curated') loadCurated(true);
+    else loadArticles(true);
   }
 
   onMount(() => {
-    loadArticles();
+    source = loadReadsSource(browser ? localStorage : null);
+    // "All reads" (the open hashtag search) loads only when it's the chosen tab.
+    if (source === 'all') startAll();
+    else loadCurated();
   });
 
   onDestroy(() => {
@@ -848,10 +965,10 @@
 
           <!-- Refresh Button -->
           <button
-            class="refresh-button p-2 rounded-full transition-all duration-200 hover:bg-accent-gray {loading ? 'animate-spin' : ''}"
+            class="refresh-button p-2 rounded-full transition-all duration-200 hover:bg-accent-gray {shownLoading ? 'animate-spin' : ''}"
             style="color: var(--color-text-secondary);"
             on:click={handleManualRefresh}
-            disabled={loading}
+            disabled={shownLoading}
             aria-label="Refresh articles"
           >
             <ArrowClockwiseIcon size={24} />
@@ -860,15 +977,53 @@
       </div>
     </header>
 
+    <!-- Source: curated (feed relay) first; the open search is secondary -->
+    <div class="reads-sources" role="tablist" aria-label="Reads source">
+      <button
+        type="button"
+        role="tab"
+        class="reads-source"
+        class:active={source === 'curated'}
+        aria-selected={source === 'curated'}
+        on:click={() => setSource('curated')}
+      >
+        Curated
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="reads-source reads-source-secondary"
+        class:active={source === 'all'}
+        aria-selected={source === 'all'}
+        on:click={() => setSource('all')}
+      >
+        All reads
+      </button>
+    </div>
+    {#if source === 'all'}
+      <p class="reads-note">Everything tagged as food on Nostr.</p>
+    {:else if curatedLoaded && curatedArticles.length === 0}
+      <p class="reads-note">
+        {#if curatedComplete}
+          A quiet week in the kitchen.
+        {:else}
+          Curated reads couldn't load right now.
+        {/if}
+        <button type="button" class="reads-note-link" on:click={() => setSource('all')}>See All reads</button>
+      </p>
+    {/if}
+
     <!-- Cover Section -->
-    <CoverSection {cover} {loading} />
+    <CoverSection cover={shownCover} loading={shownLoading} />
 
     <!-- Feed Section -->
     <FeedSection
-      {articles}
-      {loading}
+      articles={shownArticles}
+      loading={shownLoading}
       {coverArticleIds}
-      {loadingMore}
+      loadingMore={source === 'curated' ? false : loadingMore}
+      spamReasons={allSpamReasons}
+      authorTrust={allAuthorTrust}
       {followedPubkeys}
       {isSignedIn}
       on:loadMore={handleLoadMore}
@@ -886,6 +1041,43 @@
   .page-header {
     padding-bottom: 1.5rem;
     border-bottom: 1px solid var(--color-input-border);
+  }
+
+  .reads-sources {
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    margin: -1rem 0 1.25rem;
+    border-radius: 999px;
+    background-color: var(--color-input-bg);
+  }
+  .reads-source {
+    padding: 0.4rem 1rem;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+  }
+  .reads-source.active {
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  }
+  /* The open search is the secondary choice: quieter, even when selected. */
+  .reads-source-secondary {
+    font-weight: 500;
+  }
+  .reads-note {
+    margin: -0.5rem 0 1.25rem;
+    font-size: 0.875rem;
+    color: var(--color-caption);
+  }
+  .reads-note-link {
+    margin-left: 0.25rem;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    color: var(--color-text-primary);
   }
 
   .write-article-btn {
