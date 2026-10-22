@@ -78,6 +78,22 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
+    // Only an invoice minted by /api/genesis/create-lightning-invoice can
+    // redeem a founder slot. The metadata store is shared with membership
+    // invoices, which have the same pubkey/tier/period shape at a fraction
+    // of the price — without this check a paid monthly membership invoice
+    // was enough to claim a lifetime Genesis Founder membership.
+    if (metadata.product !== 'genesis') {
+      console.warn('[Genesis Lightning] Rejected non-genesis invoice:', {
+        receiveRequestId: metadata.receiveRequestId,
+        product: metadata.product ?? 'legacy',
+      });
+      return json(
+        { error: 'Invoice was not created for the Genesis Founder tier' },
+        { status: 403 }
+      );
+    }
+
     // Verify payment completion via Strike API
     const lookupId = metadata.receiveRequestId;
     const receives = await getReceiveRequestReceives(lookupId, platform);

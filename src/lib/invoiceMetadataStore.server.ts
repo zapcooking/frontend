@@ -11,10 +11,27 @@
  * In dev (no KV binding), falls back to an in-memory Map with expiry-on-read.
  */
 
+/**
+ * Which checkout minted the invoice. Membership and Genesis Founder
+ * invoices share this store (same KV, same `inv:` prefix) and carry the
+ * same pubkey/tier/period shape, so a verifier that only checks pubkey +
+ * "Strike says COMPLETED" cannot tell a ~$5 monthly membership invoice
+ * from a Genesis one. Each verifier must refuse the other product's
+ * invoices.
+ */
+export type InvoiceProduct = 'membership' | 'genesis';
+
 export interface InvoiceMetadata {
   pubkey: string;
   tier: 'cook' | 'pro';
   period: 'annual' | 'monthly';
+  /**
+   * Optional only for entries written before the field existed; those
+   * age out within the 2h TTL. Genesis verification requires it to be
+   * exactly 'genesis'; membership paths treat a missing value as
+   * 'membership' (legacy) but refuse 'genesis'.
+   */
+  product?: InvoiceProduct;
   receiveRequestId: string;
   createdAt: number;
 }
