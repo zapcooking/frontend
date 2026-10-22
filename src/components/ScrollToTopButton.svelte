@@ -15,6 +15,7 @@
   import { fade } from 'svelte/transition';
   import CaretUpIcon from 'phosphor-svelte/lib/CaretUp';
   import { getActiveScrollTop, scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
+  import { draftDockVisible } from '$lib/replyDraftStore';
 
   // Show only after scrolling at least this many px down, so it never
   // competes with page chrome when the user is already near the top.
@@ -77,6 +78,7 @@
     aria-label="Back to top"
     class="scroll-to-top-btn"
     class:is-scrolling={isScrolling}
+    class:lifted={$draftDockVisible}
     transition:fade={{ duration: 150 }}
   >
     <CaretUpIcon size={22} weight="bold" />
@@ -94,9 +96,12 @@
        FAB (bottom-right) and cooking-tools widget (bottom-left) either way.
        --bottom-nav-height lifts it above the mobile bottom nav. */
     --content-left: 0px;
+    /* --draft-dock-lift: the DraftDock tabs share this bottom zone; while
+       drafts are docked the button rides above them instead of colliding. */
+    --draft-dock-lift: 0px;
     left: calc(50% + var(--content-left) / 2);
     transform: translateX(-50%);
-    bottom: calc(var(--bottom-nav-height, 0px) + 1rem + var(--timer-widget-offset, 0px));
+    bottom: calc(var(--bottom-nav-height, 0px) + 1rem + var(--timer-widget-offset, 0px) + var(--draft-dock-lift));
     z-index: 40;
     display: flex;
     align-items: center;
@@ -109,7 +114,11 @@
     background-color: var(--color-input-bg);
     border: 1px solid var(--color-input-border);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-    transition: transform 0.12s ease, background-color 0.12s ease, opacity 0.12s ease;
+    transition: transform 0.12s ease, background-color 0.12s ease, opacity 0.12s ease, bottom 0.15s ease;
+  }
+  /* Tab height plus the strip's breathing room, rounded up. */
+  .scroll-to-top-btn.lifted {
+    --draft-dock-lift: 3.4rem;
   }
   .scroll-to-top-btn:hover {
     background-color: var(--color-bg-hover, var(--color-input-bg));
@@ -130,7 +139,7 @@
   @media (min-width: 1024px) {
     .scroll-to-top-btn {
       --content-left: calc(14rem + 5px);
-      bottom: 1.25rem;
+      bottom: calc(1.25rem + var(--draft-dock-lift));
     }
   }
   @media (min-width: 1280px) {

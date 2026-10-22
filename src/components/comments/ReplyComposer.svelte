@@ -47,6 +47,7 @@
 	} from '$lib/composerMedia';
 	import { isVideoUrl } from '$lib/feed/imeta';
 	import { postComment as postCommentLib } from '$lib/comments/postComment';
+	import { saveReplyDraft, getReplyDraft, deleteReplyDraft } from '$lib/replyDraftStore';
 	import AltTextEditorModal from '../AltTextEditorModal.svelte';
 	import { showToast } from '$lib/toast';
 	import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
@@ -97,6 +98,14 @@
 
 	/** Focus the editor on mount (modal composers). */
 	export let autoFocus = false;
+
+	/**
+	 * Draft persistence key — the id of the note being replied to. When
+	 * set, the composer restores its draft on mount, snapshots it on blur
+	 * and on close (the parent calls saveDraft()), and deletes it once the
+	 * reply posts. Replies keep their own store, separate from note drafts.
+	 */
+	export let draftKey: string | undefined = undefined;
 
 	/**
 	 * Fired after a successful post with the published event. Used by callers
@@ -383,12 +392,39 @@
 
 	onMount(() => {
 		loadTimerSettings();
+		// A closed reply box left words behind — bring them back. Text goes
+		// through composerText with lastRendered left stale, so the existing
+		// reactive sync renders it once the mention controller has bound the
+		// editor (binding is reactive and lands after onMount — the same race
+		// autoFocus's setTimeout works around; calling syncContent here would
+		// be a no-op on an unbound controller).
+		if (draftKey) {
+			const draft = getReplyDraft(draftKey, $userPublickey);
+			if (draft) {
+				media = [...draft.media];
+				pollConfig = draft.poll;
+				composerText = draft.text;
+			}
+		}
 		if (autoFocus) {
 			// The mention controller binds the editor reactively; wait a tick
 			// so focus lands after wiring rather than being overwritten.
 			setTimeout(() => composerEl?.focus(), 0);
 		}
 	});
+
+	// ── Draft persistence (inline composers; the modal also calls these) ──
+
+	/** Snapshot the current state as this target's reply draft (no-op empty). */
+	export function saveDraft(): void {
+		if (!draftKey) return;
+		// Mid-send: the optimistic clear would snapshot an empty draft and
+		// delete the record; the post path owns the draft from here.
+		if (posting || $miningOp !== null) return;
+		const text = composerEl ? mentionCtrl.extractText() : composerText;
+		saveReplyDraft(draftKey, $userPublickey || '', { text, media: [...media], poll: pollConfig });
+	}
+
 
 	// ── Proof of work ─────────────────────────────────────────────
 	//
@@ -549,6 +585,9 @@
 	}
 
 	function handleCancel() {
+		// Flush before clearState wipes the words — the Cancel button is the
+		// one close path where the composer destroys its own state first.
+		saveDraft();
 		clearState();
 		dispatch('cancel');
 	}
@@ -631,6 +670,7 @@
 				mine: powBits ? (ev) => mineForReply(ev, powBits as number) : undefined
 			});
 
+			if (draftKey) deleteReplyDraft(draftKey);
 			onPosted?.(posted);
 		} catch (error) {
 			// A stopped mine is not a failure: the user pressed the button, so
@@ -718,6 +758,7 @@
 				on:keydown={(e) => mentionCtrl.handleKeydown(e)}
 				on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
 				on:paste={handlePaste}
+				on:blur={saveDraft}
 			></div>
 
 			<MentionDropdown
