@@ -26,6 +26,7 @@
   import { defaultZapMessage } from '$lib/autoZapSettings';
   import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
   import { showToast } from '$lib/toast';
+  import { requireAuth, signedIn } from '$lib/auth/requireAuth';
 
   // True when we can pay an invoice directly without launching the
   // Bitcoin Connect payment modal:
@@ -151,6 +152,20 @@
       errorBody = msg || 'Something went wrong. Please try again.';
       errorRetryable = true;
     }
+  }
+
+  // Signed out, the sheet offers two explicit paths instead of Send:
+  // sign in and zap as yourself, or zap anonymously (NIP-57 ["anon"], paid
+  // by invoice QR / copy / WebLN in the Bitcoin Connect sheet). While the
+  // sign-in overlay is up the sheet steps aside but stays mounted, so it
+  // comes back on the same target with the amount and message kept — the
+  // member then sends it themselves; nothing is paid automatically.
+  let awaitingAuth = false;
+
+  async function signInToZap() {
+    awaitingAuth = true;
+    await requireAuth({ kind: 'zap', reason: 'Sign in to zap as you' });
+    awaitingAuth = false;
   }
 
   let zapManager: ZapManager;
@@ -309,7 +324,7 @@
 
   let isCreatingInvoice = false;
 
-  async function submitWithExternalWallet() {
+  async function submitWithExternalWallet(anonymous = false) {
     error = null;
     isCreatingInvoice = true;
 
@@ -346,7 +361,8 @@
         amount * 1000,
         message,
         eventId,
-        extraTags
+        extraTags,
+        { anonymous }
       );
 
       isCreatingInvoice = false;
@@ -397,6 +413,7 @@
 
 </script>
 
+{#if !awaitingAuth}
 <Modal bind:open>
   <h1 slot="title">Zap</h1>
   <div class="flex flex-col gap-3">
@@ -449,6 +466,30 @@
         <input type="text" class="input" bind:value={amount} />
         <textarea rows="2" class="input" bind:value={message} placeholder="Message (optional)" />
       </div>
+      {#if !$signedIn}
+        <div class="flex flex-col gap-2">
+          <Button class="w-full py-3 text-lg" on:click={signInToZap}>
+            Sign in to zap as you
+          </Button>
+          <button
+            type="button"
+            class="w-full py-2.5 rounded-xl text-sm font-medium bg-input hover:bg-accent-gray transition-colors disabled:opacity-50"
+            style="color: var(--color-text-primary)"
+            on:click={() => submitWithExternalWallet(true)}
+            disabled={isCreatingInvoice ||
+              (pollMinSats != null && amount < pollMinSats) ||
+              (pollMaxSats != null && pollMaxSats > 0 && amount > pollMaxSats)}
+          >
+            {isCreatingInvoice
+              ? 'Creating invoice…'
+              : `or zap ${amount.toLocaleString()} sats anonymously`}
+          </button>
+          <p class="text-xs text-caption text-center">
+            Anonymous zaps don't show your name. Pay by scanning a QR code, copying the invoice,
+            or with a browser wallet.
+          </p>
+        </div>
+      {:else}
       <div class="flex flex-col gap-3">
         {#if hasInAppWallet && $activeWallet}
           <!-- User has an in-app wallet - use it automatically -->
@@ -499,6 +540,7 @@
           {/if}
         </Button>
       </div>
+      {/if}
     {:else if state == 'error'}
       <div class="flex flex-col items-center justify-center py-2">
         <div
@@ -530,6 +572,7 @@
     {/if}
   </div>
 </Modal>
+{/if}
 
 <style>
   /* Zap success: checkmark container + progress ring */

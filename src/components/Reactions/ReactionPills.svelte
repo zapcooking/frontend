@@ -4,6 +4,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { TargetType } from '$lib/types/reactions';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
+  import { requireAuth } from '$lib/auth/requireAuth';
   import { getEngagementStore, fetchEngagement, markEventAsProcessed, trackOptimisticReaction, clearOptimisticReaction } from '$lib/engagementCache';
 
   export let event: NDKEvent;
@@ -24,8 +25,10 @@
 
   async function handlePillClick(emoji: string) {
     if (!canPublishReaction($ndk, $userPublickey)) {
-      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
-      return;
+      if (!(await requireAuth({ kind: 'react', reason: 'Sign in to react' }))) return;
+      // Load the new account's own reactions first: one it already left
+      // from another device must not be published twice.
+      await fetchEngagement($ndk, event, $userPublickey);
     }
 
     const wasReacted = $store.reactions.userReactions.has(emoji);

@@ -11,8 +11,8 @@
   import { outboxRelaySet } from '$lib/outboxPublish';
   
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-  import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import CheckIcon from 'phosphor-svelte/lib/Check';
@@ -166,10 +166,10 @@
   }
 
   async function quickSave() {
-    if (!$userPublickey) {
-      goto('/login');
-      return;
-    }
+    // Resuming after sign-in saves, never unsaves: the account may already
+    // have this recipe saved from another device.
+    const resuming = !isSignedIn();
+    if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this recipe' }))) return;
 
     if (loading) return;
     loading = true;
@@ -216,6 +216,7 @@
 
       // Toggle: if already in default list, remove; otherwise add
       if (savedInLists.has(DEFAULT_LIST_ID)) {
+        if (resuming) return;
         await removeFromList(DEFAULT_LIST_ID);
       } else {
         await addToList(DEFAULT_LIST_ID);
@@ -367,11 +368,8 @@
     }
   }
 
-  function openDropdown() {
-    if (!$userPublickey) {
-      goto('/login');
-      return;
-    }
+  async function openDropdown() {
+    if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this recipe' }))) return;
     loadLists();
     dropdownOpen = true;
   }

@@ -13,6 +13,7 @@
    * from a pubkey, so opening it from a feed costs the caller one prop.
    */
   import { updateFollows, followErrorMessage } from '$lib/followUpdate';
+  import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
   import { showToast } from '$lib/toast';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
@@ -147,8 +148,13 @@
   }
 
   async function toggleFollow() {
+    if (followLoading) return;
+    // Resuming after sign-in only ever follows: the account may already
+    // follow this cook, and a toggle would unfollow them.
+    const resuming = !isSignedIn();
+    if (!(await requireAuth({ kind: 'follow', reason: 'Sign in to follow' }))) return;
     const me = get(userPublickey);
-    if (!me || !hex || followLoading) return;
+    if (!me || !hex || followLoading || me === hex) return;
 
     followLoading = true;
     try {
@@ -157,7 +163,7 @@
       const follows = await updateFollows(
         get(ndk),
         me,
-        isFollowing ? { remove: [hex] } : { add: [hex] }
+        isFollowing && !resuming ? { remove: [hex] } : { add: [hex] }
       );
       isFollowing = follows.has(hex);
     } catch (err) {
@@ -389,7 +395,7 @@
           </a>
         {/if}
 
-        {#if $userPublickey && followChecked}
+        {#if followChecked}
           <button
             on:click={toggleFollow}
             disabled={followLoading}

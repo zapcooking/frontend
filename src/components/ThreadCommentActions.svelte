@@ -7,6 +7,7 @@
   import { formatAmount } from '$lib/utils';
   import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
+  import { requireAuth } from '$lib/auth/requireAuth';
   import EmojiReactionPicker from './Reactions/EmojiReactionPicker.svelte';
   import FullEmojiPicker from './Reactions/FullEmojiPicker.svelte';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
@@ -37,9 +38,13 @@
   $: hasUserReacted = $store.reactions.userReactions.size > 0;
   $: userEmoji = hasUserReacted ? Array.from($store.reactions.userReactions)[0] : null;
 
-  function handleReactionClick() {
+  async function handleReactionClick() {
     if (!canPublishReaction($ndk, $userPublickey)) {
-      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+      if (!(await requireAuth({ kind: 'react', reason: 'Sign in to react' }))) return;
+      // The new account's own reactions weren't loaded while signed out;
+      // load them so the picker can't double-publish one it already has.
+      await fetchEngagement($ndk, event, $userPublickey);
+      showPicker = true;
       return;
     }
     showPicker = !showPicker;
@@ -49,8 +54,10 @@
     showPicker = false;
     showFullPicker = false;
 
+    // The picker only opens signed in (handleClick); a session that ended
+    // since then signs in again and the member picks once more.
     if (!canPublishReaction($ndk, $userPublickey)) {
-      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+      await requireAuth({ kind: 'react', reason: 'Sign in to react' });
       return;
     }
 
@@ -109,10 +116,7 @@
   }
 
   function openZapModal() {
-    if (!$userPublickey) {
-      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
-      return;
-    }
+    // Signed out, the zap sheet itself offers sign-in or an anonymous zap.
     zapModalOpen = true;
   }
 
@@ -128,9 +132,8 @@
     bind:this={reactionButtonEl}
     type="button"
     class="action-btn"
-    class:opacity-50={!$userPublickey}
     on:click={handleReactionClick}
-    title={!$userPublickey ? 'Login to react' : 'Add reaction'}
+    title="Add reaction"
   >
     {#if hasUserReacted && userEmoji}
       <span class="emoji">{userEmoji}</span>
@@ -143,13 +146,7 @@
   </button>
 
   <!-- Zap Button -->
-  <button
-    type="button"
-    class="action-btn"
-    class:opacity-50={!$userPublickey}
-    on:click={openZapModal}
-    title={!$userPublickey ? 'Login to zap' : 'Send zap'}
-  >
+  <button type="button" class="action-btn" on:click={openZapModal} title="Send zap">
     <LightningIcon
       size={compact ? 16 : 18}
       weight={$store.zaps.userZapped ? 'fill' : 'regular'}

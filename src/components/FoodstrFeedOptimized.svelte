@@ -100,6 +100,7 @@
 
   // IndexedDB event store for cache rehydration (instant paint)
   import { getEventStore, cacheFeedEvents } from '$lib/eventStore';
+  import { requireAuth } from '$lib/auth/requireAuth';
 
   // Batched engagement fetching for reactions/subscriptions
   import {
@@ -4576,13 +4577,11 @@
   // feed (iOS parity) instead of navigating to the thread page.
   let replyModalOpen = false;
   let replyModalTarget: NDKEvent | null = null;
-  function openReplyModal(event: NDKEvent) {
+  async function openReplyModal(event: NDKEvent) {
     // ReplyComposer relies on caller-level auth gating: a signed-out
-    // visitor would compose a reply only to fail at signing.
-    if (!$userPublickey) {
-      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
-      return;
-    }
+    // visitor would compose a reply only to fail at signing. Sign-in opens
+    // in place; the composer follows it.
+    if (!(await requireAuth({ kind: 'reply', reason: 'Sign in to reply' }))) return;
     replyModalTarget = event;
     setTimeout(() => {
       replyModalOpen = true;

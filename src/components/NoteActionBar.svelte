@@ -55,10 +55,7 @@
   // or signed out). NoteTotalZaps already handles the one-tap path
   // itself, so this is purely the modal-fallback handler.
   function openZapModal() {
-    if (!$userPublickey) {
-      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
-      return;
-    }
+    // Signed out, the zap sheet itself offers sign-in or an anonymous zap.
     zapModalOpen = true;
   }
 

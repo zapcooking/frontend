@@ -4,6 +4,7 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { TargetType } from '$lib/types/reactions';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
+  import { requireAuth } from '$lib/auth/requireAuth';
   import {
     getEngagementStore,
     fetchEngagement,
@@ -38,9 +39,13 @@
   $: hasUserReacted = $store.reactions.userReactions.size > 0;
   $: userEmoji = hasUserReacted ? Array.from($store.reactions.userReactions)[0] : null;
 
-  function handleClick() {
+  async function handleClick() {
     if (!canPublishReaction($ndk, $userPublickey)) {
-      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+      if (!(await requireAuth({ kind: 'react', reason: 'Sign in to react' }))) return;
+      // The new account's own reactions weren't loaded while signed out;
+      // load them so the picker can't double-publish one it already has.
+      await fetchEngagement($ndk, event, $userPublickey);
+      showPicker = true;
       return;
     }
     showPicker = !showPicker;
@@ -50,8 +55,10 @@
     showPicker = false;
     showFullPicker = false;
 
+    // The picker only opens signed in (handleClick); a session that ended
+    // since then signs in again and the member picks once more.
     if (!canPublishReaction($ndk, $userPublickey)) {
-      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+      await requireAuth({ kind: 'react', reason: 'Sign in to react' });
       return;
     }
 
@@ -133,9 +140,8 @@
   bind:this={buttonEl}
   type="button"
   class="flex items-center gap-1.5 hover:bg-input rounded px-0.5 transition duration-300 cursor-pointer"
-  class:opacity-50={!$userPublickey}
   on:click={handleClick}
-  title={!$userPublickey ? 'Login to react' : 'Add reaction'}
+  title="Add reaction"
 >
   {#if hasUserReacted && userEmoji}
     <span class={compact ? 'text-lg' : 'text-xl'}>{userEmoji}</span>

@@ -15,7 +15,7 @@
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { ndk } from '$lib/nostr';
   import { isReply, getParentNoteId, fetchReplyContext } from '$lib/replyContext';
   import { stripQuotedNoteReferences } from '$lib/feed/noteContent';
   import { eventToArticleData } from '$lib/articleUtils';
@@ -58,6 +58,7 @@
   import PostEngagementToggle from './PostEngagementToggle.svelte';
   import PostEngagementDrawer from './PostEngagementDrawer.svelte';
   import CommentThread from './comments/CommentThread.svelte';
+  import { requireAuth } from '$lib/auth/requireAuth';
 
   export let raw: RelayEvent;
   export let event: NDKEvent;
@@ -368,14 +369,11 @@
         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
           <NoteTotalComments
             {event}
-            onComment={() => {
+            onComment={async () => {
               // Same caller-level gate the Foodstr feed uses: ReplyComposer
-              // doesn't disable submission for signed-out visitors.
-              if (!$userPublickey) {
-                window.location.href =
-                  '/login?redirect=' + encodeURIComponent(window.location.pathname);
-                return;
-              }
+              // doesn't disable submission for signed-out visitors. Signing
+              // in here keeps the feed in place and opens the composer after.
+              if (!(await requireAuth({ kind: 'reply', reason: 'Sign in to reply' }))) return;
               replyModalOpen = true;
             }}
           />

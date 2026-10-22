@@ -1,5 +1,6 @@
 <script lang="ts">
   import { updateFollows, followErrorMessage } from '$lib/followUpdate';
+  import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
   import { showToast } from '$lib/toast';
   import { ndk, userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -365,7 +366,12 @@
   }
 
   async function toggleFollow() {
-    if (!$userPublickey || !hexpubkey || followLoading) return;
+    if (!hexpubkey || followLoading) return;
+    // Resuming after sign-in only ever follows: the account may already
+    // follow this cook, and a toggle would unfollow them.
+    const resuming = !isSignedIn();
+    if (!(await requireAuth({ kind: 'follow', reason: 'Sign in to follow' }))) return;
+    if (!$userPublickey || followLoading || $userPublickey === hexpubkey) return;
 
     followLoading = true;
 
@@ -375,7 +381,7 @@
       const follows = await updateFollows(
         $ndk,
         $userPublickey,
-        isFollowing ? { remove: [hexpubkey] } : { add: [hexpubkey] }
+        isFollowing && !resuming ? { remove: [hexpubkey] } : { add: [hexpubkey] }
       );
       currentFollowTags = [...follows].map((pk) => ['p', pk]);
       isFollowing = follows.has(hexpubkey);
@@ -1602,8 +1608,9 @@
               >
                 <ChatCircleIcon size={20} weight="bold" />
               </a>
+            {/if}
 
-              <button
+            <button
                 on:click={toggleFollow}
                 disabled={followLoading}
                 class="h-9 w-9 p-2 rounded-full transition-colors disabled:opacity-50 flex items-center justify-center {isFollowing
@@ -1621,6 +1628,7 @@
                 {/if}
               </button>
 
+            {#if $userPublickey}
               {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
                 <div
                   class="h-9 w-9 p-2 rounded-full bg-input flex items-center justify-center"
