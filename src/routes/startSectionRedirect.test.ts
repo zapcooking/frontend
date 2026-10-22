@@ -3,10 +3,10 @@ import { isRedirect } from '@sveltejs/kit';
 import { load } from './+page.server';
 import {
   START_SECTION_COOKIE,
-  DEFAULT_START_SECTION,
   startSectionPath,
   type StartSection
 } from '$lib/startSectionSettings';
+import { VISITOR_START_SECTION } from '$lib/startSectionConstants';
 
 /**
  * The `/` redirect is wired to $lib/startSectionConstants (imported by both
@@ -32,9 +32,12 @@ describe('/ start-section redirect', () => {
     ['feed', startSectionPath('feed')],
     ['explore', startSectionPath('explore')],
     ['recipes', startSectionPath('recipes')],
-    [undefined, startSectionPath(DEFAULT_START_SECTION)],
-    ['garbage', startSectionPath(DEFAULT_START_SECTION)],
-    ['FEED', startSectionPath(DEFAULT_START_SECTION)]
+    // No cookie = a visitor (members get one at sign-in; logout clears it).
+    // A value we never wrote is treated the same way.
+    [undefined, startSectionPath(VISITOR_START_SECTION)],
+    ['', startSectionPath(VISITOR_START_SECTION)],
+    ['garbage', startSectionPath(VISITOR_START_SECTION)],
+    ['FEED', startSectionPath(VISITOR_START_SECTION)]
   ];
 
   for (const [cookie, expected] of cases) {
@@ -45,6 +48,10 @@ describe('/ start-section redirect', () => {
       expect((thrown as any).location).toBe(expected);
     });
   }
+
+  it('sends visitors to the public landing page', () => {
+    expect(startSectionPath(VISITOR_START_SECTION)).toBe('/explore');
+  });
 
   it('uses the shared constants for every known section', () => {
     const sections: StartSection[] = ['feed', 'explore', 'recipes'];

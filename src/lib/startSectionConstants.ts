@@ -17,6 +17,15 @@ export type StartSection = 'feed' | 'explore' | 'recipes';
 
 export const DEFAULT_START_SECTION: StartSection = 'feed';
 
+/**
+ * Where `/` sends a visitor who carries no start-section cookie: the public
+ * landing page. Members always carry one — it is written at sign-in and on
+ * every settings sync, and cleared on explicit logout — so the missing cookie
+ * is the signed-out signal the server can see. DEFAULT_START_SECTION stays
+ * the member default.
+ */
+export const VISITOR_START_SECTION: StartSection = 'explore';
+
 export const START_SECTION_PATHS: Record<StartSection, string> = {
   feed: '/feed',
   explore: '/explore',
@@ -43,4 +52,13 @@ export function parseStartSection(raw: string | null | undefined): StartSection 
 
 export function startSectionPath(section: StartSection): string {
   return START_SECTION_PATHS[section];
+}
+
+/**
+ * The `/` redirect target for a raw cookie value: the member's section when
+ * the cookie holds one we wrote, the visitor landing page otherwise (absent,
+ * cleared on logout, or corrupt — the next sign-in rewrites it).
+ */
+export function rootRedirectPath(cookie: string | null | undefined): string {
+  return startSectionPath(knownStartSection(cookie) ?? VISITOR_START_SECTION);
 }

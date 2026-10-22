@@ -63,7 +63,11 @@
     sweepLegacyMnemonic
   } from '$lib/spark';
   import { loadOneTapZapSettings } from '$lib/autoZapSettings';
-  import { startSectionTarget, loadStartSectionSettings } from '$lib/startSectionSettings';
+  import {
+    startSectionTarget,
+    loadStartSectionSettings,
+    rememberStartSectionAtSignIn
+  } from '$lib/startSectionSettings';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
@@ -466,6 +470,10 @@
           }
           if (startSectionLoadedForPubkey !== state.publicKey) {
             startSectionLoadedForPubkey = state.publicKey;
+            // The cookie is written now, not after the defer: it is what
+            // tells `/` this browser belongs to a member (visitors land on
+            // /explore), and a reload inside the 3s window must not lose it.
+            rememberStartSectionAtSignIn();
             // Same defer: the start-section choice syncs from the account's
             // NIP-78 record without competing with the feed for relays.
             setTimeout(() => loadStartSectionSettings(), 3000);

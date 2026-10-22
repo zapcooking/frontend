@@ -202,6 +202,35 @@ describe('startSectionChosen + announcement dismissal', () => {
   });
 });
 
+describe('rememberStartSectionAtSignIn', () => {
+  it('writes the member default when nothing is stored', async () => {
+    const mod = await freshModule();
+    expect(readCookie('zapcooking_start_section')).toBeUndefined();
+
+    mod.rememberStartSectionAtSignIn();
+
+    expect(readCookie('zapcooking_start_section')).toBe(mod.DEFAULT_START_SECTION);
+  });
+
+  it("writes the member's stored choice", async () => {
+    localStorage.setItem('zapcooking_start_section', 'recipes');
+    const mod = await freshModule();
+
+    mod.rememberStartSectionAtSignIn();
+
+    expect(readCookie('zapcooking_start_section')).toBe('recipes');
+  });
+
+  it('does not manufacture a choice', async () => {
+    const mod = await freshModule();
+
+    mod.rememberStartSectionAtSignIn();
+
+    expect(get(mod.startSectionChosen)).toBe(false);
+    expect(localStorage.getItem('zapcooking_start_section')).toBeNull();
+  });
+});
+
 describe('loadStartSectionSettings', () => {
   it('keeps the local value and mirrors the cookie when signed out', async () => {
     localStorage.setItem('zapcooking_start_section', 'explore');
