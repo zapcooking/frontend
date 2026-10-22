@@ -93,6 +93,13 @@ function persist(map: Map<string, ReplyDraftRecord>): void {
 export const replyDraftsStore = writable<ReplyDraftRecord[]>([]);
 
 /**
+ * True while the DraftDock tabs are docked along the bottom edge. The
+ * back-to-top button shares that bottom zone; it lifts above the tabs
+ * instead of fighting them for the same spot.
+ */
+export const draftDockVisible = writable(false);
+
+/**
  * Set by the reply dock when the member taps a draft pill: the target
  * note's thread page consumes it to auto-open the reply box for that
  * note, then clears it.

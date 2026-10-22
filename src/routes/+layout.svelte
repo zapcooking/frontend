@@ -16,7 +16,7 @@
   import CreateMenuButton from '../components/CreateMenuButton.svelte';
   import ScrollToTopButton from '../components/ScrollToTopButton.svelte';
   import PostModal from '../components/PostModal.svelte';
-  import ReplyDraftDock from '../components/comments/ReplyDraftDock.svelte';
+  import DraftDock from '../components/comments/DraftDock.svelte';
   import WalletModal from '../components/wallet/WalletModal.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
   import PendingIndicator from '../components/PendingIndicator.svelte';
@@ -736,7 +736,7 @@
       <MobileSearchOverlay />
       <ProfilePreviewModal />
       <PostModal bind:open={$postComposerOpen} />
-      <ReplyDraftDock />
+      <DraftDock />
       {#if $longformEditorLoader.component}
         <svelte:component this={$longformEditorLoader.component} />
       {:else if $longformEditorOpen && $longformEditorLoader.status === 'failed'}
