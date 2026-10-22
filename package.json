@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.960",
+  "version": "4.2.961",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -142,6 +142,9 @@
       "diff@>=5.0.0 <5.2.2": "^5.2.2",
       "tinypool": ">=2.1.2",
       "postcss-selector-parser": ">=7.1.6"
+    },
+    "patchedDependencies": {
+      "@sveltejs/kit@2.70.3": "patches/@sveltejs__kit@2.70.3.patch"
     }
   }
 }
