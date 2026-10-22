@@ -135,6 +135,18 @@ export function startSectionTarget(): string {
   return START_SECTION_PATHS[get(startSection)];
 }
 
+/**
+ * Mark this browser as a member's for the `/` server redirect: mirror the
+ * current section (stored choice, else the member default) to the cookie.
+ * Called synchronously when a session authenticates — the relay sync in
+ * loadStartSectionSettings() is deferred, and until a cookie exists `/`
+ * treats the browser as a visitor and sends it to the landing page.
+ * Explicit logout clears the cookie again (sessionCleanup).
+ */
+export function rememberStartSectionAtSignIn(): void {
+  writeStartSectionCookie(get(startSection));
+}
+
 // ═══════════════════════════════════════════════════════════════
 // EXPLORE ANNOUNCEMENT
 // ═══════════════════════════════════════════════════════════════
