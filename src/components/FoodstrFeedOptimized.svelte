@@ -96,7 +96,7 @@
   import { feedInitialLoadDone } from '$lib/startupState';
 
   // Reply context prefetching for better UX
-  import { prefetchReplyContexts } from '$lib/replyContext';
+  import { prefetchReplyContexts, isReplyForScope } from '$lib/replyContext';
 
   // IndexedDB event store for cache rehydration (instant paint)
   import { getEventStore, cacheFeedEvents } from '$lib/eventStore';
@@ -2069,9 +2069,10 @@
         const eventStore = getEventStore();
         const timeWindow = calculateTimeWindow('initial');
 
-        // Build filter for cache lookup
+        // Build filter for cache lookup. Profile views also rehydrate
+        // cached kind-1111 comments so a fresh Replies tab paints instantly.
         const cacheFilter: any = {
-          kinds: [1, 6, 1068],
+          kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
           since: timeWindow.since,
           limit: 50
         };
@@ -2097,8 +2098,8 @@
           const validCached = cachedEvents.filter((event) => {
             if (filterMode === 'following' && isReply(event)) return false;
             if (authorPubkey) {
-              if (authorScope === 'top-level' && isReply(event)) return false;
-              if (authorScope === 'replies' && !isReply(event)) return false;
+              if (authorScope === 'top-level' && isReplyForScope(event)) return false;
+              if (authorScope === 'replies' && !isReplyForScope(event)) return false;
             }
             return passesFeedFilters(event);
           });
@@ -2575,8 +2576,12 @@
       // ═══════════════════════════════════════════════════════════════
 
       // Build relay pool filter (always needed as backup, starts immediately)
+      // Profile views also ask for kind-1111 comments: the Replies tab
+      // shows this author's event-rooted comments interleaved with their
+      // kind-1 replies (kinds is OR; the scope filter below does the
+      // routing, author-scoped so no sibling-filter trick is needed).
       const hashtagFilter: any = {
-        kinds: [1, 6, 1068],
+        kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
@@ -2740,10 +2745,14 @@
           return false;
         }
 
-        // Profile view: honor the requested reply scope.
+        // Profile view: honor the requested reply scope. NIP-22
+        // event-rooted comments count as replies (isReplyForScope), so a
+        // Ditto-style comment in a mixed thread lands in Replies — and
+        // never in Posts, where its missing lowercase `e` would otherwise
+        // pass it off as a top-level note.
         if (authorPubkey) {
-          if (authorScope === 'top-level' && isReply(event)) return false;
-          if (authorScope === 'replies' && !isReply(event)) return false;
+          if (authorScope === 'top-level' && isReplyForScope(event)) return false;
+          if (authorScope === 'replies' && !isReplyForScope(event)) return false;
         }
 
         // Mutes always; food test where it is active for this view
@@ -2923,7 +2932,7 @@
     // Global mode / Profile view - default subscription
     // Single subscription for content (food-filtered or all posts based on context)
     const hashtagFilter: any = {
-      kinds: [1, 6, 1068],
+      kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
       since
     };
 
@@ -2950,8 +2959,8 @@
 
       // Profile view: respect authorScope (matches initial load filter)
       if (authorPubkey) {
-        if (authorScope === 'top-level' && isReply(event)) return;
-        if (authorScope === 'replies' && !isReply(event)) return;
+        if (authorScope === 'top-level' && isReplyForScope(event)) return;
+        if (authorScope === 'replies' && !isReplyForScope(event)) return;
       }
 
       // For Global feed, exclude posts from followed users
@@ -3443,7 +3452,7 @@
 
       const timeWindow = calculateTimeWindow('initial');
       const filter: any = {
-        kinds: [1, 6, 1068],
+        kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
@@ -3488,6 +3497,14 @@
         // Global feed: exclude replies
         if (!authorPubkey && isReply(e)) {
           return false;
+        }
+
+        // Profile view: honor the requested reply scope (matches the
+        // initial load filter; NIP-22 event-rooted comments count as
+        // replies).
+        if (authorPubkey) {
+          if (authorScope === 'top-level' && isReplyForScope(e)) return false;
+          if (authorScope === 'replies' && !isReplyForScope(e)) return false;
         }
 
         // Check muted users
@@ -3610,8 +3627,9 @@
         );
       } else {
         // Global mode / Profile view - use hashtag filter with timeboxing
+        // Profile views also page in kind-1111 comments for the Replies tab.
         const filter: any = {
-          kinds: [1, 6, 1068],
+          kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: authorPubkey && !foodFilterEnabled ? 150 : 100 // Fetch more for profile view when showing all posts
@@ -3715,6 +3733,14 @@
 
         if (!authorPubkey && filterMode === 'global' && isReply(e)) {
           return false; // Global mode: exclude replies
+        }
+
+        // Profile view: honor the requested reply scope (matches the
+        // initial load filter; NIP-22 event-rooted comments count as
+        // replies).
+        if (authorPubkey) {
+          if (authorScope === 'top-level' && isReplyForScope(e)) return false;
+          if (authorScope === 'replies' && !isReplyForScope(e)) return false;
         }
 
         // Mutes always; food test where it is active for this view

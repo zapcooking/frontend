@@ -3,6 +3,7 @@ import {
   buildReplyTree,
   getReplyParentId,
   getThreadRootId,
+  isEventRootedComment,
   isStrayKind1OnComment,
   type ParentableEvent
 } from './replyParent';
@@ -311,5 +312,54 @@ describe('buildReplyTree (ancestor exclusion)', () => {
     const tree = buildReplyTree('focus', [replyToAncestor, nested]);
     expect((tree.get('focus') || []).map((e) => e.id)).toEqual(['r1']);
     expect((tree.get('r1') || []).map((e) => e.id)).toEqual(['r2']);
+  });
+});
+
+// Shapes ported from the iOS client's ProfileRepliesTabTests
+// (zapcooking/zapcooking_ios#174): the profile Replies tab classifies a
+// kind-1111 comment by its root scope tag alone.
+describe('isEventRootedComment', () => {
+  const comment = (tags: string[][], extra: Partial<ParentableEvent> = {}) =>
+    isEventRootedComment(ev('c', tags, { kind: 1111, ...extra }));
+
+  it('accepts a mixed-thread comment — E root with a lowercase e parent', () => {
+    // Ditto-style: thread starts kind-1 NIP-10, someone replies with a
+    // comment. Root scope points at the kind-1 anchor, parent scope at it
+    // or at another comment.
+    expect(comment([['E', 'rootnote'], ['e', 'parentcomment'], ['K', '1']])).toBe(true);
+  });
+
+  it('accepts an addressable-root comment', () => {
+    expect(comment([['A', '30023:pk:d'], ['a', '30023:pk:d'], ['K', '30023']])).toBe(true);
+  });
+
+  it('rejects a web-page-rooted comment even though it carries a lowercase e', () => {
+    // The leak case: nested external comments point their parent scope at
+    // the comment above. Case is the discriminator — I/e is external.
+    expect(comment([['I', 'https://example.com'], ['e', 'parentcomment'], ['K', 'web']])).toBe(
+      false
+    );
+  });
+
+  it('rejects an unscoped comment — no root tag, unthreadable', () => {
+    expect(comment([['e', 'parentcomment'], ['k', '1111']])).toBe(false);
+  });
+
+  it('rejects a comment whose only root tag has an empty value', () => {
+    expect(comment([['E', ''], ['e', 'parentcomment']])).toBe(false);
+  });
+
+  it('rejects a lowercase-only root (e is parent scope, never root)', () => {
+    expect(comment([['e', 'parentcomment'], ['k', '1']])).toBe(false);
+  });
+
+  it('rejects kind-1 notes — the predicate is 1111-only', () => {
+    expect(isEventRootedComment(ev('n', [['E', 'rootnote']], { kind: 1 }))).toBe(false);
+  });
+
+  it('is case-sensitive: a lowercase a root does not count', () => {
+    // A lowercase `a` is the parent scope for an addressable parent; the
+    // uppercase `A` is what names the root.
+    expect(comment([['a', '30023:pk:d'], ['K', '30023']])).toBe(false);
   });
 });

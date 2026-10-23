@@ -6,8 +6,14 @@
  */
 
 import type NDK from '@nostr-dev-kit/ndk';
-import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
+import { isEventRootedComment } from './thread/replyParent';
+
+// NDKFilter's kind list defaults to the NDKKind enum, which predates kind
+// 1111; instantiating the generic keeps comment kinds assignable (same as
+// commentFilters.ts).
+type FetchFilter = NDKFilter<number>;
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -73,6 +79,20 @@ export function getParentNoteId(event: NDKEvent): string | null {
  */
 export function isReply(event: NDKEvent): boolean {
   return event.tags.some(tag => Array.isArray(tag) && tag[0] === 'e');
+}
+
+/**
+ * Does this event belong in a profile's Replies tab (and so not in Posts)?
+ *
+ * A kind-1 reply, or a NIP-22 comment rooted on a nostr event. For a
+ * comment the root-scope predicate decides alone: an `I`-rooted comment
+ * also carries a lowercase `e` (its parent), so letting `isReply` speak
+ * for it would file external web-page comments under the author's
+ * Replies — and a comment with no root scope at all belongs nowhere.
+ */
+export function isReplyForScope(event: NDKEvent): boolean {
+  if (event.kind === 1111) return isEventRootedComment(event);
+  return isReply(event);
 }
 
 /**
@@ -156,11 +176,12 @@ export async function prefetchReplyContexts(
   }
   
   try {
-    // Batch fetch parent notes
+    // Batch fetch parent notes. A NIP-22 comment's parent can be another
+    // comment, so kind 1111 is included alongside kind 1.
     const parentNotes = await ndk.fetchEvents({
-      kinds: [1],
+      kinds: [1, 1111],
       ids: Array.from(parentIds).slice(0, 100)
-    });
+    } as FetchFilter);
     
     const noteMap = new Map<string, NDKEvent>();
     const authorPubkeys = new Set<string>();
@@ -269,9 +290,9 @@ export async function fetchReplyContext(
   
   try {
     const note = await ndk.fetchEvent({
-      kinds: [1],
+      kinds: [1, 1111],
       ids: [noteId]
-    });
+    } as FetchFilter);
     
     if (!note) {
       const context: ReplyContext = {
