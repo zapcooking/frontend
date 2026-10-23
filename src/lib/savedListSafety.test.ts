@@ -50,7 +50,7 @@ describe('decideSavedListBase — when may the list be edited, and on what', () 
     expect(decide({ answers: [empty(PURPLE), empty(WINE), empty(NOS)] }).ok).toBe(false);
   });
 
-  it('needs a majority of the member’s own list-capable write relays, not all of them', () => {
+  it('needs at least half of the member’s own list-capable write relays, not all of them', () => {
     const DEAD = 'wss://dead.example';
     const OTHER = 'wss://relay.other.example';
     // 3 write relays, one dead: 2/3 answered → proceed.
@@ -69,11 +69,28 @@ describe('decideSavedListBase — when may the list be edited, and on what', () 
     ).toBe(false);
   });
 
-  it('a strict majority: one of two write relays is not enough', () => {
+  it('at least half: one of two write relays is enough when the floor is met', () => {
     expect(
       decide({
         answers: [empty(NOS), empty(PRIMAL), empty(PYRAMID), silent('wss://dead.example')],
         ownWrite: [PYRAMID, 'wss://dead.example']
+      }).ok
+    ).toBe(true);
+    // Half of the write relays, but only one list-capable answer overall.
+    expect(
+      decide({
+        answers: [empty(PYRAMID), silent('wss://dead.example'), silent(NOS), silent(PRIMAL)],
+        ownWrite: [PYRAMID, 'wss://dead.example']
+      }).ok
+    ).toBe(false);
+  });
+
+  it('one of four write relays is less than half', () => {
+    const D = ['wss://d1.example', 'wss://d2.example', 'wss://d3.example'];
+    expect(
+      decide({
+        answers: [empty(NOS), empty(PRIMAL), empty(PYRAMID), ...D.map(silent)],
+        ownWrite: [PYRAMID, ...D]
       }).ok
     ).toBe(false);
   });
@@ -86,7 +103,7 @@ describe('decideSavedListBase — when may the list be edited, and on what', () 
     ).toBe(true);
   });
 
-  it("paid / kind-blocking relays in the member's list don't count toward the majority", () => {
+  it("paid / kind-blocking relays in the member's list don't count toward the half", () => {
     // purplepag.es + nostr.wine listed as write relays: list-capable = pyramid only.
     expect(
       decide({
@@ -96,7 +113,7 @@ describe('decideSavedListBase — when may the list be edited, and on what', () 
     ).toBe(true);
   });
 
-  it('still needs 2 list-capable answers overall, majority or not', () => {
+  it('still needs 2 list-capable answers overall, half or not', () => {
     expect(
       decide({ answers: [empty(PYRAMID), silent(NOS), silent(PRIMAL)], ownWrite: [PYRAMID] }).ok
     ).toBe(false);
