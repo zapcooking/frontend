@@ -308,6 +308,15 @@ describe('custom lists: republish keeps every tag but the recipes', () => {
     expect(nonRecipeTags(published[0])[0]).toEqual(['d', D]);
   });
 
+  it('Manage Recipes: a recipe added in the modal lands where the member put it', async () => {
+    const r = await settle(
+      cookbookStore.editList(D, { add: [R('r9')], remove: [], order: [R('r1'), R('r9'), R('r2')] })
+    );
+    expect(r.ok).toBe(true);
+    expect(recipesIn(published[0])).toEqual([R('r1'), R('r9'), R('r2')]);
+    keepsEverything(published[0]);
+  });
+
   it('publishes to exactly the relays it read', async () => {
     await settle(cookbookStore.addRecipeToList(D, recipe('r3')));
     expect(net.publishedTo.at(-1)).toEqual([NOS, PRIMAL]);
@@ -328,9 +337,9 @@ describe('hidden recipes stay in the member’s list (#883)', () => {
 describe('createList: no blind overwrite of an existing list', () => {
   it('refuses when a list with that identifier already exists on the relays', async () => {
     net.relays = { [NOS]: { [D]: listEvent(2000, [R('r1')]) }, [PRIMAL]: {} };
-    await expect(settle(cookbookStore.createList('Weeknight dinners'))).rejects.toThrow(
-      LIST_EXISTS_MESSAGE
-    );
+    const err = await settle(cookbookStore.createList('Weeknight dinners').catch((e: Error) => e));
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe(LIST_EXISTS_MESSAGE);
     expect(published).toHaveLength(0);
   });
 
@@ -353,7 +362,8 @@ describe('createList: no blind overwrite of an existing list', () => {
 
   it('refuses when absence can’t be confirmed', async () => {
     net.relays = { [NOS]: 'silent', [PRIMAL]: {} };
-    await expect(settle(cookbookStore.createList('Weeknight dinners'))).rejects.toThrow();
+    const err = await settle(cookbookStore.createList('Weeknight dinners').catch((e: Error) => e));
+    expect((err as Error).message).toBe(LIST_UNCONFIRMED_MESSAGE);
     expect(published).toHaveLength(0);
   });
 });
