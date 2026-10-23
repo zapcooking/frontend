@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { nip19 } from 'nostr-tools';
-import { buildListTags, listIdentifier, BOOKMARKS_IDENTIFIER } from './listTags';
+import { buildListTags, listIdentifier, parseATag, BOOKMARKS_IDENTIFIER } from './listTags';
 import { RECIPE_TAG_PREFIX_NEW } from './consts';
 
 /**
@@ -119,5 +119,25 @@ describe('buildListTags', () => {
 
     expect(tags.find((t) => t[0] === 'summary')).toBeUndefined();
     expect(tags.find((t) => t[0] === 'image')).toBeUndefined();
+  });
+});
+
+describe('parseATag', () => {
+  const pk = 'e'.repeat(64);
+
+  it('splits kind, pubkey and identifier', () => {
+    expect(parseATag(`30023:${pk}:caponata`)).toEqual({ kind: '30023', pubkey: pk, identifier: 'caponata' });
+  });
+
+  it('keeps colons inside the identifier (recipes imported from a URL)', () => {
+    const d = 'https://cooking.nytimes.com/recipes/1016445-caponata#recipe';
+    expect(parseATag(`30023:${pk}:${d}`)).toEqual({ kind: '30023', pubkey: pk, identifier: d });
+  });
+
+  it('rejects values without kind and pubkey', () => {
+    expect(parseATag('caponata')).toBeNull();
+    expect(parseATag(`30023:${pk}`)).toBeNull();
+    expect(parseATag(`:${pk}:x`)).toBeNull();
+    expect(parseATag('30023::x')).toBeNull();
   });
 });
