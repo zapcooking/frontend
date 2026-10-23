@@ -46,6 +46,15 @@
   let isOwner = false;
   let offlineMode = false; // True when we have cached cookbook but can't load recipes
   let cachedRecipeCount = 0; // Number of recipes in the cached cookbook
+  // The member's own Saved list couldn't be loaded from relays or this
+  // device: say so (with Retry) instead of showing an empty list.
+  let savedLoadFailed = false;
+  // Showing this device's copy of the Saved list because relays didn't
+  // return it this time.
+  let savedFromDevice = false;
+  // Bumped by every loadData(): a superseded run (e.g. the visitor load
+  // still finishing after a passkey unlock) must not write page state.
+  let loadToken = 0;
   
   // Edit modal state
   let editModalOpen = false;
@@ -101,41 +110,48 @@
     sharePackOpen = true;
   }
 
-  $: {
-    if ($page.params.naddr) {
-      loadData();
-    }
-  }
+  // Also reload when the viewer changes: a passkey unlock signs the member
+  // in on this page, and their own lists load differently from a visitor's.
+  $: if ($page.params.naddr) loadData($userPublickey);
 
-  async function loadData() {
+  async function loadData(_viewer?: string) {
+    const token = ++loadToken;
+    const stale = () => token !== loadToken;
     loaded = false;
     events = [];
     event = null;
     coverImage = undefined;
     offlineMode = false;
     cachedRecipeCount = 0;
+    savedLoadFailed = false;
+    savedFromDevice = false;
 
     try {
       if ($page.params.naddr?.startsWith('naddr1')) {
         const decoded = nip19.decode($page.params.naddr).data as nip19.AddressPointer;
-        
-        // Ensure cookbook store is loaded (so list will be available for updates)
-        const storeState = get(cookbookStore);
-        if (!storeState.initialized && $userPublickey) {
-          await cookbookStore.load();
-        }
-        
-        // Check if the list is in the local store
-        const updatedStoreState = get(cookbookStore);
-        let localList = updatedStoreState.lists.find(l => l.id === decoded.identifier);
-        // The member's own Saved list before its first save exists only as
-        // the store's placeholder (it's published by the first save).
-        if (
-          !localList &&
-          decoded.identifier === DEFAULT_LIST_ID &&
-          decoded.pubkey === $userPublickey
-        ) {
-          localList = (await cookbookStore.ensureDefaultList()) ?? undefined;
+        const ownList = !!$userPublickey && decoded.pubkey === $userPublickey;
+
+        let localList: CookbookList | undefined;
+        if (ownList && decoded.identifier === DEFAULT_LIST_ID) {
+          // The member's own Saved list: the best copy available (relays,
+          // else this device), never the write quorum's verdict, and never
+          // an empty list unless the relays proved there is none.
+          const view = await cookbookStore.resolveSavedList();
+          if (stale()) return;
+          if (view.status === 'unavailable') {
+            savedLoadFailed = true;
+            loaded = true;
+            return;
+          }
+          localList = view.list;
+          savedFromDevice = view.status === 'found' && !view.confirmed;
+        } else if (ownList) {
+          // Ensure cookbook store is loaded (so list will be available for updates)
+          if (!get(cookbookStore).initialized) {
+            await cookbookStore.load();
+            if (stale()) return;
+          }
+          localList = get(cookbookStore).lists.find(l => l.id === decoded.identifier);
         }
         
         if (localList && localList.event) {
@@ -173,6 +189,7 @@
             console.log('[Cookbook] Offline - loading recipes from cache');
             console.log('[Cookbook] Looking for a-tags:', recipeATags);
             const cachedRecipes = await offlineStorage.getRecipes(recipeATags);
+            if (stale()) return;
             console.log('[Cookbook] Found cached recipes:', cachedRecipes.length);
             
             if (cachedRecipes.length > 0) {
@@ -217,6 +234,7 @@
                 authors: [pubkey]
               });
               
+              if (stale()) return;
               if (recipeEvent) {
                 events = [...events, recipeEvent];
                 // Cache the recipe for offline use
@@ -233,6 +251,7 @@
           // If we couldn't load any recipes but expected some, try cache as fallback
           if (events.length === 0 && cachedRecipeCount > 0) {
             const cachedRecipes = await offlineStorage.getRecipes(recipeATags);
+            if (stale()) return;
             if (cachedRecipes.length > 0) {
               events = cachedRecipes.map(cached => {
                 const fakeEvent = new NDKEvent($ndk);
@@ -263,6 +282,7 @@
             authors: [decoded.pubkey],
             kinds: [30001]
           });
+          if (stale()) return;
           
           if (e) {
             event = e;
@@ -329,6 +349,7 @@
                   authors: [pubkey]
                 });
                 
+                if (stale()) return;
                 if (recipeEvent) {
                   events = [...events, recipeEvent];
                   // Cache the recipe for offline use
@@ -345,7 +366,7 @@
       console.error('Error loading list:', error);
     }
 
-    loaded = true;
+    if (!stale()) loaded = true;
   }
 
   function openChangeCoverModal() {
@@ -950,6 +971,34 @@
   <div class="flex justify-center items-center page-loader">
     <PanLoader />
   </div>
+{:else if savedLoadFailed}
+  <div class="flex flex-col items-center justify-center py-16 px-4">
+    <div class="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-4">
+      <CloudSlashIcon size={32} class="text-amber-600 dark:text-amber-400" />
+    </div>
+    <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
+      Couldn't load your Saved list
+    </h2>
+    <p class="text-caption text-center max-w-md mb-4">
+      Your saved recipes are safe, but we couldn't reach them right now. Please try again in a moment.
+    </p>
+    <div class="flex flex-wrap items-center justify-center gap-2">
+      <button
+        on:click={() => loadData()}
+        class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
+      >
+        Retry
+      </button>
+      <a
+        href="/my-kitchen"
+        class="flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-colors"
+        style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+      >
+        <ArrowLeftIcon size={18} />
+        Back to My Kitchen
+      </a>
+    </div>
+  </div>
 {:else if event}
   {@const recipeCountDisplay = offlineMode ? cachedRecipeCount : events.length}
   <div class="flex flex-col gap-5">
@@ -1119,6 +1168,12 @@
           Share this collection as a zappable Recipe Pack — anyone on Nostr can save it.
         </p>
       {/if}
+    {/if}
+
+    {#if savedFromDevice}
+      <p class="text-caption text-sm text-center">
+        Showing the copy saved on this device; we couldn't reach your Saved list just now.
+      </p>
     {/if}
 
     <!-- Recipes Feed -->

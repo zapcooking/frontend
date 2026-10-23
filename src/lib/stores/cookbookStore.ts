@@ -19,6 +19,8 @@ import { isCurrentlyOnline, onConnect } from '$lib/connectionMonitor';
 import {
   buildSavedListEdit,
   decideSavedListBase,
+  listAbsenceProven,
+  newestList,
   type ListEvent,
   type SavedListChange
 } from '$lib/savedListSafety';
@@ -70,6 +72,23 @@ export const SAVED_LIST_UNCONFIRMED_MESSAGE =
 export const SAVED_LIST_PUBLISH_FAILED_MESSAGE =
   "Couldn't update your Saved list, so nothing was changed. Please try again.";
 
+/** What a per-relay read of the Saved list established. */
+type SavedReadOutcome = 'found' | 'absent' | 'unknown';
+
+/**
+ * The member's own Saved list for display (My Kitchen's list page):
+ * - `found`: the best copy available. `confirmed` is false when relays didn't
+ *   return it this time and it comes from this device (IndexedDB).
+ * - `absent`: relays proved there is none yet; `list` is the unpublished
+ *   placeholder, for display only.
+ * - `unavailable`: neither — the page must say it couldn't load, never show
+ *   an empty list.
+ */
+export type SavedListView =
+  | { status: 'found'; list: CookbookList; confirmed: boolean }
+  | { status: 'absent'; list: CookbookList }
+  | { status: 'unavailable' };
+
 export interface CookbookState {
   lists: CookbookList[];
   loading: boolean;
@@ -93,11 +112,15 @@ function createCookbookStore() {
   let subscription: NDKSubscription | null = null;
   let syncUnsubscribe: (() => void) | null = null;
 
-  // Timestamp of the last refreshFromNostr that reached EOSE (0 = never this
-  // session). "The store has no default list" only confirms absence on relays
-  // after a completed refresh — before that it usually means "not fetched
-  // yet" (docs/ndk-readiness-discovery.md §4b).
-  let refreshCompletedAt = 0;
+  // The Saved list's presence is decided by a per-relay read (readSavedList),
+  // never by the refresh subscription finishing: NDK ends a subscription once
+  // half its relays answered, and purplepag.es / nostr.wine (which never hold
+  // lists) answer first, so "no Saved list at EOSE" often means "nos.lol
+  // hadn't answered yet". One read per account and generation, shared.
+  let savedRead: { gen: number; pubkey: string; promise: Promise<SavedReadOutcome> } | null = null;
+  // The current generation's read proved the Saved list absent
+  // (listAbsenceProven). Only then may the on-screen placeholder appear.
+  let savedAbsenceProven = false;
   // Single-flight guard: concurrent refresh calls share one subscription —
   // a second subscribe would stop the first sub and strand its awaiter.
   let inflightRefresh: Promise<void> | null = null;
@@ -166,9 +189,10 @@ function createCookbookStore() {
     // Any load or refresh still running belongs to the state being reset:
     // its results must not land in the new one (see `generation`).
     generation++;
-    // A reset store has no relay knowledge: absence must be re-confirmed
-    // before ensureDefaultList may create again.
-    refreshCompletedAt = 0;
+    // A reset store has no relay knowledge: absence must be re-proven
+    // before ensureDefaultList may show the placeholder again.
+    savedRead = null;
+    savedAbsenceProven = false;
     inflightRefresh = null;
     set({
       lists: [],
@@ -200,6 +224,62 @@ function createCookbookStore() {
     if (!list || list.localOnly || list.contentUnknown) return null;
     if (!list.event?.id || !list.event.created_at || list.event.pubkey !== pubkey) return null;
     return { id: list.event.id, created_at: list.event.created_at, tags: list.event.tags, content: list.event.content };
+  }
+
+  /**
+   * Read the Saved list from every relay it is written to, one REQ per relay
+   * to its own EOSE (the safety read's reader). A list found is put into the
+   * store when newer than what it holds. 'absent' only when
+   * listAbsenceProven; anything less is 'unknown' and the store keeps the
+   * best copy it has (IndexedDB, this session).
+   */
+  async function doReadSavedList(pubkey: string, gen: number): Promise<SavedReadOutcome> {
+    let read: Awaited<ReturnType<typeof readListFromRelays>>;
+    try {
+      read = await readListFromRelays(pubkey, DEFAULT_LIST_ID, savedListQuery);
+    } catch (error) {
+      console.warn('[CookbookStore] Saved list read failed:', error);
+      return 'unknown';
+    }
+    if (!stillCurrent(gen, pubkey)) return 'unknown';
+    const found = newestList(...read.answers.map(a => a.list));
+    if (found) {
+      noteListSeen(pubkey, DEFAULT_LIST_ID, found);
+      const current = get({ subscribe }).lists.find(l => l.id === DEFAULT_LIST_ID);
+      if (!current || current.localOnly || (current.event?.created_at ?? 0) < found.created_at) {
+        const ndkInstance = get(ndk);
+        if (ndkInstance) {
+          await adoptDefaultList(new NDKEvent(ndkInstance, { ...found, kind: 30001, pubkey } as never), pubkey);
+        }
+      }
+      return 'found';
+    }
+    if (read.discovery === 'known' && listAbsenceProven(read.answers)) {
+      savedAbsenceProven = true;
+      return 'absent';
+    }
+    console.warn(
+      '[CookbookStore] Saved list read incomplete:',
+      read.discovery === 'unknown'
+        ? 'write relays unknown'
+        : read.answers.map(a => `${a.url}:${a.ok ? 'eose' : 'silent'}`)
+    );
+    return 'unknown';
+  }
+
+  /** The current generation's Saved-list read; `fresh` starts a new one. */
+  function readSavedList(pubkey: string, fresh = false): Promise<SavedReadOutcome> {
+    if (!fresh && savedRead && savedRead.gen === generation && savedRead.pubkey === pubkey) {
+      return savedRead.promise;
+    }
+    const gen = generation;
+    const promise = doReadSavedList(pubkey, gen);
+    savedRead = { gen, pubkey, promise };
+    // An inconclusive read isn't kept: the next caller asks the relays again.
+    promise.then(outcome => {
+      if (outcome === 'unknown' && savedRead?.promise === promise) savedRead = null;
+    });
+    return promise;
   }
 
   /** Put the default list's newest event into the store and IndexedDB. */
@@ -559,6 +639,11 @@ function createCookbookStore() {
     ensureAccount(pubkey);
     const gen = generation;
 
+    // The Saved list is read per relay alongside the subscription below
+    // (see savedRead). Not awaited: the other lists render at EOSE, and the
+    // Saved list lands in the store when its read finds it.
+    void readSavedList(pubkey, true);
+
     // Wait for relay readiness before subscribing. Without this, a
     // cold-session subscribe races the connecting pool, EOSEs early against
     // the connected subset, and caches an empty list set
@@ -611,11 +696,10 @@ function createCookbookStore() {
       };
 
       // Now that load() can await this promise, an EOSE that never arrives
-      // must not hang callers. Timing out does NOT mark the refresh
-      // completed — absence stays unconfirmed for ensureDefaultList.
+      // must not hang callers.
       const eoseTimeout = setTimeout(() => {
         console.warn('[CookbookStore] Refresh timed out waiting for EOSE, keeping current lists');
-        update(s => ({ ...s, loading: false, initialized: true }));
+        if (stillCurrent(gen, pubkey)) update(s => ({ ...s, loading: false, initialized: true }));
         finish();
       }, REFRESH_EOSE_TIMEOUT_MS);
 
@@ -671,10 +755,12 @@ function createCookbookStore() {
 
         // Keep local lists the relays didn't return: created offline
         // (pending), published this session (a relay may not have it yet),
-        // or the Saved placeholder before its first save.
+        // or the Saved list (cached copy or placeholder) — whether it exists
+        // is the per-relay read's call, not this subscription's.
         currentState.lists.forEach(localList => {
           if (mergedLists.find(l => l.id === localList.id)) return;
           if (
+            localList.id === DEFAULT_LIST_ID ||
             localList.pendingSync ||
             localList.localOnly ||
             lastPublishedAt.has(publishedKey(pubkey, localList.id))
@@ -709,10 +795,6 @@ function createCookbookStore() {
           syncStatus: pendingOps.length > 0 ? 'pending' : 'synced',
           pendingOperations: pendingOps.length
         });
-
-        // A refresh that reached EOSE is the only signal that "no default
-        // list in the store" means "no default list on relays".
-        refreshCompletedAt = Date.now();
 
         // Process any pending sync operations
         if (pendingOps.length > 0) {
@@ -940,14 +1022,12 @@ function createCookbookStore() {
      * Ensure the default "Saved" list exists IN THE STORE.
      *
      * Returns the real list when the store has it (fetched or restored from
-     * IndexedDB) or a refresh finds it. Otherwise, once a refresh that
-     * reached EOSE found none, returns an on-screen placeholder that is
-     * never published or persisted: the list is created on relays only by
-     * the first save, as ONE event that already holds the recipe, after the
-     * safe read in editDefaultList has confirmed it is really absent. (An
-     * empty list published here could supersede the member's real Saved
-     * list, and an empty-then-add pair in one second could keep the empty
-     * one.) Returns null when even the refresh couldn't complete.
+     * IndexedDB) or the per-relay read finds it. Otherwise, only when that
+     * read PROVED absence (listAbsenceProven), returns an on-screen
+     * placeholder that is never published, persisted, or used as an edit
+     * base: the list is created on relays only by the first save, as ONE
+     * event that already holds the recipe, after editDefaultList's quorum
+     * read. Returns null when absence couldn't be proven.
      */
     async ensureDefaultList(): Promise<CookbookList | null> {
       const findDefault = () => get({ subscribe }).lists.find(l => l.isDefault);
@@ -960,17 +1040,14 @@ function createCookbookStore() {
       const existingDefault = findDefault();
       if (existingDefault) return existingDefault;
 
-      // Absence is only meaningful after a completed refresh. Run one if we
-      // don't have one yet (awaits relay readiness internally; single-flight
-      // with any refresh already started by load()).
-      if (refreshCompletedAt === 0) {
-        await this.refreshFromNostr();
-        const fetchedDefault = findDefault();
-        if (fetchedDefault) return fetchedDefault;
-      }
+      const gen = generation;
+      await readSavedList(pubkey);
+      if (!stillCurrent(gen, pubkey)) return null;
+      const fetchedDefault = findDefault();
+      if (fetchedDefault) return fetchedDefault;
 
-      if (refreshCompletedAt === 0) {
-        console.warn('[CookbookStore] No Saved list placeholder: relay refresh has not completed');
+      if (!savedAbsenceProven) {
+        console.warn('[CookbookStore] No Saved list placeholder: absence not proven by the relays');
         return null;
       }
 
@@ -998,6 +1075,35 @@ function createCookbookStore() {
 
       update(s => (s.lists.some(l => l.id === DEFAULT_LIST_ID) ? s : { ...s, lists: [placeholder, ...s.lists] }));
       return findDefault() || placeholder;
+    },
+
+    /**
+     * The member's own Saved list for display (see SavedListView). Never
+     * depends on the write quorum: the best available copy is shown
+     * (relays, else this device's), an empty list only when the relays
+     * proved there is none, and otherwise 'unavailable'.
+     */
+    async resolveSavedList(): Promise<SavedListView> {
+      const pubkey = get(userPublickey);
+      if (!pubkey || !get(ndk)) return { status: 'unavailable' };
+      ensureAccount(pubkey);
+      await this.ensureLoaded();
+      const gen = generation;
+      const outcome = await readSavedList(pubkey);
+      if (!stillCurrent(gen, pubkey)) return { status: 'unavailable' };
+
+      const list = get({ subscribe }).lists.find(l => l.id === DEFAULT_LIST_ID && !l.localOnly);
+      if (list) {
+        const confirmed =
+          outcome === 'found' || lastPublishedAt.has(publishedKey(pubkey, DEFAULT_LIST_ID));
+        return { status: 'found', list, confirmed };
+      }
+      if (outcome === 'absent') {
+        const placeholder = await this.ensureDefaultList();
+        if (placeholder?.localOnly) return { status: 'absent', list: placeholder };
+        if (placeholder) return { status: 'found', list: placeholder, confirmed: true };
+      }
+      return { status: 'unavailable' };
     },
 
     /**

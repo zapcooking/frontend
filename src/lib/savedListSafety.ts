@@ -100,6 +100,26 @@ export function decideSavedListBase(o: {
   return { ok: true, base: newestList(found, o.local, o.seen) };
 }
 
+/**
+ * Whether a per-relay read proves the list does not exist, for DISPLAY only
+ * (an empty "Saved" instead of "couldn't load"). Edits still need the quorum
+ * in decideSavedListBase. Proven when no relay returned a list and at least
+ * MIN_EMPTY_ANSWERS list-capable relays answered (EOSE) empty. Silent relays
+ * and NON_EVIDENCE_RELAYS never count. An aggregate "subscription finished"
+ * is not an answer: NDK ends a subscription once half its relays have
+ * answered, and purplepag.es / nostr.wine always answer first.
+ */
+export function listAbsenceProven(answers: ListRelayAnswer[]): boolean {
+  if (answers.some((a) => a.list)) return false;
+  const emptyEvidence = new Set(
+    answers
+      .filter((a) => a.ok)
+      .map((a) => key(a.url))
+      .filter((u) => !NON_EVIDENCE.has(u))
+  );
+  return emptyEvidence.size >= MIN_EMPTY_ANSWERS;
+}
+
 export interface SavedListChange {
   add?: string[];
   remove?: string[];
