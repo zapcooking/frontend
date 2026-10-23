@@ -243,6 +243,72 @@ describe("this device's copy is the fallback", () => {
   });
 });
 
+describe('the refresh and the per-relay read finish in either order', () => {
+  it("a refresh that commits after the read adopted the list doesn't put the older copy back", async () => {
+    vi.mocked(offlineStorage.getAllCookbooks).mockResolvedValue([deviceCopy([aTag('r1')])] as never);
+    net.relays = {
+      [NOS]: listOn(1761218623, [aTag('r1'), aTag('r2')]),
+      [PURPLE]: 'empty',
+      [PRIMAL]: 'empty',
+      [WINE]: 'empty'
+    };
+    // nos.lol answers once the refresh has merged (it caches the device
+    // copy), and the refresh commits (after an IndexedDB read beyond the
+    // load's own) only once the per-relay read has put the newer list into
+    // the store and IndexedDB.
+    let merged!: () => void;
+    const refreshMerged = new Promise<void>((r) => (merged = r));
+    let release!: () => void;
+    const adopted = new Promise<void>((r) => (release = r));
+    vi.mocked(offlineStorage.saveCookbook).mockImplementation(async (list: unknown) => {
+      const n = (list as { recipes: string[] }).recipes.length;
+      if (n === 1) merged();
+      if (n === 2) release();
+    });
+    cookbookStore.__setSavedListQueryForTests((async (url: string) => {
+      if (url === NOS) await refreshMerged;
+      return fakeQuery(url);
+    }) as never);
+    let pendingReads = 0;
+
+    let committed!: () => void;
+    const refreshCommitted = new Promise<void>((r) => (committed = r));
+    vi.mocked(offlineStorage.getPendingOperations).mockImplementation(async () => {
+      if (++pendingReads === 1) return [];
+      await adopted;
+      queueMicrotask(committed);
+      return [];
+    });
+
+    await settle(cookbookStore.resolveSavedList());
+    await settle(refreshCommitted);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const inStore = get(cookbookStore).lists.find((l) => l.id === DEFAULT_LIST_ID);
+    expect(inStore?.recipes).toEqual([aTag('r1'), aTag('r2')]);
+    const saves = vi.mocked(offlineStorage.saveCookbook).mock.calls as unknown as [
+      { id: string; recipes: string[] }
+    ][];
+    const lastSaved = saves.filter(([l]) => l.id === DEFAULT_LIST_ID).at(-1)?.[0];
+    expect(lastSaved?.recipes).toEqual([aTag('r1'), aTag('r2')]);
+  });
+});
+
+describe("this device's storage failing", () => {
+  it('still shows the list the relays returned', async () => {
+    vi.mocked(offlineStorage.saveCookbook).mockRejectedValue(new Error('QuotaExceededError'));
+    net.relays = { [NOS]: listOn(1761218623, [aTag('r1'), aTag('r2')]), [PRIMAL]: 'empty' };
+
+    const view = await settle(cookbookStore.resolveSavedList());
+
+    expect(view.status).toBe('found');
+    if (view.status === 'found') {
+      expect(view.confirmed).toBe(true);
+      expect(view.list.recipes).toEqual([aTag('r1'), aTag('r2')]);
+    }
+  });
+});
+
 describe('the placeholder is never written', () => {
   it('a save while the store holds the placeholder builds on the real list the read finds', async () => {
     net.relays = { [NOS]: 'empty', [PRIMAL]: 'empty' };

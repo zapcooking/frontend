@@ -274,7 +274,10 @@ function createCookbookStore() {
       return savedRead.promise;
     }
     const gen = generation;
-    const promise = doReadSavedList(pubkey, gen);
+    const promise = doReadSavedList(pubkey, gen).catch((error): SavedReadOutcome => {
+      console.warn('[CookbookStore] Saved list read failed:', error);
+      return 'unknown';
+    });
     savedRead = { gen, pubkey, promise };
     // An inconclusive read isn't kept: the next caller asks the relays again.
     promise.then(outcome => {
@@ -283,7 +286,11 @@ function createCookbookStore() {
     return promise;
   }
 
-  /** Put the default list's newest event into the store and IndexedDB. */
+  /**
+   * Put the default list's newest event into the store and IndexedDB. The
+   * IndexedDB copy is best-effort: the list is already in the store, and a
+   * full or failing disk must not hide it.
+   */
   async function adoptDefaultList(event: NDKEvent, pubkey: string): Promise<void> {
     if (storePubkey !== pubkey || get(userPublickey) !== pubkey) return;
     const list = eventToList(event, pubkey);
@@ -292,7 +299,26 @@ function createCookbookStore() {
       ...s,
       lists: [list, ...s.lists.filter(l => l.id !== DEFAULT_LIST_ID)]
     }));
-    await offlineStorage.saveCookbook(list, pubkey, true);
+    await cacheList(list, pubkey, true);
+  }
+
+  /** Copy a list to IndexedDB; a failure is logged, never thrown. */
+  async function cacheList(list: CookbookList, pubkey: string, synced: boolean): Promise<void> {
+    try {
+      await offlineStorage.saveCookbook(list, pubkey, synced);
+    } catch (error) {
+      console.warn('[CookbookStore] Could not cache list on this device:', list.id, error);
+    }
+  }
+
+  /**
+   * Whether the Saved list `a` should replace `b`: a published copy beats
+   * the placeholder, then the newer event wins (a tie keeps `a`).
+   */
+  function preferDefault(a: CookbookList, b: CookbookList | undefined): boolean {
+    if (!b) return true;
+    if (a.localOnly !== b.localOnly) return !a.localOnly;
+    return (a.event?.created_at ?? 0) >= (b.event?.created_at ?? 0);
   }
 
   /**
@@ -772,7 +798,7 @@ function createCookbookStore() {
 
         // Save all to offline storage (never the unpublished placeholder)
         for (const list of mergedLists) {
-          if (!list.localOnly) await offlineStorage.saveCookbook(list, pubkey, !list.pendingSync);
+          if (!list.localOnly) await cacheList(list, pubkey, !list.pendingSync);
         }
         if (!stillCurrent(gen, pubkey)) {
           finish();
@@ -787,6 +813,27 @@ function createCookbookStore() {
         });
 
         const pendingOps = await offlineStorage.getPendingOperations();
+        if (!stillCurrent(gen, pubkey)) {
+          finish();
+          return;
+        }
+
+        // The per-relay Saved read may have put a newer copy into the store
+        // while this merge awaited IndexedDB: keep it, and put it back on
+        // disk after the older copy cached above.
+        const latestSaved = get({ subscribe }).lists.find(l => l.id === DEFAULT_LIST_ID);
+        const mergedSavedAt = mergedLists.findIndex(l => l.id === DEFAULT_LIST_ID);
+        const mergedSaved = mergedLists[mergedSavedAt];
+        if (
+          latestSaved &&
+          latestSaved !== mergedSaved &&
+          !mergedSaved?.pendingSync &&
+          preferDefault(latestSaved, mergedSaved)
+        ) {
+          if (mergedSavedAt >= 0) mergedLists[mergedSavedAt] = latestSaved;
+          else mergedLists.unshift(latestSaved);
+          if (!latestSaved.localOnly) void cacheList(latestSaved, pubkey, !latestSaved.pendingSync);
+        }
 
         set({
           lists: mergedLists,
@@ -1090,10 +1137,17 @@ function createCookbookStore() {
       ensureAccount(pubkey);
       await this.ensureLoaded();
       const gen = generation;
-      const outcome = await readSavedList(pubkey);
+      const savedCopy = () =>
+        get({ subscribe }).lists.find(l => l.id === DEFAULT_LIST_ID && !l.localOnly);
+      let outcome = await readSavedList(pubkey);
+      // A kept 'found' whose list has since left the store: ask the relays
+      // again rather than report it unavailable.
+      if (outcome === 'found' && !savedCopy() && stillCurrent(gen, pubkey)) {
+        outcome = await readSavedList(pubkey, true);
+      }
       if (!stillCurrent(gen, pubkey)) return { status: 'unavailable' };
 
-      const list = get({ subscribe }).lists.find(l => l.id === DEFAULT_LIST_ID && !l.localOnly);
+      const list = savedCopy();
       if (list) {
         const confirmed =
           outcome === 'found' || lastPublishedAt.has(publishedKey(pubkey, DEFAULT_LIST_ID));

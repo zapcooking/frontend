@@ -22,7 +22,7 @@
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PinIcon from 'phosphor-svelte/lib/PushPin';
   import CloudSlashIcon from 'phosphor-svelte/lib/CloudSlash';
-  import { DEFAULT_LIST_ID, DEFAULT_LIST_TITLE, cookbookStore, getCookbookCoverImage, type CookbookList } from '$lib/stores/cookbookStore';
+  import { DEFAULT_LIST_ID, DEFAULT_LIST_TITLE, cookbookStore, getCookbookCoverImage, type CookbookList, type SavedListView } from '$lib/stores/cookbookStore';
   import type { SavedListChange } from '$lib/savedListSafety';
   import { showToast } from '$lib/toast';
   import { parseATag } from '$lib/listTags';
@@ -137,7 +137,9 @@
           // The member's own Saved list: the best copy available (relays,
           // else this device), never the write quorum's verdict, and never
           // an empty list unless the relays proved there is none.
-          const view = await cookbookStore.resolveSavedList();
+          const view = await cookbookStore
+            .resolveSavedList()
+            .catch((): SavedListView => ({ status: 'unavailable' }));
           if (stale()) return;
           if (view.status === 'unavailable') {
             savedLoadFailed = true;
