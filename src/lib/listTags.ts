@@ -17,6 +17,24 @@ export function listIdentifier(title: string): string {
   return title.toLowerCase().replaceAll(' ', '-');
 }
 
+/**
+ * Split a NIP-01 `a` tag value (`kind:pubkey:identifier`). The identifier
+ * may itself contain colons (recipes imported from a URL use the URL), so
+ * only the first two separate fields.
+ */
+export function parseATag(
+  aTag: string
+): { kind: string; pubkey: string; identifier: string } | null {
+  const first = aTag.indexOf(':');
+  const second = first < 0 ? -1 : aTag.indexOf(':', first + 1);
+  if (first <= 0 || second <= first + 1) return null;
+  return {
+    kind: aTag.slice(0, first),
+    pubkey: aTag.slice(first + 1, second),
+    identifier: aTag.slice(second + 1)
+  };
+}
+
 /** The reserved `d` value for a member's bookmarks list. */
 export const BOOKMARKS_IDENTIFIER = 'nostrcooking-bookmarks';
 

@@ -10,10 +10,9 @@ import type NDK from '@nostr-dev-kit/ndk';
  * - load() on a cold cache AWAITS the relay refresh, so consumers never
  *   observe initialized:true with an empty, never-fetched list set (the
  *   My Kitchen "Start Your Kitchen" flash).
- * - ensureDefaultList() only creates the default kind-30001 after a refresh
- *   that reached EOSE confirmed absence — never against a store that hasn't
- *   fetched (the replaceable-event overwrite hazard), and never on
- *   navigator.onLine alone.
+ * - ensureDefaultList() only shows the Saved placeholder after a per-relay
+ *   read PROVED absence (≥2 list-capable relays answered empty) — never on a
+ *   subscription's EOSE, a store that hasn't fetched, or navigator.onLine.
  */
 
 vi.mock('$lib/nostr', async () => {
@@ -21,12 +20,18 @@ vi.mock('$lib/nostr', async () => {
   return {
     ndk: writable<unknown>(null),
     userPublickey: writable(''),
-    ensureNdkConnected: vi.fn(async () => {})
+    ensureNdkConnected: vi.fn(async () => {}),
+    getCurrentRelays: () => ['wss://nos.lol', 'wss://relay.primal.net']
   };
 });
 
 vi.mock('$lib/nip65Routing', () => ({
-  listRelaySet: vi.fn(async () => undefined)
+  listRelaySet: vi.fn(async () => undefined),
+  listRelayUrlsFrom: vi.fn(async () => ['wss://nos.lol', 'wss://relay.primal.net'])
+}));
+
+vi.mock('$lib/relayListCache', () => ({
+  relayListCache: { get: vi.fn(async () => ({ read: [], write: [] })) }
 }));
 
 vi.mock('$lib/connectionMonitor', () => ({
@@ -59,6 +64,27 @@ import {
 } from './cookbookStore';
 
 const PUBKEY = 'a'.repeat(64);
+
+/**
+ * What every relay answers to the per-relay Saved-list read: 'empty' (EOSE,
+ * no list), 'silent' (never answers), or the list's recipes.
+ */
+let savedOnRelays: 'empty' | 'silent' | string[] = 'empty';
+const perRelayQuery = vi.fn(async (url: string) => {
+  if (savedOnRelays === 'silent') return { url, ok: false, list: null };
+  if (savedOnRelays === 'empty') return { url, ok: true, list: null };
+  return {
+    url,
+    ok: true,
+    list: {
+      id: 'relay-list',
+      pubkey: PUBKEY,
+      created_at: 1700000000,
+      tags: [['d', 'nostrcooking-bookmarks'], ['title', 'Saved'], ...savedOnRelays.map((a) => ['a', a])],
+      content: ''
+    }
+  };
+});
 
 // The mocked ndk store keeps the real module's Writable<NDK> type.
 const setNdk = (instance: FakeNdkInstance) => ndk.set(instance as unknown as NDK);
@@ -157,6 +183,8 @@ describe('cookbookStore cold-session behavior', () => {
     vi.clearAllMocks();
     cookbookStore.reset();
     userPublickey.set(PUBKEY);
+    savedOnRelays = 'empty';
+    cookbookStore.__setSavedListQueryForTests(perRelayQuery as never);
     vi.mocked(isCurrentlyOnline).mockReturnValue(true);
     vi.mocked(offlineStorage.getAllCookbooks).mockResolvedValue([]);
     vi.mocked(offlineStorage.getPendingOperations).mockResolvedValue([]);
@@ -245,6 +273,7 @@ describe('cookbookStore cold-session behavior', () => {
       setNdk(autoRespond([
         relayListEvent(DEFAULT_LIST_ID, DEFAULT_LIST_TITLE, ['30023:pk:r1', '30023:pk:r2'])
       ]));
+      savedOnRelays = ['30023:pk:r1', '30023:pk:r2'];
 
       const result = await cookbookStore.ensureDefaultList();
 
@@ -255,7 +284,7 @@ describe('cookbookStore cold-session behavior', () => {
       expect(vi.mocked(offlineStorage.queueOperation)).not.toHaveBeenCalled();
     });
 
-    it('after a completed refresh found none, shows a placeholder and publishes NOTHING', async () => {
+    it('after the relays proved none, shows a placeholder and publishes NOTHING', async () => {
       // The list is created on relays only by the first save, as one event
       // holding the recipe, after the safe read confirms absence — an empty
       // list published here could supersede the member's real one.
@@ -283,10 +312,10 @@ describe('cookbookStore cold-session behavior', () => {
       expect(publishSpy).not.toHaveBeenCalled();
     });
 
-    it('returns null and creates nothing when absence cannot be confirmed (refresh never EOSEs)', async () => {
-      // Relays unreachable: subscription never EOSEs, the refresh resolves
-      // via its timeout, absence stays unconfirmed.
+    it('returns null and creates nothing when absence cannot be proven (relays silent)', async () => {
+      // Relays unreachable: no per-relay answer, absence stays unproven.
       setNdk(makeFakeNdk());
+      savedOnRelays = 'silent';
 
       let result: Awaited<ReturnType<typeof cookbookStore.ensureDefaultList>> = null;
       const promise = cookbookStore.ensureDefaultList().then((r) => (result = r));
@@ -300,16 +329,19 @@ describe('cookbookStore cold-session behavior', () => {
       expect(get(cookbookStore).lists).toHaveLength(0);
     });
 
-    it('reuses a refresh that already confirmed absence instead of running another', async () => {
+    it('reuses the Saved read a refresh started instead of asking the relays again', async () => {
       const fakeNdk = autoRespond([]);
       setNdk(fakeNdk);
 
       await cookbookStore.refreshFromNostr();
       expect(fakeNdk.subscribe).toHaveBeenCalledTimes(1);
+      const reads = perRelayQuery.mock.calls.length;
+      expect(reads).toBeGreaterThan(0);
 
       const result = await cookbookStore.ensureDefaultList();
       expect(result).not.toBeNull();
       expect(fakeNdk.subscribe).toHaveBeenCalledTimes(1); // no second subscribe
+      expect(perRelayQuery.mock.calls.length).toBe(reads); // no second read
       expect(publishSpy).not.toHaveBeenCalled();
     });
   });

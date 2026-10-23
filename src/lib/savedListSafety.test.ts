@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildSavedListEdit,
   decideSavedListBase,
+  listAbsenceProven,
   type ListEvent,
   type ListRelayAnswer
 } from './savedListSafety';
@@ -238,5 +239,27 @@ describe('buildSavedListEdit — one event per edit', () => {
   it('reports how many recipes were actually added', () => {
     const base = list(500, ['a1']);
     expect(buildSavedListEdit(base, { add: ['a1', 'a2', 'a3'] }, opts).added).toBe(2);
+  });
+});
+
+describe('listAbsenceProven — may My Kitchen show an empty Saved list', () => {
+  it('purplepag.es and nostr.wine answering empty prove nothing', () => {
+    expect(listAbsenceProven([empty(PURPLE), empty(WINE), silent(NOS), silent(PRIMAL)])).toBe(false);
+  });
+
+  it('two list-capable relays answering empty prove absence', () => {
+    expect(listAbsenceProven([empty(PURPLE), empty(WINE), empty(NOS), empty(PRIMAL)])).toBe(true);
+  });
+
+  it('one list-capable empty answer is not enough; silence never counts', () => {
+    expect(listAbsenceProven([empty(NOS), silent(PRIMAL), silent(PYRAMID)])).toBe(false);
+  });
+
+  it('a list on any relay means it exists', () => {
+    expect(listAbsenceProven([empty(NOS), empty(PYRAMID), has(PRIMAL, list(1, ['a1']))])).toBe(false);
+  });
+
+  it('the same relay spelled twice counts once', () => {
+    expect(listAbsenceProven([empty(NOS), empty('wss://nos.lol/')])).toBe(false);
   });
 });
