@@ -29,6 +29,7 @@ import {
   outboxTargetUrls,
   buildInboxAwareRelaySet,
   zapReceiptRelayUrls,
+  anonymousZapReceiptRelayUrls,
   resolveAuthorPubkey,
   outboxRelaySet,
   waitForConnected
@@ -165,6 +166,29 @@ describe('zap receipt relays (NIP-57 relays tag)', () => {
   it('no relay lists known: the app list', async () => {
     lists.clear();
     expect(await zapReceiptRelayUrls(ME, THEM)).toEqual(['wss://nos.lol', 'wss://relay.damus.io']);
+  });
+});
+
+describe('anonymous zap receipt relays', () => {
+  // The device's saved relay list (getCurrentRelays, mocked above) carries
+  // wss://relay.damus.io; ME's write relay is pyramid. Neither may appear:
+  // either could tie the ephemeral request back to this device.
+  it("the recipient's read relays, then the fixed public defaults — nothing from this device", async () => {
+    const urls = await anonymousZapReceiptRelayUrls(THEM);
+    const { standardRelays } = await import('$lib/consts');
+    expect(urls[0]).toBe('wss://relay.primal.net');
+    expect(urls).not.toContain('wss://relay.damus.io');
+    expect(urls).not.toContain('wss://pyramid.fiatjaf.com');
+    expect(urls).not.toContain('wss://my-inbox.example');
+    for (const url of urls.slice(1)) expect(standardRelays).toContain(url);
+  });
+
+  it('recipient without a relay list: the public defaults only', async () => {
+    lists.clear();
+    const { standardRelays } = await import('$lib/consts');
+    const urls = await anonymousZapReceiptRelayUrls(THEM);
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) expect(standardRelays).toContain(url);
   });
 });
 

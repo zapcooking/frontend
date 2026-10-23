@@ -43,6 +43,10 @@ function createNoteBookmarksStore() {
   });
 
   let inflight: Promise<void> | null = null;
+  // Account the in-flight load is for: a sign-in can switch accounts while a
+  // load started from the stored pubkey (e.g. a locked passkey session) is
+  // still running, and its result must never answer for the new account.
+  let inflightPubkey: string | null = null;
   // created_at of the last list we published, so quick on/off toggles
   // force strictly increasing timestamps (see publishList).
   let lastPublishCreatedAt = 0;
@@ -96,15 +100,24 @@ function createNoteBookmarksStore() {
       set({ ids: new Set(), loaded: false, loading: false, pubkey: null });
       return;
     }
-    if (inflight) return inflight;
+    if (inflight) {
+      if (inflightPubkey === pubkey) return inflight;
+      // Another account's load is still running: let it finish (its result
+      // is discarded below), then load this one.
+      await inflight.catch(() => {});
+      return load();
+    }
 
     const current = get({ subscribe });
     if (current.loaded && current.pubkey === pubkey) return;
 
+    inflightPubkey = pubkey;
     inflight = (async () => {
       update((s) => ({ ...s, loading: true }));
       try {
         const event = await fetchListEvent(pubkey);
+        // Signed in as someone else meanwhile: drop it, keep nothing.
+        if (get(userPublickey) !== pubkey) return;
         lastFetchedEvent = event;
         const ids = new Set<string>();
         if (event) {
@@ -115,9 +128,12 @@ function createNoteBookmarksStore() {
         set({ ids, loaded: true, loading: false, pubkey });
       } catch (error) {
         console.warn('[NoteBookmarks] load failed:', error);
-        set({ ids: new Set(), loaded: true, loading: false, pubkey });
+        if (get(userPublickey) === pubkey) {
+          set({ ids: new Set(), loaded: true, loading: false, pubkey });
+        }
       } finally {
         inflight = null;
+        inflightPubkey = null;
       }
     })();
     return inflight;
@@ -133,7 +149,10 @@ function createNoteBookmarksStore() {
     // other NIP-51 clients store address bookmarks, metadata and private
     // bookmarks in this same event, and rebuilding it from scratch would
     // erase their data.
-    const kept = (lastFetchedEvent?.tags ?? []).filter((t) => t[0] !== 'e');
+    // Only ever build on this account's own relay copy — another account's
+    // (kept tags + encrypted content) must never be republished under it.
+    const base = lastFetchedEvent?.pubkey === pubkey ? lastFetchedEvent : null;
+    const kept = (base?.tags ?? []).filter((t) => t[0] !== 'e');
     if (!kept.some((t) => t[0] === 'd')) kept.unshift(['d', LIST_D_TAG]);
     if (!kept.some((t) => t[0] === 'title')) kept.push(['title', LIST_TITLE]);
 
@@ -146,7 +165,7 @@ function createNoteBookmarksStore() {
     event.created_at = Math.max(Math.floor(Date.now() / 1000), lastPublishCreatedAt + 1);
     lastPublishCreatedAt = event.created_at;
     event.tags = [...kept.map((t) => [...t]), ...[...ids].map((id) => ['e', id])];
-    event.content = lastFetchedEvent?.content ?? '';
+    event.content = base?.content ?? '';
     addClientTagToEvent(event);
     try {
       await event.publish(await outboxRelaySet(event, 'list'));
@@ -175,8 +194,12 @@ function createNoteBookmarksStore() {
       }
 
       await load();
+      const state = get({ subscribe });
+      // The state must be this account's: never flip (and republish) a
+      // set that was loaded for someone else.
+      if (state.pubkey !== pubkey || get(userPublickey) !== pubkey) return false;
       const id = noteId.toLowerCase();
-      const before = get({ subscribe }).ids;
+      const before = state.ids;
       const saved = before.has(id);
       const next = new Set(before);
       if (saved) next.delete(id);
@@ -192,6 +215,21 @@ function createNoteBookmarksStore() {
         showToast('error', "Couldn't save bookmark — please try again.");
       }
       return ok ? !saved : saved;
+    },
+
+    /**
+     * Save a note unless this account already has it — the resume path
+     * after a fresh sign-in, which must never unsave (the account may have
+     * saved it from another device). True when the note ends up saved.
+     */
+    async ensureSaved(noteId: string): Promise<boolean> {
+      const pubkey = get(userPublickey);
+      if (!browser || !pubkey) return false;
+      await load();
+      const state = get({ subscribe });
+      if (state.pubkey !== pubkey) return false;
+      if (state.ids.has(noteId.toLowerCase())) return true;
+      return this.toggle(noteId);
     }
   };
 }

@@ -9,7 +9,6 @@
   import BookmarkIcon from 'phosphor-svelte/lib/Bookmark';
   import { noteBookmarksStore } from '$lib/noteBookmarksStore';
   import { userPublickey } from '$lib/nostr';
-  import { get } from 'svelte/store';
   import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
 
   export let event: NDKEvent;
@@ -31,11 +30,8 @@
     if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this note' }))) return;
     busy = true;
     try {
-      if (resuming) {
-        await noteBookmarksStore.load();
-        if (get(noteBookmarksStore).ids.has(event.id.toLowerCase())) return;
-      }
-      await noteBookmarksStore.toggle(event.id);
+      if (resuming) await noteBookmarksStore.ensureSaved(event.id);
+      else await noteBookmarksStore.toggle(event.id);
     } finally {
       busy = false;
     }

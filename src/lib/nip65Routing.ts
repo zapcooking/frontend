@@ -28,6 +28,7 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKRelaySet, NDKRelay } from '@nostr-dev-kit/ndk';
 import { normalizeRelayUrl, relayListCache } from '$lib/relayListCache';
+import { standardRelays } from '$lib/consts';
 import { outboxRelayUrls, isGroupEvent, PANTRY_URL } from '$lib/outboxRelays';
 
 const HEX64_RE = /^[0-9a-fA-F]{64}$/;
@@ -197,6 +198,23 @@ export async function zapReceiptRelayUrls(
       : Promise.resolve([] as string[])
   ]);
   return outboxRelayUrls({ own, recipients: theirs, app: getCurrentRelays() });
+}
+
+/**
+ * Receipt relays for an ANONYMOUS zap: the recipient's read relays plus the
+ * app's fixed public defaults. Nothing from this device — not the member's
+ * write relays and not the saved custom relay list (getCurrentRelays) —
+ * since a personal relay in either would link the ephemeral request back to
+ * whoever uses the device.
+ */
+export async function anonymousZapReceiptRelayUrls(recipient: string): Promise<string[]> {
+  const theirs = HEX64_RE.test(recipient)
+    ? await bounded(
+        relayListCache.getMany([recipient]).then((m) => m.get(recipient)?.read ?? []),
+        [] as string[]
+      )
+    : [];
+  return outboxRelayUrls({ own: [], recipients: theirs, app: standardRelays });
 }
 
 /**

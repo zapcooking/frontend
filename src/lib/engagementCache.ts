@@ -833,21 +833,78 @@ async function runFetchEngagement(
   }
 }
 
-function processReaction(data: EngagementData, event: NDKEvent, userPublickey: string, targetEventId?: string): void {
-  const content = event.content.trim() || '+';
-  
-  // Normalize reaction content
-  let emoji: string;
-  if (content === '+' || content === '') {
-    emoji = '❤️';
-  } else if (content === '-') {
-    emoji = '👎';
-  } else if (content.startsWith(':') && content.endsWith(':')) {
-    // Skip custom emoji shortcodes we can't render
-    return;
-  } else {
-    emoji = content;
+/**
+ * The emoji key a kind-7 content is stored under ('+' → ❤️, '-' → 👎), or
+ * null for custom :shortcode: emoji we can't render.
+ */
+export function reactionEmoji(rawContent: string): string | null {
+  const content = rawContent.trim() || '+';
+  if (content === '+') return '❤️';
+  if (content === '-') return '👎';
+  if (content.startsWith(':') && content.endsWith(':')) return null;
+  return content;
+}
+
+const OWN_REACTIONS_TIMEOUT_MS = 5000;
+
+/**
+ * Load one account's own reactions to an event and mark them in its store,
+ * awaiting the relays' answer — the resume path after a fresh sign-in, which
+ * must not publish a reaction the account already left from another device.
+ * fetchEngagement can't serve this: it skips data under 30 s old and reuses
+ * live subscriptions whose callbacks captured the signed-out pubkey, and it
+ * never waits for their results.
+ *
+ * Only the "you reacted" flags change: these reactions are already in the
+ * counts (or arrive through the subscription, deduped by pubkey:emoji). A
+ * relay set that doesn't answer within the timeout leaves the flags as they
+ * were — the reaction may then duplicate, which is the lesser failure.
+ */
+export async function loadOwnReactions(
+  ndk: NDK,
+  eventId: string,
+  pubkey: string
+): Promise<Set<string>> {
+  const mine = new Set<string>();
+  if (!ndk || !eventId || !pubkey) return mine;
+  let events: Set<NDKEvent>;
+  try {
+    events = await Promise.race([
+      ndk.fetchEvents({ kinds: [7], authors: [pubkey], '#e': [eventId] }),
+      new Promise<Set<NDKEvent>>((resolve) =>
+        setTimeout(() => resolve(new Set()), OWN_REACTIONS_TIMEOUT_MS)
+      )
+    ]);
+  } catch {
+    return mine;
   }
+  for (const event of events) {
+    if (event.pubkey !== pubkey) continue;
+    // Same rule as the subscription: only reactions whose NIP-10 target
+    // is this note, not ones that merely mention it in thread context.
+    if (!engagementTargetsNote(event.tags, event.kind, eventId)) continue;
+    const emoji = reactionEmoji(event.content);
+    if (emoji) mine.add(emoji);
+  }
+  if (mine.size > 0) {
+    getEngagementStore(eventId).update((s) => {
+      const updated = { ...s };
+      updated.reactions.userReacted = true;
+      for (const emoji of mine) {
+        updated.reactions.userReactions.add(emoji);
+        const group = updated.reactions.groups.find((g) => g.emoji === emoji);
+        if (group) group.userReacted = true;
+      }
+      return updated;
+    });
+  }
+  return mine;
+}
+
+function processReaction(data: EngagementData, event: NDKEvent, userPublickey: string, targetEventId?: string): void {
+  // Normalize reaction content
+  const emoji = reactionEmoji(event.content);
+  if (emoji === null) return; // custom emoji shortcode we can't render
   
   // Check if this matches an optimistic reaction we already added
   // This prevents double counting when the published reaction comes back through subscription

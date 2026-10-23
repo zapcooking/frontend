@@ -8,19 +8,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('./profileResolver', () => ({ resolveProfileByPubkey: vi.fn() }));
 vi.mock('./authManager', () => ({ AuthManager: class {}, getAuthManager: () => null }));
+// The routing helpers run with real code in nip65Routing.test.ts; here we
+// pin which one each kind of zap uses.
 vi.mock('$lib/nip65Routing', () => ({
   resolveAuthorPubkey: vi.fn(async () => 'f'.repeat(64)),
-  zapReceiptRelayUrls: vi.fn(async (me: string | undefined) =>
-    me
-      ? ['wss://sender-write.example', 'wss://recipient-read.example']
-      : ['wss://recipient-read.example']
-  )
+  zapReceiptRelayUrls: vi.fn(async () => [
+    'wss://recipient-read.example',
+    'wss://sender-write.example',
+    'wss://device-saved.example'
+  ]),
+  anonymousZapReceiptRelayUrls: vi.fn(async () => ['wss://recipient-read.example'])
 }));
 
 import NDK, { NDKPrivateKeySigner, type NDKSigner } from '@nostr-dev-kit/ndk';
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { ZapManager } from './zapManager';
 import * as routing from '$lib/nip65Routing';
+import { standardRelays } from './consts';
 
 const RECIPIENT = 'b'.repeat(64);
 const PAY_REQUEST = {
@@ -56,6 +60,7 @@ beforeEach(() => {
   fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ pr: 'lnbc1invoice' }) }));
   vi.stubGlobal('fetch', fetchMock);
   vi.mocked(routing.resolveAuthorPubkey).mockClear();
+  vi.mocked(routing.zapReceiptRelayUrls).mockClear();
 });
 
 afterEach(() => {
@@ -108,8 +113,20 @@ describe('createZap — anonymous', () => {
     const req = sentZapRequest();
     expect(req.pubkey).not.toBe(getPublicKey(memberSk));
     expect(routing.resolveAuthorPubkey).not.toHaveBeenCalled();
+    expect(routing.zapReceiptRelayUrls).not.toHaveBeenCalled();
     const relays = req.tags.find((t) => t[0] === 'relays')!;
-    expect(relays).not.toContain('wss://sender-write.example');
+    expect(relays).toEqual(['relays', 'wss://recipient-read.example']);
+  });
+
+  it("falls back to the public defaults, never NDK's configured relays", async () => {
+    vi.mocked(routing.anonymousZapReceiptRelayUrls).mockResolvedValueOnce([]);
+    const ndk = new NDK({ explicitRelayUrls: ['wss://personal.example'] });
+
+    await manager(ndk).createZap(RECIPIENT, 21000, '', undefined, undefined, { anonymous: true });
+
+    const relays = sentZapRequest().tags.find((t) => t[0] === 'relays')!;
+    expect(relays.slice(1)).toEqual(standardRelays);
+    expect(relays).not.toContain('wss://personal.example');
   });
 });
 

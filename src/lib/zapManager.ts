@@ -6,6 +6,7 @@ import { AuthManager, getAuthManager } from './authManager';
 import { generateSecretKey } from 'nostr-tools';
 import { ensureClientTag } from './nip89';
 import { extractZapAmountSats } from './zapAmount';
+import { standardRelays } from './consts';
 
 export interface ZapRequest {
   eventId?: string;
@@ -303,13 +304,18 @@ export class ZapManager {
 
   /**
    * Receipt relays for a zap request (NIP-57 `relays` tag). An anonymous zap
-   * leaves the sender's own write relays out — listing them would tie the
-   * request back to whoever is signed in on this device.
+   * uses only the recipient's relays and the app's fixed public defaults:
+   * the member's write relays, this device's saved relay list and NDK's
+   * configured relays could each tie the request back to the device.
    */
   private async receiptRelays(recipient: string, anonymous = false): Promise<string[]> {
-    const { zapReceiptRelayUrls, resolveAuthorPubkey } = await import('$lib/nip65Routing');
-    const sender = anonymous ? Promise.resolve(undefined) : resolveAuthorPubkey(this.ndk);
-    const urls = await sender
+    const { zapReceiptRelayUrls, anonymousZapReceiptRelayUrls, resolveAuthorPubkey } =
+      await import('$lib/nip65Routing');
+    if (anonymous) {
+      const urls = await anonymousZapReceiptRelayUrls(recipient).catch(() => [] as string[]);
+      return urls.length ? urls : [...standardRelays];
+    }
+    const urls = await resolveAuthorPubkey(this.ndk)
       .then((me) => zapReceiptRelayUrls(me, recipient))
       .catch(() => [] as string[]);
     return urls.length ? urls : this.ndk.explicitRelayUrls || [];

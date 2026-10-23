@@ -147,12 +147,24 @@
     }
   }
 
+  // The sheet's Modal (z 10000) sits above the sign-in card (9997), so it
+  // steps aside while sign-in is up — its keyboard trap goes with it — and
+  // comes back on the same profile afterwards. Closing it instead would
+  // clear the subject (ProfilePreviewModal resets the pubkey) and lose the
+  // follow target.
+  let awaitingAuth = false;
+
   async function toggleFollow() {
     if (followLoading) return;
     // Resuming after sign-in only ever follows: the account may already
     // follow this cook, and a toggle would unfollow them.
     const resuming = !isSignedIn();
-    if (!(await requireAuth({ kind: 'follow', reason: 'Sign in to follow' }))) return;
+    if (resuming) {
+      awaitingAuth = true;
+      const ok = await requireAuth({ kind: 'follow', reason: 'Sign in to follow' });
+      awaitingAuth = false;
+      if (!ok) return;
+    }
     const me = get(userPublickey);
     if (!me || !hex || followLoading || me === hex) return;
 
@@ -253,7 +265,13 @@
   }
 </script>
 
-<Modal {open} cleanup={close} noHeader autoHeight suspended={avatarLightboxOpen}>
+<Modal
+  open={open && !awaitingAuth}
+  cleanup={close}
+  noHeader
+  autoHeight
+  suspended={avatarLightboxOpen}
+>
   <!-- The banner bleeds to the dialog's edges by undoing its
        px-4/md:px-8/pt-6 padding, so the sheet opens on the same
        banner-and-avatar composition as the profile page rather than a bare

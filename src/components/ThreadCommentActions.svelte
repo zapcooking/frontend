@@ -5,7 +5,7 @@
   import { nip19 } from 'nostr-tools';
   import { goto } from '$app/navigation';
   import { formatAmount } from '$lib/utils';
-  import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
+  import { getEngagementStore, fetchEngagement, loadOwnReactions } from '$lib/engagementCache';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
   import { requireAuth } from '$lib/auth/requireAuth';
   import EmojiReactionPicker from './Reactions/EmojiReactionPicker.svelte';
@@ -42,8 +42,8 @@
     if (!canPublishReaction($ndk, $userPublickey)) {
       if (!(await requireAuth({ kind: 'react', reason: 'Sign in to react' }))) return;
       // The new account's own reactions weren't loaded while signed out;
-      // load them so the picker can't double-publish one it already has.
-      await fetchEngagement($ndk, event, $userPublickey);
+      // wait for them so the picker can't double-publish one it already has.
+      await loadOwnReactions($ndk, event.id, $userPublickey);
       showPicker = true;
       return;
     }
