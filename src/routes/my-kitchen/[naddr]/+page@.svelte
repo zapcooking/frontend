@@ -22,7 +22,7 @@
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PinIcon from 'phosphor-svelte/lib/PushPin';
   import CloudSlashIcon from 'phosphor-svelte/lib/CloudSlash';
-  import { DEFAULT_LIST_ID, DEFAULT_LIST_TITLE, cookbookStore, getCookbookCoverImage, type CookbookList, type SavedListView } from '$lib/stores/cookbookStore';
+  import { DEFAULT_LIST_ID, cookbookStore, getCookbookCoverImage, type CookbookList, type SavedListView } from '$lib/stores/cookbookStore';
   import type { SavedListChange } from '$lib/savedListSafety';
   import { showToast } from '$lib/toast';
   import { parseATag } from '$lib/listTags';
@@ -537,7 +537,9 @@
       // elsewhere since this page loaded, or not shown in the modal, stays
       // (the edit reads the list fresh).
       const removed = manageShown.filter(a => !order.includes(a));
-      if (await editThisList({ remove: removed, order })) {
+      // Recipes pasted into the modal's Add field.
+      const added = order.filter(a => !manageShown.includes(a));
+      if (await editThisList({ add: added, remove: removed, order })) {
         await loadData();
         closeManageModal();
       }

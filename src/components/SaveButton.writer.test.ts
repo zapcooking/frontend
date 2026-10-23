@@ -65,7 +65,10 @@ describe('list page: every list edit goes through the guarded store edit', () =>
     expect(handler('editThisList')).toMatch(/cookbookStore\.editList\(/);
   });
 
-  it('Manage Recipes removes only entries the modal showed', () => {
-    expect(handler('saveRecipeOrder')).toMatch(/manageShown\.filter/);
+  it('Manage Recipes removes only entries the modal showed, and keeps ones added in it', () => {
+    const body = handler('saveRecipeOrder');
+    expect(body).toMatch(/removed = manageShown\.filter/);
+    expect(body).toMatch(/added = order\.filter\(a => !manageShown\.includes\(a\)\)/);
+    expect(body).toMatch(/editThisList\(\{ add: added, remove: removed, order \}\)/);
   });
 });
