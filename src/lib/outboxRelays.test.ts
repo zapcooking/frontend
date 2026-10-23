@@ -111,6 +111,15 @@ describe('recipeListRelayUrls', () => {
     ]);
   });
 
+  it("nostr.wine is kept when it's in the member's own relay list (paid members can write there)", () => {
+    expect(
+      recipeListRelayUrls({
+        own: ['wss://nostr.wine/', 'wss://purplepag.es'],
+        app: ['wss://nos.lol', 'wss://nostr.wine']
+      })
+    ).toEqual(['wss://nostr.wine/', 'wss://nos.lol', ...RECIPE_LIST_RELAYS]);
+  });
+
   it('a member with no relay list and an empty app list still has two list relays', () => {
     expect(recipeListRelayUrls({ own: [], app: [] })).toEqual(RECIPE_LIST_RELAYS);
   });

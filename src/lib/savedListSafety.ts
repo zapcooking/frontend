@@ -44,9 +44,11 @@ export const MIN_EMPTY_ANSWERS = 2;
 
 /**
  * Relays that refuse kind-30001 writes (NON_LIST_RELAYS: purplepag.es and
- * nostr.wine). They are no longer in the list relay set, but a member's own
- * relay list can still name them, and an empty answer from them says nothing
- * about whether the list exists.
+ * nostr.wine). nostr.wine is still read and written when the member's own
+ * relay list names it (paying members can store lists there), and a list it
+ * returns counts like any relay's — but an empty answer from it (or from
+ * purplepag.es) says nothing about whether the list exists, so it never
+ * counts toward absence or the quorum.
  */
 export const NON_EVIDENCE_RELAYS = NON_LIST_RELAYS;
 
