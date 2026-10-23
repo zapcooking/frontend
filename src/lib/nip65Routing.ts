@@ -150,13 +150,56 @@ export async function outboxTargetUrls(
   inbox = true
 ): Promise<string[]> {
   if (isGroupEvent(event.tags)) return [PANTRY_URL];
-  const { getCurrentRelays } = await import('$lib/nostr');
   const me = event.pubkey || author;
+  if (!inbox) return listRelayUrls(me);
+  const { getCurrentRelays } = await import('$lib/nostr');
   const [own, recipients] = await Promise.all([
     getOwnWriteRelays(me),
-    inbox ? getRecipientInboxRelays(event, me) : Promise.resolve([] as string[])
+    getRecipientInboxRelays(event, me)
   ]);
   return outboxRelayUrls({ own, recipients, app: getCurrentRelays() });
+}
+
+/**
+ * Where the member's lists live: own write relays, then the app's relays.
+ * Lists are published here (outboxRelaySet 'list') AND read from here (My
+ * Kitchen, the Saved-list safety read) — one set, so a read can never miss a
+ * relay that a write reached.
+ */
+export async function listRelayUrls(pubkey: string | undefined): Promise<string[]> {
+  return listRelayUrlsFrom(await getOwnWriteRelays(pubkey));
+}
+
+/** listRelayUrls for an already-resolved set of own write relays. */
+export async function listRelayUrlsFrom(ownWrite: string[]): Promise<string[]> {
+  const { getCurrentRelays } = await import('$lib/nostr');
+  return outboxRelayUrls({ own: ownWrite, recipients: [], app: getCurrentRelays() });
+}
+
+/**
+ * listRelayUrls as an NDK relay set, for reading the member's lists through
+ * NDK. Undefined (NDK's default routing) when the set can't be built.
+ */
+export async function listRelaySet(ndk: NDK, pubkey: string): Promise<NDKRelaySet | undefined> {
+  try {
+    return relaySetForUrls(ndk, await listRelayUrls(pubkey));
+  } catch (e) {
+    console.warn('[nip65Routing] list relay set failed, using default routing:', e);
+    return undefined;
+  }
+}
+
+/** An NDK relay set for exactly these URLs; undefined when none can be used. */
+export async function relaySetForUrls(ndk: NDK, urls: string[]): Promise<NDKRelaySet | undefined> {
+  if (urls.length === 0) return undefined;
+  const { NDKRelaySet } = await import('@nostr-dev-kit/ndk');
+  const pool = (
+    ndk as unknown as {
+      pool: { getRelay: (url: string, connect: boolean, temporary: boolean) => NDKRelay | null };
+    }
+  ).pool;
+  const relays = urls.map((u) => pool.getRelay(u, true, true)).filter((r): r is NDKRelay => !!r);
+  return relays.length ? new NDKRelaySet(new Set(relays), ndk) : undefined;
 }
 
 /**

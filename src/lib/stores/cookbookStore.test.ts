@@ -25,6 +25,10 @@ vi.mock('$lib/nostr', async () => {
   };
 });
 
+vi.mock('$lib/nip65Routing', () => ({
+  listRelaySet: vi.fn(async () => undefined)
+}));
+
 vi.mock('$lib/connectionMonitor', () => ({
   isCurrentlyOnline: vi.fn(() => true),
   onConnect: vi.fn(() => () => {})
@@ -251,7 +255,10 @@ describe('cookbookStore cold-session behavior', () => {
       expect(vi.mocked(offlineStorage.queueOperation)).not.toHaveBeenCalled();
     });
 
-    it('creates (and publishes) after a completed refresh confirmed absence', async () => {
+    it('after a completed refresh found none, shows a placeholder and publishes NOTHING', async () => {
+      // The list is created on relays only by the first save, as one event
+      // holding the recipe, after the safe read confirms absence — an empty
+      // list published here could supersede the member's real one.
       setNdk(autoRespond([]));
 
       const result = await cookbookStore.ensureDefaultList();
@@ -259,20 +266,21 @@ describe('cookbookStore cold-session behavior', () => {
       expect(result).not.toBeNull();
       expect(result!.id).toBe(DEFAULT_LIST_ID);
       expect(result!.recipes).toEqual([]);
-      expect(publishSpy).toHaveBeenCalledTimes(1);
+      expect(result!.localOnly).toBe(true);
+      expect(publishSpy).not.toHaveBeenCalled();
+      expect(vi.mocked(offlineStorage.queueOperation)).not.toHaveBeenCalled();
+      expect(vi.mocked(offlineStorage.saveCookbook)).not.toHaveBeenCalled();
       expect(get(cookbookStore).lists.some((l) => l.isDefault)).toBe(true);
     });
 
-    it('creates even when navigator.onLine is false — readiness, not onLine, is the gate', async () => {
-      // navigator.onLine misreporting must not block a publish the relays
-      // can actually take: the refresh below completes, confirming absence.
+    it('shows the placeholder even when navigator.onLine is false — readiness, not onLine, is the gate', async () => {
       vi.mocked(isCurrentlyOnline).mockReturnValue(false);
       setNdk(autoRespond([]));
 
       const result = await cookbookStore.ensureDefaultList();
 
       expect(result).not.toBeNull();
-      expect(publishSpy).toHaveBeenCalledTimes(1);
+      expect(publishSpy).not.toHaveBeenCalled();
     });
 
     it('returns null and creates nothing when absence cannot be confirmed (refresh never EOSEs)', async () => {
@@ -302,7 +310,7 @@ describe('cookbookStore cold-session behavior', () => {
       const result = await cookbookStore.ensureDefaultList();
       expect(result).not.toBeNull();
       expect(fakeNdk.subscribe).toHaveBeenCalledTimes(1); // no second subscribe
-      expect(publishSpy).toHaveBeenCalledTimes(1);
+      expect(publishSpy).not.toHaveBeenCalled();
     });
   });
 });

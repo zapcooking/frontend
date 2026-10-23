@@ -68,6 +68,18 @@
       {toast.link.label}
     </a>
   {/if}
+  {#if toast.action}
+    <button
+      type="button"
+      class="toast-link"
+      on:click={() => {
+        dismissToast(toast.id);
+        toast.action?.onClick();
+      }}
+    >
+      {toast.action.label}
+    </button>
+  {/if}
   <button
     type="button"
     class="toast-dismiss"

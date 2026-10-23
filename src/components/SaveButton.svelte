@@ -8,10 +8,8 @@
    * - Visual feedback when recipe is already saved
    */
   
-  import { outboxRelaySet } from '$lib/outboxPublish';
-  
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { userPublickey } from '$lib/nostr';
   import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
@@ -19,8 +17,9 @@
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import { clickOutside } from '$lib/clickOutside';
-  import { cookbookStore, type CookbookList, DEFAULT_LIST_ID } from '$lib/stores/cookbookStore';
-  import { RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
+  import { cookbookStore, DEFAULT_LIST_ID } from '$lib/stores/cookbookStore';
+  import { showToast } from '$lib/toast';
+  import { get } from 'svelte/store';
   import { fade, slide } from 'svelte/transition';
 
   export let event: NDKEvent;
@@ -42,23 +41,14 @@
   let loading = false;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let isLongPress = false;
-  let lists: CookbookList[] = [];
-  let listsLoaded = false;
-  // Account the cached lists belong to. Signing in over the page
-  // (requireAuth) can switch accounts under a mounted button — e.g. lists
-  // loaded on mount for a locked passkey session's stored pubkey — and one
-  // account's lists must never be edited and republished under another's
-  // signer (addToList copies the cached list's tags and recipes).
-  let listsPubkey = '';
-  let listsLoad: { pubkey: string; promise: Promise<boolean> } | null = null;
-
-  $: if (listsLoaded && listsPubkey !== $userPublickey) {
-    lists = [];
-    listsLoaded = false;
-    listsPubkey = '';
-  }
-  let isSaved = false;
-  let savedInLists: Set<string> = new Set();
+  // The lists come from My Kitchen's store — the one place lists are read
+  // and written (the "Saved" list only through its safe edit). This button
+  // never builds or publishes a list event itself.
+  // The unpublished Saved placeholder stays in the picker: choosing it is a
+  // first save through the guarded edit, and it is never an edit base.
+  $: lists = $userPublickey ? $cookbookStore.lists : [];
+  $: listsLoaded = $cookbookStore.initialized;
+  $: if ($userPublickey) cookbookStore.ensureLoaded();
 
   // Size classes
   // With text the button sizes to its label; only the height is fixed.
@@ -90,114 +80,33 @@
   // Recipe a-tag for comparison
   $: recipeATag = event ? `${event.kind}:${event.pubkey}:${event.replaceableDTag()}` : '';
 
-  // Check save status
-  function checkSaveStatus() {
-    if (!lists.length || !recipeATag) {
-      isSaved = false;
-      savedInLists = new Set();
-      return;
+  $: savedInLists = new Set(lists.filter((l) => l.recipes.includes(recipeATag)).map((l) => l.id));
+  $: isSaved = savedInLists.size > 0;
+
+  /**
+   * Save to / remove from the Saved list through the store's safe edit. A
+   * refusal ("nothing was changed") is shown with Retry, which repeats the
+   * SAME operation — never re-runs the toggle, which could flip direction.
+   */
+  async function editSaved(op: 'save' | 'remove'): Promise<void> {
+    if (loading) return;
+    loading = true;
+    try {
+      const result =
+        op === 'save'
+          ? await cookbookStore.saveToDefaultList(event)
+          : await cookbookStore.removeFromDefaultList(recipeATag);
+      if (!result.ok) {
+        showToast('error', result.message, 10000, undefined, {
+          label: 'Retry',
+          onClick: () => editSaved(op)
+        });
+      } else if (result.changed) {
+        dispatch(op === 'save' ? 'saved' : 'removed', { listId: DEFAULT_LIST_ID });
+      }
+    } finally {
+      loading = false;
     }
-
-    const newSavedIn = new Set<string>();
-    lists.forEach(list => {
-      if (list.recipes.includes(recipeATag)) {
-        newSavedIn.add(list.id);
-      }
-    });
-
-    savedInLists = newSavedIn;
-    isSaved = savedInLists.size > 0;
-  }
-
-  $: if (lists && recipeATag) {
-    checkSaveStatus();
-  }
-
-  /** Load the current account's lists; resolves true once they are in. */
-  function loadLists(): Promise<boolean> {
-    const pubkey = $userPublickey;
-    if (!pubkey) return Promise.resolve(false);
-    if (listsLoaded && listsPubkey === pubkey) return Promise.resolve(true);
-    if (listsLoad?.pubkey === pubkey) return listsLoad.promise;
-
-    const promise = new Promise<boolean>((resolve) => {
-      const done = (ok: boolean) => {
-        if (listsLoad?.promise === promise) listsLoad = null;
-        resolve(ok);
-      };
-      try {
-        const filters = [
-          {
-            authors: [pubkey],
-            kinds: [30001],
-            '#t': RECIPE_TAGS,
-            limit: 256
-          },
-          {
-            '#d': [DEFAULT_LIST_ID],
-            authors: [pubkey],
-            kinds: [30001]
-          }
-        ];
-
-        const subscription = $ndk.subscribe(filters, { closeOnEose: true });
-        const loadedLists: CookbookList[] = [];
-        const seenIds = new Set<string>();
-
-        subscription.on('event', (ev: NDKEvent) => {
-          if (ev.pubkey !== pubkey) return;
-          const dTag = ev.tags.find(t => t[0] === 'd')?.[1];
-          if (!dTag || seenIds.has(dTag)) return;
-          seenIds.add(dTag);
-
-          const title = ev.tags.find(t => t[0] === 'title')?.[1] || dTag;
-          const recipes = ev.tags.filter(t => t[0] === 'a').map(t => t[1]);
-          const isDefault = dTag === DEFAULT_LIST_ID;
-
-          loadedLists.push({
-            id: dTag,
-            naddr: '',
-            title: isDefault ? 'Saved' : title,
-            recipeCount: recipes.length,
-            recipes,
-            createdAt: ev.created_at || 0,
-            isDefault,
-            event: ev
-          });
-        });
-
-        subscription.on('eose', () => {
-          // Signed in as someone else meanwhile: these lists aren't theirs.
-          if ($userPublickey !== pubkey) {
-            done(false);
-            return;
-          }
-
-          // Final deduplication by id (in case of race conditions)
-          const uniqueLists = loadedLists.filter((list, index, self) =>
-            index === self.findIndex(l => l.id === list.id)
-          );
-
-          // Sort: default first, then alphabetically
-          uniqueLists.sort((a, b) => {
-            if (a.isDefault) return -1;
-            if (b.isDefault) return 1;
-            return a.title.localeCompare(b.title);
-          });
-
-          lists = uniqueLists;
-          listsPubkey = pubkey;
-          listsLoaded = true;
-          checkSaveStatus();
-          done(true);
-        });
-      } catch (error) {
-        console.error('Failed to load lists:', error);
-        done(false);
-      }
-    });
-    listsLoad = { pubkey, promise };
-    return promise;
   }
 
   async function quickSave() {
@@ -205,169 +114,34 @@
     // have this recipe saved from another device.
     const resuming = !isSignedIn();
     if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this recipe' }))) return;
-
     if (loading) return;
-    loading = true;
 
-    try {
-      // This account's lists — reloaded if the cache held another's.
-      if (!(await loadLists())) return;
-
-      // Find or create default list
-      let defaultList = lists.find(l => l.isDefault);
-
-      if (!defaultList) {
-        // Create default list
-        const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-        const newEvent = new NDKEvent($ndk);
-        newEvent.kind = 30001;
-        newEvent.tags = [
-          ['d', DEFAULT_LIST_ID],
-          ['title', 'Saved']
-        ];
-        await newEvent.publish(await outboxRelaySet(newEvent, 'list'));
-
-        defaultList = {
-          id: DEFAULT_LIST_ID,
-          naddr: '',
-          title: 'Saved',
-          recipeCount: 0,
-          recipes: [],
-          createdAt: Math.floor(Date.now() / 1000),
-          isDefault: true,
-          event: newEvent
-        };
-        lists = [defaultList, ...lists];
-      }
-
-      // Toggle: if already in default list, remove; otherwise add
-      if (savedInLists.has(DEFAULT_LIST_ID)) {
-        if (resuming) return;
-        await removeFromList(DEFAULT_LIST_ID);
-      } else {
-        await addToList(DEFAULT_LIST_ID);
-      }
-    } catch (error) {
-      console.error('Quick save failed:', error);
-    } finally {
-      loading = false;
-    }
+    await cookbookStore.ensureLoaded();
+    const inDefault = !!get(cookbookStore)
+      .lists.find((l) => l.id === DEFAULT_LIST_ID && !l.localOnly)
+      ?.recipes.includes(recipeATag);
+    // The store's safe edit re-reads the list from the relays before it
+    // publishes, so neither direction can build on a stale copy.
+    if (inDefault && resuming) return;
+    await editSaved(inDefault ? 'remove' : 'save');
   }
 
-  async function addToList(listId: string) {
-    // Never republish a list cached for another account.
-    if (!listsLoaded || listsPubkey !== $userPublickey) return;
-    const list = lists.find(l => l.id === listId);
-    if (!list || list.recipes.includes(recipeATag)) return;
-
+  async function toggleListSelection(listId: string) {
+    if (loading) return;
+    const wasIn = savedInLists.has(listId);
+    if (listId === DEFAULT_LIST_ID) {
+      await editSaved(wasIn ? 'remove' : 'save');
+      return;
+    }
     loading = true;
-
     try {
-      const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-      const newEvent = new NDKEvent($ndk);
-      newEvent.kind = 30001;
-
-      // Copy metadata tags
-      const metaTags = ['d', 'title', 'summary', 'image', 't'];
-      list.event.tags.forEach(tag => {
-        if (metaTags.includes(tag[0])) {
-          newEvent.tags.push([...tag]);
-        }
-      });
-
-      // Add existing recipes
-      list.recipes.forEach(r => {
-        newEvent.tags.push(['a', r]);
-      });
-
-      // Add new recipe
-      newEvent.tags.push(['a', recipeATag]);
-
-      const { addClientTagToEvent } = await import('$lib/nip89');
-      addClientTagToEvent(newEvent);
-
-      await newEvent.publish(await outboxRelaySet(newEvent, 'list'));
-
-      // Update local state
-      const index = lists.findIndex(l => l.id === listId);
-      if (index !== -1) {
-        lists[index] = {
-          ...lists[index],
-          recipes: [...lists[index].recipes, recipeATag],
-          recipeCount: lists[index].recipeCount + 1,
-          event: newEvent
-        };
-        lists = lists;
-      }
-
-      checkSaveStatus();
-      dispatch('saved', { listId });
-    } catch (error) {
-      console.error('Failed to add to list:', error);
+      const ok = wasIn
+        ? await cookbookStore.removeRecipeFromList(listId, recipeATag)
+        : await cookbookStore.addRecipeToList(listId, event);
+      if (ok) dispatch(wasIn ? 'removed' : 'saved', { listId });
+      else showToast('error', "Couldn't update that list. Please try again.");
     } finally {
       loading = false;
-    }
-  }
-
-  async function removeFromList(listId: string) {
-    // Never republish a list cached for another account.
-    if (!listsLoaded || listsPubkey !== $userPublickey) return;
-    const list = lists.find(l => l.id === listId);
-    if (!list || !list.recipes.includes(recipeATag)) return;
-
-    loading = true;
-
-    try {
-      const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-      const newEvent = new NDKEvent($ndk);
-      newEvent.kind = 30001;
-
-      // Copy metadata tags
-      const metaTags = ['d', 'title', 'summary', 'image', 't'];
-      list.event.tags.forEach(tag => {
-        if (metaTags.includes(tag[0])) {
-          newEvent.tags.push([...tag]);
-        }
-      });
-
-      // Add recipes except the one being removed
-      list.recipes.forEach(r => {
-        if (r !== recipeATag) {
-          newEvent.tags.push(['a', r]);
-        }
-      });
-
-      const { addClientTagToEvent } = await import('$lib/nip89');
-      addClientTagToEvent(newEvent);
-
-      await newEvent.publish(await outboxRelaySet(newEvent, 'list'));
-
-      // Update local state
-      const index = lists.findIndex(l => l.id === listId);
-      if (index !== -1) {
-        lists[index] = {
-          ...lists[index],
-          recipes: lists[index].recipes.filter(r => r !== recipeATag),
-          recipeCount: Math.max(0, lists[index].recipeCount - 1),
-          event: newEvent
-        };
-        lists = lists;
-      }
-
-      checkSaveStatus();
-      dispatch('removed', { listId });
-    } catch (error) {
-      console.error('Failed to remove from list:', error);
-    } finally {
-      loading = false;
-    }
-  }
-
-  function toggleListSelection(listId: string) {
-    if (savedInLists.has(listId)) {
-      removeFromList(listId);
-    } else {
-      addToList(listId);
     }
   }
 
@@ -400,7 +174,7 @@
 
   async function openDropdown() {
     if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this recipe' }))) return;
-    loadLists();
+    cookbookStore.ensureLoaded();
     dropdownOpen = true;
   }
 
@@ -408,11 +182,6 @@
     dropdownOpen = false;
   }
 
-  onMount(() => {
-    if ($userPublickey) {
-      loadLists();
-    }
-  });
 
   onDestroy(() => {
     if (longPressTimer) {

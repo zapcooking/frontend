@@ -16,6 +16,19 @@ import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW, isHiddenRecipeATag } from '$lib/consts';
 import { offlineStorage, type SyncOperation, type OfflineCookbook, type SerializedCookbookData } from '$lib/offlineStorage';
 import { isCurrentlyOnline, onConnect } from '$lib/connectionMonitor';
+import {
+  buildSavedListEdit,
+  decideSavedListBase,
+  type ListEvent,
+  type SavedListChange
+} from '$lib/savedListSafety';
+import {
+  getListSeen,
+  isFreshAccount,
+  noteListSeen,
+  readListFromRelays,
+  type QueryList
+} from '$lib/savedList';
 
 // Default list identifier (backward compatible with existing bookmarks)
 export const DEFAULT_LIST_ID = 'nostrcooking-bookmarks';
@@ -34,7 +47,28 @@ export interface CookbookList {
   isDefault: boolean;
   event: NDKEvent;      // Original NDK event for updates
   pendingSync?: boolean; // True if has local changes not yet synced to Nostr
+  /**
+   * The default list's on-screen placeholder before its first save: never
+   * published, never persisted, never a base for an edit — the first save
+   * publishes the real list with the recipe in it.
+   */
+  localOnly?: boolean;
+  /**
+   * Restored from an IndexedDB record that predates storing event content:
+   * fine to display, never the base of an edit.
+   */
+  contentUnknown?: boolean;
 }
+
+/** Outcome of an edit to the default "Saved" list. */
+export type SavedListResult =
+  | { ok: true; changed: boolean; /** Recipes actually added (not already there). */ added: number }
+  | { ok: false; message: string };
+
+export const SAVED_LIST_UNCONFIRMED_MESSAGE =
+  "Couldn't load your Saved list, so nothing was changed. Please try again in a moment.";
+export const SAVED_LIST_PUBLISH_FAILED_MESSAGE =
+  "Couldn't update your Saved list, so nothing was changed. Please try again.";
 
 export interface CookbookState {
   lists: CookbookList[];
@@ -73,6 +107,35 @@ function createCookbookStore() {
   // refresh — absence stays unconfirmed.
   const REFRESH_EOSE_TIMEOUT_MS = 10000;
 
+  // Account the store's lists belong to. The store is app-wide and a
+  // sign-in can switch accounts under it: another account's lists must
+  // never be shown, edited or republished under the new signer.
+  let storePubkey = '';
+
+  // created_at of the last version this session published, per list.
+  // Every republish is strictly newer than both it and the list's current
+  // event: relays keep the lower id when two versions tie on created_at,
+  // which silently dropped saves made within one second.
+  const lastPublishedAt = new Map<string, number>();
+
+  // Default-list edits run one at a time: two quick saves would otherwise
+  // both build on the same base and one would drop the other's recipe.
+  let defaultEditQueue: Promise<unknown> = Promise.resolve();
+
+  // Test seam: the per-relay reader used by default-list edits.
+  let savedListQuery: QueryList | undefined;
+
+  // Bumped by every reset (sign-out, account switch). Async loads and
+  // refreshes capture it when they start and commit only if it is unchanged
+  // — a slow load for account A must never install A's lists after B took
+  // over the store.
+  let generation = 0;
+
+  // ensureLoaded(): one load per account, shared by every caller (a feed can
+  // mount dozens of save buttons).
+  let loadedFor = '';
+  let inflightLoad: { pubkey: string; promise: Promise<void> } | null = null;
+
   // Register for auto-sync when connection is restored
   if (typeof window !== 'undefined') {
     syncUnsubscribe = onConnect(() => {
@@ -80,6 +143,180 @@ function createCookbookStore() {
       syncPendingChanges();
     });
   }
+
+  const nowSeconds = () => Math.floor(Date.now() / 1000);
+  const publishedKey = (pubkey: string, listId: string) => `${pubkey}:${listId}`;
+
+  /** Strictly newer than the list's current event and this session's last publish. */
+  function stampCreatedAt(event: NDKEvent, list: CookbookList | undefined, pubkey: string, listId: string) {
+    const k = publishedKey(pubkey, listId);
+    event.created_at = Math.max(
+      nowSeconds(),
+      (list?.event?.created_at ?? 0) + 1,
+      (lastPublishedAt.get(k) ?? 0) + 1
+    );
+    lastPublishedAt.set(k, event.created_at);
+  }
+
+  function resetState() {
+    if (subscription) {
+      subscription.stop();
+      subscription = null;
+    }
+    // Any load or refresh still running belongs to the state being reset:
+    // its results must not land in the new one (see `generation`).
+    generation++;
+    // A reset store has no relay knowledge: absence must be re-confirmed
+    // before ensureDefaultList may create again.
+    refreshCompletedAt = 0;
+    inflightRefresh = null;
+    set({
+      lists: [],
+      loading: false,
+      initialized: false,
+      error: null,
+      syncStatus: 'synced',
+      pendingOperations: 0
+    });
+  }
+
+  /** Drop another account's lists before acting for `pubkey`. */
+  function ensureAccount(pubkey: string) {
+    if (storePubkey && storePubkey !== pubkey) resetState();
+    storePubkey = pubkey;
+  }
+
+  /** Whether async work started at `gen` for `pubkey` may still change the store. */
+  function stillCurrent(gen: number, pubkey: string): boolean {
+    return gen === generation && storePubkey === pubkey && get(userPublickey) === pubkey;
+  }
+
+  /**
+   * A list's event as an edit base: only a complete, signed copy by the
+   * editing account counts — never the unpublished placeholder, another
+   * account's list, or an IndexedDB record that lost its content.
+   */
+  function listEventOf(list: CookbookList | undefined, pubkey: string): ListEvent | null {
+    if (!list || list.localOnly || list.contentUnknown) return null;
+    if (!list.event?.id || !list.event.created_at || list.event.pubkey !== pubkey) return null;
+    return { id: list.event.id, created_at: list.event.created_at, tags: list.event.tags, content: list.event.content };
+  }
+
+  /** Put the default list's newest event into the store and IndexedDB. */
+  async function adoptDefaultList(event: NDKEvent, pubkey: string): Promise<void> {
+    if (storePubkey !== pubkey || get(userPublickey) !== pubkey) return;
+    const list = eventToList(event, pubkey);
+    if (!list) return;
+    update(s => ({
+      ...s,
+      lists: [list, ...s.lists.filter(l => l.id !== DEFAULT_LIST_ID)]
+    }));
+    await offlineStorage.saveCookbook(list, pubkey, true);
+  }
+
+  /**
+   * The one way the default "Saved" list is changed ($lib/savedListSafety
+   * has the rules): read it from the relays it lives on, refuse unless the
+   * read reaches the quorum, build ONE event on the newest copy, publish it
+   * — to exactly the relays that were read — strictly newer than anything
+   * before it. Nothing is published, and the store is untouched, when any
+   * step fails. `pubkey` is the account that asked for the edit: it is
+   * refused if a different account is signed in by the time it runs.
+   */
+  async function doEditDefaultList(change: SavedListChange, pubkey: string): Promise<SavedListResult> {
+    const ndkInstance = get(ndk);
+    if (!pubkey || !ndkInstance) return { ok: false, message: 'Sign in to save recipes.' };
+    if (get(userPublickey) !== pubkey) return { ok: false, message: SAVED_LIST_UNCONFIRMED_MESSAGE };
+    ensureAccount(pubkey);
+
+    const local = listEventOf(get({ subscribe }).lists.find(l => l.id === DEFAULT_LIST_ID), pubkey);
+    const fresh = isFreshAccount(pubkey);
+    let answers: Awaited<ReturnType<typeof readListFromRelays>>['answers'] = [];
+    let ownWrite: string[] = [];
+    let urls: string[] = [];
+    try {
+      if (fresh) {
+        const { listRelayUrls } = await import('$lib/nip65Routing');
+        urls = await listRelayUrls(pubkey);
+      } else {
+        const read = await readListFromRelays(pubkey, DEFAULT_LIST_ID, savedListQuery);
+        if (read.discovery === 'unknown') {
+          console.warn("[CookbookStore] Saved list edit refused: couldn't establish the member's write relays");
+          return { ok: false, message: SAVED_LIST_UNCONFIRMED_MESSAGE };
+        }
+        ({ answers, ownWrite, urls } = read);
+      }
+    } catch (error) {
+      console.error('[CookbookStore] Saved list read failed:', error);
+      return { ok: false, message: SAVED_LIST_UNCONFIRMED_MESSAGE };
+    }
+    const decision = decideSavedListBase({
+      answers,
+      ownWrite,
+      local,
+      seen: getListSeen(pubkey, DEFAULT_LIST_ID),
+      fresh
+    });
+    if (!decision.ok) {
+      console.warn('[CookbookStore] Saved list edit refused: read incomplete', answers.map(a => `${a.url}:${a.ok ? 'eose' : 'silent'}`));
+      return { ok: false, message: SAVED_LIST_UNCONFIRMED_MESSAGE };
+    }
+    // Signed in as someone else while reading: this base isn't theirs.
+    if (get(userPublickey) !== pubkey) return { ok: false, message: SAVED_LIST_UNCONFIRMED_MESSAGE };
+    noteListSeen(pubkey, DEFAULT_LIST_ID, decision.base);
+
+    const k = publishedKey(pubkey, DEFAULT_LIST_ID);
+    const next = buildSavedListEdit(decision.base, change, {
+      dTag: DEFAULT_LIST_ID,
+      title: DEFAULT_LIST_TITLE,
+      now: nowSeconds(),
+      floor: lastPublishedAt.get(k) ?? 0
+    });
+
+    if (!next.changed) {
+      // Nothing to publish (already saved / already gone) — but show the
+      // newest copy the read found.
+      if (decision.base?.id) {
+        await adoptDefaultList(new NDKEvent(ndkInstance, { ...decision.base, kind: 30001, pubkey } as never), pubkey);
+      }
+      return { ok: true, changed: false, added: 0 };
+    }
+
+    const event = new NDKEvent(ndkInstance);
+    event.kind = 30001;
+    event.tags = next.tags;
+    event.content = next.content;
+    event.created_at = next.created_at;
+    const { addClientTagToEvent } = await import('$lib/nip89');
+    addClientTagToEvent(event);
+    try {
+      const { relaySetForUrls } = await import('$lib/nip65Routing');
+      await event.publish(await relaySetForUrls(ndkInstance, urls));
+    } catch (error) {
+      console.error('[CookbookStore] Saved list publish failed:', error);
+      return { ok: false, message: SAVED_LIST_PUBLISH_FAILED_MESSAGE };
+    }
+    lastPublishedAt.set(k, event.created_at!);
+    noteListSeen(pubkey, DEFAULT_LIST_ID, {
+      id: event.id,
+      created_at: event.created_at!,
+      tags: event.tags,
+      content: event.content
+    });
+    await adoptDefaultList(event, pubkey);
+    return { ok: true, changed: true, added: next.added };
+  }
+
+  /** Queue an edit for the account signed in NOW (see doEditDefaultList). */
+  function editDefaultList(change: SavedListChange): Promise<SavedListResult> {
+    const pubkey = get(userPublickey);
+    const run = defaultEditQueue.catch(() => {}).then(() => doEditDefaultList(change, pubkey));
+    defaultEditQueue = run.catch(() => {});
+    return run;
+  }
+
+  const aTagOf = (recipeEvent: NDKEvent) =>
+    `${recipeEvent.kind}:${recipeEvent.pubkey}:${recipeEvent.replaceableDTag()}`;
 
   /**
    * Process pending sync operations
@@ -147,6 +384,21 @@ function createCookbookStore() {
   ): Promise<void> {
     const state = get({ subscribe });
     const list = state.lists.find(l => l.id === op.listId);
+
+    // The default list is never replayed from local state: a queued edit
+    // becomes a fresh safe edit (and an old queued empty "create" is moot —
+    // the first save creates the list with its recipe).
+    if (op.listId === DEFAULT_LIST_ID) {
+      const change: SavedListChange | null =
+        op.type === 'add_recipe' ? { add: [op.payload.aTag] }
+        : op.type === 'remove_recipe' ? { remove: [op.payload.recipeATag] }
+        : op.type === 'set_cover' ? { cover: op.payload.recipeATag }
+        : null;
+      if (!change) return;
+      const result = await editDefaultList(change);
+      if (!result.ok) throw new Error(result.message);
+      return;
+    }
     
     switch (op.type) {
       case 'create_list': {
@@ -162,6 +414,7 @@ function createCookbookStore() {
         
         const { addClientTagToEvent } = await import('$lib/nip89');
         addClientTagToEvent(event);
+        stampCreatedAt(event, list, pubkey, op.listId);
         await event.publish(await outboxRelaySet(event, 'list'));
         break;
       }
@@ -171,6 +424,7 @@ function createCookbookStore() {
         const event = rebuildListEvent(list, ndkInstance);
         const { addClientTagToEvent } = await import('$lib/nip89');
         addClientTagToEvent(event);
+        stampCreatedAt(event, list, pubkey, op.listId);
         await event.publish(await outboxRelaySet(event, 'list'));
         break;
       }
@@ -180,6 +434,7 @@ function createCookbookStore() {
         const event = rebuildListEvent(list, ndkInstance);
         const { addClientTagToEvent } = await import('$lib/nip89');
         addClientTagToEvent(event);
+        stampCreatedAt(event, list, pubkey, op.listId);
         await event.publish(await outboxRelaySet(event, 'list'));
         break;
       }
@@ -189,6 +444,7 @@ function createCookbookStore() {
         const event = rebuildListEvent(list, ndkInstance);
         const { addClientTagToEvent } = await import('$lib/nip89');
         addClientTagToEvent(event);
+        stampCreatedAt(event, list, pubkey, op.listId);
         await event.publish(await outboxRelaySet(event, 'list'));
         break;
       }
@@ -198,6 +454,7 @@ function createCookbookStore() {
         const event = rebuildListEvent(list, ndkInstance);
         const { addClientTagToEvent } = await import('$lib/nip89');
         addClientTagToEvent(event);
+        stampCreatedAt(event, list, pubkey, op.listId);
         await event.publish(await outboxRelaySet(event, 'list'));
         break;
       }
@@ -249,6 +506,7 @@ function createCookbookStore() {
     if (data.eventId) {
       event.id = data.eventId;
     }
+    if (typeof data.eventContent === 'string') event.content = data.eventContent;
     
     return {
       id: data.id,
@@ -262,7 +520,9 @@ function createCookbookStore() {
       createdAt: data.createdAt,
       isDefault: data.isDefault,
       event,
-      pendingSync: offline.pendingChanges
+      pendingSync: offline.pendingChanges,
+      // Records from before content was stored can't be an edit base.
+      contentUnknown: typeof data.eventContent !== 'string'
     };
   }
 
@@ -296,17 +556,25 @@ function createCookbookStore() {
     const ndkInstance = get(ndk);
 
     if (!pubkey || !ndkInstance) return;
+    ensureAccount(pubkey);
+    const gen = generation;
 
     // Wait for relay readiness before subscribing. Without this, a
     // cold-session subscribe races the connecting pool, EOSEs early against
     // the connected subset, and caches an empty list set
     // (docs/ndk-readiness-discovery.md §4a).
-    try {
-      await ensureNdkConnected();
-    } catch {
-      // ensureNdkConnected resolves rather than rejects by construction;
-      // tolerate anyway and let the fetch (+ timeout below) decide.
-    }
+    //
+    // Lists are read from exactly the relays they are written to
+    // (listRelayUrls), so My Kitchen can never miss a relay a save reached.
+    const [, relaySet] = await Promise.all([
+      ensureNdkConnected().catch(() => {
+        // ensureNdkConnected resolves rather than rejects by construction;
+        // tolerate anyway and let the fetch (+ timeout below) decide.
+      }),
+      import('$lib/nip65Routing')
+        .then((m) => m.listRelaySet(ndkInstance, pubkey))
+        .catch(() => undefined)
+    ]);
 
     // Clean up existing subscription
     if (subscription) {
@@ -351,9 +619,10 @@ function createCookbookStore() {
         finish();
       }, REFRESH_EOSE_TIMEOUT_MS);
 
-      subscription = ndkInstance.subscribe(filters, { closeOnEose: true });
+      subscription = ndkInstance.subscribe(filters, { closeOnEose: true }, relaySet);
 
       subscription.on('event', (event: NDKEvent) => {
+        if (event.pubkey && event.pubkey !== pubkey) return;
         const dTag = event.tags.find(t => t[0] === 'd')?.[1];
         if (!dTag || seenIds.has(dTag)) return;
         seenIds.add(dTag);
@@ -366,6 +635,12 @@ function createCookbookStore() {
 
       subscription.on('eose', async () => {
         clearTimeout(eoseTimeout);
+        // Signed in as someone else (or the store was reset) meanwhile:
+        // these lists aren't the current account's.
+        if (!stillCurrent(gen, pubkey)) {
+          finish();
+          return;
+        }
 
         // Final deduplication by id (in case of race conditions)
         const uniqueLists = lists.filter((list, index, self) =>
@@ -379,27 +654,42 @@ function createCookbookStore() {
           return b.createdAt - a.createdAt;
         });
 
-        // Merge with local pending changes
+        // Merge with local state. A local copy wins when it has pending
+        // changes or is a NEWER published version than the relays returned:
+        // a refresh that started before a save finished must not put the
+        // older list back (or make the saved recipe disappear).
         const currentState = get({ subscribe });
+        const newerLocally = (local: CookbookList | undefined, remote: CookbookList) =>
+          !!local &&
+          !local.localOnly &&
+          (local.event?.created_at ?? 0) > (remote.event?.created_at ?? 0);
         const mergedLists = uniqueLists.map(remoteList => {
           const localList = currentState.lists.find(l => l.id === remoteList.id);
-          if (localList?.pendingSync) {
-            // Keep local version if it has pending changes
-            return localList;
-          }
+          if (localList?.pendingSync || newerLocally(localList, remoteList)) return localList!;
           return remoteList;
         });
 
-        // Add any local-only lists (created offline)
+        // Keep local lists the relays didn't return: created offline
+        // (pending), published this session (a relay may not have it yet),
+        // or the Saved placeholder before its first save.
         currentState.lists.forEach(localList => {
-          if (localList.pendingSync && !mergedLists.find(l => l.id === localList.id)) {
+          if (mergedLists.find(l => l.id === localList.id)) return;
+          if (
+            localList.pendingSync ||
+            localList.localOnly ||
+            lastPublishedAt.has(publishedKey(pubkey, localList.id))
+          ) {
             mergedLists.push(localList);
           }
         });
 
-        // Save all to offline storage
+        // Save all to offline storage (never the unpublished placeholder)
         for (const list of mergedLists) {
-          await offlineStorage.saveCookbook(list, pubkey, !list.pendingSync);
+          if (!list.localOnly) await offlineStorage.saveCookbook(list, pubkey, !list.pendingSync);
+        }
+        if (!stillCurrent(gen, pubkey)) {
+          finish();
+          return;
         }
 
         // Re-sort after merge
@@ -451,6 +741,8 @@ function createCookbookStore() {
         update(s => ({ ...s, error: 'Not logged in', loading: false }));
         return;
       }
+      ensureAccount(pubkey);
+      const gen = generation;
 
       update(s => ({ ...s, loading: true, error: null }));
 
@@ -458,6 +750,8 @@ function createCookbookStore() {
       let hasOfflineData = false;
       try {
         const offlineCookbooks = await offlineStorage.getAllCookbooks(pubkey);
+        // A sign-out or account switch happened while reading: not theirs.
+        if (!stillCurrent(gen, pubkey)) return;
 
         if (offlineCookbooks.length > 0) {
           hasOfflineData = true;
@@ -474,10 +768,27 @@ function createCookbookStore() {
           });
 
           const pendingOps = await offlineStorage.getPendingOperations();
-          
+          if (!stillCurrent(gen, pubkey)) return;
+
+          // A list already in the store with a newer event (e.g. a save that
+          // finished while IndexedDB was being read) beats the cached copy.
+          const inStore = get({ subscribe }).lists;
+          const cachedIds = new Set(lists.map(l => l.id));
+          const mergedCached = [
+            ...lists.map(cached => {
+              const current = inStore.find(l => l.id === cached.id);
+              return current &&
+                !current.localOnly &&
+                (current.event?.created_at ?? 0) > (cached.event?.created_at ?? 0)
+                ? current
+                : cached;
+            }),
+            ...inStore.filter(l => !cachedIds.has(l.id))
+          ];
+
           update(s => ({
             ...s,
-            lists,
+            lists: mergedCached,
             loading: false,
             initialized: true,
             syncStatus: pendingOps.length > 0 ? 'pending' : 'synced',
@@ -504,6 +815,27 @@ function createCookbookStore() {
       } else {
         update(s => ({ ...s, syncStatus: 'offline', loading: false, initialized: true }));
       }
+    },
+
+    /**
+     * load() once per account: concurrent and later callers share it. For
+     * components that only need the lists present (save buttons), not a
+     * fresh reload.
+     */
+    async ensureLoaded(): Promise<void> {
+      const pubkey = get(userPublickey);
+      if (!pubkey) return;
+      if (loadedFor === pubkey && storePubkey === pubkey && get({ subscribe }).initialized) return;
+      if (inflightLoad?.pubkey === pubkey) return inflightLoad.promise;
+      const promise = this.load()
+        .then(() => {
+          if (get(userPublickey) === pubkey) loadedFor = pubkey;
+        })
+        .finally(() => {
+          if (inflightLoad?.promise === promise) inflightLoad = null;
+        });
+      inflightLoad = { pubkey, promise };
+      return promise;
     },
 
     /**
@@ -574,6 +906,7 @@ function createCookbookStore() {
         try {
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
+          stampCreatedAt(event, undefined, pubkey, identifier);
           await event.publish(await outboxRelaySet(event, 'list'));
           
           // Mark as synced
@@ -604,28 +937,28 @@ function createCookbookStore() {
     },
 
     /**
-     * Ensure the default "Saved" list exists.
+     * Ensure the default "Saved" list exists IN THE STORE.
      *
-     * The default list is a kind-30001 replaceable event with a fixed d tag,
-     * so creating it when one already exists on relays SUPERSEDES the user's
-     * real Saved list (docs/ndk-readiness-discovery.md §4b). Creation is
-     * therefore only allowed after a refresh that reached EOSE has confirmed
-     * absence — never from a store that simply hasn't fetched yet, and never
-     * on navigator.onLine alone. Returns null when absence can't be
-     * confirmed (offline, relays unreachable); callers already tolerate null.
+     * Returns the real list when the store has it (fetched or restored from
+     * IndexedDB) or a refresh finds it. Otherwise, once a refresh that
+     * reached EOSE found none, returns an on-screen placeholder that is
+     * never published or persisted: the list is created on relays only by
+     * the first save, as ONE event that already holds the recipe, after the
+     * safe read in editDefaultList has confirmed it is really absent. (An
+     * empty list published here could supersede the member's real Saved
+     * list, and an empty-then-add pair in one second could keep the empty
+     * one.) Returns null when even the refresh couldn't complete.
      */
     async ensureDefaultList(): Promise<CookbookList | null> {
       const findDefault = () => get({ subscribe }).lists.find(l => l.isDefault);
 
-      // A default already in the store (fetched or restored from IndexedDB)
-      // is safe to return — the dangerous direction is concluding ABSENCE.
-      const existingDefault = findDefault();
-      if (existingDefault) return existingDefault;
-
       const pubkey = get(userPublickey);
       const ndkInstance = get(ndk);
-
       if (!pubkey || !ndkInstance) return null;
+      ensureAccount(pubkey);
+
+      const existingDefault = findDefault();
+      if (existingDefault) return existingDefault;
 
       // Absence is only meaningful after a completed refresh. Run one if we
       // don't have one yet (awaits relay readiness internally; single-flight
@@ -637,71 +970,55 @@ function createCookbookStore() {
       }
 
       if (refreshCompletedAt === 0) {
-        // The refresh could not reach EOSE (offline / dead pool): the user's
-        // Saved list may exist on relays we never heard from. Do not create —
-        // a d-tag collision must be impossible by construction.
-        console.warn('[CookbookStore] Skipping default list creation: relay refresh has not confirmed absence');
+        console.warn('[CookbookStore] No Saved list placeholder: relay refresh has not completed');
         return null;
       }
 
-      const naddr = nip19.naddrEncode({
-        identifier: DEFAULT_LIST_ID,
-        kind: 30001,
-        pubkey
-      });
-
       const event = new NDKEvent(ndkInstance);
       event.kind = 30001;
+      event.pubkey = pubkey;
       event.tags = [
         ['d', DEFAULT_LIST_ID],
         ['title', DEFAULT_LIST_TITLE]
       ];
 
-      const newList: CookbookList = {
+      const placeholder: CookbookList = {
         id: DEFAULT_LIST_ID,
-        naddr,
+        naddr: nip19.naddrEncode({ identifier: DEFAULT_LIST_ID, kind: 30001, pubkey }),
         title: DEFAULT_LIST_TITLE,
         image: undefined,
         recipeCount: 0,
         recipes: [],
-        createdAt: Math.floor(Date.now() / 1000),
+        createdAt: nowSeconds(),
         isDefault: true,
         event,
-        pendingSync: true
+        pendingSync: false,
+        localOnly: true
       };
 
-      // Check again before updating (race condition protection)
-      update(s => {
-        if (s.lists.some(l => l.id === DEFAULT_LIST_ID)) {
-          return s;
-        }
-        return {
-          ...s,
-          lists: [newList, ...s.lists]
-        };
-      });
+      update(s => (s.lists.some(l => l.id === DEFAULT_LIST_ID) ? s : { ...s, lists: [placeholder, ...s.lists] }));
+      return findDefault() || placeholder;
+    },
 
-      // Persist locally
-      await persistLocally(newList, pubkey, false);
+    /**
+     * Save a recipe to the default "Saved" list (the one-tap bookmark —
+     * SaveButton, signed in or resuming after sign-in). Never unsaves.
+     */
+    async saveToDefaultList(recipeEvent: NDKEvent): Promise<SavedListResult> {
+      return editDefaultList({ add: [aTagOf(recipeEvent)] });
+    },
 
-      try {
-        await event.publish(await outboxRelaySet(event, 'list'));
-        await offlineStorage.markCookbookSynced(DEFAULT_LIST_ID, pubkey);
-        update(s => ({
-          ...s,
-          lists: s.lists.map(l =>
-            l.id === DEFAULT_LIST_ID ? { ...l, pendingSync: false } : l
-          )
-        }));
-      } catch (error) {
-        console.error('[CookbookStore] Failed to publish default list:', error);
-        await offlineStorage.queueOperation('create_list', DEFAULT_LIST_ID, {
-          identifier: DEFAULT_LIST_ID, title: DEFAULT_LIST_TITLE
-        });
-      }
+    /** Remove a recipe from the default "Saved" list. */
+    async removeFromDefaultList(recipeATag: string): Promise<SavedListResult> {
+      return editDefaultList({ remove: [recipeATag] });
+    },
 
-      const finalState = get({ subscribe });
-      return finalState.lists.find(l => l.isDefault) || newList;
+    /**
+     * Any other change to the Saved list (My Kitchen's list page: details,
+     * cover, Manage Recipes order/removals) — through the same guarded edit.
+     */
+    async editSavedList(change: SavedListChange): Promise<SavedListResult> {
+      return editDefaultList(change);
     },
 
     /**
@@ -716,6 +1033,9 @@ function createCookbookStore() {
       const pubkey = get(userPublickey);
       const ndkInstance = get(ndk);
       
+      if (listId === DEFAULT_LIST_ID) {
+        return (await editDefaultList({ add: [aTagOf(recipeEvent)] })).ok;
+      }
       if (!list || !pubkey || !ndkInstance) return false;
 
       const aTag = `${recipeEvent.kind}:${recipeEvent.pubkey}:${recipeEvent.replaceableDTag()}`;
@@ -765,6 +1085,7 @@ function createCookbookStore() {
 
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
+          stampCreatedAt(event, list, pubkey, listId);
           await event.publish(await outboxRelaySet(event, 'list'));
 
           // Update with synced event
@@ -795,6 +1116,9 @@ function createCookbookStore() {
       listId: string,
       recipeATag: string
     ): Promise<boolean> {
+      if (listId === DEFAULT_LIST_ID) {
+        return (await editDefaultList({ remove: [recipeATag] })).ok;
+      }
       const state = get({ subscribe });
       const list = state.lists.find(l => l.id === listId);
       const pubkey = get(userPublickey);
@@ -846,6 +1170,7 @@ function createCookbookStore() {
 
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
+          stampCreatedAt(event, list, pubkey, listId);
           await event.publish(await outboxRelaySet(event, 'list'));
 
           update(s => ({
@@ -879,6 +1204,25 @@ function createCookbookStore() {
       listId: string,
       recipeEvents: NDKEvent[]
     ): Promise<{ added: number; skipped: number; failed: number }> {
+      // Saved: every requested recipe goes to the guarded edit, and "added"
+      // / "skipped" are counted against the list it freshly read — the
+      // cached store may be missing recipes or still list removed ones.
+      if (listId === DEFAULT_LIST_ID) {
+        const requested: string[] = [];
+        for (const ev of recipeEvents) {
+          if (!ev) continue;
+          const dTag = ev.replaceableDTag?.() || ev.tags?.find(t => t[0] === 'd')?.[1] || '';
+          if (!dTag || !ev.kind || !ev.pubkey) continue;
+          const aTag = `${ev.kind}:${ev.pubkey}:${dTag}`;
+          if (!requested.includes(aTag)) requested.push(aTag);
+        }
+        if (requested.length === 0) return { added: 0, skipped: 0, failed: 0 };
+        const result = await editDefaultList({ add: requested });
+        return result.ok
+          ? { added: result.added, skipped: requested.length - result.added, failed: 0 }
+          : { added: 0, skipped: 0, failed: requested.length };
+      }
+
       const state = get({ subscribe });
       const list = state.lists.find(l => l.id === listId);
       const pubkey = get(userPublickey);
@@ -942,6 +1286,7 @@ function createCookbookStore() {
 
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
+          stampCreatedAt(event, list, pubkey, listId);
           await event.publish(await outboxRelaySet(event, 'list'));
 
           update(s => ({
@@ -981,15 +1326,7 @@ function createCookbookStore() {
      * Quick save to default list (one-tap bookmark)
      */
     async quickSave(recipeEvent: NDKEvent): Promise<boolean> {
-      let defaultList: CookbookList | null | undefined = get({ subscribe }).lists.find(l => l.isDefault);
-      
-      if (!defaultList) {
-        defaultList = await this.ensureDefaultList();
-      }
-      
-      if (!defaultList) return false;
-      
-      return this.addRecipeToList(defaultList.id, recipeEvent);
+      return (await editDefaultList({ add: [aTagOf(recipeEvent)] })).ok;
     },
 
     /**
@@ -1019,6 +1356,11 @@ function createCookbookStore() {
       listId: string,
       recipeATag: string
     ): Promise<boolean> {
+      if (listId === DEFAULT_LIST_ID) {
+        const result = await editDefaultList({ cover: recipeATag });
+        if (!result.ok) throw new Error(result.message);
+        return true;
+      }
       const state = get({ subscribe });
       const list = state.lists.find(l => l.id === listId);
       const pubkey = get(userPublickey);
@@ -1069,6 +1411,7 @@ function createCookbookStore() {
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
 
+          stampCreatedAt(event, list, pubkey, listId);
           if (!event.sig) await event.sign();
 
           const publishPromise = event.publish(await outboxRelaySet(event, 'list'));
@@ -1160,6 +1503,7 @@ function createCookbookStore() {
 
           const { addClientTagToEvent } = await import('$lib/nip89');
           addClientTagToEvent(event);
+          stampCreatedAt(event, list, pubkey, listId);
           await event.publish(await outboxRelaySet(event, 'list'));
 
           update(s => ({
@@ -1248,22 +1592,15 @@ function createCookbookStore() {
      * Reset store state
      */
     reset() {
-      if (subscription) {
-        subscription.stop();
-        subscription = null;
-      }
-      // A reset store has no relay knowledge: absence must be re-confirmed
-      // before ensureDefaultList may create again.
-      refreshCompletedAt = 0;
-      inflightRefresh = null;
-      set({
-        lists: [],
-        loading: false,
-        initialized: false,
-        error: null,
-        syncStatus: 'synced',
-        pendingOperations: 0
-      });
+      resetState();
+      storePubkey = '';
+      loadedFor = '';
+      inflightLoad = null;
+    },
+
+    /** Test seam: the per-relay reader default-list edits use. */
+    __setSavedListQueryForTests(query: QueryList | undefined) {
+      savedListQuery = query;
     }
   };
 }
