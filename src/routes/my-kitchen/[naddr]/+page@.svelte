@@ -23,6 +23,8 @@
   import PinIcon from 'phosphor-svelte/lib/PushPin';
   import CloudSlashIcon from 'phosphor-svelte/lib/CloudSlash';
   import { DEFAULT_LIST_ID, DEFAULT_LIST_TITLE, cookbookStore, getCookbookCoverImage, type CookbookList } from '$lib/stores/cookbookStore';
+  import type { SavedListChange } from '$lib/savedListSafety';
+  import { showToast } from '$lib/toast';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { writable, type Writable, get } from 'svelte/store';
   import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
@@ -377,6 +379,16 @@
       if (!dTag) {
         throw new Error('Invalid collection');
       }
+
+      if (isDefaultList()) {
+        if (await editSavedList({ cover: selectedCoverRecipeATag })) {
+          coverImage = undefined;
+          const savedList = get(cookbookStore).lists.find(l => l.id === DEFAULT_LIST_ID);
+          if (savedList) coverImage = await getCookbookCoverImage(savedList, $ndk, true);
+          closeChangeCoverModal();
+        }
+        return;
+      }
       
       // Create a new event with updated cover tag (same approach as saveEdits)
       const { NDKEvent } = await import('@nostr-dev-kit/ndk');
@@ -476,6 +488,26 @@
     return event.tags.find(t => t[0] === 'd')?.[1] === DEFAULT_LIST_ID;
   }
 
+  /**
+   * The Saved list is only ever changed through the cookbook store's guarded
+   * edit (fresh relay read, one event, never the unpublished placeholder or
+   * this page's possibly stale copy). Shows the store's message on refusal.
+   */
+  async function editSavedList(change: SavedListChange): Promise<boolean> {
+    const result = await cookbookStore.editSavedList(change);
+    if (!result.ok) {
+      errorMessage = result.message;
+      showToast('error', result.message, 10000, undefined, {
+        label: 'Retry',
+        onClick: () => void editSavedList(change)
+      });
+      return false;
+    }
+    const saved = get(cookbookStore).lists.find(l => l.id === DEFAULT_LIST_ID);
+    if (saved?.event) event = saved.event;
+    return true;
+  }
+
   // Edit functionality
   function openEditModal() {
     editTitle = getCollectionTitle(event);
@@ -501,6 +533,14 @@
     errorMessage = '';
 
     try {
+      if (isDefaultList()) {
+        const images = $editImages;
+        if (await editSavedList({ meta: { summary: editSummary.trim(), image: images[0] ?? '' } })) {
+          closeEditModal();
+        }
+        return;
+      }
+
       const { NDKEvent } = await import('@nostr-dev-kit/ndk');
       const newEvent = new NDKEvent($ndk);
       newEvent.kind = 30001;
@@ -576,6 +616,23 @@
     isSubmitting = true;
 
     try {
+      if (isDefaultList()) {
+        const order = $recipeItems.map(item => {
+          const decoded = nip19.decode(item.naddr).data as nip19.AddressPointer;
+          return `${decoded.kind}:${decoded.pubkey}:${decoded.identifier}`;
+        });
+        // Only what the member took out is removed; anything saved elsewhere
+        // since this page loaded stays (the edit reads the list fresh).
+        const removed = event.tags
+          .filter(t => t[0] === 'a' && !order.includes(t[1]))
+          .map(t => t[1]);
+        if (await editSavedList({ remove: removed, order })) {
+          await loadData();
+          closeManageModal();
+        }
+        return;
+      }
+
       const { NDKEvent } = await import('@nostr-dev-kit/ndk');
       const newEvent = new NDKEvent($ndk);
       newEvent.kind = 30001;

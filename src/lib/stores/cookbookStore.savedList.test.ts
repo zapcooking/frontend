@@ -28,7 +28,12 @@ const DTAG = 'nostrcooking-bookmarks';
 type RelayState = 'empty' | 'silent' | { created_at: number; tags: string[][]; content?: string };
 const net = vi.hoisted(() => ({
   relays: {} as Record<string, unknown>,
-  ownWrite: [] as string[]
+  ownWrite: [] as string[],
+  /** The relay-list cache knows the member's kind 10002 (else: ask relays). */
+  ownWriteCached: true,
+  /** How relays answer a kind-10002 lookup when the cache doesn't know. */
+  relayListAnswers: 'empty' as 'empty' | 'silent',
+  publishedTo: [] as string[][]
 }));
 
 vi.mock('$lib/nostr', async () => {
@@ -36,14 +41,25 @@ vi.mock('$lib/nostr', async () => {
   return {
     ndk: writable<unknown>(null),
     userPublickey: writable(''),
-    ensureNdkConnected: vi.fn(async () => {})
+    ensureNdkConnected: vi.fn(async () => {}),
+    getCurrentRelays: () => ['wss://nos.lol', 'wss://relay.primal.net']
   };
 });
 vi.mock('$lib/nip65Routing', () => ({
   listRelayUrls: vi.fn(async () => Object.keys(net.relays)),
+  listRelayUrlsFrom: vi.fn(async () => Object.keys(net.relays)),
   getOwnWriteRelays: vi.fn(async () => net.ownWrite),
   listRelaySet: vi.fn(async () => undefined),
+  relaySetForUrls: vi.fn(async (_ndk: unknown, urls: string[]) => {
+    net.publishedTo.push([...urls]);
+    return undefined;
+  }),
   outboxRelaySet: vi.fn(async () => undefined)
+}));
+vi.mock('$lib/relayListCache', () => ({
+  relayListCache: {
+    get: vi.fn(async () => (net.ownWriteCached ? { read: [], write: net.ownWrite } : null))
+  }
 }));
 vi.mock('$lib/connectionMonitor', () => ({
   isCurrentlyOnline: vi.fn(() => true),
@@ -65,6 +81,7 @@ vi.mock('$lib/offlineStorage', () => ({
 
 import { ndk, userPublickey } from '$lib/nostr';
 import { offlineStorage } from '$lib/offlineStorage';
+import { get } from 'svelte/store';
 import { cookbookStore } from './cookbookStore';
 
 const listOn = (created_at: number, recipes: string[], extra: string[][] = []) => ({
@@ -83,7 +100,10 @@ function relayLists() {
 }
 
 /** The per-relay safety read (new code path). */
-const fakeQuery = async (url: string) => {
+const fakeQuery = async (url: string, filter?: { kinds?: number[] }) => {
+  if (filter?.kinds?.[0] === 10002) {
+    return { url, ok: net.relayListAnswers === 'empty', list: null };
+  }
   const r = net.relays[url] as RelayState;
   if (r === 'silent') return { url, ok: false, list: null };
   if (r === 'empty') return { url, ok: true, list: null };
@@ -124,6 +144,9 @@ beforeEach(() => {
   cookbookStore.reset();
   net.relays = {};
   net.ownWrite = [];
+  net.ownWriteCached = true;
+  net.relayListAnswers = 'empty';
+  net.publishedTo = [];
   PUBKEY = (++accountCounter).toString(16).padStart(64, 'a');
   ndk.set(fakeNdk() as unknown as NDK);
   userPublickey.set(PUBKEY);
@@ -288,5 +311,103 @@ describe('unsave', () => {
 
     const last = published[published.length - 1];
     expect(recipesIn(last)).toEqual([aTag('r1'), aTag('r3')]);
+  });
+});
+
+// ── #869 review: remaining ways to overwrite or misreport ──────────────
+
+describe('own write relays must be known, and the publish goes where the read went', () => {
+  it("refuses when the member's write relays can't be established (cache miss + relays silent)", async () => {
+    net.relays = { [NOS]: 'empty', [PRIMAL]: 'empty' };
+    net.ownWriteCached = false;
+    net.relayListAnswers = 'silent';
+
+    expect(await settle(cookbookStore.quickSave(recipe('r1')))).toBe(false);
+    expect(published).toHaveLength(0);
+  });
+
+  it('a confirmed "no relay list" (relays answered empty) is fine', async () => {
+    net.relays = { [NOS]: 'empty', [PRIMAL]: 'empty' };
+    net.ownWriteCached = false;
+    net.relayListAnswers = 'empty';
+
+    expect(await settle(cookbookStore.quickSave(recipe('r1')))).toBe(true);
+    expect(published).toHaveLength(1);
+  });
+
+  it('publishes to exactly the relay set it read', async () => {
+    net.relays = { [NOS]: 'empty', [PRIMAL]: 'empty', [PYRAMID]: 'empty' };
+    net.ownWrite = [PYRAMID];
+
+    await settle(cookbookStore.quickSave(recipe('r1')));
+
+    expect(net.publishedTo).toEqual([[NOS, PRIMAL, PYRAMID]]);
+  });
+});
+
+describe('a refresh that lands after a save does not undo it', () => {
+  it('keeps the newer published Saved list over an older relay copy', async () => {
+    net.relays = { [NOS]: listOn(1700000000, [aTag('old')]), [PRIMAL]: 'empty' };
+    await settle(cookbookStore.saveToDefaultList(recipe('new')));
+    const saved = () => get(cookbookStore).lists.find((l) => l.id === DTAG)?.recipes;
+    expect(saved()).toEqual([aTag('old'), aTag('new')]);
+
+    // A refresh still serving the old copy finishes now.
+    await settle(cookbookStore.refreshFromNostr());
+
+    expect(saved()).toEqual([aTag('old'), aTag('new')]);
+  });
+});
+
+describe('bulk add to Saved counts against the freshly read list', () => {
+  it('re-adds a recipe the cache thinks is saved but the relays no longer have', async () => {
+    // Cache: r1 saved. Relays (newer): r1 was removed elsewhere.
+    net.relays = { [NOS]: listOn(1700000000, [aTag('r1')]), [PRIMAL]: 'empty' };
+    await settle(cookbookStore.load());
+    net.relays = { [NOS]: listOn(1700000500, []), [PRIMAL]: 'empty' };
+
+    const result = await settle(
+      cookbookStore.bulkAddRecipesToList(DTAG, [recipe('r1'), recipe('r2')])
+    );
+
+    expect(result).toEqual({ added: 2, skipped: 0, failed: 0 });
+    expect(recipesIn(published[published.length - 1])).toEqual([aTag('r1'), aTag('r2')]);
+  });
+
+  it('even an all-cached request goes through the guarded read', async () => {
+    net.relays = { [NOS]: listOn(1700000000, [aTag('r1')]), [PRIMAL]: 'empty' };
+    await settle(cookbookStore.load());
+    net.relays = { [NOS]: listOn(1700000500, []), [PRIMAL]: 'empty' };
+
+    const result = await settle(cookbookStore.bulkAddRecipesToList(DTAG, [recipe('r1')]));
+
+    expect(result).toEqual({ added: 1, skipped: 0, failed: 0 });
+  });
+});
+
+describe('My Kitchen list page edits to Saved (editSavedList)', () => {
+  it('a reorder keeps recipes saved elsewhere since the page loaded', async () => {
+    // Page loaded [r1, r2]; meanwhile r3 was saved on another device.
+    net.relays = {
+      [NOS]: listOn(1700000000, [aTag('r1'), aTag('r2'), aTag('r3')]),
+      [PRIMAL]: 'empty'
+    };
+
+    await settle(cookbookStore.editSavedList({ order: [aTag('r2'), aTag('r1')] }));
+
+    expect(recipesIn(published[0])).toEqual([aTag('r2'), aTag('r1'), aTag('r3')]);
+  });
+
+  it('details edits keep the recipes and cover of the fresh copy', async () => {
+    net.relays = {
+      [NOS]: listOn(1700000000, [aTag('r1')], [['cover', aTag('r1')]]),
+      [PRIMAL]: 'empty'
+    };
+
+    await settle(cookbookStore.editSavedList({ meta: { summary: 'weeknights' } }));
+
+    expect(published[0].tags).toContainEqual(['summary', 'weeknights']);
+    expect(published[0].tags).toContainEqual(['cover', aTag('r1')]);
+    expect(recipesIn(published[0])).toEqual([aTag('r1')]);
   });
 });

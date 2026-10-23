@@ -211,4 +211,32 @@ describe('buildSavedListEdit — one event per edit', () => {
       false
     );
   });
+
+  it('an order reorders known recipes and keeps unknown ones after them', () => {
+    const base = list(500, ['a1', 'a2', 'a3']);
+    const next = buildSavedListEdit(base, { order: ['a3', 'a1'] }, opts);
+    expect(next.tags.filter((t) => t[0] === 'a').map((t) => t[1])).toEqual(['a3', 'a1', 'a2']);
+    expect(next.changed).toBe(true);
+  });
+
+  it('meta edits set or clear summary/image and keep the title', () => {
+    const base = list(
+      500,
+      ['a1'],
+      [
+        ['summary', 'old'],
+        ['image', 'https://img/a.jpg']
+      ]
+    );
+    const next = buildSavedListEdit(base, { meta: { summary: 'new', image: '' } }, opts);
+    expect(next.tags).toContainEqual(['summary', 'new']);
+    expect(next.tags.some((t) => t[0] === 'image')).toBe(false);
+    expect(next.tags).toContainEqual(['title', 'Saved']);
+    expect(buildSavedListEdit(base, { meta: { summary: 'old' } }, opts).changed).toBe(false);
+  });
+
+  it('reports how many recipes were actually added', () => {
+    const base = list(500, ['a1']);
+    expect(buildSavedListEdit(base, { add: ['a1', 'a2', 'a3'] }, opts).added).toBe(2);
+  });
 });

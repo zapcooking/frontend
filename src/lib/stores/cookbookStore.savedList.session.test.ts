@@ -21,14 +21,20 @@ vi.mock('$lib/nostr', async () => {
   return {
     ndk: writable<unknown>(null),
     userPublickey: writable(''),
-    ensureNdkConnected: vi.fn(async () => {})
+    ensureNdkConnected: vi.fn(async () => {}),
+    getCurrentRelays: () => [NOS, PRIMAL]
   };
 });
 vi.mock('$lib/nip65Routing', () => ({
   listRelayUrls: vi.fn(async () => [NOS, PRIMAL]),
+  listRelayUrlsFrom: vi.fn(async () => [NOS, PRIMAL]),
   getOwnWriteRelays: vi.fn(async () => []),
   listRelaySet: vi.fn(async () => undefined),
+  relaySetForUrls: vi.fn(async () => undefined),
   outboxRelaySet: vi.fn(async () => undefined)
+}));
+vi.mock('$lib/relayListCache', () => ({
+  relayListCache: { get: vi.fn(async () => ({ read: [], write: [] })) }
 }));
 vi.mock('$lib/connectionMonitor', () => ({
   isCurrentlyOnline: vi.fn(() => true),
@@ -46,6 +52,7 @@ vi.mock('$lib/offlineStorage', () => ({
 }));
 
 import { ndk, userPublickey } from '$lib/nostr';
+import { offlineStorage } from '$lib/offlineStorage';
 import { cookbookStore, DEFAULT_LIST_ID, SAVED_LIST_UNCONFIRMED_MESSAGE } from './cookbookStore';
 import { markFreshAccount, __resetSavedListSessionForTests } from '$lib/savedList';
 
@@ -55,6 +62,7 @@ const aTag = (d: string) => `30023:${'c'.repeat(64)}:${d}`;
 
 let query: ReturnType<typeof vi.fn>;
 let published: { tags: string[][] }[] = [];
+let lastContent = '';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -64,6 +72,7 @@ beforeEach(() => {
   published = [];
   vi.spyOn(NDKEvent.prototype, 'publish').mockImplementation(async function (this: NDKEvent) {
     published.push({ tags: this.tags.map((t) => [...t]) });
+    lastContent = this.content;
     return new Set() as never;
   });
   query = vi.fn(async (url: string) => ({ url, ok: true, list: null }));
@@ -82,7 +91,7 @@ describe('fresh account (key generated this session)', () => {
 
     const result = await cookbookStore.saveToDefaultList(recipe('r1'));
 
-    expect(result).toEqual({ ok: true, changed: true });
+    expect(result).toEqual({ ok: true, changed: true, added: 1 });
     expect(query).not.toHaveBeenCalled();
     expect(published).toHaveLength(1);
     expect(published[0].tags).toContainEqual(['a', aTag('r1')]);
@@ -148,5 +157,115 @@ describe('visible failure', () => {
 
     expect(result.ok).toBe(false);
     expect(get(cookbookStore).lists.find((l) => l.id === DEFAULT_LIST_ID)).toBeUndefined();
+  });
+});
+
+// ── #869 review: account races and incomplete cached copies ──────────
+
+const cached = (
+  pubkey: string,
+  recipes: string[],
+  extra: { eventContent?: string; created?: number } = {}
+) => ({
+  id: DEFAULT_LIST_ID,
+  pubkey,
+  data: {
+    id: DEFAULT_LIST_ID,
+    naddr: 'naddr1x',
+    title: 'Saved',
+    recipeCount: recipes.length,
+    recipes,
+    createdAt: extra.created ?? 1700000900,
+    isDefault: true,
+    eventTags: [['d', DEFAULT_LIST_ID], ['title', 'Saved'], ...recipes.map((a) => ['a', a])],
+    eventPubkey: pubkey,
+    eventCreatedAt: extra.created ?? 1700000900,
+    eventId: `cached-${pubkey.slice(0, 4)}`,
+    ...('eventContent' in extra ? { eventContent: extra.eventContent } : {})
+  },
+  lastSynced: 0,
+  pendingChanges: false,
+  localVersion: 1
+});
+
+describe('a load for account A never lands after B took over', () => {
+  it("drops A's IndexedDB lists that arrive after the switch", async () => {
+    let release!: (v: unknown) => void;
+    vi.mocked(offlineStorage.getAllCookbooks).mockImplementationOnce(
+      () => new Promise((r) => (release = r)) as never
+    );
+    ndk.set({ subscribe: vi.fn(() => ({ on: vi.fn(), stop: vi.fn() })) } as unknown as NDK);
+    userPublickey.set(A);
+    const loading = cookbookStore.load();
+
+    userPublickey.set(B);
+    markFreshAccount(B);
+    await cookbookStore.saveToDefaultList(recipe('b1')); // B takes over the store
+    release([cached(A, [aTag('a-secret')])]);
+    await loading;
+
+    const saved = get(cookbookStore).lists.find((l) => l.id === DEFAULT_LIST_ID);
+    expect(saved?.recipes).toEqual([aTag('b1')]);
+  });
+});
+
+describe('a queued edit belongs to the account that asked for it', () => {
+  it("A's queued save does not run as B after a switch", async () => {
+    userPublickey.set(A);
+    let releaseRead!: () => void;
+    query.mockImplementationOnce(
+      (url: string) =>
+        new Promise((r) => (releaseRead = () => r({ url, ok: true, list: null }))) as never
+    );
+    const first = cookbookStore.saveToDefaultList(recipe('a1'));
+    const second = cookbookStore.saveToDefaultList(recipe('a2'));
+    await vi.waitFor(() => expect(releaseRead).toBeTypeOf('function'));
+
+    userPublickey.set(B);
+    releaseRead();
+
+    expect((await first).ok).toBe(false);
+    expect((await second).ok).toBe(false);
+    expect(published).toHaveLength(0);
+  });
+});
+
+describe('an IndexedDB copy without its content is never an edit base', () => {
+  it('builds on the relay copy (and keeps its encrypted content) over a newer legacy cache record', async () => {
+    vi.mocked(offlineStorage.getAllCookbooks).mockResolvedValueOnce([
+      cached(B, [aTag('stale')], { created: 1700000900 }) // legacy: no eventContent
+    ] as never);
+    ndk.set({ subscribe: vi.fn(() => ({ on: vi.fn(), stop: vi.fn() })) } as unknown as NDK);
+    userPublickey.set(B);
+    await cookbookStore.load();
+
+    query.mockImplementation(async (url: string) => ({
+      url,
+      ok: true,
+      list:
+        url === NOS
+          ? ({
+              id: 'relay',
+              pubkey: B,
+              created_at: 1700000100,
+              tags: [
+                ['d', DEFAULT_LIST_ID],
+                ['title', 'Saved'],
+                ['a', aTag('r1')]
+              ],
+              content: 'nip44-private-items'
+            } as never)
+          : null
+    }));
+
+    await cookbookStore.saveToDefaultList(recipe('r2'));
+
+    expect(published).toHaveLength(1);
+    const last = published[0];
+    expect(last.tags.filter((t) => t[0] === 'a').map((t) => t[1])).toEqual([
+      aTag('r1'),
+      aTag('r2')
+    ]);
+    expect(lastContent).toBe('nip44-private-items');
   });
 });

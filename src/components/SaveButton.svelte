@@ -44,7 +44,9 @@
   // The lists come from My Kitchen's store — the one place lists are read
   // and written (the "Saved" list only through its safe edit). This button
   // never builds or publishes a list event itself.
-  $: lists = $userPublickey ? $cookbookStore.lists.filter((l) => !l.localOnly) : [];
+  // The unpublished Saved placeholder stays in the picker: choosing it is a
+  // first save through the guarded edit, and it is never an edit base.
+  $: lists = $userPublickey ? $cookbookStore.lists : [];
   $: listsLoaded = $cookbookStore.initialized;
   $: if ($userPublickey) cookbookStore.ensureLoaded();
 

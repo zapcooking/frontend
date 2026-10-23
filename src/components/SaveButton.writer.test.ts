@@ -29,3 +29,37 @@ describe('SaveButton writes lists only through the cookbook store', () => {
     expect(source).toMatch(/label: 'Retry'/);
   });
 });
+
+describe('the list picker offers the Saved placeholder', () => {
+  it('does not filter out the unpublished Saved entry (first save via Choose list)', () => {
+    expect(source).not.toMatch(/filter\(\(l\) => !l\.localOnly\)/);
+    expect(source).toMatch(/\$: lists = \$userPublickey \? \$cookbookStore\.lists : \[\]/);
+  });
+});
+
+/**
+ * My Kitchen's list page edits the Saved list (details, cover, Manage
+ * Recipes) only through the store's guarded edit — never by publishing its
+ * own copy, and never the unpublished placeholder.
+ */
+const listPage = readFileSync(
+  fileURLToPath(new URL('../routes/my-kitchen/[naddr]/+page@.svelte', import.meta.url)),
+  'utf8'
+);
+const handler = (name: string) => {
+  const start = listPage.indexOf(`async function ${name}(`);
+  return listPage.slice(start, listPage.indexOf('\n  }\n', start));
+};
+
+describe('list page: Saved-list edits go through the guarded store edit', () => {
+  for (const name of ['saveCoverRecipe', 'saveEdits', 'saveRecipeOrder']) {
+    it(`${name} routes the Saved list to editSavedList before any direct publish`, () => {
+      const body = handler(name);
+      const branch = body.indexOf('if (isDefaultList())');
+      const publish = body.indexOf('.publish(');
+      expect(branch).toBeGreaterThan(-1);
+      expect(body.slice(branch, publish)).toMatch(/editSavedList\(/);
+      expect(body.slice(branch, publish)).toMatch(/return;/);
+    });
+  }
+});

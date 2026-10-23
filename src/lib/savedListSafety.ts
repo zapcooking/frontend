@@ -105,6 +105,14 @@ export interface SavedListChange {
   remove?: string[];
   /** Set the cover recipe (must be in the list after the change). */
   cover?: string;
+  /**
+   * Reorder (My Kitchen's Manage Recipes). Recipes the caller didn't know
+   * about — saved elsewhere since it loaded — keep their place after the
+   * ordered ones: an order is never a reason to drop a recipe.
+   */
+  order?: string[];
+  /** List details; an empty string removes the tag. The title stays "Saved". */
+  meta?: { summary?: string; image?: string };
 }
 
 /**
@@ -116,20 +124,38 @@ export function buildSavedListEdit(
   base: ListEvent | null,
   change: SavedListChange,
   opts: { dTag: string; title: string; now: number; floor: number }
-): { tags: string[][]; content: string; created_at: number; changed: boolean } {
+): { tags: string[][]; content: string; created_at: number; changed: boolean; added: number } {
   const baseTags = base?.tags ?? [];
-  const others = baseTags.filter((t) => t[0] !== 'a' && t[0] !== 'cover' && t[0] !== 'client');
+  let others = baseTags.filter((t) => t[0] !== 'a' && t[0] !== 'cover' && t[0] !== 'client');
   if (!others.some((t) => t[0] === 'd')) others.unshift(['d', opts.dTag]);
   if (!others.some((t) => t[0] === 'title')) others.push(['title', opts.title]);
+  let metaChanged = false;
+  for (const [name, value] of Object.entries(change.meta ?? {})) {
+    if (value === undefined) continue;
+    const current = others.find((t) => t[0] === name)?.[1] ?? '';
+    if (current === value) continue;
+    metaChanged = true;
+    others = others.filter((t) => t[0] !== name);
+    if (value) others.push([name, value]);
+  }
 
   const before: string[] = [];
   for (const t of baseTags) {
     if (t[0] === 'a' && t[1] && !before.includes(t[1])) before.push(t[1]);
   }
   const remove = new Set(change.remove ?? []);
-  const recipes = before.filter((a) => !remove.has(a));
+  let recipes = before.filter((a) => !remove.has(a));
+  let added = 0;
   for (const a of change.add ?? []) {
-    if (a && !recipes.includes(a)) recipes.push(a);
+    if (a && !recipes.includes(a)) {
+      recipes.push(a);
+      added++;
+    }
+  }
+  if (change.order) {
+    const rank = new Map(change.order.map((a, i) => [a, i]));
+    const ordered = recipes.filter((a) => rank.has(a)).sort((x, y) => rank.get(x)! - rank.get(y)!);
+    recipes = [...ordered, ...recipes.filter((a) => !rank.has(a))];
   }
 
   const oldCover = baseTags.find((t) => t[0] === 'cover')?.[1];
@@ -147,12 +173,14 @@ export function buildSavedListEdit(
   const changed =
     recipes.length !== before.length ||
     recipes.some((a, i) => a !== before[i]) ||
-    cover !== oldCover;
+    cover !== oldCover ||
+    metaChanged;
 
   return {
     tags,
     content: base?.content ?? '',
     created_at: Math.max(opts.now, opts.floor + 1, (base?.created_at ?? 0) + 1),
-    changed
+    changed,
+    added
   };
 }
