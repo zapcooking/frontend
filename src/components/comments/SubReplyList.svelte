@@ -15,7 +15,6 @@
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
   import ThreadRow from './ThreadRow.svelte';
-  import { getReplyParentId } from '$lib/thread/replyParent';
 
   export let parentEvent: NDKEvent;
   export let parentToChildren: Map<string, NDKEvent[]>;
@@ -25,44 +24,35 @@
   export let formatTime: (timestamp: number) => string;
   export let onReply: (event: NDKEvent) => void;
 
-  type Row = { event: NDKEvent; parentId: string; depth: number; connectorStartsMidAir: boolean };
+  type Row = { event: NDKEvent; parentId: string };
+
+  /** Every row of the branch sits on one rail level under its direct reply. */
+  const ROW_DEPTH = 1;
 
   $: rows = (() => {
     const out: Row[] = [];
     // Depth-first over the already-chronological children: each reply is
     // followed by its own descendants, so a branch reads top-down. Rows
-    // keep their TRUE depth (branch children at 1, grandchildren at 2, …),
-    // which is what draws the stepped connector rails from the previous
-    // design — indentation clamps at the cap, so deep branches can't march
-    // off-screen. The rail dashes its top only when nothing above it
-    // anchors it: the row above is neither its own parent (a direct
-    // descendant hangs solidly off its parent's rail, whatever the depth
-    // jump) nor a same-depth row whose rail column it continues. The seed
-    // is the branch root — the direct reply this whole section hangs off.
-    let prevRowId = parentEvent.id;
-    let prevDepth = 0;
-    const walk = (parentId: string, parentDepth: number) => {
+    // are drawn at one depth with a continuous rail whatever their
+    // generation; parentId only feeds the "Replying to" label. Cycle-guarded.
+    const seen = new Set<string>([parentEvent.id]);
+    const walk = (parentId: string) => {
       for (const child of parentToChildren.get(parentId) || []) {
-        const depth = parentDepth + 1;
-        out.push({
-          event: child,
-          parentId,
-          depth,
-          connectorStartsMidAir: prevRowId !== parentId && prevDepth !== depth
-        });
-        prevDepth = depth;
-        prevRowId = child.id;
-        walk(child.id, depth);
+        if (seen.has(child.id)) continue;
+        seen.add(child.id);
+        out.push({ event: child, parentId });
+        walk(child.id);
       }
     };
-    walk(parentEvent.id, 0);
+    walk(parentEvent.id);
     return out;
   })();
 
-  // The branch renders expanded so the thread scrolls as one page; the
-  // toggle folds it when the reader wants a branch out of the way.
-  let foldedManually = false;
-  $: open = !foldedManually;
+  // A branch of two or more starts folded, so the next direct reply is
+  // never buried under this one's conversation; a lone sub-reply always
+  // shows (also when a folded branch shrinks to one row).
+  let expanded = false;
+  $: open = rows.length <= 1 || expanded;
 
   function rowReplyingTo(row: Row): string | undefined {
     // The branch root's own context is the direct reply above the toggle —
@@ -76,7 +66,7 @@
     <button
       type="button"
       class="sub-replies-toggle"
-      on:click={() => (foldedManually = !foldedManually)}
+      on:click={() => (expanded = !expanded)}
       aria-expanded={open}
     >
       {#if open}
@@ -94,8 +84,7 @@
     {#each rows as row (row.event.id)}
       <ThreadRow
         event={row.event}
-        depth={row.depth}
-        connectorStartsMidAir={row.connectorStartsMidAir}
+        depth={ROW_DEPTH}
         replyingToPubkey={rowReplyingTo(row)}
         rootAuthor={rootAuthor}
         {formatTime}
