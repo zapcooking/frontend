@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { nip19 } from 'nostr-tools';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { goto } from '$app/navigation';
   import Avatar from './Avatar.svelte';
@@ -7,6 +6,7 @@
   import NoteContent from './NoteContent.svelte';
   import { openComposerWithQuote } from '$lib/postComposerStore';
   import { formatDate } from '$lib/utils';
+  import { eventIdPath, eventRef } from '$lib/utils/eventUrl';
   import QuotesIcon from 'phosphor-svelte/lib/Quotes';
 
   export let event: NDKEvent;
@@ -21,7 +21,7 @@
 
   function noteUrl(id: string): string | null {
     try {
-      return `/${nip19.noteEncode(id)}`;
+      return eventIdPath(id);
     } catch {
       return null;
     }
@@ -48,8 +48,7 @@
 
   function share() {
     try {
-      const nevent = nip19.neventEncode({ id: event.id, author: event.pubkey });
-      openComposerWithQuote(nevent, event);
+      openComposerWithQuote(eventRef(event), event);
     } catch (error) {
       console.warn('[memories] Failed to open composer with quote:', error);
     }

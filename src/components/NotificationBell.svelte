@@ -31,6 +31,8 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { browser } from '$app/environment';
   import { formatCompactTime } from '$lib/utils';
+  import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { eventPath, eventIdPath } from '$lib/utils/eventUrl';
   import Avatar from './Avatar.svelte';
   import CustomName from './CustomName.svelte';
   import NotifText from './notifications/NotifText.svelte';
@@ -215,17 +217,19 @@
     if (!eventIdToView) return;
 
     // Same routing as the notifications page: recipes (kind 30023) go
-    // to their recipe page, everything else to the note view.
+    // to their recipe page, everything else to the note view. The routing
+    // lookup's event doubles as the relay-hint source for the note link.
+    let fetched: NDKEvent | null = null;
     if (['reaction', 'zap', 'repost'].includes(n.type)) {
       try {
         const ndkInstance = get(ndk);
         if (ndkInstance) {
-          const event = await ndkInstance.fetchEvent({ ids: [eventIdToView] });
-          if (event && event.kind === 30023) {
-            const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+          fetched = await ndkInstance.fetchEvent({ ids: [eventIdToView] });
+          if (fetched && fetched.kind === 30023) {
+            const dTag = fetched.tags.find((t) => t[0] === 'd')?.[1];
             if (dTag) {
               goto(
-                `/recipe/${nip19.naddrEncode({ kind: 30023, pubkey: event.pubkey, identifier: dTag })}`
+                `/recipe/${nip19.naddrEncode({ kind: 30023, pubkey: fetched.pubkey, identifier: dTag })}`
               );
               return;
             }
@@ -236,13 +240,11 @@
       }
     }
 
+    // nevent1 with whatever hints we have (seen-on relays from the fetched
+    // event); a note1/nevent1 payload is normalized — never a bare note1.
     const raw = String(eventIdToView).trim();
-    if (raw.startsWith('note1') || raw.startsWith('nevent1')) {
-      goto(`/${raw}`);
-      return;
-    }
     try {
-      goto(`/${nip19.noteEncode(raw)}`);
+      goto(fetched ? eventPath(fetched) : eventIdPath(raw));
     } catch (e) {
       console.warn('[NotificationBell] Invalid eventId for note view:', raw, e);
     }

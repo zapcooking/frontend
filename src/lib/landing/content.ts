@@ -6,6 +6,7 @@
 import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS, isHiddenRecipeATag } from '$lib/consts';
 import { imageRoute } from '$lib/imageOptimizer';
+import { eventIdPath } from '$lib/utils/eventUrl';
 import type { NostrEvent } from '$lib/relayCollect';
 
 export interface CardAuthor {
@@ -156,7 +157,7 @@ export function noteCard(e: NostrEvent): NoteCard | null {
 	if (!image) return null;
 	let href: string;
 	try {
-		href = `/${nip19.noteEncode(e.id)}`;
+		href = eventIdPath(e.id);
 	} catch {
 		return null;
 	}

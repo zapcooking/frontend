@@ -2,8 +2,8 @@
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { nip19 } from 'nostr-tools';
   import { goto } from '$app/navigation';
+  import { eventPath } from '$lib/utils/eventUrl';
   import { formatAmount } from '$lib/utils';
   import { getEngagementStore, fetchEngagement, loadOwnReactions } from '$lib/engagementCache';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
@@ -122,7 +122,7 @@
 
   function handleReplyClick() {
     // Navigate to the note's thread page
-    goto(`/${nip19.noteEncode(event.id)}`);
+    goto(eventPath(event));
   }
 </script>
 

@@ -9,6 +9,7 @@ import {
   mediaUrls,
   contentWithoutMedia,
   getQuotedNoteId,
+  getQuotedNote,
   decodeToEventIdHex,
   noteHref
 } from './posts';
@@ -148,9 +149,20 @@ describe('quotes and note links (copied from FoodstrFeedOptimized)', () => {
     expect(getQuotedNoteId({ tags: [], content: 'no quote here' })).toBeNull();
   });
 
-  it('links a note id to its page', () => {
-    expect(noteHref(id)).toBe(`/${note}`);
+  it('links a note id to its page as an nevent — hinted when offered', () => {
+    const href = noteHref(id);
+    expect(href).toBe(`/${nip19.neventEncode({ id })}`);
+    const hinted = noteHref(id, 'wss://relay-a');
+    expect(hinted).toBe(`/${nip19.neventEncode({ id, relays: ['wss://relay-a'] })}`);
     expect(noteHref('zz')).toBeNull();
+  });
+
+  it('exposes the quoted note with its q-tag relay hint', () => {
+    const other = 'cd'.repeat(32);
+    const q = getQuotedNote({ tags: [['q', other, 'wss://relay-a']], content: '' });
+    expect(q).toEqual({ id: other, relayHint: 'wss://relay-a' });
+    expect(getQuotedNote({ tags: [['q', other]], content: '' })).toEqual({ id: other });
+    expect(getQuotedNote({ tags: [], content: 'no quote here' })).toBeNull();
   });
 });
 

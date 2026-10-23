@@ -2,6 +2,7 @@ import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS } from '$lib/consts';
 import { isEventMutedBy, type MuteList } from '$lib/muteFilter';
 import { FREE_WINDOW_SECONDS, type RelayEvent } from './relay';
+import { eventIdPath } from '$lib/utils/eventUrl';
 
 /**
  * What the Fresh feed shows, and how. Pure functions so they can be tested
@@ -169,29 +170,42 @@ export function decodeToEventIdHex(input: string): string | null {
   return normalizeEventIdHex(s);
 }
 
-/** `/note1…` for a note id, or null. */
-export function noteHref(id: string | null | undefined): string | null {
+/** `/nevent1…` for a note id — hint from `relayHint` (e.g. a `q` tag's
+ *  third element) when offered. Null when `id` isn't an event id. */
+export function noteHref(
+  id: string | null | undefined,
+  relayHint?: string | null
+): string | null {
   const hex = id ? normalizeEventIdHex(id) : null;
   if (!hex) return null;
   try {
-    return `/${nip19.noteEncode(hex)}`;
+    return eventIdPath(hex, relayHint ? [relayHint] : null);
   } catch {
     return null;
   }
 }
 
-/** The quoted note: a `q` tag first, then the first `nostr:note1/nevent1` in the text. */
-export function getQuotedNoteId(e: Pick<RelayEvent, 'tags' | 'content'>): string | null {
+/** The quoted note: a `q` tag first, then the first `nostr:note1/nevent1`
+ *  in the text. The `q` tag's relay hint rides along when present. */
+export function getQuotedNote(
+  e: Pick<RelayEvent, 'tags' | 'content'>
+): { id: string; relayHint?: string } | null {
   try {
     const q = e.tags.find((t) => Array.isArray(t) && t[0] === 'q');
     const qId = q?.[1] ? decodeToEventIdHex(String(q[1])) : null;
-    if (qId) return qId;
+    const qHint = typeof q?.[2] === 'string' && q[2].startsWith('wss://') ? q[2] : undefined;
+    if (qId) return { id: qId, relayHint: qHint };
     if (!e.content) return null;
     const match = e.content.match(
       /nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/
     );
-    return match?.[1] ? decodeToEventIdHex(match[1]) : null;
+    const contentId = match?.[1] ? decodeToEventIdHex(match[1]) : null;
+    return contentId ? { id: contentId } : null;
   } catch {
     return null;
   }
+}
+
+export function getQuotedNoteId(e: Pick<RelayEvent, 'tags' | 'content'>): string | null {
+  return getQuotedNote(e)?.id ?? null;
 }
