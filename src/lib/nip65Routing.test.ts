@@ -198,12 +198,11 @@ describe('list relays: where lists are written is where My Kitchen reads them', 
     expect(await outboxTargetUrls(del, ME, false)).toEqual(await listRelayUrls(ME));
   });
 
-  it('relays that refuse kind 30001 are left out, even from the own relay list', async () => {
+  it('purplepag.es is left out even from the own relay list; own-listed nostr.wine stays', async () => {
     lists.set(ME, { read: [], write: ['wss://purplepag.es', 'wss://nostr.wine/', 'wss://nos.lol'] });
     const urls = await listRelayUrls(ME);
     expect(urls).not.toContain('wss://purplepag.es');
-    expect(urls).not.toContain('wss://nostr.wine/');
-    expect(urls[0]).toBe('wss://nos.lol');
+    expect(urls.slice(0, 2)).toEqual(['wss://nostr.wine/', 'wss://nos.lol']);
   });
 
   it('follow, mute and bookmark lists keep own write relays + the app list', async () => {

@@ -75,11 +75,18 @@ export function isGroupEvent(tags: string[][]): boolean {
 
 /**
  * Relays that refuse kind-30001 recipe lists: purplepag.es ("blocked: kind
- * 30001 is not allowed") and nostr.wine (paid accounts only). They are left
- * out of the recipe-list set even when the member's own relay list or the
- * app's list names them. Profiles (kind 0/10002) still use purplepag.es.
+ * 30001 is not allowed") and nostr.wine (paid accounts only). Profiles
+ * (kind 0/10002) still use purplepag.es.
  */
 export const NON_LIST_RELAYS = ['wss://purplepag.es', 'wss://nostr.wine'];
+
+/**
+ * Of NON_LIST_RELAYS, the ones a member can be allowed on: nostr.wine
+ * accepts lists from its paying members, so it stays in the set when the
+ * member's own relay list names it (never from the app's list). Its empty
+ * answers still never count as evidence (savedListSafety).
+ */
+const MEMBER_LIST_RELAYS = ['wss://nostr.wine'];
 
 /**
  * Public relays that accept a kind-30001 write and serve it back without
@@ -93,16 +100,19 @@ export const RECIPE_LIST_RELAYS = ['wss://relay.nostr.net', 'wss://nostr.oxtr.de
 /**
  * Where kind-30001 recipe lists are written and read: the member's own
  * write relays, the app's relays, then RECIPE_LIST_RELAYS, without
- * NON_LIST_RELAYS. One set for both directions.
+ * NON_LIST_RELAYS — except nostr.wine when the member's own relay list
+ * names it. One set for both directions.
  */
 export function recipeListRelayUrls(src: { own: string[]; app: string[] }): string[] {
-  const skip = new Set(NON_LIST_RELAYS.map(outboxKey));
-  const keep = (urls: string[]) =>
+  const member = new Set(MEMBER_LIST_RELAYS.map(outboxKey));
+  const skipApp = new Set(NON_LIST_RELAYS.map(outboxKey));
+  const skipOwn = new Set([...skipApp].filter((k) => !member.has(k)));
+  const keep = (urls: string[], skip: Set<string>) =>
     urls.filter((u) => typeof u === 'string' && !skip.has(outboxKey(u)));
   return outboxRelayUrls({
-    own: keep(src.own),
+    own: keep(src.own, skipOwn),
     recipients: [],
-    app: [...keep(src.app), ...RECIPE_LIST_RELAYS]
+    app: [...keep(src.app, skipApp), ...RECIPE_LIST_RELAYS]
   });
 }
 
