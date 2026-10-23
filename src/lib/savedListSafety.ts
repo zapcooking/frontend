@@ -8,14 +8,18 @@
  * it is written to, and `decideSavedListBase` (pure, tested) decides what the
  * edit may be built on:
  *
- * - **The read must be complete enough** for any edit: every one of the
- *   member's own write relays answered, and at least MIN_EMPTY_ANSWERS
- *   relays that can hold the list answered (EOSE). A relay that refuses
- *   kind-30001 writes (NON_EVIDENCE_RELAYS) proves nothing by answering and
- *   isn't counted; a relay that never answered (timeout, error) counts as
- *   nothing at all — silence is never absence. Otherwise: **unconfirmed**,
- *   nothing is published. (This also guards the "present" case: the newest
- *   copy may sit on the one relay that didn't answer.)
+ * - **The read must reach a quorum** for any edit: at least
+ *   MIN_EMPTY_ANSWERS list-capable relays answered (EOSE), AND a strict
+ *   majority of the member's own list-capable write relays answered (no
+ *   write relays → only the first condition). "List-capable" leaves out
+ *   relays that refuse kind-30001 writes (NON_EVIDENCE_RELAYS): their
+ *   answers prove nothing. A relay that never answered (timeout, error,
+ *   dead) counts as nothing at all — silence is never absence. Otherwise:
+ *   **unconfirmed**, nothing is published. (The quorum guards the "present"
+ *   case too: the newest copy may sit on a write relay that didn't answer;
+ *   a majority makes that one relay at most a minority. Requiring every
+ *   write relay would let one dead or paid relay in a member's list block
+ *   every save.)
  * - **Present**: the base is the newest by created_at of the relays'
  *   answers, a signed copy held locally (store or IndexedDB), and the newest
  *   version seen or published this session.
@@ -85,8 +89,10 @@ export function decideSavedListBase(o: {
 
   const answered = new Set(o.answers.filter((a) => a.ok).map((a) => key(a.url)));
   const evidence = [...answered].filter((u) => !NON_EVIDENCE.has(u));
-  const allOwnAnswered = o.ownWrite.every((u) => answered.has(key(u)));
-  if (evidence.length < MIN_EMPTY_ANSWERS || !allOwnAnswered) {
+  const ownCapable = [...new Set(o.ownWrite.map(key))].filter((u) => !NON_EVIDENCE.has(u));
+  const ownAnswered = ownCapable.filter((u) => answered.has(u)).length;
+  const ownMajority = ownCapable.length === 0 || ownAnswered * 2 > ownCapable.length;
+  if (evidence.length < MIN_EMPTY_ANSWERS || !ownMajority) {
     return { ok: false, reason: 'unconfirmed' };
   }
 

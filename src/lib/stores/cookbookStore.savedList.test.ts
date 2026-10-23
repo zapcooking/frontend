@@ -236,6 +236,24 @@ describe('never a blind write', () => {
   });
 });
 
+describe('quorum, not unanimity', () => {
+  it('one dead relay in the member’s write list still saves on the first call', async () => {
+    const DEAD = 'wss://dead.example';
+    const OTHER = 'wss://relay.other.example';
+    net.relays = {
+      [PYRAMID]: 'empty',
+      [OTHER]: 'empty',
+      [DEAD]: 'silent',
+      [NOS]: 'empty',
+      [PRIMAL]: 'empty'
+    };
+    net.ownWrite = [PYRAMID, OTHER, DEAD];
+
+    expect(await settle(cookbookStore.quickSave(recipe('r1')))).toBe(true);
+    expect(published).toHaveLength(1);
+  });
+});
+
 describe('My Kitchen cover survives a save', () => {
   it('keeps the cover (and the list’s other tags) when a recipe is saved', async () => {
     net.relays = {

@@ -24,7 +24,8 @@ describe('SaveButton writes lists only through the cookbook store', () => {
     expect(source).toMatch(/cookbookStore\.removeFromDefaultList\(/);
   });
 
-  it('shows the store’s failure message instead of failing silently', () => {
-    expect(source).toMatch(/showToast\('error', result\.message\)/);
+  it('shows the store’s failure message, with Retry, instead of failing silently', () => {
+    expect(source).toMatch(/showToast\('error', result\.message/);
+    expect(source).toMatch(/label: 'Retry'/);
   });
 });

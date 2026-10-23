@@ -10,7 +10,10 @@
  * Methods: passkey (virtual WebAuthn authenticator with PRF, locked
  * session — the incident's exact path), extension (window.nostr shim),
  * nsec (import key), bunker (a minimal NIP-46 signer run by this script).
- * Plus: an account that already has a Saved list keeps its recipes.
+ * Plus: an account that already has a Saved list keeps its recipes, and an
+ * account whose own relay list includes a dead relay still saves on the
+ * first tap (the quorum: ≥2 list-capable relays and a majority of its
+ * list-capable write relays answered).
  *
  * Runs against the built preview. Passkeys only work on *.zap.cooking
  * (rp id zap.cooking), so pages are loaded from https://qa.zap.cooking and
@@ -22,7 +25,7 @@
  *   NODE_OPTIONS=--max-http-header-size=262144 \
  *   SAVED_LIST_PLAYWRIGHT_MODULE=/path/to/node_modules/playwright-core/index.js \
  *   SAVED_LIST_QA_CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
- *     node scripts/qa/saved-list/sign-in-save.mjs [passkey extension nsec bunker existing]
+ *     node scripts/qa/saved-list/sign-in-save.mjs [passkey extension nsec bunker existing deadrelay]
  *
  * (The header-size option: the preview's recipe pages send a large
  * modulepreload Link header that Node's default 16 KB limit rejects when
@@ -33,7 +36,6 @@ const { chromium } = playwright.chromium ? playwright : playwright.default;
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
-import { Relay } from 'nostr-tools/relay';
 import { bytesToHex } from '@noble/hashes/utils.js';
 
 process.on('unhandledRejection', (e) =>
@@ -98,7 +100,9 @@ async function newContext() {
   // Every Saved-list EVENT the page sends, and the relays' OK replies.
   const sent = new Map();
   const ok = new Map();
+  const sockets = [];
   page.on('websocket', (ws) => {
+    sockets.push(ws.url());
     ws.on('framesent', (f) => {
       try {
         const m = JSON.parse(f.payload);
@@ -123,7 +127,49 @@ async function newContext() {
       }
     });
   });
-  return { ctx, page, sent, ok, toasts, relayStatus };
+  return { ctx, page, sent, ok, toasts, relayStatus, sockets };
+}
+
+/**
+ * Publish a signed event to public relays (tolerating refusals); returns
+ * how many accepted it. Plain WebSocket: nostr-tools' Relay recurses on a
+ * failed connection under Node 22's built-in WebSocket.
+ */
+async function seed(event, urls) {
+  const one = (url) =>
+    new Promise((resolve) => {
+      let ws;
+      const done = (accepted, why) => {
+        clearTimeout(timer);
+        if (!accepted) console.log(`      seeding ${url} failed: ${why}`);
+        try {
+          ws?.close();
+        } catch {
+          /* already closed */
+        }
+        resolve(accepted);
+      };
+      const timer = setTimeout(() => done(false, 'timeout'), 8000);
+      try {
+        ws = new WebSocket(url);
+      } catch (e) {
+        done(false, String(e));
+        return;
+      }
+      ws.onerror = () => done(false, 'connection failed');
+      ws.onopen = () => ws.send(JSON.stringify(['EVENT', event]));
+      ws.onmessage = (m) => {
+        try {
+          const msg = JSON.parse(m.data);
+          if (msg[0] === 'OK' && msg[1] === event.id) done(msg[2] === true, msg[3]);
+        } catch {
+          /* not JSON — ignore */
+        }
+      };
+    });
+  let stored = 0;
+  for (const url of urls) if (await one(url)) stored++;
+  return stored;
 }
 
 async function findRecipe() {
@@ -309,20 +355,7 @@ if (want('existing')) {
   );
   // Seed it on the app relays; the case only means something if at least
   // one of them stored it.
-  let seeded = 0;
-  for (const url of ['wss://nos.lol', 'wss://relay.primal.net']) {
-    try {
-      const r = await Promise.race([
-        Relay.connect(url),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000))
-      ]);
-      await r.publish(existing);
-      seeded++;
-      r.close();
-    } catch (e) {
-      console.log(`      seeding ${url} failed: ${String(e).slice(0, 80)}`);
-    }
-  }
+  const seeded = await seed(existing, ['wss://nos.lol', 'wss://relay.primal.net']);
   check('existing list: seeded on a relay first', seeded > 0, `${seeded}/2`);
   await new Promise((r) => setTimeout(r, 1500));
   const run = await newContext();
@@ -339,6 +372,51 @@ if (want('existing')) {
       'existing list: My Kitchen cover kept',
       ev.tags.some((t) => t[0] === 'cover' && t[1] === old[1])
     );
+  await ctx.close();
+}
+
+// ── dead relay: the account's own relay list includes an unreachable relay ──
+if (want('deadrelay')) {
+  const sk = generateSecretKey();
+  // Resolves but is not a relay: the socket opens and fails — dead, and observable.
+  const DEAD = 'wss://example.com/dead-relay';
+  // Write relays: two live list-capable ones + one that never answers →
+  // 2/3 is a majority, so the first tap must save.
+  const relayList = finalizeEvent(
+    {
+      kind: 10002,
+      created_at: Math.floor(Date.now() / 1000) - 60,
+      tags: [
+        ['r', 'wss://nos.lol'],
+        ['r', 'wss://relay.primal.net'],
+        ['r', DEAD]
+      ],
+      content: ''
+    },
+    sk
+  );
+  const stored = await seed(relayList, [
+    'wss://nos.lol',
+    'wss://relay.primal.net',
+    'wss://purplepag.es',
+    'wss://relay.damus.io'
+  ]);
+  check('dead relay: relay list seeded', stored > 0, `${stored}/4`);
+  await new Promise((r) => setTimeout(r, 1500));
+  const run = await newContext();
+  const { ctx, page } = run;
+  await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
+  await tapSaveAndExpectSheet(page);
+  await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
+  await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
+  await page.getByRole('button', { name: 'Login', exact: true }).click();
+  await assertSaved('dead relay', run, `:${recipeD}`);
+  // The dead relay really was in the read: the relay list was honored and
+  // the quorum went ahead without it.
+  check(
+    'dead relay: the read tried it',
+    run.sockets.some((u) => u.startsWith(DEAD))
+  );
   await ctx.close();
 }
 

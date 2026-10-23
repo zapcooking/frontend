@@ -81,52 +81,58 @@
   $: savedInLists = new Set(lists.filter((l) => l.recipes.includes(recipeATag)).map((l) => l.id));
   $: isSaved = savedInLists.size > 0;
 
-  async function quickSave() {
-    // Resuming after sign-in saves, never unsaves: the account may already
-    // have this recipe saved from another device.
-    const resuming = !isSignedIn();
-    if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this recipe' }))) return;
-
+  /**
+   * Save to / remove from the Saved list through the store's safe edit. A
+   * refusal ("nothing was changed") is shown with Retry, which repeats the
+   * SAME operation — never re-runs the toggle, which could flip direction.
+   */
+  async function editSaved(op: 'save' | 'remove'): Promise<void> {
     if (loading) return;
     loading = true;
-
     try {
-      await cookbookStore.ensureLoaded();
-      const inDefault = !!get(cookbookStore)
-        .lists.find((l) => l.id === DEFAULT_LIST_ID && !l.localOnly)
-        ?.recipes.includes(recipeATag);
-      // The store's safe edit re-reads the list from the relays before it
-      // publishes, so neither direction can build on a stale copy.
-      if (inDefault && resuming) return;
-      const result = inDefault
-        ? await cookbookStore.removeFromDefaultList(recipeATag)
-        : await cookbookStore.saveToDefaultList(event);
+      const result =
+        op === 'save'
+          ? await cookbookStore.saveToDefaultList(event)
+          : await cookbookStore.removeFromDefaultList(recipeATag);
       if (!result.ok) {
-        showToast('error', result.message);
+        showToast('error', result.message, 10000, undefined, {
+          label: 'Retry',
+          onClick: () => editSaved(op)
+        });
       } else if (result.changed) {
-        dispatch(inDefault ? 'removed' : 'saved', { listId: DEFAULT_LIST_ID });
+        dispatch(op === 'save' ? 'saved' : 'removed', { listId: DEFAULT_LIST_ID });
       }
     } finally {
       loading = false;
     }
   }
 
+  async function quickSave() {
+    // Resuming after sign-in saves, never unsaves: the account may already
+    // have this recipe saved from another device.
+    const resuming = !isSignedIn();
+    if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this recipe' }))) return;
+    if (loading) return;
+
+    await cookbookStore.ensureLoaded();
+    const inDefault = !!get(cookbookStore)
+      .lists.find((l) => l.id === DEFAULT_LIST_ID && !l.localOnly)
+      ?.recipes.includes(recipeATag);
+    // The store's safe edit re-reads the list from the relays before it
+    // publishes, so neither direction can build on a stale copy.
+    if (inDefault && resuming) return;
+    await editSaved(inDefault ? 'remove' : 'save');
+  }
+
   async function toggleListSelection(listId: string) {
     if (loading) return;
-    loading = true;
     const wasIn = savedInLists.has(listId);
+    if (listId === DEFAULT_LIST_ID) {
+      await editSaved(wasIn ? 'remove' : 'save');
+      return;
+    }
+    loading = true;
     try {
-      if (listId === DEFAULT_LIST_ID) {
-        const result = wasIn
-          ? await cookbookStore.removeFromDefaultList(recipeATag)
-          : await cookbookStore.saveToDefaultList(event);
-        if (!result.ok) {
-          showToast('error', result.message);
-          return;
-        }
-        if (result.changed) dispatch(wasIn ? 'removed' : 'saved', { listId });
-        return;
-      }
       const ok = wasIn
         ? await cookbookStore.removeRecipeFromList(listId, recipeATag)
         : await cookbookStore.addRecipeToList(listId, event);

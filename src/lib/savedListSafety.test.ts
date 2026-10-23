@@ -49,12 +49,56 @@ describe('decideSavedListBase — when may the list be edited, and on what', () 
     expect(decide({ answers: [empty(PURPLE), empty(WINE), empty(NOS)] }).ok).toBe(false);
   });
 
-  it('requires every one of the member’s own write relays to answer', () => {
+  it('needs a majority of the member’s own list-capable write relays, not all of them', () => {
+    const DEAD = 'wss://dead.example';
+    const OTHER = 'wss://relay.other.example';
+    // 3 write relays, one dead: 2/3 answered → proceed.
+    expect(
+      decide({
+        answers: [empty(NOS), empty(PRIMAL), empty(PYRAMID), empty(OTHER), silent(DEAD)],
+        ownWrite: [PYRAMID, OTHER, DEAD]
+      }).ok
+    ).toBe(true);
+    // 3 write relays, two dead: 1/3 → refuse, even with the app relays answering.
+    expect(
+      decide({
+        answers: [empty(NOS), empty(PRIMAL), empty(PYRAMID), silent(OTHER), silent(DEAD)],
+        ownWrite: [PYRAMID, OTHER, DEAD]
+      }).ok
+    ).toBe(false);
+  });
+
+  it('a strict majority: one of two write relays is not enough', () => {
+    expect(
+      decide({
+        answers: [empty(NOS), empty(PRIMAL), empty(PYRAMID), silent('wss://dead.example')],
+        ownWrite: [PYRAMID, 'wss://dead.example']
+      }).ok
+    ).toBe(false);
+  });
+
+  it('a single own write relay must answer', () => {
     const answers = [empty(NOS), empty(PRIMAL), silent(PYRAMID)];
     expect(decide({ answers, ownWrite: [PYRAMID] }).ok).toBe(false);
     expect(
-      decide({ answers: [...answers.slice(0, 2), empty(PYRAMID)], ownWrite: [PYRAMID] }).ok
+      decide({ answers: [empty(NOS), empty(PRIMAL), empty(PYRAMID)], ownWrite: [PYRAMID] }).ok
     ).toBe(true);
+  });
+
+  it("paid / kind-blocking relays in the member's list don't count toward the majority", () => {
+    // purplepag.es + nostr.wine listed as write relays: list-capable = pyramid only.
+    expect(
+      decide({
+        answers: [empty(NOS), empty(PRIMAL), empty(PYRAMID), silent(WINE), silent(PURPLE)],
+        ownWrite: [PYRAMID, WINE, PURPLE]
+      }).ok
+    ).toBe(true);
+  });
+
+  it('still needs 2 list-capable answers overall, majority or not', () => {
+    expect(
+      decide({ answers: [empty(PYRAMID), silent(NOS), silent(PRIMAL)], ownWrite: [PYRAMID] }).ok
+    ).toBe(false);
   });
 
   it('a list found on one relay is not enough when the read is incomplete', () => {
