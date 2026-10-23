@@ -37,7 +37,7 @@ import {
   waitForConnected
 } from './nip65Routing';
 
-const event = (tags: string[][], pubkey = ME) => ({ tags, pubkey }) as never;
+const event = (tags: string[][], pubkey = ME, kind?: number) => ({ tags, pubkey, kind }) as never;
 
 beforeEach(() => {
   lists.clear();
@@ -172,15 +172,48 @@ describe('zap receipt relays (NIP-57 relays tag)', () => {
 });
 
 describe('list relays: where lists are written is where My Kitchen reads them', () => {
-  it('list writes target exactly listRelayUrls (own write relays, then the app list)', async () => {
-    const listEvent = event([
-      ['d', 'nostrcooking-bookmarks'],
-      ['a', `30023:${THEM}:x`],
-      ['p', THEM]
-    ]);
+  it('recipe list writes target exactly listRelayUrls (own write relays, the app list, the list relays)', async () => {
+    const listEvent = event(
+      [
+        ['d', 'nostrcooking-bookmarks'],
+        ['a', `30023:${THEM}:x`],
+        ['p', THEM]
+      ],
+      ME,
+      30001
+    );
     const writes = await outboxTargetUrls(listEvent, ME, false);
     expect(writes).toEqual(await listRelayUrls(ME));
-    expect(writes).toEqual(['wss://pyramid.fiatjaf.com', 'wss://nos.lol', 'wss://relay.damus.io']);
+    expect(writes).toEqual([
+      'wss://pyramid.fiatjaf.com',
+      'wss://nos.lol',
+      'wss://relay.damus.io',
+      'wss://relay.nostr.net',
+      'wss://nostr.oxtr.dev'
+    ]);
+  });
+
+  it('a recipe list deletion goes where the list went', async () => {
+    const del = event([['a', `30001:${ME}:italian`]], ME, 5);
+    expect(await outboxTargetUrls(del, ME, false)).toEqual(await listRelayUrls(ME));
+  });
+
+  it('relays that refuse kind 30001 are left out, even from the own relay list', async () => {
+    lists.set(ME, { read: [], write: ['wss://purplepag.es', 'wss://nostr.wine/', 'wss://nos.lol'] });
+    const urls = await listRelayUrls(ME);
+    expect(urls).not.toContain('wss://purplepag.es');
+    expect(urls).not.toContain('wss://nostr.wine/');
+    expect(urls[0]).toBe('wss://nos.lol');
+  });
+
+  it('follow, mute and bookmark lists keep own write relays + the app list', async () => {
+    lists.set(ME, { read: [], write: ['wss://purplepag.es'] });
+    const follow = event([['p', THEM]], ME, 3);
+    expect(await outboxTargetUrls(follow, ME, false)).toEqual([
+      'wss://purplepag.es',
+      'wss://nos.lol',
+      'wss://relay.damus.io'
+    ]);
   });
 
   it('the read relay set (My Kitchen refresh, Saved-list safety read) is that same list', async () => {
@@ -191,7 +224,7 @@ describe('list relays: where lists are written is where My Kitchen reads them', 
   });
 
   it('every relay a list is written to is read (no write-only relay)', async () => {
-    const listEvent = event([['d', 'nostrcooking-bookmarks']]);
+    const listEvent = event([['d', 'nostrcooking-bookmarks']], ME, 30001);
     const writes = await outboxTargetUrls(listEvent, ME, false);
     const reads = await listRelayUrls(ME);
     for (const url of writes) expect(reads).toContain(url);

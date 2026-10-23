@@ -36,15 +36,18 @@
  * the lower id on a tie, which silently dropped saves).
  */
 
+import { NON_LIST_RELAYS } from './outboxRelays';
+
 export const SAVED_LIST_READ_TIMEOUT_MS = 5000;
 export const MIN_EMPTY_ANSWERS = 2;
 
 /**
- * Relays that refuse kind-30001 writes: purplepag.es ("blocked: kind 30001
- * is not allowed") and nostr.wine (paid accounts only). An empty answer from
- * them says nothing about whether the list exists.
+ * Relays that refuse kind-30001 writes (NON_LIST_RELAYS: purplepag.es and
+ * nostr.wine). They are no longer in the list relay set, but a member's own
+ * relay list can still name them, and an empty answer from them says nothing
+ * about whether the list exists.
  */
-export const NON_EVIDENCE_RELAYS = ['wss://purplepag.es', 'wss://nostr.wine'];
+export const NON_EVIDENCE_RELAYS = NON_LIST_RELAYS;
 
 export interface ListEvent {
   id?: string;
@@ -107,7 +110,7 @@ export function decideSavedListBase(o: {
  * MIN_EMPTY_ANSWERS list-capable relays answered (EOSE) empty. Silent relays
  * and NON_EVIDENCE_RELAYS never count. An aggregate "subscription finished"
  * is not an answer: NDK ends a subscription once half its relays have
- * answered, and purplepag.es / nostr.wine always answer first.
+ * answered, and a fast empty answer is not proof.
  */
 export function listAbsenceProven(answers: ListRelayAnswer[]): boolean {
   if (answers.some((a) => a.list)) return false;

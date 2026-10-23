@@ -115,9 +115,10 @@ function createCookbookStore() {
 
   // The Saved list's presence is decided by a per-relay read (readSavedList),
   // never by the refresh subscription finishing: NDK ends a subscription once
-  // half its relays answered, and purplepag.es / nostr.wine (which never hold
-  // lists) answer first, so "no Saved list at EOSE" often means "nos.lol
-  // hadn't answered yet". One read per account and generation, shared.
+  // half its relays answered, so "no Saved list at EOSE" can mean "the relay
+  // holding it hadn't answered yet" (it did when purplepag.es / nostr.wine,
+  // which never hold lists, were in the set). One read per account and
+  // generation, shared.
   let savedRead: { gen: number; pubkey: string; promise: Promise<SavedReadOutcome> } | null = null;
   // The current generation's read proved the Saved list absent
   // (listAbsenceProven). Only then may the on-screen placeholder appear.

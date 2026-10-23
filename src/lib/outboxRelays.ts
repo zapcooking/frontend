@@ -72,3 +72,44 @@ export function outboxRelayUrls(src: OutboxSources, max = MAX_OUTBOX_RELAYS): st
 export function isGroupEvent(tags: string[][]): boolean {
   return tags.some((t) => t[0] === 'h');
 }
+
+/**
+ * Relays that refuse kind-30001 recipe lists: purplepag.es ("blocked: kind
+ * 30001 is not allowed") and nostr.wine (paid accounts only). They are left
+ * out of the recipe-list set even when the member's own relay list or the
+ * app's list names them. Profiles (kind 0/10002) still use purplepag.es.
+ */
+export const NON_LIST_RELAYS = ['wss://purplepag.es', 'wss://nostr.wine'];
+
+/**
+ * Public relays that accept a kind-30001 write and serve it back without
+ * auth, always added to the recipe-list set so a member with no relay list
+ * still has enough relays to prove a list exists or doesn't. Chosen for
+ * long retention (events from 2022), an operator independent of nos.lol,
+ * and existing Zap Cooking lists (verified 2026-10-23).
+ */
+export const RECIPE_LIST_RELAYS = ['wss://relay.nostr.net', 'wss://nostr.oxtr.dev'];
+
+/**
+ * Where kind-30001 recipe lists are written and read: the member's own
+ * write relays, the app's relays, then RECIPE_LIST_RELAYS, without
+ * NON_LIST_RELAYS. One set for both directions.
+ */
+export function recipeListRelayUrls(src: { own: string[]; app: string[] }): string[] {
+  const skip = new Set(NON_LIST_RELAYS.map(outboxKey));
+  const keep = (urls: string[]) =>
+    urls.filter((u) => typeof u === 'string' && !skip.has(outboxKey(u)));
+  return outboxRelayUrls({
+    own: keep(src.own),
+    recipients: [],
+    app: [...keep(src.app), ...RECIPE_LIST_RELAYS]
+  });
+}
+
+/** A kind-30001 recipe list, or a deletion that targets one. */
+export function isRecipeListEvent(event: { kind?: number; tags: string[][] }): boolean {
+  if (event.kind === 30001) return true;
+  return (
+    event.kind === 5 && event.tags.some((t) => t[0] === 'a' && (t[1] ?? '').startsWith('30001:'))
+  );
+}
