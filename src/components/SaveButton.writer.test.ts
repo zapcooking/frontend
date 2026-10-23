@@ -38,9 +38,9 @@ describe('the list picker offers the Saved placeholder', () => {
 });
 
 /**
- * My Kitchen's list page edits the Saved list (details, cover, Manage
- * Recipes) only through the store's guarded edit — never by publishing its
- * own copy, and never the unpublished placeholder.
+ * My Kitchen's list page edits a list — Saved or a custom collection —
+ * (details, cover, Manage Recipes) only through the store's guarded edit:
+ * never by publishing its own copy, never the unpublished placeholder.
  */
 const listPage = readFileSync(
   fileURLToPath(new URL('../routes/my-kitchen/[naddr]/+page@.svelte', import.meta.url)),
@@ -51,15 +51,21 @@ const handler = (name: string) => {
   return listPage.slice(start, listPage.indexOf('\n  }\n', start));
 };
 
-describe('list page: Saved-list edits go through the guarded store edit', () => {
+describe('list page: every list edit goes through the guarded store edit', () => {
   for (const name of ['saveCoverRecipe', 'saveEdits', 'saveRecipeOrder']) {
-    it(`${name} routes the Saved list to editSavedList before any direct publish`, () => {
+    it(`${name} edits through editThisList and publishes nothing itself`, () => {
       const body = handler(name);
-      const branch = body.indexOf('if (isDefaultList())');
-      const publish = body.indexOf('.publish(');
-      expect(branch).toBeGreaterThan(-1);
-      expect(body.slice(branch, publish)).toMatch(/editSavedList\(/);
-      expect(body.slice(branch, publish)).toMatch(/return;/);
+      expect(body).toMatch(/editThisList\(/);
+      expect(body).not.toMatch(/\.publish\(/);
+      expect(body).not.toMatch(/new NDKEvent/);
     });
   }
+
+  it('editThisList goes to cookbookStore.editList', () => {
+    expect(handler('editThisList')).toMatch(/cookbookStore\.editList\(/);
+  });
+
+  it('Manage Recipes removes only entries the modal showed', () => {
+    expect(handler('saveRecipeOrder')).toMatch(/manageShown\.filter/);
+  });
 });
