@@ -64,7 +64,11 @@
     bottom: calc(var(--bottom-nav-height, 0px) + env(safe-area-inset-bottom, 0px) + 0.75rem);
     left: 50%;
     transform: translateX(-50%);
-    z-index: 9999;
+    /* Above Modal's z-[10000] backdrop: a mine keeps running after its
+       composer's modal covers the screen, and a status the reader can't
+       read (or reach Stop on) through the blur is no status at all. Same
+       tier ToastContainer uses to clear modals. */
+    z-index: 10001;
     display: flex;
     align-items: center;
     gap: 0.5rem;
