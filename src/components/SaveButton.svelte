@@ -11,8 +11,8 @@
   import { outboxRelaySet } from '$lib/outboxPublish';
   
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-  import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import CheckIcon from 'phosphor-svelte/lib/Check';
@@ -44,6 +44,19 @@
   let isLongPress = false;
   let lists: CookbookList[] = [];
   let listsLoaded = false;
+  // Account the cached lists belong to. Signing in over the page
+  // (requireAuth) can switch accounts under a mounted button — e.g. lists
+  // loaded on mount for a locked passkey session's stored pubkey — and one
+  // account's lists must never be edited and republished under another's
+  // signer (addToList copies the cached list's tags and recipes).
+  let listsPubkey = '';
+  let listsLoad: { pubkey: string; promise: Promise<boolean> } | null = null;
+
+  $: if (listsLoaded && listsPubkey !== $userPublickey) {
+    lists = [];
+    listsLoaded = false;
+    listsPubkey = '';
+  }
   let isSaved = false;
   let savedInLists: Set<string> = new Set();
 
@@ -100,92 +113,105 @@
     checkSaveStatus();
   }
 
-  async function loadLists() {
-    if (listsLoaded || !$userPublickey) return;
+  /** Load the current account's lists; resolves true once they are in. */
+  function loadLists(): Promise<boolean> {
+    const pubkey = $userPublickey;
+    if (!pubkey) return Promise.resolve(false);
+    if (listsLoaded && listsPubkey === pubkey) return Promise.resolve(true);
+    if (listsLoad?.pubkey === pubkey) return listsLoad.promise;
 
-    try {
-      const filters = [
-        {
-          authors: [$userPublickey],
-          kinds: [30001],
-          '#t': RECIPE_TAGS,
-          limit: 256
-        },
-        {
-          '#d': [DEFAULT_LIST_ID],
-          authors: [$userPublickey],
-          kinds: [30001]
-        }
-      ];
+    const promise = new Promise<boolean>((resolve) => {
+      const done = (ok: boolean) => {
+        if (listsLoad?.promise === promise) listsLoad = null;
+        resolve(ok);
+      };
+      try {
+        const filters = [
+          {
+            authors: [pubkey],
+            kinds: [30001],
+            '#t': RECIPE_TAGS,
+            limit: 256
+          },
+          {
+            '#d': [DEFAULT_LIST_ID],
+            authors: [pubkey],
+            kinds: [30001]
+          }
+        ];
 
-      const subscription = $ndk.subscribe(filters, { closeOnEose: true });
-      const loadedLists: CookbookList[] = [];
-      const seenIds = new Set<string>();
+        const subscription = $ndk.subscribe(filters, { closeOnEose: true });
+        const loadedLists: CookbookList[] = [];
+        const seenIds = new Set<string>();
 
-      subscription.on('event', (ev: NDKEvent) => {
-        const dTag = ev.tags.find(t => t[0] === 'd')?.[1];
-        if (!dTag || seenIds.has(dTag)) return;
-        seenIds.add(dTag);
+        subscription.on('event', (ev: NDKEvent) => {
+          if (ev.pubkey !== pubkey) return;
+          const dTag = ev.tags.find(t => t[0] === 'd')?.[1];
+          if (!dTag || seenIds.has(dTag)) return;
+          seenIds.add(dTag);
 
-        const title = ev.tags.find(t => t[0] === 'title')?.[1] || dTag;
-        const recipes = ev.tags.filter(t => t[0] === 'a').map(t => t[1]);
-        const isDefault = dTag === DEFAULT_LIST_ID;
+          const title = ev.tags.find(t => t[0] === 'title')?.[1] || dTag;
+          const recipes = ev.tags.filter(t => t[0] === 'a').map(t => t[1]);
+          const isDefault = dTag === DEFAULT_LIST_ID;
 
-        loadedLists.push({
-          id: dTag,
-          naddr: '',
-          title: isDefault ? 'Saved' : title,
-          recipeCount: recipes.length,
-          recipes,
-          createdAt: ev.created_at || 0,
-          isDefault,
-          event: ev
-        });
-      });
-
-      subscription.on('eose', () => {
-        // Final deduplication by id (in case of race conditions)
-        const uniqueLists = loadedLists.filter((list, index, self) => 
-          index === self.findIndex(l => l.id === list.id)
-        );
-
-        // Sort: default first, then alphabetically
-        uniqueLists.sort((a, b) => {
-          if (a.isDefault) return -1;
-          if (b.isDefault) return 1;
-          return a.title.localeCompare(b.title);
+          loadedLists.push({
+            id: dTag,
+            naddr: '',
+            title: isDefault ? 'Saved' : title,
+            recipeCount: recipes.length,
+            recipes,
+            createdAt: ev.created_at || 0,
+            isDefault,
+            event: ev
+          });
         });
 
-        lists = uniqueLists;
-        listsLoaded = true;
-        checkSaveStatus();
-      });
-    } catch (error) {
-      console.error('Failed to load lists:', error);
-    }
+        subscription.on('eose', () => {
+          // Signed in as someone else meanwhile: these lists aren't theirs.
+          if ($userPublickey !== pubkey) {
+            done(false);
+            return;
+          }
+
+          // Final deduplication by id (in case of race conditions)
+          const uniqueLists = loadedLists.filter((list, index, self) =>
+            index === self.findIndex(l => l.id === list.id)
+          );
+
+          // Sort: default first, then alphabetically
+          uniqueLists.sort((a, b) => {
+            if (a.isDefault) return -1;
+            if (b.isDefault) return 1;
+            return a.title.localeCompare(b.title);
+          });
+
+          lists = uniqueLists;
+          listsPubkey = pubkey;
+          listsLoaded = true;
+          checkSaveStatus();
+          done(true);
+        });
+      } catch (error) {
+        console.error('Failed to load lists:', error);
+        done(false);
+      }
+    });
+    listsLoad = { pubkey, promise };
+    return promise;
   }
 
   async function quickSave() {
-    if (!$userPublickey) {
-      goto('/login');
-      return;
-    }
+    // Resuming after sign-in saves, never unsaves: the account may already
+    // have this recipe saved from another device.
+    const resuming = !isSignedIn();
+    if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this recipe' }))) return;
 
     if (loading) return;
     loading = true;
 
     try {
-      // Load lists if not loaded
-      if (!listsLoaded) {
-        await new Promise<void>(resolve => {
-          const check = () => {
-            if (listsLoaded) resolve();
-            else setTimeout(check, 50);
-          };
-          loadLists();
-          check();
-        });
-      }
+      // This account's lists — reloaded if the cache held another's.
+      if (!(await loadLists())) return;
 
       // Find or create default list
       let defaultList = lists.find(l => l.isDefault);
@@ -216,6 +242,7 @@
 
       // Toggle: if already in default list, remove; otherwise add
       if (savedInLists.has(DEFAULT_LIST_ID)) {
+        if (resuming) return;
         await removeFromList(DEFAULT_LIST_ID);
       } else {
         await addToList(DEFAULT_LIST_ID);
@@ -228,6 +255,8 @@
   }
 
   async function addToList(listId: string) {
+    // Never republish a list cached for another account.
+    if (!listsLoaded || listsPubkey !== $userPublickey) return;
     const list = lists.find(l => l.id === listId);
     if (!list || list.recipes.includes(recipeATag)) return;
 
@@ -281,6 +310,8 @@
   }
 
   async function removeFromList(listId: string) {
+    // Never republish a list cached for another account.
+    if (!listsLoaded || listsPubkey !== $userPublickey) return;
     const list = lists.find(l => l.id === listId);
     if (!list || !list.recipes.includes(recipeATag)) return;
 
@@ -367,11 +398,8 @@
     }
   }
 
-  function openDropdown() {
-    if (!$userPublickey) {
-      goto('/login');
-      return;
-    }
+  async function openDropdown() {
+    if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this recipe' }))) return;
     loadLists();
     dropdownOpen = true;
   }

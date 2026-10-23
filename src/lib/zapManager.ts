@@ -6,6 +6,7 @@ import { AuthManager, getAuthManager } from './authManager';
 import { generateSecretKey } from 'nostr-tools';
 import { ensureClientTag } from './nip89';
 import { extractZapAmountSats } from './zapAmount';
+import { standardRelays } from './consts';
 
 export interface ZapRequest {
   eventId?: string;
@@ -14,6 +15,12 @@ export interface ZapRequest {
   comment?: string;
   relays?: string[];
   extraTags?: string[][];
+  /**
+   * NIP-57 anonymous zap: the request carries an `["anon"]` tag and is signed
+   * by a fresh ephemeral key, so it is not attributed to anyone. Only ever
+   * set by an explicit "Zap anonymously" choice — never as a fallback.
+   */
+  anonymous?: boolean;
 }
 
 export interface ZapReceipt {
@@ -185,6 +192,10 @@ export class ZapManager {
     // Add lnurl tag (will be populated when we get the LNURL)
     zapRequest.tags.push(['lnurl', '']);
 
+    if (request.anonymous) {
+      zapRequest.tags.push(['anon']);
+    }
+
     // Add any extra tags (e.g., poll_option for zap polls)
     if (request.extraTags) {
       for (const tag of request.extraTags) {
@@ -204,7 +215,8 @@ export class ZapManager {
   async getZapInvoice(
     lnurlPayRequest: LNURLPayRequest,
     zapRequest: NDKEvent,
-    amount: number
+    amount: number,
+    opts?: { anonymous?: boolean }
   ): Promise<LNURLPayResponse> {
     if (!lnurlPayRequest.allowsNostr) {
       throw new Error('LNURL endpoint does not support Nostr zaps');
@@ -221,26 +233,20 @@ export class ZapManager {
       lnurlTag[1] = lnurlPayRequest.callback;
     }
 
-    // Sign the zap request
+    // Sign the zap request. Anonymous zaps (an explicit choice, tagged
+    // ["anon"] in createZapRequest) use a fresh ephemeral key. A member's zap
+    // that fails to sign is an error — it is never quietly re-signed with a
+    // stranger key, which would send their sats unattributed and untagged.
     try {
-      await zapRequest.sign();
+      if (opts?.anonymous) {
+        await zapRequest.sign(new NDKPrivateKeySigner(generateSecretKey()));
+      } else {
+        await zapRequest.sign();
+      }
     } catch (error: unknown) {
       console.error('Error signing zap request:', error);
       const err = error instanceof Error ? error : new Error(String(error));
-      
-      // If signing fails, we might need to create an anonymous signer for the zap request
-      if (err.message.includes('signer') || err.message.includes('private key')) {
-        // For zap requests, we might not need a signer if the LNURL endpoint doesn't require it
-        // Let's try without signing first
-        try {
-          const sk = generateSecretKey();
-          await zapRequest.sign(new NDKPrivateKeySigner(sk));
-        } catch (ex) {
-          console.error(`Couldn't post zap anon: ${ex}`)
-        }
-      } else {
-        throw new Error(`Failed to sign zap request: ${err.message}`);
-      }
+      throw new Error(`Failed to sign zap request: ${err.message}`);
     }
 
     // Create callback URL with parameters
@@ -296,9 +302,19 @@ export class ZapManager {
     }
   }
 
-  /** Receipt relays for a zap request (NIP-57 `relays` tag). */
-  private async receiptRelays(recipient: string): Promise<string[]> {
-    const { zapReceiptRelayUrls, resolveAuthorPubkey } = await import('$lib/nip65Routing');
+  /**
+   * Receipt relays for a zap request (NIP-57 `relays` tag). An anonymous zap
+   * uses only the recipient's relays and the app's fixed public defaults:
+   * the member's write relays, this device's saved relay list and NDK's
+   * configured relays could each tie the request back to the device.
+   */
+  private async receiptRelays(recipient: string, anonymous = false): Promise<string[]> {
+    const { zapReceiptRelayUrls, anonymousZapReceiptRelayUrls, resolveAuthorPubkey } =
+      await import('$lib/nip65Routing');
+    if (anonymous) {
+      const urls = await anonymousZapReceiptRelayUrls(recipient).catch(() => [] as string[]);
+      return urls.length ? urls : [...standardRelays];
+    }
     const urls = await resolveAuthorPubkey(this.ndk)
       .then((me) => zapReceiptRelayUrls(me, recipient))
       .catch(() => [] as string[]);
@@ -313,10 +329,12 @@ export class ZapManager {
     amount: number,
     comment?: string,
     eventId?: string,
-    extraTags?: string[][]
+    extraTags?: string[][],
+    opts?: { anonymous?: boolean }
   ): Promise<{ invoice: string; verify?: string; zapRequest: NDKEvent; zapPubkey: string }> {
-    // Check if user is authenticated (required for zap requests)
-    if (!this.ndk.signer) {
+    const anonymous = opts?.anonymous === true;
+    // A member's zap needs their signer; an anonymous one signs ephemerally.
+    if (!anonymous && !this.ndk.signer) {
       throw new Error('User must be authenticated to create zap requests. Please log in first.');
     }
 
@@ -349,12 +367,15 @@ export class ZapManager {
       // Where the LNURL server publishes the receipt: the outbox model
       // (own write relays, the recipient's read relays, the app list), so
       // the zap shows up for both sides and anyone following either.
-      relays: await this.receiptRelays(pubkey),
-      extraTags
+      relays: await this.receiptRelays(pubkey, anonymous),
+      extraTags,
+      anonymous
     });
 
     // Get invoice
-    const invoiceResponse = await this.getZapInvoice(lnurlPayRequest, zapRequest, amount);
+    const invoiceResponse = await this.getZapInvoice(lnurlPayRequest, zapRequest, amount, {
+      anonymous
+    });
 
     return {
       invoice: invoiceResponse.pr,

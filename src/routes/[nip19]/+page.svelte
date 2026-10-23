@@ -40,6 +40,7 @@
   import RightRail from '../../components/RightRail.svelte';
   import RailCard from '../../components/RailCard.svelte';
   import PersonRow from '../../components/PersonRow.svelte';
+  import { requireAuth } from '$lib/auth/requireAuth';
 
   let decoded: any = null;
   let event: NDKEvent | null = null;
@@ -679,11 +680,8 @@
   let replyModalOpen = false;
   let replyModalTarget: NDKEvent | undefined = undefined;
 
-  function openReplyModal(target?: NDKEvent) {
-    if (!$userPublickey) {
-      goto('/login?redirect=' + encodeURIComponent($page.url.pathname));
-      return;
-    }
+  async function openReplyModal(target?: NDKEvent) {
+    if (!(await requireAuth({ kind: 'reply', reason: 'Sign in to reply' }))) return;
     replyModalTarget = target;
     replyModalOpen = true;
   }
@@ -1078,7 +1076,7 @@
         class="mt-1 px-4 py-3.5 rounded-lg text-sm"
         style="background-color: var(--color-card-sunken); color: var(--color-caption)"
       >
-        <a href="/login" class="text-primary hover:underline font-medium">Log in</a> to reply
+        <button type="button" class="text-primary hover:underline font-medium" on:click={() => requireAuth({ kind: 'reply', reason: 'Sign in to reply' })}>Log in</button> to reply
       </div>
     {/if}
 
@@ -1099,7 +1097,7 @@
         </div>
       {:else if directReplies.length === 0}
         <p class="text-sm py-4 text-center" style="color: var(--color-caption)">
-          No replies yet. {#if !$userPublickey}<a href="/login?redirect={encodeURIComponent($page.url.pathname)}" class="underline hover:opacity-80" style="color: var(--color-primary)">Sign in</a> to reply!{:else}Be the first to reply!{/if}
+          No replies yet. {#if !$userPublickey}<button type="button" class="underline hover:opacity-80" style="color: var(--color-primary)" on:click={() => (isTopLevelFocus ? requireAuth({ kind: 'reply', reason: 'Sign in to reply' }) : openReplyModal())}>Sign in</button> to reply!{:else}Be the first to reply!{/if}
         </p>
       {:else}
         <!-- A flat list of rows, each carrying its own depth. Replies
@@ -1160,7 +1158,7 @@
           class="mt-4 px-4 py-3.5 rounded-lg text-sm"
           style="background-color: var(--color-card-sunken); color: var(--color-caption)"
         >
-          <a href="/login" class="text-primary hover:underline font-medium">Log in</a> to reply
+          <button type="button" class="text-primary hover:underline font-medium" on:click={() => openReplyModal()}>Log in</button> to reply
         </div>
       {/if}
 

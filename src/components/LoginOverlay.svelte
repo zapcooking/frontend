@@ -32,6 +32,7 @@
   import SuggestedFollowsModal from './SuggestedFollowsModal.svelte';
   import { showToast } from '$lib/toast';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+  import { loginReason, hasPendingAuthRequest } from '$lib/auth/requireAuth';
   import { startSectionTarget } from '$lib/startSectionSettings';
   import {
     getGoogleSub,
@@ -1392,8 +1393,13 @@
     userPubkey={newAccountPubkey}
     onComplete={() => {
       showSuggestedFollows = false;
+      // Signed up from an action (requireAuth): stay on that page — closing
+      // the overlay below resumes the action there. Checked before the
+      // close, which is what settles the pending request.
+      const resumeInPlace = hasPendingAuthRequest();
       loginOverlayOpen.set(false);
       if (browser) localStorage.setItem('zapcooking_wallet_welcome_force', '1');
+      if (resumeInPlace) return;
       const redirectTo = $page.url.searchParams.get('redirect') || startSectionTarget();
       goto(redirectTo);
     }}
@@ -1436,7 +1442,9 @@
            about to pay. Say why the account step exists and promise the return
            trip, which onComplete/goto(redirect) below actually delivers. -->
       <p class="signin-tagline">
-        {#if ($page.url.searchParams.get('redirect') ?? '').startsWith('/membership/cook-plus-checkout')}
+        {#if $loginReason}
+          {$loginReason}
+        {:else if ($page.url.searchParams.get('redirect') ?? '').startsWith('/membership/cook-plus-checkout')}
           Cook+ is tied to your Zap Cooking account. Create one and we'll bring you right back to
           checkout.
         {:else}

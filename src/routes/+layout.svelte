@@ -28,6 +28,7 @@
   import CookPlusDiscoveryModal from '../components/CookPlusDiscoveryModal.svelte';
   import CookPlusPromoBar from '../components/CookPlusPromoBar.svelte';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+  import { syncSignedIn } from '$lib/auth/requireAuth';
   import { bottomDockOccupied } from '$lib/stores/bottomDock';
 
   // Launch gate for the passkey migration prompt (launched September 2026;
@@ -383,6 +384,7 @@
       // Initialize auth manager
       authManager = createAuthManager($ndk);
       authState = authManager.getState();
+      syncSignedIn(authState);
 
       // Locked passkey vault (record present, no plaintext key, no bunker):
       // surface the unlock overlay once on startup. The user can dismiss it
@@ -402,6 +404,7 @@
       // Subscribe to auth state changes
       unsubscribe = authManager.subscribe((state: AuthState) => {
         authState = state;
+        syncSignedIn(state);
 
         // Sync with legacy userPublickey store for compatibility
         const isAuthenticatedNow = Boolean(state.isAuthenticated && state.publicKey);

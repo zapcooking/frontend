@@ -13,6 +13,7 @@
    * from a pubkey, so opening it from a feed costs the caller one prop.
    */
   import { updateFollows, followErrorMessage } from '$lib/followUpdate';
+  import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
   import { showToast } from '$lib/toast';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
@@ -146,9 +147,26 @@
     }
   }
 
+  // The sheet's Modal (z 10000) sits above the sign-in card (9997), so it
+  // steps aside while sign-in is up — its keyboard trap goes with it — and
+  // comes back on the same profile afterwards. Closing it instead would
+  // clear the subject (ProfilePreviewModal resets the pubkey) and lose the
+  // follow target.
+  let awaitingAuth = false;
+
   async function toggleFollow() {
+    if (followLoading) return;
+    // Resuming after sign-in only ever follows: the account may already
+    // follow this cook, and a toggle would unfollow them.
+    const resuming = !isSignedIn();
+    if (resuming) {
+      awaitingAuth = true;
+      const ok = await requireAuth({ kind: 'follow', reason: 'Sign in to follow' });
+      awaitingAuth = false;
+      if (!ok) return;
+    }
     const me = get(userPublickey);
-    if (!me || !hex || followLoading) return;
+    if (!me || !hex || followLoading || me === hex) return;
 
     followLoading = true;
     try {
@@ -157,7 +175,7 @@
       const follows = await updateFollows(
         get(ndk),
         me,
-        isFollowing ? { remove: [hex] } : { add: [hex] }
+        isFollowing && !resuming ? { remove: [hex] } : { add: [hex] }
       );
       isFollowing = follows.has(hex);
     } catch (err) {
@@ -247,7 +265,13 @@
   }
 </script>
 
-<Modal {open} cleanup={close} noHeader autoHeight suspended={avatarLightboxOpen}>
+<Modal
+  open={open && !awaitingAuth}
+  cleanup={close}
+  noHeader
+  autoHeight
+  suspended={avatarLightboxOpen}
+>
   <!-- The banner bleeds to the dialog's edges by undoing its
        px-4/md:px-8/pt-6 padding, so the sheet opens on the same
        banner-and-avatar composition as the profile page rather than a bare
@@ -389,7 +413,7 @@
           </a>
         {/if}
 
-        {#if $userPublickey && followChecked}
+        {#if followChecked}
           <button
             on:click={toggleFollow}
             disabled={followLoading}

@@ -29,7 +29,8 @@
     toggleHashtag
   } from '$lib/hashtagPills';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
-  import { clearQuotedNote } from '$lib/postComposerStore';
+  import { clearQuotedNote, postComposerOpen } from '$lib/postComposerStore';
+  import { requireAuth, signedIn } from '$lib/auth/requireAuth';
   import { publishQueue, publishQueueState } from '$lib/publishQueue';
   import MentionDropdown from './MentionDropdown.svelte';
   import { MentionComposerController, type MentionState } from '$lib/mentionComposer';
@@ -492,6 +493,16 @@
     resetThumbState();
     mentionCtrl.destroy();
   });
+
+  // The composer modal stacks above the sign-in card, so it steps aside for
+  // sign-in and reopens afterwards — the quoted note (quotedNoteStore) is
+  // only cleared by an explicit close, so it is still attached.
+  async function signInToPost() {
+    const inModal = variant === 'modal';
+    if (inModal) postComposerOpen.set(false);
+    const ok = await requireAuth({ kind: 'post', reason: 'Sign in to post' });
+    if (inModal && ok) postComposerOpen.set(true);
+  }
 
   function openComposer() {
     isMinimized = false;
@@ -964,7 +975,7 @@
   }
 </script>
 
-{#if $userPublickey !== '' || variant === 'modal'}
+{#if $signedIn || variant === 'modal'}
   <div
     class={`rounded-xl relative ${variant === 'inline' ? 'mb-4' : 'flex-1 flex flex-col composer-modal'} ${posting ? '' : 'bg-input transition-all'}`}
     class:overflow-hidden={!isComposerOpen}
@@ -983,10 +994,12 @@
           <span class="text-caption text-sm">Share what you're eating, cooking, or loving</span>
         </div>
       </button>
-    {:else if $userPublickey === ''}
+    {:else if !$signedIn}
       <div class="p-4">
         <p class="text-sm text-caption">Sign in to post.</p>
-        <a href="/login" class="text-sm underline hover:opacity-80">Sign in</a>
+        <button type="button" class="text-sm underline hover:opacity-80" on:click={signInToPost}>
+          Sign in
+        </button>
       </div>
     {:else if posting}
       <div class="posting-indicator">
