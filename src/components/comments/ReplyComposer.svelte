@@ -52,14 +52,8 @@
 	import { showToast } from '$lib/toast';
 	import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
 	import { POW_LEVELS, isPowBits, powLevelFor } from '$lib/pow';
-	import { minePowIntoEvent, powCancel, isPowCanceled } from '$lib/powMiner';
-	import {
-		miningOp,
-		startMiningOp,
-		reportMiningBest,
-		markMiningFound,
-		endMiningOp
-	} from '$lib/stores/miningOp';
+	import { miningOp } from '$lib/stores/miningOp';
+	import { startMinedReply, type ReplyDraft } from '$lib/comments/minedReply';
 	import NoteContent from '../NoteContent.svelte';
 	import CustomName from '../CustomName.svelte';
 
@@ -110,16 +104,32 @@
 	/**
 	 * Fired after a successful post with the published event. Used by callers
 	 * that want optimistic add (`sub.addLocal(event)`) or a refresh hook.
+	 *
+	 * A notification, not a cue to dismiss this composer — listen for `close`
+	 * for that. A proof-of-work reply publishes from a background service after
+	 * this composer has already closed, so this can fire a minute later, while
+	 * the member may be typing a different reply in the same host.
 	 */
 	export let onPosted: ((event: NDKEvent) => void) | null = null;
 
-	const dispatch = createEventDispatcher<{ cancel: void }>();
+	/**
+	 * True while a submit is in flight — signing and publishing. Bindable so a
+	 * wrapping modal can lock itself: closing mid-post unmounts this component
+	 * and drops the draft the failure path would have restored.
+	 */
+	export let posting = false;
+
+	/**
+	 * `cancel`: the member backed out; `close`: this composer is done — the
+	 * reply went out, or was handed to the background miner — and its host
+	 * should dismiss it.
+	 */
+	const dispatch = createEventDispatcher<{ cancel: void; close: void }>();
 
 	// Composer state — local to this component.
 	let composerEl: HTMLDivElement;
 	let composerText = '';
 	let lastRendered = '';
-	let posting = false;
 	let showGifPicker = false;
 	let showPollCreator = false;
 	let pollConfig: PollConfig | null = null;
@@ -453,41 +463,19 @@
 	}
 
 	/**
-	 * Mine, reporting into the floating indicator rather than into a row in
-	 * this composer. The wait can run to the better part of a minute, and a
-	 * status line pinned inside the reply box means the reader has to sit and
-	 * watch the box; the indicator floats over whatever they do next.
-	 *
-	 * Unlike a note, a reply is still published from here — postComment holds
-	 * the NIP-22 tagging and the inbox routing — so the mine stays tied to
-	 * this component and stops if the reader leaves the thread.
+	 * Mining runs OUTSIDE the composer — see $lib/comments/minedReply. The
+	 * wait can run to the better part of a minute, and a composer that has to
+	 * stay mounted for it keeps the reply modal (and the blur behind it) on
+	 * screen the whole time. handleSubmit hands the finished draft to the
+	 * service and closes; the service reports into the floating indicator and
+	 * finishes the post on its own, and the mine survives the thread being
+	 * left. Stopped or failed, the service writes the draft back through
+	 * $lib/replyDraftStore — the same store this composer restores from on
+	 * mount — so the words come back when the reply box reopens.
+	 * saveDraft()'s guard above keeps blur from snapshotting mid-hand-off.
 	 */
-	let mining = false;
-
-	async function mineForReply(event: NDKEvent, bits: number) {
-		mining = true;
-		startMiningOp(bits, powCancel);
-		try {
-			await minePowIntoEvent(event, bits, (p) => reportMiningBest(p.best));
-			markMiningFound();
-		} finally {
-			endMiningOp();
-			mining = false;
-		}
-	}
 
 	onDestroy(() => {
-		// Cancel only our own mine. powCancel and endMiningOp are global, but
-		// this runs for every reply composer that unmounts — a thread rerender
-		// or a row scrolling out would otherwise terminate a mine some other
-		// composer started and clear an indicator it owns. The worker outlives
-		// the composer, so when this composer is the one mining, handleSubmit
-		// would resume on the far side of its await to sign and publish a reply
-		// the reader had already walked away from.
-		if (mining) {
-			powCancel();
-			endMiningOp();
-		}
 		// Clears any pending mention-search timeout so it can't fire after
 		// unmount and trigger state updates on a destroyed component.
 		mentionCtrl.destroy();
@@ -608,11 +596,7 @@
 		posting = true;
 		// Declared outside the try so the catch can restore it; reassigned
 		// below once the final text is extracted.
-		let draftSnapshot: {
-			text: string;
-			media: MediaAttachment[];
-			poll: PollConfig | null;
-		} = {
+		let draftSnapshot: ReplyDraft = {
 			text: composerText,
 			media: [...media],
 			poll: pollConfig
@@ -658,30 +642,46 @@
 				extraTags.push(...buildPollTags(capturedPollConfig));
 			}
 
+			if (capturedPollConfig) {
+				extraTags.push(...buildPollTags(capturedPollConfig));
+			}
+			const contentKind = capturedPollConfig ? 1068 : undefined;
+
+			if (powBits) {
+				// Hand the mine off and get out of the way: the service mines,
+				// signs and publishes on its own and reports into the floating
+				// indicator. The draft on disk is still exactly what was handed
+				// over — the service deletes it on success and refreshes it on
+				// a stop or a failure.
+				void startMinedReply({
+					ndk: $ndk,
+					parentEvent,
+					replyTo,
+					content,
+					extraTags,
+					contentKind,
+					bits: powBits,
+					draft: draftSnapshot,
+					pubkey: $userPublickey || '',
+					onPosted
+				});
+				dispatch('close');
+				return;
+			}
+
 			const { event: posted } = await postCommentLib($ndk, {
 				parentEvent,
 				replyTo,
 				content,
 				extraTags,
-				contentKind: capturedPollConfig ? 1068 : undefined,
-				signingStrategy: 'explicit-with-timeout',
-				// Mining happens inside postComment, immediately before signing:
-				// the id the signature covers is the one the nonce was mined for.
-				mine: powBits ? (ev) => mineForReply(ev, powBits as number) : undefined
+				contentKind,
+				signingStrategy: 'explicit-with-timeout'
 			});
 
 			if (draftKey) deleteReplyDraft(draftKey);
 			onPosted?.(posted);
+			dispatch('close');
 		} catch (error) {
-			// A stopped mine is not a failure: the user pressed the button, so
-			// the draft comes back without an error toast telling them
-			// something went wrong when nothing did.
-			if (isPowCanceled(error)) {
-				composerText = draftSnapshot.text;
-				media = draftSnapshot.media;
-				pollConfig = draftSnapshot.poll;
-				return;
-			}
 			// Put the draft back. The optimistic clear above assumed success;
 			// this is the branch where that assumption was wrong, and the
 			// member should not lose what they wrote. Restoring composerText
@@ -1129,7 +1129,10 @@
 				</button>
 			{:else}
 				{#if showCancel}
-					<button type="button" class="rc-cancel" on:click={handleCancel}>Cancel</button>
+					<!-- Disabled while posting: dismissing the composer mid-post
+					     unmounts it, and with it the draft the failure path
+					     would have restored. -->
+					<button type="button" class="rc-cancel" on:click={handleCancel} disabled={posting}>Cancel</button>
 				{/if}
 				<slot name="submit" submit={handleSubmitClick} disabled={isDisabled} {posting}>
 					<!-- Default submit button: callers can override via `slot="submit"`. -->
