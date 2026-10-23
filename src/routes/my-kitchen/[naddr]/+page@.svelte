@@ -125,7 +125,16 @@
         
         // Check if the list is in the local store
         const updatedStoreState = get(cookbookStore);
-        const localList = updatedStoreState.lists.find(l => l.id === decoded.identifier);
+        let localList = updatedStoreState.lists.find(l => l.id === decoded.identifier);
+        // The member's own Saved list before its first save exists only as
+        // the store's placeholder (it's published by the first save).
+        if (
+          !localList &&
+          decoded.identifier === DEFAULT_LIST_ID &&
+          decoded.pubkey === $userPublickey
+        ) {
+          localList = (await cookbookStore.ensureDefaultList()) ?? undefined;
+        }
         
         if (localList && localList.event) {
           // Use the event from the store (which should have the latest cover tag)

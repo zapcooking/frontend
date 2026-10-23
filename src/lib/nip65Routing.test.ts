@@ -30,6 +30,8 @@ import {
   buildInboxAwareRelaySet,
   zapReceiptRelayUrls,
   anonymousZapReceiptRelayUrls,
+  listRelayUrls,
+  listRelaySet,
   resolveAuthorPubkey,
   outboxRelaySet,
   waitForConnected
@@ -166,6 +168,33 @@ describe('zap receipt relays (NIP-57 relays tag)', () => {
   it('no relay lists known: the app list', async () => {
     lists.clear();
     expect(await zapReceiptRelayUrls(ME, THEM)).toEqual(['wss://nos.lol', 'wss://relay.damus.io']);
+  });
+});
+
+describe('list relays: where lists are written is where My Kitchen reads them', () => {
+  it('list writes target exactly listRelayUrls (own write relays, then the app list)', async () => {
+    const listEvent = event([
+      ['d', 'nostrcooking-bookmarks'],
+      ['a', `30023:${THEM}:x`],
+      ['p', THEM]
+    ]);
+    const writes = await outboxTargetUrls(listEvent, ME, false);
+    expect(writes).toEqual(await listRelayUrls(ME));
+    expect(writes).toEqual(['wss://pyramid.fiatjaf.com', 'wss://nos.lol', 'wss://relay.damus.io']);
+  });
+
+  it('the read relay set (My Kitchen refresh, Saved-list safety read) is that same list', async () => {
+    const ndk = { pool: { getRelay: (url: string) => ({ url }) } } as never;
+    relaySets.length = 0;
+    await listRelaySet(ndk, ME);
+    expect(relaySets[relaySets.length - 1]).toEqual(await listRelayUrls(ME));
+  });
+
+  it('every relay a list is written to is read (no write-only relay)', async () => {
+    const listEvent = event([['d', 'nostrcooking-bookmarks']]);
+    const writes = await outboxTargetUrls(listEvent, ME, false);
+    const reads = await listRelayUrls(ME);
+    for (const url of writes) expect(reads).toContain(url);
   });
 });
 

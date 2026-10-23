@@ -13,6 +13,7 @@ import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
 import { fetchNip46UserPubkey, sendNip46Rpc } from './nip46Rpc';
 import { clearAccountData } from './sessionCleanup';
+import { markFreshAccount } from './savedList';
 import { Nip44LocalSigner } from './nip44LocalSigner';
 import {
   getVaultRecord,
@@ -1553,6 +1554,9 @@ export class AuthManager {
   generateKeyPair(): { privateKey: Uint8Array; publicKey: string } {
     const privateKey = generateSecretKey();
     const publicKey = getPublicKey(privateKey);
+    // A key born in this browser has no lists on any relay yet: its first
+    // save may skip the "is there already a Saved list?" network read.
+    markFreshAccount(publicKey);
 
     return { privateKey, publicKey };
   }
