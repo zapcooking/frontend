@@ -12,6 +12,7 @@
     getCookbookCoverImage,
     type CookbookList
   } from '$lib/stores/cookbookStore';
+  import { parseATag } from '$lib/listTags';
   import { ndk } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { isOnline } from '$lib/connectionMonitor';
@@ -254,10 +255,10 @@
         }
 
         // Parse the a-tag
-        const parts = aTag.split(':');
-        if (parts.length !== 3) continue;
+        const parsed = parseATag(aTag);
+        if (!parsed) continue;
 
-        const [kind, pubkey, identifier] = parts;
+        const { kind, pubkey, identifier } = parsed;
 
         try {
           const recipeEvent = await $ndk.fetchEvent({
@@ -607,10 +608,10 @@
     const events: NDKEvent[] = [];
 
     for (const aTag of list.recipes) {
-      const parts = aTag.split(':');
-      if (parts.length !== 3) continue;
+      const parsed = parseATag(aTag);
+      if (!parsed) continue;
 
-      const [kind, pubkey, identifier] = parts;
+      const { kind, pubkey, identifier } = parsed;
       try {
         const recipeEvent = await $ndk.fetchEvent({
           kinds: [Number(kind)],
@@ -726,9 +727,9 @@
       if (missing.length > 0 && $isOnline) {
         await Promise.all(
           missing.map(async (aTag) => {
-            const parts = aTag.split(':');
-            if (parts.length !== 3) return;
-            const [kind, pubkey, identifier] = parts;
+            const parsed = parseATag(aTag);
+            if (!parsed) return;
+            const { kind, pubkey, identifier } = parsed;
             try {
               const e = await $ndk.fetchEvent({
                 kinds: [Number(kind)],

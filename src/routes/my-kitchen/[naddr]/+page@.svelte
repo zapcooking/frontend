@@ -25,6 +25,7 @@
   import { DEFAULT_LIST_ID, DEFAULT_LIST_TITLE, cookbookStore, getCookbookCoverImage, type CookbookList } from '$lib/stores/cookbookStore';
   import type { SavedListChange } from '$lib/savedListSafety';
   import { showToast } from '$lib/toast';
+  import { parseATag } from '$lib/listTags';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { writable, type Writable, get } from 'svelte/store';
   import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
@@ -222,10 +223,10 @@
           
           // Online - fetch from Nostr and cache
           for (const tag of recipeTags) {
-            const parts = tag[1].split(':');
-            if (parts.length !== 3) continue;
+            const parsed = parseATag(tag[1]);
+            if (!parsed) continue;
             
-            const [kind, pubkey, identifier] = parts;
+            const { kind, pubkey, identifier } = parsed;
             
             try {
               const recipeEvent = await $ndk.fetchEvent({
@@ -337,10 +338,10 @@
             const recipeTags = e.tags.filter(t => t[0] === 'a');
             
             for (const tag of recipeTags) {
-              const parts = tag[1].split(':');
-              if (parts.length !== 3) continue;
+              const parsed = parseATag(tag[1]);
+              if (!parsed) continue;
               
-              const [kind, pubkey, identifier] = parts;
+              const { kind, pubkey, identifier } = parsed;
               
               try {
                 const recipeEvent = await $ndk.fetchEvent({
@@ -607,9 +608,9 @@
     const items: RecipeItem[] = [];
     
     event?.tags.filter(t => t[0] === 'a').forEach(t => {
-      const parts = t[1].split(':');
-      if (parts.length === 3) {
-        const [kind, pubkey, identifier] = parts;
+      const parsed = parseATag(t[1]);
+      if (parsed) {
+        const { kind, pubkey, identifier } = parsed;
         const naddr = nip19.naddrEncode({
           kind: Number(kind),
           identifier,
