@@ -469,6 +469,9 @@
     margin: 0 0 0.375rem 0;
     overflow-wrap: anywhere;
     word-break: break-word;
+    /* The preview keeps the author's paragraph breaks (see $lib/notePreview);
+       the line-clamp below still caps the visible height. */
+    white-space: pre-wrap;
     display: -webkit-box;
     -webkit-line-clamp: 6;
     line-clamp: 6;
