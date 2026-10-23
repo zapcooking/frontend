@@ -113,6 +113,23 @@ describe('decideSavedListBase — when may the list be edited, and on what', () 
     ).toBe(true);
   });
 
+  it("own-listed nostr.wine: a copy it returns counts like any relay's", () => {
+    const newer = list(200, ['30023:x:a', '30023:x:b']);
+    const d = decide({
+      answers: [has(WINE, newer), empty(NOS), has(PRIMAL, list(100, ['30023:x:a']))],
+      ownWrite: [WINE]
+    });
+    expect(d).toEqual({ ok: true, base: newer });
+  });
+
+  it('own-listed nostr.wine: its empty answer never counts toward the floor or absence', () => {
+    // Only nostr.wine + one list-capable relay answered empty: not enough.
+    expect(decide({ answers: [empty(WINE), empty(NOS), silent(PRIMAL)], ownWrite: [WINE] }).ok).toBe(
+      false
+    );
+    expect(listAbsenceProven([empty(WINE), empty(NOS), silent(PRIMAL)])).toBe(false);
+  });
+
   it('still needs 2 list-capable answers overall, half or not', () => {
     expect(
       decide({ answers: [empty(PYRAMID), silent(NOS), silent(PRIMAL)], ownWrite: [PYRAMID] }).ok
