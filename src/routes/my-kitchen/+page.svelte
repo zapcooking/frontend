@@ -396,7 +396,7 @@
         errorMessage = 'Failed to create list';
       }
     } catch (err) {
-      errorMessage = `Error: ${err}`;
+      errorMessage = err instanceof Error ? err.message : `Error: ${err}`;
     } finally {
       isSubmitting = false;
     }
@@ -445,7 +445,7 @@
         errorMessage = 'Failed to update list';
       }
     } catch (err) {
-      errorMessage = `Error: ${err}`;
+      errorMessage = err instanceof Error ? err.message : `Error: ${err}`;
     } finally {
       isSubmitting = false;
     }

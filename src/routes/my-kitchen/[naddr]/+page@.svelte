@@ -22,13 +22,12 @@
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PinIcon from 'phosphor-svelte/lib/PushPin';
   import CloudSlashIcon from 'phosphor-svelte/lib/CloudSlash';
-  import { DEFAULT_LIST_ID, DEFAULT_LIST_TITLE, cookbookStore, getCookbookCoverImage, type CookbookList, type SavedListView } from '$lib/stores/cookbookStore';
+  import { DEFAULT_LIST_ID, cookbookStore, getCookbookCoverImage, type CookbookList, type SavedListView } from '$lib/stores/cookbookStore';
   import type { SavedListChange } from '$lib/savedListSafety';
   import { showToast } from '$lib/toast';
   import { parseATag } from '$lib/listTags';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { writable, type Writable, get } from 'svelte/store';
-  import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
   import ImageIcon from 'phosphor-svelte/lib/Image';
   import { isOnline } from '$lib/connectionMonitor';
   import { offlineStorage, type CachedRecipe } from '$lib/offlineStorage';
@@ -404,94 +403,12 @@
         throw new Error('Invalid collection');
       }
 
-      if (isDefaultList()) {
-        if (await editSavedList({ cover: selectedCoverRecipeATag })) {
-          coverImage = undefined;
-          const savedList = get(cookbookStore).lists.find(l => l.id === DEFAULT_LIST_ID);
-          if (savedList) coverImage = await getCookbookCoverImage(savedList, $ndk, true);
-          closeChangeCoverModal();
-        }
-        return;
+      if (await editThisList({ cover: selectedCoverRecipeATag })) {
+        coverImage = undefined;
+        const updatedList = get(cookbookStore).lists.find(l => l.id === dTag);
+        if (updatedList) coverImage = await getCookbookCoverImage(updatedList, $ndk, true);
+        closeChangeCoverModal();
       }
-      
-      // Create a new event with updated cover tag (same approach as saveEdits)
-      const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-      const newEvent = new NDKEvent($ndk);
-      newEvent.kind = 30001;
-      
-      // Copy all metadata tags
-      newEvent.tags.push(['d', dTag]);
-      newEvent.tags.push(['title', event.tags.find(t => t[0] === 'title')?.[1] || '']);
-      
-      const summary = event.tags.find(t => t[0] === 'summary')?.[1];
-      if (summary) {
-        newEvent.tags.push(['summary', summary]);
-      }
-      
-      const image = event.tags.find(t => t[0] === 'image')?.[1];
-      if (image) {
-        newEvent.tags.push(['image', image]);
-      }
-      
-      // Keep recipe tag for non-default lists
-      if (!isDefaultList()) {
-        newEvent.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
-      }
-      
-      // Add the new cover tag
-      newEvent.tags.push(['cover', selectedCoverRecipeATag]);
-      
-      // Copy all recipe tags
-      event.tags.filter(t => t[0] === 'a').forEach(t => {
-        newEvent.tags.push(['a', t[1]]);
-      });
-
-      const { addClientTagToEvent } = await import('$lib/nip89');
-      addClientTagToEvent(newEvent);
-
-      // Publish with timeout
-      const publishPromise = newEvent.publish(await outboxRelaySet(newEvent, 'list'));
-      const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Publish timeout after 10 seconds')), 10000)
-      );
-      
-      try {
-        await Promise.race([publishPromise, timeoutPromise]);
-        console.log('Cover recipe updated successfully');
-      } catch (publishError: any) {
-        if (publishError?.message?.includes('timeout')) {
-          console.warn('Publish timed out, but updating local state');
-        } else {
-          throw publishError;
-        }
-      }
-      
-      // Update local event (same as saveEdits does)
-      event = newEvent;
-      
-      // Update the store with the new event
-      const listId = dTag;
-      cookbookStore.update(s => ({
-        ...s,
-        lists: s.lists.map(l => 
-          l.id === listId 
-            ? { 
-                ...l, 
-                coverRecipeId: selectedCoverRecipeATag ?? undefined,
-                event: newEvent
-              }
-            : l
-        )
-      }));
-      
-      // Clear cover image cache and reload
-      coverImage = undefined;
-      const updatedList = get(cookbookStore).lists.find(l => l.id === listId);
-      if (updatedList) {
-        coverImage = await getCookbookCoverImage(updatedList, $ndk, true);
-      }
-      
-      closeChangeCoverModal();
     } catch (err: any) {
       console.error('Failed to set cover recipe:', err);
       // Provide user-friendly error message
@@ -513,22 +430,25 @@
   }
 
   /**
-   * The Saved list is only ever changed through the cookbook store's guarded
-   * edit (fresh relay read, one event, never the unpublished placeholder or
-   * this page's possibly stale copy). Shows the store's message on refusal.
+   * This list (Saved or a custom collection) is only ever changed through
+   * the cookbook store's guarded edit: a fresh relay read, one event built on
+   * the newest copy with every tag but the recipes kept, never this page's
+   * possibly stale copy. Shows the store's message on refusal.
    */
-  async function editSavedList(change: SavedListChange): Promise<boolean> {
-    const result = await cookbookStore.editSavedList(change);
+  async function editThisList(change: SavedListChange): Promise<boolean> {
+    const listId = event?.tags.find(t => t[0] === 'd')?.[1];
+    if (!listId) return false;
+    const result = await cookbookStore.editList(listId, change);
     if (!result.ok) {
       errorMessage = result.message;
       showToast('error', result.message, 10000, undefined, {
         label: 'Retry',
-        onClick: () => void editSavedList(change)
+        onClick: () => void editThisList(change)
       });
       return false;
     }
-    const saved = get(cookbookStore).lists.find(l => l.id === DEFAULT_LIST_ID);
-    if (saved?.event) event = saved.event;
+    const updated = get(cookbookStore).lists.find(l => l.id === listId);
+    if (updated?.event) event = updated.event;
     return true;
   }
 
@@ -557,47 +477,11 @@
     errorMessage = '';
 
     try {
-      if (isDefaultList()) {
-        const images = $editImages;
-        if (await editSavedList({ meta: { summary: editSummary.trim(), image: images[0] ?? '' } })) {
-          closeEditModal();
-        }
-        return;
-      }
-
-      const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-      const newEvent = new NDKEvent($ndk);
-      newEvent.kind = 30001;
-      
-      const dTag = event.tags.find(t => t[0] === 'd')?.[1];
-      newEvent.tags.push(['d', dTag || '']);
-      newEvent.tags.push(['title', isDefaultList() ? DEFAULT_LIST_TITLE : editTitle.trim()]);
-      
-      if (editSummary.trim()) {
-        newEvent.tags.push(['summary', editSummary.trim()]);
-      }
-      
       const images = $editImages;
-      if (images[0]) {
-        newEvent.tags.push(['image', images[0]]);
+      const meta = { summary: editSummary.trim(), image: images[0] ?? '' };
+      if (await editThisList({ meta: isDefaultList() ? meta : { ...meta, title: editTitle.trim() } })) {
+        closeEditModal();
       }
-      
-      // Keep recipe tag for non-default lists
-      if (!isDefaultList()) {
-        newEvent.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
-      }
-      
-      // Copy all recipe tags
-      event.tags.filter(t => t[0] === 'a').forEach(t => {
-        newEvent.tags.push(['a', t[1]]);
-      });
-
-      const { addClientTagToEvent } = await import('$lib/nip89');
-      addClientTagToEvent(newEvent);
-
-      await newEvent.publish(await outboxRelaySet(newEvent, 'list'));
-      event = newEvent;
-      closeEditModal();
     } catch (err) {
       errorMessage = `Error: ${err}`;
     } finally {
@@ -606,12 +490,17 @@
   }
 
   // Manage recipes functionality
+  // The `a` values the modal listed: only these can be removed by it.
+  let manageShown: string[] = [];
+
   function openManageModal() {
     const items: RecipeItem[] = [];
+    manageShown = [];
     
     event?.tags.filter(t => t[0] === 'a').forEach(t => {
       const parsed = parseATag(t[1]);
       if (parsed) {
+        manageShown.push(t[1]);
         const { kind, pubkey, identifier } = parsed;
         const naddr = nip19.naddrEncode({
           kind: Number(kind),
@@ -640,51 +529,20 @@
     isSubmitting = true;
 
     try {
-      if (isDefaultList()) {
-        const order = $recipeItems.map(item => {
-          const decoded = nip19.decode(item.naddr).data as nip19.AddressPointer;
-          return `${decoded.kind}:${decoded.pubkey}:${decoded.identifier}`;
-        });
-        // Only what the member took out is removed; anything saved elsewhere
-        // since this page loaded stays (the edit reads the list fresh).
-        const removed = event.tags
-          .filter(t => t[0] === 'a' && !order.includes(t[1]))
-          .map(t => t[1]);
-        if (await editSavedList({ remove: removed, order })) {
-          await loadData();
-          closeManageModal();
-        }
-        return;
-      }
-
-      const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-      const newEvent = new NDKEvent($ndk);
-      newEvent.kind = 30001;
-      
-      // Copy metadata tags
-      const metaTags = ['d', 'title', 'summary', 'image', 't'];
-      event.tags.forEach(t => {
-        if (metaTags.includes(t[0])) {
-          newEvent.tags.push([...t]);
-        }
-      });
-      
-      // Add recipes in new order
-      $recipeItems.forEach(item => {
+      const order = $recipeItems.map(item => {
         const decoded = nip19.decode(item.naddr).data as nip19.AddressPointer;
-        const aTag = `${decoded.kind}:${decoded.pubkey}:${decoded.identifier}`;
-        newEvent.tags.push(['a', aTag]);
+        return `${decoded.kind}:${decoded.pubkey}:${decoded.identifier}`;
       });
-
-      const { addClientTagToEvent } = await import('$lib/nip89');
-      addClientTagToEvent(newEvent);
-
-      await newEvent.publish(await outboxRelaySet(newEvent, 'list'));
-      event = newEvent;
-      
-      // Reload to reflect changes
-      await loadData();
-      closeManageModal();
+      // Only what the member took out of the modal is removed: anything saved
+      // elsewhere since this page loaded, or not shown in the modal, stays
+      // (the edit reads the list fresh).
+      const removed = manageShown.filter(a => !order.includes(a));
+      // Recipes pasted into the modal's Add field.
+      const added = order.filter(a => !manageShown.includes(a));
+      if (await editThisList({ add: added, remove: removed, order })) {
+        await loadData();
+        closeManageModal();
+      }
     } catch (err) {
       console.error('Failed to save recipe order:', err);
     } finally {

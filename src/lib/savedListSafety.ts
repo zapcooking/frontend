@@ -1,8 +1,10 @@
 /**
- * Safe edits to the member's "Saved" recipe list
- * (`30001:<pubkey>:nostrcooking-bookmarks`).
+ * Safe edits to the member's recipe lists (kind 30001): the "Saved" list
+ * (`30001:<pubkey>:nostrcooking-bookmarks`) and every custom collection.
+ * The rules were written for Saved (hence the names) and apply unchanged to
+ * every list.
  *
- * The list is a replaceable event: every edit republishes the whole list, so
+ * A list is a replaceable event: every edit republishes the whole list, so
  * an edit built on a missing or partial read publishes a smaller list and
  * drops saved recipes. Before EVERY publish the list is read from the relays
  * it is written to, and `decideSavedListBase` (pure, tested) decides what the
@@ -137,27 +139,34 @@ export interface SavedListChange {
    * ordered ones: an order is never a reason to drop a recipe.
    */
   order?: string[];
-  /** List details; an empty string removes the tag. The title stays "Saved". */
-  meta?: { summary?: string; image?: string };
+  /**
+   * List details; an empty string removes the summary / image. A title is
+   * never removed (an empty one is ignored), and the Saved list's callers
+   * never pass one: its title stays "Saved".
+   */
+  meta?: { title?: string; summary?: string; image?: string };
 }
 
 /**
  * The next version of the list: every tag of the base except its recipes
- * kept verbatim (title, cover, summary, image, other clients' tags), recipes
- * edited in place, created_at strictly after `floor`.
+ * kept verbatim (title, cover, summary, image, `t`, other clients' tags),
+ * recipes edited in place, created_at strictly after `floor`. With no base
+ * (the list's first event), `initialTags` follow the d and title tags.
  */
 export function buildSavedListEdit(
   base: ListEvent | null,
   change: SavedListChange,
-  opts: { dTag: string; title: string; now: number; floor: number }
+  opts: { dTag: string; title: string; now: number; floor: number; initialTags?: string[][] }
 ): { tags: string[][]; content: string; created_at: number; changed: boolean; added: number } {
   const baseTags = base?.tags ?? [];
   let others = baseTags.filter((t) => t[0] !== 'a' && t[0] !== 'cover' && t[0] !== 'client');
   if (!others.some((t) => t[0] === 'd')) others.unshift(['d', opts.dTag]);
   if (!others.some((t) => t[0] === 'title')) others.push(['title', opts.title]);
+  if (!base) others.push(...(opts.initialTags ?? []).map((t) => [...t]));
   let metaChanged = false;
   for (const [name, value] of Object.entries(change.meta ?? {})) {
     if (value === undefined) continue;
+    if (name === 'title' && !value) continue;
     const current = others.find((t) => t[0] === name)?.[1] ?? '';
     if (current === value) continue;
     metaChanged = true;
