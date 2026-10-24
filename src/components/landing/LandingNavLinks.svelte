@@ -20,6 +20,7 @@
     { href: '/explore', label: 'Explore', icon: CompassIcon },
     { href: '/feed', label: 'Feed', icon: FlameIcon },
     { href: '/recipes', label: 'Recipes', icon: ForkKnifeIcon },
+    { href: '/packs', label: 'Recipe Packs', icon: CookbookIcon },
     { href: '/reads', label: 'Reads', icon: NewspaperIcon },
     { href: '/polls', label: 'Polls', icon: PollIcon },
     { href: '/messages', label: 'Messages', icon: EnvelopeIcon },

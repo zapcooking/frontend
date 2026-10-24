@@ -11,6 +11,8 @@
  */
 
 import { parseCoordinate } from '$lib/coordinate';
+import { standardRelays } from '$lib/consts';
+import { PACK_KIND, PACK_TAGS, packCard, moderatePackCard } from './packs';
 import { verifyEvent } from 'nostr-tools/pure';
 import type { ReadsModerationLists } from '$lib/reads/moderationConfig';
 import { evaluateReadsContent } from '$lib/reads/moderation';
@@ -47,6 +49,7 @@ import {
 	type Cook,
 	type LongformCard,
 	type NoteCard,
+	type PackCard,
 	type Profile,
 	type TopicTile
 } from './content';
@@ -78,6 +81,8 @@ export const RECIPE_T_TAGS = ['zapcooking', 'nostrcooking'];
 export const FRESH_FOR_MS = 120_000;
 /** Each network round's hard cap. */
 export const ROUND_TIMEOUT_MS = 1200;
+/** Bound revision memory to one complete public discovery budget (four relays × 60). */
+export const MAX_PACK_REVISIONS = 240;
 
 export const LIMITS = {
 	fresh: 6,
@@ -85,6 +90,7 @@ export const LIMITS = {
 	topics: 8,
 	cooks: 12,
 	reads: 4,
+	packs: 3,
 	/** The reads section shows only with at least this many cards (else curated only, or hidden). */
 	minReads: 2,
 	/** Uncurated reads: food long-form from trusted authors published in this window. */
@@ -104,6 +110,10 @@ export interface LandingData {
 	topics: TopicTile[];
 	cooks: Cook[];
 	reads: LongformCard[];
+	/** Optional for compatibility with landing data cached before packs were added. */
+	packs?: PackCard[];
+	/** Latest signed versions observed, including empty/invalid packs that retire cached cards. */
+	packRevisions?: { coordinate: string; version: number }[];
 	/** Editorially approved recipes; never padded with unrelated recent content. */
 	coverPool?: LongformCard[];
 	coverPoolBucket?: number;
@@ -113,16 +123,16 @@ export interface LandingData {
 	recipePool?: LongformCard[];
 	/**
 	 * Sections whose empty result is real (the relay answered in full), so the
-	 * last good version must not come back. Only reads uses it: an empty
-	 * reads section is hidden on purpose, never padded.
+	 * last good version must not come back. Empty reads and packs are hidden
+	 * when their discovery sources answered successfully, never padded.
 	 */
 	settled?: SectionName[];
 }
 
-export type SectionName = 'cover' | 'newRecipes' | 'fresh' | 'topics' | 'cooks' | 'reads';
+export type SectionName = 'cover' | 'newRecipes' | 'fresh' | 'topics' | 'cooks' | 'reads' | 'packs';
 
 export function emptyLandingData(builtAt = 0): LandingData {
-	return { v: 1, builtAt, cover: null, picks: [], newRecipes: [], fresh: [], topics: [], cooks: [], reads: [], coverPool: [], recipePool: [] };
+	return { v: 1, builtAt, cover: null, picks: [], newRecipes: [], fresh: [], topics: [], cooks: [], reads: [], packs: [], packRevisions: [], coverPool: [], recipePool: [] };
 }
 
 interface Nip11Topic {
@@ -226,7 +236,7 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 		const { kind, d } = LANDING_LISTS[name];
 		listSubs[name] = { kinds: [kind], authors: [ORG_PUBKEY], '#d': [d], limit: 2 };
 	}
-	const [feed, nip11Doc, orgLists] = await Promise.all([
+	const [feed, nip11Doc, orgLists, packSources] = await Promise.all([
 		collect(
 			FEED_RELAY,
 			{
@@ -241,9 +251,28 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 		fetchNip11(timeoutMs),
 		raceKeyed(LIST_RELAYS, listSubs, (k, evs) => pickList(evs, k as LandingListName, verify), {
 			timeoutMs
-		})
+		}),
+		// Same public discovery pool as /packs, bounded within the existing first round.
+		Promise.all(standardRelays.map((url) => collect(url, {
+			packs: { kinds: [PACK_KIND], '#t': PACK_TAGS, limit: 60 }
+		}, { timeoutMs })))
 	]);
 	const nip11 = parseNip11Topics(nip11Doc);
+	// Verify before deduplication so a forged newer revision cannot hide a valid pack.
+	// Choose the latest revision before validating references, so an emptied pack
+	// cannot revive an older version still returned by another relay.
+	const packEvents = newestByCoordinate(packSources.flatMap((source) => source.events.packs)
+		.filter((event) => event.kind === PACK_KIND && verify(event)));
+	const packRevisions = packEvents.map((event) => ({
+		coordinate: `${PACK_KIND}:${event.pubkey}:${dTag(event)}`, version: event.created_at
+	}));
+	const packs = packEvents
+		.map(packCard)
+		.filter((card): card is PackCard => !!card)
+		.map((card) => moderatePackCard(card, lists))
+		.filter((card): card is PackCard => !!card)
+		.sort((a, b) => b.publishedAt - a.publishedAt || a.coordinate.localeCompare(b.coordinate))
+		.slice(0, LIMITS.packs);
 
 	const newRecipesAll = newestByCoordinate(feed.events.recipes)
 		.filter((e) => !lists || !evaluateReadsContent(e, lists).blocked)
@@ -284,6 +313,7 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 
 	const bylinePubkeys = new Set<string>([
 		...fresh.map((c) => c.author.pubkey),
+		...packs.map((c) => c.author.pubkey),
 		...newRecipesAll.map((c) => c.author.pubkey),
 		...fallbackArticles.slice(0, LIMITS.reads).map((c) => c.author.pubkey),
 		...allRefs.map((r) => r.pubkey),
@@ -364,6 +394,9 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 	const combined = [...curatedReads, ...windowed].slice(0, LIMITS.reads);
 	const reads = combined.length >= LIMITS.minReads ? combined : curatedReads;
 	const settled: SectionName[] = feed.done.articles ? ['reads'] : [];
+	// An empty profile-only relay is insufficient evidence that packs disappeared.
+	// Retain last good packs unless every discovery source completed successfully.
+	if (packSources.every((source) => source.done.packs && !source.closed.packs)) settled.push('packs');
 
 	const topics: TopicTile[] = [];
 	slugs.forEach((slug, i) => {
@@ -404,6 +437,8 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 		topics,
 		cooks,
 		reads: reads.map(withAuthor),
+		packs: packs.map(withAuthor),
+		packRevisions,
 		coverPool: refCards(heroRefs).filter((c) => c.type === 'recipe').map(withAuthor),
 		...(orgLists.hero ? { coverPoolBucket: Math.floor(t / 21600), coverList: { version: orgLists.hero.created_at, coordinates: heroRefs.map(coordinateKey) } } : {}),
 		recipePool: newestRecipeCards([...refCards(heroRefs), ...newRecipesAll]).map(withAuthor),
@@ -440,7 +475,8 @@ export function mergeWithLastGood(next: LandingData, last: LandingData | null): 
 } {
 	if (!last) return { data: next, stale: [] };
 	const stale: SectionName[] = [];
-	const data = { ...next };
+	const packRevisions = mergePackRevisions(next, last);
+	const data = { ...next, packRevisions, packs: (next.packs ?? []).filter((card) => !newerPackRevision(packRevisions, card)) };
 	// A signed empty list is an editorial removal, not a failed fetch. An outage
 	// retains only previously approved candidates, never recent unapproved food.
 	const list = next.coverList ?? last.coverList;
@@ -471,7 +507,42 @@ export function mergeWithLastGood(next: LandingData, last: LandingData | null): 
 			stale.push(k);
 		}
 	}
+	if (!next.settled?.includes('packs') && !data.packs.length) {
+		// Missing sources can preserve unrelated packs, but a signed newer empty,
+		// blocked or invalid revision is an authoritative removal of its own card.
+		const retained = (last.packs ?? []).filter((card) =>
+			!observedPackRevision(next, card) && !newerPackRevision(packRevisions, card)
+		);
+		if (retained.length) {
+			data.packs = retained;
+			stale.push('packs');
+		}
+	}
 	return { data, stale };
+}
+
+function mergePackRevisions(next: LandingData, last: LandingData): NonNullable<LandingData['packRevisions']> {
+	const latest = new Map<string, number>();
+	for (const revision of [
+		...(last.packRevisions ?? []), ...(next.packRevisions ?? []),
+		...(last.packs ?? []).map((card) => ({ coordinate: card.coordinate, version: card.publishedAt })),
+		...(next.packs ?? []).map((card) => ({ coordinate: card.coordinate, version: card.publishedAt }))
+	]) {
+		latest.set(revision.coordinate, Math.max(revision.version, latest.get(revision.coordinate) ?? -1));
+	}
+	return [...latest].map(([coordinate, version]) => ({ coordinate, version }))
+		.sort((a, b) => b.version - a.version || a.coordinate.localeCompare(b.coordinate))
+		.slice(0, MAX_PACK_REVISIONS);
+}
+
+function newerPackRevision(revisions: NonNullable<LandingData['packRevisions']>, card: PackCard): boolean {
+	return revisions.some((revision) => revision.coordinate === card.coordinate && revision.version > card.publishedAt);
+}
+
+function observedPackRevision(next: LandingData, card: PackCard): boolean {
+	return !!next.packRevisions?.some((revision) =>
+		revision.coordinate === card.coordinate && revision.version >= card.publishedAt
+	);
 }
 
 /**
@@ -493,7 +564,8 @@ export function pinCoverPool(data: LandingData, nowSeconds: number): LandingData
 
 /** Recheck cached candidates so last-good data cannot revive a newly blocked recipe. */
 export function moderateLandingData(data: LandingData, lists: ReadsModerationLists | null): LandingData {
-	if (!lists) return data;
+	const packs = (data.packs ?? []).map((card) => moderatePackCard(card, lists)).filter((card): card is PackCard => !!card);
+	if (!lists) return { ...data, packs };
 	const allowed = (c: LongformCard) => {
 		const coordinate = parseCoordinate(c.coordinate);
 		return !evaluateReadsContent({
@@ -503,6 +575,7 @@ export function moderateLandingData(data: LandingData, lists: ReadsModerationLis
 	};
 	return {
 		...data,
+		packs,
 		cover: data.cover && allowed(data.cover) ? data.cover : null,
 		picks: data.picks.filter(allowed),
 		newRecipes: data.newRecipes.filter(allowed),
@@ -513,7 +586,7 @@ export function moderateLandingData(data: LandingData, lists: ReadsModerationLis
 }
 
 export function hasContent(d: LandingData): boolean {
-	return !!d.cover || d.newRecipes.length + d.fresh.length + d.topics.length + d.cooks.length + d.reads.length > 0;
+	return !!d.cover || d.newRecipes.length + d.fresh.length + d.topics.length + d.cooks.length + d.reads.length + (d.packs?.length ?? 0) > 0;
 }
 
 // --- Cache -----------------------------------------------------------------
@@ -592,7 +665,14 @@ function refresh(last: Entry | null, deps: GetDeps): Promise<Entry | null> {
 		const stale = merged.stale;
 		const data = moderateLandingData(merged.data, deps.moderation ?? null);
 		if (stale.length) console.warn('[landing] serving last good for:', stale.join(', '));
-		if (!hasContent(data)) return last;
+		// A complete empty response must also clear a cache containing only packs
+		// (or reads); otherwise returning `last` would revive the removed section.
+		const clearedSection = next.settled?.some((section) =>
+			section === 'packs' ? !!last?.data.packs?.length : section === 'reads' && !!last?.data.reads.length
+		) || last?.data.packs?.some((card) => observedPackRevision(next, card));
+		// Keep newly observed signed removals even if no visible section remains,
+		// so a later stale relay cannot bring an older valid revision back.
+		if (!hasContent(data) && !clearedSection && !data.packRevisions?.length) return last;
 		const entry = { data, storedAt: clock() };
 		memo = entry;
 		await writeCache(deps.cache ?? null, entry);

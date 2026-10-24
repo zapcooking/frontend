@@ -24,7 +24,7 @@
         <LandingNavLinks label="Mobile navigation" />
       </div>
     </details>
-    <span class="page-name">Explore</span>
+    <h1 class="page-name">Explore</h1>
     <div class="account">
       <a href="/login" data-landing-guest hidden>Sign in</a>
       <a href="/login?join=1" class="join" data-landing-guest hidden>Join free</a>
@@ -49,8 +49,10 @@
     gap: 12px;
   }
   .page-name {
+    margin: 0;
     font-size: 18px;
     font-weight: 600;
+    line-height: 1.2;
   }
   .account {
     margin-left: auto;

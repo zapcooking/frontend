@@ -15,6 +15,23 @@ export interface CardAuthor {
 	picture?: string;
 }
 
+/** A public, shareable collection of existing recipes. */
+export interface PackCard {
+	coordinate: string;
+	href: string;
+	title: string;
+	description?: string;
+	image?: string;
+	author: CardAuthor;
+	recipeCount: number;
+	/** Retained so cached packs can respect new recipe blocks. */
+	recipeCoordinates: string[];
+	publishedAt: number;
+	eventId?: string;
+	moderationText?: string;
+	tags?: string[];
+}
+
 /** A recipe or a long-form article. */
 export interface LongformCard {
 	type: 'recipe' | 'article';
