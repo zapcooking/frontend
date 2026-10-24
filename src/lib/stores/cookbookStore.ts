@@ -20,6 +20,7 @@ import { parseCoordinate } from '$lib/coordinate';
 import {
   buildSavedListEdit,
   decideSavedListBase,
+  LIST_PUBLISH_OK_TIMEOUT_MS,
   listAbsenceProven,
   newestList,
   type ListEvent,
@@ -436,7 +437,7 @@ function createCookbookStore() {
     if (event.pubkey !== pubkey || get(userPublickey) !== pubkey) return { ok: false, message: unconfirmed };
     try {
       const { relaySetForUrls } = await import('$lib/nip65Routing');
-      await event.publish(await relaySetForUrls(ndkInstance, urls));
+      await event.publish(await relaySetForUrls(ndkInstance, urls), LIST_PUBLISH_OK_TIMEOUT_MS);
     } catch (error) {
       console.error('[CookbookStore] List publish failed:', listId, error);
       return { ok: false, message: publishFailed };

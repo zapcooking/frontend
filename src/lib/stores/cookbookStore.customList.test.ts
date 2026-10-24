@@ -484,6 +484,12 @@ describe('signing a list edit is bounded', () => {
     expect(published).toHaveLength(1);
   });
 
+  it('each relay gets 8 s to acknowledge the edit', async () => {
+    useSigner(remoteSigner(NDKNip07Signer, 10));
+    await within(cookbookStore.editList(D, { add: [R('r2')] }), 5_000);
+    expect(vi.mocked(NDKEvent.prototype.publish).mock.calls[0]?.[1]).toBe(8000);
+  });
+
   it('a local key signs with no timer', async () => {
     const signer = NDKPrivateKeySigner.generate();
     PUBKEY = (await signer.user()).pubkey;

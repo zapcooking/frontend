@@ -42,6 +42,12 @@
 import { NON_LIST_RELAYS } from './outboxRelays';
 
 export const SAVED_LIST_READ_TIMEOUT_MS = 5000;
+/**
+ * How long each relay has to acknowledge (OK) a list edit. NDK's default is
+ * 2.5 s, which a slow connection or a relay connected just for the edit can
+ * miss even when it stored the event.
+ */
+export const LIST_PUBLISH_OK_TIMEOUT_MS = 8000;
 export const MIN_EMPTY_ANSWERS = 2;
 
 /**
