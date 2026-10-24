@@ -582,3 +582,80 @@ describe('a publish no relay acknowledged', () => {
     expect(published).toHaveLength(0);
   });
 });
+
+// ── Every `a` tag is written back verbatim (#888 ruling 5) ──────
+import { nip19 } from 'nostr-tools';
+import { coordinateAsWritten, parseCoordinate } from '$lib/coordinate';
+
+/** a-tag values the display skips (parseCoordinate → null). */
+const SKIPPED = [
+  `30023:npub1${'q'.repeat(58)}:npub-recipe`,
+  '30023:ABC:short-pubkey',
+  '30023::no-pubkey',
+  `30023:${'c'.repeat(64)}`,
+  'garbage'
+];
+/** Shown entries written in ways the app must not normalise. */
+const HINTED = ['a', R('hinted'), 'wss://relay.example'];
+const UPPER = ['a', `30023:${'C'.repeat(64)}:upper-hex`];
+
+function listWith(dTag: string) {
+  const ev = listEvent(1000, [R('r1')]);
+  ev.tags = ev.tags.map((t) => (t[0] === 'd' ? ['d', dTag] : t));
+  ev.tags.push(...SKIPPED.map((a) => ['a', a]), HINTED, UPPER, ['a', R('r2')]);
+  return ev;
+}
+const aTags = (e: { tags: string[][] }) => e.tags.filter((t) => t[0] === 'a');
+
+/**
+ * The list page's Manage Recipes, end to end: only parseable entries are
+ * shown (as naddrs), the member removes r1 and reverses the rest, and the
+ * page maps the naddrs back with coordinateAsWritten.
+ */
+function manageRecipes(ev: Stored) {
+  const shown = ev.tags.filter((t) => t[0] === 'a' && parseCoordinate(t[1])).map((t) => t[1]);
+  const naddrs = shown.filter((a) => a !== R('r1')).map((a) => nip19.naddrEncode(parseCoordinate(a)!));
+  const order = naddrs.reverse().map((n) => coordinateAsWritten(nip19.decode(n).data as nip19.AddressPointer, shown));
+  return {
+    add: order.filter((a) => !shown.includes(a)),
+    remove: shown.filter((a) => !order.includes(a)),
+    order
+  };
+}
+
+describe('every a tag is written back byte-for-byte', () => {
+  for (const which of ['custom', 'Saved'] as const) {
+    const dTag = which === 'custom' ? D : 'nostrcooking-bookmarks';
+    const edits: [string, (ev: Stored) => Promise<unknown>, string[]][] = [
+      ['add', () => cookbookStore.editList(dTag, { add: [R('r3')] }), []],
+      ['remove', () => cookbookStore.editList(dTag, { remove: [R('r1')] }), [R('r1')]],
+      ['details edit', () => cookbookStore.editList(dTag, { meta: { summary: 'new summary' } }), []],
+      ['Manage Recipes', (ev) => cookbookStore.editList(dTag, manageRecipes(ev)), [R('r1')]]
+    ];
+    for (const [name, run, removed] of edits) {
+      it(`${which} list, ${name}: every untouched a tag is kept exactly (hint, casing, unparseable values)`, async () => {
+        const ev = listWith(dTag);
+        net.relays = { [NOS]: { [dTag]: ev }, [PRIMAL]: { [dTag]: ev }, [NET]: { [dTag]: ev } };
+        const r = (await settle(run(ev) as Promise<{ ok: boolean }>)) as { ok: boolean };
+        expect(r.ok).toBe(true);
+        expect(published).toHaveLength(1);
+        const out = aTags(published[0]);
+        for (const t of aTags(ev).filter((t) => !removed.includes(t[1]))) {
+          expect(out.filter((o) => JSON.stringify(o) === JSON.stringify(t))).toHaveLength(1);
+        }
+        // Nothing but the added recipe is new.
+        const before = new Set(aTags(ev).map((t) => JSON.stringify(t)));
+        expect(out.filter((o) => !before.has(JSON.stringify(o)))).toEqual(name === 'add' ? [['a', R('r3')]] : []);
+      });
+    }
+  }
+
+  it('Manage Recipes: unparseable values keep their relative order, after the ordered ones', async () => {
+    const ev = listWith(D);
+    net.relays = { [NOS]: { [D]: ev }, [PRIMAL]: { [D]: ev }, [NET]: { [D]: ev } };
+    await settle(cookbookStore.editList(D, manageRecipes(ev)));
+    const values = aTags(published[0]).map((t) => t[1]);
+    expect(values.filter((v) => SKIPPED.includes(v))).toEqual(SKIPPED);
+    expect(values.slice(-SKIPPED.length)).toEqual(SKIPPED);
+  });
+});

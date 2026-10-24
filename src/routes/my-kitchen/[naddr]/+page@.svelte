@@ -25,7 +25,7 @@
   import { DEFAULT_LIST_ID, cookbookStore, getCookbookCoverImage, type CookbookList, type SavedListView } from '$lib/stores/cookbookStore';
   import type { SavedListChange } from '$lib/savedListSafety';
   import { showListEditRefusal } from '$lib/listEditToast';
-  import { parseCoordinate } from '$lib/coordinate';
+  import { coordinateAsWritten, parseCoordinate } from '$lib/coordinate';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { writable, type Writable, get } from 'svelte/store';
   import ImageIcon from 'phosphor-svelte/lib/Image';
@@ -531,10 +531,11 @@
     isSubmitting = true;
 
     try {
-      const order = $recipeItems.map(item => {
-        const decoded = nip19.decode(item.naddr).data as nip19.AddressPointer;
-        return `${decoded.kind}:${decoded.pubkey}:${decoded.identifier}`;
-      });
+      // Spelled as the list spells them: an naddr lower-cases the pubkey, and
+      // an entry the member didn't touch must not be rewritten.
+      const order = $recipeItems.map(item =>
+        coordinateAsWritten(nip19.decode(item.naddr).data as nip19.AddressPointer, manageShown)
+      );
       // Only what the member took out of the modal is removed: anything saved
       // elsewhere since this page loaded, or not shown in the modal, stays
       // (the edit reads the list fresh).

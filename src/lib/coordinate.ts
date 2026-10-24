@@ -43,6 +43,28 @@ export function formatCoordinate(c: { kind: number | string; pubkey: string; ide
 }
 
 /**
+ * The coordinate for an address (e.g. a decoded naddr), spelled the way one
+ * of `existing` spells it when one points to the same event — an naddr
+ * round trip lower-cases the pubkey, and a list entry must keep its original
+ * text. Otherwise the canonical form.
+ */
+export function coordinateAsWritten(
+  address: { kind: number; pubkey: string; identifier: string },
+  existing: string[]
+): string {
+  const match = existing.find((a) => {
+    const c = parseCoordinate(a);
+    return (
+      !!c &&
+      c.kind === address.kind &&
+      c.identifier === address.identifier &&
+      c.pubkey.toLowerCase() === address.pubkey.toLowerCase()
+    );
+  });
+  return match ?? formatCoordinate(address);
+}
+
+/**
  * The `d` tag a NEW recipe gets from its title. Colons are stripped so new
  * coordinates stay readable by parsers outside the app that split on every
  * colon. Never applied to an existing recipe: changing its `d` would orphan

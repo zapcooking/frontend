@@ -70,6 +70,8 @@ describe('list page: every list edit goes through the guarded store edit', () =>
     expect(body).toMatch(/removed = manageShown\.filter/);
     expect(body).toMatch(/added = order\.filter\(a => !manageShown\.includes\(a\)\)/);
     expect(body).toMatch(/editThisList\(\{ add: added, remove: removed, order \}, saveRecipeOrder\)/);
+    // The modal's naddrs are mapped back to the entries as the list spells them.
+    expect(body).toMatch(/coordinateAsWritten\(nip19\.decode\(item\.naddr\)\.data as nip19\.AddressPointer, manageShown\)/);
   });
 
   it("each save's toast Retry runs the whole save again (so it shows Saving...)", () => {

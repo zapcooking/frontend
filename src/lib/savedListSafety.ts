@@ -154,9 +154,10 @@ export interface SavedListChange {
 }
 
 /**
- * The next version of the list: every tag of the base except its recipes
- * kept verbatim (title, cover, summary, image, `t`, other clients' tags),
- * recipes edited in place, created_at strictly after `floor`. With no base
+ * The next version of the list: every tag of the base kept verbatim (title,
+ * cover, summary, image, `t`, other clients' tags, and each recipe's `a` tag
+ * as written), recipes removed, added or reordered in place, created_at
+ * strictly after `floor`. With no base
  * (the list's first event), `initialTags` follow the d and title tags.
  */
 export function buildSavedListEdit(
@@ -180,26 +181,32 @@ export function buildSavedListEdit(
     if (value) others.push([name, value]);
   }
 
-  const before: string[] = [];
-  for (const t of baseTags) {
-    if (t[0] === 'a' && t[1] && !before.includes(t[1])) before.push(t[1]);
-  }
+  // Recipes are edited as the base's own `a` tags, each kept byte-for-byte
+  // (relay hint, original casing, duplicates, tags the app can't parse):
+  // only a recipe actually added is a new tag.
+  const baseA = baseTags.filter((t) => t[0] === 'a');
+  const valuesOf = (tags: string[][]) => [...new Set(tags.map((t) => t[1]).filter(Boolean))];
+  const before = valuesOf(baseA);
   const remove = new Set(change.remove ?? []);
-  let recipes = before.filter((a) => !remove.has(a));
+  let recipeTags = baseA.filter((t) => !remove.has(t[1]));
   let added = 0;
   for (const a of change.add ?? []) {
-    if (a && !recipes.includes(a)) {
-      recipes.push(a);
+    if (a && !recipeTags.some((t) => t[1] === a)) {
+      recipeTags.push(['a', a]);
       added++;
     }
   }
   if (change.order) {
     const rank = new Map(change.order.map((a, i) => [a, i]));
-    const ordered = recipes.filter((a) => rank.has(a)).sort((x, y) => rank.get(x)! - rank.get(y)!);
-    recipes = [...ordered, ...recipes.filter((a) => !rank.has(a))];
+    const ordered = recipeTags
+      .filter((t) => rank.has(t[1]))
+      .sort((x, y) => rank.get(x[1])! - rank.get(y[1])!);
+    recipeTags = [...ordered, ...recipeTags.filter((t) => !rank.has(t[1]))];
   }
+  const recipes = valuesOf(recipeTags);
 
-  const oldCover = baseTags.find((t) => t[0] === 'cover')?.[1];
+  const oldCoverTag = baseTags.find((t) => t[0] === 'cover');
+  const oldCover = oldCoverTag?.[1];
   let cover = oldCover;
   if (change.cover && recipes.includes(change.cover)) cover = change.cover;
   // The cover follows its recipe out of the list; a first recipe seeds it
@@ -208,12 +215,12 @@ export function buildSavedListEdit(
   if (!cover && before.length === 0 && recipes.length > 0) cover = recipes[0];
 
   const tags = [...others.map((t) => [...t])];
-  if (cover) tags.push(['cover', cover]);
-  for (const a of recipes) tags.push(['a', a]);
+  if (cover) tags.push(cover === oldCover && oldCoverTag ? [...oldCoverTag] : ['cover', cover]);
+  for (const t of recipeTags) tags.push([...t]);
 
   const changed =
-    recipes.length !== before.length ||
-    recipes.some((a, i) => a !== before[i]) ||
+    recipeTags.length !== baseA.length ||
+    recipeTags.some((t, i) => t !== baseA[i]) ||
     cover !== oldCover ||
     metaChanged;
 
