@@ -152,8 +152,11 @@ async function persistWallets(list: Wallet[]): Promise<void> {
 let migrationTimer: ReturnType<typeof setInterval> | null = null;
 
 // Re-save once the session can encrypt, so plaintext NWC strings get
-// wrapped without waiting for a wallet edit. NIP-46 sessions never wrap
-// (see canCreateNostrBackup), so stop waiting once that's known. A failed
+// wrapped without waiting for a wallet edit. Only waits while someone is
+// signed in (or restoring: userPublickey is seeded from localStorage on
+// load); with no pubkey it stops, and the userPublickey subscription below
+// restarts it on sign-in. NIP-46 sessions never wrap (see
+// canCreateNostrBackup), so stop waiting once that's known. A failed
 // encrypt (signer denied) is not retried here — no popup loops.
 function scheduleAtRestMigration(): void {
   if (!browser || migrationTimer) return;
@@ -162,12 +165,17 @@ function scheduleAtRestMigration(): void {
       if (migrationTimer) clearInterval(migrationTimer);
       migrationTimer = null;
     };
-    if (!plaintextMigrationPending || getNostrBackupBlocker() === 'nip46') return stop();
-    if (!get(userPublickey) || !canCreateNostrBackup()) return;
+    if (!plaintextMigrationPending || !get(userPublickey)) return stop();
+    if (getNostrBackupBlocker() === 'nip46') return stop();
+    if (!canCreateNostrBackup()) return;
     stop();
     schedulePersist(get(wallets));
   }, 5000);
 }
+
+userPublickey.subscribe((pubkey) => {
+  if (pubkey && plaintextMigrationPending) scheduleAtRestMigration();
+});
 
 let persistChain: Promise<void> = Promise.resolve();
 let latestPendingSave: Wallet[] | null = null;

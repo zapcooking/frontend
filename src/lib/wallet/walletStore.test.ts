@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { get, type Writable } from 'svelte/store';
+import { get, writable, type Writable } from 'svelte/store';
 
 /**
  * NWC at-rest encryption in walletStore.
@@ -13,8 +13,11 @@ import { get, type Writable } from 'svelte/store';
 
 vi.mock('$app/environment', () => ({ browser: true }));
 
-const { fakeNdk, fakePubkey, encryption } = vi.hoisted(() => ({
+const { fakeNdk, fakePubkey, encryption, nostrStores } = vi.hoisted(() => ({
   fakeNdk: { signer: null as unknown },
+  // Fresh per test: the mocked module is shared across resetModules, so a
+  // shared store would keep earlier walletStore instances subscribed.
+  nostrStores: { userPublickey: null as unknown as Writable<string> },
   fakePubkey: 'a'.repeat(64),
   encryption: {
     encrypt: vi.fn(),
@@ -28,7 +31,9 @@ vi.mock('$lib/nostr', async () => {
   const { writable } = await import('svelte/store');
   return {
     ndk: writable(fakeNdk),
-    userPublickey: writable('')
+    get userPublickey() {
+      return nostrStores.userPublickey;
+    }
   };
 });
 
@@ -50,6 +55,9 @@ function readStored(): any[] {
 beforeEach(async () => {
   vi.resetModules();
   vi.useFakeTimers();
+  // Intervals from a previous test's module instance outlive resetModules.
+  vi.clearAllTimers();
+  nostrStores.userPublickey = writable('');
 
   store = new Map();
   (globalThis as any).localStorage = {
@@ -69,8 +77,7 @@ beforeEach(async () => {
   encryption.getNostrBackupBlocker.mockReturnValue(null);
 
   mod = await import('./walletStore');
-  const nostr = await import('$lib/nostr');
-  userPubkeyStore = nostr.userPublickey;
+  userPubkeyStore = nostrStores.userPublickey;
   fakeNdk.signer = null;
   userPubkeyStore.set('');
 });
@@ -151,6 +158,61 @@ describe('at-rest encryption of NWC connection strings', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(vi.getTimerCount()).toBe(0);
     expect(readStored()[0].data).toBe(NWC_URL);
+    expect(encryption.encrypt).not.toHaveBeenCalled();
+  });
+
+  it('stops the at-rest retry with no one signed in and restarts it only on sign-in', async () => {
+    // Page load while a session restores: pubkey seeded, auth not known.
+    encryption.canCreateNostrBackup.mockReturnValue(false);
+    encryption.getNostrBackupBlocker.mockReturnValue('signed-out');
+    userPubkeyStore.set(fakePubkey);
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(vi.getTimerCount()).toBe(1); // retry waiting on the restore
+
+    // Restore fails / user signs out without the wallets being cleared.
+    userPubkeyStore.set('');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Encryption becoming possible doesn't restart it while signed out.
+    encryption.canCreateNostrBackup.mockReturnValue(true);
+    encryption.getNostrBackupBlocker.mockReturnValue(null);
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(encryption.encrypt).not.toHaveBeenCalled();
+    expect(readStored()[0].data).toBe(NWC_URL);
+
+    // Sign-in restarts it and the entry gets wrapped.
+    userPubkeyStore.set(fakePubkey);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(encryption.encrypt).toHaveBeenCalledWith(fakePubkey, NWC_URL);
+    expect(readStored()[0].data).toEqual({ enc: 'ENVELOPE-CIPHERTEXT', method: 'nip44v2' });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('a full sign-out (wallets cleared) ends the at-rest retry', async () => {
+    encryption.canCreateNostrBackup.mockReturnValue(false);
+    encryption.getNostrBackupBlocker.mockReturnValue('signed-out');
+    userPubkeyStore.set(fakePubkey);
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    mod.clearAllWallets();
+    userPubkeyStore.set('');
+    await vi.advanceTimersByTimeAsync(5010);
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Signing back in has nothing to migrate.
+    userPubkeyStore.set(fakePubkey);
+    expect(vi.getTimerCount()).toBe(0);
     expect(encryption.encrypt).not.toHaveBeenCalled();
   });
 
