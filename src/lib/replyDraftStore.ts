@@ -149,7 +149,9 @@ export function saveReplyDraft(
     media: draft.media,
     poll: draft.poll,
     preview: draftPreview(draft.text, draft.media, draft.poll),
-    savedAt: Date.now()
+    // Strictly increasing per target, so two saves inside one millisecond
+    // still read as different revisions (see replyDraftRevision).
+    savedAt: Math.max(Date.now(), (records.get(targetId)?.savedAt ?? 0) + 1)
   };
   records.set(targetId, rec);
   persist(records);
@@ -160,6 +162,16 @@ export function getReplyDraft(targetId: string, pubkey: string | null | undefine
   const rec = records.get(targetId);
   if (!rec || !pubkey || rec.pubkey !== pubkey) return null;
   return rec;
+}
+
+/**
+ * Which save of `targetId`'s draft is on disk — null when there is none.
+ * Whatever account wrote it: a background job holding an older copy uses
+ * this to tell whether anyone has saved over it since, and must leave a
+ * newer record alone either way.
+ */
+export function replyDraftRevision(targetId: string): number | null {
+  return records.get(targetId)?.savedAt ?? null;
 }
 
 export function deleteReplyDraft(targetId: string): void {

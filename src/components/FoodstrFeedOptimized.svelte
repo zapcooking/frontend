@@ -5778,11 +5778,10 @@
 {/if}
 
 {#if replyModalTarget}
-  <ReplyModal
-    bind:open={replyModalOpen}
-    parentEvent={replyModalTarget}
-    onPosted={() => (replyModalTarget = null)}
-  />
+  <!-- The target outlives a close: the modal hides itself, and a reply
+       finishing in the background miner must not be what unmounts a
+       composer the reader has since opened on another note. -->
+  <ReplyModal bind:open={replyModalOpen} parentEvent={replyModalTarget} />
 {/if}
 
 <ShareModal
