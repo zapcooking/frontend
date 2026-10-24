@@ -14,7 +14,9 @@
   import { theme } from '$lib/themeStore';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { mobileNavOpen } from '$lib/stores/mobileNav';
-  import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+  import { loginOverlayOpen, openSignup } from '$lib/stores/loginOverlay';
+  import { lockedVaultPubkey } from '$lib/auth/lockedVault';
+  import ContinueAsChip from './ContinueAsChip.svelte';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
   import { timerStore } from '$lib/timerStore';
@@ -272,7 +274,13 @@
 
     <!-- Sign in / User menu -->
     <div class="print:hidden flex-shrink-0 inline-flex items-center">
-      {#if $userPublickey !== ''}
+      {#if $lockedVaultPubkey}
+        <!-- Returning member with a passkey vault on this device: one tap
+             unlocks. Nothing opens by itself on load. Checked before the
+             avatar: a locked session keeps $userPublickey (seeded from
+             localStorage) with no signer behind it. -->
+        <ContinueAsChip pubkey={$lockedVaultPubkey} />
+      {:else if $userPublickey !== ''}
         <button
           class="zh-avatar-btn"
           on:click={() => userSidePanelOpen.set(true)}
@@ -287,13 +295,21 @@
           </span>
         </button>
       {:else}
-        <button
-          type="button"
-          on:click={() => loginOverlayOpen.set(true)}
-          class="px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border font-medium transition duration-300 text-xs sm:text-sm signin-button"
-          style="color: var(--color-text-primary); border-color: var(--color-input-border); background: none; cursor: pointer;"
-          >Sign in</button
-        >
+        <div class="inline-flex items-center gap-1 sm:gap-2">
+          <button
+            type="button"
+            on:click={() => loginOverlayOpen.set(true)}
+            class="px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-full border font-medium transition duration-300 text-xs sm:text-sm whitespace-nowrap signin-button"
+            style="color: var(--color-text-primary); border-color: var(--color-input-border); background: none; cursor: pointer;"
+            >Sign in</button
+          >
+          <button
+            type="button"
+            on:click={openSignup}
+            class="px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-full font-semibold transition duration-300 text-xs sm:text-sm whitespace-nowrap join-button"
+            >Join free</button
+          >
+        </div>
       {/if}
     </div>
   </div>
@@ -389,6 +405,22 @@
     box-shadow:
       0 0 0 1px rgba(192, 132, 252, 0.4),
       0 0 12px rgba(168, 85, 247, 0.3);
+  }
+
+  /* Darker than the brand orange so the 12-14px label meets 4.5:1
+     (#fff8ec on #c2410c 4.9:1, on #b13a0a 5.7:1). */
+  .join-button {
+    color: #fff8ec;
+    background: linear-gradient(135deg, #c2410c 0%, #b13a0a 100%);
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .join-button:hover {
+    filter: brightness(1.06);
+  }
+  .join-button:focus-visible {
+    outline: 2px solid #ec4700;
+    outline-offset: 2px;
   }
 
   .signin-button:hover {

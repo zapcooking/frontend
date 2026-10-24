@@ -8,6 +8,7 @@
  * OG meta and the card image generator.
  */
 
+import { parseCoordinate } from './coordinate';
 import { isHiddenRecipeATag } from './consts';
 import { isExploreCurationDTag } from './landing/curation';
 
@@ -218,11 +219,9 @@ export async function fetchRecipePreviews(
 	const targets = aTags.slice(0, limit);
 	const results = await Promise.all(
 		targets.map(async (aTag): Promise<RecipePreview | null> => {
-			const parts = aTag.split(':');
-			if (parts.length !== 3) return null;
-			const [kindStr, pubkey, dTag] = parts;
-			const kindNum = Number(kindStr);
-			if (!Number.isFinite(kindNum) || !pubkey || !dTag) return null;
+			const parsed = parseCoordinate(aTag);
+			if (!parsed?.identifier) return null;
+			const { kind: kindNum, pubkey, identifier: dTag } = parsed;
 			const evt = await raceRelays({ kinds: [kindNum], authors: [pubkey], '#d': [dTag] });
 			if (!evt) return null;
 			const tags: string[][] = Array.isArray(evt.tags) ? evt.tags : [];

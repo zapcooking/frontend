@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildSavedListEdit,
   decideSavedListBase,
+  listAbsenceProven,
   type ListEvent,
   type ListRelayAnswer
 } from './savedListSafety';
@@ -49,7 +50,7 @@ describe('decideSavedListBase — when may the list be edited, and on what', () 
     expect(decide({ answers: [empty(PURPLE), empty(WINE), empty(NOS)] }).ok).toBe(false);
   });
 
-  it('needs a majority of the member’s own list-capable write relays, not all of them', () => {
+  it('needs at least half of the member’s own list-capable write relays, not all of them', () => {
     const DEAD = 'wss://dead.example';
     const OTHER = 'wss://relay.other.example';
     // 3 write relays, one dead: 2/3 answered → proceed.
@@ -68,11 +69,28 @@ describe('decideSavedListBase — when may the list be edited, and on what', () 
     ).toBe(false);
   });
 
-  it('a strict majority: one of two write relays is not enough', () => {
+  it('at least half: one of two write relays is enough when the floor is met', () => {
     expect(
       decide({
         answers: [empty(NOS), empty(PRIMAL), empty(PYRAMID), silent('wss://dead.example')],
         ownWrite: [PYRAMID, 'wss://dead.example']
+      }).ok
+    ).toBe(true);
+    // Half of the write relays, but only one list-capable answer overall.
+    expect(
+      decide({
+        answers: [empty(PYRAMID), silent('wss://dead.example'), silent(NOS), silent(PRIMAL)],
+        ownWrite: [PYRAMID, 'wss://dead.example']
+      }).ok
+    ).toBe(false);
+  });
+
+  it('one of four write relays is less than half', () => {
+    const D = ['wss://d1.example', 'wss://d2.example', 'wss://d3.example'];
+    expect(
+      decide({
+        answers: [empty(NOS), empty(PRIMAL), empty(PYRAMID), ...D.map(silent)],
+        ownWrite: [PYRAMID, ...D]
       }).ok
     ).toBe(false);
   });
@@ -85,7 +103,7 @@ describe('decideSavedListBase — when may the list be edited, and on what', () 
     ).toBe(true);
   });
 
-  it("paid / kind-blocking relays in the member's list don't count toward the majority", () => {
+  it("paid / kind-blocking relays in the member's list don't count toward the half", () => {
     // purplepag.es + nostr.wine listed as write relays: list-capable = pyramid only.
     expect(
       decide({
@@ -95,7 +113,24 @@ describe('decideSavedListBase — when may the list be edited, and on what', () 
     ).toBe(true);
   });
 
-  it('still needs 2 list-capable answers overall, majority or not', () => {
+  it("own-listed nostr.wine: a copy it returns counts like any relay's", () => {
+    const newer = list(200, ['30023:x:a', '30023:x:b']);
+    const d = decide({
+      answers: [has(WINE, newer), empty(NOS), has(PRIMAL, list(100, ['30023:x:a']))],
+      ownWrite: [WINE]
+    });
+    expect(d).toEqual({ ok: true, base: newer });
+  });
+
+  it('own-listed nostr.wine: its empty answer never counts toward the floor or absence', () => {
+    // Only nostr.wine + one list-capable relay answered empty: not enough.
+    expect(decide({ answers: [empty(WINE), empty(NOS), silent(PRIMAL)], ownWrite: [WINE] }).ok).toBe(
+      false
+    );
+    expect(listAbsenceProven([empty(WINE), empty(NOS), silent(PRIMAL)])).toBe(false);
+  });
+
+  it('still needs 2 list-capable answers overall, half or not', () => {
     expect(
       decide({ answers: [empty(PYRAMID), silent(NOS), silent(PRIMAL)], ownWrite: [PYRAMID] }).ok
     ).toBe(false);
@@ -238,5 +273,101 @@ describe('buildSavedListEdit — one event per edit', () => {
   it('reports how many recipes were actually added', () => {
     const base = list(500, ['a1']);
     expect(buildSavedListEdit(base, { add: ['a1', 'a2', 'a3'] }, opts).added).toBe(2);
+  });
+});
+
+describe('listAbsenceProven — may My Kitchen show an empty Saved list', () => {
+  it('purplepag.es and nostr.wine answering empty prove nothing', () => {
+    expect(listAbsenceProven([empty(PURPLE), empty(WINE), silent(NOS), silent(PRIMAL)])).toBe(false);
+  });
+
+  it('two list-capable relays answering empty prove absence', () => {
+    expect(listAbsenceProven([empty(PURPLE), empty(WINE), empty(NOS), empty(PRIMAL)])).toBe(true);
+  });
+
+  it('one list-capable empty answer is not enough; silence never counts', () => {
+    expect(listAbsenceProven([empty(NOS), silent(PRIMAL), silent(PYRAMID)])).toBe(false);
+  });
+
+  it('a list on any relay means it exists', () => {
+    expect(listAbsenceProven([empty(NOS), empty(PYRAMID), has(PRIMAL, list(1, ['a1']))])).toBe(false);
+  });
+
+  it('the same relay spelled twice counts once', () => {
+    expect(listAbsenceProven([empty(NOS), empty('wss://nos.lol/')])).toBe(false);
+  });
+});
+
+describe('buildSavedListEdit — existing tags are kept byte-for-byte', () => {
+  const P = 'c'.repeat(64);
+  const base = {
+    id: 'b',
+    created_at: 100,
+    content: '',
+    tags: [
+      ['d', 'x'],
+      ['title', 'X'],
+      ['cover', `30023:${P}:one`, 'wss://cover.hint'],
+      ['a', `30023:${P}:one`, 'wss://hint.one'],
+      ['a', `30023:${P.toUpperCase()}:two`],
+      ['a', 'not a coordinate'],
+      ['a', `30023:${P}:one`, 'wss://hint.one'],
+      ['a', `30023:${P}:three`, 'wss://hint.three', 'extra']
+    ]
+  };
+  const opts = { dTag: 'x', title: 'X', now: 200, floor: 0 };
+  const aTags = (tags: string[][]) => tags.filter((t) => t[0] === 'a');
+
+  it('an unrelated edit keeps every a tag and the cover tag exactly, in order', () => {
+    const next = buildSavedListEdit(base, { meta: { summary: 's' } }, opts);
+    expect(aTags(next.tags)).toEqual(aTags(base.tags));
+    expect(next.tags).toContainEqual(['cover', `30023:${P}:one`, 'wss://cover.hint']);
+  });
+
+  it('an add is the only new tag', () => {
+    const next = buildSavedListEdit(base, { add: [`30023:${P}:four`] }, opts);
+    expect(aTags(next.tags)).toEqual([...aTags(base.tags), ['a', `30023:${P}:four`]]);
+    expect(next.added).toBe(1);
+  });
+
+  it('a value already present (with a hint) is not added again', () => {
+    const next = buildSavedListEdit(base, { add: [`30023:${P}:one`] }, opts);
+    expect(next.changed).toBe(false);
+    expect(next.added).toBe(0);
+  });
+
+  it('a remove drops that value\'s tags and keeps the rest exactly', () => {
+    const next = buildSavedListEdit(base, { remove: [`30023:${P}:one`] }, opts);
+    expect(aTags(next.tags)).toEqual([
+      ['a', `30023:${P.toUpperCase()}:two`],
+      ['a', 'not a coordinate'],
+      ['a', `30023:${P}:three`, 'wss://hint.three', 'extra']
+    ]);
+  });
+
+  it('a reorder moves whole tags, unranked ones after in their own order', () => {
+    const next = buildSavedListEdit(base, { order: [`30023:${P}:three`, `30023:${P.toUpperCase()}:two`] }, opts);
+    expect(aTags(next.tags)).toEqual([
+      ['a', `30023:${P}:three`, 'wss://hint.three', 'extra'],
+      ['a', `30023:${P.toUpperCase()}:two`],
+      ['a', `30023:${P}:one`, 'wss://hint.one'],
+      ['a', 'not a coordinate'],
+      ['a', `30023:${P}:one`, 'wss://hint.one']
+    ]);
+    expect(next.changed).toBe(true);
+  });
+
+  it('the same order is no change', () => {
+    const plain = { ...base, tags: base.tags.filter((t) => t[1] !== 'not a coordinate' && t !== base.tags[6]) };
+    const order = [`30023:${P}:one`, `30023:${P.toUpperCase()}:two`, `30023:${P}:three`];
+    const next = buildSavedListEdit(plain, { order }, opts);
+    expect(next.changed).toBe(false);
+    expect(aTags(next.tags)).toEqual(aTags(plain.tags));
+  });
+
+  it('values not in the order (e.g. unparseable) move after the ordered ones, tags intact', () => {
+    const single = { ...base, tags: base.tags.filter((t) => t !== base.tags[6]) };
+    const order = [`30023:${P}:one`, `30023:${P.toUpperCase()}:two`, `30023:${P}:three`];
+    expect(aTags(buildSavedListEdit(single, { order }, opts).tags).at(-1)).toEqual(['a', 'not a coordinate']);
   });
 });

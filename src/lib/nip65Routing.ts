@@ -29,7 +29,13 @@ import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKRelaySet, NDKRelay } from '@nostr-dev-kit/ndk';
 import { normalizeRelayUrl, relayListCache } from '$lib/relayListCache';
 import { standardRelays } from '$lib/consts';
-import { outboxRelayUrls, isGroupEvent, PANTRY_URL } from '$lib/outboxRelays';
+import {
+  outboxRelayUrls,
+  recipeListRelayUrls,
+  isRecipeListEvent,
+  isGroupEvent,
+  PANTRY_URL
+} from '$lib/outboxRelays';
 
 const HEX64_RE = /^[0-9a-fA-F]{64}$/;
 
@@ -151,7 +157,7 @@ export async function outboxTargetUrls(
 ): Promise<string[]> {
   if (isGroupEvent(event.tags)) return [PANTRY_URL];
   const me = event.pubkey || author;
-  if (!inbox) return listRelayUrls(me);
+  if (!inbox) return isRecipeListEvent(event) ? listRelayUrls(me) : ownAndAppRelayUrls(me);
   const { getCurrentRelays } = await import('$lib/nostr');
   const [own, recipients] = await Promise.all([
     getOwnWriteRelays(me),
@@ -160,10 +166,22 @@ export async function outboxTargetUrls(
   return outboxRelayUrls({ own, recipients, app: getCurrentRelays() });
 }
 
+/** Follow, mute and bookmark lists: own write relays, then the app's relays. */
+async function ownAndAppRelayUrls(pubkey: string | undefined): Promise<string[]> {
+  const { getCurrentRelays } = await import('$lib/nostr');
+  return outboxRelayUrls({
+    own: await getOwnWriteRelays(pubkey),
+    recipients: [],
+    app: getCurrentRelays()
+  });
+}
+
 /**
- * Where the member's lists live: own write relays, then the app's relays.
- * Lists are published here (outboxRelaySet 'list') AND read from here (My
- * Kitchen, the Saved-list safety read) — one set, so a read can never miss a
+ * Where the member's recipe lists (kind 30001) live: own write relays, the
+ * app's relays and RECIPE_LIST_RELAYS, minus relays that refuse lists
+ * ($lib/outboxRelays recipeListRelayUrls). Lists are published here
+ * (outboxRelaySet 'list') AND read from here (My Kitchen, the Saved-list
+ * safety read and absence proof) — one set, so a read can never miss a
  * relay that a write reached.
  */
 export async function listRelayUrls(pubkey: string | undefined): Promise<string[]> {
@@ -173,7 +191,7 @@ export async function listRelayUrls(pubkey: string | undefined): Promise<string[
 /** listRelayUrls for an already-resolved set of own write relays. */
 export async function listRelayUrlsFrom(ownWrite: string[]): Promise<string[]> {
   const { getCurrentRelays } = await import('$lib/nostr');
-  return outboxRelayUrls({ own: ownWrite, recipients: [], app: getCurrentRelays() });
+  return recipeListRelayUrls({ own: ownWrite, app: getCurrentRelays() });
 }
 
 /**
@@ -353,8 +371,9 @@ export async function buildInboxAwareRelaySet(opts: {
  * outbox rule, for `event.publish(...)`. `undefined` (NDK's default: the
  * connected pool) only when no relay could be resolved.
  *
- * - `kind: 'list'` — follow, mute, bookmark and cookbook lists (and their
- *   deletions): the reader's own write relays and the app's relay list.
+ * - `kind: 'list'` — follow, mute and bookmark lists (and their deletions):
+ *   the reader's own write relays and the app's relay list. Recipe lists
+ *   (kind 30001) and their deletions: listRelayUrls.
  *   Their `p` tags are list entries, not recipients, so no inbox fan-out
  *   (a follow list would otherwise reach every followed person's inbox).
  * - `kind: 'engagement'` — reposts and the like: also the recipients' read

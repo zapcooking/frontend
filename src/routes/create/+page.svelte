@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { newRecipeIdentifier } from '$lib/coordinate';
   import { writable, type Writable } from 'svelte/store';
   import TagsComboBox from '../../components/TagsComboBox.svelte';
   import StringComboBox from '../../components/StringComboBox.svelte';
@@ -377,10 +378,12 @@
       } else if ($images.length == 0) {
         resultMessage = `Error: No Image Uploaded`;
       } else if (va) {
+        // A new recipe's d-tag, kept for the naddr below (#881: no colons).
+        const identifier = newRecipeIdentifier(title);
         const event = new NDKEvent($ndk);
         event.kind = 30023;
         event.content = md;
-        event.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
+        event.tags.push(['d', identifier]);
         event.tags.push(['title', title]);
         event.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
         event.tags.push([
@@ -447,7 +450,7 @@
         }
 
         const naddr = nip19.naddrEncode({
-          identifier: title.toLowerCase().replaceAll(' ', '-'),
+          identifier,
           pubkey: recipePubkey,
           kind: 30023
         });

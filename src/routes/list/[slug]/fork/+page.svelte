@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { parseCoordinate } from '$lib/coordinate';
   import { outboxRelaySet } from '$lib/outboxPublish';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
@@ -86,18 +87,11 @@
       }
       event.tags.forEach(async (a) => {
         if (a[0] == 'a') {
-          const parts = a[1].split(':');
-          if (parts.length !== 3) {
+          const parsed = parseCoordinate(a[1]);
+          if (!parsed) {
             return;
           }
-          const [kind, pubkey, identifier] = parts;
-          if (
-            typeof kind !== 'string' ||
-            typeof pubkey !== 'string' ||
-            typeof identifier !== 'string'
-          ) {
-            return;
-          }
+          const { kind, pubkey, identifier } = parsed;
           const naddr = nip19.naddrEncode({
             kind: Number(kind),
             identifier: identifier,

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { parseCoordinate } from '$lib/coordinate';
   import { groceryStore, type GroceryItem } from '$lib/stores/groceryStore';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
@@ -24,13 +25,18 @@
   function uniqueRecipeTitles(current: GroceryItem): string[] {
     const titles = new Map<string, string>();
     for (const source of current.sources || []) {
-      const label = source.recipeTitle || source.recipeId.split(':').slice(2).join(':');
+      const label = source.recipeTitle || recipeIdTitle(source.recipeId);
       if (label && !titles.has(source.recipeId)) titles.set(source.recipeId, label);
     }
     if (titles.size === 0 && current.recipeId) {
-      titles.set(current.recipeId, current.recipeId.split(':').slice(2).join(':'));
+      titles.set(current.recipeId, recipeIdTitle(current.recipeId));
     }
     return [...titles.values()];
+  }
+
+  /** A recipe's d-tag, when the item has no title for it. */
+  function recipeIdTitle(recipeId: string): string {
+    return parseCoordinate(recipeId)?.identifier ?? '';
   }
 
   function toggleItem() {
