@@ -20,52 +20,67 @@ export type QueryList = (
   timeoutMs: number
 ) => Promise<ListRelayAnswer>;
 
-export const queryRelayNewest: QueryList = async (url, filter, timeoutMs) => {
-  const { Relay } = await import('nostr-tools/relay');
-  return new Promise<ListRelayAnswer>((resolve) => {
-    let relay: { close(): void } | null = null;
-    let list: ListEvent | null = null;
-    let done = false;
-    // One exit for EOSE, close, error and the timeout; a relay that connects
-    // after the timeout is closed as soon as it arrives.
-    const finish = (answered: boolean) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve({ url, ok: answered, list: answered ? list : null });
-      try {
-        relay?.close();
-      } catch {
-        /* ignore */
-      }
-    };
-    const timer = setTimeout(() => finish(false), timeoutMs);
-    Relay.connect(url).then(
-      (r) => {
-        relay = r;
-        if (done) {
-          try {
-            r.close();
-          } catch {
-            /* ignore */
-          }
-          return;
+/** The socket layer queryRelayNewest reads through (nostr-tools' Relay). */
+export type RelayModule = Pick<typeof import('nostr-tools/relay'), 'Relay'>;
+
+/**
+ * queryRelayNewest over a given socket layer. Tests pass a fake one so the
+ * real timeout logic runs without a network (mocking the dynamically
+ * imported module is unreliable: concurrent imports can resolve to the real
+ * one).
+ */
+export function createRelayQuery(
+  load: () => Promise<RelayModule> = () => import('nostr-tools/relay')
+): QueryList {
+  return async (url, filter, timeoutMs) => {
+    const { Relay } = await load();
+    return new Promise<ListRelayAnswer>((resolve) => {
+      let relay: { close(): void } | null = null;
+      let list: ListEvent | null = null;
+      let done = false;
+      // One exit for EOSE, close, error and the timeout; a relay that connects
+      // after the timeout is closed as soon as it arrives.
+      const finish = (answered: boolean) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve({ url, ok: answered, list: answered ? list : null });
+        try {
+          relay?.close();
+        } catch {
+          /* ignore */
         }
-        r.subscribe([filter], {
-          eoseTimeout: timeoutMs + 1000,
-          onevent: (e: ListEvent) => {
-            if (!list || e.created_at > list.created_at) list = e;
-          },
-          // Settles before closing the relay, so the onclose that closing
-          // fires can't record this answer as "no answer".
-          oneose: () => finish(true),
-          onclose: () => finish(false)
-        });
-      },
-      () => finish(false)
-    );
-  });
-};
+      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      Relay.connect(url).then(
+        (r) => {
+          relay = r;
+          if (done) {
+            try {
+              r.close();
+            } catch {
+              /* ignore */
+            }
+            return;
+          }
+          r.subscribe([filter], {
+            eoseTimeout: timeoutMs + 1000,
+            onevent: (e: ListEvent) => {
+              if (!list || e.created_at > list.created_at) list = e;
+            },
+            // Settles before closing the relay, so the onclose that closing
+            // fires can't record this answer as "no answer".
+            oneose: () => finish(true),
+            onclose: () => finish(false)
+          });
+        },
+        () => finish(false)
+      );
+    });
+  };
+}
+
+export const queryRelayNewest: QueryList = createRelayQuery();
 
 /**
  * The member's own write relays, or 'unknown'. Unknown is not "none": the
