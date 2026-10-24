@@ -9,6 +9,7 @@ import { bytesToHex } from '$lib/keyBackupGate';
 
 export const SIGNUP_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 const UPLOAD_URL = 'https://nostr.build/api/v2/upload/files';
+export const SIGNUP_PHOTO_UPLOAD_TIMEOUT_MS = 20_000;
 
 /** Why a picked file can't be the photo, or null when it can. */
 export function signupPhotoProblem(file: { type: string; size: number }): string | null {
@@ -51,7 +52,9 @@ export async function uploadSignupPhoto(
     const res = await fetch(UPLOAD_URL, {
       method: 'POST',
       body: form,
-      headers: { Authorization: `Nostr ${btoa(JSON.stringify(payload))}` }
+      headers: { Authorization: `Nostr ${btoa(JSON.stringify(payload))}` },
+      // Signup's finish step waits for this (the dialog is locked): bounded.
+      signal: AbortSignal.timeout(SIGNUP_PHOTO_UPLOAD_TIMEOUT_MS)
     });
     if (!res.ok) return null;
     const data = await res.json();

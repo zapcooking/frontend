@@ -125,6 +125,10 @@
   // must delete it, or the next visit offers "Continue as" an account that
   // never got a profile.
   let enrolled = false;
+  // Bumped whenever the flow resets (close, reopen, finish): a passkey
+  // ceremony or upload still in flight from an earlier attempt must not act
+  // on the new one — it cleans up after itself instead.
+  let attempt = 0;
   // The device's sync preference before enrolling (enrollment writes it).
   let syncPrefBefore: string | null = null;
   let finishing = false;
@@ -188,27 +192,38 @@
 
   async function runPasskey() {
     if (!authManager || !keys) return;
+    const myAttempt = attempt;
+    const account = keys;
     passkeyBusy = true;
     passkeyNote = '';
     orphanNote = false;
+    if (!enrolled) syncPrefBefore = localStorage.getItem(SYNC_ENABLED_KEY);
+    const prefBefore = syncPrefBefore;
     try {
-      if (!enrolled) syncPrefBefore = localStorage.getItem(SYNC_ENABLED_KEY);
       const { uploaded } = await authManager.enrollAtSignup(
-        bytesToHex(keys.privateKey),
-        keys.publicKey,
+        bytesToHex(account.privateKey),
+        account.publicKey,
         { sync: syncOn, signIn: false, awaitUpload: syncOn }
       );
+      if (myAttempt !== attempt) {
+        // Closed (or reopened) while the ceremony/upload ran: this attempt
+        // was abandoned, so its vault and sync settings go — by its own
+        // pubkey, never touching a newer attempt.
+        removeAbandonedVault(account.publicKey, prefBefore);
+        return;
+      }
       enrolled = true;
       const next = afterPasskey(syncOn, uploaded);
       if (next.kind === 'done') await finish();
       else step = next;
     } catch (error) {
+      if (myAttempt !== attempt) return; // abandoned meanwhile; nothing was saved
       if (isCeremonyCancelled(error)) return; // dismissed sheet: stay put
       orphanNote = error instanceof PasskeyVaultError && error.orphanPasskeyLikely;
       passkeyNote = `This device couldn't set up ${passkeyLabel === 'passkey' ? 'a passkey' : passkeyLabel} for your account. Save a backup key instead.`;
       step = { kind: 'backup', reason: 'passkey-failed' };
     } finally {
-      passkeyBusy = false;
+      if (myAttempt === attempt) passkeyBusy = false;
     }
   }
 
@@ -291,18 +306,24 @@
   }
 
   // ── close / reset ──
+  /** Delete an abandoned signup's vault (only if it's that key's) and restore the sync setting. */
+  function removeAbandonedVault(pubkey: string, prefBefore: string | null) {
+    if (getVaultRecord()?.pubkey !== pubkey) return;
+    deleteVaultRecord();
+    setUploadPending(false);
+    if (prefBefore === null) localStorage.removeItem(SYNC_ENABLED_KEY);
+    else localStorage.setItem(SYNC_ENABLED_KEY, prefBefore);
+  }
+
   function abandonCleanup() {
     // Only this signup's own vault, and only if the account never finished.
-    if (enrolled && !finished && keys && getVaultRecord()?.pubkey === keys.publicKey) {
-      deleteVaultRecord();
-      setUploadPending(false);
-      if (syncPrefBefore === null) localStorage.removeItem(SYNC_ENABLED_KEY);
-      else localStorage.setItem(SYNC_ENABLED_KEY, syncPrefBefore);
-    }
+    if (enrolled && !finished && keys) removeAbandonedVault(keys.publicKey, syncPrefBefore);
   }
 
   function reset() {
     abandonCleanup();
+    attempt += 1;
+    passkeyBusy = false;
     clearPhoto();
     keys = null;
     screen = 'name';
@@ -320,14 +341,20 @@
   }
 
   function close() {
+    // Finishing signs in and publishes: the account is being created and
+    // can't be abandoned half-way (the dialog is locked meanwhile).
+    if (finishing) return;
     open = false;
     reset();
   }
 
-  onDestroy(() => abandonCleanup());
+  onDestroy(() => {
+    abandonCleanup();
+    attempt += 1; // an in-flight ceremony now cleans up after itself
+  });
 </script>
 
-<Modal bind:open cleanup={reset} noHeader>
+<Modal bind:open cleanup={reset} locked={finishing} noHeader>
   <div class="login-modal-body" data-signup-screen={screen === 'name' ? 'name' : step.kind}>
     <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={close}>
       <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
@@ -338,7 +365,8 @@
     </button>
 
     {#if screen === 'name'}
-      <h2 class="login-modal-title">Pick a name</h2>
+      <!-- Modal labels the dialog by id="title"; one branch renders at a time. -->
+      <h2 id="title" class="login-modal-title">Pick a name</h2>
       <p class="text-sm text-caption -mt-2 mb-4">This is how other cooks will see you.</p>
       <div class="flex flex-col gap-4">
         <div class="flex items-center gap-3">
@@ -419,7 +447,7 @@
         >
       </div>
     {:else if step.kind === 'choose'}
-      <h2 class="login-modal-title">Keep your account safe</h2>
+      <h2 id="title" class="login-modal-title">Keep your account safe</h2>
       <p class="text-sm text-caption -mt-2 mb-4">
         Choose how you'll get back in if you sign out or switch devices.
       </p>
@@ -464,7 +492,7 @@
         >
       </div>
     {:else if step.kind === 'backup' && keys}
-      <h2 class="login-modal-title">Keep your account safe</h2>
+      <h2 id="title" class="login-modal-title">Keep your account safe</h2>
       <div class="flex flex-col gap-4">
         {#if step.reason === 'upload-failed'}
           <div class="signup-note" role="status">
