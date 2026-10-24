@@ -36,7 +36,7 @@ export function landingMeta(d: Pick<LandingData, 'cover'>): LandingMeta {
 	return {
 		title: 'Zap Cooking: recipes, cooks and food stories',
 		description:
-			'Cook from thousands of open recipes, follow the people who make them, and read the best food writing on Nostr.',
+			'Discover recipes from real cooks. Save your favorites. Bring your own to the table.',
 		canonical: LANDING_CANONICAL,
 		image: ogImage(d)
 	};

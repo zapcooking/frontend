@@ -1,26 +1,22 @@
-<script lang="ts">
-  /**
-   * The landing page's own header: plain links, no client auth state, no
-   * NDK (the app header pulls in $lib/nostr).
-   */
-</script>
-
 <header class="landing-header">
   <a href="#main" class="skip-link">Skip to content</a>
-  <div class="mx-auto max-w-6xl px-4 py-3 flex items-center gap-4">
-    <a href="/explore" class="shrink-0" aria-label="zap.cooking home">
-      <img src="/zapcooking-text-light.svg" class="logo-l w-28 sm:w-32" alt="" width="128" height="32" />
-      <img src="/zapcooking-text-dark.svg" class="logo-d w-28 sm:w-32" alt="" width="128" height="32" />
+  <div class="header-inner">
+    <a href="/explore" class="wordmark" aria-label="Zap Cooking home">
+      <img src="/zapcooking-text-light.svg" class="logo-l" alt="" width="144" height="36" />
+      <img src="/zapcooking-text-dark.svg" class="logo-d" alt="" width="144" height="36" />
     </a>
-    <nav aria-label="Sections" class="hidden md:flex items-center gap-5 text-sm font-medium">
-      <a href="/recipes">Recipes</a>
-      <a href="/feed">Feed</a>
-      <a href="/reads">Reads</a>
-      <a href="/packs">Packs</a>
+    <nav aria-label="Explore Zap Cooking">
+      <a href="/recipes">Recipes</a><a href="/reads">Stories</a><a href="/packs">Collections</a><a
+        href="#import-recipe">Add a recipe</a
+      ><a href="#membership">Membership</a>
     </nav>
-    <div class="ml-auto flex items-center gap-3 text-sm font-medium">
-      <a href="/login" class="signin">Sign in</a>
-      <a href="/feed" class="open-app">Open the app <span aria-hidden="true">→</span></a>
+    <div class="account">
+      <a href="/login" data-landing-guest hidden>Sign in</a><a
+        href="/login?join=1"
+        class="join"
+        data-landing-guest
+        hidden>Join free</a
+      >
     </div>
   </div>
 </header>
@@ -28,26 +24,54 @@
 <style>
   .landing-header {
     border-bottom: 1px solid var(--color-input-border);
-    background-color: var(--color-bg-primary);
   }
-  .landing-header a {
-    color: var(--color-text-primary);
-    text-decoration: none;
+  .header-inner {
+    max-width: 1200px;
+    margin: auto;
+    padding: 12px 32px;
+    display: flex;
+    align-items: center;
+    gap: 28px;
   }
-  nav a:hover,
-  .signin:hover {
-    text-decoration: underline;
-    text-underline-offset: 3px;
+  .wordmark {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    flex-shrink: 0;
   }
-  .open-app {
-    padding: 0.45rem 0.85rem;
-    border-radius: 999px;
-    background-color: var(--landing-accent-bg);
-    color: #fff !important;
+  nav {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  nav a,
+  .account a {
+    align-items: center;
+    min-height: 44px;
+  }
+  nav a {
+    display: inline-flex;
     white-space: nowrap;
   }
-  .open-app:hover {
-    filter: brightness(1.08);
+  .account {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .account a:not([hidden]) {
+    display: inline-flex;
+  }
+  .join {
+    background: var(--landing-accent-bg);
+    color: white !important;
+    padding: 0 18px;
+    border-radius: 3px;
   }
   .logo-d {
     display: none;
@@ -63,11 +87,41 @@
     left: -9999px;
   }
   .skip-link:focus {
-    left: 1rem;
-    top: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.5rem;
+    left: 16px;
+    top: 8px;
+    z-index: 20;
+    padding: 12px;
     background: var(--color-bg-primary);
-    z-index: 10;
+  }
+  @media (max-width: 1000px) {
+    .header-inner {
+      flex-wrap: wrap;
+      gap: 0 20px;
+    }
+    nav {
+      order: 3;
+      width: 100%;
+      justify-content: center;
+    }
+  }
+  @media (max-width: 767px) {
+    .header-inner {
+      padding: 8px 20px 0;
+    }
+    .wordmark img {
+      width: 118px;
+    }
+    nav {
+      justify-content: space-between;
+      gap: 14px;
+      overflow-x: auto;
+      font-size: 11px;
+    }
+    .account {
+      gap: 12px;
+    }
+    .join {
+      padding: 0 12px;
+    }
   }
 </style>
