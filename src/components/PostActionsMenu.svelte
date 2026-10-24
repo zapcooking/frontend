@@ -25,6 +25,7 @@
   import { getReplyParentId, getThreadRootId } from '$lib/thread/replyParent';
   import { showToast } from '$lib/toast';
   import { rebroadcastEvent } from '$lib/rebroadcast';
+  import { eventRef } from '$lib/utils/eventUrl';
   import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
 
   export let event: NDKEvent;
@@ -102,11 +103,7 @@
     // — which is how zap.cooking ended up being the authoring client that
     // produced exactly the broken notes issue #637 was about. The `nostr:`
     // prefix is what makes a pasted reference resolve into an embed.
-    const noteUri = `nostr:${nip19.neventEncode({
-      id: event.id,
-      author: event.pubkey,
-      kind: event.kind
-    })}`;
+    const noteUri = `nostr:${eventRef(event)}`;
     try {
       await navigator.clipboard.writeText(noteUri);
       copied = true;
@@ -127,12 +124,7 @@
   /** Production-origin share URL for the share modal / short links —
    *  social platforms and the shortener API both reject localhost. */
   function shareUrl(): string {
-    const noteId = nip19.neventEncode({
-      id: event.id,
-      author: event.pubkey,
-      kind: event.kind
-    });
-    return `https://zap.cooking/${noteId}`;
+    return `https://zap.cooking/${eventRef(event)}`;
   }
 
   function handleShare() {
@@ -142,12 +134,7 @@
 
   async function handleCopyLink() {
     if (!browser) return;
-    const noteId = nip19.neventEncode({
-      id: event.id,
-      author: event.pubkey,
-      kind: event.kind
-    });
-    const url = `${window.location.origin}/${noteId}`;
+    const url = `${window.location.origin}/${eventRef(event)}`;
 
     try {
       await navigator.clipboard.writeText(url);

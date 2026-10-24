@@ -12,7 +12,7 @@
    * back-to-top button (center) to lift above it while drafts are docked.
    */
   import { goto } from '$app/navigation';
-  import { nip19 } from 'nostr-tools';
+  import { eventIdPath } from '$lib/utils/eventUrl';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import ChatIcon from 'phosphor-svelte/lib/Chat';
   import {
@@ -50,9 +50,9 @@
   function resumeReply(targetId: string) {
     replyDraftResumeTarget.set(targetId);
     try {
-      goto('/' + nip19.neventEncode({ id: targetId }));
+      goto(eventIdPath(targetId));
     } catch {
-      goto('/' + nip19.noteEncode(targetId));
+      // Not an event id — leave the draft in place rather than navigate.
     }
   }
 

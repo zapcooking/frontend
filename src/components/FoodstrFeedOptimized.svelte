@@ -34,6 +34,8 @@
   // The one implementation of the hellthread rule — the notification path uses
   // the same export, so the two surfaces cannot drift.
   import { isHellthread as isHellthreadNote } from '$lib/notificationUtils';
+  import { buildNotePreview } from '$lib/notePreview';
+  import { scanNostrRefs } from '$lib/nostrRefScan';
   import { foodFilterSetting } from '$lib/foodFilterSettings';
   import MediaLightbox from './MediaLightbox.svelte';
   import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
@@ -79,6 +81,7 @@
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
   import { nip19 } from 'nostr-tools';
+  import { eventPath, eventIdPath, parseEventRef } from '$lib/utils/eventUrl';
   import ClientAttribution from './ClientAttribution.svelte';
 
   let portalTarget: HTMLElement | null = null;
@@ -1104,15 +1107,29 @@
     return normalizeEventIdHex(s);
   }
 
-  function noteHrefFromEventId(input: string | null | undefined): string | null {
+  function noteHrefFromEventId(
+    input: string | null | undefined,
+    relayHint?: string | null
+  ): string | null {
     if (!input) return null;
     const id = normalizeEventIdHex(input);
     if (!id) return null;
     try {
-      return `/${nip19.noteEncode(id)}`;
+      // nevent1 always; the hint (e.g. an e/q tag's relay) rides along.
+      return eventIdPath(id, relayHint ? [relayHint] : null);
     } catch {
       return null;
     }
+  }
+
+  // The e/q tag whose id matches, and its wss relay hint when it carries one.
+  function eventTagRelayHint(event: NDKEvent, id: string | null | undefined): string | undefined {
+    if (!event || !id) return undefined;
+    const tag = event.tags.find(
+      (t) => Array.isArray(t) && (t[0] === 'e' || t[0] === 'q') && normalizeEventIdHex(String(t[1] || '')) === id
+    );
+    const hint = tag?.[2];
+    return typeof hint === 'string' && hint.startsWith('wss://') ? hint : undefined;
   }
 
   // Click anywhere on a feed card (except on controls, expanded detail
@@ -1125,21 +1142,21 @@
       return;
     }
     if (typeof window !== 'undefined' && window.getSelection()?.toString()) return;
-    const href = noteHrefFromEventId(ev.id);
-    if (href) goto(href);
+    goto(eventPath(ev));
   }
 
   // Extract the first quoted note ID from content (for quote reposts)
-  function getQuotedNoteId(event: NDKEvent): string | null {
+  function getQuotedNote(event: NDKEvent): { id: string; hint?: string } | null {
     try {
       if (!event) return null;
 
-      // First check for q tag (NIP-18 style quote repost)
+      // First check for q tag (NIP-18 style quote repost); its relay hint
+      // rides along so the embed link can carry it.
       if (Array.isArray(event.tags)) {
         const qTag = event.tags.find((tag) => Array.isArray(tag) && tag[0] === 'q');
         const qRef = qTag?.[1] ? String(qTag[1]) : '';
         const qId = qRef ? decodeToEventIdHex(qRef) : null;
-        if (qId) return qId;
+        if (qId) return { id: qId, hint: eventTagRelayHint(event, qId) };
       }
       if (!event.content) return null;
 
@@ -1150,7 +1167,11 @@
       const match = event.content.match(regex);
       if (match && match[1]) {
         const id = decodeToEventIdHex(match[1]);
-        if (id) return id;
+        if (id) {
+          // An nevent's own relay hint rides along, as the q-tag hint does.
+          const hint = parseEventRef(match[1])?.hints[0];
+          return hint ? { id, hint } : { id };
+        }
       }
       return null;
     } catch {
@@ -1163,7 +1184,7 @@
     try {
       // Don't show quote embed if it's already a reply (to avoid double embeds)
       if (isReply(event)) return false;
-      return getQuotedNoteId(event) !== null;
+      return getQuotedNote(event) !== null;
     } catch {
       return false;
     }
@@ -4028,50 +4049,46 @@
           authorName = npub; // Use full npub, not truncated
         }
 
-        // Get note preview
-        let content = parentNote.content || '';
-
-        // Resolve inline profile mentions (nostr:npub / nprofile) to @name
-        // so the preview keeps the mention instead of dropping it when the
-        // nostr: token is stripped below.
-        const mentionTokens = content.match(/nostr:(?:npub1|nprofile1)[0-9a-z]+/g) || [];
-        for (const token of [...new Set(mentionTokens)]) {
-          try {
-            const decoded = nip19.decode(token.replace(/^nostr:/, ''));
-            const pk =
-              decoded.type === 'npub'
-                ? (decoded.data as string)
-                : decoded.type === 'nprofile'
-                  ? (decoded.data as { pubkey: string }).pubkey
-                  : '';
-            if (!pk) continue;
-            const mentioned = $ndk.getUser({ hexpubkey: pk });
-            await mentioned.fetchProfile();
-            const handle =
-              mentioned.profile?.displayName ||
-              mentioned.profile?.name ||
-              nip19.npubEncode(pk).slice(0, 12) + '…';
-            content = content.split(token).join('@' + handle);
-          } catch {
-            // Leave the token; it'll be stripped below if unresolved.
-          }
-        }
-
-        // Remove URLs and any remaining nostr refs (nevent/note/naddr) for a
-        // clean text preview.
-        const cleanContent = content
-          .replace(/https?:\/\/[^\s]+/g, '') // Remove URLs
-          .replace(/nostr:[^\s]+/g, '') // Remove remaining nostr: links
-          .replace(/\s+/g, ' ')
-          .trim();
-        // Expose a meaningful chunk of the quoted note rather than a
-        // one-line teaser — the CSS line-clamp caps the visible height,
-        // so a generous character budget just lets those lines fill.
-        const previewLength = 280;
-        const notePreview =
-          cleanContent.length > previewLength
-            ? cleanContent.substring(0, previewLength) + '...'
-            : cleanContent;
+        // Get note preview. Profile mentions are resolved to display names
+        // first (so the preview keeps them instead of dropping the nostr:
+        // token), then the text itself is built by the shared $lib/notePreview
+        // builder — the same stripping, paragraph-preserving and truncation
+        // rules the Fresh feed's quote blocks use.
+        const noteContent = parentNote.content || '';
+        const mentionNames = new Map<string, string>();
+        const mentionTokens = [
+          ...new Set(
+            scanNostrRefs(noteContent)
+              .filter(
+                (r) => r.type === 'nostr' && (r.prefix === 'npub1' || r.prefix === 'nprofile1')
+              )
+              .map((r) => r.content)
+          )
+        ];
+        await Promise.all(
+          mentionTokens.map(async (token) => {
+            try {
+              const decoded = nip19.decode(token.replace(/^nostr:/, ''));
+              const pk =
+                decoded.type === 'npub'
+                  ? (decoded.data as string)
+                  : decoded.type === 'nprofile'
+                    ? (decoded.data as { pubkey: string }).pubkey
+                    : '';
+              if (!pk || mentionNames.has(pk)) return;
+              const mentioned = $ndk.getUser({ hexpubkey: pk });
+              await mentioned.fetchProfile();
+              const handle =
+                mentioned.profile?.displayName ||
+                mentioned.profile?.name ||
+                nip19.npubEncode(pk).slice(0, 12) + '…';
+              mentionNames.set(pk, handle);
+            } catch {
+              // Unresolvable mention: the builder drops it.
+            }
+          })
+        );
+        const notePreview = buildNotePreview(noteContent, { mentionNames });
 
         // First image in the quoted note, so the embed can show a media
         // preview rather than only stripped text.
@@ -5352,8 +5369,7 @@
                 tabindex="0"
                 on:keydown|self={(e) => {
                   if (e.key === 'Enter') {
-                    const href = noteHrefFromEventId(event.id);
-                    if (href) goto(href);
+                    goto(eventPath(event));
                   }
                 }}
               >
@@ -5444,7 +5460,7 @@
                   {#if isReply(event)}
                     {@const parentNoteId = getParentNoteId(event)}
                     {#if parentNoteId}
-                      {@const parentHref = noteHrefFromEventId(parentNoteId)}
+                      {@const parentHref = noteHrefFromEventId(parentNoteId, eventTagRelayHint(event, parentNoteId))}
                       {#if parentHref}
                         {#await resolveReplyContext(parentNoteId)}
                           <!-- Loading state -->
@@ -5548,11 +5564,11 @@
 
                   <!-- Quoted note embed (appears below user's content) -->
                   {#if hasQuotedNote(event)}
-                    {@const quotedNoteId = getQuotedNoteId(event)}
-                    {#if quotedNoteId}
-                      {@const quotedHref = noteHrefFromEventId(quotedNoteId)}
+                    {@const quoted = getQuotedNote(event)}
+                    {#if quoted}
+                      {@const quotedHref = noteHrefFromEventId(quoted.id, quoted.hint)}
                       {#if quotedHref}
-                        {#await resolveReplyContext(quotedNoteId)}
+                        {#await resolveReplyContext(quoted.id)}
                           <!-- Loading state -->
                           <div class="parent-quote-embed mb-3">
                             <div class="parent-quote-loading">
@@ -5778,11 +5794,10 @@
 {/if}
 
 {#if replyModalTarget}
-  <ReplyModal
-    bind:open={replyModalOpen}
-    parentEvent={replyModalTarget}
-    onPosted={() => (replyModalTarget = null)}
-  />
+  <!-- The target outlives a close: the modal hides itself, and a reply
+       finishing in the background miner must not be what unmounts a
+       composer the reader has since opened on another note. -->
+  <ReplyModal bind:open={replyModalOpen} parentEvent={replyModalTarget} />
 {/if}
 
 <ShareModal
@@ -5916,6 +5931,9 @@
     margin: 0 0 0.375rem 0;
     overflow-wrap: anywhere;
     word-break: break-word;
+    /* The preview keeps the author's paragraph breaks (see $lib/notePreview);
+       the line-clamp below still caps the visible height. */
+    white-space: pre-wrap;
     display: -webkit-box;
     -webkit-line-clamp: 6;
     line-clamp: 6;

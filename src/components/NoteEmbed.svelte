@@ -19,6 +19,7 @@
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { parseClientTag } from '$lib/clientTag';
   import { CLIENT_TAG_IDENTIFIER, RECIPE_TAGS } from '$lib/consts';
+  import { eventPath } from '$lib/utils/eventUrl';
 
   export let nostrString: string;
   export let boostAmount: number = 0; // Optional boost amount in sats (passed from parent)
@@ -364,10 +365,10 @@
       }
     }
 
-    // For regular notes, use noteEncode
+    // For regular notes, an nevent link carries relay hints (where this
+    // event was seen) so the thread page can find thinly-relayed notes.
     try {
-      const noteId = nip19.noteEncode(event.id);
-      return `/${noteId}`;
+      return eventPath(event);
     } catch (e) {
       console.warn('Failed to encode note ID:', e);
       return null;

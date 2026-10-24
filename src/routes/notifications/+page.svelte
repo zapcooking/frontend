@@ -26,6 +26,7 @@
   import { muteListStore } from '$lib/muteListStore';
   import { resolveProfileByPubkey, getDisplayName } from '$lib/profileResolver';
   import { resolveNote, resolveRecipe } from '$lib/utils/nostrRefs';
+  import { eventPath, eventIdPath } from '$lib/utils/eventUrl';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
@@ -518,17 +519,21 @@
 
     if (!eventIdToView) return;
 
+    // The routing lookup's event doubles as the relay-hint source for the
+    // note link below (reaction/zap/repost only — the other types don't
+    // fetch).
+    let fetched: NDKEvent | null = null;
     if (['reaction', 'zap', 'repost'].includes(notification.type)) {
       try {
         const ndkInstance = get(ndk);
         if (ndkInstance) {
-          const event = await ndkInstance.fetchEvent({ ids: [eventIdToView] });
-          if (event && event.kind === 30023) {
-            const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+          fetched = await ndkInstance.fetchEvent({ ids: [eventIdToView] });
+          if (fetched && fetched.kind === 30023) {
+            const dTag = fetched.tags.find((t) => t[0] === 'd')?.[1];
             if (dTag) {
               const naddr = nip19.naddrEncode({
                 kind: 30023,
-                pubkey: event.pubkey,
+                pubkey: fetched.pubkey,
                 identifier: dTag
               });
               goto(`/recipe/${naddr}`);
@@ -541,7 +546,7 @@
       }
     }
 
-    navigateToNote(eventIdToView);
+    navigateToNote(eventIdToView, fetched);
   }
 
   async function handleGroupedClick(item: NotificationDisplayItem) {
@@ -558,17 +563,19 @@
     const eventId = item.targetEventId;
     if (!eventId) return;
 
-    // Try recipe routing
+    // Try recipe routing — the fetched event also carries the relay hints
+    // for the note link below.
+    let fetched: NDKEvent | null = null;
     try {
       const ndkInstance = get(ndk);
       if (ndkInstance) {
-        const event = await ndkInstance.fetchEvent({ ids: [eventId] });
-        if (event && event.kind === 30023) {
-          const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+        fetched = await ndkInstance.fetchEvent({ ids: [eventId] });
+        if (fetched && fetched.kind === 30023) {
+          const dTag = fetched.tags.find((t) => t[0] === 'd')?.[1];
           if (dTag) {
             const naddr = nip19.naddrEncode({
               kind: 30023,
-              pubkey: event.pubkey,
+              pubkey: fetched.pubkey,
               identifier: dTag
             });
             goto(`/recipe/${naddr}`);
@@ -580,19 +587,16 @@
       console.debug('[Notifications] Could not fetch event for routing:', e);
     }
 
-    navigateToNote(eventId);
+    navigateToNote(eventId, fetched);
   }
 
-  function navigateToNote(eventId: string) {
+  // nevent1 always: the routing-fetched event supplies relay hints when we
+  // have one; a note1/nevent1 payload is normalized — never a bare note1.
+  function navigateToNote(eventId: string, evt?: NDKEvent | null) {
     const raw = String(eventId).trim();
     if (!raw) return;
-    if (raw.startsWith('note1') || raw.startsWith('nevent1')) {
-      goto(`/${raw}`);
-      return;
-    }
     try {
-      const noteId = nip19.noteEncode(raw);
-      goto(`/${noteId}`);
+      goto(evt ? eventPath(evt) : eventIdPath(raw));
     } catch (e) {
       console.warn('[Notifications] Invalid eventId for note view:', raw, e);
     }
