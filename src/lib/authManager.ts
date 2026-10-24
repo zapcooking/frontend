@@ -23,9 +23,7 @@ import {
   unlockPasskey,
   isCeremonyCancelled,
   isVaultUnconfirmed,
-  markVaultUnconfirmed,
-  clearVaultUnconfirmed,
-  countCancelledConfirm
+  clearVaultUnconfirmed
 } from './passkeyVault';
 import { hexToBytes } from './passkeyVaultCrypto';
 import {
@@ -174,6 +172,10 @@ export class AuthManager {
   // A one-prompt enrollment ran in this page load: its confirmation waits
   // for the next visit (see needsVaultConfirmation).
   private enrolledUnconfirmedThisLoad = false;
+  // Confirm sheets dismissed in this page load (see confirmVault), and the
+  // confirm ceremony in flight, shared by every caller.
+  private cancelledConfirmsThisLoad = 0;
+  private confirmInFlight: Promise<'confirmed' | 'cancelled' | 'failed'> | null = null;
   private nip46ResponseSub: NDKSubscription | null = null;
   // While postAnonymously has a throwaway signer on ndk.signer: the
   // session's own signer (see getSignerSwap).
@@ -1760,16 +1762,17 @@ export class AuthManager {
 
     // One prompt only where the plaintext key is stored to fall back on: a
     // passkey session (re-create for sync) has none, so it keeps create + get.
+    // Never for migrate, which replaces a confirmed vault.
     const hasPlaintextKey =
       authMethod === 'privateKey' && !!localStorage.getItem('nostrcooking_privateKey');
     const { record, assertion, confirmed } = await enrollPasskey(privkeyHex, publicKey, label, {
-      allowCreatePrf: hasPlaintextKey,
+      allowCreatePrf: hasPlaintextKey && !opts?.migrate,
       ...(serverChallenge ? { serverChallenge } : {}),
       ...(opts?.migrate ? { excludeExisting: false } : {})
     });
 
     if (!confirmed) {
-      markVaultUnconfirmed(record.keys[0].credentialId);
+      // enrollPasskey marked the record unconfirmed before saving it.
       this.enrolledUnconfirmedThisLoad = true;
       if (wantSync) {
         setSyncEnabled(true);
@@ -1821,10 +1824,23 @@ export class AuthManager {
   // runs on the plaintext key throughout, so any failure just removes the
   // vault ('failed' — the caller shows the backup-key flow).
   //
-  // A dismissed sheet counts as 'cancelled' and keeps the vault, once: some
-  // providers fail PRF on get() with the same NotAllowedError a cancel
-  // raises (Microsoft Password Manager), so a second one is a failure.
-  async confirmVault(): Promise<'confirmed' | 'cancelled' | 'failed'> {
+  // A dismissed sheet counts as 'cancelled' and keeps the vault, once per
+  // page load: some providers fail PRF on get() with the same NotAllowedError
+  // a cancel raises (Microsoft Password Manager), so a second one in the
+  // same visit is a failure. Dismissals on separate visits never add up.
+  //
+  // Concurrent calls (the enroll card and Settings) share one ceremony and
+  // its outcome — a second get() would be rejected and miscounted.
+  confirmVault(): Promise<'confirmed' | 'cancelled' | 'failed'> {
+    if (!this.confirmInFlight) {
+      this.confirmInFlight = this.runConfirmVault().finally(() => {
+        this.confirmInFlight = null;
+      });
+    }
+    return this.confirmInFlight;
+  }
+
+  private async runConfirmVault(): Promise<'confirmed' | 'cancelled' | 'failed'> {
     if (!browser) throw new Error('Browser environment required');
     const record = getVaultRecord();
     if (!record || !isVaultUnconfirmed(record)) throw new Error('No passkey waiting for confirmation');
@@ -1842,7 +1858,7 @@ export class AuthManager {
     try {
       unlocked = await unlockPasskey(record, serverChallenge ? { serverChallenge } : undefined);
     } catch (e) {
-      if (isCeremonyCancelled(e) && countCancelledConfirm() < 2) return 'cancelled';
+      if (isCeremonyCancelled(e) && ++this.cancelledConfirmsThisLoad < 2) return 'cancelled';
       this.discardUnconfirmedVault();
       return 'failed';
     }

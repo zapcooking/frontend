@@ -212,6 +212,8 @@
           'Passkey protection is on. Your key is no longer stored in plain text in this browser.';
       } else if (outcome === 'failed') {
         confirmFailed = true;
+      } else {
+        notice = 'Confirmation cancelled — you can try again.';
       }
       dispatch('changed');
     } catch (e) {

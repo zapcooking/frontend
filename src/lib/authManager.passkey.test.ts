@@ -569,6 +569,60 @@ describe('one-prompt enrollment (PRF at create)', () => {
     expect(am.getState().isAuthenticated).toBe(true);
   });
 
+  it('dismissals on separate visits never remove the vault', async () => {
+    simulatedAuthenticator({ createPrf: true, getPrf: 'NotAllowedError' });
+    await (await nsecSession()).enrollVault();
+
+    await expect((await nextVisit()).confirmVault()).resolves.toBe('cancelled');
+    await expect((await nextVisit()).confirmVault()).resolves.toBe('cancelled');
+
+    expect(vaultInStore()).toBeDefined();
+    expect(isVaultUnconfirmed()).toBe(true);
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+  });
+
+  it('concurrent confirms (enroll card + Settings) share one ceremony', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    await (await nsecSession()).enrollVault();
+    const am = await nextVisit();
+
+    const [a, b] = await Promise.all([am.confirmVault(), am.confirmVault()]);
+
+    expect([a, b]).toEqual(['confirmed', 'confirmed']);
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed marker write leaves no vault behind: no lockout on the next visit', async () => {
+    // Provider whose get() can't reproduce its create() PRF.
+    simulatedAuthenticator({ createPrf: true, getPrf: new Uint8Array(32).fill(7) });
+    const am = await nsecSession();
+    const setItem = (globalThis as any).localStorage.setItem;
+    (globalThis as any).localStorage.setItem = (k: string, v: string) => {
+      if (k === 'nostrcooking_vault_unconfirmed') {
+        throw new DOMException('quota', 'QuotaExceededError');
+      }
+      setItem(k, v);
+    };
+
+    await expect(am.enrollVault()).rejects.toThrow();
+    (globalThis as any).localStorage.setItem = setItem;
+    expect(vaultInStore()).toBeUndefined();
+
+    const next = await nextVisit();
+    expect(next.getState().authMethod).toBe('privateKey');
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+  });
+
+  it('migrate never uses one prompt, even in an nsec session', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    const am = await nsecSession();
+
+    await expect(am.enrollVault({ migrate: true })).resolves.toEqual({ confirmed: true });
+
+    expect(credentials.create.mock.calls[0][0].publicKey.extensions).toEqual({ prf: {} });
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+  });
+
   it('the plaintext key is never deleted without a verified unlock (logout drops the vault instead)', async () => {
     simulatedAuthenticator({ createPrf: true });
     const am = await nsecSession();

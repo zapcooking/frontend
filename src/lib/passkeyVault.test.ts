@@ -33,7 +33,6 @@ import {
   VAULT_UNCONFIRMED_KEY,
   isVaultUnconfirmed,
   markVaultUnconfirmed,
-  countCancelledConfirm,
   type VaultRecord
 } from './passkeyVault';
 import { hexToBytes, bytesToB64, b64urlToBytes } from './passkeyVaultCrypto';
@@ -306,6 +305,29 @@ describe('enrollPasskey — one prompt (allowCreatePrf)', () => {
     await expect(unlockPasskey(record)).resolves.toMatchObject({ privkeyHex: fixture.nsecHex });
   });
 
+  it('marks the record unconfirmed as part of saving it', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    const { record } = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test', {
+      allowCreatePrf: true
+    });
+    expect(isVaultUnconfirmed(record)).toBe(true);
+  });
+
+  it('saves nothing when the unconfirmed marker cannot be written', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    const setItem = (globalThis as any).localStorage.setItem;
+    (globalThis as any).localStorage.setItem = (k: string, v: string) => {
+      if (k === VAULT_UNCONFIRMED_KEY) throw new DOMException('quota', 'QuotaExceededError');
+      setItem(k, v);
+    };
+
+    await expect(
+      enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test', { allowCreatePrf: true })
+    ).rejects.toThrow();
+    // An unmarked record would be adopted as confirmed on the next visit.
+    expect(getVaultRecord()).toBeNull();
+  });
+
   it('falls back to create + get when create() returns no PRF result', async () => {
     credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfEnabled: true }));
     credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
@@ -340,8 +362,6 @@ describe('unconfirmed-vault marker', () => {
 
     markVaultUnconfirmed(fixture.credentialIdB64url);
     expect(isVaultUnconfirmed()).toBe(true);
-    expect(countCancelledConfirm()).toBe(1);
-    expect(countCancelledConfirm()).toBe(2);
 
     deleteVaultRecord();
     expect(store.has(VAULT_UNCONFIRMED_KEY)).toBe(false);

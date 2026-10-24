@@ -35,10 +35,12 @@ export const VAULT_STORAGE_KEY = 'nostrcooking_vault_v1';
 export const VAULT_PROMPT_DISMISSED_KEY = 'nostrcooking_vault_prompt_dismissed';
 /**
  * Set while the vault was built from create()-time PRF (one-prompt
- * enrollment) and no unlock has decrypted it yet: { credentialId,
- * cancelledConfirms }. Until then AuthManager keeps the plaintext key, so a
- * provider whose get() can't reproduce the create() PRF never locks anyone
- * out. Kept outside the frozen v1 record shape (and so out of sync blobs).
+ * enrollment) and no unlock has decrypted it yet: { credentialId }. Until
+ * then AuthManager keeps the plaintext key, so a provider whose get() can't
+ * reproduce the create() PRF never locks anyone out. Written BEFORE the
+ * record (enrollPasskey): an unmarked unconfirmed record would be adopted
+ * as confirmed and the plaintext key deleted. Kept outside the frozen v1
+ * record shape (and so out of sync blobs).
  */
 export const VAULT_UNCONFIRMED_KEY = 'nostrcooking_vault_unconfirmed';
 
@@ -152,7 +154,6 @@ export function deleteVaultRecord(): void {
 
 interface UnconfirmedState {
   credentialId: string;
-  cancelledConfirms: number;
 }
 
 function readUnconfirmed(): UnconfirmedState | null {
@@ -172,7 +173,7 @@ export function isVaultUnconfirmed(record: VaultRecord | null = getVaultRecord()
 }
 
 export function markVaultUnconfirmed(credentialId: string): void {
-  const state: UnconfirmedState = { credentialId, cancelledConfirms: 0 };
+  const state: UnconfirmedState = { credentialId };
   localStorage.setItem(VAULT_UNCONFIRMED_KEY, JSON.stringify(state));
 }
 
@@ -180,14 +181,6 @@ export function clearVaultUnconfirmed(): void {
   if (browser) localStorage.removeItem(VAULT_UNCONFIRMED_KEY);
 }
 
-/** Count a cancelled confirm ceremony; returns the new total. */
-export function countCancelledConfirm(): number {
-  const state = readUnconfirmed();
-  if (!state) return 0;
-  state.cancelledConfirms += 1;
-  localStorage.setItem(VAULT_UNCONFIRMED_KEY, JSON.stringify(state));
-  return state.cancelledConfirms;
-}
 
 // ── Feature detection ───────────────────────────────────────────
 
@@ -570,6 +563,9 @@ export async function enrollPasskey(
         }
       ]
     };
+    // Marker first: if it can't be written, nothing is saved. (A marker left
+    // by a failed record write matches no record, so it is inert.)
+    if (!confirmed) markVaultUnconfirmed(credentialId);
     saveVaultRecord(record);
     return { record, assertion, confirmed };
   } catch (e) {
