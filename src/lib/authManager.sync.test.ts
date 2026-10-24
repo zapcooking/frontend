@@ -293,6 +293,74 @@ describe('signup enrollment options (signIn / awaitUpload)', () => {
   });
 });
 
+describe('vault-sync request deadlines', () => {
+  // A fetch that never answers on its own — only the abort signal ends it.
+  function hangingUnlessAborted(match: (url: string, init?: RequestInit) => boolean) {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (!match(String(url), init)) {
+        return Promise.resolve(
+          String(url).endsWith('/challenge')
+            ? json(200, { challenge: 'YQ', expiresAt: Date.now() + 120000 })
+            : json(200, { ok: true })
+        );
+      }
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('timeout', 'TimeoutError')));
+      });
+    });
+  }
+  // AbortSignal.timeout → a signal the test fires, so no real 5–10 s wait.
+  function controllableDeadlines() {
+    const controllers: AbortController[] = [];
+    const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => {
+      const c = new AbortController();
+      controllers.push(c);
+      return c.signal;
+    });
+    return { fireAll: () => controllers.forEach((c) => c.abort()), spy };
+  }
+
+  it('a stalled challenge fetch does not hold the unlock: it goes ahead locally', async () => {
+    seedVault();
+    store.set(SYNC_ENABLED_KEY, '1'); // refresh due (never stamped)
+    hangingUnlessAborted((url) => url.endsWith('/challenge'));
+    const d = controllableDeadlines();
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    const p = am.unlockVault();
+    await flush();
+    expect(credentials.get).not.toHaveBeenCalled(); // still waiting on the challenge
+    d.fireAll();
+    await p;
+    expect(am.getState().isAuthenticated).toBe(true);
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    d.spy.mockRestore();
+  });
+
+  it('a stalled signup upload reports not uploaded and stays pending', async () => {
+    hangingUnlessAborted((_url, init) => init?.method === 'PUT');
+    const d = controllableDeadlines();
+    credentials.create.mockResolvedValue(fakeCredential(CRED_ID, { prfEnabled: true }));
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    const am = new AuthManager(ndk);
+    const p = am.enrollAtSignup(fixture.nsecHex, fixture.pubkeyHex, {
+      sync: true,
+      signIn: false,
+      awaitUpload: true
+    });
+    for (let i = 0; i < 20 && callsTo('PUT').length === 0; i++) await flush();
+    expect(callsTo('PUT')).toHaveLength(1);
+    d.fireAll();
+    expect(await p).toEqual({ uploaded: false });
+    expect(store.get(SYNC_PENDING_KEY)).toBe('1');
+    d.spy.mockRestore();
+  });
+});
+
 describe('pending-upload retry on unlock', () => {
   it('retries the upload with the unlock ceremony assertion (single prompt)', async () => {
     seedVault();

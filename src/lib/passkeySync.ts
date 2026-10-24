@@ -116,9 +116,22 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     .join('');
 }
 
-/** Fetch a server challenge. Throws on any failure. */
+/**
+ * Deadlines for the vault-sync requests. The challenge is awaited BEFORE a
+ * passkey prompt (unlock, signup) and the signup upload is awaited before
+ * the step can finish, so neither may hang: past the deadline they count
+ * as failed — an unlock then goes ahead locally, a signup asks for the
+ * backup key, and the upload stays pending for the next unlock.
+ */
+export const CHALLENGE_TIMEOUT_MS = 5_000;
+export const UPLOAD_TIMEOUT_MS = 10_000;
+
+/** Fetch a server challenge. Throws on any failure, including the deadline. */
 export async function fetchChallenge(): Promise<string> {
-  const res = await fetch('/api/vault-sync/challenge', { method: 'POST' });
+  const res = await fetch('/api/vault-sync/challenge', {
+    method: 'POST',
+    signal: AbortSignal.timeout(CHALLENGE_TIMEOUT_MS)
+  });
   if (!res.ok) throw new PasskeySyncError(`challenge fetch failed (${res.status})`);
   const body = await res.json();
   if (typeof body?.challenge !== 'string') throw new PasskeySyncError('bad challenge response');
@@ -161,6 +174,7 @@ export async function uploadVault(
   try {
     const res = await fetch('/api/vault-sync', {
       method: 'PUT',
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         blob: JSON.stringify(record),
@@ -200,6 +214,7 @@ export async function refreshVaultEntry(
     const hash = await sha256Hex(b64urlToBytes(assertion.credentialId));
     const res = await fetch(`/api/vault-sync/${hash}`, {
       method: 'POST',
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assertion })
     });
