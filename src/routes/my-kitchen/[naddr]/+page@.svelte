@@ -389,6 +389,7 @@
   }
   
   async function saveCoverRecipe() {
+    if (isSubmitting) return;
     if (!event || !selectedCoverRecipeATag) {
       errorMessage = 'Please select a recipe to use as the cover image.';
       return;
@@ -403,7 +404,7 @@
         throw new Error('Invalid collection');
       }
 
-      if (await editThisList({ cover: selectedCoverRecipeATag })) {
+      if (await editThisList({ cover: selectedCoverRecipeATag }, saveCoverRecipe)) {
         coverImage = undefined;
         const updatedList = get(cookbookStore).lists.find(l => l.id === dTag);
         if (updatedList) coverImage = await getCookbookCoverImage(updatedList, $ndk, true);
@@ -433,9 +434,11 @@
    * This list (Saved or a custom collection) is only ever changed through
    * the cookbook store's guarded edit: a fresh relay read, one event built on
    * the newest copy with every tag but the recipes kept, never this page's
-   * possibly stale copy. Shows the store's message on refusal.
+   * possibly stale copy. Shows the store's message on refusal; its Retry
+   * runs `again` (the whole save, so its button shows "Saving..." and a
+   * success closes the modal).
    */
-  async function editThisList(change: SavedListChange): Promise<boolean> {
+  async function editThisList(change: SavedListChange, again: () => Promise<void>): Promise<boolean> {
     const listId = event?.tags.find(t => t[0] === 'd')?.[1];
     if (!listId) return false;
     const result = await cookbookStore.editList(listId, change);
@@ -443,7 +446,7 @@
       errorMessage = result.message;
       showToast('error', result.message, 10000, undefined, {
         label: 'Retry',
-        onClick: () => void editThisList(change)
+        onClick: () => void again()
       });
       return false;
     }
@@ -468,6 +471,7 @@
   }
 
   async function saveEdits() {
+    if (isSubmitting) return;
     if (!event || !editTitle.trim()) {
       errorMessage = 'Please enter a title';
       return;
@@ -479,7 +483,7 @@
     try {
       const images = $editImages;
       const meta = { summary: editSummary.trim(), image: images[0] ?? '' };
-      if (await editThisList({ meta: isDefaultList() ? meta : { ...meta, title: editTitle.trim() } })) {
+      if (await editThisList({ meta: isDefaultList() ? meta : { ...meta, title: editTitle.trim() } }, saveEdits)) {
         closeEditModal();
       }
     } catch (err) {
@@ -524,6 +528,7 @@
   }
 
   async function saveRecipeOrder() {
+    if (isSubmitting) return;
     if (!event) return;
 
     isSubmitting = true;
@@ -539,7 +544,7 @@
       const removed = manageShown.filter(a => !order.includes(a));
       // Recipes pasted into the modal's Add field.
       const added = order.filter(a => !manageShown.includes(a));
-      if (await editThisList({ add: added, remove: removed, order })) {
+      if (await editThisList({ add: added, remove: removed, order }, saveRecipeOrder)) {
         await loadData();
         closeManageModal();
       }

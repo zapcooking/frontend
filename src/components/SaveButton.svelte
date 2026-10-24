@@ -39,6 +39,8 @@
 
   let dropdownOpen = false;
   let loading = false;
+  /** The dropdown row whose edit is running. */
+  let pendingListId: string | null = null;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let isLongPress = false;
   // The lists come from My Kitchen's store — the one place lists are read
@@ -129,8 +131,15 @@
   async function toggleListSelection(listId: string) {
     if (loading) return;
     const wasIn = savedInLists.has(listId);
+    // The edit reads the list from the relays first (up to a few seconds):
+    // the row shows it's working instead of looking frozen.
+    pendingListId = listId;
     if (listId === DEFAULT_LIST_ID) {
-      await editSaved(wasIn ? 'remove' : 'save');
+      try {
+        await editSaved(wasIn ? 'remove' : 'save');
+      } finally {
+        pendingListId = null;
+      }
       return;
     }
     loading = true;
@@ -142,6 +151,7 @@
       else showToast('error', "Couldn't update that list. Please try again.");
     } finally {
       loading = false;
+      pendingListId = null;
     }
   }
 
@@ -258,11 +268,15 @@
         {#each lists as list (list.id)}
           <button
             on:click|stopPropagation={() => toggleListSelection(list.id)}
-            class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent-gray transition-colors"
+            disabled={loading}
+            aria-busy={pendingListId === list.id}
+            class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent-gray transition-colors disabled:cursor-wait {loading && pendingListId !== list.id ? 'opacity-50' : ''}"
             style="color: var(--color-text-primary)"
           >
             <div class="w-5 h-5 rounded border-2 flex items-center justify-center transition-colors {savedInLists.has(list.id) ? 'bg-green-500 border-green-500' : ''}" style="{savedInLists.has(list.id) ? '' : 'border-color: var(--color-input-border)'}">
-              {#if savedInLists.has(list.id)}
+              {#if pendingListId === list.id}
+                <div class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin {savedInLists.has(list.id) ? 'text-white' : ''}"></div>
+              {:else if savedInLists.has(list.id)}
                 <CheckIcon size={12} weight="bold" class="text-white" />
               {/if}
             </div>

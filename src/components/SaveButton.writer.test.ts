@@ -69,6 +69,15 @@ describe('list page: every list edit goes through the guarded store edit', () =>
     const body = handler('saveRecipeOrder');
     expect(body).toMatch(/removed = manageShown\.filter/);
     expect(body).toMatch(/added = order\.filter\(a => !manageShown\.includes\(a\)\)/);
-    expect(body).toMatch(/editThisList\(\{ add: added, remove: removed, order \}\)/);
+    expect(body).toMatch(/editThisList\(\{ add: added, remove: removed, order \}, saveRecipeOrder\)/);
+  });
+
+  it("each save's toast Retry runs the whole save again (so it shows Saving...)", () => {
+    expect(handler('saveCoverRecipe')).toMatch(/editThisList\([^;]*, saveCoverRecipe\)/);
+    expect(handler('saveEdits')).toMatch(/editThisList\([^;]*, saveEdits\)/);
+    expect(handler('editThisList')).toMatch(/onClick: \(\) => void again\(\)/);
+    for (const name of ['saveCoverRecipe', 'saveEdits', 'saveRecipeOrder']) {
+      expect(handler(name)).toMatch(/^async function \w+\(\) \{\n    if \(isSubmitting\) return;/);
+    }
   });
 });
