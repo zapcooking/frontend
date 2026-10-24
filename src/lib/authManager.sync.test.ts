@@ -307,9 +307,46 @@ describe('pending-upload retry on unlock', () => {
     expect(store.get(SYNC_PENDING_KEY)).toBeUndefined();
   });
 
-  it('no pending flag → unlock makes zero network calls', async () => {
+  it('sync on, nothing pending → the same ceremony refreshes the entry TTL (no PUT)', async () => {
     seedVault();
     store.set(SYNC_ENABLED_KEY, '1');
+    acceptingServer();
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    await am.unlockVault();
+    await flush();
+
+    expect(credentials.get).toHaveBeenCalledTimes(1); // still one prompt
+    const posts = callsTo('POST').filter(([url]) => !String(url).endsWith('/challenge'));
+    expect(posts).toHaveLength(1);
+    expect(String(posts[0][0])).toMatch(/^\/api\/vault-sync\/[0-9a-f]{64}$/);
+    expect(JSON.parse(posts[0][1]!.body as string).assertion.credentialId).toBe(CRED_ID);
+    expect(callsTo('PUT')).toHaveLength(0);
+  });
+
+  it('sync on but the entry is gone (404) → the same assertion re-uploads it', async () => {
+    seedVault();
+    store.set(SYNC_ENABLED_KEY, '1');
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/challenge')) return json(200, { challenge: 'YQ', expiresAt: Date.now() + 120000 });
+      if (init?.method === 'POST') return json(404, { error: 'not_found' });
+      return json(200, { ok: true });
+    });
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    await am.unlockVault();
+    await flush();
+    expect(callsTo('PUT')).toHaveLength(1);
+    expect(store.get(SYNC_PENDING_KEY)).toBeUndefined();
+  });
+
+  it('sync off → unlock makes zero network calls', async () => {
+    seedVault();
+    store.set(SYNC_ENABLED_KEY, '0');
     const am = new AuthManager(ndk);
     credentials.get.mockResolvedValue(
       fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })

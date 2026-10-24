@@ -34,6 +34,7 @@ import {
   syncableKeyEntry,
   fetchChallengeSafe,
   uploadVault,
+  refreshVaultEntry,
   deleteVaultBlob,
   signInWithPasskey
 } from './passkeySync';
@@ -1628,17 +1629,14 @@ export class AuthManager {
 
     this.updateState({ isLoading: true, error: null });
     try {
-      // Pending-upload retry piggybacks on THIS ceremony: fetch a server
-      // challenge first so the unlock assertion is redeemable for the PUT.
+      // With sync on, THIS ceremony also keeps the synced copy alive: fetch
+      // a server challenge first so the unlock assertion is redeemable —
+      // for the pending upload's PUT, otherwise for the TTL refresh (the
+      // 370-day expiry then runs from the last unlock on any device).
       // Challenge fetch failure degrades to a normal (offline-capable)
-      // unlock and the flag simply stays set. Never a second prompt.
+      // unlock. Never a second prompt.
       let serverChallenge: string | null = null;
-      if (
-        PASSKEY_SYNC_ENABLED &&
-        isSyncEnabled() &&
-        isUploadPending() &&
-        syncableKeyEntry(record)
-      ) {
+      if (PASSKEY_SYNC_ENABLED && isSyncEnabled() && syncableKeyEntry(record)) {
         serverChallenge = await fetchChallengeSafe();
       }
 
@@ -1661,8 +1659,9 @@ export class AuthManager {
       localStorage.setItem('nostrcooking_loggedInPublicKey', user.hexpubkey);
 
       if (serverChallenge && assertion) {
-        // Fire-and-forget: uploadVault manages the pending flag itself.
-        void uploadVault(record, assertion);
+        // Fire-and-forget: both manage the pending flag themselves.
+        if (isUploadPending()) void uploadVault(record, assertion);
+        else void refreshVaultEntry(record, assertion);
       }
     } catch (error) {
       this.ndk.signer = null;

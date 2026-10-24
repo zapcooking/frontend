@@ -164,6 +164,35 @@ export async function uploadVault(
 }
 
 /**
+ * Keep the synced copy alive. Every unlock with sync on spends its
+ * ceremony's assertion here, so the entry's 370-day expiry runs from the
+ * last time the passkey was used on ANY device, the same-device unlock
+ * included. A verified assertion-gated fetch rewrites the entry with a
+ * fresh TTL (KV has no touch primitive). If the entry is gone (expired, or
+ * never landed) the server answers 404 without redeeming the challenge — an
+ * absent entry has no key to verify against — so the same assertion
+ * re-uploads it. Never throws; false means nothing was refreshed this time.
+ */
+export async function refreshVaultEntry(
+  record: VaultRecord,
+  assertion: AssertionWire
+): Promise<boolean> {
+  try {
+    const hash = await sha256Hex(b64urlToBytes(assertion.credentialId));
+    const res = await fetch(`/api/vault-sync/${hash}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assertion })
+    });
+    if (res.ok) return true;
+    if (res.status === 404) return uploadVault(record, assertion);
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Delete the server blob. Best-effort by ruling: a 404 is SUCCESS (the
  * uniform-404 design means "absent or unauthorized are indistinguishable";
  * for the owner's own delete that reads as already-gone — idempotency lives
