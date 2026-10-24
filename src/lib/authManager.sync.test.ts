@@ -222,6 +222,72 @@ describe('enrollment with sync', () => {
   });
 });
 
+describe('signup enrollment options (signIn / awaitUpload)', () => {
+  function passkeyCeremony() {
+    credentials.create.mockResolvedValue(fakeCredential(CRED_ID, { prfEnabled: true }));
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+  }
+
+  it('signIn:false enrolls (record saved) without signing in', async () => {
+    acceptingServer();
+    passkeyCeremony();
+    const am = new AuthManager(ndk);
+    const result = await am.enrollAtSignup(fixture.nsecHex, fixture.pubkeyHex, {
+      sync: false,
+      signIn: false
+    });
+    expect(result).toEqual({ uploaded: null });
+    expect(store.get(VAULT_STORAGE_KEY)).toBeDefined();
+    expect(am.getState().isAuthenticated).toBe(false);
+    expect(store.get(PK_KEY)).toBeUndefined();
+  });
+
+  it('awaitUpload reports a landed upload and clears nothing pending', async () => {
+    acceptingServer();
+    passkeyCeremony();
+    const am = new AuthManager(ndk);
+    const result = await am.enrollAtSignup(fixture.nsecHex, fixture.pubkeyHex, {
+      sync: true,
+      signIn: false,
+      awaitUpload: true
+    });
+    expect(result).toEqual({ uploaded: true });
+    expect(callsTo('PUT')).toHaveLength(1);
+    expect(store.get(SYNC_PENDING_KEY)).toBeUndefined();
+  });
+
+  it('awaitUpload reports a failed upload (pending kept for the next unlock)', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith('/challenge')
+        ? json(200, { challenge: 'YQ', expiresAt: Date.now() + 120000 })
+        : json(500, {})
+    );
+    passkeyCeremony();
+    const am = new AuthManager(ndk);
+    const result = await am.enrollAtSignup(fixture.nsecHex, fixture.pubkeyHex, {
+      sync: true,
+      signIn: false,
+      awaitUpload: true
+    });
+    expect(result).toEqual({ uploaded: false });
+    expect(store.get(SYNC_PENDING_KEY)).toBe('1');
+  });
+
+  it('awaitUpload with no server challenge (offline) reports not uploaded', async () => {
+    fetchMock.mockRejectedValue(new TypeError('offline'));
+    passkeyCeremony();
+    const am = new AuthManager(ndk);
+    const result = await am.enrollAtSignup(fixture.nsecHex, fixture.pubkeyHex, {
+      sync: true,
+      signIn: false,
+      awaitUpload: true
+    });
+    expect(result).toEqual({ uploaded: false });
+  });
+});
+
 describe('pending-upload retry on unlock', () => {
   it('retries the upload with the unlock ceremony assertion (single prompt)', async () => {
     seedVault();

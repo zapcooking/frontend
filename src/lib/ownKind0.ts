@@ -320,11 +320,20 @@ export const KIND0_WRONG_SIGNER_MESSAGE =
  * session that was still restoring lands late — and signing with it would
  * replace that EXISTING user's profile with this fresh one. Never sign a
  * from-`{}` profile with anything but the key it was generated for.
+ *
+ * Published to `relayUrls` (the app's relays: a new key has no relay list,
+ * so that is what the outbox model would pick anyway) with a bounded wait.
+ * A bare event.publish() first asks NDK's outbox tracker for the author's
+ * relay list, and for a key nobody has seen that lookup can wait forever —
+ * signup hung on it before sending a single frame.
  */
+export const NEW_ACCOUNT_KIND0_TIMEOUT_MS = 8000;
+
 export async function publishNewAccountKind0(
   ndk: NDK,
   privateKey: Uint8Array,
-  content: Record<string, string>
+  content: Record<string, string>,
+  relayUrls: string[]
 ): Promise<Kind0PublishResult> {
   const pubkey = getPublicKey(privateKey);
   const event = new NDKEvent(ndk);
@@ -333,9 +342,13 @@ export async function publishNewAccountKind0(
   event.content = JSON.stringify(content);
   await event.sign(new NDKPrivateKeySigner(privateKey));
   if (event.pubkey !== pubkey) throw new Error(KIND0_WRONG_SIGNER_MESSAGE);
-  const relays = await event.publish();
-  if (relays.size > 0) ingestProfileEvent(pubkey, event);
-  return { event, relayCount: relays.size };
+  const relays = new Set(relayUrls.map((url) => ndk.pool.getRelay(url, true)));
+  const accepted = await event.publish(
+    new NDKRelaySet(relays, ndk),
+    NEW_ACCOUNT_KIND0_TIMEOUT_MS
+  );
+  if (accepted.size > 0) ingestProfileEvent(pubkey, event);
+  return { event, relayCount: accepted.size };
 }
 
 /**

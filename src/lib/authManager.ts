@@ -1751,11 +1751,18 @@ export class AuthManager {
   // Failure at any point is non-destructive: nothing persisted, no session
   // — the caller (signup UI) lets the user retry, or skip into today's
   // plaintext path, which still works unchanged.
+  //
+  // opts.signIn (default true): false leaves signing in to the caller, so
+  // signup can sign in only once its "keep your account safe" step has
+  // fully succeeded. opts.awaitUpload: wait for the sync upload and report
+  // it (`uploaded`), so a passkey-only signup can require a backup key when
+  // the off-device copy didn't land. Without it the upload stays
+  // fire-and-forget and `uploaded` is null.
   async enrollAtSignup(
     privkeyHex: string,
     pubkey: string,
-    opts?: { sync?: boolean }
-  ): Promise<void> {
+    opts?: { sync?: boolean; signIn?: boolean; awaitUpload?: boolean }
+  ): Promise<{ uploaded: boolean | null }> {
     if (!browser) throw new Error('Browser environment required');
     if (!PASSKEY_SIGNUP_ENABLED) throw new Error('Passkey signup is not enabled');
 
@@ -1788,18 +1795,22 @@ export class AuthManager {
 
     // Record exists for this pubkey now — this authenticates via adoption:
     // authMethod 'passkey', plaintext never persisted.
-    await this.authenticateWithPrivateKey(privkeyHex);
+    if (opts?.signIn !== false) await this.authenticateWithPrivateKey(privkeyHex);
 
+    let uploaded: boolean | null = null;
     if (wantSync) {
       setSyncEnabled(true);
       if (serverChallenge && assertion && syncableKeyEntry(record)) {
-        void uploadVault(record, assertion);
-      } else if (syncableKeyEntry(record)) {
-        setUploadPending(true);
+        if (opts?.awaitUpload) uploaded = await uploadVault(record, assertion);
+        else void uploadVault(record, assertion);
+      } else {
+        if (syncableKeyEntry(record)) setUploadPending(true);
+        if (opts?.awaitUpload) uploaded = false;
       }
     } else if (opts?.sync === false) {
       setSyncEnabled(false);
     }
+    return { uploaded };
   }
 
   // Remove the vault (downgrade to plaintext-localStorage sessions). Requires

@@ -28,15 +28,14 @@
   import { loginReason } from '$lib/auth/requireAuth';
   import { startSectionTarget } from '$lib/startSectionSettings';
   import { copyToClipboard } from '$lib/clipboard';
-  import { raiseVaultConflict, SIGNUP_VAULT_CONFLICT_MESSAGE } from '$lib/auth/vaultConflict';
+  import { raiseVaultConflict } from '$lib/auth/vaultConflict';
   import {
     getGoogleSub,
     connectDrive,
     restoreFromBackup,
-    createAndUploadBackup,
     type GoogleSession
   } from '$lib/googleBackup/googleBackupFlow';
-  import { isValidPin, isValidNewPin } from '$lib/googleBackup/googleBackupCrypto';
+  import { isValidPin } from '$lib/googleBackup/googleBackupCrypto';
   import {
     PASSKEY_SYNC_ENABLED,
     PASSKEY_SIGNUP_ENABLED,
@@ -79,13 +78,12 @@
   // `sub`); 'connectDrive' shows an explicit button whose tap opens the Drive
   // token popup synchronously (mobile Safari blocks popups opened after an
   // async gap). Then set/enter-PIN.
-  let googleStep: 'signin' | 'connectDrive' | 'setPin' | 'enterPin' = 'signin';
+  let googleStep: 'signin' | 'connectDrive' | 'enterPin' = 'signin';
   let googleSub: string | null = null;
   let googleSession: GoogleSession | null = null;
   let googleButtonContainer: HTMLDivElement | null = null;
   let googleSignInStarted = false;
   let googlePin = '';
-  let googlePinConfirm = '';
   let googleError = '';
   let googleBusy = false;
 
@@ -284,7 +282,6 @@
     googleSub = null;
     googleSession = null;
     googlePin = '';
-    googlePinConfirm = '';
     googleError = '';
     googleBusy = false;
     googleSignInStarted = false;
@@ -320,67 +317,17 @@
       const session = await connectDrive(googleSub);
       googleSession = session;
       googlePin = '';
-      googlePinConfirm = '';
-      googleStep = session.existingFileId ? 'enterPin' : 'setPin';
+      // Restore only: creating a Google-backed account was retired (it made
+      // accounts whose only copy of the key lived in Drive).
+      if (session.existingFileId) {
+        googleStep = 'enterPin';
+      } else {
+        googleError =
+          "There's no Zap Cooking backup in this Google account's Drive. Try another Google " +
+          'account, or sign in another way.';
+      }
     } catch (error: any) {
       googleError = error?.message || 'Could not connect to Google Drive. Please try again.';
-    } finally {
-      googleBusy = false;
-    }
-  }
-
-  async function submitGoogleSetPin() {
-    if (!authManager || !googleSession) {
-      googleError = 'Google session expired. Please try again.';
-      return;
-    }
-    // Creation uses the stricter minimum. The restore path below stays at
-    // 4 digits so existing backups remain decryptable.
-    if (!isValidNewPin(googlePin)) {
-      googleError = 'PIN must be 6–8 digits.';
-      return;
-    }
-    if (googlePin !== googlePinConfirm) {
-      googleError = 'PINs do not match.';
-      return;
-    }
-    googleError = '';
-
-    // A fresh keypair always differs from any enrolled vault account, so
-    // confirm the replacement BEFORE uploading anything to Drive. Plain
-    // "saved login" copy: this is a signup surface, not a vault settings UI.
-    if (getVaultRecord()) {
-      raise(
-        SIGNUP_VAULT_CONFLICT_MESSAGE,
-        () => runGoogleSetPin(true)
-      );
-      return;
-    }
-    // Errors surface via googleError inside; swallow the rethrow that only
-    // exists for the conflict-confirm dialog's error display.
-    await runGoogleSetPin(false).catch(() => {});
-  }
-
-  async function runGoogleSetPin(replaceVault: boolean) {
-    if (!authManager || !googleSession) {
-      googleError = 'Google session expired. Please try again.';
-      return;
-    }
-    googleBusy = true;
-    // Let the loading state paint before the synchronous PBKDF2(600k) blocks
-    // the main thread, so the button doesn't feel frozen.
-    await tick();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    try {
-      // Fresh nsec generated locally; encrypted with the PIN-derived key and
-      // uploaded to Drive, then logged in via the private-key path.
-      const keypair = authManager.generateKeyPair();
-      const nsecHex = await createAndUploadBackup(googleSession, googlePin, keypair.privateKey);
-      await authManager.authenticateWithPrivateKey(nsecHex, { replaceVault });
-      modalCleanup();
-    } catch (error: any) {
-      googleError = error?.message || 'Could not create your backup. Please try again.';
-      throw error;
     } finally {
       googleBusy = false;
     }
@@ -469,7 +416,6 @@
     googleSession = null;
     googleSignInStarted = false;
     googlePin = '';
-    googlePinConfirm = '';
     googleError = '';
     googleBusy = false;
     nsecInput = '';
@@ -671,17 +617,15 @@
       <CloseIcon size={24} />
     </button>
     <h2 class="login-modal-title">
-      {#if googleStep === 'setPin'}🔐 Set a backup PIN
-      {:else if googleStep === 'enterPin'}🔓 Enter your backup PIN
+      {#if googleStep === 'enterPin'}🔓 Enter your backup PIN
       {:else if googleStep === 'connectDrive'}☁️ Connect Google Drive
-      {:else}☁️ Continue with Google{/if}
+      {:else}☁️ Restore from Google Drive{/if}
     </h2>
     <div class="flex flex-col gap-4">
       <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
         <p class="text-sm text-caption">
-          Google sign-in isn't a separate account — it securely backs up your Nostr key to your
-          private Google Drive, unlocked by a PIN. The same key works on the Zap Cooking Android
-          app.
+          Restore a Nostr key you backed up to your private Google Drive. You'll need the PIN you
+          set when you made the backup. The same backup works in the Zap Cooking Android app.
         </p>
       </div>
 
@@ -698,7 +642,7 @@
         <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
           <p class="text-sm" style="color: var(--color-text-primary)">
             ✓ Signed in with Google. Step 2 of 2 — authorize access to your private Drive backup
-            folder so we can store or read your encrypted key.
+            folder so we can read your encrypted key.
           </p>
         </div>
         {#if googleBusy}
@@ -707,54 +651,6 @@
             <p class="text-sm" style="color: var(--color-text-primary)">Connecting to Google Drive…</p>
           </div>
         {/if}
-      {:else if googleStep === 'setPin'}
-        <div
-          class="bg-input border rounded-lg p-3"
-          style="border-color: var(--color-danger, #ef4444)"
-        >
-          <p class="text-sm" style="color: var(--color-text-primary)">
-            ⚠️ Choose a PIN you'll remember. If you forget it and have no other copy of your key,
-            your account is <strong>permanently unrecoverable</strong> — no one can reset it.
-          </p>
-        </div>
-        <div>
-          <label
-            for="google-pin"
-            class="block text-sm font-medium mb-1.5"
-            style="color: var(--color-text-primary)"
-          >
-            PIN (6–8 digits)
-          </label>
-          <input
-            id="google-pin"
-            bind:value={googlePin}
-            type="password"
-            inputmode="numeric"
-            autocomplete="new-password"
-            placeholder="••••"
-            class="input block w-full sm:text-sm p-3"
-            disabled={googleBusy}
-          />
-        </div>
-        <div>
-          <label
-            for="google-pin-confirm"
-            class="block text-sm font-medium mb-1.5"
-            style="color: var(--color-text-primary)"
-          >
-            Confirm PIN
-          </label>
-          <input
-            id="google-pin-confirm"
-            bind:value={googlePinConfirm}
-            type="password"
-            inputmode="numeric"
-            autocomplete="new-password"
-            placeholder="••••"
-            class="input block w-full sm:text-sm p-3"
-            disabled={googleBusy}
-          />
-        </div>
       {:else}
         <p class="text-sm text-caption">
           Enter the PIN you set when you first backed up your key to unlock your account.
@@ -789,19 +685,11 @@
         </div>
       {/if}
 
-      {#if googleStep === 'signin' && googleError}
+      {#if (googleStep === 'signin' || googleStep === 'connectDrive') && googleError}
         <Button on:click={openGoogleModal} primary={true}>Try again</Button>
       {:else if googleStep === 'connectDrive'}
         <Button on:click={connectGoogleDrive} primary={true} disabled={googleBusy}>
           {googleBusy ? 'Connecting…' : 'Connect Google Drive'}
-        </Button>
-      {:else if googleStep === 'setPin'}
-        <Button
-          on:click={submitGoogleSetPin}
-          primary={true}
-          disabled={googleBusy || !googlePin || !googlePinConfirm}
-        >
-          {googleBusy ? 'Backing up…' : 'Create & back up'}
         </Button>
       {:else if googleStep === 'enterPin'}
         <Button on:click={submitGoogleEnterPin} primary={true} disabled={googleBusy || !googlePin}>
@@ -954,15 +842,15 @@
       </button>
 
       {#if googleBackupEnabled}
-        <button type="button" on:click={openGoogleModal} disabled={authState.isLoading} aria-label="Back up or restore your key with Google Drive" class="signin-tile">
+        <button type="button" on:click={openGoogleModal} disabled={authState.isLoading} class="signin-tile">
           <svg class="signin-tile-icon" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M21.6 12.227c0-.71-.064-1.393-.182-2.049H12v3.874h5.382a4.6 4.6 0 0 1-1.996 3.018v2.51h3.229c1.89-1.74 2.985-4.303 2.985-7.353Z" fill="#4285F4" />
             <path d="M12 22c2.7 0 4.964-.895 6.615-2.42l-3.229-2.51c-.895.6-2.04.955-3.386.955-2.605 0-4.81-1.76-5.596-4.124H3.064v2.59A9.996 9.996 0 0 0 12 22Z" fill="#34A853" />
             <path d="M6.404 13.9a5.99 5.99 0 0 1-.313-1.9c0-.66.114-1.3.313-1.9V7.51H3.064A9.996 9.996 0 0 0 2 12c0 1.614.386 3.14 1.064 4.49l3.34-2.59Z" fill="#FBBC05" />
             <path d="M12 5.977c1.468 0 2.786.505 3.823 1.496l2.868-2.868C16.96 2.99 14.696 2 12 2A9.996 9.996 0 0 0 3.064 7.51l3.34 2.59C7.19 7.736 9.395 5.977 12 5.977Z" fill="#EA4335" />
           </svg>
-          <span class="signin-tile-title">Google</span>
-          <span class="signin-tile-sub">Drive backup</span>
+          <span class="signin-tile-title">Google Drive</span>
+          <span class="signin-tile-sub">Restore backup</span>
         </button>
       {/if}
     </div>

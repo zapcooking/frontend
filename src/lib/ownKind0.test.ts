@@ -14,7 +14,7 @@ vi.mock('./profileCache', () => ({ profileCacheManager: { invalidateProfile: vi.
 vi.mock('./nip98', () => ({ signNip98AuthHeader: vi.fn() }));
 
 const outbox = vi.hoisted(() => ({ urls: [] as string[] }));
-const published = vi.hoisted(() => ({ events: [] as any[], acceptedBy: 3 }));
+const published = vi.hoisted(() => ({ events: [] as any[], args: [] as any[][], acceptedBy: 3 }));
 const USER = vi.hoisted(() => 'a'.repeat(64));
 /** Who the global ndk.signer is signed in as. */
 const globalSigner = vi.hoisted(() => ({ pubkey: 'a'.repeat(64) }));
@@ -32,8 +32,9 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
       async sign(signer?: { pubkey: string }) {
         this.pubkey = signer ? signer.pubkey : globalSigner.pubkey;
       }
-      async publish() {
+      async publish(...args: any[]) {
         published.events.push(this);
+        published.args.push(args);
         return new Set(Array.from({ length: published.acceptedBy }, (_, i) => ({ url: `r${i}` })));
       }
     },
@@ -61,6 +62,7 @@ import {
   updateOwnKind0,
   updateOwnPicture,
   publishNewAccountKind0,
+  NEW_ACCOUNT_KIND0_TIMEOUT_MS,
   Kind0LoadError,
   KIND0_LOAD_TIMEOUT_MS,
   KIND0_WRONG_SIGNER_MESSAGE,
@@ -170,6 +172,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-19T12:00:00Z'));
   published.events = [];
+  published.args = [];
   published.acceptedBy = 3;
   globalSigner.pubkey = USER;
   outbox.urls = [];
@@ -480,7 +483,7 @@ describe('signing account', () => {
     const heard: string[] = [];
     const stop = onProfileCached((pk) => heard.push(pk));
 
-    await publishNewAccountKind0(makeNdk({}), key, { name: 'newcook', about: 'hi' });
+    await publishNewAccountKind0(makeNdk({}), key, { name: 'newcook', about: 'hi' }, [POOL]);
     stop();
 
     expect(published.events).toHaveLength(1);
@@ -489,6 +492,14 @@ describe('signing account', () => {
     expect(published.events[0].tags).toEqual([]);
     expect(lastContent()).toEqual({ name: 'newcook', about: 'hi' });
     expect(heard).toEqual([getPublicKey(key)]);
+  });
+
+  it('signup: publishes to the given relays with a bounded wait (no outbox lookup)', async () => {
+    const key = generateSecretKey();
+    await publishNewAccountKind0(makeNdk({}), key, { name: 'newcook' }, [POOL]);
+    const [relaySet, timeoutMs] = published.args[published.args.length - 1];
+    expect([...relaySet.relays].map((r: any) => r.url)).toEqual([POOL]);
+    expect(timeoutMs).toBe(NEW_ACCOUNT_KIND0_TIMEOUT_MS);
   });
 });
 

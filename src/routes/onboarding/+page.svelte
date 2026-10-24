@@ -4,7 +4,7 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { publishNewAccountKind0 } from '$lib/ownKind0';
   import { browser } from '$app/environment';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey, getCurrentRelays } from '$lib/nostr';
   import { onMount, onDestroy } from 'svelte';
   import Button from '../../components/Button.svelte';
   import { createAuthManager, VaultConflictError, type AuthState } from '$lib/authManager';
@@ -116,7 +116,7 @@
       // Signed with the key generated in step 1, never the global signer:
       // a stored session still restoring could have replaced it since, and
       // this fresh profile would then overwrite that user's real one.
-      await publishNewAccountKind0($ndk, generatedKeys.privateKey, profileContent);
+      await publishNewAccountKind0($ndk, generatedKeys.privateKey, profileContent, getCurrentRelays());
 
       // Small delay to allow relays to propagate
       await new Promise((resolve) => setTimeout(resolve, 1000));

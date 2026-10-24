@@ -15,7 +15,7 @@
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import ProfileReadyIcon from './icons/ProfileReadyIcon.svelte';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey, getCurrentRelays } from '$lib/nostr';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
@@ -235,7 +235,7 @@
         }
 
         // Signed with the generated key itself, never the global signer.
-        const { relayCount } = await publishNewAccountKind0($ndk, signupKey, profileContent);
+        const { relayCount } = await publishNewAccountKind0($ndk, signupKey, profileContent, getCurrentRelays());
         console.log('[Profile] Published to relays:', relayCount);
 
         // Wait for relay propagation
