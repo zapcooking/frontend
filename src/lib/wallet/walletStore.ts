@@ -5,7 +5,8 @@ import {
   canCreateNostrBackup,
   getNostrBackupBlocker,
   encrypt,
-  decrypt,
+  decryptWithSource,
+  noteLegacyMigration,
   type EncryptionMethod
 } from '$lib/encryptionService';
 
@@ -264,7 +265,19 @@ async function decryptPendingEnvelopes(pubkey: string): Promise<void> {
   let merged = false;
   for (const pending of pendingEncrypted) {
     try {
-      const plaintext = await decrypt(pubkey, pending.data.enc, pending.data.method);
+      const { plaintext, source } = await decryptWithSource(
+        pubkey,
+        pending.data.enc,
+        pending.data.method
+      );
+      if (source !== 'session') {
+        // Legacy-encrypted envelope (#897). Merging re-saves it through
+        // persistWallets, which encrypts under the session key (or keeps
+        // plaintext where the session can't wrap) — but only if it really
+        // is an NWC string, never a garbage decrypt.
+        if (!isNwcConnectionString(plaintext)) throw new Error('Unexpected legacy payload');
+        noteLegacyMigration('saved NWC wallet', source);
+      }
       mergeDecryptedWallet({ ...pending, data: plaintext });
       merged = true;
     } catch (e) {

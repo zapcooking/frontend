@@ -37,7 +37,14 @@ vi.mock('$lib/nostr', async () => {
   };
 });
 
-vi.mock('$lib/encryptionService', () => encryption);
+vi.mock('$lib/encryptionService', () => ({
+  ...encryption,
+  decryptWithSource: async (...args: [string, string, string]) => ({
+    plaintext: await encryption.decrypt(...args),
+    source: 'session'
+  }),
+  noteLegacyMigration: vi.fn()
+}));
 
 const NWC_URL = 'nostr+walletconnect://64bexample?secret=sekrit&relay=wss%3A%2F%2Frelay.com';
 

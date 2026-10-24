@@ -41,6 +41,8 @@ import {
   getBestEncryptionMethod as _getBestEncryptionMethod,
   encrypt,
   decrypt,
+  decryptWithSource,
+  noteLegacyMigration,
   detectEncryptionMethod,
   canCreateNostrBackup,
   getNostrBackupBlocker,
@@ -1912,8 +1914,8 @@ export async function restoreSparkBackup(
   const encryptionMethod = backup.encryptionMethod || detectEncryptionMethod(backup.content);
   const DECRYPT_TIMEOUT = 15000;
 
-  const mnemonic = await withTimeout(
-    decrypt(pubkey, backup.content, encryptionMethod),
+  const { plaintext: mnemonic, source } = await withTimeout(
+    decryptWithSource(pubkey, backup.content, encryptionMethod),
     DECRYPT_TIMEOUT,
     'Decryption timed out. Please approve the request in your signer app.'
   );
@@ -1951,6 +1953,18 @@ export async function restoreSparkBackup(
     logger.info('[Spark] Wallet lightning address:', addr || 'none');
   } catch (e) {
     logger.warn('[Spark] Could not fetch lightning address after restore:', String(e));
+  }
+
+  // Encrypted under a legacy key (#897): republish under the session key
+  // through the normal guarded path (which reads back the mnemonic just
+  // saved). Best effort — a blocked session (NIP-46) keeps the old backup.
+  if (source !== 'session') {
+    try {
+      await backupWalletToNostr(pubkey);
+      noteLegacyMigration('Spark wallet backup', source);
+    } catch (e) {
+      logger.warn('[Spark] Legacy-encrypted backup not migrated:', String(e));
+    }
   }
 
   logger.info('[Spark] Wallet restored from Nostr backup successfully');

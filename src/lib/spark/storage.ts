@@ -20,7 +20,12 @@
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { hexToBytes } from '@noble/hashes/utils.js'
-import { encrypt, decrypt, detectEncryptionMethod } from '$lib/encryptionService'
+import {
+	encrypt,
+	decryptWithSource,
+	noteLegacyMigration,
+	detectEncryptionMethod
+} from '$lib/encryptionService'
 
 const LOCAL_STORAGE_KEY_PREFIX = 'spark_wallet_'
 
@@ -93,7 +98,18 @@ export async function loadMnemonic(pubkey: string): Promise<string | null> {
 		const parsed = JSON.parse(raw) as StoredMnemonicV2
 		if (parsed.version === 2 && parsed.ciphertext) {
 			const method = detectEncryptionMethod(parsed.ciphertext)
-			return await decrypt(pubkey, parsed.ciphertext, method)
+			const { plaintext, source } = await decryptWithSource(pubkey, parsed.ciphertext, method)
+			// Encrypted under a legacy key (#897): re-save under the session key.
+			// Shape-checked first so a garbage decrypt is never persisted.
+			if (source !== 'session' && /^[a-z]+( [a-z]+){11,23}$/.test(plaintext.trim())) {
+				try {
+					await saveMnemonic(pubkey, plaintext)
+					noteLegacyMigration('saved Spark wallet', source)
+				} catch {
+					// Signer unavailable — stays legacy-encrypted until next load
+				}
+			}
+			return plaintext
 		}
 	} catch {
 		// JSON parse failed — this is a V1 legacy hex string

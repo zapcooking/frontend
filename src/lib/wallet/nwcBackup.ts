@@ -14,6 +14,8 @@ import {
   getBestEncryptionMethod,
   encrypt,
   decrypt,
+  decryptWithSource,
+  noteLegacyMigration,
   detectEncryptionMethod,
   getNostrBackupBlocker,
   describeNostrBackupBlocker,
@@ -219,8 +221,8 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
   console.log('[NWC Restore] Starting decryption with', encryptionMethod, '...');
   const decryptStart = Date.now();
 
-  const connectionString = await withTimeout(
-    decrypt(pubkey, latestEvent.content, encryptionMethod),
+  const { plaintext: connectionString, source } = await withTimeout(
+    decryptWithSource(pubkey, latestEvent.content, encryptionMethod),
     DECRYPT_TIMEOUT,
     'Decryption timed out. Please approve the request in your signer app.'
   );
@@ -241,6 +243,18 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
   if (!isValidNwc) {
     console.error('[NWC Restore] Invalid content preview:', connectionString.slice(0, 50));
     throw new Error('Decrypted data does not appear to be a valid NWC connection string.');
+  }
+
+  // Encrypted under a legacy key (#897): republish under the session key
+  // through the normal guarded path. Best effort — the restore stands
+  // either way, and a blocked session (NIP-46) keeps the old backup.
+  if (source !== 'session') {
+    try {
+      await backupNwcToNostr(pubkey, connectionString);
+      noteLegacyMigration('NWC backup', source);
+    } catch (e) {
+      console.warn('[NWC Restore] Legacy-encrypted backup not migrated:', (e as Error)?.message);
+    }
   }
 
   console.log('[NWC Restore] Successfully restored NWC connection from Nostr backup');

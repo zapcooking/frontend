@@ -34,6 +34,19 @@ export type EncryptionMethod = 'nip44' | 'nip04' | null;
 const decryptCache = new Map<string, string>();
 const DECRYPT_CACHE_MAX = 500;
 
+/**
+ * Where a decrypted plaintext came from. 'session' is the auth method's own
+ * path; the legacy sources are what pre-#896 production builds encrypted
+ * NIP-07/NIP-46 data with (see decryptViaLegacy).
+ */
+export type DecryptSource = 'session' | 'legacy-stored-key' | 'legacy-extension';
+
+/** Cache keys whose plaintext came from a legacy source (absent = 'session'). */
+const legacySourceByKey = new Map<string, DecryptSource>();
+
+/** The extension gets one legacy decrypt request per session, success or not. */
+let legacyExtensionTried = false;
+
 /** Sentinel stored in cache when the signer denied a decrypt request. */
 const DECRYPT_DENIED = '\x00__DENIED__';
 
@@ -71,6 +84,7 @@ function setCachedDecrypt(
     const keys = Array.from(decryptCache.keys());
     for (let i = 0; i < keys.length / 2; i++) {
       decryptCache.delete(keys[i]);
+      legacySourceByKey.delete(keys[i]);
     }
   }
   decryptCache.set(getDecryptCacheKey(method, senderPubkey, ciphertext), plaintext);
@@ -79,6 +93,8 @@ function setCachedDecrypt(
 /** Clear the decrypt cache and reset the circuit breaker (call on logout). */
 export function clearDecryptCache(): void {
   decryptCache.clear();
+  legacySourceByKey.clear();
+  legacyExtensionTried = false;
   signerDenialCount = 0;
   signerCircuitBroken = false;
   decryptQueuePromise = Promise.resolve();
@@ -199,6 +215,11 @@ function getPrivateKey(): string | null {
   const method = getAuthMethod();
   if (method !== null && method !== 'privateKey') return null;
 
+  return readStoredKey();
+}
+
+/** The plaintext nsec in localStorage as hex, whoever's session it was. */
+function readStoredKey(): string | null {
   const stored = localStorage.getItem('nostrcooking_privateKey');
   if (!stored) return null;
 
@@ -217,7 +238,7 @@ function getPrivateKey(): string | null {
   }
 
   // Already hex format
-  return stored;
+  return /^[0-9a-fA-F]{64}$/.test(stored) ? stored.toLowerCase() : null;
 }
 
 /**
@@ -607,6 +628,20 @@ export async function decrypt(
   ciphertext: string,
   method: EncryptionMethod
 ): Promise<string> {
+  return (await decryptWithSource(senderPubkey, ciphertext, method)).plaintext;
+}
+
+/**
+ * decrypt(), plus where the plaintext came from. Callers that own the data
+ * (wallet backups, saved wallets, draft sync) use the source to re-encrypt
+ * legacy-decrypted payloads under the session key; everyone else just
+ * displays the plaintext.
+ */
+export async function decryptWithSource(
+  senderPubkey: string,
+  ciphertext: string,
+  method: EncryptionMethod
+): Promise<{ plaintext: string; source: DecryptSource }> {
   if (!browser) {
     throw new Error('Decryption not available on server');
   }
@@ -615,6 +650,86 @@ export async function decrypt(
     throw new Error('Encryption method not specified');
   }
 
+  const cacheKey = getDecryptCacheKey(method, senderPubkey, ciphertext);
+  try {
+    const plaintext = await decryptFromSession(senderPubkey, ciphertext, method);
+    return { plaintext, source: legacySourceByKey.get(cacheKey) ?? 'session' };
+  } catch (e) {
+    const legacy = await enqueueDecrypt(() => decryptViaLegacy(senderPubkey, ciphertext, method));
+    if (!legacy) throw e;
+    setCachedDecrypt(method, senderPubkey, ciphertext, legacy.plaintext);
+    legacySourceByKey.set(cacheKey, legacy.source);
+    return legacy;
+  }
+}
+
+/**
+ * Legacy decrypt fallback (#897). Before #896, production builds routed
+ * NIP-07/NIP-46 encryption by (mangled) class names and fell through to a
+ * leftover stored nsec or, for NIP-46, the browser extension — so some of
+ * those users' data is encrypted under a key that isn't the session's.
+ *
+ * DECRYPT ONLY: encrypt() never uses these sources. Tried only after the
+ * session's own path failed, and only while a legacy source exists. Exact
+ * method only: a wrong-key NIP-04 decrypt can return garbage instead of
+ * throwing, and callers may republish what this returns. The extension is
+ * asked at most once per session.
+ */
+async function decryptViaLegacy(
+  senderPubkey: string,
+  ciphertext: string,
+  method: 'nip44' | 'nip04'
+): Promise<{ plaintext: string; source: DecryptSource } | null> {
+  const kind = getSignerKind();
+  if (kind !== 'nip07' && kind !== 'nip46') return null;
+
+  const storedKey = readStoredKey();
+  if (storedKey) {
+    try {
+      const plaintext =
+        method === 'nip44'
+          ? nip44.v2.decrypt(
+              ciphertext,
+              nip44.v2.utils.getConversationKey(
+                new Uint8Array(storedKey.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))),
+                senderPubkey
+              )
+            )
+          : await nip04.decrypt(storedKey, senderPubkey, ciphertext);
+      return { plaintext, source: 'legacy-stored-key' };
+    } catch {
+      /* not encrypted under the stored key */
+    }
+  }
+
+  const ext = (window as any).nostr?.[method];
+  if (kind === 'nip46' && !legacyExtensionTried && typeof ext?.decrypt === 'function') {
+    legacyExtensionTried = true;
+    try {
+      const raw = await ext.decrypt(senderPubkey, ciphertext);
+      return { plaintext: coerceDecryptResult(raw, method), source: 'legacy-extension' };
+    } catch {
+      /* not encrypted under the extension's key, or denied */
+    }
+  }
+
+  return null;
+}
+
+const loggedMigrations = new Set<string>();
+
+/** Log once per session and data type that legacy data was re-encrypted. */
+export function noteLegacyMigration(what: string, source: DecryptSource): void {
+  if (loggedMigrations.has(what)) return;
+  loggedMigrations.add(what);
+  console.info(`[Encryption] Migrated legacy-encrypted ${what} (${source}) off the legacy key`);
+}
+
+async function decryptFromSession(
+  senderPubkey: string,
+  ciphertext: string,
+  method: 'nip44' | 'nip04'
+): Promise<string> {
   // Check cache first — avoids hitting the signer entirely
   const cached = getCachedDecrypt(method, senderPubkey, ciphertext);
   if (cached !== undefined) {
