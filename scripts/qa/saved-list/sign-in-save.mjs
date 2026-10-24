@@ -20,9 +20,11 @@
  *
  * Runs against the built preview. Passkeys only work on *.zap.cooking
  * (rp id zap.cooking), so pages are loaded from https://qa.zap.cooking and
- * routed to the preview. Real public relays are used (nos.lol, Primal, and
- * nostr.mom for the bunker — relay.nsec.app was unreachable from the dev
- * machine); fresh throwaway keys every run.
+ * routed to the preview. Every relay is local (scripts/qa/lib/localRelays.mjs:
+ * each URL the app dials, the bunker's included, is its own `nak serve`;
+ * purplepag.es and nostr.wine refuse kind 30001 there as they do for real;
+ * the dead relay is simulated). The recipe is a local fixture. Nothing
+ * reaches a public relay — the run fails if anything tries.
  *
  *   pnpm build && pnpm preview --port 4173 --strictPort --host 127.0.0.1
  *   NODE_OPTIONS=--max-http-header-size=262144 \
@@ -40,19 +42,24 @@ import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from 'nostr-too
 import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { startRelayNet, recipeEvent, relayKey } from '../lib/localRelays.mjs';
 
 process.on('unhandledRejection', (e) =>
   console.log(`      (ignored late relay error: ${String(e).slice(0, 60)})`)
 );
 const LOCAL = (process.env.SAVED_LIST_QA_URL || 'http://127.0.0.1:4173').replace(/\/$/, '');
 const ORIGIN = 'https://qa.zap.cooking';
-const BUNKER_RELAY = process.env.SAVED_LIST_QA_BUNKER_RELAY || 'wss://nostr.mom';
+// Any URL works: it is routed to a local relay like every other.
+const BUNKER_RELAY = 'wss://bunker.qa.invalid';
 const DTAG = 'nostrcooking-bookmarks';
 const LIST_RELAYS = ['wss://relay.nostr.net', 'wss://nostr.oxtr.dev'];
 const REFUSING = ['wss://purplepag.es', 'wss://nostr.wine'];
-const relayKey = (u) => u.toLowerCase().replace(/\/+$/, '');
 const only = process.argv.slice(2);
 const want = (name) => only.length === 0 || only.includes(name);
+
+// Resolves but is not a relay: the socket closes at once — dead, and observable.
+const DEAD = 'wss://example.com/dead-relay';
+const net = await startRelayNet({ behaviors: { [DEAD]: { dead: true } } });
 
 const browser = await chromium.launch({
   executablePath: process.env.SAVED_LIST_QA_CHROME || undefined,
@@ -63,9 +70,9 @@ const check = (name, ok, detail = '') => {
   results.push({ name, ok });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
 };
-// A save the app REFUSED because the relay read was incomplete (a relay too
-// slow or rate-limited) is correct behavior on a bad network, not a bug — as
-// long as it said so and published nothing. Reported apart from failures.
+// A save the app REFUSED because the relay read was incomplete, or couldn't
+// confirm: right on a bad network, but the local relays always answer, so
+// here it fails the run (still checked to have published nothing / once).
 const refusals = [];
 
 async function newContext() {
@@ -74,6 +81,7 @@ async function newContext() {
     acceptDownloads: true,
     serviceWorkers: 'block' // the app's SW would fetch qa.zap.cooking itself, bypassing the route
   });
+  await net.route(ctx);
   await ctx.route(`${ORIGIN}/**`, async (route) => {
     const u = new URL(route.request().url());
     try {
@@ -82,7 +90,7 @@ async function newContext() {
       await route.abort();
     }
   });
-  const page = await ctx.newPage();
+  const page = await net.newPage(ctx);
   page.setDefaultTimeout(30000);
   const relayStatus = [];
   page.on('console', (m) => {
@@ -111,92 +119,35 @@ async function newContext() {
   // Relays each Saved-list EVENT was sent to, and relays asked for the list.
   const sentTo = new Set();
   const readFrom = new Set();
-  page.on('websocket', (ws) => {
-    sockets.push(ws.url());
-    ws.on('framesent', (f) => {
-      try {
-        const m = JSON.parse(f.payload);
-        if (
-          m[0] === 'EVENT' &&
-          m[1]?.kind === 30001 &&
-          m[1].tags.some((t) => t[0] === 'd' && t[1] === DTAG)
-        ) {
-          sent.set(m[1].id, m[1]);
-          sentTo.add(relayKey(ws.url()));
-        }
-        if (
-          m[0] === 'REQ' &&
-          m.slice(2).some((flt) => flt?.kinds?.includes(30001) && flt['#d']?.includes(DTAG))
-        ) {
-          readFrom.add(relayKey(ws.url()));
-        }
-      } catch {
-        /* not JSON — ignore */
+  // Profiles (kind 0) the page published — to local relays, like everything.
+  const profiles = [];
+  net.onFrame(({ dir, url, ctx: from, msg: m }) => {
+    if (from !== ctx) return;
+    if (dir === 'open') sockets.push(url);
+    if (dir === 'sent') {
+      if (m[0] === 'EVENT' && m[1]?.kind === 0) profiles.push(m[1]);
+      if (m[0] === 'EVENT' && m[1]?.kind === 30001 && m[1].tags.some((t) => t[0] === 'd' && t[1] === DTAG)) {
+        sent.set(m[1].id, m[1]);
+        sentTo.add(relayKey(url));
       }
-    });
-    ws.on('framereceived', (f) => {
-      try {
-        const m = JSON.parse(f.payload);
-        if (m[0] === 'OK' && sent.has(m[1]))
-          (ok.get(m[1]) ?? ok.set(m[1], []).get(m[1])).push(m[2]);
-      } catch {
-        /* not JSON — ignore */
-      }
-    });
+      if (m[0] === 'REQ' && m.slice(2).some((flt) => flt?.kinds?.includes(30001) && flt['#d']?.includes(DTAG)))
+        readFrom.add(relayKey(url));
+    }
+    if (dir === 'received' && m[0] === 'OK' && sent.has(m[1]))
+      (ok.get(m[1]) ?? ok.set(m[1], []).get(m[1])).push(m[2]);
   });
-  return { ctx, page, sent, ok, toasts, relayStatus, sockets, sentTo, readFrom };
+  return { ctx, page, sent, ok, toasts, relayStatus, sockets, sentTo, readFrom, profiles };
 }
 
-/**
- * Publish a signed event to public relays (tolerating refusals); returns
- * how many accepted it. Plain WebSocket: nostr-tools' Relay recurses on a
- * failed connection under Node 22's built-in WebSocket.
- */
-async function seed(event, urls) {
-  const one = (url) =>
-    new Promise((resolve) => {
-      let ws;
-      const done = (accepted, why) => {
-        clearTimeout(timer);
-        if (!accepted) console.log(`      seeding ${url} failed: ${why}`);
-        try {
-          ws?.close();
-        } catch {
-          /* already closed */
-        }
-        resolve(accepted);
-      };
-      const timer = setTimeout(() => done(false, 'timeout'), 8000);
-      try {
-        ws = new WebSocket(url);
-      } catch (e) {
-        done(false, String(e));
-        return;
-      }
-      ws.onerror = () => done(false, 'connection failed');
-      ws.onopen = () => ws.send(JSON.stringify(['EVENT', event]));
-      ws.onmessage = (m) => {
-        try {
-          const msg = JSON.parse(m.data);
-          if (msg[0] === 'OK' && msg[1] === event.id) done(msg[2] === true, msg[3]);
-        } catch {
-          /* not JSON — ignore */
-        }
-      };
-    });
-  let stored = 0;
-  for (const url of urls) if (await one(url)) stored++;
-  return stored;
-}
-
-async function findRecipe() {
-  if (process.env.SAVED_LIST_QA_RECIPE) return process.env.SAVED_LIST_QA_RECIPE;
-  const { ctx, page } = await newContext();
-  await page.goto(ORIGIN + '/recipes', { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('a[href^="/recipe/"]', { timeout: 60000 });
-  const href = await page.$eval('a[href^="/recipe/"]', (a) => a.getAttribute('href'));
-  await ctx.close();
-  return href;
+/** A recipe to save, on every local relay; returns its page path. */
+async function makeRecipe() {
+  const ev = recipeEvent(finalizeEvent, generateSecretKey(), {
+    d: `qa-sign-in-save-${Date.now()}`,
+    title: 'QA sign-in save'
+  });
+  await net.seedEverywhere(ev);
+  const d = ev.tags.find((t) => t[0] === 'd')[1];
+  return `/recipe/${nip19.naddrEncode({ kind: 30023, pubkey: ev.pubkey, identifier: d })}`;
 }
 
 /** Dismiss the overlays that can sit on top of the page after a sign-in. */
@@ -307,7 +258,7 @@ async function deadRelayCase(label, writeRelays, dead) {
     },
     sk
   );
-  const stored = await seed(relayList, [
+  const stored = await net.seed(relayList, [
     'wss://nos.lol',
     'wss://relay.primal.net',
     'wss://purplepag.es',
@@ -330,7 +281,7 @@ async function deadRelayCase(label, writeRelays, dead) {
   await ctx.close();
 }
 
-const recipePath = await findRecipe();
+const recipePath = await makeRecipe();
 const recipeD = decodeURIComponent(nip19.decode(recipePath.split('/').pop()).data.identifier);
 console.log('recipe', recipePath.slice(0, 60) + '…', `d=${recipeD}`);
 
@@ -381,6 +332,11 @@ if (want('passkey')) {
     .getByRole('button', { name: /^Continue (as |with your passkey)/ })
     .click();
   await assertSaved('passkey', run, `:${recipeD}`);
+  check(
+    'passkey: the signup profile went to the local relays',
+    run.profiles.some((e) => e.content.includes('QA Saved List')),
+    `${run.profiles.length} kind 0 sent`
+  );
   await ctx.close();
 }
 
@@ -438,7 +394,7 @@ if (want('existing')) {
   );
   // Seed it on the app relays; the case only means something if at least
   // one of them stored it.
-  const seeded = await seed(existing, ['wss://nos.lol', 'wss://relay.primal.net']);
+  const seeded = await net.seed(existing, ['wss://nos.lol', 'wss://relay.primal.net']);
   check('existing list: seeded on a relay first', seeded > 0, `${seeded}/2`);
   await new Promise((r) => setTimeout(r, 1500));
   const run = await newContext();
@@ -460,8 +416,6 @@ if (want('existing')) {
 }
 
 // ── dead relay: the account's own relay list includes an unreachable relay ──
-// Resolves but is not a relay: the socket opens and fails — dead, and observable.
-const DEAD = 'wss://example.com/dead-relay';
 // Two live list-capable write relays + one that never answers: 2/3.
 if (want('deadrelay'))
   await deadRelayCase('dead relay', ['wss://nos.lol', 'wss://relay.primal.net', DEAD], DEAD);
@@ -502,9 +456,11 @@ if (want('bunker')) {
   const bunkerPk = getPublicKey(bunkerSk);
   const secret = bytesToHex(generateSecretKey()).slice(0, 16);
   // The signer's relay link: plain WebSocket (nostr-tools' Relay recurses
-  // on a failed connection under Node 22's built-in WebSocket).
+  // on a failed connection under Node 22's built-in WebSocket), straight to
+  // the local relay the page's BUNKER_RELAY socket is routed to.
+  const bunkerLocal = await net.local(BUNKER_RELAY);
   const relay = await new Promise((resolve) => {
-    const ws = new WebSocket(BUNKER_RELAY);
+    const ws = new WebSocket(bunkerLocal);
     const t = setTimeout(() => resolve(null), 8000);
     ws.onopen = () => {
       clearTimeout(t);
@@ -602,9 +558,11 @@ if (want('bunker')) {
   }
 }
 
+net.verify(check);
 await browser.close();
+net.close();
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
-if (refusals.length)
-  console.log(`refused or unconfirmed on a bad network (safe; rerun): ${refusals.join(', ')}`);
-process.exit(failed ? 1 : refusals.length ? 2 : 0);
+// Local relays don't flake: a refusal or an unconfirmed save is a bug here.
+if (refusals.length) console.log(`FAIL  refused or unconfirmed on local relays: ${refusals.join(', ')}`);
+process.exit(failed || refusals.length ? 1 : 0);

@@ -3,15 +3,15 @@
  * working instead of looking frozen (PR 3 rider on #879's guarded edits).
  *
  * Every edit reads the list from the relays first. Relay answers are held
- * back 2.5 s (Playwright routeWebSocket) while the member:
+ * back (the local relays' setSlow) while the member:
  *   1. ticks a collection in a recipe's Save dropdown — that row must show a
  *      spinner (aria-busy) and the other rows must be disabled within 0.8 s;
  *   2. saves Edit Details on the list page — the button must read
  *      "Saving..." within 0.8 s.
  * Each edit must then END within 45 s: saved (one list event), or refused
- * with a message the member sees (a toast, or the modal's error) — a slow
- * network may legitimately refuse. Refusals are reported apart from
- * failures (exit 2), as in scripts/qa/saved-list/sign-in-save.mjs.
+ * with a message the member sees (a toast, or the modal's error). On the
+ * local relays a refusal at this hold is a bug, so it fails the run (a
+ * HOLD_MS past the app's timeouts may refuse: that's for manual probing).
  * HOLD_MS overrides the 1.5 s hold.
  *
  *   pnpm build && pnpm preview --port 4174 --strictPort --host 127.0.0.1
@@ -21,11 +21,14 @@
  *   SAVED_LIST_QA_CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
  *     node scripts/qa/lists/pending-state.mjs
  *
- * Needs Playwright >= 1.48 (routeWebSocket). Exit code 1 when a check fails.
+ * Every relay is local (scripts/qa/lib/localRelays.mjs: `nak serve` on PATH);
+ * the recipe and the collections are local fixtures. Needs Playwright >= 1.48
+ * (routeWebSocket). Exit code 1 when a check fails.
  */
 const playwright = await import(process.env.SAVED_LIST_PLAYWRIGHT_MODULE || 'playwright');
 const { chromium } = playwright.chromium ? playwright : playwright.default;
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from 'nostr-tools';
+import { startRelayNet, recipeEvent } from '../lib/localRelays.mjs';
 
 const LOCAL = (process.env.SAVED_LIST_QA_URL || 'http://127.0.0.1:4173').replace(/\/$/, '');
 const ORIGIN = 'https://qa.zap.cooking';
@@ -39,52 +42,19 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
 };
 
-/** Publish to relays with plain WebSockets; returns how many accepted. */
-async function seed(event, urls) {
-  const one = (url) =>
-    new Promise((resolve) => {
-      let ws;
-      const timer = setTimeout(() => done(false), 8000);
-      const done = (ok) => {
-        clearTimeout(timer);
-        try {
-          ws?.close();
-        } catch {
-          /* closed */
-        }
-        resolve(ok);
-      };
-      try {
-        ws = new WebSocket(url);
-      } catch {
-        return done(false);
-      }
-      ws.onerror = () => done(false);
-      ws.onopen = () => ws.send(JSON.stringify(['EVENT', event]));
-      ws.onmessage = (m) => {
-        try {
-          const msg = JSON.parse(m.data);
-          if (msg[0] === 'OK' && msg[1] === event.id) done(msg[2] === true);
-        } catch {
-          /* not JSON */
-        }
-      };
-    });
-  const oks = await Promise.all(urls.map(one));
-  return oks.filter(Boolean).length;
-}
-
 const sk = generateSecretKey();
 const pk = getPublicKey(sk);
 const stamp = Date.now();
 const D1 = `qa-pending-a-${stamp}`;
 const D2 = `qa-pending-b-${stamp}`;
+const net = await startRelayNet();
 
 const browser = await chromium.launch({
   executablePath: process.env.SAVED_LIST_QA_CHROME || undefined,
   headless: true
 });
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+await net.route(ctx);
 await ctx.route(`${ORIGIN}/**`, async (route) => {
   const u = new URL(route.request().url());
   try {
@@ -93,26 +63,13 @@ await ctx.route(`${ORIGIN}/**`, async (route) => {
     await route.abort();
   }
 });
-// Relay answers pass straight through until `slow` is set.
-let slow = false;
-await ctx.routeWebSocket(/^wss:\/\//, (ws) => {
-  const server = ws.connectToServer();
-  ws.onMessage((m) => server.send(m));
-  server.onMessage((m) => (slow ? setTimeout(() => ws.send(m), DELAY_MS) : ws.send(m)));
-});
-const page = await ctx.newPage();
+const page = await net.newPage(ctx);
 page.setDefaultTimeout(30000);
 const sent = [];
-page.on('websocket', (ws) =>
-  ws.on('framesent', (f) => {
-    try {
-      const m = JSON.parse(f.payload);
-      if (m[0] === 'EVENT' && m[1]?.kind === 30001 && !sent.some((e) => e.id === m[1].id)) sent.push(m[1]);
-    } catch {
-      /* not JSON */
-    }
-  })
-);
+net.onFrame(({ dir, msg: m }) => {
+  if (dir === 'sent' && m[0] === 'EVENT' && m[1]?.kind === 30001 && !sent.some((e) => e.id === m[1].id))
+    sent.push(m[1]);
+});
 /** Messages the store refuses or flags an edit with (cookbookStore). */
 const REFUSAL = /nothing was changed|Couldn't confirm the save|didn't respond|wasn't signed|couldn't be found/;
 const refusalText = () =>
@@ -158,12 +115,14 @@ const dismissPrompts = async () => {
   }
 };
 
-// A real recipe to save.
+// A recipe to save, on every local relay.
+const chef = generateSecretKey();
+const rec = recipeEvent(finalizeEvent, chef, { d: `qa-pending-recipe-${stamp}`, title: 'QA pending recipe' });
+await net.seedEverywhere(rec);
+const recD = rec.tags.find((t) => t[0] === 'd')[1];
+const href = `/recipe/${nip19.naddrEncode({ kind: 30023, pubkey: rec.pubkey, identifier: recD })}`;
+const recipe = `30023:${rec.pubkey}:${recD}`;
 await page.goto(ORIGIN + '/recipes', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('a[href^="/recipe/"]', { timeout: 60000 });
-const href = await page.locator('a[href^="/recipe/"]').first().getAttribute('href');
-const rec = nip19.decode(href.split('/').pop()).data;
-const recipe = `${rec.kind}:${rec.pubkey}:${rec.identifier}`;
 
 const now = Math.floor(Date.now() / 1000);
 const list = (d, title) =>
@@ -171,8 +130,8 @@ const list = (d, title) =>
     { kind: 30001, created_at: now - 60, content: '', tags: [['d', d], ['title', title], ['t', 'zapcooking']] },
     sk
   );
-check('two collections seeded', (await seed(list(D1, 'QA pending A'), SEED_RELAYS)) >= 2 &&
-  (await seed(list(D2, 'QA pending B'), SEED_RELAYS)) >= 2);
+check('two collections seeded', (await net.seed(list(D1, 'QA pending A'), SEED_RELAYS)) >= 2 &&
+  (await net.seed(list(D2, 'QA pending B'), SEED_RELAYS)) >= 2);
 
 await page.getByRole('button', { name: 'Sign in', exact: true }).first().click();
 // Import key sits behind "More options" on the sign-in card.
@@ -193,7 +152,7 @@ await chooser.click();
 const rowA = page.locator('button', { hasText: 'QA pending A' }).first();
 const rowB = page.locator('button', { hasText: 'QA pending B' }).first();
 await rowA.waitFor();
-slow = true;
+net.setSlow(DELAY_MS);
 const t1 = Date.now();
 await rowA.click();
 let busy = false;
@@ -215,7 +174,7 @@ check('the edit took over 1 s (relays held back)', Date.now() - t1 > 1000, `${Da
 await page.waitForTimeout(1000);
 checkEnding('dropdown (A)', endA, sentFor(D1), (e) => e.tags.some((t) => t[0] === 'a' && t[1] === recipe));
 check('row B is enabled again', !(await rowB.isDisabled()));
-slow = false;
+net.setSlow(0);
 
 // 2. Edit Details on the list page.
 await page.goto(`${ORIGIN}/my-kitchen/${nip19.naddrEncode({ kind: 30001, pubkey: pk, identifier: D2 })}`, {
@@ -227,7 +186,7 @@ await dismissPrompts();
 await page.getByRole('button', { name: 'More actions' }).click();
 await page.getByRole('menuitem', { name: 'Edit Details' }).click();
 await page.locator('#edit-summary').fill('qa pending summary');
-slow = true;
+net.setSlow(DELAY_MS);
 const t2 = Date.now();
 await page.getByRole('button', { name: 'Save Changes' }).click();
 let saving = false;
@@ -243,8 +202,12 @@ check('the edit took over 1 s (relays held back)', Date.now() - t2 > 1000, `${Da
 await page.waitForTimeout(1000);
 checkEnding('list page (B)', endB, sentFor(D2), (e) => e.tags.some((t) => t[0] === 'summary' && t[1] === 'qa pending summary'));
 
+net.setSlow(0);
+net.verify(check);
 await browser.close();
+net.close();
 const failed = results.filter((ok) => !ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
-if (refusals.length) console.log(`refused on a slow network (visible; safe): ${refusals.join(', ')}`);
-process.exit(failed ? 1 : refusals.length ? 2 : 0);
+// Local relays don't flake: at this hold a refusal is a bug.
+if (refusals.length) console.log(`FAIL  refused on local relays: ${refusals.join(', ')}`);
+process.exit(failed || refusals.length ? 1 : 0);
