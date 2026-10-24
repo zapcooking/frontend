@@ -43,6 +43,8 @@ import {
   decrypt,
   detectEncryptionMethod,
   canCreateNostrBackup,
+  getNostrBackupBlocker,
+  describeNostrBackupBlocker,
   type EncryptionMethod
 } from '$lib/encryptionService';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -1709,12 +1711,11 @@ export async function backupWalletToNostr(pubkey: string): Promise<any> {
   // that no future session can decrypt — even on the same account.
   // Since we can't reliably detect which remote signers behave this
   // way, the conservative default is to allow new backups only from
-  // nsec / NIP-07 users.
-  if (!canCreateNostrBackup()) {
+  // nsec / passkey / NIP-07 users.
+  const backupBlocker = getNostrBackupBlocker();
+  if (backupBlocker) {
     throw new Error(
-      'Nostr-relay backup is unavailable when using a remote signer (NIP-46). ' +
-        'Please save your recovery phrase manually, or sign in with a private key (nsec) ' +
-        'or a NIP-07 browser extension to enable cloud backup.'
+      describeNostrBackupBlocker(backupBlocker, 'Please save your recovery phrase manually')
     );
   }
 

@@ -18,6 +18,7 @@ import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
 import { nip19 } from 'nostr-tools';
 import { nip44EncryptViaNip46, nip44DecryptViaNip46 } from '$lib/nip46Rpc';
+import { getAuthManager, type AuthState } from '$lib/authManager';
 
 export type EncryptionMethod = 'nip44' | 'nip04' | null;
 
@@ -116,8 +117,42 @@ function isUserDenial(error: unknown): boolean {
 type SignerWithEncryption = {
   encrypt?: (recipient: NDKUser, plaintext: string) => Promise<string>;
   decrypt?: (sender: NDKUser, ciphertext: string) => Promise<string>;
-  constructor?: { name?: string };
 };
+
+/**
+ * Which kind of signer the session uses, taken from authManager's
+ * authMethod. Never from the signer's class name: minification mangles
+ * constructor names in production (NDKPrivateKeySigner ships as e.g. "e"),
+ * so name checks silently fail there while passing in dev and tests.
+ *
+ * null = unknown (no auth manager yet, signed out, or anonymous). Callers
+ * fall back to duck-typed checks for encrypt/decrypt, but anything that
+ * must be sure of the identity (backup creation) treats it as a block.
+ */
+type SignerKind = 'local' | 'nip07' | 'nip46' | null;
+
+function getAuthMethod(): AuthState['authMethod'] {
+  return getAuthManager()?.getState().authMethod ?? null;
+}
+
+function getSignerKind(): SignerKind {
+  switch (getAuthMethod()) {
+    case 'privateKey':
+    case 'passkey':
+      return 'local';
+    case 'nip07':
+      return 'nip07';
+    case 'nip46':
+      return 'nip46';
+    default:
+      return null;
+  }
+}
+
+function hasNip07Encrypt(): boolean {
+  const nostr = (window as any).nostr;
+  return !!(nostr?.nip44?.encrypt || nostr?.nip04?.encrypt);
+}
 
 /**
  * Get the session private key: in-memory signer first, localStorage second.
@@ -128,6 +163,12 @@ type SignerWithEncryption = {
  * only NDKPrivateKeySigner and its subclasses expose): class-name checks are
  * mangled by minification in production, and NDKNip46Signer has no such
  * getter so a bunker session can never leak its ephemeral client key here.
+ *
+ * The localStorage copy belongs to nsec sessions only. Under any other known
+ * auth method (passkey, NIP-07, NIP-46) a stored key is a leftover from an
+ * earlier session and would encrypt under the wrong identity, so it is
+ * ignored. With no auth method yet (pre-hydration, legacy) it is trusted as
+ * before.
  */
 function getPrivateKey(): string | null {
   if (!browser) return null;
@@ -141,6 +182,9 @@ function getPrivateKey(): string | null {
   } catch {
     /* fall through to stored key */
   }
+
+  const method = getAuthMethod();
+  if (method !== null && method !== 'privateKey') return null;
 
   const stored = localStorage.getItem('nostrcooking_privateKey');
   if (!stored) return null;
@@ -185,27 +229,22 @@ export function hasEncryptionSupport(): boolean {
 
   const ndkInstance = get(ndk);
   const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
-  const signerName = signer?.constructor?.name || '';
 
-  // Check by signer type (use includes() to handle minified class names like _NDKPrivateKeySigner)
-  if (signer) {
+  switch (getSignerKind()) {
     // NIP-07 signers use window.nostr for encryption
-    if (signerName.includes('Nip07Signer')) {
-      const nostr = (window as any).nostr;
-      return !!(nostr?.nip44?.encrypt || nostr?.nip04?.encrypt);
-    }
-
+    case 'nip07':
+      return hasNip07Encrypt();
     // For private key signers, we can use nostr-tools directly
-    if (signerName.includes('PrivateKeySigner')) {
+    case 'local':
       return !!getPrivateKey();
-    }
-
     // For NIP-46 signers, encryption support depends on remote signer permissions
     // We can't check this synchronously, so we return true and let encrypt() handle it
-    if (signerName.includes('Nip46Signer')) {
+    case 'nip46':
       return true;
-    }
+  }
 
+  // Unknown auth method — duck-typed fallbacks.
+  if (signer) {
     // Direct encryption method available on signer (NDK exposes
     // encrypt() / decrypt() — nip04/44 prefixed variants do not exist).
     if (typeof signer.encrypt === 'function') {
@@ -245,27 +284,20 @@ export async function getEncryptionMethod(): Promise<EncryptionMethod> {
   const ndkInstance = get(ndk);
   const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
 
-  // If we have an NDK signer, it supports encryption via its interface
-  if (signer) {
-    const signerName = signer.constructor?.name || '';
+  const kind = getSignerKind();
 
-    // NIP-46 signers: prefer NIP-44 (encrypt() in the service falls
-    // through to NIP-04 at runtime if the signer rejects nip44).
-    if (signerName.includes('Nip46Signer')) {
-      return 'nip44';
-    }
+  // NIP-46 signers: prefer NIP-44 (encrypt() in the service falls
+  // through to NIP-04 at runtime if the signer rejects nip44).
+  if (kind === 'nip46') return 'nip44';
 
-    // For private key signers, we can use nostr-tools directly
-    // Use includes() to handle minified class names
-    if (signerName.includes('PrivateKeySigner') && getPrivateKey()) {
-      return 'nip44'; // Prefer NIP-44 for private key signers
-    }
+  // For private key signers, we can use nostr-tools directly
+  if (kind === 'local' && getPrivateKey()) return 'nip44';
 
-    // NDK exposes encrypt/decrypt on its signer interface — use
-    // NIP-04 for signers that only advertise this legacy support.
-    if (typeof signer.encrypt === 'function') {
-      return 'nip04';
-    }
+  // Unknown signer type: NDK exposes encrypt/decrypt on its signer
+  // interface — use NIP-04 for signers that only advertise this legacy
+  // support. NIP-07 sessions skip this and use window.nostr below.
+  if (kind === null && signer && typeof signer.encrypt === 'function') {
+    return 'nip04';
   }
 
   // Check if we have a private key stored (for direct encryption)
@@ -290,17 +322,7 @@ export function getBestEncryptionMethod(): EncryptionMethod {
   const ndkInstance = get(ndk);
 
   // NDK signers support both, prefer NIP-44
-  if (ndkInstance.signer) {
-    // For private key signers, we can use nostr-tools directly
-    // Use includes() to handle minified class names
-    if (
-      (ndkInstance.signer.constructor?.name || '').includes('PrivateKeySigner') &&
-      getPrivateKey()
-    ) {
-      return 'nip44';
-    }
-    return 'nip44';
-  }
+  if (ndkInstance.signer) return 'nip44';
 
   // Check if we have a private key stored (for direct encryption)
   if (getPrivateKey()) {
@@ -316,8 +338,8 @@ export function getBestEncryptionMethod(): EncryptionMethod {
 }
 
 /**
- * Whether the current signer can safely create Nostr-relay-stored
- * encrypted backups (wallet seed, NWC connection string, etc.).
+ * Why the current session can't create a Nostr-relay-stored encrypted
+ * backup (wallet seed, NWC connection string, etc.), or null if it can.
  *
  * Some NIP-46 remote signers may encrypt under their session/auth
  * key rather than the user's real identity key. When that happens
@@ -331,41 +353,65 @@ export function getBestEncryptionMethod(): EncryptionMethod {
  * Existing backups remain visible in the restore list and we still
  * attempt to decrypt them — only new writes are blocked.
  *
- * Returns true when the signer is nsec (NDKPrivateKeySigner) or
- * NIP-07 (window.nostr / NDKNip07Signer), false for NIP-46 or no
- * signer.
+ * Decided from authManager's authMethod, never the signer's class name
+ * (mangled in production). nsec and passkey sessions encrypt locally
+ * with the in-memory key; NIP-07 encrypts with the user's real key via
+ * the extension.
  */
-export function canCreateNostrBackup(): boolean {
-  if (!browser) return false;
+export type NostrBackupBlocker =
+  'nip46' | 'no-local-key' | 'no-extension-encryption' | 'signed-out';
 
-  const ndkInstance = get(ndk);
-  const signerName = ndkInstance.signer?.constructor?.name || '';
+export function getNostrBackupBlocker(): NostrBackupBlocker | null {
+  if (!browser) return 'signed-out';
 
-  // NIP-46 remote signers are blocked — see comment above. Check this
-  // first so a stale `nostrcooking_privateKey` left in localStorage by
-  // a previous nsec session can't bypass the block when the user is
-  // currently authenticated via a bunker.
-  if (signerName.includes('Nip46Signer')) return false;
-
-  // Local private key (nsec) — encrypts directly via nostr-tools, no
-  // bunker round-trip, no identity ambiguity. Only trust the stored
-  // key when the active NDK signer is a PrivateKeySigner (or there is
-  // no signer yet, e.g. a fresh page load that hasn't hydrated). For
-  // any other signer type the stored key is from a previous session
-  // and would encrypt under the wrong identity.
-  if (!ndkInstance.signer || signerName.includes('PrivateKeySigner')) {
-    if (getPrivateKey()) return true;
+  switch (getSignerKind()) {
+    case 'nip46':
+      return 'nip46';
+    case 'local':
+      return getPrivateKey() ? null : 'no-local-key';
+    case 'nip07':
+      return hasNip07Encrypt() ? null : 'no-extension-encryption';
+    default:
+      return 'signed-out';
   }
+}
 
-  // NIP-07 browser extension — encrypts with the user's real key.
-  if (signerName.includes('Nip07Signer')) return true;
-  if (signerName.includes('PrivateKeySigner')) return true;
+export function canCreateNostrBackup(): boolean {
+  return getNostrBackupBlocker() === null;
+}
 
-  // No NDK signer but window.nostr is present (NIP-07 fallback).
-  const nostr = (window as any).nostr;
-  if (nostr?.nip44?.encrypt || nostr?.nip04?.encrypt) return true;
+/**
+ * User-facing explanation for a backup blocker. `manualAlternative` is
+ * the caller's fallback advice, e.g. "Save your recovery phrase manually".
+ */
+export function describeNostrBackupBlocker(
+  blocker: NostrBackupBlocker,
+  manualAlternative: string
+): string {
+  switch (blocker) {
+    case 'nip46':
+      return (
+        'Nostr-relay backup is unavailable when using a remote signer (NIP-46). ' +
+        `${manualAlternative}, or sign in with a private key (nsec) ` +
+        'or a NIP-07 browser extension to enable cloud backup.'
+      );
+    case 'no-local-key':
+      return (
+        "Nostr-relay backup is unavailable because this session's private key isn't loaded. " +
+        `Sign out and back in to enable cloud backup, or ${lowerFirst(manualAlternative)}.`
+      );
+    case 'no-extension-encryption':
+      return (
+        'Nostr-relay backup is unavailable because your browser extension does not support encryption. ' +
+        `Use an extension that supports NIP-44 or NIP-04 encryption, or ${lowerFirst(manualAlternative)}.`
+      );
+    case 'signed-out':
+      return `Sign in to enable Nostr-relay backup, or ${lowerFirst(manualAlternative)}.`;
+  }
+}
 
-  return false;
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 /**
@@ -382,11 +428,10 @@ export async function encrypt(
 
   const ndkInstance = get(ndk);
   const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
-  const signerName = signer?.constructor?.name || '';
+  const kind = getSignerKind();
 
   // For NIP-07 signers, go directly to window.nostr (NDKNip07Signer delegates to it anyway)
-  // Use includes() to handle minified class names like _NDKNip07Signer
-  if (signerName.includes('Nip07Signer')) {
+  if (kind === 'nip07') {
     const nostr = (window as any).nostr;
 
     if (nostr?.nip44?.encrypt && (!preferredMethod || preferredMethod === 'nip44')) {
@@ -428,7 +473,7 @@ export async function encrypt(
   // nip04_encrypt RPC under the hood. Prefer NIP-44 and fall through
   // to NIP-04 if the signer rejects NIP-44 (e.g. older signer that
   // only grants nip04 permissions).
-  if (signerName.includes('Nip46Signer') && signer) {
+  if (kind === 'nip46' && signer) {
     const recipient = new NDKUser({ pubkey: recipientPubkey });
     const nip46Signer = signer as unknown as NDKNip46Signer;
 
@@ -457,7 +502,7 @@ export async function encrypt(
   }
 
   // For private key signers, use nostr-tools directly
-  if (signerName.includes('PrivateKeySigner')) {
+  if (kind === 'local') {
     const privateKey = getPrivateKey();
     if (!privateKey) {
       throw new Error('Private key not found. Please log in again with your private key.');
@@ -525,7 +570,7 @@ export async function encrypt(
   }
 
   console.error('[Encryption] No encryption method available:', {
-    signerName,
+    signerKind: kind,
     hasPrivateKey: !!privateKey,
     hasWindowNostr: !!(window as any).nostr
   });
@@ -701,7 +746,6 @@ async function decryptViaSigner(
   const nostr = (window as any).nostr;
   const ndkInstance = get(ndk);
   const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
-  const signerName = signer?.constructor?.name || '';
 
   // NIP-07 path: drive through window.nostr when the requested method is
   // actually exposed. NIP-44 and NIP-04 are optional in NIP-07; an extension
@@ -717,7 +761,7 @@ async function decryptViaSigner(
   }
 
   // NIP-46 remote signer path: NIP-44 via raw RPC, NIP-04 via NDK's decrypt().
-  if (signer && signerName.includes('Nip46Signer')) {
+  if (signer && getSignerKind() === 'nip46') {
     const sender = new NDKUser({ pubkey: senderPubkey });
     const nip46Signer = signer as unknown as NDKNip46Signer;
     if (method === 'nip44') {

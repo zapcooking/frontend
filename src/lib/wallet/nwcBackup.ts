@@ -15,7 +15,8 @@ import {
   encrypt,
   decrypt,
   detectEncryptionMethod,
-  canCreateNostrBackup,
+  getNostrBackupBlocker,
+  describeNostrBackupBlocker,
   canDecryptSilently,
   type EncryptionMethod
 } from '$lib/encryptionService';
@@ -67,12 +68,11 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
   // key rather than the user's real identity key, producing ciphertext
   // that no future session can decrypt. Since we can't reliably tell
   // which remote signers behave this way, the conservative default is
-  // to allow new backups only from nsec / NIP-07 users.
-  if (!canCreateNostrBackup()) {
+  // to allow new backups only from nsec / passkey / NIP-07 users.
+  const backupBlocker = getNostrBackupBlocker();
+  if (backupBlocker) {
     throw new Error(
-      'Nostr-relay backup is unavailable when using a remote signer (NIP-46). ' +
-        'Save your NWC connection string manually, or sign in with a private key (nsec) ' +
-        'or a NIP-07 browser extension to enable cloud backup.'
+      describeNostrBackupBlocker(backupBlocker, 'Save your NWC connection string manually')
     );
   }
 
