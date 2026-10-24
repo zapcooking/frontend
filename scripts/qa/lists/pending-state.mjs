@@ -175,6 +175,8 @@ check('two collections seeded', (await seed(list(D1, 'QA pending A'), SEED_RELAY
   (await seed(list(D2, 'QA pending B'), SEED_RELAYS)) >= 2);
 
 await page.getByRole('button', { name: 'Sign in', exact: true }).first().click();
+// Import key sits behind "More options" on the sign-in card.
+await page.getByRole('button', { name: 'More options' }).click();
 await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
 await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
 await page.getByRole('button', { name: 'Login', exact: true }).click();

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { shouldOfferContinue, continueName, type LockedVaultInput } from './lockedVault';
+import {
+  shouldOfferContinue,
+  isStrandedLockedVault,
+  continueName,
+  type LockedVaultInput
+} from './lockedVault';
 import type { ProfileState } from '$lib/profileStore';
 
 const locked: LockedVaultInput = {
@@ -31,6 +36,20 @@ describe('shouldOfferContinue', () => {
       expect(shouldOfferContinue({ ...locked, ...patch })).toBe(false);
     });
   }
+});
+
+describe('isStrandedLockedVault', () => {
+  it('is a locked vault this browser cannot unlock', () => {
+    expect(isStrandedLockedVault({ ...locked, support: 'none' })).toBe(true);
+  });
+
+  it('is not stranded when the chip can unlock it or another session restores', () => {
+    expect(isStrandedLockedVault(locked)).toBe(false);
+    expect(isStrandedLockedVault({ ...locked, support: 'no-prf' })).toBe(false);
+    expect(isStrandedLockedVault({ ...locked, support: 'none', hasPlaintextKey: true })).toBe(false);
+    expect(isStrandedLockedVault({ ...locked, support: 'none', isNip46: true })).toBe(false);
+    expect(isStrandedLockedVault({ ...locked, support: 'none', isAuthenticated: true })).toBe(false);
+  });
 });
 
 describe('continueName', () => {

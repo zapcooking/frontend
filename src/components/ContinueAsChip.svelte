@@ -5,6 +5,7 @@
   import { getAuthManager } from '$lib/authManager';
   import { isCeremonyCancelled } from '$lib/passkeyVault';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+  import { showToast } from '$lib/toast';
 
   /** The locked passkey vault's account. */
   export let pubkey: string;
@@ -15,8 +16,10 @@
   let busy = false;
 
   // One tap unlocks: the passkey ceremony runs straight from this click (it
-  // needs the user gesture). A dismissed passkey sheet is a normal outcome;
-  // any other failure opens the sign-in sheet, where the other methods are.
+  // needs the user gesture). A dismissed passkey sheet looks the same as a
+  // passkey that isn't on this device or a timeout (all NotAllowedError), so
+  // that case gets a toast with a way to the other methods instead of
+  // nothing; it never opens the sheet by itself. Any other failure opens it.
   async function unlock() {
     const manager = getAuthManager();
     if (!manager || busy) return;
@@ -24,7 +27,14 @@
     try {
       await manager.unlockVault();
     } catch (error) {
-      if (!isCeremonyCancelled(error)) loginOverlayOpen.set(true);
+      if (!isCeremonyCancelled(error)) {
+        loginOverlayOpen.set(true);
+      } else {
+        showToast('info', "Passkey sign-in didn't finish.", 8000, undefined, {
+          label: 'Other ways to sign in',
+          onClick: () => loginOverlayOpen.set(true)
+        });
+      }
     } finally {
       busy = false;
     }

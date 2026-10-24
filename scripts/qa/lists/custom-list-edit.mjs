@@ -168,6 +168,8 @@ page.on('websocket', (ws) =>
 // Sign in with the throwaway key, then open the list.
 await page.goto(ORIGIN + '/recipes', { waitUntil: 'domcontentloaded' });
 await page.getByRole('button', { name: 'Sign in', exact: true }).first().click();
+// Import key sits behind "More options" on the sign-in card.
+await page.getByRole('button', { name: 'More options' }).click();
 await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
 await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
 await page.getByRole('button', { name: 'Login', exact: true }).click();

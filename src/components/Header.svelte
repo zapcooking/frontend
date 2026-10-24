@@ -407,9 +407,11 @@
       0 0 12px rgba(168, 85, 247, 0.3);
   }
 
+  /* Darker than the brand orange so the 12-14px label meets 4.5:1
+     (#fff8ec on #c2410c 4.9:1, on #b13a0a 5.7:1). */
   .join-button {
     color: #fff8ec;
-    background: linear-gradient(135deg, #f97316 0%, #ec4700 100%);
+    background: linear-gradient(135deg, #c2410c 0%, #b13a0a 100%);
     border: 1px solid transparent;
     cursor: pointer;
   }

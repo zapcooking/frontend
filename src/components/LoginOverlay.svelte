@@ -1510,7 +1510,6 @@
           type="button"
           on:click={signInWithSyncedPasskey}
           disabled={vaultUnlockBusy || authState.isLoading}
-          aria-label="Sign in with a passkey synced from another device"
           class="signin-cta-primary"
         >
           <span>{vaultUnlockBusy ? 'Waiting for passkey…' : passkeySignInText(passkeyLabel)}</span>
@@ -1524,7 +1523,6 @@
         type="button"
         on:click={loginWithNIP07}
         disabled={authState.isLoading}
-        aria-label="Sign in to Zap Cooking using your Nostr browser extension"
         class={(vaultRecord && vaultSupported) || showSyncSignIn
           ? 'signin-cta-secondary'
           : 'signin-cta-primary'}
@@ -1612,7 +1610,6 @@
           type="button"
           on:click={() => (generateModal = true)}
           disabled={authState.isLoading}
-          aria-label="Create a new Zap Cooking profile"
           class="signin-join-link">Join free</button
         >
       </p>
@@ -1900,9 +1897,12 @@
     padding: 0;
     font: inherit;
     font-weight: 600;
-    color: var(--signin-flame);
+    /* --signin-flame is 2.3:1 on the white card; #c2410c is 5.2:1. The
+       dark card keeps the brand orange (it passes there). */
+    color: #c2410c;
     cursor: pointer;
   }
+  :global(.dark) .signin-join-link { color: var(--signin-flame); }
   .signin-join-link:hover { text-decoration: underline; }
   .signin-join-link:disabled { opacity: 0.55; cursor: not-allowed; }
   .signin-cta-secondary:focus-visible { outline: 2px solid var(--signin-flame); outline-offset: 2px; }

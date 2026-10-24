@@ -38,7 +38,11 @@
   const PASSKEY_ENROLL_PROMPT_ENABLED = true;
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { detectSupport, getVaultRecord } from '$lib/passkeyVault';
-  import { lockedVaultPubkey, shouldOfferContinue } from '$lib/auth/lockedVault';
+  import {
+    lockedVaultPubkey,
+    shouldOfferContinue,
+    isStrandedLockedVault
+  } from '$lib/auth/lockedVault';
   import { stopMessageSubscription, clearMessages } from '$lib/stores/messages';
   import { clearDecryptCache } from '$lib/encryptionService';
   import { clearUnwrapCache } from '$lib/nip17';
@@ -378,9 +382,16 @@
           isNip46: localStorage.getItem('nostrcooking_authMethod') === 'nip46'
         };
         detectSupport().then((support) => {
-          // Signed in meanwhile (another tab, a fast restore): nothing to continue.
-          if (!shouldOfferContinue({ ...lockedInput, isAuthenticated: authState.isAuthenticated, support })) return;
-          lockedVaultPubkey.set(getVaultRecord()?.pubkey ?? null);
+          const input = { ...lockedInput, isAuthenticated: authState.isAuthenticated, support };
+          if (shouldOfferContinue(input)) {
+            lockedVaultPubkey.set(getVaultRecord()?.pubkey ?? null);
+          } else if (isStrandedLockedVault(input)) {
+            // Nothing here can unlock it: drop the cached pubkey so the
+            // header offers Sign in / Join free, not an account menu with
+            // no signer behind it.
+            userPublickey.set('');
+          }
+          // Otherwise signed in meanwhile (another tab, a fast restore).
         });
       }
 

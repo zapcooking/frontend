@@ -24,14 +24,28 @@ export interface LockedVaultInput {
   support: 'full' | 'no-prf' | 'none';
 }
 
-export function shouldOfferContinue(input: LockedVaultInput): boolean {
+/** Signed out with only a locked vault behind the cached pubkey. */
+function isLockedVaultSession(input: Omit<LockedVaultInput, 'support'>): boolean {
   return (
     !input.isAuthenticated &&
     input.vaultStatus === 'locked' &&
     !input.hasPlaintextKey &&
-    !input.isNip46 &&
-    input.support !== 'none'
+    !input.isNip46
   );
+}
+
+export function shouldOfferContinue(input: LockedVaultInput): boolean {
+  return isLockedVaultSession(input) && input.support !== 'none';
+}
+
+/**
+ * A locked vault this browser can't unlock (e.g. a record left on a preview
+ * origin, where the passkey's rp id doesn't apply). There is no chip, so
+ * the cached pubkey must not make the header show the account menu: the
+ * visitor needs Sign in / Join free.
+ */
+export function isStrandedLockedVault(input: LockedVaultInput): boolean {
+  return isLockedVaultSession(input) && input.support === 'none';
 }
 
 /**

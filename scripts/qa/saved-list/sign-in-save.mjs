@@ -353,7 +353,7 @@ if (want('passkey')) {
   });
   await page.goto(ORIGIN + '/recipes', { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Sign in', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Create a new Zap Cooking profile' }).click();
+  await page.locator('.signin-card').getByRole('button', { name: 'Join free', exact: true }).click();
   await page.getByRole('button', { name: 'Create Profile', exact: true }).click();
   await page.getByRole('button', { name: 'Set up passkey' }).click();
   const dl = page.waitForEvent('download');
@@ -403,7 +403,7 @@ if (want('extension')) {
   const tagline = await tapSaveAndExpectSheet(page);
   check('extension: sheet says why', tagline === 'Sign in to save this recipe', tagline);
   await page
-    .getByRole('button', { name: 'Sign in to Zap Cooking using your Nostr browser extension' })
+    .getByRole('button', { name: 'Use a Nostr extension', exact: true })
     .click();
   await assertSaved('extension', run, `:${recipeD}`);
   await ctx.close();
