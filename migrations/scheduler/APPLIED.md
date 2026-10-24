@@ -10,6 +10,7 @@ again.
 |---|---|---|
 | `0001_create_scheduled_events.sql` | applied; date not recorded (after the file landed on 2026-07-22, #566) | applied; date not recorded (after the file landed on 2026-07-22, #566) |
 | `0002_create_account_deletion_requests.sql` | 2026-09-23 (#751) | 2026-09-23 (#751) |
+| `0003_create_cheffy_trial_turns.sql` | **not applied** — required before enabling account samples | **not applied** — required before enabling account samples |
 
 ## Applying a new migration
 
