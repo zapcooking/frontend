@@ -43,6 +43,10 @@
   } from '$lib/auth/passkeyLabel';
   import { loginReason, hasPendingAuthRequest } from '$lib/auth/requireAuth';
   import { startSectionTarget } from '$lib/startSectionSettings';
+  import { copyToClipboard } from '$lib/clipboard';
+  import { raiseVaultConflict, SIGNUP_VAULT_CONFLICT_MESSAGE } from '$lib/auth/vaultConflict';
+  import { afterSignInTarget, afterSignupTarget } from '$lib/auth/afterAuth';
+  import VaultConflictDialog from './auth/VaultConflictDialog.svelte';
   import {
     getGoogleSub,
     connectDrive,
@@ -183,39 +187,13 @@
   // on purpose — Chrome's sheet strings vary by milestone, never quote them).
   let secureHybridPointer = false;
 
-  // Vault conflict confirmation: signing in with a key that differs from the
-  // enrolled vault's account requires an explicit "replace" confirmation
-  // (see VaultConflictError in authManager).
-  let vaultConflictOpen = false;
-  let vaultConflictMessage = '';
-  let vaultConflictRetry: (() => Promise<void>) | null = null;
-  let vaultConflictBusy = false;
-
-  function raiseVaultConflict(message: string, retry: () => Promise<void>) {
-    vaultConflictMessage = message;
-    vaultConflictRetry = retry;
-    vaultConflictOpen = true;
-  }
-
-  async function confirmVaultConflict() {
-    if (!vaultConflictRetry) return;
-    vaultConflictBusy = true;
-    try {
-      await vaultConflictRetry();
-      vaultConflictOpen = false;
-      vaultConflictRetry = null;
+  // A confirmed replace changes which vault this device holds: re-read it so
+  // the card's "Continue as" reflects the account now signed in.
+  function raise(message: string, retry: () => Promise<void>) {
+    raiseVaultConflict(message, async () => {
+      await retry();
       vaultRecord = getVaultRecord();
-    } catch (error: any) {
-      vaultConflictMessage = error?.message || 'Sign-in failed. Please try again.';
-    } finally {
-      vaultConflictBusy = false;
-    }
-  }
-
-  function cancelVaultConflict() {
-    vaultConflictOpen = false;
-    vaultConflictRetry = null;
-    vaultConflictBusy = false;
+    });
   }
 
   async function unlockVaultPasskey() {
@@ -309,14 +287,14 @@
           }
 
           if (state.isAuthenticated && !generateModal && !showSuggestedFollows) {
+            const target = afterSignInTarget({
+              url: $page.url,
+              resumeInPlace: hasPendingAuthRequest(),
+              // The member's chosen start section (Settings → Appearance).
+              fallback: startSectionTarget()
+            });
             loginOverlayOpen.set(false);
-            // Only hard-navigate if there's an explicit redirect param or we're on the /login route
-            const redirectTo = $page.url.searchParams.get('redirect');
-            if (redirectTo || $page.url.pathname === '/login') {
-              // An explicit redirect param wins; otherwise the member's
-              // chosen start section (Settings → Appearance).
-              goto(redirectTo || startSectionTarget());
-            }
+            if (target) goto(target);
           }
         });
 
@@ -366,7 +344,7 @@
     } catch (error) {
       if (error instanceof VaultConflictError) {
         const nsec = nsecInput.trim();
-        raiseVaultConflict(error.message, async () => {
+        raise(error.message, async () => {
           await authManager.authenticateWithPrivateKey(nsec, { replaceVault: true });
           nsecModal = false;
           nsecInput = '';
@@ -478,9 +456,8 @@
     // confirm the replacement BEFORE uploading anything to Drive. Plain
     // "saved login" copy: this is a signup surface, not a vault settings UI.
     if (getVaultRecord()) {
-      raiseVaultConflict(
-        'This browser has a saved login for another account. Creating a new profile will ' +
-          "remove that saved login — make sure the other account's key is backed up first.",
+      raise(
+        SIGNUP_VAULT_CONFLICT_MESSAGE,
         () => runGoogleSetPin(true)
       );
       return;
@@ -542,7 +519,7 @@
       if (error instanceof VaultConflictError) {
         // The restored backup belongs to a different account than the
         // enrolled vault. Same-account restores adopt the vault silently.
-        raiseVaultConflict(error.message, async () => {
+        raise(error.message, async () => {
           const nsecHex = await restoreFromBackup(
             googleSession!,
             googleSession!.existingFileId!,
@@ -588,9 +565,8 @@
     // is skipped and signup continues on today's plaintext path.
     if (securePending && getVaultRecord()) {
       securePending = false;
-      raiseVaultConflict(
-        'This browser has a saved login for another account. Creating a new profile will ' +
-          "remove that saved login — make sure the other account's key is backed up first.",
+      raise(
+        SIGNUP_VAULT_CONFLICT_MESSAGE,
         async () => {
           deleteVaultRecord();
           securePending = true;
@@ -648,9 +624,8 @@
       } catch (error) {
         if (error instanceof VaultConflictError) {
           // Signup surface — plain "saved login" copy, no vault jargon.
-          raiseVaultConflict(
-            'This browser has a saved login for another account. Creating a new profile will ' +
-              "remove that saved login — make sure the other account's key is backed up first.",
+          raise(
+            SIGNUP_VAULT_CONFLICT_MESSAGE,
             () => useGeneratedKeys(skipProfile, true)
           );
           return;
@@ -677,29 +652,6 @@
       newAccountPicture = '';
     } catch (error) {
       console.error('Generated key login failed:', error);
-    }
-  }
-
-  // Returns whether the write actually landed. A caller that gates a step on
-  // a successful copy needs that answer — a rejected clipboard write must not
-  // count as a saved key. "Copied" rather than "Link copied": the three call
-  // sites copy a pairing URI, an npub, and an nsec, and only one is a link.
-  // manualHint names the way out when the clipboard refuses, and it differs by
-  // screen: the key screens render the value in a field you can select, the
-  // pairing screen renders it only as a QR code (:991) with no text on it at
-  // all. One sentence cannot be true on both, so the caller supplies it.
-  async function copyToClipboard(
-    text: string,
-    manualHint = 'select the text and copy it manually'
-  ): Promise<boolean> {
-    if (!browser) return false;
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast('success', 'Copied');
-      return true;
-    } catch {
-      showToast('error', `Could not copy — ${manualHint}`);
-      return false;
     }
   }
 
@@ -766,9 +718,6 @@
     nip46PairingUri = '';
     nip46PairingStatus = 'Waiting for approval…';
     nip46PairingError = '';
-    vaultConflictOpen = false;
-    vaultConflictRetry = null;
-    vaultConflictBusy = false;
   }
 
   let showPictureUrlInput = false;
@@ -1390,27 +1339,7 @@
     </div>
   </Modal>
 
-  <!-- Vault conflict confirmation: replacing the enrolled passkey login
-       requires an explicit decision — it deletes the wrapped key for the
-       other account on this device. -->
-  <Modal bind:open={vaultConflictOpen} cleanup={cancelVaultConflict} noHeader>
-    <div class="login-modal-body">
-      <h2 class="login-modal-title">⚠️ Replace saved login?</h2>
-      <div class="flex flex-col gap-4">
-        <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-input-border)">
-          <p class="text-sm text-caption">{vaultConflictMessage}</p>
-        </div>
-        <div class="flex gap-2">
-          <Button on:click={confirmVaultConflict} primary={true} disabled={vaultConflictBusy}>
-            {vaultConflictBusy ? 'Signing in…' : 'Replace saved login'}
-          </Button>
-          <Button on:click={cancelVaultConflict} primary={false} disabled={vaultConflictBusy}>
-            Cancel
-          </Button>
-        </div>
-      </div>
-    </div>
-  </Modal>
+  <VaultConflictDialog />
 
   <SuggestedFollowsModal
     bind:open={showSuggestedFollows}
@@ -1420,11 +1349,13 @@
       // Signed up from an action (requireAuth): stay on that page — closing
       // the overlay below resumes the action there. Checked before the
       // close, which is what settles the pending request.
-      const resumeInPlace = hasPendingAuthRequest();
+      const target = afterSignupTarget({
+        url: $page.url,
+        resumeInPlace: hasPendingAuthRequest(),
+        fallback: startSectionTarget()
+      });
       loginOverlayOpen.set(false);
-      if (resumeInPlace) return;
-      const redirectTo = $page.url.searchParams.get('redirect') || startSectionTarget();
-      goto(redirectTo);
+      if (target) goto(target);
     }}
   />
 
