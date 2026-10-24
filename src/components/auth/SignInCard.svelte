@@ -194,7 +194,16 @@
       userAgent: navigator.userAgent,
       maxTouchPoints: navigator.maxTouchPoints
     });
-    if (authManager?.hasPendingNip46Pairing?.()) {
+  });
+
+  // A QR pairing still waiting for approval (e.g. the page reloaded while
+  // the signer app was open): restart its listener once, when the overlay
+  // has handed over the AuthManager — it creates it in its own onMount,
+  // after this card has mounted, so a mount-time check would always miss.
+  let pairingResumeChecked = false;
+  $: if (authManager && !pairingResumeChecked) {
+    pairingResumeChecked = true;
+    if (authManager.hasPendingNip46Pairing?.()) {
       console.log('[Login] Found pending NIP-46 pairing, restarting listener...');
       nip46UniversalModal = true;
       nip46PairingStatus = 'Waiting for approval…';
@@ -202,7 +211,7 @@
         console.error('[Login] Failed to restart NIP-46 listener:', e);
       });
     }
-  });
+  }
 
   async function loginWithNIP07() {
     if (!authManager) return;
