@@ -13,6 +13,7 @@
  * - Expiration handling (90-day default)
  */
 
+import { sourceUrl as normalizeSourceUrl } from '$lib/anonImport';
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { NDKEvent, NDKRelaySet, type NDKFilter } from '@nostr-dev-kit/ndk';
@@ -406,6 +407,8 @@ function buildRecipeMarkdown(draft: RecipeDraft): string {
  */
 function buildRecipeTags(draft: RecipeDraft): string[][] {
   const tags: string[][] = [];
+  const source = normalizeSourceUrl(draft.sourceUrl || '');
+  if (source) tags.push(['r', source]);
 
   // Title
   if (draft.title) {
@@ -550,6 +553,7 @@ function parseRecipeToDraft(eventData: { kind: number; content: string; tags: st
     ingredients: sections.ingredients,
     directions: sections.directions,
     additionalMarkdown: sections.additionalMarkdown,
+    sourceUrl: normalizeSourceUrl(tags.find(t => t[0] === 'r')?.[1] || '') || undefined,
     createdAt: timestamp,
     updatedAt: timestamp
   };
