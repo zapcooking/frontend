@@ -37,6 +37,12 @@
   // via Settings → Security.
   const PASSKEY_ENROLL_PROMPT_ENABLED = true;
   import { createAuthManager, type AuthState } from '$lib/authManager';
+  import { detectSupport, getVaultRecord } from '$lib/passkeyVault';
+  import {
+    lockedVaultPubkey,
+    shouldOfferContinue,
+    isStrandedLockedVault
+  } from '$lib/auth/lockedVault';
   import { stopMessageSubscription, clearMessages } from '$lib/stores/messages';
   import { clearDecryptCache } from '$lib/encryptionService';
   import { clearUnwrapCache } from '$lib/nip17';
@@ -365,24 +371,35 @@
       syncSignedIn(authState);
 
       // Locked passkey vault (record present, no plaintext key, no bunker):
-      // surface the unlock overlay once on startup. The user can dismiss it
-      // and browse anonymously; the Login button re-opens it. Guarded on the
-      // other restore inputs so an in-flight plaintext/NIP-46 restore doesn't
-      // flash the overlay.
-      if (
-        browser &&
-        !authState.isAuthenticated &&
-        authManager.getVaultStatus?.() === 'locked' &&
-        !localStorage.getItem('nostrcooking_privateKey') &&
-        localStorage.getItem('nostrcooking_authMethod') !== 'nip46'
-      ) {
-        loginOverlayOpen.set(true);
+      // nothing opens by itself. The header shows "Continue as {name}" and
+      // one tap unlocks. Guarded on the other restore inputs so an in-flight
+      // plaintext/NIP-46 restore doesn't flash the chip.
+      if (browser && !authState.isAuthenticated && authManager.getVaultStatus?.() === 'locked') {
+        const lockedInput = {
+          isAuthenticated: false,
+          vaultStatus: 'locked' as const,
+          hasPlaintextKey: !!localStorage.getItem('nostrcooking_privateKey'),
+          isNip46: localStorage.getItem('nostrcooking_authMethod') === 'nip46'
+        };
+        detectSupport().then((support) => {
+          const input = { ...lockedInput, isAuthenticated: authState.isAuthenticated, support };
+          if (shouldOfferContinue(input)) {
+            lockedVaultPubkey.set(getVaultRecord()?.pubkey ?? null);
+          } else if (isStrandedLockedVault(input)) {
+            // Nothing here can unlock it: drop the cached pubkey so the
+            // header offers Sign in / Join free, not an account menu with
+            // no signer behind it.
+            userPublickey.set('');
+          }
+          // Otherwise signed in meanwhile (another tab, a fast restore).
+        });
       }
 
       // Subscribe to auth state changes
       unsubscribe = authManager.subscribe((state: AuthState) => {
         authState = state;
         syncSignedIn(state);
+        if (state.isAuthenticated) lockedVaultPubkey.set(null);
 
         // Sync with legacy userPublickey store for compatibility
         const isAuthenticatedNow = Boolean(state.isAuthenticated && state.publicKey);
