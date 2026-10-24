@@ -151,6 +151,12 @@ beforeEach(() => {
   ndk.set(fakeNdk() as unknown as NDK);
   userPublickey.set(PUBKEY);
   published = [];
+  // List edits sign before publishing (signWithin): sign as the signed-in member.
+  vi.spyOn(NDKEvent.prototype, 'sign').mockImplementation(async function (this: NDKEvent) {
+    this.pubkey = get(userPublickey);
+    this.sig = 'sig';
+    return 'sig';
+  });
   vi.spyOn(NDKEvent.prototype, 'publish').mockImplementation(async function (this: NDKEvent) {
     published.push({
       tags: this.tags.map((t) => [...t]),

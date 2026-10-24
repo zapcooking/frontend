@@ -27,6 +27,13 @@
   import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
   import { showToast } from '$lib/toast';
   import { requireAuth, signedIn } from '$lib/auth/requireAuth';
+  import {
+    hasAnyWallet,
+    walletCheckPending,
+    shouldOfferWalletAtZap,
+    zapWalletPromptSeen,
+    offerWalletSetup
+  } from '$lib/wallet/zapWalletPrompt';
 
   // True when we can pay an invoice directly without launching the
   // Bitcoin Connect payment modal:
@@ -168,6 +175,41 @@
     awaitingAuth = false;
   }
 
+  // A signed-in member with no wallet gets the wallet picker once, at
+  // their first ⚡ tap. The sheet steps aside the same way while it is up
+  // and comes back with the amount kept; "maybe later" (closing the
+  // picker) still leaves the external-wallet / QR path to pay with.
+  // Only before a payment starts: the offer reacts to the wallet-restore
+  // check settling, which can land mid-invoice or after Bitcoin Connect
+  // was cancelled and this sheet reopened — never cover a payment.
+  let awaitingWallet = false;
+  let walletOffered = false;
+
+  $: if (
+    open &&
+    state === 'pre' &&
+    !isCreatingInvoice &&
+    !isSendingInApp &&
+    !awaitingAuth &&
+    !awaitingWallet &&
+    !walletOffered &&
+    shouldOfferWalletAtZap({
+      signedIn: $signedIn,
+      hasWallet: $hasAnyWallet,
+      checkPending: $walletCheckPending,
+      seen: zapWalletPromptSeen()
+    })
+  ) {
+    offerWalletAtZap();
+  }
+
+  async function offerWalletAtZap() {
+    walletOffered = true;
+    awaitingWallet = true;
+    await offerWalletSetup();
+    awaitingWallet = false;
+  }
+
   let zapManager: ZapManager;
   let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -248,6 +290,7 @@
   }
 
   async function submitWithInAppWallet() {
+    walletOffered = true;
     error = null;
     timedOut = false;
     // Nothing usable on this site (e.g. a preview domain): say so at once,
@@ -325,6 +368,7 @@
   let isCreatingInvoice = false;
 
   async function submitWithExternalWallet(anonymous = false) {
+    walletOffered = true;
     error = null;
     isCreatingInvoice = true;
 
@@ -413,7 +457,7 @@
 
 </script>
 
-{#if !awaitingAuth}
+{#if !awaitingAuth && !awaitingWallet}
 <Modal bind:open>
   <h1 slot="title">Zap</h1>
   <div class="flex flex-col gap-3">
