@@ -78,7 +78,7 @@
         and send them a zap when a dish turns out great.
       </p>
       <p class="cta-row">
-        <a href="/login" class="btn-primary">Join free</a>
+        <a href="/login?join=1" class="btn-primary">Join free</a>
         <a href="/recipes" class="btn-quiet">Browse recipes <span aria-hidden="true">→</span></a>
       </p>
     </div>
