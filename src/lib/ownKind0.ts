@@ -10,7 +10,7 @@ import {
 import { getPublicKey } from 'nostr-tools';
 import { getOutboxRelays } from './relayListCache';
 import { ingestProfileEvent } from './profileResolver';
-import { clearPendingKind0 } from './pendingKind0';
+import { clearPendingKind0, pendingKind0For } from './pendingKind0';
 
 /**
  * Read-modify-write for the signed-in user's own kind:0.
@@ -284,6 +284,11 @@ export async function publishKind0Changes(
   changes: Record<string, string | undefined>,
   aliases: Record<string, string[]> = {}
 ): Promise<Kind0PublishResult> {
+  // A signup profile no relay has accepted yet is still this account's
+  // newest profile: the relay read can't see it ('none', or an older one),
+  // and building on that would drop the queued name and photo when this
+  // update clears the pending copy below.
+  loaded = withPendingKind0(ndk, pubkey, loaded);
   const base = loaded.status === 'found' ? loaded.content : {};
 
   const event = new NDKEvent(ndk);
@@ -311,6 +316,27 @@ export async function publishKind0Changes(
   // not be republished over it.
   clearPendingKind0(pubkey);
   return { event, relayCount: relays.size };
+}
+
+/** The newer of the relay read and this account's pending signup kind 0. */
+export function withPendingKind0(ndk: NDK, pubkey: string, loaded: LoadedKind0): LoadedKind0 {
+  const pending = pendingKind0For(pubkey);
+  if (!pending) return loaded;
+  if (loaded.status === 'found' && (loaded.event.created_at ?? 0) >= pending.created_at) {
+    return loaded;
+  }
+  let content: unknown;
+  try {
+    content = JSON.parse(pending.content);
+  } catch {
+    return loaded;
+  }
+  if (!content || typeof content !== 'object' || Array.isArray(content)) return loaded;
+  return {
+    status: 'found',
+    content: content as Record<string, unknown>,
+    event: new NDKEvent(ndk, pending)
+  };
 }
 
 export const KIND0_WRONG_SIGNER_MESSAGE =
