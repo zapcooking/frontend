@@ -1,3 +1,5 @@
+import { parseCoordinate } from './coordinate';
+
 export const standardRelays = [
   'wss://nos.lol',
   'wss://purplepag.es',
@@ -111,9 +113,8 @@ export function isHiddenRecipeEvent(event: {
 /** True when an addressable coordinate string (`kind:pubkey:d-tag`) is hidden. */
 export function isHiddenRecipeATag(aTag: string | undefined | null): boolean {
   if (!aTag) return false;
-  const [kind, pubkey, ...dParts] = aTag.split(':');
-  // d-tags may themselves contain ':', so rejoin the tail.
-  return isHiddenRecipeCoordinate(Number(kind), pubkey, dParts.join(':'));
+  const c = parseCoordinate(aTag);
+  return !!c && isHiddenRecipeCoordinate(c.kind, c.pubkey, c.identifier);
 }
 
 // Kind used by the retired NIP-108 "premium recipes" experiment (addressable,

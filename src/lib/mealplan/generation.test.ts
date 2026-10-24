@@ -3,6 +3,7 @@ import { createEmptyMealPlan } from './schema';
 import {
   cartesianSlots,
   filterRecipeCandidates,
+  isRecipeCoordinate,
   occupiedSlotsFromPlan,
   parseDurationMinutes,
   parseExcludeIngredientsInput,
@@ -47,6 +48,20 @@ function baseRequest(
     ...overrides
   };
 }
+
+describe('isRecipeCoordinate', () => {
+  it('keeps colons in the d-tag (URL imports, titles like "Pasta: Weeknight")', () => {
+    expect(isRecipeCoordinate('30023:abc:shakshuka')).toBe(true);
+    expect(isRecipeCoordinate('30023:abc:pasta:-weeknight')).toBe(true);
+    expect(isRecipeCoordinate('30023:abc:https://example.com/r/1#x')).toBe(true);
+  });
+
+  it('rejects other kinds and missing pubkey or d-tag', () => {
+    for (const a of ['30001:abc:x', '30023:abc', '30023::x', '30023:abc:', '30023:', '', null, 30023]) {
+      expect(isRecipeCoordinate(a)).toBe(false);
+    }
+  });
+});
 
 describe('parseDurationMinutes', () => {
   it('parses minutes, hours, and combined strings', () => {

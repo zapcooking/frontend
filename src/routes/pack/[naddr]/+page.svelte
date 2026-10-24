@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { parseCoordinate } from '$lib/coordinate';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -179,9 +180,9 @@
 
     await Promise.all(
       missing.map(async (aTag) => {
-        const parts = aTag.split(':');
-        if (parts.length !== 3) return;
-        const [kind, pubkey, identifier] = parts;
+        const parsed = parseCoordinate(aTag);
+        if (!parsed) return;
+        const { kind, pubkey, identifier } = parsed;
         try {
           const e = await $ndk.fetchEvent({
             kinds: [Number(kind)],

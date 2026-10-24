@@ -12,7 +12,7 @@
     getCookbookCoverImage,
     type CookbookList
   } from '$lib/stores/cookbookStore';
-  import { parseATag } from '$lib/listTags';
+  import { parseCoordinate } from '$lib/coordinate';
   import { ndk } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { isOnline } from '$lib/connectionMonitor';
@@ -255,7 +255,7 @@
         }
 
         // Parse the a-tag
-        const parsed = parseATag(aTag);
+        const parsed = parseCoordinate(aTag);
         if (!parsed) continue;
 
         const { kind, pubkey, identifier } = parsed;
@@ -608,7 +608,7 @@
     const events: NDKEvent[] = [];
 
     for (const aTag of list.recipes) {
-      const parsed = parseATag(aTag);
+      const parsed = parseCoordinate(aTag);
       if (!parsed) continue;
 
       const { kind, pubkey, identifier } = parsed;
@@ -727,7 +727,7 @@
       if (missing.length > 0 && $isOnline) {
         await Promise.all(
           missing.map(async (aTag) => {
-            const parsed = parseATag(aTag);
+            const parsed = parseCoordinate(aTag);
             if (!parsed) return;
             const { kind, pubkey, identifier } = parsed;
             try {

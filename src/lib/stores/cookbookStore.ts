@@ -16,7 +16,7 @@ import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW, isHiddenRecipeATag } from '$lib/consts';
 import { offlineStorage, type SyncOperation, type OfflineCookbook, type SerializedCookbookData } from '$lib/offlineStorage';
 import { isCurrentlyOnline, onConnect } from '$lib/connectionMonitor';
-import { parseATag } from '$lib/listTags';
+import { parseCoordinate } from '$lib/coordinate';
 import {
   buildSavedListEdit,
   decideSavedListBase,
@@ -1499,7 +1499,7 @@ export async function getCookbookCoverImage(
   forceRefresh: boolean = false
 ): Promise<string | undefined> {
   if (list.coverRecipeId) {
-    const parsed = parseATag(list.coverRecipeId);
+    const parsed = parseCoordinate(list.coverRecipeId);
     if (parsed) {
       const { kind, pubkey, identifier } = parsed;
       try {
@@ -1523,7 +1523,7 @@ export async function getCookbookCoverImage(
   
   if (list.recipes.length > 0) {
     const firstRecipeATag = list.recipes[0];
-    const parsed = parseATag(firstRecipeATag);
+    const parsed = parseCoordinate(firstRecipeATag);
     if (parsed) {
       const { kind, pubkey, identifier } = parsed;
       try {

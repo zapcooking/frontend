@@ -13,7 +13,7 @@
  */
 
 import { nip19 } from 'nostr-tools';
-import { listPubkeys, parseCoordinate, type ListEventLike } from '$lib/landing/curation';
+import { listPubkeys, canonicalCoordinate, type ListEventLike } from '$lib/landing/curation';
 import type { ReadsModerationLists } from './moderationConfig';
 
 export const ORG_MODERATION_LISTS = {
@@ -50,7 +50,7 @@ export function listAnyCoordinates(e: Pick<ListEventLike, 'tags'>): string[] {
 	const out: string[] = [];
 	for (const t of e.tags) {
 		if (t[0] !== 'a') continue;
-		const c = parseCoordinate(t[1]);
+		const c = canonicalCoordinate(t[1]);
 		if (!c) continue;
 		const key = `${c.kind}:${c.pubkey}:${c.identifier}`;
 		if (!out.includes(key)) out.push(key);
@@ -69,7 +69,7 @@ export function parseOrgModeration(block: ListEventLike | null, hidden: ListEven
 
 /** `kind:pubkey:d` → the naddr Reads moderation matches articles by (no relay hints). */
 export function coordinateToNaddr(coordinate: string): string | null {
-	const c = parseCoordinate(coordinate);
+	const c = canonicalCoordinate(coordinate);
 	if (!c) return null;
 	try {
 		return nip19.naddrEncode({ kind: c.kind, pubkey: c.pubkey, identifier: c.identifier });

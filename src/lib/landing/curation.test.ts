@@ -5,7 +5,7 @@ import {
 	listCoordinates,
 	listPubkeys,
 	listTopicSlugs,
-	parseCoordinate,
+	canonicalCoordinate,
 	pickList
 } from './curation';
 import { sortAndDedupePacks } from '$lib/recipePackFilter';
@@ -55,10 +55,12 @@ describe('list tags', () => {
 	});
 
 	it('parses coordinates strictly', () => {
-		expect(parseCoordinate(`30023:${P}:x`)).toEqual({ kind: 30023, pubkey: P, identifier: 'x' });
-		expect(parseCoordinate(`30023:${P}:`)).toBeNull();
-		expect(parseCoordinate(`30023:abc:x`)).toBeNull();
-		expect(parseCoordinate(undefined)).toBeNull();
+		expect(canonicalCoordinate(`30023:${P}:x`)).toEqual({ kind: 30023, pubkey: P, identifier: 'x' });
+		expect(canonicalCoordinate(`30023:${P}:`)).toBeNull();
+		expect(canonicalCoordinate(`30023:abc:x`)).toBeNull();
+		expect(canonicalCoordinate(undefined)).toBeNull();
+		expect(canonicalCoordinate(`30023:${P}:pasta:-weeknight`)?.identifier).toBe('pasta:-weeknight');
+		expect(canonicalCoordinate(`30023:${P.toUpperCase()}:x`)?.pubkey).toBe(P);
 	});
 
 	it('topic slugs and pubkeys: valid, lower-cased, de-duplicated, in order', () => {

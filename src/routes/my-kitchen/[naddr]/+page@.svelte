@@ -25,7 +25,7 @@
   import { DEFAULT_LIST_ID, cookbookStore, getCookbookCoverImage, type CookbookList, type SavedListView } from '$lib/stores/cookbookStore';
   import type { SavedListChange } from '$lib/savedListSafety';
   import { showToast } from '$lib/toast';
-  import { parseATag } from '$lib/listTags';
+  import { parseCoordinate } from '$lib/coordinate';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { writable, type Writable, get } from 'svelte/store';
   import ImageIcon from 'phosphor-svelte/lib/Image';
@@ -224,7 +224,7 @@
           
           // Online - fetch from Nostr and cache
           for (const tag of recipeTags) {
-            const parsed = parseATag(tag[1]);
+            const parsed = parseCoordinate(tag[1]);
             if (!parsed) continue;
             
             const { kind, pubkey, identifier } = parsed;
@@ -339,7 +339,7 @@
             const recipeTags = e.tags.filter(t => t[0] === 'a');
             
             for (const tag of recipeTags) {
-              const parsed = parseATag(tag[1]);
+              const parsed = parseCoordinate(tag[1]);
               if (!parsed) continue;
               
               const { kind, pubkey, identifier } = parsed;
@@ -498,7 +498,7 @@
     manageShown = [];
     
     event?.tags.filter(t => t[0] === 'a').forEach(t => {
-      const parsed = parseATag(t[1]);
+      const parsed = parseCoordinate(t[1]);
       if (parsed) {
         manageShown.push(t[1]);
         const { kind, pubkey, identifier } = parsed;
