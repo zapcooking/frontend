@@ -28,6 +28,12 @@ describe('buildNotePreview', () => {
     expect(buildNotePreview('top\n\n\n\nbottom')).toBe('top\n\nbottom');
   });
 
+  it('treats whitespace-only lines as blank when collapsing gaps', () => {
+    expect(buildNotePreview('First paragraph.\n \n\t\n \n\t\n \nSecond paragraph.')).toBe(
+      'First paragraph.\n\nSecond paragraph.'
+    );
+  });
+
   it('normalizes CRLF to LF so Windows line breaks survive', () => {
     expect(buildNotePreview('one\r\n\r\ntwo')).toBe('one\n\ntwo');
   });

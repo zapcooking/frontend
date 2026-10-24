@@ -97,6 +97,8 @@ export function buildNotePreview(content: string, options: NotePreviewOptions = 
       .replace(/nostr:\S+/g, '')
       // Horizontal whitespace runs → one space; newlines survive.
       .replace(/[^\S\n]+/g, ' ')
+      // Whitespace-only lines are blank lines.
+      .replace(/\n[^\S\n]+(?=\n)/g, '\n')
       // One blank line max: a paragraph break, not a wall of gaps.
       .replace(/\n{3,}/g, '\n\n')
       .trim(),
