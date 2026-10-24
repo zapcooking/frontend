@@ -48,6 +48,7 @@
   }
   nav a,
   .account a {
+    min-width: 44px;
     align-items: center;
     min-height: 44px;
   }

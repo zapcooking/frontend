@@ -652,6 +652,9 @@
     gap: 24px;
   }
   .footer-brand {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
     font-size: 22px;
     font-weight: 800;
     letter-spacing: -1px;
@@ -672,6 +675,7 @@
     font-size: 12px;
   }
   .footer nav a {
+    min-width: 44px;
     display: inline-flex;
     align-items: center;
     min-height: 44px;

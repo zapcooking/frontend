@@ -137,6 +137,11 @@
     text-decoration: underline;
     text-underline-offset: 3px;
   }
+  .import-help a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
   #import-status:empty {
     display: none;
   }
