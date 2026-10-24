@@ -1,5 +1,6 @@
 <script lang="ts">
   import Arrow from '../../components/landing/Arrow.svelte';
+  import { CHEFFY_TRIAL_LIMIT } from '$lib/cheffyTrial';
   import type { PageData } from './$types';
   import { avatarUrl } from '$lib/imageOptimizer';
   import { responsiveImg } from '$lib/landing/responsiveImg';
@@ -322,7 +323,12 @@
               <a href={item.href}
                 ><span class="discovery-number">{item.number}</span>
                 <h3>{item.name} <Arrow /></h3>
-                <p>{item.body}</p></a
+                <p>{item.body}</p>
+                {#if item.href === '/cheffy'}
+                  <span class="trial-invitation" data-landing-upgrade hidden
+                    >Try {CHEFFY_TRIAL_LIMIT} free messages per account, then continue with Cook+.</span
+                  >
+                {/if}</a
               >
             </li>{/each}
         </ul>
@@ -645,6 +651,13 @@
   .discoveries li a {
     display: block;
     padding: 14px 0;
+  }
+  .trial-invitation:not([hidden]) {
+    display: block;
+    margin-top: 10px;
+    color: var(--landing-accent-text);
+    font-size: 13px;
+    font-weight: 600;
   }
   .discovery-number {
     font-size: 11px;

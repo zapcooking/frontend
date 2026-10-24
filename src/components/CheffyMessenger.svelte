@@ -33,6 +33,8 @@
     cheffyExperienceMode,
     cheffyExperienceUsed,
     cheffyExperienceCount,
+    cheffyTrialStatus,
+    refreshCheffyTrial,
     cheffyConversion,
     sendCheffy,
     askCheffyAboutPhoto,
@@ -40,6 +42,7 @@
     startOverCheffy,
     closeCheffy
   } from '$lib/stores/cheffyChat';
+  import { CHEFFY_TRIAL_LIMIT, CHEFFY_TRIAL_PROMPT_CHARS } from '$lib/cheffyTrial';
   import CheffyAvatar from './CheffyAvatar.svelte';
   import CheffyRecipeCard from './CheffyRecipeCard.svelte';
   import CheffySuggestionChips, {
@@ -71,45 +74,19 @@
   $: signedIn = $userPublickey !== '';
   $: hasMembership = Boolean(membershipMap[normalizedPk]?.active);
 
-  // ── First-use experience (non-member preview) ───────────────────
-  // A non-member (logged out OR logged-in without a membership) who
-  // entered via the /explore invite, or who has any preview turns spent
-  // (so a mid-chat reload keeps them in the preview rather than dropping
-  // to the gate), sees the preview flow + a soft conversion card instead
-  // of the hard sign-in / membership gate. Members are never affected.
-  $: inExperience =
-    !hasMembership &&
-    ($cheffyExperienceMode || $cheffyExperienceCount > 0 || $cheffyConversion !== null);
-  // Re-assert preview mode so follow-up sends stay tagged as experience
-  // requests (e.g. after a mid-chat reload, where the flag would reset).
+  // The server's account ledger owns the trial allowance.
+  $: inExperience = signedIn && !hasMembership;
   $: if (inExperience && !$cheffyExperienceMode) cheffyExperienceMode.set(true);
-  // If membership resolves true mid-session, drop the preview flags so a
-  // new member never lands on a blank surface (conversion card hidden by
-  // `inExperience`, composer hidden by `$cheffyConversion`) and their
-  // sends are no longer tagged as a preview.
+  $: if ($cheffyOpen && inExperience && $cheffyTrialStatus === 'idle') void refreshCheffyTrial();
   $: if (hasMembership && ($cheffyConversion !== null || $cheffyExperienceMode)) {
     cheffyConversion.set(null);
     cheffyExperienceMode.set(false);
   }
-  // Opening Cheffy again after the experience was spent (e.g. via the
-  // launcher) lands on the friendly card, never a technical wall.
-  $: if (
-    $cheffyOpen &&
-    inExperience &&
-    $cheffyExperienceUsed &&
-    $cheffyThread.length === 0 &&
-    $cheffyConversion === null
-  ) {
+  $: if ($cheffyOpen && inExperience && $cheffyExperienceUsed && !$cheffyConversion)
     cheffyConversion.set('used');
-  }
-  // Gates apply only outside the experience flow.
-  $: showSignInGate = !inExperience && !signedIn;
-  $: showMembershipGate = !inExperience && signedIn && !hasMembership;
+  $: showSignInGate = !signedIn;
+  $: showTrialLoading = inExperience && $cheffyTrialStatus !== 'ready';
 
-  function convCreateKitchen() {
-    closeCheffy();
-    goto('/login?redirect=/explore');
-  }
   function convUnlockKitchenPlus() {
     closeCheffy();
     goto('/membership');
@@ -550,34 +527,28 @@
       <div class="cheffy-gate">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
         <h2>Sign in to cook with Cheffy</h2>
-        <p>Cheffy is your kitchen companion. Sign in to start a conversation.</p>
+        <p>
+          Try {CHEFFY_TRIAL_LIMIT} free messages with your free account. Sign in to get started.
+        </p>
         <button
           type="button"
           class="primary-btn"
           on:click={() => {
             closeCheffy();
-            goto('/login?redirect=/explore');
+            goto('/login?redirect=/cheffy');
           }}
         >
           Sign in
         </button>
       </div>
-    {:else if showMembershipGate}
-      <!-- Membership gate -->
-      <div class="cheffy-gate">
+    {:else if showTrialLoading}
+      <div class="cheffy-gate" role="status">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
-        <h2>Cheffy comes with Cook+</h2>
-        <p>Ask cooking questions, use what you have, fix a mistake, or turn an idea into dinner.</p>
-        <button
-          type="button"
-          class="primary-btn"
-          on:click={() => {
-            closeCheffy();
-            goto('/membership');
-          }}
-        >
-          Unlock Cook+
-        </button>
+        {#if $cheffyTrialStatus === 'error'}
+          <h2>Your free messages could not be checked</h2>
+          <p>Please try again. Your message allowance is kept with your account.</p>
+          <button type="button" class="primary-btn" on:click={refreshCheffyTrial}>Try again</button>
+        {:else}<p>Checking your free messages…</p>{/if}
       </div>
     {:else}
       <!-- Conversation -->
@@ -676,44 +647,26 @@
         {/if}
 
         {#if inExperience && $cheffyConversion}
-          <!-- Soft conversion card — shown once the preview turns are
-               spent (or when the experience was already used): invites the
-               visitor to create a free kitchen or unlock Cook+. Never a
-               paywall — this is the gentle next step. -->
+          <!-- Keep the conversation visible after the three free replies. -->
           <div class="conversion" role="group" aria-label="Keep cooking with Cheffy">
             <CheffyAvatar size={44} expression="happy" variant="character" />
             {#if $cheffyConversion === 'used'}
               <h3 class="conv-title">Cheffy already helped you get started</h3>
               <p class="conv-body">
-                Create your free kitchen to save ideas, or unlock Cook+ to keep cooking with
+                You have used your {CHEFFY_TRIAL_LIMIT} free messages. Join Cook+ to keep cooking with
                 Cheffy.
               </p>
-            {:else if signedIn}
+            {:else}
               <h3 class="conv-title">Keep cooking with Cheffy</h3>
               <p class="conv-body">
-                Cook+ gives you Cheffy, Nourish, saved drafts, recipe tools, and more ways to
-                build your kitchen.
-              </p>
-            {:else}
-              <h3 class="conv-title">Save this to your kitchen</h3>
-              <p class="conv-body">
-                Create a free Zap Cooking account to save meals, follow cooks, and come back to what
-                Cheffy helped you make.
+                You have used your {CHEFFY_TRIAL_LIMIT} free messages. Cook+ includes Cheffy, Sous Chef,
+                and Nourish.
               </p>
             {/if}
             <div class="conv-actions">
-              {#if !signedIn}
-                <button type="button" class="conv-primary" on:click={convCreateKitchen}>
-                  Create your free kitchen
-                </button>
-                <button type="button" class="conv-secondary" on:click={convUnlockKitchenPlus}>
-                  Unlock Cook+
-                </button>
-              {:else}
-                <button type="button" class="conv-primary" on:click={convUnlockKitchenPlus}>
-                  Unlock Cook+
-                </button>
-              {/if}
+              <button type="button" class="conv-primary" on:click={convUnlockKitchenPlus}>
+                Unlock Cook+
+              </button>
               <button type="button" class="conv-ghost" on:click={convKeepExploring}>
                 Keep exploring
               </button>
@@ -741,6 +694,9 @@
       {#if !$cheffyConversion}
         <!-- Fixed composer -->
         <div class="cheffy-composer">
+          {#if inExperience}<p class="text-xs text-caption" role="status">
+              {CHEFFY_TRIAL_LIMIT - $cheffyExperienceCount} of {CHEFFY_TRIAL_LIMIT} free messages left
+            </p>{/if}
           {#if scanError}
             <p class="scan-error" role="alert">{scanError}</p>
           {/if}
@@ -791,6 +747,7 @@
             <textarea
               id="cheffy-composer-input"
               bind:this={composerEl}
+              maxlength={inExperience ? CHEFFY_TRIAL_PROMPT_CHARS : undefined}
               bind:value={$cheffyDraft}
               rows="1"
               class="composer-input"
@@ -1474,7 +1431,6 @@
     margin-top: 4px;
   }
   .conv-primary,
-  .conv-secondary,
   .conv-ghost {
     min-height: 44px;
     padding: 0 18px;
@@ -1491,15 +1447,6 @@
   }
   .conv-primary:hover {
     filter: brightness(1.06);
-  }
-  .conv-secondary {
-    background: transparent;
-    border: 1px solid var(--color-primary);
-    color: var(--color-primary);
-    transition: background-color 140ms ease;
-  }
-  .conv-secondary:hover {
-    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
   }
   .conv-ghost {
     background: transparent;
