@@ -168,6 +168,8 @@ export class AuthManager {
   private listeners: ((state: AuthState) => void)[] = [];
   private nip46Signer: NDKNip46Signer | null = null;
   private nip46ResponseSub: NDKSubscription | null = null;
+  // Pending while postAnonymously has a throwaway signer on ndk.signer.
+  private signerSwap: Promise<void> | null = null;
 
   constructor(ndk: any) {
     this.ndk = ndk;
@@ -1568,7 +1570,10 @@ export class AuthManager {
     const { privateKey } = this.generateAnonymousKey();
     const signer = new NDKPrivateKeySigner(privateKey);
 
-    // Temporarily set signer for this post
+    // Temporarily set signer for this post. encryptionService waits on
+    // signerSwap so nothing encrypts or decrypts with the throwaway key.
+    let endSwap!: () => void;
+    this.signerSwap = new Promise((resolve) => (endSwap = resolve));
     const originalSigner = this.ndk.signer;
     this.ndk.signer = signer;
 
@@ -1586,7 +1591,15 @@ export class AuthManager {
     } finally {
       // Restore original signer
       this.ndk.signer = originalSigner;
+      this.signerSwap = null;
+      endSwap();
     }
+  }
+
+  // Resolves once ndk.signer is the session's own signer again (no
+  // anonymous-post swap in progress).
+  async waitForSignerSwap(): Promise<void> {
+    while (this.signerSwap) await this.signerSwap;
   }
 
   // ============================================================

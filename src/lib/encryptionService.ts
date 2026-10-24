@@ -149,6 +149,15 @@ function getSignerKind(): SignerKind {
   }
 }
 
+/**
+ * Wait out an anonymous-post signer swap (authManager.postAnonymously puts
+ * a throwaway key on ndk.signer for one publish). Every key and signer read
+ * below goes through ndk.signer, so encrypt/decrypt must not start mid-swap.
+ */
+async function signerSettled(): Promise<void> {
+  await getAuthManager()?.waitForSignerSwap?.();
+}
+
 function hasNip07Encrypt(): boolean {
   const nostr = (window as any).nostr;
   return !!(nostr?.nip44?.encrypt || nostr?.nip04?.encrypt);
@@ -168,10 +177,14 @@ function hasNip07Encrypt(): boolean {
  * auth method (passkey, NIP-07, NIP-46) a stored key is a leftover from an
  * earlier session and would encrypt under the wrong identity, so it is
  * ignored. With no auth method yet (pre-hydration, legacy) it is trusted as
- * before.
+ * before. NIP-07 and NIP-46 sessions have no local key at all, so the signer
+ * isn't consulted either (a key there is a temporary swap, never theirs).
  */
 function getPrivateKey(): string | null {
   if (!browser) return null;
+
+  const kind = getSignerKind();
+  if (kind === 'nip07' || kind === 'nip46') return null;
 
   try {
     const signer = get(ndk).signer as { privateKey?: string } | null | undefined;
@@ -426,6 +439,8 @@ export async function encrypt(
     throw new Error('Encryption not available on server');
   }
 
+  await signerSettled();
+
   const ndkInstance = get(ndk);
   const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
   const kind = getSignerKind();
@@ -609,6 +624,8 @@ export async function decrypt(
     return cached;
   }
 
+  await signerSettled();
+
   // Private-key decryption is local (no signer popup), skip the queue
   const privateKey = getPrivateKey();
   if (privateKey) {
@@ -744,6 +761,9 @@ async function decryptViaSigner(
   if (!method) {
     throw new Error('Encryption method not specified');
   }
+
+  // Queued calls can start long after decrypt() checked; re-check.
+  await signerSettled();
 
   const nostr = (window as any).nostr;
   const ndkInstance = get(ndk);
