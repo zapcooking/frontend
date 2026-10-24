@@ -116,6 +116,18 @@ describe('parseEventRef', () => {
     expect(parseEventRef(`nostr:${HEX}`)).toEqual({ hex: HEX, hints: [] });
   });
 
+  it('keeps an nevent\'s relays, author and kind', () => {
+    const ref = nip19.neventEncode({ id: HEX, relays: ['wss://relay-a'], author: PK, kind: 1 });
+    expect(parseEventRef(ref)).toEqual({ hex: HEX, hints: ['wss://relay-a'], author: PK, kind: 1 });
+  });
+
+  it('round-trips author and kind through eventIdRef, even with no relays', () => {
+    const ref = nip19.neventEncode({ id: HEX, author: PK, kind: 30023 });
+    const decoded = nip19.decode(eventIdRef(ref, ['wss://ctx'])) as nip19.DecodedNevent;
+    expect(decoded.data).toMatchObject({ id: HEX, author: PK, kind: 30023, relays: ['wss://ctx'] });
+    expect(eventIdRef(`nostr:${ref}`)).toBe(ref);
+  });
+
   it('returns null for non-ids', () => {
     expect(parseEventRef('')).toBeNull();
     expect(parseEventRef('zzz')).toBeNull();

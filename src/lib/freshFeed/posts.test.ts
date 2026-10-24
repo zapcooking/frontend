@@ -164,6 +164,15 @@ describe('quotes and note links (copied from FoodstrFeedOptimized)', () => {
     expect(getQuotedNote({ tags: [['q', other]], content: '' })).toEqual({ id: other });
     expect(getQuotedNote({ tags: [], content: 'no quote here' })).toBeNull();
   });
+
+  it('keeps a content nevent\'s own relay hint when there is no q tag', () => {
+    const hinted = nip19.neventEncode({ id, relays: ['http://nope', 'wss://relay-b'] });
+    expect(getQuotedNote({ tags: [], content: `see nostr:${hinted}` })).toEqual({
+      id,
+      relayHint: 'wss://relay-b'
+    });
+    expect(getQuotedNote({ tags: [], content: `see nostr:${note}` })).toEqual({ id });
+  });
 });
 
 describe('passesReaderFilters (recipe-box picks)', () => {

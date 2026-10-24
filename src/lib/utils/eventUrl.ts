@@ -42,9 +42,17 @@ export function eventRelayHints(
 
 /**
  * hex id from a hex / `note1…` / `nevent1…` / `nostr:…` reference. An
- * nevent input keeps its relay hints so re-encoding never loses them.
+ * nevent input keeps its relay hints, author and kind so re-encoding
+ * never loses them.
  */
-export function parseEventRef(raw: string): { hex: string; hints: string[] } | null {
+export interface ParsedEventRef {
+  hex: string;
+  hints: string[];
+  author?: string;
+  kind?: number;
+}
+
+export function parseEventRef(raw: string): ParsedEventRef | null {
   let s = String(raw ?? '')
     .trim()
     .toLowerCase();
@@ -53,10 +61,13 @@ export function parseEventRef(raw: string): { hex: string; hints: string[] } | n
     try {
       const decoded = nip19.decode(s);
       if (decoded.type !== 'nevent') return null;
-      return {
+      const parsed: ParsedEventRef = {
         hex: decoded.data.id.toLowerCase(),
         hints: mergeHints(null, decoded.data.relays ?? [])
       };
+      if (decoded.data.author) parsed.author = decoded.data.author.toLowerCase();
+      if (typeof decoded.data.kind === 'number') parsed.kind = decoded.data.kind;
+      return parsed;
     } catch {
       return null;
     }
@@ -99,7 +110,7 @@ export function eventRef(evt: EventRefSource): string {
 /**
  * nevent1 for a bare id — hex, or a `note1…`/`nevent1…`/`nostr:…` ref
  * (normalized). Extra hints from context (e.g. an `e`/`q` tag's relay
- * hint) ride along; a ref's own hints are kept. Throws when `id` is not
+ * hint) ride along; a ref's own hints, author and kind are kept. Throws when `id` is not
  * an event reference at all.
  */
 export function eventIdRef(id: string, extraHints?: (string | null | undefined)[] | null): string {
@@ -108,7 +119,9 @@ export function eventIdRef(id: string, extraHints?: (string | null | undefined)[
   try {
     return nip19.neventEncode({
       id: parsed.hex,
-      relays: mergeHints(extraHints, parsed.hints)
+      relays: mergeHints(extraHints, parsed.hints),
+      author: parsed.author,
+      kind: parsed.kind
     });
   } catch {
     return nip19.noteEncode(parsed.hex);

@@ -79,7 +79,7 @@
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
   import { nip19 } from 'nostr-tools';
-  import { eventPath, eventIdPath } from '$lib/utils/eventUrl';
+  import { eventPath, eventIdPath, parseEventRef } from '$lib/utils/eventUrl';
   import ClientAttribution from './ClientAttribution.svelte';
 
   let portalTarget: HTMLElement | null = null;
@@ -1165,7 +1165,11 @@
       const match = event.content.match(regex);
       if (match && match[1]) {
         const id = decodeToEventIdHex(match[1]);
-        if (id) return { id };
+        if (id) {
+          // An nevent's own relay hint rides along, as the q-tag hint does.
+          const hint = parseEventRef(match[1])?.hints[0];
+          return hint ? { id, hint } : { id };
+        }
       }
       return null;
     } catch {
