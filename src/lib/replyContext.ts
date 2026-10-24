@@ -8,6 +8,7 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
+import { buildNotePreview } from './notePreview';
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -73,20 +74,6 @@ export function getParentNoteId(event: NDKEvent): string | null {
  */
 export function isReply(event: NDKEvent): boolean {
   return event.tags.some(tag => Array.isArray(tag) && tag[0] === 'e');
-}
-
-/**
- * Clean content for preview (remove URLs, nostr links, extra whitespace)
- */
-function cleanContentForPreview(content: string, maxLength = 70): string {
-  const cleaned = content
-    .replace(/https?:\/\/[^\s]+/g, '')
-    .replace(/nostr:[^\s]+/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  
-  if (cleaned.length <= maxLength) return cleaned;
-  return cleaned.substring(0, maxLength) + '...';
 }
 
 /**
@@ -210,7 +197,7 @@ export async function prefetchReplyContexts(
       const context: ReplyContext = {
         authorName: getDisplayName(note.pubkey, profile),
         authorPubkey: note.pubkey,
-        notePreview: cleanContentForPreview(note.content || ''),
+        notePreview: buildNotePreview(note.content || ''),
         noteId: parentId,
         fullNote: note
       };
@@ -298,7 +285,7 @@ export async function fetchReplyContext(
     const context: ReplyContext = {
       authorName: getDisplayName(note.pubkey, profile),
       authorPubkey: note.pubkey,
-      notePreview: cleanContentForPreview(note.content || ''),
+      notePreview: buildNotePreview(note.content || ''),
       noteId,
       fullNote: note
     };

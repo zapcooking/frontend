@@ -34,6 +34,8 @@
   // The one implementation of the hellthread rule — the notification path uses
   // the same export, so the two surfaces cannot drift.
   import { isHellthread as isHellthreadNote } from '$lib/notificationUtils';
+  import { buildNotePreview } from '$lib/notePreview';
+  import { scanNostrRefs } from '$lib/nostrRefScan';
   import { foodFilterSetting } from '$lib/foodFilterSettings';
   import MediaLightbox from './MediaLightbox.svelte';
   import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
@@ -4047,50 +4049,46 @@
           authorName = npub; // Use full npub, not truncated
         }
 
-        // Get note preview
-        let content = parentNote.content || '';
-
-        // Resolve inline profile mentions (nostr:npub / nprofile) to @name
-        // so the preview keeps the mention instead of dropping it when the
-        // nostr: token is stripped below.
-        const mentionTokens = content.match(/nostr:(?:npub1|nprofile1)[0-9a-z]+/g) || [];
-        for (const token of [...new Set(mentionTokens)]) {
-          try {
-            const decoded = nip19.decode(token.replace(/^nostr:/, ''));
-            const pk =
-              decoded.type === 'npub'
-                ? (decoded.data as string)
-                : decoded.type === 'nprofile'
-                  ? (decoded.data as { pubkey: string }).pubkey
-                  : '';
-            if (!pk) continue;
-            const mentioned = $ndk.getUser({ hexpubkey: pk });
-            await mentioned.fetchProfile();
-            const handle =
-              mentioned.profile?.displayName ||
-              mentioned.profile?.name ||
-              nip19.npubEncode(pk).slice(0, 12) + '…';
-            content = content.split(token).join('@' + handle);
-          } catch {
-            // Leave the token; it'll be stripped below if unresolved.
-          }
-        }
-
-        // Remove URLs and any remaining nostr refs (nevent/note/naddr) for a
-        // clean text preview.
-        const cleanContent = content
-          .replace(/https?:\/\/[^\s]+/g, '') // Remove URLs
-          .replace(/nostr:[^\s]+/g, '') // Remove remaining nostr: links
-          .replace(/\s+/g, ' ')
-          .trim();
-        // Expose a meaningful chunk of the quoted note rather than a
-        // one-line teaser — the CSS line-clamp caps the visible height,
-        // so a generous character budget just lets those lines fill.
-        const previewLength = 280;
-        const notePreview =
-          cleanContent.length > previewLength
-            ? cleanContent.substring(0, previewLength) + '...'
-            : cleanContent;
+        // Get note preview. Profile mentions are resolved to display names
+        // first (so the preview keeps them instead of dropping the nostr:
+        // token), then the text itself is built by the shared $lib/notePreview
+        // builder — the same stripping, paragraph-preserving and truncation
+        // rules the Fresh feed's quote blocks use.
+        const noteContent = parentNote.content || '';
+        const mentionNames = new Map<string, string>();
+        const mentionTokens = [
+          ...new Set(
+            scanNostrRefs(noteContent)
+              .filter(
+                (r) => r.type === 'nostr' && (r.prefix === 'npub1' || r.prefix === 'nprofile1')
+              )
+              .map((r) => r.content)
+          )
+        ];
+        await Promise.all(
+          mentionTokens.map(async (token) => {
+            try {
+              const decoded = nip19.decode(token.replace(/^nostr:/, ''));
+              const pk =
+                decoded.type === 'npub'
+                  ? (decoded.data as string)
+                  : decoded.type === 'nprofile'
+                    ? (decoded.data as { pubkey: string }).pubkey
+                    : '';
+              if (!pk || mentionNames.has(pk)) return;
+              const mentioned = $ndk.getUser({ hexpubkey: pk });
+              await mentioned.fetchProfile();
+              const handle =
+                mentioned.profile?.displayName ||
+                mentioned.profile?.name ||
+                nip19.npubEncode(pk).slice(0, 12) + '…';
+              mentionNames.set(pk, handle);
+            } catch {
+              // Unresolvable mention: the builder drops it.
+            }
+          })
+        );
+        const notePreview = buildNotePreview(noteContent, { mentionNames });
 
         // First image in the quoted note, so the embed can show a media
         // preview rather than only stripped text.
@@ -5933,6 +5931,9 @@
     margin: 0 0 0.375rem 0;
     overflow-wrap: anywhere;
     word-break: break-word;
+    /* The preview keeps the author's paragraph breaks (see $lib/notePreview);
+       the line-clamp below still caps the visible height. */
+    white-space: pre-wrap;
     display: -webkit-box;
     -webkit-line-clamp: 6;
     line-clamp: 6;
