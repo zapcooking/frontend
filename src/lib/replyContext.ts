@@ -82,17 +82,49 @@ export function isReply(event: NDKEvent): boolean {
 }
 
 /**
- * Does this event belong in a profile's Replies tab (and so not in Posts)?
+ * Is this kind-1/1068 note part of a thread (a reply, not a top-level post)?
  *
- * A kind-1 reply, or a NIP-22 comment rooted on a nostr event. For a
- * comment the root-scope predicate decides alone: an `I`-rooted comment
- * also carries a lowercase `e` (its parent), so letting `isReply` speak
- * for it would file external web-page comments under the author's
- * Replies — and a comment with no root scope at all belongs nowhere.
+ * Stricter than `isReply`: only kinds 1 and 1068 qualify (a kind-6 repost
+ * wrapper carries an `e` for the reposted note but is not a reply), empty
+ * `e` values are ignored, and a note whose only `e` tags are marked
+ * `mention` is a quote, not a reply. This is the predicate the feed uses
+ * to split Posts from Replies.
+ */
+export function isThreadReply(event: NDKEvent): boolean {
+  if (event.kind !== 1 && event.kind !== 1068) return false;
+
+  const eTags = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'e' && tag[1]);
+  if (eTags.length === 0) return false; // No e tags = top-level
+
+  // Any marker other than `mention` (reply, root, none, unknown) counts.
+  return eTags.some((tag) => tag[3]?.toLowerCase() !== 'mention');
+}
+
+/**
+ * Does this event belong in a profile's Replies tab?
+ *
+ * A kind-1/1068 thread reply, or a NIP-22 comment rooted on a nostr event.
+ * For a comment the root-scope predicate decides alone: an `I`-rooted
+ * comment also carries a lowercase `e` (its parent), so letting the `e`
+ * test speak for it would file external web-page comments under the
+ * author's Replies — and a comment with no root scope at all belongs
+ * nowhere.
  */
 export function isReplyForScope(event: NDKEvent): boolean {
   if (event.kind === 1111) return isEventRootedComment(event);
-  return isReply(event);
+  return isThreadReply(event);
+}
+
+/**
+ * Does this event belong in a profile's Posts tab?
+ *
+ * Not simply `!isReplyForScope`: kind-1111 comments never count as posts,
+ * whatever they are rooted on, so external (`I`) and unscoped comments
+ * fall out of both tabs rather than surfacing as top-level notes.
+ */
+export function isTopLevelForScope(event: NDKEvent): boolean {
+  if (event.kind === 1111) return false;
+  return !isThreadReply(event);
 }
 
 /**

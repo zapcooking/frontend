@@ -99,6 +99,18 @@ describe('getReplyParentId (NIP-22)', () => {
     const e = ev('c', [['E', 'article'], ['e', 'quoted', '', 'mention']], { kind: 1111 });
     expect(getReplyParentId(e)).toBe('article');
   });
+
+  it('falls back to the root past an empty-valued e tag', () => {
+    // The profile feed's parent embed reads a comment's parent through
+    // this function, so a blank `e` must not blank out the embed.
+    const e = ev('c', [['e', ''], ['E', 'rootnote'], ['K', '1']], { kind: 1111 });
+    expect(getReplyParentId(e)).toBe('rootnote');
+  });
+
+  it('has no event parent for an addressable-root comment with no e/E', () => {
+    const e = ev('c', [['A', '30023:pk:d'], ['a', '30023:pk:d'], ['K', '30023']], { kind: 1111 });
+    expect(getReplyParentId(e)).toBeNull();
+  });
 });
 
 describe('getThreadRootId', () => {
