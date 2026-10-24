@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCoordinate, formatCoordinate } from './coordinate';
+import { parseCoordinate, formatCoordinate, newRecipeIdentifier } from './coordinate';
 import vectors from '../test/fixtures/coordinate.vectors.json';
 
 describe('parseCoordinate (shared vectors)', () => {
@@ -21,4 +21,12 @@ describe('parseCoordinate (shared vectors)', () => {
     expect(parseCoordinate(30023)).toBeNull();
     expect(parseCoordinate(['30023'])).toBeNull();
   });
+});
+
+describe('newRecipeIdentifier (shared vectors)', () => {
+  for (const v of vectors.newRecipeIdentifier) {
+    it(v.id, () => {
+      expect(newRecipeIdentifier(v.title)).toBe(v.expected);
+    });
+  }
 });

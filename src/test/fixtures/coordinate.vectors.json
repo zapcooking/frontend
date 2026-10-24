@@ -124,5 +124,37 @@
       "input": null,
       "expected": null
     }
+  ],
+  "newRecipeIdentifier": [
+    {
+      "id": "plain",
+      "title": "Caponata",
+      "expected": "caponata"
+    },
+    {
+      "id": "spaces",
+      "title": "Weeknight Pasta Bake",
+      "expected": "weeknight-pasta-bake"
+    },
+    {
+      "id": "title-colon",
+      "title": "Pasta: Weeknight",
+      "expected": "pasta-weeknight"
+    },
+    {
+      "id": "spaced-colon",
+      "title": "Soup : Hot",
+      "expected": "soup--hot"
+    },
+    {
+      "id": "many-colons",
+      "title": "A:B:C",
+      "expected": "abc"
+    },
+    {
+      "id": "other-punctuation-unchanged",
+      "title": "Mom's Pie",
+      "expected": "mom's-pie"
+    }
   ]
 }

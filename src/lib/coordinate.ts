@@ -41,3 +41,13 @@ export function parseCoordinate(a: unknown): Coordinate | null {
 export function formatCoordinate(c: { kind: number | string; pubkey: string; identifier: string }): string {
   return `${c.kind}:${c.pubkey}:${c.identifier}`;
 }
+
+/**
+ * The `d` tag a NEW recipe gets from its title. Colons are stripped so new
+ * coordinates stay readable by parsers outside the app that split on every
+ * colon. Never applied to an existing recipe: changing its `d` would orphan
+ * every list, pack, plan, zap and comment that points at the old address.
+ */
+export function newRecipeIdentifier(title: string): string {
+  return title.toLowerCase().replaceAll(' ', '-').replaceAll(':', '');
+}
