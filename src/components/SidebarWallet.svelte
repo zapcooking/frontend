@@ -165,7 +165,7 @@
                   ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)}
                   {$stableBalance.label}
                 {:else}
-                  $*** {$stableBalance.label}
+                  $••• {$stableBalance.label}
                 {/if}
               </div>
             {:else}
@@ -284,9 +284,14 @@
     flex-shrink: 0;
   }
 
-  /* Balance number + unit on one baseline-aligned row. Flex (not inline)
-     so the unit can't wrap under the number; the row clips rather than
-     grows if a value is ever too wide for the card. */
+  /* Balance number + unit on one baseline-aligned row. Baseline (not
+     center) matters here: center-alignment lifts the unit's caps ~1px
+     off the number's baseline and reads as "SATS too high". The hidden
+     mask is "•••" — bullet dots whose ink centers sit at the same
+     height above the baseline as digits, so the hidden row keeps the
+     visible row's alignment without any optical correction. Flex (not
+     inline) so the unit can't wrap under the number; the row clips
+     rather than grows if a value is ever too wide for the card. */
   .balance-line {
     display: flex;
     align-items: baseline;
@@ -329,12 +334,14 @@
     cursor: default;
   }
 
-  /* Sibling action cluster: pinned over the card's top-right corner.
-     Transparent hit-area between the buttons so they read as part of
-     the card, but clicks land on the buttons, never the card beneath. */
+  /* Sibling action cluster: pinned to the card's right edge, vertically
+     centered on the balance row. Transparent hit-area between the
+     buttons so they read as part of the card, but clicks land on the
+     buttons, never the card beneath. */
   .card-actions {
     position: absolute;
-    top: 5px;
+    top: 50%;
+    transform: translateY(-50%);
     right: 6px;
     display: flex;
     align-items: center;

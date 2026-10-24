@@ -3102,7 +3102,7 @@
                 {#if $displayCurrency === 'SATS' || weblnBalance === null}
                   &nbsp;
                 {:else if !$balanceVisible}
-                  ***
+                  •••
                 {:else}
                   {formatBalance(weblnBalance)} sats
                 {/if}
@@ -3184,7 +3184,7 @@
                 {#if $displayCurrency === 'SATS' || $bitcoinConnectBalance === null}
                   &nbsp;
                 {:else if !$balanceVisible}
-                  ***
+                  •••
                 {:else}
                   {formatBalance($bitcoinConnectBalance)} sats
                 {/if}
@@ -3266,7 +3266,7 @@
                       {#if $balanceVisible}
                         ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)} {$stableBalance.label}
                       {:else}
-                        $*** {$stableBalance.label}
+                        $••• {$stableBalance.label}
                       {/if}
                     </span>
                   {:else if $walletBalance === null}
@@ -3296,7 +3296,7 @@
                     {:else if $displayCurrency === 'SATS' || $walletBalance === null}
                       &nbsp;
                     {:else if !$balanceVisible}
-                      ***
+                      •••
                     {:else}
                       {formatBalance($walletBalance)} sats
                     {/if}
@@ -4463,7 +4463,7 @@
                           {#if $balanceVisible}
                             -{tx.amount.toLocaleString()} sats
                           {:else}
-                            -*** sats
+                            -••• sats
                           {/if}
                         </div>
                       </div>
@@ -4508,7 +4508,7 @@
                           {#if $balanceVisible}
                             -{tx.amount.toLocaleString()} sats
                           {:else}
-                            -*** sats
+                            -••• sats
                           {/if}
                         </div>
                       </div>
@@ -4573,7 +4573,7 @@
                         {#if $balanceVisible}
                           {tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                         {:else}
-                          {tx.type === 'incoming' ? '+' : '-'}*** {tx.asset?.ticker || 'sats'}
+                          {tx.type === 'incoming' ? '+' : '-'}••• {tx.asset?.ticker || 'sats'}
                         {/if}
                       </div>
                     </div>
@@ -4633,7 +4633,7 @@
                           {#if $balanceVisible}
                             {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                           {:else}
-                            {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}*** {tx.asset?.ticker || 'sats'}
+                            {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}••• {tx.asset?.ticker || 'sats'}
                           {/if}
                         </div>
                         <CaretDownIcon
