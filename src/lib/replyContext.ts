@@ -6,8 +6,14 @@
  */
 
 import type NDK from '@nostr-dev-kit/ndk';
-import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
+import { isEventRootedComment } from './thread/replyParent';
+
+// NDKFilter's kind list defaults to the NDKKind enum, which predates kind
+// 1111; instantiating the generic keeps comment kinds assignable (same as
+// commentFilters.ts).
+type FetchFilter = NDKFilter<number>;
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -73,6 +79,52 @@ export function getParentNoteId(event: NDKEvent): string | null {
  */
 export function isReply(event: NDKEvent): boolean {
   return event.tags.some(tag => Array.isArray(tag) && tag[0] === 'e');
+}
+
+/**
+ * Is this kind-1/1068 note part of a thread (a reply, not a top-level post)?
+ *
+ * Stricter than `isReply`: only kinds 1 and 1068 qualify (a kind-6 repost
+ * wrapper carries an `e` for the reposted note but is not a reply), empty
+ * `e` values are ignored, and a note whose only `e` tags are marked
+ * `mention` is a quote, not a reply. This is the predicate the feed uses
+ * to split Posts from Replies.
+ */
+export function isThreadReply(event: NDKEvent): boolean {
+  if (event.kind !== 1 && event.kind !== 1068) return false;
+
+  const eTags = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'e' && tag[1]);
+  if (eTags.length === 0) return false; // No e tags = top-level
+
+  // Any marker other than `mention` (reply, root, none, unknown) counts.
+  return eTags.some((tag) => tag[3]?.toLowerCase() !== 'mention');
+}
+
+/**
+ * Does this event belong in a profile's Replies tab?
+ *
+ * A kind-1/1068 thread reply, or a NIP-22 comment rooted on a nostr event.
+ * For a comment the root-scope predicate decides alone: an `I`-rooted
+ * comment also carries a lowercase `e` (its parent), so letting the `e`
+ * test speak for it would file external web-page comments under the
+ * author's Replies — and a comment with no root scope at all belongs
+ * nowhere.
+ */
+export function isReplyForScope(event: NDKEvent): boolean {
+  if (event.kind === 1111) return isEventRootedComment(event);
+  return isThreadReply(event);
+}
+
+/**
+ * Does this event belong in a profile's Posts tab?
+ *
+ * Not simply `!isReplyForScope`: kind-1111 comments never count as posts,
+ * whatever they are rooted on, so external (`I`) and unscoped comments
+ * fall out of both tabs rather than surfacing as top-level notes.
+ */
+export function isTopLevelForScope(event: NDKEvent): boolean {
+  if (event.kind === 1111) return false;
+  return !isThreadReply(event);
 }
 
 /**
@@ -156,11 +208,12 @@ export async function prefetchReplyContexts(
   }
   
   try {
-    // Batch fetch parent notes
+    // Batch fetch parent notes. A NIP-22 comment's parent can be another
+    // comment, so kind 1111 is included alongside kind 1.
     const parentNotes = await ndk.fetchEvents({
-      kinds: [1],
+      kinds: [1, 1111],
       ids: Array.from(parentIds).slice(0, 100)
-    });
+    } as FetchFilter);
     
     const noteMap = new Map<string, NDKEvent>();
     const authorPubkeys = new Set<string>();
@@ -269,9 +322,9 @@ export async function fetchReplyContext(
   
   try {
     const note = await ndk.fetchEvent({
-      kinds: [1],
+      kinds: [1, 1111],
       ids: [noteId]
-    });
+    } as FetchFilter);
     
     if (!note) {
       const context: ReplyContext = {
