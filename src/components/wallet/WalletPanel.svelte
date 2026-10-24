@@ -6351,7 +6351,7 @@
             <div class="text-sm text-caption mb-2">Send only Bitcoin to this address:</div>
 
             <!-- QR Code -->
-            <div class="qr-wrapper mx-auto p-4 rounded-xl bg-white max-w-xs w-full">
+            <div class="qr-wrapper receive-qr mx-auto p-4 rounded-xl bg-white max-w-xs w-full">
               <svg
                 class="w-full"
                 use:qr={{
@@ -6731,7 +6731,7 @@
 
             <!-- QR Code -->
             {#if generatedInvoice && generatedInvoice.length > 0}
-              <div class="qr-wrapper mx-auto p-4 rounded-xl bg-white max-w-xs w-full">
+              <div class="qr-wrapper receive-qr mx-auto p-4 rounded-xl bg-white max-w-xs w-full">
                 <svg
                   class="w-full"
                   use:qr={{
@@ -7032,6 +7032,34 @@
       padding-right: 1.5rem;
       padding-top: 2rem;
       padding-bottom: 2rem;
+    }
+  }
+  /* Receive-view QR: a Lightning invoice at error-correction H is a lot of
+     modules, and the QR at natural size plus the badge, invoice text, and
+     action buttons overflowed the mobile panel — the white card hung past
+     the panel edge and the buttons landed under the bottom nav. Cap the
+     whole card to the scroll viewport so everything stays inside the panel:
+     the QR shrinks (its svg keeps the viewBox aspect), and the leftover
+     space goes to the content below. Only needed where the panel is
+     height-constrained (mobile inset panel); desktop's 780px dialog fits
+     the natural size. */
+  .receive-qr {
+    max-width: min(16rem, 100%);
+  }
+  .receive-qr svg {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    display: block;
+  }
+  @media (max-width: 1023.98px) {
+    .receive-qr {
+      /* 390px phone: panel height ≈ 100dvh - header - nav ≈ 640px.
+         Heading (~30) + amount (~28) + QR + badge (~40) + invoice box
+         (~120) + buttons (~56) + gaps/padding (~120) — the QR gets what
+         remains, capped so the rest of the flow stays visible without
+         scrolling under the nav. */
+      max-width: min(13.5rem, 100%);
     }
   }
   /* Panel root becomes a flex column filling the modal body so the
