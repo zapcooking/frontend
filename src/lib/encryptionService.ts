@@ -722,7 +722,9 @@ function coerceDecryptResult(value: unknown, methodLabel: string): string {
 }
 
 /**
- * Decrypt via browser signer (window.nostr) or NDK signer (NIP-46).
+ * Decrypt via the session's signer, chosen by auth method: NIP-46 remote
+ * signer, NIP-07 extension (window.nostr), or nothing for local-key sessions
+ * (decrypt() already tried the key).
  * Called inside the sequential queue so only one request hits the signer at a time.
  *
  * Honors the caller-supplied `method` exactly — we do NOT silently fall back
@@ -746,30 +748,42 @@ async function decryptViaSigner(
   const nostr = (window as any).nostr;
   const ndkInstance = get(ndk);
   const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
-
-  // NIP-07 path: drive through window.nostr when the requested method is
-  // actually exposed. NIP-44 and NIP-04 are optional in NIP-07; an extension
-  // can expose one, both, or neither. Missing-method is treated as "fall
-  // through to the next path", not as a silent skip-then-try-the-wrong-method.
-  if (method === 'nip44' && typeof nostr?.nip44?.decrypt === 'function') {
-    const raw = await nostr.nip44.decrypt(senderPubkey, ciphertext);
-    return coerceDecryptResult(raw, 'nip44');
-  }
-  if (method === 'nip04' && typeof nostr?.nip04?.decrypt === 'function') {
-    const raw = await nostr.nip04.decrypt(senderPubkey, ciphertext);
-    return coerceDecryptResult(raw, 'nip04');
-  }
+  const kind = getSignerKind();
 
   // NIP-46 remote signer path: NIP-44 via raw RPC, NIP-04 via NDK's decrypt().
-  if (signer && getSignerKind() === 'nip46') {
-    const sender = new NDKUser({ pubkey: senderPubkey });
-    const nip46Signer = signer as unknown as NDKNip46Signer;
-    if (method === 'nip44') {
-      const raw = await nip44DecryptViaNip46(nip46Signer, senderPubkey, ciphertext);
+  // Chosen by auth method, never window.nostr-first: an installed extension
+  // holds whatever key it was set up with, not necessarily this account's.
+  if (kind === 'nip46') {
+    if (signer) {
+      const sender = new NDKUser({ pubkey: senderPubkey });
+      const nip46Signer = signer as unknown as NDKNip46Signer;
+      if (method === 'nip44') {
+        const raw = await nip44DecryptViaNip46(nip46Signer, senderPubkey, ciphertext);
+        return coerceDecryptResult(raw, 'nip44');
+      }
+      if (method === 'nip04' && typeof signer.decrypt === 'function') {
+        const raw = await signer.decrypt(sender, ciphertext);
+        return coerceDecryptResult(raw, 'nip04');
+      }
+    }
+  } else if (kind === 'local') {
+    // decrypt() already tried the session key; asking an extension would
+    // decrypt under a different identity (or prompt for nothing).
+    throw new Error(
+      'Could not decrypt with your private key. This content may have been encrypted for a different key.'
+    );
+  } else {
+    // NIP-07 (or auth method not known yet): drive through window.nostr when
+    // the requested method is actually exposed. NIP-44 and NIP-04 are
+    // optional in NIP-07; an extension can expose one, both, or neither.
+    // Missing-method is treated as "fall through to the error below", not as
+    // a silent skip-then-try-the-wrong-method.
+    if (method === 'nip44' && typeof nostr?.nip44?.decrypt === 'function') {
+      const raw = await nostr.nip44.decrypt(senderPubkey, ciphertext);
       return coerceDecryptResult(raw, 'nip44');
     }
-    if (method === 'nip04' && typeof signer.decrypt === 'function') {
-      const raw = await signer.decrypt(sender, ciphertext);
+    if (method === 'nip04' && typeof nostr?.nip04?.decrypt === 'function') {
+      const raw = await nostr.nip04.decrypt(senderPubkey, ciphertext);
       return coerceDecryptResult(raw, 'nip04');
     }
   }

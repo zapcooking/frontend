@@ -247,6 +247,43 @@ describe('encrypt/decrypt routing with mangled class names', () => {
     expect(nip44DecryptViaNip46).toHaveBeenCalledTimes(1);
   });
 
+  it('nip46: decrypt uses the remote signer even with an extension installed', async () => {
+    fakeAuth.method = 'nip46';
+    fakeNdk.signer = mangledRemoteSigner();
+    const extDecrypt = vi.fn(async () => 'extension-pt');
+    (globalThis as any).window = {
+      nostr: { nip44: { decrypt: extDecrypt }, nip04: { decrypt: extDecrypt } }
+    };
+
+    await expect(decrypt(RECIPIENT, 'ct-44', 'nip44')).resolves.toBe('nip46-pt');
+    await expect(decrypt(RECIPIENT, 'ct-04?iv=x', 'nip04')).resolves.toBe('nip04-pt');
+    expect(nip44DecryptViaNip46).toHaveBeenCalledTimes(1);
+    expect(extDecrypt).not.toHaveBeenCalled();
+  });
+
+  it('nip07: decrypt uses the extension', async () => {
+    fakeAuth.method = 'nip07';
+    fakeNdk.signer = {};
+    store.set('nostrcooking_privateKey', STALE_KEY);
+    const extDecrypt = vi.fn(async () => 'extension-pt');
+    (globalThis as any).window = { nostr: { nip44: { decrypt: extDecrypt } } };
+
+    await expect(decrypt(RECIPIENT, 'ct', 'nip44')).resolves.toBe('extension-pt');
+    expect(nip44DecryptViaNip46).not.toHaveBeenCalled();
+  });
+
+  it('passkey: a failed local decrypt never falls back to the extension', async () => {
+    fakeAuth.method = 'passkey';
+    fakeNdk.signer = mangledLocalSigner(fixture.nsecHex);
+    const extDecrypt = vi.fn(async () => 'extension-pt');
+    (globalThis as any).window = { nostr: { nip44: { decrypt: extDecrypt } } };
+
+    await expect(decrypt(RECIPIENT, 'not-for-this-key', 'nip44')).rejects.toThrow(
+      /Could not decrypt with your private key/
+    );
+    expect(extDecrypt).not.toHaveBeenCalled();
+  });
+
   it('nip07: encrypt uses the extension, not a stale stored key', async () => {
     fakeAuth.method = 'nip07';
     fakeNdk.signer = {};
