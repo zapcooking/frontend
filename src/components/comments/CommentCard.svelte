@@ -283,6 +283,7 @@
                 <ReplyComposer
                   parentEvent={rootEvent}
                   replyTo={event}
+                  draftKey={event.id}
                   placeholder="Write a reply..."
                   submitLabel="Reply"
                   showCancel

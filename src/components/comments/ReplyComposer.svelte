@@ -471,11 +471,34 @@
 	 * finishes the post on its own, and the mine survives the thread being
 	 * left. Stopped or failed, the service writes the draft back through
 	 * $lib/replyDraftStore — the same store this composer restores from on
-	 * mount — so the words come back when the reply box reopens.
+	 * mount — so the words come back when the reply box reopens; a host that
+	 * keeps this composer mounted gets them back in place (restoreHandedOff).
 	 * saveDraft()'s guard above keeps blur from snapshotting mid-hand-off.
 	 */
 
+	let destroyed = false;
+
+	/**
+	 * Take a stopped or failed mine's words back in place. For hosts that keep
+	 * this composer mounted through the hand-off (a thread's permanent reply
+	 * box) and so never remount to read the store; a host that closes on
+	 * `close` has destroyed this instance and gets the store write instead.
+	 * Only while this composer still answers the same note and is still empty
+	 * — never over a newer reply the reader has started here.
+	 */
+	function restoreHandedOff(targetId: string, returned: ReplyDraft): boolean {
+		if (destroyed || (replyTo ?? parentEvent).id !== targetId) return false;
+		if (composerText.trim() || media.length > 0 || pollConfig) return false;
+		// Same render path as the failure branch below: lastRendered is still
+		// '' from clearState, so the reactive sync repaints the editor.
+		media = [...returned.media];
+		pollConfig = returned.poll;
+		composerText = returned.text;
+		return true;
+	}
+
 	onDestroy(() => {
+		destroyed = true;
 		// Clears any pending mention-search timeout so it can't fire after
 		// unmount and trigger state updates on a destroyed component.
 		mentionCtrl.destroy();
@@ -641,13 +664,10 @@
 			if (capturedPollConfig) {
 				extraTags.push(...buildPollTags(capturedPollConfig));
 			}
-
-			if (capturedPollConfig) {
-				extraTags.push(...buildPollTags(capturedPollConfig));
-			}
 			const contentKind = capturedPollConfig ? 1068 : undefined;
 
 			if (powBits) {
+				const handedOffTarget = (replyTo ?? parentEvent).id;
 				// Hand the mine off and get out of the way: the service mines,
 				// signs and publishes on its own and reports into the floating
 				// indicator. The draft on disk is still exactly what was handed
@@ -663,7 +683,8 @@
 					bits: powBits,
 					draft: draftSnapshot,
 					pubkey: $userPublickey || '',
-					onPosted
+					onPosted,
+					restoreInPlace: (returned) => restoreHandedOff(handedOffTarget, returned)
 				});
 				dispatch('close');
 				return;
