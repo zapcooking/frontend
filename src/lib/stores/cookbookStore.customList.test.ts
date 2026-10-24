@@ -165,6 +165,13 @@ beforeEach(() => {
   ndk.set(fakeNdk() as unknown as NDK);
   userPublickey.set(PUBKEY);
   published = [];
+  // List edits sign before publishing (signWithin): sign as the signed-in member.
+  vi.spyOn(NDKEvent.prototype, 'sign').mockImplementation(async function (this: NDKEvent) {
+    this.pubkey = get(userPublickey);
+    this.id = `signed-${this.created_at}`;
+    this.sig = 'sig';
+    return 'sig';
+  });
   vi.spyOn(NDKEvent.prototype, 'publish').mockImplementation(async function (this: NDKEvent) {
     published.push({ tags: this.tags.map((t) => [...t]), created_at: this.created_at });
     return new Set() as never;
@@ -391,5 +398,264 @@ describe('offline: the change is queued, not a snapshot of local state', () => {
     expect(recipesIn(published[0])).toEqual([R('r1'), R('r2'), R('r3')]);
     expect(published[0].tags).toContainEqual(['cover', R('r1')]);
     expect(published[0].tags).toContainEqual(FOREIGN);
+  });
+});
+
+// ── Signing is bounded (#888 ruling 1) ──────────────────────────
+import { NDKNip07Signer, NDKNip46Signer, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
+import { SIGNER_TIMEOUT_MESSAGE } from './cookbookStore';
+import { NIP07_SIGN_TIMEOUT_MS, NIP46_SIGN_TIMEOUT_MS, signerTimeoutMs } from '$lib/savedList';
+
+/** A remote signer of `kind` that signs after `ms` (never when null). */
+function remoteSigner(kind: typeof NDKNip07Signer | typeof NDKNip46Signer, ms: number | null) {
+  const signer = Object.create(kind.prototype) as {
+    user: () => Promise<{ pubkey: string }>;
+    sign: (e: unknown) => Promise<string>;
+    signed: number;
+  };
+  signer.signed = 0;
+  signer.user = async () => ({ pubkey: PUBKEY });
+  signer.sign = () =>
+    new Promise((resolve) => {
+      if (ms !== null)
+        setTimeout(() => {
+          signer.signed++;
+          resolve('f'.repeat(128));
+        }, ms);
+    });
+  return signer;
+}
+
+/** Advance fake time until `p` settles or `limitMs` passes; null = still pending. */
+async function within<T>(p: Promise<T>, limitMs: number): Promise<{ ms: number; value?: T } | null> {
+  const t0 = Date.now();
+  let done = false;
+  let value: T | undefined;
+  p.then((v) => ((done = true), (value = v)));
+  while (!done && Date.now() - t0 < limitMs) await vi.advanceTimersByTimeAsync(250);
+  return done ? { ms: Date.now() - t0, value } : null;
+}
+
+describe('signing a list edit is bounded', () => {
+  beforeEach(() => {
+    vi.mocked(NDKEvent.prototype.sign).mockRestore();
+    const ev = listEvent(1000, [R('r1')]);
+    net.relays = { [NOS]: { [D]: ev }, [PRIMAL]: { [D]: ev }, [NET]: { [D]: ev } };
+  });
+  const useSigner = (s: unknown) => ((get(ndk) as { signer?: unknown }).signer = s);
+
+  it('bounds: extension 30 s, bunker 60 s, local key none', () => {
+    expect(signerTimeoutMs(Object.create(NDKNip07Signer.prototype))).toBe(NIP07_SIGN_TIMEOUT_MS);
+    expect(signerTimeoutMs(Object.create(NDKNip46Signer.prototype))).toBe(NIP46_SIGN_TIMEOUT_MS);
+    expect(signerTimeoutMs(NDKPrivateKeySigner.generate())).toBeNull();
+    expect(NIP07_SIGN_TIMEOUT_MS).toBe(30_000);
+    expect(NIP46_SIGN_TIMEOUT_MS).toBe(60_000);
+  });
+
+  it('an extension that never answers: refused with the signer message at 30 s, and the queue moves on', async () => {
+    useSigner(remoteSigner(NDKNip07Signer, null));
+    const r = await within(cookbookStore.editList(D, { add: [R('r2')] }), 120_000);
+    expect(r?.value).toEqual({ ok: false, message: SIGNER_TIMEOUT_MESSAGE });
+    expect(r!.ms).toBeGreaterThanOrEqual(30_000);
+    expect(r!.ms).toBeLessThan(31_000);
+    expect(published).toHaveLength(0);
+    // The next edit is not stuck behind it.
+    useSigner(remoteSigner(NDKNip07Signer, 100));
+    const next = await within(cookbookStore.editList(D, { add: [R('r3')] }), 5_000);
+    expect(next?.value).toMatchObject({ ok: true, changed: true });
+    expect(published).toHaveLength(1);
+  });
+
+  it('a bunker that signs after its 60 s bound: refused, and the late signature is never published', async () => {
+    const signer = remoteSigner(NDKNip46Signer, 61_000);
+    useSigner(signer);
+    const r = await within(cookbookStore.editList(D, { add: [R('r2')] }), 120_000);
+    expect(r?.value).toEqual({ ok: false, message: SIGNER_TIMEOUT_MESSAGE });
+    expect(r!.ms).toBeGreaterThanOrEqual(60_000);
+    expect(r!.ms).toBeLessThan(61_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(signer.signed).toBe(1); // the signature did arrive…
+    expect(published).toHaveLength(0); // …and went nowhere
+  });
+
+  it('a bunker that signs within its bound (45 s): saved', async () => {
+    useSigner(remoteSigner(NDKNip46Signer, 45_000));
+    const r = await within(cookbookStore.editList(D, { add: [R('r2')] }), 120_000);
+    expect(r?.value).toMatchObject({ ok: true, changed: true });
+    expect(published).toHaveLength(1);
+  });
+
+  it('each relay gets 8 s to acknowledge the edit', async () => {
+    useSigner(remoteSigner(NDKNip07Signer, 10));
+    await within(cookbookStore.editList(D, { add: [R('r2')] }), 5_000);
+    expect(vi.mocked(NDKEvent.prototype.publish).mock.calls[0]?.[1]).toBe(8000);
+  });
+
+  it('a local key signs with no timer', async () => {
+    const signer = NDKPrivateKeySigner.generate();
+    PUBKEY = (await signer.user()).pubkey;
+    userPublickey.set(PUBKEY);
+    useSigner(signer);
+    const ev = { ...listEvent(1000, [R('r1')]) };
+    net.relays = { [NOS]: { [D]: ev }, [PRIMAL]: { [D]: ev }, [NET]: { [D]: ev } };
+    seedStore(ev);
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    const r = await within(cookbookStore.editList(D, { add: [R('r2')] }), 20_000);
+    expect(r?.value).toMatchObject({ ok: true, changed: true });
+    expect(spy.mock.calls.some((c: unknown[]) => c[1] === NIP07_SIGN_TIMEOUT_MS || c[1] === NIP46_SIGN_TIMEOUT_MS)).toBe(false);
+  });
+});
+
+// ── An unacknowledged publish is checked, never called "nothing changed" (#888 ruling 3) ──
+import { LIST_SAVE_UNCONFIRMED_MESSAGE, LIST_PUBLISH_FAILED_MESSAGE } from './cookbookStore';
+import { relaySetForUrls } from '$lib/nip65Routing';
+
+describe('a publish no relay acknowledged', () => {
+  const base = () => listEvent(1000, [R('r1')]);
+  beforeEach(() => {
+    const ev = base();
+    net.relays = { [NOS]: { [D]: ev }, [PRIMAL]: { [D]: ev }, [NET]: { [D]: ev } };
+  });
+  /** The next publish times out on every relay; `store` puts what a relay actually kept. */
+  function publishTimesOut(store?: (sent: Stored) => Stored | null) {
+    vi.mocked(NDKEvent.prototype.publish).mockImplementationOnce(async function (this: NDKEvent) {
+      const sent = { id: this.id, created_at: this.created_at!, tags: this.tags.map((t) => [...t]), content: this.content };
+      published.push(sent);
+      const kept = store?.(sent);
+      if (kept) (net.relays[NOS] as Record<string, Stored>)[D] = kept;
+      throw new Error('Not enough relays received the event');
+    });
+  }
+
+  it('our event is on a relay: saved', async () => {
+    publishTimesOut((sent) => sent);
+    const r = await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    expect(r).toEqual({ ok: true, changed: true, added: 1 });
+    expect(recipesIn(get(cookbookStore).lists.find((l) => l.id === D)!.event)).toEqual([R('r1'), R('r2')]);
+  });
+
+  it('a newer copy that already has the change: saved', async () => {
+    publishTimesOut((sent) => ({ ...listEvent(sent.created_at + 5, [R('r1'), R('r2'), R('r9')]), id: 'other-device' }));
+    const r = await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    expect(r).toMatchObject({ ok: true });
+    expect(recipesIn(get(cookbookStore).lists.find((l) => l.id === D)!.event)).toContain(R('r9'));
+  });
+
+  it('a newer copy without the change: unconfirmed, with Refresh (never "nothing was changed")', async () => {
+    publishTimesOut((sent) => ({ ...listEvent(sent.created_at + 5, [R('r1'), R('r9')]), id: 'other-device' }));
+    const r = await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    expect(r).toEqual({ ok: false, uncertain: true, message: LIST_SAVE_UNCONFIRMED_MESSAGE });
+  });
+
+  it('no relay has it: unconfirmed, with Refresh', async () => {
+    publishTimesOut();
+    const r = await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    expect(r).toEqual({ ok: false, uncertain: true, message: LIST_SAVE_UNCONFIRMED_MESSAGE });
+    expect(LIST_SAVE_UNCONFIRMED_MESSAGE).not.toMatch(/nothing was changed/);
+    expect(LIST_SAVE_UNCONFIRMED_MESSAGE).toBe("Couldn't confirm the save. Refresh to check.");
+  });
+
+  it('the next edit is strictly newer than the unconfirmed one', async () => {
+    publishTimesOut();
+    await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    await settle(cookbookStore.editList(D, { add: [R('r3')] }));
+    expect(published).toHaveLength(2);
+    expect(published[1].created_at!).toBeGreaterThan(published[0].created_at!);
+  });
+
+  it('Saved list: the same — unconfirmed, with Refresh', async () => {
+    const saved = { ...listEvent(1000, [R('r1')]), tags: [['d', 'nostrcooking-bookmarks'], ['title', 'Saved'], ['a', R('r1')]] };
+    net.relays = {
+      [NOS]: { 'nostrcooking-bookmarks': saved },
+      [PRIMAL]: { 'nostrcooking-bookmarks': saved },
+      [NET]: { 'nostrcooking-bookmarks': saved }
+    };
+    publishTimesOut();
+    const r = await settle(cookbookStore.editList('nostrcooking-bookmarks', { add: [R('r2')] }));
+    expect(r).toEqual({ ok: false, uncertain: true, message: LIST_SAVE_UNCONFIRMED_MESSAGE });
+  });
+
+  it('a failure before anything was sent still says nothing was changed', async () => {
+    vi.mocked(relaySetForUrls).mockRejectedValueOnce(new Error('no relays'));
+    const r = await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    expect(r).toEqual({ ok: false, message: LIST_PUBLISH_FAILED_MESSAGE });
+    expect(published).toHaveLength(0);
+  });
+});
+
+// ── Every `a` tag is written back verbatim (#888 ruling 5) ──────
+import { nip19 } from 'nostr-tools';
+import { coordinateAsWritten, parseCoordinate } from '$lib/coordinate';
+
+/** a-tag values the display skips (parseCoordinate → null). */
+const SKIPPED = [
+  `30023:npub1${'q'.repeat(58)}:npub-recipe`,
+  '30023:ABC:short-pubkey',
+  '30023::no-pubkey',
+  `30023:${'c'.repeat(64)}`,
+  'garbage'
+];
+/** Shown entries written in ways the app must not normalise. */
+const HINTED = ['a', R('hinted'), 'wss://relay.example'];
+const UPPER = ['a', `30023:${'C'.repeat(64)}:upper-hex`];
+
+function listWith(dTag: string) {
+  const ev = listEvent(1000, [R('r1')]);
+  ev.tags = ev.tags.map((t) => (t[0] === 'd' ? ['d', dTag] : t));
+  ev.tags.push(...SKIPPED.map((a) => ['a', a]), HINTED, UPPER, ['a', R('r2')]);
+  return ev;
+}
+const aTags = (e: { tags: string[][] }) => e.tags.filter((t) => t[0] === 'a');
+
+/**
+ * The list page's Manage Recipes, end to end: only parseable entries are
+ * shown (as naddrs), the member removes r1 and reverses the rest, and the
+ * page maps the naddrs back with coordinateAsWritten.
+ */
+function manageRecipes(ev: Stored) {
+  const shown = ev.tags.filter((t) => t[0] === 'a' && parseCoordinate(t[1])).map((t) => t[1]);
+  const naddrs = shown.filter((a) => a !== R('r1')).map((a) => nip19.naddrEncode(parseCoordinate(a)!));
+  const order = naddrs.reverse().map((n) => coordinateAsWritten(nip19.decode(n).data as nip19.AddressPointer, shown));
+  return {
+    add: order.filter((a) => !shown.includes(a)),
+    remove: shown.filter((a) => !order.includes(a)),
+    order
+  };
+}
+
+describe('every a tag is written back byte-for-byte', () => {
+  for (const which of ['custom', 'Saved'] as const) {
+    const dTag = which === 'custom' ? D : 'nostrcooking-bookmarks';
+    const edits: [string, (ev: Stored) => Promise<unknown>, string[]][] = [
+      ['add', () => cookbookStore.editList(dTag, { add: [R('r3')] }), []],
+      ['remove', () => cookbookStore.editList(dTag, { remove: [R('r1')] }), [R('r1')]],
+      ['details edit', () => cookbookStore.editList(dTag, { meta: { summary: 'new summary' } }), []],
+      ['Manage Recipes', (ev) => cookbookStore.editList(dTag, manageRecipes(ev)), [R('r1')]]
+    ];
+    for (const [name, run, removed] of edits) {
+      it(`${which} list, ${name}: every untouched a tag is kept exactly (hint, casing, unparseable values)`, async () => {
+        const ev = listWith(dTag);
+        net.relays = { [NOS]: { [dTag]: ev }, [PRIMAL]: { [dTag]: ev }, [NET]: { [dTag]: ev } };
+        const r = (await settle(run(ev) as Promise<{ ok: boolean }>)) as { ok: boolean };
+        expect(r.ok).toBe(true);
+        expect(published).toHaveLength(1);
+        const out = aTags(published[0]);
+        for (const t of aTags(ev).filter((t) => !removed.includes(t[1]))) {
+          expect(out.filter((o) => JSON.stringify(o) === JSON.stringify(t))).toHaveLength(1);
+        }
+        // Nothing but the added recipe is new.
+        const before = new Set(aTags(ev).map((t) => JSON.stringify(t)));
+        expect(out.filter((o) => !before.has(JSON.stringify(o)))).toEqual(name === 'add' ? [['a', R('r3')]] : []);
+      });
+    }
+  }
+
+  it('Manage Recipes: unparseable values keep their relative order, after the ordered ones', async () => {
+    const ev = listWith(D);
+    net.relays = { [NOS]: { [D]: ev }, [PRIMAL]: { [D]: ev }, [NET]: { [D]: ev } };
+    await settle(cookbookStore.editList(D, manageRecipes(ev)));
+    const values = aTags(published[0]).map((t) => t[1]);
+    expect(values.filter((v) => SKIPPED.includes(v))).toEqual(SKIPPED);
+    expect(values.slice(-SKIPPED.length)).toEqual(SKIPPED);
   });
 });

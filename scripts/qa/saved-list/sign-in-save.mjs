@@ -87,8 +87,9 @@ async function newContext() {
   const relayStatus = [];
   page.on('console', (m) => {
     const t = m.text();
-    if (t.includes('Saved list edit refused'))
-      relayStatus.push(t.replace(/^.*read incomplete /, ''));
+    // "List edit refused: …" since #885 (every list); "Saved list edit refused" before.
+    if (/(Saved )?[Ll]ist edit refused/.test(t))
+      relayStatus.push(t.replace(/^.*(read incomplete|refused:) /, ''));
   });
   const toasts = [];
   await page.exposeFunction('__qaToast', (t) => toasts.push(t));
@@ -241,6 +242,18 @@ async function assertSaved(
         console.log(`REFUSED (network)  ${label}  — ${relayStatus[0]}`);
       } else {
         check(`${label}: refused without publishing`, false, `${sent.size} sent`);
+      }
+      return;
+    }
+    if (toasts.some((t) => t.includes("Couldn't confirm the save"))) {
+      // Sent, but no relay acknowledged it and the check read didn't find it:
+      // visible (with Refresh) and safe as long as it went out once.
+      const once = sent.size === 1;
+      if (once) {
+        refusals.push(label);
+        console.log(`UNCONFIRMED (network)  ${label}  — sent once, no relay confirmed it`);
+      } else {
+        check(`${label}: unconfirmed after sending exactly once`, false, `${sent.size} sent`);
       }
       return;
     }
@@ -580,5 +593,5 @@ await browser.close();
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 if (refusals.length)
-  console.log(`refused on an incomplete relay read (safe; rerun): ${refusals.join(', ')}`);
+  console.log(`refused or unconfirmed on a bad network (safe; rerun): ${refusals.join(', ')}`);
 process.exit(failed ? 1 : refusals.length ? 2 : 0);

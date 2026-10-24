@@ -243,10 +243,17 @@ export function isMealPlanStrategy(value: unknown): value is MealPlanStrategy {
   return typeof value === 'string' && STRATEGY_SET.has(value);
 }
 
+/**
+ * `30023:<pubkey>:<d>` with a non-empty pubkey and d. Only the first two
+ * colons separate fields: the d-tag may contain colons (URL imports, older
+ * titles like `pasta:-weeknight`). Looser than parseCoordinate on purpose:
+ * the pubkey isn't checked for hex — the schema vectors shared with the
+ * apps use placeholder pubkeys, and this is the request contract.
+ */
 export function isRecipeCoordinate(a: unknown): a is string {
   if (typeof a !== 'string' || !a.startsWith(RECIPE_KIND_PREFIX)) return false;
-  const parts = a.split(':');
-  return parts.length === 3 && parts[1].length > 0 && parts[2].length > 0;
+  const second = a.indexOf(':', RECIPE_KIND_PREFIX.length);
+  return second > RECIPE_KIND_PREFIX.length && second < a.length - 1;
 }
 
 export function slotKey(day: MealPlanDayKey, slot: MealSlotKey): string {

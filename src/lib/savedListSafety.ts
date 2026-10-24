@@ -42,6 +42,12 @@
 import { NON_LIST_RELAYS } from './outboxRelays';
 
 export const SAVED_LIST_READ_TIMEOUT_MS = 5000;
+/**
+ * How long each relay has to acknowledge (OK) a list edit. NDK's default is
+ * 2.5 s, which a slow connection or a relay connected just for the edit can
+ * miss even when it stored the event.
+ */
+export const LIST_PUBLISH_OK_TIMEOUT_MS = 8000;
 export const MIN_EMPTY_ANSWERS = 2;
 
 /**
@@ -82,6 +88,21 @@ export function newestList(...lists: Array<ListEvent | null | undefined>): ListE
   return best;
 }
 
+/**
+ * The read quorum (see the top of this file): at least MIN_EMPTY_ANSWERS
+ * list-capable relays answered, and at least half of the member's own
+ * list-capable write relays. Silent relays and NON_EVIDENCE_RELAYS count
+ * for nothing.
+ */
+export function readQuorumMet(answers: ListRelayAnswer[], ownWrite: string[]): boolean {
+  const answered = new Set(answers.filter((a) => a.ok).map((a) => key(a.url)));
+  const evidence = [...answered].filter((u) => !NON_EVIDENCE.has(u));
+  const ownCapable = [...new Set(ownWrite.map(key))].filter((u) => !NON_EVIDENCE.has(u));
+  const ownAnswered = ownCapable.filter((u) => answered.has(u)).length;
+  const ownHalf = ownCapable.length === 0 || ownAnswered * 2 >= ownCapable.length;
+  return evidence.length >= MIN_EMPTY_ANSWERS && ownHalf;
+}
+
 export function decideSavedListBase(o: {
   answers: ListRelayAnswer[];
   /** The member's own write relays (kind 10002). */
@@ -94,15 +115,7 @@ export function decideSavedListBase(o: {
   fresh: boolean;
 }): SavedListDecision {
   if (o.fresh) return { ok: true, base: newestList(o.local, o.seen) };
-
-  const answered = new Set(o.answers.filter((a) => a.ok).map((a) => key(a.url)));
-  const evidence = [...answered].filter((u) => !NON_EVIDENCE.has(u));
-  const ownCapable = [...new Set(o.ownWrite.map(key))].filter((u) => !NON_EVIDENCE.has(u));
-  const ownAnswered = ownCapable.filter((u) => answered.has(u)).length;
-  const ownHalf = ownCapable.length === 0 || ownAnswered * 2 >= ownCapable.length;
-  if (evidence.length < MIN_EMPTY_ANSWERS || !ownHalf) {
-    return { ok: false, reason: 'unconfirmed' };
-  }
+  if (!readQuorumMet(o.answers, o.ownWrite)) return { ok: false, reason: 'unconfirmed' };
 
   const found = newestList(...o.answers.map((a) => a.list));
   return { ok: true, base: newestList(found, o.local, o.seen) };
@@ -148,9 +161,10 @@ export interface SavedListChange {
 }
 
 /**
- * The next version of the list: every tag of the base except its recipes
- * kept verbatim (title, cover, summary, image, `t`, other clients' tags),
- * recipes edited in place, created_at strictly after `floor`. With no base
+ * The next version of the list: every tag of the base kept verbatim (title,
+ * cover, summary, image, `t`, other clients' tags, and each recipe's `a` tag
+ * as written), recipes removed, added or reordered in place, created_at
+ * strictly after `floor`. With no base
  * (the list's first event), `initialTags` follow the d and title tags.
  */
 export function buildSavedListEdit(
@@ -174,26 +188,32 @@ export function buildSavedListEdit(
     if (value) others.push([name, value]);
   }
 
-  const before: string[] = [];
-  for (const t of baseTags) {
-    if (t[0] === 'a' && t[1] && !before.includes(t[1])) before.push(t[1]);
-  }
+  // Recipes are edited as the base's own `a` tags, each kept byte-for-byte
+  // (relay hint, original casing, duplicates, tags the app can't parse):
+  // only a recipe actually added is a new tag.
+  const baseA = baseTags.filter((t) => t[0] === 'a');
+  const valuesOf = (tags: string[][]) => [...new Set(tags.map((t) => t[1]).filter(Boolean))];
+  const before = valuesOf(baseA);
   const remove = new Set(change.remove ?? []);
-  let recipes = before.filter((a) => !remove.has(a));
+  let recipeTags = baseA.filter((t) => !remove.has(t[1]));
   let added = 0;
   for (const a of change.add ?? []) {
-    if (a && !recipes.includes(a)) {
-      recipes.push(a);
+    if (a && !recipeTags.some((t) => t[1] === a)) {
+      recipeTags.push(['a', a]);
       added++;
     }
   }
   if (change.order) {
     const rank = new Map(change.order.map((a, i) => [a, i]));
-    const ordered = recipes.filter((a) => rank.has(a)).sort((x, y) => rank.get(x)! - rank.get(y)!);
-    recipes = [...ordered, ...recipes.filter((a) => !rank.has(a))];
+    const ordered = recipeTags
+      .filter((t) => rank.has(t[1]))
+      .sort((x, y) => rank.get(x[1])! - rank.get(y[1])!);
+    recipeTags = [...ordered, ...recipeTags.filter((t) => !rank.has(t[1]))];
   }
+  const recipes = valuesOf(recipeTags);
 
-  const oldCover = baseTags.find((t) => t[0] === 'cover')?.[1];
+  const oldCoverTag = baseTags.find((t) => t[0] === 'cover');
+  const oldCover = oldCoverTag?.[1];
   let cover = oldCover;
   if (change.cover && recipes.includes(change.cover)) cover = change.cover;
   // The cover follows its recipe out of the list; a first recipe seeds it
@@ -202,12 +222,12 @@ export function buildSavedListEdit(
   if (!cover && before.length === 0 && recipes.length > 0) cover = recipes[0];
 
   const tags = [...others.map((t) => [...t])];
-  if (cover) tags.push(['cover', cover]);
-  for (const a of recipes) tags.push(['a', a]);
+  if (cover) tags.push(cover === oldCover && oldCoverTag ? [...oldCoverTag] : ['cover', cover]);
+  for (const t of recipeTags) tags.push([...t]);
 
   const changed =
-    recipes.length !== before.length ||
-    recipes.some((a, i) => a !== before[i]) ||
+    recipeTags.length !== baseA.length ||
+    recipeTags.some((t, i) => t !== baseA[i]) ||
     cover !== oldCover ||
     metaChanged;
 

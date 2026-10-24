@@ -14,6 +14,7 @@
    * Selection dispatches the coordinate + resolved title so the caller
    * can write the contract's denormalized `title` snapshot.
    */
+  import { parseCoordinate } from '$lib/coordinate';
   import { createEventDispatcher, onMount } from 'svelte';
   import { blur, scale } from 'svelte/transition';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
@@ -101,9 +102,9 @@
     if (missing.length > 0 && $isOnline && $ndk) {
       await Promise.all(
         missing.map(async (aTag) => {
-          const parts = aTag.split(':');
-          if (parts.length !== 3) return;
-          const [kind, pubkey, identifier] = parts;
+          const parsed = parseCoordinate(aTag);
+          if (!parsed) return;
+          const { kind, pubkey, identifier } = parsed;
           try {
             const e = await $ndk.fetchEvent({
               kinds: [Number(kind)],

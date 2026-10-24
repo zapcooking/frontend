@@ -24,8 +24,8 @@
   import CloudSlashIcon from 'phosphor-svelte/lib/CloudSlash';
   import { DEFAULT_LIST_ID, cookbookStore, getCookbookCoverImage, type CookbookList, type SavedListView } from '$lib/stores/cookbookStore';
   import type { SavedListChange } from '$lib/savedListSafety';
-  import { showToast } from '$lib/toast';
-  import { parseATag } from '$lib/listTags';
+  import { showListEditRefusal } from '$lib/listEditToast';
+  import { coordinateAsWritten, parseCoordinate } from '$lib/coordinate';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { writable, type Writable, get } from 'svelte/store';
   import ImageIcon from 'phosphor-svelte/lib/Image';
@@ -224,7 +224,7 @@
           
           // Online - fetch from Nostr and cache
           for (const tag of recipeTags) {
-            const parsed = parseATag(tag[1]);
+            const parsed = parseCoordinate(tag[1]);
             if (!parsed) continue;
             
             const { kind, pubkey, identifier } = parsed;
@@ -339,7 +339,7 @@
             const recipeTags = e.tags.filter(t => t[0] === 'a');
             
             for (const tag of recipeTags) {
-              const parsed = parseATag(tag[1]);
+              const parsed = parseCoordinate(tag[1]);
               if (!parsed) continue;
               
               const { kind, pubkey, identifier } = parsed;
@@ -389,6 +389,7 @@
   }
   
   async function saveCoverRecipe() {
+    if (isSubmitting) return;
     if (!event || !selectedCoverRecipeATag) {
       errorMessage = 'Please select a recipe to use as the cover image.';
       return;
@@ -403,7 +404,7 @@
         throw new Error('Invalid collection');
       }
 
-      if (await editThisList({ cover: selectedCoverRecipeATag })) {
+      if (await editThisList({ cover: selectedCoverRecipeATag }, saveCoverRecipe)) {
         coverImage = undefined;
         const updatedList = get(cookbookStore).lists.find(l => l.id === dTag);
         if (updatedList) coverImage = await getCookbookCoverImage(updatedList, $ndk, true);
@@ -433,18 +434,17 @@
    * This list (Saved or a custom collection) is only ever changed through
    * the cookbook store's guarded edit: a fresh relay read, one event built on
    * the newest copy with every tag but the recipes kept, never this page's
-   * possibly stale copy. Shows the store's message on refusal.
+   * possibly stale copy. Shows the store's message on refusal; its Retry
+   * runs `again` (the whole save, so its button shows "Saving..." and a
+   * success closes the modal).
    */
-  async function editThisList(change: SavedListChange): Promise<boolean> {
+  async function editThisList(change: SavedListChange, again: () => Promise<void>): Promise<boolean> {
     const listId = event?.tags.find(t => t[0] === 'd')?.[1];
     if (!listId) return false;
     const result = await cookbookStore.editList(listId, change);
     if (!result.ok) {
       errorMessage = result.message;
-      showToast('error', result.message, 10000, undefined, {
-        label: 'Retry',
-        onClick: () => void editThisList(change)
-      });
+      showListEditRefusal(result, again);
       return false;
     }
     const updated = get(cookbookStore).lists.find(l => l.id === listId);
@@ -468,6 +468,7 @@
   }
 
   async function saveEdits() {
+    if (isSubmitting) return;
     if (!event || !editTitle.trim()) {
       errorMessage = 'Please enter a title';
       return;
@@ -479,7 +480,7 @@
     try {
       const images = $editImages;
       const meta = { summary: editSummary.trim(), image: images[0] ?? '' };
-      if (await editThisList({ meta: isDefaultList() ? meta : { ...meta, title: editTitle.trim() } })) {
+      if (await editThisList({ meta: isDefaultList() ? meta : { ...meta, title: editTitle.trim() } }, saveEdits)) {
         closeEditModal();
       }
     } catch (err) {
@@ -498,7 +499,7 @@
     manageShown = [];
     
     event?.tags.filter(t => t[0] === 'a').forEach(t => {
-      const parsed = parseATag(t[1]);
+      const parsed = parseCoordinate(t[1]);
       if (parsed) {
         manageShown.push(t[1]);
         const { kind, pubkey, identifier } = parsed;
@@ -524,22 +525,30 @@
   }
 
   async function saveRecipeOrder() {
+    if (isSubmitting) return;
     if (!event) return;
 
     isSubmitting = true;
 
     try {
-      const order = $recipeItems.map(item => {
-        const decoded = nip19.decode(item.naddr).data as nip19.AddressPointer;
-        return `${decoded.kind}:${decoded.pubkey}:${decoded.identifier}`;
-      });
+      // Spelled as the list spells them: an naddr lower-cases the pubkey, and
+      // an entry the member didn't touch must not be rewritten.
+      const order = $recipeItems.map(item =>
+        coordinateAsWritten(nip19.decode(item.naddr).data as nip19.AddressPointer, manageShown)
+      );
       // Only what the member took out of the modal is removed: anything saved
       // elsewhere since this page loaded, or not shown in the modal, stays
       // (the edit reads the list fresh).
       const removed = manageShown.filter(a => !order.includes(a));
       // Recipes pasted into the modal's Add field.
       const added = order.filter(a => !manageShown.includes(a));
-      if (await editThisList({ add: added, remove: removed, order })) {
+      // Saved as shown: publish nothing. (A real edit reorders by `order`,
+      // which moves entries the modal couldn't show to the end.)
+      if (order.length === manageShown.length && order.every((a, i) => a === manageShown[i])) {
+        closeManageModal();
+        return;
+      }
+      if (await editThisList({ add: added, remove: removed, order }, saveRecipeOrder)) {
         await loadData();
         closeManageModal();
       }

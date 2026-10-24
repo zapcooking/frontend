@@ -8,7 +8,8 @@
  * (saved from another device); then the member removes the first recipe in
  * Manage Recipes and saves. Exactly one list event must go out, holding the
  * other device's recipe and the URL recipe, with the cover moved to the
- * first remaining recipe and every other tag kept.
+ * first remaining recipe and every other tag kept. Saving the modal
+ * untouched first must publish nothing.
  *
  *   pnpm build && pnpm preview --port 4174 --strictPort --host 127.0.0.1
  *   NODE_OPTIONS=--max-http-header-size=262144 \
@@ -189,6 +190,14 @@ for (const sel of ['.explore-prompt-cta', '.vault-prompt-dismiss']) {
   const el = page.locator(sel);
   if (await el.count()) await el.first().click().catch(() => {});
 }
+// Saved untouched: nothing may be published.
+await manage.click();
+await page.locator('button.text-danger').first().waitFor();
+await page.getByRole('button', { name: 'Save Changes' }).click();
+await page.locator('button.text-danger').first().waitFor({ state: 'detached', timeout: 10000 });
+await page.waitForTimeout(3000);
+check('Manage Recipes saved untouched publishes nothing', sent.length === 0, `${sent.length} sent`);
+
 await manage.click();
 const rows = page.locator('button.text-danger');
 await rows.first().waitFor();

@@ -297,3 +297,77 @@ describe('listAbsenceProven — may My Kitchen show an empty Saved list', () => 
     expect(listAbsenceProven([empty(NOS), empty('wss://nos.lol/')])).toBe(false);
   });
 });
+
+describe('buildSavedListEdit — existing tags are kept byte-for-byte', () => {
+  const P = 'c'.repeat(64);
+  const base = {
+    id: 'b',
+    created_at: 100,
+    content: '',
+    tags: [
+      ['d', 'x'],
+      ['title', 'X'],
+      ['cover', `30023:${P}:one`, 'wss://cover.hint'],
+      ['a', `30023:${P}:one`, 'wss://hint.one'],
+      ['a', `30023:${P.toUpperCase()}:two`],
+      ['a', 'not a coordinate'],
+      ['a', `30023:${P}:one`, 'wss://hint.one'],
+      ['a', `30023:${P}:three`, 'wss://hint.three', 'extra']
+    ]
+  };
+  const opts = { dTag: 'x', title: 'X', now: 200, floor: 0 };
+  const aTags = (tags: string[][]) => tags.filter((t) => t[0] === 'a');
+
+  it('an unrelated edit keeps every a tag and the cover tag exactly, in order', () => {
+    const next = buildSavedListEdit(base, { meta: { summary: 's' } }, opts);
+    expect(aTags(next.tags)).toEqual(aTags(base.tags));
+    expect(next.tags).toContainEqual(['cover', `30023:${P}:one`, 'wss://cover.hint']);
+  });
+
+  it('an add is the only new tag', () => {
+    const next = buildSavedListEdit(base, { add: [`30023:${P}:four`] }, opts);
+    expect(aTags(next.tags)).toEqual([...aTags(base.tags), ['a', `30023:${P}:four`]]);
+    expect(next.added).toBe(1);
+  });
+
+  it('a value already present (with a hint) is not added again', () => {
+    const next = buildSavedListEdit(base, { add: [`30023:${P}:one`] }, opts);
+    expect(next.changed).toBe(false);
+    expect(next.added).toBe(0);
+  });
+
+  it('a remove drops that value\'s tags and keeps the rest exactly', () => {
+    const next = buildSavedListEdit(base, { remove: [`30023:${P}:one`] }, opts);
+    expect(aTags(next.tags)).toEqual([
+      ['a', `30023:${P.toUpperCase()}:two`],
+      ['a', 'not a coordinate'],
+      ['a', `30023:${P}:three`, 'wss://hint.three', 'extra']
+    ]);
+  });
+
+  it('a reorder moves whole tags, unranked ones after in their own order', () => {
+    const next = buildSavedListEdit(base, { order: [`30023:${P}:three`, `30023:${P.toUpperCase()}:two`] }, opts);
+    expect(aTags(next.tags)).toEqual([
+      ['a', `30023:${P}:three`, 'wss://hint.three', 'extra'],
+      ['a', `30023:${P.toUpperCase()}:two`],
+      ['a', `30023:${P}:one`, 'wss://hint.one'],
+      ['a', 'not a coordinate'],
+      ['a', `30023:${P}:one`, 'wss://hint.one']
+    ]);
+    expect(next.changed).toBe(true);
+  });
+
+  it('the same order is no change', () => {
+    const plain = { ...base, tags: base.tags.filter((t) => t[1] !== 'not a coordinate' && t !== base.tags[6]) };
+    const order = [`30023:${P}:one`, `30023:${P.toUpperCase()}:two`, `30023:${P}:three`];
+    const next = buildSavedListEdit(plain, { order }, opts);
+    expect(next.changed).toBe(false);
+    expect(aTags(next.tags)).toEqual(aTags(plain.tags));
+  });
+
+  it('values not in the order (e.g. unparseable) move after the ordered ones, tags intact', () => {
+    const single = { ...base, tags: base.tags.filter((t) => t !== base.tags[6]) };
+    const order = [`30023:${P}:one`, `30023:${P.toUpperCase()}:two`, `30023:${P}:three`];
+    expect(aTags(buildSavedListEdit(single, { order }, opts).tags).at(-1)).toEqual(['a', 'not a coordinate']);
+  });
+});
