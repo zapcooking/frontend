@@ -42,7 +42,6 @@ import {
   encrypt,
   decrypt,
   decryptWithSource,
-  noteLegacyMigration,
   detectEncryptionMethod,
   canCreateNostrBackup,
   getNostrBackupBlocker,
@@ -52,6 +51,7 @@ import {
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { fetchSparkBackupEvents } from './backupEventFetch';
+import { settleLegacySparkBackup } from '$lib/wallet/legacyBackupNotice';
 
 /**
  * Dynamically import bip39 with Buffer polyfill
@@ -1957,15 +1957,11 @@ export async function restoreSparkBackup(
 
   // Encrypted under a legacy key (#897): republish under the session key
   // through the normal guarded path (which reads back the mnemonic just
-  // saved). Best effort — a blocked session (NIP-46) keeps the old backup.
-  if (source !== 'session') {
-    try {
-      await backupWalletToNostr(pubkey);
-      noteLegacyMigration('Spark wallet backup', source);
-    } catch (e) {
-      logger.warn('[Spark] Legacy-encrypted backup not migrated:', String(e));
-    }
-  }
+  // saved), or for NIP-46 — which can't create backups — queue the
+  // one-time "save your recovery phrase" notice.
+  await settleLegacySparkBackup(getSparkWalletId(normalizedMnemonic), source, () =>
+    backupWalletToNostr(pubkey)
+  );
 
   logger.info('[Spark] Wallet restored from Nostr backup successfully');
   return normalizedMnemonic;
