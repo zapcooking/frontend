@@ -14,7 +14,7 @@ import {
 } from '$lib/recipeOgHtml.server';
 import type { RecipeOgMeta } from '$lib/recipeOgMeta';
 import { loadReadsModerationLists } from '$lib/reads/moderation.server';
-import { isLandingPath, stripFontPreload } from '$lib/landing/route';
+import { isLandingPath } from '$lib/landing/route';
 
 /**
  * Log the real server-side error (with stack) instead of letting SvelteKit
@@ -226,9 +226,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   const response = ogTagBlock
     ? await resolve(event, { transformPageChunk: createOgPageTransformer(ogTagBlock) })
-    : isLandingPath(event.url.pathname)
-      ? await resolve(event, { transformPageChunk: ({ html }) => stripFontPreload(html) })
-      : await resolve(event);
+    : await resolve(event);
 
   if (!shouldApplyCors) {
     return response;
