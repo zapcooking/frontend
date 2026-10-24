@@ -37,6 +37,12 @@
   // via Settings → Security.
   const PASSKEY_ENROLL_PROMPT_ENABLED = true;
   import { createAuthManager, type AuthState } from '$lib/authManager';
+  import { detectSupport, getVaultRecord } from '$lib/passkeyVault';
+  import {
+    lockedVaultPubkey,
+    shouldOfferContinue,
+    isStrandedLockedVault
+  } from '$lib/auth/lockedVault';
   import { stopMessageSubscription, clearMessages } from '$lib/stores/messages';
   import { clearDecryptCache } from '$lib/encryptionService';
   import { clearUnwrapCache } from '$lib/nip17';
@@ -48,12 +54,9 @@
   import { theme } from '$lib/themeStore';
   import {
     initializeWalletManager,
-    walletConnected,
     clearAllWallets,
-    openWallet,
     activeWallet,
     rememberActiveWallet,
-    getLastWalletRecord,
     autoRestoreWalletAtLogin,
     evaluateWalletSetupState,
     walletSetupCheckPending
@@ -69,8 +72,6 @@
     loadStartSectionSettings,
     rememberStartSectionAtSignIn
   } from '$lib/startSectionSettings';
-  import { weblnConnected } from '$lib/wallet/webln';
-  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
   import { longformEditorOpen, closeEditor } from '../components/reads/articleDraftStore';
   import LongformEditorLoadError from '../components/reads/LongformEditorLoadError.svelte';
@@ -330,25 +331,8 @@
   // rescan + "restored" toast) to run again every load.
   let wasAuthenticated = false;
   let feedInitialLoadTimeout: ReturnType<typeof setTimeout> | null = null;
-  let walletWelcomeSeen = false;
-  let walletWelcomeForce = false;
   let oneTapZapLoadedForPubkey = '';
   let startSectionLoadedForPubkey = '';
-  const WALLET_WELCOME_KEY = 'zapcooking_wallet_welcome_seen';
-  const WALLET_WELCOME_FORCE_KEY = 'zapcooking_wallet_welcome_force';
-  $: hasWallet =
-    $walletConnected ||
-    $weblnConnected ||
-    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
-
-  // Open the wallet modal directly when the user is logged in but has
-  // no wallet — the picker view inside the modal already serves as the
-  // welcome screen, so we don't need a separate intro modal.
-  function promptWalletSetup() {
-    walletWelcomeSeen = true;
-    if (browser) localStorage.setItem(WALLET_WELCOME_KEY, '1');
-    openWallet('setup');
-  }
 
   // Tap the header's empty padding area → smooth-scroll back to top. Only
   // fires on |self (the wrapper), so real header interactions (search, logo,
@@ -387,24 +371,35 @@
       syncSignedIn(authState);
 
       // Locked passkey vault (record present, no plaintext key, no bunker):
-      // surface the unlock overlay once on startup. The user can dismiss it
-      // and browse anonymously; the Login button re-opens it. Guarded on the
-      // other restore inputs so an in-flight plaintext/NIP-46 restore doesn't
-      // flash the overlay.
-      if (
-        browser &&
-        !authState.isAuthenticated &&
-        authManager.getVaultStatus?.() === 'locked' &&
-        !localStorage.getItem('nostrcooking_privateKey') &&
-        localStorage.getItem('nostrcooking_authMethod') !== 'nip46'
-      ) {
-        loginOverlayOpen.set(true);
+      // nothing opens by itself. The header shows "Continue as {name}" and
+      // one tap unlocks. Guarded on the other restore inputs so an in-flight
+      // plaintext/NIP-46 restore doesn't flash the chip.
+      if (browser && !authState.isAuthenticated && authManager.getVaultStatus?.() === 'locked') {
+        const lockedInput = {
+          isAuthenticated: false,
+          vaultStatus: 'locked' as const,
+          hasPlaintextKey: !!localStorage.getItem('nostrcooking_privateKey'),
+          isNip46: localStorage.getItem('nostrcooking_authMethod') === 'nip46'
+        };
+        detectSupport().then((support) => {
+          const input = { ...lockedInput, isAuthenticated: authState.isAuthenticated, support };
+          if (shouldOfferContinue(input)) {
+            lockedVaultPubkey.set(getVaultRecord()?.pubkey ?? null);
+          } else if (isStrandedLockedVault(input)) {
+            // Nothing here can unlock it: drop the cached pubkey so the
+            // header offers Sign in / Join free, not an account menu with
+            // no signer behind it.
+            userPublickey.set('');
+          }
+          // Otherwise signed in meanwhile (another tab, a fast restore).
+        });
       }
 
       // Subscribe to auth state changes
       unsubscribe = authManager.subscribe((state: AuthState) => {
         authState = state;
         syncSignedIn(state);
+        if (state.isAuthenticated) lockedVaultPubkey.set(null);
 
         // Sync with legacy userPublickey store for compatibility
         const isAuthenticatedNow = Boolean(state.isAuthenticated && state.publicKey);
@@ -486,31 +481,6 @@
           startSectionLoadedForPubkey = '';
         }
 
-        if (browser) {
-          walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
-        }
-
-        const isOnboardingFlow =
-          $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
-        if (
-          browser &&
-          state.isAuthenticated &&
-          state.publicKey &&
-          !hasWallet &&
-          // A remembered wallet is on its way back from the Nostr backups —
-          // don't pitch wallet setup to someone who has one.
-          !getLastWalletRecord(state.publicKey) &&
-          !isOnboardingFlow
-        ) {
-          if (walletWelcomeForce || !walletWelcomeSeen) {
-            promptWalletSetup();
-            if (walletWelcomeForce) {
-              walletWelcomeForce = false;
-              localStorage.removeItem(WALLET_WELCOME_FORCE_KEY);
-            }
-          }
-        }
-
         // The early return above leaves this untouched: intermediate
         // restore pings are pre-auth, so the next real state still compares
         // against the last settled one.
@@ -548,13 +518,6 @@
     }
   });
 
-  onMount(() => {
-    if (browser) {
-      walletWelcomeSeen = localStorage.getItem(WALLET_WELCOME_KEY) === '1';
-      walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
-    }
-  });
-
   // One-shot pass to clear legacy nourish_scan_* localStorage entries
   // left behind when scan caching was removed in PR 3 commit 6. Runs
   // via requestIdleCallback so it doesn't block initial paint; sentinel
@@ -589,31 +552,6 @@
       }
     }
   });
-
-  // Open the wallet modal automatically once after leaving login/
-  // onboarding when the user has no wallet (e.g. after suggested
-  // follows completes).
-  $: {
-    const onboardingFlow =
-      $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
-    if (
-      browser &&
-      !onboardingFlow &&
-      authState.isAuthenticated &&
-      !hasWallet &&
-      // Same as the auth-subscription gate: skip the prompt while a
-      // remembered wallet is being restored from the Nostr backups.
-      !getLastWalletRecord(authState.publicKey)
-    ) {
-      const forceFlag = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
-      if (forceFlag || !walletWelcomeSeen) {
-        promptWalletSetup();
-        if (forceFlag) {
-          localStorage.removeItem(WALLET_WELCOME_FORCE_KEY);
-        }
-      }
-    }
-  }
 
   // When the tab returns from background (hidden ≥1s), refresh the
   // most-recently-touched engagement counts. batchFetchEngagement has its

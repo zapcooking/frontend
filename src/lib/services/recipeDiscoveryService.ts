@@ -6,6 +6,7 @@
  * Candidates are built from event tags plus the existing markdown parser.
  */
 
+import { parseCoordinate } from '../coordinate';
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import {
@@ -117,7 +118,7 @@ function ingredientsFromEvent(event: NDKEvent): string[] {
 export function candidateFromEvent(event: NDKEvent): DiscoveredRecipe | null {
   const a = aTagFromEvent(event);
   if (!a) return null;
-  const title = (tagValue(event, 'title') || a.split(':')[2] || 'Recipe').slice(0, MAX_TITLE_CHARS);
+  const title = (tagValue(event, 'title') || parseCoordinate(a)?.identifier || 'Recipe').slice(0, MAX_TITLE_CHARS);
   const details = event.content ? extractRecipeDetails(event.content) : null;
   const candidate: DiscoveredRecipe = {
     a,
@@ -213,9 +214,9 @@ async function resolveCoordinates(ndk: NDK, aTags: string[]): Promise<Discovered
   if (missing.length > 0 && ndk) {
     await Promise.all(
       missing.map(async (aTag) => {
-        const parts = aTag.split(':');
-        if (parts.length !== 3) return;
-        const [kind, pubkey, identifier] = parts;
+        const parsed = parseCoordinate(aTag);
+        if (!parsed) return;
+        const { kind, pubkey, identifier } = parsed;
         try {
           const event = await Promise.race([
             ndk.fetchEvent({

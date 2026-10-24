@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { outboxRelayUrls, isGroupEvent, MAX_OUTBOX_RELAYS, PANTRY_URL } from './outboxRelays';
+import {
+  outboxRelayUrls,
+  recipeListRelayUrls,
+  isRecipeListEvent,
+  isGroupEvent,
+  MAX_OUTBOX_RELAYS,
+  PANTRY_URL,
+  RECIPE_LIST_RELAYS
+} from './outboxRelays';
 
 const many = (prefix: string, n: number) =>
   Array.from({ length: n }, (_, i) => `wss://${prefix}${i}.example`);
@@ -76,5 +84,53 @@ describe('isGroupEvent', () => {
         ['p', 'y']
       ])
     ).toBe(false);
+  });
+});
+
+describe('recipeListRelayUrls', () => {
+  it('default app relays: nos.lol and Primal plus the list relays; never purplepag.es or nostr.wine', () => {
+    const standardRelays = ['wss://nos.lol', 'wss://purplepag.es', 'wss://relay.primal.net', 'wss://nostr.wine'];
+    expect(recipeListRelayUrls({ own: [], app: standardRelays })).toEqual([
+      'wss://nos.lol',
+      'wss://relay.primal.net',
+      ...RECIPE_LIST_RELAYS
+    ]);
+  });
+
+  it('own write relays first, refusing relays dropped whatever their spelling, no duplicates', () => {
+    expect(
+      recipeListRelayUrls({
+        own: ['wss://Purplepag.es/', 'wss://relay.nostr.net/', 'wss://pyramid.fiatjaf.com'],
+        app: ['wss://nostr.wine', 'wss://nos.lol']
+      })
+    ).toEqual([
+      'wss://relay.nostr.net/',
+      'wss://pyramid.fiatjaf.com',
+      'wss://nos.lol',
+      'wss://nostr.oxtr.dev'
+    ]);
+  });
+
+  it("nostr.wine is kept when it's in the member's own relay list (paid members can write there)", () => {
+    expect(
+      recipeListRelayUrls({
+        own: ['wss://nostr.wine/', 'wss://purplepag.es'],
+        app: ['wss://nos.lol', 'wss://nostr.wine']
+      })
+    ).toEqual(['wss://nostr.wine/', 'wss://nos.lol', ...RECIPE_LIST_RELAYS]);
+  });
+
+  it('a member with no relay list and an empty app list still has two list relays', () => {
+    expect(recipeListRelayUrls({ own: [], app: [] })).toEqual(RECIPE_LIST_RELAYS);
+  });
+});
+
+describe('isRecipeListEvent', () => {
+  it('kind 30001 and deletions of one; nothing else', () => {
+    expect(isRecipeListEvent({ kind: 30001, tags: [] })).toBe(true);
+    expect(isRecipeListEvent({ kind: 5, tags: [['a', '30001:abc:italian']] })).toBe(true);
+    expect(isRecipeListEvent({ kind: 5, tags: [['e', 'x']] })).toBe(false);
+    expect(isRecipeListEvent({ kind: 3, tags: [] })).toBe(false);
+    expect(isRecipeListEvent({ kind: 10000, tags: [] })).toBe(false);
   });
 });

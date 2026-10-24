@@ -12,6 +12,7 @@
     getCookbookCoverImage,
     type CookbookList
   } from '$lib/stores/cookbookStore';
+  import { parseCoordinate } from '$lib/coordinate';
   import { ndk } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { isOnline } from '$lib/connectionMonitor';
@@ -254,10 +255,10 @@
         }
 
         // Parse the a-tag
-        const parts = aTag.split(':');
-        if (parts.length !== 3) continue;
+        const parsed = parseCoordinate(aTag);
+        if (!parsed) continue;
 
-        const [kind, pubkey, identifier] = parts;
+        const { kind, pubkey, identifier } = parsed;
 
         try {
           const recipeEvent = await $ndk.fetchEvent({
@@ -395,7 +396,7 @@
         errorMessage = 'Failed to create list';
       }
     } catch (err) {
-      errorMessage = `Error: ${err}`;
+      errorMessage = err instanceof Error ? err.message : `Error: ${err}`;
     } finally {
       isSubmitting = false;
     }
@@ -444,7 +445,7 @@
         errorMessage = 'Failed to update list';
       }
     } catch (err) {
-      errorMessage = `Error: ${err}`;
+      errorMessage = err instanceof Error ? err.message : `Error: ${err}`;
     } finally {
       isSubmitting = false;
     }
@@ -607,10 +608,10 @@
     const events: NDKEvent[] = [];
 
     for (const aTag of list.recipes) {
-      const parts = aTag.split(':');
-      if (parts.length !== 3) continue;
+      const parsed = parseCoordinate(aTag);
+      if (!parsed) continue;
 
-      const [kind, pubkey, identifier] = parts;
+      const { kind, pubkey, identifier } = parsed;
       try {
         const recipeEvent = await $ndk.fetchEvent({
           kinds: [Number(kind)],
@@ -726,9 +727,9 @@
       if (missing.length > 0 && $isOnline) {
         await Promise.all(
           missing.map(async (aTag) => {
-            const parts = aTag.split(':');
-            if (parts.length !== 3) return;
-            const [kind, pubkey, identifier] = parts;
+            const parsed = parseCoordinate(aTag);
+            if (!parsed) return;
+            const { kind, pubkey, identifier } = parsed;
             try {
               const e = await $ndk.fetchEvent({
                 kinds: [Number(kind)],
