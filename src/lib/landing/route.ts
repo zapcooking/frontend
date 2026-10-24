@@ -1,5 +1,5 @@
 /**
- * Routes rendered as the chrome-less, no-JS landing page (`csr = false`):
+ * Routes rendered as the chrome-less landing page without app hydration (`csr = false`):
  * the root layout renders only the page for these (and sends client-side
  * navigations to them as full page loads), hooks skip CORS so the edge
  * cache holds one response for everyone.

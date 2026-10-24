@@ -26,6 +26,11 @@ export interface LongformCard {
 	image: string;
 	author: CardAuthor;
 	publishedAt: number;
+	/** Normalized recipe tags, only used where the author supplied them. */
+	tags?: string[];
+	/** Public event identity and text retained for moderation of cached cards. */
+	eventId?: string;
+	moderationText?: string;
 }
 
 export interface NoteCard {
@@ -135,13 +140,18 @@ export function longformCard(e: NostrEvent): LongformCard | null {
 	const published = seconds(Number(tag(e, 'published_at')));
 	return {
 		type: recipe ? 'recipe' : 'article',
+		eventId: e.id,
+		moderationText: e.content.slice(0, 500),
 		coordinate,
 		href: recipe ? `/recipe/${link}` : `/reads/${link}`,
 		title: clip(title, 120),
 		summary: summary ? clip(summary, 200) : undefined,
 		image,
 		author: { pubkey: e.pubkey },
-		publishedAt: Number.isFinite(published) && published > 0 ? published : e.created_at
+		publishedAt: Number.isFinite(published) && published > 0 ? published : e.created_at,
+		tags: [...new Set(e.tags.filter((t) => t[0] === 't').map((t) =>
+			(t[1] || '').toLowerCase().replace(/^(?:zapcooking|nostrcooking)-/, '').trim()
+		))].filter((t) => !!t && !RECIPE_TAGS.includes(t))
 	};
 }
 

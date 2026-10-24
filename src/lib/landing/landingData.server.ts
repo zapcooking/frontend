@@ -10,6 +10,7 @@
  * version. Nothing here throws.
  */
 
+import { parseCoordinate } from '$lib/coordinate';
 import { verifyEvent } from 'nostr-tools/pure';
 import type { ReadsModerationLists } from '$lib/reads/moderationConfig';
 import { evaluateReadsContent } from '$lib/reads/moderation';
@@ -103,6 +104,13 @@ export interface LandingData {
 	topics: TopicTile[];
 	cooks: Cook[];
 	reads: LongformCard[];
+	/** Editorially approved recipes; never padded with unrelated recent content. */
+	coverPool?: LongformCard[];
+	coverPoolBucket?: number;
+	/** Presence distinguishes an authoritative empty list from an unavailable list. */
+	coverList?: { version: number; coordinates: string[] };
+	/** Shared recipe candidates for non-cover sections and matching cook profiles. */
+	recipePool?: LongformCard[];
 	/**
 	 * Sections whose empty result is real (the relay answered in full), so the
 	 * last good version must not come back. Only reads uses it: an empty
@@ -114,7 +122,7 @@ export interface LandingData {
 export type SectionName = 'cover' | 'newRecipes' | 'fresh' | 'topics' | 'cooks' | 'reads';
 
 export function emptyLandingData(builtAt = 0): LandingData {
-	return { v: 1, builtAt, cover: null, picks: [], newRecipes: [], fresh: [], topics: [], cooks: [], reads: [] };
+	return { v: 1, builtAt, cover: null, picks: [], newRecipes: [], fresh: [], topics: [], cooks: [], reads: [], coverPool: [], recipePool: [] };
 }
 
 interface Nip11Topic {
@@ -184,8 +192,8 @@ function topicName(slug: string, nip11: Nip11Topics | null): string {
 }
 
 /** Where a topic tile links. One place, so a topic deep link changes one line. */
-export function topicHref(_slug: string): string {
-	return '/feed';
+export function topicHref(slug: string): string {
+	return `/tag/${encodeURIComponent(slug)}`;
 }
 
 const FOOD_TAGS = new Set(FOOD_LONGFORM_HASHTAGS.map((t) => t.toLowerCase()));
@@ -195,8 +203,8 @@ function hasFoodTag(e: NostrEvent): boolean {
 	return e.tags.some((t) => t[0] === 't' && FOOD_TAGS.has((t[1] || '').toLowerCase()));
 }
 
-function articleAllowed(card: LongformCard, e: NostrEvent, lists: ReadsModerationLists | null): boolean {
-	if (card.type !== 'article' || !lists) return true;
+function articleAllowed(_card: LongformCard, e: NostrEvent, lists: ReadsModerationLists | null): boolean {
+	if (!lists) return true;
 	return !evaluateReadsContent(e, lists).blocked;
 }
 
@@ -238,6 +246,7 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 	const nip11 = parseNip11Topics(nip11Doc);
 
 	const newRecipesAll = newestByCoordinate(feed.events.recipes)
+		.filter((e) => !lists || !evaluateReadsContent(e, lists).blocked)
 		.map(longformCard)
 		.filter((c): c is LongformCard => c?.type === 'recipe')
 		.sort((a, b) => b.publishedAt - a.publishedAt);
@@ -261,7 +270,7 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 	const slugs = (
 		orgLists.topics ? listTopicSlugs(orgLists.topics) : (nip11?.featured.map((f) => f.slug) ?? [])
 	).slice(0, LIMITS.topics);
-	const heroRefs = orgLists.hero ? listCoordinates(orgLists.hero).slice(0, 6) : [];
+	const heroRefs = orgLists.hero ? listCoordinates(orgLists.hero).slice(0, 20) : [];
 	const readRefs = orgLists.reads ? listCoordinates(orgLists.reads).slice(0, 6) : [];
 	const allRefs = [...heroRefs, ...readRefs];
 	const cookPubkeys = orgLists.cooks ? listPubkeys(orgLists.cooks) : [];
@@ -275,7 +284,7 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 
 	const bylinePubkeys = new Set<string>([
 		...fresh.map((c) => c.author.pubkey),
-		...newRecipesAll.slice(0, LIMITS.newRecipes + 3).map((c) => c.author.pubkey),
+		...newRecipesAll.map((c) => c.author.pubkey),
 		...fallbackArticles.slice(0, LIMITS.reads).map((c) => c.author.pubkey),
 		...allRefs.map((r) => r.pubkey),
 		...cookPubkeys
@@ -395,8 +404,20 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 		topics,
 		cooks,
 		reads: reads.map(withAuthor),
+		coverPool: refCards(heroRefs).filter((c) => c.type === 'recipe').map(withAuthor),
+		...(orgLists.hero ? { coverPoolBucket: Math.floor(t / 21600), coverList: { version: orgLists.hero.created_at, coordinates: heroRefs.map(coordinateKey) } } : {}),
+		recipePool: newestRecipeCards([...refCards(heroRefs), ...newRecipesAll]).map(withAuthor),
 		settled
 	};
+}
+
+function newestRecipeCards(cards: LongformCard[]): LongformCard[] {
+	const seen = new Set<string>();
+	return cards.filter((c) => {
+		if (c.type !== 'recipe' || seen.has(c.coordinate)) return false;
+		seen.add(c.coordinate);
+		return true;
+	});
 }
 
 /** One filter for a set of coordinates (cross product, matched afterwards). */
@@ -420,6 +441,24 @@ export function mergeWithLastGood(next: LandingData, last: LandingData | null): 
 	if (!last) return { data: next, stale: [] };
 	const stale: SectionName[] = [];
 	const data = { ...next };
+	// A signed empty list is an editorial removal, not a failed fetch. An outage
+	// retains only previously approved candidates, never recent unapproved food.
+	const list = next.coverList ?? last.coverList;
+	if (list) {
+		data.coverList = list;
+		const sameEdition = Math.floor(next.builtAt / 21600) === (last.coverPoolBucket ?? Math.floor(last.builtAt / 21600));
+		data.coverPoolBucket = Math.floor(next.builtAt / 21600);
+		const sameList = JSON.stringify(list) === JSON.stringify(last.coverList);
+		const candidates = sameEdition && sameList && last.coverPool?.length
+			? last.coverPool
+			: [...(next.coverPool ?? []), ...(last.coverPool ?? [])];
+		// Preserve editorial order and restore unresolved refs only while still approved.
+		data.coverPool = list.coordinates.map((coordinate) => candidates.find((c) => c.coordinate === coordinate))
+			.filter((c): c is LongformCard => !!c);
+	} else if (!next.coverPool?.length && last.coverPool?.length) {
+		data.coverPool = last.coverPool;
+	}
+	if (!next.recipePool?.length && last.recipePool?.length) data.recipePool = last.recipePool;
 	if (!next.cover && last.cover) {
 		data.cover = last.cover;
 		data.picks = last.picks;
@@ -433,6 +472,44 @@ export function mergeWithLastGood(next: LandingData, last: LandingData | null): 
 		}
 	}
 	return { data, stale };
+}
+
+/**
+ * On the first request of a new edition, pin the latest already-cached approved
+ * candidates before starting a background refresh. Later discoveries wait for
+ * the next edition; a new signed editorial list still takes effect immediately.
+ */
+export function pinCoverPool(data: LandingData, nowSeconds: number): LandingData {
+	const bucket = Math.floor(nowSeconds / 21600);
+	if (!data.coverList || data.coverPoolBucket === bucket) return data;
+	const candidates = [...(data.recipePool ?? []), ...(data.coverPool ?? [])];
+	return {
+		...data,
+		coverPoolBucket: bucket,
+		coverPool: data.coverList.coordinates.map((coordinate) => candidates.find((c) => c.coordinate === coordinate))
+			.filter((c): c is LongformCard => !!c)
+	};
+}
+
+/** Recheck cached candidates so last-good data cannot revive a newly blocked recipe. */
+export function moderateLandingData(data: LandingData, lists: ReadsModerationLists | null): LandingData {
+	if (!lists) return data;
+	const allowed = (c: LongformCard) => {
+		const coordinate = parseCoordinate(c.coordinate);
+		return !evaluateReadsContent({
+			id: c.eventId, kind: coordinate?.kind, pubkey: coordinate?.pubkey ?? c.author.pubkey, content: c.moderationText ?? '',
+			tags: [['d', coordinate?.identifier ?? ''], ['title', c.title], ['summary', c.summary ?? ''], ...(c.tags ?? []).map((t) => ['t', t])]
+		}, lists).blocked;
+	};
+	return {
+		...data,
+		cover: data.cover && allowed(data.cover) ? data.cover : null,
+		picks: data.picks.filter(allowed),
+		newRecipes: data.newRecipes.filter(allowed),
+		reads: data.reads.filter(allowed),
+		coverPool: data.coverPool?.filter(allowed),
+		recipePool: data.recipePool?.filter(allowed)
+	};
 }
 
 export function hasContent(d: LandingData): boolean {
@@ -511,7 +588,9 @@ function refresh(last: Entry | null, deps: GetDeps): Promise<Entry | null> {
 			console.warn('[landing] build failed:', err);
 			next = emptyLandingData(Math.floor(clock() / 1000));
 		}
-		const { data, stale } = mergeWithLastGood(next, last?.data ?? null);
+		const merged = mergeWithLastGood(next, last?.data ?? null);
+		const stale = merged.stale;
+		const data = moderateLandingData(merged.data, deps.moderation ?? null);
 		if (stale.length) console.warn('[landing] serving last good for:', stale.join(', '));
 		if (!hasContent(data)) return last;
 		const entry = { data, storedAt: clock() };
@@ -538,11 +617,13 @@ export async function getLandingData(deps: GetDeps = {}): Promise<LandingData> {
 		const cached = await readCache(deps.cache ?? null);
 		if (cached && (!entry || cached.storedAt > entry.storedAt)) entry = cached;
 	}
+	if (entry) entry = { ...entry, data: pinCoverPool(entry.data, Math.floor(clock() / 1000)) };
 	if (entry && fresh(entry)) {
 		memo = entry;
 		return entry.data;
 	}
 	if (entry) {
+		memo = entry;
 		const p = refresh(entry, deps);
 		if (deps.waitUntil) deps.waitUntil(p);
 		return entry.data;
