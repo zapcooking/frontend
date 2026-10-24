@@ -70,6 +70,24 @@ export function setSyncEnabled(on: boolean): void {
   if (browser) localStorage.setItem(SYNC_ENABLED_KEY, on ? '1' : '0');
 }
 
+/**
+ * When this device last renewed the server copy's expiry (an accepted
+ * refresh or upload). Unlocks renew it at most once a day: plenty for a
+ * 370-day TTL, and the other unlocks need no network at all.
+ */
+export const SYNC_REFRESHED_AT_KEY = 'nostrcooking_vault_sync_refreshed_at';
+export const SYNC_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+export function isRefreshDue(now = Date.now()): boolean {
+  if (!browser) return false;
+  const last = Number(localStorage.getItem(SYNC_REFRESHED_AT_KEY));
+  return !Number.isFinite(last) || last <= 0 || now - last >= SYNC_REFRESH_INTERVAL_MS;
+}
+
+function markRefreshed(now = Date.now()): void {
+  if (browser) localStorage.setItem(SYNC_REFRESHED_AT_KEY, String(now));
+}
+
 export function isUploadPending(): boolean {
   return browser && localStorage.getItem(SYNC_PENDING_KEY) === '1';
 }
@@ -156,6 +174,7 @@ export async function uploadVault(
       return false;
     }
     setUploadPending(false);
+    markRefreshed();
     return true;
   } catch {
     setUploadPending(true);
@@ -164,10 +183,10 @@ export async function uploadVault(
 }
 
 /**
- * Keep the synced copy alive. Every unlock with sync on spends its
- * ceremony's assertion here, so the entry's 370-day expiry runs from the
- * last time the passkey was used on ANY device, the same-device unlock
- * included. A verified assertion-gated fetch rewrites the entry with a
+ * Keep the synced copy alive. An unlock with sync on spends its ceremony's
+ * assertion here (at most once a day per device — isRefreshDue), so the
+ * entry's 370-day expiry runs from the last time the passkey was used on
+ * ANY device, the same-device unlock included. A verified assertion-gated fetch rewrites the entry with a
  * fresh TTL (KV has no touch primitive). If the entry is gone (expired, or
  * never landed) the server answers 404 without redeeming the challenge — an
  * absent entry has no key to verify against — so the same assertion
@@ -184,7 +203,10 @@ export async function refreshVaultEntry(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assertion })
     });
-    if (res.ok) return true;
+    if (res.ok) {
+      markRefreshed();
+      return true;
+    }
     if (res.status === 404) return uploadVault(record, assertion);
     return false;
   } catch {
@@ -322,6 +344,8 @@ export async function signInWithPasskey(): Promise<SyncSignInResult> {
     if (getPublicKey(hexToBytes(privkeyHex)) !== record.pubkey) {
       throw new Error('decrypted key does not match record pubkey');
     }
+    // The assertion-gated fetch above just renewed the server copy's expiry.
+    markRefreshed();
     return { privkeyHex, record };
   } catch (e) {
     throw new SyncSignInError(

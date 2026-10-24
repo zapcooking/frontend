@@ -35,6 +35,7 @@ import {
   fetchChallengeSafe,
   uploadVault,
   refreshVaultEntry,
+  isRefreshDue,
   deleteVaultBlob,
   signInWithPasskey
 } from './passkeySync';
@@ -1629,14 +1630,20 @@ export class AuthManager {
 
     this.updateState({ isLoading: true, error: null });
     try {
-      // With sync on, THIS ceremony also keeps the synced copy alive: fetch
-      // a server challenge first so the unlock assertion is redeemable —
-      // for the pending upload's PUT, otherwise for the TTL refresh (the
-      // 370-day expiry then runs from the last unlock on any device).
-      // Challenge fetch failure degrades to a normal (offline-capable)
-      // unlock. Never a second prompt.
+      // With sync on, THIS ceremony can also keep the synced copy alive:
+      // fetch a server challenge first so the unlock assertion is
+      // redeemable — for a pending upload's PUT, or for the TTL refresh
+      // (the 370-day expiry then runs from the last unlock on any device),
+      // which is due at most once a day per device. Otherwise the unlock
+      // makes no network call. Challenge fetch failure degrades to a
+      // normal (offline-capable) unlock. Never a second prompt.
       let serverChallenge: string | null = null;
-      if (PASSKEY_SYNC_ENABLED && isSyncEnabled() && syncableKeyEntry(record)) {
+      if (
+        PASSKEY_SYNC_ENABLED &&
+        isSyncEnabled() &&
+        syncableKeyEntry(record) &&
+        (isUploadPending() || isRefreshDue())
+      ) {
         serverChallenge = await fetchChallengeSafe();
       }
 

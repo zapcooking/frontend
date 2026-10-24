@@ -46,7 +46,12 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
 
 import { AuthManager, VaultConflictError } from './authManager';
 import { VAULT_STORAGE_KEY, type VaultRecord } from './passkeyVault';
-import { SYNC_ENABLED_KEY, SYNC_PENDING_KEY } from './passkeySync';
+import {
+  SYNC_ENABLED_KEY,
+  SYNC_PENDING_KEY,
+  SYNC_REFRESHED_AT_KEY,
+  SYNC_REFRESH_INTERVAL_MS
+} from './passkeySync';
 import { hexToBytes, bytesToB64 } from './passkeyVaultCrypto';
 
 const CRED_ID = fixture.credentialIdB64url;
@@ -324,6 +329,46 @@ describe('pending-upload retry on unlock', () => {
     expect(String(posts[0][0])).toMatch(/^\/api\/vault-sync\/[0-9a-f]{64}$/);
     expect(JSON.parse(posts[0][1]!.body as string).assertion.credentialId).toBe(CRED_ID);
     expect(callsTo('PUT')).toHaveLength(0);
+  });
+
+  it('refresh is throttled to once a day per device: a second unlock the same day makes no call', async () => {
+    seedVault();
+    store.set(SYNC_ENABLED_KEY, '1');
+    acceptingServer();
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    await am.unlockVault();
+    await flush();
+    const stamped = Number(store.get(SYNC_REFRESHED_AT_KEY));
+    expect(stamped).toBeGreaterThan(0);
+    fetchMock.mockClear();
+
+    await am.unlockVault();
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // A day later it's due again.
+    store.set(SYNC_REFRESHED_AT_KEY, String(stamped - SYNC_REFRESH_INTERVAL_MS));
+    await am.unlockVault();
+    await flush();
+    expect(callsTo('POST').filter(([url]) => !String(url).endsWith('/challenge'))).toHaveLength(1);
+  });
+
+  it('a pending upload still retries the same day (throttle applies to refreshes only)', async () => {
+    seedVault();
+    store.set(SYNC_ENABLED_KEY, '1');
+    store.set(SYNC_REFRESHED_AT_KEY, String(Date.now()));
+    store.set(SYNC_PENDING_KEY, '1');
+    acceptingServer();
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    await am.unlockVault();
+    await flush();
+    expect(callsTo('PUT')).toHaveLength(1);
   });
 
   it('sync on but the entry is gone (404) → the same assertion re-uploads it', async () => {
