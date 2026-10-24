@@ -211,6 +211,12 @@ async function clearOverlays(page) {
   }
 }
 
+/** QR, bunker, nsec and Google Drive sit behind "More options" on the sign-in card. */
+async function openMoreOptions(page) {
+  const toggle = page.getByRole('button', { name: 'More options' });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+}
+
 async function tapSaveAndExpectSheet(page) {
   await page.locator('button[title^="Save to My Kitchen"]').first().click();
   await page.locator('.signin-card').waitFor();
@@ -313,6 +319,7 @@ async function deadRelayCase(label, writeRelays, dead) {
   const { ctx, page } = run;
   await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
   await tapSaveAndExpectSheet(page);
+  await openMoreOptions(page);
   await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
   await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
   await page.getByRole('button', { name: 'Login', exact: true }).click();
@@ -370,7 +377,11 @@ if (want('passkey')) {
   sent.clear();
   const tagline = await tapSaveAndExpectSheet(page);
   check('passkey: sheet says why', tagline === 'Sign in to save this recipe', tagline);
-  await page.getByRole('button', { name: 'Unlock your saved key with a passkey' }).click();
+  // The vault's one primary: "Continue as {name}" ("Continue with your passkey" before the name loads).
+  await page
+    .locator('.signin-card')
+    .getByRole('button', { name: /^Continue (as |with your passkey)/ })
+    .click();
   await assertSaved('passkey', run, `:${recipeD}`);
   await ctx.close();
 }
@@ -406,6 +417,7 @@ if (want('nsec')) {
   await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
   const tagline = await tapSaveAndExpectSheet(page);
   check('nsec: sheet says why', tagline === 'Sign in to save this recipe', tagline);
+  await openMoreOptions(page);
   await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
   await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
   await page.getByRole('button', { name: 'Login', exact: true }).click();
@@ -435,6 +447,7 @@ if (want('existing')) {
   const { ctx, page, sent } = run;
   await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
   await tapSaveAndExpectSheet(page);
+  await openMoreOptions(page);
   await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
   await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
   await page.getByRole('button', { name: 'Login', exact: true }).click();
@@ -465,6 +478,7 @@ if (want('norelaylist')) {
   const { ctx, page, readFrom } = run;
   await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
   await tapSaveAndExpectSheet(page);
+  await openMoreOptions(page);
   await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
   await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
   await page.getByRole('button', { name: 'Login', exact: true }).click();
@@ -572,6 +586,7 @@ if (want('bunker')) {
     await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
     const tagline = await tapSaveAndExpectSheet(page);
     check('bunker: sheet says why', tagline === 'Sign in to save this recipe', tagline);
+    await openMoreOptions(page);
     await page
       .getByRole('button', { name: 'Sign in with a bunker URI from a remote signer' })
       .click();
