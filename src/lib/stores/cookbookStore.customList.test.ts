@@ -168,6 +168,7 @@ beforeEach(() => {
   // List edits sign before publishing (signWithin): sign as the signed-in member.
   vi.spyOn(NDKEvent.prototype, 'sign').mockImplementation(async function (this: NDKEvent) {
     this.pubkey = get(userPublickey);
+    this.id = `signed-${this.created_at}`;
     this.sig = 'sig';
     return 'sig';
   });
@@ -502,5 +503,82 @@ describe('signing a list edit is bounded', () => {
     const r = await within(cookbookStore.editList(D, { add: [R('r2')] }), 20_000);
     expect(r?.value).toMatchObject({ ok: true, changed: true });
     expect(spy.mock.calls.some((c: unknown[]) => c[1] === NIP07_SIGN_TIMEOUT_MS || c[1] === NIP46_SIGN_TIMEOUT_MS)).toBe(false);
+  });
+});
+
+// ── An unacknowledged publish is checked, never called "nothing changed" (#888 ruling 3) ──
+import { LIST_SAVE_UNCONFIRMED_MESSAGE, LIST_PUBLISH_FAILED_MESSAGE } from './cookbookStore';
+import { relaySetForUrls } from '$lib/nip65Routing';
+
+describe('a publish no relay acknowledged', () => {
+  const base = () => listEvent(1000, [R('r1')]);
+  beforeEach(() => {
+    const ev = base();
+    net.relays = { [NOS]: { [D]: ev }, [PRIMAL]: { [D]: ev }, [NET]: { [D]: ev } };
+  });
+  /** The next publish times out on every relay; `store` puts what a relay actually kept. */
+  function publishTimesOut(store?: (sent: Stored) => Stored | null) {
+    vi.mocked(NDKEvent.prototype.publish).mockImplementationOnce(async function (this: NDKEvent) {
+      const sent = { id: this.id, created_at: this.created_at!, tags: this.tags.map((t) => [...t]), content: this.content };
+      published.push(sent);
+      const kept = store?.(sent);
+      if (kept) (net.relays[NOS] as Record<string, Stored>)[D] = kept;
+      throw new Error('Not enough relays received the event');
+    });
+  }
+
+  it('our event is on a relay: saved', async () => {
+    publishTimesOut((sent) => sent);
+    const r = await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    expect(r).toEqual({ ok: true, changed: true, added: 1 });
+    expect(recipesIn(get(cookbookStore).lists.find((l) => l.id === D)!.event)).toEqual([R('r1'), R('r2')]);
+  });
+
+  it('a newer copy that already has the change: saved', async () => {
+    publishTimesOut((sent) => ({ ...listEvent(sent.created_at + 5, [R('r1'), R('r2'), R('r9')]), id: 'other-device' }));
+    const r = await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    expect(r).toMatchObject({ ok: true });
+    expect(recipesIn(get(cookbookStore).lists.find((l) => l.id === D)!.event)).toContain(R('r9'));
+  });
+
+  it('a newer copy without the change: unconfirmed, with Refresh (never "nothing was changed")', async () => {
+    publishTimesOut((sent) => ({ ...listEvent(sent.created_at + 5, [R('r1'), R('r9')]), id: 'other-device' }));
+    const r = await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    expect(r).toEqual({ ok: false, uncertain: true, message: LIST_SAVE_UNCONFIRMED_MESSAGE });
+  });
+
+  it('no relay has it: unconfirmed, with Refresh', async () => {
+    publishTimesOut();
+    const r = await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    expect(r).toEqual({ ok: false, uncertain: true, message: LIST_SAVE_UNCONFIRMED_MESSAGE });
+    expect(LIST_SAVE_UNCONFIRMED_MESSAGE).not.toMatch(/nothing was changed/);
+    expect(LIST_SAVE_UNCONFIRMED_MESSAGE).toBe("Couldn't confirm the save. Refresh to check.");
+  });
+
+  it('the next edit is strictly newer than the unconfirmed one', async () => {
+    publishTimesOut();
+    await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    await settle(cookbookStore.editList(D, { add: [R('r3')] }));
+    expect(published).toHaveLength(2);
+    expect(published[1].created_at!).toBeGreaterThan(published[0].created_at!);
+  });
+
+  it('Saved list: the same — unconfirmed, with Refresh', async () => {
+    const saved = { ...listEvent(1000, [R('r1')]), tags: [['d', 'nostrcooking-bookmarks'], ['title', 'Saved'], ['a', R('r1')]] };
+    net.relays = {
+      [NOS]: { 'nostrcooking-bookmarks': saved },
+      [PRIMAL]: { 'nostrcooking-bookmarks': saved },
+      [NET]: { 'nostrcooking-bookmarks': saved }
+    };
+    publishTimesOut();
+    const r = await settle(cookbookStore.editList('nostrcooking-bookmarks', { add: [R('r2')] }));
+    expect(r).toEqual({ ok: false, uncertain: true, message: LIST_SAVE_UNCONFIRMED_MESSAGE });
+  });
+
+  it('a failure before anything was sent still says nothing was changed', async () => {
+    vi.mocked(relaySetForUrls).mockRejectedValueOnce(new Error('no relays'));
+    const r = await settle(cookbookStore.editList(D, { add: [R('r2')] }));
+    expect(r).toEqual({ ok: false, message: LIST_PUBLISH_FAILED_MESSAGE });
+    expect(published).toHaveLength(0);
   });
 });

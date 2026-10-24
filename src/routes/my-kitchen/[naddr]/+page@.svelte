@@ -24,7 +24,7 @@
   import CloudSlashIcon from 'phosphor-svelte/lib/CloudSlash';
   import { DEFAULT_LIST_ID, cookbookStore, getCookbookCoverImage, type CookbookList, type SavedListView } from '$lib/stores/cookbookStore';
   import type { SavedListChange } from '$lib/savedListSafety';
-  import { showToast } from '$lib/toast';
+  import { showListEditRefusal } from '$lib/listEditToast';
   import { parseCoordinate } from '$lib/coordinate';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { writable, type Writable, get } from 'svelte/store';
@@ -444,10 +444,7 @@
     const result = await cookbookStore.editList(listId, change);
     if (!result.ok) {
       errorMessage = result.message;
-      showToast('error', result.message, 10000, undefined, {
-        label: 'Retry',
-        onClick: () => void again()
-      });
+      showListEditRefusal(result, again);
       return false;
     }
     const updated = get(cookbookStore).lists.find(l => l.id === listId);

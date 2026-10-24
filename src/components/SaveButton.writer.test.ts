@@ -25,8 +25,8 @@ describe('SaveButton writes lists only through the cookbook store', () => {
   });
 
   it('shows the store’s failure message, with Retry, instead of failing silently', () => {
-    expect(source).toMatch(/showToast\('error', result\.message/);
-    expect(source).toMatch(/label: 'Retry'/);
+    // showListEditRefusal shows result.message with Retry (Refresh when unconfirmed).
+    expect(source).toMatch(/showListEditRefusal\(result, /);
   });
 });
 
@@ -75,9 +75,19 @@ describe('list page: every list edit goes through the guarded store edit', () =>
   it("each save's toast Retry runs the whole save again (so it shows Saving...)", () => {
     expect(handler('saveCoverRecipe')).toMatch(/editThisList\([^;]*, saveCoverRecipe\)/);
     expect(handler('saveEdits')).toMatch(/editThisList\([^;]*, saveEdits\)/);
-    expect(handler('editThisList')).toMatch(/onClick: \(\) => void again\(\)/);
+    expect(handler('editThisList')).toMatch(/showListEditRefusal\(result, again\)/);
     for (const name of ['saveCoverRecipe', 'saveEdits', 'saveRecipeOrder']) {
       expect(handler(name)).toMatch(/^async function \w+\(\) \{\n    if \(isSubmitting\) return;/);
     }
+  });
+});
+
+describe('list edit refusals go through showListEditRefusal (Retry, or Refresh when unconfirmed)', () => {
+  it('SaveButton: Saved and collection edits', () => {
+    expect(source).toMatch(/showListEditRefusal\(result, \(\) => editSaved\(op\)\)/);
+    expect(source).toMatch(/showListEditRefusal\(result, \(\) => editCustom\(listId, op\)\)/);
+  });
+  it('list page: editThisList', () => {
+    expect(handler('editThisList')).toMatch(/showListEditRefusal\(result, again\)/);
   });
 });

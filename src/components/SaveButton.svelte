@@ -18,7 +18,7 @@
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import { clickOutside } from '$lib/clickOutside';
   import { cookbookStore, DEFAULT_LIST_ID } from '$lib/stores/cookbookStore';
-  import { showToast } from '$lib/toast';
+  import { showListEditRefusal } from '$lib/listEditToast';
   import { get } from 'svelte/store';
   import { fade, slide } from 'svelte/transition';
 
@@ -87,8 +87,9 @@
 
   /**
    * Save to / remove from the Saved list through the store's safe edit. A
-   * refusal ("nothing was changed") is shown with Retry, which repeats the
-   * SAME operation — never re-runs the toggle, which could flip direction.
+   * refusal is shown with Retry, which repeats the SAME operation — never
+   * re-runs the toggle, which could flip direction. A save that went out
+   * but couldn't be confirmed offers Refresh instead (showListEditRefusal).
    */
   async function editSaved(op: 'save' | 'remove'): Promise<void> {
     if (loading) return;
@@ -99,10 +100,7 @@
           ? await cookbookStore.saveToDefaultList(event)
           : await cookbookStore.removeFromDefaultList(recipeATag);
       if (!result.ok) {
-        showToast('error', result.message, 10000, undefined, {
-          label: 'Retry',
-          onClick: () => editSaved(op)
-        });
+        showListEditRefusal(result, () => editSaved(op));
       } else if (result.changed) {
         dispatch(op === 'save' ? 'saved' : 'removed', { listId: DEFAULT_LIST_ID });
       }
@@ -159,11 +157,7 @@
           ? await cookbookStore.removeRecipeFromListResult(listId, recipeATag)
           : await cookbookStore.addRecipeToListResult(listId, event);
       if (result.ok) dispatch(op === 'remove' ? 'removed' : 'saved', { listId });
-      else
-        showToast('error', result.message, 10000, undefined, {
-          label: 'Retry',
-          onClick: () => editCustom(listId, op)
-        });
+      else showListEditRefusal(result, () => editCustom(listId, op));
     } finally {
       loading = false;
       pendingListId = null;

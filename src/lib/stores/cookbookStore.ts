@@ -68,7 +68,15 @@ export interface CookbookList {
 /** Outcome of an edit to the default "Saved" list. */
 export type SavedListResult =
   | { ok: true; changed: boolean; /** Recipes actually added (not already there). */ added: number }
-  | { ok: false; message: string };
+  | {
+      ok: false;
+      message: string;
+      /**
+       * The edit was sent but couldn't be confirmed: it may be saved. Offer
+       * Refresh, never Retry-as-if-nothing-happened.
+       */
+      uncertain?: true;
+    };
 
 export const SAVED_LIST_UNCONFIRMED_MESSAGE =
   "Couldn't load your Saved list, so nothing was changed. Please try again in a moment.";
@@ -81,6 +89,8 @@ export const LIST_PUBLISH_FAILED_MESSAGE =
 export const LIST_NOT_FOUND_MESSAGE =
   "This collection couldn't be found on your relays, so nothing was changed.";
 export const LIST_EXISTS_MESSAGE = 'You already have a collection with that name.';
+/** A publish went out but no relay confirmed it: never "nothing was changed". */
+export const LIST_SAVE_UNCONFIRMED_MESSAGE = "Couldn't confirm the save. Refresh to check.";
 export const SIGNER_TIMEOUT_MESSAGE =
   "Your signer didn't respond, so nothing was changed. Please try again.";
 export const SIGN_FAILED_MESSAGE = "The change wasn't signed, so nothing was changed.";
@@ -435,12 +445,31 @@ function createCookbookStore() {
     }
     // Signed as someone else (the signer changed under us): not theirs to publish.
     if (event.pubkey !== pubkey || get(userPublickey) !== pubkey) return { ok: false, message: unconfirmed };
+    let relaySet: Awaited<ReturnType<typeof import('$lib/nip65Routing').relaySetForUrls>>;
     try {
       const { relaySetForUrls } = await import('$lib/nip65Routing');
-      await event.publish(await relaySetForUrls(ndkInstance, urls), LIST_PUBLISH_OK_TIMEOUT_MS);
+      relaySet = await relaySetForUrls(ndkInstance, urls);
     } catch (error) {
-      console.error('[CookbookStore] List publish failed:', listId, error);
+      // Nothing has gone out yet, so nothing changed.
+      console.error('[CookbookStore] List publish failed before sending:', listId, error);
       return { ok: false, message: publishFailed };
+    }
+    try {
+      await event.publish(relaySet, LIST_PUBLISH_OK_TIMEOUT_MS);
+    } catch (error) {
+      // The event went out, but no relay acknowledged it in time: it may
+      // well be stored. The next edit must stay strictly newer than it either
+      // way; one fresh read decides what to tell the member.
+      console.warn('[CookbookStore] List publish unacknowledged, checking the relays:', listId, error);
+      lastPublishedAt.set(k, event.created_at!);
+      const stored = await findPublishedEdit(pubkey, listId, event, change, next.created_at);
+      if (!stored) return { ok: false, uncertain: true, message: LIST_SAVE_UNCONFIRMED_MESSAGE };
+      noteListSeen(pubkey, listId, stored);
+      await adoptList(
+        stored.id === event.id ? event : new NDKEvent(ndkInstance, { ...stored, kind: 30001, pubkey } as never),
+        pubkey
+      );
+      return { ok: true, changed: true, added: next.added };
     }
     lastPublishedAt.set(k, event.created_at!);
     noteListSeen(pubkey, listId, {
@@ -451,6 +480,39 @@ function createCookbookStore() {
     });
     await adoptList(event, pubkey);
     return { ok: true, changed: true, added: next.added };
+  }
+
+  /**
+   * After an unacknowledged publish: the list as the relays now hold it, if
+   * it shows the edit landed — our event itself, or a copy at least as new
+   * that already contains the change (applying it again changes nothing).
+   * Null when no relay shows either, or the read fails.
+   */
+  async function findPublishedEdit(
+    pubkey: string,
+    listId: string,
+    event: NDKEvent,
+    change: SavedListChange,
+    createdAt: number
+  ): Promise<ListEvent | null> {
+    try {
+      const read = await readListFromRelays(pubkey, listId, savedListQuery);
+      const lists = read.answers.map(a => a.list).filter((l): l is ListEvent => !!l);
+      const ours = lists.find(l => l.id === event.id);
+      if (ours) return ours;
+      const newest = newestList(...lists);
+      if (!newest || newest.created_at < createdAt) return null;
+      const again = buildSavedListEdit(newest, change, {
+        dTag: listId,
+        title: listId,
+        now: createdAt,
+        floor: createdAt
+      });
+      return again.changed ? null : newest;
+    } catch (error) {
+      console.warn('[CookbookStore] Confirmation read failed:', listId, error);
+      return null;
+    }
   }
 
   /** Queue an edit for the account signed in NOW (see doEditList). */
