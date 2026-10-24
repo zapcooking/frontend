@@ -133,8 +133,8 @@
     const wasIn = savedInLists.has(listId);
     // The edit reads the list from the relays first (up to a few seconds):
     // the row shows it's working instead of looking frozen.
-    pendingListId = listId;
     if (listId === DEFAULT_LIST_ID) {
+      pendingListId = listId;
       try {
         await editSaved(wasIn ? 'remove' : 'save');
       } finally {
@@ -142,13 +142,28 @@
       }
       return;
     }
+    await editCustom(listId, wasIn ? 'remove' : 'add');
+  }
+
+  /**
+   * Add to / remove from a collection. Like editSaved, a refusal shows the
+   * store's message with Retry, which repeats the SAME operation.
+   */
+  async function editCustom(listId: string, op: 'add' | 'remove'): Promise<void> {
+    if (loading) return;
     loading = true;
+    pendingListId = listId;
     try {
-      const ok = wasIn
-        ? await cookbookStore.removeRecipeFromList(listId, recipeATag)
-        : await cookbookStore.addRecipeToList(listId, event);
-      if (ok) dispatch(wasIn ? 'removed' : 'saved', { listId });
-      else showToast('error', "Couldn't update that list. Please try again.");
+      const result =
+        op === 'remove'
+          ? await cookbookStore.removeRecipeFromListResult(listId, recipeATag)
+          : await cookbookStore.addRecipeToListResult(listId, event);
+      if (result.ok) dispatch(op === 'remove' ? 'removed' : 'saved', { listId });
+      else
+        showToast('error', result.message, 10000, undefined, {
+          label: 'Retry',
+          onClick: () => editCustom(listId, op)
+        });
     } finally {
       loading = false;
       pendingListId = null;

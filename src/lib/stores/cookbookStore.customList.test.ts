@@ -165,6 +165,12 @@ beforeEach(() => {
   ndk.set(fakeNdk() as unknown as NDK);
   userPublickey.set(PUBKEY);
   published = [];
+  // List edits sign before publishing (signWithin): sign as the signed-in member.
+  vi.spyOn(NDKEvent.prototype, 'sign').mockImplementation(async function (this: NDKEvent) {
+    this.pubkey = get(userPublickey);
+    this.sig = 'sig';
+    return 'sig';
+  });
   vi.spyOn(NDKEvent.prototype, 'publish').mockImplementation(async function (this: NDKEvent) {
     published.push({ tags: this.tags.map((t) => [...t]), created_at: this.created_at });
     return new Set() as never;
@@ -391,5 +397,104 @@ describe('offline: the change is queued, not a snapshot of local state', () => {
     expect(recipesIn(published[0])).toEqual([R('r1'), R('r2'), R('r3')]);
     expect(published[0].tags).toContainEqual(['cover', R('r1')]);
     expect(published[0].tags).toContainEqual(FOREIGN);
+  });
+});
+
+// ── Signing is bounded (#888 ruling 1) ──────────────────────────
+import { NDKNip07Signer, NDKNip46Signer, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
+import { SIGNER_TIMEOUT_MESSAGE } from './cookbookStore';
+import { NIP07_SIGN_TIMEOUT_MS, NIP46_SIGN_TIMEOUT_MS, signerTimeoutMs } from '$lib/savedList';
+
+/** A remote signer of `kind` that signs after `ms` (never when null). */
+function remoteSigner(kind: typeof NDKNip07Signer | typeof NDKNip46Signer, ms: number | null) {
+  const signer = Object.create(kind.prototype) as {
+    user: () => Promise<{ pubkey: string }>;
+    sign: (e: unknown) => Promise<string>;
+    signed: number;
+  };
+  signer.signed = 0;
+  signer.user = async () => ({ pubkey: PUBKEY });
+  signer.sign = () =>
+    new Promise((resolve) => {
+      if (ms !== null)
+        setTimeout(() => {
+          signer.signed++;
+          resolve('f'.repeat(128));
+        }, ms);
+    });
+  return signer;
+}
+
+/** Advance fake time until `p` settles or `limitMs` passes; null = still pending. */
+async function within<T>(p: Promise<T>, limitMs: number): Promise<{ ms: number; value?: T } | null> {
+  const t0 = Date.now();
+  let done = false;
+  let value: T | undefined;
+  p.then((v) => ((done = true), (value = v)));
+  while (!done && Date.now() - t0 < limitMs) await vi.advanceTimersByTimeAsync(250);
+  return done ? { ms: Date.now() - t0, value } : null;
+}
+
+describe('signing a list edit is bounded', () => {
+  beforeEach(() => {
+    vi.mocked(NDKEvent.prototype.sign).mockRestore();
+    const ev = listEvent(1000, [R('r1')]);
+    net.relays = { [NOS]: { [D]: ev }, [PRIMAL]: { [D]: ev }, [NET]: { [D]: ev } };
+  });
+  const useSigner = (s: unknown) => ((get(ndk) as { signer?: unknown }).signer = s);
+
+  it('bounds: extension 30 s, bunker 60 s, local key none', () => {
+    expect(signerTimeoutMs(Object.create(NDKNip07Signer.prototype))).toBe(NIP07_SIGN_TIMEOUT_MS);
+    expect(signerTimeoutMs(Object.create(NDKNip46Signer.prototype))).toBe(NIP46_SIGN_TIMEOUT_MS);
+    expect(signerTimeoutMs(NDKPrivateKeySigner.generate())).toBeNull();
+    expect(NIP07_SIGN_TIMEOUT_MS).toBe(30_000);
+    expect(NIP46_SIGN_TIMEOUT_MS).toBe(60_000);
+  });
+
+  it('an extension that never answers: refused with the signer message at 30 s, and the queue moves on', async () => {
+    useSigner(remoteSigner(NDKNip07Signer, null));
+    const r = await within(cookbookStore.editList(D, { add: [R('r2')] }), 120_000);
+    expect(r?.value).toEqual({ ok: false, message: SIGNER_TIMEOUT_MESSAGE });
+    expect(r!.ms).toBeGreaterThanOrEqual(30_000);
+    expect(r!.ms).toBeLessThan(31_000);
+    expect(published).toHaveLength(0);
+    // The next edit is not stuck behind it.
+    useSigner(remoteSigner(NDKNip07Signer, 100));
+    const next = await within(cookbookStore.editList(D, { add: [R('r3')] }), 5_000);
+    expect(next?.value).toMatchObject({ ok: true, changed: true });
+    expect(published).toHaveLength(1);
+  });
+
+  it('a bunker that signs after its 60 s bound: refused, and the late signature is never published', async () => {
+    const signer = remoteSigner(NDKNip46Signer, 61_000);
+    useSigner(signer);
+    const r = await within(cookbookStore.editList(D, { add: [R('r2')] }), 120_000);
+    expect(r?.value).toEqual({ ok: false, message: SIGNER_TIMEOUT_MESSAGE });
+    expect(r!.ms).toBeGreaterThanOrEqual(60_000);
+    expect(r!.ms).toBeLessThan(61_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(signer.signed).toBe(1); // the signature did arrive…
+    expect(published).toHaveLength(0); // …and went nowhere
+  });
+
+  it('a bunker that signs within its bound (45 s): saved', async () => {
+    useSigner(remoteSigner(NDKNip46Signer, 45_000));
+    const r = await within(cookbookStore.editList(D, { add: [R('r2')] }), 120_000);
+    expect(r?.value).toMatchObject({ ok: true, changed: true });
+    expect(published).toHaveLength(1);
+  });
+
+  it('a local key signs with no timer', async () => {
+    const signer = NDKPrivateKeySigner.generate();
+    PUBKEY = (await signer.user()).pubkey;
+    userPublickey.set(PUBKEY);
+    useSigner(signer);
+    const ev = { ...listEvent(1000, [R('r1')]) };
+    net.relays = { [NOS]: { [D]: ev }, [PRIMAL]: { [D]: ev }, [NET]: { [D]: ev } };
+    seedStore(ev);
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    const r = await within(cookbookStore.editList(D, { add: [R('r2')] }), 20_000);
+    expect(r?.value).toMatchObject({ ok: true, changed: true });
+    expect(spy.mock.calls.some((c: unknown[]) => c[1] === NIP07_SIGN_TIMEOUT_MS || c[1] === NIP46_SIGN_TIMEOUT_MS)).toBe(false);
   });
 });

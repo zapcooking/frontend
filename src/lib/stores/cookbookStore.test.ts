@@ -188,6 +188,12 @@ describe('cookbookStore cold-session behavior', () => {
     vi.mocked(isCurrentlyOnline).mockReturnValue(true);
     vi.mocked(offlineStorage.getAllCookbooks).mockResolvedValue([]);
     vi.mocked(offlineStorage.getPendingOperations).mockResolvedValue([]);
+    // List edits sign before publishing (signWithin): sign as the signed-in member.
+    vi.spyOn(NDKEvent.prototype, 'sign').mockImplementation(async function (this: NDKEvent) {
+      this.pubkey = get(userPublickey);
+      this.sig = 'sig';
+      return 'sig';
+    });
     publishSpy = vi
       .spyOn(NDKEvent.prototype, 'publish')
       .mockResolvedValue(new Set() as never);

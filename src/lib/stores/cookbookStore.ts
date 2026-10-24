@@ -30,6 +30,7 @@ import {
   isFreshAccount,
   noteListSeen,
   readListFromRelays,
+  signWithin,
   type QueryList
 } from '$lib/savedList';
 
@@ -79,6 +80,9 @@ export const LIST_PUBLISH_FAILED_MESSAGE =
 export const LIST_NOT_FOUND_MESSAGE =
   "This collection couldn't be found on your relays, so nothing was changed.";
 export const LIST_EXISTS_MESSAGE = 'You already have a collection with that name.';
+export const SIGNER_TIMEOUT_MESSAGE =
+  "Your signer didn't respond, so nothing was changed. Please try again.";
+export const SIGN_FAILED_MESSAGE = "The change wasn't signed, so nothing was changed.";
 
 /** What a per-relay read of the Saved list established. */
 type SavedReadOutcome = 'found' | 'absent' | 'unknown';
@@ -420,6 +424,16 @@ function createCookbookStore() {
     event.created_at = next.created_at;
     const { addClientTagToEvent } = await import('$lib/nip89');
     addClientTagToEvent(event);
+    // Signed before publishing, within the signer's bound: a remote signer
+    // that never answers refuses the edit (and frees the queue) instead of
+    // holding it forever. Nothing has gone out yet, so nothing changed.
+    const signed = await signWithin(event, ndkInstance.signer);
+    if (signed !== 'signed') {
+      console.warn('[CookbookStore] List edit refused: signer', signed, listId);
+      return { ok: false, message: signed === 'timeout' ? SIGNER_TIMEOUT_MESSAGE : SIGN_FAILED_MESSAGE };
+    }
+    // Signed as someone else (the signer changed under us): not theirs to publish.
+    if (event.pubkey !== pubkey || get(userPublickey) !== pubkey) return { ok: false, message: unconfirmed };
     try {
       const { relaySetForUrls } = await import('$lib/nip65Routing');
       await event.publish(await relaySetForUrls(ndkInstance, urls));
@@ -1177,11 +1191,14 @@ function createCookbookStore() {
       listId: string,
       recipeEvent: NDKEvent
     ): Promise<boolean> {
+      return (await this.addRecipeToListResult(listId, recipeEvent)).ok;
+    },
+
+    /** addRecipeToList with the store's message when it refuses (for a toast with Retry). */
+    async addRecipeToListResult(listId: string, recipeEvent: NDKEvent): Promise<SavedListResult> {
       const aTag = aTagOf(recipeEvent);
-      if (listId === DEFAULT_LIST_ID) {
-        return (await editDefaultList({ add: [aTag] })).ok;
-      }
-      return customEdit(listId, { add: [aTag] }, list =>
+      if (listId === DEFAULT_LIST_ID) return editDefaultList({ add: [aTag] });
+      return customEditResult(listId, { add: [aTag] }, list =>
         list.recipes.includes(aTag)
           ? null
           : {
@@ -1203,10 +1220,13 @@ function createCookbookStore() {
       listId: string,
       recipeATag: string
     ): Promise<boolean> {
-      if (listId === DEFAULT_LIST_ID) {
-        return (await editDefaultList({ remove: [recipeATag] })).ok;
-      }
-      return customEdit(listId, { remove: [recipeATag] }, list => {
+      return (await this.removeRecipeFromListResult(listId, recipeATag)).ok;
+    },
+
+    /** removeRecipeFromList with the store's message when it refuses. */
+    async removeRecipeFromListResult(listId: string, recipeATag: string): Promise<SavedListResult> {
+      if (listId === DEFAULT_LIST_ID) return editDefaultList({ remove: [recipeATag] });
+      return customEditResult(listId, { remove: [recipeATag] }, list => {
         const remaining = list.recipes.filter(r => r !== recipeATag);
         const wasCover = list.coverRecipeId === recipeATag;
         return {

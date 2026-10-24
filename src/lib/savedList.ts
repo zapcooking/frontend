@@ -1,4 +1,5 @@
 import type { Filter } from 'nostr-tools';
+import { NDKEvent, NDKNip07Signer, NDKPrivateKeySigner, type NDKSigner } from '@nostr-dev-kit/ndk';
 import {
   MIN_EMPTY_ANSWERS,
   SAVED_LIST_READ_TIMEOUT_MS,
@@ -146,6 +147,61 @@ export async function readListFromRelays(
     if (a.list && (a.list as ListEvent & { pubkey?: string }).pubkey !== pubkey) a.list = null;
   }
   return { answers, ownWrite: own.write, urls, discovery: 'known' };
+}
+
+// ── Signing ─────────────────────────────────────────────────────
+
+/** How long an extension (NIP-07) may take to sign a list edit. */
+export const NIP07_SIGN_TIMEOUT_MS = 30_000;
+/** How long a remote bunker (NIP-46) may take: the member may approve on another device. */
+export const NIP46_SIGN_TIMEOUT_MS = 60_000;
+
+/**
+ * The bound for this signer, or null for a local key (nsec, unlocked
+ * passkey), which signs in-process and can't stall. NDK puts no timeout on
+ * either remote kind: an extension that silently drops the request, or a
+ * bunker that never replies, would hold the edit — and every edit queued
+ * behind it — forever. Anything else (a bunker, or a signer we don't
+ * recognise) gets the bunker bound.
+ */
+export function signerTimeoutMs(signer: NDKSigner | undefined): number | null {
+  if (signer instanceof NDKPrivateKeySigner) return null;
+  if (signer instanceof NDKNip07Signer) return NIP07_SIGN_TIMEOUT_MS;
+  return NIP46_SIGN_TIMEOUT_MS;
+}
+
+/**
+ * Sign `event` within its signer's bound. The signer signs a copy, so a
+ * signature that arrives after the timeout lands on an event nothing holds
+ * and is never published; only a signature in time is copied over.
+ */
+export async function signWithin(
+  event: NDKEvent,
+  signer: NDKSigner | undefined
+): Promise<'signed' | 'timeout' | 'failed'> {
+  const copy = new NDKEvent(event.ndk, event.rawEvent());
+  const sign = copy.sign(signer).then(
+    () => 'signed' as const,
+    (error) => {
+      console.warn('[savedList] the signer did not sign the list edit:', error);
+      return 'failed' as const;
+    }
+  );
+  const ms = signerTimeoutMs(signer);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const outcome =
+    ms === null
+      ? await sign
+      : await Promise.race([
+          sign,
+          new Promise<'timeout'>((resolve) => (timer = setTimeout(() => resolve('timeout'), ms)))
+        ]);
+  clearTimeout(timer);
+  if (outcome !== 'signed') return outcome;
+  if (copy.pubkey) event.pubkey = copy.pubkey;
+  if (copy.id) event.id = copy.id;
+  if (copy.sig) event.sig = copy.sig;
+  return 'signed';
 }
 
 // ── Session memory ──────────────────────────────────────────────
