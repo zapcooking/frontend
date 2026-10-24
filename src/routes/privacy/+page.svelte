@@ -25,7 +25,7 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Privacy Policy</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: July 26, 2026</p>
+    <p class="text-sm opacity-75">Last updated: October 24, 2026</p>
 
     <p>Zap Cooking LLC ("Zap Cooking," "we," "our," or "us") respects your privacy and is committed to transparency about how information is handled when you use our website, mobile applications, and related services (collectively, the "Service").</p>
 
@@ -87,7 +87,7 @@
 
     <p>The Service stores information on your device — application preferences in the mobile apps, and browser local storage on the website — to keep settings such as your theme, session state, and wallet connection details. This information stays on your device and is not sent to us.</p>
 
-    <p>Some settings are not only local. Your relay list and your mute and block lists are published to Nostr as events signed with your own key, which means they are stored on relays, including ours. Your private key stays on your device unless you choose to use one of our optional key backup features — Google Drive backup or passkey sign-in — each described in its own section below.</p>
+    <p>Some settings are not only local. Your relay list and your mute and block lists are published to Nostr as events signed with your own key, which means they are stored on relays, including ours. Your private key stays on your device unless you use passkey sign-in with “Sign in on other devices” turned on, which stores an encrypted copy with us (section 8). A Google Drive backup you made earlier stays in your own Drive (section 7).</p>
 
     <h3 class="text-xl font-semibold mt-6 mb-3" style="color: var(--color-text-primary)">1.6 What we hold against your public key</h3>
 
@@ -162,7 +162,7 @@
       <li><strong>Blossom media servers.</strong> Images and video you upload are stored on Blossom servers, which are operated independently of Zap Cooking. The default is <code>blossom.primal.net</code>; you can change it in settings. We do not host your media.</li>
       <li><strong>OpenAI.</strong> Content you submit to our AI features is sent to OpenAI for processing. See "AI features" below.</li>
       <li><strong>nostr.build GIFs.</strong> When you search for a GIF in the composer, your typed search term is sent to our server, which forwards it to <code>gifs.nostr.build</code> (our server holds only the API key). GIF previews and picked GIFs load from <code>image.nostr.build</code>. Nothing is sent until you open the GIF picker.</li>
-      <li><strong>Google.</strong> Optional, only if you use the encrypted key backup feature. See "Google Sign-In and Drive backup" below.</li>
+      <li><strong>Google.</strong> Optional, only if you restore a key from a Google Drive backup. See "Google Drive restore" below.</li>
       <li><strong>Stripe.</strong> Card payment processing.</li>
       <li><strong>Cloudflare.</strong> Hosting, content delivery, security, and website analytics for zap.cooking.</li>
     </ul>
@@ -193,26 +193,28 @@
     <p><strong>OpenAI's handling.</strong> OpenAI processes this content under its API terms. As of the date of this policy, OpenAI states that data submitted through its API is not used to train its models, and that API inputs and outputs are deleted after 30 days unless it is legally required to retain them.</p>
 
     <!-- Section 7 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">7. Google Sign-In and Drive backup</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">7. Google Drive restore</h2>
 
-    <p>Zap Cooking offers an optional encrypted backup of your Nostr private key to your own Google Drive.</p>
+    <p>Zap Cooking used to offer an optional encrypted backup of your Nostr private key to your own Google Drive. The website no longer creates new backups, but you can still restore a backup you made earlier.</p>
 
-    <p>If you choose to use it, you sign in with Google. We read a single value from the sign-in response — the stable identifier Google assigns to your account — which is used only as input to the encryption of your backup. <strong>We do not receive, store, or transmit your Google email address, name, or profile information.</strong></p>
+    <p>To restore, you sign in with Google. We read a single value from the sign-in response — the stable identifier Google assigns to your account — which is used only as input to decrypting your backup. <strong>We do not receive, store, or transmit your Google email address, name, or profile information.</strong></p>
 
-    <p>The backup is written to an application-specific folder in <strong>your own Google Drive</strong>. It is encrypted before it leaves your device. We cannot read it, and we cannot see any other content in your Drive. The file belongs to you, and deleting it is done through Google Drive — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page.</p>
+    <p>Your backup is in an application-specific folder in <strong>your own Google Drive</strong>. It was encrypted before it left your device. We cannot read it, and we cannot see any other content in your Drive. The file belongs to you, and deleting it is done through Google Drive — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page.</p>
 
-    <p>If you do not use this feature, no Google integration occurs.</p>
+    <p>If you do not restore from Google Drive, no Google integration occurs.</p>
 
     <!-- Section 8 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">8. Passkey sign-in and encrypted key sync</h2>
 
-    <p>On the Zap Cooking website you can optionally use a passkey to sign in. If you do and keep “Sign in on other devices” turned on, we store an encrypted copy of your Nostr private key on our servers, along with the public key of your passkey credential. With that option off, the encrypted copy stays in your browser and nothing is sent to us.</p>
+    <p>On the Zap Cooking website you can use a passkey to sign in. When you create an account with a passkey, “Sign in on other devices” is on unless you turn it off. While it is on, we store an encrypted copy of your Nostr private key on our servers, along with the public key of your passkey credential, so you can sign in on your other devices with the same passkey. With that option off, the encrypted copy stays in your browser and nothing is sent to us.</p>
 
-    <p><strong>We cannot read it.</strong> The key is encrypted on your device before it is sent, using a secret derived from your passkey that never leaves your device. What we hold is ciphertext we have no way to decrypt.</p>
+    <p><strong>We cannot read it.</strong> The key is encrypted on your device before it is sent, using a secret derived from your passkey that never leaves your device. What we hold is ciphertext we have no way to decrypt. Only your passkey can unlock it.</p>
 
-    <p><strong>This means we cannot recover it for you.</strong> If you lose access to your passkey, we cannot restore your Nostr key from this backup, because we do not hold the means to decrypt it. Keep a separate copy of your key.</p>
+    <p><strong>This means we cannot recover it for you.</strong> If you lose access to your passkey — for example, it is deleted from your password manager — we cannot restore your Nostr key, because we do not hold the means to decrypt it.</p>
 
-    <p>You can delete this stored copy at any time by turning off “Sign in on other devices” in your <a href="/settings" class="text-primary hover:underline">Settings</a>.</p>
+    <p><strong>Accounts with only a passkey.</strong> You can create an account with a passkey and no separate backup key, as long as “Sign in on other devices” is on and the encrypted copy reached our servers. Your way back in is then your passkey, as synced by your password manager, together with this stored copy. If the copy could not be saved when you created the account, we ask you to save a backup key before finishing. We still recommend keeping a copy of your key somewhere safe; you can reveal it in Settings. If you turn “Sign in on other devices” off, save a copy of your key first — otherwise it exists only in that browser.</p>
+
+    <p>The stored copy expires about a year after you last signed in with your passkey on any device; each passkey sign-in renews it. You can delete it at any time by turning off “Sign in on other devices” in your <a href="/settings" class="text-primary hover:underline">Settings</a>.</p>
 
     <p>If you do not use passkey sign-in, we store no copy of your key.</p>
 

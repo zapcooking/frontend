@@ -1,35 +1,19 @@
 import adapterCloudflare from '@sveltejs/adapter-cloudflare';
 import adapterVercel from '@sveltejs/adapter-vercel';
-import adapterStatic from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-// Use static adapter for mobile/Capacitor builds, Vercel for web deployment, Cloudflare as fallback
-const isCapacitor = process.env.CAPACITOR === 'true';
-const isStaticAdapter = process.env.ADAPTER === 'static';
-const adapter =
-  isCapacitor || isStaticAdapter
-    ? adapterStatic({
-        pages: isCapacitor ? 'dist' : 'build',
-        assets: isCapacitor ? 'dist' : 'build',
-        fallback: 'index.html',
-        precompress: false,
-        strict: true,
-        // Don't try to prerender dynamic routes - they'll be handled client-side
-        prerender: {
-          entries: [],
-          handleHttpError: 'warn'
-        }
-      })
-    : process.env.VERCEL
-      ? adapterVercel()
-      : adapterCloudflare({
-          // Excluded from SvelteKit Worker so Cloudflare applies redirect routing
-          // for LNURL endpoints defined in root _redirects (proxied to breez.tips).
-          routes: {
-            include: ['/*'],
-            exclude: ['<all>', '/.well-known/lnurlp/*', '/lnurlpay/*']
-          }
-        });
+// Vercel for a Vercel deployment, Cloudflare otherwise. (The static adapter
+// for the Capacitor/mobile builds is gone with the native shell, #855.)
+const adapter = process.env.VERCEL
+  ? adapterVercel()
+  : adapterCloudflare({
+      // Excluded from SvelteKit Worker so Cloudflare applies redirect routing
+      // for LNURL endpoints defined in root _redirects (proxied to breez.tips).
+      routes: {
+        include: ['/*'],
+        exclude: ['<all>', '/.well-known/lnurlp/*', '/lnurlpay/*']
+      }
+    });
 
 /**
  * Report-only CSP directives.

@@ -370,6 +370,12 @@
       authState = authManager.getState();
       syncSignedIn(authState);
 
+      // A new account's profile that no relay has accepted yet: show it
+      // locally from the start (the profile cache is in memory only).
+      if (browser && localStorage.getItem('zapcooking_pending_kind0')) {
+        void import('$lib/pendingKind0').then((m) => m.seedPendingKind0Locally());
+      }
+
       // Locked passkey vault (record present, no plaintext key, no bunker):
       // nothing opens by itself. The header shows "Continue as {name}" and
       // one tap unlocks. Guarded on the other restore inputs so an in-flight
@@ -411,6 +417,11 @@
           // still ahead. autoRestoreWalletAtLogin holds the flag through
           // an actual restore and clears it on every outcome.
           evaluateWalletSetupState(state.publicKey);
+          // A new account's first profile that no relay accepted yet keeps
+          // retrying in the background across reloads ($lib/pendingKind0).
+          if (localStorage.getItem('zapcooking_pending_kind0')) {
+            void import('$lib/pendingKind0').then((m) => m.startPendingKind0Retry(state.publicKey));
+          }
           // Upgrade a legacy V1 Spark mnemonic (key = sha256(pubkey), so
           // readable by anyone with localStorage access) without waiting
           // for the user to open the wallet. Deferred so it never competes

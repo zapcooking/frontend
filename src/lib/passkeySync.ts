@@ -70,6 +70,24 @@ export function setSyncEnabled(on: boolean): void {
   if (browser) localStorage.setItem(SYNC_ENABLED_KEY, on ? '1' : '0');
 }
 
+/**
+ * When this device last renewed the server copy's expiry (an accepted
+ * refresh or upload). Unlocks renew it at most once a day: plenty for a
+ * 370-day TTL, and the other unlocks need no network at all.
+ */
+export const SYNC_REFRESHED_AT_KEY = 'nostrcooking_vault_sync_refreshed_at';
+export const SYNC_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+export function isRefreshDue(now = Date.now()): boolean {
+  if (!browser) return false;
+  const last = Number(localStorage.getItem(SYNC_REFRESHED_AT_KEY));
+  return !Number.isFinite(last) || last <= 0 || now - last >= SYNC_REFRESH_INTERVAL_MS;
+}
+
+function markRefreshed(now = Date.now()): void {
+  if (browser) localStorage.setItem(SYNC_REFRESHED_AT_KEY, String(now));
+}
+
 export function isUploadPending(): boolean {
   return browser && localStorage.getItem(SYNC_PENDING_KEY) === '1';
 }
@@ -98,9 +116,22 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     .join('');
 }
 
-/** Fetch a server challenge. Throws on any failure. */
+/**
+ * Deadlines for the vault-sync requests. The challenge is awaited BEFORE a
+ * passkey prompt (unlock, signup) and the signup upload is awaited before
+ * the step can finish, so neither may hang: past the deadline they count
+ * as failed — an unlock then goes ahead locally, a signup asks for the
+ * backup key, and the upload stays pending for the next unlock.
+ */
+export const CHALLENGE_TIMEOUT_MS = 5_000;
+export const UPLOAD_TIMEOUT_MS = 10_000;
+
+/** Fetch a server challenge. Throws on any failure, including the deadline. */
 export async function fetchChallenge(): Promise<string> {
-  const res = await fetch('/api/vault-sync/challenge', { method: 'POST' });
+  const res = await fetch('/api/vault-sync/challenge', {
+    method: 'POST',
+    signal: AbortSignal.timeout(CHALLENGE_TIMEOUT_MS)
+  });
   if (!res.ok) throw new PasskeySyncError(`challenge fetch failed (${res.status})`);
   const body = await res.json();
   if (typeof body?.challenge !== 'string') throw new PasskeySyncError('bad challenge response');
@@ -143,6 +174,7 @@ export async function uploadVault(
   try {
     const res = await fetch('/api/vault-sync', {
       method: 'PUT',
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         blob: JSON.stringify(record),
@@ -156,9 +188,43 @@ export async function uploadVault(
       return false;
     }
     setUploadPending(false);
+    markRefreshed();
     return true;
   } catch {
     setUploadPending(true);
+    return false;
+  }
+}
+
+/**
+ * Keep the synced copy alive. An unlock with sync on spends its ceremony's
+ * assertion here (at most once a day per device — isRefreshDue), so the
+ * entry's 370-day expiry runs from the last time the passkey was used on
+ * ANY device, the same-device unlock included. A verified assertion-gated fetch rewrites the entry with a
+ * fresh TTL (KV has no touch primitive). If the entry is gone (expired, or
+ * never landed) the server answers 404 without redeeming the challenge — an
+ * absent entry has no key to verify against — so the same assertion
+ * re-uploads it. Never throws; false means nothing was refreshed this time.
+ */
+export async function refreshVaultEntry(
+  record: VaultRecord,
+  assertion: AssertionWire
+): Promise<boolean> {
+  try {
+    const hash = await sha256Hex(b64urlToBytes(assertion.credentialId));
+    const res = await fetch(`/api/vault-sync/${hash}`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assertion })
+    });
+    if (res.ok) {
+      markRefreshed();
+      return true;
+    }
+    if (res.status === 404) return uploadVault(record, assertion);
+    return false;
+  } catch {
     return false;
   }
 }
@@ -293,6 +359,8 @@ export async function signInWithPasskey(): Promise<SyncSignInResult> {
     if (getPublicKey(hexToBytes(privkeyHex)) !== record.pubkey) {
       throw new Error('decrypted key does not match record pubkey');
     }
+    // The assertion-gated fetch above just renewed the server copy's expiry.
+    markRefreshed();
     return { privkeyHex, record };
   } catch (e) {
     throw new SyncSignInError(
