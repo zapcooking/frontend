@@ -10,6 +10,7 @@ import {
 import { getPublicKey } from 'nostr-tools';
 import { getOutboxRelays } from './relayListCache';
 import { ingestProfileEvent } from './profileResolver';
+import { clearPendingKind0 } from './pendingKind0';
 
 /**
  * Read-modify-write for the signed-in user's own kind:0.
@@ -306,6 +307,9 @@ export async function publishKind0Changes(
     throw new Error('No relay accepted the profile update. Please try again.');
   }
   ingestProfileEvent(pubkey, event);
+  // A newer profile reached a relay: an older unsent signup kind 0 must
+  // not be republished over it.
+  clearPendingKind0(pubkey);
   return { event, relayCount: relays.size };
 }
 
@@ -342,13 +346,32 @@ export async function publishNewAccountKind0(
   event.content = JSON.stringify(content);
   await event.sign(new NDKPrivateKeySigner(privateKey));
   if (event.pubkey !== pubkey) throw new Error(KIND0_WRONG_SIGNER_MESSAGE);
-  const relays = new Set(relayUrls.map((url) => ndk.pool.getRelay(url, true)));
-  const accepted = await event.publish(
-    new NDKRelaySet(relays, ndk),
-    NEW_ACCOUNT_KIND0_TIMEOUT_MS
-  );
-  if (accepted.size > 0) ingestProfileEvent(pubkey, event);
-  return { event, relayCount: accepted.size };
+  // Into the local profile cache whether or not a relay took it yet: the
+  // member's own name shows straight away, and $lib/pendingKind0 keeps
+  // republishing it until a relay accepts it.
+  ingestProfileEvent(pubkey, event);
+  const relayCount = await publishSignedKind0(ndk, event, relayUrls);
+  return { event, relayCount };
+}
+
+/**
+ * Publish an already-signed kind 0 to `relayUrls` with the bounded wait.
+ * Returns how many relays accepted it; 0 on a timeout or any refusal
+ * (never throws — the caller decides whether to retry).
+ */
+export async function publishSignedKind0(
+  ndk: NDK,
+  event: NDKEvent,
+  relayUrls: string[]
+): Promise<number> {
+  try {
+    const relays = new Set(relayUrls.map((url) => ndk.pool.getRelay(url, true)));
+    const accepted = await event.publish(new NDKRelaySet(relays, ndk), NEW_ACCOUNT_KIND0_TIMEOUT_MS);
+    return accepted.size;
+  } catch (error) {
+    console.warn('[ownKind0] kind 0 publish not accepted:', (error as Error)?.message || error);
+    return 0;
+  }
 }
 
 /**

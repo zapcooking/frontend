@@ -14,7 +14,7 @@ vi.mock('./profileCache', () => ({ profileCacheManager: { invalidateProfile: vi.
 vi.mock('./nip98', () => ({ signNip98AuthHeader: vi.fn() }));
 
 const outbox = vi.hoisted(() => ({ urls: [] as string[] }));
-const published = vi.hoisted(() => ({ events: [] as any[], args: [] as any[][], acceptedBy: 3 }));
+const published = vi.hoisted(() => ({ events: [] as any[], args: [] as any[][], acceptedBy: 3, throws: false }));
 const USER = vi.hoisted(() => 'a'.repeat(64));
 /** Who the global ndk.signer is signed in as. */
 const globalSigner = vi.hoisted(() => ({ pubkey: 'a'.repeat(64) }));
@@ -35,6 +35,7 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
       async publish(...args: any[]) {
         published.events.push(this);
         published.args.push(args);
+        if (published.throws) throw new Error('Not enough relays received the event');
         return new Set(Array.from({ length: published.acceptedBy }, (_, i) => ({ url: `r${i}` })));
       }
     },
@@ -174,6 +175,7 @@ beforeEach(() => {
   published.events = [];
   published.args = [];
   published.acceptedBy = 3;
+  published.throws = false;
   globalSigner.pubkey = USER;
   outbox.urls = [];
   clearProfileCache();
@@ -491,6 +493,18 @@ describe('signing account', () => {
     expect(published.events[0].kind).toBe(0);
     expect(published.events[0].tags).toEqual([]);
     expect(lastContent()).toEqual({ name: 'newcook', about: 'hi' });
+    expect(heard).toEqual([getPublicKey(key)]);
+  });
+
+  it('signup: no relay accepting (timeout/refusal) never throws, and the profile is cached locally', async () => {
+    published.throws = true;
+    const key = generateSecretKey();
+    const heard: string[] = [];
+    const stop = onProfileCached((pk) => heard.push(pk));
+    const result = await publishNewAccountKind0(makeNdk({}), key, { name: 'newcook' }, [POOL]);
+    stop();
+    expect(result.relayCount).toBe(0);
+    expect(result.event.pubkey).toBe(getPublicKey(key)); // the signed event, kept for the retry
     expect(heard).toEqual([getPublicKey(key)]);
   });
 

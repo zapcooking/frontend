@@ -42,6 +42,11 @@
     type SafeStep
   } from '$lib/auth/signupFlow';
   import { signupPhotoProblem, uploadSignupPhoto } from '$lib/auth/signupPhoto';
+  import {
+    savePendingKind0,
+    startPendingKind0Retry,
+    type SignedKind0
+  } from '$lib/pendingKind0';
 
   /**
    * Account creation (see $lib/auth/signupFlow). LoginOverlay opens it
@@ -255,21 +260,25 @@
       const content: Record<string, string> = { name: name.trim() };
       if (picture) content.picture = picture;
       try {
-        // Signed with the new key itself, never the global signer. On
-        // success it is already in the local profile cache, so the header
-        // and "Continue as" show the name without waiting for relays.
-        const { relayCount } = await publishNewAccountKind0(
+        // Signed with the new key itself, never the global signer. It goes
+        // into the local profile cache either way, so the header and
+        // "Continue as" show the name at once. If no relay took it (a
+        // timeout, every relay refusing), it's kept and republished in the
+        // background until one does ($lib/pendingKind0) — never a blocking
+        // error: the account exists and is signed in.
+        const { event, relayCount } = await publishNewAccountKind0(
           $ndk,
           account.privateKey,
           content,
           getCurrentRelays()
         );
         if (relayCount === 0) {
-          showToast('info', "Your profile didn't reach the network yet. You can edit it in Settings.", 6000);
+          savePendingKind0(event.rawEvent() as SignedKind0);
+          startPendingKind0Retry(account.publicKey);
         }
       } catch (error) {
-        console.error('[Signup] kind 0 publish failed:', error);
-        showToast('info', "Your profile didn't reach the network yet. You can edit it in Settings.", 6000);
+        // Signing itself failed (not a relay problem): nothing to retry.
+        console.error('[Signup] kind 0 could not be signed:', error);
       }
       dispatch('complete', { pubkey: account.publicKey });
       reset();
