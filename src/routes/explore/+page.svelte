@@ -11,6 +11,7 @@
     NOSCRIPT_DARK_STYLE
   } from '$lib/landing/meta';
   import LandingHeader from '../../components/landing/LandingHeader.svelte';
+  import LandingSideNav from '../../components/landing/LandingSideNav.svelte';
   import LandingImage from '../../components/landing/LandingImage.svelte';
   import LongformTile from '../../components/landing/LongformTile.svelte';
   import LandingImportHero from '../../components/landing/LandingImportHero.svelte';
@@ -22,7 +23,11 @@
   $: paid = data.paid;
   $: meta = landingMeta(d);
   $: hero = d.cover
-    ? responsiveImg(d.cover.image, [480, 768, 1200], '(min-width: 768px) 60vw, 100vw')
+    ? responsiveImg(
+        d.cover.image,
+        [480, 768, 1200],
+        '(min-width: 1280px) 45vw, (min-width: 1024px) 50vw, (min-width: 768px) 60vw, 100vw'
+      )
     : null;
   const avatar = (url: string | undefined) => (url ? avatarUrl(url, 80) || url : undefined);
   const discoveries = [
@@ -35,20 +40,14 @@
     {
       name: 'Cheffy',
       href: '/cheffy',
-      body: 'A helping hand for your next kitchen question.',
+      body: 'Your kitchen assistant for ideas and cooking questions.',
       number: '02'
-    },
-    {
-      name: 'Cheffy’s Table',
-      href: '/cheffys-table',
-      body: 'Step into the kitchen. Play the cooking game.',
-      number: '03'
     },
     {
       name: 'The Android app',
       href: ANDROID_APP_URL,
       body: 'Take your kitchen with you.',
-      number: '04'
+      number: '03'
     }
   ];
 </script>
@@ -81,265 +80,267 @@
 </svelte:head>
 
 <div class="landing">
-  <LandingHeader />
-  <main id="main" class="magazine">
-    <section class="masthead" aria-labelledby="welcome">
-      <p class="eyebrow">Good food. Real people.</p>
-      <h1 id="welcome">Make something worth sharing.</h1>
-      <p class="intro">
-        Discover recipes from real cooks. Save your favorites.<br class="desktop-break" /> Bring your
-        own to the table.
-      </p>
-      <form action="/search" method="GET" class="search" role="search">
-        <label for="recipe-search" class="sr-only">Search recipes</label>
-        <input type="hidden" name="type" value="recipes" />
-        <input
-          id="recipe-search"
-          type="search"
-          name="q"
-          placeholder="What would you like to cook?"
-          required
-        />
-        <button type="submit" aria-label="Search recipes">Search <Arrow /></button>
-      </form>
-    </section>
+  <LandingSideNav />
+  <div class="landing-body">
+    <LandingHeader />
+    <main id="main" class="magazine">
+      <section class="masthead" aria-labelledby="welcome">
+        <h1 id="welcome">Explore</h1>
+        <p class="intro">
+          Discover recipes, reads, and cooks. Save your favorites and share what you make.
+        </p>
+        <form action="/search" method="GET" class="search" role="search">
+          <label for="recipe-search" class="sr-only">Search recipes</label>
+          <input type="hidden" name="type" value="recipes" />
+          <input
+            id="recipe-search"
+            type="search"
+            name="q"
+            placeholder="What would you like to cook?"
+            required
+          />
+          <button type="submit" aria-label="Search recipes">Search <Arrow /></button>
+        </form>
+      </section>
 
-    {#if d.cover || d.picks.length}
-      <section class="cover-section" aria-label="The cover selection">
-        <div class="section-top">
-          <p class="eyebrow">On the menu</p>
-          <a class="text-link" href={data.nextEditionHref}>More inspiration <Arrow /></a>
-        </div>
-        <div class="cover-spread">
-          {#if d.cover}
-            <article class="lead">
-              <a href={d.cover.href} class="lead-image"
-                ><LandingImage
-                  url={d.cover.image}
-                  alt={magazineText(d.cover.title) || 'Recipe from the kitchen'}
-                  ratio="16 / 10"
-                  widths={[480, 768, 1200]}
-                  sizes="(min-width: 768px) 60vw, 100vw"
-                  rounded=""
-                  hero
-                /></a
-              >
-              <div class="lead-caption">
-                <p class="eyebrow">The cover recipe</p>
-                <h2>
-                  <a href={d.cover.href}>{magazineText(d.cover.title) || 'From the kitchen'}</a>
-                </h2>
-                <a class="byline" href={userHref(d.cover.author.pubkey)}
-                  >{#if d.cover.author.picture}<img
-                      src={avatar(d.cover.author.picture)}
-                      alt=""
-                      width="28"
-                      height="28"
-                    />{/if}By {magazineName(d.cover.author.name)}</a
+      {#if d.cover || d.picks.length}
+        <section class="cover-section" aria-label="The cover selection">
+          <div class="section-top">
+            <p class="eyebrow">Featured recipes</p>
+            <a class="text-link" href={data.nextEditionHref}>More inspiration <Arrow /></a>
+          </div>
+          <div class="cover-spread">
+            {#if d.cover}
+              <article class="lead">
+                <a href={d.cover.href} class="lead-image"
+                  ><LandingImage
+                    url={d.cover.image}
+                    alt={magazineText(d.cover.title) || 'Recipe from the kitchen'}
+                    ratio="16 / 10"
+                    widths={[480, 768, 1200]}
+                    sizes="(min-width: 1280px) 45vw, (min-width: 1024px) 50vw, (min-width: 768px) 60vw, 100vw"
+                    rounded="rounded-xl"
+                    hero
+                  /></a
                 >
-              </div>
-            </article>
-          {/if}
-          {#if d.picks.length}<div class="supporting">
-              {#each d.picks as pick (pick.coordinate)}<LongformTile
-                  card={pick}
-                  ratio="16 / 9"
-                  sizes="(min-width: 768px) 28vw, 46vw"
-                  widths={[320, 480, 640]}
-                />{/each}
-            </div>{/if}
-        </div>
-      </section>
-    {/if}
-
-    <LandingImportHero />
-
-    {#if d.newRecipes.length}
-      <section class="section" aria-labelledby="dinner-heading">
-        <div class="section-top">
-          <div>
-            <p class="eyebrow">From their kitchen to yours</p>
-            <h2 id="dinner-heading">Something good to cook.</h2>
-          </div>
-          <a class="text-link" href="/recipes">All recipes <Arrow /></a>
-        </div>
-        <ul class="recipe-grid" role="list">
-          {#each d.newRecipes.slice(0, 4) as recipe (recipe.coordinate)}<li>
-              <LongformTile card={recipe} />
-            </li>{/each}
-        </ul>
-      </section>
-    {/if}
-
-    {#if d.collections.length}
-      <section id="collections" class="section" aria-labelledby="collections-heading">
-        <div class="section-top">
-          <div>
-            <p class="eyebrow">Follow your appetite</p>
-            <h2 id="collections-heading">A few delicious directions.</h2>
-          </div>
-        </div>
-        <ul class="collection-grid" role="list">
-          {#each d.collections as collection (collection.slug)}<li>
-              <a href={collection.href} class="collection"
-                ><LandingImage
-                  url={collection.image}
-                  alt=""
-                  ratio="4 / 3"
-                  rounded=""
-                  sizes="(min-width: 768px) 25vw, 46vw"
-                />
-                <h3>{collection.name} <Arrow /></h3>
-                <p>{collection.description}</p></a
-              >
-            </li>{/each}
-        </ul>
-      </section>
-    {/if}
-
-    {#if d.spotlights.length}
-      <section class="section" aria-labelledby="cooks-heading">
-        <div class="section-top">
-          <div>
-            <p class="eyebrow">Meet the people behind the plate</p>
-            <h2 id="cooks-heading">Made by someone like you.</h2>
-          </div>
-        </div>
-        <ul class="cook-grid" role="list">
-          {#each d.spotlights as cook (cook.pubkey)}<li class="cook">
-              <a href={cook.href} class="cook-person"
-                >{#if cook.picture}<img
-                    src={avatar(cook.picture)}
-                    alt=""
-                    width="56"
-                    height="56"
-                    loading="lazy"
-                  />{/if}
-                <h3>{magazineName(cook.name)}</h3></a
-              >{#if magazineText(cook.about)}<p class="cook-about">
-                  {magazineText(cook.about)}
-                </p>{/if}<a href={cook.recipe.href} class="cook-recipe"
-                ><LandingImage
-                  url={cook.recipe.image}
-                  alt={magazineText(cook.recipe.title)}
-                  ratio="4 / 3"
-                  rounded=""
-                /><span>{magazineText(cook.recipe.title) || 'Explore their recipe'} <Arrow /></span
-                ></a
-              >
-            </li>{/each}
-        </ul>
-      </section>
-    {/if}
-    {#if d.reads[0]}
-      {@const story = d.reads[0]}
-      <section class="story section" aria-labelledby="story-heading">
-        <a href={story.href}
-          ><LandingImage
-            url={story.image}
-            alt={magazineText(story.title)}
-            ratio="4 / 3"
-            widths={[480, 768, 1024]}
-            rounded=""
-          /></a
-        >
-        <div>
-          <p class="eyebrow">A story for the table</p>
-          <h2 id="story-heading">
-            <a href={story.href}>{magazineText(story.title) || 'Food for thought'}</a>
-          </h2>
-          {#if magazineText(story.summary)}<p>{magazineText(story.summary)}</p>{/if}
-          <p class="byline">By {magazineName(story.author.name)}</p>
-          <a class="text-link" href={story.href}>Settle in and read <Arrow /></a>
-        </div>
-      </section>
-    {/if}
-
-    {#if d.fresh.length}
-      <section class="section" aria-labelledby="community-heading">
-        <div class="section-top">
-          <div>
-            <p class="eyebrow">Pull up a chair</p>
-            <h2 id="community-heading">From the community kitchen.</h2>
-          </div>
-          <a class="text-link" href="/feed?tab=fresh">See what’s cooking <Arrow /></a>
-        </div>
-        <ul class="community-grid" role="list">
-          {#each d.fresh.slice(0, 4) as note (note.id)}<li>
-              <a href={note.href}
-                ><LandingImage
-                  url={note.image}
-                  alt={magazineText(note.text) || 'From the community kitchen'}
-                  ratio="1 / 1"
-                  rounded=""
-                  widths={[240, 360, 480]}
-                />{#if magazineText(note.text)}<p class="note-text">
-                    {magazineText(note.text)}
-                  </p>{/if}
-                <p class="byline">{magazineName(note.author.name)}</p></a
-              >
-            </li>{/each}
-        </ul>
-      </section>
-    {/if}
-
-    {#if paid.boosts.length || paid.sponsors.length}
-      <section class="section paid-section" aria-labelledby="partners-heading">
-        <div class="section-top">
-          <h2 id="partners-heading">At our table</h2>
-          <span class="eyebrow">Paid placements</span>
-        </div>
-        <ul class="paid-grid" role="list">
-          {#each paid.boosts as boost (boost.id)}<li>
-              <a href={boost.href} rel="sponsored"
-                >{#if boost.image}<LandingImage
-                    url={boost.image}
-                    alt={magazineText(boost.title)}
+                <div class="lead-caption">
+                  <p class="eyebrow">Featured recipe</p>
+                  <h2>
+                    <a href={d.cover.href}>{magazineText(d.cover.title) || 'From the kitchen'}</a>
+                  </h2>
+                  <a class="byline" href={userHref(d.cover.author.pubkey)}
+                    >{#if d.cover.author.picture}<img
+                        src={avatar(d.cover.author.picture)}
+                        alt=""
+                        width="28"
+                        height="28"
+                      />{/if}By {magazineName(d.cover.author.name)}</a
+                  >
+                </div>
+              </article>
+            {/if}
+            {#if d.picks.length}<div class="supporting">
+                {#each d.picks as pick (pick.coordinate)}<LongformTile
+                    card={pick}
                     ratio="16 / 9"
-                  />{/if}<span class="paid-label">Boosted · Paid placement</span>
-                <h3>{magazineText(boost.title) || 'Featured recipe'}</h3></a
-              >
-            </li>{/each}{#each paid.sponsors as sponsor (sponsor.id)}<li>
-              <a href={sponsor.linkUrl} rel="sponsored noopener" target="_blank"
-                >{#if sponsor.imageUrl}<LandingImage
-                    url={sponsor.imageUrl}
+                    sizes="(min-width: 768px) 28vw, 46vw"
+                    widths={[320, 480, 640]}
+                  />{/each}
+              </div>{/if}
+          </div>
+        </section>
+      {/if}
+
+      <LandingImportHero />
+
+      {#if d.newRecipes.length}
+        <section class="section" aria-labelledby="dinner-heading">
+          <div class="section-top">
+            <div>
+              <p class="eyebrow">From their kitchen to yours</p>
+              <h2 id="dinner-heading">Recipes to try</h2>
+            </div>
+            <a class="text-link" href="/recipes">All recipes <Arrow /></a>
+          </div>
+          <ul class="recipe-grid" role="list">
+            {#each d.newRecipes.slice(0, 4) as recipe (recipe.coordinate)}<li>
+                <LongformTile card={recipe} />
+              </li>{/each}
+          </ul>
+        </section>
+      {/if}
+
+      {#if d.collections.length}
+        <section id="collections" class="section" aria-labelledby="collections-heading">
+          <div class="section-top">
+            <div>
+              <p class="eyebrow">Follow your appetite</p>
+              <h2 id="collections-heading">Recipe collections</h2>
+            </div>
+          </div>
+          <ul class="collection-grid" role="list">
+            {#each d.collections as collection (collection.slug)}<li>
+                <a href={collection.href} class="collection"
+                  ><LandingImage
+                    url={collection.image}
                     alt=""
-                    ratio="16 / 9"
-                  />{/if}<span class="paid-label">Sponsored</span>
-                <h3>{magazineText(sponsor.title) || 'Our partner'}</h3>
-                <p>{magazineText(sponsor.description)}</p></a
+                    ratio="4 / 3"
+                    rounded="rounded-xl"
+                    sizes="(min-width: 768px) 25vw, 46vw"
+                  />
+                  <h3>{collection.name} <Arrow /></h3>
+                  <p>{collection.description}</p></a
+                >
+              </li>{/each}
+          </ul>
+        </section>
+      {/if}
+
+      {#if d.spotlights.length}
+        <section class="section" aria-labelledby="cooks-heading">
+          <div class="section-top">
+            <div>
+              <p class="eyebrow">Meet the people behind the plate</p>
+              <h2 id="cooks-heading">Cooks to follow</h2>
+            </div>
+          </div>
+          <ul class="cook-grid" role="list">
+            {#each d.spotlights as cook (cook.pubkey)}<li class="cook">
+                <a href={cook.href} class="cook-person"
+                  >{#if cook.picture}<img
+                      src={avatar(cook.picture)}
+                      alt=""
+                      width="56"
+                      height="56"
+                      loading="lazy"
+                    />{/if}
+                  <h3>{magazineName(cook.name)}</h3></a
+                >{#if magazineText(cook.about)}<p class="cook-about">
+                    {magazineText(cook.about)}
+                  </p>{/if}<a href={cook.recipe.href} class="cook-recipe"
+                  ><LandingImage
+                    url={cook.recipe.image}
+                    alt={magazineText(cook.recipe.title)}
+                    ratio="4 / 3"
+                    rounded="rounded-xl"
+                  /><span
+                    >{magazineText(cook.recipe.title) || 'Explore their recipe'} <Arrow /></span
+                  ></a
+                >
+              </li>{/each}
+          </ul>
+        </section>
+      {/if}
+      {#if d.reads[0]}
+        {@const story = d.reads[0]}
+        <section class="story section" aria-labelledby="story-heading">
+          <a href={story.href}
+            ><LandingImage
+              url={story.image}
+              alt={magazineText(story.title)}
+              ratio="4 / 3"
+              widths={[480, 768, 1024]}
+              rounded="rounded-xl"
+            /></a
+          >
+          <div>
+            <p class="eyebrow">From Reads</p>
+            <h2 id="story-heading">
+              <a href={story.href}>{magazineText(story.title) || 'Food for thought'}</a>
+            </h2>
+            {#if magazineText(story.summary)}<p>{magazineText(story.summary)}</p>{/if}
+            <p class="byline">By {magazineName(story.author.name)}</p>
+            <a class="text-link" href={story.href}>Read the story <Arrow /></a>
+          </div>
+        </section>
+      {/if}
+
+      {#if d.fresh.length}
+        <section class="section" aria-labelledby="community-heading">
+          <div class="section-top">
+            <div>
+              <p class="eyebrow">Pull up a chair</p>
+              <h2 id="community-heading">From the community kitchen</h2>
+            </div>
+            <a class="text-link" href="/feed?tab=fresh">See what’s cooking <Arrow /></a>
+          </div>
+          <ul class="community-grid" role="list">
+            {#each d.fresh.slice(0, 4) as note (note.id)}<li>
+                <a href={note.href}
+                  ><LandingImage
+                    url={note.image}
+                    alt={magazineText(note.text) || 'From the community kitchen'}
+                    ratio="1 / 1"
+                    rounded="rounded-xl"
+                    widths={[240, 360, 480]}
+                  />{#if magazineText(note.text)}<p class="note-text">
+                      {magazineText(note.text)}
+                    </p>{/if}
+                  <p class="byline">{magazineName(note.author.name)}</p></a
+                >
+              </li>{/each}
+          </ul>
+        </section>
+      {/if}
+
+      {#if paid.boosts.length || paid.sponsors.length}
+        <section class="section paid-section" aria-labelledby="partners-heading">
+          <div class="section-top">
+            <h2 id="partners-heading">Featured partners</h2>
+            <span class="eyebrow">Paid placements</span>
+          </div>
+          <ul class="paid-grid" role="list">
+            {#each paid.boosts as boost (boost.id)}<li>
+                <a href={boost.href} rel="sponsored"
+                  >{#if boost.image}<LandingImage
+                      url={boost.image}
+                      alt={magazineText(boost.title)}
+                      ratio="16 / 9"
+                    />{/if}<span class="paid-label">Boosted · Paid placement</span>
+                  <h3>{magazineText(boost.title) || 'Featured recipe'}</h3></a
+                >
+              </li>{/each}{#each paid.sponsors as sponsor (sponsor.id)}<li>
+                <a href={sponsor.linkUrl} rel="sponsored noopener" target="_blank"
+                  >{#if sponsor.imageUrl}<LandingImage
+                      url={sponsor.imageUrl}
+                      alt=""
+                      ratio="16 / 9"
+                    />{/if}<span class="paid-label">Sponsored</span>
+                  <h3>{magazineText(sponsor.title) || 'Our partner'}</h3>
+                  <p>{magazineText(sponsor.description)}</p></a
+                >
+              </li>{/each}
+          </ul>
+          <a class="text-link" href="/sponsors">About our sponsors <Arrow /></a>
+        </section>
+      {/if}
+
+      <section class="section discoveries" aria-labelledby="discover-heading">
+        <p class="eyebrow" id="discover-heading">More to explore</p>
+        <ul role="list">
+          {#each discoveries as item}<li>
+              <a href={item.href}
+                ><span class="discovery-number">{item.number}</span>
+                <h3>{item.name} <Arrow /></h3>
+                <p>{item.body}</p></a
               >
             </li>{/each}
         </ul>
-        <a class="text-link" href="/sponsors">About our sponsors <Arrow /></a>
       </section>
-    {/if}
-
-    <section class="section discoveries" aria-labelledby="discover-heading">
-      <p class="eyebrow" id="discover-heading">More to explore</p>
-      <ul role="list">
-        {#each discoveries as item}<li>
-            <a href={item.href}
-              ><span class="discovery-number">{item.number}</span>
-              <h3>{item.name} <Arrow /></h3>
-              <p>{item.body}</p></a
-            >
-          </li>{/each}
-      </ul>
-    </section>
-    <LandingMembership />
-  </main>
-  <footer class="magazine footer">
-    <a href="/explore" aria-label="Zap Cooking home" class="footer-brand"
-      >Zap Cooking<span>.</span></a
-    >
-    <p>A food magazine you can cook from and contribute to.</p>
-    <nav aria-label="Footer">
-      <a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a
-        href="/sponsors">Sponsors</a
+      <LandingMembership />
+    </main>
+    <footer class="magazine footer">
+      <a href="/explore" aria-label="Zap Cooking home" class="footer-brand"
+        >Zap Cooking<span>.</span></a
       >
-    </nav>
-  </footer>
+      <p>Food is culture. Food is community.</p>
+      <nav aria-label="Footer">
+        <a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a
+          href="/sponsors">Sponsors</a
+        >
+      </nav>
+    </footer>
+  </div>
 </div>
 
 <style>
@@ -348,10 +349,23 @@
     --landing-accent-bg: #a83a16;
     background: var(--color-bg-primary);
     color: var(--color-text-primary);
-    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-family: 'Albert Sans', ui-sans-serif, system-ui, sans-serif;
   }
   :global(html.dark) .landing {
     --landing-accent-text: #ff9c75;
+  }
+  .landing-body {
+    min-width: 0;
+  }
+  @media (min-width: 1024px) {
+    .landing-body {
+      margin-left: calc(14rem + 5px);
+    }
+  }
+  @media (min-width: 1280px) {
+    .landing-body {
+      margin-left: calc(20rem + 5px);
+    }
   }
   .magazine {
     max-width: 1200px;
@@ -362,9 +376,9 @@
   .landing :global(h2),
   .landing :global(h3),
   .landing :global(.font-display) {
-    font-family: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
-    letter-spacing: -0.035em;
-    font-weight: 500;
+    font-family: inherit;
+    letter-spacing: -0.025em;
+    font-weight: 700;
   }
   .landing :global(a) {
     color: inherit;
@@ -390,8 +404,8 @@
     list-style: none;
   }
   .masthead {
-    padding: 42px 0 34px;
-    text-align: center;
+    padding: 28px 0;
+    text-align: left;
   }
   .eyebrow {
     font-size: 11px;
@@ -402,8 +416,8 @@
     margin: 0 0 12px;
   }
   h1 {
-    font-size: clamp(38px, 5vw, 66px);
-    line-height: 1.01;
+    font-size: clamp(30px, 3vw, 36px);
+    line-height: 1.2;
     margin: 0 0 18px;
   }
   .intro {
@@ -415,9 +429,9 @@
   .search {
     display: flex;
     max-width: 470px;
-    margin: 24px auto 0;
+    margin: 20px 0 0;
     border: 1px solid var(--color-input-border);
-    border-radius: 4px;
+    border-radius: 12px;
     background: var(--color-bg-primary);
   }
   .search input {
@@ -476,6 +490,7 @@
     max-height: 370px;
   }
   .lead-image {
+    border-radius: 12px;
     display: block;
     overflow: hidden;
   }
@@ -486,12 +501,12 @@
     margin-bottom: 8px;
   }
   h2 {
-    font-size: clamp(28px, 3vw, 40px);
+    font-size: clamp(24px, 2.6vw, 30px);
     line-height: 1.13;
     margin: 0;
   }
   .lead h2 {
-    font-size: clamp(26px, 3.2vw, 42px);
+    font-size: clamp(24px, 2.8vw, 32px);
     margin-bottom: 8px;
   }
   .byline {
@@ -546,6 +561,7 @@
     gap: 28px;
   }
   .cook {
+    border-radius: 12px;
     padding: 20px;
     background: var(--color-bg-secondary);
   }
@@ -623,7 +639,7 @@
   }
   .discoveries ul {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 26px;
   }
   .discoveries li a {
@@ -693,9 +709,6 @@
     }
     .intro {
       font-size: 13px;
-    }
-    .desktop-break {
-      display: none;
     }
     .search {
       margin-top: 18px;
@@ -776,9 +789,6 @@
   @media (max-width: 767px) and (max-height: 720px) {
     .masthead {
       padding: 14px 0;
-    }
-    .masthead > .eyebrow {
-      margin-bottom: 7px;
     }
     h1 {
       font-size: 32px;

@@ -13,7 +13,7 @@
 <section id="membership" aria-labelledby="membership-heading" class="membership-section">
   <div class="membership-intro">
     <p class="eyebrow">A place at the table</p>
-    <h2 id="membership-heading" class="font-display">Good food brings us together.</h2>
+    <h2 id="membership-heading" class="font-display">Make more of your kitchen.</h2>
     <p>Keep the recipes you love. Share what you make. Find your people.</p>
   </div>
   <div class="membership-options">
@@ -87,7 +87,7 @@
   .membership-option {
     padding: 1.8rem;
     border: 1px solid var(--color-input-border);
-    border-radius: 4px;
+    border-radius: 12px;
   }
   .membership-option[hidden] {
     display: none;
@@ -121,7 +121,7 @@
     color: #fff;
     background: var(--landing-accent-bg, #b83900);
     text-decoration: none;
-    border-radius: 3px;
+    border-radius: 9999px;
     font-weight: 600;
   }
   .billing-note {

@@ -64,7 +64,7 @@
     gap: 2rem;
     padding: 2rem;
     border: 1px solid var(--color-input-border);
-    border-radius: 4px;
+    border-radius: 12px;
     margin: 30px 0 44px;
     background: var(--color-bg-secondary);
     color: var(--color-text-primary);
@@ -78,11 +78,11 @@
     margin: 0 0 0.6rem;
   }
   h2 {
-    font-family: Georgia, serif;
+    font-family: inherit;
     font-size: clamp(1.5rem, 3vw, 2.2rem);
     line-height: 1.12;
     margin: 0 0 0.7rem;
-    font-weight: 500;
+    font-weight: 700;
   }
   p {
     line-height: 1.55;
@@ -104,7 +104,7 @@
     flex: 1;
     background: var(--color-bg-primary);
     border: 1px solid var(--color-input-border);
-    border-radius: 0.45rem;
+    border-radius: 12px;
     padding: 0.75rem;
     color: var(--color-text-primary);
     font: inherit;
@@ -114,9 +114,10 @@
     background: #b83c17;
     color: white;
     border: 0;
-    border-radius: 0.45rem;
+    border-radius: 12px;
     padding: 0.75rem 1rem;
     font-weight: 650;
+    border-radius: 9999px;
     cursor: pointer;
   }
   button:disabled {
