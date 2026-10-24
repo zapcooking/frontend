@@ -355,14 +355,9 @@
 
 <style>
   .landing {
-    --landing-accent-text: #a83a16;
-    --landing-accent-bg: #a83a16;
     background: var(--color-bg-primary);
     color: var(--color-text-primary);
     font-family: 'Albert Sans', ui-sans-serif, system-ui, sans-serif;
-  }
-  :global(html.dark) .landing {
-    --landing-accent-text: #ff9c75;
   }
   .landing-body {
     min-width: 0;
@@ -390,7 +385,7 @@
     letter-spacing: -0.025em;
     font-weight: 700;
   }
-  .landing :global(a) {
+  :where(.landing) :global(a) {
     color: inherit;
     text-decoration: none;
   }
@@ -401,12 +396,14 @@
   .landing :global(a:focus-visible),
   .landing :global(button:focus-visible),
   .landing :global(input:focus-visible) {
-    outline: 3px solid var(--landing-accent-text);
+    outline: 3px solid var(--color-primary);
     outline-offset: 4px;
   }
-  .landing :global(.text-secondary-landing),
-  .landing :global(.text-caption-landing) {
+  .landing :global(.text-secondary-landing) {
     color: var(--color-text-secondary);
+  }
+  .landing :global(.text-caption-landing) {
+    color: var(--color-caption);
   }
   .landing :global(ul) {
     margin: 0;
@@ -422,7 +419,7 @@
     text-transform: uppercase;
     letter-spacing: 0.16em;
     font-weight: 700;
-    color: var(--landing-accent-text);
+    color: var(--color-primary);
     margin: 0 0 12px;
   }
   .intro {
@@ -453,7 +450,7 @@
     padding: 0 17px;
     border: 0;
     border-left: 1px solid var(--color-input-border);
-    color: var(--landing-accent-text);
+    color: var(--color-primary);
     font-weight: 600;
   }
   .search button :global(svg) {
@@ -653,14 +650,16 @@
   }
   .trial-invitation:not([hidden]) {
     display: block;
+  }
+  .trial-invitation {
     margin-top: 10px;
-    color: var(--landing-accent-text);
+    color: var(--color-primary);
     font-size: 13px;
     font-weight: 600;
   }
   .discovery-number {
     font-size: 11px;
-    color: var(--landing-accent-text);
+    color: var(--color-primary);
   }
   .discoveries h3 {
     font-size: 23px;
