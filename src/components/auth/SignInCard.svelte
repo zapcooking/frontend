@@ -95,11 +95,6 @@
     renderAndAwaitGoogle();
   }
 
-  // Check if running on Android via Capacitor
-  $: isAndroid =
-    browser &&
-    typeof window !== 'undefined' &&
-    (window as any).Capacitor?.getPlatform?.() === 'android';
 
 
   // UX state for extension detection warning
@@ -389,7 +384,6 @@
       const result = await authManager.startNip46PairingUniversal();
       nip46PairingUri = result.uri;
       nip46PairingStatus = 'Waiting for approval…';
-      if (isAndroid) window.open(result.uri, '_system');
     } catch (error) {
       console.error('[NIP-46] Failed to start universal pairing:', error);
       nip46PairingError = error instanceof Error ? error.message : 'Failed to start pairing';
@@ -586,11 +580,6 @@
             <p class="text-xs text-caption">Approve the connection in your signer app (Amber)</p>
           </div>
           <div class="flex flex-col gap-2 w-full">
-            {#if isAndroid}
-              <Button on:click={() => window.open(nip46PairingUri, '_system')} primary={true} class="w-full">
-                📱 Open Signer
-              </Button>
-            {/if}
             <Button on:click={() => copyToClipboard(nip46PairingUri, 'scan the QR code instead')} primary={false} class="w-full">
               📋 Copy Link
             </Button>

@@ -5,8 +5,6 @@
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
-  import { platformIsIOS } from '$lib/platform';
-  import LoginFormIOS from './LoginFormIOS.svelte';
   import SuggestedFollowsModal from './SuggestedFollowsModal.svelte';
   import { loginOverlayOpen, loginOverlaySignup } from '$lib/stores/loginOverlay';
   import { hasPendingAuthRequest } from '$lib/auth/requireAuth';
@@ -91,59 +89,54 @@
   }
 </script>
 
-<!-- iOS uses a native-focused login form -->
-{#if $platformIsIOS}
-  <LoginFormIOS />
-{:else}
-  <SignupFlow
-    bind:open={signupOpen}
-    {authManager}
-    on:complete={(e) => signupComplete(e.detail.pubkey)}
-  />
+<SignupFlow
+  bind:open={signupOpen}
+  {authManager}
+  on:complete={(e) => signupComplete(e.detail.pubkey)}
+/>
 
-  <VaultConflictDialog />
+<VaultConflictDialog />
 
-  <SuggestedFollowsModal
-    bind:open={showSuggestedFollows}
-    userPubkey={newAccountPubkey}
-    onComplete={() => {
-      showSuggestedFollows = false;
-      // Signed up from an action (requireAuth): stay on that page — closing
-      // the overlay below resumes the action there. Checked before the
-      // close, which is what settles the pending request. Otherwise a new
-      // member lands on the Fresh tab.
-      const target = afterSignupTarget({
-        url: $page.url,
-        resumeInPlace: hasPendingAuthRequest(),
-        fallback: SIGNUP_LANDING
-      });
-      loginOverlayOpen.set(false);
-      if (target) goto(target);
-    }}
-  />
+<SuggestedFollowsModal
+  bind:open={showSuggestedFollows}
+  userPubkey={newAccountPubkey}
+  onComplete={() => {
+    showSuggestedFollows = false;
+    // Signed up from an action (requireAuth): stay on that page — closing
+    // the overlay below resumes the action there. Checked before the
+    // close, which is what settles the pending request. Otherwise a new
+    // member lands on the Fresh tab.
+    const target = afterSignupTarget({
+      url: $page.url,
+      resumeInPlace: hasPendingAuthRequest(),
+      fallback: SIGNUP_LANDING
+    });
+    loginOverlayOpen.set(false);
+    if (target) goto(target);
+  }}
+/>
 
-  <!-- Blur overlay -->
-  <div class="login-blur-layer backdrop-blur-md" aria-hidden="true"></div>
+<!-- Blur overlay -->
+<div class="login-blur-layer backdrop-blur-md" aria-hidden="true"></div>
 
-  <!-- Animated elements -->
-  <div class="login-viewport-anim pointer-events-none" aria-hidden="true">
-    <div class="absolute inset-0 opacity-5">
-      <div class="absolute top-10 left-10 text-6xl lightning-pulse">⚡</div>
-      <div class="absolute top-32 right-20 text-4xl lightning-pulse" style="animation-delay: 0.5s;">⚡</div>
-      <div class="absolute bottom-20 left-32 text-5xl lightning-pulse" style="animation-delay: 1s;">⚡</div>
-      <div class="absolute bottom-40 right-10 text-3xl lightning-pulse" style="animation-delay: 1.5s;">⚡</div>
-      <div class="absolute top-1/2 left-10 text-4xl lightning-pulse" style="animation-delay: 2s;">⚡</div>
-    </div>
-    <div class="absolute inset-0 opacity-10">
-      <div class="absolute top-20 left-1/4 text-3xl animate-bounce" style="animation-delay: 0.2s;">🍳</div>
-      <div class="absolute top-40 right-1/3 text-2xl animate-bounce" style="animation-delay: 0.8s;">🥘</div>
-      <div class="absolute bottom-32 left-1/3 text-2xl animate-bounce" style="animation-delay: 1.2s;">👨‍🍳</div>
-      <div class="absolute bottom-20 right-1/4 text-3xl animate-bounce" style="animation-delay: 0.6s;">🍽️</div>
-    </div>
+<!-- Animated elements -->
+<div class="login-viewport-anim pointer-events-none" aria-hidden="true">
+  <div class="absolute inset-0 opacity-5">
+    <div class="absolute top-10 left-10 text-6xl lightning-pulse">⚡</div>
+    <div class="absolute top-32 right-20 text-4xl lightning-pulse" style="animation-delay: 0.5s;">⚡</div>
+    <div class="absolute bottom-20 left-32 text-5xl lightning-pulse" style="animation-delay: 1s;">⚡</div>
+    <div class="absolute bottom-40 right-10 text-3xl lightning-pulse" style="animation-delay: 1.5s;">⚡</div>
+    <div class="absolute top-1/2 left-10 text-4xl lightning-pulse" style="animation-delay: 2s;">⚡</div>
   </div>
+  <div class="absolute inset-0 opacity-10">
+    <div class="absolute top-20 left-1/4 text-3xl animate-bounce" style="animation-delay: 0.2s;">🍳</div>
+    <div class="absolute top-40 right-1/3 text-2xl animate-bounce" style="animation-delay: 0.8s;">🥘</div>
+    <div class="absolute bottom-32 left-1/3 text-2xl animate-bounce" style="animation-delay: 1.2s;">👨‍🍳</div>
+    <div class="absolute bottom-20 right-1/4 text-3xl animate-bounce" style="animation-delay: 0.6s;">🍽️</div>
+  </div>
+</div>
 
-  <SignInCard {authManager} {authState} on:join={() => (signupOpen = true)} />
-{/if}
+<SignInCard {authManager} {authState} on:join={() => (signupOpen = true)} />
 
 <style>
   :global(.lightning-pulse) {
