@@ -48,12 +48,9 @@
   import { theme } from '$lib/themeStore';
   import {
     initializeWalletManager,
-    walletConnected,
     clearAllWallets,
-    openWallet,
     activeWallet,
     rememberActiveWallet,
-    getLastWalletRecord,
     autoRestoreWalletAtLogin,
     evaluateWalletSetupState,
     walletSetupCheckPending
@@ -69,8 +66,6 @@
     loadStartSectionSettings,
     rememberStartSectionAtSignIn
   } from '$lib/startSectionSettings';
-  import { weblnConnected } from '$lib/wallet/webln';
-  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { postComposerOpen } from '$lib/postComposerStore';
   import { longformEditorOpen, closeEditor } from '../components/reads/articleDraftStore';
   import LongformEditorLoadError from '../components/reads/LongformEditorLoadError.svelte';
@@ -330,25 +325,8 @@
   // rescan + "restored" toast) to run again every load.
   let wasAuthenticated = false;
   let feedInitialLoadTimeout: ReturnType<typeof setTimeout> | null = null;
-  let walletWelcomeSeen = false;
-  let walletWelcomeForce = false;
   let oneTapZapLoadedForPubkey = '';
   let startSectionLoadedForPubkey = '';
-  const WALLET_WELCOME_KEY = 'zapcooking_wallet_welcome_seen';
-  const WALLET_WELCOME_FORCE_KEY = 'zapcooking_wallet_welcome_force';
-  $: hasWallet =
-    $walletConnected ||
-    $weblnConnected ||
-    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
-
-  // Open the wallet modal directly when the user is logged in but has
-  // no wallet — the picker view inside the modal already serves as the
-  // welcome screen, so we don't need a separate intro modal.
-  function promptWalletSetup() {
-    walletWelcomeSeen = true;
-    if (browser) localStorage.setItem(WALLET_WELCOME_KEY, '1');
-    openWallet('setup');
-  }
 
   // Tap the header's empty padding area → smooth-scroll back to top. Only
   // fires on |self (the wrapper), so real header interactions (search, logo,
@@ -486,31 +464,6 @@
           startSectionLoadedForPubkey = '';
         }
 
-        if (browser) {
-          walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
-        }
-
-        const isOnboardingFlow =
-          $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
-        if (
-          browser &&
-          state.isAuthenticated &&
-          state.publicKey &&
-          !hasWallet &&
-          // A remembered wallet is on its way back from the Nostr backups —
-          // don't pitch wallet setup to someone who has one.
-          !getLastWalletRecord(state.publicKey) &&
-          !isOnboardingFlow
-        ) {
-          if (walletWelcomeForce || !walletWelcomeSeen) {
-            promptWalletSetup();
-            if (walletWelcomeForce) {
-              walletWelcomeForce = false;
-              localStorage.removeItem(WALLET_WELCOME_FORCE_KEY);
-            }
-          }
-        }
-
         // The early return above leaves this untouched: intermediate
         // restore pings are pre-auth, so the next real state still compares
         // against the last settled one.
@@ -548,13 +501,6 @@
     }
   });
 
-  onMount(() => {
-    if (browser) {
-      walletWelcomeSeen = localStorage.getItem(WALLET_WELCOME_KEY) === '1';
-      walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
-    }
-  });
-
   // One-shot pass to clear legacy nourish_scan_* localStorage entries
   // left behind when scan caching was removed in PR 3 commit 6. Runs
   // via requestIdleCallback so it doesn't block initial paint; sentinel
@@ -589,31 +535,6 @@
       }
     }
   });
-
-  // Open the wallet modal automatically once after leaving login/
-  // onboarding when the user has no wallet (e.g. after suggested
-  // follows completes).
-  $: {
-    const onboardingFlow =
-      $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
-    if (
-      browser &&
-      !onboardingFlow &&
-      authState.isAuthenticated &&
-      !hasWallet &&
-      // Same as the auth-subscription gate: skip the prompt while a
-      // remembered wallet is being restored from the Nostr backups.
-      !getLastWalletRecord(authState.publicKey)
-    ) {
-      const forceFlag = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
-      if (forceFlag || !walletWelcomeSeen) {
-        promptWalletSetup();
-        if (forceFlag) {
-          localStorage.removeItem(WALLET_WELCOME_FORCE_KEY);
-        }
-      }
-    }
-  }
 
   // When the tab returns from background (hidden ≥1s), refresh the
   // most-recently-touched engagement counts. batchFetchEngagement has its

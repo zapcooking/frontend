@@ -1398,7 +1398,6 @@
       // close, which is what settles the pending request.
       const resumeInPlace = hasPendingAuthRequest();
       loginOverlayOpen.set(false);
-      if (browser) localStorage.setItem('zapcooking_wallet_welcome_force', '1');
       if (resumeInPlace) return;
       const redirectTo = $page.url.searchParams.get('redirect') || startSectionTarget();
       goto(redirectTo);

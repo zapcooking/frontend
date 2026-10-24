@@ -11,15 +11,23 @@ export type WalletView =
 
 export const walletModalOpen = writable(false);
 export const walletModalView = writable<WalletView>('main');
+/**
+ * Opened from inside another flow (the zap sheet), which may itself sit in
+ * an open dialog: the modal then stacks above other dialogs on mobile too,
+ * instead of dropping below the header and bottom nav.
+ */
+export const walletModalElevated = writable(false);
 
-export function openWallet(view: WalletView = 'main'): void {
+export function openWallet(view: WalletView = 'main', opts: { elevated?: boolean } = {}): void {
   walletModalView.set(view);
+  walletModalElevated.set(opts.elevated ?? false);
   walletModalOpen.set(true);
 }
 
 export function closeWallet(): void {
   walletModalOpen.set(false);
   walletModalView.set('main');
+  walletModalElevated.set(false);
 }
 
 export function setWalletView(view: WalletView): void {
