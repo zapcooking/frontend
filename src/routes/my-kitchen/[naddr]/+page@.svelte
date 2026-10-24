@@ -542,6 +542,12 @@
       const removed = manageShown.filter(a => !order.includes(a));
       // Recipes pasted into the modal's Add field.
       const added = order.filter(a => !manageShown.includes(a));
+      // Saved as shown: publish nothing. (A real edit reorders by `order`,
+      // which moves entries the modal couldn't show to the end.)
+      if (order.length === manageShown.length && order.every((a, i) => a === manageShown[i])) {
+        closeManageModal();
+        return;
+      }
       if (await editThisList({ add: added, remove: removed, order }, saveRecipeOrder)) {
         await loadData();
         closeManageModal();

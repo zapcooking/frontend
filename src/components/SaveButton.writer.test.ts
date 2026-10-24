@@ -70,6 +70,11 @@ describe('list page: every list edit goes through the guarded store edit', () =>
     expect(body).toMatch(/removed = manageShown\.filter/);
     expect(body).toMatch(/added = order\.filter\(a => !manageShown\.includes\(a\)\)/);
     expect(body).toMatch(/editThisList\(\{ add: added, remove: removed, order \}, saveRecipeOrder\)/);
+    // Saved as shown (same entries, same order): nothing is published.
+    expect(body).toMatch(
+      /if \(order\.length === manageShown\.length && order\.every\(\(a, i\) => a === manageShown\[i\]\)\) \{\n\s*closeManageModal\(\);\n\s*return;/
+    );
+    expect(body.indexOf('order.every((a, i) => a === manageShown[i])')).toBeLessThan(body.indexOf('editThisList('));
     // The modal's naddrs are mapped back to the entries as the list spells them.
     expect(body).toMatch(/coordinateAsWritten\(nip19\.decode\(item\.naddr\)\.data as nip19\.AddressPointer, manageShown\)/);
   });
