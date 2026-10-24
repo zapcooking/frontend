@@ -487,10 +487,19 @@ async function nsecSession() {
   return am;
 }
 
-/** A later visit: a fresh AuthManager restoring from storage. */
+/** A later visit restoring from storage, expected to start signed in. */
 async function nextVisit() {
   const am = new AuthManager(makeNdk());
   await vi.waitFor(() => expect(am.getState().isAuthenticated).toBe(true));
+  return am;
+}
+
+/** A later visit expected to start LOCKED (unconfirmed vault, chip shown). */
+async function nextVisitLocked() {
+  const am = new AuthManager(makeNdk());
+  await flush();
+  expect(am.getState().isAuthenticated).toBe(false);
+  expect(am.getVaultStatus()).toBe('locked');
   return am;
 }
 
@@ -507,8 +516,7 @@ describe('one-prompt enrollment (PRF at create)', () => {
     expect(isVaultUnconfirmed()).toBe(true);
     expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
     expect(am.getState().authMethod).toBe('privateKey');
-    // Confirmation waits for the next visit.
-    expect(am.needsVaultConfirmation()).toBe(false);
+    expect(am.getState().isAuthenticated).toBe(true);
   });
 
   it('falls back to create + get (today) when create() returns no PRF result', async () => {
@@ -523,73 +531,66 @@ describe('one-prompt enrollment (PRF at create)', () => {
     expect(isVaultUnconfirmed()).toBe(false);
   });
 
-  it('next visit restores from the plaintext key, then a verified unlock deletes it', async () => {
+  it('next visit starts locked; the normal unlock confirms the vault and deletes the plaintext key', async () => {
     simulatedAuthenticator({ createPrf: true });
     await (await nsecSession()).enrollVault();
 
-    const am = await nextVisit();
-    expect(am.getState().authMethod).toBe('privateKey');
-    expect(store.get(PK_KEY)).toBe(fixture.nsecHex); // not adopted while unconfirmed
-    expect(am.needsVaultConfirmation()).toBe(true);
+    const am = await nextVisitLocked();
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex); // silent fallback, still here
 
-    await expect(am.confirmVault()).resolves.toBe('confirmed');
+    await am.unlockVault();
+
     expect(credentials.get).toHaveBeenCalledTimes(1);
-    expect(store.get(PK_KEY)).toBeUndefined();
     expect(am.getState().authMethod).toBe('passkey');
+    expect(store.get(PK_KEY)).toBeUndefined();
     expect(isVaultUnconfirmed()).toBe(false);
-    expect(am.needsVaultConfirmation()).toBe(false);
+    // From now on an ordinary passkey vault.
+    await nextVisitLocked();
   });
 
-  it('bad PRF on the confirming unlock: vault removed, still signed in from the plaintext key', async () => {
-    simulatedAuthenticator({ createPrf: true, getPrf: new Uint8Array(32).fill(7) });
+  it('a cancelled unlock signs in from the plaintext key and keeps the vault', async () => {
+    simulatedAuthenticator({ createPrf: true, getPrf: 'NotAllowedError' });
     await (await nsecSession()).enrollVault();
-    const am = await nextVisit();
+    const am = await nextVisitLocked();
 
-    await expect(am.confirmVault()).resolves.toBe('failed');
+    await expect(am.unlockVault()).resolves.toBeUndefined();
 
-    expect(vaultInStore()).toBeUndefined();
-    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
     expect(am.getState().isAuthenticated).toBe(true);
     expect(am.getState().authMethod).toBe('privateKey');
-    expect(am.needsVaultConfirmation()).toBe(false);
-  });
-
-  it('NotAllowedError (Microsoft Password Manager shape): once is a cancel, twice a failure', async () => {
-    simulatedAuthenticator({ createPrf: true, getPrf: 'NotAllowedError' });
-    await (await nsecSession()).enrollVault();
-    const am = await nextVisit();
-
-    await expect(am.confirmVault()).resolves.toBe('cancelled');
-    expect(vaultInStore()).toBeDefined();
-    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
-
-    await expect(am.confirmVault()).resolves.toBe('failed');
-    expect(vaultInStore()).toBeUndefined();
-    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
-    expect(am.getState().isAuthenticated).toBe(true);
-  });
-
-  it('dismissals on separate visits never remove the vault', async () => {
-    simulatedAuthenticator({ createPrf: true, getPrf: 'NotAllowedError' });
-    await (await nsecSession()).enrollVault();
-
-    await expect((await nextVisit()).confirmVault()).resolves.toBe('cancelled');
-    await expect((await nextVisit()).confirmVault()).resolves.toBe('cancelled');
-
-    expect(vaultInStore()).toBeDefined();
     expect(isVaultUnconfirmed()).toBe(true);
     expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+    expect(am.takeVaultConfirmFailure()).toBe(false);
+    await nextVisitLocked(); // the chip again next time
   });
 
-  it('concurrent confirms (enroll card + Settings) share one ceremony', async () => {
-    simulatedAuthenticator({ createPrf: true });
+  it('a second NotAllowedError (Microsoft Password Manager shape) removes the vault and asks for a backup key', async () => {
+    simulatedAuthenticator({ createPrf: true, getPrf: 'NotAllowedError' });
     await (await nsecSession()).enrollVault();
-    const am = await nextVisit();
+    await (await nextVisitLocked()).unlockVault(); // visit 1: cancel, kept
 
-    const [a, b] = await Promise.all([am.confirmVault(), am.confirmVault()]);
+    const am = await nextVisitLocked();
+    await am.unlockVault(); // visit 2: second one
 
-    expect([a, b]).toEqual(['confirmed', 'confirmed']);
-    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(vaultInStore()).toBeUndefined();
+    expect(am.getState().isAuthenticated).toBe(true);
+    expect(am.getState().authMethod).toBe('privateKey');
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+    expect(am.takeVaultConfirmFailure()).toBe(true);
+    expect(am.takeVaultConfirmFailure()).toBe(false); // shown once
+  });
+
+  it('bad PRF on the unlock: vault removed at once, signed in from the plaintext key', async () => {
+    simulatedAuthenticator({ createPrf: true, getPrf: new Uint8Array(32).fill(7) });
+    await (await nsecSession()).enrollVault();
+    const am = await nextVisitLocked();
+
+    await am.unlockVault();
+
+    expect(vaultInStore()).toBeUndefined();
+    expect(am.getState().isAuthenticated).toBe(true);
+    expect(am.getState().authMethod).toBe('privateKey');
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+    expect(am.takeVaultConfirmFailure()).toBe(true);
   });
 
   it('a failed marker write leaves no vault behind: no lockout on the next visit', async () => {
@@ -630,8 +631,6 @@ describe('one-prompt enrollment (PRF at create)', () => {
 
     await am.logout();
 
-    // Logout deletes the plaintext key as always — and the unconfirmed vault
-    // with it, so no session can ever depend on it alone.
     expect(store.get(PK_KEY)).toBeUndefined();
     expect(vaultInStore()).toBeUndefined();
   });
@@ -651,8 +650,8 @@ describe('one-prompt enrollment (PRF at create)', () => {
   it('a passkey session (no plaintext key to fall back on) keeps create + get', async () => {
     simulatedAuthenticator({ createPrf: true });
     await (await nsecSession()).enrollVault();
-    const am = await nextVisit();
-    await am.confirmVault(); // now a confirmed passkey session, plaintext gone
+    const am = await nextVisitLocked();
+    await am.unlockVault(); // confirmed passkey session, plaintext gone
     credentials.create.mockClear();
     credentials.get.mockClear();
 
@@ -679,8 +678,9 @@ describe('one-prompt enrollment (PRF at create)', () => {
     await (await nsecSession()).enrollVault({ sync: true });
     expect(puts()).toHaveLength(0);
 
-    const am = await nextVisit();
-    await expect(am.confirmVault()).resolves.toBe('confirmed');
+    const am = await nextVisitLocked();
+    await am.unlockVault();
+    expect(am.getState().authMethod).toBe('passkey');
     await vi.waitFor(() => expect(puts()).toHaveLength(1));
     vi.unstubAllGlobals();
   });

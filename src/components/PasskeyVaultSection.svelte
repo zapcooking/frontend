@@ -30,12 +30,6 @@
   import KeyBackupGate from './KeyBackupGate.svelte';
   import { downloadKeysBackupFile } from '$lib/keyBackupGate';
   import { hexToBytes } from '$lib/passkeyVaultCrypto';
-  import {
-    passkeyMethodLabel,
-    passkeyConfirmText,
-    confirmFailedText,
-    type PasskeyMethodLabel
-  } from '$lib/auth/passkeyLabel';
 
   const dispatch = createEventDispatcher();
 
@@ -44,9 +38,6 @@
   let recordPubkey: string | null = null;
   // One-prompt enrollment not yet confirmed by an unlock (plaintext kept).
   let recordUnconfirmed = false;
-  // The confirming unlock failed: the vault is gone, ask for a backup key.
-  let confirmFailed = false;
-  let label: PasskeyMethodLabel = 'passkey';
   let authState: AuthState | null = null;
   let unsubscribe: (() => void) | null = null;
   let attachRetry: ReturnType<typeof setInterval> | null = null;
@@ -105,10 +96,6 @@
   }
 
   onMount(async () => {
-    label = passkeyMethodLabel({
-      userAgent: navigator.userAgent,
-      maxTouchPoints: navigator.maxTouchPoints
-    });
     ({ support, reason: supportReason } = await detectSupportDetail());
     refresh();
     window.addEventListener('storage', onStorage);
@@ -188,36 +175,11 @@
       notice = confirmed
         ? 'Passkey protection is on. Your key is no longer stored in plain text in this browser. ' +
           'The passkey is not a backup — keep your revealed nsec somewhere safe.'
-        : 'Passkey added. Confirm it once (next visit, or below) to finish — until then your key ' +
-          "also stays in this browser, so you can't get locked out.";
+        : 'Passkey added. Next time you open Zap Cooking, unlock with it to finish — until then ' +
+          "your key also stays in this browser, so you can't get locked out.";
       dispatch('changed');
     } catch (e) {
       errorMsg = friendlyError(e, 'Could not set up the passkey. Nothing was changed.');
-    } finally {
-      busy = false;
-      refresh();
-    }
-  }
-
-  async function confirmPasskey() {
-    const am = getAuthManager();
-    if (!am) return;
-    busy = true;
-    errorMsg = '';
-    notice = '';
-    try {
-      const outcome = await am.confirmVault();
-      if (outcome === 'confirmed') {
-        notice =
-          'Passkey protection is on. Your key is no longer stored in plain text in this browser.';
-      } else if (outcome === 'failed') {
-        confirmFailed = true;
-      } else {
-        notice = 'Confirmation cancelled — you can try again.';
-      }
-      dispatch('changed');
-    } catch (e) {
-      errorMsg = friendlyError(e, 'Could not confirm the passkey.');
     } finally {
       busy = false;
       refresh();
@@ -316,37 +278,13 @@
       <p class="text-sm font-medium" style="color: var(--color-text-primary)">Passkey Protection</p>
     </div>
 
-    {#if confirmFailed}
-      <p class="text-xs mb-3" style="color: #ef4444" role="alert">{confirmFailedText(label)}</p>
-      {#if sessionKeyHex && sessionNpub}
-        <div class="mb-3">
-          <KeyBackupGate nsecHex={sessionKeyHex} npub={sessionNpub} allowAcknowledge={true} />
-        </div>
-      {/if}
-      <button
-        type="button"
-        class="px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm font-medium transition-colors"
-        style="color: var(--color-text-primary)"
-        on:click={() => (confirmFailed = false)}
-      >
-        Done
-      </button>
-    {:else if card.kind === 'unconfirmed'}
+    {#if card.kind === 'unconfirmed'}
       <p class="text-xs text-caption mb-3">
-        Your passkey is set up but not confirmed yet. Confirm it once and your key will no longer be
-        stored in plain text in this browser. Until then it stays here too, so you can't get locked
-        out.
+        Your passkey is set up. The next time you open Zap Cooking, unlock with it once to finish —
+        after that your key is no longer stored in plain text in this browser. Until then it stays
+        here too, so you can't get locked out.
       </p>
       <div class="flex flex-wrap gap-2">
-        <button
-          type="button"
-          class="px-4 py-2 bg-secondary hover:bg-accent-gray rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-          style="color: var(--color-text-primary)"
-          on:click={confirmPasskey}
-          disabled={busy}
-        >
-          {busy ? 'Waiting for passkey…' : passkeyConfirmText(label)}
-        </button>
         <button
           type="button"
           class="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-sm font-medium transition-colors"

@@ -33,6 +33,7 @@ import {
   VAULT_UNCONFIRMED_KEY,
   isVaultUnconfirmed,
   markVaultUnconfirmed,
+  countCancelledUnlock,
   type VaultRecord
 } from './passkeyVault';
 import { hexToBytes, bytesToB64, b64urlToBytes } from './passkeyVaultCrypto';
@@ -362,6 +363,9 @@ describe('unconfirmed-vault marker', () => {
 
     markVaultUnconfirmed(fixture.credentialIdB64url);
     expect(isVaultUnconfirmed()).toBe(true);
+    // Cancelled unlocks add up across visits (stored with the marker).
+    expect(countCancelledUnlock()).toBe(1);
+    expect(countCancelledUnlock()).toBe(2);
 
     deleteVaultRecord();
     expect(store.has(VAULT_UNCONFIRMED_KEY)).toBe(false);

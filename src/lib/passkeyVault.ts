@@ -35,9 +35,10 @@ export const VAULT_STORAGE_KEY = 'nostrcooking_vault_v1';
 export const VAULT_PROMPT_DISMISSED_KEY = 'nostrcooking_vault_prompt_dismissed';
 /**
  * Set while the vault was built from create()-time PRF (one-prompt
- * enrollment) and no unlock has decrypted it yet: { credentialId }. Until
- * then AuthManager keeps the plaintext key, so a provider whose get() can't
- * reproduce the create() PRF never locks anyone out. Written BEFORE the
+ * enrollment) and no unlock has decrypted it yet: { credentialId,
+ * cancelledUnlocks }. Until then AuthManager keeps the plaintext key as a
+ * silent fallback, so a provider whose get() can't reproduce the create()
+ * PRF never locks anyone out. Written BEFORE the
  * record (enrollPasskey): an unmarked unconfirmed record would be adopted
  * as confirmed and the plaintext key deleted. Kept outside the frozen v1
  * record shape (and so out of sync blobs).
@@ -154,13 +155,16 @@ export function deleteVaultRecord(): void {
 
 interface UnconfirmedState {
   credentialId: string;
+  /** Unlocks of this vault that ended in a cancel-shaped error, across visits. */
+  cancelledUnlocks: number;
 }
 
 function readUnconfirmed(): UnconfirmedState | null {
   if (!browser) return null;
   try {
     const parsed = JSON.parse(localStorage.getItem(VAULT_UNCONFIRMED_KEY) || 'null');
-    return typeof parsed?.credentialId === 'string' ? parsed : null;
+    if (typeof parsed?.credentialId !== 'string') return null;
+    return { credentialId: parsed.credentialId, cancelledUnlocks: Number(parsed.cancelledUnlocks) || 0 };
   } catch {
     return null;
   }
@@ -173,12 +177,21 @@ export function isVaultUnconfirmed(record: VaultRecord | null = getVaultRecord()
 }
 
 export function markVaultUnconfirmed(credentialId: string): void {
-  const state: UnconfirmedState = { credentialId };
+  const state: UnconfirmedState = { credentialId, cancelledUnlocks: 0 };
   localStorage.setItem(VAULT_UNCONFIRMED_KEY, JSON.stringify(state));
 }
 
 export function clearVaultUnconfirmed(): void {
   if (browser) localStorage.removeItem(VAULT_UNCONFIRMED_KEY);
+}
+
+/** Count a cancel-shaped failed unlock of the unconfirmed vault; returns the total. */
+export function countCancelledUnlock(): number {
+  const state = readUnconfirmed();
+  if (!state) return 0;
+  state.cancelledUnlocks += 1;
+  localStorage.setItem(VAULT_UNCONFIRMED_KEY, JSON.stringify(state));
+  return state.cancelledUnlocks;
 }
 
 

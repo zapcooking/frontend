@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   shouldOfferContinue,
   isStrandedLockedVault,
+  shouldSignInPastUnconfirmedVault,
   continueName,
   type LockedVaultInput
 } from './lockedVault';
@@ -49,6 +50,24 @@ describe('isStrandedLockedVault', () => {
     expect(isStrandedLockedVault({ ...locked, support: 'none', hasPlaintextKey: true })).toBe(false);
     expect(isStrandedLockedVault({ ...locked, support: 'none', isNip46: true })).toBe(false);
     expect(isStrandedLockedVault({ ...locked, support: 'none', isAuthenticated: true })).toBe(false);
+  });
+});
+
+describe('unconfirmed one-prompt vault (plaintext key kept as fallback)', () => {
+  const unconfirmed = { ...locked, hasPlaintextKey: true, vaultUnconfirmed: true };
+
+  it('offers "Continue as" despite the stored plaintext key', () => {
+    expect(shouldOfferContinue(unconfirmed)).toBe(true);
+    // An ordinary plaintext restore still never shows the chip.
+    expect(shouldOfferContinue({ ...locked, hasPlaintextKey: true })).toBe(false);
+  });
+
+  it('where passkeys are unsupported, signs in from the plaintext key instead of stranding', () => {
+    const here = { ...unconfirmed, support: 'none' as const };
+    expect(shouldOfferContinue(here)).toBe(false);
+    expect(shouldSignInPastUnconfirmedVault(here)).toBe(true);
+    // A confirmed vault (no plaintext key) is stranded as before.
+    expect(shouldSignInPastUnconfirmedVault({ ...locked, support: 'none' })).toBe(false);
   });
 });
 

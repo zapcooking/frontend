@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  passkeyMethodLabel,
-  passkeySignInText,
-  passkeyConfirmText,
-  confirmFailedText
-} from './passkeyLabel';
+import { passkeyMethodLabel, passkeySignInText, confirmFailedText } from './passkeyLabel';
 
 const UA = {
   iphone:
@@ -51,10 +46,8 @@ describe('passkeySignInText', () => {
   });
 });
 
-describe('one-prompt confirmation copy', () => {
+describe('one-prompt unlock failure copy', () => {
   it('names the method, or says "your passkey"', () => {
-    expect(passkeyConfirmText('Face ID')).toBe('Confirm with Face ID');
-    expect(passkeyConfirmText('passkey')).toBe('Confirm with your passkey');
     expect(confirmFailedText('Face ID')).toBe(
       "Face ID couldn't unlock your account, so we kept you signed in. Save your backup key."
     );
