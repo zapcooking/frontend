@@ -120,6 +120,8 @@ describe('offerWalletSetup', () => {
 
     expect(get(modal.walletModalOpen)).toBe(true);
     expect(get(modal.walletModalView)).toBe('setup');
+    // Stacks above whatever dialog the zap sheet was opened from.
+    expect(get(modal.walletModalElevated)).toBe(true);
     expect(prompt.zapWalletPromptSeen()).toBe(true);
 
     await Promise.resolve();
@@ -128,6 +130,7 @@ describe('offerWalletSetup', () => {
     modal.closeWallet();
     await p;
     expect(done).toBe(true);
+    expect(get(modal.walletModalElevated)).toBe(false);
   });
 
   it('resolves only once even if the picker opens and closes again', async () => {
@@ -139,5 +142,13 @@ describe('offerWalletSetup', () => {
     modal.closeWallet();
     await Promise.resolve();
     expect(resolved).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('openWallet', () => {
+  it('opens at the normal level unless asked to stack above other dialogs', () => {
+    modal.openWallet('setup', { elevated: true });
+    modal.openWallet('main');
+    expect(get(modal.walletModalElevated)).toBe(false);
   });
 });

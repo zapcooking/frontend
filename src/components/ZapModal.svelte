@@ -179,11 +179,17 @@
   // their first ⚡ tap. The sheet steps aside the same way while it is up
   // and comes back with the amount kept; "maybe later" (closing the
   // picker) still leaves the external-wallet / QR path to pay with.
+  // Only before a payment starts: the offer reacts to the wallet-restore
+  // check settling, which can land mid-invoice or after Bitcoin Connect
+  // was cancelled and this sheet reopened — never cover a payment.
   let awaitingWallet = false;
   let walletOffered = false;
 
   $: if (
     open &&
+    state === 'pre' &&
+    !isCreatingInvoice &&
+    !isSendingInApp &&
     !awaitingAuth &&
     !awaitingWallet &&
     !walletOffered &&
@@ -284,6 +290,7 @@
   }
 
   async function submitWithInAppWallet() {
+    walletOffered = true;
     error = null;
     timedOut = false;
     // Nothing usable on this site (e.g. a preview domain): say so at once,
@@ -361,6 +368,7 @@
   let isCreatingInvoice = false;
 
   async function submitWithExternalWallet(anonymous = false) {
+    walletOffered = true;
     error = null;
     isCreatingInvoice = true;
 

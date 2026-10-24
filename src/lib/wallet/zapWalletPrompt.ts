@@ -59,7 +59,7 @@ function markZapWalletPromptSeen(): void {
 /** Open wallet setup and resolve once the wallet modal closes again. */
 export function offerWalletSetup(): Promise<void> {
   markZapWalletPromptSeen();
-  openWallet('setup');
+  openWallet('setup', { elevated: true });
   return new Promise((resolve) => {
     let settled = false;
     let unsubscribe: (() => void) | null = null;
