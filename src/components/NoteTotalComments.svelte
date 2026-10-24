@@ -8,7 +8,7 @@
   import CommentIcon from 'phosphor-svelte/lib/Chat';
   import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
   import { goto } from '$app/navigation';
-  import { nip19 } from 'nostr-tools';
+  import { eventPath } from '$lib/utils/eventUrl';
 
   export let event: NDKEvent;
   /** When set, the comment button invokes this (opens the reply modal)
@@ -38,12 +38,7 @@
       return;
     }
     // Anywhere else (thread page, profile page), navigate to the note thread.
-    const relayUrl = (event as any).relay?.url ?? (event as any).onRelays?.[0]?.url;
-    try {
-      goto('/' + nip19.neventEncode({ id: event.id, relays: relayUrl ? [relayUrl] : [], kind: event.kind ?? 1 }));
-    } catch {
-      goto('/' + nip19.noteEncode(event.id));
-    }
+    goto(eventPath(event));
   }
 </script>
 

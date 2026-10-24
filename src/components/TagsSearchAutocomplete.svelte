@@ -8,6 +8,7 @@
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { isHumanReadablePostContent, postSnippet } from '$lib/postContentReadability';
   import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
+  import { eventIdPath } from '$lib/utils/eventUrl';
   import { feedCacheService } from '$lib/feedCache';
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
 
@@ -364,7 +365,11 @@
 
   function selectPost(postId: string) {
     // Navigate to the note thread page
-    window.location.href = `/${nip19.noteEncode(postId)}`;
+    try {
+      window.location.href = eventIdPath(postId);
+    } catch {
+      /* not an event id — nothing to navigate to */
+    }
     tagquery = '';
     searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
