@@ -222,7 +222,7 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
   const decryptStart = Date.now();
 
   const { plaintext: connectionString, source } = await withTimeout(
-    decryptWithSource(pubkey, latestEvent.content, encryptionMethod),
+    decryptWithSource(pubkey, latestEvent.content, encryptionMethod, { legacy: 'prompt' }),
     DECRYPT_TIMEOUT,
     'Decryption timed out. Please approve the request in your signer app.'
   );

@@ -47,6 +47,16 @@ const legacySourceByKey = new Map<string, DecryptSource>();
 /** The extension gets one legacy decrypt request per session, success or not. */
 let legacyExtensionTried = false;
 
+/**
+ * Which legacy sources decryptWithSource may fall back to (#897):
+ * - 'silent' (default): the leftover stored nsec only, never a prompt
+ * - 'prompt': also the browser extension, once per session; for the
+ *   user's own wallet and draft data, so a DM or a relay list can't
+ *   spend the session's only prompt
+ * - 'off': no fallback
+ */
+export type LegacyFallback = 'silent' | 'prompt' | 'off';
+
 /** Sentinel stored in cache when the signer denied a decrypt request. */
 const DECRYPT_DENIED = '\x00__DENIED__';
 
@@ -166,12 +176,15 @@ function getSignerKind(): SignerKind {
 }
 
 /**
- * Wait out an anonymous-post signer swap (authManager.postAnonymously puts
- * a throwaway key on ndk.signer for one publish). Every key and signer read
- * below goes through ndk.signer, so encrypt/decrypt must not start mid-swap.
+ * The session's own signer. Not ndk.signer as such: authManager's
+ * postAnonymously puts a throwaway key there for one publish, and anything
+ * encrypted or decrypted with it would be lost to the real account. Read
+ * synchronously where the signer (or its key) is used — no await between
+ * the read and the use, so a swap can't slip in between.
  */
-async function signerSettled(): Promise<void> {
-  await getAuthManager()?.waitForSignerSwap?.();
+function getSessionSigner(): unknown {
+  const swap = getAuthManager()?.getSignerSwap?.();
+  return swap ? swap.signer : get(ndk).signer;
 }
 
 function hasNip07Encrypt(): boolean {
@@ -203,7 +216,7 @@ function getPrivateKey(): string | null {
   if (kind === 'nip07' || kind === 'nip46') return null;
 
   try {
-    const signer = get(ndk).signer as { privateKey?: string } | null | undefined;
+    const signer = getSessionSigner() as { privateKey?: string } | null | undefined;
     const hex = signer?.privateKey;
     if (typeof hex === 'string' && /^[0-9a-fA-F]{64}$/.test(hex)) {
       return hex.toLowerCase();
@@ -261,8 +274,7 @@ export function canDecryptSilently(): boolean {
 export function hasEncryptionSupport(): boolean {
   if (!browser) return false;
 
-  const ndkInstance = get(ndk);
-  const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
+  const signer = getSessionSigner() as SignerWithEncryption | null | undefined;
 
   switch (getSignerKind()) {
     // NIP-07 signers use window.nostr for encryption
@@ -315,8 +327,7 @@ export function hasEncryptionSupport(): boolean {
 export async function getEncryptionMethod(): Promise<EncryptionMethod> {
   if (!browser) return null;
 
-  const ndkInstance = get(ndk);
-  const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
+  const signer = getSessionSigner() as SignerWithEncryption | null | undefined;
 
   const kind = getSignerKind();
 
@@ -353,10 +364,8 @@ export async function getEncryptionMethod(): Promise<EncryptionMethod> {
 export function getBestEncryptionMethod(): EncryptionMethod {
   if (!browser) return null;
 
-  const ndkInstance = get(ndk);
-
   // NDK signers support both, prefer NIP-44
-  if (ndkInstance.signer) return 'nip44';
+  if (getSessionSigner()) return 'nip44';
 
   // Check if we have a private key stored (for direct encryption)
   if (getPrivateKey()) {
@@ -460,10 +469,7 @@ export async function encrypt(
     throw new Error('Encryption not available on server');
   }
 
-  await signerSettled();
-
-  const ndkInstance = get(ndk);
-  const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
+  const signer = getSessionSigner() as SignerWithEncryption | null | undefined;
   const kind = getSignerKind();
 
   // For NIP-07 signers, go directly to window.nostr (NDKNip07Signer delegates to it anyway)
@@ -640,7 +646,8 @@ export async function decrypt(
 export async function decryptWithSource(
   senderPubkey: string,
   ciphertext: string,
-  method: EncryptionMethod
+  method: EncryptionMethod,
+  { legacy = 'silent' }: { legacy?: LegacyFallback } = {}
 ): Promise<{ plaintext: string; source: DecryptSource }> {
   if (!browser) {
     throw new Error('Decryption not available on server');
@@ -655,11 +662,14 @@ export async function decryptWithSource(
     const plaintext = await decryptFromSession(senderPubkey, ciphertext, method);
     return { plaintext, source: legacySourceByKey.get(cacheKey) ?? 'session' };
   } catch (e) {
-    const legacy = await enqueueDecrypt(() => decryptViaLegacy(senderPubkey, ciphertext, method));
-    if (!legacy) throw e;
-    setCachedDecrypt(method, senderPubkey, ciphertext, legacy.plaintext);
-    legacySourceByKey.set(cacheKey, legacy.source);
-    return legacy;
+    if (legacy === 'off') throw e;
+    const opened = await enqueueDecrypt(() =>
+      decryptViaLegacy(senderPubkey, ciphertext, method, legacy === 'prompt')
+    );
+    if (!opened) throw e;
+    setCachedDecrypt(method, senderPubkey, ciphertext, opened.plaintext);
+    legacySourceByKey.set(cacheKey, opened.source);
+    return opened;
   }
 }
 
@@ -673,12 +683,13 @@ export async function decryptWithSource(
  * session's own path failed, and only while a legacy source exists. Exact
  * method only: a wrong-key NIP-04 decrypt can return garbage instead of
  * throwing, and callers may republish what this returns. The extension is
- * asked at most once per session.
+ * asked only when `allowPrompt`, and at most once per session.
  */
 async function decryptViaLegacy(
   senderPubkey: string,
   ciphertext: string,
-  method: 'nip44' | 'nip04'
+  method: 'nip44' | 'nip04',
+  allowPrompt: boolean
 ): Promise<{ plaintext: string; source: DecryptSource } | null> {
   const kind = getSignerKind();
   if (kind !== 'nip07' && kind !== 'nip46') return null;
@@ -703,7 +714,12 @@ async function decryptViaLegacy(
   }
 
   const ext = (window as any).nostr?.[method];
-  if (kind === 'nip46' && !legacyExtensionTried && typeof ext?.decrypt === 'function') {
+  if (
+    allowPrompt &&
+    kind === 'nip46' &&
+    !legacyExtensionTried &&
+    typeof ext?.decrypt === 'function'
+  ) {
     legacyExtensionTried = true;
     try {
       const raw = await ext.decrypt(senderPubkey, ciphertext);
@@ -738,8 +754,6 @@ async function decryptFromSession(
     }
     return cached;
   }
-
-  await signerSettled();
 
   // Private-key decryption is local (no signer popup), skip the queue
   const privateKey = getPrivateKey();
@@ -877,12 +891,8 @@ async function decryptViaSigner(
     throw new Error('Encryption method not specified');
   }
 
-  // Queued calls can start long after decrypt() checked; re-check.
-  await signerSettled();
-
   const nostr = (window as any).nostr;
-  const ndkInstance = get(ndk);
-  const signer = ndkInstance.signer as SignerWithEncryption | null | undefined;
+  const signer = getSessionSigner() as SignerWithEncryption | null | undefined;
   const kind = getSignerKind();
 
   // NIP-46 remote signer path: NIP-44 via raw RPC, NIP-04 via NDK's decrypt().

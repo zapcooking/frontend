@@ -61,10 +61,10 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
   return { ...actual, NDKEvent: FakeEvent };
 });
 
-import { encrypt, decrypt, clearDecryptCache } from './encryptionService';
+import { encrypt, decrypt, decryptWithSource, clearDecryptCache } from './encryptionService';
 import { nip44EncryptViaNip46 } from '$lib/nip46Rpc';
 import { restoreNwcFromNostr } from './wallet/nwcBackup';
-import { loadMnemonic } from './spark/storage';
+import { loadMnemonic, saveMnemonic } from './spark/storage';
 
 const bytes = (hex: string) => Uint8Array.from(hex.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
 const convKey = (skHex: string, pubkey: string) =>
@@ -214,6 +214,53 @@ describe('(c) NIP-46 session with an extension', () => {
     expect(ext.nip44.encrypt).not.toHaveBeenCalled();
   });
 
+  it('keeps the legacy copy, and reads it if the bunker copy stops opening', async () => {
+    fakeAuth.method = 'nip46';
+    fakeNdk.signer = { remotePubkey: 'ab'.repeat(32) };
+    const ext = extensionFor(EXT_SK);
+    (globalThis as any).window = { nostr: ext };
+
+    const recordKey = `spark_wallet_${USER_PK}`;
+    const stashKey = `spark_wallet_legacy_${USER_PK}`;
+    const legacyRecord = JSON.stringify({
+      version: 2,
+      ciphertext: nip44.v2.encrypt(MNEMONIC, convKey(EXT_SK, USER_PK))
+    });
+    store.set(recordKey, legacyRecord);
+    await expect(loadMnemonic(USER_PK)).resolves.toBe(MNEMONIC);
+    expect(store.get(stashKey)).toBe(legacyRecord);
+
+    // Later session: the bunker can't open what it wrote (a session-key
+    // bunker after reconnecting). The stash still opens via the extension.
+    clearDecryptCache();
+    bunker.decrypt = () => Promise.reject(new Error('bunker: bad MAC'));
+    await expect(loadMnemonic(USER_PK)).resolves.toBe(MNEMONIC);
+    expect(ext.nip44.decrypt).toHaveBeenCalledTimes(2); // once per session, on the stash
+
+    // A different wallet saved later supersedes the stash.
+    await saveMnemonic(USER_PK, 'zoo '.repeat(11) + 'wrong');
+    expect(store.has(stashKey)).toBe(false);
+  });
+
+  it('only own-data decrypts may spend the extension prompt; plain decrypt() never does', async () => {
+    fakeAuth.method = 'nip46';
+    fakeNdk.signer = { remotePubkey: 'ab'.repeat(32) };
+    const ext = extensionFor(EXT_SK);
+    (globalThis as any).window = { nostr: ext };
+
+    // A DM, the relay list, a mute list: display-only decrypt() calls.
+    const dm = nip44.v2.encrypt('dm', convKey(EXT_SK, OTHER_PK));
+    await expect(decrypt(OTHER_PK, dm, 'nip44')).rejects.toThrow();
+    expect(ext.nip44.decrypt).not.toHaveBeenCalled();
+
+    // The session's one prompt is still there for the user's own data.
+    const wallet = nip44.v2.encrypt('wallet', convKey(EXT_SK, USER_PK));
+    await expect(
+      decryptWithSource(USER_PK, wallet, 'nip44', { legacy: 'prompt' })
+    ).resolves.toEqual({ plaintext: 'wallet', source: 'legacy-extension' });
+    expect(ext.nip44.decrypt).toHaveBeenCalledTimes(1);
+  });
+
   it('asks the extension at most once per session', async () => {
     fakeAuth.method = 'nip46';
     fakeNdk.signer = { remotePubkey: 'ab'.repeat(32) };
@@ -222,13 +269,18 @@ describe('(c) NIP-46 session with an extension', () => {
 
     const first = nip44.v2.encrypt('one', convKey(EXT_SK, USER_PK));
     const second = nip44.v2.encrypt('two', convKey(EXT_SK, USER_PK));
-    await expect(decrypt(USER_PK, first, 'nip44')).resolves.toBe('one');
-    await expect(decrypt(USER_PK, second, 'nip44')).rejects.toThrow();
+    const own = { legacy: 'prompt' } as const;
+    await expect(decryptWithSource(USER_PK, first, 'nip44', own)).resolves.toMatchObject({
+      plaintext: 'one'
+    });
+    await expect(decryptWithSource(USER_PK, second, 'nip44', own)).rejects.toThrow();
     expect(ext.nip44.decrypt).toHaveBeenCalledTimes(1);
 
     // A new session gets one more.
     clearDecryptCache();
-    await expect(decrypt(USER_PK, second, 'nip44')).resolves.toBe('two');
+    await expect(decryptWithSource(USER_PK, second, 'nip44', own)).resolves.toMatchObject({
+      plaintext: 'two'
+    });
     expect(ext.nip44.decrypt).toHaveBeenCalledTimes(2);
   });
 });

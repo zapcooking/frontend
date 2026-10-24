@@ -23,43 +23,45 @@ interface NoticeState {
   shown: string[]; // wallet ids that already had it
 }
 
-function read(): NoticeState {
+function load(): NoticeState {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (Array.isArray(parsed?.pending) && Array.isArray(parsed?.shown)) return parsed;
   } catch {
-    // Unreadable state — start over
+    // Unreadable or unavailable storage — start over
   }
   return { pending: [], shown: [] };
 }
 
-function write(state: NoticeState): void {
+// In-memory state is authoritative for the session; localStorage only
+// carries it across reloads, so a failed write never loses the notice.
+const state: NoticeState = browser ? load() : { pending: [], shown: [] };
+
+function save(): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
     // Private mode or a full quota — the notice just won't survive a reload
   }
-  legacyBackupNoticePending.set(state.pending);
+  legacyBackupNoticePending.set([...state.pending]);
 }
 
 /** Wallet ids with a notice waiting to be shown. */
-export const legacyBackupNoticePending = writable<string[]>(browser ? read().pending : []);
+export const legacyBackupNoticePending = writable<string[]>([...state.pending]);
 
 /** Queue the notice for a wallet, unless it's queued or was already shown. */
 export function flagLegacyBackupNotice(walletId: string): void {
-  const state = read();
   if (state.pending.includes(walletId) || state.shown.includes(walletId)) return;
   state.pending.push(walletId);
-  write(state);
+  save();
 }
 
 /** Claim the notice for display: true once per wallet, then never again. */
 export function takeLegacyBackupNotice(walletId: string): boolean {
-  const state = read();
   if (!state.pending.includes(walletId)) return false;
   state.pending = state.pending.filter((id) => id !== walletId);
   state.shown.push(walletId);
-  write(state);
+  save();
   return true;
 }
 

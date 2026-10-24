@@ -268,7 +268,8 @@ async function decryptPendingEnvelopes(pubkey: string): Promise<void> {
       const { plaintext, source } = await decryptWithSource(
         pubkey,
         pending.data.enc,
-        pending.data.method
+        pending.data.method,
+        { legacy: 'prompt' }
       );
       if (source !== 'session') {
         // Legacy-encrypted envelope (#897). Merging re-saves it through

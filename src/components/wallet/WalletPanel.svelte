@@ -9,6 +9,7 @@
     legacyBackupNoticePending,
     claimLegacyBackupNotice
   } from '$lib/wallet/legacyBackupNotice';
+  import { stackedDialog } from '$lib/wallet/stackedDialog';
   import Button from '../Button.svelte';
   import {
     wallets,
@@ -5395,8 +5396,16 @@
         <div
           class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
           style="background-color: var(--color-bg-primary);"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reveal-mnemonic-title"
+          use:stackedDialog={{ onEscape: closeRevealMnemonicModal }}
         >
-          <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
+          <h2
+            id="reveal-mnemonic-title"
+            class="text-xl font-bold mb-4"
+            style="color: var(--color-text-primary)"
+          >
             Recovery Phrase
           </h2>
           <div
@@ -5454,12 +5463,21 @@
         <div
           class="rounded-2xl p-6 max-w-md w-full"
           style="background-color: var(--color-bg-primary);"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="legacy-notice-title"
+          aria-describedby="legacy-notice-body"
+          use:stackedDialog={{ onEscape: () => (legacyNoticeWalletId = null) }}
         >
-          <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
+          <h2
+            id="legacy-notice-title"
+            class="text-xl font-bold mb-4"
+            style="color: var(--color-text-primary)"
+          >
             <WarningIcon size={22} class="inline mr-2 text-amber-500" />
             Save your recovery phrase
           </h2>
-          <p class="text-sm mb-6" style="color: var(--color-text-secondary)">
+          <p id="legacy-notice-body" class="text-sm mb-6" style="color: var(--color-text-secondary)">
             Save your recovery phrase now. This backup may not be readable later.
           </p>
           <div class="flex gap-3">
@@ -5470,7 +5488,9 @@
             >
               Not now
             </button>
-            <Button on:click={showLegacyNoticePhrase} class="flex-1">Show phrase</Button>
+            <Button on:click={showLegacyNoticePhrase} class="flex-1" data-autofocus>
+              Show phrase
+            </Button>
           </div>
         </div>
       </div>

@@ -94,6 +94,10 @@ export interface PrivateRelayList {
 // Debounce timers for publishing
 const publishDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// Last local publish/delete per draft id (d-tag), so a background legacy
+// migration (#897) can tell its fetched copy has been superseded.
+const lastDraftWriteAt = new Map<string, number>();
+
 // In-memory cache of private relay list
 let cachedPrivateRelays: PrivateRelayList | null = null;
 
@@ -331,7 +335,9 @@ async function decryptDraftContent(
 ): Promise<{ draft: RecipeDraft | ArticleDraft; plaintext: string; source: DecryptSource } | null> {
   try {
     const method = detectEncryptionMethod(content);
-    const { plaintext, source } = await decryptWithSource(pubkey, content, method);
+    const { plaintext, source } = await decryptWithSource(pubkey, content, method, {
+      legacy: 'prompt'
+    });
     const eventData = JSON.parse(plaintext);
 
     // Parse based on draft type
@@ -658,6 +664,7 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
   }
 
   fetchInProgress = (async () => {
+    const fetchedAt = Date.now();
     try {
       await ndkReady;
       const ndkInstance = getNdkInstance();
@@ -749,7 +756,7 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
       // Newest versions encrypted under a legacy key (#897): republish them
       // under the session key. Background; the fetch result doesn't wait.
       const legacy = drafts.flatMap((d) => legacyByEventId.get(d.eventId) ?? []);
-      if (legacy.length > 0) void migrateLegacyDraftWraps(pubkey, legacy);
+      if (legacy.length > 0) void migrateLegacyDraftWraps(pubkey, legacy, fetchedAt);
 
       if (skippedDeleted > 0 || skippedExpired > 0) {
         console.log(`[NIP-37] Skipped ${skippedDeleted} deleted, ${skippedExpired} expired drafts`);
@@ -774,22 +781,35 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
  * expiration) are kept exactly — rebuilding through publishDraft would
  * round-trip the draft through the parser and reset its expiration. Same
  * guards and relays as publishDraft.
+ *
+ * Never supersedes a newer version: the replacement is dated one second
+ * after the copy it was decrypted from, so any later edit or deletion
+ * (whatever order the publishes land in) still wins on the relays, and a
+ * draft with a local edit pending or written since the fetch is skipped.
  */
 async function migrateLegacyDraftWraps(
   pubkey: string,
-  wraps: Array<{ event: NDKEvent; plaintext: string; source: DecryptSource }>
+  wraps: Array<{ event: NDKEvent; plaintext: string; source: DecryptSource }>,
+  fetchedAt: number
 ): Promise<void> {
   if (get(userPublickey) !== pubkey || !hasEncryptionSupport()) return;
   try {
     const ndkInstance = getNdkInstance();
     const relays = await getPrivateRelays(pubkey);
     for (const { event, plaintext, source } of wraps) {
+      const dTag = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
+      const superseded = () =>
+        publishDebounceTimers.has(dTag) || (lastDraftWriteAt.get(dTag) ?? 0) >= fetchedAt;
+      if (superseded()) continue;
+
       const { ciphertext } = await encrypt(pubkey, plaintext);
       const wrap = new NDKEvent(ndkInstance);
       wrap.kind = KIND_DRAFT_WRAP;
       wrap.content = ciphertext;
       wrap.tags = event.tags.map((t) => [...t]);
+      wrap.created_at = (event.created_at ?? 0) + 1;
       await wrap.sign();
+      if (superseded()) continue;
       await wrap.publish(NDKRelaySet.fromRelayUrls(relays, ndkInstance));
       noteLegacyMigration('draft', source);
     }
@@ -850,6 +870,7 @@ export async function publishDraft(draft: RecipeDraft): Promise<boolean> {
     console.log(`[NIP-37] Skipping publish of empty draft ${draft.id}`);
     return false;
   }
+  lastDraftWriteAt.set(draft.id, Date.now());
 
   try {
     await ndkReady;
@@ -944,6 +965,7 @@ export async function publishArticleDraft(draft: ArticleDraft): Promise<boolean>
     console.log(`[NIP-37] Skipping publish of empty article draft ${draft.id}`);
     return false;
   }
+  lastDraftWriteAt.set(draft.id, Date.now());
 
   try {
     await ndkReady;
@@ -999,6 +1021,7 @@ export async function deleteDraftRemote(draftId: string, draftType: 'recipe' | '
     console.error('[NIP-37] Cannot delete draft: not logged in');
     return false;
   }
+  lastDraftWriteAt.set(draftId, Date.now());
 
   try {
     await ndkReady;

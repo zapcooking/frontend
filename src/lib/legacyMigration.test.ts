@@ -14,7 +14,12 @@ vi.mock('$app/environment', () => ({ browser: true }));
 
 const { fakeNdk, published, USER_PK_HOLDER } = vi.hoisted(() => ({
   fakeNdk: { signer: {} as unknown, fetchEvents: null as unknown },
-  published: [] as Array<{ kind: number; content: string; tags: string[][] }>,
+  published: [] as Array<{
+    kind: number;
+    content: string;
+    tags: string[][];
+    created_at?: number;
+  }>,
   USER_PK_HOLDER: { value: '' }
 }));
 
@@ -42,9 +47,17 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
     kind = 0;
     content = '';
     tags: string[][] = [];
-    async sign() {}
+    created_at?: number;
+    async sign() {
+      this.created_at ??= Math.floor(Date.now() / 1000);
+    }
     async publish() {
-      published.push({ kind: this.kind, content: this.content, tags: this.tags });
+      published.push({
+        kind: this.kind,
+        content: this.content,
+        tags: this.tags,
+        created_at: this.created_at
+      });
     }
   }
   return { ...actual, NDKEvent: FakeEvent, NDKRelaySet: { fromRelayUrls: () => ({}) } };
@@ -117,31 +130,37 @@ describe('saved NWC wallet encrypted under a leftover stored nsec', () => {
   });
 });
 
-describe('NIP-37 draft wrap encrypted under a leftover stored nsec', () => {
-  it('is fetched and republished under the real key with its original tags', async () => {
-    const inner = JSON.stringify({
-      kind: 30023,
-      content: '## Ingredients\n\n- water',
-      tags: [['title', 'Soup']],
-      created_at: 100
-    });
-    const wrapTags = [
-      ['d', 'draft_1'],
-      ['k', '30023'],
-      ['draft-type', 'recipe'],
-      ['expiration', String(Math.floor(Date.now() / 1000) + 86400)]
-    ];
-    const legacyWrap = {
-      id: 'evt1',
-      kind: 31234,
-      content: nip44.v2.encrypt(inner, convKey(LEFTOVER_SK, USER_PK)),
-      tags: wrapTags,
-      created_at: 100
-    };
-    fakeNdk.fetchEvents = vi.fn(async (filter: { kinds: number[] }) =>
-      filter.kinds.includes(31234) ? new Set([legacyWrap]) : new Set()
-    );
+function legacyDraftFixture() {
+  const inner = JSON.stringify({
+    kind: 30023,
+    content: '## Ingredients\n\n- water',
+    tags: [['title', 'Soup']],
+    created_at: 100
+  });
+  const wrapTags = [
+    ['d', 'draft_1'],
+    ['k', '30023'],
+    ['draft-type', 'recipe'],
+    ['expiration', String(Math.floor(Date.now() / 1000) + 86400)]
+  ];
+  const legacyWrap = {
+    id: 'evt1',
+    kind: 31234,
+    content: nip44.v2.encrypt(inner, convKey(LEFTOVER_SK, USER_PK)),
+    tags: wrapTags,
+    created_at: 100
+  };
+  fakeNdk.fetchEvents = vi.fn(async (filter: { kinds: number[] }) =>
+    filter.kinds.includes(31234) ? new Set([legacyWrap]) : new Set()
+  );
+  return { inner, wrapTags };
+}
 
+describe('NIP-37 draft wrap encrypted under a leftover stored nsec', () => {
+  beforeEach(() => vi.resetModules());
+
+  it('is fetched and republished under the real key with its original tags', async () => {
+    const { inner, wrapTags } = legacyDraftFixture();
     const { fetchRemoteDrafts } = await import('./nip37DraftService');
     const drafts = await fetchRemoteDrafts();
     expect(drafts.map((d) => d.draft.title)).toEqual(['Soup']);
@@ -149,7 +168,22 @@ describe('NIP-37 draft wrap encrypted under a leftover stored nsec', () => {
     await vi.waitFor(() => expect(published).toHaveLength(1));
     expect(published[0].kind).toBe(31234);
     expect(published[0].tags).toEqual(wrapTags);
+    // Dated just after the copy it replaces, so any newer edit still wins.
+    expect(published[0].created_at).toBe(101);
     expect(open(published[0].content, USER_SK, USER_PK)).toBe(inner);
     expect(() => open(published[0].content, LEFTOVER_SK, USER_PK)).toThrow();
+  });
+
+  it('is not migrated when the draft was republished locally after the fetch', async () => {
+    legacyDraftFixture();
+    const { fetchRemoteDrafts, publishDraft } = await import('./nip37DraftService');
+    const [remote] = await fetchRemoteDrafts();
+
+    // draftStore.syncDrafts pushes a newer local edit right after the fetch.
+    await publishDraft({ ...(remote.draft as any), id: 'draft_1', title: 'Soup v2' });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(published).toHaveLength(1); // only the local edit
+    expect(published[0].created_at).not.toBe(101);
   });
 });

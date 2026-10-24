@@ -68,7 +68,9 @@ describe('legacy backup notice', () => {
   it('queues the notice when the fallback opens a NIP-46 Spark backup, and shows it once', async () => {
     // Backup encrypted by the user's extension before #896.
     const content = nip44.v2.encrypt(MNEMONIC, convKey(EXT_SK, USER_PK));
-    const { plaintext, source } = await enc.decryptWithSource(USER_PK, content, 'nip44');
+    const { plaintext, source } = await enc.decryptWithSource(USER_PK, content, 'nip44', {
+      legacy: 'prompt'
+    });
     expect(plaintext).toBe(MNEMONIC);
     expect(source).toBe('legacy-extension');
 
@@ -95,6 +97,16 @@ describe('legacy backup notice', () => {
     const reloaded = await import('./legacyBackupNotice');
     expect(get(reloaded.legacyBackupNoticePending)).toEqual([WALLET]);
     expect(reloaded.claimLegacyBackupNotice([WALLET], [{ kind: 4, data: WALLET }])).toBe(WALLET);
+  });
+
+  it('still shows this session when localStorage writes fail', async () => {
+    (globalThis as any).localStorage.setItem = () => {
+      throw new Error('QuotaExceededError');
+    };
+    await mod.settleLegacySparkBackup(WALLET, 'legacy-extension', async () => {});
+    expect(get(mod.legacyBackupNoticePending)).toEqual([WALLET]);
+    expect(mod.claimLegacyBackupNotice([WALLET], [{ kind: 4, data: WALLET }])).toBe(WALLET);
+    expect(mod.claimLegacyBackupNotice([WALLET], [{ kind: 4, data: WALLET }])).toBeNull();
   });
 
   it('waits until that Spark wallet is actually in the wallet list', async () => {

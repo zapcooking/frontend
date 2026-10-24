@@ -73,32 +73,46 @@ beforeEach(() => {
   (globalThis as any).window = {};
 });
 
+async function startSession() {
+  const selfPubkey = getPublicKey(bytes(fixture.nsecHex));
+  userPubkey.value = selfPubkey;
+  store.set('nostrcooking_loggedInPublicKey', selfPubkey);
+  store.set('nostrcooking_privateKey', fixture.nsecHex);
+  store.set(
+    'zapcooking_wallets',
+    JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
+  );
+
+  // Real nsec session restored from storage.
+  const { createAuthManager } = await import('$lib/authManager');
+  const manager = createAuthManager(fakeNdk);
+  await vi.waitFor(() => expect(manager.getState().authMethod).toBe('privateKey'));
+
+  const wallets = await import('./walletStore');
+  await vi.waitFor(() =>
+    expect(JSON.parse(store.get('zapcooking_wallets')!)[0].data.enc).toBeTruthy()
+  );
+
+  vi.spyOn(manager, 'generateAnonymousKey').mockReturnValue({
+    privateKey: ANON_SK,
+    publicKey: getPublicKey(bytes(ANON_SK))
+  });
+  const encryption = await import('$lib/encryptionService');
+  return { manager, wallets, encryption, selfPubkey };
+}
+
+const savedEnvelope = () => JSON.parse(store.get('zapcooking_wallets')!)[0].data;
+
 describe('anonymous-post signer swap', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    publishGate.started = false;
+  });
+
   it('a wallet re-save during the swap never encrypts with the throwaway key', async () => {
-    const selfPubkey = getPublicKey(bytes(fixture.nsecHex));
-    userPubkey.value = selfPubkey;
-    store.set('nostrcooking_loggedInPublicKey', selfPubkey);
-    store.set('nostrcooking_privateKey', fixture.nsecHex);
-    store.set(
-      'zapcooking_wallets',
-      JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
-    );
-
-    // Real nsec session restored from storage.
-    const { createAuthManager } = await import('$lib/authManager');
-    const manager = createAuthManager(fakeNdk);
-    await vi.waitFor(() => expect(manager.getState().authMethod).toBe('privateKey'));
-
-    const wallets = await import('./walletStore');
-    await vi.waitFor(() =>
-      expect(JSON.parse(store.get('zapcooking_wallets')!)[0].data.enc).toBeTruthy()
-    );
+    const { manager, wallets, selfPubkey } = await startSession();
 
     // Anonymous post in flight: throwaway signer on ndk.signer.
-    vi.spyOn(manager, 'generateAnonymousKey').mockReturnValue({
-      privateKey: ANON_SK,
-      publicKey: getPublicKey(bytes(ANON_SK))
-    });
     const posting = manager.postAnonymously('hi');
     await vi.waitFor(() => expect(publishGate.started).toBe(true));
     expect((fakeNdk.signer as { privateKey: string }).privateKey).toBe(ANON_SK);
@@ -106,15 +120,49 @@ describe('anonymous-post signer swap', () => {
     wallets.updateWalletName(1, 'Alby 2');
     await tick();
 
-    // Swap ends; the deferred save completes.
     publishGate.release();
     await posting;
     await vi.waitFor(() =>
       expect(JSON.parse(store.get('zapcooking_wallets')!)[0].name).toBe('Alby 2')
     );
 
-    const envelope = JSON.parse(store.get('zapcooking_wallets')!)[0].data;
+    const envelope = savedEnvelope();
     expect(nip44.v2.decrypt(envelope.enc, convKey(fixture.nsecHex, selfPubkey))).toBe(NWC_URL);
     expect(() => nip44.v2.decrypt(envelope.enc, convKey(ANON_SK, selfPubkey))).toThrow();
+  });
+
+  it('a wallet re-save scheduled just before the swap starts uses the real key', async () => {
+    const { manager, wallets, selfPubkey } = await startSession();
+
+    wallets.updateWalletName(1, 'Alby 3'); // persist runs on a later microtask
+    const posting = manager.postAnonymously('hi'); // swap starts synchronously
+    await vi.waitFor(() =>
+      expect(JSON.parse(store.get('zapcooking_wallets')!)[0].name).toBe('Alby 3')
+    );
+    expect(nip44.v2.decrypt(savedEnvelope().enc, convKey(fixture.nsecHex, selfPubkey))).toBe(
+      NWC_URL
+    );
+
+    await vi.waitFor(() => expect(publishGate.started).toBe(true));
+    publishGate.release();
+    await posting;
+  });
+
+  it('encrypt() and decrypt() started just before the swap use the real key', async () => {
+    const { manager, encryption, selfPubkey } = await startSession();
+    const realCt = nip44.v2.encrypt('secret', convKey(fixture.nsecHex, selfPubkey));
+
+    const encrypting = encryption.encrypt(selfPubkey, 'hello');
+    const decrypting = encryption.decrypt(selfPubkey, realCt, 'nip44');
+    const posting = manager.postAnonymously('hi');
+
+    const { ciphertext } = await encrypting;
+    expect(nip44.v2.decrypt(ciphertext, convKey(fixture.nsecHex, selfPubkey))).toBe('hello');
+    await expect(decrypting).resolves.toBe('secret');
+
+    await vi.waitFor(() => expect(publishGate.started).toBe(true));
+    publishGate.release();
+    await posting;
+    expect((fakeNdk.signer as { privateKey: string }).privateKey).toBe(fixture.nsecHex);
   });
 });

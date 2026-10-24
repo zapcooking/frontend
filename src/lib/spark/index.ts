@@ -1915,7 +1915,7 @@ export async function restoreSparkBackup(
   const DECRYPT_TIMEOUT = 15000;
 
   const { plaintext: mnemonic, source } = await withTimeout(
-    decryptWithSource(pubkey, backup.content, encryptionMethod),
+    decryptWithSource(pubkey, backup.content, encryptionMethod, { legacy: 'prompt' }),
     DECRYPT_TIMEOUT,
     'Decryption timed out. Please approve the request in your signer app.'
   );

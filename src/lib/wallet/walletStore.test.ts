@@ -39,8 +39,8 @@ vi.mock('$lib/nostr', async () => {
 
 vi.mock('$lib/encryptionService', () => ({
   ...encryption,
-  decryptWithSource: async (...args: [string, string, string]) => ({
-    plaintext: await encryption.decrypt(...args),
+  decryptWithSource: async (sender: string, ciphertext: string, method: string) => ({
+    plaintext: await encryption.decrypt(sender, ciphertext, method),
     source: 'session'
   }),
   noteLegacyMigration: vi.fn()
