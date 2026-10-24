@@ -1,0 +1,1075 @@
+{
+ "_devFixture": "pow-dev-fixture-only: never in a production build (see src/routes/pow/+page.server.ts)",
+ "lastSuccessAt": "2026-09-26T12:24:06.553Z",
+ "stale": false,
+ "dataVersion": "dev-fixture",
+ "complete": true,
+ "tz": "America/New_York",
+ "start": "2026-01-01T00:00:00-05:00",
+ "generatedAt": "2026-09-26T12:24:06.553Z",
+ "asOfDate": "2026-09-26",
+ "totals": {
+  "prs": 966,
+  "additions": 588882,
+  "deletions": 138622,
+  "countedAdditions": 443352,
+  "countedDeletions": 116773,
+  "contributors": 5,
+  "activeDays": 177
+ },
+ "byRepo": {
+  "frontend": {
+   "prs": 630,
+   "additions": 437243,
+   "deletions": 108349,
+   "countedAdditions": 291928,
+   "countedDeletions": 86701
+  },
+  "zap_cooking_android": {
+   "prs": 235,
+   "additions": 88908,
+   "deletions": 18961,
+   "countedAdditions": 88908,
+   "countedDeletions": 18961
+  },
+  "zapcooking_ios": {
+   "prs": 101,
+   "additions": 62731,
+   "deletions": 11312,
+   "countedAdditions": 62516,
+   "countedDeletions": 11111
+  }
+ },
+ "daily": {
+  "2026-09-25": {
+   "frontend": 2,
+   "zap_cooking_android": 12
+  },
+  "2026-09-24": {
+   "zapcooking_ios": 3,
+   "frontend": 4
+  },
+  "2026-09-22": {
+   "zapcooking_ios": 6
+  },
+  "2026-09-21": {
+   "zapcooking_ios": 1
+  },
+  "2026-09-20": {
+   "frontend": 4,
+   "zapcooking_ios": 22
+  },
+  "2026-09-19": {
+   "zapcooking_ios": 12,
+   "frontend": 5,
+   "zap_cooking_android": 1
+  },
+  "2026-09-14": {
+   "frontend": 4
+  },
+  "2026-09-13": {
+   "frontend": 8
+  },
+  "2026-09-11": {
+   "frontend": 4
+  },
+  "2026-09-10": {
+   "zapcooking_ios": 2,
+   "frontend": 1
+  },
+  "2026-09-09": {
+   "zapcooking_ios": 7
+  },
+  "2026-09-07": {
+   "frontend": 1,
+   "zapcooking_ios": 1
+  },
+  "2026-09-06": {
+   "frontend": 8
+  },
+  "2026-09-05": {
+   "frontend": 41
+  },
+  "2026-09-04": {
+   "zap_cooking_android": 1,
+   "frontend": 3
+  },
+  "2026-09-03": {
+   "frontend": 1,
+   "zapcooking_ios": 1
+  },
+  "2026-09-02": {
+   "frontend": 2,
+   "zapcooking_ios": 3,
+   "zap_cooking_android": 3
+  },
+  "2026-09-01": {
+   "zapcooking_ios": 9,
+   "zap_cooking_android": 1
+  },
+  "2026-08-31": {
+   "zapcooking_ios": 3,
+   "zap_cooking_android": 2,
+   "frontend": 2
+  },
+  "2026-08-30": {
+   "zapcooking_ios": 9,
+   "frontend": 1,
+   "zap_cooking_android": 1
+  },
+  "2026-08-29": {
+   "zapcooking_ios": 9
+  },
+  "2026-08-26": {
+   "zap_cooking_android": 2
+  },
+  "2026-08-25": {
+   "zap_cooking_android": 3
+  },
+  "2026-08-24": {
+   "frontend": 3,
+   "zap_cooking_android": 1
+  },
+  "2026-08-23": {
+   "frontend": 12
+  },
+  "2026-08-18": {
+   "frontend": 14,
+   "zap_cooking_android": 1
+  },
+  "2026-08-17": {
+   "zap_cooking_android": 5
+  },
+  "2026-08-13": {
+   "zapcooking_ios": 5,
+   "frontend": 1,
+   "zap_cooking_android": 3
+  },
+  "2026-08-09": {
+   "zapcooking_ios": 2
+  },
+  "2026-08-06": {
+   "frontend": 1
+  },
+  "2026-08-05": {
+   "zapcooking_ios": 6,
+   "frontend": 1
+  },
+  "2026-08-04": {
+   "frontend": 1
+  },
+  "2026-08-03": {
+   "frontend": 5
+  },
+  "2026-08-02": {
+   "frontend": 2
+  },
+  "2026-08-01": {
+   "zap_cooking_android": 2
+  },
+  "2026-07-31": {
+   "frontend": 3
+  },
+  "2026-07-30": {
+   "zap_cooking_android": 5,
+   "frontend": 1
+  },
+  "2026-07-29": {
+   "frontend": 2,
+   "zap_cooking_android": 1
+  },
+  "2026-07-28": {
+   "zap_cooking_android": 3,
+   "frontend": 5
+  },
+  "2026-07-27": {
+   "frontend": 2
+  },
+  "2026-07-26": {
+   "frontend": 10,
+   "zap_cooking_android": 1
+  },
+  "2026-07-25": {
+   "frontend": 11,
+   "zap_cooking_android": 3
+  },
+  "2026-07-24": {
+   "frontend": 3,
+   "zap_cooking_android": 2
+  },
+  "2026-07-23": {
+   "frontend": 2
+  },
+  "2026-07-22": {
+   "frontend": 3
+  },
+  "2026-07-20": {
+   "frontend": 6
+  },
+  "2026-07-19": {
+   "zap_cooking_android": 4
+  },
+  "2026-07-18": {
+   "zap_cooking_android": 3,
+   "frontend": 2
+  },
+  "2026-07-17": {
+   "frontend": 1,
+   "zap_cooking_android": 1
+  },
+  "2026-07-16": {
+   "zap_cooking_android": 5,
+   "frontend": 1
+  },
+  "2026-07-15": {
+   "zap_cooking_android": 2
+  },
+  "2026-07-14": {
+   "zap_cooking_android": 6,
+   "frontend": 2
+  },
+  "2026-07-13": {
+   "frontend": 12
+  },
+  "2026-07-11": {
+   "zap_cooking_android": 6,
+   "frontend": 2
+  },
+  "2026-07-10": {
+   "frontend": 5,
+   "zap_cooking_android": 5
+  },
+  "2026-07-09": {
+   "zap_cooking_android": 11,
+   "frontend": 4
+  },
+  "2026-07-08": {
+   "frontend": 8,
+   "zap_cooking_android": 2
+  },
+  "2026-07-07": {
+   "frontend": 8
+  },
+  "2026-07-06": {
+   "frontend": 2,
+   "zap_cooking_android": 1
+  },
+  "2026-07-05": {
+   "zap_cooking_android": 8,
+   "frontend": 3
+  },
+  "2026-07-04": {
+   "zap_cooking_android": 2
+  },
+  "2026-07-03": {
+   "zap_cooking_android": 10,
+   "frontend": 1
+  },
+  "2026-07-02": {
+   "frontend": 5
+  },
+  "2026-07-01": {
+   "zap_cooking_android": 7,
+   "frontend": 7
+  },
+  "2026-06-30": {
+   "zap_cooking_android": 8
+  },
+  "2026-06-29": {
+   "zap_cooking_android": 8
+  },
+  "2026-06-28": {
+   "zap_cooking_android": 15,
+   "frontend": 1
+  },
+  "2026-06-27": {
+   "zap_cooking_android": 22,
+   "frontend": 5
+  },
+  "2026-06-26": {
+   "frontend": 4,
+   "zap_cooking_android": 1
+  },
+  "2026-06-25": {
+   "frontend": 6,
+   "zap_cooking_android": 6
+  },
+  "2026-06-24": {
+   "frontend": 1,
+   "zap_cooking_android": 6
+  },
+  "2026-06-23": {
+   "zap_cooking_android": 5
+  },
+  "2026-06-22": {
+   "zap_cooking_android": 4,
+   "frontend": 5
+  },
+  "2026-06-21": {
+   "zap_cooking_android": 9
+  },
+  "2026-06-20": {
+   "zap_cooking_android": 13
+  },
+  "2026-06-19": {
+   "zap_cooking_android": 6,
+   "frontend": 2
+  },
+  "2026-06-18": {
+   "zap_cooking_android": 6,
+   "frontend": 2
+  },
+  "2026-06-17": {
+   "frontend": 4
+  },
+  "2026-06-16": {
+   "frontend": 4
+  },
+  "2026-06-13": {
+   "frontend": 2
+  },
+  "2026-06-12": {
+   "frontend": 6
+  },
+  "2026-06-11": {
+   "frontend": 8
+  },
+  "2026-06-10": {
+   "frontend": 7
+  },
+  "2026-06-09": {
+   "frontend": 4
+  },
+  "2026-06-08": {
+   "frontend": 1
+  },
+  "2026-06-06": {
+   "frontend": 1
+  },
+  "2026-06-02": {
+   "frontend": 1
+  },
+  "2026-06-01": {
+   "frontend": 2
+  },
+  "2026-05-29": {
+   "frontend": 3
+  },
+  "2026-05-28": {
+   "frontend": 2
+  },
+  "2026-05-20": {
+   "frontend": 3
+  },
+  "2026-05-16": {
+   "frontend": 1
+  },
+  "2026-05-15": {
+   "frontend": 4
+  },
+  "2026-05-14": {
+   "frontend": 3
+  },
+  "2026-05-13": {
+   "frontend": 6
+  },
+  "2026-05-10": {
+   "frontend": 3
+  },
+  "2026-05-09": {
+   "frontend": 1
+  },
+  "2026-05-07": {
+   "frontend": 3
+  },
+  "2026-05-02": {
+   "frontend": 1
+  },
+  "2026-05-01": {
+   "frontend": 2
+  },
+  "2026-04-30": {
+   "frontend": 4
+  },
+  "2026-04-28": {
+   "frontend": 1
+  },
+  "2026-04-27": {
+   "frontend": 3
+  },
+  "2026-04-26": {
+   "frontend": 8
+  },
+  "2026-04-25": {
+   "frontend": 11
+  },
+  "2026-04-24": {
+   "frontend": 6
+  },
+  "2026-04-23": {
+   "frontend": 3
+  },
+  "2026-04-21": {
+   "frontend": 5
+  },
+  "2026-04-20": {
+   "frontend": 2
+  },
+  "2026-04-19": {
+   "frontend": 12
+  },
+  "2026-04-18": {
+   "frontend": 6
+  },
+  "2026-04-17": {
+   "frontend": 5
+  },
+  "2026-04-11": {
+   "frontend": 8
+  },
+  "2026-04-08": {
+   "frontend": 1
+  },
+  "2026-04-07": {
+   "frontend": 1
+  },
+  "2026-04-06": {
+   "frontend": 1
+  },
+  "2026-04-05": {
+   "frontend": 1
+  },
+  "2026-03-28": {
+   "frontend": 1
+  },
+  "2026-03-26": {
+   "frontend": 3
+  },
+  "2026-03-25": {
+   "frontend": 6
+  },
+  "2026-03-24": {
+   "frontend": 1
+  },
+  "2026-03-23": {
+   "frontend": 4
+  },
+  "2026-03-22": {
+   "frontend": 4
+  },
+  "2026-03-21": {
+   "frontend": 1
+  },
+  "2026-03-18": {
+   "frontend": 2
+  },
+  "2026-03-17": {
+   "frontend": 2
+  },
+  "2026-03-16": {
+   "frontend": 1
+  },
+  "2026-03-15": {
+   "frontend": 4
+  },
+  "2026-03-14": {
+   "frontend": 3
+  },
+  "2026-03-13": {
+   "frontend": 3
+  },
+  "2026-03-12": {
+   "frontend": 2
+  },
+  "2026-03-10": {
+   "frontend": 1
+  },
+  "2026-03-08": {
+   "frontend": 4
+  },
+  "2026-03-07": {
+   "frontend": 2
+  },
+  "2026-03-05": {
+   "frontend": 1
+  },
+  "2026-03-02": {
+   "frontend": 1
+  },
+  "2026-03-01": {
+   "frontend": 3
+  },
+  "2026-02-28": {
+   "frontend": 3
+  },
+  "2026-02-24": {
+   "frontend": 1
+  },
+  "2026-02-23": {
+   "frontend": 3
+  },
+  "2026-02-22": {
+   "frontend": 13
+  },
+  "2026-02-21": {
+   "frontend": 7
+  },
+  "2026-02-20": {
+   "frontend": 5
+  },
+  "2026-02-19": {
+   "frontend": 2
+  },
+  "2026-02-18": {
+   "frontend": 2
+  },
+  "2026-02-17": {
+   "frontend": 5
+  },
+  "2026-02-16": {
+   "frontend": 3
+  },
+  "2026-02-14": {
+   "frontend": 8
+  },
+  "2026-02-13": {
+   "frontend": 3
+  },
+  "2026-02-12": {
+   "frontend": 2
+  },
+  "2026-02-11": {
+   "frontend": 1
+  },
+  "2026-02-10": {
+   "frontend": 19
+  },
+  "2026-02-09": {
+   "frontend": 3
+  },
+  "2026-02-06": {
+   "frontend": 1
+  },
+  "2026-02-05": {
+   "frontend": 4
+  },
+  "2026-01-30": {
+   "frontend": 1
+  },
+  "2026-01-28": {
+   "frontend": 3
+  },
+  "2026-01-26": {
+   "frontend": 4
+  },
+  "2026-01-25": {
+   "frontend": 6
+  },
+  "2026-01-24": {
+   "frontend": 3
+  },
+  "2026-01-23": {
+   "frontend": 2
+  },
+  "2026-01-22": {
+   "frontend": 1
+  },
+  "2026-01-21": {
+   "frontend": 2
+  },
+  "2026-01-20": {
+   "frontend": 1
+  },
+  "2026-01-18": {
+   "frontend": 5
+  },
+  "2026-01-17": {
+   "frontend": 5
+  },
+  "2026-01-16": {
+   "frontend": 1
+  },
+  "2026-01-12": {
+   "frontend": 6
+  },
+  "2026-01-11": {
+   "frontend": 6
+  },
+  "2026-01-10": {
+   "frontend": 4
+  },
+  "2026-01-09": {
+   "frontend": 10
+  },
+  "2026-01-08": {
+   "frontend": 4
+  },
+  "2026-01-06": {
+   "frontend": 1
+  },
+  "2026-01-05": {
+   "frontend": 2
+  },
+  "2026-01-03": {
+   "frontend": 2
+  },
+  "2026-01-02": {
+   "frontend": 3
+  },
+  "2026-01-01": {
+   "frontend": 6
+  }
+ },
+ "monthly": [
+  {
+   "month": "2026-01",
+   "prs": 78,
+   "additions": 62157,
+   "deletions": 20942,
+   "countedAdditions": 61558,
+   "countedDeletions": 20842,
+   "byRepo": {
+    "frontend": 78,
+    "zap_cooking_android": 0,
+    "zapcooking_ios": 0
+   }
+  },
+  {
+   "month": "2026-02",
+   "prs": 85,
+   "additions": 34789,
+   "deletions": 11582,
+   "countedAdditions": 31040,
+   "countedDeletions": 11325,
+   "byRepo": {
+    "frontend": 85,
+    "zap_cooking_android": 0,
+    "zapcooking_ios": 0
+   }
+  },
+  {
+   "month": "2026-03",
+   "prs": 49,
+   "additions": 26311,
+   "deletions": 5578,
+   "countedAdditions": 24878,
+   "countedDeletions": 5356,
+   "byRepo": {
+    "frontend": 49,
+    "zap_cooking_android": 0,
+    "zapcooking_ios": 0
+   }
+  },
+  {
+   "month": "2026-04",
+   "prs": 78,
+   "additions": 33170,
+   "deletions": 30272,
+   "countedAdditions": 31962,
+   "countedDeletions": 11760,
+   "byRepo": {
+    "frontend": 78,
+    "zap_cooking_android": 0,
+    "zapcooking_ios": 0
+   }
+  },
+  {
+   "month": "2026-05",
+   "prs": 32,
+   "additions": 18104,
+   "deletions": 9522,
+   "countedAdditions": 16967,
+   "countedDeletions": 8854,
+   "byRepo": {
+    "frontend": 32,
+    "zap_cooking_android": 0,
+    "zapcooking_ios": 0
+   }
+  },
+  {
+   "month": "2026-06",
+   "prs": 175,
+   "additions": 57982,
+   "deletions": 26939,
+   "countedAdditions": 57546,
+   "countedDeletions": 26441,
+   "byRepo": {
+    "frontend": 66,
+    "zap_cooking_android": 109,
+    "zapcooking_ios": 0
+   }
+  },
+  {
+   "month": "2026-07",
+   "prs": 199,
+   "additions": 77252,
+   "deletions": 10749,
+   "countedAdditions": 77184,
+   "countedDeletions": 10676,
+   "byRepo": {
+    "frontend": 111,
+    "zap_cooking_android": 88,
+    "zapcooking_ios": 0
+   }
+  },
+  {
+   "month": "2026-08",
+   "prs": 97,
+   "additions": 53536,
+   "deletions": 5380,
+   "countedAdditions": 52592,
+   "countedDeletions": 4161,
+   "byRepo": {
+    "frontend": 43,
+    "zap_cooking_android": 20,
+    "zapcooking_ios": 34
+   }
+  },
+  {
+   "month": "2026-09",
+   "prs": 173,
+   "additions": 225581,
+   "deletions": 17658,
+   "countedAdditions": 89625,
+   "countedDeletions": 17358,
+   "byRepo": {
+    "frontend": 88,
+    "zap_cooking_android": 18,
+    "zapcooking_ios": 67
+   }
+  }
+ ],
+ "contributors": [
+  {
+   "kind": "human",
+   "login": "spe1020",
+   "prs": 553,
+   "countedAdditions": 304600,
+   "countedDeletions": 62837
+  },
+  {
+   "kind": "human",
+   "login": "dmnyc",
+   "prs": 353,
+   "countedAdditions": 137143,
+   "countedDeletions": 52997
+  },
+  {
+   "kind": "human",
+   "login": "keith-gardner",
+   "prs": 3,
+   "countedAdditions": 103,
+   "countedDeletions": 150
+  },
+  {
+   "kind": "human",
+   "login": "kylemccullen",
+   "prs": 1,
+   "countedAdditions": 45,
+   "countedDeletions": 35
+  },
+  {
+   "kind": "human",
+   "login": "seangravener",
+   "prs": 1,
+   "countedAdditions": 167,
+   "countedDeletions": 19
+  },
+  {
+   "kind": "automation",
+   "login": "Automation",
+   "prs": 55,
+   "countedAdditions": 1294,
+   "countedDeletions": 735
+  }
+ ],
+ "streak": {
+  "current": 2,
+  "currentStart": "2026-09-24",
+  "longest": 26,
+  "longestStart": "2026-06-16",
+  "longestEnd": "2026-07-11"
+ },
+ "recent": [
+  {
+   "id": "PR_kwDOMyb6Fs8AAAABFNPWyw",
+   "repo": "frontend",
+   "number": 755,
+   "title": "fix(pow): finish backfills reliably; exclude the accidental plan doc",
+   "url": "https://github.com/zapcooking/frontend/pull/755",
+   "author": "spe1020",
+   "mergedAt": "2026-09-26T02:56:29Z",
+   "labels": [],
+   "additions": 672,
+   "deletions": 57,
+   "countedAdditions": 672,
+   "countedDeletions": 57
+  },
+  {
+   "id": "PR_kwDOMyb6Fs8AAAABFNBkkw",
+   "repo": "frontend",
+   "number": 754,
+   "title": "feat(pow): /pow data layer — org merged-PR stats at /api/pow",
+   "url": "https://github.com/zapcooking/frontend/pull/754",
+   "author": "spe1020",
+   "mergedAt": "2026-09-26T01:53:31Z",
+   "labels": [],
+   "additions": 3551,
+   "deletions": 4,
+   "countedAdditions": 3551,
+   "countedDeletions": 4
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABFKfN_Q",
+   "repo": "zap_cooking_android",
+   "number": 273,
+   "title": "release: Android 1.6.0",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/273",
+   "author": "spe1020",
+   "mergedAt": "2026-09-25T22:06:53Z",
+   "labels": [],
+   "additions": 18,
+   "deletions": 3,
+   "countedAdditions": 18,
+   "countedDeletions": 3
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABFHWN4g",
+   "repo": "zap_cooking_android",
+   "number": 271,
+   "title": "fix(compose): pending publish only clears its own draft and session",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/271",
+   "author": "spe1020",
+   "mergedAt": "2026-09-25T13:38:13Z",
+   "labels": [],
+   "additions": 402,
+   "deletions": 120,
+   "countedAdditions": 402,
+   "countedDeletions": 120
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABFHDo4w",
+   "repo": "zap_cooking_android",
+   "number": 270,
+   "title": "fix(compose): don't save/toast a draft while a publish is pending",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/270",
+   "author": "spe1020",
+   "mergedAt": "2026-09-25T13:10:42Z",
+   "labels": [],
+   "additions": 151,
+   "deletions": 7,
+   "countedAdditions": 151,
+   "countedDeletions": 7
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABFG-xsQ",
+   "repo": "zap_cooking_android",
+   "number": 269,
+   "title": "fix(compose): stop published posts reappearing as drafts (PR6)",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/269",
+   "author": "spe1020",
+   "mergedAt": "2026-09-25T12:19:53Z",
+   "labels": [],
+   "additions": 269,
+   "deletions": 17,
+   "countedAdditions": 269,
+   "countedDeletions": 17
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABE1XArw",
+   "repo": "zap_cooking_android",
+   "number": 268,
+   "title": "Composer attachment model: attachments are slots on the draft, not text in the editor",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/268",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T11:53:20Z",
+   "labels": [],
+   "additions": 1535,
+   "deletions": 212,
+   "countedAdditions": 1535,
+   "countedDeletions": 212
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABEgnHbQ",
+   "repo": "zap_cooking_android",
+   "number": 267,
+   "title": "feat(drawer): mini-wallet widget in sidebar",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/267",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T11:32:14Z",
+   "labels": [],
+   "additions": 254,
+   "deletions": 18,
+   "countedAdditions": 254,
+   "countedDeletions": 18
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABEXnP4g",
+   "repo": "zap_cooking_android",
+   "number": 266,
+   "title": "fix(wallet): alert within a few seconds when an NWC wallet is revoked or unresponsive",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/266",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T11:30:23Z",
+   "labels": [],
+   "additions": 301,
+   "deletions": 6,
+   "countedAdditions": 301,
+   "countedDeletions": 6
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABEXettw",
+   "repo": "zap_cooking_android",
+   "number": 265,
+   "title": "feat(thread): Zc mark in one quiet grey for the no-replies empty state",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/265",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T11:26:17Z",
+   "labels": [],
+   "additions": 207,
+   "deletions": 13,
+   "countedAdditions": 207,
+   "countedDeletions": 13
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABEWYjFw",
+   "repo": "zap_cooking_android",
+   "number": 264,
+   "title": "feat(a11y): image alt text via NIP-92 imeta",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/264",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T11:25:46Z",
+   "labels": [],
+   "additions": 1714,
+   "deletions": 153,
+   "countedAdditions": 1714,
+   "countedDeletions": 153
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABESEA-g",
+   "repo": "zap_cooking_android",
+   "number": 262,
+   "title": "feat(nav): match iOS — Search in the bottom bar, wallet in the drawer",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/262",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T11:25:17Z",
+   "labels": [],
+   "additions": 90,
+   "deletions": 122,
+   "countedAdditions": 90,
+   "countedDeletions": 122
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABER2uZQ",
+   "repo": "zap_cooking_android",
+   "number": 261,
+   "title": "fix(timers): stack multiple timers vertically instead of side by side",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/261",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T11:24:50Z",
+   "labels": [],
+   "additions": 70,
+   "deletions": 43,
+   "countedAdditions": 70,
+   "countedDeletions": 43
+  },
+  {
+   "id": "PR_kwDOSzGCNc8AAAABERycLA",
+   "repo": "zap_cooking_android",
+   "number": 260,
+   "title": "feat(settings): replace the theme picker with a light/dark appearance selector",
+   "url": "https://github.com/zapcooking/zap_cooking_android/pull/260",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T11:24:22Z",
+   "labels": [],
+   "additions": 443,
+   "deletions": 1014,
+   "countedAdditions": 443,
+   "countedDeletions": 1014
+  },
+  {
+   "id": "PR_kwDOTuGNq88AAAABFCRWgQ",
+   "repo": "zapcooking_ios",
+   "number": 149,
+   "title": "Revert \"Composer attachment model: slots, paste-attach offers, drag reorder, alt chips (#148)\"",
+   "url": "https://github.com/zapcooking/zapcooking_ios/pull/149",
+   "author": "spe1020",
+   "mergedAt": "2026-09-25T03:00:27Z",
+   "labels": [],
+   "additions": 295,
+   "deletions": 1802,
+   "countedAdditions": 295,
+   "countedDeletions": 1798
+  },
+  {
+   "id": "PR_kwDOTuGNq88AAAABE_Ekzg",
+   "repo": "zapcooking_ios",
+   "number": 148,
+   "title": "Composer attachment model: slots, paste-attach offers, drag reorder, alt chips",
+   "url": "https://github.com/zapcooking/zapcooking_ios/pull/148",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T01:14:40Z",
+   "labels": [],
+   "additions": 1802,
+   "deletions": 295,
+   "countedAdditions": 1798,
+   "countedDeletions": 295
+  },
+  {
+   "id": "PR_kwDOTuGNq88AAAABElOHwQ",
+   "repo": "zapcooking_ios",
+   "number": 145,
+   "title": "NIP-22: count and label comments as replies, the Sidecar way",
+   "url": "https://github.com/zapcooking/zapcooking_ios/pull/145",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T01:14:12Z",
+   "labels": [],
+   "additions": 819,
+   "deletions": 26,
+   "countedAdditions": 819,
+   "countedDeletions": 26
+  },
+  {
+   "id": "PR_kwDOMyb6Fs8AAAABE2XS4w",
+   "repo": "frontend",
+   "number": 752,
+   "title": "Composer attachment model: attachments are slots on the draft, not text in the editor",
+   "url": "https://github.com/zapcooking/frontend/pull/752",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T01:01:40Z",
+   "labels": [],
+   "additions": 1518,
+   "deletions": 273,
+   "countedAdditions": 1518,
+   "countedDeletions": 273
+  },
+  {
+   "id": "PR_kwDOMyb6Fs8AAAABEW405A",
+   "repo": "frontend",
+   "number": 749,
+   "title": "fix(a11y): preserve line breaks in imeta alt text, capped at one blank line",
+   "url": "https://github.com/zapcooking/frontend/pull/749",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T00:18:51Z",
+   "labels": [],
+   "additions": 233,
+   "deletions": 15,
+   "countedAdditions": 233,
+   "countedDeletions": 15
+  },
+  {
+   "id": "PR_kwDOMyb6Fs8AAAABEQSyCA",
+   "repo": "frontend",
+   "number": 743,
+   "title": "feat(post): mine NIP-13 proof of work into notes and replies",
+   "url": "https://github.com/zapcooking/frontend/pull/743",
+   "author": "dmnyc",
+   "mergedAt": "2026-09-25T00:18:30Z",
+   "labels": [],
+   "additions": 1348,
+   "deletions": 9,
+   "countedAdditions": 1348,
+   "countedDeletions": 9
+  }
+ ]
+}

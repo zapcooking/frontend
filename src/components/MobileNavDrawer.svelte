@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
-  import { goto, afterNavigate } from '$app/navigation';
+  import { slide } from 'svelte/transition';
+  import { afterNavigate } from '$app/navigation';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { mobileNavOpen } from '$lib/stores/mobileNav';
@@ -14,32 +15,30 @@
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
-  import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
-  import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
   import { totalUnreadCount } from '$lib/stores/messages';
-  import { walletConnected, openWallet, walletModalOpen } from '$lib/wallet';
-  import { weblnConnected } from '$lib/wallet/webln';
-  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
+  import { navBalanceVisible } from '$lib/wallet';
+  import { userPublickey } from '$lib/nostr';
+  import SidebarWallet from './SidebarWallet.svelte';
+  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
+  import BasketIcon from 'phosphor-svelte/lib/Basket';
+  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
+  import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
 
   $: pathname = $page.url.pathname;
-  $: hasWallet =
-    $walletConnected ||
-    $weblnConnected ||
-    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
   type NavItem = {
     href: string;
     label: string;
     icon: any;
     match: (path: string) => boolean;
-    badge?: 'messages' | 'wallet';
+    badge?: 'messages';
   };
 
   const homeItems: NavItem[] = [
-    { href: '/community', label: 'Feed', icon: FlameIcon, match: (p) => p === '/' || p.startsWith('/community') },
+    { href: '/feed', label: 'Feed', icon: FlameIcon, match: (p) => p === '/' || p.startsWith('/feed') },
     { href: '/recipes', label: 'Recipes', icon: ForkKnifeIcon, match: (p) => p.startsWith('/recipes') || p.startsWith('/recent') },
     { href: '/reads', label: 'Reads', icon: NewspaperIcon, match: (p) => p.startsWith('/reads') || p.startsWith('/r/') },
     { href: '/polls', label: 'Polls', icon: ChartBarHorizontalIcon, match: (p) => p.startsWith('/polls') },
@@ -49,21 +48,48 @@
   ];
 
   const kitchenItems: NavItem[] = [
-    { href: '/cookbook', label: 'Cookbook', icon: CookbookIcon, match: (p) => p.startsWith('/cookbook') },
-    { href: '/grocery', label: 'Grocery Lists', icon: ShoppingCartIcon, match: (p) => p.startsWith('/grocery') },
-    { href: '/wallet', label: 'Wallet', icon: WalletIcon, match: () => $walletModalOpen, badge: 'wallet' },
+    { href: '/my-kitchen', label: 'My Kitchen', icon: CookbookIcon, match: (p) => p.startsWith('/my-kitchen') },
     { href: '/nourish', label: 'Nourish', icon: LeafIcon, match: (p) => p.startsWith('/nourish') },
     { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
     { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
+    { href: '/pantry', label: 'The Pantry Relay', icon: BasketIcon, match: (p) => p.startsWith('/pantry') },
   ];
+
+  // My Kitchen collapses to save vertical space; defaults open when the
+  // user is on one of its pages. The component is NOT remounted when the
+  // {#if $mobileNavOpen} block reopens, so a one-time init would go
+  // stale: reactively expand on match (never auto-collapse on the way
+  // out, the user's open/closed choice survives browsing). ($page
+  // directly: the `pathname` reactive hasn't run at init time.)
+  let kitchenExpanded = kitchenItems.some((item) => item.match($page.url.pathname));
+
+  $: {
+    const onKitchenRoute = kitchenItems.some((item) => item.match($page.url.pathname));
+    if (onKitchenRoute && !kitchenExpanded) {
+      kitchenExpanded = true;
+    }
+  }
 
   function close() {
     mobileNavOpen.set(false);
   }
 
-  function navigate(path: string) {
-    close();
-    goto(path);
+  // Same row styling as the desktop sidebar (DesktopSideNav.linkClasses)
+  // so active/hover states match across both menus.
+  function linkClasses(active: boolean) {
+    return [
+      'group',
+      'w-full',
+      'flex',
+      'items-center',
+      'gap-3',
+      'px-3',
+      'py-1.5',
+      'rounded-xl',
+      'transition-colors',
+      'cursor-pointer',
+      active ? 'nav-active border-l-2 border-orange-500' : 'nav-hover'
+    ].join(' ');
   }
 
   afterNavigate(() => close());
@@ -122,52 +148,110 @@
 
       <!-- HOME -->
       <div>
-        <h3 class="px-3 pb-2 font-semibold uppercase tracking-wider" style="color: var(--color-caption); font-size: 11px;">Home</h3>
-        <ul class="flex flex-col gap-0.5">
+        <!-- Unlabeled group: spacer keeps the items at the position the
+             removed heading held. -->
+        <div class="h-[25px]" aria-hidden="true"></div>
+        <ul class="flex flex-col gap-1">
           {#each homeItems as item}
             {@const active = item.match(pathname)}
             <li>
-              <button
-                on:click={() => navigate(item.href)}
-                class="nav-row w-full {active ? 'nav-row-active' : ''}"
+              <a
+                href={item.href}
+                on:click={close}
+                class={linkClasses(active)}
                 style="color: var(--color-text-primary);"
+                aria-current={active ? 'page' : undefined}
               >
                 <span class="relative flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
                   <svelte:component this={item.icon} size={20} weight={item.badge === 'messages' && $totalUnreadCount > 0 ? 'fill' : 'regular'} />
                   {#if item.badge === 'messages' && $totalUnreadCount > 0}
-                    <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" aria-hidden="true"></span>
+                    <span
+                      class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
+                      style="border-color: var(--color-bg-secondary);"
+                      aria-hidden="true"
+                    ></span>
                   {/if}
                 </span>
                 <span class="font-medium">{item.label}</span>
-              </button>
+              </a>
             </li>
           {/each}
         </ul>
       </div>
 
+      <!-- Wallet lives in its own section (not a nav link): a balance
+           card, like the mobile app's wallet surface. Tapping it closes
+           the drawer and opens the wallet modal (the drawer stacks above
+           the modal, so it must close first). Sits ABOVE the My Kitchen
+           group and carries no heading — same placement as the desktop
+           sidebar. Hidden for logged-out users and when the wallet
+           widget is switched off in settings. -->
+      {#if $userPublickey && $navBalanceVisible}
+        <div class="mt-1">
+          <SidebarWallet onBeforeOpen={close} />
+        </div>
+      {/if}
+
       <!-- MY KITCHEN -->
-      <div>
-        <h3 class="px-3 pb-2 font-semibold uppercase tracking-wider" style="color: var(--color-caption); font-size: 11px;">My Kitchen</h3>
-        <ul class="flex flex-col gap-0.5">
+      <div class="mt-1">
+        <!-- Expandable group header (defaults closed — see kitchenExpanded) -->
+        <button
+          type="button"
+          class="w-full flex items-center justify-between px-3 pb-2 font-semibold uppercase tracking-wider cursor-pointer transition-colors hover:opacity-80"
+          style="color: var(--color-caption); font-size: 12px;"
+          on:click={() => (kitchenExpanded = !kitchenExpanded)}
+          aria-expanded={kitchenExpanded}
+          aria-controls="kitchen-nav-mobile"
+        >
+          My Kitchen
+          <CaretDownIcon
+            size={12}
+            weight="bold"
+            class="transition-transform duration-200 {kitchenExpanded ? 'rotate-180' : ''}"
+          />
+        </button>
+        {#if kitchenExpanded}
+        <ul id="kitchen-nav-mobile" class="flex flex-col gap-1" transition:slide={{ duration: 200 }}>
           {#each kitchenItems as item}
             {@const active = item.match(pathname)}
             <li>
-              <button
-                on:click={() => { if (item.badge === 'wallet') { close(); openWallet(); } else { navigate(item.href); } }}
-                class="nav-row w-full {active ? 'nav-row-active' : ''}"
+              <a
+                href={item.href}
+                on:click={close}
+                class={linkClasses(active)}
                 style="color: var(--color-text-primary);"
+                aria-current={active ? 'page' : undefined}
               >
-                <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
+                <span class="relative flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
                   <svelte:component this={item.icon} size={20} />
                 </span>
                 <span class="font-medium">{item.label}</span>
-                {#if item.badge === 'wallet' && !hasWallet}
-                  <span class="ml-auto text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">Connect</span>
-                {/if}
-              </button>
+              </a>
             </li>
           {/each}
+
+          <!-- Gadgets — a tool launcher, not a destination: one click
+               opens the cooking-tools widget (same as the header's
+               measuring cup). The drawer stacks above the widget, so it
+               closes first. -->
+          <li>
+            <button
+              type="button"
+              class={linkClasses(false)}
+              style="color: var(--color-text-primary);"
+              on:click={() => {
+                cookingToolsStore.toggle();
+                close();
+              }}
+            >
+              <span class="relative flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
+                <MeasuringCupIcon size={20} />
+              </span>
+              <span class="font-medium">Gadgets</span>
+            </button>
+          </li>
         </ul>
+        {/if}
       </div>
 
     </nav>
@@ -196,24 +280,5 @@
     flex-direction: column;
     background-color: var(--color-bg-secondary);
     box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
-  }
-
-  .nav-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.375rem 0.75rem;
-    border-radius: 0.75rem;
-    transition: background-color 0.15s;
-    cursor: pointer;
-    min-height: 44px;
-  }
-
-  .nav-row:hover {
-    background-color: var(--color-input-bg);
-  }
-
-  .nav-row-active {
-    border-left: 2px solid #f97316;
   }
 </style>

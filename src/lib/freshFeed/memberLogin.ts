@@ -1,0 +1,250 @@
+import { writable, type Readable } from 'svelte/store';
+import type { RelayLike } from './relay';
+
+/**
+ * Member login to the Fresh relay (NIP-42), lazily, at most once per
+ * connection.
+ *
+ * The relay sends its challenge when the connection opens; nostr-tools keeps
+ * it and (with no `onauth`) does nothing. This module signs it only when a
+ * signed-in *member* first needs depth: paging past the 14-day floor, or
+ * opening a topic feed. A reader who stays in the last two weeks never sees
+ * a signer prompt, and a non-member or a signed-out reader is never asked.
+ *
+ * A decline, or no answer in 30 s (Alby silently drops requests from origins
+ * it has rejected), is remembered in memory for the session: no automatic
+ * re-prompt, only the "Log in to the feed" button (`access(relay, true)`).
+ * If the relay then answers `restricted:`, that is the relay's verdict at
+ * that moment, not the app's: the relay checks membership through the same
+ * API and caches a failed check as "not a member" for a minute. So a denial
+ * is remembered for RELAY_DENIAL_TTL_MS and then automatic access may ask
+ * again; the app's own tri-state membership decides what the reader sees.
+ * An empty page is never read as a verdict.
+ *
+ * nostr-tools never settles a login whose signer throws and caches that
+ * promise for the connection; a failed attempt clears that cache (the relay
+ * keeps the challenge until the socket closes) so the next attempt can sign
+ * again on the same connection — closing it used to kill the live tail.
+ *
+ * Nothing is stored, and nothing goes anywhere but the AUTH event to
+ * wss://feed.zap.cooking. The relay uses the login only for the access check.
+ */
+
+export interface AuthTemplate {
+  kind: number;
+  created_at: number;
+  tags: string[][];
+  content: string;
+}
+
+export interface SignedAuthEvent extends AuthTemplate {
+  id: string;
+  pubkey: string;
+  sig: string;
+}
+
+export type SignAuth = (template: AuthTemplate) => Promise<SignedAuthEvent>;
+
+/** A connection that can answer the relay's challenge (nostr-tools `Relay`). */
+export interface AuthRelay extends RelayLike {
+  auth(sign: (template: AuthTemplate) => Promise<SignedAuthEvent>): Promise<string>;
+}
+
+export type LoginState =
+  | 'idle' // not logged in on this connection (nothing asked yet)
+  | 'pending' // waiting for the signer
+  | 'authed' // logged in on the current connection
+  | 'declined' // declined, timed out or failed: only the button logs in
+  | 'relay-denied'; // logged in, but the relay said restricted: (retryable after a while)
+
+/** How long a relay `restricted:` holds before automatic access may try again. */
+export const RELAY_DENIAL_TTL_MS = 60_000;
+
+export interface LoginDeps {
+  /** The signed-in key (hex), or '' / null when signed out. */
+  pubkey: () => string | null | undefined;
+  /** The app's membership answer for that key (`membershipStatusMap[pk]?.active`). */
+  isMember: () => boolean;
+  sign: SignAuth;
+  /** How long to wait for the signer (default 30 s). */
+  timeoutMs?: number;
+  /** Between checks for a challenge on a fresh connection (default 250 ms). */
+  challengeWaitMs?: number;
+  /**
+   * Does signing open a prompt (extension, Amber, bunker)? A local key (nsec
+   * in the app, passkey vault) signs silently, so the feed may log such a
+   * member in on load without asking. Default: assume it prompts.
+   */
+  signerPrompts?: () => boolean;
+  /** Clock (ms), for the denial TTL. */
+  now?: () => number;
+}
+
+export const LOGIN_TIMEOUT_MS = 30_000;
+
+/**
+ * A fresh connection (after a decline closed the last one) may not have
+ * received the relay's challenge yet when the "Log in to the feed" button
+ * asks; nostr-tools then throws "no challenge" before signing anything.
+ * Check again for about 3 s (inside the overall timeout) before giving up.
+ */
+export const CHALLENGE_CHECKS = 12;
+
+export class MemberLogin {
+  private readonly _state = writable<LoginState>('idle');
+  readonly state: Readable<LoginState> = { subscribe: this._state.subscribe };
+
+  private current: LoginState = 'idle';
+  private deniedAt = 0;
+  private authedOn: RelayLike | null = null;
+  private inflight: Promise<boolean> | null = null;
+  private owner: string | null = null;
+
+  constructor(private deps: LoginDeps) {}
+
+  /** True when the signer never opens a prompt (a local key): safe to log in unasked. */
+  get silent(): boolean {
+    return !(this.deps.signerPrompts?.() ?? true);
+  }
+
+  private clock(): number {
+    return this.deps.now?.() ?? Date.now();
+  }
+
+  /**
+   * Logged in on this connection? A relay denial (`restricted:`) holds this
+   * false for RELAY_DENIAL_TTL_MS; the login itself stays on the connection
+   * (NIP-42 is per socket; the relay's membership cache is what was stale),
+   * so once the hold ends the same login counts again, with no new prompt.
+   */
+  authed(relay: RelayLike | null): boolean {
+    this.syncOwner();
+    this.recover(relay);
+    return relay !== null && relay === this.authedOn && this.current === 'authed';
+  }
+
+  /** Held by a relay denial right now (logged in, but the relay said restricted:). */
+  get held(): boolean {
+    return this.current === 'relay-denied' && this.clock() - this.deniedAt < RELAY_DENIAL_TTL_MS;
+  }
+
+  /** When the current relay denial began (ms clock), 0 when not denied. */
+  get deniedSince(): number {
+    return this.current === 'relay-denied' ? this.deniedAt : 0;
+  }
+
+  /** Milliseconds until a relay denial's hold ends (0 when not held). */
+  holdLeftMs(): number {
+    if (this.current !== 'relay-denied') return 0;
+    return Math.max(0, RELAY_DENIAL_TTL_MS - (this.clock() - this.deniedAt));
+  }
+
+  /** The hold ended on the connection that is still logged in: authed again. */
+  private recover(relay: RelayLike | null): void {
+    if (this.current !== 'relay-denied' || this.held) return;
+    if (relay !== null && relay === this.authedOn && relay.connected !== false) this.set('authed');
+  }
+
+  /**
+   * Make sure this reader has member access on `relay`, logging in if
+   * needed. Automatic calls (`manual` false) never prompt after a decline or
+   * a "not a member" answer; the button (`manual` true) asks again once.
+   * Concurrent calls share one prompt.
+   */
+  async access(relay: AuthRelay | RelayLike, manual = false): Promise<boolean> {
+    this.syncOwner();
+    if (this.authed(relay)) return true;
+    if (!this.deps.pubkey() || !this.deps.isMember()) return false;
+    if (!manual && this.current === 'declined') return false;
+    if (!manual && this.current === 'relay-denied' && this.clock() - this.deniedAt < RELAY_DENIAL_TTL_MS) {
+      return false;
+    }
+    if (!('auth' in relay) || typeof relay.auth !== 'function') return false;
+    if (!this.inflight) {
+      this.inflight = this.login(relay as AuthRelay).finally(() => {
+        this.inflight = null;
+      });
+    }
+    return this.inflight;
+  }
+
+  /**
+   * The relay answered `restricted:` on this login. Hold for a while (the
+   * relay caches a failed or unresolved membership lookup as "not a member"
+   * for a minute), then the same login counts again and automatic access
+   * may ask again; the button may ask at once.
+   */
+  denied(): void {
+    // The connection keeps its login: only the relay's verdict is held.
+    this.deniedAt = this.clock();
+    this.set('relay-denied');
+  }
+
+  /** Signed out or switched accounts: forget everything. */
+  reset(): void {
+    this.authedOn = null;
+    this.owner = this.deps.pubkey() || null;
+    this.set('idle');
+  }
+
+  private syncOwner(): void {
+    const pk = this.deps.pubkey() || null;
+    if (pk !== this.owner) this.reset();
+  }
+
+  private async login(relay: AuthRelay): Promise<boolean> {
+    this.set('pending');
+    const timeoutMs = this.deps.timeoutMs ?? LOGIN_TIMEOUT_MS;
+    const waitMs = this.deps.challengeWaitMs ?? 250;
+    const outcome = await new Promise<'ok' | 'declined' | 'failed'>((resolve) => {
+      let settled = false;
+      const timer = setTimeout(() => done('declined'), timeoutMs);
+      function done(o: 'ok' | 'declined' | 'failed') {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(o);
+      }
+      const sign = async (template: AuthTemplate) => {
+        try {
+          return await this.deps.sign(template);
+        } catch (err) {
+          // nostr-tools swallows this and never settles: settle here.
+          done('declined');
+          throw err;
+        }
+      };
+      const attempt = (checksLeft: number) => {
+        if (settled) return;
+        relay.auth(sign).then(
+          () => done('ok'),
+          (err) => {
+            const noChallenge = /no challenge/i.test(String(err?.message ?? err));
+            if (noChallenge && checksLeft > 0) setTimeout(() => attempt(checksLeft - 1), waitMs);
+            else done('failed');
+          }
+        );
+      };
+      attempt(CHALLENGE_CHECKS);
+    });
+    // The account may have changed while the signer was open.
+    if (this.owner !== (this.deps.pubkey() || null)) return false;
+    if (outcome === 'ok') {
+      this.authedOn = relay;
+      this.set('authed');
+      return true;
+    }
+    // nostr-tools caches the auth promise per connection and never settles
+    // it when the signer throws, so a retry on this connection would hang.
+    // Clear that cache instead of closing the socket: closing took the live
+    // tail (and every other subscription) down with it.
+    if ('authPromise' in relay) relay.authPromise = undefined;
+    this.set('declined');
+    return false;
+  }
+
+  private set(s: LoginState): void {
+    this.current = s;
+    this._state.set(s);
+  }
+}

@@ -19,11 +19,11 @@ import {
 } from './types';
 import { COMMERCE_STATES, type CommerceState } from './commerceState';
 import { addClientTagToEvent } from '$lib/nip89';
+import { buildImetaTagWithAlt, imetaAltByUrl } from '$lib/feed/imeta';
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 
 // Relays that index marketplace events (matches Plebeian Market's relay set)
 export const MARKETPLACE_RELAYS = [
-	'wss://relay.damus.io',
 	'wss://nos.lol',
 	'wss://relay.nostr.net'
 ];
@@ -61,6 +61,32 @@ export function filterStaleListings(products: Product[]): { fresh: Product[]; st
 			fresh.push(p);
 		}
 	}
+	return { fresh, staleCount };
+}
+
+/**
+ * The listings the market shows from a set of events: active ones with a
+ * photo, the newest version of each (pubkey + d-tag, across relays and
+ * kinds), no older than MARKETPLACE_LISTING_MAX_AGE_DAYS, newest first; and
+ * how many were left out as stale.
+ */
+export function productsFromEvents(events: Iterable<NDKEvent>): {
+	fresh: Product[];
+	staleCount: number;
+} {
+	const seen = new Map<string, Product>();
+	for (const event of events) {
+		const product = parseProductEvent(event);
+		if (product && product.status === 'active' && product.images.length > 0) {
+			const key = `${product.pubkey}:${product.id}`;
+			const existing = seen.get(key);
+			if (!existing || product.createdAt > existing.createdAt) {
+				seen.set(key, product);
+			}
+		}
+	}
+	const { fresh, staleCount } = filterStaleListings([...seen.values()]);
+	fresh.sort((a, b) => b.publishedAt - a.publishedAt);
 	return { fresh, staleCount };
 }
 
@@ -107,6 +133,9 @@ export function parseProductEvent(event: NDKEvent): Product | null {
 
 		// Get all image tags
 		const images = event.tags.filter((t) => t[0] === 'image').map((t) => t[1]);
+		// NIP-92 imeta alt text keyed by image URL (only when present)
+		const altMap = imetaAltByUrl(event);
+		const imageAlts = altMap.size > 0 ? Object.fromEntries(altMap) : undefined;
 
 		// Category from 't' tag (normalizes legacy values like 'ingredients' → 'food')
 		const categoryTag = getTag('t');
@@ -144,6 +173,7 @@ export function parseProductEvent(event: NDKEvent): Product | null {
 			requiresShipping,
 			location,
 			commerceState,
+			imageAlts,
 			publishedAt: publishedAt || event.created_at || 0,
 			createdAt: event.created_at || 0,
 			event
@@ -185,6 +215,14 @@ export function createProductEvent(
 	for (const imageUrl of data.images) {
 		if (imageUrl) {
 			event.tags.push(['image', imageUrl]);
+		}
+	}
+
+	// NIP-92 imeta alt text per image (screen readers)
+	if (data.imageAlts) {
+		for (const imageUrl of data.images) {
+			const alt = data.imageAlts[imageUrl]?.trim();
+			if (imageUrl && alt) event.tags.push(buildImetaTagWithAlt(imageUrl, alt));
 		}
 	}
 
@@ -291,28 +329,7 @@ export async function fetchProducts(
 
 		const events = await Promise.race([fetchPromise, timeoutPromise]);
 
-		const products: Product[] = [];
-
-		// Deduplicate by d-tag + pubkey (parameterized replaceable events).
-		// Keep the newest event when the same product appears from multiple relays.
-		const seen = new Map<string, Product>();
-		for (const event of events) {
-			const product = parseProductEvent(event);
-			if (product && product.status === 'active' && product.images.length > 0) {
-				const key = `${product.pubkey}:${product.id}`;
-				const existing = seen.get(key);
-				if (!existing || product.createdAt > existing.createdAt) {
-					seen.set(key, product);
-				}
-			}
-		}
-		products.push(...seen.values());
-
-		// Filter out stale listings older than MARKETPLACE_LISTING_MAX_AGE_DAYS
-		const { fresh, staleCount } = filterStaleListings(products);
-
-		// Sort by published date, newest first
-		fresh.sort((a, b) => b.publishedAt - a.publishedAt);
+		const { fresh, staleCount } = productsFromEvents(events);
 
 		// Cache the result (including stale count for fetchProductsWithStaleCount)
 		productCache.set(cacheKey, { data: fresh, staleCount, timestamp: Date.now() });

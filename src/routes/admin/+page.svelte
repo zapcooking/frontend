@@ -27,6 +27,12 @@
   {:else}
     <ul class="links">
       <li>
+        <a href="/admin/deletion-requests">
+          <span class="title">Deletion requests</span>
+          <span class="desc">Account deletions due within 30 days; flags the ones that need a Stripe check.</span>
+        </a>
+      </li>
+      <li>
         <a href="/admin/promos">
           <span class="title">Cookbook promos</span>
           <span class="desc">Toggle promos on/off, create and disable codes.</span>
@@ -36,6 +42,12 @@
         <a href="/admin/nourish-flags">
           <span class="title">Nourish flags</span>
           <span class="desc">Review user flags + rescore stale recipes.</span>
+        </a>
+      </li>
+      <li>
+        <a href="/admin/reads-moderation">
+          <span class="title">Reads moderation</span>
+          <span class="desc">Block NSFW/spam articles, edit the keyword denylist, review reports.</span>
         </a>
       </li>
     </ul>

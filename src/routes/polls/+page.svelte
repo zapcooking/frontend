@@ -12,6 +12,7 @@
   import { formatDistanceToNow } from 'date-fns';
   import { nip19 } from 'nostr-tools';
   import { goto } from '$app/navigation';
+  import { eventPath } from '$lib/utils/eventUrl';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
 
   let polls: NDKEvent[] = [];
@@ -38,7 +39,6 @@
 
   const POLL_RELAYS = [
     'wss://nos.lol',
-    'wss://relay.damus.io',
     'wss://relay.primal.net',
     'wss://nostr.wine',
     'wss://antiprimal.net'
@@ -50,8 +50,7 @@
 
   function navigateToNote(event: NDKEvent) {
     try {
-      const noteId = nip19.noteEncode(event.id);
-      goto(`/${noteId}`);
+      goto(eventPath(event));
     } catch {}
   }
 
@@ -147,7 +146,7 @@
   <meta name="description" content="Vote on polls from across the Nostr network" />
 </svelte:head>
 
-<div class="max-w-2xl mx-auto px-4 py-6">
+<div class="max-w-2xl px-4 py-6">
   <header class="mb-4">
     <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Polls</h1>
     <p class="text-sm mt-1" style="color: var(--color-text-secondary);">

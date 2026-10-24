@@ -1,0 +1,164 @@
+[
+  {
+    "kind": 1111,
+    "id": "1c6dca1a78cfdc6fd5431ca3dc237ca1fc9d2921a700a33d49243c7f0e3532ce",
+    "pubkey": "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d",
+    "created_at": 1789633969,
+    "tags": [
+      [
+        "E",
+        "c12afb6147fe8fba76e9fb108a87ae9d3404112159a7cdbc195312d86cee293b",
+        "",
+        "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d"
+      ],
+      [
+        "K",
+        "1"
+      ],
+      [
+        "P",
+        "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d"
+      ],
+      [
+        "e",
+        "7e28a36a738ac3812b501f9cd55ba22891026794c0a6949ba8eb851286131d02",
+        "",
+        "512475da022b59737031fd15b142161e4e62e104d4652aeb2a0d83e6ac001fce"
+      ],
+      [
+        "k",
+        "1"
+      ],
+      [
+        "p",
+        "512475da022b59737031fd15b142161e4e62e104d4652aeb2a0d83e6ac001fce"
+      ],
+      [
+        "client",
+        "Sidecar"
+      ]
+    ],
+    "content": "Splendid. I’ll tell the orchestra to watch for your landing.",
+    "sig": "7492d618955871a6640d6d8f193a5ce6b7e90fa807b9b4471eaf789904ca0734ddec7c982fe8668f33d2cd88e0bb661742246e4aa2da60f04d9dbf394f4a92c1"
+  },
+  {
+    "kind": 1111,
+    "id": "48ffd3ec63746d097c0d0dae56570078864cd957f85e395915ebc4610f9543c6",
+    "pubkey": "512475da022b59737031fd15b142161e4e62e104d4652aeb2a0d83e6ac001fce",
+    "created_at": 1789634092,
+    "tags": [
+      [
+        "E",
+        "c12afb6147fe8fba76e9fb108a87ae9d3404112159a7cdbc195312d86cee293b",
+        "",
+        "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d"
+      ],
+      [
+        "K",
+        "1"
+      ],
+      [
+        "P",
+        "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d"
+      ],
+      [
+        "e",
+        "1c6dca1a78cfdc6fd5431ca3dc237ca1fc9d2921a700a33d49243c7f0e3532ce"
+      ],
+      [
+        "k",
+        "1111"
+      ],
+      [
+        "p",
+        "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d"
+      ],
+      [
+        "client",
+        "Sidecar"
+      ]
+    ],
+    "content": "Your invitation says ‘the sky’s the limit.’ I consider that a departure point.",
+    "sig": "b8b44d6647e9dd4bc2f0bde3295db724979f56388355f6fae057098b81b5dda7c56e4af3e5038d9f9474b19dd236b511f48705de850473026ac70b220c040743"
+  },
+  {
+    "kind": 1111,
+    "id": "993a9544aab7193c6bf88be58c1d1564084711c8b908d680902be26283b6e730",
+    "pubkey": "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d",
+    "created_at": 1789634112,
+    "tags": [
+      [
+        "E",
+        "c12afb6147fe8fba76e9fb108a87ae9d3404112159a7cdbc195312d86cee293b",
+        "",
+        "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d"
+      ],
+      [
+        "K",
+        "1"
+      ],
+      [
+        "P",
+        "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d"
+      ],
+      [
+        "e",
+        "48ffd3ec63746d097c0d0dae56570078864cd957f85e395915ebc4610f9543c6"
+      ],
+      [
+        "k",
+        "1111"
+      ],
+      [
+        "p",
+        "512475da022b59737031fd15b142161e4e62e104d4652aeb2a0d83e6ac001fce"
+      ],
+      [
+        "client",
+        "Sidecar"
+      ]
+    ],
+    "content": "Then I’ve been setting my sights rather low, haven’t I?",
+    "sig": "b5a8bb8c8840927d8090d48d628b7be6c321948038044fc1d2c24c414efc8af98ec7bf179dd21f2df363215302bcb8c6c02f6c53b0ef208c7c80de1e754b855a"
+  },
+  {
+    "kind": 1111,
+    "id": "49c6c115973af401720f9408636fb975d815ec40a7afd5cef0353aae1db05cbc",
+    "pubkey": "512475da022b59737031fd15b142161e4e62e104d4652aeb2a0d83e6ac001fce",
+    "created_at": 1789634137,
+    "tags": [
+      [
+        "E",
+        "c12afb6147fe8fba76e9fb108a87ae9d3404112159a7cdbc195312d86cee293b",
+        "",
+        "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d"
+      ],
+      [
+        "K",
+        "1"
+      ],
+      [
+        "P",
+        "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d"
+      ],
+      [
+        "e",
+        "993a9544aab7193c6bf88be58c1d1564084711c8b908d680902be26283b6e730"
+      ],
+      [
+        "k",
+        "1111"
+      ],
+      [
+        "p",
+        "095c1d8efbd4990bf97fd1b0f7917631126625dc9aba4965ba19abf0a393e57d"
+      ],
+      [
+        "client",
+        "Sidecar"
+      ]
+    ],
+    "content": "Only geographically. Your champagne budget has reached the stratosphere.",
+    "sig": "d7b86b5241fa23047ad5063f1f67d9964eaa273e842531523a90dad0546e004ca8c13b31a5feebf53329f1ad95231fc12e963b8a214e10abcfdd22c1443e7399"
+  }
+]

@@ -95,6 +95,7 @@
 - [ ] Copy note ID
 - [ ] Share note link
 - [ ] View author profile
+- [ ] Every note URL the app builds is `nevent1…` with relay hints (copy URI/link, share image QR, thread links, notifications, quoted-note embeds) — a bare `note1…` only appears as an encoding-failure fallback (`$lib/utils/eventUrl`)
 
 ### Feed Performance
 - [ ] Initial load < 2s

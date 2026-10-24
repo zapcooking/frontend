@@ -1,9 +1,39 @@
+/**
+ * At-rest storage for the Spark wallet mnemonic.
+ *
+ * V2 wraps the mnemonic in a NIP-44 encrypt-to-self envelope. Note the
+ * honest limitation: for plaintext-nsec sessions the wrapping key is the
+ * identity key sitting in `nostrcooking_privateKey` in the same
+ * localStorage, so an attacker who can read one key can read the other —
+ * the envelope is not a defense against local storage compromise there.
+ * It IS a real defense for NIP-07 and passkey-vault sessions, where the
+ * identity key never sits at rest, and it collapses to vault strength
+ * once a user enrolls a passkey.
+ *
+ * Deriving the envelope key from something else was considered and
+ * rejected: it would orphan every mnemonic already stored as V2.
+ *
+ * V1 (legacy) derived its key as `sha256(pubkey)` — the pubkey is public,
+ * so a V1 record is decryptable by anyone who can read localStorage. V1
+ * records must be migrated on sight, not merely on next wallet open.
+ */
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { hexToBytes } from '@noble/hashes/utils.js'
-import { encrypt, decrypt, detectEncryptionMethod } from '$lib/encryptionService'
+import {
+	encrypt,
+	decryptWithSource,
+	noteLegacyMigration,
+	detectEncryptionMethod,
+	getNostrBackupBlocker
+} from '$lib/encryptionService'
 
 const LOCAL_STORAGE_KEY_PREFIX = 'spark_wallet_'
+// Original legacy-encrypted V2 record kept after a NIP-46 migration (#897):
+// bunkers aren't yet verified to encrypt under the user's identity key
+// (#899), so the copy that is known to open stays until they are. Shares
+// the wallet prefix, so logout and clearAllSparkWallets remove it too.
+const LEGACY_STASH_PREFIX = `${LOCAL_STORAGE_KEY_PREFIX}legacy_`
 
 // ── V2 storage format ────────────────────────────────────────
 
@@ -44,6 +74,12 @@ function decryptV1(pubkey: string, storedDataHex: string): string | null {
  * @param mnemonic The mnemonic string to encrypt and save.
  */
 export async function saveMnemonic(pubkey: string, mnemonic: string): Promise<void> {
+	await writeMnemonicRecord(pubkey, mnemonic)
+	// A new record supersedes any stashed legacy copy (it may be another wallet).
+	localStorage.removeItem(`${LEGACY_STASH_PREFIX}${pubkey}`)
+}
+
+async function writeMnemonicRecord(pubkey: string, mnemonic: string): Promise<void> {
 	const { ciphertext } = await encrypt(pubkey, mnemonic)
 	const stored: StoredMnemonicV2 = { version: 2, ciphertext }
 	localStorage.setItem(`${LOCAL_STORAGE_KEY_PREFIX}${pubkey}`, JSON.stringify(stored))
@@ -56,6 +92,15 @@ export async function saveMnemonic(pubkey: string, mnemonic: string): Promise<vo
  * @param pubkey The user's Nostr public key (hex string).
  * @returns The decrypted mnemonic string, or null if not found or decryption fails.
  */
+/** Is a Breez wallet seed stored on this site for this account? (No decryption.) */
+export function hasStoredMnemonic(pubkey: string): boolean {
+	try {
+		return typeof localStorage !== 'undefined' && !!localStorage.getItem(`${LOCAL_STORAGE_KEY_PREFIX}${pubkey}`)
+	} catch {
+		return false
+	}
+}
+
 export async function loadMnemonic(pubkey: string): Promise<string | null> {
 	const raw = localStorage.getItem(`${LOCAL_STORAGE_KEY_PREFIX}${pubkey}`)
 	if (!raw) return null
@@ -65,7 +110,41 @@ export async function loadMnemonic(pubkey: string): Promise<string | null> {
 		const parsed = JSON.parse(raw) as StoredMnemonicV2
 		if (parsed.version === 2 && parsed.ciphertext) {
 			const method = detectEncryptionMethod(parsed.ciphertext)
-			return await decrypt(pubkey, parsed.ciphertext, method)
+			const stashKey = `${LEGACY_STASH_PREFIX}${pubkey}`
+			const stash = localStorage.getItem(stashKey)
+			if (stash) {
+				// Record was re-saved through a NIP-46 bunker: session path only,
+				// then the stashed legacy copy (which gets the extension prompt).
+				try {
+					return (await decryptWithSource(pubkey, parsed.ciphertext, method, { legacy: 'off' }))
+						.plaintext
+				} catch {
+					const stashed = JSON.parse(stash) as StoredMnemonicV2
+					return (
+						await decryptWithSource(
+							pubkey,
+							stashed.ciphertext,
+							detectEncryptionMethod(stashed.ciphertext),
+							{ legacy: 'prompt' }
+						)
+					).plaintext
+				}
+			}
+			const { plaintext, source } = await decryptWithSource(pubkey, parsed.ciphertext, method, {
+				legacy: 'prompt'
+			})
+			// Encrypted under a legacy key (#897): re-save under the session key.
+			// Shape-checked first so a garbage decrypt is never persisted.
+			if (source !== 'session' && /^[a-z]+( [a-z]+){11,23}$/.test(plaintext.trim())) {
+				if (getNostrBackupBlocker() === 'nip46') localStorage.setItem(stashKey, raw)
+				try {
+					await writeMnemonicRecord(pubkey, plaintext)
+					noteLegacyMigration('saved Spark wallet', source)
+				} catch {
+					// Signer unavailable — stays legacy-encrypted until next load
+				}
+			}
+			return plaintext
 		}
 	} catch {
 		// JSON parse failed — this is a V1 legacy hex string
@@ -103,11 +182,61 @@ export function hasMnemonic(pubkey: string): boolean {
 }
 
 /**
+ * Is this pubkey's stored mnemonic still in the legacy V1 format?
+ *
+ * Cheap and synchronous (no decryption, no signer) so it can gate the
+ * login-time sweep without cost for the common V2 case.
+ * @param pubkey The user's Nostr public key (hex string).
+ */
+export function hasLegacyMnemonic(pubkey: string): boolean {
+	const raw = localStorage.getItem(`${LOCAL_STORAGE_KEY_PREFIX}${pubkey}`)
+	if (!raw) return false
+	try {
+		const parsed = JSON.parse(raw) as StoredMnemonicV2
+		return !(parsed?.version === 2 && !!parsed.ciphertext)
+	} catch {
+		// Not JSON — a V1 legacy hex string.
+		return true
+	}
+}
+
+/**
+ * Upgrade a V1 record to V2 without opening the wallet.
+ *
+ * `loadMnemonic` already migrates on read, but it only runs when the user
+ * actually opens the Spark wallet — so a V1 record could sit decryptable-
+ * by-anyone indefinitely. This is the proactive sweep, called once per
+ * pubkey at login.
+ *
+ * V1 data is left untouched unless the V2 write succeeds, so a failure
+ * here can never lose the mnemonic; the next attempt simply retries.
+ *
+ * @param pubkey The user's Nostr public key (hex string).
+ * @returns True if a record was migrated, false if there was nothing to do.
+ */
+export async function migrateLegacyMnemonic(pubkey: string): Promise<boolean> {
+	const raw = localStorage.getItem(`${LOCAL_STORAGE_KEY_PREFIX}${pubkey}`)
+	if (!raw || !hasLegacyMnemonic(pubkey)) return false
+
+	const mnemonic = decryptV1(pubkey, raw)
+	if (!mnemonic) {
+		console.error('[Wallet Storage] Could not decrypt V1 mnemonic for migration')
+		return false
+	}
+
+	// saveMnemonic overwrites the key only after encrypt() resolves, so a
+	// signer denial throws here and leaves the V1 record in place.
+	await saveMnemonic(pubkey, mnemonic)
+	return true
+}
+
+/**
  * Deletes a mnemonic from local storage for a given public key.
  * @param pubkey The user's Nostr public key (hex string).
  */
 export function deleteMnemonic(pubkey: string): void {
 	localStorage.removeItem(`${LOCAL_STORAGE_KEY_PREFIX}${pubkey}`)
+	localStorage.removeItem(`${LEGACY_STASH_PREFIX}${pubkey}`)
 }
 
 /**

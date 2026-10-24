@@ -15,6 +15,7 @@
    *  Tabs: Recipes (a-tag targets) vs Scans (scan-hash targets). Each
    *  row expands to show sample reasons + per-source breakdown.
    */
+  import { parseCoordinate } from '$lib/coordinate';
   import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { isAdmin } from '$lib/adminAuth';
@@ -72,10 +73,17 @@
   $: authed = isAdmin($userPublickey);
 
   async function loadAnon() {
-    if (!$userPublickey) return;
-    const res = await fetch('/api/admin/nourish-flags', {
-      headers: { 'x-admin-pubkey': $userPublickey }
-    });
+    if (!$ndk || !$userPublickey) return;
+    const url = new URL('/api/admin/nourish-flags', window.location.origin).toString();
+    let authorization: string;
+    try {
+      authorization = await signNip98AuthHeader($ndk, { method: 'GET', url });
+    } catch (err) {
+      throw new Error(
+        err instanceof Error ? err.message : 'Could not sign admin auth'
+      );
+    }
+    const res = await fetch(url, { headers: { Authorization: authorization } });
     if (!res.ok) {
       throw new Error(`anon flag fetch failed: ${res.status}`);
     }
@@ -363,13 +371,10 @@
    */
   function parseRecipeTarget(target: string): { recipePubkey: string; recipeDTag: string } | null {
     if (!target.startsWith('a:')) return null;
-    const parts = target.slice(2).split(':');
-    if (parts.length < 3) return null;
     // a-tag = kind:pubkey:dTag. We ignore kind (always 30023 here).
-    const [, recipePubkey, ...rest] = parts;
-    const recipeDTag = rest.join(':');
-    if (!recipePubkey || !recipeDTag) return null;
-    return { recipePubkey, recipeDTag };
+    const c = parseCoordinate(target.slice(2));
+    if (!c?.identifier) return null;
+    return { recipePubkey: c.pubkey, recipeDTag: c.identifier };
   }
 
   /**

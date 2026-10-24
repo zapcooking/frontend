@@ -6,7 +6,7 @@
 import { nip19 } from 'nostr-tools';
 import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
-import { searchProfiles } from '$lib/profileSearchService';
+import { searchProfiles, type SearchProfile } from '$lib/profileSearchService';
 import { sanitizeHTML } from '$lib/sanitize';
 import {
 	loadFollowListProfiles,
@@ -50,7 +50,22 @@ type TextChangeCallback = (text: string) => void;
 
 // Regex to detect @mention trigger before cursor.
 // Uses [^@] instead of [^\s@] to allow spaces in names (PR #143 fix #1).
-const MENTION_TRIGGER_REGEX = /@([^@]*)$/;
+// The @ must sit at a word boundary: typing an email or Lightning address
+// (daniel@breez.tips) must not open the mention popup just because the
+// domain names a cached profile. Character-class boundary rather than
+// lookbehind — embedded WebViews ship without lookbehind support.
+export const MENTION_TRIGGER_REGEX = /(?:^|[^\p{L}\p{N}_])@([^@]*)$/u;
+
+/**
+ * How many characters before the caret a picked mention replaces: the @ and
+ * the query only. The trigger's match also holds the boundary character in
+ * front of the @ (`(`, `.`, an emoji), which must stay. Null when no
+ * mention is being typed.
+ */
+export function mentionReplaceLength(textBeforeCursor: string): number | null {
+	const m = textBeforeCursor.match(MENTION_TRIGGER_REGEX);
+	return m ? m[1].length + 1 : null;
+}
 
 // Zero-width space (U+200B). Inserted around mention pills as caret-landing
 // spacers so the selection has somewhere to sit on either side of the
@@ -92,6 +107,11 @@ export class MentionComposerController {
 	private searchTimeout: ReturnType<typeof setTimeout> | null = null;
 	private onStateChange: StateChangeCallback;
 	private onTextChange: TextChangeCallback;
+
+	// Monotonic id for the search in flight. Each keystroke bumps it; an
+	// async source resolving for a stale query drops its result instead
+	// of painting over the newer one.
+	private searchSeq = 0;
 
 	// Internal state
 	mentionQuery = '';
@@ -341,14 +361,17 @@ export class MentionComposerController {
 		// re-pill. Read the text/html flavor instead and run it through
 		// htmlToPlainText, which serializes data-mention pills back to their
 		// `nostr:npub…` form so they get re-pilled by the handleInput() pass
-		// below. We parse the HTML in a detached element and only ever read
-		// text/dataset out of it — its nodes never touch the live DOM.
+		// below. Parsed with DOMParser rather than assigning innerHTML on a
+		// detached div: innerHTML on a real document element still fetches
+		// resources and fires handlers on some elements (<img onerror>,
+		// <iframe>), even when the node is never inserted. DOMParser builds
+		// an inert document — nothing loads, nothing executes — and we only
+		// read text/dataset out of it.
 		const html = event.clipboardData?.getData('text/html');
 		let plainText: string | undefined;
 		if (html && html.includes('data-mention')) {
-			const tmp = document.createElement('div');
-			tmp.innerHTML = html;
-			plainText = htmlToPlainText(tmp);
+			const parsed = new DOMParser().parseFromString(html, 'text/html');
+			plainText = htmlToPlainText(parsed.body);
 		} else {
 			plainText = event.clipboardData?.getData('text/plain');
 		}
@@ -394,11 +417,10 @@ export class MentionComposerController {
 
 		const selection = window.getSelection();
 		if (!selection || selection.rangeCount === 0) return;
-		const textBeforeCursor = getTextBeforeCursor(this.composerEl);
-		const mentionMatch = textBeforeCursor.match(MENTION_TRIGGER_REGEX);
+		const replace = mentionReplaceLength(getTextBeforeCursor(this.composerEl));
 
-		if (mentionMatch?.[0]) {
-			deleteCharsBeforeCursor(mentionMatch[0].length);
+		if (replace !== null) {
+			deleteCharsBeforeCursor(replace);
 		}
 
 		// PR #143 fix #2: insert leading space if preceded by non-whitespace
@@ -467,10 +489,34 @@ export class MentionComposerController {
 		// Trigger follow list load (non-blocking)
 		loadFollowListProfiles();
 
+		const seq = ++this.searchSeq;
 		const queryLower = query.toLowerCase();
 		const matches: MentionSuggestion[] = [];
 		const seenPubkeys = new Set<string>();
 		const cache = getProfileCache();
+
+		// Sort + paint the current match set — called after the local cache
+		// AND after each index resolves, so a fast answer (Nostr Archives
+		// typically ~200ms) paints without waiting for the slowest index.
+		// The seq guard drops paints from a query that has since been
+		// superseded by a newer keystroke.
+		const paint = () => {
+			if (seq !== this.searchSeq) return;
+			const tier = (p: MentionSuggestion): number => {
+				const name = p.name.toLowerCase();
+				if (name === queryLower) return 0;
+				if (name.startsWith(queryLower)) return 1;
+				const local = p.nip05?.split('@')[0]?.toLowerCase();
+				if (local === queryLower) return 2;
+				if (local?.startsWith(queryLower)) return 3;
+				return 4;
+			};
+			matches.sort((a, b) => tier(a) - tier(b) || a.name.localeCompare(b.name));
+			this.mentionSuggestions = matches.slice(0, 10);
+			this.selectedMentionIndex = Math.min(this.selectedMentionIndex, this.mentionSuggestions.length - 1);
+			if (this.selectedMentionIndex < 0) this.selectedMentionIndex = 0;
+			this.notifyStateChange();
+		};
 
 		// Search local cache — by name AND NIP-05
 		for (const profile of cache.values()) {
@@ -485,9 +531,7 @@ export class MentionComposerController {
 
 		// Show local matches immediately
 		if (matches.length > 0) {
-			this.mentionSuggestions = matches.slice(0, 10);
-			this.selectedMentionIndex = 0;
-			this.notifyStateChange();
+			paint();
 		}
 
 		const shouldSearchPrimal = query.length >= 2;
@@ -497,78 +541,95 @@ export class MentionComposerController {
 		if (shouldSearchPrimal || shouldSearchNdk) {
 			this.mentionSearching = true;
 			this.notifyStateChange();
-			try {
-				if (shouldSearchPrimal) {
-					const primalResults = await searchProfiles(query, 25);
-					for (const profile of primalResults) {
-						if (seenPubkeys.has(profile.pubkey)) continue;
 
-						const name =
-							profile.displayName || profile.name || profile.nip05?.split('@')[0] || 'Unknown';
-						const profileData: MentionSuggestion = {
-							name,
-							npub: profile.npub || nip19.npubEncode(profile.pubkey),
-							picture: profile.picture,
-							pubkey: profile.pubkey,
-							nip05: profile.nip05
-						};
-						matches.push(profileData);
-						seenPubkeys.add(profile.pubkey);
-						addToCache(profileData);
-					}
+			const merge = (pubkey: string, data: Omit<MentionSuggestion, 'pubkey' | 'npub'>) => {
+				if (seenPubkeys.has(pubkey)) return;
+				seenPubkeys.add(pubkey);
+				const profileData: MentionSuggestion = {
+					...data,
+					pubkey,
+					npub: nip19.npubEncode(pubkey)
+				};
+				matches.push(profileData);
+				addToCache(profileData);
+			};
+
+			try {
+				// THREE INDEPENDENT INDEXES, RUN IN PARALLEL AND ISOLATED.
+				// These used to await one another inside one try block: a
+				// hanging NDK relay search (fetchEvents has no timeout of
+				// its own) held the Nostr Archives merge hostage, and a
+				// Primal throw skipped it entirely — the dropdown showed
+				// only local cache matches while the right user sat in an
+				// index that had already answered. Whatever resolves,
+				// merges AND PAINTS IMMEDIATELY — the final list never
+				// waits on the slowest index.
+				const tasks: Promise<void>[] = [];
+
+				if (shouldSearchPrimal) {
+					// Both global name indexes (Primal + Nostr Archives) come
+					// through searchProfiles, which queries each once and
+					// reports each answer as it lands.
+					const mergeProfiles = (profiles: SearchProfile[]) => {
+						for (const profile of profiles) {
+							merge(profile.pubkey, {
+								name:
+									profile.displayName ||
+									profile.name ||
+									profile.nip05?.split('@')[0] ||
+									'Unknown',
+								picture: profile.picture,
+								nip05: profile.nip05
+							});
+						}
+						paint();
+					};
+					tasks.push(
+						searchProfiles(query, 25, { onPartial: mergeProfiles })
+							.then(mergeProfiles)
+							.catch(() => {})
+					);
 				}
 
 				if (shouldSearchNdk && ndkInstance) {
-					const searchResults = await ndkInstance.fetchEvents({
-						kinds: [0],
-						search: query,
-						limit: 50
-					});
-
-					for (const event of searchResults) {
-						if (seenPubkeys.has(event.pubkey)) continue;
-
-						try {
-							const profile = JSON.parse(event.content);
-							const name = profile.display_name || profile.name || '';
-							const nip05 = profile.nip05;
-
-							const profileData: MentionSuggestion = {
-								name: name || nip05?.split('@')[0] || profile.name || 'Unknown',
-								npub: nip19.npubEncode(event.pubkey),
-								picture: profile.picture,
-								pubkey: event.pubkey,
-								nip05
-							};
-							matches.push(profileData);
-							seenPubkeys.add(event.pubkey);
-							addToCache(profileData);
-						} catch {}
-					}
+					// Bounded: a relay that never sends EOSE must not hold
+					// the whole search open.
+					tasks.push(
+						Promise.race([
+							ndkInstance.fetchEvents({
+								kinds: [0],
+								search: query,
+								limit: 50
+							}),
+							new Promise<Set<never>>((resolve) => setTimeout(() => resolve(new Set()), 3000))
+						])
+							.then((searchResults) => {
+								for (const event of searchResults) {
+									try {
+										const profile = JSON.parse(event.content);
+										const name = profile.display_name || profile.name || '';
+										const nip05 = profile.nip05;
+										merge(event.pubkey, {
+											name: name || nip05?.split('@')[0] || profile.name || 'Unknown',
+											picture: profile.picture,
+											nip05
+										});
+									} catch {}
+								}
+								paint();
+							})
+							.catch(() => {})
+					);
 				}
-			} catch (e) {
-				console.debug('Network search failed:', e);
+
+				await Promise.allSettled(tasks);
 			} finally {
-				this.mentionSearching = false;
+				if (seq === this.searchSeq) this.mentionSearching = false;
 			}
 		}
 
-		// Sort: prioritize exact matches
-		matches.sort((a, b) => {
-			const aExact =
-				a.name.toLowerCase().startsWith(queryLower) ||
-				a.nip05?.toLowerCase().startsWith(queryLower);
-			const bExact =
-				b.name.toLowerCase().startsWith(queryLower) ||
-				b.nip05?.toLowerCase().startsWith(queryLower);
-			if (aExact && !bExact) return -1;
-			if (!aExact && bExact) return 1;
-			return a.name.localeCompare(b.name);
-		});
-
-		this.mentionSuggestions = matches.slice(0, 10);
-		this.selectedMentionIndex = 0;
-		this.notifyStateChange();
+		// Final paint for the run that is still current.
+		paint();
 	}
 
 	private insertMentionNode(

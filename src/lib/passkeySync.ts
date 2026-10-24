@@ -37,16 +37,18 @@ import {
 import { getPublicKey } from 'nostr-tools';
 
 /**
- * Soft-launch gate (R3): while false, no sync UI renders and no sync
- * network calls are made anywhere — Phase 2 ships dark. Flip deliberately.
+ * LAUNCHED (July 2026): cross-device vault sync is live. The CI flag-guard
+ * (.github/workflows/checks.yaml) now pins this to true — an un-flip would
+ * silently dark-ship sign-in on other devices; roll back only via a
+ * deliberate PR that updates the guard in the same change (R3 ruling).
  */
 export const PASSKEY_SYNC_ENABLED = true;
 
 /**
- * Phase 3 gate: passkey enrollment offered inside account creation
- * ("Secure your account" step). Launch-coupled with PASSKEY_SYNC_ENABLED —
- * the launch PR flips BOTH together and updates the CI flag-guard in the
- * same change (R3 ruling). Guarded on main by .github/workflows/checks.yaml.
+ * LAUNCHED (July 2026) together with PASSKEY_SYNC_ENABLED (R3: both flip in
+ * one PR with the guard). Gates the signup "Secure your account" step.
+ * PASSKEY_ENROLL_PROMPT_ENABLED (migration prompt, +layout.svelte) is a
+ * later wave and stays off.
  */
 export const PASSKEY_SIGNUP_ENABLED = true;
 
@@ -66,6 +68,24 @@ export function isSyncEnabled(): boolean {
 
 export function setSyncEnabled(on: boolean): void {
   if (browser) localStorage.setItem(SYNC_ENABLED_KEY, on ? '1' : '0');
+}
+
+/**
+ * When this device last renewed the server copy's expiry (an accepted
+ * refresh or upload). Unlocks renew it at most once a day: plenty for a
+ * 370-day TTL, and the other unlocks need no network at all.
+ */
+export const SYNC_REFRESHED_AT_KEY = 'nostrcooking_vault_sync_refreshed_at';
+export const SYNC_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+export function isRefreshDue(now = Date.now()): boolean {
+  if (!browser) return false;
+  const last = Number(localStorage.getItem(SYNC_REFRESHED_AT_KEY));
+  return !Number.isFinite(last) || last <= 0 || now - last >= SYNC_REFRESH_INTERVAL_MS;
+}
+
+function markRefreshed(now = Date.now()): void {
+  if (browser) localStorage.setItem(SYNC_REFRESHED_AT_KEY, String(now));
 }
 
 export function isUploadPending(): boolean {
@@ -96,9 +116,22 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     .join('');
 }
 
-/** Fetch a server challenge. Throws on any failure. */
+/**
+ * Deadlines for the vault-sync requests. The challenge is awaited BEFORE a
+ * passkey prompt (unlock, signup) and the signup upload is awaited before
+ * the step can finish, so neither may hang: past the deadline they count
+ * as failed — an unlock then goes ahead locally, a signup asks for the
+ * backup key, and the upload stays pending for the next unlock.
+ */
+export const CHALLENGE_TIMEOUT_MS = 5_000;
+export const UPLOAD_TIMEOUT_MS = 10_000;
+
+/** Fetch a server challenge. Throws on any failure, including the deadline. */
 export async function fetchChallenge(): Promise<string> {
-  const res = await fetch('/api/vault-sync/challenge', { method: 'POST' });
+  const res = await fetch('/api/vault-sync/challenge', {
+    method: 'POST',
+    signal: AbortSignal.timeout(CHALLENGE_TIMEOUT_MS)
+  });
   if (!res.ok) throw new PasskeySyncError(`challenge fetch failed (${res.status})`);
   const body = await res.json();
   if (typeof body?.challenge !== 'string') throw new PasskeySyncError('bad challenge response');
@@ -118,16 +151,30 @@ export async function fetchChallengeSafe(): Promise<string | null> {
  * Upload the vault record. The assertion must be over a server challenge
  * from the SAME ceremony budget (enrollment verify-get or an unlock).
  * Returns true on success; false marks the upload pending for retry.
+ *
+ * The SPKI submitted MUST belong to the ASSERTING credential: the server
+ * keys the blob by sha256(assertion.credentialId) and TOFU-verifies the
+ * assertion against the submitted key, so any other entry's SPKI fails
+ * verification (uniform 404). Identical to the old first-syncable-entry
+ * behavior for single-key records; correct once keys[] grows a second
+ * entry (multi-passkey fast-follow).
  */
 export async function uploadVault(
   record: VaultRecord,
   assertion: AssertionWire
 ): Promise<boolean> {
-  const entry = syncableKeyEntry(record);
+  const entry =
+    record.keys.find(
+      (k) =>
+        k.credentialId === assertion.credentialId &&
+        typeof k.spki === 'string' &&
+        (k.alg === -7 || k.alg === -257)
+    ) ?? null;
   if (!entry) return false;
   try {
     const res = await fetch('/api/vault-sync', {
       method: 'PUT',
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         blob: JSON.stringify(record),
@@ -141,9 +188,43 @@ export async function uploadVault(
       return false;
     }
     setUploadPending(false);
+    markRefreshed();
     return true;
   } catch {
     setUploadPending(true);
+    return false;
+  }
+}
+
+/**
+ * Keep the synced copy alive. An unlock with sync on spends its ceremony's
+ * assertion here (at most once a day per device — isRefreshDue), so the
+ * entry's 370-day expiry runs from the last time the passkey was used on
+ * ANY device, the same-device unlock included. A verified assertion-gated fetch rewrites the entry with a
+ * fresh TTL (KV has no touch primitive). If the entry is gone (expired, or
+ * never landed) the server answers 404 without redeeming the challenge — an
+ * absent entry has no key to verify against — so the same assertion
+ * re-uploads it. Never throws; false means nothing was refreshed this time.
+ */
+export async function refreshVaultEntry(
+  record: VaultRecord,
+  assertion: AssertionWire
+): Promise<boolean> {
+  try {
+    const hash = await sha256Hex(b64urlToBytes(assertion.credentialId));
+    const res = await fetch(`/api/vault-sync/${hash}`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ assertion })
+    });
+    if (res.ok) {
+      markRefreshed();
+      return true;
+    }
+    if (res.status === 404) return uploadVault(record, assertion);
+    return false;
+  } catch {
     return false;
   }
 }
@@ -278,6 +359,8 @@ export async function signInWithPasskey(): Promise<SyncSignInResult> {
     if (getPublicKey(hexToBytes(privkeyHex)) !== record.pubkey) {
       throw new Error('decrypted key does not match record pubkey');
     }
+    // The assertion-gated fetch above just renewed the server copy's expiry.
+    markRefreshed();
     return { privkeyHex, record };
   } catch (e) {
     throw new SyncSignInError(
@@ -299,6 +382,26 @@ export function shouldOfferSignupEnrollment(ctx: {
   support: 'full' | 'no-prf' | 'none';
 }): boolean {
   return ctx.flagEnabled && ctx.support === 'full';
+}
+
+/**
+ * Predicate for the "you can also use your phone" pointer under the signup
+ * secure-step button (unit-tested). Strict AND of:
+ * - hybridTransport: detectHybridTransport() — the create sheet will
+ *   actually offer a cross-device option;
+ * - isChromium: Safari is excluded deliberately — its "Other Options" path
+ *   targets iPhones that iCloud Keychain already serves locally, and
+ *   Safari-as-client hybrid PRF is the broken cell of the support matrix
+ *   (manual-tests P2-6c);
+ * - isDesktop: on phones the platform authenticator IS the phone — the
+ *   pointer is noise.
+ */
+export function shouldShowHybridPointer(ctx: {
+  hybridTransport: boolean;
+  isChromium: boolean;
+  isDesktop: boolean;
+}): boolean {
+  return ctx.hybridTransport && ctx.isChromium && ctx.isDesktop;
 }
 
 /** Predicate for the LoginOverlay button (unit-tested). */

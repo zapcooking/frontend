@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { NDKEvent } from '@nostr-dev-kit/ndk';
-	import { ndk, userPublickey } from '$lib/nostr';
+	import { ndk } from '$lib/nostr';
 	import Modal from '../Modal.svelte';
 	import Button from '../Button.svelte';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
@@ -14,9 +14,11 @@
 	import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
 	import { ingredientStore } from '$lib/nourish/ingredientStore';
 	import { computeContentHash, queryNourishEvent } from '$lib/nourish/nourishRelay';
+	import { nourishRequestHeaders } from '$lib/nourish/nourishAuth';
 	import { resolveScore, purgeMemory, type ResolveResult } from '$lib/nourish/scoreResolver';
-	import type { NourishScores } from '$lib/nourish/types';
+	import type { NourishScores, NourishMacros } from '$lib/nourish/types';
 	import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
+	import { parseMacrosBlock } from '$lib/nourish/macrosDisplay';
 	import type { FlagTarget } from '$lib/nourish/flagSubmit';
 	import { onMount, onDestroy } from 'svelte';
 	import NourishResult from './NourishResult.svelte';
@@ -40,6 +42,8 @@
 		: null;
 
 	let scores: NourishScores | null = null;
+	/** v4 macros — undefined on v3 / degraded; NourishResult omits the row. */
+	let macros: NourishMacros | undefined = undefined;
 	let improvements: string[] = [];
 	let loading = false;
 	let checking = false;
@@ -112,6 +116,7 @@
 		pantryTimeout = false;
 		attemptCount = 0;
 		fetched = false;
+		macros = undefined;
 		resolvedPromptVersion = NOURISH_PROMPT_VERSION;
 		resolvedUpdatedAt = undefined;
 	}
@@ -152,6 +157,7 @@
 
 		if (result.status === 'hit') {
 			scores = result.entry.scores;
+			macros = result.entry.macros;
 			improvements = [];
 			buildImprovements(result.entry.scores, result.entry.improvements);
 			analyzedAt = result.entry.createdAt;
@@ -218,25 +224,26 @@
 			const contentHash = await computeContentHash(event.content || '');
 			const { recipePubkey, recipeDTag } = getRecipeCoordinates();
 
+			const bodyString = JSON.stringify({
+				eventId: event.id,
+				title,
+				ingredients: info.ingredients,
+				tags,
+				servings,
+				recipePubkey,
+				recipeDTag,
+				contentHash
+			});
 			const res = await fetch('/api/nourish', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					pubkey: $userPublickey || '',
-					eventId: event.id,
-					title,
-					ingredients: info.ingredients,
-					tags,
-					servings,
-					recipePubkey,
-					recipeDTag,
-					contentHash
-				})
+				headers: await nourishRequestHeaders($ndk, '/api/nourish', bodyString),
+				body: bodyString
 			});
 			const data = await res.json();
 			if (!data.success) { error = data.error || 'Failed to analyze recipe.'; return; }
 
 			scores = data.scores;
+			macros = parseMacrosBlock(data.macros);
 			analyzedAt = data.createdAt ?? Math.floor(Date.now() / 1000);
 			resolvedPromptVersion = data.promptVersion ?? NOURISH_PROMPT_VERSION;
 			const writeKey = toCacheKey(recipePubkey, recipeDTag);
@@ -247,6 +254,7 @@
 					{
 						contentHash,
 						createdAt: data.createdAt,
+						macros,
 						improvements: data.improvements,
 						ingredientSignals: data.ingredient_signals
 					}
@@ -269,7 +277,7 @@
 		improvements = mergeImprovements(generateSuggestions(s), llm || []);
 	}
 
-	function retry() { scores = null; analyzeRecipe(); }
+	function retry() { scores = null; macros = undefined; analyzeRecipe(); }
 
 	// Refresh the stale banner's score without unconditionally burning
 	// an LLM call. Flow:
@@ -285,6 +293,7 @@
 	// Closes drift source #5 (refresh button unconditionally computes).
 	async function reanalyze() {
 		scores = null;
+		macros = undefined;
 		stale = false;
 
 		const { recipePubkey, recipeDTag } = getRecipeCoordinates();
@@ -306,6 +315,7 @@
 				// LLM call. Write-through so subsequent mounts skip the
 				// pantry query.
 				scores = pantry.result.scores;
+				macros = pantry.result.macros;
 				analyzedAt = pantry.result.createdAt;
 				resolvedPromptVersion = pantry.result.promptVersion;
 				resolvedUpdatedAt = pantry.result.updatedAt;
@@ -317,6 +327,7 @@
 						contentHash: pantry.result.contentHash,
 						createdAt: pantry.result.createdAt,
 						updatedAt: pantry.result.updatedAt,
+						macros: pantry.result.macros,
 						improvements: pantry.result.improvements,
 						ingredientSignals: pantry.result.ingredientSignals
 					}
@@ -391,20 +402,20 @@
 			}
 			const contentHash = await computeContentHash(event.content || '');
 
+			const bodyString = JSON.stringify({
+				eventId: event.id,
+				title,
+				ingredients: info.ingredients,
+				tags,
+				servings,
+				recipePubkey,
+				recipeDTag,
+				contentHash
+			});
 			const res = await fetch('/api/nourish', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					pubkey: $userPublickey || '',
-					eventId: event.id,
-					title,
-					ingredients: info.ingredients,
-					tags,
-					servings,
-					recipePubkey,
-					recipeDTag,
-					contentHash
-				})
+				headers: await nourishRequestHeaders($ndk, '/api/nourish', bodyString),
+				body: bodyString
 			});
 			const data = await res.json();
 			if (!data.success) {
@@ -416,6 +427,7 @@
 			// the user sees the card update in place, not disappear and
 			// come back.
 			scores = data.scores;
+			macros = parseMacrosBlock(data.macros);
 			analyzedAt = data.createdAt ?? Math.floor(Date.now() / 1000);
 			resolvedPromptVersion = data.promptVersion ?? NOURISH_PROMPT_VERSION;
 			// Rescore via /api/nourish doesn't carry the admin `updated_at`
@@ -433,6 +445,7 @@
 					{
 						contentHash,
 						createdAt: data.createdAt,
+						macros,
 						improvements: data.improvements,
 						ingredientSignals: data.ingredient_signals
 					}
@@ -515,6 +528,7 @@
 
 		<NourishResult
 			{scores}
+			{macros}
 			{improvements}
 			{flagTarget}
 			promptVersion={resolvedPromptVersion}
@@ -543,7 +557,7 @@
 			</div>
 			<h3 class="lock-title">Unlock Nourish</h3>
 			<p class="lock-desc">See how this recipe scores for gut health, protein, and real food quality.</p>
-			<a href="/membership" class="w-full"><Button primary>View Membership</Button></a>
+			<a href="/membership" class="w-full"><Button primary>Unlock Cook+</Button></a>
 		</div>
 
 	{:else if error}

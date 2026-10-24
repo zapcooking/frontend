@@ -17,6 +17,7 @@ import {
   syncableKeyEntry,
   shouldOfferSyncSignIn,
   shouldOfferSignupEnrollment,
+  shouldShowHybridPointer,
   isUploadPending,
   setUploadPending,
   SyncSignInError,
@@ -204,6 +205,40 @@ describe('uploadVault', () => {
     expect(await uploadVault(fixtureRecord(false), WIRE)).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("multi-key record: sends the ASSERTING credential's spki/alg, not the first entry's", async () => {
+    // The server keys the blob by sha256(assertion.credentialId) and
+    // TOFU-verifies the assertion against the SUBMITTED spki — any other
+    // entry's key fails verification (uniform 404).
+    fetchMock.mockResolvedValue(jsonResponse(200, { ok: true }));
+    const record = fixtureRecord();
+    record.keys.push({
+      credentialId: 'c2Vjb25kLWNyZWQ',
+      wrappedDek: record.keys[0].wrappedDek,
+      dekIv: record.keys[0].dekIv,
+      addedAt: 2,
+      spki: 'c2Vjb25kLXNwa2k',
+      alg: -257
+    });
+    const wireB: AssertionWire = { ...WIRE, credentialId: 'c2Vjb25kLWNyZWQ' };
+    expect(await uploadVault(record, wireB)).toBe(true);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.spki).toBe('c2Vjb25kLXNwa2k');
+    expect(body.alg).toBe(-257);
+  });
+
+  it('assertion from a credential missing spki is not uploadable even when another entry is syncable', async () => {
+    const record = fixtureRecord();
+    record.keys.push({
+      credentialId: 'bm8tc3BraQ',
+      wrappedDek: record.keys[0].wrappedDek,
+      dekIv: record.keys[0].dekIv,
+      addedAt: 2
+    });
+    const wireB: AssertionWire = { ...WIRE, credentialId: 'bm8tc3BraQ' };
+    expect(await uploadVault(record, wireB)).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('deleteVaultBlob — client-side idempotency (ruling pin)', () => {
@@ -256,6 +291,17 @@ describe('helpers', () => {
     expect(shouldOfferSignupEnrollment({ flagEnabled: false, support: 'full' })).toBe(false);
     expect(shouldOfferSignupEnrollment({ flagEnabled: true, support: 'no-prf' })).toBe(false);
     expect(shouldOfferSignupEnrollment({ flagEnabled: true, support: 'none' })).toBe(false);
+  });
+
+  it('shouldShowHybridPointer: strict AND — Chromium desktop with hybrid available only', () => {
+    const base = { hybridTransport: true, isChromium: true, isDesktop: true };
+    expect(shouldShowHybridPointer(base)).toBe(true);
+    expect(shouldShowHybridPointer({ ...base, hybridTransport: false })).toBe(false);
+    // Safari excluded by ruling: its nearby-device path targets iPhones that
+    // iCloud Keychain already serves locally, and Safari-as-client hybrid
+    // PRF is the broken cell of the matrix (P2-6c).
+    expect(shouldShowHybridPointer({ ...base, isChromium: false })).toBe(false);
+    expect(shouldShowHybridPointer({ ...base, isDesktop: false })).toBe(false);
   });
 
   it('shouldOfferSyncSignIn matrix', () => {

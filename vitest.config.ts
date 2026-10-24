@@ -26,11 +26,12 @@ export default defineConfig({
 			// SvelteKit's $env virtual modules aren't provided here (no
 			// SvelteKit Vite plugin), so point server modules under test at
 			// a mutable stub. See src/test/envMock.ts.
-			'$env/dynamic/private': path.resolve('./src/test/envMock.ts')
+			'$env/dynamic/private': path.resolve('./src/test/envMock.ts'),
+			'$env/dynamic/public': path.resolve('./src/test/envPublicMock.ts')
 		}
 	},
 	test: {
-		include: ['src/**/*.test.ts'],
+		include: ['src/**/*.test.ts', 'workers/**/*.test.ts'],
 		exclude: ['src/lib/clientTag.test.ts', 'src/lib/zapAmount.test.ts', 'node_modules/**']
 	}
 });

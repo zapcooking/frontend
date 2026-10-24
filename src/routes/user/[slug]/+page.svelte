@@ -1,13 +1,15 @@
 <script lang="ts">
+  import { updateFollows, followErrorMessage } from '$lib/followUpdate';
+  import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
+  import { showToast } from '$lib/toast';
   import { ndk, userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { NDKFilter, NDKUser, NDKUserProfile } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import ZapModal from '../../../components/ZapModal.svelte';
-  import NofferButton from '../../../components/clink/NofferButton.svelte';
-  import { isNofferString } from '$lib/clink/noffer';
   import Feed from '../../../components/Feed.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
+  import { buildPoolRelaySet } from '$lib/eventFetch';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
@@ -21,11 +23,11 @@
   import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
   import SpeakerSlashIcon from 'phosphor-svelte/lib/SpeakerSlash';
   import SpeakerSimpleSlashIcon from 'phosphor-svelte/lib/SpeakerSimpleSlash';
-  import SealCheckIcon from 'phosphor-svelte/lib/SealCheck';
   import UsersIcon from 'phosphor-svelte/lib/Users';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
-  import { mutedPubkeys } from '$lib/muteListStore';
+  import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
+  import { setPubkeyMuted } from '$lib/muteToggle';
   import { requestProvider } from 'webln';
   import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
   import ProfileEditModal from '../../../components/ProfileEditModal.svelte';
@@ -39,16 +41,16 @@
   import ImageSquareIcon from 'phosphor-svelte/lib/ImageSquare';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import { onMount, onDestroy } from 'svelte';
-  import { Fetch } from 'hurdak';
-  import { profileCacheManager } from '$lib/profileCache';
   import { RECIPE_TAGS } from '$lib/consts';
   import ArticleFeed from '../../../components/ArticleFeed.svelte';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
   import MembershipBeltBadge from '../../../components/MembershipBeltBadge.svelte';
   import { fetchUserStatsFromPrimal, getPrimalCache, type PrimalUserStats } from '$lib/primalCache';
-  import FollowListRecoveryModal from '../../../components/FollowListRecoveryModal.svelte';
-  import QuestionIcon from 'phosphor-svelte/lib/Question';
+  import LazarusRecoveryModal from '../../../components/LazarusRecoveryModal.svelte';
   import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwise';
   import MuteListEditor from '../../../components/MuteListEditor.svelte';
+  import ProfileSheet from '../../../components/ProfileSheet.svelte';
+  import { normalizeAltBreaks } from '$lib/feed/imeta';
 
   let hexpubkey: string | undefined = undefined;
   let events: NDKEvent[] = [];
@@ -58,21 +60,6 @@
   let zapModal = false;
   let followRecoveryModal = false;
   let isZapping = false;
-
-  // CLINK noffer pulled from the user's kind:0 custom field. NDK
-  // Object.assigns the parsed JSON onto NDKUserProfile, so custom
-  // fields like `noffer` ride along — they're just not typed. Validate
-  // the shape (must start with `noffer1` after stripping optional
-  // `nostr:` prefix) before exposing as a Pay pill. Tolerant of the
-  // field key — `noffer` is the most likely name (bxrd.app's profile
-  // editor labels it "CLINK offer (noffer)"); fall back to `offer` /
-  // `clink_offer` if it lands under a slightly different key.
-  $: profileNoffer = (() => {
-    if (!profile) return undefined;
-    const p = profile as unknown as Record<string, unknown>;
-    const raw = (p.noffer || p.offer || p.clink_offer) as unknown;
-    return typeof raw === 'string' && isNofferString(raw) ? raw : undefined;
-  })();
 
   // Tab state: 'recipes' | 'posts' | 'media' | 'reads' | 'following' | 'drafts'
   // Default to 'posts' tab for a more social-first experience
@@ -99,6 +86,8 @@
     event: NDKEvent;
     url: string;
     type: 'image' | 'video';
+    /** NIP-92 imeta alt text, when the authoring client attached one. */
+    alt?: string;
   };
   let mediaItems: MediaItem[] = [];
   let mediaLoaded = false;
@@ -158,10 +147,7 @@
   let muteLoading = false;
   let mutedUsers: string[] = [];
 
-  // Profile picture upload state
-  let uploadingPicture = false;
-  let pictureInputEl: HTMLInputElement | null = null;
-  let avatarRefreshKey = 0; // Used to force Avatar remount after picture change
+  let avatarRefreshKey = 0; // Used to force Avatar remount after a profile edit
 
   // Profile edit modal state
   let profileEditModal = false;
@@ -190,7 +176,7 @@
     }
     // Redirect old 'lists' tab to cookbook
     if (tabParam === 'lists') {
-      goto('/cookbook');
+      goto('/my-kitchen');
     }
   }
 
@@ -296,7 +282,9 @@
           '#t': RECIPE_TAGS
         };
 
-        let subscription = $ndk.subscribe(filter);
+        // Explicit pool relay set: with the outbox model on, an `authors` REQ is routed only to
+        // the author's NIP-65 relays, not where this app publishes. See buildPoolRelaySet in $lib/eventFetch.ts.
+        let subscription = $ndk.subscribe(filter, undefined, buildPoolRelaySet($ndk));
 
         subscription.on('event', (ev: NDKEvent) => {
           if (isDeletedEvent(ev)) return;
@@ -378,101 +366,46 @@
   }
 
   async function toggleFollow() {
-    if (!$userPublickey || !hexpubkey || followLoading) return;
+    if (!hexpubkey || followLoading) return;
+    // Resuming after sign-in only ever follows: the account may already
+    // follow this cook, and a toggle would unfollow them.
+    const resuming = !isSignedIn();
+    if (!(await requireAuth({ kind: 'follow', reason: 'Sign in to follow' }))) return;
+    if (!$userPublickey || followLoading || $userPublickey === hexpubkey) return;
 
     followLoading = true;
 
     try {
-      // IMPORTANT: Always fetch the latest follow list before modifying
-      // This prevents accidentally publishing an empty list if local state is stale
-      const filter: NDKFilter = {
-        authors: [$userPublickey],
-        kinds: [3],
-        limit: 1
-      };
-
-      const contactEvents = await $ndk.fetchEvents(filter);
-      const existingContactList = Array.from(contactEvents)[0];
-
-      let freshFollowTags: string[][] = [];
-      let freshFollowContent: string = '';
-
-      if (existingContactList) {
-        freshFollowTags = existingContactList.tags.filter((tag) => tag[0] === 'p');
-        freshFollowContent = existingContactList.content || '';
-      }
-
-      // Update local cache with fresh data
-      currentFollowTags = freshFollowTags;
-      currentFollowContent = freshFollowContent;
-
-      let newFollowTags: string[][];
-
-      if (isFollowing) {
-        // Unfollow: remove the pubkey while preserving other tags
-        newFollowTags = freshFollowTags.filter((tag) => tag[1] !== hexpubkey);
-      } else {
-        // Follow: add new pubkey tag
-        newFollowTags = [...freshFollowTags, ['p', hexpubkey]];
-      }
-
-      // SAFEGUARD: Prevent publishing an empty follow list when unfollowing
-      // (unless user genuinely has only 1 follow and is unfollowing them)
-      if (isFollowing && newFollowTags.length === 0 && freshFollowTags.length > 1) {
-        console.error(
-          'Safety check failed: Would publish empty follow list but user has multiple follows. Aborting.'
-        );
-        throw new Error('Failed to update follow list. Please try again.');
-      }
-
-      // Create new kind:3 contact list event, preserving content (relay config)
-      const contactEvent = new NDKEvent($ndk);
-      contactEvent.kind = 3;
-      contactEvent.content = freshFollowContent; // Preserve relay configuration
-      contactEvent.tags = newFollowTags; // Preserve full tag structure
-
-      await contactEvent.publish();
-
-      // Update local state
-      currentFollowTags = newFollowTags;
-      isFollowing = !isFollowing;
+      // Safe edit ($lib/followUpdate): reads the latest list from the
+      // reader's relays and refuses (nothing published) on a bad read.
+      const follows = await updateFollows(
+        $ndk,
+        $userPublickey,
+        isFollowing && !resuming ? { remove: [hexpubkey] } : { add: [hexpubkey] }
+      );
+      currentFollowTags = [...follows].map((pk) => ['p', pk]);
+      isFollowing = follows.has(hexpubkey);
     } catch (error) {
       console.error('Error toggling follow:', error);
+      showToast('error', followErrorMessage(error));
     } finally {
       followLoading = false;
     }
   }
 
+  /**
+   * Is this profile muted? From the reader's merged mute list (the device's
+   * local mutes plus the NIP-51 list, $lib/muteListStore). This used to
+   * fetch kind 10000 itself and write its public p-tags over
+   * localStorage.mutedUsers on every profile visit — every local-only mute
+   * was lost, and private (encrypted) NIP-51 mutes were never seen.
+   */
   async function checkMuteStatus() {
     if (!$userPublickey || !hexpubkey) return;
-
     try {
-      // Load mute list from localStorage first (fast)
-      const storedMutes = localStorage.getItem('mutedUsers');
-      if (storedMutes) {
-        mutedUsers = JSON.parse(storedMutes);
-        isMuted = mutedUsers.includes(hexpubkey);
-      }
-
-      // Also fetch from Nostr (kind:10000 = mute list)
-      const muteFilter: NDKFilter = {
-        authors: [$userPublickey],
-        kinds: [10000],
-        limit: 1
-      };
-
-      const muteEvents = await $ndk.fetchEvents(muteFilter);
-      const muteList = Array.from(muteEvents)[0];
-
-      if (muteList) {
-        // Extract muted pubkeys from 'p' tags
-        mutedUsers = muteList.tags.filter((tag) => tag[0] === 'p').map((tag) => tag[1]);
-
-        // Update localStorage
-        localStorage.setItem('mutedUsers', JSON.stringify(mutedUsers));
-
-        isMuted = mutedUsers.includes(hexpubkey);
-      }
+      await muteListStore.load();
+      mutedUsers = [...$mutedPubkeys];
+      isMuted = $mutedPubkeys.has(hexpubkey);
     } catch (error) {
       console.error('Error checking mute status:', error);
     }
@@ -484,24 +417,14 @@
     muteLoading = true;
 
     try {
-      const newMuted = isMuted
-        ? mutedUsers.filter((pk) => pk !== hexpubkey)
-        : [...mutedUsers, hexpubkey];
-
-      // Create new kind:10000 mute list event
-      const muteEvent = new NDKEvent($ndk);
-      muteEvent.kind = 10000;
-      muteEvent.content = '';
-      muteEvent.tags = newMuted.map((pk) => ['p', pk]);
-
-      await muteEvent.publish();
+      // Edits the latest relay copy; keeps every other entry (see $lib/muteToggle).
+      await setPubkeyMuted($userPublickey, hexpubkey, !isMuted);
 
       // Update local state
-      mutedUsers = newMuted;
+      mutedUsers = isMuted
+        ? mutedUsers.filter((pk) => pk !== hexpubkey)
+        : [...new Set([...mutedUsers, hexpubkey])];
       isMuted = !isMuted;
-
-      // Update localStorage
-      localStorage.setItem('mutedUsers', JSON.stringify(mutedUsers));
     } catch (error) {
       console.error('Error toggling mute:', error);
     } finally {
@@ -523,7 +446,9 @@
         until: oldestRecipeTime - 1
       };
 
-      const subscription = $ndk.subscribe(filter);
+      // Explicit pool relay set: with the outbox model on, an `authors` REQ is routed only to
+      // the author's NIP-65 relays, not where this app publishes. See buildPoolRelaySet in $lib/eventFetch.ts.
+      const subscription = $ndk.subscribe(filter, undefined, buildPoolRelaySet($ndk));
       const newRecipes: NDKEvent[] = [];
 
       await new Promise<void>((resolve) => {
@@ -656,11 +581,7 @@
   }
 
   function isDeletedEvent(ev: NDKEvent): boolean {
-    return (
-      ev.tags.some((t) => t[0] === 'deleted') ||
-      !ev.content ||
-      ev.content.trim() === ''
-    );
+    return ev.tags.some((t) => t[0] === 'deleted') || !ev.content || ev.content.trim() === '';
   }
 
   function getArticleUrl(event: NDKEvent): string {
@@ -722,10 +643,15 @@
     }));
   }
 
+  // Jump from an empty posts feed to the author's longform (the feed
+  // component probes for kind-30023 content and offers the jump).
+  function goToReads() {
+    activeTab = 'reads';
+  }
+
   // Load user's longform articles (reads)
   async function loadReads() {
     if (!hexpubkey || readsLoaded) return;
-
     try {
       const filter: NDKFilter = {
         authors: [hexpubkey],
@@ -733,7 +659,9 @@
         limit: 20
       };
 
-      const subscription = $ndk.subscribe(filter);
+      // Explicit pool relay set: with the outbox model on, an `authors` REQ is routed only to
+      // the author's NIP-65 relays, not where this app publishes. See buildPoolRelaySet in $lib/eventFetch.ts.
+      const subscription = $ndk.subscribe(filter, undefined, buildPoolRelaySet($ndk));
       const fetchedEvents: NDKEvent[] = [];
       const seenIds = new Set<string>();
 
@@ -755,6 +683,8 @@
           // Exclude events that match recipe format
           const recipeValidation = validateMarkdownTemplate(ev.content);
           if (typeof recipeValidation !== 'string') return;
+
+          if (isBlockedFromReads(ev)) return;
 
           fetchedEvents.push(ev);
         });
@@ -808,7 +738,9 @@
         until: oldestReadsTime - 1
       };
 
-      const subscription = $ndk.subscribe(filter);
+      // Explicit pool relay set: with the outbox model on, an `authors` REQ is routed only to
+      // the author's NIP-65 relays, not where this app publishes. See buildPoolRelaySet in $lib/eventFetch.ts.
+      const subscription = $ndk.subscribe(filter, undefined, buildPoolRelaySet($ndk));
       const newReads: NDKEvent[] = [];
       const existingIds = new Set(readsEvents.map((e) => e.id));
 
@@ -828,6 +760,8 @@
 
           const recipeValidation = validateMarkdownTemplate(ev.content);
           if (typeof recipeValidation !== 'string') return;
+
+          if (isBlockedFromReads(ev)) return;
 
           newReads.push(ev);
         });
@@ -898,30 +832,38 @@
       if (u.hostname.includes('i.ibb.co')) return true;
       if (u.hostname.includes('void.cat')) return true;
       return false;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
 
   function isMediaVideoUrl(url: string): boolean {
     try {
       return VIDEO_EXTENSIONS.test(new URL(url).pathname);
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
 
   function extractMediaFromEvent(event: NDKEvent): MediaItem[] {
     const items: MediaItem[] = [];
     const seen = new Set<string>();
 
-    // Check imeta tags first (NIP-92)
+    // Check imeta tags first (NIP-92) — alt rides along for screen readers
     for (const tag of event.tags) {
       if (tag[0] === 'imeta') {
+        let url: string | undefined;
+        let alt: string | undefined;
         for (const part of tag.slice(1)) {
-          if (part.startsWith('url ')) {
-            const url = part.substring(4).trim();
-            if (!seen.has(url)) {
-              seen.add(url);
-              items.push({ event, url, type: isMediaVideoUrl(url) ? 'video' : 'image' });
-            }
-          }
+          // alt goes through the shared normalizer, not a bare trim: trim
+          // only touches the ends, so a third-party imeta with a runaway
+          // newline run inside it would reach the lightbox uncapped.
+          if (part.startsWith('url ')) url = part.substring(4).trim();
+          else if (part.startsWith('alt ')) alt = normalizeAltBreaks(part.substring(4));
+        }
+        if (url && !seen.has(url)) {
+          seen.add(url);
+          items.push({ event, url, type: isMediaVideoUrl(url) ? 'video' : 'image', alt });
         }
       }
     }
@@ -985,7 +927,9 @@
           if (!resolved) {
             resolved = true;
             subscription.stop();
-            mediaItems = fetchedItems.sort((a, b) => (b.event.created_at || 0) - (a.event.created_at || 0));
+            mediaItems = fetchedItems.sort(
+              (a, b) => (b.event.created_at || 0) - (a.event.created_at || 0)
+            );
             mediaLoaded = true;
             oldestMediaTime = latestOldest;
             hasMoreMedia = seenEventIds.size >= 100;
@@ -997,7 +941,9 @@
           if (!resolved) {
             resolved = true;
             subscription.stop();
-            mediaItems = fetchedItems.sort((a, b) => (b.event.created_at || 0) - (a.event.created_at || 0));
+            mediaItems = fetchedItems.sort(
+              (a, b) => (b.event.created_at || 0) - (a.event.created_at || 0)
+            );
             mediaLoaded = true;
             oldestMediaTime = latestOldest;
             hasMoreMedia = seenEventIds.size >= 100;
@@ -1108,10 +1054,7 @@
   }
 
   /** Fetch NDK events with a timeout that resolves to an empty set (no unhandled rejections) */
-  function fetchEventsWithTimeout(
-    filter: NDKFilter,
-    timeoutMs = 8000
-  ): Promise<Set<NDKEvent>> {
+  function fetchEventsWithTimeout(filter: NDKFilter, timeoutMs = 8000): Promise<Set<NDKEvent>> {
     return new Promise<Set<NDKEvent>>((resolve, reject) => {
       const timer = setTimeout(() => resolve(new Set<NDKEvent>()), timeoutMs);
       $ndk
@@ -1143,7 +1086,10 @@
             profiles.push({
               pubkey: event.pubkey,
               npub: nip19.npubEncode(event.pubkey),
-              name: profileData.display_name || profileData.name || nip19.npubEncode(event.pubkey).slice(0, 12) + '...',
+              name:
+                profileData.display_name ||
+                profileData.name ||
+                nip19.npubEncode(event.pubkey).slice(0, 12) + '...',
               picture: profileData.picture,
               nip05: profileData.nip05,
               about: profileData.about
@@ -1244,9 +1190,7 @@
           );
           const contactList = Array.from(contactEvents)[0];
           if (contactList) {
-            followPubkeys = contactList.tags
-              .filter((t) => t[0] === 'p' && t[1])
-              .map((t) => t[1]);
+            followPubkeys = contactList.tags.filter((t) => t[0] === 'p' && t[1]).map((t) => t[1]);
             fetchSucceeded = true;
           } else if (!fetchSucceeded) {
             // Neither source returned data — may be a network/relay issue
@@ -1298,13 +1242,11 @@
 
   let qrModal = false;
   let npubCopied = false;
-  let lightningCopied = false;
   let npubToast = false;
 
   function qrModalCleanup() {
     qrModal = false;
     npubCopied = false;
-    lightningCopied = false;
   }
 
   async function handleZapClick() {
@@ -1337,212 +1279,6 @@
     }
   }
 
-  async function copyLightningAddress(address: string) {
-    if (address) {
-      await navigator.clipboard.writeText(address);
-      lightningCopied = true;
-      setTimeout(() => {
-        lightningCopied = false;
-      }, 2000);
-    }
-  }
-
-  async function uploadProfilePicture(body: FormData) {
-    const url = 'https://nostr.build/api/v2/upload/profile';
-
-    // Check if we have a signer
-    if (!$ndk.signer) {
-      console.error('[Profile Upload] No signer available');
-      throw new Error('Not authenticated - please sign in again');
-    }
-
-    console.log('[Profile Upload] Creating NIP-98 auth event...');
-
-    const template = new NDKEvent($ndk);
-    template.kind = 27235;
-    template.created_at = Math.floor(Date.now() / 1000);
-    template.content = '';
-    template.tags = [
-      ['u', url],
-      ['method', 'POST']
-    ];
-
-    await template.sign();
-
-    console.log('[Profile Upload] Event signed, uploading...');
-
-    const authEvent = {
-      id: template.id,
-      pubkey: template.pubkey,
-      created_at: template.created_at,
-      kind: template.kind,
-      tags: template.tags,
-      content: template.content,
-      sig: template.sig
-    };
-
-    const result = await Fetch.fetchJson(url, {
-      body,
-      method: 'POST',
-      headers: {
-        Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`
-      }
-    });
-
-    console.log('[Profile Upload] Upload result:', result);
-    return result;
-  }
-
-  async function handlePictureUpload(event: Event) {
-    console.log('[Profile Upload] handlePictureUpload called');
-    const target = event.target as HTMLInputElement;
-    if (!target.files || target.files.length === 0) {
-      console.log('[Profile Upload] No files selected');
-      return;
-    }
-    if (!$userPublickey || hexpubkey !== $userPublickey) {
-      console.log('[Profile Upload] Not own profile or not logged in');
-      return;
-    }
-
-    uploadingPicture = true;
-    console.log('[Profile Upload] Starting upload...');
-
-    try {
-      const file = target.files[0];
-      console.log('[Profile Upload] File:', file.name, file.type, file.size);
-
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        alert('Please upload an image file');
-        uploadingPicture = false;
-        return;
-      }
-
-      // Validate file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        alert('Image must be less than 10MB');
-        uploadingPicture = false;
-        return;
-      }
-
-      const body = new FormData();
-      body.append('file[]', file);
-      body.append('media_type', 'avatar');
-
-      const result = await uploadProfilePicture(body);
-      console.log('[Profile Upload] Upload complete, result:', result);
-
-      if (result && result.data && result.data[0]?.url) {
-        const newPictureUrl = result.data[0].url;
-        console.log('[Profile Upload] New picture URL:', newPictureUrl);
-
-        // Get current profile
-        const currentUser = $ndk.getUser({ pubkey: $userPublickey });
-        await currentUser.fetchProfile();
-
-        // Update profile metadata (kind 0)
-        const metaEvent = new NDKEvent($ndk);
-        metaEvent.kind = 0;
-        metaEvent.tags = [];
-
-        // Preserve existing profile data, update picture
-        const profileContent: any = {
-          picture: newPictureUrl
-        };
-
-        if (currentUser.profile?.displayName) {
-          profileContent.display_name = currentUser.profile.displayName;
-        }
-        if (currentUser.profile?.name) {
-          profileContent.name = currentUser.profile.name;
-        }
-        if (currentUser.profile?.about) {
-          profileContent.about = currentUser.profile.about;
-        }
-        if (currentUser.profile?.nip05) {
-          profileContent.nip05 = currentUser.profile.nip05;
-        }
-        if (currentUser.profile?.lud16) {
-          profileContent.lud16 = currentUser.profile.lud16;
-        }
-        if (currentUser.profile?.lud06) {
-          profileContent.lud06 = currentUser.profile.lud06;
-        }
-
-        metaEvent.content = JSON.stringify(profileContent);
-        console.log('[Profile Upload] Publishing profile update:', profileContent);
-
-        // Publish and wait for relay confirmations
-        const publishedRelays = await metaEvent.publish();
-        console.log('[Profile Upload] Published to relays:', publishedRelays.size);
-
-        // Wait for at least one relay to confirm
-        if (publishedRelays.size > 0) {
-          console.log(
-            '[Profile Upload] Profile updated successfully on',
-            publishedRelays.size,
-            'relays'
-          );
-        } else {
-          console.warn('[Profile Upload] No relays confirmed the publish');
-        }
-
-        // Clear profile cache so it refreshes
-        profileCacheManager.invalidateProfile($userPublickey);
-
-        // Small delay to allow relays to propagate
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-
-        // Update local profile immediately with new picture
-        if (profile) {
-          profile = { ...profile, picture: newPictureUrl, image: newPictureUrl };
-        }
-
-        // Set override URL so avatar shows new picture immediately (global store updates header too)
-        console.log('[Profile Upload] Setting userProfilePictureOverride store to:', newPictureUrl);
-        userProfilePictureOverride.set(newPictureUrl);
-        console.log('[Profile Upload] Store value after set:', $userProfilePictureOverride);
-
-        // Force Avatar to remount with fresh data
-        avatarRefreshKey++;
-
-        // Reload profile data with force refresh
-        await loadData(true);
-      } else {
-        console.error('[Profile Upload] No URL in result:', result);
-        alert('Failed to upload image');
-      }
-    } catch (err) {
-      console.error('[Profile Upload] Error:', err);
-      alert('Failed to upload image. Please try again.');
-    } finally {
-      uploadingPicture = false;
-      // Reset input
-      if (pictureInputEl) {
-        pictureInputEl.value = '';
-      }
-    }
-  }
-
-  function triggerPictureUpload() {
-    console.log('[Profile Upload] triggerPictureUpload called');
-    console.log('[Profile Upload] userPublickey:', $userPublickey);
-    console.log('[Profile Upload] hexpubkey:', hexpubkey);
-    console.log('[Profile Upload] pictureInputEl:', pictureInputEl);
-
-    if (!$userPublickey || hexpubkey !== $userPublickey) {
-      console.log('[Profile Upload] Not own profile, skipping');
-      return;
-    }
-    if (pictureInputEl) {
-      console.log('[Profile Upload] Triggering file input click');
-      pictureInputEl.click();
-    } else {
-      console.error('[Profile Upload] pictureInputEl is not available');
-    }
-  }
-
   $: profileTitleBase = profile
     ? profile.name || (user ? user.npub.slice(0, 10) + '...' : 'Unknown User')
     : 'Unknown User';
@@ -1552,10 +1288,12 @@
   $: og_meta = {
     title: loaded ? `${profileTitleBase} - zap.cooking` : 'User Profile - zap.cooking',
     description: loaded
-      ? (profile?.about ? profile.about.slice(0, 155) : "View this user's recipes on zap.cooking")
-      : 'A user on zap.cooking - Food. Friends. Freedom.',
+      ? profile?.about
+        ? profile.about.slice(0, 155)
+        : "View this user's recipes on zap.cooking"
+      : 'A user on zap.cooking - Food is Open Source',
     image: loaded
-      ? (profile?.picture || 'https://zap.cooking/social-share.png')
+      ? profile?.picture || 'https://zap.cooking/social-share.png'
       : 'https://zap.cooking/social-share.png'
   };
 
@@ -1620,11 +1358,7 @@
     if (repliesSentinel && activeTab === 'replies') {
       repliesObserver = new IntersectionObserver(
         (entries) => {
-          if (
-            entries[0].isIntersecting &&
-            activeTab === 'replies' &&
-            foodstrRepliesFeedComponent
-          ) {
+          if (entries[0].isIntersecting && activeTab === 'replies' && foodstrRepliesFeedComponent) {
             if (
               foodstrRepliesFeedComponent &&
               typeof (foodstrRepliesFeedComponent as any).loadMore === 'function'
@@ -1735,7 +1469,7 @@
 
 <!-- Follow List Recovery Modal -->
 {#if hexpubkey}
-  <FollowListRecoveryModal bind:open={followRecoveryModal} pubkey={hexpubkey} />
+  <LazarusRecoveryModal bind:open={followRecoveryModal} initialKind={3} />
 {/if}
 
 <!-- Profile Edit Modal -->
@@ -1749,148 +1483,14 @@
   }}
 />
 
-<Modal cleanup={qrModalCleanup} open={qrModal}>
-  <h1 slot="title">
-    {profile
-      ? profile.displayName || profile.display_name || profile.name || '...'
-      : '...'}'s Profile
-  </h1>
-
-  <div class="flex flex-col items-center gap-6">
-    <!-- Profile Info -->
-    <div class="w-full space-y-3 border-t pt-4">
-      <!-- NIP-05 -->
-      {#if profile?.nip05}
-        <div class="flex items-center gap-2 text-sm">
-          <SealCheckIcon size={18} weight="fill" class="text-purple-500 flex-shrink-0" />
-          <span class="break-all" style="color: var(--color-text-primary)">{profile.nip05}</span>
-        </div>
-      {/if}
-
-      <!-- Lightning Address -->
-      {#if profile?.lud16 || profile?.lud06}
-        <div class="flex items-center gap-2 text-sm">
-          <LightningIcon size={18} weight="fill" class="text-yellow-500 flex-shrink-0" />
-          <span class="break-all flex-1" style="color: var(--color-text-primary)"
-            >{profile.lud16 || profile.lud06}</span
-          >
-          <button
-            on:click={() => copyLightningAddress(profile?.lud16 || profile?.lud06 || '')}
-            class="text-caption hover:text-primary transition-colors cursor-pointer flex-shrink-0"
-            title="Copy lightning address"
-          >
-            {#if lightningCopied}
-              <CheckIcon size={16} weight="bold" class="text-green-500" />
-            {:else}
-              <CopyIcon size={16} />
-            {/if}
-          </button>
-        </div>
-      {/if}
-
-
-      <!-- Action buttons for other users -->
-      {#if hexpubkey !== $userPublickey}
-        <!-- Zap Button (hidden for muted users) -->
-        {#if (profile?.lud16 || profile?.lud06) && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
-          <button
-            class="w-full flex items-center justify-center gap-2 px-4 py-4 rounded-lg font-medium text-base transition-colors bg-yellow-500 text-black hover:bg-yellow-400 disabled:opacity-50"
-            disabled={isZapping}
-            on:click={() => {
-              qrModal = false;
-              handleZapClick();
-            }}
-          >
-            <LightningIcon size={22} weight="fill" />
-            <span>{isZapping ? 'Zapping...' : 'Send Zap'}</span>
-          </button>
-        {/if}
-
-        <!-- CLINK offer — full-width CTA, gradient brand orange. Sits
-             alongside Send Zap so the two payment paths read as peers
-             rather than the noffer feeling buried. -->
-        {#if profileNoffer && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
-          <NofferButton noffer={profileNoffer} variant="cta" />
-        {/if}
-
-        <!-- DM Button -->
-        {#if $userPublickey && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
-          <a
-            href="/messages?pubkey={hexpubkey}"
-            class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors bg-input hover:bg-accent-gray"
-            style="color: var(--color-text-primary)"
-            on:click={() => (qrModal = false)}
-          >
-            <ChatCircleIcon size={18} weight="bold" />
-            <span>Message</span>
-          </a>
-        {/if}
-
-        <!-- Follow Button with mute indicator -->
-        {#if $userPublickey}
-          <button
-            on:click={toggleFollow}
-            disabled={followLoading}
-            class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 {isFollowing
-              ? 'bg-input hover:bg-accent-gray'
-              : 'bg-orange-500 text-white hover:bg-orange-600'}"
-            style={isFollowing ? 'color: var(--color-text-primary)' : ''}
-          >
-            {#if followLoading}
-              <span class="animate-pulse">...</span>
-            {:else if isFollowing}
-              <CheckIcon size={18} weight="bold" />
-              <span>Following</span>
-            {:else}
-              <UserPlusIcon size={18} weight="bold" />
-              <span>Follow</span>
-            {/if}
-            {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
-              <SpeakerSimpleSlashIcon size={18} weight="bold" class="opacity-70" />
-            {/if}
-          </button>
-        {/if}
-      {/if}
-
-      <!-- Copy Npub Button -->
-      <button
-        on:click={copyNpub}
-        class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-input hover:bg-accent-gray rounded-lg transition-colors text-sm font-medium"
-        style="color: var(--color-text-primary)"
-      >
-        {#if npubCopied}
-          <CheckIcon size={18} weight="bold" />
-          <span>Copied!</span>
-        {:else}
-          <CopyIcon size={18} />
-          <span>Copy npub</span>
-        {/if}
-      </button>
-
-      <!-- Mute Button -->
-      {#if hexpubkey !== $userPublickey && $userPublickey}
-        <button
-          on:click={toggleMute}
-          disabled={muteLoading}
-          class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 {isMuted
-            ? 'bg-red-100 text-red-700 hover:bg-red-200'
-            : 'bg-input hover:bg-accent-gray'}"
-          style={!isMuted ? 'color: var(--color-text-primary)' : ''}
-        >
-          {#if muteLoading}
-            <span class="animate-pulse">...</span>
-          {:else if isMuted}
-            <SpeakerSlashIcon size={18} weight="bold" />
-            <span>Unmute User</span>
-          {:else}
-            <SpeakerSlashIcon size={18} />
-            <span>Mute User</span>
-          {/if}
-        </button>
-      {/if}
-    </div>
-  </div>
-</Modal>
+<!-- The same sheet avatar clicks open everywhere else in the app; the
+     way through to the full profile is left off here, since this is it. -->
+<ProfileSheet
+  open={qrModal}
+  pubkey={hexpubkey || ''}
+  refreshKey={avatarRefreshKey}
+  on:close={qrModalCleanup}
+/>
 
 <div class="max-w-4xl w-full px-4">
   <!-- Profile Banner. Below xl (no sidebar) it's full-bleed and flush under
@@ -1936,12 +1536,24 @@
   <div class="flex items-start pb-5 pt-12">
     <!-- Profile Info -->
     <div class="flex-1 min-w-0 flex flex-col gap-2">
-      <!-- Name Row with Action Buttons on Right -->
-      <div class="flex items-start justify-between gap-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <button class="hover:opacity-80 transition-opacity" on:click={() => (qrModal = true)}>
-            <h1 class="text-xl font-bold truncate flex items-center gap-1.5">
-              <CustomName pubkey={hexpubkey || ''} />
+      <!-- Name row. On mobile the action buttons drop to their own row
+           below the name so a long username never competes with them;
+           sm and up they sit on the right of the name as before. -->
+      <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0 flex-1">
+          <!-- min-w-0 down the chain: without it the button's automatic
+               minimum size keeps it at the name's full width, and a long
+               name runs under the action buttons instead of ellipsing.
+               The ellipsis has to sit on the text span itself — `truncate`
+               on the flex h1 never reaches its children. -->
+          <button
+            class="min-w-0 hover:opacity-80 transition-opacity"
+            on:click={() => (qrModal = true)}
+          >
+            <h1 class="text-xl font-bold flex items-center gap-1.5 min-w-0">
+              <span class="truncate"
+                ><CustomName pubkey={hexpubkey || ''} interactive={false} /></span
+              >
               <MembershipBeltBadge pubkey={hexpubkey || ''} size={20} />
             </h1>
           </button>
@@ -1962,8 +1574,8 @@
           {/if}
         </div>
 
-        <!-- Action Buttons (right-aligned) -->
-        <div class="flex items-center gap-2 flex-shrink-0">
+        <!-- Action Buttons (right-aligned; own row on mobile) -->
+        <div class="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
           {#if hexpubkey === $userPublickey}
             <button
               on:click={() => (profileEditModal = true)}
@@ -1996,8 +1608,9 @@
               >
                 <ChatCircleIcon size={20} weight="bold" />
               </a>
+            {/if}
 
-              <button
+            <button
                 on:click={toggleFollow}
                 disabled={followLoading}
                 class="h-9 w-9 p-2 rounded-full transition-colors disabled:opacity-50 flex items-center justify-center {isFollowing
@@ -2015,6 +1628,7 @@
                 {/if}
               </button>
 
+            {#if $userPublickey}
               {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
                 <div
                   class="h-9 w-9 p-2 rounded-full bg-input flex items-center justify-center"
@@ -2078,14 +1692,15 @@
         class="flex items-center gap-1.5 text-sm transition-colors hover:opacity-70"
         style="color: var(--color-text-secondary)"
       >
-        <span class="font-semibold" style="color: var(--color-text-primary)">{profileStats.follows_count.toLocaleString()}</span>
+        <span class="font-semibold" style="color: var(--color-text-primary)"
+          >{profileStats.follows_count.toLocaleString()}</span
+        >
         <span>Following</span>
       </button>
-      <div
-        class="flex items-center gap-1.5 text-sm"
-        style="color: var(--color-text-secondary)"
-      >
-        <span class="font-semibold" style="color: var(--color-text-primary)">{profileStats.followers_count.toLocaleString()}</span>
+      <div class="flex items-center gap-1.5 text-sm" style="color: var(--color-text-secondary)">
+        <span class="font-semibold" style="color: var(--color-text-primary)"
+          >{profileStats.followers_count.toLocaleString()}</span
+        >
         <span>Followers</span>
       </div>
       {#if $userPublickey === hexpubkey}
@@ -2093,18 +1708,20 @@
           on:click={() => (followRecoveryModal = true)}
           class="flex items-center gap-1 text-xs transition-colors hover:opacity-80"
           style="color: var(--color-text-secondary)"
-          title="If another client clobbered your follow list, scan relays to find and restore an older version"
+          title="If another client clobbered your follows, mutes, profile, or bookmarks, scan relay history to find and restore an older version"
         >
           <ArrowCounterClockwiseIcon size={13} />
-          <span>Restore Follow List</span>
-          <QuestionIcon size={13} class="opacity-60" />
+          <span>Restore</span>
         </button>
       {/if}
     </div>
   {/if}
 
   <!-- Tabs -->
-  <div class="border-b mb-4 overflow-x-auto scrollbar-hide" style="border-color: var(--color-input-border)">
+  <div
+    class="border-b mb-4 overflow-x-auto scrollbar-hide"
+    style="border-color: var(--color-input-border)"
+  >
     <div class="flex gap-1 min-w-max">
       <button
         on:click={() => (activeTab = 'recipes')}
@@ -2284,6 +1901,7 @@
         bind:this={foodstrFeedComponent}
         authorPubkey={hexpubkey}
         authorScope="top-level"
+        on:view-reads={goToReads}
       />
       <div bind:this={postsSentinel} class="py-4 text-center"></div>
     </div>
@@ -2293,6 +1911,7 @@
         bind:this={foodstrRepliesFeedComponent}
         authorPubkey={hexpubkey}
         authorScope="replies"
+        on:view-reads={goToReads}
       />
       <div bind:this={repliesSentinel} class="py-4 text-center"></div>
     </div>
@@ -2323,7 +1942,7 @@
             {:else}
               <img
                 src={item.url}
-                alt=""
+                alt={item.alt || ''}
                 loading="lazy"
                 class="media-tile-img"
                 on:error={handleMediaImgError}
@@ -2425,11 +2044,23 @@
       <!-- Loading skeleton -->
       <div class="flex flex-col gap-3">
         {#each Array(6) as _}
-          <div class="flex items-center gap-3 p-3 rounded-xl animate-pulse" style="background: var(--color-bg-secondary)">
-            <div class="w-10 h-10 rounded-full" style="background: var(--color-accent-gray, #e5e7eb)"></div>
+          <div
+            class="flex items-center gap-3 p-3 rounded-xl animate-pulse"
+            style="background: var(--color-bg-secondary)"
+          >
+            <div
+              class="w-10 h-10 rounded-full"
+              style="background: var(--color-accent-gray, #e5e7eb)"
+            ></div>
             <div class="flex-1">
-              <div class="h-4 w-32 rounded" style="background: var(--color-accent-gray, #e5e7eb)"></div>
-              <div class="h-3 w-48 rounded mt-1.5" style="background: var(--color-accent-gray, #e5e7eb)"></div>
+              <div
+                class="h-4 w-32 rounded"
+                style="background: var(--color-accent-gray, #e5e7eb)"
+              ></div>
+              <div
+                class="h-3 w-48 rounded mt-1.5"
+                style="background: var(--color-accent-gray, #e5e7eb)"
+              ></div>
             </div>
           </div>
         {/each}
@@ -2437,13 +2068,19 @@
     {:else if followingFetchFailed}
       <div class="py-12 text-center">
         <UsersIcon size={48} class="mx-auto mb-4 opacity-30" />
-        <p class="text-lg font-medium" style="color: var(--color-text-secondary)">Couldn't load following list</p>
-        <p class="text-sm mt-1" style="color: var(--color-text-secondary)">Relay didn't respond in time. Try again later.</p>
+        <p class="text-lg font-medium" style="color: var(--color-text-secondary)">
+          Couldn't load following list
+        </p>
+        <p class="text-sm mt-1" style="color: var(--color-text-secondary)">
+          Relay didn't respond in time. Try again later.
+        </p>
       </div>
     {:else if followingProfiles.length === 0}
       <div class="py-12 text-center">
         <UsersIcon size={48} class="mx-auto mb-4 opacity-30" />
-        <p class="text-lg font-medium" style="color: var(--color-text-secondary)">Not following anyone yet</p>
+        <p class="text-lg font-medium" style="color: var(--color-text-secondary)">
+          Not following anyone yet
+        </p>
       </div>
     {:else}
       <div class="flex flex-col gap-1">
@@ -2455,9 +2092,13 @@
           >
             <Avatar pubkey={fp.pubkey} src={fp.picture || null} size={40} />
             <div class="flex-1 min-w-0">
-              <div class="font-medium truncate" style="color: var(--color-text-primary)">{fp.name}</div>
+              <div class="font-medium truncate" style="color: var(--color-text-primary)">
+                {fp.name}
+              </div>
               {#if fp.nip05}
-                <div class="text-xs truncate" style="color: var(--color-text-secondary)">{fp.nip05}</div>
+                <div class="text-xs truncate" style="color: var(--color-text-secondary)">
+                  {fp.nip05}
+                </div>
               {/if}
             </div>
           </a>
@@ -2578,7 +2219,9 @@
     background: var(--color-accent-gray, #f3f4f6);
     border-radius: 2px;
     display: block;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease;
   }
 
   .media-tile:hover {

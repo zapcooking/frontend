@@ -4,13 +4,29 @@ import NDKCacheAdapterDexie from '@nostr-dev-kit/ndk-cache-dexie';
 import { writable, get, type Writable } from 'svelte/store';
 import { standardRelays } from './consts';
 import { createConnectionManager, getConnectionManager, resetConnectionManagerSingleton } from './connectionManager';
+import { scheduleNdkCacheMaintenance } from './ndkCacheMaintenance';
+import { limitOutboxTracking } from './outboxTracking';
 
 // Storage keys
 const RELAYS_STORAGE_KEY = 'nostrcooking_relays';
 const RELAY_SET_STORAGE_KEY = 'zap_active_relay_set';
 
 // Only create Dexie adapter in browser (IndexedDB not available in SSR)
-const dexieAdapter = browser ? new NDKCacheAdapterDexie({ dbName: 'zapcooking-ndk-cache-db' }) : undefined;
+const dexieAdapter = browser ? new NDKCacheAdapterDexie({
+  dbName: 'zapcooking-ndk-cache-db',
+  // Bound the in-memory LRUs — and with them the startup warm-up, which
+  // reads up to each maxSize rows from IndexedDB before the first NDK
+  // query can run. Library defaults are 50k events / 100k profiles /
+  // 100k event tags (~250k row reads every launch); these caps cover
+  // real usage with room to spare, and misses fall back to the on-disk
+  // tables anyway (getWithFallback).
+  eventCacheSize: 15_000,
+  profileCacheSize: 15_000,
+  eventTagsCacheSize: 15_000
+}) : undefined;
+
+// Cap the on-disk tables (the adapter never prunes them) — once a day.
+if (browser) scheduleNdkCacheMaintenance();
 
 // Default outbox relays (used in standard/default mode)
 const DEFAULT_OUTBOX_RELAY_URLS = ["wss://purplepag.es", "wss://nos.lol"];
@@ -177,7 +193,7 @@ function createNdk(mode: RelayMode, relayUrls: string[]): NDK {
     outboxRelayUrls: config.outboxRelayUrls
   });
   
-  return new NDK({
+  const instance = new NDK({
     outboxRelayUrls: config.outboxRelayUrls,
     enableOutboxModel: config.enableOutboxModel,
     explicitRelayUrls: config.explicitRelayUrls,
@@ -185,6 +201,11 @@ function createNdk(mode: RelayMode, relayUrls: string[]): NDK {
     cacheAdapter: dexieAdapter as any,
     autoConnectUserRelays: false
   });
+  // The outbox model stays on for publishing (the user's write relays);
+  // its per-author kind-3/10002 fan-out for reads is kept to the active
+  // user ($lib/outboxTracking).
+  limitOutboxTracking(instance);
+  return instance;
 }
 
 /**
@@ -279,7 +300,7 @@ async function connectWithRetry(ndkInstance: NDK, maxRetries = 3): Promise<void>
       // Create new connection manager for this NDK instance
       const connectionManager = createConnectionManager(ndkInstance);
       
-      // Use connection manager's circuit breaker logic (waits for first relay)
+      // Use connection manager's circuit breaker logic (waits for a relay quorum)
       await connectionManager.connectWithCircuitBreaker();
       
       // Mark as connected - relays are now ready
@@ -478,9 +499,12 @@ if (browser) {
     ndkReadyResolve(); // Resolve anyway so components don't hang
   }).finally(() => {
     setTimeout(() => {
-      // Initial connection window has passed — restore console.error.
+      // Initial connection window has passed — restore both patched
+      // methods. Leaving console.log wrapped for the whole session taxed
+      // every log call with an args.join + substring scan.
       errorSuppressionActive = false;
       console.error = originalError;
+      console.log = originalLog;
     }, 3000);
   });
 } else {

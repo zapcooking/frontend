@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { fetchOwnMembership } from '$lib/membership/ownStatus';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import { ndk, userPublickey } from '$lib/nostr';
@@ -21,6 +22,8 @@
 	let loading = true;
 	let checkingMembership = true;
 	let hasActiveMembership = false;
+	/** 'unknown' = the check itself failed; never shown as the membership pitch. */
+	let membershipState: 'active' | 'inactive' | 'unknown' | null = null;
 	let membershipTier: string | undefined;
 	let existingKitchen: Kitchen | null = null;
 	let loadingKitchen = true;
@@ -56,19 +59,13 @@
 	async function checkMembership() {
 		checkingMembership = true;
 		try {
-			const res = await fetch('/api/membership/check-status', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ pubkey: $userPublickey })
-			});
-
-			if (res.ok) {
-				const data = await res.json();
-				hasActiveMembership = data.isActive === true;
-				membershipTier = data.member?.tier;
-			}
+			const own = await fetchOwnMembership($userPublickey);
+			membershipState = own.state;
+			hasActiveMembership = own.state === 'active';
+			membershipTier = own.tier;
 		} catch (e) {
 			console.error('[MyStore] Failed to check membership:', e);
+			membershipState = 'unknown';
 		} finally {
 			checkingMembership = false;
 		}
@@ -224,6 +221,11 @@
 		</div>
 
 	<!-- Not a member - show upgrade prompt -->
+	{:else if membershipState === 'unknown'}
+		<section class="rounded-xl shadow-sm p-5 md:p-6 text-center" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
+			<p class="mb-4" style="color: var(--color-text-secondary)">We couldn't check your membership right now.</p>
+			<button type="button" on:click={checkMembership} class="px-5 py-2 rounded-lg font-medium" style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)">Try again</button>
+		</section>
 	{:else if !hasActiveMembership}
 		<div class="membership-gate text-center py-12 px-6 rounded-2xl" style="background-color: var(--color-bg-secondary);">
 			<LockIcon size={64} weight="duotone" class="mx-auto mb-4 text-orange-500" />

@@ -47,6 +47,14 @@ export interface PollResults {
 // OPTION ID GENERATION
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * Poll-close tag names — single source of truth, also consumed by the
+ * scheduled-posts API's "poll must not close before it publishes"
+ * validation (src/lib/scheduleApi.server.ts).
+ */
+export const POLL_ENDS_AT_TAG = 'endsAt'; // kind 1068 (NIP-88)
+export const ZAP_POLL_CLOSED_AT_TAG = 'closed_at'; // kind 6969 (Primal zap polls)
+
 const ALPHANUMERIC = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
 /** Generate a random 9-char alphanumeric string for option IDs */
@@ -84,7 +92,7 @@ export function parsePollFromEvent(event: NDKEvent): PollData | null {
       options.push({ id: tag[1], label: tag[2], image: tag[3] || undefined });
     } else if (tag[0] === 'polltype' && tag[1]) {
       pollType = tag[1] === 'multiplechoice' ? 'multiplechoice' : 'singlechoice';
-    } else if (tag[0] === 'endsAt' && tag[1]) {
+    } else if (tag[0] === POLL_ENDS_AT_TAG && tag[1]) {
       endsAt = parseInt(tag[1], 10);
       if (isNaN(endsAt)) endsAt = undefined;
     }
@@ -125,7 +133,7 @@ export function buildPollTags(config: PollConfig): string[][] {
   tags.push(['polltype', config.pollType]);
 
   if (config.endsAt) {
-    tags.push(['endsAt', String(config.endsAt)]);
+    tags.push([POLL_ENDS_AT_TAG, String(config.endsAt)]);
   }
 
   return tags;
@@ -247,7 +255,7 @@ export function parseZapPollFromEvent(event: NDKEvent): ZapPollData | null {
       options.push({ id: tag[1], label: tag[2] });
     } else if (tag[0] === 'polltype' && tag[1]) {
       pollType = tag[1] === 'multiplechoice' ? 'multiplechoice' : 'singlechoice';
-    } else if (tag[0] === 'closed_at' && tag[1]) {
+    } else if (tag[0] === ZAP_POLL_CLOSED_AT_TAG && tag[1]) {
       closedAt = parseInt(tag[1], 10);
       if (isNaN(closedAt)) closedAt = undefined;
     } else if (tag[0] === 'value_minimum' && tag[1]) {
@@ -275,7 +283,7 @@ export function buildZapPollTags(config: ZapPollConfig): string[][] {
   tags.push(['polltype', config.pollType]);
 
   if (config.closedAt) {
-    tags.push(['closed_at', String(config.closedAt)]);
+    tags.push([ZAP_POLL_CLOSED_AT_TAG, String(config.closedAt)]);
   }
   if (config.valueMinimum != null) {
     tags.push(['value_minimum', String(config.valueMinimum)]);

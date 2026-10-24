@@ -8,23 +8,29 @@
    * - Visual feedback when recipe is already saved
    */
   
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { userPublickey } from '$lib/nostr';
+  import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import { clickOutside } from '$lib/clickOutside';
-  import { cookbookStore, type CookbookList, DEFAULT_LIST_ID } from '$lib/stores/cookbookStore';
-  import { RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
+  import { cookbookStore, DEFAULT_LIST_ID } from '$lib/stores/cookbookStore';
+  import { showListEditRefusal } from '$lib/listEditToast';
+  import { get } from 'svelte/store';
   import { fade, slide } from 'svelte/transition';
 
   export let event: NDKEvent;
   export let size: 'sm' | 'md' | 'lg' = 'md';
   export let variant: 'primary' | 'secondary' | 'ghost' = 'primary';
   export let showText = false;
+  /** Button text with showText (e.g. "Save to cookbook"). */
+  export let text = 'Save';
+  export let savedText = 'Saved';
+  /** Fill the container's width (a full-width button). */
+  export let block = false;
 
   const dispatch = createEventDispatcher<{
     saved: { listId: string };
@@ -33,19 +39,26 @@
 
   let dropdownOpen = false;
   let loading = false;
+  /** The dropdown row whose edit is running. */
+  let pendingListId: string | null = null;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let isLongPress = false;
-  let lists: CookbookList[] = [];
-  let listsLoaded = false;
-  let isSaved = false;
-  let savedInLists: Set<string> = new Set();
+  // The lists come from My Kitchen's store — the one place lists are read
+  // and written (the "Saved" list only through its safe edit). This button
+  // never builds or publishes a list event itself.
+  // The unpublished Saved placeholder stays in the picker: choosing it is a
+  // first save through the guarded edit, and it is never an edit base.
+  $: lists = $userPublickey ? $cookbookStore.lists : [];
+  $: listsLoaded = $cookbookStore.initialized;
+  $: if ($userPublickey) cookbookStore.ensureLoaded();
 
   // Size classes
-  $: sizeClasses = {
-    sm: 'w-8 h-8',
-    md: 'w-10 h-10',
-    lg: 'w-12 h-12'
-  }[size];
+  // With text the button sizes to its label; only the height is fixed.
+  $: sizeClasses = (
+    showText
+      ? { sm: 'h-8', md: 'h-10', lg: 'h-12' }
+      : { sm: 'w-8 h-8', md: 'w-10 h-10', lg: 'w-12 h-12' }
+  )[size];
 
   $: iconSize = {
     sm: 16,
@@ -69,266 +82,85 @@
   // Recipe a-tag for comparison
   $: recipeATag = event ? `${event.kind}:${event.pubkey}:${event.replaceableDTag()}` : '';
 
-  // Check save status
-  function checkSaveStatus() {
-    if (!lists.length || !recipeATag) {
-      isSaved = false;
-      savedInLists = new Set();
-      return;
-    }
+  $: savedInLists = new Set(lists.filter((l) => l.recipes.includes(recipeATag)).map((l) => l.id));
+  $: isSaved = savedInLists.size > 0;
 
-    const newSavedIn = new Set<string>();
-    lists.forEach(list => {
-      if (list.recipes.includes(recipeATag)) {
-        newSavedIn.add(list.id);
-      }
-    });
-
-    savedInLists = newSavedIn;
-    isSaved = savedInLists.size > 0;
-  }
-
-  $: if (lists && recipeATag) {
-    checkSaveStatus();
-  }
-
-  async function loadLists() {
-    if (listsLoaded || !$userPublickey) return;
-
+  /**
+   * Save to / remove from the Saved list through the store's safe edit. A
+   * refusal is shown with Retry, which repeats the SAME operation — never
+   * re-runs the toggle, which could flip direction. A save that went out
+   * but couldn't be confirmed offers Refresh instead (showListEditRefusal).
+   */
+  async function editSaved(op: 'save' | 'remove'): Promise<void> {
+    if (loading) return;
+    loading = true;
     try {
-      const filters = [
-        {
-          authors: [$userPublickey],
-          kinds: [30001],
-          '#t': RECIPE_TAGS,
-          limit: 256
-        },
-        {
-          '#d': [DEFAULT_LIST_ID],
-          authors: [$userPublickey],
-          kinds: [30001]
-        }
-      ];
-
-      const subscription = $ndk.subscribe(filters, { closeOnEose: true });
-      const loadedLists: CookbookList[] = [];
-      const seenIds = new Set<string>();
-
-      subscription.on('event', (ev: NDKEvent) => {
-        const dTag = ev.tags.find(t => t[0] === 'd')?.[1];
-        if (!dTag || seenIds.has(dTag)) return;
-        seenIds.add(dTag);
-
-        const title = ev.tags.find(t => t[0] === 'title')?.[1] || dTag;
-        const recipes = ev.tags.filter(t => t[0] === 'a').map(t => t[1]);
-        const isDefault = dTag === DEFAULT_LIST_ID;
-
-        loadedLists.push({
-          id: dTag,
-          naddr: '',
-          title: isDefault ? 'Saved' : title,
-          recipeCount: recipes.length,
-          recipes,
-          createdAt: ev.created_at || 0,
-          isDefault,
-          event: ev
-        });
-      });
-
-      subscription.on('eose', () => {
-        // Final deduplication by id (in case of race conditions)
-        const uniqueLists = loadedLists.filter((list, index, self) => 
-          index === self.findIndex(l => l.id === list.id)
-        );
-
-        // Sort: default first, then alphabetically
-        uniqueLists.sort((a, b) => {
-          if (a.isDefault) return -1;
-          if (b.isDefault) return 1;
-          return a.title.localeCompare(b.title);
-        });
-
-        lists = uniqueLists;
-        listsLoaded = true;
-        checkSaveStatus();
-      });
-    } catch (error) {
-      console.error('Failed to load lists:', error);
+      const result =
+        op === 'save'
+          ? await cookbookStore.saveToDefaultList(event)
+          : await cookbookStore.removeFromDefaultList(recipeATag);
+      if (!result.ok) {
+        showListEditRefusal(result, () => editSaved(op));
+      } else if (result.changed) {
+        dispatch(op === 'save' ? 'saved' : 'removed', { listId: DEFAULT_LIST_ID });
+      }
+    } finally {
+      loading = false;
     }
   }
 
   async function quickSave() {
-    if (!$userPublickey) {
-      goto('/login');
+    // Resuming after sign-in saves, never unsaves: the account may already
+    // have this recipe saved from another device.
+    const resuming = !isSignedIn();
+    if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this recipe' }))) return;
+    if (loading) return;
+
+    await cookbookStore.ensureLoaded();
+    const inDefault = !!get(cookbookStore)
+      .lists.find((l) => l.id === DEFAULT_LIST_ID && !l.localOnly)
+      ?.recipes.includes(recipeATag);
+    // The store's safe edit re-reads the list from the relays before it
+    // publishes, so neither direction can build on a stale copy.
+    if (inDefault && resuming) return;
+    await editSaved(inDefault ? 'remove' : 'save');
+  }
+
+  async function toggleListSelection(listId: string) {
+    if (loading) return;
+    const wasIn = savedInLists.has(listId);
+    // The edit reads the list from the relays first (up to a few seconds):
+    // the row shows it's working instead of looking frozen.
+    if (listId === DEFAULT_LIST_ID) {
+      pendingListId = listId;
+      try {
+        await editSaved(wasIn ? 'remove' : 'save');
+      } finally {
+        pendingListId = null;
+      }
       return;
     }
+    await editCustom(listId, wasIn ? 'remove' : 'add');
+  }
 
+  /**
+   * Add to / remove from a collection. Like editSaved, a refusal shows the
+   * store's message with Retry, which repeats the SAME operation.
+   */
+  async function editCustom(listId: string, op: 'add' | 'remove'): Promise<void> {
     if (loading) return;
     loading = true;
-
+    pendingListId = listId;
     try {
-      // Load lists if not loaded
-      if (!listsLoaded) {
-        await new Promise<void>(resolve => {
-          const check = () => {
-            if (listsLoaded) resolve();
-            else setTimeout(check, 50);
-          };
-          loadLists();
-          check();
-        });
-      }
-
-      // Find or create default list
-      let defaultList = lists.find(l => l.isDefault);
-
-      if (!defaultList) {
-        // Create default list
-        const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-        const newEvent = new NDKEvent($ndk);
-        newEvent.kind = 30001;
-        newEvent.tags = [
-          ['d', DEFAULT_LIST_ID],
-          ['title', 'Saved']
-        ];
-        await newEvent.publish();
-
-        defaultList = {
-          id: DEFAULT_LIST_ID,
-          naddr: '',
-          title: 'Saved',
-          recipeCount: 0,
-          recipes: [],
-          createdAt: Math.floor(Date.now() / 1000),
-          isDefault: true,
-          event: newEvent
-        };
-        lists = [defaultList, ...lists];
-      }
-
-      // Toggle: if already in default list, remove; otherwise add
-      if (savedInLists.has(DEFAULT_LIST_ID)) {
-        await removeFromList(DEFAULT_LIST_ID);
-      } else {
-        await addToList(DEFAULT_LIST_ID);
-      }
-    } catch (error) {
-      console.error('Quick save failed:', error);
+      const result =
+        op === 'remove'
+          ? await cookbookStore.removeRecipeFromListResult(listId, recipeATag)
+          : await cookbookStore.addRecipeToListResult(listId, event);
+      if (result.ok) dispatch(op === 'remove' ? 'removed' : 'saved', { listId });
+      else showListEditRefusal(result, () => editCustom(listId, op));
     } finally {
       loading = false;
-    }
-  }
-
-  async function addToList(listId: string) {
-    const list = lists.find(l => l.id === listId);
-    if (!list || list.recipes.includes(recipeATag)) return;
-
-    loading = true;
-
-    try {
-      const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-      const newEvent = new NDKEvent($ndk);
-      newEvent.kind = 30001;
-
-      // Copy metadata tags
-      const metaTags = ['d', 'title', 'summary', 'image', 't'];
-      list.event.tags.forEach(tag => {
-        if (metaTags.includes(tag[0])) {
-          newEvent.tags.push([...tag]);
-        }
-      });
-
-      // Add existing recipes
-      list.recipes.forEach(r => {
-        newEvent.tags.push(['a', r]);
-      });
-
-      // Add new recipe
-      newEvent.tags.push(['a', recipeATag]);
-
-      const { addClientTagToEvent } = await import('$lib/nip89');
-      addClientTagToEvent(newEvent);
-
-      await newEvent.publish();
-
-      // Update local state
-      const index = lists.findIndex(l => l.id === listId);
-      if (index !== -1) {
-        lists[index] = {
-          ...lists[index],
-          recipes: [...lists[index].recipes, recipeATag],
-          recipeCount: lists[index].recipeCount + 1,
-          event: newEvent
-        };
-        lists = lists;
-      }
-
-      checkSaveStatus();
-      dispatch('saved', { listId });
-    } catch (error) {
-      console.error('Failed to add to list:', error);
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function removeFromList(listId: string) {
-    const list = lists.find(l => l.id === listId);
-    if (!list || !list.recipes.includes(recipeATag)) return;
-
-    loading = true;
-
-    try {
-      const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-      const newEvent = new NDKEvent($ndk);
-      newEvent.kind = 30001;
-
-      // Copy metadata tags
-      const metaTags = ['d', 'title', 'summary', 'image', 't'];
-      list.event.tags.forEach(tag => {
-        if (metaTags.includes(tag[0])) {
-          newEvent.tags.push([...tag]);
-        }
-      });
-
-      // Add recipes except the one being removed
-      list.recipes.forEach(r => {
-        if (r !== recipeATag) {
-          newEvent.tags.push(['a', r]);
-        }
-      });
-
-      const { addClientTagToEvent } = await import('$lib/nip89');
-      addClientTagToEvent(newEvent);
-
-      await newEvent.publish();
-
-      // Update local state
-      const index = lists.findIndex(l => l.id === listId);
-      if (index !== -1) {
-        lists[index] = {
-          ...lists[index],
-          recipes: lists[index].recipes.filter(r => r !== recipeATag),
-          recipeCount: Math.max(0, lists[index].recipeCount - 1),
-          event: newEvent
-        };
-        lists = lists;
-      }
-
-      checkSaveStatus();
-      dispatch('removed', { listId });
-    } catch (error) {
-      console.error('Failed to remove from list:', error);
-    } finally {
-      loading = false;
-    }
-  }
-
-  function toggleListSelection(listId: string) {
-    if (savedInLists.has(listId)) {
-      removeFromList(listId);
-    } else {
-      addToList(listId);
+      pendingListId = null;
     }
   }
 
@@ -359,12 +191,9 @@
     }
   }
 
-  function openDropdown() {
-    if (!$userPublickey) {
-      goto('/login');
-      return;
-    }
-    loadLists();
+  async function openDropdown() {
+    if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this recipe' }))) return;
+    cookbookStore.ensureLoaded();
     dropdownOpen = true;
   }
 
@@ -372,11 +201,6 @@
     dropdownOpen = false;
   }
 
-  onMount(() => {
-    if ($userPublickey) {
-      loadLists();
-    }
-  });
 
   onDestroy(() => {
     if (longPressTimer) {
@@ -385,17 +209,21 @@
   });
 </script>
 
-<div class="relative inline-flex" use:clickOutside on:click_outside={closeDropdown}>
+<div
+  class="relative {block ? 'flex w-full' : 'inline-flex'}"
+  use:clickOutside
+  on:click_outside={closeDropdown}
+>
   <!-- Main Save Button -->
-  <div class="flex items-center">
+  <div class="flex items-center {block ? 'flex-1' : ''}">
     <button
       on:pointerdown={handlePointerDown}
       on:pointerup={handlePointerUp}
       on:pointerleave={handlePointerLeave}
       disabled={loading}
-      class="flex items-center justify-center rounded-full transition duration-200 touch-none select-none {sizeClasses} {variantClasses} {showText ? 'px-4 gap-2' : ''}"
-      aria-label={isSaved ? 'Recipe saved' : 'Save recipe'}
-      title={isSaved ? 'Recipe saved (hold for options)' : 'Save to cookbook (hold for options)'}
+      class="flex items-center justify-center rounded-full transition duration-200 touch-none select-none {sizeClasses} {variantClasses} {showText ? 'px-4 gap-2' : ''} {block ? 'flex-1' : ''}"
+      aria-label={showText ? undefined : isSaved ? 'Recipe saved' : 'Save recipe'}
+      title={isSaved ? 'Recipe saved (hold for options)' : 'Save to My Kitchen (hold for options)'}
     >
       {#if loading}
         <div class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
@@ -405,7 +233,7 @@
         <BookmarkIcon size={iconSize} weight="fill" />
       {/if}
       {#if showText}
-        <span class="text-sm font-medium">{isSaved ? 'Saved' : 'Save'}</span>
+        <span class="text-sm font-medium whitespace-nowrap">{isSaved ? savedText : text}</span>
       {/if}
     </button>
 
@@ -438,7 +266,7 @@
         <div class="px-3 py-4 text-center text-caption">
           <p class="mb-2">No collections yet</p>
           <a
-            href="/cookbook"
+            href="/my-kitchen"
             class="text-primary hover:underline text-sm"
             on:click={closeDropdown}
           >
@@ -449,11 +277,15 @@
         {#each lists as list (list.id)}
           <button
             on:click|stopPropagation={() => toggleListSelection(list.id)}
-            class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent-gray transition-colors"
+            disabled={loading}
+            aria-busy={pendingListId === list.id}
+            class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent-gray transition-colors disabled:cursor-wait {loading && pendingListId !== list.id ? 'opacity-50' : ''}"
             style="color: var(--color-text-primary)"
           >
             <div class="w-5 h-5 rounded border-2 flex items-center justify-center transition-colors {savedInLists.has(list.id) ? 'bg-green-500 border-green-500' : ''}" style="{savedInLists.has(list.id) ? '' : 'border-color: var(--color-input-border)'}">
-              {#if savedInLists.has(list.id)}
+              {#if pendingListId === list.id}
+                <div class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin {savedInLists.has(list.id) ? 'text-white' : ''}"></div>
+              {:else if savedInLists.has(list.id)}
                 <CheckIcon size={12} weight="bold" class="text-white" />
               {/if}
             </div>
@@ -476,7 +308,7 @@
         <div class="border-t my-1" style="border-color: var(--color-input-border);"></div>
 
         <a
-          href="/cookbook"
+          href="/my-kitchen"
           on:click={closeDropdown}
           class="flex items-center gap-3 px-3 py-2 text-left hover:bg-accent-gray transition-colors"
           style="color: var(--color-text-primary)"

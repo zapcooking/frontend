@@ -6,12 +6,14 @@
 	import { goto } from '$app/navigation';
 	import { nip19 } from 'nostr-tools';
 	import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+	import { buildImetaTagWithAlt } from '$lib/feed/imeta';
+	import AltTextEditorModal from '../AltTextEditorModal.svelte';
 	import { ndk, userPublickey } from '$lib/nostr';
 	import { RELAY_SETS } from '$lib/relays/relaySets';
 	import { getOutboxRelays } from '$lib/relayListCache';
 	import { addClientTagToEvent } from '$lib/nip89';
 	import TurndownService from 'turndown';
-	import { sanitizeHTML } from '$lib/sanitize';
+	import { parseMarkdown, mentionNamesVersion } from '$lib/parser';
 	import XIcon from 'phosphor-svelte/lib/X';
 	import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
 	import CloudCheckIcon from 'phosphor-svelte/lib/CloudCheck';
@@ -46,6 +48,21 @@
 
 	// Local state for editing
 	let localDraft: ArticleDraft = createEmptyDraft();
+	// Cover image alt text (NIP-92 imeta) lives in the persisted draft,
+	// keyed by cover URL, so it survives reopening and never leaks onto a
+	// replaced cover image.
+	$: coverAlt = (localDraft.coverImage && localDraft.coverAlts?.[localDraft.coverImage]) || '';
+	let coverAltModalOpen = false;
+
+	function setCoverAlt(text: string) {
+		const url = localDraft.coverImage;
+		if (!url) return;
+		const next = { ...(localDraft.coverAlts || {}) };
+		const cleaned = text.trim();
+		if (cleaned) next[url] = cleaned;
+		else delete next[url];
+		localDraft.coverAlts = next;
+	}
 	let hasUnsavedChanges = false;
 	let showPreview = false;
 	let showCloseConfirm = false;
@@ -72,6 +89,10 @@
 		codeBlockStyle: 'fenced'
 	});
 
+	const NPUB_MENTION_RE = /nostr:(npub1[023456789acdefghjklmnpqrstuvwxyz]{58})/g;
+	const ANY_MENTION_RE =
+		/nostr:(npub1[023456789acdefghjklmnpqrstuvwxyz]{58}|nprofile1[023456789acdefghjklmnpqrstuvwxyz]+)/g;
+
 	// Custom rule: convert mention spans to nostr:npub1... format
 	turndownService.addRule('mention', {
 		filter: (node: HTMLElement) => {
@@ -96,6 +117,16 @@
 	}
 
 	// Computed values
+	// The preview renders the *published* markdown, not the editor's HTML.
+	// Rendering the editor HTML showed mentions as inert text and hashtags
+	// and YouTube links unprocessed, so the preview promised less than
+	// publishing delivers. Going through the same turndown + parseMarkdown
+	// path the reader gets makes it accurate in both directions, including
+	// anything turndown drops. `$mentionNamesVersion` is a dependency so a
+	// mention re-renders once its display name resolves.
+	$: previewHtml = showPreview
+		? renderPreview(localDraft.content, $mentionNamesVersion)
+		: '';
 	$: wordCount = getWordCount(localDraft.content);
 	$: readingTime = getReadingTime(wordCount);
 	$: statusText = getStatusText($draftStatus);
@@ -128,6 +159,7 @@
 		subtitle: localDraft.subtitle,
 		content: localDraft.content,
 		coverImage: localDraft.coverImage,
+		coverAlts: localDraft.coverAlts || {},
 		tags: localDraft.tags
 	});
 	
@@ -158,6 +190,7 @@
 			subtitle: localDraft.subtitle,
 			content: localDraft.content,
 			coverImage: localDraft.coverImage,
+			coverAlts: localDraft.coverAlts || {},
 			tags: localDraft.tags
 		});
 		hasUnsavedChanges = false;
@@ -228,6 +261,60 @@
 		if (!html) return '';
 		return turndownService.turndown(html);
 	}
+
+	/**
+	 * Rewrites `nostr:npub1…` mentions as `nostr:nprofile1…` with relay
+	 * hints, which is the form NIP-27 shows in its own example.
+	 *
+	 * A bare npub carries no clue where the profile lives, so a reader
+	 * that has never seen this person has nothing to fetch and falls back
+	 * to displaying the bech32 string. Hints give it somewhere to look, so
+	 * the mention resolves to a name in clients that don't already follow
+	 * the mentioned account.
+	 *
+	 * Best-effort: a mention whose relay list can't be fetched keeps its
+	 * npub, which is still valid NIP-27.
+	 */
+	async function addRelayHintsToMentions(markdown: string): Promise<string> {
+		const matches = [...markdown.matchAll(NPUB_MENTION_RE)];
+		if (matches.length === 0) return markdown;
+
+		const npubs = [...new Set(matches.map((m) => m[1]))];
+		const replacements = new Map<string, string>();
+
+		await Promise.all(
+			npubs.map(async (npub) => {
+				try {
+					const decoded = nip19.decode(npub);
+					if (decoded.type !== 'npub') return;
+					const relays = await getOutboxRelays(decoded.data);
+					if (!relays || relays.length === 0) return;
+					// Two hints is the customary ceiling - enough to find
+					// the profile without bloating every mention.
+					replacements.set(
+						npub,
+						nip19.nprofileEncode({ pubkey: decoded.data, relays: relays.slice(0, 2) })
+					);
+				} catch {
+					// Leave this mention as a bare npub.
+				}
+			})
+		);
+
+		if (replacements.size === 0) return markdown;
+		return markdown.replace(NPUB_MENTION_RE, (full, npub) => {
+			const nprofile = replacements.get(npub);
+			return nprofile ? `nostr:${nprofile}` : full;
+		});
+	}
+
+	// `namesVersion` is unused: it's a reactivity dependency only, so the
+	// preview re-renders when a mentioned profile's name arrives.
+	function renderPreview(html: string, namesVersion: number): string {
+		void namesVersion;
+		if (!html) return '';
+		return parseMarkdown(htmlToMarkdown(html));
+	}
 	
 	// Generate a URL-friendly identifier from the title
 	// Note: In NIP-23, reusing the same identifier updates the article (by design)
@@ -277,7 +364,7 @@
 		
 		try {
 			// Convert HTML content to Markdown
-			const markdownContent = htmlToMarkdown(localDraft.content);
+			const markdownContent = await addRelayHintsToMentions(htmlToMarkdown(localDraft.content));
 			
 			if (!markdownContent.trim()) {
 				publishError = 'Article content cannot be empty';
@@ -310,10 +397,20 @@
 			}
 			
 			if (localDraft.coverImage && localDraft.coverImage.trim()) {
-				// Basic URL validation
+				// `new URL()` alone is not enough: it parses `javascript:` and
+				// `data:` URLs happily, and this value is republished as the
+				// article's `image` tag for every other client to render.
 				try {
-					new URL(localDraft.coverImage);
-					event.tags.push(['image', localDraft.coverImage]);
+					const { protocol } = new URL(localDraft.coverImage);
+					if (protocol === 'http:' || protocol === 'https:') {
+						event.tags.push(['image', localDraft.coverImage]);
+						// NIP-92 imeta alt text for the cover (screen readers)
+						if (coverAlt.trim()) {
+							event.tags.push(buildImetaTagWithAlt(localDraft.coverImage, coverAlt.trim()));
+						}
+					} else {
+						console.warn('Cover image URL is not http(s), skipping');
+					}
 				} catch {
 					console.warn('Invalid cover image URL, skipping');
 				}
@@ -337,16 +434,20 @@
 			// Add NIP-89 client tag
 			addClientTagToEvent(event);
 
-			// Extract mentioned pubkeys from content and add p tags (NIP-23/NIP-27)
-			const mentionMatches = markdownContent.match(/nostr:(npub1[023456789acdefghjklmnpqrstuvwxyz]{58})/g);
+			// Extract mentioned pubkeys from content and add p tags (NIP-23/NIP-27).
+			// Both mention forms count: relay hints turn npub mentions into
+			// nprofile, and matching only npub would drop the p tag - and with
+			// it the notification - for every hinted mention.
+			const mentionMatches = markdownContent.match(ANY_MENTION_RE);
 			if (mentionMatches) {
 				const mentionedPubkeys = new Set<string>();
 				for (const match of mentionMatches) {
 					try {
-						const npub = match.replace('nostr:', '');
-						const decoded = nip19.decode(npub);
+						const decoded = nip19.decode(match.replace('nostr:', ''));
 						if (decoded.type === 'npub') {
 							mentionedPubkeys.add(decoded.data);
+						} else if (decoded.type === 'nprofile') {
+							mentionedPubkeys.add(decoded.data.pubkey);
 						}
 					} catch {}
 				}
@@ -388,7 +489,7 @@
 				identifier: identifier,
 				pubkey: $userPublickey,
 				kind: 30023,
-				relays: ['wss://relay.primal.net', 'wss://nos.lol', 'wss://relay.damus.io']
+				relays: ['wss://relay.primal.net', 'wss://nos.lol']
 			});
 			
 			// Delete the draft since it's now published
@@ -623,7 +724,7 @@
 							{/if}
 
 							<div class="preview-body prose">
-								{@html sanitizeHTML(localDraft.content)}
+								{@html previewHtml}
 							</div>
 						</article>
 					</div>
@@ -638,6 +739,17 @@
 								bind:coverImage={localDraft.coverImage}
 								bind:tags={localDraft.tags}
 							/>
+							{#if localDraft.coverImage}
+								<button
+									type="button"
+									class="lf-alt-toggle"
+									class:has-alt={!!coverAlt.trim()}
+									on:click={() => (coverAltModalOpen = true)}
+								>
+									{coverAlt.trim() ? '✓ ALT' : '+ ALT'}
+									<span class="lf-alt-label">image description</span>
+								</button>
+							{/if}
 						</div>
 
 						<!-- Editor Section -->
@@ -687,6 +799,13 @@
 		{/if}
 	</div>
 {/if}
+
+<AltTextEditorModal
+	url={localDraft.coverImage}
+	initialText={coverAlt}
+	bind:open={coverAltModalOpen}
+	on:save={(e) => setCoverAlt(e.detail.text)}
+/>
 
 <style>
 	/* Header */
@@ -1174,5 +1293,34 @@
 		.preview-title {
 			font-size: 1.75rem;
 		}
+	}
+
+	.lf-alt-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 0.5rem;
+		padding: 0.3rem 0.65rem;
+		border: none;
+		border-radius: 6px;
+		background: var(--color-input-bg, rgba(0, 0, 0, 0.4));
+		color: var(--color-text-primary);
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		cursor: pointer;
+	}
+	.lf-alt-toggle:hover {
+		background: var(--color-accent-gray);
+	}
+	.lf-alt-toggle.has-alt {
+		background: var(--color-primary);
+		color: #fff;
+	}
+	.lf-alt-label {
+		font-weight: 500;
+		letter-spacing: 0;
+		text-transform: lowercase;
+		opacity: 0.8;
 	}
 </style>

@@ -5,6 +5,39 @@
 /* Enable class-based dark mode (matches html.dark selector) */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Self-hosted fonts (previously a render-blocking Google Fonts CSS
+   round trip on every page, and a startup network dependency for the
+   packaged Capacitor build). Albert Sans is a variable font — one file
+   per subset covers all weights. unicode-range matches Google's
+   subsets so non-covered scripts fall back to system fonts. */
+@font-face {
+  font-family: 'Albert Sans';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/albert-sans-var-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Albert Sans';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/albert-sans-var-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Orbitron 700 — timer displays only (CookingToolsWidget, TimerWidget). */
+@font-face {
+  font-family: 'Orbitron';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/orbitron-700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* Prevent horizontal overflow on mobile and optimize touch scrolling */
 html,
 body {
@@ -51,8 +84,12 @@ body {
   }
 }
 
+/* Center loading states in the space actually left below the fixed
+   header — 100vh overfills by the header height, nudging small loaders
+   below true center (the old full-width pan was tall enough to mask it;
+   the zap-ring badge is not). */
 .page-loader {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--header-h, 4rem));
 }
 
 @media (max-width: 1023px) {
@@ -63,15 +100,6 @@ body {
 
 * {
   box-sizing: border-box;
-}
-
-@font-face {
-  font-family: 'Geist';
-  src: url('/GeistVariableVF.ttf') format('truetype');
-  font-style: normal;
-  font-weight: 100 900;
-  font-stretch: 0% 200%;
-  font-display: auto;
 }
 
 /* Define CSS custom properties for theme colors */
@@ -150,7 +178,6 @@ body {
 
 @theme {
   --font-sans: 'Albert Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-display: 'Geist', sans;
   --breakpoint-print: print;
 
   /* Define colors for Tailwind utility classes */
@@ -286,6 +313,19 @@ html.dark .image-placeholder::before {
   -webkit-touch-callout: none;
 }
 
+/* Profile mentions inside rendered markdown. Global rather than scoped to
+   one component: the same parseMarkdown output is rendered by the article
+   view, the recipe view, both editor previews and the print sheet. */
+a.nostr-mention {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+a.nostr-mention:hover {
+  text-decoration: underline;
+}
+
 /* Print styles for #print-recipe */
 #print-recipe {
   display: none;
@@ -412,4 +452,39 @@ html.dark .image-placeholder::before {
   @page {
     margin: 0.75in;
   }
+}
+
+/* Fresh special cards (recipe box, topic spotlight, memory): a warm,
+   paper-toned index card with a tab on its top edge. */
+.fresh-paper {
+  --box-paper: #fbf6ec;
+  --box-edge: #ecdfc6;
+  --box-ink: #8a5a2b;
+  --box-chip: #f3e9d6;
+  --box-rule: rgba(176, 132, 82, 0.18);
+}
+
+html.dark .fresh-paper {
+  --box-paper: #1f1a14;
+  --box-edge: #3a2f22;
+  --box-ink: #e2b47c;
+  --box-chip: #2b231a;
+  --box-rule: rgba(226, 180, 124, 0.12);
+}
+
+.fresh-paper .box-tab {
+  position: absolute;
+  top: -1.125rem;
+  left: 1.25rem;
+  z-index: 1;
+  padding: 0.2rem 0.75rem 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--box-ink);
+  background: var(--box-paper);
+  border: 1px solid var(--box-edge);
+  border-bottom: none;
+  border-radius: 0.5rem 0.5rem 0 0;
 }

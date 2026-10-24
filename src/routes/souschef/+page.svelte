@@ -7,18 +7,24 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { Fetch } from 'hurdak';
   import { saveDraft } from '$lib/draftStore';
+  import { findSourceDuplicate } from '$lib/recipeSource';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
   import { recipeTags, RECIPE_TAG_PREFIX_NEW, type recipeTagSimple } from '$lib/consts';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { addClientTagToEvent } from '$lib/nip89';
+  import { publishQueue } from '$lib/publishQueue';
   import { nip19 } from 'nostr-tools';
   import {
     ANON_IMPORT_HANDOFF_KEY,
-    ANON_IMPORT_MAX_AGE_MS,
+    readImportHandoff,
+    writeImportHandoff,
+    withSourceAttribution,
+    sourceUrl,
     type AnonImportHandoff
   } from '$lib/anonImport';
   import { detectMode } from '$lib/souschefDetect';
   import { signNip98AuthHeader } from '$lib/nip98';
+  import type { ExtractErrorCode } from '$lib/extractErrors';
   import Button from '../../components/Button.svelte';
   import TagsComboBox from '../../components/TagsComboBox.svelte';
   import StringComboBox from '../../components/StringComboBox.svelte';
@@ -46,9 +52,7 @@
 
   // Anon preview — set when an unauthenticated user arrives via the
   // landing hero with a parsed recipe stashed in sessionStorage.
-  // Collapses the extraction UI and renders the editor read-only with
-  // a sign-in CTA. Transitions to normal mode automatically if the user
-  // signs in while on this page (see reactive block below).
+  // The recipe stays editable; saving or publishing requires sign-in.
   let isAnonPreview = false;
   let anonPreviewSourceUrl = '';
   
@@ -71,6 +75,8 @@
   // Publishing state
   let isPublishing = false;
   let publishError = '';
+  let publishInfo = '';
+  let duplicateRecipeHref: string | null = null;
 
   // Extraction state
   let isExtracting = false;
@@ -92,33 +98,12 @@
   let additionalMarkdown = '';
   
   onMount(() => {
-    // Handoff from the landing-page import hero. Present for both
-    // anon visitors (full hero) AND logged-in non-premium users
-    // (compact pill). If present and fresh, hydrate the editor and
-    // skip the extraction UI — the recipe is already parsed. Only
-    // enter "view-only preview" mode for actual anon visitors; a
-    // logged-in user continuing from the pill should see full
-    // publish/save-draft controls.
     if (browser) {
       try {
-        const raw = sessionStorage.getItem(ANON_IMPORT_HANDOFF_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as AnonImportHandoff | null;
-          if (
-            parsed &&
-            parsed.recipe &&
-            typeof parsed.at === 'number' &&
-            Date.now() - parsed.at <= ANON_IMPORT_MAX_AGE_MS
-          ) {
-            hydrateFromHandoff(parsed, !$userPublickey);
-          }
-          // Always clear — a stale or malformed handoff shouldn't
-          // linger and re-hydrate on a later visit.
-          sessionStorage.removeItem(ANON_IMPORT_HANDOFF_KEY);
-        }
+        const staged = readImportHandoff(sessionStorage);
+        if (staged) hydrateFromHandoff(staged, !$userPublickey);
       } catch {
-        // sessionStorage disabled or JSON malformed — fall through to
-        // the normal extraction UI.
+        stageStorageError = 'Allow browser storage to continue reviewing an imported recipe.';
       }
     }
     isLoading = false;
@@ -151,24 +136,42 @@
     // URLs are emitted on the kind:30023 event directly; this matches
     // the existing member-side fallback when rehosting fails.
     if (Array.isArray(recipe.imageUrls) && recipe.imageUrls.length > 0) {
-      images.set([recipe.imageUrls[0]]);
+      images.set(recipe.imageUrls);
     }
 
-    anonPreviewSourceUrl = handoff.sourceUrl || '';
+    anonPreviewSourceUrl = sourceUrl(handoff.sourceUrl);
+    additionalMarkdown = handoff.additionalMarkdown || '';
+    stagingActive = true;
     isAnonPreview = viewOnly;
     extractionSuccess = true;
   }
 
-  // If the user signs in while on this page (e.g. after clicking
-  // "Sign in to publish"), drop the anon-preview flag so the normal
-  // publish/save-draft controls unlock. The hydrated form fields stay
-  // populated — they just become editable.
-  $: if (isAnonPreview && $userPublickey) {
-    isAnonPreview = false;
-    // TODO(analytics): emit `post_import_signup` with
-    // { sourceUrl: anonPreviewSourceUrl }.
+  let stagingActive = false;
+  let stageStorageError = '';
+
+  // Persist edits before navigation, including a full page load for authentication.
+  $: if (browser && !isLoading && stagingActive && extractionSuccess) {
+    let saved = false;
+    try { saved = writeImportHandoff(sessionStorage, {
+      recipe: { title, summary, chefsnotes, preptime, cooktime, servings,
+        ingredients: $ingredientsArray, directions: $directionsArray,
+        tags: $selectedTags.map(t => t.title), imageUrls: $images },
+      sourceUrl: anonPreviewSourceUrl, additionalMarkdown, at: Date.now()
+    }); } catch { /* Browser storage can be disabled at the property level. */ }
+    stageStorageError = saved ? '' : 'Your edits could not be kept in this tab. Allow browser storage before leaving this page.';
   }
-  
+  $: if (isAnonPreview && $userPublickey) isAnonPreview = false;
+
+  function finishStaging() {
+    stagingActive = false;
+    try { sessionStorage.removeItem(ANON_IMPORT_HANDOFF_KEY); } catch { /* Already saved elsewhere. */ }
+  }
+
+  function signInToKeepRecipe() {
+    if (stageStorageError) return;
+    goto('/login?redirect=/souschef');
+  }
+
   // Image handling
   function handleDrop(e: DragEvent) {
     e.preventDefault();
@@ -339,6 +342,29 @@
     }
   }
   
+  // Signed-in-audience copy per server error code. The server's `error`
+  // string is an audience-neutral fallback; this page owns its own
+  // wording (the user is on Sous Chef already, so blocked-site recovery
+  // points at pasting the recipe text right here).
+  const EXTRACT_CODE_COPY: Partial<Record<ExtractErrorCode, string>> = {
+    INVALID_REQUEST: 'Something went wrong with that request. Refresh the page and try again.',
+    INVALID_URL: 'That doesn’t look like a working link. Check the URL and try again.',
+    UNSUPPORTED_URL: 'We can only import from public websites. Check the link and try again.',
+    TEXT_TOO_LONG:
+      'That’s more text than we can read at once — trim it down to just the recipe and try again.',
+    SOURCE_BLOCKED:
+      'That site blocks automatic imports. Copy the recipe text from the page and paste it here instead.',
+    SOURCE_NOT_FOUND:
+      'We couldn’t find a recipe page at that link. It may have moved — double-check the URL.',
+    SOURCE_UNAVAILABLE: 'That site isn’t responding right now. Give it a few minutes and try again.',
+    SOURCE_TOO_LARGE:
+      'That page is too big for us to read. Try the recipe’s print-friendly page, or paste the recipe text here instead.',
+    TOO_MANY_REDIRECTS:
+      'That link kept redirecting without landing on a recipe. Copy the address directly from the recipe page and try again.',
+    AI_UNAVAILABLE: 'Our recipe assistant is temporarily unavailable — try again in a minute.',
+    INTERNAL: 'Something went wrong on our end. Try again in a bit.'
+  };
+
   // Extract recipe (requires login; redirect so reviewer can see upload UI first)
   async function extractRecipe() {
     if (!$userPublickey) {
@@ -402,7 +428,14 @@
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to extract recipe');
+        // Prefer our own copy for known codes; fall back to the
+        // server's neutral string for codes this build doesn't know.
+        const mapped =
+          typeof data?.code === 'string' ? EXTRACT_CODE_COPY[data.code as ExtractErrorCode] : undefined;
+        extractionError = response.status === 429
+          ? 'You have reached the import limit. Please try again later.'
+          : mapped || EXTRACT_CODE_COPY.INTERNAL!;
+        return;
       }
 
       // Populate the form with extracted data
@@ -461,11 +494,13 @@
         images.set(uploadedUrls);
       }
       
+      anonPreviewSourceUrl = mode === 'url' ? sourceUrl(textInput.trim()) : '';
+      stagingActive = !!anonPreviewSourceUrl;
       extractionSuccess = true;
       extractionProgress = '';
       
     } catch (err) {
-      extractionError = err instanceof Error ? err.message : 'Failed to extract recipe';
+      extractionError = EXTRACT_CODE_COPY.SOURCE_UNAVAILABLE!;
       extractionProgress = '';
     } finally {
       isExtracting = false;
@@ -489,10 +524,13 @@
       servings,
       ingredients: $ingredientsArray,
       directions: $directionsArray,
-      additionalMarkdown
+      additionalMarkdown: withSourceAttribution(additionalMarkdown, anonPreviewSourceUrl),
+      sourceUrl: anonPreviewSourceUrl || undefined
     };
     
-    saveDraft(draftData);
+    const saved = saveDraft(draftData);
+    if (!saved.draftId) return;
+    // Keep the staged copy as a recovery path if local draft storage fails.
     
     // Navigate to user's drafts tab
     if ($userPublickey) {
@@ -514,8 +552,15 @@
 
     isPublishing = true;
     publishError = '';
+    publishInfo = '';
 
     try {
+      duplicateRecipeHref = await findSourceDuplicate($ndk, $userPublickey, anonPreviewSourceUrl);
+      if (duplicateRecipeHref) {
+        publishError = 'You have already published a recipe from this link. Open it below; your edits here are still saved.';
+        isPublishing = false;
+        return;
+      }
       // Format ingredients/directions into markdown strings
       let ingredients = '';
       $ingredientsArray.forEach((e) => {
@@ -535,7 +580,7 @@
         servings,
         ingredients,
         directions,
-        additionalMarkdown
+        withSourceAttribution(additionalMarkdown, anonPreviewSourceUrl)
       );
       const va = validateMarkdownTemplate(md);
       if (typeof va === 'string') {
@@ -549,6 +594,7 @@
       event.content = md;
       event.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
       event.tags.push(['title', title]);
+      if (anonPreviewSourceUrl) event.tags.push(['r', anonPreviewSourceUrl]);
       event.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
       event.tags.push([
         't',
@@ -571,29 +617,43 @@
 
       addClientTagToEvent(event);
 
-      // Publish with timeout
-      let publishTimeoutId: ReturnType<typeof setTimeout> | undefined;
-      const publishTimeout: Promise<never> = new Promise((_, reject) => {
-        publishTimeoutId = setTimeout(
-          () => reject(new Error('Publish timed out after 15 seconds')),
-          15000
-        );
-      });
-      await Promise.race([event.publish(), publishTimeout]);
-      if (publishTimeoutId !== undefined) {
-        clearTimeout(publishTimeoutId);
+      // Publish via publishQueue (same path as /create).
+      //
+      // Deliberate behavior change vs bare event.publish(): NDK's outbox
+      // model routes writes to the author's NIP-65 write relays. The queue
+      // fans out to the pool (+ pantry for kind 30023) and persists an
+      // IndexedDB retry if relays flake — more reliable for imports.
+      const publishResult = await publishQueue.publishWithRetry(event, 'all');
+      if (!publishResult.success && !publishResult.queued) {
+        throw new Error(publishResult.error || 'Publish failed');
+      }
+
+      // Queued for retry — surface honestly and stay put. The recipe may
+      // not be fetchable yet (same honesty as /create's queued message;
+      // we skip redirect so /recipe/<naddr> doesn't 404).
+      if (publishResult.queued) {
+        publishInfo =
+          'Publish queued. Your recipe will be published as soon as relays are reachable.';
+        isPublishing = false;
+        return;
+      }
+
+      const recipePubkey = event.pubkey || $userPublickey;
+      if (!recipePubkey) {
+        throw new Error('Unable to determine author pubkey for recipe address');
       }
 
       const naddr = nip19.naddrEncode({
         identifier: title.toLowerCase().replaceAll(' ', '-'),
-        pubkey: event.pubkey,
+        pubkey: recipePubkey,
         kind: 30023
       });
 
+      finishStaging();
       goto(`/recipe/${naddr}`);
     } catch (err) {
       console.error('Error publishing recipe:', err);
-      publishError = 'Failed to publish: ' + String(err);
+      publishError = 'Your recipe could not be published. Your edits are still here; please try again.';
       isPublishing = false;
     }
   }
@@ -664,7 +724,7 @@
           <p class="text-sm">
             <span class="font-semibold" style="color: var(--color-primary);">URL imports are on us.</span>
             Image and text imports are a Cook+ and above feature.
-            <button type="button" class="underline" on:click={() => goto('/membership')}>View membership</button>.
+            <button type="button" class="underline" on:click={() => goto('/membership')}>Unlock Cook+</button>.
           </p>
         </div>
       </div>
@@ -784,7 +844,7 @@
                 {#if anonPreviewSourceUrl}
                   Parsed from <span class="font-mono text-xs break-all">{anonPreviewSourceUrl}</span>.
                 {/if}
-                You can review the details below. Signing in unlocks editing, draft saving, and publishing to your feed.
+                You can review the details below. Edit anything below. Sign in when you are ready to save a draft or explicitly publish.
               </p>
             </div>
           </div>
@@ -807,12 +867,16 @@
           </div>
         {/if}
         
+        {#if stageStorageError}<p role="alert" class="text-red-500">{stageStorageError}</p>{/if}
+        {#if anonPreviewSourceUrl && !isAnonPreview}
+          <p class="text-sm text-caption">Original recipe: <a href={anonPreviewSourceUrl} target="_blank" rel="noopener noreferrer">{anonPreviewSourceUrl}</a></p>
+        {/if}
         <!-- Recipe Form -->
         <div class="flex flex-col gap-6">
           <!-- Title -->
           <div class="flex flex-col gap-2">
             <h3>Title*</h3>
-            <input placeholder="Recipe title" bind:value={title} class="input" disabled={isAnonPreview} />
+            <input placeholder="Recipe title" bind:value={title} class="input" />
           </div>
           
           <!-- Tags -->
@@ -830,7 +894,7 @@
               bind:value={summary}
               rows="3"
               class="input"
-              disabled={isAnonPreview}
+
             />
           </div>
           
@@ -850,15 +914,15 @@
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div class="flex flex-col gap-2">
                 <span class="text-sm font-medium">Prep Time</span>
-                <input placeholder="20 min" bind:value={preptime} class="input" disabled={isAnonPreview} />
+                <input placeholder="20 min" bind:value={preptime} class="input" />
               </div>
               <div class="flex flex-col gap-2">
                 <span class="text-sm font-medium">Cook Time</span>
-                <input placeholder="1 hour" bind:value={cooktime} class="input" disabled={isAnonPreview} />
+                <input placeholder="1 hour" bind:value={cooktime} class="input" />
               </div>
               <div class="flex flex-col gap-2">
                 <span class="text-sm font-medium">Servings</span>
-                <input placeholder="4" bind:value={servings} class="input" disabled={isAnonPreview} />
+                <input placeholder="4" bind:value={servings} class="input" />
               </div>
             </div>
           </div>
@@ -894,23 +958,28 @@
           {#if publishError}
             <div class="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
               <WarningIcon size={20} class="text-red-500 flex-shrink-0 mt-0.5" />
-              <p class="text-sm text-red-500">{publishError}</p>
+              <div><p role="alert" class="text-sm text-red-500">{publishError}</p>{#if duplicateRecipeHref}<a class="underline" href={duplicateRecipeHref}>Open your existing recipe</a>{/if}</div>
+            </div>
+          {/if}
+
+          {#if publishInfo}
+            <div class="flex items-start gap-3 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
+              <CheckCircleIcon size={20} class="text-green-500 flex-shrink-0 mt-0.5" />
+              <p class="text-sm text-green-600 dark:text-green-400">{publishInfo}</p>
             </div>
           {/if}
 
           {#if isAnonPreview}
-            <!-- Sign-in CTA replaces publish/save-draft for anon preview.
-                 redirect=/souschef keeps the handoff-populated form in
-                 place (sessionStorage was already cleared on mount, but
-                 the in-memory fields persist across login). -->
+            <!-- Staged edits remain in sessionStorage through sign-in. -->
             <button
               type="button"
-              on:click={() => goto('/login?redirect=/souschef')}
+              on:click={signInToKeepRecipe}
+              disabled={!!stageStorageError}
               class="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all"
               style="background: linear-gradient(135deg, #a855f7 0%, #c084fc 100%); color: white; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);"
             >
               <SparkleIcon size={18} weight="fill" />
-              Sign in to publish
+              Sign in to save or publish
             </button>
             <p class="text-xs text-caption text-center">
               No account? You can create one in a few seconds — no email required.

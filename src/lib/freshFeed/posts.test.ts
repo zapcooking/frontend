@@ -1,0 +1,191 @@
+import { describe, it, expect } from 'vitest';
+import {
+  isRecipe,
+  postKind,
+  isOldEdit,
+  passesFreshFilters,
+  passesReaderFilters,
+  formatTimeAgo,
+  mediaUrls,
+  contentWithoutMedia,
+  getQuotedNoteId,
+  getQuotedNote,
+  decodeToEventIdHex,
+  noteHref
+} from './posts';
+import { nip19 } from 'nostr-tools';
+import type { RelayEvent } from './relay';
+import type { MuteList } from '$lib/muteFilter';
+
+const NOW = 2_000_000_000;
+const DAY = 86400;
+
+function ev(p: Partial<RelayEvent>): RelayEvent {
+  return {
+    id: 'i'.repeat(64),
+    pubkey: 'p'.repeat(64),
+    created_at: NOW - 60,
+    kind: 1,
+    tags: [],
+    content: 'hello',
+    sig: 's',
+    ...p
+  };
+}
+
+const noHell = () => false;
+
+describe('post kinds', () => {
+  it('recipes: kind 35000, or 30023 tagged zapcooking/nostrcooking (any case)', () => {
+    expect(isRecipe(ev({ kind: 35000 }))).toBe(true);
+    expect(isRecipe(ev({ kind: 30023, tags: [['t', 'ZapCooking']] }))).toBe(true);
+    expect(isRecipe(ev({ kind: 30023, tags: [['t', 'nostrcooking']] }))).toBe(true);
+    expect(isRecipe(ev({ kind: 30023, tags: [['t', 'food']] }))).toBe(false);
+    expect(isRecipe(ev({ kind: 1, tags: [['t', 'zapcooking']] }))).toBe(false);
+  });
+
+  it('maps every feed kind', () => {
+    expect(postKind(ev({ kind: 1 }))).toBe('note');
+    expect(postKind(ev({ kind: 1068 }))).toBe('poll');
+    expect(postKind(ev({ kind: 35000 }))).toBe('recipe');
+    expect(postKind(ev({ kind: 30023 }))).toBe('article');
+  });
+});
+
+describe('old edits stay out of the main feed', () => {
+  it('a long-form post published before the window is an edit', () => {
+    const old = String(NOW - 30 * DAY);
+    expect(isOldEdit(ev({ kind: 30023, tags: [['published_at', old]] }), NOW)).toBe(true);
+    expect(isOldEdit(ev({ kind: 35000, tags: [['published_at', old]] }), NOW)).toBe(true);
+  });
+
+  it('recent or missing published_at, and notes, are not', () => {
+    expect(isOldEdit(ev({ kind: 30023, tags: [['published_at', String(NOW - DAY)]] }), NOW)).toBe(
+      false
+    );
+    expect(isOldEdit(ev({ kind: 30023 }), NOW)).toBe(false);
+    expect(isOldEdit(ev({ kind: 30023, tags: [['published_at', 'garbage']] }), NOW)).toBe(false);
+    expect(isOldEdit(ev({ kind: 1, tags: [['published_at', '1']] }), NOW)).toBe(false);
+  });
+});
+
+describe('passesFreshFilters', () => {
+  const muteList: MuteList = {
+    pubkeys: [{ type: 'pubkey', value: 'b'.repeat(64) }],
+    words: [{ type: 'word', value: 'spam' }],
+    tags: [{ type: 'tag', value: 'nsfw' }],
+    threads: []
+  };
+
+  it('passes an ordinary post', () => {
+    expect(passesFreshFilters(ev({}), { muteList, isHellthread: noHell, now: NOW })).toBe(true);
+    expect(passesFreshFilters(ev({}), { muteList: null, isHellthread: noHell, now: NOW })).toBe(
+      true
+    );
+  });
+
+  it('applies mutes: people, words, hashtags', () => {
+    const ctx = { muteList, isHellthread: noHell, now: NOW };
+    expect(passesFreshFilters(ev({ pubkey: 'b'.repeat(64) }), ctx)).toBe(false);
+    expect(passesFreshFilters(ev({ content: 'buy spam now' }), ctx)).toBe(false);
+    expect(passesFreshFilters(ev({ tags: [['t', 'nsfw']] }), ctx)).toBe(false);
+  });
+
+  it('applies the hellthread rule', () => {
+    expect(passesFreshFilters(ev({}), { muteList: null, isHellthread: () => true, now: NOW })).toBe(
+      false
+    );
+  });
+
+  it('drops old edits', () => {
+    const e = ev({ kind: 30023, tags: [['published_at', String(NOW - 90 * DAY)]] });
+    expect(passesFreshFilters(e, { muteList: null, isHellthread: noHell, now: NOW })).toBe(false);
+  });
+
+  it('applies no food test or hashtag cap (the relay is curated)', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ['t', `tag${i}`]);
+    const e = ev({ content: 'a note about my bike', tags: many });
+    expect(passesFreshFilters(e, { muteList: null, isHellthread: noHell, now: NOW })).toBe(true);
+  });
+});
+
+describe('copied FoodstrFeedOptimized helpers', () => {
+  it('formatTimeAgo', () => {
+    expect(formatTimeAgo(NOW - 30, NOW)).toBe('now');
+    expect(formatTimeAgo(NOW - 600, NOW)).toBe('10m');
+    expect(formatTimeAgo(NOW - 3 * 3600, NOW)).toBe('3h');
+    expect(formatTimeAgo(NOW - 2 * DAY, NOW)).toBe('2d');
+    expect(formatTimeAgo(NOW - 400 * DAY, NOW)).toBe('1y');
+  });
+
+  it('media URLs and the text without them', () => {
+    const c = 'Dinner https://x.com/a.jpg and https://example.com/page https://v.com/b.mp4';
+    expect(mediaUrls(c)).toEqual(['https://x.com/a.jpg', 'https://v.com/b.mp4']);
+    expect(contentWithoutMedia(c)).toBe('Dinner  and https://example.com/page');
+  });
+
+  it('collapses a text duplicated in full', () => {
+    const half = 'This soup is the best thing I cooked all week';
+    expect(contentWithoutMedia(`${half} ${half}`)).toBe(half);
+  });
+});
+
+describe('quotes and note links (copied from FoodstrFeedOptimized)', () => {
+  const id = 'ab'.repeat(32);
+  const note = nip19.noteEncode(id);
+  const nevent = nip19.neventEncode({ id });
+
+  it('decodes hex, note1, nevent1 and nostr: URIs', () => {
+    expect(decodeToEventIdHex(id)).toBe(id);
+    expect(decodeToEventIdHex(note)).toBe(id);
+    expect(decodeToEventIdHex(`nostr:${nevent}`)).toBe(id);
+    expect(decodeToEventIdHex('not an id')).toBeNull();
+  });
+
+  it('prefers the q tag, then the first note reference in the text', () => {
+    const other = 'cd'.repeat(32);
+    expect(getQuotedNoteId({ tags: [['q', other]], content: `see nostr:${note}` })).toBe(other);
+    expect(getQuotedNoteId({ tags: [], content: `see nostr:${nevent} wow` })).toBe(id);
+    expect(getQuotedNoteId({ tags: [], content: 'no quote here' })).toBeNull();
+  });
+
+  it('links a note id to its page as an nevent — hinted when offered', () => {
+    const href = noteHref(id);
+    expect(href).toBe(`/${nip19.neventEncode({ id })}`);
+    const hinted = noteHref(id, 'wss://relay-a');
+    expect(hinted).toBe(`/${nip19.neventEncode({ id, relays: ['wss://relay-a'] })}`);
+    expect(noteHref('zz')).toBeNull();
+  });
+
+  it('exposes the quoted note with its q-tag relay hint', () => {
+    const other = 'cd'.repeat(32);
+    const q = getQuotedNote({ tags: [['q', other, 'wss://relay-a']], content: '' });
+    expect(q).toEqual({ id: other, relayHint: 'wss://relay-a' });
+    expect(getQuotedNote({ tags: [['q', other]], content: '' })).toEqual({ id: other });
+    expect(getQuotedNote({ tags: [], content: 'no quote here' })).toBeNull();
+  });
+
+  it('keeps a content nevent\'s own relay hint when there is no q tag', () => {
+    const hinted = nip19.neventEncode({ id, relays: ['http://nope', 'wss://relay-b'] });
+    expect(getQuotedNote({ tags: [], content: `see nostr:${hinted}` })).toEqual({
+      id,
+      relayHint: 'wss://relay-b'
+    });
+    expect(getQuotedNote({ tags: [], content: `see nostr:${note}` })).toEqual({ id });
+  });
+});
+
+describe('passesReaderFilters (recipe-box picks)', () => {
+  it('applies mutes and the hellthread rule but keeps old edits', () => {
+    const old = ev({ kind: 30023, tags: [['published_at', String(NOW - 90 * DAY)]] });
+    expect(passesReaderFilters(old, { muteList: null, isHellthread: noHell })).toBe(true);
+    expect(passesReaderFilters(old, { muteList: null, isHellthread: () => true })).toBe(false);
+    const muted: MuteList = {
+      pubkeys: [{ type: 'pubkey', value: old.pubkey }],
+      words: [],
+      tags: [],
+      threads: []
+    };
+    expect(passesReaderFilters(old, { muteList: muted, isHellthread: noHell })).toBe(false);
+  });
+});

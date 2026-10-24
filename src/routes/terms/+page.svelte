@@ -10,7 +10,7 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Terms of Service</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: March 13, 2026</p>
+    <p class="text-sm opacity-75">Last updated: September 26, 2026</p>
 
     <p>Welcome to zap.cooking. These Terms of Service ("Terms") are a legally binding agreement between you and Zap Cooking LLC ("Zap Cooking," "we," "our," or "us") governing your access to and use of our website, mobile applications, interfaces, and related services we make available (collectively, the "Service").</p>
 
@@ -70,6 +70,8 @@
 
     <!-- Section 4 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">4. Prohibited Conduct</h2>
+
+    <p>Zap Cooking has zero tolerance for objectionable content or abusive users. If you post objectionable content or abuse other users, we may remove that content and remove you from the services Zap Cooking operates — including our apps, our website, our relays, and any communities we host — without notice. Because Nostr is decentralized, we can't delete content from relays, apps, or other systems we don't operate.</p>
 
     <p>You agree not to use the Service to:</p>
 

@@ -17,9 +17,11 @@
   const MEDIA_HOST_PATTERN =
     /https?:\/\/(?:i\.)?(?:nostr\.build|imgur\.com|primal\.b-cdn\.net|image\.nostr\.build|void\.cat|m\.primal\.net|cdn\.satellite\.earth|v\.nostr\.build)[^\s]*/gi;
   const URL_PATTERN = /https?:\/\/[^\s]+/g;
-  // Negative lookbehind ensures we don't strip bech32 inside nostr: URIs
+  // The optional nostr: prefix is consumed and re-emitted so bare bech32 is
+  // stripped while nostr: URIs are preserved (no lookbehind: parse-time
+  // SyntaxError on iOS Safari < 16.4, which kills the whole module).
   const BARE_BECH32_PATTERN =
-    /(?<!nostr:)\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi;
+    /(nostr:)?\b(?:note1|nevent1|naddr1|npub1|nprofile1)[023456789ac-hj-np-z]{20,}\b/gi;
 
   function decodePubkey(bech32: string): string | null {
     try {
@@ -37,7 +39,7 @@
     let cleaned = input
       .replace(MEDIA_URL_PATTERN, '')
       .replace(MEDIA_HOST_PATTERN, '')
-      .replace(BARE_BECH32_PATTERN, '')
+      .replace(BARE_BECH32_PATTERN, (match, nostrPrefix) => (nostrPrefix ? match : ''))
       .replace(/\s+/g, ' ')
       .trim();
 

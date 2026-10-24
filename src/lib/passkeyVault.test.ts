@@ -9,6 +9,10 @@ import fixture from '../test/fixtures/vault-v1.json';
  */
 
 vi.mock('$app/environment', () => ({ browser: true }));
+// Native gate: controllable so detectSupportDetail()'s 'native' reason is
+// testable without a Capacitor runtime. Default = web.
+const platformMock = vi.hoisted(() => ({ native: false }));
+vi.mock('$lib/platform', () => ({ isNative: () => platformMock.native }));
 
 import {
   enrollPasskey,
@@ -17,11 +21,19 @@ import {
   saveVaultRecord,
   deleteVaultRecord,
   detectSupport,
+  detectHybridTransport,
+  detectSupportDetail,
+  isPromptDismissed,
+  VAULT_PROMPT_SNOOZE_MS,
   shouldOfferEnrollment,
   isCeremonyCancelled,
   PrfUnsupportedError,
   UnlockFailedError,
   VAULT_STORAGE_KEY,
+  VAULT_UNCONFIRMED_KEY,
+  isVaultUnconfirmed,
+  markVaultUnconfirmed,
+  countCancelledUnlock,
   type VaultRecord
 } from './passkeyVault';
 import { hexToBytes, bytesToB64, b64urlToBytes } from './passkeyVaultCrypto';
@@ -113,6 +125,7 @@ beforeEach(() => {
   // and detectSupport() is 'none' anywhere else, so tests must declare an
   // on-domain origin. Off-domain cases are covered explicitly below.
   vi.stubGlobal('location', { hostname: 'zap.cooking' });
+  platformMock.native = false;
 });
 
 describe('vault record storage', () => {
@@ -155,9 +168,7 @@ describe('enrollPasskey', () => {
     expect(getArgs.userVerification).toBe('required');
 
     // The persisted record decrypts with the same PRF output.
-    credentials.get.mockResolvedValue(
-      fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() })
-    );
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
     await expect(unlockPasskey(record)).resolves.toMatchObject({ privkeyHex: fixture.nsecHex });
   });
 
@@ -270,6 +281,98 @@ describe('enrollPasskey', () => {
   });
 });
 
+describe('enrollPasskey — one prompt (allowCreatePrf)', () => {
+  it('a create()-time PRF result builds the vault and skips the get(): one ceremony', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+
+    const { record, assertion, confirmed } = await enrollPasskey(
+      fixture.nsecHex,
+      fixture.pubkeyHex,
+      'Test',
+      { allowCreatePrf: true }
+    );
+
+    expect(credentials.create).toHaveBeenCalledTimes(1);
+    expect(credentials.get).not.toHaveBeenCalled();
+    expect(confirmed).toBe(false);
+    expect(assertion).toBeNull();
+    expect(getVaultRecord()).toEqual(record);
+    // create() asked for the PRF output, not just for PRF to be enabled.
+    const ext = credentials.create.mock.calls[0][0].publicKey.extensions;
+    expect(ext.prf.eval.first).toBeInstanceOf(Uint8Array);
+
+    // A get() reproducing the same PRF decrypts it.
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    await expect(unlockPasskey(record)).resolves.toMatchObject({ privkeyHex: fixture.nsecHex });
+  });
+
+  it('marks the record unconfirmed as part of saving it', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    const { record } = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test', {
+      allowCreatePrf: true
+    });
+    expect(isVaultUnconfirmed(record)).toBe(true);
+  });
+
+  it('saves nothing when the unconfirmed marker cannot be written', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    const setItem = (globalThis as any).localStorage.setItem;
+    (globalThis as any).localStorage.setItem = (k: string, v: string) => {
+      if (k === VAULT_UNCONFIRMED_KEY) throw new DOMException('quota', 'QuotaExceededError');
+      setItem(k, v);
+    };
+
+    await expect(
+      enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test', { allowCreatePrf: true })
+    ).rejects.toThrow();
+    // An unmarked record would be adopted as confirmed on the next visit.
+    expect(getVaultRecord()).toBeNull();
+  });
+
+  it('falls back to create + get when create() returns no PRF result', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfEnabled: true }));
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+
+    const { confirmed } = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test', {
+      allowCreatePrf: true
+    });
+
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(confirmed).toBe(true);
+  });
+
+  it('without allowCreatePrf a create()-time PRF is ignored: create + get, as before', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+
+    const { confirmed } = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test');
+
+    expect(credentials.create.mock.calls[0][0].publicKey.extensions).toEqual({ prf: {} });
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(confirmed).toBe(true);
+  });
+});
+
+describe('unconfirmed-vault marker', () => {
+  it('matches only the record holding that credential, and goes with the record', () => {
+    saveVaultRecord(fixtureRecord());
+    expect(isVaultUnconfirmed()).toBe(false);
+
+    markVaultUnconfirmed('some-other-credential');
+    expect(isVaultUnconfirmed()).toBe(false);
+
+    markVaultUnconfirmed(fixture.credentialIdB64url);
+    expect(isVaultUnconfirmed()).toBe(true);
+    // Cancelled unlocks add up across visits (stored with the marker).
+    expect(countCancelledUnlock()).toBe(1);
+    expect(countCancelledUnlock()).toBe(2);
+
+    deleteVaultRecord();
+    expect(store.has(VAULT_UNCONFIRMED_KEY)).toBe(false);
+    expect(isVaultUnconfirmed()).toBe(false);
+  });
+});
+
 describe('unlockPasskey', () => {
   it('decrypts the fixture record with the fixture PRF output', async () => {
     credentials.get.mockResolvedValue(
@@ -325,13 +428,17 @@ describe('unlockPasskey', () => {
   });
 });
 
-describe('detectSupport', () => {
-  function stubCapabilities(caps: (() => Promise<unknown>) | undefined) {
-    const pkc: any = function PublicKeyCredential() {};
-    if (caps) pkc.getClientCapabilities = caps;
-    vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: pkc });
-  }
+/**
+ * Window stub with an optional getClientCapabilities probe. Shared by the
+ * detectSupport / detectSupportDetail / detectHybridTransport suites.
+ */
+function stubCapabilities(caps: (() => Promise<unknown>) | undefined) {
+  const pkc: any = function PublicKeyCredential() {};
+  if (caps) pkc.getClientCapabilities = caps;
+  vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: pkc });
+}
 
+describe('detectSupport', () => {
   it("returns 'none' when PublicKeyCredential is absent", async () => {
     vi.stubGlobal('window', { isSecureContext: true });
     expect(await detectSupport()).toBe('none');
@@ -400,10 +507,181 @@ describe('detectSupport', () => {
     }
   });
 
-  it("staging.zap.cooking is a supported origin (the pre-prod test surface)", async () => {
+  it('staging.zap.cooking is a supported origin (the pre-prod test surface)', async () => {
     vi.stubGlobal('location', { hostname: 'staging.zap.cooking' });
     stubCapabilities(async () => ({ 'extension:prf': true }));
     expect(await detectSupport()).toBe('full');
+  });
+});
+
+describe('detectHybridTransport', () => {
+  it('true only on an explicit hybridTransport: true', async () => {
+    stubCapabilities(async () => ({ hybridTransport: true }));
+    expect(await detectHybridTransport()).toBe(true);
+  });
+
+  it('false on explicit hybridTransport: false', async () => {
+    stubCapabilities(async () => ({ hybridTransport: false }));
+    expect(await detectHybridTransport()).toBe(false);
+  });
+
+  // Unlike detectSupport's provisional-'full' rule, an ABSENT key is false:
+  // this signal gates optional pointer copy, so unknown must hide it —
+  // never render a pointer the sheet might not honor.
+  it('false when the key is absent, the API is missing, or the probe throws', async () => {
+    stubCapabilities(async () => ({ 'extension:prf': true }));
+    expect(await detectHybridTransport()).toBe(false);
+    stubCapabilities(undefined);
+    expect(await detectHybridTransport()).toBe(false);
+    stubCapabilities(async () => {
+      throw new Error('boom');
+    });
+    expect(await detectHybridTransport()).toBe(false);
+    stubCapabilities(async () => undefined);
+    expect(await detectHybridTransport()).toBe(false);
+  });
+});
+
+describe('detectSupportDetail — one reason per gate, detectSupport() unchanged', () => {
+  async function both() {
+    return { detail: await detectSupportDetail(), support: await detectSupport() };
+  }
+
+  it("native runtime → 'none' / native (checked first, before origin or WebAuthn)", async () => {
+    platformMock.native = true;
+    stubCapabilities(async () => ({ 'extension:prf': true }));
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'none', reason: 'native' });
+    expect(support).toBe('none');
+  });
+
+  it("off-domain origin → 'none' / unsupported-origin (even with full WebAuthn+PRF)", async () => {
+    vi.stubGlobal('location', { hostname: 'feat-x.frontend-hvd.pages.dev' });
+    stubCapabilities(async () => ({ 'extension:prf': true }));
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'none', reason: 'unsupported-origin' });
+    expect(support).toBe('none');
+  });
+
+  it("insecure context → 'none' / insecure-context (checked before WebAuthn presence)", async () => {
+    vi.stubGlobal('window', {
+      isSecureContext: false,
+      PublicKeyCredential: function PublicKeyCredential() {}
+    });
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'none', reason: 'insecure-context' });
+    expect(support).toBe('none');
+  });
+
+  it("no PublicKeyCredential → 'none' / no-webauthn", async () => {
+    vi.stubGlobal('window', { isSecureContext: true });
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'none', reason: 'no-webauthn' });
+    expect(support).toBe('none');
+  });
+
+  it("no navigator.credentials.create → 'none' / no-webauthn", async () => {
+    vi.stubGlobal('navigator', { credentials: {} });
+    stubCapabilities(async () => ({ 'extension:prf': true }));
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'none', reason: 'no-webauthn' });
+    expect(support).toBe('none');
+  });
+
+  it("extension:prf === false → 'no-prf' / no-prf", async () => {
+    stubCapabilities(async () => ({ 'extension:prf': false }));
+    const { detail, support } = await both();
+    expect(detail).toEqual({ support: 'no-prf', reason: 'no-prf' });
+    expect(support).toBe('no-prf');
+  });
+
+  it("'full' carries a null reason, for explicit true, absent key, missing probe, and a throwing probe", async () => {
+    for (const caps of [
+      async () => ({ 'extension:prf': true }),
+      async () => ({ conditionalCreate: true }), // Safari shape: key absent
+      async () => undefined,
+      async () => {
+        throw new Error('boom');
+      },
+      undefined
+    ]) {
+      stubCapabilities(caps);
+      const { detail, support } = await both();
+      expect(detail).toEqual({ support: 'full', reason: null });
+      expect(support).toBe('full');
+    }
+  });
+
+  it('gate precedence: native > origin > secure context > WebAuthn', async () => {
+    // Everything failing at once: reason must be the FIRST gate in order.
+    platformMock.native = true;
+    vi.stubGlobal('location', { hostname: 'localhost' });
+    vi.stubGlobal('window', { isSecureContext: false });
+    expect((await detectSupportDetail()).reason).toBe('native');
+    platformMock.native = false;
+    expect((await detectSupportDetail()).reason).toBe('unsupported-origin');
+    vi.stubGlobal('location', { hostname: 'zap.cooking' });
+    expect((await detectSupportDetail()).reason).toBe('insecure-context');
+    vi.stubGlobal('window', { isSecureContext: true });
+    expect((await detectSupportDetail()).reason).toBe('no-webauthn');
+  });
+});
+
+describe('isPromptDismissed — snooze decision for VAULT_PROMPT_DISMISSED_KEY', () => {
+  const NOW = Date.UTC(2026, 8, 15, 12, 0, 0);
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it('null (never dismissed) → false', () => {
+    expect(isPromptDismissed(null, NOW)).toBe(false);
+  });
+
+  it("'never' (Don't ask again) → true, at any time", () => {
+    expect(isPromptDismissed('never', NOW)).toBe(true);
+    expect(isPromptDismissed('never', NOW + 400 * DAY)).toBe(true);
+  });
+
+  it("legacy '1' → true, treated exactly like 'never'", () => {
+    expect(isPromptDismissed('1', NOW)).toBe(true);
+    expect(isPromptDismissed('1', NOW + 400 * DAY)).toBe(true);
+  });
+
+  it('ISO timestamp (Not now) → true within 30 days, false after', () => {
+    const at = new Date(NOW).toISOString();
+    expect(isPromptDismissed(at, NOW)).toBe(true);
+    expect(isPromptDismissed(at, NOW + 29 * DAY)).toBe(true);
+    expect(isPromptDismissed(at, NOW + VAULT_PROMPT_SNOOZE_MS - 1)).toBe(true);
+    expect(isPromptDismissed(at, NOW + VAULT_PROMPT_SNOOZE_MS)).toBe(false);
+    expect(isPromptDismissed(at, NOW + 31 * DAY)).toBe(false);
+  });
+
+  it('unparsable value fails open (not dismissed)', () => {
+    expect(isPromptDismissed('garbage', NOW)).toBe(false);
+    expect(isPromptDismissed('', NOW)).toBe(false);
+  });
+
+  it('a FUTURE timestamp fails open — it must not extend the snooze past 30 days', () => {
+    // Clock skew or a hand-edited value: now - at is negative, which the
+    // naive "< 30 days" check would accept and hide the prompt for up to
+    // 30 days AFTER the future instant.
+    expect(isPromptDismissed(new Date(NOW + 1000).toISOString(), NOW)).toBe(false);
+    expect(isPromptDismissed(new Date(NOW + 400 * DAY).toISOString(), NOW)).toBe(false);
+    // The exact instant still counts as a fresh snooze.
+    expect(isPromptDismissed(new Date(NOW).toISOString(), NOW)).toBe(true);
+  });
+
+  it('feeds shouldOfferEnrollment unchanged: snoozed hides, expired snooze offers', () => {
+    const base = {
+      authMethod: 'privateKey',
+      isAuthenticated: true,
+      hasPlaintextKey: true,
+      hasVault: false,
+      support: 'full' as const
+    };
+    const at = new Date(NOW).toISOString();
+    expect(shouldOfferEnrollment({ ...base, dismissed: isPromptDismissed(at, NOW) })).toBe(false);
+    expect(
+      shouldOfferEnrollment({ ...base, dismissed: isPromptDismissed(at, NOW + 31 * DAY) })
+    ).toBe(true);
   });
 });
 

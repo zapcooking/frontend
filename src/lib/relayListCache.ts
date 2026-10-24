@@ -33,6 +33,12 @@ export interface RelayListCache {
   get(pubkey: string): Promise<RelayList | null>;
   getMany(pubkeys: string[]): Promise<Map<string, RelayList>>;
   prefetch(pubkeys: string[]): void; // fire-and-forget
+  /**
+   * Overwrite the cached list from a kind-10002 event the client itself
+   * published (e.g. a Lazarus relay-list restore), so the next get() answers
+   * with the recovered list instead of the clobbered one.
+   */
+  seedFromEvent(pubkey: string, event: NDKEvent): void;
   invalidate(pubkey: string): void;
   clear(): Promise<void>;
 }
@@ -64,14 +70,6 @@ const CONFIG = {
   // IndexedDB settings
   CLEANUP_INTERVAL_MS: 30 * 60 * 1000,      // Cleanup expired entries every 30 min
   MAX_DB_ENTRIES: 10000,                    // Max entries in IndexedDB
-  
-  // Discovery relays for fetching relay lists
-  DISCOVERY_RELAYS: [
-    'wss://purplepag.es',
-    'wss://relay.damus.io',
-    'wss://nos.lol',
-    'wss://relay.primal.net'
-  ]
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -567,8 +565,8 @@ class RelayListCacheManager implements RelayListCache {
         cleanupOldEntries().catch(() => {});
       }, CONFIG.CLEANUP_INTERVAL_MS);
       
-      // Initialize DB on construction
-      initDB().catch(() => {});
+      // The IndexedDB opens on first use (get/prefetch/seed), not at
+      // module load: /feed's first paint doesn't need it.
     }
   }
   
@@ -740,8 +738,31 @@ class RelayListCacheManager implements RelayListCache {
   }
   
   /**
+   * Seed the cache from a kind-10002 event the client itself just published
+   *
+   * A successful restore must not leave the stale cached list in place — the
+   * next get() would keep answering with it. The seeded entry is written
+   * exactly like a network answer (same freshness, same persistence), so
+   * background refresh treats it normally.
+   */
+  seedFromEvent(pubkey: string, event: NDKEvent): void {
+    const relayList = parseNip65Event(event);
+    const cached: CachedRelayList = {
+      pubkey,
+      read: relayList.read,
+      write: relayList.write,
+      updatedAt: relayList.updatedAt,
+      fetchedAt: Date.now(),
+      eventCreatedAt: (event.created_at || 0) * 1000
+    };
+    memoryCache.set(pubkey, cached);
+    inFlightFetches.delete(pubkey);
+    dbPut(cached).catch(() => {});
+  }
+
+  /**
    * Invalidate cache for a specific pubkey
-   * 
+   *
    * Called when we see a newer kind:10002 event
    */
   invalidate(pubkey: string): void {

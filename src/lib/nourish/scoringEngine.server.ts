@@ -13,17 +13,24 @@
  * auth (caller's concern), request-body validation (caller's
  * concern), or pantry publishing (caller's concern).
  *
- * Behavior is identical to the pre-extraction logic in
- * `/api/nourish/+server.ts`. Non-shape outputs (LLM-derived scores)
- * are non-deterministic; only the shape/validation is preserved.
+ * Prompt v4 adds per-ingredient grams_estimate / per100g / flags.
+ * Macro arithmetic and label derivation are server-side
+ * (`macros.ts` / `servings.ts`) — the model never does recipe totals.
  */
 
 import { NOURISH_CACHE_VERSION, computeOverallScore } from './types';
-import type { AudienceScores, IngredientSignal, NourishScores } from './types';
+import type {
+	AudienceScores,
+	IngredientSignal,
+	NourishLabel,
+	NourishMacros,
+	NourishScores
+} from './types';
+import { computeMacrosAndLabels } from './macros';
 
-// ─── Prompt template (v3) ───────────────────────────────────
+// ─── Prompt template (v4) ───────────────────────────────────
 
-const NOURISH_PROMPT = `You are a recipe analysis assistant for a cooking platform. Analyze the recipe below and return nine food scores: eight Nourish health dimensions, and one Audience appeal dimension.
+const NOURISH_PROMPT = `You are a recipe analysis assistant for a cooking platform. Analyze the recipe below and return nine food scores: eight Nourish health dimensions, and one Audience appeal dimension. ALSO estimate per-ingredient edible weights, per-100g nutrition, and preference flags.
 
 SCORING RULES:
 - All scores are integers from 0 to 10.
@@ -124,6 +131,57 @@ LABELS:
 - 7-8: "Strong"
 - 9-10: "Excellent"
 
+════════ PER-INGREDIENT MACROS + FLAGS (v4) ════════
+
+For EACH ingredient in the list, also return:
+- grams_estimate: EDIBLE, AS-CONSUMED weight in grams for the WHOLE recipe (not per serving, not purchase weight).
+- per100g: { kcal, protein_g, carbs_g, fat_g } on the SAME as-consumed basis as grams_estimate.
+- flags: { seed_oil, added_sugar, red_meat, breaded, fried, bone_in } each "yes" | "no" | "unknown"
+
+BASIS RULES (critical — wrong basis is the #1 error):
+1. Dry grains / pasta / quinoa / rice / dry lentils: grams_estimate = COOKED edible weight for the whole recipe; per100g = COOKED reference values. Never use dry weight with dry per-100g (or dry weight with cooked per-100g).
+2. Bone-in / whole birds / bone-in chops: grams_estimate = EDIBLE yield only (meat + skin if eaten), NOT purchase/carcass weight. Boneless cuts: use trimmed edible weight.
+3. Pan-fried / deep-fried / breaded-and-fried items: include a reasonable absorbed-oil allowance in grams_estimate (or in the oil ingredient's grams) and use as-consumed per100g. Breading that stays on the food counts toward the breaded item's edible grams.
+4. Do NOT compute recipe or per-serving totals — the server does that.
+5. Prefer whole numbers for grams_estimate. per100g may use one decimal.
+
+FLAG RULES:
+- seed_oil "yes": canola, soybean, corn, sunflower, safflower, grapeseed, cottonseed, rice bran, "vegetable oil", shortening, margarine.
+- seed_oil "no": extra-virgin olive oil, avocado oil, coconut oil, butter, ghee, animal fats, non-oil ingredients.
+- seed_oil "unknown": ambiguous "oil", "oil for frying", "canola or olive oil", unspecified frying fat.
+- added_sugar "yes": cane/white/brown sugar, syrups, honey, maple, agave, powdered sugar as an ingredient.
+- added_sugar "no": unsweetened ingredients, fruit used as fruit.
+- added_sugar "unknown": "sugar or honey to taste", optional sweetener choice.
+- red_meat "yes": beef, pork, lamb, goat, venison, bison (muscle meat).
+- red_meat "no": poultry, fish, seafood, plant proteins, dairy, non-meat.
+- red_meat "unknown": ambiguous "meat", unspecified ground meat.
+- breaded "yes": breadcrumbs, panko, batter, flour dredge/coating, or a protein that is breaded/battered in this recipe.
+- breaded "no": uncoated ingredients; plain flour used only as a thickener in a sauce (not a dredge).
+- breaded "unknown": ambiguous coating language.
+- fried "yes": pan-fried or deep-fried application — including frying oil/fat used to fry, or a protein explicitly fried.
+- fried "no": baked, roasted, grilled, sautéed without deep/pan-fry, boiled, steamed, raw, or oil used only as a dressing/finish (not for frying).
+- fried "unknown": ambiguous "cook in oil" / unspecified method.
+- bone_in "yes": whole animal or bone-in cut — "1 whole chicken", "bone-in thighs/chops/ribs", "whole fish", "leg quarters", carcass/roast with bones. Edible yield ≠ purchase weight.
+- bone_in "no": boneless cuts (breast, tenderloin, ground meat, fillets), non-meat ingredients.
+- bone_in "unknown": ambiguous "chicken pieces" / unspecified bone status.
+
+FEW-SHOT BASIS EXAMPLES (follow these patterns):
+
+Example A — dry grain → cooked:
+Ingredient line: "1 cup dry quinoa"
+→ { "name": "quinoa", "grams_estimate": 555, "per100g": { "kcal": 120, "protein_g": 4.4, "carbs_g": 21.3, "fat_g": 1.9 }, "flags": { "seed_oil": "no", "added_sugar": "no", "red_meat": "no", "breaded": "no", "fried": "no", "bone_in": "no" } }
+(1 cup dry ≈ 170g dry → ~555g cooked; per100g is COOKED quinoa.)
+
+Example B — whole bird → edible yield:
+Ingredient line: "1 whole chicken (4 lb)"
+→ { "name": "chicken", "grams_estimate": 1100, "per100g": { "kcal": 215, "protein_g": 27, "carbs_g": 0, "fat_g": 12 }, "flags": { "seed_oil": "no", "added_sugar": "no", "red_meat": "no", "breaded": "no", "fried": "no", "bone_in": "yes" } }
+(~4 lb purchase ≈ 1810g; edible roast yield ~55–65% → ~1100g edible; NOT 1810g. bone_in=yes because whole bird.)
+
+Example C — breaded + fried with oil absorption:
+Ingredient lines: "4 chicken breasts", "1 cup breadcrumbs", "1/4 cup olive oil" (for pan-frying)
+→ chicken+breading edible grams include coating that sticks; olive oil grams_estimate reflects oil absorbed/retained in the dish (often ~30–50% of oil poured), not the full pour discarded in the pan. per100g for the cutlet is as-consumed breaded chicken; oil row uses olive-oil per100g for the absorbed portion only.
+→ flags: breadcrumbs breaded=yes fried=no bone_in=no; chicken breaded=yes fried=yes bone_in=no (boneless breasts); olive oil breaded=no fried=yes bone_in=no.
+
 Recipe Title: {{title}}
 Servings: {{servings}}
 Tags: {{tags}}
@@ -137,6 +195,7 @@ SUMMARY GUIDELINES:
 - Do NOT mention kid-friendliness or any audience score in the summary — that data is computed but not shown on the card and would confuse the reader.
 - Lead with what the recipe brings (which 1-2 dimensions it scores well on). If a dimension is light, describe it gently ("lighter on protein", "less of a focus"), never as a failure or red flag.
 - Affirming, plain language. No grades, no warnings.
+- Do NOT put calorie or gram figures in the summary.
 
 Return ONLY valid JSON with this exact structure:
 {
@@ -151,7 +210,14 @@ Return ONLY valid JSON with this exact structure:
   "kidFriendly": { "score": <number>, "label": "<string>", "reason": "<one sentence>" },
   "summary": "<1-2 sentences referencing only the eight Nourish dimensions above — no kid-friendly mention>",
   "ingredients": [
-    { "name": "<ingredient>", "signals": ["<tag>"], "contribution": "<gut|protein|realFood|neutral>" }
+    {
+      "name": "<ingredient>",
+      "signals": ["<tag>"],
+      "contribution": "<gut|protein|realFood|neutral>",
+      "grams_estimate": <number>,
+      "per100g": { "kcal": <number>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number> },
+      "flags": { "seed_oil": "yes|no|unknown", "added_sugar": "yes|no|unknown", "red_meat": "yes|no|unknown", "breaded": "yes|no|unknown", "fried": "yes|no|unknown", "bone_in": "yes|no|unknown" }
+    }
   ],
   "improvements": ["<short actionable suggestion>"]
 }
@@ -174,9 +240,7 @@ function validateLabel(label: unknown): string {
 
 function validateImprovements(raw: unknown): string[] {
 	if (!Array.isArray(raw)) return [];
-	return raw
-		.filter((s: unknown): s is string => typeof s === 'string')
-		.slice(0, 5);
+	return raw.filter((s: unknown): s is string => typeof s === 'string').slice(0, 5);
 }
 
 function validateIngredientSignals(raw: unknown): IngredientSignal[] {
@@ -210,26 +274,32 @@ export type ScoringPipelineResult =
 			improvements: string[];
 			ingredientSignals: IngredientSignal[];
 			/**
-			 * Audience scores from the v2 prompt (kidFriendly only for now).
+			 * Audience scores from the v2+ prompt (kidFriendly only for now).
 			 * Undefined if the LLM response didn't include the kidFriendly
-			 * field — shouldn't happen with the v2 prompt, but defensive
+			 * field — shouldn't happen with the current prompt, but defensive
 			 * parsing keeps the pipeline resilient to truncated responses.
 			 */
 			audienceScores?: AudienceScores;
+			/**
+			 * Estimated per-serving macros (v4). Undefined when per-ingredient
+			 * data was unusable — scores still return; macros degrade to omitted.
+			 */
+			macros?: NourishMacros;
+			/** Derived discovery labels (v4). Always an array on ok results. */
+			labels: NourishLabel[];
 	  }
 	| { ok: false; status: number; error: string };
 
 /**
  * Run the LLM scoring pipeline end-to-end.
  *
- * Behavior mirrors the pre-extraction inline logic from
- * /api/nourish/+server.ts:
  *   1. Construct prompt from input
- *   2. POST to OpenAI chat completions (gpt-4o-mini, 1500 tokens, temp 0.3)
+ *   2. POST to OpenAI chat completions (gpt-4o-mini)
  *   3. Parse JSON with markdown-fence stripping
  *   4. Clamp + validate per-dimension scores and labels
  *   5. Compute overall score via the shared weighting
  *   6. Parse improvements + ingredient signals
+ *   7. Deterministic macros + discovery labels (server-side)
  *
  * Caller is responsible for: auth/membership gating, request body
  * validation (title/ingredients non-empty), OPENAI_API_KEY
@@ -258,7 +328,8 @@ export async function runScoringPipeline(
 		body: JSON.stringify({
 			model: 'gpt-4o-mini',
 			messages: [{ role: 'system', content: prompt }],
-			max_tokens: 2000,
+			// v4 responses are larger (per-ingredient grams/per100g/flags).
+			max_tokens: 4000,
 			temperature: 0.3
 		})
 	});
@@ -291,12 +362,9 @@ export async function runScoringPipeline(
 	const gutScore = clampScore(parsed.gut?.score);
 	const proteinScore = clampScore(parsed.protein?.score);
 	const realFoodScore = clampScore(parsed.realFood?.score);
-	// Defensive parse: the v2 prompt requests these dimensions, but if
-	// the model omits a field or truncates its JSON, clampScore(undefined)
-	// falls back to 0 so the missing dimension contributes nothing to
-	// the weighted overall rather than throwing. Placeholder reason kept
-	// empty so a downstream "why this score" consumer can't mistake
-	// silence for signal.
+	// Defensive parse: if the model omits a field or truncates its JSON,
+	// clampScore(undefined) falls back to 0 so the missing dimension
+	// contributes nothing to the weighted overall rather than throwing.
 	const antiInflammatoryScore = clampScore(parsed.antiInflammatory?.score);
 	const bloodSugarScore = clampScore(parsed.bloodSugar?.score);
 	const immuneSupportiveScore = clampScore(parsed.immuneSupportive?.score);
@@ -363,9 +431,7 @@ export async function runScoringPipeline(
 		cacheVersion: NOURISH_CACHE_VERSION
 	};
 
-	// Audience — v2 prompt returns kidFriendly at the root. Defensive
-	// parse: if the model truncated output or omitted the field, leave
-	// audienceScores undefined rather than fabricating a score.
+	// Audience — defensive parse: if omitted, leave undefined.
 	let audienceScores: AudienceScores | undefined = undefined;
 	const kfRaw = parsed.kidFriendly;
 	if (kfRaw && typeof kfRaw.score === 'number') {
@@ -378,11 +444,23 @@ export async function runScoringPipeline(
 		};
 	}
 
+	const ingredientSignals = validateIngredientSignals(parsed.ingredients);
+
+	// Macros + labels: server arithmetic. Degrade to omitted macros with
+	// a logged reason; scores still return. Classification free-labels
+	// may still emit when macro rows are unusable.
+	const { macros, labels, omitReason } = computeMacrosAndLabels(parsed.ingredients, servings);
+	if (omitReason) {
+		console.warn('[Nourish] macros omitted:', omitReason);
+	}
+
 	return {
 		ok: true,
 		scores,
 		improvements: validateImprovements(parsed.improvements),
-		ingredientSignals: validateIngredientSignals(parsed.ingredients),
-		audienceScores
+		ingredientSignals,
+		audienceScores,
+		macros,
+		labels
 	};
 }

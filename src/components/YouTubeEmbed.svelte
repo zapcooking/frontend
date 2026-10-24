@@ -62,12 +62,18 @@
 >
   <div class="relative w-full bg-black" style="aspect-ratio: 16 / 9;">
     {#if playing}
+      <!-- Third-party frame: the sandbox denies top-level navigation,
+           popups, form submission and downloads. allow-scripts and
+           allow-same-origin are both required for the YouTube player to
+           function (it needs its own origin's storage); allow-presentation
+           keeps casting working. -->
       <iframe
         class="absolute inset-0 h-full w-full"
         src={embedSrc}
         title="YouTube video player"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
         referrerpolicy="strict-origin-when-cross-origin"
+        sandbox="allow-scripts allow-same-origin allow-presentation"
         allowfullscreen
       ></iframe>
     {:else}

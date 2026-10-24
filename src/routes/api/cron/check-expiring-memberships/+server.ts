@@ -75,7 +75,6 @@ export const GET: RequestHandler = async ({ request, platform }) => {
     // Use a minimal relay set for sending DMs
     const ndk = new NDK({
       explicitRelayUrls: [
-        'wss://relay.damus.io',
         'wss://nos.lol',
         'wss://purplepag.es'
       ]

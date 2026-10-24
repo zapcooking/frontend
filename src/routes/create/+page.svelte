@@ -1,10 +1,14 @@
 <script lang="ts">
+  import { sourceUrl as normalizeSourceUrl, withSourceAttribution } from '$lib/anonImport';
+  import { findSourceDuplicate } from '$lib/recipeSource';
+  import { newRecipeIdentifier } from '$lib/coordinate';
   import { writable, type Writable } from 'svelte/store';
   import TagsComboBox from '../../components/TagsComboBox.svelte';
   import StringComboBox from '../../components/StringComboBox.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { createMarkdown, validateMarkdownTemplate } from '$lib/parser';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { buildImetaTagWithAlt } from '$lib/feed/imeta';
   import type { recipeTagSimple } from '$lib/consts';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
@@ -17,6 +21,7 @@
   import MarkdownEditor from '../../components/MarkdownEditor.svelte';
   import { onMount, onDestroy, tick } from 'svelte';
   import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
+  import { getMissingFields } from '$lib/recipeValidation';
   import {
     saveDraft,
     getDraft,
@@ -34,6 +39,7 @@
 
   let title = '';
   let images: Writable<string[]> = writable([]);
+  let imageAlts: Writable<Record<string, string>> = writable({});
   let selectedTags: Writable<recipeTagSimple[]> = writable([]);
   let summary = '';
   let chefsnotes = '';
@@ -45,8 +51,10 @@
   let directionsArray: Writable<string[]> = writable([]);
   let directions = ``;
   let additionalMarkdown = '';
+  let sourceUrl = '';
 
   let resultMessage = ' ';
+  let duplicateRecipeHref: string | null = null;
   let disablePublishButton = false;
   let currentDraftId: string | null = null;
 
@@ -140,6 +148,7 @@
     const draftData = {
       title,
       images: $images,
+      imageAlts: $imageAlts,
       tags: $selectedTags,
       summary,
       chefsnotes,
@@ -148,9 +157,17 @@
       servings,
       ingredients: $ingredientsArray,
       directions: $directionsArray,
-      additionalMarkdown
+      additionalMarkdown,
+      sourceUrl: sourceUrl || undefined
     };
-    const { draftId } = saveDraft(draftData, currentDraftId || undefined, false);
+    const saveResult = saveDraft(draftData, currentDraftId || undefined, false);
+    const { draftId } = saveResult;
+    if (!draftId) {
+      // Content-less: nothing was created, or the emptied draft was deleted
+      if (saveResult.deletedId) forgetCurrentDraft();
+      lastSavedSignature = signatureAtSave;
+      return;
+    }
 
     // Only rewrite the URL when the draft id first gets assigned — avoids
     // thrashing $page and causing the editor to jump while typing.
@@ -165,6 +182,18 @@
     // so it doesn't mutate UI that's in the user's field of view.
   }
 
+  // The current draft no longer exists (emptied and deleted): drop the id
+  // and the ?draft= param so a reload doesn't report "Draft not found".
+  function forgetCurrentDraft() {
+    currentDraftId = null;
+    currentDraftSyncStatus = undefined;
+    if (browser) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('draft');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }
+
   function loadDraftById(draftId: string) {
     const draft = getDraftWithSyncState(draftId);
     if (draft) {
@@ -172,6 +201,7 @@
       currentDraftSyncStatus = draft.syncStatus;
       title = draft.title;
       images.set(draft.images);
+      imageAlts.set(draft.imageAlts || {});
       selectedTags.set(draft.tags);
       summary = draft.summary;
       chefsnotes = draft.chefsnotes;
@@ -181,6 +211,7 @@
       ingredientsArray.set(draft.ingredients);
       directionsArray.set(draft.directions);
       additionalMarkdown = draft.additionalMarkdown;
+      sourceUrl = normalizeSourceUrl(draft.sourceUrl || '');
       draftSaveMessage = 'Draft loaded';
       setTimeout(() => {
         draftSaveMessage = '';
@@ -239,6 +270,7 @@
     const draftData = {
       title,
       images: $images,
+      imageAlts: $imageAlts,
       tags: $selectedTags,
       summary,
       chefsnotes,
@@ -247,16 +279,29 @@
       servings,
       ingredients: $ingredientsArray,
       directions: $directionsArray,
-      additionalMarkdown
+      additionalMarkdown,
+      sourceUrl: sourceUrl || undefined
     };
 
     // Save with immediate sync when sync is available
     const syncAvailable = $draftSyncState.syncAvailable;
-    const { draftId, syncPromise } = saveDraft(
-      draftData,
-      currentDraftId || undefined,
-      syncAvailable
-    );
+    const saveResult = saveDraft(draftData, currentDraftId || undefined, syncAvailable);
+    const { draftId, syncPromise } = saveResult;
+    if (!draftId) {
+      // Content-less: nothing was created, or the emptied draft was deleted
+      if (saveResult.deletedId) {
+        forgetCurrentDraft();
+        draftSaveMessage = 'Empty draft removed';
+      } else {
+        draftSaveMessage = 'Add a title or some content to save a draft';
+      }
+      lastSavedSignature = draftSignature;
+      isSavingDraft = false;
+      setTimeout(() => {
+        draftSaveMessage = '';
+      }, 3000);
+      return;
+    }
     currentDraftId = draftId;
 
     // Update URL to include draft ID (without navigation)
@@ -310,18 +355,26 @@
     });
   }
 
-  // Check if all required fields are filled (for enabling publish button)
-  $: canPublish =
-    $images.length > 0 &&
-    title &&
-    $selectedTags.length > 0 &&
-    $directionsArray.length > 0 &&
-    $ingredientsArray.length > 0;
+  // Which required fields are still empty — drives the publish gate and
+  // the "Still needed" hint next to the action buttons
+  $: missingFields = getMissingFields({
+    title,
+    tags: $selectedTags,
+    ingredients: $ingredientsArray,
+    directions: $directionsArray,
+    images: $images
+  });
+  $: canPublish = missingFields.length === 0;
 
   async function publishRecipe() {
     formatStringArrays();
     disablePublishButton = true;
     try {
+      duplicateRecipeHref = await findSourceDuplicate($ndk, $userPublickey || '', sourceUrl);
+      if (duplicateRecipeHref) {
+        resultMessage = 'Error: You have already published a recipe from this link. Your draft is still saved.';
+        return;
+      }
       const md = createMarkdown(
         chefsnotes,
         preptime,
@@ -329,7 +382,7 @@
         servings,
         ingredients,
         directions,
-        additionalMarkdown
+        withSourceAttribution(additionalMarkdown, sourceUrl)
       );
       const va = validateMarkdownTemplate(md);
       if (typeof va == 'string') {
@@ -337,11 +390,14 @@
       } else if ($images.length == 0) {
         resultMessage = `Error: No Image Uploaded`;
       } else if (va) {
+        // A new recipe's d-tag, kept for the naddr below (#881: no colons).
+        const identifier = newRecipeIdentifier(title);
         const event = new NDKEvent($ndk);
         event.kind = 30023;
         event.content = md;
-        event.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
+        event.tags.push(['d', identifier]);
         event.tags.push(['title', title]);
+        if (sourceUrl) event.tags.push(['r', sourceUrl]);
         event.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
         event.tags.push([
           't',
@@ -353,6 +409,11 @@
         if ($images.length > 0) {
           for (let i = 0; i < $images.length; i++) {
             event.tags.push(['image', $images[i]]);
+          }
+          // NIP-92 imeta alt text per image (screen readers)
+          for (const img of $images) {
+            const alt = $imageAlts[img]?.trim();
+            if (alt) event.tags.push(buildImetaTagWithAlt(img, alt));
           }
         }
         $selectedTags.forEach((t) => {
@@ -402,7 +463,7 @@
         }
 
         const naddr = nip19.naddrEncode({
-          identifier: title.toLowerCase().replaceAll(' ', '-'),
+          identifier,
           pubkey: recipePubkey,
           kind: 30023
         });
@@ -544,7 +605,7 @@
     </div>
   </div>
 {:else}
-<form on:submit|preventDefault={publishRecipe} class="flex flex-col max-w-[760px] mx-auto gap-6">
+<form on:submit|preventDefault={publishRecipe} class="flex flex-col max-w-[760px] gap-6">
   <div class="flex justify-between items-center">
     <h1>Create Recipe</h1>
   </div>
@@ -632,23 +693,33 @@
   <div class="flex flex-col gap-2">
     <h3>Photos & Videos*</h3>
     <span class="text-caption">First image will be your cover photo</span>
-    <MediaUploader uploadedImages={images} />
+    <MediaUploader uploadedImages={images} altTexts={imageAlts} />
   </div>
 
+  {#if missingFields.length > 0}
+    <p class="text-sm text-caption">
+      Still needed: {missingFields.join(', ')}
+    </p>
+  {/if}
+
+  <!-- The draft status gets its own line: sharing the action row, the
+       message appeared and disappeared as drafts auto-saved and squeezed
+       the Save Draft button into changing shape. -->
+  {#if draftSaveMessage}
+    <p
+      class="text-sm text-right m-0 {currentDraftSyncStatus === 'synced'
+        ? 'text-green-500'
+        : currentDraftSyncStatus === 'error'
+          ? 'text-yellow-500'
+          : currentDraftSyncStatus === 'syncing'
+            ? 'text-blue-500'
+            : 'text-caption'}"
+    >
+      {draftSaveMessage}
+    </p>
+  {/if}
+
   <div class="flex justify-end items-center gap-2">
-    {#if draftSaveMessage}
-      <span
-        class="text-sm {currentDraftSyncStatus === 'synced'
-          ? 'text-green-500'
-          : currentDraftSyncStatus === 'error'
-            ? 'text-yellow-500'
-            : currentDraftSyncStatus === 'syncing'
-              ? 'text-blue-500'
-              : 'text-caption'}"
-      >
-        {draftSaveMessage}
-      </span>
-    {/if}
     <span
       class={resultMessage.includes('Error')
         ? 'text-red-500'
@@ -657,12 +728,17 @@
           : ''}
     >
       {resultMessage}
+      {#if duplicateRecipeHref}<a href={duplicateRecipeHref} class="underline">Open your existing recipe</a>{/if}
     </span>
+    <!-- shrink-0 + nowrap: "Save Draft" stays one line whatever text sits
+         beside it. The auto-save status used to share this row and squeeze
+         the button onto two lines as it came and went; it now has its own
+         line above, and the button never shrinks for resultMessage either. -->
     <button
       type="button"
       on:click={handleSaveDraft}
       disabled={isSavingDraft}
-      class="flex items-center gap-2 px-4 py-2.5 rounded-full bg-input hover:bg-accent-gray transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+      class="flex items-center gap-2 px-4 py-2.5 rounded-full bg-input hover:bg-accent-gray transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 whitespace-nowrap"
       title={$draftSyncState.syncAvailable
         ? 'Save draft to local & sync to relays'
         : 'Save draft locally (login with encryption to sync)'}

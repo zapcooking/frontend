@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { parseCoordinate } from '$lib/coordinate';
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -10,7 +12,8 @@
   import ListComboBox from '../../../../components/ListComboBox.svelte';
   import Button from '../../../../components/Button.svelte';
   import ImagesComboBox from '../../../../components/ImagesComboBox.svelte';
-  import { RECIPE_TAG_PREFIX_NEW, RECIPE_TAGS } from '$lib/consts';
+  import { RECIPE_TAGS } from '$lib/consts';
+  import { buildListTags, listIdentifier } from '$lib/listTags';
   import PanLoader from '../../../../components/PanLoader.svelte';
 
   $: {
@@ -84,18 +87,11 @@
       }
       event.tags.forEach(async (a) => {
         if (a[0] == 'a') {
-          const parts = a[1].split(':');
-          if (parts.length !== 3) {
+          const parsed = parseCoordinate(a[1]);
+          if (!parsed) {
             return;
           }
-          const [kind, pubkey, identifier] = parts;
-          if (
-            typeof kind !== 'string' ||
-            typeof pubkey !== 'string' ||
-            typeof identifier !== 'string'
-          ) {
-            return;
-          }
+          const { kind, pubkey, identifier } = parsed;
           const naddr = nip19.naddrEncode({
             kind: Number(kind),
             identifier: identifier,
@@ -125,37 +121,25 @@
     try {
       const nevent = new NDKEvent($ndk);
       nevent.kind = 30001;
-      if (!event.tags.find((t) => t[0] == 'd' && t[1] == 'nostrcooking-bookmarks')) {
-        nevent.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
-        nevent.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
-      } else {
-        nevent.tags.push(['d', 'nostrcooking-bookmarks']);
-      }
-      nevent.tags.push(['title', title]);
-      if (summary !== '') {
-        nevent.tags.push(['summary', summary]);
-      }
-      if ($images.length === 1) {
-        event.tags.push(['image', $images[0]]);
-      }
-      $items.forEach((e) => {
-        const decoded = nip19.decode(e.naddr);
-        if (decoded.type === 'naddr') {
-          const data = decoded.data;
-          const newAtag = `${data.kind}:${data.pubkey}:${data.identifier}`;
-          nevent.tags.push(['a', newAtag]);
-        }
-      });
-      await nevent.publish();
+      nevent.tags.push(
+        ...buildListTags({
+          sourceTags: event.tags,
+          title,
+          summary,
+          images: $images,
+          items: $items
+        })
+      );
+      await nevent.publish(await outboxRelaySet(nevent, 'list'));
       resultMessage = 'Success!';
       let naddr = nip19.naddrEncode({
-        identifier: title.toLowerCase().replaceAll(' ', '-'),
+        identifier: listIdentifier(title),
         kind: 30001,
         pubkey: nevent.pubkey
       });
       setTimeout(() => {
         if (nevent.tags.find((a) => a[0] == 'd')?.[1] == 'nostrcooking-bookmarks') {
-          goto(`/bookmarks`);
+          goto(`/my-kitchen`);
         } else {
           goto(`/list/${naddr}`);
         }

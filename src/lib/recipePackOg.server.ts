@@ -8,9 +8,12 @@
  * OG meta and the card image generator.
  */
 
+import { parseCoordinate } from './coordinate';
+import { isHiddenRecipeATag } from './consts';
+import { isExploreCurationDTag } from './landing/curation';
+
 const RELAYS = [
 	'wss://relay.primal.net',
-	'wss://relay.damus.io',
 	'wss://nos.lol'
 ];
 
@@ -177,6 +180,8 @@ export async function fetchPackMetadata(
 	dTag: string,
 	kind: number
 ): Promise<PackMetadata | null> {
+	// The org's /explore curation lists share kind 30004; they aren't packs.
+	if (isExploreCurationDTag(dTag)) return null;
 	const evt = await raceRelays({ kinds: [kind], authors: [pubkey], '#d': [dTag] });
 	if (!evt) return null;
 
@@ -186,7 +191,10 @@ export async function fetchPackMetadata(
 	const title = find('title') || find('d') || '';
 	const description = find('description') || '';
 	const image = find('image') || '';
-	const recipeATags = tags.filter((t) => t[0] === 'a' && typeof t[1] === 'string').map((t) => t[1]);
+	const recipeATags = tags
+		.filter((t) => t[0] === 'a' && typeof t[1] === 'string')
+		.map((t) => t[1])
+		.filter((a) => !isHiddenRecipeATag(a));
 
 	return {
 		title,
@@ -211,11 +219,9 @@ export async function fetchRecipePreviews(
 	const targets = aTags.slice(0, limit);
 	const results = await Promise.all(
 		targets.map(async (aTag): Promise<RecipePreview | null> => {
-			const parts = aTag.split(':');
-			if (parts.length !== 3) return null;
-			const [kindStr, pubkey, dTag] = parts;
-			const kindNum = Number(kindStr);
-			if (!Number.isFinite(kindNum) || !pubkey || !dTag) return null;
+			const parsed = parseCoordinate(aTag);
+			if (!parsed?.identifier) return null;
+			const { kind: kindNum, pubkey, identifier: dTag } = parsed;
 			const evt = await raceRelays({ kinds: [kindNum], authors: [pubkey], '#d': [dTag] });
 			if (!evt) return null;
 			const tags: string[][] = Array.isArray(evt.tags) ? evt.tags : [];

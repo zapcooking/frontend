@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import { nourishRequestHeaders } from '$lib/nourish/nourishAuth';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
   import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
   import { ingredientStore } from '$lib/nourish/ingredientStore';
@@ -79,7 +80,6 @@
 
     try {
       const body: any = {
-        pubkey: $userPublickey || '',
         text: text || 'Analyze this food image'
       };
 
@@ -87,10 +87,11 @@
         body.imageData = imageData;
       }
 
+      const bodyString = JSON.stringify(body);
       const res = await fetch('/api/nourish/scan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        headers: await nourishRequestHeaders($ndk, '/api/nourish/scan', bodyString),
+        body: bodyString
       });
 
       const data: ScanResponse = await res.json();
@@ -160,7 +161,7 @@
         <p class="lock-title">Members Only</p>
         <p class="lock-desc">Explore what your meals are made of with instant Nourish profiles.</p>
       </div>
-      <a href="/membership"><Button primary>Join</Button></a>
+      <a href="/membership"><Button primary>Unlock Cook+</Button></a>
     </div>
 
   {:else if scanResult?.scores}
@@ -209,7 +210,7 @@
     <div class="member-banner">
       <LockIcon size={14} weight="fill" />
       <span>Nourish is for <a href="/membership" class="banner-link">Zap Cooking members</a>.</span>
-      <a href="/membership" class="banner-cta">Join</a>
+      <a href="/membership" class="banner-cta">Unlock Cook+</a>
     </div>
   {/if}
   <div class="page-footer">

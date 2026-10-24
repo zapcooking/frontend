@@ -100,6 +100,16 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       );
     }
 
+    // Genesis Founder invoices share this store; they are redeemed by
+    // /api/genesis/verify-lightning-payment, not here. (A missing product
+    // is a legacy membership entry from before the field existed.)
+    if (metadata.product === 'genesis') {
+      return json(
+        { error: 'This invoice is for the Genesis Founder tier' },
+        { status: 403 }
+      );
+    }
+
     // Verify payment completion via Strike API
     const lookupId = metadata.receiveRequestId;
     const receives = await getReceiveRequestReceives(lookupId, platform);

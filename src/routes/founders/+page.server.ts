@@ -31,13 +31,16 @@ const FALLBACK_FOUNDERS = PRIORITY_FOUNDERS.map((pubkey, idx) => ({
   joined: null
 }));
 
-export const load: PageServerLoad = async ({ fetch, platform }) => {
+export const load: PageServerLoad = async ({ fetch, platform, setHeaders }) => {
+  // Never let CDN/browser cache an empty founders payload for SPA navigations.
+  setHeaders({ 'cache-control': 'private, no-store' });
+
   // Cloudflare uses platform.env, local dev uses $env
   const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
 
   if (!API_SECRET) {
     console.warn('RELAY_API_SECRET not found, using fallback founders data');
-    return { founders: FALLBACK_FOUNDERS };
+    return { founders: FALLBACK_FOUNDERS, foundersAvailable: true };
   }
 
   try {
@@ -47,7 +50,16 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
       }
     });
 
+    if (!res.ok) {
+      console.error('Founders members API returned', res.status);
+      return { founders: [], foundersAvailable: false };
+    }
+
     const data = await res.json();
+    if (!data || !Array.isArray(data.members)) {
+      console.error('Founders members API returned unexpected payload');
+      return { founders: [], foundersAvailable: false };
+    }
 
     // Filter for active Genesis Founders and get only priority ones
     const allFounders = data.members
@@ -131,9 +143,9 @@ export const load: PageServerLoad = async ({ fetch, platform }) => {
       }))
     ];
 
-    return { founders };
+    return { founders, foundersAvailable: true };
   } catch (err) {
     console.error('Failed to load founders:', err);
-    return { founders: [] };
+    return { founders: [], foundersAvailable: false };
   }
 };

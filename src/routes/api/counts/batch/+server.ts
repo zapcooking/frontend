@@ -24,11 +24,12 @@ interface BatchResponse {
   errors: string[];
 }
 
-// Relays to query for counts - prioritize fastest, most reliable
-const COUNT_RELAYS = [
-  'wss://relay.damus.io',      // 394ms - fast and reliable
-  'wss://nos.lol'              // 342ms - fastest (if it supports NIP-45)
-];
+// Relays to query for counts. Both verified answering NIP-45 COUNT on
+// 2026-07-26. relay.nostr.net replaced relay.damus.io (shutting down end of
+// July 2026, and already refusing 6 of 10 connections when measured); it holds
+// the larger kind:30023 corpus of the two, which is what keeps these
+// user-visible counts accurate.
+const COUNT_RELAYS = ['wss://relay.nostr.net', 'wss://nos.lol'];
 
 /**
  * Send a NIP-45 COUNT query to a relay

@@ -4,7 +4,7 @@
 * Sends Nostr DMs to users when their membership is about to expire.
 */
 
-import NDK, { NDKEvent, NDKPrivateKeySigner, NDKRelaySet } from '@nostr-dev-kit/ndk';
+import NDK, { NDKEvent, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
 import { nip04 } from 'nostr-tools';
 
 export interface ExpiringMember {
@@ -13,15 +13,6 @@ export interface ExpiringMember {
   tier: string;
   payment_id: string;
 }
-
-// Reliable relays for DM delivery
-const DM_RELAYS = [
-  'wss://relay.damus.io',
-  'wss://nos.lol',
-  'wss://nostr.wine',
-  'wss://relay.snort.social',
-  'wss://purplepag.es'
-];
 
 /**
 * Check for memberships expiring within the specified days

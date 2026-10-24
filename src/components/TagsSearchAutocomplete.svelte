@@ -6,15 +6,31 @@
   import { NDKRelaySet, type NDKEvent } from '@nostr-dev-kit/ndk';
   import { get } from 'svelte/store';
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
+  import { isHumanReadablePostContent, postSnippet } from '$lib/postContentReadability';
+  import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
+  import { eventIdPath } from '$lib/utils/eventUrl';
   import { feedCacheService } from '$lib/feedCache';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
+  import { recipeSearchFilters, recipeSearchResult } from '$lib/recipeSearch';
 
   export let placeholderString: string;
   export let autofocus = false;
   export let action: (query: string) => void;
+  // Global search bars pass this so submitting a keyword opens the results
+  // feed. Tag pickers leave it unset and keep picking the first match.
+  export let onSubmitQuery: ((query: string) => void) | null = null;
+
+  // The global search bars (Header, MobileSearchOverlay) pass onSubmitQuery;
+  // tag pickers (TagsComboBox in the recipe editors) don't. A tag picker only
+  // ever completes tags: no user/recipe/note rows, no network queries, and
+  // submitting adds a tag — the recipe being edited has unsaved state, so a
+  // pick must never navigate away.
+  $: isTagPicker = !onSubmitQuery;
 
   let tagquery = '';
   let showAutocomplete = false;
   let inputFocused = false;
+
   let inputEl: HTMLInputElement;
 
   // Auto-focus on mount for mobile overlays where HTML autofocus is unreliable
@@ -35,11 +51,15 @@
   // Prevent stale user search results
   let userSearchVersion = 0;
 
-  // NIP-50 full-text search via search.nostrarchives.com
-  const NIP50_SEARCH_RELAY = 'wss://search.nostrarchives.com';
+  // NIP-50 full-text search relays. Both index kind-1 posts; results are
+  // fanned in from both and deduped, so one being slow or down doesn't
+  // blank the Posts section (verified answering {kinds:[1], search} REQs).
+  const NIP50_SEARCH_RELAYS = ['wss://search.nos.today', 'wss://search.nostrarchives.com'];
   let networkSearchSub: any = null;
   let networkSearchVersion = 0;
   let networkSearchTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Subscriptions still open for the current query — keeps "No results
+  // found" from flashing while post results stream in.
 
   // Recipe cache for fast client-side search
   let recipeCache: Array<{ title: string; summary: string; naddr: string; author: string }> = [];
@@ -50,8 +70,12 @@
   function handleInputChange(event: Event) {
     const input = event.target as HTMLInputElement;
     tagquery = input.value;
+    runSearchFor(tagquery.trim());
+  }
 
-    const rawQuery = tagquery.trim();
+  // The search pipeline, callable directly — the Nostr Archives consent
+  // ask re-runs it after a decision without a synthetic input event.
+  function runSearchFor(rawQuery: string) {
     const normalizedQuery = rawQuery.toLowerCase();
 
     // Clear previous timeout
@@ -65,22 +89,51 @@
       return;
     }
 
-    // Check for note identifiers (note1 or nevent1)
-    if (normalizedQuery.startsWith('note1') || normalizedQuery.startsWith('nevent1')) {
-      try {
-        // Validate it's a proper nip19 identifier - use rawQuery for decoding
-        const decoded = nip19.decode(rawQuery);
-        if (decoded.type === 'note' || decoded.type === 'nevent') {
-          searchResults.note = { id: rawQuery };
-          searchResults.tags = [];
-          searchResults.recipes = [];
-          searchResults.users = [];
-          showAutocomplete = true;
-          return;
-        }
-      } catch {
-        // Invalid identifier, continue with normal search
+    // A mis-pasted secret key must not become a relay query: NIP-50 sends
+    // the term verbatim, so one keystroke of bad luck would publish it.
+    if (isSecretKeyInput(rawQuery)) {
+      searchResults = { tags: [], recipes: [], users: [], note: null };
+      showAutocomplete = false;
+      cancelNetworkSearch();
+      return;
+    }
+
+    // Tag pickers complete from the static tag list only. Everything past
+    // this point (NIP-19 navigation, recipe cache, user API, NIP-50 relays)
+    // exists for the search bars and must not run per keystroke in a tag
+    // field.
+    if (isTagPicker) {
+      searchResults = {
+        tags: recipeTags
+          .filter((tag) => tag.title.toLowerCase().includes(normalizedQuery))
+          .slice(0, 5),
+        recipes: [],
+        users: [],
+        note: null
+      };
+      showAutocomplete = true;
+      return;
+    }
+
+    // NIP-19 identifiers, with or without NIP-21's `nostr:` scheme — which
+    // is the form every client's copy button produces, so it is what people
+    // actually paste.
+    const target = parseNip19Input(rawQuery);
+    if (target) {
+      searchResults.tags = [];
+      searchResults.recipes = [];
+      searchResults.users = [];
+      if (target.kind === 'note') {
+        searchResults.note = { id: target.id };
+        showAutocomplete = true;
+        return;
       }
+      // Profiles and addresses have no row of their own in this dropdown;
+      // submitting navigates, which `action` below already handles.
+      searchResults.note = null;
+      showAutocomplete = false;
+      cancelNetworkSearch();
+      return;
     }
 
     // Clear note result if not a note identifier
@@ -96,11 +149,11 @@
     // Immediate recipe search (client-side cache)
     searchRecipes(normalizedQuery);
 
-    // Debounced network searches (user API + NIP-50 relay)
+    // Debounced network searches (user API + NIP-50 relays)
     searchTimeout = setTimeout(async () => {
       isSearching = true;
       try {
-        // NIP-50 recipe search fires and streams results independently
+        // NIP-50 searches fire and stream results independently
         searchNetworkRecipes(normalizedQuery);
         await searchUsers(normalizedQuery);
       } catch (e) {
@@ -130,17 +183,11 @@
       if (cachedEvents && cachedEvents.length > 0) {
         const map = new Map<string, (typeof recipeCache)[0]>();
         for (const event of cachedEvents) {
-          const title = event.tags.find((t) => t[0] === 'title')?.[1] || 'Untitled';
+          if (isBlockedFromReads(event)) continue;
+          const recipe = recipeSearchResult(event);
+          if (!recipe) continue;
           const summary = event.tags.find((t) => t[0] === 'summary')?.[1] || '';
-          const d = event.tags.find((t) => t[0] === 'd')?.[1] || '';
-          const naddr = nip19.naddrEncode({
-            kind: 30023,
-            pubkey: event.pubkey,
-            identifier: d
-          });
-          if (!map.has(naddr)) {
-            map.set(naddr, { title, summary, naddr, author: event.pubkey });
-          }
+          if (!map.has(recipe.naddr)) map.set(recipe.naddr, { ...recipe, summary });
         }
         recipeCache = Array.from(map.values());
 
@@ -165,18 +212,11 @@
       const tempMap = new Map<string, (typeof recipeCache)[0]>();
 
       recipeSubscription.on('event', (event: any) => {
-        const title = event.tags.find((t: any) => t[0] === 'title')?.[1] || 'Untitled';
-        const summary = event.tags.find((t: any) => t[0] === 'summary')?.[1] || '';
-        const d = event.tags.find((t: any) => t[0] === 'd')?.[1] || '';
-        const naddr = nip19.naddrEncode({
-          kind: 30023,
-          pubkey: event.pubkey,
-          identifier: d
-        });
-
-        if (!tempMap.has(naddr)) {
-          tempMap.set(naddr, { title, summary, naddr, author: event.pubkey });
-        }
+        if (isBlockedFromReads(event)) return;
+        const recipe = recipeSearchResult(event);
+        if (!recipe) return;
+        const summary = event.tags.find((t: string[]) => t[0] === 'summary')?.[1] || '';
+        if (!tempMap.has(recipe.naddr)) tempMap.set(recipe.naddr, { ...recipe, summary });
 
         // Update cache progressively every 10 recipes
         if (tempMap.size % 10 === 0) {
@@ -244,19 +284,18 @@
   async function searchUsers(query: string) {
     const thisVersion = ++userSearchVersion;
     try {
-      // Use profileSearchService which leverages Primal Cache API
-      const profiles = await searchProfiles(query, 5);
-
-      // If another search started after this one, discard stale results
-      if (thisVersion !== userSearchVersion) return;
-
-      searchResults.users = profiles.map((profile) => ({
-        name: getDisplayName(profile),
-        npub: profile.npub,
-        picture: profile.picture
-      }));
-
-      searchResults = searchResults;
+      // Paint each index (Primal, Nostr Archives) as it answers, then the
+      // final ranked merge; a newer search discards this one's results.
+      const paintUsers = (profiles: SearchProfile[]) => {
+        if (thisVersion !== userSearchVersion) return;
+        searchResults.users = profiles.map((profile) => ({
+          name: getDisplayName(profile),
+          npub: profile.npub,
+          picture: profile.picture
+        }));
+        searchResults = searchResults;
+      };
+      paintUsers(await searchProfiles(query, 5, { onPartial: paintUsers }));
     } catch (e) {
       // If request was superseded, don't overwrite
       if (thisVersion !== userSearchVersion) return;
@@ -310,7 +349,20 @@
     showAutocomplete = false;
   }
 
+  function selectPost(postId: string) {
+    // Navigate to the note thread page
+    try {
+      window.location.href = eventIdPath(postId);
+    } catch {
+      /* not an event id — nothing to navigate to */
+    }
+    tagquery = '';
+    searchResults = { tags: [], recipes: [], users: [], note: null };
+    showAutocomplete = false;
+  }
+
   function cancelNetworkSearch() {
+    networkSearchVersion++;
     if (networkSearchSub) {
       try { networkSearchSub.stop(); } catch { /* ignore */ }
       networkSearchSub = null;
@@ -322,23 +374,31 @@
   }
 
   async function searchNetworkRecipes(query: string) {
-    const thisVersion = ++networkSearchVersion;
     cancelNetworkSearch();
+    const thisVersion = networkSearchVersion;
 
     const ndkInstance = get(ndk);
     if (!ndkInstance) return;
 
-    // Pre-connect so the first REQ doesn't miss the relay
-    try {
-      const relay = ndkInstance.pool.getRelay(NIP50_SEARCH_RELAY, true, true);
-      if (relay.connectivity?.status !== 1) await relay.connect();
-    } catch { /* non-fatal */ }
+    // Pre-connect so the first REQ doesn't miss the relays
+    await Promise.all(
+      NIP50_SEARCH_RELAYS.map(async (url) => {
+        try {
+          const relay = ndkInstance.pool.getRelay(url, true, true);
+          if (relay.connectivity?.status !== 1) await relay.connect();
+        } catch { /* non-fatal */ }
+      })
+    );
 
     if (thisVersion !== networkSearchVersion) return;
 
-    const relaySet = NDKRelaySet.fromRelayUrls([NIP50_SEARCH_RELAY], ndkInstance, false);
+    const relaySet = NDKRelaySet.fromRelayUrls(NIP50_SEARCH_RELAYS, ndkInstance, false);
     const sub = ndkInstance.subscribe(
-      { kinds: [30023], search: query, limit: 50 },
+      // #t constrains the search to actual recipes at the source — a bare
+      // kinds:[30023] + search matches ANY longform article (fiction,
+      // spam) containing the query, which is what filled the section with
+      // non-recipes.
+      recipeSearchFilters(query, 50),
       { closeOnEose: true },
       relaySet
     );
@@ -346,18 +406,16 @@
 
     sub.on('event', (event: NDKEvent) => {
       if (thisVersion !== networkSearchVersion) return;
-      const d = event.tags.find((t: string[]) => t[0] === 'd')?.[1];
-      const title = event.tags.find((t: string[]) => t[0] === 'title')?.[1];
-      if (!d || !title) return;
-
-      const naddr = nip19.naddrEncode({ kind: 30023, pubkey: event.pubkey, identifier: d });
-      if (searchResults.recipes.some((r) => r.naddr === naddr)) return;
-
-      searchResults.recipes = [...searchResults.recipes, { title, naddr, author: event.pubkey }].slice(0, 8);
+      if (isBlockedFromReads(event)) return;
+      const recipe = recipeSearchResult(event);
+      if (!recipe || searchResults.recipes.some((r) => r.naddr === recipe.naddr)) return;
+      searchResults.recipes = [...searchResults.recipes, recipe].slice(0, 8);
       searchResults = searchResults;
     });
 
     const cleanup = () => {
+      if (thisVersion !== networkSearchVersion) return;
+      networkSearchVersion++;
       if (networkSearchTimeout) { clearTimeout(networkSearchTimeout); networkSearchTimeout = null; }
       if (networkSearchSub === sub) networkSearchSub = null;
     };
@@ -375,8 +433,10 @@
     // Initialize empty search results
     searchResults = { tags: [], recipes: [], users: [], note: null };
 
-    // Preload recipes in background for fast search
-    preloadRecipes();
+    // Recipe cache preload (and its relay subscription) is only needed by
+    // the search bars; tag pickers complete from the static tag list and
+    // never show recipe rows.
+    if (!isTagPicker) preloadRecipes();
   });
 
   onDestroy(() => {
@@ -394,13 +454,32 @@
     class="flex"
     on:submit|preventDefault={() => {
       if (tagquery.trim()) {
+        // Tag pickers never navigate — the query becomes a tag, preferring
+        // the first suggestion so Enter completes "mexi" to "Mexican".
+        if (isTagPicker) {
+          selectTag(searchResults.tags[0]?.title ?? tagquery.trim());
+          return;
+        }
+
         // If it's a note identifier, navigate directly
         if (searchResults.note) {
           selectNote(searchResults.note.id);
           return;
         }
 
-        // Select first result from search results (priority: recipes > users > tags)
+        // In a search bar, the dropdown's pick-list is for jumping to one
+        // specific thing — submitting the query means "show me posts about
+        // this", so hand it to the results feed.
+        if (onSubmitQuery) {
+          const q = tagquery.trim();
+          tagquery = '';
+          searchResults = { tags: [], recipes: [], users: [], note: null };
+          showAutocomplete = false;
+          onSubmitQuery(q);
+          return;
+        }
+
+        // Tag pickers: select first result (priority: recipes > users > tags)
         if (searchResults.recipes.length > 0) {
           selectRecipe(searchResults.recipes[0].naddr);
           return;
@@ -437,9 +516,17 @@
     <input type="submit" class="hidden" />
   </form>
 
-  {#if showAutocomplete && (searchResults.note || searchResults.tags.length > 0 || searchResults.recipes.length > 0 || searchResults.users.length > 0 || isSearching)}
+  {#if showAutocomplete && (isTagPicker || searchResults.note || searchResults.tags.length > 0 || searchResults.recipes.length > 0 || searchResults.users.length > 0 || isSearching)}
+    <!--
+      Section order: Users and Tags first. Typing a name is a people
+      lookup first; post full-text matches buried the user rows — and on
+      mobile, an iOS Safari bug (backdrop-filter on the header ancestor
+      breaks touch scrolling inside this dropdown) made anything below
+      the fold unreachable. Rows are capped so the priority sections fit
+      without scrolling.
+    -->
     <ul
-      class="max-h-[320px] overflow-y-auto absolute top-full left-0 w-full bg-input border shadow-lg rounded-xl mt-1 z-[60]"
+      class="search-ac-list max-h-[320px] overflow-y-auto absolute top-full left-0 w-full bg-input border shadow-lg rounded-xl mt-1 z-[60]"
       style="border-color: var(--color-input-border); color: var(--color-text-primary);"
     >
       {#if searchResults.note}
@@ -459,6 +546,28 @@
           <span class="text-xs text-caption font-mono">{searchResults.note.id.slice(0, 24)}...</span
           >
         </li>
+      {/if}
+
+      {#if searchResults.users.length > 0}
+        <li
+          class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b"
+          style="border-color: var(--color-input-border)"
+        >
+          👤 Users
+        </li>
+        {#each searchResults.users.slice(0, 5) as user (user.npub)}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+          <li
+            on:click={() => selectUser(user.npub)}
+            class="cursor-pointer px-3 py-2 hover:bg-accent-gray flex items-center gap-2"
+          >
+            {#if user.picture}
+              <img src={user.picture} alt="" class="w-6 h-6 rounded-full object-cover" />
+            {/if}
+            {user.name}
+          </li>
+        {/each}
       {/if}
 
       {#if searchResults.tags.length > 0}
@@ -486,9 +595,9 @@
           class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t"
           style="border-color: var(--color-input-border)"
         >
-          📖 Recipes
+          🍳 Recipes
         </li>
-        {#each searchResults.recipes as recipe (recipe.naddr)}
+        {#each searchResults.recipes.slice(0, 3) as recipe (recipe.naddr)}
           <!-- svelte-ignore a11y-click-events-have-key-events -->
           <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
           <li
@@ -496,28 +605,6 @@
             class="cursor-pointer px-3 py-2 hover:bg-accent-gray"
           >
             {recipe.title}
-          </li>
-        {/each}
-      {/if}
-
-      {#if searchResults.users.length > 0}
-        <li
-          class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t"
-          style="border-color: var(--color-input-border)"
-        >
-          👤 Users
-        </li>
-        {#each searchResults.users as user (user.npub)}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-          <li
-            on:click={() => selectUser(user.npub)}
-            class="cursor-pointer px-3 py-2 hover:bg-accent-gray flex items-center gap-2"
-          >
-            {#if user.picture}
-              <img src={user.picture} alt="" class="w-6 h-6 rounded-full object-cover" />
-            {/if}
-            {user.name}
           </li>
         {/each}
       {/if}
@@ -532,7 +619,9 @@
 
       {#if !recipeCacheLoading && !isSearching && !searchResults.note && searchResults.tags.length === 0 && searchResults.recipes.length === 0 && searchResults.users.length === 0 && tagquery.length > 0}
         <li class="px-3 py-2 text-sm text-caption text-center">
-          {#if !recipeCacheLoaded}
+          {#if isTagPicker}
+            Press Enter to add "{tagquery}" as a tag
+          {:else if !recipeCacheLoaded}
             ⏳ Loading recipes...
           {:else}
             No results found
@@ -542,3 +631,16 @@
     </ul>
   {/if}
 </div>
+
+<style>
+  /* Touch scrolling inside this dropdown is dead on iOS Safari: the
+     header ancestor carries backdrop-filter, which breaks touch scrolling
+     for positioned descendants. These properties restore the pan gesture;
+     the row caps above keep the priority sections fitting without needing
+     it at all. */
+  .search-ac-list {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+</style>

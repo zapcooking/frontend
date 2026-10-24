@@ -3,6 +3,11 @@
  * 
  * Returns 404 when membership is disabled via MEMBERSHIP_ENABLED environment variable.
  * This gate ensures membership pages are inaccessible until explicitly enabled.
+ *
+ * Local development: a 404 on /membership almost always means this flag is
+ * unset in `.env`. Set `MEMBERSHIP_ENABLED=true` (this route + the
+ * membership API) and `PUBLIC_MEMBERSHIP_ENABLED=true` (client-side Cook+
+ * discovery modal). See the MEMBERSHIP CONFIGURATION block in `.env.example`.
  */
 
 import { error } from '@sveltejs/kit';

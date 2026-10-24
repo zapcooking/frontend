@@ -1,6 +1,33 @@
 name = "zap-cooking-cron"
 main = "index.js"
-compatibility_date = "2024-01-01"
+# Zap Cooking ORG account, pinned. Seth's OAuth token spans two accounts
+# and wrangler silently defaults to the personal one in non-interactive
+# runs — a deploy without this pin lands a SECOND copy of this worker in
+# the wrong account (double cron fires, bindings to unreachable DBs).
+account_id = "2d2f9386809ef6f9cda581aa16dff31c"
+# Bumped from 2024-01-01 for outbound-WebSocket client support
+# (SimplePool needs `new WebSocket()`); matches the Pages project date.
+compatibility_date = "2025-01-01"
+# This worker is cron-only — no HTTP surface to expose.
+workers_dev = false
+
+# Retain logs so post-hoc questions ("did the 09:00 tick run clean?",
+# "what did the sweep record?") are answerable from the CLI/dashboard
+# instead of requiring a live tail at the moment of failure.
+[observability]
+enabled = true
 
 [triggers]
-crons = ["0 9 * * *"]
+# 09:00 daily = membership-expiry check; minutely = scheduled-posts
+# sweep. index.js routes on event.cron — keep both lists in sync.
+crons = ["0 9 * * *", "* * * * *"]
+
+# PRODUCTION scheduler DB, deliberately. This worker must NEVER bind
+# zapcooking-scheduler-preview: preview rows come from preview/staging
+# deployments and must never be broadcast to relays. Companion secret:
+# SCHEDULE_ENC_KEY (wrangler secret put), same value as the Pages
+# project's or the sweep can't decrypt what the API encrypted.
+[[d1_databases]]
+binding = "SCHEDULER_DB"
+database_name = "zapcooking-scheduler"
+database_id = "5d5572d0-d1aa-4b31-87e8-b0b15ded68a5"

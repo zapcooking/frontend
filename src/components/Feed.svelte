@@ -19,6 +19,10 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import RecipeCard from './RecipeCard.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
+  import { isHiddenRecipeEvent } from '$lib/consts';
+  import { muteListStore } from '$lib/muteListStore';
+  import { withoutMuted } from '$lib/muteFilter';
+  import { hideImagelessRecipesSetting, hasRecipeImage } from '$lib/recipeImageFilterSettings';
 
   export let events: NDKEvent[];
   export let hideHide = false;
@@ -45,12 +49,14 @@
     // Perform validation checks
     const hasContent = Boolean(e.content && e.content.trim() !== '');
     const notDeleted = !e.tags.some((t) => t[0] === 'deleted');
+    // Site-wide hide list (applies to lists too, so no `lists` bypass)
+    const notHidden = !isHiddenRecipeEvent(e);
 
     // For lists, skip markdown validation
     // For recipes, validate markdown structure
     const validStructure = lists || typeof validateMarkdownTemplate(e.content) !== 'string';
 
-    const isValid: boolean = hasContent && notDeleted && validStructure;
+    const isValid: boolean = hasContent && notDeleted && notHidden && validStructure;
 
     // Cache the result
     if (eventId) {
@@ -62,8 +68,19 @@
   }
 
   // Reactive filtering - only re-runs when events array changes
-  // Uses memoized validation so each event is only validated once
-  $: filteredEvents = events.filter(isValidEvent);
+  // Uses memoized validation so each event is only validated once.
+  // The reader's mute list (NIP-51 + local) applies to every recipe grid:
+  // tag, list, explore and profile pages hand their events straight here.
+  //
+  // "Hide recipes without images" (device-local setting) also applies to every
+  // recipe grid. List grids are exempt: list events often have no cover image
+  // and fall back to a placeholder by design.
+  $: filteredEvents = withoutMuted(
+    $muteListStore.muteList,
+    events
+      .filter(isValidEvent)
+      .filter((e) => lists || !$hideImagelessRecipesSetting || hasRecipeImage(e))
+  );
 </script>
 
 {#if filteredEvents.length > 0}

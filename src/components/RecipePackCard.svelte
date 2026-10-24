@@ -17,6 +17,7 @@
   import { lazyLoad } from '$lib/lazyLoad';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { savedPacksStore } from '$lib/savedPacksStore';
+  import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
   import { ndk, userPublickey } from '$lib/nostr';
   import {
     fetchEngagement,
@@ -24,7 +25,6 @@
     getEngagementStore
   } from '$lib/engagementCache';
   import { showToast } from '$lib/toast';
-  import { goto } from '$app/navigation';
   import { onMount, onDestroy } from 'svelte';
 
   /**
@@ -90,21 +90,18 @@
   })();
 
   onMount(() => {
-    if (event?.id) fetchEngagement($ndk, event.id, $userPublickey);
+    if (event?.id) fetchEngagement($ndk, event, $userPublickey);
   });
 
   function openZapModal() {
-    if (!$userPublickey) {
-      goto('/login?redirect=' + encodeURIComponent(window.location.pathname));
-      return;
-    }
+    // Signed out, the zap sheet itself offers sign-in or an anonymous zap.
     zapModalOpen = true;
   }
 
   function handleZapComplete(e: CustomEvent<{ amount: number }>) {
     if (event?.id) {
       optimisticZapUpdate(event.id, (e.detail.amount || 0) * 1000, $userPublickey);
-      fetchEngagement($ndk, event.id, $userPublickey);
+      fetchEngagement($ndk, event, $userPublickey);
     }
   }
 
@@ -122,13 +119,12 @@
 
   async function handleBookmark() {
     if (bookmarkBusy || !event) return;
-    if (!$userPublickey) {
-      goto('/login?redirect=' + encodeURIComponent(window.location.pathname));
-      return;
-    }
+    // Resuming after sign-in saves, never unsaves (save() is idempotent).
+    const resuming = !isSignedIn();
+    if (!(await requireAuth({ kind: 'save', reason: 'Sign in to save this pack' }))) return;
     bookmarkBusy = true;
     try {
-      if (isBookmarked) {
+      if (isBookmarked && !resuming) {
         const ok = await savedPacksStore.unsave(event);
         if (ok) showToast('info', 'Removed from saved packs.');
         else showToast('error', 'Could not update saved packs.');
@@ -302,6 +298,7 @@
       : ''}
     title={title || 'Recipe Pack'}
     imageUrl={image || ''}
+    authorPubkey={event.pubkey || ''}
   />
 {/if}
 

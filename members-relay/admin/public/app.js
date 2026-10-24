@@ -475,7 +475,7 @@ function app() {
         },
 
         fetchProfilesFromRelay(pubkeys) {
-            const relays = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://nos.lol'];
+            const relays = ['wss://purplepag.es', 'wss://nos.lol'];
             const subId = 'profiles_' + Math.random().toString(36).slice(2, 8);
             const remaining = new Set(pubkeys);
             let completed = 0;

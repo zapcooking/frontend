@@ -29,14 +29,31 @@
 	import ImageIcon from 'phosphor-svelte/lib/Image';
 	import VideoIcon from 'phosphor-svelte/lib/Video';
 	import ClockIcon from 'phosphor-svelte/lib/Clock';
+	import PlusIcon from 'phosphor-svelte/lib/Plus';
+	import CaretLeftIcon from 'phosphor-svelte/lib/CaretLeft';
+	import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
+	import HammerIcon from 'phosphor-svelte/lib/Hammer';
 	import GifPicker from '../GifPicker.svelte';
 	import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
 	import PollCreator from '../PollCreator.svelte';
 	import { buildPollTags, type PollConfig } from '$lib/polls';
 	import { uploadImage, uploadVideo } from '$lib/mediaUpload';
+	import {
+		composeNoteContent,
+		imetaTagsForMedia,
+		attachableUrlCandidates,
+		removeBareUrlOccurrence,
+		type MediaAttachment
+	} from '$lib/composerMedia';
+	import { isVideoUrl } from '$lib/feed/imeta';
 	import { postComment as postCommentLib } from '$lib/comments/postComment';
+	import { saveReplyDraft, getReplyDraft, deleteReplyDraft } from '$lib/replyDraftStore';
+	import AltTextEditorModal from '../AltTextEditorModal.svelte';
 	import { showToast } from '$lib/toast';
 	import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
+	import { POW_LEVELS, isPowBits, powLevelFor } from '$lib/pow';
+	import { miningOp } from '$lib/stores/miningOp';
+	import { startMinedReply, type ReplyDraft } from '$lib/comments/minedReply';
 	import NoteContent from '../NoteContent.svelte';
 	import CustomName from '../CustomName.svelte';
 
@@ -73,30 +90,218 @@
 	/** Compact variant — smaller padding/font for inline-reply composers. */
 	export let compact = false;
 
+	/** Focus the editor on mount (modal composers). */
+	export let autoFocus = false;
+
+	/**
+	 * Draft persistence key — the id of the note being replied to. When
+	 * set, the composer restores its draft on mount, snapshots it on blur
+	 * and on close (the parent calls saveDraft()), and deletes it once the
+	 * reply posts. Replies keep their own store, separate from note drafts.
+	 */
+	export let draftKey: string | undefined = undefined;
+
 	/**
 	 * Fired after a successful post with the published event. Used by callers
 	 * that want optimistic add (`sub.addLocal(event)`) or a refresh hook.
+	 *
+	 * A notification, not a cue to dismiss this composer — listen for `close`
+	 * for that. A proof-of-work reply publishes from a background service after
+	 * this composer has already closed, so this can fire a minute later, while
+	 * the member may be typing a different reply in the same host.
 	 */
 	export let onPosted: ((event: NDKEvent) => void) | null = null;
 
-	const dispatch = createEventDispatcher<{ cancel: void }>();
+	/**
+	 * True while a submit is in flight — signing and publishing. Bindable so a
+	 * wrapping modal can lock itself: closing mid-post unmounts this component
+	 * and drops the draft the failure path would have restored.
+	 */
+	export let posting = false;
+
+	/**
+	 * `cancel`: the member backed out; `close`: this composer is done — the
+	 * reply went out, or was handed to the background miner — and its host
+	 * should dismiss it.
+	 */
+	const dispatch = createEventDispatcher<{ cancel: void; close: void }>();
 
 	// Composer state — local to this component.
 	let composerEl: HTMLDivElement;
 	let composerText = '';
 	let lastRendered = '';
-	let posting = false;
 	let showGifPicker = false;
 	let showPollCreator = false;
 	let pollConfig: PollConfig | null = null;
-	let uploadedImages: string[] = [];
-	let uploadedVideos: string[] = [];
+	// Attachments are ordered slots on the draft, never text in the editor —
+	// the same single-array model as the main composer ($lib/composerMedia).
+	// The array order is the only ordering that exists.
+	let media: MediaAttachment[] = [];
 	let uploadingImage = false;
 	let uploadingVideo = false;
 	let uploadError = '';
 	let imageInputEl: HTMLInputElement;
 	let videoInputEl: HTMLInputElement;
 	let showMediaMenu = false;
+
+	// Per-image alt editor (shared modal)
+	let altModalOpen = false;
+	let altModalUrl = '';
+	let altModalInitial = '';
+
+	function openAltEditor(url: string) {
+		altModalUrl = url;
+		altModalInitial = media.find((m) => m.url === url)?.alt ?? '';
+		altModalOpen = true;
+	}
+
+	function saveAltEditor(e: CustomEvent<{ text: string }>) {
+		const url = altModalUrl;
+		if (!url) return;
+		media = media.map((m) => (m.url === url ? { ...m, alt: e.detail.text || undefined } : m));
+	}
+
+	// ── Reordering: two mechanisms, one array ─────────────────────
+	// Drag and drop on the thumbnails (enabled only when there is more than
+	// one), plus arrow steppers — HTML5 drag never fires on touch, so
+	// without steppers a phone or a keyboard would have no reordering at
+	// all. The alt editor is keyed by URL, so a reorder while it is open
+	// cannot invalidate what it edits.
+	let dragIndex: number | null = null;
+	let dropIndex: number | null = null;
+
+	function moveMedia(from: number | null, to: number) {
+		if (from === null || from === to) return;
+		if (from < 0 || to < 0 || from >= media.length || to >= media.length) return;
+		const moved = media.splice(from, 1)[0];
+		media.splice(to, 0, moved);
+		media = media;
+	}
+
+	function handleThumbDragStart(e: DragEvent, index: number) {
+		if (media.length < 2) return;
+		dragIndex = index;
+		// Firefox refuses to start a drag without payload data.
+		e.dataTransfer?.setData('text/plain', String(index));
+		if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+	}
+
+	function handleThumbDragOver(e: DragEvent, index: number) {
+		if (dragIndex === null) return;
+		e.preventDefault(); // without it the drop never fires
+		dropIndex = index;
+	}
+
+	function handleThumbDrop(e: DragEvent, index: number) {
+		e.preventDefault();
+		moveMedia(dragIndex, index);
+	}
+
+	function handleThumbDragEnd() {
+		// State drives the highlight on every cell, so clearing it here
+		// clears all of them — a cancelled drag leaves no highlight.
+		dragIndex = null;
+		dropIndex = null;
+	}
+
+	// ── Thumbnail loading ─────────────────────────────────────────
+	// A just-uploaded URL can 404 for a second or two while the host
+	// finishes writing it. An <img> tries exactly once, so without a retry
+	// the thumbnail is blank forever — and the URL is in the draft either
+	// way. Retry a couple of times with a cache-busting query, then say the
+	// cell failed.
+	const THUMB_RETRIES = 2;
+	let thumbRetries: Record<string, number> = {};
+	let thumbFailed: Record<string, boolean> = {};
+	const thumbRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+	function thumbSrc(url: string): string {
+		const attempt = thumbRetries[url] ?? 0;
+		if (!attempt) return url;
+		return `${url}${url.includes('?') ? '&' : '?'}zc-retry=${attempt}`;
+	}
+
+	function handleThumbError(url: string) {
+		const attempt = (thumbRetries[url] ?? 0) + 1; // the retry that just failed
+		if (attempt > THUMB_RETRIES) {
+			thumbFailed = { ...thumbFailed, [url]: true };
+			return;
+		}
+		const timer = setTimeout(() => {
+			thumbRetryTimers.delete(url);
+			thumbRetries = { ...thumbRetries, [url]: attempt };
+		}, 700 * attempt);
+		thumbRetryTimers.set(url, timer);
+	}
+
+	function forgetThumb(url: string) {
+		const timer = thumbRetryTimers.get(url);
+		if (timer) clearTimeout(timer);
+		thumbRetryTimers.delete(url);
+		if (url in thumbRetries) {
+			const next = { ...thumbRetries };
+			delete next[url];
+			thumbRetries = next;
+		}
+		if (url in thumbFailed) {
+			const next = { ...thumbFailed };
+			delete next[url];
+			thumbFailed = next;
+		}
+	}
+
+	function resetThumbState() {
+		for (const timer of thumbRetryTimers.values()) clearTimeout(timer);
+		thumbRetryTimers.clear();
+		thumbRetries = {};
+		thumbFailed = {};
+	}
+
+	// ── Paste-to-attach offers ────────────────────────────────────
+	// Bare URLs alone on their line are offered, never auto-converted;
+	// offers derive live from the text, so consuming or editing away an
+	// occurrence retires its offer on its own. A dismissal expires when
+	// its line does — a deliberate no is not a forever no (sidecar #356).
+	let dismissedOfferUrls = new Set<string>();
+
+	function pruneDismissedOffers(text: string) {
+		const live = new Set(attachableUrlCandidates(text));
+		let changed = false;
+		for (const url of dismissedOfferUrls) {
+			if (!live.has(url)) {
+				dismissedOfferUrls.delete(url);
+				changed = true;
+			}
+		}
+		if (changed) dismissedOfferUrls = dismissedOfferUrls;
+	}
+
+	$: pruneDismissedOffers(composerText);
+	$: attachOffers = attachableUrlCandidates(composerText).filter(
+		(url) => !dismissedOfferUrls.has(url)
+	);
+
+	function dismissAttachOffer(url: string) {
+		const next = new Set(dismissedOfferUrls);
+		next.add(url);
+		dismissedOfferUrls = next;
+	}
+
+	function acceptAttachOffer(url: string) {
+		const current = composerEl ? mentionCtrl.extractText() : composerText;
+		const next = removeBareUrlOccurrence(current, url);
+		if (next === current) return; // occurrence already consumed — stale offer
+		composerText = next;
+		if (composerEl) {
+			mentionCtrl.syncContent(composerText);
+			lastRendered = composerText;
+		}
+		// Every accepted occurrence adds a slot — attaching the same image
+		// twice is allowed and the note carries its URL twice, exactly as
+		// pasting it twice in the text era did. imeta stays one tag per
+		// picture (deduped by URL at publish in $lib/composerMedia).
+		media = [...media, { url, isVideo: isVideoUrl(url) }];
+	}
 
 	// Send countdown
 	let showCountdown = false;
@@ -197,13 +402,108 @@
 
 	onMount(() => {
 		loadTimerSettings();
+		// A closed reply box left words behind — bring them back. Text goes
+		// through composerText with lastRendered left stale, so the existing
+		// reactive sync renders it once the mention controller has bound the
+		// editor (binding is reactive and lands after onMount — the same race
+		// autoFocus's setTimeout works around; calling syncContent here would
+		// be a no-op on an unbound controller).
+		if (draftKey) {
+			const draft = getReplyDraft(draftKey, $userPublickey);
+			if (draft) {
+				media = [...draft.media];
+				pollConfig = draft.poll;
+				composerText = draft.text;
+			}
+		}
+		if (autoFocus) {
+			// The mention controller binds the editor reactively; wait a tick
+			// so focus lands after wiring rather than being overwritten.
+			setTimeout(() => composerEl?.focus(), 0);
+		}
 	});
 
+	// ── Draft persistence (inline composers; the modal also calls these) ──
+
+	/** Snapshot the current state as this target's reply draft (no-op empty). */
+	export function saveDraft(): void {
+		if (!draftKey) return;
+		// Mid-send: the optimistic clear would snapshot an empty draft and
+		// delete the record; the post path owns the draft from here.
+		if (posting || $miningOp !== null) return;
+		const text = composerEl ? mentionCtrl.extractText() : composerText;
+		saveReplyDraft(draftKey, $userPublickey || '', { text, media: [...media], poll: pollConfig });
+	}
+
+
+	// ── Proof of work ─────────────────────────────────────────────
+	//
+	// Same setting and same ladder as the note composer: a reply is a note,
+	// and a relay weighing proof of work does not care which surface it was
+	// typed in. Seeded from Settings and never written back — how hard to mine
+	// is a decision about THIS reply.
+	let powBits: number | null = null;
+	// Re-seeded whenever the SETTING changes, not once on mount: a reply
+	// composer can sit mounted in a thread across a trip to Settings, and
+	// seeding once meant turning proof of work on over there and replying from
+	// a composer that never heard about it.
+	let powSettingSeen: number | null | undefined = undefined;
+	$: {
+		const fromSettings = isPowBits($timerSettings.powBits) ? $timerSettings.powBits : null;
+		if (fromSettings !== powSettingSeen) {
+			powSettingSeen = fromSettings;
+			powBits = fromSettings;
+		}
+	}
+
+	function cyclePow() {
+		const order: (number | null)[] = [null, ...POW_LEVELS.map((l) => l.bits)];
+		const at = order.indexOf(powBits);
+		powBits = order[(at + 1) % order.length];
+	}
+
+	/**
+	 * Mining runs OUTSIDE the composer — see $lib/comments/minedReply. The
+	 * wait can run to the better part of a minute, and a composer that has to
+	 * stay mounted for it keeps the reply modal (and the blur behind it) on
+	 * screen the whole time. handleSubmit hands the finished draft to the
+	 * service and closes; the service reports into the floating indicator and
+	 * finishes the post on its own, and the mine survives the thread being
+	 * left. Stopped or failed, the service writes the draft back through
+	 * $lib/replyDraftStore — the same store this composer restores from on
+	 * mount — so the words come back when the reply box reopens; a host that
+	 * keeps this composer mounted gets them back in place (restoreHandedOff).
+	 * saveDraft()'s guard above keeps blur from snapshotting mid-hand-off.
+	 */
+
+	let destroyed = false;
+
+	/**
+	 * Take a stopped or failed mine's words back in place. For hosts that keep
+	 * this composer mounted through the hand-off (a thread's permanent reply
+	 * box) and so never remount to read the store; a host that closes on
+	 * `close` has destroyed this instance and gets the store write instead.
+	 * Only while this composer still answers the same note and is still empty
+	 * — never over a newer reply the reader has started here.
+	 */
+	function restoreHandedOff(targetId: string, returned: ReplyDraft): boolean {
+		if (destroyed || (replyTo ?? parentEvent).id !== targetId) return false;
+		if (composerText.trim() || media.length > 0 || pollConfig) return false;
+		// Same render path as the failure branch below: lastRendered is still
+		// '' from clearState, so the reactive sync repaints the editor.
+		media = [...returned.media];
+		pollConfig = returned.poll;
+		composerText = returned.text;
+		return true;
+	}
+
 	onDestroy(() => {
+		destroyed = true;
 		// Clears any pending mention-search timeout so it can't fire after
 		// unmount and trigger state updates on a destroyed component.
 		mentionCtrl.destroy();
 		if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+		resetThumbState();
 	});
 
 	async function handleImageUpload(e: Event) {
@@ -215,7 +515,7 @@
 		try {
 			for (const file of Array.from(files)) {
 				const url = await uploadImage($ndk, file);
-				uploadedImages = [...uploadedImages, url];
+				media = [...media, { url, isVideo: false }];
 			}
 		} catch (err: unknown) {
 			uploadError = (err as Error)?.message || 'Failed to upload image.';
@@ -231,6 +531,9 @@
 			.map((item) => item.getAsFile())
 			.filter((f): f is File => f !== null);
 		if (imageFiles.length === 0) {
+			// Paste inserts text, always — bare URLs on URL-only lines
+			// surface as "Attach this media" offers instead (same shared
+			// rule as the main composer, never auto-converted).
 			mentionCtrl.handlePaste(e);
 			return;
 		}
@@ -242,7 +545,7 @@
 			for (const file of imageFiles) {
 				newUrls.push(await uploadImage($ndk, file));
 			}
-			uploadedImages = [...uploadedImages, ...newUrls];
+			media = [...media, ...newUrls.map((url) => ({ url, isVideo: false }))];
 		} catch (err: unknown) {
 			uploadError = (err as Error)?.message || 'Failed to upload image.';
 		} finally {
@@ -259,7 +562,7 @@
 		try {
 			for (const file of Array.from(files)) {
 				const url = await uploadVideo($ndk, file);
-				uploadedVideos = [...uploadedVideos, url];
+				media = [...media, { url, isVideo: true }];
 			}
 		} catch (err: unknown) {
 			uploadError = (err as Error)?.message || 'Failed to upload video.';
@@ -269,19 +572,20 @@
 		}
 	}
 
-	function removeImage(index: number) {
-		uploadedImages = uploadedImages.filter((_, i) => i !== index);
-	}
-
-	function removeVideo(index: number) {
-		uploadedVideos = uploadedVideos.filter((_, i) => i !== index);
+	// Removing an attachment is a splice, with no text to clean up.
+	function removeMedia(index: number) {
+		const removed = media[index];
+		if (removed) forgetThumb(removed.url);
+		media = media.filter((_, i) => i !== index);
 	}
 
 	function clearState() {
 		composerText = '';
 		lastRendered = '';
-		uploadedImages = [];
-		uploadedVideos = [];
+		media = [];
+		dragIndex = null;
+		dropIndex = null;
+		resetThumbState();
 		pollConfig = null;
 		uploadError = '';
 		showPreview = false;
@@ -292,22 +596,34 @@
 	}
 
 	function handleCancel() {
+		// Flush before clearState wipes the words — the Cancel button is the
+		// one close path where the composer destroys its own state first.
+		saveDraft();
 		clearState();
 		dispatch('cancel');
 	}
 
 	async function handleSubmit() {
-		if (
-			(!composerText.trim() &&
-				uploadedImages.length === 0 &&
-				uploadedVideos.length === 0 &&
-				!pollConfig) ||
-			posting
-		) {
+		if ((!composerText.trim() && media.length === 0 && !pollConfig) || posting) {
+			return;
+		}
+
+		// One mine at a time: the miner keeps a single worker whose loop never
+		// yields, so a second reply started underneath the first would sit
+		// unread behind it and look hung.
+		if (get(miningOp)) {
+			showToast('info', 'Still mining your last note — one at a time');
 			return;
 		}
 
 		posting = true;
+		// Declared outside the try so the catch can restore it; reassigned
+		// below once the final text is extracted.
+		let draftSnapshot: ReplyDraft = {
+			text: composerText,
+			media: [...media],
+			poll: pollConfig
+		};
 		try {
 			if (composerEl) {
 				composerText = mentionCtrl.extractText();
@@ -315,21 +631,63 @@
 			}
 
 			let content = mentionCtrl.replacePlainMentions(composerText.trim());
-			const mediaUrls = [...uploadedImages, ...uploadedVideos];
+			const mediaSnapshot = [...media];
 			const capturedPollConfig = pollConfig;
+			// Snapshot what the member typed BEFORE clearing. The composer is
+			// cleared optimistically so a successful post feels instant, but
+			// the publish below can still fail — and without this the draft is
+			// gone and the error toast's "please try again" has nothing to try
+			// again with. Holds the pre-processing state (raw text, ordered
+			// slots, poll config), not the built `content`, so a restore gives
+			// back exactly what was typed rather than the mention-substituted
+			// form.
+			draftSnapshot = {
+				text: composerText,
+				media: [...media],
+				poll: pollConfig
+			};
 			clearState();
-			if (mediaUrls.length > 0) {
-				const mediaText = mediaUrls.join('\n');
-				content = content ? `${content}\n\n${mediaText}` : mediaText;
-			}
+			// Prose plus media URLs in draft order — the shared composition
+			// the main composer and Preview both use.
+			content = composeNoteContent(content, mediaSnapshot);
 
 			const extraTags: string[][] = [];
 			const mentions = mentionCtrl.parseMentions(content);
 			for (const pubkey of mentions.values()) {
 				extraTags.push(['p', pubkey]);
 			}
+			// NIP-92 imeta alt text per described attachment, in draft order
+			// (shared builder — same wire format as the main composer). Read
+			// from the snapshot — clearState() has already emptied the live
+			// state by this point.
+			extraTags.push(...imetaTagsForMedia(mediaSnapshot));
 			if (capturedPollConfig) {
 				extraTags.push(...buildPollTags(capturedPollConfig));
+			}
+			const contentKind = capturedPollConfig ? 1068 : undefined;
+
+			if (powBits) {
+				const handedOffTarget = (replyTo ?? parentEvent).id;
+				// Hand the mine off and get out of the way: the service mines,
+				// signs and publishes on its own and reports into the floating
+				// indicator. The draft on disk is still exactly what was handed
+				// over — the service deletes it on success and refreshes it on
+				// a stop or a failure.
+				void startMinedReply({
+					ndk: $ndk,
+					parentEvent,
+					replyTo,
+					content,
+					extraTags,
+					contentKind,
+					bits: powBits,
+					draft: draftSnapshot,
+					pubkey: $userPublickey || '',
+					onPosted,
+					restoreInPlace: (returned) => restoreHandedOff(handedOffTarget, returned)
+				});
+				dispatch('close');
+				return;
 			}
 
 			const { event: posted } = await postCommentLib($ndk, {
@@ -337,12 +695,23 @@
 				replyTo,
 				content,
 				extraTags,
-				contentKind: capturedPollConfig ? 1068 : undefined,
+				contentKind,
 				signingStrategy: 'explicit-with-timeout'
 			});
 
+			if (draftKey) deleteReplyDraft(draftKey);
 			onPosted?.(posted);
+			dispatch('close');
 		} catch (error) {
+			// Put the draft back. The optimistic clear above assumed success;
+			// this is the branch where that assumption was wrong, and the
+			// member should not lose what they wrote. Restoring composerText
+			// while lastRendered is still '' (clearState reset both) is what
+			// re-renders the contenteditable, via the reactive syncContent
+			// block above.
+			composerText = draftSnapshot.text;
+			media = draftSnapshot.media;
+			pollConfig = draftSnapshot.poll;
 			// Technical details to console; human-friendly message to the user.
 			console.error('[ReplyComposer] post failed:', error);
 			showToast('error', "Couldn't post comment — please try again.");
@@ -353,20 +722,15 @@
 
 	let showPreview = false;
 
-	$: previewContent = (() => {
-		const resolved = mentionCtrl.replacePlainMentions(composerText);
-		let preview = resolved.trim();
-		const media = [...uploadedImages, ...uploadedVideos];
-		if (media.length) preview = preview ? `${preview}\n\n${media.join('\n')}` : media.join('\n');
-		return preview;
-	})();
+	$: previewContent = composeNoteContent(
+		mentionCtrl.replacePlainMentions(composerText),
+		media
+	);
 
 	$: isDisabled =
-		(!composerText.trim() &&
-			uploadedImages.length === 0 &&
-			uploadedVideos.length === 0 &&
-			!pollConfig) ||
+		(!composerText.trim() && media.length === 0 && !pollConfig) ||
 		posting ||
+		$miningOp !== null ||
 		uploadingImage ||
 		uploadingVideo;
 </script>
@@ -415,6 +779,7 @@
 				on:keydown={(e) => mentionCtrl.handleKeydown(e)}
 				on:beforeinput={(e) => mentionCtrl.handleBeforeInput(e)}
 				on:paste={handlePaste}
+				on:blur={saveDraft}
 			></div>
 
 			<MentionDropdown
@@ -427,6 +792,44 @@
 			/>
 		</div>
 	</div>
+
+	{#if !showPreview && attachOffers.length > 0}
+		<!-- Pasted-link offers, one accent pill per bare-URL occurrence —
+			offered, never auto-converted (shared rule with the main
+			composer). The URL is not repeated; the ✕ keeps it as text. -->
+		<div class="rc-attach-offers" role="group" aria-label="Attach pasted links">
+			{#each attachOffers as url, i (i)}
+				<div class="rc-attach-offer-row">
+					<button
+						type="button"
+						class="rc-attach-offer"
+						on:click={() => acceptAttachOffer(url)}
+						disabled={posting}
+					>
+						<PlusIcon size={14} weight="bold" />
+						<span>Attach this media</span>
+					</button>
+					<button
+						type="button"
+						class="rc-attach-x"
+						title="Keep it as text"
+						aria-label="Keep it as text"
+						on:click={() => dismissAttachOffer(url)}
+						disabled={posting}
+					>
+						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M6 18L18 6M6 6l12 12"
+							/>
+						</svg>
+					</button>
+				</div>
+			{/each}
+		</div>
+	{/if}
 
 	<!-- Preview pane -->
 	{#if showPreview}
@@ -444,24 +847,66 @@
 		<p class="text-red-500 text-xs">{uploadError}</p>
 	{/if}
 
-	{#if uploadedImages.length > 0}
-		<div class="flex flex-wrap gap-2">
-			{#each uploadedImages as imageUrl, index}
-				<div class="relative group">
-					<img
-						src={imageUrl}
-						alt="Upload preview"
-						class="w-16 h-16 object-cover rounded-lg"
-						class:w-20={!compact}
-						class:h-20={!compact}
-						style="border: 1px solid var(--color-input-border)"
-					/>
+	{#if media.length > 0}
+		<!-- One ordered strip of attachment slots — same strip as the main
+			composer: drag to reorder (pointer), arrow steppers beneath each
+			cell (touch and keyboard both reach buttons). -->
+		<div class="flex flex-wrap gap-2" role="list" data-testid="reply-media-strip">
+			{#each media as m, index}
+				<div
+					class="relative group rc-media-thumb"
+					role="listitem"
+					aria-label={m.isVideo ? 'Video attachment' : m.alt?.trim() || 'Image attachment'}
+					class:rc-media-thumb--dragging={dragIndex === index}
+					class:rc-media-thumb--drop-target={dropIndex === index}
+					class:rc-media-thumb--grabbable={media.length > 1 && !posting}
+					draggable={media.length > 1 && !posting}
+					on:dragstart={(e) => handleThumbDragStart(e, index)}
+					on:dragover={(e) => handleThumbDragOver(e, index)}
+					on:dragleave={() => { if (dropIndex === index) dropIndex = null; }}
+					on:drop={(e) => handleThumbDrop(e, index)}
+					on:dragend={handleThumbDragEnd}
+				>
+					{#if m.isVideo}
+						<video
+							src={m.url}
+							draggable="false"
+							class="w-16 h-16 object-cover rounded-lg"
+							class:w-20={!compact}
+							class:h-20={!compact}
+							style="border: 1px solid var(--color-input-border)"
+							preload="metadata"
+							muted
+						></video>
+					{:else if thumbFailed[m.url]}
+						<div
+							class="w-16 h-16 rc-thumb-failed rounded-lg"
+							class:w-20={!compact}
+							class:h-20={!compact}
+							style="border: 1px solid var(--color-input-border)"
+							role="img"
+							aria-label="Preview unavailable — the image will still be attached"
+						>
+							<span>Preview unavailable</span>
+						</div>
+					{:else}
+						<img
+							src={thumbSrc(m.url)}
+							draggable="false"
+							alt={m.alt?.trim() || 'Upload preview'}
+							class="w-16 h-16 object-cover rounded-lg"
+							class:w-20={!compact}
+							class:h-20={!compact}
+							style="border: 1px solid var(--color-input-border)"
+							on:error={() => handleThumbError(m.url)}
+						/>
+					{/if}
 					<button
 						type="button"
-						on:click={() => removeImage(index)}
+						on:click={() => removeMedia(index)}
 						class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 shadow-lg"
 						class:p-1={!compact}
-						aria-label="Remove image"
+						aria-label={m.isVideo ? 'Remove video' : 'Remove image'}
 					>
 						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path
@@ -472,40 +917,46 @@
 							/>
 						</svg>
 					</button>
-				</div>
-			{/each}
-		</div>
-	{/if}
-
-	{#if uploadedVideos.length > 0}
-		<div class="flex flex-wrap gap-2">
-			{#each uploadedVideos as videoUrl, index}
-				<div class="relative group">
-					<video
-						src={videoUrl}
-						class="w-24 h-16 object-cover rounded-lg"
-						class:w-32={!compact}
-						class:h-20={!compact}
-						style="border: 1px solid var(--color-input-border)"
-						preload="metadata"
-						muted
-					></video>
-					<button
-						type="button"
-						on:click={() => removeVideo(index)}
-						class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 shadow-lg"
-						class:p-1={!compact}
-						aria-label="Remove video"
-					>
-						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M6 18L18 6M6 6l12 12"
-							/>
-						</svg>
-					</button>
+					{#if !m.isVideo}
+						<button
+							type="button"
+							class="rc-alt-toggle"
+							class:has-alt={!!m.alt?.trim()}
+							on:click={() => openAltEditor(m.url)}
+							title={m.alt?.trim() ? 'Edit the image description' : 'Add a description'}
+							aria-label={m.alt?.trim() ? 'Edit alt text' : 'Add alt text'}
+						>
+							{m.alt?.trim() ? '✓ ALT' : '+ ALT'}
+						</button>
+					{/if}
+					{#if media.length > 1}
+						<!-- The first and last cells omit the arrow that would do
+							nothing rather than showing a disabled one. -->
+						<div class="rc-thumb-steppers">
+							{#if index > 0}
+								<button
+									type="button"
+									on:click={() => moveMedia(index, index - 1)}
+									title="Move earlier"
+									aria-label="Move attachment earlier"
+									disabled={posting}
+								>
+									<CaretLeftIcon size={14} />
+								</button>
+							{/if}
+							{#if index < media.length - 1}
+								<button
+									type="button"
+									on:click={() => moveMedia(index, index + 1)}
+									title="Move later"
+									aria-label="Move attachment later"
+									disabled={posting}
+								>
+									<CaretRightIcon size={14} />
+								</button>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/each}
 		</div>
@@ -594,14 +1045,31 @@
 				>
 					<ChartBarHorizontalIcon size={20} class={pollConfig ? 'text-primary' : ''} />
 				</button>
+				<!-- Proof of work for this reply. The bits ride on the glyph, so
+				     what one more tap costs is on screen rather than in a
+				     tooltip. -->
+				<button
+					type="button"
+					on:click={cyclePow}
+					class="btn-gif pow-btn"
+					title={powBits
+						? `Mining ${powBits} bits of proof of work into this reply. ${powLevelFor(powBits).cost}`
+						: 'Proof of work: off. Tap to mine some into this reply.'}
+					aria-label={powBits ? `Proof of work: ${powBits} bits` : 'Proof of work: off'}
+					disabled={posting || uploadingImage || uploadingVideo || showCountdown}
+					class:opacity-50={posting || uploadingImage || uploadingVideo || showCountdown}
+				>
+					<HammerIcon size={20} class={powBits ? 'text-primary' : ''} />
+					{#if powBits}<span class="pow-bits">{powBits}</span>{/if}
+				</button>
 			</div>
 
 			<!-- Right: status + clock settings -->
 			<div class="flex items-center gap-2">
 				{#if uploadingImage}
-					<span class="text-xs text-caption">Uploading image...</span>
+					<span class="text-xs text-caption">Uploading image…</span>
 				{:else if uploadingVideo}
-					<span class="text-xs text-caption">Uploading video...</span>
+					<span class="text-xs text-caption">Uploading video…</span>
 				{:else if showCountdown}
 					<span class="text-xs text-caption">Sending in {countdownDisplayNum}s…</span>
 				{/if}
@@ -682,7 +1150,10 @@
 				</button>
 			{:else}
 				{#if showCancel}
-					<button type="button" class="rc-cancel" on:click={handleCancel}>Cancel</button>
+					<!-- Disabled while posting: dismissing the composer mid-post
+					     unmounts it, and with it the draft the failure path
+					     would have restored. -->
+					<button type="button" class="rc-cancel" on:click={handleCancel} disabled={posting}>Cancel</button>
 				{/if}
 				<slot name="submit" submit={handleSubmitClick} disabled={isDisabled} {posting}>
 					<!-- Default submit button: callers can override via `slot="submit"`. -->
@@ -698,7 +1169,8 @@
 <GifPicker
 	bind:open={showGifPicker}
 	on:select={(e) => {
-		uploadedImages = [...uploadedImages, e.detail.url];
+		// The GIF's own title as its description to start from.
+		media = [...media, { url: e.detail.url, isVideo: false, alt: e.detail.title || '' }];
 	}}
 />
 
@@ -709,7 +1181,32 @@
 	}}
 />
 
+	<AltTextEditorModal
+		url={altModalUrl}
+		initialText={altModalInitial}
+		bind:open={altModalOpen}
+		on:save={saveAltEditor}
+	/>
+
 <style>
+	/* Bits ride on the proof-of-work glyph, so the cost of one more tap is on
+	   screen rather than in a tooltip. */
+	.pow-btn {
+		position: relative;
+	}
+	.pow-bits {
+		position: absolute;
+		right: 0;
+		bottom: 1px;
+		font-size: 9px;
+		font-weight: 700;
+		line-height: 1;
+		padding: 1px 2px;
+		border-radius: 3px;
+		color: var(--color-primary);
+		background: var(--color-input-bg);
+	}
+
 	.reply-composer {
 		display: flex;
 		flex-direction: column;
@@ -979,6 +1476,10 @@
 
 	.reply-composer-preview {
 		overflow-y: auto;
+		/* A media-heavy draft rendered at natural height dwarfed the modal —
+		   the preview's job is to confirm the content, not to re-display it
+		   full-size above its own attachment thumbnail. */
+		max-height: 16rem;
 	}
 
 	.btn-gif,
@@ -1040,4 +1541,145 @@
 	.media-menu-item:hover {
 		background: var(--color-accent-gray);
 	}
+
+	/* ALT badge — same shape and size as the main composer's. */
+	.rc-alt-toggle {
+		position: absolute;
+		top: 0.25rem;
+		left: 0.25rem;
+		z-index: 5;
+		padding: 2px 7px;
+		border: none;
+		border-radius: 6px;
+		background: rgba(0, 0, 0, 0.65);
+		color: #fff;
+		font-size: 0.6875rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		line-height: 1.4;
+		cursor: pointer;
+		transition: background-color 0.15s ease-out;
+	}
+	.rc-alt-toggle:hover {
+		background: rgba(0, 0, 0, 0.85);
+	}
+	.rc-alt-toggle.has-alt {
+		background: var(--color-primary, #f97316);
+	}
+
+	/* Attachment thumbnails: one ordered strip, same mechanics as the main
+	   composer — drag for pointer, steppers beneath for touch and keyboard. */
+	.rc-media-thumb--dragging {
+		opacity: 0.45;
+	}
+
+	.rc-media-thumb--grabbable {
+		cursor: grab;
+	}
+
+	.rc-media-thumb--grabbable:active {
+		cursor: grabbing;
+	}
+
+	.rc-media-thumb--drop-target {
+		outline: 2px dashed var(--color-primary, #f97316);
+		outline-offset: 2px;
+		border-radius: 0.5rem;
+	}
+
+	/* Failed thumbnail after retries: the URL stays in the reply and will be
+	   appended at publish — the cell says so rather than going silently blank. */
+	.rc-thumb-failed {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		padding: 0.25rem;
+		background: var(--color-accent-gray);
+		font-size: 0.5625rem;
+		line-height: 1.2;
+		color: var(--color-caption);
+	}
+
+	.rc-thumb-steppers {
+		display: flex;
+		justify-content: center;
+		gap: 0.125rem;
+		margin-top: 0.125rem;
+	}
+
+	.rc-thumb-steppers button {
+		display: flex;
+		padding: 0.125rem;
+		border-radius: 0.375rem;
+		color: var(--color-caption);
+		cursor: pointer;
+	}
+
+	.rc-thumb-steppers button:hover:not(:disabled) {
+		background: var(--color-accent-gray);
+		color: var(--color-text-primary);
+	}
+
+	/* ── Paste-to-attach offers ─────────────────────────────────── */
+	.rc-attach-offers {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.rc-attach-offer-row {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+
+	/* The offer wears the accent — an offer the user never notices is not
+		an offer (sidecar's rule, in zap's tokens). */
+	.rc-attach-offer {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.3rem 0.875rem;
+		border-radius: 9999px;
+		border: 1px solid var(--color-primary, #f97316);
+		color: var(--color-primary, #f97316);
+		background: color-mix(in srgb, var(--color-primary, #f97316) 10%, transparent);
+		font-size: 0.8125rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background-color 0.15s;
+	}
+
+	.rc-attach-offer:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--color-primary, #f97316) 18%, transparent);
+	}
+
+	.rc-attach-offer:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* The refusal is quiet on purpose; it never shrinks the offer. */
+	.rc-attach-x {
+		flex-shrink: 0;
+		width: 26px;
+		height: 26px;
+		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 6px;
+		border: none;
+		background: none;
+		color: var(--color-caption);
+		cursor: pointer;
+	}
+
+	.rc-attach-x:hover:not(:disabled) {
+		color: var(--color-text-primary);
+		background: var(--color-accent-gray);
+	}
+
+
 </style>

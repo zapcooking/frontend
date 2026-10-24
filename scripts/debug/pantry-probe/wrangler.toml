@@ -1,0 +1,7 @@
+# SCRATCH DIAGNOSTIC WORKER — delete after the pantry transport
+# investigation. Pre-authorized 2026-07-23; no bindings, no secrets.
+name = "pantry-probe"
+main = "index.js"
+account_id = "2d2f9386809ef6f9cda581aa16dff31c"
+compatibility_date = "2025-01-01"
+workers_dev = true

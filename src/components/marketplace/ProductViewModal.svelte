@@ -63,6 +63,9 @@
 	$: imageUrl = allImages.length > 0
 		? allImages[activeImageIndex] || allImages[0]
 		: getImageOrPlaceholder(undefined, product.id);
+	// NIP-92 imeta alt text, indexed like allImages (keyed by the original URL)
+	$: allImageAlts = (product?.images || []).map((img) => product?.imageAlts?.[img] || '');
+	$: imageAlt = allImageAlts[activeImageIndex] || product?.title || '';
 
 	$: if (open && product) {
 		activeImageIndex = 0;
@@ -94,7 +97,7 @@
 	<div class="flex flex-col gap-5">
 		<!-- Product Image -->
 		<div class="relative aspect-video rounded-xl overflow-hidden" style="background-color: var(--color-bg-tertiary);">
-			<img src={imageUrl} alt={product?.title} class="w-full h-full object-cover" />
+			<img src={imageUrl} alt={imageAlt} class="w-full h-full object-cover" />
 		</div>
 
 		<!-- Image Thumbnails -->
@@ -104,6 +107,8 @@
 					<button
 						type="button"
 						on:click={() => (activeImageIndex = i)}
+						aria-label={allImageAlts[i] || `Image ${i + 1} of ${allImages.length}`}
+						aria-pressed={activeImageIndex === i}
 						class="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all"
 						style="border-color: {activeImageIndex === i ? 'var(--color-accent)' : 'transparent'}; opacity: {activeImageIndex === i ? '1' : '0.6'};"
 					>

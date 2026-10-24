@@ -55,7 +55,9 @@
 			lightningAddress: p.lightningAddress,
 			requiresShipping: p.requiresShipping,
 			location: p.location,
-			images: [...p.images]
+			images: [...p.images],
+			// Carry existing NIP-92 alt text so saving doesn't strip it
+			imageAlts: { ...(p.imageAlts || {}) }
 		};
 	}
 

@@ -60,7 +60,11 @@
     <ul class="flex flex-col">
       {#each $selected as tag, index}
         <li class="flex input mb-1" transition:slide|global={{ duration: 300 }}>
-          <a class="grow underline" target="_blank" href={`/recipe/${tag.naddr}`}
+          <a
+            class="grow underline"
+            target="_blank"
+            rel="noopener noreferrer"
+            href={`/recipe/${tag.naddr}`}
             >{#if tag.title}{tag.title}{:else}{tag.naddr}{/if}</a
           >
           <div class="flex gap-2">

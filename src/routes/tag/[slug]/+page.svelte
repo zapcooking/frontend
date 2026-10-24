@@ -1,12 +1,13 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { ndk } from '$lib/nostr';
-  import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
+  import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
   import Feed from '../../../components/Feed.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
   import { recipeTags, RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY } from '$lib/consts';
   import { goto } from '$app/navigation';
+  import { onDestroy } from 'svelte';
   import type { PageData } from './$types';
 
   export const data: PageData = {} as PageData;
@@ -14,6 +15,10 @@
   // let tag: string | undefined = undefined;
   let events: NDKEvent[] = [];
   let loaded = false;
+  // One subscription at a time: a new slug stops the old one, leaving the
+  // page stops the last (it used to stay open for the tab's lifetime).
+  let subscription: NDKSubscription | null = null;
+  onDestroy(() => subscription?.stop());
 
   $: {
     if ($page.params.slug) {
@@ -37,7 +42,8 @@ async function loadData() {
       '#t': [`${RECIPE_TAG_PREFIX_LEGACY}-${tagSlug}`, `${RECIPE_TAG_PREFIX_NEW}-${tagSlug}`]
     };
     
-    const subscription = $ndk.subscribe(filter);
+    subscription?.stop();
+    subscription = $ndk.subscribe(filter, { closeOnEose: true });
 
     subscription.on("event", (ev: NDKEvent) => {
       if (validateMarkdownTemplate(ev.content) != null) {

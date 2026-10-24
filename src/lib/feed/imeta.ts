@@ -152,7 +152,11 @@ function imetaToMediaItem(tag: string[]): MediaItem | null {
   const dim = parseDim(slots.dim);
   if (dim) item.dim = dim;
   if (slots.blurhash) item.blurhash = slots.blurhash;
-  if (slots.alt) item.alt = slots.alt;
+  if (slots.alt) item.alt = normalizeAltBreaks(slots.alt);
+  // NIP-92 doesn't officially specify a poster slot, but several clients
+  // attach one for videos via `image` (most common) or `thumb`.
+  if (slots.image) item.poster = slots.image;
+  else if (slots.thumb) item.poster = slots.thumb;
   if (slots.x) item.hash = slots.x;
   if (slots.fallback) {
     item.fallback = slots.fallback
@@ -179,6 +183,103 @@ function extractMediaUrls(content: string): MediaItem[] {
     out.push({ url: cleaned, mime: inferMime(cleaned) });
   }
   return out;
+}
+
+/**
+ * Map each imeta URL on an event to its `alt` text (NIP-92, as used by
+ * Amethyst and Gossip). Events without imeta tags yield an empty map —
+ * callers then fall back to `alt=""`.
+ */
+export function imetaAltByUrl(event: RawEventLike): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const t of event.tags || []) {
+    if (!Array.isArray(t) || t.length < 2 || t[0] !== 'imeta') continue;
+    const slots = parseImetaSlots(t);
+    if (slots.url && slots.alt) out.set(slots.url, normalizeAltBreaks(slots.alt));
+  }
+  return out;
+}
+
+/**
+ * Map each imeta URL on an event to its full tag row. Used by editors
+ * that re-emit media (fork/edit) so NIP-92 fields other than `alt`
+ * (`m`, `dim`, `blurhash`, `x`, `fallback`, ...) survive a round-trip.
+ */
+export function imetaTagsByUrl(event: RawEventLike): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const t of event.tags || []) {
+    if (!Array.isArray(t) || t.length < 2 || t[0] !== 'imeta') continue;
+    const slots = parseImetaSlots(t);
+    if (slots.url) out.set(slots.url, t);
+  }
+  return out;
+}
+
+/** Normalize alt-text line breaks: CRLF → LF, trim each line, cap runs
+ * of blank lines at one paragraph gap (two \n), trim the ends. Keeps
+ * authored paragraphs intact without letting runaway gaps onto the wire
+ * or into the UI. */
+export function normalizeAltBreaks(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Return a copy of an existing imeta tag with its `alt` slot replaced
+ * (or appended when absent). An empty `alt` strips the slot. Every other
+ * slot is preserved verbatim, in its original order.
+ */
+export function withImetaAlt(sourceTag: string[], alt: string): string[] {
+  const cleaned = normalizeAltBreaks(alt);
+  const out: string[] = [];
+  let replaced = false;
+  for (let i = 0; i < sourceTag.length; i++) {
+    const slot = sourceTag[i];
+    if (i > 0 && typeof slot === 'string' && /^alt(\s|$)/i.test(slot)) {
+      if (cleaned && !replaced) {
+        out.push(`alt ${cleaned}`);
+        replaced = true;
+      }
+      continue;
+    }
+    out.push(slot);
+  }
+  if (cleaned && !replaced) out.push(`alt ${cleaned}`);
+  return out;
+}
+
+/** Serialize imeta key/value slots into a NIP-92 tag row. Slot values are
+ * "everything after the first space", so line breaks survive the wire
+ * (JSON escapes them) and re-parse intact — `alt` line breaks are
+ * normalized via `normalizeAltBreaks`, not stripped.
+ *
+ * The paragraph policy is `alt`-only: `m`, `dim`, `blurhash`, `x` and the
+ * rest are single-line by definition, and keep the flattening they always
+ * had. Emptiness is judged after normalizing, so a whitespace-only value
+ * drops its slot instead of emitting a bare `alt ` with nothing behind it. */
+export function buildImetaTag(
+  url: string,
+  fields: Record<string, string | undefined>
+): string[] {
+  const tag = ['imeta', `url ${url}`];
+  for (const [key, value] of Object.entries(fields)) {
+    if (!value) continue;
+    const cleaned =
+      key === 'alt' ? normalizeAltBreaks(value) : value.replace(/\s*\n\s*/g, ' ').trim();
+    if (!cleaned) continue;
+    tag.push(`${key} ${cleaned}`);
+  }
+  return tag;
+}
+
+/** Convenience wrapper for a plain image with alt text. */
+export function buildImetaTagWithAlt(url: string, alt: string): string[] {
+  return buildImetaTag(url, { alt });
 }
 
 /**

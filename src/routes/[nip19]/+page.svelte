@@ -1,26 +1,46 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { get } from 'svelte/store';
+  import { lastFeedUrl } from '$lib/feedOrigin';
+
+  // Back to the feed tab the user came from (captured by the root
+  // layout on navigation away from /feed), falling back to the
+  // feed root when the note was opened cold (link, notification…).
+  function backToFeed() {
+    goto(get(lastFeedUrl) ?? '/feed');
+  }
   import { browser } from '$app/environment';
   import { nip19 } from 'nostr-tools';
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
-  import { onMount } from 'svelte';
+  import { isEventMutedBy } from '$lib/muteFilter';
+  import { replyDraftsStore, replyDraftResumeTarget } from '$lib/replyDraftStore';
+  import { onMount, onDestroy, tick } from 'svelte';
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import NoteContent from '../../components/NoteContent.svelte';
   import PollDisplay from '../../components/PollDisplay.svelte';
   import NoteActionBar from '../../components/NoteActionBar.svelte';
-  import ClientAttribution from '../../components/ClientAttribution.svelte';
+  import NoteReactionPills from '../../components/NoteReactionPills.svelte';
+  import ThreadRow from '../../components/comments/ThreadRow.svelte';
+  import SubReplyList from '../../components/comments/SubReplyList.svelte';
+  import { buildReplyTree, getReplyParentId, getThreadRootId } from '$lib/thread/replyParent';
+  import { splitThreadByFocus } from '$lib/thread/threadScope';
+  import PowBadge from '../../components/PowBadge.svelte';
   import { NDKRelaySet } from '@nostr-dev-kit/ndk';
-  import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
+  import { fetchEventViaRepostEmbed, repostLookupRelayUrls } from '$lib/repostEmbed';
   import { createCommentFilter } from '$lib/commentFilters';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
+  import ReplyModal from '../../components/comments/ReplyModal.svelte';
   import ReplyComposer from '../../components/comments/ReplyComposer.svelte';
   import RightRail from '../../components/RightRail.svelte';
   import RailCard from '../../components/RailCard.svelte';
   import PersonRow from '../../components/PersonRow.svelte';
+  import { requireAuth } from '$lib/auth/requireAuth';
+import { eventPath } from '$lib/utils/eventUrl';
 
   let decoded: any = null;
   let event: NDKEvent | null = null;
@@ -95,7 +115,7 @@
   $: ogTitle = authorName ? `${authorName} on zap.cooking` : 'Note on zap.cooking';
   $: ogDescription = event
     ? cleanNoteContent(event.content)
-    : 'A note shared on zap.cooking - Food. Friends. Freedom.';
+    : 'A note shared on zap.cooking - Food is Open Source';
   $: ogImage = (event && extractFirstImageUrl(event.content)) || 'https://zap.cooking/social-share.png';
   $: ogCreatedAt = event?.created_at ?? null;
 
@@ -107,29 +127,104 @@
   let replies: NDKEvent[] = [];
   let loadingReplies = false;
   let processedReplies = new Set<string>();
+  // Ids named by kind-5 deletion events (NIP-09) arriving on the thread
+  // subscription. Applied reactively downstream so ordering never matters —
+  // a deletion landing before its target still removes it.
+  let deletedReplyIds = new Set<string>();
 
-  // Get the parent note ID from an event's e tags
-  function getParentNoteId(evt: NDKEvent): string | null {
-    // Look for reply tag first
-    const replyTag = evt.tags.find(
-      (tag) => Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'reply'
-    );
-    if (replyTag) return replyTag[1] as string;
+  // The replies subscription is closeOnEose:false (live for realtime
+  // replies). It MUST be stopped when re-fetching for another note and
+  // when leaving the page — previously it was never stopped at all, so
+  // every note-to-note navigation stacked another live subscription,
+  // each re-sorting its (retained) replies array on every incoming
+  // event forever. That leak is what froze deep-linking sessions.
+  let replySub: NDKSubscription | null = null;
 
-    // Fallback to root tag
-    const rootTag = evt.tags.find(
-      (tag) => Array.isArray(tag) && tag[0] === 'e' && tag[3] === 'root'
-    );
-    if (rootTag) return rootTag[1] as string;
+  // Batch reply arrivals: busy notes deliver dozens of replies in the
+  // initial burst, and each one used to pay a full array copy + sort.
+  const REPLY_FLUSH_MS = 200;
+  let pendingReplies: NDKEvent[] = [];
+  let replyFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Fallback to first e tag
-    const firstETag = evt.tags.find((tag) => Array.isArray(tag) && tag[0] === 'e');
-    if (firstETag) return firstETag[1] as string;
+  function flushPendingReplies() {
+    replyFlushTimer = null;
+    if (pendingReplies.length === 0) return;
+    const batch = pendingReplies;
+    pendingReplies = [];
+    replies = [...replies, ...batch].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+  }
 
+  function stopReplySubscription() {
+    if (replySub) {
+      try {
+        replySub.stop();
+      } catch {
+        // NDK subscriptions can throw on repeated stop; swallow.
+      }
+      replySub = null;
+    }
+    if (replyFlushTimer) {
+      clearTimeout(replyFlushTimer);
+      replyFlushTimer = null;
+    }
+    pendingReplies = [];
+  }
+
+  onDestroy(() => {
+    stopReplySubscription();
+    if (arrivalFlashTimer) clearTimeout(arrivalFlashTimer);
+  });
+
+  // Fetch parent thread recursively
+  // Parent notes frequently live on the reply author's write relays, not
+  // the default pool — the same reason fetchReplies builds a merged relay
+  // set. Without the hints (and on a cold deep link, before the pool has
+  // finished connecting), the parent fetch came back null, the walk broke
+  // immediately, and the thread rendered as just the reply until a manual
+  // reload warmed everything.
+  function buildParentRelaySet(evt: NDKEvent): NDKRelaySet | undefined {
+    try {
+      const extraUrls = new Set<string>();
+      const sourceRelay = evt.relay?.url || (evt as any).onRelays?.[0]?.url;
+      if (sourceRelay?.startsWith('wss://')) extraUrls.add(sourceRelay);
+      for (const tag of evt.tags) {
+        if ((tag[0] === 'e' || tag[0] === 'p') && tag[2]?.startsWith('wss://')) {
+          extraUrls.add(tag[2]);
+        }
+      }
+      if (extraUrls.size === 0 || !$ndk) return undefined;
+      const poolUrls = Array.from($ndk.pool?.relays?.keys?.() ?? []);
+      if (poolUrls.length === 0) return undefined; // default pool, not hints-only
+      const merged = [...new Set([...poolUrls, ...[...extraUrls].slice(0, 3)])];
+      return NDKRelaySet.fromRelayUrls(merged, $ndk, true);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function fetchParentById(
+    parentId: string,
+    relaySet: NDKRelaySet | undefined
+  ): Promise<NDKEvent | null> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        // Cold-start window: give pool/hint relays a moment to finish
+        // connecting before retrying.
+        await new Promise((r) => setTimeout(r, 600 * attempt));
+      }
+      try {
+        // By id only: a NIP-22 comment's `E` parent can be a kind-30023
+        // article (or any other root kind), and a kinds list here would
+        // stop the ancestor chain at the first such parent.
+        const note = await $ndk.fetchEvent({ ids: [parentId] }, undefined, relaySet);
+        if (note) return note;
+      } catch {
+        // Try again — a dropped socket mid-fetch is transient.
+      }
+    }
     return null;
   }
 
-  // Fetch parent thread recursively
   async function fetchParentThread(evt: NDKEvent) {
     loadingParents = true;
     const parents: NDKEvent[] = [];
@@ -138,12 +233,12 @@
 
     try {
       while (true) {
-        const parentId = getParentNoteId(currentEvent);
+        const parentId = getReplyParentId(currentEvent);
         if (!parentId || seenIds.has(parentId)) break;
 
         seenIds.add(parentId);
 
-        const parentNote = await $ndk.fetchEvent({ kinds: [1, 1068, 1111] as any, ids: [parentId] });
+        const parentNote = await fetchParentById(parentId, buildParentRelaySet(currentEvent));
         if (!parentNote) break;
 
         parents.unshift(parentNote); // Add to beginning for chronological order
@@ -156,41 +251,52 @@
       // Failed to fetch parent thread
     }
 
+    // Re-root: for a comment, the conversation root is its uppercase `E` —
+    // the lowercase-`e` walk above dead-ends at the parent note and never
+    // reaches it. Fetch the root directly, best-effort, so a thread opened
+    // on a comment can still show where the conversation started; when the
+    // root is gone from every relay (comments can outlive it) the context
+    // collected so far plus the subtree below is what's left to show.
+    if (evt.kind === 1111) {
+      const rootId = getThreadRootId(evt);
+      if (
+        rootId &&
+        rootId !== evt.id &&
+        !seenIds.has(rootId) &&
+        !parents.some((p) => p.id === rootId)
+      ) {
+        const rootNote = await fetchParentById(rootId, buildParentRelaySet(evt));
+        if (rootNote) parents.unshift(rootNote);
+      }
+    }
+
     parentThread = parents;
     loadingParents = false;
   }
 
   function gotoNoteUnlessInteractive(e: MouseEvent, evt: NDKEvent) {
     if (e.target instanceof Element && e.target.closest('a, button')) return;
-    goto(noteUrl(evt));
-  }
-
-  // Encode a note/reply event as nevent1 with relay hints for better discoverability.
-  function noteUrl(evt: NDKEvent): string {
-    const relayUrl = evt.relay?.url ?? (evt as any).onRelays?.[0]?.url;
-    try {
-      return '/' + nip19.neventEncode({
-        id: evt.id,
-        relays: relayUrl ? [relayUrl] : [],
-        kind: evt.kind ?? 1
-      });
-    } catch {
-      return '/' + nip19.noteEncode(evt.id);
-    }
+    goto(eventPath(evt));
   }
 
   // Fetch replies to this note
   function fetchReplies(eventId: string) {
+    stopReplySubscription();
     loadingReplies = true;
     replies = [];
     processedReplies.clear();
+    deletedReplyIds = new Set();
 
     if (!event) return;
 
-    const filter = createCommentFilter(event);
+    // Sibling filters in ONE REQ (relay-side OR): `#e` walks the NIP-10
+    // tree (plus kind-5 deletions), `#E` the NIP-22 comment tree rooted at
+    // the conversation root. Merged into a single filter object they would
+    // AND and match nothing beyond top-level comments.
+    const filters = createCommentFilter(event);
 
     // Build a wider relay set: NDK's default pool + the relay that served the
-    // main event + any relay hints embedded in the event's e/p tags.
+    // main event + any relay hints embedded in the event's e/E/p tags.
     // This handles the common case where replies live on the author's write
     // relay but not on all of NDK's default pool relays.
     let relaySet: NDKRelaySet | undefined;
@@ -199,9 +305,9 @@
       // Relay that served the main event
       const sourceRelay = event.relay?.url || event.onRelays?.[0]?.url;
       if (sourceRelay) extraUrls.add(sourceRelay);
-      // Relay hints in event e/p tags (NIP-10 clients often include them)
+      // Relay hints in event e/E/p tags (NIP-10/NIP-22 clients include them)
       for (const tag of event.tags) {
-        if ((tag[0] === 'e' || tag[0] === 'p') && tag[2]?.startsWith('wss://')) {
+        if ((tag[0] === 'e' || tag[0] === 'E' || tag[0] === 'p') && tag[2]?.startsWith('wss://')) {
           extraUrls.add(tag[2]);
         }
       }
@@ -221,15 +327,32 @@
       }
     } catch { /* non-fatal — fall back to the default pool */ }
 
-    const sub = $ndk.subscribe(filter, { closeOnEose: false }, relaySet);
+    replySub = $ndk.subscribe(filters, { closeOnEose: false }, relaySet);
 
-    sub.on('event', (e: NDKEvent) => {
+    replySub.on('event', (e: NDKEvent) => {
       if (processedReplies.has(e.id)) return;
       processedReplies.add(e.id);
-      replies = [...replies, e].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+      if (e.kind === 5) {
+        // NIP-09 deletion of a thread event: its `e` tags name the ids to
+        // remove. Never rendered as a row itself.
+        const targets = e.tags.filter((t) => t[0] === 'e' && t[1]).map((t) => t[1] as string);
+        if (targets.length > 0) {
+          deletedReplyIds = new Set([...deletedReplyIds, ...targets]);
+        }
+        return;
+      }
+      pendingReplies.push(e);
+      if (replyFlushTimer === null) {
+        replyFlushTimer = setTimeout(flushPendingReplies, REPLY_FLUSH_MS);
+      }
     });
 
-    sub.on('eose', () => {
+    replySub.on('eose', () => {
+      if (replyFlushTimer !== null) {
+        clearTimeout(replyFlushTimer);
+        replyFlushTimer = null;
+      }
+      flushPendingReplies();
       loadingReplies = false;
     });
 
@@ -329,37 +452,63 @@
         const subscription = $ndk.subscribe(filter, { closeOnEose: false }, eventRelaySet);
         let resolved = false;
 
-        subscription.on('event', async (receivedEvent: NDKEvent) => {
-          if (!event) {
-            event = receivedEvent;
-            // Fetch parent thread and replies
-            fetchParentThread(receivedEvent);
-            fetchReplies(receivedEvent.id);
-          }
+        function finishWithEvent(receivedEvent: NDKEvent) {
+          if (event) return;
+          event = receivedEvent;
+          // Fetch parent thread and replies
+          fetchParentThread(receivedEvent);
+          fetchReplies(receivedEvent.id);
+          loading = false;
+        }
+
+        subscription.on('event', (receivedEvent: NDKEvent) => {
+          if (!event) finishWithEvent(receivedEvent);
         });
 
-        subscription.on('eose', () => {
-          if (!resolved) {
-            resolved = true;
+        async function settle() {
+          if (resolved) return;
+          resolved = true;
+          try {
             subscription.stop();
-            if (!event) {
-              error = true;
-            }
+          } catch {
+            // NDK subscriptions can throw on repeated stop; swallow.
+          }
+          if (event) {
+            loading = false;
+            return;
+          }
+
+          // Year-old or thinly-relayed events are often gone from every pool
+          // relay even though a REPOST of them is easy to find — kind-6/16
+          // wrappers embed the full original event JSON. Before declaring the
+          // note missing, reconstruct it from a repost's embedded copy; the
+          // reconstructed event carries the original id/tags, so the parent
+          // walk, replies, and commenting all work off it. The lookup fans
+          // out past the (often 1-2 relay) pool to the big aggregators where
+          // those reposts survive.
+          const poolUrls = Array.from($ndk.pool?.relays?.keys?.() ?? []);
+          const viaRepost = await fetchEventViaRepostEmbed(
+            $ndk,
+            eventId,
+            undefined,
+            repostLookupRelayUrls(poolUrls)
+          );
+          if (event) {
+            loading = false;
+            return;
+          }
+          if (viaRepost) {
+            finishWithEvent(viaRepost);
+          } else {
+            error = true;
             loading = false;
           }
-        });
+        }
+
+        subscription.on('eose', () => void settle());
 
         // Handle timeout - resolve with whatever we have
-        setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            subscription.stop();
-            if (!event) {
-              error = true;
-            }
-            loading = false;
-          }
-        }, 5000);
+        setTimeout(() => void settle(), 5000);
       } else {
         error = true;
         loading = false;
@@ -372,6 +521,10 @@
 
   $: if (browser && $page.params.nip19 && $page.params.nip19 !== loadedNip19) {
     loadedNip19 = $page.params.nip19;
+    // Re-arm the arrival scroll on every visit. The route component is
+    // reused across notes, so reply A → its root → A again would otherwise
+    // still match the guard (the root never resets it) and skip the scroll.
+    resetArrival();
     loadEvent($page.params.nip19);
   }
 
@@ -404,61 +557,147 @@
     replies = [...replies, posted].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
   }
 
-  // Filter to get only direct replies (not nested)
-  $: directReplies = replies.filter((r) => {
-    if (!event) return false;
-    const rootEvent = event;
+  // Every reply hangs off exactly one parent, resolved in one place, so
+  // the ancestors above the note and the tree below it can't disagree.
+  // Mutes (author, word, tag, thread, and note-and-replies) apply through
+  // the same position-aware check the feeds use.
+  $: visibleReplies = replies.filter(
+    (r) =>
+      r.kind !== 5 &&
+      !deletedReplyIds.has(r.id) &&
+      !isEventMutedBy($muteListStore.muteList, r)
+  );
+  // The sibling-filter fetch returns the whole conversation — including
+  // the focused note's own ancestors, which match `#E` like any other
+  // comment. Split them off so a parent never renders as its own child,
+  // and merge them into the context rows the parent walk collected.
+  $: scopedThread = event
+    ? splitThreadByFocus<NDKEvent>(event, visibleReplies)
+    : { ancestors: [] as NDKEvent[], subtree: [] as NDKEvent[] };
+  $: contextRows = (() => {
+    const byId = new Map<string, NDKEvent>();
+    for (const p of parentThread) if (p.id && !byId.has(p.id)) byId.set(p.id, p);
+    for (const a of scopedThread.ancestors) if (a.id && !byId.has(a.id)) byId.set(a.id, a);
+    return [...byId.values()].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+  })();
+  // Replies answering one of these belong to an ancestor's branch, not to
+  // the focused note's conversation — buildReplyTree keeps them (and their
+  // whole descendant chains) out of the tree under the note, so a thread
+  // view shows only the replies that actually answer the note or its
+  // visible replies. The root view passes an empty set: everything renders.
+  $: ancestorIds = new Set(contextRows.map((r) => r.id).filter(Boolean));
+  $: parentToChildren = event
+    ? buildReplyTree<NDKEvent>(event.id, scopedThread.subtree, event, ancestorIds)
+    : new Map<string, NDKEvent[]>();
+  $: directReplies = (event && parentToChildren.get(event.id)) || [];
 
-    // For NIP-22 comments (kind 1111)
-    if (r.kind === 1111) {
-      const aTags = r.getMatchingTags('a');
-      const eTags = r.getMatchingTags('e');
-      const kTags = r.getMatchingTags('k');
+  // Landing on a note that has ancestors above it — a reply opened from a
+  // notification — must arrive ON the reply. The viewport starts at the top
+  // of the thread, so a long parent otherwise fills the screen while the
+  // focused note sits below the fold, reading as "opened the wrong note".
+  // Once the ancestor rows have rendered, scroll the focused note to the
+  // top edge (its scroll-margin keeps it clear of the fixed header) and
+  // flash it so the arrival point is unmistakable. Root views have no
+  // context rows and never scroll.
+  let mainNoteEl: HTMLElement | null = null;
+  let scrolledForEventId: string | null = null;
+  let arrivalFlash = false;
+  let arrivalFlashTimer: ReturnType<typeof setTimeout> | null = null;
+  function resetArrival() {
+    scrolledForEventId = null;
+    arrivalFlash = false;
+    if (arrivalFlashTimer) clearTimeout(arrivalFlashTimer);
+    arrivalFlashTimer = null;
+  }
+  $: if (
+    event &&
+    !loadingParents &&
+    contextRows.length > 0 &&
+    scrolledForEventId !== event.id
+  ) {
+    scrolledForEventId = event.id;
+    void tick().then(() => {
+      requestAnimationFrame(() => {
+        mainNoteEl?.scrollIntoView({ block: 'start', behavior: 'auto' });
+        arrivalFlash = true;
+        if (arrivalFlashTimer) clearTimeout(arrivalFlashTimer);
+        arrivalFlashTimer = setTimeout(() => (arrivalFlash = false), 1600);
+      });
+    });
+  }
 
-      // Check if this comment's 'a' tag matches the root article address
-      const dTag = rootEvent.tags.find((t) => t[0] === 'd')?.[1];
-      if (dTag) {
-        const rootAddress = `${rootEvent.kind}:${rootEvent.pubkey}:${dTag}`;
-        const matchesRoot = aTags.some((tag) => tag[1] === rootAddress);
+  // id → author for everything in view, so each reply row can say which
+  // note it answers ("Replying to @x").
+  $: authorById = (() => {
+    const m = new Map<string, string>();
+    const put = (e?: NDKEvent | null) => {
+      const id = e?.id;
+      const pk = e?.author?.hexpubkey || e?.pubkey;
+      if (id && pk && !m.has(id)) m.set(id, pk);
+    };
+    put(event);
+    for (const r of contextRows) put(r);
+    for (const r of scopedThread.subtree) put(r);
+    return m;
+  })();
+  // The conversation root, when it's in view — the root-scope source for
+  // replies published from the modal. Falls back to the focused note (same
+  // root tag the inline composer always wrote).
+  $: threadRootEvent = (() => {
+    if (!event) return undefined;
+    const rootId = getThreadRootId(event);
+    if (!rootId || rootId === event.id) return event;
+    return contextRows.find((r) => r.id === rootId) ?? event;
+  })();
 
-        // Check if parent 'e' tag points to root event (top-level comment)
-        // and 'k' tag shows parent is the root kind (30023)
-        const isTopLevel =
-          eTags.some((tag) => tag[1] === rootEvent.id) &&
-          kTags.some((tag) => tag[1] === String(rootEvent.kind));
+  // Reply modal state. `replyModalTarget` is the specific note being
+  // answered, undefined = the focused note itself. Replying to the thread
+  // root is a top-level reply — no replyTo, so no reply tag is written.
+  let replyModalOpen = false;
+  let replyModalTarget: NDKEvent | undefined = undefined;
 
-        return matchesRoot && isTopLevel;
-      }
-      return false;
+  async function openReplyModal(target?: NDKEvent) {
+    if (!(await requireAuth({ kind: 'reply', reason: 'Sign in to reply' }))) return;
+    replyModalTarget = target;
+    replyModalOpen = true;
+  }
+
+  $: replyModalBase = replyModalTarget ?? event;
+  $: replyModalReplyTo =
+    replyModalBase && threadRootEvent && replyModalBase.id !== threadRootEvent.id
+      ? replyModalBase
+      : undefined;
+
+  // Top-level notes (thread roots) get the composer inline, directly below
+  // the note like the iOS detail view. Reply-focused views keep the
+  // modal-first flow — a composer stranded under a nested thread was
+  // exactly what read confusingly.
+  $: isTopLevelFocus = event ? getReplyParentId(event) === null : false;
+
+  // A tap on a reply-draft pill routed here to continue the draft. The
+  // inline box (top-level notes) restores on its own; a mid-thread note
+  // needs its modal opened.
+  $: if (event && $replyDraftResumeTarget === event.id) {
+    replyDraftResumeTarget.set(null);
+    if (!isTopLevelFocus) {
+      openReplyModal();
     }
+  }
 
-    // For NIP-10 replies (kind 1)
-    const eTags = r.getMatchingTags('e');
-    const replyTag = eTags.find((tag) => tag[3] === 'reply');
-    const rootTag = eTags.find((tag) => tag[3] === 'root');
-
-    // If there's a specific reply marker, check if it points to main event
-    if (replyTag) {
-      return replyTag[1] === event.id;
-    }
-
-    // If only one e tag, it's a direct reply
-    if (eTags.length === 1 && eTags[0][1] === event.id) {
-      return true;
-    }
-
-    // If root is main event and no reply marker, it's a direct reply
-    if (rootTag && rootTag[1] === event.id && !replyTag) {
-      return true;
-    }
-
-    // Otherwise, check if any e tag references main event (handles older tagging)
-    if (eTags.length > 0 && !replyTag && !rootTag) {
-      return eTags.some((tag) => tag[1] === event?.id);
-    }
-
-    return false;
-  });
+  // The focused note has a saved draft → the pseudo-input says so. Read
+  // from the store (not a plain get) so saves/deletes re-run this.
+  $: focusedDraftPreview = (() => {
+    $replyDraftsStore.length; // reactive dependency on draft changes
+    // Narrowing doesn't survive into the find() callback for the mutable
+    // `event` binding — read it into a const first.
+    const current = event;
+    if (!current || isTopLevelFocus) return '';
+    return (
+      $replyDraftsStore.find(
+        (d) => d.targetId === current.id && d.pubkey === $userPublickey
+      )?.preview ?? ''
+    );
+  })();
 
   // People in this note: author first, then anyone mentioned (p-tags), then
   // reply authors — deduped, mute-filtered, and capped for the rail.
@@ -480,38 +719,10 @@
     return order.slice(0, 12);
   })();
 
-  // Get nested replies for a comment
-  function getNestedReplies(parentId: string): NDKEvent[] {
-    return replies.filter((r) => {
-      // For NIP-22 comments (kind 1111)
-      if (r.kind === 1111) {
-        const eTags = r.getMatchingTags('e');
-        const kTags = r.getMatchingTags('k');
-        // Check if parent 'e' tag points to the parent comment
-        // and 'k' tag shows parent is a comment (1111)
-        return eTags.some((tag) => tag[1] === parentId) && kTags.some((tag) => tag[1] === '1111');
-      }
-
-      // For NIP-10 replies (kind 1)
-      const eTags = r.getMatchingTags('e');
-      const replyTag = eTags.find((tag) => tag[3] === 'reply');
-
-      // Check if reply marker points to parent
-      if (replyTag && replyTag[1] === parentId) {
-        return true;
-      }
-
-      // Check if this is a reply to the parent (without markers)
-      if (!replyTag && eTags.some((tag) => tag[1] === parentId)) {
-        // Make sure it's not actually replying to the main event
-        return !eTags.some(
-          (tag) => tag[1] === event?.id && (tag[3] === 'reply' || eTags.length === 1)
-        );
-      }
-
-      return false;
-    });
-  }
+  // Progressive disclosure, jumble-style: direct replies render
+  // chronologically in the root list, and each one's nested conversation
+  // folds behind a "Show replies" toggle under it. The toggle lives in
+  // SubReplyList — the parent row carries none.
 </script>
 
 <svelte:head>
@@ -542,7 +753,7 @@
   {#if !loading}
     <div class="pt-4 pb-2">
       <button
-        on:click={() => goto('/community')}
+        on:click={backToFeed}
         class="flex items-center gap-1 text-sm transition-opacity hover:opacity-70"
         style="color: var(--color-caption)"
       >
@@ -554,7 +765,7 @@
             d="M15 19l-7-7 7-7"
           />
         </svg>
-        Community
+        Feed
       </button>
     </div>
   {/if}
@@ -614,11 +825,11 @@
           <p class="text-sm">You have muted this user. Their content is hidden.</p>
         </div>
         <button
-          on:click={() => goto('/community')}
+          on:click={backToFeed}
           class="px-4 py-2 bg-input rounded-lg hover:bg-accent-gray transition-colors"
           style="color: var(--color-text-primary)"
         >
-          Back to Community
+          Back to Feed
         </button>
       </div>
     </div>
@@ -653,9 +864,9 @@
           </div>
         </div>
       </div>
-    {:else if parentThread.length > 0}
+    {:else if contextRows.length > 0}
       <div class="space-y-0">
-        {#each parentThread as parentNote, index}
+        {#each contextRows as parentNote, index}
           <div>
             <article class="py-3">
               <div class="flex space-x-3 -mx-2 px-2 py-2 rounded-lg">
@@ -694,7 +905,7 @@
                     <PollDisplay event={parentNote} />
                   {:else}
                     <a
-                      href="{noteUrl(parentNote)}"
+                      href="{eventPath(parentNote)}"
                       class="block text-base leading-relaxed hover:opacity-80"
                       style="color: var(--color-text-secondary)"
                     >
@@ -703,7 +914,12 @@
                   {/if}
                   <!-- Parent note actions -->
                   <div class="mt-2">
-                    <NoteActionBar event={parentNote} variant="compact" />
+                    <NoteActionBar
+                      event={parentNote}
+                      variant="compact"
+                      showEngagementDetails={true}
+                      onCommentClick={() => openReplyModal(parentNote)}
+                    />
                   </div>
                 </div>
               </div>
@@ -720,7 +936,11 @@
          and Iris, and gives a wider, more readable reading column than
          indenting the body under the avatar. Parent-thread context notes
          above keep the compact indented layout. -->
-    <article class="py-4">
+    <!-- When the thread opens on a reply, the focused note plus everything
+         below it must be at least a viewport tall, or the arrival scroll
+         clamps at the page bottom and leaves the parent half in view. -->
+    <div class:focus-runway={contextRows.length > 0}>
+    <article class="py-4 focused-note" bind:this={mainNoteEl} class:arrival-flash={arrivalFlash}>
       <div class="flex items-start justify-between gap-3 mb-2">
         <div class="flex items-center gap-3 min-w-0">
           <a
@@ -745,7 +965,9 @@
               <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
                 {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
               </span>
-              <ClientAttribution tags={event.tags} enableEnrichment={true} />
+              <!-- Client attribution moved into the engagement drawer (iOS
+                   drawer parity) — the header keeps relative time + PoW. -->
+              <PowBadge id={event.id} tags={event.tags} />
             </div>
           </div>
         </div>
@@ -755,11 +977,46 @@
         {#if event.kind === 1068}
           <PollDisplay {event} />
         {:else}
-          <NoteContent content={event.content} />
+          <NoteContent content={event.content} {event} />
         {/if}
       </div>
-      <NoteActionBar {event} />
+      <!-- Emoji breakdown, not just a heart count: a note with four 👍
+           and three ❤️ read as bare "0" here while every other client
+           showed the pills. -->
+      <NoteReactionPills {event} />
+      <NoteActionBar {event} showCheffy={false} onCommentClick={() => openReplyModal()} />
     </article>
+
+    <!-- Inline reply box directly below a top-level note (iOS detail-view
+         parity); reply-focused views use the modal instead. -->
+    {#if isTopLevelFocus && $userPublickey}
+      <div
+        class="mt-1 px-4 py-3.5 rounded-lg"
+        style="background-color: var(--color-card-sunken)"
+      >
+        <div class="flex space-x-3 items-start">
+          <div class="flex-shrink-0">
+            <Avatar pubkey={$userPublickey} size={32} />
+          </div>
+          <div class="flex-1 min-w-0 -mt-3">
+            <ReplyComposer
+              parentEvent={event}
+              draftKey={event.id}
+              placeholder="Post your reply..."
+              submitLabel="Reply"
+              onPosted={handleReplyPosted}
+            />
+          </div>
+        </div>
+      </div>
+    {:else if isTopLevelFocus}
+      <div
+        class="mt-1 px-4 py-3.5 rounded-lg text-sm"
+        style="background-color: var(--color-card-sunken); color: var(--color-caption)"
+      >
+        <button type="button" class="text-primary hover:underline font-medium" on:click={() => requireAuth({ kind: 'reply', reason: 'Sign in to reply' })}>Log in</button> to reply
+      </div>
+    {/if}
 
     <!-- Replies Section -->
     <div class="mt-1">
@@ -778,177 +1035,69 @@
         </div>
       {:else if directReplies.length === 0}
         <p class="text-sm py-4 text-center" style="color: var(--color-caption)">
-          No replies yet. {#if !$userPublickey}<a href="/login?redirect={encodeURIComponent($page.url.pathname)}" class="underline hover:opacity-80" style="color: var(--color-primary)">Sign in</a> to reply!{:else}Be the first to reply!{/if}
+          No replies yet. {#if !$userPublickey}<button type="button" class="underline hover:opacity-80" style="color: var(--color-primary)" on:click={() => (isTopLevelFocus ? requireAuth({ kind: 'reply', reason: 'Sign in to reply' }) : openReplyModal())}>Sign in</button> to reply!{:else}Be the first to reply!{/if}
         </p>
       {:else}
-        <div class="space-y-3">
+        <!-- Jumble-style reply list: direct replies in chronological order,
+             each with its nested conversation folded beneath it — so a
+             direct reply to this note is never buried under another
+             branch's subtree. The drawer of sub-replies owns its own
+             toggle; the parent row carries none. -->
+        <div class="thread-replies">
           {#each directReplies as reply (reply.id)}
-            {#if !$mutedPubkeys.has(reply.author?.hexpubkey || reply.pubkey)}
-              <div class="reply-card">
-                <article
-                  class="cursor-pointer"
-                  on:click={(e) => gotoNoteUnlessInteractive(e, reply)}
-                  role="link"
-                  tabindex="0"
-                  on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(reply))}
-                >
-                  <div class="flex items-center justify-between gap-3 mb-2">
-                    <div class="flex items-center gap-3 min-w-0">
-                      <a
-                        href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
-                        class="flex-shrink-0"
-                        on:click|stopPropagation
-                      >
-                        <Avatar pubkey={reply.author?.hexpubkey || reply.pubkey} size={32} />
-                      </a>
-                      <div class="flex flex-col min-w-0">
-                        <a
-                          href="/user/{nip19.npubEncode(reply.author?.hexpubkey || reply.pubkey)}"
-                          class="font-semibold text-[15px] transition-colors username-link truncate min-w-0"
-                          style="color: var(--color-text-primary)"
-                          on:click|stopPropagation
-                        >
-                          <CustomName pubkey={reply.author?.hexpubkey || reply.pubkey} />
-                        </a>
-                        <span class="text-xs" style="color: var(--color-caption)">
-                          {reply.created_at ? formatTimeAgo(reply.created_at) : ''}
-                        </span>
-                      </div>
-                    </div>
-                    <span on:click|stopPropagation>
-                      <PostActionsMenu event={reply} />
-                    </span>
-                  </div>
-                  <div
-                    class="text-[14px] leading-normal"
-                    style="color: var(--color-text-primary)"
-                  >
-                    {#if reply.kind === 1068}
-                      <PollDisplay event={reply} />
-                    {:else}
-                      <NoteContent content={reply.content} showNostrEmbeds={false} />
-                    {/if}
-                  </div>
-                  <!-- Reply actions -->
-                  <div class="mt-2" on:click|stopPropagation>
-                    <NoteActionBar event={reply} />
-                  </div>
-                </article>
-
-                <!-- Nested Replies (1 level deep shown inline) -->
-                {#each getNestedReplies(reply.id).slice(0, 2) as nestedReply (nestedReply.id)}
-                  {#if !$mutedPubkeys.has(nestedReply.author?.hexpubkey || nestedReply.pubkey)}
-                    <div class="ml-4 pl-4 border-l-2" style="border-color: var(--color-input-border)">
-                      <article
-                        class="py-2 cursor-pointer hover:bg-[var(--color-bg-hover,rgba(255,255,255,0.03))] rounded"
-                        on:click={(e) => gotoNoteUnlessInteractive(e, nestedReply)}
-                        role="link"
-                        tabindex="0"
-                        on:keydown|self={(e) => e.key === 'Enter' && goto(noteUrl(nestedReply))}
-                      >
-                        <div class="flex items-center justify-between gap-2 mb-2">
-                          <div class="flex items-center gap-2 min-w-0">
-                            <a
-                              href="/user/{nip19.npubEncode(
-                                nestedReply.author?.hexpubkey || nestedReply.pubkey
-                              )}"
-                              class="flex-shrink-0"
-                              on:click|stopPropagation
-                            >
-                              <Avatar
-                                pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
-                                size={24}
-                              />
-                            </a>
-                            <div class="flex flex-col min-w-0">
-                              <a
-                                href="/user/{nip19.npubEncode(
-                                  nestedReply.author?.hexpubkey || nestedReply.pubkey
-                                )}"
-                                class="font-semibold text-sm transition-colors username-link truncate min-w-0"
-                                style="color: var(--color-text-primary)"
-                                on:click|stopPropagation
-                              >
-                                <CustomName
-                                  pubkey={nestedReply.author?.hexpubkey || nestedReply.pubkey}
-                                />
-                              </a>
-                              <span class="text-xs" style="color: var(--color-caption)">
-                                {nestedReply.created_at
-                                  ? formatTimeAgo(nestedReply.created_at)
-                                  : ''}
-                              </span>
-                            </div>
-                          </div>
-                          <span on:click|stopPropagation>
-                            <PostActionsMenu event={nestedReply} />
-                          </span>
-                        </div>
-                        <div
-                          class="text-[13px] leading-normal"
-                          style="color: var(--color-text-primary)"
-                        >
-                          {#if nestedReply.kind === 1068}
-                            <PollDisplay event={nestedReply} />
-                          {:else}
-                            <NoteContent content={nestedReply.content} showNostrEmbeds={false} />
-                          {/if}
-                        </div>
-                        <!-- Nested reply actions -->
-                        <div class="mt-1.5" on:click|stopPropagation>
-                          <NoteActionBar event={nestedReply} variant="compact" />
-                        </div>
-                      </article>
-                    </div>
-                  {/if}
-                {/each}
-
-                <!-- Show more nested replies link -->
-                {#if getNestedReplies(reply.id).length > 2}
-                  <a
-                    href="{noteUrl(reply)}"
-                    class="ml-4 pl-4 border-l-2 py-2 block text-xs text-primary hover:opacity-80"
-                    style="border-color: var(--color-input-border)"
-                  >
-                    Show {getNestedReplies(reply.id).length - 2} more {getNestedReplies(reply.id)
-                      .length -
-                      2 ===
-                    1
-                      ? 'reply'
-                      : 'replies'}
-                  </a>
-                {/if}
-              </div>
-            {/if}
+            <ThreadRow
+              event={reply}
+              depth={0}
+              onReply={() => openReplyModal(reply)}
+              onCommentClick={() => openReplyModal(reply)}
+              rootAuthor={event?.author?.hexpubkey || event?.pubkey}
+              formatTime={formatTimeAgo}
+            />
+            <SubReplyList
+              parentEvent={reply}
+              {parentToChildren}
+              {authorById}
+              rootAuthor={event?.author?.hexpubkey || event?.pubkey}
+              formatTime={formatTimeAgo}
+              onReply={openReplyModal}
+            />
           {/each}
         </div>
       {/if}
 
-      <!-- Reply Input -->
-      {#if $userPublickey}
-        <div class="mt-4 px-4 py-3.5 rounded-lg" style="background-color: var(--color-card-sunken)">
-          <div class="flex space-x-3 items-start">
-            <div class="flex-shrink-0">
-              <Avatar pubkey={$userPublickey} size={32} />
-            </div>
-            <div class="flex-1 min-w-0 -mt-3">
-              <ReplyComposer
-                parentEvent={event}
-                placeholder="Write a reply..."
-                submitLabel="Reply"
-                onPosted={handleReplyPosted}
-              />
-            </div>
-          </div>
-        </div>
-      {:else}
+      <!-- Reply affordance for reply-focused views (top-level notes have
+           the inline box above): opens the composer in a modal. -->
+      {#if !isTopLevelFocus && $userPublickey}
+        <button
+          type="button"
+          class="reply-pseudo-input"
+          on:click={() => openReplyModal()}
+        >
+          <Avatar pubkey={$userPublickey} size={32} />
+          <span class="reply-pseudo-placeholder">
+            {#if focusedDraftPreview}
+              Continue your reply — {focusedDraftPreview}
+            {:else}
+              Post your reply...
+            {/if}
+          </span>
+        </button>
+      {:else if !isTopLevelFocus}
         <div
           class="mt-4 px-4 py-3.5 rounded-lg text-sm"
           style="background-color: var(--color-card-sunken); color: var(--color-caption)"
         >
-          <a href="/login" class="text-primary hover:underline font-medium">Log in</a> to reply
+          <button type="button" class="text-primary hover:underline font-medium" on:click={() => openReplyModal()}>Log in</button> to reply
         </div>
       {/if}
+
+      <ReplyModal
+        bind:open={replyModalOpen}
+        parentEvent={threadRootEvent ?? event}
+        replyTo={replyModalReplyTo}
+        onPosted={handleReplyPosted}
+      />
+    </div>
     </div>
   {/if}
   </div>
@@ -978,14 +1127,72 @@
 
   /* Each reply is a filled panel (no border), a shade darker than the page,
      matching the reply composer box below the list. */
-  .reply-card {
-    background-color: var(--color-card-sunken);
-    border-radius: 0.5rem;
-    padding: 0.75rem 1rem;
+  .thread-replies {
+    /* Rows carry their own bottom rule; the list needs no gap. The last
+       row's rule doubles as the boundary before the reply composer. */
+    display: flex;
+    flex-direction: column;
   }
 
   /* Username hover - orange color */
   .username-link:hover {
     color: var(--color-primary) !important;
+  }
+
+  /* Slim reply affordance — looks like the composer box it replaced, but
+     only opens the modal. The composer itself never lives in the page. */
+  .reply-pseudo-input {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-input-border);
+    border-radius: 0.75rem;
+    background-color: var(--color-card-sunken);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s ease;
+  }
+
+  .reply-pseudo-input:hover {
+    border-color: var(--color-primary);
+  }
+
+  .reply-pseudo-placeholder {
+    color: var(--color-caption);
+    font-size: 0.9375rem;
+  }
+
+  /* The focused note is the scroll-into-view target when the thread opens
+     on a reply — keep it clear of the fixed header. */
+  .focused-note {
+    scroll-margin-top: calc(var(--header-h, 4rem) + 0.5rem);
+  }
+
+  /* Reply-focused views reserve a viewport of room from the focused note
+     down, so scrollIntoView can always put it under the header. */
+  .focus-runway {
+    min-height: calc(100vh - var(--header-h, 4rem) - 0.5rem);
+    min-height: calc(100dvh - var(--header-h, 4rem) - 0.5rem);
+  }
+
+  /* Brief tint that marks where a reply arrival landed, fading out. */
+  .arrival-flash {
+    animation: arrival-flash 1.6s ease-out 1;
+  }
+  @keyframes arrival-flash {
+    from {
+      background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    }
+    to {
+      background-color: transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .arrival-flash {
+      animation: none;
+    }
   }
 </style>

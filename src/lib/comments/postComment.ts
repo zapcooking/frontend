@@ -19,7 +19,7 @@
 
 import type NDK from '@nostr-dev-kit/ndk';
 import { NDKEvent, type NDKRelay } from '@nostr-dev-kit/ndk';
-import { buildNip22CommentTags } from '$lib/tagUtils';
+import { buildNip22CommentTags, buildNip22CommentReplyTags } from '$lib/tagUtils';
 import { addClientTagToEvent } from '$lib/nip89';
 import { isAddressableRoot } from '$lib/commentFilters';
 import { buildInboxAwareRelaySet } from '$lib/nip65Routing';
@@ -84,6 +84,18 @@ export interface PostCommentOptions {
   extraTags?: string[][];
 
   /**
+   * Called with the fully built, unsigned event so the caller can mine
+   * NIP-13 proof of work into it.
+   *
+   * A hook rather than a difficulty number because mining is slow enough to
+   * need a UI: the caller owns the pane, the elapsed clock and the button
+   * that stops it, and this only owns the one thing that must not move —
+   * that it happens BEFORE signing. The signature covers the id, so a nonce
+   * mined afterwards would invalidate the signature it was mined under.
+   */
+  mine?: (event: NDKEvent) => Promise<void>;
+
+  /**
    * For content variants (e.g., polls as kind 1068) where the thread
    * structure follows NIP-22/NIP-10 but the published kind number
    * reflects content type. If omitted, kind is derived per NIP-22/NIP-10
@@ -114,14 +126,25 @@ export interface PostCommentResult {
 
 const DEFAULT_PUBLISH_TIMEOUT_MS = 30_000;
 
-function deriveKind(parent: NDKEvent, replyTo: NDKEvent | undefined): number {
+/**
+ * Kind policy: reply as kind 1111 only when the other client initiated in
+ * that format — the reply target is a comment with a usable NIP-22 root
+ * scope — or when the thread root is addressable. Every other reply stays
+ * kind 1 with NIP-10 tags for maximum cross-client visibility.
+ *
+ * `commentReplyTags` comes from `buildNip22CommentReplyTags`, the same
+ * derivation that builds the tags, so the kind and the tag set cannot
+ * disagree: tags present ⟺ kind 1111. A comment target with no `E`/`A`/`I`
+ * root tag yields null tags → kind-1 fallback, because an unscoped comment
+ * could not be threaded by anyone.
+ */
+function deriveKind(parent: NDKEvent, commentReplyTags: string[][] | null): number {
   // Addressable root (with `d` tag per NIP-01) → NIP-22 comment.
   // The `isAddressableRoot` predicate is shared with `createCommentFilter`
   // so the published kind always matches what the subscription will fetch.
   if (isAddressableRoot(parent)) return 1111;
-  // Parent is itself a NIP-22 comment → reply stays kind 1111.
-  if (replyTo && replyTo.kind === 1111) return 1111;
-  if (!replyTo && parent.kind === 1111) return 1111;
+  // Reply target is a scoped NIP-22 comment → reply stays kind 1111.
+  if (commentReplyTags) return 1111;
   // Otherwise plain NIP-10 kind-1 reply.
   return 1;
 }
@@ -173,11 +196,33 @@ export async function postComment(
     );
   }
 
+  // The effective NIP-22 reply target: the explicit replyTo comment, or
+  // the parent itself when composing at the top of a comment's thread
+  // (the thread page wires parentEvent to the focused comment with no
+  // replyTo). Its root scope (`E`/`A`/`I` + `K`/`P`) carries forward into
+  // the reply verbatim; a target without a root scope falls back to a
+  // NIP-10 kind-1 reply rather than publishing an unscoped comment.
+  const commentTarget: NDKEvent | undefined =
+    replyTo?.kind === 1111
+      ? replyTo
+      : !replyTo && parentEvent.kind === 1111
+        ? parentEvent
+        : undefined;
+  const commentReplyTags = commentTarget
+    ? buildNip22CommentReplyTags({
+        id: commentTarget.id,
+        pubkey: commentTarget.pubkey,
+        kind: commentTarget.kind,
+        tags: commentTarget.tags as string[][]
+      })
+    : null;
+
   const ev = new NDKEvent(ndk);
-  ev.kind = contentKind ?? deriveKind(parentEvent, replyTo);
+  ev.kind = contentKind ?? deriveKind(parentEvent, commentReplyTags);
   ev.content = content;
 
-  // Tag-building delegates to the existing spec-compliant utility.
+  // Kind 1111 iff commentReplyTags — one derivation feeds both lines above
+  // and the tag assignment below, so they can never disagree.
   const rootInput = {
     kind: parentEvent.kind ?? 1,
     pubkey: parentEvent.author?.pubkey || parentEvent.pubkey,
@@ -192,13 +237,18 @@ export async function postComment(
         tags: replyTo.tags as string[][]
       }
     : undefined;
-  const baseTags = buildNip22CommentTags(rootInput, parentInput);
+  const baseTags = commentReplyTags ?? buildNip22CommentTags(rootInput, parentInput);
   ev.tags = mergeExtraTags(baseTags, extraTags);
   addClientTagToEvent(ev);
 
   if (signingStrategy === 'explicit-with-timeout') {
     // Ensure created_at is set before signing.
     if (!ev.created_at) ev.created_at = Math.floor(Date.now() / 1000);
+
+    // Before signing, and before the timeout that wraps it: mining is the
+    // caller's own wait, with its own way to stop, and it must not count
+    // against the signer's clock.
+    if (options.mine) await options.mine(ev);
 
     try {
       await ev.sign();
@@ -245,6 +295,7 @@ export async function postComment(
   // but we can still pre-build an inbox-aware relay set since the event
   // tags (which we built above) already determine recipients.
   try {
+    if (options.mine) await options.mine(ev);
     const inboxRelaySet =
       (await buildInboxAwareRelaySet({ event: ev, ndk })) ?? undefined;
     const relaySet = await ev.publish(inboxRelaySet);

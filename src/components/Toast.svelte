@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
+  import { cubicBezier, prefersReducedMotion } from '$lib/motion';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
   import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircle';
   import InfoIcon from 'phosphor-svelte/lib/Info';
@@ -6,12 +8,50 @@
   import { dismissToast } from '$lib/toast';
 
   export let toast: ToastMessage;
+
+  // Enter/exit per the transitions.dev toast recipe: fade + translate +
+  // slight scale + cross-blur, arriving on the slower open clock and
+  // leaving on the faster close clock. The container is top-center, so
+  // the toast drops in from above instead of rising from below.
+  const toastEase = cubicBezier(0.22, 1, 0.36, 1);
+  const reducedMotion = browser && prefersReducedMotion();
+
+  function toastCss(t: number): string {
+    return `opacity: ${t}; transform: translateY(${(1 - t) * -16}px) scale(${0.97 + 0.03 * t}); filter: blur(${(1 - t) * 2}px);`;
+  }
+
+  // The recipe's will-change hint — promotes the toast for its own
+  // transform/opacity/filter animation. Applied by both directions
+  // because an outro can run on a toast whose intro never did (a new
+  // toast replaces the visible one).
+  const prepWillChange = (node: Element) => {
+    (node as HTMLElement).style.willChange = 'transform, opacity, filter';
+  };
+
+  const toastIn = (node: Element) => {
+    prepWillChange(node);
+    return {
+      duration: reducedMotion ? 0 : 350,
+      easing: toastEase,
+      css: toastCss
+    };
+  };
+  const toastOut = (node: Element) => {
+    prepWillChange(node);
+    return {
+      duration: reducedMotion ? 0 : 250,
+      easing: toastEase,
+      css: toastCss
+    };
+  };
 </script>
 
 <div
   class="toast toast--{toast.variant}"
   role={toast.variant === 'error' ? 'alert' : 'status'}
   aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
+  in:toastIn
+  out:toastOut
 >
   <span class="toast-icon">
     {#if toast.variant === 'success'}
@@ -27,6 +67,18 @@
     <a href={toast.link.href} class="toast-link" on:click={() => dismissToast(toast.id)}>
       {toast.link.label}
     </a>
+  {/if}
+  {#if toast.action}
+    <button
+      type="button"
+      class="toast-link"
+      on:click={() => {
+        dismissToast(toast.id);
+        toast.action?.onClick();
+      }}
+    >
+      {toast.action.label}
+    </button>
   {/if}
   <button
     type="button"

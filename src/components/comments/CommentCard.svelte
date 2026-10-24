@@ -15,14 +15,15 @@
    * that's already spec-compliant.
    */
   import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { requireAuth, signedIn } from '$lib/auth/requireAuth';
   import { mutedPubkeys } from '$lib/muteListStore';
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
   import Avatar from '../Avatar.svelte';
   import CustomAvatar from '../CustomAvatar.svelte';
   import ClientAttribution from '../ClientAttribution.svelte';
+  import PowBadge from '../PowBadge.svelte';
   import NoteContent from '../NoteContent.svelte';
   import ReplyComposer from './ReplyComposer.svelte';
   import ThreadCommentActions from '../ThreadCommentActions.svelte';
@@ -178,14 +179,11 @@
     dispatch(open ? 'replyopen' : 'replyclose');
   }
 
-  function handleReplyPosted() {
-    setReplyBox(false);
+  // Anon users see "Sign in to reply" styled as the Reply button: sign-in
+  // opens over the page, then this comment's reply box opens.
+  async function signInToReply() {
+    if (await requireAuth({ kind: 'reply', reason: 'Sign in to reply' })) setReplyBox(true);
   }
-
-  // Anon users see a "Sign in to reply" link styled as the Reply button.
-  // Preserves redirect-to-thread post-login.
-  let loginRedirectHref = '';
-  $: loginRedirectHref = `/login?redirect=${encodeURIComponent($page.url.pathname)}`;
 
   function truncateContent(content: string, maxLength: number = 100): string {
     const cleaned = content
@@ -243,6 +241,7 @@
             {formatDate(new Date((event.created_at || 0) * 1000))}
           </span>
           <ClientAttribution tags={event.tags} enableEnrichment={false} />
+				<PowBadge id={event.id} tags={event.tags} />
         </div>
 
         <!-- Comment Text -->
@@ -255,7 +254,7 @@
           <ThreadCommentActions {event} compact={variant === 'feed'} showReplyButton={false} />
 
           <!-- Reply button (signed in) or sign-in link (anon) — both variants. -->
-          {#if $userPublickey}
+          {#if $signedIn}
             <button
               type="button"
               on:click={() => setReplyBox(!showReplyBox)}
@@ -265,10 +264,10 @@
               <span>{showReplyBox ? 'Cancel' : 'Reply'}</span>
             </button>
           {:else}
-            <a href={loginRedirectHref} class="reply-btn">
+            <button type="button" on:click={signInToReply} class="reply-btn">
               <ChatCircleIcon size={variant === 'feed' ? 16 : 18} weight="regular" />
               <span>Sign in to reply</span>
-            </a>
+            </button>
           {/if}
         </div>
 
@@ -284,10 +283,11 @@
                 <ReplyComposer
                   parentEvent={rootEvent}
                   replyTo={event}
+                  draftKey={event.id}
                   placeholder="Write a reply..."
                   submitLabel="Reply"
                   showCancel
-                  onPosted={handleReplyPosted}
+                  on:close={() => setReplyBox(false)}
                   on:cancel={() => setReplyBox(false)}
                 />
               </div>

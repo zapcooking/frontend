@@ -1,5 +1,14 @@
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { ndk, userPublickey } from '$lib/nostr';
+import {
+  canCreateNostrBackup,
+  getNostrBackupBlocker,
+  encrypt,
+  decryptWithSource,
+  noteLegacyMigration,
+  type EncryptionMethod
+} from '$lib/encryptionService';
 
 // Wallet types using kind system (matching sparkihonne)
 export type WalletKind = 1 | 3 | 4; // 1=WebLN, 3=NWC, 4=Spark
@@ -12,31 +21,295 @@ export interface Wallet {
   data: string; // NWC connection string, 'webln', or 'spark'
 }
 
+/**
+ * At-rest protection for NWC connection strings.
+ *
+ * A `nostr+walletconnect://…secret=…` string is a live payment
+ * authorization: anyone who reads it from localStorage can spend from
+ * the wallet from anywhere. Kind-3 `data` is therefore persisted as a
+ * NIP-44 encrypt-to-self envelope (same scheme as the Spark mnemonic
+ * in $lib/spark/storage.ts) — the encryption key never sits at rest
+ * for NIP-07 and vault sessions. In memory, `data` stays the plaintext
+ * string so every consumer (connect, display, export) is unchanged.
+ *
+ * Legacy plaintext entries are used as-is and transparently re-saved
+ * encrypted (silent migration, same as Spark V1→V2).
+ */
+interface EncryptedData {
+  enc: string;
+  method: EncryptionMethod;
+}
+
+interface StoredWallet extends Omit<Wallet, 'data'> {
+  data: string | EncryptedData;
+}
+
+// Entries held back for deferred decryption — data is always an envelope
+// (that's the only way they get here).
+type PendingEncryptedWallet = Omit<StoredWallet, 'data'> & { data: EncryptedData };
+
 const STORAGE_KEY = 'zapcooking_wallets';
 
-// Load wallets from localStorage
+function isNwcConnectionString(data: string): boolean {
+  return (
+    data.startsWith('nostr+walletconnect://') || data.startsWith('nostrwalletconnect://')
+  );
+}
+
+function isEncryptedData(value: unknown): value is EncryptedData {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as EncryptedData).enc === 'string' &&
+    typeof (value as EncryptedData).method === 'string'
+  );
+}
+
+// FNV-1a fingerprint of wallet data (NWC connection string / Spark wallet
+// id). Safe for storage keys and records — unlike the raw NWC string,
+// which is a live payment authorization.
+export function fingerprintWalletData(data: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < data.length; i++) {
+    h ^= data.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
+// Last envelope seen per wallet id — lets a save whose re-encrypt fails
+// (signer denied) keep the prior envelope instead of dropping to
+// plaintext or losing the wallet.
+const lastEnvelopeById = new Map<number, EncryptedData>();
+
+// Envelope entries not yet decrypted (e.g. vault still locked, NIP-07
+// not ready on page load). They must survive every storage write so the
+// wallets aren't lost while undecrypted.
+let pendingEncrypted: PendingEncryptedWallet[] = [];
+
+let plaintextFallbackWarned = false;
+
+// Set when a save kept an NWC string in plaintext because the session
+// couldn't encrypt yet (auth still restoring on page load). The startup
+// save runs before AuthManager knows the auth method, so without a retry
+// a legacy plaintext entry would stay plaintext until the next edit.
+let plaintextMigrationPending = false;
+
+async function encryptForStorage(
+  pubkey: string,
+  id: number,
+  data: string
+): Promise<string | EncryptedData> {
+  if (!isNwcConnectionString(data)) return data;
+  if (!canCreateNostrBackup()) {
+    plaintextMigrationPending = true;
+    return data;
+  }
+  try {
+    const { ciphertext, method } = await encrypt(pubkey, data);
+    const envelope: EncryptedData = { enc: ciphertext, method };
+    return envelope;
+  } catch (e) {
+    console.warn('[WalletStore] NWC encryption failed:', e);
+    // Prefer the prior envelope over plaintext — an undecryptable copy
+    // is better than a plaintext secret.
+    const prior = lastEnvelopeById.get(id);
+    if (prior) return prior;
+    if (!plaintextFallbackWarned) {
+      plaintextFallbackWarned = true;
+      console.warn(
+        '[WalletStore] NWC connection string could not be encrypted (signer denied?). It will be stored in plaintext.'
+      );
+    }
+  }
+  return data;
+}
+
+// Serialize + persist. Async (encryption round-trips through the
+// signer); serialized through a promise chain so the last write wins.
+async function persistWallets(list: Wallet[]): Promise<void> {
+  if (!browser) return;
+  const pubkey = get(userPublickey);
+  const stored: StoredWallet[] = [];
+  plaintextMigrationPending = false;
+  for (const w of list) {
+    const data = await encryptForStorage(pubkey, w.id, w.data);
+    if (isEncryptedData(data)) lastEnvelopeById.set(w.id, data);
+    stored.push({ ...w, data });
+  }
+  // Keep still-encrypted entries that haven't made it into the store.
+  const inStore = new Set(list.map((w) => w.id));
+  for (const pending of pendingEncrypted) {
+    if (!inStore.has(pending.id)) stored.push({ ...pending });
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+  } catch (e) {
+    console.error('[WalletStore] Failed to save wallets:', e);
+  }
+  if (plaintextMigrationPending) scheduleAtRestMigration();
+}
+
+let migrationTimer: ReturnType<typeof setInterval> | null = null;
+
+// Re-save once the session can encrypt, so plaintext NWC strings get
+// wrapped without waiting for a wallet edit. Only waits while someone is
+// signed in (or restoring: userPublickey is seeded from localStorage on
+// load); with no pubkey it stops, and the userPublickey subscription below
+// restarts it on sign-in. NIP-46 sessions never wrap (see
+// canCreateNostrBackup), so stop waiting once that's known. A failed
+// encrypt (signer denied) is not retried here — no popup loops.
+function scheduleAtRestMigration(): void {
+  if (!browser || migrationTimer) return;
+  migrationTimer = setInterval(() => {
+    const stop = () => {
+      if (migrationTimer) clearInterval(migrationTimer);
+      migrationTimer = null;
+    };
+    if (!plaintextMigrationPending || !get(userPublickey)) return stop();
+    if (getNostrBackupBlocker() === 'nip46') return stop();
+    if (!canCreateNostrBackup()) return;
+    stop();
+    schedulePersist(get(wallets));
+  }, 5000);
+}
+
+userPublickey.subscribe((pubkey) => {
+  if (pubkey && plaintextMigrationPending) scheduleAtRestMigration();
+});
+
+let persistChain: Promise<void> = Promise.resolve();
+let latestPendingSave: Wallet[] | null = null;
+
+function schedulePersist(list: Wallet[]): void {
+  if (!browser) return;
+  latestPendingSave = list;
+  persistChain = persistChain.then(async () => {
+    const snapshot = latestPendingSave;
+    latestPendingSave = null;
+    if (snapshot) await persistWallets(snapshot);
+  });
+}
+
+// Load wallets from localStorage. Entries whose kind-3 data is an
+// encrypted envelope are held back (they need the signer); everything
+// else is returned immediately.
 function loadWallets(): Wallet[] {
   if (!browser) return [];
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      return JSON.parse(stored);
+      const parsed = JSON.parse(stored) as StoredWallet[];
+      const ready: Wallet[] = [];
+      const envelopes: PendingEncryptedWallet[] = [];
+      for (const w of parsed) {
+        if (isEncryptedData(w.data)) {
+          lastEnvelopeById.set(w.id, w.data);
+          envelopes.push({ ...w, data: w.data });
+        } else {
+          ready.push({ ...w, data: w.data as string });
+        }
+      }
+      pendingEncrypted = envelopes;
+      return ready;
     }
   } catch (e) {
     console.error('[WalletStore] Failed to load wallets:', e);
   }
+  pendingEncrypted = [];
   return [];
 }
 
-// Save wallets to localStorage
-function saveWallets(wallets: Wallet[]): void {
-  if (!browser) return;
+// Whether any wallets (including still-encrypted envelopes) exist in
+// persistent storage. Distinguishes "device was logged out and wiped"
+// from "session reload with wallets still pending decryption" — callers
+// deciding whether to auto-restore must not race the decrypt path.
+export function hasPersistedWallets(): boolean {
+  if (!browser) return false;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(wallets));
-  } catch (e) {
-    console.error('[WalletStore] Failed to save wallets:', e);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return false;
+    return (JSON.parse(stored) as StoredWallet[]).length > 0;
+  } catch {
+    return false;
   }
 }
+
+// ── Deferred envelope decryption ────────────────────────────────────
+//
+// The signer may not exist yet when the page loads (passkey vault
+// locked, NIP-07 extension still registering, bunker still pairing).
+// Poll lightly and decrypt as soon as it's available; the
+// encryptionService decrypt cache + denial circuit-breaker prevent
+// signer-popup floods while we wait.
+
+let decryptTimer: ReturnType<typeof setInterval> | null = null;
+
+function scheduleEnvelopeDecrypt(): void {
+  if (!browser || decryptTimer) return;
+  decryptTimer = setInterval(() => {
+    if (pendingEncrypted.length === 0) {
+      if (decryptTimer) clearInterval(decryptTimer);
+      decryptTimer = null;
+      return;
+    }
+    const pubkey = get(userPublickey);
+    const signer = get(ndk).signer;
+    if (!pubkey || !signer) return;
+    void decryptPendingEnvelopes(pubkey);
+  }, 5000);
+}
+
+async function decryptPendingEnvelopes(pubkey: string): Promise<void> {
+  const stillPending: PendingEncryptedWallet[] = [];
+  let merged = false;
+  for (const pending of pendingEncrypted) {
+    try {
+      const { plaintext, source } = await decryptWithSource(
+        pubkey,
+        pending.data.enc,
+        pending.data.method,
+        { legacy: 'prompt' }
+      );
+      if (source !== 'session') {
+        // Legacy-encrypted envelope (#897). Merging re-saves it through
+        // persistWallets, which encrypts under the session key (or keeps
+        // plaintext where the session can't wrap) — but only if it really
+        // is an NWC string, never a garbage decrypt.
+        if (!isNwcConnectionString(plaintext)) throw new Error('Unexpected legacy payload');
+        noteLegacyMigration('saved NWC wallet', source);
+      }
+      mergeDecryptedWallet({ ...pending, data: plaintext });
+      merged = true;
+    } catch (e) {
+      // Signer denied or not ready — keep the envelope for a later retry.
+      stillPending.push(pending);
+      console.warn(
+        '[WalletStore] Wallet decryption unavailable, will retry:',
+        e instanceof Error ? e.message : e
+      );
+    }
+  }
+  pendingEncrypted = stillPending;
+  if (merged) walletsDecrypted.update((n) => n + 1);
+}
+
+function mergeDecryptedWallet(wallet: Wallet): void {
+  wallets.update((current) => {
+    const idx = current.findIndex((w) => w.id === wallet.id);
+    if (idx === -1) return [...current, wallet];
+    const next = [...current];
+    next[idx] = wallet;
+    return next;
+  });
+}
+
+/**
+ * Fires (counter) whenever encrypted wallets finish decrypting, so the
+ * wallet manager can restore connectivity for an NWC wallet that
+ * wasn't connectable at init time.
+ */
+export const walletsDecrypted = writable<number>(0);
 
 // --- Stores ---
 
@@ -54,6 +327,14 @@ if (browser) {
     hasLoadedFromStorage = true;
     if (saved.length > 0) {
       wallets.set(saved);
+      // Plaintext wallets are usable as-is: the setup question is
+      // answered, so the sidebar card needn't shimmer for the ones that
+      // loaded ready. (Encrypted envelopes keep it pending until
+      // decryption materializes them.)
+      if (pendingEncrypted.length === 0) walletSetupCheckPending.set(false);
+    }
+    if (pendingEncrypted.length > 0) {
+      scheduleEnvelopeDecrypt();
     }
   }, 0);
 }
@@ -61,7 +342,7 @@ if (browser) {
 // Subscribe to persist changes
 wallets.subscribe((value) => {
   if (browser && hasLoadedFromStorage) {
-    saveWallets(value);
+    schedulePersist(value);
   }
 });
 
@@ -93,14 +374,22 @@ function setCachedBalance(walletId: number, balance: number): void {
   }
 }
 
+function clearCachedBalance(walletId: number): void {
+  if (!browser) return;
+  try {
+    localStorage.removeItem(`${CACHED_BALANCE_KEY}_${walletId}`);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 // Wallet balance in sats (updated by wallet manager)
 export const walletBalance = writable<number | null>(null);
 
 // Load cached balance for active wallet on startup
 if (browser) {
   setTimeout(() => {
-    const saved = loadWallets();
-    const active = saved.find((w) => w.active);
+    const active = get(wallets).find((w) => w.active);
     if (active) {
       const cached = getCachedBalance(active.id);
       if (cached !== null) {
@@ -110,11 +399,14 @@ if (browser) {
   }, 0);
 }
 
-// Cache balance when it changes
+// Cache balance when it changes.
+//
+// Hiding the balance is a privacy setting — someone with the screen or the
+// device shouldn't see the amount. Writing it to localStorage anyway would
+// undercut that, so the cache is only written while the balance is visible.
 walletBalance.subscribe((balance) => {
-  if (browser && balance !== null) {
-    const saved = loadWallets();
-    const active = saved.find((w) => w.active);
+  if (browser && balance !== null && loadBalanceVisibility()) {
+    const active = get(wallets).find((w) => w.active);
     if (active) {
       setCachedBalance(active.id, balance);
     }
@@ -187,10 +479,22 @@ navBalanceVisible.subscribe((visible) => {
 });
 
 /**
- * Toggle balance visibility
+ * Toggle balance visibility.
+ *
+ * Hiding also drops the already-cached amount for the active wallet —
+ * otherwise the last visible balance would sit in localStorage for
+ * anyone inspecting the device, which is the thing hiding it is meant
+ * to prevent.
  */
 export function toggleBalanceVisibility(): void {
-  balanceVisible.update((v) => !v);
+  balanceVisible.update((v) => {
+    const next = !v;
+    if (!next && browser) {
+      const active = get(wallets).find((w) => w.active);
+      if (active) clearCachedBalance(active.id);
+    }
+    return next;
+  });
 }
 
 export function setNavBalanceVisible(visible: boolean): void {
@@ -274,6 +578,9 @@ export function getActiveWallet(): Wallet | null {
  * Clear all wallets
  */
 export function clearAllWallets(): void {
+  // Also drop still-encrypted entries so the storage write that follows
+  // doesn't resurrect them (and so logout actually removes wallet data).
+  pendingEncrypted = [];
   wallets.set([]);
   walletBalance.set(null);
   walletLastSync.set(null);
@@ -294,3 +601,45 @@ export function getWalletKindName(kind: WalletKind): string {
       return 'Unknown';
   }
 }
+
+/**
+ * True while a login auto-restore is in flight. The header mini-wallet
+ * renders its restoring pill from this instead of implying the user has
+ * no wallet during the fetch/decrypt round-trip.
+ */
+export const walletRestoring = writable(false);
+
+/**
+ * Storage key of the per-pubkey "last used wallet" record written by
+ * autoRestore (lives here so the initial setup-check read below and
+ * autoRestore can never drift apart).
+ */
+export function lastWalletRecordKey(pubkey: string): string {
+  return `zapcooking_last_wallet_${pubkey}`;
+}
+
+/**
+ * True from login until the "does this account have a wallet?" question
+ * has been answered one way or the other. The answer can still come
+ * back "restored" while the deferred auto-restore check and the envelope
+ * decryption are in flight, so the UI must not claim "Set up a Wallet"
+ * yet. Distinct from walletRestoring, which is only true once an actual
+ * restore attempt is running.
+ *
+ * The INITIAL value is computed from storage because on a page reload
+ * the logged-in sidebar mounts long before the auth callback fires:
+ * a session marker plus persisted wallets or a last-used record means
+ * the question is open, anything else can answer "no wallet" at once.
+ */
+function initialSetupCheckPending(): boolean {
+  if (!browser) return false;
+  try {
+    const pubkey = localStorage.getItem('nostrcooking_loggedInPublicKey');
+    if (!pubkey) return false;
+    if (hasPersistedWallets()) return true;
+    return !!localStorage.getItem(lastWalletRecordKey(pubkey));
+  } catch {
+    return false;
+  }
+}
+export const walletSetupCheckPending = writable(initialSetupCheckPending());

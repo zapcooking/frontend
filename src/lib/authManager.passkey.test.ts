@@ -11,6 +11,15 @@ import fixture from '../test/fixtures/vault-v1.json';
 
 vi.mock('$app/environment', () => ({ browser: true }));
 
+// logout() clears account-scoped data (wallets, group/publish/offline
+// databases). Those are covered by sessionCleanup.test.ts; stub them here
+// so this suite stays a pure AuthManager unit test and doesn't pull
+// IndexedDB modules into the mocked-NDK environment.
+vi.mock('$lib/sessionCleanup', () => ({
+  clearAccountData: vi.fn().mockResolvedValue(undefined),
+  clearAccountLocalStorage: vi.fn()
+}));
+
 vi.mock('@nostr-dev-kit/ndk', async () => {
   const { getPublicKey } = await import('nostr-tools');
   const toBytes = (hex: string) =>
@@ -50,7 +59,7 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
 });
 
 import { AuthManager, VaultConflictError } from './authManager';
-import { VAULT_STORAGE_KEY, type VaultRecord } from './passkeyVault';
+import { VAULT_STORAGE_KEY, isVaultUnconfirmed, type VaultRecord } from './passkeyVault';
 import { hexToBytes, bytesToB64 } from './passkeyVaultCrypto';
 import { resolveSecuritySections } from './securitySections';
 
@@ -427,5 +436,267 @@ describe('getSessionPrivateKeyHex', () => {
   it('returns null when there is no nsec session', () => {
     const am = new AuthManager(ndk);
     expect(am.getSessionPrivateKeyHex()).toBeNull();
+  });
+});
+
+// ── One-prompt setup ─────────────────────────────────────────────
+
+// Simulated authenticator. createPrf: create() returns the PRF output (as
+// iCloud Keychain, Google Password Manager and 1Password do). getPrf: what
+// this provider's get() yields for the same salt — the create() value by
+// default, other bytes for a bad provider, or the NotAllowedError Microsoft
+// Password Manager raises.
+function simulatedAuthenticator(opts: {
+  createPrf: boolean;
+  getPrf?: Uint8Array | 'NotAllowedError';
+}) {
+  const prf = hexToBytes(fixture.prfOutputHex);
+  credentials.create.mockImplementation(async () => ({
+    id: fixture.credentialIdB64url,
+    rawId: new ArrayBuffer(0),
+    type: 'public-key',
+    response: {
+      getPublicKey: () => new Uint8Array([48, 1]).buffer,
+      getPublicKeyAlgorithm: () => -7
+    },
+    getClientExtensionResults: () =>
+      opts.createPrf
+        ? { prf: { enabled: true, results: { first: prf.slice().buffer } } }
+        : { prf: { enabled: true } }
+  }));
+  credentials.get.mockImplementation(async () => {
+    if (opts.getPrf === 'NotAllowedError') throw new DOMException('denied', 'NotAllowedError');
+    const out = opts.getPrf ?? prf;
+    return {
+      id: fixture.credentialIdB64url,
+      rawId: new ArrayBuffer(0),
+      type: 'public-key',
+      response: {
+        signature: new Uint8Array([1]).buffer,
+        authenticatorData: new Uint8Array([2]).buffer,
+        clientDataJSON: new Uint8Array([3]).buffer
+      },
+      getClientExtensionResults: () => ({ prf: { results: { first: out.slice().buffer } } })
+    };
+  });
+}
+
+async function nsecSession() {
+  const am = new AuthManager(ndk);
+  await am.authenticateWithPrivateKey(fixture.nsecHex);
+  return am;
+}
+
+/** A later visit restoring from storage, expected to start signed in. */
+async function nextVisit() {
+  const am = new AuthManager(makeNdk());
+  await vi.waitFor(() => expect(am.getState().isAuthenticated).toBe(true));
+  return am;
+}
+
+/** A later visit expected to start LOCKED (unconfirmed vault, chip shown). */
+async function nextVisitLocked() {
+  const am = new AuthManager(makeNdk());
+  await flush();
+  expect(am.getState().isAuthenticated).toBe(false);
+  expect(am.getVaultStatus()).toBe('locked');
+  return am;
+}
+
+describe('one-prompt enrollment (PRF at create)', () => {
+  it('one ceremony: vault written, plaintext key and nsec session kept', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    const am = await nsecSession();
+
+    await expect(am.enrollVault()).resolves.toEqual({ confirmed: false });
+
+    expect(credentials.create).toHaveBeenCalledTimes(1);
+    expect(credentials.get).not.toHaveBeenCalled();
+    expect(vaultInStore()).toBeDefined();
+    expect(isVaultUnconfirmed()).toBe(true);
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+    expect(am.getState().authMethod).toBe('privateKey');
+    expect(am.getState().isAuthenticated).toBe(true);
+  });
+
+  it('falls back to create + get (today) when create() returns no PRF result', async () => {
+    simulatedAuthenticator({ createPrf: false });
+    const am = await nsecSession();
+
+    await expect(am.enrollVault()).resolves.toEqual({ confirmed: true });
+
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(store.get(PK_KEY)).toBeUndefined();
+    expect(am.getState().authMethod).toBe('passkey');
+    expect(isVaultUnconfirmed()).toBe(false);
+  });
+
+  it('next visit starts locked; the normal unlock confirms the vault and deletes the plaintext key', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    await (await nsecSession()).enrollVault();
+
+    const am = await nextVisitLocked();
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex); // silent fallback, still here
+
+    await am.unlockVault();
+
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(am.getState().authMethod).toBe('passkey');
+    expect(store.get(PK_KEY)).toBeUndefined();
+    expect(isVaultUnconfirmed()).toBe(false);
+    // From now on an ordinary passkey vault.
+    await nextVisitLocked();
+  });
+
+  it('a cancelled unlock signs in from the plaintext key and keeps the vault', async () => {
+    simulatedAuthenticator({ createPrf: true, getPrf: 'NotAllowedError' });
+    await (await nsecSession()).enrollVault();
+    const am = await nextVisitLocked();
+
+    await expect(am.unlockVault()).resolves.toBeUndefined();
+
+    expect(am.getState().isAuthenticated).toBe(true);
+    expect(am.getState().authMethod).toBe('privateKey');
+    expect(isVaultUnconfirmed()).toBe(true);
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+    expect(am.takeVaultConfirmFailure()).toBe(false);
+    await nextVisitLocked(); // the chip again next time
+  });
+
+  it('from the second NotAllowedError on: signed in, vault kept, keep-trying/remove choice offered', async () => {
+    simulatedAuthenticator({ createPrf: true, getPrf: 'NotAllowedError' });
+    await (await nsecSession()).enrollVault();
+    const first = await nextVisitLocked();
+    await first.unlockVault(); // visit 1: plain cancel
+    expect(first.takeVaultCancelChoice()).toBe(false);
+
+    const second = await nextVisitLocked();
+    await second.unlockVault(); // visit 2: second cancel
+
+    expect(second.getState().isAuthenticated).toBe(true);
+    expect(second.getState().authMethod).toBe('privateKey');
+    expect(vaultInStore()).toBeDefined(); // never removed automatically
+    expect(isVaultUnconfirmed()).toBe(true);
+    expect(second.takeVaultConfirmFailure()).toBe(false);
+    expect(second.takeVaultCancelChoice()).toBe(true);
+    expect(second.takeVaultCancelChoice()).toBe(false); // offered once per failure
+
+    // "Keep trying" changes nothing: the next failure offers the choice again.
+    const third = await nextVisitLocked();
+    await third.unlockVault();
+    expect(vaultInStore()).toBeDefined();
+    expect(third.takeVaultCancelChoice()).toBe(true);
+
+    // "Remove and save backup key".
+    third.discardUnconfirmedVault();
+    expect(vaultInStore()).toBeUndefined();
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+    await nextVisit(); // plain nsec session from now on
+  });
+
+  it('bad PRF on the unlock: vault removed at once, signed in from the plaintext key', async () => {
+    simulatedAuthenticator({ createPrf: true, getPrf: new Uint8Array(32).fill(7) });
+    await (await nsecSession()).enrollVault();
+    const am = await nextVisitLocked();
+
+    await am.unlockVault();
+
+    expect(vaultInStore()).toBeUndefined();
+    expect(am.getState().isAuthenticated).toBe(true);
+    expect(am.getState().authMethod).toBe('privateKey');
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+    expect(am.takeVaultConfirmFailure()).toBe(true);
+  });
+
+  it('a failed marker write leaves no vault behind: no lockout on the next visit', async () => {
+    // Provider whose get() can't reproduce its create() PRF.
+    simulatedAuthenticator({ createPrf: true, getPrf: new Uint8Array(32).fill(7) });
+    const am = await nsecSession();
+    const setItem = (globalThis as any).localStorage.setItem;
+    (globalThis as any).localStorage.setItem = (k: string, v: string) => {
+      if (k === 'nostrcooking_vault_unconfirmed') {
+        throw new DOMException('quota', 'QuotaExceededError');
+      }
+      setItem(k, v);
+    };
+
+    await expect(am.enrollVault()).rejects.toThrow();
+    (globalThis as any).localStorage.setItem = setItem;
+    expect(vaultInStore()).toBeUndefined();
+
+    const next = await nextVisit();
+    expect(next.getState().authMethod).toBe('privateKey');
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+  });
+
+  it('migrate never uses one prompt, even in an nsec session', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    const am = await nsecSession();
+
+    await expect(am.enrollVault({ migrate: true })).resolves.toEqual({ confirmed: true });
+
+    expect(credentials.create.mock.calls[0][0].publicKey.extensions).toEqual({ prf: {} });
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('the plaintext key is never deleted without a verified unlock (logout drops the vault instead)', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    const am = await nsecSession();
+    await am.enrollVault();
+
+    await am.logout();
+
+    expect(store.get(PK_KEY)).toBeUndefined();
+    expect(vaultInStore()).toBeUndefined();
+  });
+
+  it('removing an unconfirmed vault needs no ceremony and keeps the plaintext key', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    const am = await nsecSession();
+    await am.enrollVault();
+
+    await am.removeVault();
+
+    expect(credentials.get).not.toHaveBeenCalled();
+    expect(vaultInStore()).toBeUndefined();
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+  });
+
+  it('a passkey session (no plaintext key to fall back on) keeps create + get', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    await (await nsecSession()).enrollVault();
+    const am = await nextVisitLocked();
+    await am.unlockVault(); // confirmed passkey session, plaintext gone
+    credentials.create.mockClear();
+    credentials.get.mockClear();
+
+    await expect(am.enrollVault({ migrate: true })).resolves.toEqual({ confirmed: true });
+
+    expect(credentials.create.mock.calls[0][0].publicKey.extensions).toEqual({ prf: {} });
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(store.get(PK_KEY)).toBeUndefined();
+  });
+
+  it('sync: nothing is uploaded until the confirming unlock, which uploads', async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
+      url.endsWith('/challenge')
+        ? { ok: true, json: async () => ({ challenge: 'AAAA' }) }
+        : { ok: true, json: async () => ({ ok: true }) }
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const puts = () =>
+      fetchMock.mock.calls.filter(
+        (call: unknown[]) => (call[1] as RequestInit | undefined)?.method === 'PUT'
+      );
+
+    simulatedAuthenticator({ createPrf: true });
+    await (await nsecSession()).enrollVault({ sync: true });
+    expect(puts()).toHaveLength(0);
+
+    const am = await nextVisitLocked();
+    await am.unlockVault();
+    expect(am.getState().authMethod).toBe('passkey');
+    await vi.waitFor(() => expect(puts()).toHaveLength(1));
+    vi.unstubAllGlobals();
   });
 });

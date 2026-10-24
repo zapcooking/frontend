@@ -18,12 +18,12 @@
     primary === false ? 'secondary' : primary === true ? 'primary' : variant;
 
   const variantClasses: Record<ButtonVariant, string> = {
-    primary: 'bg-primary text-white hover:opacity-80 disabled:bg-primary/50',
-    secondary: 'bg-gray-700 text-white hover:bg-gray-600 disabled:bg-gray-700/50',
+    primary: 'bg-primary text-white hover:opacity-80 disabled:bg-primary/50 disabled:cursor-not-allowed',
+    secondary: 'bg-gray-700 text-white hover:bg-gray-600 disabled:bg-gray-700/50 disabled:cursor-not-allowed',
     outline:
-      'bg-transparent border border-primary text-primary hover:bg-primary/10 disabled:opacity-50',
+      'bg-transparent border border-primary text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed',
     ghost:
-      'bg-transparent text-primary hover:bg-primary/10 disabled:opacity-50'
+      'bg-transparent text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed'
   };
 </script>
 

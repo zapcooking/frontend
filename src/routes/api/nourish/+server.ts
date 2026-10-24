@@ -6,9 +6,12 @@
  *
  * POST /api/nourish
  *
+ * Authorization: NIP-98 (`Nostr <base64 kind-27235 event>`) signed over
+ * this request; required whenever the membership gate is on. The caller's
+ * identity is the signing pubkey. A `pubkey` field in the body is ignored.
+ *
  * Body:
  * {
- *   pubkey: string,
  *   eventId: string,
  *   title: string,
  *   ingredients: string[],
@@ -25,6 +28,8 @@
  *   scores: NourishScores,              // includes cacheVersion
  *   improvements: string[],             // up to 5
  *   ingredient_signals: IngredientSignal[],
+ *   macros?: NourishMacros,             // v4 — omitted when unusable
+ *   labels?: NourishLabel[],            // v4 — derived discovery labels
  *   promptVersion: string,              // model/prompt identity
  *   contentHash?: string,               // echoed when valid
  *   createdAt: number                   // unix seconds
@@ -41,7 +46,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
 import { runScoringPipeline } from '$lib/nourish/scoringEngine.server';
-import { requireMembership } from './membershipCheck';
+import { authenticateNourish, requireMembership } from './membershipCheck';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	try {
@@ -50,8 +55,16 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			return json({ success: false, error: 'OpenAI API key not configured' }, { status: 500 });
 		}
 
-		const body = await request.json();
-		const { pubkey, eventId, title, ingredients, tags, servings, recipePubkey, recipeDTag, contentHash } = body;
+		// Read the body ONCE as bytes: the NIP-98 payload hash is computed over
+		// exactly these bytes, and the JSON is parsed from the same buffer.
+		const bodyBytes = new Uint8Array(await request.arrayBuffer());
+		let body: any;
+		try {
+			body = JSON.parse(new TextDecoder().decode(bodyBytes));
+		} catch {
+			return json({ success: false, error: 'Invalid request body' }, { status: 400 });
+		}
+		const { eventId, title, ingredients, tags, servings, recipePubkey, recipeDTag, contentHash } = body;
 
 		// Validate request
 		if (!ingredients || !Array.isArray(ingredients) || ingredients.length === 0) {
@@ -68,8 +81,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			);
 		}
 
-		// Membership check (fail-closed)
-		const membershipError = await requireMembership(pubkey, platform);
+		// Identity from the signature, then membership (fail-closed)
+		const auth = await authenticateNourish(request, bodyBytes, platform);
+		if (auth instanceof Response) return auth;
+		const membershipError = await requireMembership(auth.pubkey, platform);
 		if (membershipError) return membershipError;
 
 		// Run the shared scoring pipeline (prompt → OpenAI → parse → validate)
@@ -85,7 +100,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				{ status: pipelineResult.status }
 			);
 		}
-		const { scores, improvements, ingredientSignals, audienceScores } = pipelineResult;
+		const { scores, improvements, ingredientSignals, audienceScores, macros, labels } =
+			pipelineResult;
 		const ingredient_signals = ingredientSignals;
 
 		// Publish Nourish event to relay (awaited — not fire-and-forget).
@@ -110,7 +126,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 						scores,
 						improvements,
 						ingredientSignals: ingredient_signals,
-						audienceScores
+						audienceScores,
+						macros,
+						labels
 					});
 					console.log(`[Nourish] Publish ${published ? 'succeeded' : 'failed'} for ${recipeDTag}`);
 				} catch (err) {
@@ -125,6 +143,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			improvements,
 			ingredient_signals,
 			audience_scores: audienceScores,
+			...(macros ? { macros } : {}),
+			labels,
 			// Identity fields — let clients cache/reconcile by promptVersion
 			// + contentHash + createdAt instead of inferring from cacheVersion.
 			promptVersion: NOURISH_PROMPT_VERSION,

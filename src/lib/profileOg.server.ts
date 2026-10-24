@@ -21,7 +21,7 @@ const FALLBACK_IMAGE = 'https://zap.cooking/social-share.png';
 export const FALLBACK_PROFILE_OG: RecipeOgMeta = {
   pageTitle: 'Profile - zap.cooking',
   ogTitle: 'A cook on Zap Cooking',
-  description: 'A profile on zap.cooking - Food. Friends. Freedom.',
+  description: 'A profile on zap.cooking - Food is Open Source',
   image: FALLBACK_IMAGE,
   publishedAt: null,
   authorPubkey: null
@@ -65,7 +65,7 @@ async function resolveProfile(slug: string): Promise<RecipeOgMeta | null> {
     ogTitle: name || 'A cook on Zap Cooking',
     description: about
       ? capRecipeDescription(about)
-      : 'A profile on zap.cooking - Food. Friends. Freedom.',
+      : 'A profile on zap.cooking - Food is Open Source',
     image,
     publishedAt: null,
     authorPubkey: null

@@ -12,8 +12,11 @@
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import CaretUpIcon from 'phosphor-svelte/lib/CaretUp';
   import { groceryStore, groceryLists, groceryInitialized } from '$lib/stores/groceryStore';
+  import { pantryStore, pantryItems, pantryInitialized } from '$lib/stores/pantryStore';
   import { parseIngredientsFromRecipe, type ParsedIngredient } from '$lib/utils/ingredientParser';
   import { userPublickey } from '$lib/nostr';
+  import { buildGrocerySnapshot } from '$lib/mealplan/groceryGeneration';
+  import { GROCERY_CATEGORY_LABELS, canonicalizeGroceryCategory } from '$lib/grocery/categories';
 
   export let open = false;
   export let recipeEvent: NDKEvent | null = null;
@@ -33,6 +36,7 @@
   let parsedIngredients: ParsedIngredient[] = [];
   let addingToList = false;
   let successMessage = '';
+  let includeFromPantry: Set<string> = new Set();
 
   // Portal target
   let portalTarget: HTMLElement;
@@ -47,20 +51,57 @@
     selectedListId = null;
     showNewListInput = false;
     successMessage = '';
+    includeFromPantry = new Set();
   }
 
-  // Initialize grocery store if needed
   $: if (open && $userPublickey && !$groceryInitialized) {
     groceryStore.load();
   }
 
-  // Get recipe title
+  $: if (open && $userPublickey && !$pantryInitialized) {
+    pantryStore.load();
+  }
+
   $: recipeTitle = recipeEvent?.tags.find((t) => t[0] === 'title')?.[1] || 
                    recipeEvent?.tags.find((t) => t[0] === 'd')?.[1] ||
                    'Recipe';
 
-  // Get recipe address for linking
   $: recipeAddress = recipeEvent ? buildRecipeAddress(recipeEvent) : null;
+
+  $: pantryMatches = recipeAddress
+    ? buildGrocerySnapshot(
+        parsedIngredients.map((ingredient) => ({
+          ingredient: { name: ingredient.name, quantity: ingredient.quantity },
+          recipeId: recipeAddress,
+          recipeTitle,
+          occurrenceId: `recipe:${recipeAddress}`
+        })),
+        $pantryItems
+      ).inPantry
+    : [];
+
+  $: snapshot = recipeAddress
+    ? buildGrocerySnapshot(
+        parsedIngredients.map((ingredient) => ({
+          ingredient: { name: ingredient.name, quantity: ingredient.quantity },
+          recipeId: recipeAddress,
+          recipeTitle,
+          occurrenceId: `recipe:${recipeAddress}`
+        })),
+        $pantryItems,
+        { pantryOverrides: [...includeFromPantry] }
+      )
+    : { toBuy: [], inPantry: [], stats: { totalIngredients: 0, pantryCoveredCount: 0, addedCount: 0 }, recipeLinks: [] };
+
+  $: toBuyCount = snapshot.toBuy.length;
+  $: pantryReady = !$userPublickey || $pantryInitialized;
+
+  function toggleIncludeFromPantry(normalizedName: string) {
+    const next = new Set(includeFromPantry);
+    if (next.has(normalizedName)) next.delete(normalizedName);
+    else next.add(normalizedName);
+    includeFromPantry = next;
+  }
 
   function buildRecipeAddress(event: NDKEvent): string {
     const dTag = event.tags.find((t) => t[0] === 'd')?.[1] || '';
@@ -99,29 +140,19 @@
 
   async function addToSelectedList() {
     if (!selectedListId || !recipeAddress || addingToList) return;
-    
+    if (parsedIngredients.length === 0) return;
+
     addingToList = true;
     try {
-      // Add recipe link to the list
+      groceryStore.mergeRequirements(selectedListId, snapshot.toBuy, snapshot.inPantry);
       groceryStore.addRecipeLink(selectedListId, recipeAddress);
-      
-      // Add each ingredient as an item
-      let addedCount = 0;
-      for (const ingredient of parsedIngredients) {
-        groceryStore.addItem(
-          selectedListId,
-          ingredient.name,
-          ingredient.quantity,
-          ingredient.category,
-          recipeAddress
-        );
-        addedCount++;
-      }
-      
-      successMessage = `Added ${addedCount} ingredients to your list!`;
-      dispatch('added', { listId: selectedListId, count: addedCount });
-      
-      // Close after a brief delay to show success message
+
+      successMessage =
+        toBuyCount === 0
+          ? 'Recipe added. Everything was already in your pantry.'
+          : `Added ${toBuyCount} ingredient${toBuyCount === 1 ? '' : 's'} to your list!`;
+      dispatch('added', { listId: selectedListId, count: toBuyCount });
+
       setTimeout(() => {
         close();
       }, 1500);
@@ -135,16 +166,6 @@
   function selectList(listId: string) {
     selectedListId = listId;
   }
-
-  // Category display names and colors
-  const categoryDisplay: Record<string, { name: string; color: string }> = {
-    produce: { name: 'Produce', color: 'text-green-600' },
-    protein: { name: 'Protein', color: 'text-red-600' },
-    dairy: { name: 'Dairy', color: 'text-blue-600' },
-    pantry: { name: 'Pantry', color: 'text-amber-600' },
-    frozen: { name: 'Frozen', color: 'text-cyan-600' },
-    other: { name: 'Other', color: 'text-gray-600' }
-  };
 </script>
 
 {#if open && portalTarget}
@@ -203,7 +224,13 @@
                 style="color: var(--color-text-secondary)"
                 on:click={() => showPreview = !showPreview}
               >
-                <span>{parsedIngredients.length} ingredients found</span>
+                <span>
+                  {#if pantryMatches.length > 0}
+                    {toBuyCount} to buy · {pantryMatches.length} in My Kitchen
+                  {:else}
+                    {snapshot.stats.totalIngredients || parsedIngredients.length} ingredients found
+                  {/if}
+                </span>
                 {#if showPreview}
                   <CaretUpIcon size={16} />
                 {:else}
@@ -213,22 +240,53 @@
               
               {#if showPreview && parsedIngredients.length > 0}
                 <div 
-                  class="max-h-40 overflow-y-auto rounded-xl p-3 space-y-1"
+                  class="max-h-48 overflow-y-auto rounded-xl p-3 space-y-3"
                   style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
                 >
-                  {#each parsedIngredients as ingredient}
-                    <div class="flex items-center gap-2 text-sm">
-                      <span class={`text-xs px-1.5 py-0.5 rounded ${categoryDisplay[ingredient.category]?.color || 'text-gray-600'}`}>
-                        {categoryDisplay[ingredient.category]?.name || 'Other'}
-                      </span>
-                      <span style="color: var(--color-text-primary)">
-                        {#if ingredient.quantity}
-                          <span class="text-caption">{ingredient.quantity}</span>
-                        {/if}
-                        {ingredient.name}
-                      </span>
+                  {#if snapshot.toBuy.filter((row) => !row.pantryOverride).length > 0}
+                    <div class="space-y-1">
+                      {#if pantryMatches.length > 0}
+                        <p class="text-xs font-semibold" style="color: var(--color-text-secondary)">Need to buy</p>
+                      {/if}
+                      {#each snapshot.toBuy.filter((row) => !row.pantryOverride) as row}
+                        <div class="flex items-center gap-2 text-sm">
+                          <span class="text-xs px-1.5 py-0.5 rounded text-caption">
+                            {GROCERY_CATEGORY_LABELS[canonicalizeGroceryCategory(row.category, row.name)]}
+                          </span>
+                          <span style="color: var(--color-text-primary)">
+                            {#if row.quantity}
+                              <span class="text-caption">{row.quantity}</span>
+                            {/if}
+                            {row.name}
+                          </span>
+                        </div>
+                      {/each}
                     </div>
-                  {/each}
+                  {/if}
+                  {#if pantryMatches.length > 0}
+                    <div class="space-y-1">
+                      <p class="text-xs font-semibold" style="color: var(--color-text-secondary)">Already in My Kitchen</p>
+                      <p class="text-[11px] text-caption">Left off the list unless you still need them.</p>
+                      {#each pantryMatches as row}
+                        {@const included = includeFromPantry.has(row.normalizedName)}
+                        <div class="flex items-center gap-2 text-sm">
+                          <span class="min-w-0 flex-1 {included ? '' : 'text-caption'}" style={included ? 'color: var(--color-text-primary)' : ''}>
+                            {#if row.quantity}
+                              <span class="text-caption">{row.quantity}</span>
+                            {/if}
+                            {row.name}
+                          </span>
+                          <button
+                            type="button"
+                            class="flex-shrink-0 px-2 py-1 rounded-full text-xs font-medium border border-green-500/40 text-green-500 hover:bg-green-500/10"
+                            on:click={() => toggleIncludeFromPantry(row.normalizedName)}
+                          >
+                            {included ? 'Added' : 'I still need this'}
+                          </button>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
                 </div>
               {/if}
               
@@ -319,7 +377,7 @@
               </button>
               <button
                 on:click={addToSelectedList}
-                disabled={!selectedListId || parsedIngredients.length === 0 || addingToList}
+                disabled={!selectedListId || parsedIngredients.length === 0 || addingToList || !pantryReady}
                 class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 {#if addingToList}
@@ -327,7 +385,11 @@
                   Adding...
                 {:else}
                   <PlusIcon size={18} />
-                  Add {parsedIngredients.length} Items
+                  {#if toBuyCount === 0 && pantryMatches.length > 0}
+                    Add recipe
+                  {:else}
+                    Add {toBuyCount} {toBuyCount === 1 ? 'Item' : 'Items'}
+                  {/if}
                 {/if}
               </button>
             </div>

@@ -2,9 +2,11 @@
 	import { ndk } from '$lib/nostr';
 	import { NDKEvent } from '@nostr-dev-kit/ndk';
 	import { Fetch } from 'hurdak';
+	import { isImageUrl } from '$lib/imageUrls';
 	import XIcon from 'phosphor-svelte/lib/X';
 	import ImageIcon from 'phosphor-svelte/lib/Image';
 	import UploadIcon from 'phosphor-svelte/lib/UploadSimple';
+	import LinkIcon from 'phosphor-svelte/lib/Link';
 	import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
 
 	export let title: string = '';
@@ -17,6 +19,10 @@
 	let tagInput = '';
 	let isDragging = false;
 	let uploadError = '';
+	let coverUrlInput = '';
+	let isCheckingCoverUrl = false;
+	let coverUrlError = '';
+	let coverUrlWarning = '';
 
 	// Upload to nostr.build
 	async function uploadToNostrBuild(file: File): Promise<string | null> {
@@ -128,6 +134,85 @@
 
 	function removeCover() {
 		coverImage = '';
+		coverUrlWarning = '';
+	}
+
+	/**
+	 * Accepting a pasted cover URL.
+	 *
+	 * The scheme is checked rather than just `new URL()` parsing, which
+	 * happily accepts `javascript:` and `data:` - this string ends up in
+	 * an `<img src>` here and in the event's `image` tag for every other
+	 * client that renders the article.
+	 */
+	function isHttpUrl(value: string): boolean {
+		try {
+			const { protocol } = new URL(value);
+			return protocol === 'http:' || protocol === 'https:';
+		} catch {
+			return false;
+		}
+	}
+
+	const COVER_PROBE_TIMEOUT_MS = 10000;
+
+	/** Loads the URL to confirm it really is an image the browser renders. */
+	function loadsAsImage(url: string): Promise<boolean> {
+		return new Promise((resolve) => {
+			const img = new Image();
+			const done = (result: boolean) => {
+				clearTimeout(timer);
+				img.onload = null;
+				img.onerror = null;
+				resolve(result);
+			};
+			const timer = setTimeout(() => done(false), COVER_PROBE_TIMEOUT_MS);
+			img.onload = () => done(true);
+			img.onerror = () => done(false);
+			img.src = url;
+		});
+	}
+
+	async function applyCoverUrl() {
+		const url = coverUrlInput.trim();
+		coverUrlError = '';
+		coverUrlWarning = '';
+		if (!url) return;
+
+		if (!isHttpUrl(url)) {
+			coverUrlError = 'Enter an image URL starting with http:// or https://';
+			return;
+		}
+
+		isCheckingCoverUrl = true;
+		const loaded = await loadsAsImage(url);
+		isCheckingCoverUrl = false;
+
+		if (loaded) {
+			coverImage = url;
+			coverUrlInput = '';
+			return;
+		}
+
+		// Some hosts block hotlinking or need a referrer, so a failed probe
+		// doesn't prove the URL is bad. If it still looks like an image,
+		// take it and say the preview couldn't be confirmed rather than
+		// refusing a URL that may well work for readers.
+		if (isImageUrl(url)) {
+			coverImage = url;
+			coverUrlInput = '';
+			coverUrlWarning = "Couldn't load a preview from that host. Check the cover looks right before publishing.";
+			return;
+		}
+
+		coverUrlError = "That URL didn't load as an image.";
+	}
+
+	function handleCoverUrlKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			applyCoverUrl();
+		}
 	}
 
 	// Tag management
@@ -202,6 +287,9 @@
 					Cover
 				</div>
 			</div>
+			{#if coverUrlWarning}
+				<p class="upload-warning">{coverUrlWarning}</p>
+			{/if}
 		{:else}
 			<button
 				type="button"
@@ -223,6 +311,37 @@
 			</button>
 			{#if uploadError}
 				<p class="upload-error">{uploadError}</p>
+			{/if}
+
+			<!-- Or point at an image that's already hosted somewhere. -->
+			<div class="cover-url-row">
+				<label class="cover-url-label" for="cover-url">or paste an image URL</label>
+				<div class="cover-url-controls">
+					<div class="cover-url-field">
+						<LinkIcon size={16} />
+						<input
+							id="cover-url"
+							type="url"
+							bind:value={coverUrlInput}
+							on:keydown={handleCoverUrlKeydown}
+							placeholder="https://example.com/image.jpg"
+							autocomplete="off"
+							spellcheck="false"
+							class="cover-url-input"
+						/>
+					</div>
+					<button
+						type="button"
+						class="cover-url-submit"
+						on:click={applyCoverUrl}
+						disabled={!coverUrlInput.trim() || isCheckingCoverUrl}
+					>
+						{isCheckingCoverUrl ? 'Checking...' : 'Use'}
+					</button>
+				</div>
+			</div>
+			{#if coverUrlError}
+				<p class="upload-error">{coverUrlError}</p>
 			{/if}
 		{/if}
 	</div>
@@ -393,6 +512,88 @@
 		font-size: 0.875rem;
 		color: #dc2626;
 		margin-top: 0.5rem;
+	}
+
+	.upload-warning {
+		font-size: 0.875rem;
+		color: #b45309;
+		margin-top: 0.5rem;
+	}
+
+	/* Cover image by URL */
+	.cover-url-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		margin-top: 0.75rem;
+	}
+
+	.cover-url-label {
+		font-size: 0.75rem;
+		color: var(--color-text-secondary);
+	}
+
+	.cover-url-controls {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.cover-url-field {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0 0.625rem;
+		border: 1px solid var(--color-input-border);
+		border-radius: 0.5rem;
+		background: var(--color-input-bg);
+		color: var(--color-text-secondary);
+		min-width: 0;
+	}
+
+	.cover-url-field:focus-within {
+		border-color: var(--color-primary);
+	}
+
+	.cover-url-input {
+		flex: 1;
+		min-width: 0;
+		border: none;
+		background: transparent;
+		color: var(--color-text-primary);
+		font-size: 0.875rem;
+		padding: 0.5rem 0;
+	}
+
+	.cover-url-input:focus {
+		outline: none;
+	}
+
+	.cover-url-input::placeholder {
+		color: var(--color-text-secondary);
+		opacity: 0.6;
+	}
+
+	.cover-url-submit {
+		padding: 0.5rem 1rem;
+		border-radius: 0.5rem;
+		background: var(--color-input-bg);
+		border: 1px solid var(--color-input-border);
+		color: var(--color-text-primary);
+		font-size: 0.875rem;
+		font-weight: 500;
+		white-space: nowrap;
+		transition: all 0.15s ease;
+	}
+
+	.cover-url-submit:hover:not(:disabled) {
+		border-color: var(--color-primary);
+		color: var(--color-primary);
+	}
+
+	.cover-url-submit:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	/* Tags */

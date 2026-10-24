@@ -15,11 +15,25 @@
     'zap-complete': { amount: number; pollOptionId?: string; comment?: string };
   }>();
   import { activeWallet, getWalletKindName } from '$lib/wallet';
-  import { sendPayment } from '$lib/wallet/walletManager';
+  import {
+    sendPayment,
+    walletAvailability,
+    ensurePaymentWalletReady
+  } from '$lib/wallet/walletManager';
+  import { NO_WALLET_MESSAGE, PENDING_MESSAGE } from '$lib/wallet/paymentOutcome';
+  import { runInAppZap, type ZapStep } from '$lib/wallet/inAppZap';
   import { weblnConnected } from '$lib/wallet/webln';
   import { defaultZapMessage } from '$lib/autoZapSettings';
   import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
   import { showToast } from '$lib/toast';
+  import { requireAuth, signedIn } from '$lib/auth/requireAuth';
+  import {
+    hasAnyWallet,
+    walletCheckPending,
+    shouldOfferWalletAtZap,
+    zapWalletPromptSeen,
+    offerWalletSetup
+  } from '$lib/wallet/zapWalletPrompt';
 
   // True when we can pay an invoice directly without launching the
   // Bitcoin Connect payment modal:
@@ -137,7 +151,8 @@
       errorRetryable = true;
     } else if (lower.includes('no wallet')) {
       errorTitle = 'No wallet connected';
-      errorBody = 'Connect a Lightning wallet to send zaps.';
+      errorBody =
+        'No wallet is set up on this site. Connect or restore your wallet to send zaps.';
       errorRetryable = false;
     } else {
       errorTitle = "Couldn't send zap";
@@ -146,10 +161,65 @@
     }
   }
 
+  // Signed out, the sheet offers two explicit paths instead of Send:
+  // sign in and zap as yourself, or zap anonymously (NIP-57 ["anon"], paid
+  // by invoice QR / copy / WebLN in the Bitcoin Connect sheet). While the
+  // sign-in overlay is up the sheet steps aside but stays mounted, so it
+  // comes back on the same target with the amount and message kept — the
+  // member then sends it themselves; nothing is paid automatically.
+  let awaitingAuth = false;
+
+  async function signInToZap() {
+    awaitingAuth = true;
+    await requireAuth({ kind: 'zap', reason: 'Sign in to zap as you' });
+    awaitingAuth = false;
+  }
+
+  // A signed-in member with no wallet gets the wallet picker once, at
+  // their first ⚡ tap. The sheet steps aside the same way while it is up
+  // and comes back with the amount kept; "maybe later" (closing the
+  // picker) still leaves the external-wallet / QR path to pay with.
+  // Only before a payment starts: the offer reacts to the wallet-restore
+  // check settling, which can land mid-invoice or after Bitcoin Connect
+  // was cancelled and this sheet reopened — never cover a payment.
+  let awaitingWallet = false;
+  let walletOffered = false;
+
+  $: if (
+    open &&
+    state === 'pre' &&
+    !isCreatingInvoice &&
+    !isSendingInApp &&
+    !awaitingAuth &&
+    !awaitingWallet &&
+    !walletOffered &&
+    shouldOfferWalletAtZap({
+      signedIn: $signedIn,
+      hasWallet: $hasAnyWallet,
+      checkPending: $walletCheckPending,
+      seen: zapWalletPromptSeen()
+    })
+  ) {
+    offerWalletAtZap();
+  }
+
+  async function offerWalletAtZap() {
+    walletOffered = true;
+    awaitingWallet = true;
+    await offerWalletSetup();
+    awaitingWallet = false;
+  }
+
   let zapManager: ZapManager;
   let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  const PENDING_TIMEOUT_MS = 45000; // 45 second timeout for entire zap process
+  // Hang protection for the whole in-app zap. Above Breez's 30 s completion
+  // wait plus the 15 s invoice fetch, so it only fires on a real stall.
+  const PENDING_TIMEOUT_MS = 60000;
+
+  // The step an in-app zap is on, for the progress line and so a timeout
+  // can say where it stalled.
+  let zapStep: ZapStep = 'connecting your wallet';
 
   function clearPendingTimeout() {
     if (pendingTimeout) {
@@ -163,9 +233,17 @@
     pendingTimeout = setTimeout(() => {
       if (isSendingInApp) {
         isSendingInApp = false;
+        timedOut = true;
         if (sendingOpId) { removePendingOp(sendingOpId); sendingOpId = null; }
-        // Modal is already closed — surface via toast rather than error UI.
-        showToast('error', 'Zap timed out. The payment service may be unavailable.');
+        // Once the payment was handed to the wallet it may still go through.
+        showToast(
+          'error',
+          zapStep === 'sending the payment'
+            ? `Zap timed out while ${zapStep}. ${PENDING_MESSAGE}.`
+            : `Zap timed out while ${zapStep}. Nothing was sent.`,
+          8000
+        );
+        open = false;
       }
     }, PENDING_TIMEOUT_MS);
   }
@@ -182,6 +260,14 @@
     zapManager = new ZapManager($ndk);
   }
 
+  // Warm the recipient's LNURL resolution the moment the modal opens —
+  // the profile fetch + LNURL round-trips then overlap with the user
+  // choosing an amount, so submit only has to fetch the invoice.
+  // Idempotent: createZap and any other ZapManager share the cache.
+  $: if (open && zapManager && event) {
+    zapManager.prefetchZap(event);
+  }
+
   async function submitZap() {
     // If user has an in-app wallet, use it directly
     if (hasInAppWallet) {
@@ -191,91 +277,98 @@
     }
   }
 
+  let timedOut = false;
+
+  /** A result while the modal may already be closed: inline if open, else a toast. */
+  function reportError(msg: string) {
+    if (open) {
+      error = new Error(msg);
+      state = 'error';
+    } else {
+      showToast('error', msg, 8000);
+    }
+  }
+
   async function submitWithInAppWallet() {
-    isSendingInApp = true;
+    walletOffered = true;
     error = null;
+    timedOut = false;
+    // Nothing usable on this site (e.g. a preview domain): say so at once,
+    // before any invoice or signer prompt.
+    if (walletAvailability() === 'none') {
+      reportError(NO_WALLET_MESSAGE);
+      return;
+    }
+
+    let recipientPubkey: string;
+    let eventId: string | undefined;
+    if (event instanceof NDKUser) {
+      recipientPubkey = event.pubkey;
+      eventId = undefined;
+    } else if (event && event.author) {
+      recipientPubkey = event.author?.hexpubkey || event.pubkey;
+      eventId = event.id;
+    } else {
+      reportError('Invalid event or user provided to ZapModal');
+      return;
+    }
+
+    // The modal stays open until the payment's outcome is known, so
+    // "zap complete" and "Sent" only ever follow a confirmed payment
+    // ($lib/wallet/inAppZap).
+    isSendingInApp = true;
     sendingOpId = addPendingOp('Sending zap ⚡');
-    // Dispatch optimistically before closing so the event reaches the parent
-    // while the component is still mounted. Callers use {#if open} which
-    // destroys the component on the next tick after open=false.
-    dispatch('zap-complete', { amount, pollOptionId, comment: message || undefined });
-    open = false;
     startPendingTimeout();
+    const extraTags = pollOptionId
+      ? [['poll_option', pollOptionId], ...(pollEventKind ? [['k', String(pollEventKind)]] : [])]
+      : undefined;
 
-    try {
-      if (!zapManager) {
-        throw new Error('Zap manager not initialized. Please try again.');
-      }
+    const outcome = await runInAppZap({
+      availability: walletAvailability,
+      ensureReady: ensurePaymentWalletReady,
+      createInvoice: async () => {
+        if (!zapManager) throw new Error('Zap manager not initialized. Please try again.');
+        const zap = await zapManager.createZap(recipientPubkey, amount * 1000, message, eventId, extraTags);
+        return zap.invoice;
+      },
+      // The user-typed message becomes both `comment` (rendered in italics in
+      // the wallet history row) and the source of `description` when present.
+      pay: (invoice) =>
+        sendPayment(invoice, {
+          amount,
+          description: message || `Zap to ${recipientPubkey.substring(0, 8)}...`,
+          comment: message || undefined,
+          pubkey: recipientPubkey
+        }),
+      onStep: (step) => (zapStep = step),
+      onCompleted: () => {
+        dispatch('zap-complete', { amount, pollOptionId, comment: message || undefined });
+        hapticSuccess();
+        showToast('success', `⚡ Sent ${amount.toLocaleString()} sats`);
+      },
+      abandoned: () => timedOut
+    });
 
-      // WebLN-only is a valid in-app state (window.webln present, no
-      // entry in $wallets), so don't require $activeWallet — only fail
-      // when neither is available. sendPayment() routes WebLN itself
-      // when getActiveWallet() returns null.
-      if (!$activeWallet && !$weblnConnected) {
-        throw new Error('No wallet connected. Please connect a wallet first.');
-      }
-
-      let recipientPubkey: string;
-      let eventId: string | undefined;
-
-      if (event instanceof NDKUser) {
-        recipientPubkey = event.pubkey;
-        eventId = undefined;
-      } else if (event && event.author) {
-        recipientPubkey = event.author?.hexpubkey || event.pubkey;
-        eventId = event.id;
-      } else {
-        throw new Error('Invalid event or user provided to ZapModal');
-      }
-
-
-
-      // Get the invoice from zapManager
-      const extraTags = pollOptionId
-        ? [['poll_option', pollOptionId], ...(pollEventKind ? [['k', String(pollEventKind)]] : [])]
-        : undefined;
-      const zapResult = await zapManager.createZap(
-        recipientPubkey,
-        amount * 1000,
-        message,
-        eventId,
-        extraTags
-      );
-
-      // Use the unified wallet manager to send payment (handles both Spark and NWC)
-      // Pass metadata so a pending transaction appears immediately. The
-      // user-typed message becomes both `comment` (rendered in italics in
-      // the wallet history row) and the source of `description` when
-      // present (rendered when the row has no associated pubkey).
-      const paymentResult = await sendPayment(zapResult.invoice, {
-        amount,
-        description: message || `Zap to ${recipientPubkey.substring(0, 8)}...`,
-        comment: message || undefined,
-        pubkey: recipientPubkey
-      });
-
-      if (!paymentResult.success) {
-        throw new Error(paymentResult.error || 'Payment failed');
-      }
-
-      clearPendingTimeout();
-      hapticSuccess();
-      showToast('success', `⚡ Sent ${amount.toLocaleString()} sats`);
-    } catch (e) {
-      clearPendingTimeout();
-      console.error('In-app wallet payment failed:', e);
-      // Modal is already closed — surface the failure via toast.
-      const msg = e instanceof Error ? e.message : 'Payment failed';
-      showToast('error', msg);
-    } finally {
-      isSendingInApp = false;
-      if (sendingOpId) { removePendingOp(sendingOpId); sendingOpId = null; }
+    clearPendingTimeout();
+    isSendingInApp = false;
+    if (sendingOpId) { removePendingOp(sendingOpId); sendingOpId = null; }
+    if (!outcome) return; // timed out: the timeout already reported it
+    if (outcome.kind === 'completed') {
+      open = false;
+    } else if (outcome.kind === 'pending') {
+      // Never "sent", never a retry: it may still go through.
+      showToast('info', `${outcome.message || PENDING_MESSAGE}.`, 8000);
+      open = false;
+    } else {
+      console.error('In-app wallet payment failed:', outcome.message);
+      reportError(outcome.message);
     }
   }
 
   let isCreatingInvoice = false;
 
-  async function submitWithExternalWallet() {
+  async function submitWithExternalWallet(anonymous = false) {
+    walletOffered = true;
     error = null;
     isCreatingInvoice = true;
 
@@ -312,7 +405,8 @@
         amount * 1000,
         message,
         eventId,
-        extraTags
+        extraTags,
+        { anonymous }
       );
 
       isCreatingInvoice = false;
@@ -363,6 +457,7 @@
 
 </script>
 
+{#if !awaitingAuth && !awaitingWallet}
 <Modal bind:open>
   <h1 slot="title">Zap</h1>
   <div class="flex flex-col gap-3">
@@ -415,6 +510,30 @@
         <input type="text" class="input" bind:value={amount} />
         <textarea rows="2" class="input" bind:value={message} placeholder="Message (optional)" />
       </div>
+      {#if !$signedIn}
+        <div class="flex flex-col gap-2">
+          <Button class="w-full py-3 text-lg" on:click={signInToZap}>
+            Sign in to zap as you
+          </Button>
+          <button
+            type="button"
+            class="w-full py-2.5 rounded-xl text-sm font-medium bg-input hover:bg-accent-gray transition-colors disabled:opacity-50"
+            style="color: var(--color-text-primary)"
+            on:click={() => submitWithExternalWallet(true)}
+            disabled={isCreatingInvoice ||
+              (pollMinSats != null && amount < pollMinSats) ||
+              (pollMaxSats != null && pollMaxSats > 0 && amount > pollMaxSats)}
+          >
+            {isCreatingInvoice
+              ? 'Creating invoice…'
+              : `or zap ${amount.toLocaleString()} sats anonymously`}
+          </button>
+          <p class="text-xs text-caption text-center">
+            Anonymous zaps don't show your name. Pay by scanning a QR code, copying the invoice,
+            or with a browser wallet.
+          </p>
+        </div>
+      {:else}
       <div class="flex flex-col gap-3">
         {#if hasInAppWallet && $activeWallet}
           <!-- User has an in-app wallet - use it automatically -->
@@ -446,7 +565,11 @@
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              Sending...
+              {zapStep === 'connecting your wallet'
+                ? 'Connecting wallet…'
+                : zapStep === 'getting the invoice'
+                  ? 'Getting invoice…'
+                  : 'Sending payment…'}
             </span>
           {:else if isCreatingInvoice}
             <span class="flex items-center justify-center gap-2">
@@ -461,6 +584,7 @@
           {/if}
         </Button>
       </div>
+      {/if}
     {:else if state == 'error'}
       <div class="flex flex-col items-center justify-center py-2">
         <div
@@ -492,6 +616,7 @@
     {/if}
   </div>
 </Modal>
+{/if}
 
 <style>
   /* Zap success: checkmark container + progress ring */

@@ -15,6 +15,10 @@
   let isRefreshing = false;
   let pullDistance = 0;
   let startY = 0;
+  let startX = 0;
+  // Set by the first clear movement of a touch: a mostly sideways drag
+  // (a chip row, a carousel) is never a pull, so it's never cancelled.
+  let gestureAxis: 'x' | 'y' | null = null;
   let currentY = 0;
   let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
   
@@ -53,7 +57,9 @@
     if (!isAtTop()) return;
 
     startY = e.touches[0].clientY;
+    startX = e.touches[0].clientX;
     currentY = startY;
+    gestureAxis = null;
     isPulling = true;
   }
 
@@ -62,6 +68,19 @@
 
     currentY = e.touches[0].clientY;
     const delta = currentY - startY;
+
+    // Direction lock: decide once the finger has clearly moved.
+    if (gestureAxis === null) {
+      const dx = Math.abs(e.touches[0].clientX - startX);
+      const dy = Math.abs(delta);
+      if (dx < 6 && dy < 6) return;
+      gestureAxis = dx > dy ? 'x' : 'y';
+    }
+    if (gestureAxis === 'x') {
+      pullDistance = 0;
+      isPulling = false;
+      return;
+    }
 
     // Check if we're still at top (re-check on each move for iOS)
     const stillAtTop = isAtTop();

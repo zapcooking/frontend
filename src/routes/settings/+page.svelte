@@ -3,6 +3,9 @@
   import { goto } from '$app/navigation';
   import { standardRelays } from '$lib/consts';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
+  import GlobeIcon from 'phosphor-svelte/lib/Globe';
+  import FlameIcon from 'phosphor-svelte/lib/Flame';
+  import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
@@ -16,7 +19,8 @@
   import Button from '../../components/Button.svelte';
   import Modal from '../../components/Modal.svelte';
   import Accordion from '../../components/Accordion.svelte';
-  import NostrBackupSection from '../../components/NostrBackupSection.svelte';
+  import FreshSettings from '../../components/FreshSettings.svelte';
+  import LazarusRecoverySection from '../../components/LazarusRecoverySection.svelte';
   import PasskeyVaultSection from '../../components/PasskeyVaultSection.svelte';
   import { resolveSecuritySections, resolveDisplayPubkey } from '$lib/securitySections';
   import { nip19 } from 'nostr-tools';
@@ -48,7 +52,15 @@
     MAX_ZAP_MESSAGE_LENGTH
   } from '$lib/autoZapSettings';
   import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+  import { hideImagelessRecipesSetting } from '$lib/recipeImageFilterSettings';
   import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
+  import {
+    startSection,
+    loadStartSectionSettings,
+    saveStartSection,
+    type StartSection
+  } from '$lib/startSectionSettings';
+  import { POW_LEVELS, POW_DEFAULT_BITS, powLevelFor } from '$lib/pow';
   import {
     fetchUserTrustProvider,
     publishTrustProvider,
@@ -57,6 +69,7 @@
   } from '$lib/marketplace/kitchens';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import ClockIcon from 'phosphor-svelte/lib/Clock';
+  import HammerIcon from 'phosphor-svelte/lib/Hammer';
   import { getConnectionManager } from '$lib/connectionManager';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
@@ -322,6 +335,7 @@
     fetchMembershipStatus();
     loadWotProvider();
     loadTimerSettings();
+    loadStartSectionSettings();
     // Update connection status periodically
     const interval = setInterval(updateConnectedRelays, 5000);
     // Keep the key display in sync with auth changes (e.g. a passkey unlock
@@ -403,6 +417,8 @@
 
   // Membership state
   let membershipLoading = false;
+  /** The check itself failed (503/network): show a retry, not the free-tier pitch. */
+  let membershipUnavailable = false;
   let membershipData: {
     found: boolean;
     isActive?: boolean;
@@ -459,9 +475,13 @@
       });
       if (res.ok) {
         membershipData = await res.json();
+        membershipUnavailable = false;
+      } else {
+        membershipUnavailable = true;
       }
     } catch (error) {
       console.error('Failed to fetch membership status:', error);
+      membershipUnavailable = true;
     } finally {
       membershipLoading = false;
     }
@@ -471,13 +491,24 @@
     if (!pk) return;
     portalLoading = true;
     try {
+      // NIP-98 auth proves we own this pubkey. Required, not optional:
+      // the portal is the full billing console, so the endpoint refuses
+      // an unsigned request rather than degrading like check-status.
+      const bodyString = JSON.stringify({
+        pubkey: pk,
+        returnUrl: window.location.href
+      });
       const res = await fetch('/api/stripe/create-portal-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pubkey: pk,
-          returnUrl: window.location.href
-        })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: await signNip98AuthHeader($ndk, {
+            method: 'POST',
+            url: `${location.origin}/api/stripe/create-portal-session`,
+            bodyString
+          })
+        },
+        body: bodyString
       });
       if (res.ok) {
         const { url } = await res.json();
@@ -573,13 +604,54 @@
         return 'Unknown';
     }
   }
+
+  // How the member paid, in the member's words rather than ours. Never render
+  // the stored value: it carries our processor's name ('lightning_strike') and
+  // internal states ('lightning_simulated') that mean nothing to the person
+  // reading their own membership record.
+  //
+  // The vocabulary is the member-relay ledger's, not this repo's. Four of these
+  // are writable by hand from the pantry admin's Payment Method dropdown
+  // (member-relay admin/public/index.html:527-532), and 'lightning' is the
+  // default parameter on POST /api/members (api/index.ts:205) — so it is the
+  // likeliest value in the whole column, not an edge case. Labels here match
+  // that dropdown's wording so a member and an admin read the same word off the
+  // same record.
+  function getPaymentMethodName(method: string | undefined | null): string {
+    switch (method) {
+      case 'stripe':
+      case 'card':
+        return 'Credit Card';
+      case 'lightning_strike':
+      case 'lightning':
+        return 'Lightning';
+      case 'onchain':
+      case 'bitcoin':
+        return 'On-chain';
+      case 'gift':
+        return 'Complimentary';
+      case 'manual':
+        // Says only what is certain: a person entered this record. It must not
+        // read as 'Complimentary' — whether money moved is a separate question
+        // and conflating them would erase the distinction the ledger needs.
+        return 'Recorded manually';
+      case 'lightning_simulated':
+        // Deliberately not 'Lightning'. A record written by the simulation
+        // endpoint must not tell a member they paid for something.
+        return 'Lightning (simulated)';
+      default:
+        // Absent means no payment method; present-but-unmapped means one we
+        // have no label for yet, which is not the same thing as none.
+        return method ? 'Other' : 'None';
+    }
+  }
 </script>
 
 <svelte:head>
   <title>Settings - zap.cooking</title>
 </svelte:head>
 
-<div class="max-w-2xl mx-auto">
+<div class="max-w-2xl">
   <h1 class="mb-6">Settings</h1>
 
   <div class="flex flex-col gap-4">
@@ -625,6 +697,62 @@
           >
             System
           </button>
+        </div>
+
+        <!-- Start section: where the app opens on sign-in or a cold visit.
+             Saved per account (NIP-78) with local + cookie mirrors, so the
+             `/` redirect and post-login goto() both honor it — see
+             $lib/startSectionSettings.ts. -->
+        <div
+          class="pt-4 flex flex-col gap-3"
+          style="border-top: 1px solid var(--color-input-border);"
+        >
+          <div>
+            <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">Start section</p>
+            <p class="text-xs text-caption mb-3">Where the app takes you when you sign in or open zap.cooking.</p>
+          </div>
+
+          <div class="flex flex-wrap gap-2" role="group" aria-label="Start section">
+            <button
+              type="button"
+              aria-pressed={$startSection === 'explore'}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
+                {$startSection === 'explore'
+                ? 'bg-primary text-white'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={$startSection !== 'explore' ? 'color: var(--color-text-primary)' : ''}
+              on:click={() => saveStartSection('explore')}
+            >
+              <GlobeIcon size={16} />
+              Explore
+            </button>
+            <button
+              type="button"
+              aria-pressed={$startSection === 'feed'}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
+                {$startSection === 'feed'
+                ? 'bg-primary text-white'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={$startSection !== 'feed' ? 'color: var(--color-text-primary)' : ''}
+              on:click={() => saveStartSection('feed')}
+            >
+              <FlameIcon size={16} />
+              Feed
+            </button>
+            <button
+              type="button"
+              aria-pressed={$startSection === 'recipes'}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
+                {$startSection === 'recipes'
+                ? 'bg-primary text-white'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={$startSection !== 'recipes' ? 'color: var(--color-text-primary)' : ''}
+              on:click={() => saveStartSection('recipes')}
+            >
+              <ForkKnifeIcon size={16} />
+              Recipes
+            </button>
+          </div>
         </div>
       </div>
     </Accordion>
@@ -690,6 +818,79 @@
             </div>
           {/if}
         </div>
+
+        <!-- Proof of work. Off by default, because unlike every other setting
+             here this one spends the user's own time before each post rather
+             than costing nothing. -->
+        <div class="p-4 rounded-xl" style="border: 1px solid var(--color-input-border);">
+          <div class="flex items-center justify-between">
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <HammerIcon size={18} class="text-orange-500" />
+                <span class="font-medium" style="color: var(--color-text-primary)"
+                  >Proof of work</span
+                >
+              </div>
+              <p class="text-sm text-caption mt-1">
+                Mines a NIP-13 nonce into each note before it is signed. Relays and clients
+                that weigh proof of work will rank or accept your notes accordingly.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={$timerSettings.powBits !== null}
+              aria-label="Enable proof of work"
+              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.powBits !==
+              null
+                ? 'bg-orange-500'
+                : 'bg-gray-300 dark:bg-gray-600'}"
+              on:click={() =>
+                saveTimerSettings({
+                  ...$timerSettings,
+                  powBits: $timerSettings.powBits === null ? POW_DEFAULT_BITS : null
+                })}
+            >
+              <span
+                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.powBits !==
+                null
+                  ? 'translate-x-5'
+                  : ''}"
+              ></span>
+            </button>
+          </div>
+
+          {#if $timerSettings.powBits !== null}
+            <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
+              <p class="text-sm font-medium mb-2" style="color: var(--color-text-primary)">
+                Difficulty
+              </p>
+              <div class="flex gap-2 flex-wrap">
+                {#each POW_LEVELS as level (level.bits)}
+                  <button
+                    type="button"
+                    aria-pressed={$timerSettings.powBits === level.bits}
+                    class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {$timerSettings.powBits ===
+                    level.bits
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-secondary hover:bg-accent-gray'}"
+                    style={$timerSettings.powBits !== level.bits
+                      ? 'color: var(--color-text-primary)'
+                      : ''}
+                    on:click={() => saveTimerSettings({ ...$timerSettings, powBits: level.bits })}
+                  >{level.bits} bits</button>
+                {/each}
+              </div>
+              <!-- Each step is two bits, which is four times the work, so the
+                   line under the chips carries what the rung costs — the half
+                   a number cannot say. -->
+              <p class="text-xs text-caption mt-2">
+                {powLevelFor($timerSettings.powBits).cost} Each step up is four times the work,
+                and the composer can still change it per note.
+              </p>
+            </div>
+          {/if}
+        </div>
       </div>
     </Accordion>
 
@@ -700,9 +901,7 @@
           <div class="text-sm text-caption italic">Loading membership status...</div>
         {:else if membershipData?.found && membershipData.member}
           {@const member = membershipData.member}
-          {@const validTier = ['open', 'cook_plus', 'pro_kitchen', 'founders'].includes(member.tier)
-            ? member.tier
-            : 'cook_plus'}
+          {@const validTier = member.tier || 'open'}
           {@const expiryDate = new Date(member.subscription_end)}
 
           <!-- Current Plan + Details -->
@@ -737,11 +936,7 @@
             <div class="flex justify-between">
               <span class="text-caption">Payment</span>
               <span style="color: var(--color-text-primary)">
-                {member.payment_method === 'stripe' || member.payment_method === 'card'
-                  ? 'Credit Card'
-                  : member.payment_method === 'bitcoin'
-                    ? 'Bitcoin'
-                    : member.payment_method || 'None'}
+                {getPaymentMethodName(member.payment_method)}
               </span>
             </div>
           </div>
@@ -775,6 +970,11 @@
             </div>
             <Button on:click={() => goto('/membership')}>Renew Membership</Button>
           {/if}
+        {:else if membershipUnavailable}
+          <div class="p-4 rounded-xl text-center" style="border: 1px solid var(--color-input-border);">
+            <p class="text-sm" style="color: var(--color-text-secondary)">We couldn't load your membership right now.</p>
+          </div>
+          <Button on:click={fetchMembershipStatus}>Try again</Button>
         {:else}
           <!-- No membership / Free tier -->
           <div
@@ -1079,7 +1279,7 @@
           <div class="flex items-center justify-between">
             <div class="flex-1">
               <div class="font-medium" style="color: var(--color-text-primary)">Wallet Widget</div>
-              <p class="text-sm text-caption mt-1">Show the wallet widget in the top navigation.</p>
+              <p class="text-sm text-caption mt-1">Show the wallet widget in the sidebar.</p>
             </div>
             <button
               role="switch"
@@ -1288,7 +1488,46 @@
             <span>Very strict</span>
           </div>
         </div>
+
+        <!-- Hide recipes without images -->
+        <div
+          class="p-4 rounded-xl"
+          style="border: 1px solid var(--color-input-border);"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex-1 pr-4">
+              <span class="font-medium" style="color: var(--color-text-primary)"
+                >Hide recipes without images</span
+              >
+              <p class="text-sm text-caption mt-1">
+                Keep recipe grids to recipes with a working cover photo. Cards whose cover fails
+                to load are removed too.
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={$hideImagelessRecipesSetting}
+              aria-label="Hide recipes without images"
+              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$hideImagelessRecipesSetting
+                ? 'bg-primary'
+                : 'bg-gray-300 dark:bg-gray-600'}"
+              on:click={() =>
+                hideImagelessRecipesSetting.setEnabled(!$hideImagelessRecipesSetting)}
+            >
+              <span
+                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$hideImagelessRecipesSetting
+                  ? 'translate-x-5'
+                  : ''}"
+              ></span>
+            </button>
+          </div>
+        </div>
       </div>
+    </Accordion>
+
+    <!-- Fresh Section: special-card choices (device-local) -->
+    <Accordion title="Fresh" open={false}>
+      <FreshSettings />
     </Accordion>
 
     <!-- Web of Trust Section -->
@@ -1445,9 +1684,9 @@
       </div>
     </Accordion>
 
-    <!-- Nostr Backup Section -->
-    <Accordion title="Nostr Backup" open={false}>
-      <NostrBackupSection />
+    <!-- Data Recovery (Lazarus): relay-history recovery of clobbered lists -->
+    <Accordion title="Data Recovery" open={false}>
+      <LazarusRecoverySection />
     </Accordion>
 
     <!-- Security Section -->
@@ -1485,7 +1724,9 @@
           {/if}
         </div>
 
-        <!-- Passkey Vault (renders nothing when unsupported/not applicable) -->
+        <!-- Passkey Vault: enroll/enrolled UI for nsec sessions; a one-line explanation when gated
+             (native, off-domain, no WebAuthn/PRF, extension/bunker session, foreign record);
+             nothing only when logged out -->
         <PasskeyVaultSection on:changed={refreshKeyState} />
 
         <!-- Private Key (legacy plaintext OR unlocked passkey session) -->
@@ -1634,6 +1875,27 @@
             </button>
           </div>
         {/if}
+
+        <!-- Account deletion. Moved here from the site footer, where it sat
+             between "Safety" and "Disclosure" as an ordinary utility link —
+             an irreversible account action doesn't belong next to the terms
+             and privacy links, and it's what people look for in Settings. -->
+        <div class="border-t border-[var(--color-input-border)] pt-5">
+          <p class="text-sm font-medium mb-1" style="color: var(--color-text-primary)">
+            Delete Account
+          </p>
+          <p class="text-xs text-caption mb-3">
+            Request removal of your account data from zap.cooking. Your Nostr identity and any
+            notes already published to relays are not affected — they aren't ours to delete.
+          </p>
+          <a
+            href="/delete-account"
+            class="inline-flex items-center gap-1.5 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-sm font-medium transition-colors"
+          >
+            <TrashIcon size={16} />
+            Delete Account
+          </a>
+        </div>
       </div>
     </Accordion>
   </div>

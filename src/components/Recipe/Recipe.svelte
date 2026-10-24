@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { imetaAltByUrl } from '$lib/feed/imeta';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { browser } from '$app/environment';
   import TagLinks from './TagLinks.svelte';
@@ -26,7 +27,8 @@
     parseMarkdown,
     extractAndGroupDirections,
     extractRecipeDetails,
-    parseMarkdownForEditing
+    parseMarkdownForEditing,
+    mentionNamesVersion
   } from '$lib/parser';
   import { sanitizeHTML } from '$lib/sanitize';
   import { goto } from '$app/navigation';
@@ -60,19 +62,17 @@
   import Ingredients from './Ingredients.svelte';
   import AddToListModal from '../grocery/AddToListModal.svelte';
   import PrintRecipeModal from './PrintRecipeModal.svelte';
-  import GatedRecipePayment from '../GatedRecipePayment.svelte';
-  import { checkIfGated, backfillGatedRecipe } from '$lib/nip108/client';
-  import type { GatedRecipeMetadata } from '$lib/nip108/types';
-  import { GATED_RECIPE_KIND } from '$lib/consts';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
+  import FlagIcon from 'phosphor-svelte/lib/Flag';
   import NourishModal from '../nourish/NourishModal.svelte';
   import NourishPill from '../nourish/NourishPill.svelte';
   import { resolveScore } from '$lib/nourish/scoreResolver';
   import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
+  import { resolveVanityShareUrl } from '$lib/vanityUrl';
+  import ReportArticleModal from '../reads/ReportArticleModal.svelte';
 
   export let event: NDKEvent;
-  export let isPremium = false;
   export let naddr: string = '';
 
   // Compute naddr if not provided
@@ -101,6 +101,7 @@
   let deleteConfirmOpen = false;
   let isDeleting = false;
   let isEditingRecipe = false;
+  let reportOpen = false;
   let nourishModalOpen = false;
   let nourishPreviewScore: number | null = null;
   let nourishGut: number | null = null;
@@ -174,17 +175,21 @@
     if (copyTimeout) clearTimeout(copyTimeout);
   });
 
-  // Gated recipe state
-  let gatedMetadata: GatedRecipeMetadata | null = null;
-  let unlockedRecipe: NDKEvent | null = null;
-  let checkingGated = true;
-
   // Track if author has a lightning address (can receive zaps)
   let authorCanReceiveZaps = true; // Default to true while loading
   let authorLightningCheckComplete = false;
 
   // Construct the canonical recipe URL for sharing (uses short /r/ format)
   $: shareUrl = buildCanonicalRecipeShareUrl(computedNaddr);
+
+  // Premium vanity URL (zap.cooking/<handle>/<slug>) when the author has a
+  // verified handle — preferred by the share modal over the /r/ short URL.
+  let vanityShareUrl = '';
+  $: if (browser && event.pubkey && event.replaceableDTag()) {
+    resolveVanityShareUrl(event.pubkey, event.replaceableDTag()).then((url) => {
+      vanityShareUrl = url;
+    });
+  }
 
   // Get recipe title and image for sharing
   $: recipeTitle =
@@ -203,113 +208,7 @@
       authorCanReceiveZaps = false;
     }
     authorLightningCheckComplete = true;
-
-    // Check if recipe is gated (skip if parent already handled access)
-    if (!isPremium) {
-      const isAuthorOfRecipe = $userPublickey && $userPublickey === event.author.pubkey;
-
-      try {
-        checkingGated = true;
-        let metadata = await checkIfGated(event, $ndk);
-
-        // Backfill: if server store is empty but relay has full content,
-        // re-encrypt and store so the payment flow works for everyone
-        if (metadata && !metadata.serverHasData && event.content?.includes('## Ingredients')) {
-          const backfilled = await backfillGatedRecipe(event, $ndk, metadata.gatedNoteId, metadata.cost);
-          if (backfilled) {
-            const refreshed = await checkIfGated(event, $ndk);
-            if (refreshed && refreshed.serverHasData) {
-              metadata = refreshed;
-            }
-          }
-        }
-
-        if (metadata) {
-          // Author sees their own recipe without gating
-          if (isAuthorOfRecipe) {
-            // Don't set gatedMetadata — let recipe render normally
-          } else {
-            gatedMetadata = metadata;
-          }
-        } else if (event.kind === GATED_RECIPE_KIND && event.getMatchingTags('gated').length > 0) {
-          // Kind 35000 event with a gated tag but checkIfGated returned null
-          const gatedTag = event.getMatchingTags('gated')[0];
-          const noteId = gatedTag[1] || '';
-          const cost = parseInt(gatedTag[2] || '0', 10);
-
-          // Try backfill if relay has full content
-          if (noteId && event.content?.includes('## Ingredients')) {
-            const backfilled = await backfillGatedRecipe(event, $ndk, noteId, cost);
-            if (backfilled) {
-              const refreshed = await checkIfGated(event, $ndk);
-              if (refreshed) {
-                if (!isAuthorOfRecipe) {
-                  gatedMetadata = refreshed;
-                }
-              }
-            }
-          }
-
-          // If backfill failed or no full content, show fallback gated state
-          if (!gatedMetadata && !isAuthorOfRecipe) {
-            gatedMetadata = {
-              gatedNoteId: noteId,
-              announcementNoteId: noteId,
-              cost,
-              endpoint: '/api/nip108/payment',
-              iv: '',
-              authorPubkey: event.pubkey,
-              serverHasData: false
-            };
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to check if recipe is gated:', error);
-        if (event.kind === GATED_RECIPE_KIND && event.getMatchingTags('gated').length > 0) {
-          const gatedTag = event.getMatchingTags('gated')[0];
-          const noteId = gatedTag[1] || '';
-          const cost = parseInt(gatedTag[2] || '0', 10);
-
-          // Try backfill even in error case
-          if (noteId && event.content?.includes('## Ingredients')) {
-            try {
-              const backfilled = await backfillGatedRecipe(event, $ndk, noteId, cost);
-              if (backfilled) {
-                const refreshed = await checkIfGated(event, $ndk);
-                if (refreshed && !isAuthorOfRecipe) {
-                  gatedMetadata = refreshed;
-                }
-              }
-            } catch {
-              // Backfill also failed
-            }
-          }
-
-          if (!gatedMetadata && !isAuthorOfRecipe) {
-            gatedMetadata = {
-              gatedNoteId: noteId,
-              announcementNoteId: noteId,
-              cost,
-              endpoint: '/api/nip108/payment',
-              iv: '',
-              authorPubkey: event.pubkey,
-              serverHasData: false
-            };
-          }
-        }
-      } finally {
-        checkingGated = false;
-      }
-    } else {
-      checkingGated = false;
-    }
   });
-
-  function handleUnlocked(recipe: NDKEvent) {
-    unlockedRecipe = recipe;
-    // Replace the event with unlocked recipe
-    event = recipe;
-  }
 
   function handleZapComplete() {
     // Increment key to force TotalZaps to remount and refetch
@@ -462,6 +361,8 @@
       const draftData = {
         title,
         images,
+        // Keep NIP-92 alt text so editing doesn't strip it on republish
+        imageAlts: Object.fromEntries(imetaAltByUrl(event)),
         tags,
         summary,
         chefsnotes: info.chefNotes || '',
@@ -491,11 +392,19 @@
     isDeleting = true;
 
     try {
-      // For addressable events (kind 30023), the most reliable deletion method
-      // is to publish a replacement event with the same 'd' tag but marked as deleted.
+      // For addressable events the most reliable deletion method is to publish a
+      // replacement event with the same kind and 'd' tag but marked as deleted.
       // This overwrites the original on relays.
+      // This component renders two recipe kinds — public (30023) and the
+      // retired premium kind (GATED_RECIPE_KIND, 35000, still on relays) — and
+      // the tombstone must carry the SAME kind as the event being deleted, or
+      // it lands at a different address and overwrites whatever else lives
+      // there. Both kinds derived their 'd' tag from the title identically, so
+      // a hardcoded 30023 here would blank the author's public recipe when
+      // they delete a premium one of the same name.
+      const deleteKind = event.kind ?? 30023;
       const deleteEvent = new NDKEvent($ndk);
-      deleteEvent.kind = 30023;
+      deleteEvent.kind = deleteKind;
       deleteEvent.content = ''; // Empty content
 
       // Must use the same 'd' tag to replace the original
@@ -516,9 +425,9 @@
       deletionRequest.content = 'Recipe deleted by author';
       deletionRequest.tags.push(['e', event.id]);
       if (dTag) {
-        deletionRequest.tags.push(['a', `30023:${event.pubkey}:${dTag}`]);
+        deletionRequest.tags.push(['a', `${deleteKind}:${event.pubkey}:${dTag}`]);
       }
-      deletionRequest.tags.push(['k', '30023']);
+      deletionRequest.tags.push(['k', String(deleteKind)]);
 
       await deletionRequest.publish();
 
@@ -637,14 +546,30 @@
     carouselEl.scrollBy({ left: width, behavior: 'smooth' });
   }
 
-  // Deduplicate image tags by URL, use placeholder if no images or all images are empty
+  // Deduplicate image tags by URL, use placeholder if no images or all images are empty.
+  // General long-form articles are the exception: the stock placeholder
+  // reads fine at thumbnail size but not as a full-width hero, so articles
+  // without a real image get no carousel at all (the render guards on
+  // length). Recipes keep the placeholder — a cooking post without a
+  // photo is still expected to show one.
+  // NIP-92 imeta alt text keyed by image URL (recipes and article covers)
+  $: imageAltByUrl = imetaAltByUrl(event);
+  // ALT badge on a carousel slide opens the description in a dialog
+  // (matches the feed carousel: alt should be inspectable, not just
+  // announced to screen readers).
+  let altDialogOpen = false;
+  let altDialogText = '';
+  function showImageAlt(url: string) {
+    altDialogText = imageAltByUrl.get(url) || '';
+    if (altDialogText) altDialogOpen = true;
+  }
   $: uniqueImages = (() => {
     const images = event.tags
       .filter((e) => e[0] === 'image' && e[1] && e[1].trim() !== '')
       .filter((img, index, arr) => arr.findIndex((t) => t[1] === img[1]) === index);
-    // If no valid images, return a placeholder
+    // If no valid images, return a placeholder (recipes only)
     if (images.length === 0) {
-      return [['image', getPlaceholderImage(event.id)]];
+      return isActualRecipe ? [['image', getPlaceholderImage(event.id)]] : [];
     }
     return images;
   })();
@@ -718,16 +643,35 @@
 
   let parsedBeforeDirections = '';
   let parsedAfterDirections = '';
-  // Parse markdown once and reuse in template (avoids 3x redundant parsing per section)
-  $: parsedBeforeDirections = markdownBeforeDirections ? parseMarkdown(markdownBeforeDirections) : '';
-  $: parsedAfterDirections = markdownAfterDirections ? parseMarkdown(markdownAfterDirections) : '';
+  // Parse markdown once and reuse in template (avoids 3x redundant parsing per section).
+  // $mentionNamesVersion is a dependency so profile mentions re-render
+  // with real names when their queued lookups land — the first parse
+  // renders shortened npubs, and without this the article never re-parsed.
+  $: parsedBeforeDirections = markdownBeforeDirections
+    ? parseMarkdown(markdownBeforeDirections, $mentionNamesVersion)
+    : '';
+  $: parsedAfterDirections = markdownAfterDirections
+    ? parseMarkdown(markdownAfterDirections, $mentionNamesVersion)
+    : '';
 </script>
 
 <svelte:window on:keydown={handleImageModalKeydown} />
 
 <ZapModal bind:open={zapModal} {event} on:zap-complete={handleZapComplete} />
 
-<ShareModal bind:open={shareModal} url={shareUrl} title={recipeTitle} imageUrl={recipeImage} />
+<ShareModal
+  bind:open={shareModal}
+  url={shareUrl}
+  vanityUrl={vanityShareUrl}
+  title={recipeTitle}
+  imageUrl={recipeImage}
+/>
+<ReportArticleModal
+  bind:open={reportOpen}
+  pubkey={event.pubkey}
+  eventId={event.id}
+  naddr={computedNaddr}
+/>
 
 <!-- Add to Grocery List Modal -->
 <AddToListModal bind:open={groceryModal} recipeEvent={event} />
@@ -743,6 +687,19 @@
 
 <!-- Nourish Modal -->
 <NourishModal bind:open={nourishModalOpen} {event} {hasMembership} />
+
+<!-- Image description (NIP-92 alt text) -->
+{#if altDialogOpen}
+  <Modal bind:open={altDialogOpen} compact autoHeight floatingClose>
+    <span slot="title" class="alt-dialog-title">Description</span>
+    <p
+      class="text-[0.9375rem] leading-normal whitespace-pre-wrap break-words"
+      style="color: var(--color-text-primary);"
+    >
+      {altDialogText}
+    </p>
+  </Modal>
+{/if}
 
 <!-- Delete Confirmation Modal -->
 <Modal bind:open={deleteConfirmOpen} noHeader>
@@ -764,19 +721,11 @@
   </div>
 </Modal>
 
-<article class="max-w-[760px] mx-auto">
-  {#if checkingGated}
-    <div class="flex items-center justify-center p-8">
-      <div class="text-caption">Loading {isActualRecipe ? 'recipe' : 'article'}...</div>
-    </div>
-  {:else if gatedMetadata && !unlockedRecipe}
-    <!-- Show gated payment UI -->
-    <GatedRecipePayment
-      {gatedMetadata}
-      gatedNoteId={gatedMetadata.gatedNoteId}
-      onUnlocked={handleUnlocked}
-    />
-  {:else if event}
+<!-- No mx-auto: the reading column is left-anchored at the same content
+     margin as the feed on desktop (the layout's px-4/lg:pl-[26px]), which
+     centering here used to break. -->
+<article class="max-w-[760px]">
+  {#if event}
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-4">
         <h1>
@@ -789,7 +738,7 @@
         <!-- Author + Action Buttons Row -->
         <div class="flex justify-between items-center gap-4">
           <!-- Left: Author Profile -->
-          <AuthorProfile pubkey={event.author.pubkey} />
+          <AuthorProfile pubkey={event.author.pubkey} timestamp={event.created_at} />
 
           <!-- Right: Save button -->
           <div class="flex gap-2">
@@ -810,7 +759,7 @@
           >
             {#each uniqueImages as image, i}
               <div
-                class="recipe-carousel-slide flex-shrink-0 w-full min-w-full snap-center flex items-center justify-center"
+                class="recipe-carousel-slide relative flex-shrink-0 w-full min-w-full snap-center flex items-center justify-center"
               >
                 <button
                   on:click={() =>
@@ -821,15 +770,27 @@
                     )}
                   class="block w-full cursor-pointer rounded-3xl overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                   type="button"
+                  aria-label={imageAltByUrl.get(image[1]) || `View ${isActualRecipe ? 'recipe' : 'article'} image ${i + 1}`}
                 >
                   <img
                     class="rounded-3xl aspect-video object-cover w-full"
                     src={image[1]}
-                    alt="Recipe image {i + 1}"
+                    alt={imageAltByUrl.get(image[1]) || `${isActualRecipe ? 'Recipe' : 'Article'} image ${i + 1}`}
                     loading={i === 0 ? 'eager' : 'lazy'}
                     decoding="async"
                   />
                 </button>
+                {#if imageAltByUrl.get(image[1])}
+                  <!-- Sibling of the image button: no nested controls -->
+                  <button
+                    type="button"
+                    class="absolute bottom-3 left-3 z-10 px-2 py-0.5 rounded-md bg-black/60 hover:bg-black/90 text-white text-[0.6875rem] font-bold tracking-wide transition-colors"
+                    aria-label="View image description"
+                    on:click|stopPropagation={() => showImageAlt(image[1])}
+                  >
+                    ALT
+                  </button>
+                {/if}
               </div>
             {/each}
           </div>
@@ -1025,6 +986,19 @@
                   >
                     <LightningIcon size={18} />
                     Boost this recipe
+                  </button>
+                {/if}
+                {#if !isOwner}
+                  <button
+                    class="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-accent-gray transition-colors"
+                    style="color: var(--color-text-primary);"
+                    on:click={() => {
+                      reportOpen = true;
+                      menuOpen = false;
+                    }}
+                  >
+                    <FlagIcon size={18} />
+                    Report {isActualRecipe ? 'Recipe' : 'Article'}
                   </button>
                 {/if}
                 <hr class="my-1 border-t" style="border-color: var(--color-input-border);" />
@@ -1343,9 +1317,18 @@
           <!-- Image -->
           <img
             src={selectedImageUrl}
-            alt="Recipe image {selectedImageIndex + 1}"
+            alt={imageAltByUrl.get(selectedImageUrl) || `${isActualRecipe ? 'Recipe' : 'Article'} image ${selectedImageIndex + 1}`}
             class="w-full h-auto max-h-[95vh] object-contain"
           />
+          {#if imageAltByUrl.get(selectedImageUrl)}
+            <!-- Visible alt text caption (matches the feed lightbox) -->
+            <p
+              role="note"
+              class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 max-h-[30%] overflow-y-auto w-[min(640px,calc(100%-2rem))] bg-black/70 text-white text-sm leading-snug text-center rounded-xl px-3.5 py-2 whitespace-pre-wrap break-words"
+            >
+              {imageAltByUrl.get(selectedImageUrl)}
+            </p>
+          {/if}
         </div>
       </div>
     {/if}
@@ -1355,6 +1338,22 @@
 </article>
 
 <style>
+  /* Alt-description modal header kicker — quiet all-caps label instead
+     of a page-level heading; the alt text itself is the content. Flex
+     (block-level inside the h2) so the label escapes the h2's 18px
+     line-box strut and centers itself in the same 32px box as the
+     close button. */
+  .alt-dialog-title {
+    display: flex;
+    align-items: center;
+    min-height: 2rem;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-caption);
+  }
+
   /* Nourish section — sits in recipe body between summary and ingredients */
   .nourish-section {
     padding: 0.5rem 0;

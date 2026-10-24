@@ -114,7 +114,6 @@ export function isReplyNote(event: { tags: string[][] }): boolean {
 
 /** Archive-friendly relays queried in addition to the standard set. */
 const ARCHIVE_RELAYS = [
-  'wss://relay.damus.io',
   'wss://nostr.wine',
   'wss://relay.primal.net'
 ];
@@ -341,7 +340,7 @@ function writeCache(pubkey: string, now: Date, groups: MemoryGroup[]): void {
 
 /**
  * In-flight fetches keyed by pubkey+day. Rapid mount/unmount cycles (e.g.
- * bouncing between /community and /memories before the first fetch
+ * bouncing between /feed and /memories before the first fetch
  * finishes) share one fetch instead of opening 3 new subscriptions per
  * mount. Entries are removed when the fetch settles, so each subscription
  * still self-terminates on eose or its 10s timeout — nothing outlives that.

@@ -4,7 +4,8 @@
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { TargetType } from '$lib/types/reactions';
   import { publishReaction, canPublishReaction } from '$lib/reactions/publishReaction';
-  import { getEngagementStore, fetchEngagement, markEventAsProcessed, trackOptimisticReaction, clearOptimisticReaction } from '$lib/engagementCache';
+  import { requireAuth } from '$lib/auth/requireAuth';
+  import { getEngagementStore, fetchEngagement, markEventAsProcessed, trackOptimisticReaction, clearOptimisticReaction, loadOwnReactions } from '$lib/engagementCache';
 
   export let event: NDKEvent;
   export let targetType: TargetType;
@@ -17,15 +18,17 @@
     const data = $store;
     if (!data.lastFetched || Date.now() - data.lastFetched > 5 * 60 * 1000) {
       if (!data.loading) {
-        fetchEngagement($ndk, event.id, $userPublickey);
+        fetchEngagement($ndk, event, $userPublickey);
       }
     }
   });
 
   async function handlePillClick(emoji: string) {
     if (!canPublishReaction($ndk, $userPublickey)) {
-      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
-      return;
+      if (!(await requireAuth({ kind: 'react', reason: 'Sign in to react' }))) return;
+      // Wait for the new account's own reactions first: one it already
+      // left from another device must not be published twice.
+      await loadOwnReactions($ndk, event.id, $userPublickey);
     }
 
     const wasReacted = $store.reactions.userReactions.has(emoji);

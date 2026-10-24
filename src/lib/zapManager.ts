@@ -6,6 +6,7 @@ import { AuthManager, getAuthManager } from './authManager';
 import { generateSecretKey } from 'nostr-tools';
 import { ensureClientTag } from './nip89';
 import { extractZapAmountSats } from './zapAmount';
+import { standardRelays } from './consts';
 
 export interface ZapRequest {
   eventId?: string;
@@ -14,6 +15,12 @@ export interface ZapRequest {
   comment?: string;
   relays?: string[];
   extraTags?: string[][];
+  /**
+   * NIP-57 anonymous zap: the request carries an `["anon"]` tag and is signed
+   * by a fresh ephemeral key, so it is not attributed to anyone. Only ever
+   * set by an explicit "Zap anonymously" choice — never as a fallback.
+   */
+  anonymous?: boolean;
 }
 
 export interface ZapReceipt {
@@ -45,29 +52,86 @@ export class ZapManager {
     this.ndk = ndk;
   }
 
+  // ── Zap-target resolution cache ────────────────────────────────────
+  // A zap needs the recipient's LNURL pay request, which costs a profile
+  // fetch + an HTTPS round-trip. Zapping the same recipient again (very
+  // common — several posts from one author) and the modal-open prefetch
+  // both hit this cache instead. Short TTL: pay limits can change.
+  private static readonly LNURL_CACHE_TTL_MS = 5 * 60 * 1000;
+  private static readonly LNURL_CACHE_MAX = 64;
+  private static lnurlCache = new Map<
+    string,
+    { address: string; payRequest: LNURLPayRequest; expiresAt: number }
+  >();
+  private static lnurlInflight = new Map<string, Promise<{ address: string; payRequest: LNURLPayRequest }>>();
+
+  private resolveZapTargetCached(pubkey: string): Promise<{ address: string; payRequest: LNURLPayRequest }> {
+    const hit = ZapManager.lnurlCache.get(pubkey);
+    if (hit && Date.now() <= hit.expiresAt) return Promise.resolve(hit);
+
+    const inflight = ZapManager.lnurlInflight.get(pubkey);
+    if (inflight) return inflight;
+
+    const fetchIt = (async () => {
+      const profileData = await resolveProfileByPubkey(pubkey, this.ndk);
+      if (!profileData) {
+        throw new Error('Could not fetch user profile - profile resolver returned null');
+      }
+
+      const lightningAddress = profileData.lud16;
+      if (!lightningAddress) {
+        throw new Error(`User has no lightning address configured. Profile lud16: ${profileData.lud16}. User may need to set up a Lightning address in their profile.`);
+      }
+
+      const lnurl = this.getLnurlFromAddress(lightningAddress);
+      const payRequest = await this.fetchLnurlPayRequest(lnurl);
+
+      const entry = { address: lightningAddress, payRequest, expiresAt: Date.now() + ZapManager.LNURL_CACHE_TTL_MS };
+      if (ZapManager.lnurlCache.size >= ZapManager.LNURL_CACHE_MAX) {
+        // Drop the oldest entry (Map iterates in insertion order).
+        const oldest = ZapManager.lnurlCache.keys().next().value;
+        if (oldest !== undefined) ZapManager.lnurlCache.delete(oldest);
+      }
+      ZapManager.lnurlCache.set(pubkey, entry);
+      return entry;
+    })();
+
+    ZapManager.lnurlInflight.set(pubkey, fetchIt);
+    fetchIt.finally(() => ZapManager.lnurlInflight.delete(pubkey)).catch(() => {});
+    return fetchIt;
+  }
+
   /**
-   * Convert a lightning address to LNURL endpoint
+   * Warm the zap-target cache for a recipient. Fire-and-forget on modal
+   * open / note render so that by the time the user submits, the profile
+   * and LNURL round-trips are already done and only the invoice fetch
+   * remains. Errors are swallowed — the real zap will surface them.
    */
-  async getLnurlFromAddress(address: string): Promise<string> {
+  prefetchZap(recipient: string | NDKUser | NDKEvent): void {
+    const pubkey =
+      typeof recipient === 'string'
+        ? recipient
+        : recipient instanceof NDKUser
+          ? recipient.pubkey
+          : recipient.author?.hexpubkey || recipient.pubkey;
+    if (!pubkey) return;
+    this.resolveZapTargetCached(pubkey).catch(() => {});
+  }
+
+  /**
+   * Convert a lightning address to its LNURL pay endpoint.
+   *
+   * Pure URL construction — no fetch. The endpoint gets fetched (and
+   * cached) by fetchLnurlPayRequest; verifying it here with a throwaway
+   * request cost a full extra round-trip on every zap for nothing.
+   */
+  getLnurlFromAddress(address: string): string {
     if (!address.includes('@')) {
       throw new Error('Invalid lightning address format');
     }
 
     const [username, domain] = address.split('@');
-    const lnurl = `https://${domain}/.well-known/lnurlp/${username}`;
-    
-    try {
-      console.log('Fetching LNURL endpoint:', lnurl);
-      const response = await fetch(lnurl);
-      if (!response.ok) {
-        throw new Error(`LNURL endpoint not found: ${response.status} ${response.statusText}`);
-      }
-      console.log('LNURL endpoint verified successfully');
-      return lnurl;
-    } catch (error) {
-      console.error('LNURL endpoint fetch error:', error);
-      throw new Error(`Failed to fetch LNURL endpoint: ${error}`);
-    }
+    return `https://${domain}/.well-known/lnurlp/${username}`;
   }
 
   /**
@@ -75,20 +139,18 @@ export class ZapManager {
    */
   async fetchLnurlPayRequest(lnurl: string): Promise<LNURLPayRequest> {
     try {
-      console.log('Fetching LNURL pay request from:', lnurl);
       const response = await fetch(lnurl);
       if (!response.ok) {
         throw new Error(`LNURL request failed: ${response.status} ${response.statusText}`);
       }
-      
+
       const data = await response.json();
-      console.log('LNURL pay request response:', data);
-      
+
       if (data.status === 'ERROR') {
         throw new Error(`LNURL error: ${data.reason}`);
       }
 
-      const result = {
+      return {
         callback: data.callback,
         maxSendable: data.maxSendable || 1000000000, // 1M sats default
         minSendable: data.minSendable || 1000, // 1 sat default
@@ -96,9 +158,6 @@ export class ZapManager {
         nostrPubkey: data.nostrPubkey,
         allowsNostr: data.allowsNostr || false
       };
-      
-      console.log('Processed LNURL pay request:', result);
-      return result;
     } catch (error) {
       console.error('LNURL pay request fetch error:', error);
       throw new Error(`Failed to fetch LNURL pay request: ${error}`);
@@ -133,6 +192,10 @@ export class ZapManager {
     // Add lnurl tag (will be populated when we get the LNURL)
     zapRequest.tags.push(['lnurl', '']);
 
+    if (request.anonymous) {
+      zapRequest.tags.push(['anon']);
+    }
+
     // Add any extra tags (e.g., poll_option for zap polls)
     if (request.extraTags) {
       for (const tag of request.extraTags) {
@@ -152,16 +215,9 @@ export class ZapManager {
   async getZapInvoice(
     lnurlPayRequest: LNURLPayRequest,
     zapRequest: NDKEvent,
-    amount: number
+    amount: number,
+    opts?: { anonymous?: boolean }
   ): Promise<LNURLPayResponse> {
-    console.log('getZapInvoice called with:', {
-      callback: lnurlPayRequest.callback,
-      amount,
-      allowsNostr: lnurlPayRequest.allowsNostr,
-      minSendable: lnurlPayRequest.minSendable,
-      maxSendable: lnurlPayRequest.maxSendable
-    });
-
     if (!lnurlPayRequest.allowsNostr) {
       throw new Error('LNURL endpoint does not support Nostr zaps');
     }
@@ -177,41 +233,20 @@ export class ZapManager {
       lnurlTag[1] = lnurlPayRequest.callback;
     }
 
-    console.log('Zap request before signing:', {
-      kind: zapRequest.kind,
-      tags: zapRequest.tags,
-      content: zapRequest.content
-    });
-
-    // Check if NDK has a signer available
-    console.log('NDK signer status:', {
-      hasSigner: !!this.ndk.signer,
-      signerType: this.ndk.signer?.constructor.name
-    });
-
-    // Sign the zap request
+    // Sign the zap request. Anonymous zaps (an explicit choice, tagged
+    // ["anon"] in createZapRequest) use a fresh ephemeral key. A member's zap
+    // that fails to sign is an error — it is never quietly re-signed with a
+    // stranger key, which would send their sats unattributed and untagged.
     try {
-      console.log('Attempting to sign zap request...');
-      await zapRequest.sign();
-      console.log('Zap request signed successfully');
+      if (opts?.anonymous) {
+        await zapRequest.sign(new NDKPrivateKeySigner(generateSecretKey()));
+      } else {
+        await zapRequest.sign();
+      }
     } catch (error: unknown) {
       console.error('Error signing zap request:', error);
       const err = error instanceof Error ? error : new Error(String(error));
-      
-      // If signing fails, we might need to create an anonymous signer for the zap request
-      if (err.message.includes('signer') || err.message.includes('private key')) {
-        console.log('Signing failed due to missing signer - creating anonymous zap request');
-        // For zap requests, we might not need a signer if the LNURL endpoint doesn't require it
-        // Let's try without signing first
-        try {
-          const sk = generateSecretKey();
-          await zapRequest.sign(new NDKPrivateKeySigner(sk));
-        } catch (ex) {
-          console.error(`Couldn't post zap anon: ${ex}`)
-        }
-      } else {
-        throw new Error(`Failed to sign zap request: ${err.message}`);
-      }
+      throw new Error(`Failed to sign zap request: ${err.message}`);
     }
 
     // Create callback URL with parameters
@@ -219,10 +254,8 @@ export class ZapManager {
     callbackUrl.searchParams.set('amount', amount.toString());
     
     const zapRequestJson = JSON.stringify(zapRequest.rawEvent());
-    console.log('Zap request JSON:', zapRequestJson);
     callbackUrl.searchParams.set('nostr', zapRequestJson);
 
-    console.log('Making callback request to:', callbackUrl.toString());
 
     try {
       // Add timeout to prevent hanging
@@ -234,7 +267,6 @@ export class ZapManager {
       });
       
       clearTimeout(timeoutId);
-      console.log('Callback response status:', response.status);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -243,7 +275,6 @@ export class ZapManager {
       }
 
       const data = await response.json();
-      console.log('Callback response data:', data);
       
       if (data.status === 'ERROR') {
         throw new Error(`Invoice error: ${data.reason}`);
@@ -253,10 +284,6 @@ export class ZapManager {
         throw new Error('No invoice (pr) returned from callback');
       }
 
-      console.log('Invoice generated successfully:', data.pr.substring(0, 50) + '...');
-      if (data.verify) {
-        console.log('Verify URL available:', data.verify);
-      }
 
       return {
         pr: data.pr,
@@ -276,6 +303,25 @@ export class ZapManager {
   }
 
   /**
+   * Receipt relays for a zap request (NIP-57 `relays` tag). An anonymous zap
+   * uses only the recipient's relays and the app's fixed public defaults:
+   * the member's write relays, this device's saved relay list and NDK's
+   * configured relays could each tie the request back to the device.
+   */
+  private async receiptRelays(recipient: string, anonymous = false): Promise<string[]> {
+    const { zapReceiptRelayUrls, anonymousZapReceiptRelayUrls, resolveAuthorPubkey } =
+      await import('$lib/nip65Routing');
+    if (anonymous) {
+      const urls = await anonymousZapReceiptRelayUrls(recipient).catch(() => [] as string[]);
+      return urls.length ? urls : [...standardRelays];
+    }
+    const urls = await resolveAuthorPubkey(this.ndk)
+      .then((me) => zapReceiptRelayUrls(me, recipient))
+      .catch(() => [] as string[]);
+    return urls.length ? urls : this.ndk.explicitRelayUrls || [];
+  }
+
+  /**
    * Complete zap flow from request to invoice
    */
   async createZap(
@@ -283,70 +329,22 @@ export class ZapManager {
     amount: number,
     comment?: string,
     eventId?: string,
-    extraTags?: string[][]
+    extraTags?: string[][],
+    opts?: { anonymous?: boolean }
   ): Promise<{ invoice: string; verify?: string; zapRequest: NDKEvent; zapPubkey: string }> {
-    // Check if user is authenticated (required for zap requests)
-    if (!this.ndk.signer) {
+    const anonymous = opts?.anonymous === true;
+    // A member's zap needs their signer; an anonymous one signs ephemerally.
+    if (!anonymous && !this.ndk.signer) {
       throw new Error('User must be authenticated to create zap requests. Please log in first.');
     }
 
-    console.log('Creating zap for authenticated user:', {
-      hasSigner: !!this.ndk.signer,
-      signerType: this.ndk.signer?.constructor.name
-    });
-
     // Get recipient pubkey
-    console.log('zapManager.createZap - recipient:', recipient);
-    console.log('zapManager.createZap - recipient type:', typeof recipient);
-    console.log('zapManager.createZap - recipient constructor:', recipient?.constructor?.name);
-    
     const pubkey = typeof recipient === 'string' ? recipient : recipient.hexpubkey;
-    console.log('zapManager.createZap - extracted pubkey:', pubkey);
-    
-    // Fetch recipient profile to get lightning address using the working profile resolver
-    console.log('Fetching profile for pubkey:', pubkey);
-    let profileData;
-    
-    try {
-      profileData = await resolveProfileByPubkey(pubkey, this.ndk);
-    } catch (error) {
-      console.error('Error in resolveProfileByPubkey:', error);
-      throw new Error(`Failed to fetch user profile: ${error}`);
-    }
-    
-    if (!profileData) {
-      throw new Error('Could not fetch user profile - profile resolver returned null');
-    }
 
-    console.log('User profile fetched:', {
-      pubkey: pubkey,
-      name: profileData.name,
-      lud16: profileData.lud16,
-      display_name: profileData.display_name
-    });
-
-    // Get lightning address (prefer lud16 over lud06)
-    const lightningAddress = profileData.lud16;
-    if (!lightningAddress) {
-      console.error('User profile data:', profileData);
-      throw new Error(`User has no lightning address configured. Profile lud16: ${profileData.lud16}. User may need to set up a Lightning address in their profile.`);
-    }
-
-    // Convert lightning address to LNURL
-    console.log('Converting lightning address to LNURL:', lightningAddress);
-    const lnurl = await this.getLnurlFromAddress(lightningAddress);
-    console.log('LNURL endpoint:', lnurl);
-    
-    // Fetch LNURL pay request
-    console.log('Fetching LNURL pay request...');
-    const lnurlPayRequest = await this.fetchLnurlPayRequest(lnurl);
-    console.log('LNURL pay request:', {
-      callback: lnurlPayRequest.callback,
-      allowsNostr: lnurlPayRequest.allowsNostr,
-      nostrPubkey: lnurlPayRequest.nostrPubkey,
-      minSendable: lnurlPayRequest.minSendable,
-      maxSendable: lnurlPayRequest.maxSendable
-    });
+    // Profile fetch + LNURL resolution, cached per recipient (see
+    // resolveZapTargetCached). The modal's prefetch usually has this
+    // resolved before the user even clicks an amount.
+    const { payRequest: lnurlPayRequest } = await this.resolveZapTargetCached(pubkey);
     
     // Validate Nostr support
     if (!lnurlPayRequest.allowsNostr || !lnurlPayRequest.nostrPubkey) {
@@ -366,12 +364,18 @@ export class ZapManager {
       pubkey,
       amount,
       comment,
-      relays: this.ndk.explicitRelayUrls || [],
-      extraTags
+      // Where the LNURL server publishes the receipt: the outbox model
+      // (own write relays, the recipient's read relays, the app list), so
+      // the zap shows up for both sides and anyone following either.
+      relays: await this.receiptRelays(pubkey, anonymous),
+      extraTags,
+      anonymous
     });
 
     // Get invoice
-    const invoiceResponse = await this.getZapInvoice(lnurlPayRequest, zapRequest, amount);
+    const invoiceResponse = await this.getZapInvoice(lnurlPayRequest, zapRequest, amount, {
+      anonymous
+    });
 
     return {
       invoice: invoiceResponse.pr,

@@ -5,6 +5,7 @@
   import { goto } from '$app/navigation';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { lazyLoad } from '$lib/lazyLoad';
+  import { isHiddenRecipeEvent } from '$lib/consts';
 
   // Accept either an NDKEvent or pre-resolved props
   export let event: NDKEvent | null = null;
@@ -19,7 +20,9 @@
   let resolvedAuthorPubkey: string | null = null;
 
   $: {
-    if (event && event.tags) {
+    if (event && isHiddenRecipeEvent(event)) {
+      resolvedLink = '';
+    } else if (event && event.tags) {
       // Derive from NDKEvent (same logic as TrendingRecipeCard)
       const d = event.tags.find((t) => Array.isArray(t) && t[0] == 'd')?.[1];
       if (d && event.author?.pubkey) {

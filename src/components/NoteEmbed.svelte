@@ -4,6 +4,7 @@
   import { browser } from '$app/environment';
   import { ndk } from '$lib/nostr';
   import { mutedPubkeys } from '$lib/muteListStore';
+  import { isHiddenRecipeEvent } from '$lib/consts';
   import CustomAvatar from './CustomAvatar.svelte';
   import AuthorName from './AuthorName.svelte';
   import { formatDistanceToNow } from 'date-fns';
@@ -15,6 +16,10 @@
   import { extractZapAmountSats } from '$lib/zapAmount';
   import { formatAmount } from '$lib/utils';
   import NoteContent from './NoteContent.svelte';
+  import { getImageOrPlaceholder } from '$lib/placeholderImages';
+  import { parseClientTag } from '$lib/clientTag';
+  import { CLIENT_TAG_IDENTIFIER, RECIPE_TAGS } from '$lib/consts';
+  import { eventPath } from '$lib/utils/eventUrl';
 
   export let nostrString: string;
   export let boostAmount: number = 0; // Optional boost amount in sats (passed from parent)
@@ -124,6 +129,7 @@
       let resolved = false;
 
       subscription.on('event', (receivedEvent: NDKEvent) => {
+        if (isHiddenRecipeEvent(receivedEvent)) return;
         if (!event) {
           event = receivedEvent;
           loading = false;
@@ -296,10 +302,53 @@
     return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
   }
 
+  // ── Long-form (kind 30023) cards ──────────────────────────────────
+  //
+  // A long-form event's `content` is a full markdown document. Rendering
+  // it through NoteContent (a kind-1 plaintext renderer) dumps the whole
+  // recipe into the embed, headings and all. Render the event's metadata
+  // tags as a compact card instead — the same information other Nostr
+  // clients show for a quoted article.
+
+  function tagValue(e: NDKEvent, name: string): string {
+    return e.tags.find((t) => t[0] === name)?.[1]?.trim() || '';
+  }
+
+  function isRecipeEvent(e: NDKEvent): boolean {
+    return e.tags.some(
+      (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
+    );
+  }
+
+  // Only render the card when there's a title to show. Long-form events
+  // from other clients without one fall back to the previous rendering
+  // rather than showing an empty card.
+  $: isLongform = !!event && event.kind === 30023 && !!tagValue(event, 'title');
+  // NIP-89 branding: when the embedded event was published by Zap Cooking
+  // (its `client` tag), badge the cover so the source is identifiable at a
+  // glance inside our own embeds — the same treatment the handler
+  // headlight (see nip89Headlight.ts) asks of other clients.
+  $: isZapCookingEmbed = event ? parseClientTag(event.tags)?.name === CLIENT_TAG_IDENTIFIER : false;
+  $: articleTitle = event && isLongform ? tagValue(event, 'title') : '';
+  $: articleSummary = event && isLongform ? tagValue(event, 'summary') : '';
+  $: articleImage =
+    event && isLongform
+      ? getImageOrPlaceholder(tagValue(event, 'image'), event.id)
+      : '';
+  $: articleHashtags =
+    event && isLongform
+      ? event.tags
+          .filter((t) => t[0] === 't' && t[1])
+          .map((t) => t[1])
+          .slice(0, 3)
+      : [];
+
   function getNoteUrl(): string | null {
     if (!event) return null;
 
-    // Check if it's a recipe (kind 30023)
+    // Long-form (kind 30023) covers both recipes and reads, which live on
+    // different routes. A recipe carries a nostrcooking `t` tag; anything
+    // else is an article and belongs on /r/.
     if (event.kind === 30023) {
       const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
       if (dTag && event.author?.hexpubkey) {
@@ -309,17 +358,17 @@
             kind: 30023,
             pubkey: event.author.hexpubkey
           });
-          return `/recipe/${naddr}`;
+          return isRecipeEvent(event) ? `/recipe/${naddr}` : `/r/${naddr}`;
         } catch (e) {
-          console.warn('Failed to encode recipe naddr:', e);
+          console.warn('Failed to encode long-form naddr:', e);
         }
       }
     }
 
-    // For regular notes, use noteEncode
+    // For regular notes, an nevent link carries relay hints (where this
+    // event was seen) so the thread page can find thinly-relayed notes.
     try {
-      const noteId = nip19.noteEncode(event.id);
-      return `/${noteId}`;
+      return eventPath(event);
     } catch (e) {
       console.warn('Failed to encode note ID:', e);
       return null;
@@ -458,8 +507,42 @@
       </div>
     {/if}
 
-    <!-- Full note content with truncation for long posts -->
-    {#if event.content.trim()}
+    {#if isLongform}
+      <!-- Long-form card: metadata tags, not the markdown body -->
+      <div class="article-embed">
+        <div class="article-embed-media">
+          <img
+            class="article-embed-image"
+            src={articleImage}
+            alt=""
+            loading="lazy"
+            on:error={handleImageError}
+          />
+          {#if isZapCookingEmbed}
+            <img
+              src="/zapcooking-text-dark.svg"
+              alt="Zap Cooking"
+              class="zap-source-mark"
+              loading="lazy"
+            />
+          {/if}
+        </div>
+        <div class="article-embed-body">
+          <p class="article-embed-title">{articleTitle}</p>
+          {#if articleSummary}
+            <p class="article-embed-summary">{articleSummary}</p>
+          {/if}
+          {#if articleHashtags.length > 0}
+            <div class="article-embed-tags">
+              {#each articleHashtags as tag}
+                <span class="article-embed-tag">#{tag}</span>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+    {:else if event.content.trim()}
+      <!-- Full note content with truncation for long posts -->
       <div class="parent-quote-content" on:click|stopPropagation>
         <NoteContent content={event.content} collapsible={true} embedDepth={depth + 1} showLinkPreviews={false} />
       </div>
@@ -506,6 +589,119 @@
   .parent-quote-content {
     font-size: 0.875rem;
     margin-top: 0.375rem;
+  }
+
+  /* Long-form card: thumbnail beside title/summary/tags. */
+  /* Phones: the cover spans the card on top at a wide crop, title/summary
+     below. Desktop: the cover moves to a left column (1.91:1, the social
+     image aspect) with the text beside it — Jumble's stacked/side split.
+     object-cover keeps every crop edge-to-edge, no letterboxing. */
+  .article-embed {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    margin-top: 0.5rem;
+  }
+
+  .article-embed-media {
+    position: relative;
+  }
+
+  /* Source mark for Zap Cooking embeds — the white wordmark (orange dot
+     included), small enough to sit inside the cover comfortably. The
+     drop shadow keeps it legible on light photos. Mirrors what other
+     clients can do with our kind-31990 handler headlight. */
+  .zap-source-mark {
+    position: absolute;
+    left: 0.4rem;
+    bottom: 0.4rem;
+    /* The masthead wordmark is very wide (917x123): size by the cover's
+       width so it spans a comfortable chunk of the thumbnail at any embed
+       size. The filter stack draws a hard 1px black copy of the wordmark's
+       own shape offset beneath it (so light photos can't swallow the white
+       text) plus a soft ambient shadow. */
+    width: clamp(60px, 42%, 108px);
+    height: auto;
+    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 0 3px rgba(0, 0, 0, 0.45));
+    pointer-events: none;
+  }
+
+  .article-embed-image {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border-radius: 0.5rem;
+    background: var(--color-bg-secondary);
+  }
+
+  .article-embed-body {
+    min-width: 0;
+  }
+
+  @media (min-width: 768px) {
+    .article-embed {
+      flex-direction: row;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    /* The cover lives inside the branding wrapper (the NIP-89 source mark
+       anchors to it), so the fixed column belongs to the wrapper. */
+    .article-embed-media {
+      width: 11rem;
+      flex-shrink: 0;
+    }
+    .article-embed-image {
+      width: 100%;
+      aspect-ratio: 1.91 / 1;
+    }
+    .article-embed-body {
+      flex: 1;
+    }
+  }
+
+  .article-embed-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    line-height: 1.3;
+    margin: 0;
+    /* Two-line clamp keeps the embed compact regardless of title length. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .article-embed-summary {
+    font-size: 0.8125rem;
+    color: var(--color-caption);
+    line-height: 1.5;
+    margin: 0.25rem 0 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .article-embed-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.375rem;
+  }
+
+  .article-embed-tag {
+    font-size: 0.6875rem;
+    color: var(--color-caption);
+    background: var(--color-bg-secondary);
+    border-radius: 9999px;
+    padding: 0.0625rem 0.4375rem;
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .parent-quote-loading {

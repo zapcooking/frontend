@@ -19,12 +19,17 @@ import {
 	fetchRemoteDrafts,
 	type RemoteDraft
 } from '$lib/nip37DraftService';
+import { hasArticleDraftContent } from '$lib/draftContent';
 
 // Store for all drafts
 export const drafts = writable<ArticleDraft[]>([]);
 
 // Store for the currently active draft ID
 export const currentDraftId = writable<string | null>(null);
+
+// A freshly opened draft the user hasn't typed into yet. It lives here,
+// not in `drafts`, so nothing is persisted or synced until it has content.
+export const pendingDraft = writable<ArticleDraft | null>(null);
 
 // Store for draft save status
 export const draftStatus = writable<DraftStatus>('saved');
@@ -34,12 +39,27 @@ export const longformEditorOpen = writable<boolean>(false);
 
 // Derived store for the current draft
 export const currentDraft = derived(
-	[drafts, currentDraftId],
-	([$drafts, $currentDraftId]) => {
+	[drafts, currentDraftId, pendingDraft],
+	([$drafts, $currentDraftId, $pendingDraft]) => {
 		if (!$currentDraftId) return null;
-		return $drafts.find((d) => d.id === $currentDraftId) || null;
+		const stored = $drafts.find((d) => d.id === $currentDraftId);
+		if (stored) return stored;
+		return $pendingDraft?.id === $currentDraftId ? $pendingDraft : null;
 	}
 );
+
+/**
+ * Drop content-less drafts from a list. Returns the survivors and the
+ * empties so callers can tombstone the ones that reached a relay.
+ */
+function partitionEmptyDrafts(list: ArticleDraft[]): { kept: ArticleDraft[]; empties: ArticleDraft[] } {
+	const kept: ArticleDraft[] = [];
+	const empties: ArticleDraft[] = [];
+	for (const draft of list) {
+		(hasArticleDraftContent(draft) ? kept : empties).push(draft);
+	}
+	return { kept, empties };
+}
 
 /**
  * Load all drafts from localStorage
@@ -52,8 +72,14 @@ export function loadDrafts(): ArticleDraft[] {
 		if (!stored) return [];
 		
 		const parsed = JSON.parse(stored) as ArticleDraft[];
-		drafts.set(parsed);
-		return parsed;
+		// Sweep empties left behind by builds that persisted before content
+		const { kept, empties } = partitionEmptyDrafts(parsed);
+		if (empties.length > 0) {
+			console.log(`[ArticleDrafts] Swept ${empties.length} empty draft(s)`);
+			persistDrafts(kept);
+		}
+		drafts.set(kept);
+		return kept;
 	} catch (error) {
 		console.error('[ArticleDrafts] Error loading drafts:', error);
 		return [];
@@ -79,6 +105,38 @@ function persistDrafts(allDrafts: ArticleDraft[]): void {
  * Optionally sync to NIP-37 relays if available
  */
 export function saveDraft(draft: ArticleDraft, syncToRelays: boolean = true): { draftId: string; syncPromise?: Promise<boolean> } {
+	const hasContent = hasArticleDraftContent(draft);
+	const isStored = get(drafts).some((d) => d.id === draft.id);
+
+	// No title, no body, no attachment, and nothing on disk yet: keep it
+	// pending. Don't persist, don't sync. The id stays stable so the editor
+	// keeps working on the same draft once the user does type something.
+	if (!hasContent && !isStored) {
+		pendingDraft.update((p) => (p?.id === draft.id ? { ...draft } : p));
+		draftStatus.set('saved');
+		return { draftId: draft.id };
+	}
+
+	// The user emptied a stored draft. An empty local record next to a
+	// contentful relay copy would be resurrected by the next merge, so drop
+	// it from storage, tombstone it on relays, and return it to pending so
+	// the open editor keeps working on the same id.
+	if (!hasContent) {
+		drafts.update((allDrafts) => {
+			const newDrafts = allDrafts.filter((d) => d.id !== draft.id);
+			persistDrafts(newDrafts);
+			return newDrafts;
+		});
+		pendingDraft.set({ ...draft });
+		if (isDraftSyncAvailable()) {
+			deleteDraftRemote(draft.id, 'article').catch((e) => {
+				console.error(`[ArticleDrafts] Failed to tombstone emptied draft ${draft.id}:`, e);
+			});
+		}
+		draftStatus.set('saved');
+		return { draftId: draft.id };
+	}
+
 	draftStatus.set('saving');
 	
 	const updatedDraft = {
@@ -102,6 +160,7 @@ export function saveDraft(draft: ArticleDraft, syncToRelays: boolean = true): { 
 		persistDrafts(newDrafts);
 		return newDrafts;
 	});
+	pendingDraft.update((p) => (p?.id === draft.id ? null : p));
 	
 	// Sync to relays if available and requested
 	let syncPromise: Promise<boolean> | undefined;
@@ -122,6 +181,7 @@ export function saveDraft(draft: ArticleDraft, syncToRelays: boolean = true): { 
  * Also deletes from remote relays if NIP-37 sync is available
  */
 export async function deleteDraft(draftId: string): Promise<void> {
+	pendingDraft.update((p) => (p?.id === draftId ? null : p));
 	drafts.update((allDrafts) => {
 		const newDrafts = allDrafts.filter((d) => d.id !== draftId);
 		persistDrafts(newDrafts);
@@ -145,7 +205,8 @@ export async function deleteDraft(draftId: string): Promise<void> {
  */
 export function createNewDraft(): ArticleDraft {
 	const newDraft = createEmptyDraft();
-	saveDraft(newDraft);
+	// Not saved: an empty draft is held in memory until it has content
+	pendingDraft.set(newDraft);
 	currentDraftId.set(newDraft.id);
 	return newDraft;
 }
@@ -195,8 +256,7 @@ export async function syncDraftsFromRemote(): Promise<void> {
 		const articleDrafts = remoteDrafts
 			.filter(rd => rd.draftType === 'article')
 			.map(rd => rd.draft as ArticleDraft);
-		
-		if (articleDrafts.length === 0) return;
+		const remoteIds = new Set(articleDrafts.map((d) => d.id));
 		
 		// Merge with local drafts
 		const localDrafts = get(drafts);
@@ -215,14 +275,31 @@ export async function syncDraftsFromRemote(): Promise<void> {
 			}
 		}
 		
+		// Sweep content-less drafts on either side; tombstone the remote ones
+		const { kept, empties } = partitionEmptyDrafts(Array.from(mergedMap.values()));
+		for (const empty of empties) {
+			if (remoteIds.has(empty.id)) {
+				deleteDraftRemote(empty.id, 'article').catch((e) => {
+					console.error(`[ArticleDrafts] Failed to remove empty draft ${empty.id} from remote:`, e);
+				});
+			}
+		}
+		if (empties.length > 0) {
+			console.log(`[ArticleDrafts] Swept ${empties.length} empty draft(s)`);
+		}
+		
 		// Update store
-		const merged = Array.from(mergedMap.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+		const merged = kept.sort((a, b) => b.updatedAt - a.updatedAt);
 		drafts.set(merged);
 		persistDrafts(merged);
 		
+		// Nothing came back (no drafts, or the fetch failed and returned []):
+		// don't treat every local draft as new and republish the lot.
+		if (articleDrafts.length === 0) return;
+		
 		// Sync any local-only or newer drafts back to remote
 		for (const draft of merged) {
-			const remote = articleDrafts.find(rd => rd.id === draft.id);
+			const remote = remoteDrafts.find(rd => rd.draftType === 'article' && rd.id === draft.id);
 			if (!remote || draft.updatedAt > remote.createdAt) {
 				publishArticleDraftDebounced(draft);
 			}

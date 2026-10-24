@@ -12,6 +12,8 @@ import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
 import { fetchNip46UserPubkey, sendNip46Rpc } from './nip46Rpc';
+import { clearAccountData } from './sessionCleanup';
+import { markFreshAccount } from './savedList';
 import { Nip44LocalSigner } from './nip44LocalSigner';
 import {
   getVaultRecord,
@@ -19,7 +21,10 @@ import {
   deleteVaultRecord,
   enrollPasskey,
   unlockPasskey,
-  isCeremonyCancelled
+  isCeremonyCancelled,
+  isVaultUnconfirmed,
+  clearVaultUnconfirmed,
+  countCancelledUnlock
 } from './passkeyVault';
 import { hexToBytes } from './passkeyVaultCrypto';
 import {
@@ -32,6 +37,8 @@ import {
   syncableKeyEntry,
   fetchChallengeSafe,
   uploadVault,
+  refreshVaultEntry,
+  isRefreshDue,
   deleteVaultBlob,
   signInWithPasskey
 } from './passkeySync';
@@ -40,6 +47,36 @@ import {
 // blockUntilReady omits the perms param entirely, so permission-enforcing
 // signers pre-grant nothing; sending them explicitly lets the signer
 // authorize the whole session in one approval.
+//
+// Deliberately NOT narrowed to per-kind `sign_event:<kind>` scopes.
+//
+// A 2026-08 security review proposed enumerating the kinds we publish.
+// Enumerating them showed why that doesn't work here: the app signs 40+
+// distinct kinds (0, 1, 3, 5, 6, 7, 9, 13, 14, 54, 55, 56, 1018, 1059,
+// 1068, 1985, 6969, 9000-9021 group admin, 9734, 10000, 10002, 10013,
+// 10063, 22242, 23194, 24133, 24242, 27235, 30001, 30003, 30004, 30017,
+// 30023, 30078, 30402, 31990, 35000, …), and several call sites choose
+// the kind at RUNTIME rather than from a literal:
+//
+//   publishQueue.ts       event.kind = item.eventData.kind   (any queued kind)
+//   comments/postComment  deriveKind(parentEvent, replyTo)   (NIP-22, follows parent)
+//   Recipe.svelte         deleteEvent.kind = deleteKind
+//   FoodstrFeedOptimized  innerEvent.kind = inner.kind
+//
+// So the set is open, not closed. An allowlist would be a list of ~40
+// entries that still can't cover the dynamic cases, and the failure mode
+// is the worst kind: an auto-approving signer silently refuses to sign
+// whichever kind we forgot, and publishing breaks with no prompt and no
+// error the user can act on.
+//
+// The scope is broad because the app's signing surface genuinely is. The
+// meaningful controls here are elsewhere: signing is only ever triggered
+// by explicit user action (publishQueue.ts, zapManager.ts), the
+// nostrconnect listener ignores undecryptable or mismatched responses,
+// and prompt-per-event signers (Amber's default) keep a human in the loop.
+//
+// Revisit if NDK/NIP-46 gains a wildcard or category-level scope, or if
+// the publish paths are consolidated behind a single kind-declaring API.
 const NIP46_CONNECT_PERMS =
   'get_public_key,sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt';
 
@@ -52,6 +89,11 @@ const NIP46_BUNKER_PENDING_KEY = 'nostrcooking_nip46_bunker_pending';
 
 // How long a pending ephemeral client key may be reused across retries.
 const NIP46_BUNKER_PENDING_TTL_MS = 15 * 60 * 1000;
+
+// How long an in-flight nostrconnect:// pairing record stays valid. The
+// record holds an ephemeral client private key and the pairing secret,
+// so an abandoned pairing must not leave them on the device forever.
+const NIP46_PENDING_TTL_MS = 5 * 60 * 1000;
 
 export interface AuthState {
   isAuthenticated: boolean;
@@ -128,7 +170,16 @@ export class AuthManager {
 
   private listeners: ((state: AuthState) => void)[] = [];
   private nip46Signer: NDKNip46Signer | null = null;
+  // The unlock of an unconfirmed vault failed and the vault was removed: the
+  // enroll card shows the backup-key message (takeVaultConfirmFailure).
+  private vaultConfirmFailed = false;
+  // That unlock was cancel-shaped for the second time (or more): the enroll
+  // card offers keep-trying / remove (takeVaultCancelChoice).
+  private vaultCancelChoice = false;
   private nip46ResponseSub: NDKSubscription | null = null;
+  // While postAnonymously has a throwaway signer on ndk.signer: the
+  // session's own signer (see getSignerSwap).
+  private signerSwap: { signer: unknown; depth: number } | null = null;
 
   constructor(ndk: any) {
     this.ndk = ndk;
@@ -189,6 +240,20 @@ export class AuthManager {
         }
       }
 
+      // One-prompt setup not confirmed yet: start LOCKED like any passkey
+      // session (the "Continue as" chip unlocks, and that unlock confirms
+      // it). The plaintext key stays as a silent fallback — unlockVault
+      // signs in from it if the unlock is cancelled or fails.
+      const storedVault = getVaultRecord();
+      if (
+        storedPrivateKey &&
+        storedVault &&
+        storedVault.pubkey === storedPublicKey &&
+        isVaultUnconfirmed(storedVault)
+      ) {
+        return;
+      }
+
       if (storedPrivateKey && storedPublicKey) {
         try {
           await this.authenticateWithPrivateKey(storedPrivateKey);
@@ -213,17 +278,51 @@ export class AuthManager {
         // nostrcooking_loggedInPublicKey) and wipe storage when none exists.
         return;
       } else if (storedPublicKey) {
+        // NIP-07 restore: the extension injects window.nostr at
+        // document_idle, which regularly loses the race against this
+        // module's init on a cold load — and wiping the session here is
+        // what made users "appear logged out until refresh" (the refresh
+        // only worked because by then the extension had injected). Wait
+        // for the injection before giving up, and on failure keep the
+        // stored pubkey so the next load (or an extension appearing)
+        // can still restore.
+        const injected = await this.waitForNostrExtension();
         try {
+          if (!injected) {
+            throw new Error('Nostr extension not detected (waited for window.nostr)');
+          }
           await this.authenticateWithNIP07();
         } catch (error) {
           console.error('Failed to restore NIP-07 authentication:', error);
-          this.clearStorage();
+          this.updateState({
+            isAuthenticated: false,
+            user: null,
+            publicKey: '',
+            authMethod: null,
+            isLoading: false,
+            error: error instanceof Error ? error.message : 'Authentication failed'
+          });
         }
       }
     } catch (error) {
       console.error('Error during authentication initialization:', error);
       this.clearStorage();
     }
+  }
+
+  // Poll briefly for a NIP-07 extension injecting window.nostr. Browser
+  // extensions run at document_idle, so on a cold load the app's init
+  // often runs first; a couple of seconds covers Alby/nos2x startup
+  // without noticeably delaying the logged-out fallback.
+  private async waitForNostrExtension(timeoutMs = 5000): Promise<boolean> {
+    if (!browser) return false;
+    if (window.nostr) return true;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (window.nostr) return true;
+    }
+    return false;
   }
 
   // Authenticate with NIP-07 browser extension
@@ -321,7 +420,10 @@ export class AuthManager {
       let adoptVault = false;
       if (vault) {
         if (vault.pubkey === derivedPubkey) {
-          adoptVault = true;
+          // An unconfirmed vault (one-prompt enrollment, never decrypted by
+          // an unlock) isn't adopted: the session stays an nsec session and
+          // keeps its plaintext key until an unlock confirms the vault.
+          adoptVault = !isVaultUnconfirmed(vault);
         } else if (opts?.replaceVault) {
           deleteVaultRecord();
         } else {
@@ -704,6 +806,16 @@ export class AuthManager {
 
       localStorage.setItem('nostrcooking_loggedInPublicKey', userPubkey);
       localStorage.setItem('nostrcooking_authMethod', 'nip46');
+      // Accepted risk (2026-08 security review): `secret` and
+      // `localPrivateKey` inside nip46Info are persisted in plaintext.
+      // They are required for session restore — removing them would force
+      // a manual bunker-URI re-paste on every reload, and wrapping them is
+      // chicken-and-egg: the only signer able to unwrap an envelope IS
+      // this bunker session, which isn't alive until after these values
+      // are read back. Local-device compromise (the threat encrypt-to-self
+      // mitigates elsewhere) also compromises the session regardless,
+      // since the bunker connection itself is enough to request
+      // signatures.
       localStorage.setItem('nostrcooking_nip46', JSON.stringify(nip46Info));
       // Success supersedes the pending ephemeral key (now persisted in
       // nostrcooking_nip46 for reconnect). On FAILURE we deliberately keep
@@ -771,6 +883,19 @@ export class AuthManager {
         ? `${nip46Info.signerPubkey}#${nip46Info.secret}`
         : nip46Info.signerPubkey;
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
+
+      // Scope the RPC relay set to the bunker's relays, matching the
+      // paste-login path. Without this NDK leaves rpc.relaySet undefined
+      // and NIP-46 traffic — including the encrypted RPC to the signer —
+      // is published and subscribed across the ENTIRE relay pool, telling
+      // every connected relay that this user has a bunker session and
+      // handing them its metadata.
+      if (nip46Info.relays?.length) {
+        (this.nip46Signer as any).rpc.relaySet = NDKRelaySet.fromRelayUrls(
+          nip46Info.relays,
+          this.ndk
+        );
+      }
 
       // Set the signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
@@ -878,6 +1003,7 @@ export class AuthManager {
     });
 
     this.clearStorage();
+    await clearAccountData();
   }
 
   // ============================================================
@@ -917,7 +1043,7 @@ export class AuthManager {
       relays = Array.from(this.ndk.pool.relays.keys()) as string[];
     }
     if (relays.length === 0) {
-      relays = ['wss://relay.damus.io', 'wss://nos.lol'];
+      relays = ['wss://relay.nostr.net', 'wss://nos.lol'];
     }
 
     // Store pending pairing info including secret for validation
@@ -1142,23 +1268,45 @@ export class AuthManager {
     console.log('[NIP-46] Response listener started');
   }
 
-  // Check if there's a pending NIP-46 pairing
-  hasPendingNip46Pairing(): boolean {
-    if (!browser) return false;
+  /**
+   * Read the pending pairing record, dropping it if it has expired.
+   *
+   * The record holds an ephemeral client private key and the pairing
+   * secret. An abandoned pairing (user closed the signer app, never
+   * approved) must not leave that material on the device indefinitely,
+   * so every read enforces the TTL and deletes what it rejects.
+   */
+  private readPendingNip46(): {
+    localPrivateKey: string;
+    localPubkey: string;
+    relays: string[];
+    secret: string;
+    startedAt?: number;
+  } | null {
+    if (!browser) return null;
     const pending = localStorage.getItem('nostrcooking_nip46_pending');
-    if (!pending) return false;
+    if (!pending) return null;
 
     try {
       const info = JSON.parse(pending);
-      // Expire after 5 minutes
-      if (Date.now() - info.startedAt > 5 * 60 * 1000) {
+      // Treat a missing/!finite startedAt as expired — an undated record
+      // has no bound, and comparisons against it are NaN (never > TTL).
+      const startedAt = Number(info?.startedAt);
+      if (!Number.isFinite(startedAt) || Date.now() - startedAt > NIP46_PENDING_TTL_MS) {
         localStorage.removeItem('nostrcooking_nip46_pending');
-        return false;
+        return null;
       }
-      return true;
+      return info;
     } catch {
-      return false;
+      // Corrupt record — it can never be used, so don't leave it behind.
+      localStorage.removeItem('nostrcooking_nip46_pending');
+      return null;
     }
+  }
+
+  // Check if there's a pending NIP-46 pairing
+  hasPendingNip46Pairing(): boolean {
+    return this.readPendingNip46() !== null;
   }
 
   // Get pending pairing info
@@ -1168,15 +1316,7 @@ export class AuthManager {
     relays: string[];
     secret: string;
   } | null {
-    if (!browser) return null;
-    const pending = localStorage.getItem('nostrcooking_nip46_pending');
-    if (!pending) return null;
-
-    try {
-      return JSON.parse(pending);
-    } catch {
-      return null;
-    }
+    return this.readPendingNip46();
   }
 
   // Complete NIP-46 pairing with the signer's pubkey
@@ -1227,6 +1367,15 @@ export class AuthManager {
       console.log('[NIP-46] Creating NIP-46 signer...');
       const signerToken = pendingInfo.secret ? `${signerPubkey}#${pendingInfo.secret}` : signerPubkey;
       this.nip46Signer = new NDKNip46Signer(this.ndk, signerToken, localSigner);
+
+      // Same relay scoping as the other two construction paths — see the
+      // comment in authenticateWithNIP46.
+      if (pendingInfo.relays?.length) {
+        (this.nip46Signer as any).rpc.relaySet = NDKRelaySet.fromRelayUrls(
+          pendingInfo.relays,
+          this.ndk
+        );
+      }
 
       // Set signer on NDK BEFORE blockUntilReady
       this.ndk.signer = this.nip46Signer;
@@ -1436,6 +1585,9 @@ export class AuthManager {
   generateKeyPair(): { privateKey: Uint8Array; publicKey: string } {
     const privateKey = generateSecretKey();
     const publicKey = getPublicKey(privateKey);
+    // A key born in this browser has no lists on any relay yet: its first
+    // save may skip the "is there already a Saved list?" network read.
+    markFreshAccount(publicKey);
 
     return { privateKey, publicKey };
   }
@@ -1445,8 +1597,12 @@ export class AuthManager {
     const { privateKey } = this.generateAnonymousKey();
     const signer = new NDKPrivateKeySigner(privateKey);
 
-    // Temporarily set signer for this post
-    const originalSigner = this.ndk.signer;
+    // Temporarily set signer for this post. The session signer is recorded
+    // first (and kept across overlapping posts) so encryptionService never
+    // encrypts or decrypts with the throwaway key.
+    if (this.signerSwap) this.signerSwap.depth++;
+    else this.signerSwap = { signer: this.ndk.signer, depth: 1 };
+    const originalSigner = this.signerSwap.signer;
     this.ndk.signer = signer;
 
     try {
@@ -1461,9 +1617,19 @@ export class AuthManager {
 
       await event.publish();
     } finally {
-      // Restore original signer
-      this.ndk.signer = originalSigner;
+      // Restore original signer once the last overlapping post is done
+      if (this.signerSwap && --this.signerSwap.depth === 0) {
+        this.ndk.signer = originalSigner;
+        this.signerSwap = null;
+      }
     }
+  }
+
+  // The session's own signer while an anonymous post has a throwaway one on
+  // ndk.signer, else null. Synchronous, so a caller that reads it right
+  // where it uses the signer has no window for a swap to slip in.
+  getSignerSwap(): { signer: unknown } | null {
+    return this.signerSwap ? { signer: this.signerSwap.signer } : null;
   }
 
   // ============================================================
@@ -1500,23 +1666,32 @@ export class AuthManager {
   // Unlock the vault via a passkey ceremony and start the nsec session with
   // the key in memory only. Failure (including user cancel) is NEVER
   // destructive: the record and all storage stay untouched.
+  //
+  // An UNCONFIRMED vault (one-prompt setup) is confirmed by a successful
+  // unlock, which deletes the plaintext key. If the unlock doesn't succeed,
+  // the session is restored from the plaintext key instead — never a
+  // lockout (see fallBackFromUnconfirmedVault).
   async unlockVault(): Promise<void> {
     if (!browser) throw new Error('Browser environment required');
     const record = getVaultRecord();
     if (!record) throw new Error('No passkey vault found on this device');
+    const unconfirmed = isVaultUnconfirmed(record);
 
     this.updateState({ isLoading: true, error: null });
     try {
-      // Pending-upload retry piggybacks on THIS ceremony: fetch a server
-      // challenge first so the unlock assertion is redeemable for the PUT.
-      // Challenge fetch failure degrades to a normal (offline-capable)
-      // unlock and the flag simply stays set. Never a second prompt.
+      // With sync on, THIS ceremony can also keep the synced copy alive:
+      // fetch a server challenge first so the unlock assertion is
+      // redeemable — for a pending upload's PUT, or for the TTL refresh
+      // (the 370-day expiry then runs from the last unlock on any device),
+      // which is due at most once a day per device. Otherwise the unlock
+      // makes no network call. Challenge fetch failure degrades to a
+      // normal (offline-capable) unlock. Never a second prompt.
       let serverChallenge: string | null = null;
       if (
         PASSKEY_SYNC_ENABLED &&
         isSyncEnabled() &&
-        isUploadPending() &&
-        syncableKeyEntry(record)
+        syncableKeyEntry(record) &&
+        (isUploadPending() || isRefreshDue())
       ) {
         serverChallenge = await fetchChallengeSafe();
       }
@@ -1525,6 +1700,11 @@ export class AuthManager {
         record,
         serverChallenge ? { serverChallenge } : undefined
       );
+      if (unconfirmed) {
+        // A real unlock decrypted it: confirmed, so the fallback goes.
+        clearVaultUnconfirmed();
+        localStorage.removeItem('nostrcooking_privateKey');
+      }
       const signer = new NDKPrivateKeySigner(privkeyHex);
       this.ndk.signer = signer;
       const user = await signer.user();
@@ -1540,10 +1720,12 @@ export class AuthManager {
       localStorage.setItem('nostrcooking_loggedInPublicKey', user.hexpubkey);
 
       if (serverChallenge && assertion) {
-        // Fire-and-forget: uploadVault manages the pending flag itself.
-        void uploadVault(record, assertion);
+        // Fire-and-forget: both manage the pending flag themselves.
+        if (isUploadPending()) void uploadVault(record, assertion);
+        else void refreshVaultEntry(record, assertion);
       }
     } catch (error) {
+      if (unconfirmed && (await this.fallBackFromUnconfirmedVault(error))) return;
       this.ndk.signer = null;
       this.updateState({
         isAuthenticated: false,
@@ -1577,7 +1759,13 @@ export class AuthManager {
   // provider would refuse otherwise), re-encrypts under a fresh DEK, and
   // replaces the record; the old passkey becomes a provider-side orphan
   // (disclosed in the UI copy).
-  async enrollVault(opts?: { sync?: boolean; migrate?: boolean }): Promise<void> {
+  //
+  // One prompt where the provider returns PRF at create(): the vault is then
+  // UNCONFIRMED — the plaintext key and this nsec session stay exactly as
+  // they were. The next visit starts locked and its unlock confirms the vault
+  // (unlockVault). The sync upload waits for that unlock's assertion (pending
+  // flag). Returns whether the vault is confirmed.
+  async enrollVault(opts?: { sync?: boolean; migrate?: boolean }): Promise<{ confirmed: boolean }> {
     if (!browser) throw new Error('Browser environment required');
     const { isAuthenticated, authMethod, publicKey } = this.authState;
     if (!isAuthenticated || (authMethod !== 'privateKey' && authMethod !== 'passkey')) {
@@ -1596,10 +1784,30 @@ export class AuthManager {
     const wantSync = PASSKEY_SYNC_ENABLED && opts?.sync === true;
     const serverChallenge = wantSync ? await fetchChallengeSafe() : null;
 
-    const { record, assertion } = await enrollPasskey(privkeyHex, publicKey, label, {
+    // One prompt only where the plaintext key is stored to fall back on: a
+    // passkey session (re-create for sync) has none, so it keeps create + get.
+    // Never for migrate, which replaces a confirmed vault.
+    const hasPlaintextKey =
+      authMethod === 'privateKey' && !!localStorage.getItem('nostrcooking_privateKey');
+    const { record, assertion, confirmed } = await enrollPasskey(privkeyHex, publicKey, label, {
+      allowCreatePrf: hasPlaintextKey && !opts?.migrate,
       ...(serverChallenge ? { serverChallenge } : {}),
       ...(opts?.migrate ? { excludeExisting: false } : {})
     });
+
+    if (!confirmed) {
+      // enrollPasskey marked the record unconfirmed before saving it. This
+      // session carries on as an nsec session; the next visit starts locked.
+      if (wantSync) {
+        setSyncEnabled(true);
+        if (syncableKeyEntry(record)) setUploadPending(true);
+      } else if (opts?.sync === false) {
+        setSyncEnabled(false);
+      }
+      this.updateState({});
+      return { confirmed: false };
+    }
+
     localStorage.removeItem('nostrcooking_privateKey');
     this.updateState({ authMethod: 'passkey' });
 
@@ -1617,6 +1825,62 @@ export class AuthManager {
     } else if (opts?.sync === false) {
       setSyncEnabled(false);
     }
+    return { confirmed: true };
+  }
+
+  // The unlock of an unconfirmed vault didn't succeed: sign in from the
+  // plaintext key it was backing up. A cancel-shaped error (NotAllowedError)
+  // never removes the vault by itself — it can be a dismissed sheet or a
+  // provider whose PRF get() fails (Microsoft Password Manager raises the
+  // same error). From the second one on (counted across visits, since this
+  // signs the user in) the enroll card asks: keep trying, or remove it and
+  // save the backup key. Any other failure removes the vault at once and
+  // raises the backup-key message.
+  private async fallBackFromUnconfirmedVault(error: unknown): Promise<boolean> {
+    const plaintext = localStorage.getItem('nostrcooking_privateKey');
+    if (!plaintext) return false;
+    if (!isCeremonyCancelled(error)) {
+      this.discardUnconfirmedVault();
+      this.vaultConfirmFailed = true;
+    } else if (countCancelledUnlock() >= 2) {
+      this.vaultCancelChoice = true;
+    }
+    // A kept (still unconfirmed) vault isn't adopted: this is an nsec session.
+    await this.authenticateWithPrivateKey(plaintext);
+    return true;
+  }
+
+  // Sign in from the plaintext key behind an unconfirmed vault this browser
+  // can't unlock at all (no WebAuthn here): the vault stays for a browser
+  // that can.
+  async signInPastUnconfirmedVault(): Promise<void> {
+    const plaintext = localStorage.getItem('nostrcooking_privateKey');
+    if (plaintext && isVaultUnconfirmed()) await this.authenticateWithPrivateKey(plaintext);
+  }
+
+  // True once after an unconfirmed vault's unlock failed and it was removed.
+  takeVaultConfirmFailure(): boolean {
+    const failed = this.vaultConfirmFailed;
+    this.vaultConfirmFailed = false;
+    return failed;
+  }
+
+  // True once after a second (or later) cancel-shaped unlock of an
+  // unconfirmed vault: offer keep trying / remove and save the backup key.
+  takeVaultCancelChoice(): boolean {
+    const offer = this.vaultCancelChoice && isVaultUnconfirmed();
+    this.vaultCancelChoice = false;
+    return offer;
+  }
+
+  // Drop an unconfirmed vault. Nothing is lost: the plaintext key never left,
+  // and nothing was uploaded (the upload waits for the confirming unlock).
+  discardUnconfirmedVault(): void {
+    if (!isVaultUnconfirmed()) return;
+    deleteVaultRecord();
+    setSyncEnabled(false);
+    setUploadPending(false);
+    this.updateState({});
   }
 
   // Passkey-first signup (Phase 3): enroll a JUST-GENERATED key, then start
@@ -1630,11 +1894,18 @@ export class AuthManager {
   // Failure at any point is non-destructive: nothing persisted, no session
   // — the caller (signup UI) lets the user retry, or skip into today's
   // plaintext path, which still works unchanged.
+  //
+  // opts.signIn (default true): false leaves signing in to the caller, so
+  // signup can sign in only once its "keep your account safe" step has
+  // fully succeeded. opts.awaitUpload: wait for the sync upload and report
+  // it (`uploaded`), so a passkey-only signup can require a backup key when
+  // the off-device copy didn't land. Without it the upload stays
+  // fire-and-forget and `uploaded` is null.
   async enrollAtSignup(
     privkeyHex: string,
     pubkey: string,
-    opts?: { sync?: boolean }
-  ): Promise<void> {
+    opts?: { sync?: boolean; signIn?: boolean; awaitUpload?: boolean }
+  ): Promise<{ uploaded: boolean | null }> {
     if (!browser) throw new Error('Browser environment required');
     if (!PASSKEY_SIGNUP_ENABLED) throw new Error('Passkey signup is not enabled');
 
@@ -1667,18 +1938,22 @@ export class AuthManager {
 
     // Record exists for this pubkey now — this authenticates via adoption:
     // authMethod 'passkey', plaintext never persisted.
-    await this.authenticateWithPrivateKey(privkeyHex);
+    if (opts?.signIn !== false) await this.authenticateWithPrivateKey(privkeyHex);
 
+    let uploaded: boolean | null = null;
     if (wantSync) {
       setSyncEnabled(true);
       if (serverChallenge && assertion && syncableKeyEntry(record)) {
-        void uploadVault(record, assertion);
-      } else if (syncableKeyEntry(record)) {
-        setUploadPending(true);
+        if (opts?.awaitUpload) uploaded = await uploadVault(record, assertion);
+        else void uploadVault(record, assertion);
+      } else {
+        if (syncableKeyEntry(record)) setUploadPending(true);
+        if (opts?.awaitUpload) uploaded = false;
       }
     } else if (opts?.sync === false) {
       setSyncEnabled(false);
     }
+    return { uploaded };
   }
 
   // Remove the vault (downgrade to plaintext-localStorage sessions). Requires
@@ -1702,6 +1977,12 @@ export class AuthManager {
         'This passkey vault belongs to a different account than the current session. ' +
           'Sign in as that account to remove it.'
       );
+    }
+    // Unconfirmed: the plaintext key is still here, so no ceremony is needed
+    // (and the provider may be one that can't complete it).
+    if (isVaultUnconfirmed(record)) {
+      this.discardUnconfirmedVault();
+      return;
     }
 
     // Removal's fresh unlock ceremony doubles as the server-blob DELETE
@@ -1798,6 +2079,9 @@ export class AuthManager {
         'This vault was created before cross-device sign-in existed. Re-create the passkey to enable it.'
       );
     }
+    if (isVaultUnconfirmed(record)) {
+      throw new Error('Confirm your passkey first.');
+    }
 
     const serverChallenge = await fetchChallengeSafe();
     if (!serverChallenge) {
@@ -1841,6 +2125,10 @@ export class AuthManager {
     });
 
     this.clearStorage();
+    // Wallets, cached balances, Spark mnemonics, group/publish/offline
+    // databases. Explicit logout only — see sessionCleanup for why this
+    // is not part of clearStorage().
+    await clearAccountData();
     this.ndk.signer = null;
   }
 
@@ -1850,6 +2138,9 @@ export class AuthManager {
   // unlock-gated settings action (removeVault).
   private clearStorage(): void {
     if (browser) {
+      // An unconfirmed vault must never outlive the plaintext key it backs
+      // up: nothing has shown this provider can unlock it.
+      if (isVaultUnconfirmed()) deleteVaultRecord();
       if (this.nip46ResponseSub) {
         this.nip46ResponseSub.stop();
         this.nip46ResponseSub = null;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import ZapRingBadge from './ZapRingBadge.svelte';
 
   export let type: 'spinner' | 'skeleton' | 'dots' | 'pulse' = 'spinner';
   export let size: 'sm' | 'md' | 'lg' = 'md';
@@ -16,9 +17,9 @@
 
   // Size configurations
   $: sizeConfig = {
-    sm: { spinner: 38, text: 'text-sm', container: 'py-2' },
-    md: { spinner: 60, text: 'text-base', container: 'py-4' },
-    lg: { spinner: 80, text: 'text-lg', container: 'py-8' }
+    sm: { spinner: 48, text: 'text-sm', container: 'py-2' },
+    md: { spinner: 64, text: 'text-base', container: 'py-4' },
+    lg: { spinner: 84, text: 'text-lg', container: 'py-8' }
   };
 
   $: currentSize = sizeConfig[size];
@@ -34,10 +35,9 @@
   <div class="loading-content">
     {#if type === 'spinner'}
       <div class="spinner" style="width: {currentSize.spinner}px; height: {currentSize.spinner}px;">
-        <img src="/pan-animated-light.svg" alt="Loading" class="w-full dark:hidden" />
-        <img src="/pan-animated-dark.svg" alt="Loading" class="w-full hidden dark:block" />
+        <ZapRingBadge />
       </div>
-      {:else if type === 'dots'}
+    {:else if type === 'dots'}
       <div class="dots">
         <div class="dot"></div>
         <div class="dot"></div>
@@ -83,10 +83,6 @@
     @apply text-blue-600 dark:text-blue-400;
   }
 
-  .spinner svg {
-    @apply animate-spin;
-  }
-
   .dots {
     @apply flex gap-1;
   }
@@ -121,14 +117,9 @@
 
   /* Disable animations for users who prefer reduced motion */
   @media (prefers-reduced-motion: reduce) {
-    .spinner svg,
     .dot,
     .pulse-circle {
       animation: none;
-    }
-
-    .spinner svg {
-      @apply opacity-50;
     }
   }
 </style>

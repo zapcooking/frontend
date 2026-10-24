@@ -19,6 +19,12 @@ export interface ToastLink {
   href: string;
 }
 
+/** A button in the toast (e.g. Retry); tapping it dismisses the toast first. */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface ToastMessage {
   id: string;
   variant: ToastVariant;
@@ -27,21 +33,28 @@ export interface ToastMessage {
   durationMs: number;
   /** Optional CTA link rendered next to the message. */
   link?: ToastLink;
+  /** Optional button rendered next to the message. */
+  action?: ToastAction;
 }
 
 export const toasts = writable<ToastMessage[]>([]);
 
 /**
  * Fire a toast. Returns the id so callers can dismiss early if needed.
+ *
+ * Only one toast is shown at a time: a new toast replaces any currently
+ * visible. This keeps a rapid burst (e.g. repeated blocked pastes) from
+ * stacking a column of identical messages.
  */
 export function showToast(
   variant: ToastVariant,
   message: string,
   durationMs = 4000,
-  link?: ToastLink
+  link?: ToastLink,
+  action?: ToastAction
 ): string {
   const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  toasts.update((list) => [...list, { id, variant, message, durationMs, link }]);
+  toasts.set([{ id, variant, message, durationMs, link, action }]);
   if (durationMs > 0) {
     setTimeout(() => dismissToast(id), durationMs);
   }

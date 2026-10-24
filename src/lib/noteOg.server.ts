@@ -19,6 +19,7 @@ import {
   type OgEventLike,
   type RecipeOgMeta
 } from './recipeOgMeta';
+import { extractImageUrls } from './imageUrls';
 
 // The note event is the card; the author profile is a best-effort enrichment.
 // They're bounded SEPARATELY so a slow kind:0 relay can never consume the
@@ -26,11 +27,29 @@ import {
 const NOTE_TIMEOUT_MS = 4000;
 const AUTHOR_TIMEOUT_MS = 1500;
 const FALLBACK_IMAGE = 'https://zap.cooking/social-share.png';
-// First raster image URL in the note body → used as the card image.
-const IMG_RE = /(https?:\/\/[^\s"']+\.(?:jpe?g|png|gif|webp|avif|bmp)(?:\?[^\s"']*)?)/i;
-// Trailing punctuation that markdown/plain text can leave on a captured URL
-// (e.g. from `![](url)` or `(url).`) — strip it so og:image stays valid.
-const TRAILING_PUNCT_RE = /[)\]}.,!?;'"]+$/;
+
+/**
+ * First image URL for the card, preferring NIP-92 `imeta` tags (the
+ * structured, authoritative source some clients — Amethyst and others —
+ * attach) over scanning the note body. Falls back to `$lib/imageUrls`'s
+ * shared extractor, which recognizes both file-extension URLs AND known
+ * extensionless image-CDN hosts (nostr.build, imgur, primal's proxy, …) —
+ * a plain extension regex misses that second class entirely. See
+ * docs/plans/og-missing-images-fix.md.
+ */
+function findCardImage(event: OgEventLike): string | undefined {
+  for (const tag of event.tags) {
+    if (tag[0] !== 'imeta') continue;
+    for (let i = 1; i < tag.length; i++) {
+      const slot = tag[i];
+      if (typeof slot === 'string' && slot.startsWith('url ')) {
+        const url = slot.slice(4).trim();
+        if (url) return url;
+      }
+    }
+  }
+  return extractImageUrls(event.content)[0];
+}
 
 /** Resolve `p`, but never take longer than `ms`; on timeout or error → `fallback`. */
 function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -54,7 +73,7 @@ export interface NoteOgData {
 export const FALLBACK_NOTE_OG: RecipeOgMeta = {
   pageTitle: 'Note - zap.cooking',
   ogTitle: 'A note on Zap Cooking',
-  description: 'A note shared on zap.cooking - Food. Friends. Freedom.',
+  description: 'A note shared on zap.cooking - Food is Open Source',
   image: FALLBACK_IMAGE,
   publishedAt: null,
   authorPubkey: null
@@ -132,13 +151,13 @@ function cleanNoteText(content: string): string {
 export function getNoteOgMeta({ event, author }: NoteOgData): RecipeOgMeta {
   const name = author.name?.trim();
   const text = cleanNoteText(event.content);
-  const imageInBody = event.content.match(IMG_RE)?.[1]?.replace(TRAILING_PUNCT_RE, '');
+  const imageInBody = findCardImage(event);
 
   return {
     pageTitle: name ? `${name} on zap.cooking` : 'Note - zap.cooking',
     ogTitle: name ? `${name} on Zap Cooking` : 'A note on Zap Cooking',
     description:
-      capRecipeDescription(text) || 'A note shared on zap.cooking - Food. Friends. Freedom.',
+      capRecipeDescription(text) || 'A note shared on zap.cooking - Food is Open Source',
     image: imageInBody || author.picture || FALLBACK_IMAGE,
     publishedAt: typeof event.created_at === 'number' ? event.created_at : null,
     authorPubkey: typeof event.pubkey === 'string' ? event.pubkey : null

@@ -6,6 +6,14 @@
  */
 
 import { get, writable } from 'svelte/store';
+import {
+  fromBreez,
+  fromError,
+  fromPreimage,
+  unavailable,
+  type PaymentResult
+} from './paymentOutcome';
+import { hasStoredMnemonic } from '$lib/spark/storage';
 import { ndkReady } from '$lib/nostr';
 import {
   type Wallet,
@@ -18,7 +26,9 @@ import {
   addWallet,
   removeWallet,
   setActiveWallet,
-  getActiveWallet
+  getActiveWallet,
+  walletsDecrypted,
+  walletRestoring
 } from './walletStore';
 import {
   connectNwc,
@@ -59,6 +69,11 @@ import {
   recentSparkPayments
 } from '$lib/spark';
 import { userPublickey } from '$lib/nostr';
+import {
+  extractSparkPaymentAsset,
+  extractSparkPaymentConversionFrom,
+  extractSparkPaymentSats
+} from './sparkPayment';
 
 /**
  * Connect a new wallet
@@ -86,12 +101,32 @@ export async function connectWallet(
           throw new Error('NWC connection URL required');
         }
         await connectNwc(data);
-        // Try to get wallet alias, fall back to pubkey-based name
+        // Probe the wallet before declaring success. A relay connection
+        // alone proves nothing: with a revoked string or a dead wallet
+        // node the relay connects fine but the wallet never answers, and
+        // every later balance/payment call then times out silently.
+        // Fail the connect with a clear message instead. A wallet that
+        // answers "not implemented" for get_info is alive though — accept
+        // it and fall back to the pubkey-based name.
         try {
           const info = await getNwcInfo();
           name = info.alias || getNwcDisplayName(data);
-        } catch {
-          name = getNwcDisplayName(data);
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          if (/not.?implemented|not.?supported/i.test(message)) {
+            name = getNwcDisplayName(data);
+          } else {
+            try {
+              await disconnectNwc();
+            } catch {
+              // connection state is already cleaned up
+            }
+            throw new Error(
+              /timeout/i.test(message)
+                ? 'Wallet did not respond — the wallet node may be down or the connection string revoked.'
+                : `Wallet rejected the connection: ${message}`
+            );
+          }
         }
         break;
 
@@ -214,7 +249,20 @@ async function ensureWalletConnected(wallet: Wallet): Promise<boolean> {
  * Get balance from the active wallet
  * @param sync For Spark: if true, sync with network first (slower but gets fresh data). Default false.
  */
-export async function refreshBalance(sync = false): Promise<number | null> {
+export interface RefreshBalanceOptions {
+  /**
+   * Fail fast on a dead NWC wallet: a single get_balance attempt instead
+   * of the retry/backoff loop. Only for user-triggered refreshes —
+   * background paths (post-payment, restore, periodic) want the retries
+   * so a transient relay blip can't blank a balance we already had.
+   */
+  fastFailNwc?: boolean;
+}
+
+export async function refreshBalance(
+  sync = false,
+  opts: RefreshBalanceOptions = {}
+): Promise<number | null> {
   const wallet = getActiveWallet();
 
   if (!wallet) {
@@ -247,7 +295,10 @@ export async function refreshBalance(sync = false): Promise<number | null> {
 
       case 3: // NWC
         try {
-          balance = await getNwcBalance();
+          // Interactive refreshes fail fast (one attempt) so a dead
+          // wallet surfaces in a single timeout instead of holding the
+          // loading state ~30s; background callers keep the retry loop.
+          balance = await getNwcBalance(opts.fastFailNwc ? 1 : 3);
         } catch (e) {
           console.warn('[WalletManager] NWC balance fetch failed (will retry on next refresh):', e);
           // Don't throw - the wallet is still connected, just couldn't fetch balance
@@ -284,15 +335,61 @@ export async function refreshBalance(sync = false): Promise<number | null> {
   }
 }
 
+export type { PaymentResult, PaymentStatus } from './paymentOutcome';
+
 /**
- * Send a payment via the active wallet
+ * Can this site pay right now, without leaving the app?
+ *   - 'ready': connected (WebLN, NWC, or an initialized Breez wallet)
+ *   - 'connectable': set up on this site and able to connect (an NWC
+ *     string, or a Breez wallet whose encrypted seed is stored here)
+ *   - 'none': nothing usable on this site. Wallet setup is per-origin, so
+ *     a preview domain starts here even when zap.cooking has a wallet.
+ */
+export function walletAvailability(): 'ready' | 'connectable' | 'none' {
+  const wallet = getActiveWallet();
+  if (!wallet) return isWeblnConnected() ? 'ready' : 'none';
+  switch (wallet.kind) {
+    case 1:
+      return isWeblnConnected() ? 'ready' : isWeblnAvailable() ? 'connectable' : 'none';
+    case 3:
+      if (!wallet.data) return 'none';
+      return isNwcConnectedTo(wallet.data) ? 'ready' : 'connectable';
+    case 4: {
+      if (get(sparkInitialized)) return 'ready';
+      // Right after login the seed may still be on its way back from the
+      // Nostr backup: connectable, not missing.
+      if (get(walletRestoring)) return 'connectable';
+      const pubkey = get(userPublickey);
+      return pubkey && import.meta.env.VITE_BREEZ_API_KEY && hasStoredMnemonic(pubkey)
+        ? 'connectable'
+        : 'none';
+    }
+    default:
+      return 'none';
+  }
+}
+
+/** Connect the active wallet if needed; false when it can't pay on this site. */
+export async function ensurePaymentWalletReady(): Promise<boolean> {
+  const availability = walletAvailability();
+  if (availability === 'ready') return true;
+  if (availability === 'none') return false;
+  const wallet = getActiveWallet();
+  return wallet ? ensureWalletConnected(wallet) : false;
+}
+
+/**
+ * Send a payment via the active wallet, and report what actually happened
+ * (see $lib/wallet/paymentOutcome): success only when the wallet confirms
+ * the payment completed. 'pending' means it may still complete; callers
+ * must not retry or fall back to another payment method.
  * @param invoice The bolt11 invoice to pay
  * @param metadata Optional metadata for pending transaction display
  */
 export async function sendPayment(
   invoice: string,
   metadata?: { amount?: number; description?: string; comment?: string; pubkey?: string }
-): Promise<{ success: boolean; preimage?: string; error?: string }> {
+): Promise<PaymentResult> {
   const wallet = getActiveWallet();
 
   // WebLN-only state: WebLN wallets aren't stored in $wallets (kind=1 entries
@@ -304,17 +401,19 @@ export async function sendPayment(
       walletLoading.set(true);
       try {
         const { preimage } = await payWeblnInvoice(invoice);
-        return { success: true, preimage };
+        return fromPreimage(preimage);
       } catch (e) {
-        const error = e instanceof Error ? e.message : String(e) || 'WebLN payment failed';
         console.error('[WalletManager] WebLN payment failed:', e);
-        return { success: false, error };
+        return fromError(e);
       } finally {
         walletLoading.set(false);
       }
     }
-    return { success: false, error: 'No wallet connected' };
+    return unavailable();
   }
+
+  // Nothing usable on this site (e.g. a preview domain): say so at once.
+  if (walletAvailability() === 'none') return unavailable();
 
   // Generate a temporary ID for the pending transaction
   const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`;
@@ -336,79 +435,74 @@ export async function sendPayment(
     });
   }
 
+  let result: PaymentResult;
   try {
     walletLoading.set(true);
 
     // Ensure the wallet is connected before trying to pay
     const connected = await ensureWalletConnected(wallet);
     if (!connected) {
-      throw new Error('Wallet not connected. Please try again.');
-    }
+      result = unavailable('Wallet not connected. Please try again.');
+    } else {
+      switch (wallet.kind) {
+        case 1: // WebLN
+          result = fromPreimage((await payWeblnInvoice(invoice)).preimage);
+          break;
 
-    let preimage: string;
-
-    switch (wallet.kind) {
-      case 1: // WebLN
-        const weblnResult = await payWeblnInvoice(invoice);
-        preimage = weblnResult.preimage;
-        break;
-
-      case 3: // NWC
-        // Check if it's a Lightning address
-        if (isLightningAddress(invoice)) {
-          if (!metadata?.amount) {
-            throw new Error('Amount is required for Lightning address payments');
+        case 3: // NWC
+          // Check if it's a Lightning address
+          if (isLightningAddress(invoice)) {
+            if (!metadata?.amount) {
+              throw new Error('Amount is required for Lightning address payments');
+            }
+            const lnAddrResult = await payNwcLightningAddress(
+              invoice,
+              metadata.amount,
+              metadata?.comment
+            );
+            result = fromPreimage(lnAddrResult.preimage);
+          } else {
+            result = fromPreimage((await payNwcInvoice(invoice)).preimage);
           }
-          const lnAddrResult = await payNwcLightningAddress(
-            invoice,
-            metadata.amount,
-            metadata?.comment
-          );
-          preimage = lnAddrResult.preimage;
-        } else {
-          const nwcResult = await payNwcInvoice(invoice);
-          preimage = nwcResult.preimage;
+          break;
+
+        case 4: {
+          // Spark (Breez). Decided by the payment's status, not by the call
+          // returning: a payment still in flight is pending, not sent.
+          const { sendZap } = await import('$lib/spark');
+          const payment = await sendZap(invoice, metadata?.amount || 0, metadata?.comment || '');
+          result = fromBreez(payment);
+          break;
         }
-        break;
 
-      case 4: // Spark
-        // Import dynamically to avoid circular dependency
-        const { sendZap } = await import('$lib/spark');
-        // For Lightning addresses, amount and comment are passed via metadata
-        // For invoices, amount is encoded in the invoice itself
-        const payment = await sendZap(invoice, metadata?.amount || 0, metadata?.comment || '');
-        // Spark may not always return a preimage. Never send payment hash/id as
-        // a preimage because NIP-108 server verification expects the true preimage.
-        preimage = payment?.preimage || payment?.paymentPreimage || '';
-        break;
-
-      default:
-        throw new Error(`Unknown wallet kind: ${wallet.kind}`);
+        default:
+          throw new Error(`Unknown wallet kind: ${wallet.kind}`);
+      }
     }
-
-    // Mark pending transaction as completed (don't remove - let history dedup it)
-    // This keeps it visible until the real transaction appears in history
-    if (metadata?.amount) {
-      updatePendingTransactionStatus(pendingId, 'completed');
-    }
-
-    // Refresh balance after payment
-    await refreshBalance();
-
-    signalTransactionsRefresh();
-    return { success: true, preimage };
   } catch (e) {
-    // Remove pending transaction on failure
-    if (metadata?.amount) {
-      removePendingTransaction(pendingId);
-    }
-
-    const error = e instanceof Error ? e.message : String(e) || 'Payment failed';
     console.error('[WalletManager] Payment failed:', e);
-    return { success: false, error };
+    result = fromError(e);
   } finally {
     walletLoading.set(false);
   }
+
+  // The wallet history row: completed stays (dedups with the real entry),
+  // pending stays visible as pending, anything else is removed.
+  if (metadata?.amount) {
+    if (result.status === 'completed') updatePendingTransactionStatus(pendingId, 'completed');
+    else if (result.status !== 'pending') removePendingTransaction(pendingId);
+  }
+  if (result.status === 'completed' || result.status === 'pending') {
+    // Never let a refresh error escape: the outcome above is what the zap
+    // UI must show (an escaped rejection only reaches the ErrorBoundary log).
+    try {
+      await refreshBalance();
+      signalTransactionsRefresh();
+    } catch (e) {
+      console.warn('[WalletManager] Balance refresh after payment failed:', e);
+    }
+  }
+  return result;
 }
 
 /**
@@ -561,7 +655,13 @@ export interface Transaction {
   txid?: string; // On-chain transaction id when available
   isOnchain?: boolean; // True when payment is on-chain (even if txid is unavailable)
   type: 'incoming' | 'outgoing';
-  amount: number; // in sats
+  amount: number; // in sats, unless asset is present
+  asset?: {
+    ticker: string;
+    amount: string; // base units; preserve precision beyond JavaScript's safe integer range
+    decimals: number;
+  };
+  conversionFrom?: string;
   description?: string;
   comment?: string; // Zap comment from kind 9734 content field
   timestamp: number; // unix timestamp
@@ -717,9 +817,9 @@ function mapSparkPayment(p: any): Transaction {
     paymentType === 'RECEIVED' ||
     paymentType === 'receive' ||
     paymentType === 'incoming';
-  const amountMsat = p.amountMsat || p.amount_msat || p.amountMSat || 0;
-  const amountSat =
-    p.amountSat || p.amount_sat || p.amount || Math.floor(Number(amountMsat) / 1000);
+  const asset = extractSparkPaymentAsset(p);
+  const conversionFrom = extractSparkPaymentConversionFrom(p);
+  const amountSat = extractSparkPaymentSats(p, !!asset);
   let timestamp = p.createdAt || p.created_at || p.timestamp || p.time || 0;
   if (timestamp > 4102444800) timestamp = Math.floor(timestamp / 1000);
   const feesMsat = p.feesMsat || p.fees_msat || p.feesMSat || 0;
@@ -745,7 +845,9 @@ function mapSparkPayment(p: any): Transaction {
     p.onchain?.txid ||
     p.onchain?.txId ||
     // Breez SDK: deposit/withdraw payment details carry txId here
-    (p.details?.type === 'deposit' || p.details?.type === 'withdraw' ? p.details?.txId : undefined) ||
+    (p.details?.type === 'deposit' || p.details?.type === 'withdraw'
+      ? p.details?.txId
+      : undefined) ||
     p.paymentMethod?.txid ||
     p.paymentMethod?.txId ||
     p.paymentMethod?.transactionId ||
@@ -832,10 +934,12 @@ function mapSparkPayment(p: any): Transaction {
     isOnchain: isOnchain || undefined,
     type: isIncoming ? 'incoming' : ('outgoing' as 'incoming' | 'outgoing'),
     amount: Number(amountSat),
+    asset,
+    conversionFrom,
     description: p.description || p.memo || p.bolt11?.substring(0, 20),
     comment,
     timestamp: timestamp || Math.floor(Date.now() / 1000),
-    fees: feesSat,
+    fees: asset ? undefined : feesSat,
     status,
     pubkey
   };
@@ -1005,36 +1109,55 @@ let isInitialized = false;
 let initializationPromise: Promise<void> | null = null;
 let sparkPaymentDebugLogged = false;
 
+/**
+ * Connect the active wallet and refresh its balance. Safe to re-run —
+ * ensureWalletConnected-style checks inside each branch (or
+ * sparkInitialized) prevent duplicate connections.
+ */
+async function restoreActiveWallet(): Promise<void> {
+  const active = get(wallets).find((w) => w.active);
+  if (!active) return;
+
+  try {
+    switch (active.kind) {
+      case 1:
+        if (isWeblnConnected()) break;
+        if (isWeblnAvailable()) await connectWebln();
+        break;
+      case 3:
+        if (active.data && isNwcConnectedTo(active.data)) break;
+        await connectNwc(active.data);
+        break;
+      case 4:
+        if (get(sparkInitialized)) break;
+        const apiKey = import.meta.env.VITE_BREEZ_API_KEY;
+        const pubkey = get(userPublickey);
+        if (apiKey && pubkey) await connectSparkWallet(pubkey, apiKey);
+        break;
+    }
+    await refreshBalance();
+  } catch (e) {
+    console.warn('[WalletManager] Failed to restore wallet:', e);
+  }
+}
+
+// Encrypted NWC wallets may decrypt after init (vault unlock, NIP-07
+// extension ready late) — restore connectivity as soon as they appear.
+if (typeof window !== 'undefined') {
+  walletsDecrypted.subscribe(() => {
+    if (isInitialized) {
+      void restoreActiveWallet();
+    }
+  });
+}
+
 export async function initializeWalletManager(): Promise<void> {
   if (isInitialized) return;
   if (initializationPromise) return initializationPromise;
 
   initializationPromise = (async () => {
     await ndkReady;
-
-    const savedWallets = get(wallets);
-    const active = savedWallets.find((w) => w.active);
-
-    if (active) {
-      try {
-        switch (active.kind) {
-          case 1:
-            if (isWeblnAvailable()) await connectWebln();
-            break;
-          case 3:
-            await connectNwc(active.data);
-            break;
-          case 4:
-            const apiKey = import.meta.env.VITE_BREEZ_API_KEY;
-            const pubkey = get(userPublickey);
-            if (apiKey && pubkey) await connectSparkWallet(pubkey, apiKey);
-            break;
-        }
-        await refreshBalance();
-      } catch (e) {
-        console.warn('[WalletManager] Failed to restore wallet:', e);
-      }
-    }
+    await restoreActiveWallet();
     isInitialized = true;
   })();
 

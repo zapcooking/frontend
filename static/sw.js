@@ -1,8 +1,30 @@
 // Service Worker to intercept __data.json requests and cache app assets for offline support
 // This handles requests that Capacitor's native layer can't serve and enables offline functionality
 
-const CACHE_NAME = 'zapcooking-v2';
+// v3: one-time reset of the previously unbounded cache; going forward
+// the static-asset cache is capped (see MAX_STATIC_CACHE_ENTRIES).
+const CACHE_NAME = 'zapcooking-v3';
 const APP_ORIGIN = self.location.origin;
+
+// The cache-first static-asset store (images, fonts) grows without
+// bound otherwise — until this file's CACHE_NAME is manually bumped,
+// which is not a quota strategy. Entries beyond the cap are evicted
+// oldest-first (Cache keys iterate in insertion order).
+const MAX_STATIC_CACHE_ENTRIES = 400;
+
+async function trimStaticCache(cache) {
+  try {
+    const keys = await cache.keys();
+    const excess = keys.length - MAX_STATIC_CACHE_ENTRIES;
+    if (excess > 0) {
+      for (const key of keys.slice(0, excess)) {
+        await cache.delete(key);
+      }
+    }
+  } catch (e) {
+    // Non-fatal — trimming is best-effort
+  }
+}
 
 // Assets that should be cached (app code, styles, fonts, etc.)
 const ASSET_PATTERNS = [
@@ -36,7 +58,7 @@ function shouldCache(request) {
   if (request.method && request.method !== 'GET') {
     return false;
   }
-  
+
   const urlString = request.url || (typeof request === 'string' ? request : request.toString());
   
   // Only cache same-origin requests
@@ -66,6 +88,29 @@ function shouldCache(request) {
   return false;
 }
 
+// Empty SvelteKit devalue payload for __data.json requests in packaged
+// static/Capacitor builds, which have no server to answer them. Mirrors
+// the isPackagedStatic mocks in app.html and hooks.client.ts (the SW
+// can't read window.Capacitor, so the caller decides when to use it).
+function mockDataResponse() {
+  const mockData = {
+    type: 'data',
+    nodes: [
+      null, // layout data
+      {
+        type: 'data',
+        data: [{ ogMeta: 1 }, null], // devalue-encoded { ogMeta: null }
+        uses: {}
+      }
+    ]
+  };
+
+  return new Response(JSON.stringify(mockData), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing service worker');
   self.skipWaiting();
@@ -92,28 +137,24 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
   
-  // Intercept __data.json requests that don't exist in static builds
+  // __data.json exists only on the SSR web deployment. Serve the real
+  // response whenever the network provides one; fall back to the mock
+  // when it doesn't (packaged static builds have no server — a fetch
+  // there fails, 404s, or returns the SPA index.html, none of which is
+  // usable data). This used to mock unconditionally, which starved web
+  // clients of real +page.server.ts data on client-side navigations.
   if (url.includes('__data.json')) {
-    console.log('[SW] Intercepting __data.json request:', url);
-    
-    // Return mock SvelteKit data response
-    const mockData = {
-      type: 'data',
-      nodes: [
-        null, // layout data
-        {
-          type: 'data',
-          data: [{ ogMeta: 1 }, null], // devalue-encoded { ogMeta: null }
-          uses: {}
-        }
-      ]
-    };
-    
     event.respondWith(
-      new Response(JSON.stringify(mockData), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      })
+      fetch(event.request)
+        .then((response) => {
+          const contentType = response.headers.get('content-type') || '';
+          if (response.ok && contentType.includes('application/json')) {
+            return response;
+          }
+          console.debug('[SW] __data.json not served as JSON, using mock for:', url);
+          return mockDataResponse();
+        })
+        .catch(() => mockDataResponse())
     );
     return;
   }
@@ -163,7 +204,9 @@ self.addEventListener('fetch', (event) => {
               .then((networkResponse) => {
                 if (networkResponse.status === 200) {
                   const responseClone = networkResponse.clone();
-                  cache.put(event.request, responseClone);
+                  cache
+                    .put(event.request, responseClone)
+                    .then(() => trimStaticCache(cache));
                 }
                 return networkResponse;
               })

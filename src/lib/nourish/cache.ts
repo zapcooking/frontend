@@ -1,5 +1,10 @@
 import { browser } from '$app/environment';
-import { NOURISH_CACHE_VERSION, type NourishScores, type AudienceScores } from './types';
+import {
+	NOURISH_CACHE_VERSION,
+	type NourishScores,
+	type AudienceScores,
+	type NourishMacros
+} from './types';
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -38,6 +43,11 @@ interface CacheEntry {
 	 * call.
 	 */
 	audienceScores?: AudienceScores;
+	/**
+	 * Estimated per-serving macros (v4). Undefined on v3 / degraded
+	 * entries — Phase 3a card omits the macros row when absent.
+	 */
+	macros?: NourishMacros;
 	improvements?: string[];
 	ingredientSignals?: import('./types').IngredientSignal[];
 }
@@ -92,6 +102,7 @@ export function setNourishScores(
 		createdAt?: number;
 		updatedAt?: number;
 		audienceScores?: AudienceScores;
+		macros?: NourishMacros;
 		improvements?: string[];
 		ingredientSignals?: import('./types').IngredientSignal[];
 	}
@@ -108,6 +119,7 @@ export function setNourishScores(
 			createdAt: extra?.createdAt,
 			updatedAt: extra?.updatedAt,
 			audienceScores: extra?.audienceScores,
+			macros: extra?.macros,
 			improvements: extra?.improvements,
 			ingredientSignals: extra?.ingredientSignals
 		};

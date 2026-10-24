@@ -98,7 +98,10 @@
   <meta name="description" content="Memories — a look back at notes from this day" />
 </svelte:head>
 
-<div class="px-4 max-w-2xl mx-auto w-full memories-page">
+<!-- Container matches the community feed's column (px-4 max-w-2xl w-full,
+     no mx-auto) so the memories page opens at the same horizontal location
+     the feed's memories card occupies — no left/right jump between the two. -->
+<div class="px-4 max-w-2xl w-full memories-page">
   {#if !isLoggedIn}
     <div class="text-center py-16">
       <p class="text-4xl mb-3" aria-hidden="true">📅</p>
@@ -164,7 +167,7 @@
         {#each sortedGroups as group (group.yearsAgo)}
           <section>
             <h2
-              class="text-sm font-semibold mb-3"
+              class="text-[11px] font-medium uppercase tracking-wide mb-3"
               style="color: var(--color-text-primary);"
             >
               {yearLabel(group.yearsAgo)}

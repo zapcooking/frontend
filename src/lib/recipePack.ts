@@ -8,6 +8,7 @@
  * NIP-57 path.
  */
 
+import { parseCoordinate } from './coordinate';
 import { NDKEvent, type NDKKind } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
 import { ndk, userPublickey } from '$lib/nostr';
@@ -28,7 +29,7 @@ export const MY_RECIPES_TAG = 'my-recipes';
 // the hints rotate across a pack's recipe tags — between them, both
 // high-uptime general relays get coverage. Recipes publish via "all"
 // mode, so they land on both.
-export const RECIPE_PACK_RELAY_HINTS = ['wss://relay.damus.io', 'wss://relay.primal.net'];
+export const RECIPE_PACK_RELAY_HINTS = ['wss://relay.nostr.net', 'wss://relay.primal.net'];
 
 export type RecipePackSource =
   | { type: 'cookbook' }
@@ -112,9 +113,9 @@ export async function resolveFirstRecipeImage(aTags: string[]): Promise<string |
   const ndkInstance = get(ndk);
   if (!ndkInstance) return undefined;
   for (const aTag of aTags) {
-    const parts = aTag.split(':');
-    if (parts.length !== 3) continue;
-    const [kind, pubkey, identifier] = parts;
+    const parsed = parseCoordinate(aTag);
+    if (!parsed) continue;
+    const { kind, pubkey, identifier } = parsed;
     try {
       const e = await ndkInstance.fetchEvent({
         kinds: [Number(kind)],
@@ -136,15 +137,9 @@ export async function resolveFirstRecipeImage(aTags: string[]): Promise<string |
   return undefined;
 }
 
-/** Validate a recipe a-tag (kind:pubkey:dTag). */
+/** Validate a recipe a-tag (kind:pubkey:dTag; the dTag may contain colons). */
 function isValidATag(aTag: string): boolean {
-  const parts = aTag.split(':');
-  if (parts.length !== 3) return false;
-  const [kind, pubkey, dTag] = parts;
-  if (!kind || !/^\d+$/.test(kind)) return false;
-  if (!pubkey || !/^[0-9a-f]{64}$/i.test(pubkey)) return false;
-  if (!dTag) return false;
-  return true;
+  return !!parseCoordinate(aTag)?.identifier;
 }
 
 /**

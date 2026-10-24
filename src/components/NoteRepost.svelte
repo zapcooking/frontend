@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
   import { addClientTagToEvent } from '$lib/nip89';
-  import ArrowsClockwise from 'phosphor-svelte/lib/ArrowsClockwise';
+  import RepeatIcon from 'phosphor-svelte/lib/Repeat';
+  import ChatIcon from 'phosphor-svelte/lib/Chat';
   import { clickOutside } from '$lib/clickOutside';
   import {
     getEngagementStore,
@@ -23,7 +25,7 @@
   onMount(() => {
     // Always fetch engagement data - fetchEngagement will check cache freshness
     // Batch fetch may be in progress, but individual fetch ensures counts load
-    fetchEngagement($ndk, event.id, $userPublickey);
+    fetchEngagement($ndk, event, $userPublickey);
   });
 
   async function repost() {
@@ -79,7 +81,7 @@
       await repostEvent.sign();
       console.log('Repost event signed:', repostEvent.id);
 
-      await repostEvent.publish();
+      await repostEvent.publish(await outboxRelaySet(repostEvent, 'engagement'));
       console.log('Successfully reposted');
 
       // Secondary protection — mark by event id AFTER publish succeeds so the
@@ -142,8 +144,8 @@
         ? 'You reposted this'
         : 'Repost'}
   >
-    <ArrowsClockwise
-      size={24}
+    <RepeatIcon
+      size={20}
       weight={$store.reposts.userReposted ? 'fill' : 'regular'}
       class={$store.reposts.userReposted ? 'text-green-500' : 'text-caption'}
     />
@@ -163,14 +165,16 @@
         on:click={repost}
         class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
       >
-        <ArrowsClockwise size={16} class="text-caption" />
+        <RepeatIcon size={16} class="text-caption" />
         Repost
       </button>
       <button
         on:click={quote}
         class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
       >
-        <span>💬</span>
+        <!-- Same bubble glyph as the action row's comment button (Chat),
+             not a raw emoji — the menu matches the bar's icon language. -->
+        <ChatIcon size={16} class="text-caption" />
         Quote
       </button>
     </div>

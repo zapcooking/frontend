@@ -1,0 +1,322 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { get, writable, type Writable } from 'svelte/store';
+
+/**
+ * NWC at-rest encryption in walletStore.
+ *
+ * kind-3 `data` values that are `nostr+walletconnect://…` connection
+ * strings must be persisted as `{enc, method}` NIP-44 envelopes, never
+ * plaintext. Everything else (webln/spark markers) stays plaintext.
+ * Envelope entries that can't be decrypted yet (no signer) are held in
+ * `pendingEncrypted` and must survive every storage write.
+ */
+
+vi.mock('$app/environment', () => ({ browser: true }));
+
+const { fakeNdk, fakePubkey, encryption, nostrStores } = vi.hoisted(() => ({
+  fakeNdk: { signer: null as unknown },
+  // Fresh per test: the mocked module is shared across resetModules, so a
+  // shared store would keep earlier walletStore instances subscribed.
+  nostrStores: { userPublickey: null as unknown as Writable<string> },
+  fakePubkey: 'a'.repeat(64),
+  encryption: {
+    encrypt: vi.fn(),
+    decrypt: vi.fn(),
+    canCreateNostrBackup: vi.fn(),
+    getNostrBackupBlocker: vi.fn()
+  }
+}));
+
+vi.mock('$lib/nostr', async () => {
+  const { writable } = await import('svelte/store');
+  return {
+    ndk: writable(fakeNdk),
+    get userPublickey() {
+      return nostrStores.userPublickey;
+    }
+  };
+});
+
+vi.mock('$lib/encryptionService', () => ({
+  ...encryption,
+  decryptWithSource: async (sender: string, ciphertext: string, method: string) => ({
+    plaintext: await encryption.decrypt(sender, ciphertext, method),
+    source: 'session'
+  }),
+  noteLegacyMigration: vi.fn()
+}));
+
+const NWC_URL = 'nostr+walletconnect://64bexample?secret=sekrit&relay=wss%3A%2F%2Frelay.com';
+
+type WalletStoreModule = typeof import('./walletStore');
+
+let mod: WalletStoreModule;
+let userPubkeyStore: Writable<string>;
+let store: Map<string, string>;
+
+function readStored(): any[] {
+  const raw = store.get('zapcooking_wallets');
+  return raw ? JSON.parse(raw) : [];
+}
+
+beforeEach(async () => {
+  vi.resetModules();
+  vi.useFakeTimers();
+  // Intervals from a previous test's module instance outlive resetModules.
+  vi.clearAllTimers();
+  nostrStores.userPublickey = writable('');
+
+  store = new Map();
+  (globalThis as any).localStorage = {
+    getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+    setItem: (k: string, v: string) => store.set(k, String(v)),
+    removeItem: (k: string) => store.delete(k),
+    clear: () => store.clear()
+  };
+
+  encryption.encrypt.mockReset();
+  encryption.decrypt.mockReset();
+  encryption.canCreateNostrBackup.mockReset();
+  encryption.getNostrBackupBlocker.mockReset();
+  encryption.encrypt.mockResolvedValue({ ciphertext: 'ENVELOPE-CIPHERTEXT', method: 'nip44v2' });
+  encryption.decrypt.mockResolvedValue(NWC_URL);
+  encryption.canCreateNostrBackup.mockReturnValue(true);
+  encryption.getNostrBackupBlocker.mockReturnValue(null);
+
+  mod = await import('./walletStore');
+  userPubkeyStore = nostrStores.userPublickey;
+  fakeNdk.signer = null;
+  userPubkeyStore.set('');
+});
+
+describe('at-rest encryption of NWC connection strings', () => {
+  it('persists kind-3 NWC data as an envelope and leaves other kinds plaintext', async () => {
+    // Legacy plaintext seed: one NWC wallet, one webln marker
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([
+        { id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL },
+        { id: 2, kind: 1, name: 'WebLN', active: false, data: 'webln' }
+      ])
+    );
+
+    await vi.advanceTimersByTimeAsync(10); // module init load
+
+    const stored = readStored();
+    const nwc = stored.find((w) => w.id === 1);
+    const webln = stored.find((w) => w.id === 2);
+    expect(nwc.data).toEqual({ enc: 'ENVELOPE-CIPHERTEXT', method: 'nip44v2' });
+    expect(nwc.data.enc).not.toContain(NWC_URL);
+    expect(webln.data).toBe('webln');
+    expect(get(mod.wallets).length).toBe(2);
+  });
+
+  it('keeps plaintext when the signer cannot encrypt (accepted fallback)', async () => {
+    encryption.canCreateNostrBackup.mockReturnValue(false);
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    const stored = readStored();
+    expect(stored[0].data).toBe(NWC_URL); // NIP-46 sessions can't wrap
+    expect(encryption.encrypt).not.toHaveBeenCalled();
+  });
+
+  it('wraps a plaintext entry once auth restores after the startup save', async () => {
+    // Page load: AuthManager hasn't restored the session yet.
+    encryption.canCreateNostrBackup.mockReturnValue(false);
+    encryption.getNostrBackupBlocker.mockReturnValue('signed-out');
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(readStored()[0].data).toBe(NWC_URL);
+
+    // Still restoring on the first retry tick — nothing happens.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(encryption.encrypt).not.toHaveBeenCalled();
+
+    // Session restored.
+    encryption.canCreateNostrBackup.mockReturnValue(true);
+    encryption.getNostrBackupBlocker.mockReturnValue(null);
+    userPubkeyStore.set(fakePubkey);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(encryption.encrypt).toHaveBeenCalledWith(fakePubkey, NWC_URL);
+    expect(readStored()[0].data).toEqual({ enc: 'ENVELOPE-CIPHERTEXT', method: 'nip44v2' });
+  });
+
+  it('stops retrying the at-rest migration for NIP-46 sessions', async () => {
+    encryption.canCreateNostrBackup.mockReturnValue(false);
+    encryption.getNostrBackupBlocker.mockReturnValue('signed-out');
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    encryption.getNostrBackupBlocker.mockReturnValue('nip46');
+    userPubkeyStore.set(fakePubkey);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(readStored()[0].data).toBe(NWC_URL);
+    expect(encryption.encrypt).not.toHaveBeenCalled();
+  });
+
+  it('stops the at-rest retry with no one signed in and restarts it only on sign-in', async () => {
+    // Page load while a session restores: pubkey seeded, auth not known.
+    encryption.canCreateNostrBackup.mockReturnValue(false);
+    encryption.getNostrBackupBlocker.mockReturnValue('signed-out');
+    userPubkeyStore.set(fakePubkey);
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(vi.getTimerCount()).toBe(1); // retry waiting on the restore
+
+    // Restore fails / user signs out without the wallets being cleared.
+    userPubkeyStore.set('');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Encryption becoming possible doesn't restart it while signed out.
+    encryption.canCreateNostrBackup.mockReturnValue(true);
+    encryption.getNostrBackupBlocker.mockReturnValue(null);
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(encryption.encrypt).not.toHaveBeenCalled();
+    expect(readStored()[0].data).toBe(NWC_URL);
+
+    // Sign-in restarts it and the entry gets wrapped.
+    userPubkeyStore.set(fakePubkey);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(encryption.encrypt).toHaveBeenCalledWith(fakePubkey, NWC_URL);
+    expect(readStored()[0].data).toEqual({ enc: 'ENVELOPE-CIPHERTEXT', method: 'nip44v2' });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('a full sign-out (wallets cleared) ends the at-rest retry', async () => {
+    encryption.canCreateNostrBackup.mockReturnValue(false);
+    encryption.getNostrBackupBlocker.mockReturnValue('signed-out');
+    userPubkeyStore.set(fakePubkey);
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    mod.clearAllWallets();
+    userPubkeyStore.set('');
+    await vi.advanceTimersByTimeAsync(5010);
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Signing back in has nothing to migrate.
+    userPubkeyStore.set(fakePubkey);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(encryption.encrypt).not.toHaveBeenCalled();
+  });
+
+  it('reuses the prior envelope instead of dropping to plaintext when re-encrypt fails', async () => {
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([
+        {
+          id: 1,
+          kind: 3,
+          name: 'Alby',
+          active: true,
+          data: { enc: 'PRIOR', method: 'nip44v2' }
+        }
+      ])
+    );
+
+    await vi.advanceTimersByTimeAsync(10); // load registers the envelope
+
+    // Signer becomes available but refuses to encrypt; the wallet update
+    // triggers a re-save.
+    userPubkeyStore.set(fakePubkey);
+    fakeNdk.signer = {};
+    encryption.encrypt.mockRejectedValue(new Error('denied'));
+    mod.updateWalletName(1, 'Alby 2');
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    const stored = readStored();
+    expect(stored[0].data).toEqual({ enc: 'PRIOR', method: 'nip44v2' });
+  });
+});
+
+describe('deferred envelope decryption', () => {
+  it('holds back envelope entries, decrypts them once a signer exists, preserves them until then', async () => {
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([
+        { id: 1, kind: 3, name: 'Alby', active: true, data: { enc: 'CIPHER', method: 'nip44v2' } },
+        { id: 2, kind: 1, name: 'WebLN', active: false, data: 'webln' }
+      ])
+    );
+
+    await vi.advanceTimersByTimeAsync(10); // load: no signer yet
+
+    // Only the plaintext wallet is in memory
+    expect(get(mod.wallets).map((w) => w.id)).toEqual([2]);
+
+    // Any write while undecrypted must keep the envelope in storage
+    mod.updateWalletName(2, 'WebLN 2');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(readStored().some((w) => w.id === 1 && w.data.enc === 'CIPHER')).toBe(true);
+
+    // Signer arrives → interval decrypts and merges
+    userPubkeyStore.set(fakePubkey);
+    fakeNdk.signer = {};
+    await vi.advanceTimersByTimeAsync(5100);
+
+    expect(encryption.decrypt).toHaveBeenCalledWith(fakePubkey, 'CIPHER', 'nip44v2');
+    const merged = get(mod.wallets).find((w) => w.id === 1);
+    expect(merged?.data).toBe(NWC_URL);
+    expect(get(mod.walletsDecrypted)).toBeGreaterThan(0);
+  });
+
+  it('keeps failed envelopes pending instead of dropping them', async () => {
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([
+        { id: 1, kind: 3, name: 'Alby', active: true, data: { enc: 'CIPHER', method: 'nip44v2' } }
+      ])
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+    userPubkeyStore.set(fakePubkey);
+    fakeNdk.signer = {};
+    encryption.decrypt.mockRejectedValue(new Error('locked'));
+
+    await vi.advanceTimersByTimeAsync(5100);
+
+    expect(get(mod.wallets).length).toBe(0); // still not decrypted
+    expect(readStored()[0].data.enc).toBe('CIPHER'); // still persisted
+  });
+});
+
+describe('clearAllWallets', () => {
+  it('drops still-encrypted entries from storage', async () => {
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([
+        { id: 1, kind: 3, name: 'Alby', active: true, data: { enc: 'CIPHER', method: 'nip44v2' } }
+      ])
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+    mod.clearAllWallets();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(readStored()).toEqual([]);
+  });
+});

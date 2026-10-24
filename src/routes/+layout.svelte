@@ -3,72 +3,167 @@
   import '../app.css';
   import Header from '../components/Header.svelte';
   import { browser } from '$app/environment';
+  import { derived } from 'svelte/store';
   import { page, updated } from '$app/stores';
   import { goto, beforeNavigate } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
+  import { lastFeedUrl } from '$lib/feedOrigin';
+  import { isLandingRoute } from '$lib/landing/route';
   import BottomNav from '../components/BottomNav.svelte';
   import DesktopSideNav from '../components/DesktopSideNav.svelte';
   import NotificationSubscriber from '../components/NotificationSubscriber.svelte';
   import Footer from '../components/Footer.svelte';
   import CreateMenuButton from '../components/CreateMenuButton.svelte';
+  import ScrollToTopButton from '../components/ScrollToTopButton.svelte';
   import PostModal from '../components/PostModal.svelte';
-  import LongformEditorModal from '../components/reads/LongformEditorModal.svelte';
+  import DraftDock from '../components/comments/DraftDock.svelte';
   import WalletModal from '../components/wallet/WalletModal.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
   import PendingIndicator from '../components/PendingIndicator.svelte';
+  import MiningIndicator from '../components/MiningIndicator.svelte';
   import LoginOverlay from '../components/LoginOverlay.svelte';
+  import ProfilePreviewModal from '../components/ProfilePreviewModal.svelte';
+  import { openProfilePreview } from '$lib/stores/profilePreview';
   import PasskeyEnrollPrompt from '../components/PasskeyEnrollPrompt.svelte';
+  import CookPlusDiscoveryModal from '../components/CookPlusDiscoveryModal.svelte';
+  import CookPlusPromoBar from '../components/CookPlusPromoBar.svelte';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+  import { syncSignedIn } from '$lib/auth/requireAuth';
+  import { bottomDockOccupied } from '$lib/stores/bottomDock';
 
-  // Soft-launch gate for the passkey migration prompt. While false, existing
+  // Launch gate for the passkey migration prompt (launched September 2026;
+  // CI's flag-guard pins it true on main). While false, existing
   // plaintext-key users are never prompted — enrollment is reachable only
-  // via Settings → Security. Flip to true to start actively migrating users.
-  const PASSKEY_ENROLL_PROMPT_ENABLED = false;
+  // via Settings → Security.
+  const PASSKEY_ENROLL_PROMPT_ENABLED = true;
   import { createAuthManager, type AuthState } from '$lib/authManager';
+  import { detectSupport, getVaultRecord, isVaultUnconfirmed } from '$lib/passkeyVault';
+  import {
+    lockedVaultPubkey,
+    shouldOfferContinue,
+    isStrandedLockedVault,
+    shouldSignInPastUnconfirmedVault
+  } from '$lib/auth/lockedVault';
   import { stopMessageSubscription, clearMessages } from '$lib/stores/messages';
   import { clearDecryptCache } from '$lib/encryptionService';
   import { clearUnwrapCache } from '$lib/nip17';
   import { stopGroupSubscription, clearGroups } from '$lib/stores/groups';
-  import { preconnectPantry } from '$lib/nip29';
+  import { installNsecPasteGuard } from '$lib/nsecPasteGuard';
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
   import { theme } from '$lib/themeStore';
   import {
     initializeWalletManager,
-    walletConnected,
     clearAllWallets,
-    openWallet
+    activeWallet,
+    rememberActiveWallet,
+    autoRestoreWalletAtLogin,
+    evaluateWalletSetupState,
+    walletSetupCheckPending
   } from '$lib/wallet';
-  import { disconnectWallet as disconnectSparkWallet, clearAllSparkWallets } from '$lib/spark';
+  import {
+    disconnectWallet as disconnectSparkWallet,
+    clearAllSparkWallets,
+    sweepLegacyMnemonic
+  } from '$lib/spark';
   import { loadOneTapZapSettings } from '$lib/autoZapSettings';
-  import { weblnConnected } from '$lib/wallet/webln';
-  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
+  import {
+    startSectionTarget,
+    loadStartSectionSettings,
+    rememberStartSectionAtSignIn
+  } from '$lib/startSectionSettings';
   import { postComposerOpen } from '$lib/postComposerStore';
+  import { longformEditorOpen, closeEditor } from '../components/reads/articleDraftStore';
+  import LongformEditorLoadError from '../components/reads/LongformEditorLoadError.svelte';
+  import LazyLoadErrorDialog from '../components/LazyLoadErrorDialog.svelte';
+  import { createLazyLoader, bindLazyLoaderToOpenState } from '$lib/lazyComponentLoader';
+  import { trackLoadingPendingOp } from '$lib/lazyLoadFeedback';
+  import { isCheffyRoute, cheffyMessengerWanted } from '$lib/cheffyRoutes';
   import CookingToolsWidget from '../components/CookingToolsWidget.svelte';
   import UserSidePanel from '../components/UserSidePanel.svelte';
   import MobileNavDrawer from '../components/MobileNavDrawer.svelte';
   import MobileSearchOverlay from '../components/MobileSearchOverlay.svelte';
-  import CheffyLauncher from '../components/CheffyLauncher.svelte';
-  import CheffyMessenger from '../components/CheffyMessenger.svelte';
+  import { cheffyOpen, closeCheffy } from '$lib/stores/cheffyChat';
   // Import sync service to initialize offline sync functionality
   import '$lib/syncService';
   // Import platform detection to initialize early
   import { detectPlatform } from '$lib/platform';
   // Startup coordination — defer non-critical services until feed renders
   import { feedInitialLoadDone } from '$lib/startupState';
-  // Prewarm outbox relay list cache early (on login, regardless of page)
-  import { prewarmOutboxCache } from '$lib/followOutbox';
   // Refresh engagement counts when the tab returns from background
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
-  import { refreshActiveEngagement } from '$lib/engagementCache';
+  import { refreshActiveEngagement, clearAllEngagementCaches } from '$lib/engagementCache';
+  import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
+
+  // ── Lazy-loaded overlays ──────────────────────────────────────────
+  // Heavy overlay components load on first open instead of shipping in
+  // the layout chunk every page pays for. Each has its own loader (see
+  // $lib/lazyComponentLoader): one import attempt in flight, no automatic
+  // retries, and a failed import surfaces an error dialog with Retry/Close
+  // instead of latching shut. A failed chunk import also dispatches
+  // vite:preloadError, which the recovery handler below turns into at most
+  // one reload per session; the dialogs are what users see once that
+  // reload has been used (or didn't help). Once loaded, a component stays
+  // mounted for the session (each renders nothing while closed) so later
+  // opens are instant and close transitions keep working.
+
+  // Longform editor: the TipTap/ProseMirror stack. The selected draft lives
+  // in articleDraftStore, so a retry only re-imports the chunk and never
+  // creates a new draft.
+  const longformEditorLoader = createLazyLoader(
+    () => import('../components/reads/LongformEditorModal.svelte'),
+    { enabled: browser, label: 'longform-editor' }
+  );
+
+  // Cheffy messenger: markdown-it. Wanted only while all three hold —
+  // browser (loader is inert during SSR), route eligibility (the same
+  // isCheffyRoute predicate as showCheffy) and $cheffyOpen. Opening Cheffy
+  // on an excluded route (/login, /onboarding, /cheffy, …) therefore never
+  // fetches the chunk, and navigating to one while loading releases the
+  // request so a late-resolving import shows no UI there. Conversation,
+  // composer draft and preview/membership state live in stores, so they
+  // survive a failed import.
+  const cheffyMessengerLoader = createLazyLoader(
+    () => import('../components/CheffyMessenger.svelte'),
+    { enabled: browser, label: 'cheffy-messenger' }
+  );
+  const cheffyMessengerRequested = cheffyMessengerWanted(
+    derived(page, ($page) => $page.url.pathname),
+    cheffyOpen
+  );
+
+  onMount(() => {
+    const cleanups = [
+      bindLazyLoaderToOpenState(longformEditorLoader, longformEditorOpen),
+      trackLoadingPendingOp(longformEditorLoader, longformEditorOpen, 'Loading editor…'),
+      bindLazyLoaderToOpenState(cheffyMessengerLoader, cheffyMessengerRequested),
+      trackLoadingPendingOp(cheffyMessengerLoader, cheffyMessengerRequested, 'Loading Cheffy…')
+    ];
+    return () => {
+      for (const cleanup of cleanups) cleanup();
+    };
+  });
 
   // Version-skew guard: when a new deploy is detected (kit.version
   // pollInterval in svelte.config.js), turn the next client-side navigation
   // into a full-page load. Cloudflare Pages removes the previous deploy's
   // immutable assets, so stale clients otherwise 404 on chunk imports when
   // navigating (broken tabs until a hard refresh).
-  beforeNavigate(({ willUnload, to, cancel }) => {
+  beforeNavigate(({ willUnload, to, cancel, from }) => {
+    // Remember the feed URL (tab included) when leaving /feed so
+    // "back to feed" affordances return to the tab the user was on.
+    if (from?.url?.pathname === '/feed') {
+      lastFeedUrl.set(from.url.pathname + from.url.search);
+    }
+    // Landing routes ship no client JS (csr = false), so the client router
+    // can't render them: a client-side navigation to one (link, goto, back
+    // button) becomes a page load.
+    if (!willUnload && to?.url && to.url.origin === location.origin && isLandingRoute(to.route?.id)) {
+      cancel();
+      location.href = to.url.href;
+      return;
+    }
     if ($updated && !willUnload && to?.url) {
       // Cancel the client-side navigation first so SvelteKit doesn't start
       // resolving (stale) route chunks before the full-page load takes over.
@@ -97,6 +192,29 @@
   }
 
   onMount(() => {
+    // Avatar clicks open the compact profile preview instead of
+    // navigating away. Capture phase so this runs before per-site
+    // handlers (some avatar links carry their own goto()); stopping
+    // propagation replaces both the default link navigation and those
+    // handlers for this click. Modified clicks (cmd/ctrl/shift/middle)
+    // keep native behavior — new-tab to the full profile.
+    const onAvatarClick = (event: MouseEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+        return;
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest) return;
+      if (!target.closest('.avatar-wrapper')) return;
+      const link = target.closest('a[href^="/user/"]');
+      if (!link) return;
+      const match = link.getAttribute('href')?.match(/^\/user\/(npub1[a-z0-9]+)/);
+      if (!match) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openProfilePreview(match[1]);
+    };
+    document.addEventListener('click', onAvatarClick, true);
+
     const readRecord = (): RecoveryReloadRecord => {
       try {
         const parsed = JSON.parse(sessionStorage.getItem(RECOVERY_RELOAD_KEY) ?? '');
@@ -152,7 +270,10 @@
     };
     window.addEventListener('vite:preloadError', onPreloadError);
 
-    return () => window.removeEventListener('vite:preloadError', onPreloadError);
+    return () => {
+      window.removeEventListener('vite:preloadError', onPreloadError);
+      document.removeEventListener('click', onAvatarClick, true);
+    };
   });
 
   // Accept props from SvelteKit to prevent warnings
@@ -163,11 +284,14 @@
   // Site-wide meta tag defaults
   const siteUrl = 'https://zap.cooking';
   const title = 'Zap Cooking';
-  const ogTitle = 'Zap Cooking - Food. Friends. Freedom.';
+  const ogTitle = 'Zap Cooking - Food is Open Source';
   const description =
     'A place where food culture can live openly and grow naturally. Share recipes, support creators directly, no algorithms or ads.';
   const ogImage = `${siteUrl}/social-share.png`;
   $: canonical = `${siteUrl}${$page.url.pathname === '/' ? '' : $page.url.pathname}`;
+
+  // Cheffy’s Table owns its compact HUD; shared authentication stays mounted.
+  $: kitchenMode = $page.url.pathname.replace(/\/$/, '') === '/cheffys-table';
 
   // Skip layout OG tags on pages that set their own (recipe pages, note pages,
   // pack pages). When a page provides custom OG tags AND the layout also
@@ -178,14 +302,12 @@
   $: pathSegment = $page.url.pathname.split('/')[1] || '';
   // The persistent Cheffy messenger is hidden on the full Cheffy page
   // (redundant), the chrome-less messaging surfaces, and auth flows.
-  $: showCheffy =
-    !$page.url.pathname.startsWith('/messages') &&
-    !$page.url.pathname.startsWith('/groups') &&
-    !$page.url.pathname.startsWith('/cheffy') &&
-    !$page.url.pathname.startsWith('/zappy') &&
-    !$page.url.pathname.startsWith('/login') &&
-    !$page.url.pathname.startsWith('/onboarding');
+  $: showCheffy = isCheffyRoute($page.url.pathname);
+  // Landing routes ($lib/landing/route) are server-rendered with no client
+  // JS: the layout renders only the page (its own header, footer and meta).
+  $: landing = isLandingRoute($page.route.id);
   $: hasCustomOgTags =
+    landing ||
     $page.url.pathname.startsWith('/recipe/') ||
     $page.url.pathname.startsWith('/r/') ||
     $page.url.pathname.startsWith('/pack/') ||
@@ -202,132 +324,30 @@
     error: null
   };
   let unsubscribe: (() => void) | null = null;
+  // Whether the PREVIOUS auth callback saw a logged-in member. The auth
+  // manager emits intermediate unauthenticated states during session
+  // restore (authenticateWithNIP07's isLoading ping, NIP-46 reconnect) —
+  // treating those as logout wiped the persisted wallets on every page
+  // refresh, which forced the Nostr-backup auto-restore (a full wallet
+  // rescan + "restored" toast) to run again every load.
+  let wasAuthenticated = false;
   let feedInitialLoadTimeout: ReturnType<typeof setTimeout> | null = null;
-  let walletWelcomeSeen = false;
-  let walletWelcomeForce = false;
   let oneTapZapLoadedForPubkey = '';
-  const WALLET_WELCOME_KEY = 'zapcooking_wallet_welcome_seen';
-  const WALLET_WELCOME_FORCE_KEY = 'zapcooking_wallet_welcome_force';
-  $: hasWallet =
-    $walletConnected ||
-    $weblnConnected ||
-    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
+  let startSectionLoadedForPubkey = '';
 
-  // Open the wallet modal directly when the user is logged in but has
-  // no wallet — the picker view inside the modal already serves as the
-  // welcome screen, so we don't need a separate intro modal.
-  function promptWalletSetup() {
-    walletWelcomeSeen = true;
-    if (browser) localStorage.setItem(WALLET_WELCOME_KEY, '1');
-    openWallet('setup');
-  }
-
-  // Handle deep links from Capacitor (for NIP-46 pairing)
-  async function handleDeepLink(url: string) {
-    console.log('[DeepLink] Received:', url);
-
-    if (!authManager) {
-      console.warn('[DeepLink] Auth manager not initialized');
-      return;
-    }
-
-    // Check if we have a pending NIP-46 pairing
-    if (authManager.hasPendingNip46Pairing()) {
-      console.log('[DeepLink] Has pending NIP-46 pairing, restarting listener...');
-      await authManager.restartNip46ListenerIfPending();
-      goto('/login');
-      return;
-    }
-
-    // Handle bunker:// URLs for direct NIP-46 auth
-    // Note: nostrconnect:// is NOT handled here - it's for signers to scan, not direct input
-    if (url.startsWith('bunker://')) {
-      try {
-        await authManager.authenticateWithNIP46(url);
-        goto('/explore');
-      } catch (e) {
-        console.error('[DeepLink] NIP-46 auth failed:', e);
-        goto('/login');
-      }
-    }
-  }
-
-  // Setup Capacitor deep link listeners
-  async function setupCapacitorListeners() {
+  // Tap the header's empty padding area → smooth-scroll back to top. Only
+  // fires on |self (the wrapper), so real header interactions (search, logo,
+  // buttons) are unaffected. Mirrors the iOS/Twitter "tap status bar" habit.
+  function scrollToTop() {
     if (!browser) return;
-
-    console.log('[Capacitor] Setting up listeners...');
-
-    try {
-      // Import Capacitor core to check if we're in a native environment
-      const { Capacitor } = await import('@capacitor/core');
-
-      if (!Capacitor.isNativePlatform()) {
-        console.log('[Capacitor] Not a native platform, skipping listener setup');
-        return;
-      }
-
-      console.log('[Capacitor] Native platform detected:', Capacitor.getPlatform());
-
-      const { App } = await import('@capacitor/app');
-
-      // Listen for deep links when app is open
-      await App.addListener('appUrlOpen', (event) => {
-        console.log('[Capacitor] appUrlOpen:', event.url);
-        handleDeepLink(event.url);
-      });
-      console.log('[Capacitor] appUrlOpen listener registered');
-
-      // Listen for app state changes (resume)
-      await App.addListener('appStateChange', async (state) => {
-        console.log('[Capacitor] appStateChange:', state.isActive ? 'active' : 'inactive');
-
-        if (state.isActive) {
-          console.log('[Capacitor] App became active, checking for pending NIP-46 pairing...');
-          if (authManager?.hasPendingNip46Pairing()) {
-            console.log('[Capacitor] Found pending NIP-46 pairing, restarting listener');
-            try {
-              await authManager.restartNip46ListenerIfPending();
-            } catch (e) {
-              console.error('[Capacitor] Error restarting NIP-46 listener:', e);
-            }
-          } else {
-            console.log('[Capacitor] No pending NIP-46 pairing found');
-          }
-        }
-      });
-      console.log('[Capacitor] appStateChange listener registered');
-
-      // Also listen for resume event as backup
-      await App.addListener('resume', async () => {
-        console.log('[Capacitor] resume event received');
-        if (authManager?.hasPendingNip46Pairing()) {
-          console.log('[Capacitor] Resume with pending NIP-46 pairing, restarting listener');
-          try {
-            await authManager.restartNip46ListenerIfPending();
-          } catch (e) {
-            console.error('[Capacitor] Error restarting NIP-46 listener on resume:', e);
-          }
-        }
-      });
-      console.log('[Capacitor] resume listener registered');
-
-      // Check for launch URL (app opened via deep link)
-      const launchUrl = await App.getLaunchUrl();
-      if (launchUrl?.url) {
-        console.log('[Capacitor] Launch URL:', launchUrl.url);
-        handleDeepLink(launchUrl.url);
-      }
-
-      console.log('[Capacitor] All listeners initialized successfully');
-    } catch (e) {
-      // Capacitor not available (web environment) or error during setup
-      console.log('[Capacitor] Setup error or not available:', e);
-    }
+    scrollActiveSurfaceToTop(document.getElementById('app-scroll'));
   }
 
   onMount(async () => {
     try {
+      // Block accidental nsec pastes everywhere except the login/key-import
+      // field (the one place a secret key belongs). Idempotent.
+      installNsecPasteGuard();
       // Detect platform first (iOS, Android, or web)
       detectPlatform();
 
@@ -349,46 +369,111 @@
       // Initialize auth manager
       authManager = createAuthManager($ndk);
       authState = authManager.getState();
+      syncSignedIn(authState);
+
+      // A new account's profile that no relay has accepted yet: show it
+      // locally from the start (the profile cache is in memory only).
+      if (browser && localStorage.getItem('zapcooking_pending_kind0')) {
+        void import('$lib/pendingKind0').then((m) => m.seedPendingKind0Locally());
+      }
 
       // Locked passkey vault (record present, no plaintext key, no bunker):
-      // surface the unlock overlay once on startup. The user can dismiss it
-      // and browse anonymously; the Login button re-opens it. Guarded on the
-      // other restore inputs so an in-flight plaintext/NIP-46 restore doesn't
-      // flash the overlay.
-      if (
-        browser &&
-        !authState.isAuthenticated &&
-        authManager.getVaultStatus?.() === 'locked' &&
-        !localStorage.getItem('nostrcooking_privateKey') &&
-        localStorage.getItem('nostrcooking_authMethod') !== 'nip46'
-      ) {
-        loginOverlayOpen.set(true);
+      // nothing opens by itself. The header shows "Continue as {name}" and
+      // one tap unlocks. Guarded on the other restore inputs so an in-flight
+      // plaintext/NIP-46 restore doesn't flash the chip.
+      if (browser && !authState.isAuthenticated && authManager.getVaultStatus?.() === 'locked') {
+        const lockedInput = {
+          isAuthenticated: false,
+          vaultStatus: 'locked' as const,
+          hasPlaintextKey: !!localStorage.getItem('nostrcooking_privateKey'),
+          vaultUnconfirmed: isVaultUnconfirmed(),
+          isNip46: localStorage.getItem('nostrcooking_authMethod') === 'nip46'
+        };
+        detectSupport().then((support) => {
+          const input = { ...lockedInput, isAuthenticated: authState.isAuthenticated, support };
+          if (shouldOfferContinue(input)) {
+            lockedVaultPubkey.set(getVaultRecord()?.pubkey ?? null);
+          } else if (shouldSignInPastUnconfirmedVault(input)) {
+            // Unconfirmed setup in a browser that can't unlock it: the
+            // plaintext key is still here, so just sign in.
+            void authManager.signInPastUnconfirmedVault();
+          } else if (isStrandedLockedVault(input)) {
+            // Nothing here can unlock it: drop the cached pubkey so the
+            // header offers Sign in / Join free, not an account menu with
+            // no signer behind it.
+            userPublickey.set('');
+          }
+          // Otherwise signed in meanwhile (another tab, a fast restore).
+        });
       }
 
       // Subscribe to auth state changes
       unsubscribe = authManager.subscribe((state: AuthState) => {
         authState = state;
+        syncSignedIn(state);
+        if (state.isAuthenticated) lockedVaultPubkey.set(null);
 
         // Sync with legacy userPublickey store for compatibility
-        if (state.isAuthenticated && state.publicKey) {
+        const isAuthenticatedNow = Boolean(state.isAuthenticated && state.publicKey);
+        if (isAuthenticatedNow) {
           userPublickey.set(state.publicKey);
+          // Synchronously answer "does this account obviously have a
+          // wallet?" so the sidebar card never flashes "Set up a Wallet"
+          // while the deferred restore check / envelope decryption are
+          // still ahead. autoRestoreWalletAtLogin holds the flag through
+          // an actual restore and clears it on every outcome.
+          evaluateWalletSetupState(state.publicKey);
+          // A new account's first profile that no relay accepted yet keeps
+          // retrying in the background across reloads ($lib/pendingKind0).
+          if (localStorage.getItem('zapcooking_pending_kind0')) {
+            void import('$lib/pendingKind0').then((m) => m.startPendingKind0Retry(state.publicKey));
+          }
+          // Upgrade a legacy V1 Spark mnemonic (key = sha256(pubkey), so
+          // readable by anyone with localStorage access) without waiting
+          // for the user to open the wallet. Deferred so it never competes
+          // with first paint; no-ops when there's nothing to migrate.
+          setTimeout(() => void sweepLegacyMnemonic(state.publicKey), 2500);
           // Message subscriptions are lazy — initialized when user navigates to /messages.
           // This avoids flooding browser signers with NIP-44 decrypt requests on login.
-          // Pre-connect pantry relay shortly after login so groups load instantly
-          // when user navigates to /groups (auth signing is only ~35ms, no contention risk)
-          setTimeout(() => preconnectPantry($ndk), 1000);
-          // Prewarm outbox relay list cache so feed loads faster regardless of which page user lands on
-          setTimeout(() => prewarmOutboxCache($ndk, state.publicKey).catch(() => {}), 2000);
+          // The pantry relay (Groups) connects when /groups needs it (nip29
+          // ensurePantryConnected): a pre-connect here opened a socket, sent
+          // REQs the relay refused, and asked NIP-07 signers for an AUTH on
+          // every login. The Following feed's relay lists load when that tab
+          // opens (followOutbox → relayListCache): a login-time prewarm of
+          // every follow's list made NDK's outbox tracker fetch each follow's
+          // kind-3 contact list too — 30 MB on one /feed load.
+          // Logout wipes wallet data by design; put the last-used wallet
+          // back from the user's Nostr backups. Deferred so first paint
+          // and the feed win the relay/signer bandwidth — the restore can
+          // prompt NIP-07 users for one decrypt.
+          setTimeout(() => void autoRestoreWalletAtLogin(state.publicKey), 2500);
         } else {
+          // A settled unauthenticated state must never keep a pubkey around
+          // (locked vault, failed NIP-07 restore): clear it before the
+          // transition guard below.
           userPublickey.set('');
+          // Logout cleanup only on a genuine authenticated → logged-out
+          // transition. Intermediate unauthenticated states (the isLoading
+          // ping while a NIP-07/NIP-46 session restores on refresh) must
+          // NOT run it: wiping the persisted wallets there forced the
+          // Nostr-backup auto-restore — a full wallet rescan and a
+          // "restored" toast — on every single page load.
+          if (!wasAuthenticated) {
+            return;
+          }
           stopMessageSubscription();
           clearMessages();
           clearDecryptCache();
           clearUnwrapCache();
           stopGroupSubscription();
           clearGroups();
+          // Release every note's engagement subscriptions/dedupe sets and
+          // wipe the engagement localStorage cache — the next user must
+          // not inherit any of it.
+          clearAllEngagementCaches();
           disconnectSparkWallet().catch(() => {});
           clearAllWallets();
+          walletSetupCheckPending.set(false);
           clearAllSparkWallets();
         }
 
@@ -398,38 +483,38 @@
             // Defer non-critical settings load to avoid competing with feed for relay bandwidth
             setTimeout(() => loadOneTapZapSettings(), 3000);
           }
+          if (startSectionLoadedForPubkey !== state.publicKey) {
+            startSectionLoadedForPubkey = state.publicKey;
+            // The cookie is written now, not after the defer: it is what
+            // tells `/` this browser belongs to a member (visitors land on
+            // /explore), and a reload inside the 3s window must not lose it.
+            rememberStartSectionAtSignIn();
+            // Same defer: the start-section choice syncs from the account's
+            // NIP-78 record without competing with the feed for relays.
+            setTimeout(() => loadStartSectionSettings(), 3000);
+          }
         } else {
           oneTapZapLoadedForPubkey = '';
+          startSectionLoadedForPubkey = '';
         }
 
-        if (browser) {
-          walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
-        }
-
-        const isOnboardingFlow =
-          $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
-        if (
-          browser &&
-          state.isAuthenticated &&
-          state.publicKey &&
-          !hasWallet &&
-          !isOnboardingFlow
-        ) {
-          if (walletWelcomeForce || !walletWelcomeSeen) {
-            promptWalletSetup();
-            if (walletWelcomeForce) {
-              walletWelcomeForce = false;
-              localStorage.removeItem(WALLET_WELCOME_FORCE_KEY);
-            }
-          }
-        }
+        // The early return above leaves this untouched: intermediate
+        // restore pings are pre-auth, so the next real state still compares
+        // against the last settled one.
+        wasAuthenticated = isAuthenticatedNow;
       });
 
       // Initialize wallet manager to restore saved wallets
       initializeWalletManager();
 
-      // Setup Capacitor deep link listeners
-      setupCapacitorListeners();
+      // Remember the active wallet whenever it changes so the next login
+      // can auto-restore it from the Nostr backups (logout wipes the
+      // wallet data itself; the record holds no secrets).
+      if (browser) {
+        activeWallet.subscribe((wallet) => {
+          if (wallet) rememberActiveWallet(wallet);
+        });
+      }
 
       // Safety timeout: if user never visits the feed (e.g. lands on /recipe/*),
       // ensure notifications and other deferred services still start after 10s
@@ -447,13 +532,6 @@
     }
     if (feedInitialLoadTimeout !== null) {
       clearTimeout(feedInitialLoadTimeout);
-    }
-  });
-
-  onMount(() => {
-    if (browser) {
-      walletWelcomeSeen = localStorage.getItem(WALLET_WELCOME_KEY) === '1';
-      walletWelcomeForce = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
     }
   });
 
@@ -479,29 +557,18 @@
   onMount(() => {
     if (browser) {
       try {
-        indexedDB.deleteDatabase('zapcooking-garden-cache');
+        // Once per browser: the delete of a nonexistent database is a no-op,
+        // but each attempt still opens IndexedDB during app boot.
+        const DONE = 'zc:garden-cache-dropped';
+        if (!localStorage.getItem(DONE)) {
+          indexedDB.deleteDatabase('zapcooking-garden-cache');
+          localStorage.setItem(DONE, '1');
+        }
       } catch {
         // ignore — implicitly retried on the next app load
       }
     }
   });
-
-  // Open the wallet modal automatically once after leaving login/
-  // onboarding when the user has no wallet (e.g. after suggested
-  // follows completes).
-  $: {
-    const onboardingFlow =
-      $page.url.pathname.startsWith('/login') || $page.url.pathname.startsWith('/onboarding');
-    if (browser && !onboardingFlow && authState.isAuthenticated && !hasWallet) {
-      const forceFlag = localStorage.getItem(WALLET_WELCOME_FORCE_KEY) === '1';
-      if (forceFlag || !walletWelcomeSeen) {
-        promptWalletSetup();
-        if (forceFlag) {
-          localStorage.removeItem(WALLET_WELCOME_FORCE_KEY);
-        }
-      }
-    }
-  }
 
   // When the tab returns from background (hidden ≥1s), refresh the
   // most-recently-touched engagement counts. batchFetchEngagement has its
@@ -540,37 +607,58 @@
   {/if}
 </svelte:head>
 
+{#if landing}
+  <slot />
+{:else}
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
   <div
     class="h-screen scroll-smooth overflow-hidden transition-colors duration-200 safe-area-container"
   >
-    <OfflineIndicator />
+    {#if !kitchenMode}<OfflineIndicator />{/if}
     <div class="flex flex-col h-full overflow-hidden">
       {#if $feedInitialLoadDone}
         <NotificationSubscriber />
       {/if}
       <!-- Fixed sidebar -->
-      <DesktopSideNav />
-      <!-- Header with blur. Fixed to the viewport (not sticky inside the
+      {#if !kitchenMode}
+        <DesktopSideNav />
+        <!-- Header with blur. Fixed to the viewport (not sticky inside the
            scroll container) so it stays put while the page content scrolls
            and rubber-band-bounces behind it. -->
-      <div class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4">
-        <Header />
-        <!-- Decorative connector (desktop): a vertical line just left of
+        <div
+          class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
+          on:click|self={scrollToTop}
+        >
+          <Header />
+          <!-- Decorative connector (desktop): a vertical line just left of
              the search box that curves into the header's bottom divider. -->
-        <span class="header-pipe" aria-hidden="true"></span>
-      </div>
+          <span class="header-pipe" aria-hidden="true"></span>
+        </div>
+        <!-- Soft separator (desktop): the pipe's vertical line continues
+             below the header as a dashed hairline, quieting the divide
+             between the sidebar and the content without introducing a
+             second surface color. -->
+        <span class="sidebar-separator" aria-hidden="true"></span>
+      {/if}
       <!-- Full-page scroll container: clip horizontal overflow to prevent Safari horizontal scroll/gap.
            Top padding clears the fixed header via the CSS-deterministic
            --header-h (defined in app.css); the same var lets sticky
            sub-headers sit directly below it. -->
       <div
         id="app-scroll"
-        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden lg:ml-[calc(14rem_+_5px)] xl:ml-[calc(20rem_+_5px)]"
-        style="background-color: var(--color-bg-primary); padding-top: var(--header-h);"
+        class:kitchen-scroll={kitchenMode}
+        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden {kitchenMode
+          ? ''
+          : 'lg:ml-[calc(14rem_+_5px)] xl:ml-[calc(20rem_+_5px)]'}"
+        style="background-color: var(--color-bg-primary); padding-top: {kitchenMode
+          ? '0px'
+          : 'var(--header-h)'};"
       >
         <div
-          class="px-4 lg:pl-[26px] min-w-0 max-w-full flex flex-col min-h-full {$page.url.pathname.startsWith('/messages') ||
+          class="{kitchenMode
+            ? ''
+            : 'px-4 pt-3 lg:pl-[26px]'} min-w-0 max-w-full flex flex-col min-h-full {kitchenMode ||
+          $page.url.pathname.startsWith('/messages') ||
           $page.url.pathname.startsWith('/groups')
             ? ''
             : 'pb-16 lg:pb-8'}"
@@ -580,29 +668,50 @@
           <div class="flex-1 min-w-0 max-w-full">
             <slot />
           </div>
-          {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
+          {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
             <Footer />
           {/if}
         </div>
       </div>
-      {#if !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$postComposerOpen}
+      <!-- Floating controls yield to a page-owned bottom bar (see
+           $lib/stores/bottomDock) so nothing overlaps it. -->
+      {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$postComposerOpen && !$bottomDockOccupied}
         <CreateMenuButton variant="floating" />
       {/if}
-      <BottomNav />
-      <CookingToolsWidget />
-      {#if showCheffy}
-        <!-- Hide the floating Cheffy launcher while the composer is open so
-             it doesn't float over the inset composer panel. -->
-        {#if !$postComposerOpen}
-          <CheffyLauncher />
-        {/if}
-        <CheffyMessenger />
+      {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups') && !$bottomDockOccupied}
+        <ScrollToTopButton />
+      {/if}
+      {#if !kitchenMode}<BottomNav />
+        <CookingToolsWidget />{/if}
+      {#if showCheffy && $cheffyMessengerLoader.component}
+        <!-- The floating launcher was retired (A2); Cheffy opens from the
+             header Intelligence menu's "Ask Cheffy" item. The messenger
+             stays gated here and on /explore's own entry points. -->
+        <svelte:component this={$cheffyMessengerLoader.component} />
+      {:else if $cheffyMessengerRequested && $cheffyMessengerLoader.status === 'failed'}
+        <LazyLoadErrorDialog
+          title="Couldn't load Cheffy"
+          message="The Cheffy messenger didn't download. Check your connection and try again. Your conversation so far is kept. If this keeps happening, reload the page."
+          error={$cheffyMessengerLoader.error}
+          onRetry={cheffyMessengerLoader.retry}
+          onClose={closeCheffy}
+        />
       {/if}
       <MobileNavDrawer />
       <UserSidePanel />
       <MobileSearchOverlay />
+      <ProfilePreviewModal />
       <PostModal bind:open={$postComposerOpen} />
-      <LongformEditorModal />
+      <DraftDock />
+      {#if $longformEditorLoader.component}
+        <svelte:component this={$longformEditorLoader.component} />
+      {:else if $longformEditorOpen && $longformEditorLoader.status === 'failed'}
+        <LongformEditorLoadError
+          error={$longformEditorLoader.error}
+          onRetry={longformEditorLoader.retry}
+          onClose={closeEditor}
+        />
+      {/if}
       <WalletModal />
       {#if $loginOverlayOpen}
         <LoginOverlay />
@@ -610,13 +719,25 @@
       {#if PASSKEY_ENROLL_PROMPT_ENABLED && authManager}
         <PasskeyEnrollPrompt />
       {/if}
+      {#if !kitchenMode}
+        <CookPlusDiscoveryModal membershipEnabled={data.membershipEnabled === 'true'} />
+        <CookPlusPromoBar membershipEnabled={data.membershipEnabled === 'true'} />
+      {/if}
       <ToastContainer />
       <PendingIndicator />
+      <MiningIndicator />
     </div>
   </div>
 </ErrorBoundary>
+{/if}
 
 <style>
+  .kitchen-scroll {
+    scrollbar-width: none;
+  }
+  .kitchen-scroll::-webkit-scrollbar {
+    display: none;
+  }
   /* Safe area support for Android/iOS edge-to-edge displays */
   .safe-area-container {
     padding-left: env(safe-area-inset-left, 0px);
@@ -718,6 +839,40 @@
     :global(.dark) .header-pipe {
       border-left-color: rgba(255, 255, 255, 0.06);
       border-bottom-color: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  /* Soft separator between the sidebar and the content: a dotted
+     hairline in the gutter at the sidebar's edge, starting level with
+     the top of the "Feed" nav item so it stays clear of the search box
+     above. Dotted (not solid) so it reads as a quiet divider on the
+     shared canvas rather than a hard pane edge. */
+  .sidebar-separator {
+    display: none;
+  }
+  @media (min-width: 1024px) {
+    .sidebar-separator {
+      display: block;
+      position: fixed;
+      /* Sidebar: p-3 + logo row (--header-row-h) + nav mt-3 + unlabeled
+         Home-group spacer — lands the line at the Feed row's top edge
+         (100px). */
+      top: 100px;
+      bottom: 0;
+      left: calc(14rem + 2px); /* gutter between sidebar and content */
+      /* Dots carry ~half the ink of a solid line, so run the alpha
+         ~2x the pipe's to land at the same perceived weight. */
+      border-left: 1px dotted color-mix(in srgb, var(--color-input-border) 100%, transparent);
+      pointer-events: none;
+      z-index: 20;
+    }
+    :global(.dark) .sidebar-separator {
+      border-left-color: rgba(255, 255, 255, 0.12);
+    }
+  }
+  @media (min-width: 1280px) {
+    .sidebar-separator {
+      left: calc(20rem + 2px);
     }
   }
 </style>

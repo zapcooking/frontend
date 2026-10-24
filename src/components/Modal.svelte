@@ -28,12 +28,30 @@
   export let maxWidth: string | null = null;
   export let autoHeight = false;
   export let fullScreenMobile = false;
+  // Pin the close button 8px from the dialog's top-right corner
+  // (wallet-modal margins) instead of inlining it in the header row —
+  // for small dialogs where a 44px row button crowds the corner.
+  export let floatingClose = false;
+  // While true the dialog stays open but stops handling Escape and Tab.
+  // For a parent that stacks a second overlay (a lightbox portaled to
+  // body) on top of this one: without this, Tab is pulled back into the
+  // dialog and Escape closes both layers at once.
+  export let suspended = false;
 
   // Portal target - render at document body level. Initialized
   // synchronously when document is available so the dialog can mount
   // on the same tick the parent flips `open` to true; otherwise the
   // initial-focus pass below would race the dialog's bind:this.
   let portalTarget: HTMLElement | null = typeof document !== 'undefined' ? document.body : null;
+
+  // Svelte transitions ignore the OS reduced-motion setting on their own.
+  // Read it once at init: a zero duration keeps the enter/exit lifecycle
+  // (and the focus handling that hangs off it) identical, just instant.
+  const reduceMotion =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const transitionMs = reduceMotion ? 0 : 250;
   let dialogEl: HTMLDialogElement | null = null;
   let previousActiveElement: HTMLElement | null = null;
   let lastOpen = false;
@@ -62,7 +80,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (!open) return;
+    if (!open || suspended) return;
     if (e.key === 'Escape') {
       close();
       return;
@@ -146,13 +164,13 @@
     <div
       on:click|self={close}
       role="presentation"
-      transition:blur={{ duration: 250 }}
+      transition:blur={{ duration: transitionMs }}
       class="fixed top-0 left-0 z-[10000] w-full h-full backdrop-brightness-50 backdrop-blur"
     >
       <dialog
         bind:this={dialogEl}
         tabindex="-1"
-        transition:scale={{ duration: 250 }}
+        transition:scale={{ duration: transitionMs }}
         aria-labelledby="title"
         aria-modal="true"
         class={`absolute m-0 px-4 md:px-8 pt-6 pb-8 flex flex-col md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-3xl md:w-[calc(100vw-4em)] md:min-h-0 md:max-h-[90dvh] ${fullScreenMobile ? 'fullscreen-dialog-mobile' : 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-3xl w-[calc(100%-2rem)] min-h-[50vh] max-h-[85dvh]'}`}
@@ -174,15 +192,29 @@
               >
                 <slot id="title" name="title" />
               </h2>
-              <button
-                class="self-center cursor-pointer flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2"
-                style="color: var(--color-text-primary)"
-                aria-label="Close"
-                on:click={close}
-              >
-                <CloseIcon size={24} />
-              </button>
+              {#if !floatingClose}
+                <button
+                  class="self-center cursor-pointer flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2"
+                  style="color: var(--color-text-primary)"
+                  aria-label="Close"
+                  on:click={close}
+                >
+                  <CloseIcon size={24} />
+                </button>
+              {/if}
             </div>
+          {/if}
+          {#if floatingClose}
+            <!-- Wallet-style floating close: pinned 8px from the dialog's
+                 top-right corner, above content. -->
+            <button
+              class="floating-close cursor-pointer flex items-center justify-center w-11 h-11"
+              style="color: var(--color-text-primary)"
+              aria-label="Close"
+              on:click={close}
+            >
+              <CloseIcon size={24} />
+            </button>
           {/if}
           <slot />
         </div>
@@ -205,6 +237,23 @@
         padding-left: 1.5rem;
         padding-right: 1.5rem;
       }
+    }
+    /* Floating close (floatingClose) — wallet-modal margins: pinned
+       8px from the dialog's top-right corner, transparent with a
+       subtle hover tint so it can hover over content. The dialog is
+       the positioned ancestor. */
+    .floating-close {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      z-index: 100;
+      background-color: transparent;
+      border: none;
+      border-radius: 9999px;
+      transition: background-color 0.15s ease-out;
+    }
+    .floating-close:hover {
+      background-color: rgba(255, 255, 255, 0.06);
     }
   </style>
 {/if}

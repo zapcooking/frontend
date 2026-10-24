@@ -8,13 +8,18 @@
  */
 
 import { browser } from '$app/environment';
+import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import {
   hasEncryptionSupport as _hasEncryptionSupport,
   getBestEncryptionMethod,
   encrypt,
   decrypt,
+  decryptWithSource,
+  noteLegacyMigration,
   detectEncryptionMethod,
-  canCreateNostrBackup,
+  getNostrBackupBlocker,
+  describeNostrBackupBlocker,
+  canDecryptSilently,
   type EncryptionMethod
 } from '$lib/encryptionService';
 
@@ -53,24 +58,18 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
     throw new Error('No NWC connection string provided');
   }
 
-  // Check encryption support
-  if (!hasEncryptionSupport()) {
+  // Block sessions that can't encrypt to the user's real key, with a
+  // session-specific reason (this also covers a missing local key or an
+  // extension without encryption). Some NIP-46 remote signers may encrypt
+  // under their session/auth key rather than the user's real identity key,
+  // producing ciphertext that no future session can decrypt. Since we
+  // can't reliably tell which remote signers behave this way, the
+  // conservative default is to allow new backups only from nsec / passkey
+  // / NIP-07 users.
+  const backupBlocker = getNostrBackupBlocker();
+  if (backupBlocker) {
     throw new Error(
-      'No encryption method available. Encryption is supported when logged in with a private key (nsec) or a NIP-07 browser extension.'
-    );
-  }
-
-  // Block NIP-46 remote signers from creating Nostr-relay backups.
-  // Some NIP-46 remote signers may encrypt under their session/auth
-  // key rather than the user's real identity key, producing ciphertext
-  // that no future session can decrypt. Since we can't reliably tell
-  // which remote signers behave this way, the conservative default is
-  // to allow new backups only from nsec / NIP-07 users.
-  if (!canCreateNostrBackup()) {
-    throw new Error(
-      'Nostr-relay backup is unavailable when using a remote signer (NIP-46). ' +
-        'Save your NWC connection string manually, or sign in with a private key (nsec) ' +
-        'or a NIP-07 browser extension to enable cloud backup.'
+      describeNostrBackupBlocker(backupBlocker, 'Save your NWC connection string manually')
     );
   }
 
@@ -145,9 +144,26 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
   };
   console.log('[NWC Restore] Fetching with filter:', JSON.stringify(filter));
 
-  // Fetch with timeout
+  // Fetch with a hard deadline. ndkReady resolves even when every relay
+  // failed to connect, and fetchEvents then waits for EOSE from relays
+  // that may never connect — without a race the promise never settles and
+  // the restore button spins forever with no error.
+  const FETCH_TIMEOUT_MS = 10000;
   const fetchStart = Date.now();
-  const events = await ndkInstance.fetchEvents(filter, { closeOnEose: true });
+  const events = await Promise.race([
+    ndkInstance.fetchEvents(filter, { closeOnEose: true }),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              'Nostr relays did not respond in time. Check your connection and try again.'
+            )
+          ),
+        FETCH_TIMEOUT_MS
+      )
+    )
+  ]);
   console.log(
     '[NWC Restore] Fetch completed in',
     Date.now() - fetchStart,
@@ -205,8 +221,8 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
   console.log('[NWC Restore] Starting decryption with', encryptionMethod, '...');
   const decryptStart = Date.now();
 
-  const connectionString = await withTimeout(
-    decrypt(pubkey, latestEvent.content, encryptionMethod),
+  const { plaintext: connectionString, source } = await withTimeout(
+    decryptWithSource(pubkey, latestEvent.content, encryptionMethod, { legacy: 'prompt' }),
     DECRYPT_TIMEOUT,
     'Decryption timed out. Please approve the request in your signer app.'
   );
@@ -229,8 +245,103 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
     throw new Error('Decrypted data does not appear to be a valid NWC connection string.');
   }
 
+  // Encrypted under a legacy key (#897): republish under the session key
+  // through the normal guarded path. Best effort — the restore stands
+  // either way, and a blocked session (NIP-46) keeps the old backup.
+  if (source !== 'session') {
+    try {
+      await backupNwcToNostr(pubkey, connectionString);
+      noteLegacyMigration('NWC backup', source);
+    } catch (e) {
+      console.warn('[NWC Restore] Legacy-encrypted backup not migrated:', (e as Error)?.message);
+    }
+  }
+
   console.log('[NWC Restore] Successfully restored NWC connection from Nostr backup');
   return connectionString;
+}
+
+/**
+ * Check whether THIS connection string is the one held in the user's NWC
+ * Nostr backup (the backup is a single replaceable event, so it can hold
+ * at most one connection).
+ *
+ * Returns false when no backup exists (EOSE from the relays settles this
+ * fast). When a backup exists, an exact comparison is only possible
+ * without a signer prompt for local-key sessions (nsec / passkey vault) —
+ * for NIP-07 sessions this returns null ("unknown") instead of popping
+ * the extension's decrypt dialog, and callers should treat null as
+ * "assume backed up" rather than nag. Unreachable relays also return
+ * null, so a flaky network never produces a false "missing".
+ */
+export async function isNwcConnectionBackedUp(
+  pubkey: string,
+  connectionUrl: string
+): Promise<boolean | null> {
+  if (!browser) return null;
+
+  const { ndk, ndkReady } = await import('$lib/nostr');
+  const { get } = await import('svelte/store');
+
+  await ndkReady;
+  const ndkInstance = get(ndk);
+
+  const filter = {
+    kinds: [NWC_BACKUP_EVENT_KIND],
+    authors: [pubkey],
+    '#d': [NWC_BACKUP_D_TAG]
+  };
+
+  // Live subscription: resolve on the first matching event, on EOSE
+  // (every relay that got the REQ has answered — a fast, definite "no
+  // backup" instead of burning the deadline), or on the deadline, which
+  // means the relays were unreachable — "unknown", not "missing", so a
+  // flaky network never triggers a false callout.
+  const backupEvent = await new Promise<NDKEvent | null | 'deadline'>((resolve) => {
+    const sub = ndkInstance.subscribe(filter, { closeOnEose: false });
+    let settled = false;
+    const timer = setTimeout(() => finish('deadline'), 10000);
+    const finish = (value: NDKEvent | null | 'deadline') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      sub.stop();
+      resolve(value);
+    };
+
+    sub.on('event', (event: NDKEvent) => {
+      // Ignore delete markers (empty replacements published to overwrite
+      // a backup).
+      if (!event.content) return;
+      finish(event);
+    });
+
+    sub.on('eose', () => finish(null));
+  });
+
+  if (backupEvent === 'deadline') return null;
+  if (!backupEvent) return false;
+
+  if (!canDecryptSilently()) return null;
+
+  try {
+    const encryptionTag = backupEvent.tags?.find((t: string[]) => t[0] === 'encryption');
+    let encryptionMethod: EncryptionMethod;
+    if (encryptionTag?.[1] === 'nip04' || encryptionTag?.[1] === 'nip44') {
+      encryptionMethod = encryptionTag[1] as EncryptionMethod;
+    } else {
+      encryptionMethod = detectEncryptionMethod(backupEvent.content);
+    }
+
+    const backedUpString = await decrypt(
+      pubkey,
+      backupEvent.content as string,
+      encryptionMethod
+    );
+    return backedUpString?.trim() === connectionUrl.trim();
+  } catch {
+    return null;
+  }
 }
 
 export async function hasNwcBackupInNostr(pubkey: string): Promise<boolean> {
@@ -293,7 +404,13 @@ export async function hasNwcBackupOnNostr(pubkey: string): Promise<boolean> {
       '#d': [NWC_BACKUP_D_TAG]
     };
 
-    const events = await ndkInstance.fetchEvents(filter, { closeOnEose: true });
+    // Same deadline as the restore path — an unbounded fetchEvents can hang
+    // forever when a relay never connects, and a try/catch cannot rescue a
+    // promise that never settles.
+    const events = await Promise.race([
+      ndkInstance.fetchEvents(filter, { closeOnEose: true }),
+      new Promise<Set<NDKEvent>>((resolve) => setTimeout(() => resolve(new Set()), 10000))
+    ]);
     return events && events.size > 0;
   } catch (e) {
     console.error('[NWC Backup] Error checking for backup:', e);

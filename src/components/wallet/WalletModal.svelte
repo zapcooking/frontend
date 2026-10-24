@@ -1,7 +1,12 @@
 <script lang="ts">
   import Modal from '../Modal.svelte';
   import WalletPanel from './WalletPanel.svelte';
-  import { walletModalOpen, closeWallet } from '$lib/wallet/walletModalStore';
+  import {
+    walletModalOpen,
+    walletModalElevated,
+    walletModalSuspended,
+    closeWallet
+  } from '$lib/wallet/walletModalStore';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled } from '$lib/wallet/bitcoinConnect';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
@@ -20,8 +25,18 @@
   });
 </script>
 
-<Modal bind:open={$walletModalOpen} cleanup={closeWallet} compact noHeader>
-  <div class="wallet-modal-body" class:wallet-modal-body--external={externalWallet}>
+<Modal
+  bind:open={$walletModalOpen}
+  cleanup={closeWallet}
+  compact
+  noHeader
+  suspended={$walletModalSuspended}
+>
+  <div
+    class="wallet-modal-body"
+    class:wallet-modal-body--external={externalWallet}
+    class:wallet-modal-body--elevated={$walletModalElevated}
+  >
     <!-- Floating close button (desktop only). On mobile the panel is
          framed between the header and bottom-nav strips and is dismissed
          by tapping outside it, so the close button is hidden there. -->
@@ -282,6 +297,18 @@
        framed by the nav strips (tap outside to dismiss) — hide it. */
     .wallet-close-btn {
       display: none;
+    }
+
+    /* Opened from the zap sheet, which may sit inside another dialog
+       (z-index 10000, e.g. SharePackModal): stack above it rather than at
+       z-index 20, where the picker would be hidden. The nav strips are
+       then under the backdrop, so bring the close button back as the
+       dismiss control (tapping the backdrop above or below also closes). */
+    :global(div:has(> dialog .wallet-modal-body--elevated)) {
+      z-index: 10001 !important;
+    }
+    .wallet-modal-body--elevated .wallet-close-btn {
+      display: flex;
     }
 
     /* Content fills the inset panel edge-to-edge — no reserved header

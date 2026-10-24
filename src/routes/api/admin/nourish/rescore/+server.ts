@@ -37,6 +37,9 @@
  *     scores: NourishScores,
  *     improvements: string[],
  *     ingredient_signals: IngredientSignal[],
+ *     audience_scores?: AudienceScores,
+ *     macros?: NourishMacros,          // v4 — omitted when degraded
+ *     labels: NourishLabel[],          // v4 — may be empty
  *     promptVersion: string,
  *     contentHash: string,
  *     createdAt: number,
@@ -150,10 +153,13 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				{ status: pipelineResult.status }
 			);
 		}
-		const { scores, improvements, ingredientSignals, audienceScores } = pipelineResult;
+		const { scores, improvements, ingredientSignals, audienceScores, macros, labels } =
+			pipelineResult;
 
 		// Publish the new pantry event with the `updated_at` tag that
-		// drives the 24h "Updated" badge on the client.
+		// drives the 24h "Updated" badge on the client. Macros + labels
+		// ride the same event (Phase 2) — shared engine is not enough;
+		// this endpoint must pass them through explicitly.
 		const NOTIFICATION_PRIVATE_KEY =
 			(platform?.env as any)?.NOTIFICATION_PRIVATE_KEY || env.NOTIFICATION_PRIVATE_KEY;
 		if (!NOTIFICATION_PRIVATE_KEY) {
@@ -176,10 +182,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				improvements,
 				ingredientSignals,
 				audienceScores,
+				macros,
+				labels,
 				updatedAt
 			});
 			console.log(
-				`[Nourish Rescore] publish ${published ? 'succeeded' : 'failed'} for ${recipeDTag.trim()}`
+				`[Nourish Rescore] publish ${published ? 'succeeded' : 'failed'} for ${recipeDTag.trim()} macros=${macros ? 'yes' : 'omitted'} labels=${labels.length}`
 			);
 		} catch (err) {
 			console.error('[Nourish Rescore] publish error:', err);
@@ -203,6 +211,8 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			improvements,
 			ingredient_signals: ingredientSignals,
 			audience_scores: audienceScores,
+			...(macros ? { macros } : {}),
+			labels,
 			promptVersion: NOURISH_PROMPT_VERSION,
 			contentHash: contentHash.trim(),
 			createdAt: updatedAt,

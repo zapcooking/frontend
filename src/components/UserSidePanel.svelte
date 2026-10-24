@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fly, slide } from 'svelte/transition';
+  import { fly } from 'svelte/transition';
   import { goto, afterNavigate } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import { onMount, onDestroy } from 'svelte';
@@ -8,40 +8,23 @@
   // Icons
   import XIcon from 'phosphor-svelte/lib/X';
   import UserIcon from 'phosphor-svelte/lib/User';
-  import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
-  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
-  import TimerIcon from 'phosphor-svelte/lib/Timer';
-  import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
-  import ShoppingCartIcon from 'phosphor-svelte/lib/ShoppingCart';
-  import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
-  import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
+  import { NDKRelayStatus } from '@nostr-dev-kit/ndk';
   import CheffyIcon from './icons/CheffyIcon.svelte';
   import SunIcon from 'phosphor-svelte/lib/Sun';
   import MoonIcon from 'phosphor-svelte/lib/Moon';
   import GearIcon from 'phosphor-svelte/lib/Gear';
   import SignOutIcon from 'phosphor-svelte/lib/SignOut';
-  import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import FlameIcon from 'phosphor-svelte/lib/Flame';
-  import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
-  import LightningIcon from 'phosphor-svelte/lib/Lightning';
-  import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
-  import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
-  import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
-  import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
-  import LeafIcon from 'phosphor-svelte/lib/Leaf';
 
   // Components and stores
   import CustomAvatar from './CustomAvatar.svelte';
   import { theme } from '$lib/themeStore';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { getAuthManager } from '$lib/authManager';
-  import { profileCacheManager } from '$lib/profileCache';
+  import { profileFor, authorLabel } from '$lib/profileStore';
+  import NameLabel from './NameLabel.svelte';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
-  import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
-  import { walletConnected } from '$lib/wallet/walletStore';
-  import { openWallet, type WalletView } from '$lib/wallet/walletModalStore';
-  import { weblnConnected } from '$lib/wallet/webln';
 
   // Use the store for open state
   $: open = $userSidePanelOpen;
@@ -51,9 +34,10 @@
   let touchCurrentX = 0;
   let isSwiping = false;
 
-  // Profile display name
-  let displayName = '';
-  let lastPubkey = '';
+  // Profile display name ($lib/profileStore: skeleton while it resolves,
+  // updates live — e.g. right after the user edits their profile).
+  $: nameState = $userPublickey ? profileFor($userPublickey) : null;
+  $: nameLabel = authorLabel($userPublickey, nameState ? $nameState : null);
 
   // Feature flag: Set to true to show Pro features in the menu
   const SHOW_PRO_FEATURES = false;
@@ -62,43 +46,33 @@
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
 
-  // Load profile when pubkey changes
-  $: if ($userPublickey && $userPublickey !== lastPubkey) {
-    lastPubkey = $userPublickey;
-    loadDisplayName($userPublickey);
-  }
+  // Connection status — modeled on mutable/ghostr: a two-line block
+  // naming how the session signs, then the live relay count with the
+  // green connection dot.
+  import { ndk } from '$lib/nostr';
+  import type { AuthState } from '$lib/authManager';
+  let authMethod: AuthState['authMethod'] | null = null;
+  let connectionLine: string | null = null;
+  let connectedRelays = 0;
+  const methodLines: Record<string, string> = {
+    nip07: 'Extension connected',
+    nip46: 'Remote signer connected',
+    passkey: 'Passkey connected',
+    privateKey: 'Signing with private key'
+  };
 
-  async function loadDisplayName(pubkey: string) {
-    if (!pubkey) {
-      displayName = '';
-      return;
-    }
+  // Re-read on every open: the auth manager and relay pool are created
+  // asynchronously after NDK init, so neither is guaranteed at mount.
+  $: if (open) refreshConnectionStatus();
 
-    // Start with truncated npub as fallback
-    displayName = nip19.npubEncode(pubkey).slice(0, 12) + '...';
-
-    try {
-      // Try cache first
-      const cachedUser = profileCacheManager.getCachedProfile(pubkey);
-      if (cachedUser?.profile) {
-        const name = cachedUser.profile.displayName || cachedUser.profile.name;
-        if (name) {
-          displayName = name;
-          return;
-        }
-      }
-
-      // Fetch from relays
-      const user = await profileCacheManager.getProfile(pubkey);
-      if (user?.profile) {
-        const name = user.profile.displayName || user.profile.name;
-        if (name) {
-          displayName = name;
-        }
-      }
-    } catch (e) {
-      console.warn('[UserSidePanel] Failed to load display name:', e);
-    }
+  function refreshConnectionStatus() {
+    const am = getAuthManager();
+    authMethod = am?.getState().authMethod ?? null;
+    connectionLine = (authMethod && methodLines[authMethod]) || null;
+    const relays = $ndk?.pool?.relays;
+    connectedRelays = relays
+      ? [...relays.values()].filter((r) => r.status >= NDKRelayStatus.CONNECTED).length
+      : 0;
   }
 
   function close() {
@@ -127,30 +101,6 @@
   function navigate(path: string) {
     close();
     goto(path);
-  }
-
-  function openWalletPanel(view: WalletView = 'main') {
-    close();
-    openWallet(view);
-  }
-
-  // Gadgets (cooking tools) expandable section
-  let gadgetsExpanded = false;
-
-  function openTimerWidget() {
-    cookingToolsStore.open('timer');
-    close();
-  }
-
-  function openConverterWidget() {
-    cookingToolsStore.open('converter');
-    close();
-  }
-
-  function toggleGadgets(e: Event) {
-    e.preventDefault();
-    e.stopPropagation();
-    gadgetsExpanded = !gadgetsExpanded;
   }
 
   function toggleTheme(e: Event) {
@@ -253,7 +203,7 @@
         >
           <CustomAvatar pubkey={$userPublickey} size={48} imageUrl={$userProfilePictureOverride} className="flex-shrink-0" />
           <span class="font-semibold text-base truncate min-w-0" style="color: var(--color-text-primary);">
-            {displayName}
+            <NameLabel label={nameLabel} />
           </span>
         </button>
         <button
@@ -268,15 +218,10 @@
     </div>
 
     <!-- Main navigation section - scrollable -->
-    <nav class="flex-1 overflow-y-auto p-4">
-      <!-- Section: My Kitchen -->
+    <nav class="min-h-0 flex-1 overflow-y-auto p-4">
+      <!-- The panel holds only account surfaces now, so the group runs
+           unlabeled; the panel is a pure account surface. -->
       <div class="mb-1">
-        <h3
-          class="px-4 py-2 font-semibold uppercase tracking-wider"
-          style="color: var(--color-caption); font-size: 14px;"
-        >
-          My Kitchen
-        </h3>
         <ul class="flex flex-col gap-1">
           <li>
             <button
@@ -286,133 +231,6 @@
             >
               <UserIcon size={22} />
               <span class="font-medium">Profile</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/messages')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <EnvelopeSimpleIcon size={22} />
-              <span class="font-medium">Messages</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/reads')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <NewspaperIcon size={22} />
-              <span class="font-medium">Reads</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/cookbook')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <CookbookIcon size={22} />
-              <span class="font-medium">Cookbook</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/grocery')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <ShoppingCartIcon size={22} />
-              <span class="font-medium">Grocery Lists</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate(`/user/${nip19.npubEncode($userPublickey)}?tab=drafts`)}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <FloppyDiskIcon size={22} />
-              <span class="font-medium">Drafts</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => openWalletPanel()}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <WalletIcon size={22} />
-              <span class="font-medium">Wallet</span>
-              {#if !$walletConnected && !$weblnConnected}
-                <span class="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary"
-                  >Connect</span
-                >
-              {/if}
-            </button>
-          </li>
-          <!-- Gadgets (cooking tools) — expandable -->
-          <li>
-            <button
-              on:click={toggleGadgets}
-              class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-              aria-expanded={gadgetsExpanded}
-            >
-              <div class="flex items-center gap-4">
-                <MeasuringCupIcon size={22} />
-                <span class="font-medium">Gadgets</span>
-              </div>
-              <CaretDownIcon
-                size={18}
-                class="transition-transform duration-200 {gadgetsExpanded ? 'rotate-180' : ''}"
-              />
-            </button>
-            {#if gadgetsExpanded}
-              <ul class="flex flex-col gap-1 mt-1 ml-4" transition:slide={{ duration: 200 }}>
-                <li>
-                  <button
-                    on:click={openTimerWidget}
-                    class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                    style="color: var(--color-text-primary);"
-                  >
-                    <TimerIcon size={20} />
-                    <span class="font-medium">Timer</span>
-                  </button>
-                </li>
-                <li>
-                  <button
-                    on:click={openConverterWidget}
-                    class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                    style="color: var(--color-text-primary);"
-                  >
-                    <CalculatorIcon size={20} />
-                    <span class="font-medium">Unit Converter</span>
-                  </button>
-                </li>
-              </ul>
-            {/if}
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/sponsors')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <HandshakeIcon size={22} />
-              <span class="font-medium">Sponsors</span>
-            </button>
-          </li>
-          <li>
-            <button
-              on:click={() => navigate('/nourish')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <LeafIcon size={22} />
-              <span class="font-medium">Nourish</span>
             </button>
           </li>
           {#if SHOW_PRO_FEATURES}
@@ -444,44 +262,7 @@
                 >
               </button>
             </li>
-            <li>
-              <button
-                on:click={() => navigate('/premium')}
-                class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-                style="color: var(--color-text-primary);"
-              >
-                <LightningIcon size={22} weight="fill" class="text-amber-500" />
-                <span class="font-medium">Premium Recipes</span>
-                <span
-                  class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium"
-                  >Pro</span
-                >
-              </button>
-            </li>
           {/if}
-        </ul>
-      </div>
-
-
-      <!-- Section: Community Relays -->
-      <div class="mb-4">
-        <h3
-          class="px-4 py-2 font-semibold uppercase tracking-wider"
-          style="color: var(--color-caption); font-size: 14px;"
-        >
-          Community Relays
-        </h3>
-        <ul class="flex flex-col gap-1">
-          <li>
-            <button
-              on:click={() => navigate('/pantry')}
-              class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-              style="color: var(--color-text-primary);"
-            >
-              <StorefrontIcon size={22} />
-              <span class="font-medium">The Pantry</span>
-            </button>
-          </li>
         </ul>
       </div>
     </nav>
@@ -528,16 +309,21 @@
             <span class="font-medium">Settings</span>
           </button>
         </li>
-        <li>
-          <button
-            on:click={() => navigate('/membership')}
-            class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
-            style="color: var(--color-text-primary);"
-          >
-            <CrownSimpleIcon size={22} weight="fill" class="text-primary" />
-            <span class="font-medium">Membership</span>
-          </button>
-        </li>
+        {#if authMethod && connectionLine}
+          <li>
+            <div class="px-4 py-3 text-sm" style="color: var(--color-caption);">
+              <div class="mb-1.5">{connectionLine}</div>
+              <div class="flex items-center gap-2">
+                <span
+                  class="connection-dot"
+                  class:connection-dot--off={connectedRelays === 0}
+                  aria-hidden="true"
+                ></span>
+                <span>{connectedRelays} {connectedRelays === 1 ? 'relay' : 'relays'}</span>
+              </div>
+            </div>
+          </li>
+        {/if}
       </ul>
       <hr class="mt-4 mb-4 -mx-4" style="border-color: var(--color-input-border);" />
       <ul class="flex flex-col gap-1">
@@ -569,19 +355,44 @@
     -webkit-backdrop-filter: blur(4px);
   }
 
-  /* Side panel - above backdrop */
+  /* Side panel — frosted glass like the header, sized to its content.
+     The thinned-out menu (sidebar duplicates removed) no longer earns a
+     full-height shell, so the panel hugs the menu and the footer follows
+     it instead of pinning to the viewport bottom across a dead zone. */
   .user-panel-aside {
     position: fixed;
     top: 0;
     right: 0;
-    bottom: 0;
     z-index: 9999;
     width: 100%;
     max-width: 20rem;
+    max-height: 100dvh;
     display: flex;
     flex-direction: column;
-    background-color: var(--color-bg-secondary);
-    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+    /* Semi-translucent: the backdrop's blurred page shows through. */
+    background-color: color-mix(in srgb, var(--color-bg-secondary) 72%, transparent);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    border-left: 1px solid color-mix(in srgb, var(--color-input-border) 60%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-input-border) 60%, transparent);
+    border-bottom-left-radius: 16px;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.25);
+  }
+
+  /* Live connection dot — green while relays are connected, muted when
+     none. */
+  .connection-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    flex-shrink: 0;
+    background: #22c55e;
+    box-shadow: 0 0 6px rgba(34, 197, 94, 0.55);
+  }
+  .connection-dot--off {
+    background: var(--color-caption);
+    box-shadow: none;
+    opacity: 0.6;
   }
 
   @media (min-width: 640px) {

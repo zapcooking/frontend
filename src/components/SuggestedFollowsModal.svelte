@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { updateFollows, followErrorMessage } from '$lib/followUpdate';
+  import { showToast } from '$lib/toast';
   import { nip19 } from 'nostr-tools';
   import { ndk, ensureNdkConnected } from '$lib/nostr';
   import { profileCacheManager } from '$lib/profileCache';
@@ -170,64 +171,46 @@
     publishing = true;
 
     try {
-      // Fetch existing contact list to preserve relay config and existing follows
-      const activePubkey = $ndk?.activeUser?.pubkey;
-      let existingContent = '';
-      let existingTags: string[][] = [];
-
-      if (activePubkey) {
-        const existing = await $ndk.fetchEvent({
-          kinds: [3],
-          authors: [activePubkey],
-          limit: 1
-        });
-        if (existing) {
-          existingContent = existing.content || '';
-          existingTags = existing.tags || [];
-        }
-      }
-
-      const existingPTags = existingTags.filter((t) => t[0] === 'p');
-      const otherTags = existingTags.filter((t) => t[0] !== 'p');
-      const existingPubkeys = existingPTags.map((t) => t[1]);
-      const mergedPubkeys = new Set([...existingPubkeys, ...Array.from(selectedPubkeys)]);
-
-      const contactEvent = new NDKEvent($ndk);
-      contactEvent.kind = 3;
-      contactEvent.content = existingContent;
-      contactEvent.tags = [...otherTags, ...Array.from(mergedPubkeys).map((pk) => ['p', pk])];
-
-      await contactEvent.publish();
+      // Safe edit: adds the picks to the latest list read from the reader's
+      // relays; a brand-new account (no list anywhere) starts one.
+      await updateFollows($ndk, userPubkey || $ndk?.activeUser?.pubkey || '', {
+        add: Array.from(selectedPubkeys)
+      });
     } catch (error) {
       console.error('Error publishing follow list:', error);
+      showToast('error', followErrorMessage(error));
     } finally {
       publishing = false;
       onComplete();
     }
   }
 
+  // Closing this modal means the same thing as skipping it: the account is
+  // already created and following anyone is optional. Every exit routes here
+  // so onComplete always runs — it is the only thing that closes the login
+  // overlay and returns the new member to ?redirect=, which is checkout when
+  // they arrived from Cook+. Setting `open = false` directly is a dead end.
   function skip() {
     onComplete();
   }
 </script>
 
-<Modal bind:open noHeader={true} allowOverflow={false}>
+<!-- cleanup={skip} covers the two exits the Close buttons above do not: Escape
+     (Modal.svelte:66-68) and a backdrop click (:147 on:click|self), both of
+     which call Modal's close() (:136-140). close() invokes cleanup and only
+     then sets open = false, so without this prop those two paths propagate
+     open=false up through bind:open to LoginOverlay's showSuggestedFollows and
+     unmount the modal WITHOUT ever running onComplete — same dead end as the
+     buttons had. Every other Modal in the login flow already passes cleanup
+     (LoginOverlay:829, :867, :941, :994, :1146, :1360); this one was the
+     outlier. Four exits, one behaviour. -->
+<Modal bind:open noHeader={true} allowOverflow={false} cleanup={skip}>
   <div class="flex flex-col gap-3 login-modal-body">
-    <button
-      type="button"
-      class="login-modal-logo-btn"
-      aria-label="Close"
-      on:click={() => (open = false)}
-    >
+    <button type="button" class="login-modal-logo-btn" aria-label="Close" on:click={skip}>
       <img src="/zapcooking-text-light.svg" alt="" aria-hidden="true" class="dark:hidden" />
       <img src="/zapcooking-text-dark.svg" alt="" aria-hidden="true" class="hidden dark:block" />
     </button>
-    <button
-      type="button"
-      class="login-modal-close-btn"
-      aria-label="Close"
-      on:click={() => (open = false)}
-    >
+    <button type="button" class="login-modal-close-btn" aria-label="Close" on:click={skip}>
       <CloseIcon size={24} />
     </button>
     <!-- Header -->

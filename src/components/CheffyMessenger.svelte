@@ -14,14 +14,16 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
-  import { userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
   import {
     membershipStatusMap,
     queueMembershipLookup,
     type MembershipStatus
   } from '$lib/stores/membershipStatus';
-  import { parseMarkdown } from '$lib/parser';
-  import { PROMPT_PLACEHOLDERS, SCAN_ERROR_LINE } from '$lib/cheffy';
+  import { parseMarkdown, mentionNamesVersion } from '$lib/parser';
+  import { PROMPT_PLACEHOLDERS, SCAN_ERROR_LINE, photoFormatLine } from '$lib/cheffy';
+  import { fileToBase64, identifyPhotoFile, PHOTO_MAX_BYTES } from '$lib/photoAsk';
+  import { scanFridgePhoto } from '$lib/photoScan';
   import {
     cheffyOpen,
     cheffyThread,
@@ -31,18 +33,23 @@
     cheffyExperienceMode,
     cheffyExperienceUsed,
     cheffyExperienceCount,
+    cheffyTrialStatus,
+    refreshCheffyTrial,
     cheffyConversion,
     sendCheffy,
+    askCheffyAboutPhoto,
     retryCheffy,
     startOverCheffy,
     closeCheffy
   } from '$lib/stores/cheffyChat';
+  import { CHEFFY_TRIAL_LIMIT, CHEFFY_TRIAL_PROMPT_CHARS } from '$lib/cheffyTrial';
   import CheffyAvatar from './CheffyAvatar.svelte';
   import CheffyRecipeCard from './CheffyRecipeCard.svelte';
   import CheffySuggestionChips, {
     STARTER_SUGGESTIONS,
     CONTEXT_RECIPE,
     CONTEXT_GENERAL,
+    PHOTO_ASK_SUGGESTIONS,
     type CheffySuggestion
   } from './CheffySuggestionChips.svelte';
   import XIcon from 'phosphor-svelte/lib/X';
@@ -67,45 +74,19 @@
   $: signedIn = $userPublickey !== '';
   $: hasMembership = Boolean(membershipMap[normalizedPk]?.active);
 
-  // ── First-use experience (non-member preview) ───────────────────
-  // A non-member (logged out OR logged-in without a membership) who
-  // entered via the /explore invite, or who has any preview turns spent
-  // (so a mid-chat reload keeps them in the preview rather than dropping
-  // to the gate), sees the preview flow + a soft conversion card instead
-  // of the hard sign-in / membership gate. Members are never affected.
-  $: inExperience =
-    !hasMembership &&
-    ($cheffyExperienceMode || $cheffyExperienceCount > 0 || $cheffyConversion !== null);
-  // Re-assert preview mode so follow-up sends stay tagged as experience
-  // requests (e.g. after a mid-chat reload, where the flag would reset).
+  // The server's account ledger owns the trial allowance.
+  $: inExperience = signedIn && !hasMembership;
   $: if (inExperience && !$cheffyExperienceMode) cheffyExperienceMode.set(true);
-  // If membership resolves true mid-session, drop the preview flags so a
-  // new member never lands on a blank surface (conversion card hidden by
-  // `inExperience`, composer hidden by `$cheffyConversion`) and their
-  // sends are no longer tagged as a preview.
+  $: if ($cheffyOpen && inExperience && $cheffyTrialStatus === 'idle') void refreshCheffyTrial();
   $: if (hasMembership && ($cheffyConversion !== null || $cheffyExperienceMode)) {
     cheffyConversion.set(null);
     cheffyExperienceMode.set(false);
   }
-  // Opening Cheffy again after the experience was spent (e.g. via the
-  // launcher) lands on the friendly card, never a technical wall.
-  $: if (
-    $cheffyOpen &&
-    inExperience &&
-    $cheffyExperienceUsed &&
-    $cheffyThread.length === 0 &&
-    $cheffyConversion === null
-  ) {
+  $: if ($cheffyOpen && inExperience && $cheffyExperienceUsed && !$cheffyConversion)
     cheffyConversion.set('used');
-  }
-  // Gates apply only outside the experience flow.
-  $: showSignInGate = !inExperience && !signedIn;
-  $: showMembershipGate = !inExperience && signedIn && !hasMembership;
+  $: showSignInGate = !signedIn;
+  $: showTrialLoading = inExperience && $cheffyTrialStatus !== 'ready';
 
-  function convCreateKitchen() {
-    closeCheffy();
-    goto('/login?redirect=/explore');
-  }
   function convUnlockKitchenPlus() {
     closeCheffy();
     goto('/membership');
@@ -125,8 +106,11 @@
   // ── Composer ───────────────────────────────────────────────────
   let placeholderIndex = 0;
   let placeholderTimer: ReturnType<typeof setInterval>;
-  $: placeholder = PROMPT_PLACEHOLDERS[placeholderIndex];
-  $: canSend = $cheffyDraft.trim().length > 0 && !$cheffyLoading;
+  // With a photo attached the composer is asking about it, so the
+  // rotating cooking placeholders would be misleading.
+  $: placeholder = attachedPhoto ? 'Ask about this photo…' : PROMPT_PLACEHOLDERS[placeholderIndex];
+  // A photo alone is a valid send — the server fills in the question.
+  $: canSend = ($cheffyDraft.trim().length > 0 || attachedPhoto !== null) && !$cheffyLoading;
 
   async function autoSize() {
     await tick();
@@ -142,7 +126,7 @@
   function onComposerKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (canSend) sendCheffy($cheffyDraft);
+      submitComposer();
     }
   }
 
@@ -161,7 +145,10 @@
   $: lastMsgId = $cheffyThread[$cheffyThread.length - 1]?.id;
 
   async function handleSuggestion(s: CheffySuggestion) {
-    if (s.behavior === 'send') {
+    // While a photo is held, even a 'send' chip only seeds the composer:
+    // sendCheffy would fire a text-only turn and strand the attachment.
+    // The send button is what carries the file.
+    if (s.behavior === 'send' && !attachedPhoto) {
       sendCheffy(s.prompt);
       return;
     }
@@ -187,19 +174,28 @@
   }
 
   // ── Attachment action sheet ────────────────────────────────────
+  // Two destinations, and the menu now says which is which. Camera and
+  // Upload attach the photo to the composer so the member can ask a
+  // question about it (POST /api/zappy/ask-photo); Scan is the narrow
+  // fridge/pantry ingredient reader it always was (POST /api/zappy/scan).
   let attachOpen = false;
   let cameraInput: HTMLInputElement;
   let uploadInput: HTMLInputElement;
+  let scanInput: HTMLInputElement;
   let isScanning = false;
   let scanError = '';
 
-  function pickUpload() {
+  function pickAskUpload() {
     attachOpen = false;
     uploadInput?.click();
   }
-  function pickCamera() {
+  function pickAskCamera() {
     attachOpen = false;
     cameraInput?.click();
+  }
+  function pickScan() {
+    attachOpen = false;
+    scanInput?.click();
   }
   function handoffSousChef() {
     attachOpen = false;
@@ -207,52 +203,110 @@
     goto('/souschef');
   }
 
+  // ── Attached photo (the "ask about a photo" path) ──────────────
+  // Held in the composer until the member sends, so the question and the
+  // photo travel together. The store mints its own preview URL for the
+  // thread bubble; this one belongs to the composer chip and is released
+  // the moment the chip goes away.
+  let attachedPhoto: File | null = null;
+  let attachedPhotoUrl = '';
+
+  function clearAttachedPhoto() {
+    if (attachedPhotoUrl) {
+      URL.revokeObjectURL(attachedPhotoUrl);
+      attachedPhotoUrl = '';
+    }
+    attachedPhoto = null;
+  }
+
+  async function handleAttachPhoto(event: Event) {
+    const inputEl = event.target as HTMLInputElement;
+    const file = inputEl.files?.[0];
+    // Reset immediately so re-picking the same file still fires change.
+    if (inputEl) inputEl.value = '';
+    if (!file) return;
+    if (!(await identifyPhotoFile(file))) {
+      scanError = photoFormatLine(file.type);
+      return;
+    }
+    if (file.size > PHOTO_MAX_BYTES) {
+      scanError = 'That image is a little big — try one under 10MB.';
+      return;
+    }
+    scanError = '';
+    clearAttachedPhoto();
+    attachedPhoto = file;
+    attachedPhotoUrl = URL.createObjectURL(file);
+    await tick();
+    composerEl?.focus();
+  }
+
+  // Single send entry point: a held photo makes this a photo turn, and
+  // an empty question is fine (the server supplies the default ask).
+  function submitComposer() {
+    if (!canSend) return;
+    if (attachedPhoto) {
+      const file = attachedPhoto;
+      const question = $cheffyDraft;
+      clearAttachedPhoto();
+      scanError = '';
+      askCheffyAboutPhoto(file, question);
+      return;
+    }
+    sendCheffy($cheffyDraft);
+  }
+
+  // Hand a scanned file to the composer as an attached photo. Every
+  // non-success exit of handleScan does this, which is what makes
+  // SCAN_ERROR_LINE's "the photo's still here" true: the member who
+  // scanned a plated dish is one Send away from asking about it, instead
+  // of re-opening the menu and re-picking the file we threw away.
+  function holdScanPhoto(file: File) {
+    clearAttachedPhoto();
+    attachedPhoto = file;
+    attachedPhotoUrl = URL.createObjectURL(file);
+  }
+
   async function handleScan(event: Event) {
     const inputEl = event.target as HTMLInputElement;
     const file = inputEl.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      scanError = 'Please choose an image file.';
+    if (!(await identifyPhotoFile(file))) {
+      scanError = photoFormatLine(file.type);
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > PHOTO_MAX_BYTES) {
       scanError = 'That image is a little big — try one under 10MB.';
       return;
     }
     isScanning = true;
     scanError = '';
+    // Scanning fills the draft with an ingredient list; a held photo
+    // would still win on Send and dispatch a photo-ask instead. Drop it
+    // so the two stay mutually exclusive (matches /cheffy).
+    clearAttachedPhoto();
     try {
       const base64 = await fileToBase64(file);
-      const resp = await fetch('/api/zappy/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64, pubkey: $userPublickey })
-      });
-      const data = await resp.json();
-      if (!resp.ok || !data.ok) throw new Error(data.error || SCAN_ERROR_LINE);
-      const ingredients: string[] = data.ingredients || [];
+      const result = await scanFridgePhoto({ ndk: $ndk, imageBase64: base64 });
+      if (!result.ok) throw new Error(result.error || SCAN_ERROR_LINE);
+      const ingredients: string[] = result.ingredients;
       if (ingredients.length > 0) {
         cheffyDraft.set(`I have: ${ingredients.join(', ')}`);
         await tick();
         composerEl?.focus();
       } else {
         scanError = SCAN_ERROR_LINE;
+        holdScanPhoto(file);
+        await tick();
+        composerEl?.focus();
       }
     } catch (err) {
       scanError = err instanceof Error ? err.message : SCAN_ERROR_LINE;
+      holdScanPhoto(file);
     } finally {
       isScanning = false;
       if (inputEl) inputEl.value = '';
     }
-  }
-
-  function fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve((reader.result as string).split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
   }
 
   // ── Open / close side effects ──────────────────────────────────
@@ -306,9 +360,16 @@
     window.visualViewport?.removeEventListener('scroll', syncViewport);
     menuOpen = false;
     attachOpen = false;
-    // Return focus to the launcher.
-    const launcher = document.getElementById('cheffy-launcher-btn');
-    (launcher ?? prevFocus)?.focus?.();
+    // Return focus to whatever opened the messenger. The header
+    // IntelligenceMenu unmounts on selection, so its "Ask Cheffy" item
+    // (the prevFocus at open time) is detached by now and .focus() would
+    // no-op, dropping focus to <body>. Fall back to the header's stable
+    // Intelligence trigger in that case so keyboard focus is never lost.
+    const target =
+      prevFocus && prevFocus.isConnected
+        ? prevFocus
+        : document.querySelector<HTMLElement>('.zh-intelligence-btn');
+    target?.focus?.();
   }
 
   $: if (browser && $cheffyOpen !== wasOpen) {
@@ -361,6 +422,7 @@
   onDestroy(() => {
     unsub();
     if (placeholderTimer) clearInterval(placeholderTimer);
+    clearAttachedPhoto();
     if (browser && $cheffyOpen) onClose();
   });
 </script>
@@ -427,6 +489,8 @@
                 class="menu-item"
                 on:click={() => {
                   menuOpen = false;
+                  clearAttachedPhoto();
+                  scanError = '';
                   startOverCheffy();
                 }}
                 disabled={$cheffyLoading || $cheffyThread.length === 0}
@@ -463,34 +527,28 @@
       <div class="cheffy-gate">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
         <h2>Sign in to cook with Cheffy</h2>
-        <p>Cheffy is your kitchen companion. Sign in to start a conversation.</p>
+        <p>
+          Try {CHEFFY_TRIAL_LIMIT} free messages with your free account. Sign in to get started.
+        </p>
         <button
           type="button"
           class="primary-btn"
           on:click={() => {
             closeCheffy();
-            goto('/login?redirect=/explore');
+            goto('/login?redirect=/cheffy');
           }}
         >
           Sign in
         </button>
       </div>
-    {:else if showMembershipGate}
-      <!-- Membership gate -->
-      <div class="cheffy-gate">
+    {:else if showTrialLoading}
+      <div class="cheffy-gate" role="status">
         <CheffyAvatar size={72} expression="neutral" variant="character" />
-        <h2>Cheffy is a Pro Kitchen feature</h2>
-        <p>Ask cooking questions, use what you have, fix a mistake, or turn an idea into dinner.</p>
-        <button
-          type="button"
-          class="primary-btn"
-          on:click={() => {
-            closeCheffy();
-            goto('/membership');
-          }}
-        >
-          View membership
-        </button>
+        {#if $cheffyTrialStatus === 'error'}
+          <h2>Your free messages could not be checked</h2>
+          <p>Please try again. Your message allowance is kept with your account.</p>
+          <button type="button" class="primary-btn" on:click={refreshCheffyTrial}>Try again</button>
+        {:else}<p>Checking your free messages…</p>{/if}
       </div>
     {:else}
       <!-- Conversation -->
@@ -506,7 +564,20 @@
         {:else}
           {#each $cheffyThread as m (m.id)}
             {#if m.role === 'user'}
-              <div class="msg msg-user"><div class="bubble-user">{m.content}</div></div>
+              <div class="msg msg-user">
+                <div class="bubble-user">
+                  {#if m.imagePreview}
+                    <!-- Display only. This never reaches /api/zappy —
+                         see the imagePreview docs in cheffyChat.ts. -->
+                    <img
+                      class="bubble-photo"
+                      src={m.imagePreview}
+                      alt="What you asked Cheffy about"
+                    />
+                  {/if}
+                  {#if m.content}<span class="bubble-text">{m.content}</span>{/if}
+                </div>
+              </div>
             {:else}
               <div class="msg msg-cheffy">
                 <CheffyAvatar
@@ -522,24 +593,36 @@
                     </div>
                   {:else if m.kind === 'error'}
                     <div class="err">
-                      <p class="err-line">{m.statusLine}</p>
+                      <!-- A photo turn that failed with a typed server code
+                           carries no flavour line: the detail below already
+                           names the cause, and a second narrator above it
+                           would invent a different one. -->
+                      {#if m.statusLine}<p class="err-line">{m.statusLine}</p>{/if}
                       <p class="err-detail">{m.content}</p>
-                      <button
-                        type="button"
-                        class="retry"
-                        on:click={() => retryCheffy()}
-                        disabled={$cheffyLoading}
-                      >
-                        <ArrowsClockwiseIcon size={13} /> Try again
-                      </button>
+                      <!-- No button where re-sending the same request is
+                           guaranteed to fail (isPhotoAskRetryable). The
+                           composer is the working control there, and the
+                           detail line already points at it. -->
+                      {#if m.retryable !== false}
+                        <button
+                          type="button"
+                          class="retry"
+                          on:click={() => retryCheffy()}
+                          disabled={$cheffyLoading}
+                        >
+                          <ArrowsClockwiseIcon size={13} /> Try again
+                        </button>
+                      {/if}
                     </div>
                   {:else if m.kind === 'recipe'}
                     <CheffyRecipeCard content={m.content} />
                   {:else}
                     <div class="cheffy-text prose dark:prose-invert max-w-none">
                       <!-- Sanitized via parseMarkdown → sanitizeHTML. -->
+                      <!-- $mentionNamesVersion re-renders when a queued
+                           mention-name lookup lands. -->
                       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                      {@html parseMarkdown(m.content)}
+                      {@html parseMarkdown(m.content, $mentionNamesVersion)}
                     </div>
                   {/if}
 
@@ -564,44 +647,26 @@
         {/if}
 
         {#if inExperience && $cheffyConversion}
-          <!-- Soft conversion card — shown once the preview turns are
-               spent (or when the experience was already used): invites the
-               visitor to create a free kitchen or unlock Kitchen+. Never a
-               paywall — this is the gentle next step. -->
+          <!-- Keep the conversation visible after the three free replies. -->
           <div class="conversion" role="group" aria-label="Keep cooking with Cheffy">
             <CheffyAvatar size={44} expression="happy" variant="character" />
             {#if $cheffyConversion === 'used'}
               <h3 class="conv-title">Cheffy already helped you get started</h3>
               <p class="conv-body">
-                Create your free kitchen to save ideas, or unlock Kitchen+ to keep cooking with
+                You have used your {CHEFFY_TRIAL_LIMIT} free messages. Join Cook+ to keep cooking with
                 Cheffy.
               </p>
-            {:else if signedIn}
+            {:else}
               <h3 class="conv-title">Keep cooking with Cheffy</h3>
               <p class="conv-body">
-                Kitchen+ gives you Cheffy, Nourish, saved drafts, recipe tools, and more ways to
-                build your kitchen.
-              </p>
-            {:else}
-              <h3 class="conv-title">Save this to your kitchen</h3>
-              <p class="conv-body">
-                Create a free Zap Cooking account to save meals, follow cooks, and come back to what
-                Cheffy helped you make.
+                You have used your {CHEFFY_TRIAL_LIMIT} free messages. Cook+ includes Cheffy, Sous Chef,
+                and Nourish.
               </p>
             {/if}
             <div class="conv-actions">
-              {#if !signedIn}
-                <button type="button" class="conv-primary" on:click={convCreateKitchen}>
-                  Create your free kitchen
-                </button>
-                <button type="button" class="conv-secondary" on:click={convUnlockKitchenPlus}>
-                  Unlock Kitchen+
-                </button>
-              {:else}
-                <button type="button" class="conv-primary" on:click={convUnlockKitchenPlus}>
-                  Unlock Kitchen+
-                </button>
-              {/if}
+              <button type="button" class="conv-primary" on:click={convUnlockKitchenPlus}>
+                Unlock Cook+
+              </button>
               <button type="button" class="conv-ghost" on:click={convKeepExploring}>
                 Keep exploring
               </button>
@@ -611,9 +676,10 @@
       </div>
 
       <!-- Starter suggestions — a single scrollable row directly above
-           the composer; removed once the conversation begins or the
-           conversion card takes over. -->
-      {#if $cheffyThread.length === 0 && !$cheffyConversion}
+           the composer; removed once the conversation begins, the
+           conversion card takes over, or a photo is attached (its own
+           chips are the relevant ones then, and two rows read as one). -->
+      {#if $cheffyThread.length === 0 && !$cheffyConversion && !attachedPhoto}
         <div class="starter-row">
           <CheffySuggestionChips
             suggestions={STARTER_SUGGESTIONS}
@@ -626,101 +692,149 @@
       <!-- Composer — usable during a member chat and during the preview
            turns; replaced by the conversion card once they're spent. -->
       {#if !$cheffyConversion}
-      <!-- Fixed composer -->
-      <div class="cheffy-composer">
-        {#if scanError}
-          <p class="scan-error" role="alert">{scanError}</p>
-        {/if}
-        <div class="composer-row">
-          {#if !inExperience}
-            <!-- Attach (scan / photo / paste) is a member-only tool. -->
+        <!-- Fixed composer -->
+        <div class="cheffy-composer">
+          {#if inExperience}<p class="text-xs text-caption" role="status">
+              {CHEFFY_TRIAL_LIMIT - $cheffyExperienceCount} of {CHEFFY_TRIAL_LIMIT} free messages left
+            </p>{/if}
+          {#if scanError}
+            <p class="scan-error" role="alert">{scanError}</p>
+          {/if}
+          {#if attachedPhoto}
+            <!-- Held photo: the question and the picture travel together
+                 on send, so the member gets to say what they're asking. -->
+            <div class="photo-chip">
+              <img class="photo-chip-thumb" src={attachedPhotoUrl} alt="" />
+              <span class="photo-chip-name">{attachedPhoto.name}</span>
+              <button
+                type="button"
+                class="photo-chip-remove"
+                aria-label="Remove photo"
+                on:click={clearAttachedPhoto}
+              >
+                <XIcon size={14} weight="bold" />
+              </button>
+            </div>
+            <div class="photo-chip-row">
+              <CheffySuggestionChips
+                compact
+                suggestions={PHOTO_ASK_SUGGESTIONS}
+                ariaLabel="Questions to ask about this photo"
+                onSelect={handleSuggestion}
+              />
+            </div>
+          {/if}
+          <div class="composer-row">
+            {#if !inExperience}
+              <!-- Attach (scan / photo / paste) is a member-only tool. -->
+              <button
+                type="button"
+                class="composer-icon"
+                aria-label="Add ingredients, photo, or recipe"
+                aria-haspopup="menu"
+                aria-expanded={attachOpen}
+                on:click|stopPropagation={() => (attachOpen = !attachOpen)}
+                disabled={isScanning}
+              >
+                {#if isScanning}
+                  <ArrowsClockwiseIcon size={20} class="animate-spin" />
+                {:else}
+                  <PaperclipIcon size={20} />
+                {/if}
+              </button>
+            {/if}
+            <label class="sr-only" for="cheffy-composer-input">Message Cheffy</label>
+            <textarea
+              id="cheffy-composer-input"
+              bind:this={composerEl}
+              maxlength={inExperience ? CHEFFY_TRIAL_PROMPT_CHARS : undefined}
+              bind:value={$cheffyDraft}
+              rows="1"
+              class="composer-input"
+              {placeholder}
+              disabled={$cheffyLoading}
+              on:keydown={onComposerKeydown}
+            ></textarea>
             <button
               type="button"
-              class="composer-icon"
-              aria-label="Add ingredients, photo, or recipe"
-              aria-haspopup="menu"
-              aria-expanded={attachOpen}
-              on:click|stopPropagation={() => (attachOpen = !attachOpen)}
-              disabled={isScanning}
+              class="composer-send"
+              aria-label="Send message"
+              disabled={!canSend}
+              on:click={submitComposer}
             >
-              {#if isScanning}
-                <ArrowsClockwiseIcon size={20} class="animate-spin" />
+              {#if $cheffyLoading}
+                <ArrowsClockwiseIcon size={18} class="animate-spin" />
               {:else}
-                <PaperclipIcon size={20} />
+                <PaperPlaneIcon size={18} weight="fill" />
               {/if}
             </button>
+          </div>
+        </div>
+
+        {#if !inExperience}
+          <!-- Hidden file inputs. Camera/upload attach the photo to the
+               composer; the third is the ingredient scanner.
+
+               `accept` is deliberately WIDE. It is a hint to a picker we
+               do not ship, so it cannot gate anything: a narrow value
+               greys out rows in someone else's file dialog and still
+               admits whatever arrives by another route. The format check
+               that does bind is identifyPhotoFile() in the change
+               handlers, which reads the file's own bytes. Widening this
+               costs nothing and avoids hiding a member's camera roll on
+               a platform we have not tested. -->
+          <input
+            bind:this={cameraInput}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            class="hidden"
+            on:change={handleAttachPhoto}
+          />
+          <input
+            bind:this={uploadInput}
+            type="file"
+            accept="image/*"
+            class="hidden"
+            on:change={handleAttachPhoto}
+          />
+          <input
+            bind:this={scanInput}
+            type="file"
+            accept="image/*"
+            class="hidden"
+            on:change={handleScan}
+          />
+
+          <!-- Attachment action sheet. Every label here names what the
+               code actually does: the two general photo entries ask
+               Cheffy about the picture, and the scanner says it reads a
+               fridge or pantry, which is the only thing it can do. -->
+          {#if attachOpen}
+            <button
+              class="attach-scrim"
+              aria-label="Close attachment menu"
+              on:click={() => (attachOpen = false)}
+            ></button>
+            <div class="attach-sheet" role="menu" aria-label="Add to Cheffy">
+              <button type="button" role="menuitem" class="attach-item" on:click={pickAskCamera}>
+                <CameraIcon size={20} /> Take a photo
+              </button>
+              <button type="button" role="menuitem" class="attach-item" on:click={pickAskUpload}>
+                <ImageIcon size={20} /> Upload an image
+              </button>
+              <button type="button" role="menuitem" class="attach-item" on:click={pickScan}>
+                <ScanIcon size={20} /> Scan a fridge or pantry for ingredients
+              </button>
+              <button type="button" role="menuitem" class="attach-item" on:click={handoffSousChef}>
+                <ClipboardIcon size={20} /> Paste a recipe
+              </button>
+              <button type="button" role="menuitem" class="attach-item" on:click={handoffSousChef}>
+                <LinkIcon size={20} /> Import a link
+              </button>
+            </div>
           {/if}
-          <label class="sr-only" for="cheffy-composer-input">Message Cheffy</label>
-          <textarea
-            id="cheffy-composer-input"
-            bind:this={composerEl}
-            bind:value={$cheffyDraft}
-            rows="1"
-            class="composer-input"
-            {placeholder}
-            disabled={$cheffyLoading}
-            on:keydown={onComposerKeydown}
-          ></textarea>
-          <button
-            type="button"
-            class="composer-send"
-            aria-label="Send message"
-            disabled={!canSend}
-            on:click={() => sendCheffy($cheffyDraft)}
-          >
-            {#if $cheffyLoading}
-              <ArrowsClockwiseIcon size={18} class="animate-spin" />
-            {:else}
-              <PaperPlaneIcon size={18} weight="fill" />
-            {/if}
-          </button>
-        </div>
-      </div>
-
-      {#if !inExperience}
-      <!-- Hidden file inputs for scan/photo/upload -->
-      <input
-        bind:this={cameraInput}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        class="hidden"
-        on:change={handleScan}
-      />
-      <input
-        bind:this={uploadInput}
-        type="file"
-        accept="image/*"
-        class="hidden"
-        on:change={handleScan}
-      />
-
-      <!-- Attachment action sheet -->
-      {#if attachOpen}
-        <button
-          class="attach-scrim"
-          aria-label="Close attachment menu"
-          on:click={() => (attachOpen = false)}
-        ></button>
-        <div class="attach-sheet" role="menu" aria-label="Add to Cheffy">
-          <button type="button" role="menuitem" class="attach-item" on:click={pickUpload}>
-            <ScanIcon size={20} /> Scan ingredients
-          </button>
-          <button type="button" role="menuitem" class="attach-item" on:click={pickCamera}>
-            <CameraIcon size={20} /> Take a photo
-          </button>
-          <button type="button" role="menuitem" class="attach-item" on:click={pickUpload}>
-            <ImageIcon size={20} /> Upload an image
-          </button>
-          <button type="button" role="menuitem" class="attach-item" on:click={handoffSousChef}>
-            <ClipboardIcon size={20} /> Paste a recipe
-          </button>
-          <button type="button" role="menuitem" class="attach-item" on:click={handoffSousChef}>
-            <LinkIcon size={20} /> Import a link
-          </button>
-        </div>
-      {/if}
-      {/if}
+        {/if}
       {/if}
     {/if}
   </div>
@@ -997,6 +1111,19 @@
     overflow-wrap: anywhere;
     word-break: break-word;
   }
+  /* Attached photo inside the member's own bubble. Capped so a portrait
+     shot can't push the answer off-screen. */
+  .bubble-photo {
+    display: block;
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 10px;
+    object-fit: cover;
+  }
+  .bubble-photo + .bubble-text {
+    display: block;
+    margin-top: 7px;
+  }
   .msg-cheffy {
     gap: 8px;
     align-items: flex-start;
@@ -1113,6 +1240,48 @@
     margin: 0 0 8px;
     font-size: 0.8rem;
     color: #ef4444;
+  }
+  /* Held-photo chip above the composer row. */
+  .photo-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 5px 6px;
+    border: 1px solid var(--color-input-border);
+    border-radius: 12px;
+  }
+  .photo-chip-thumb {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    object-fit: cover;
+  }
+  .photo-chip-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .photo-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    border-radius: 999px;
+    color: var(--color-text-secondary);
+  }
+  .photo-chip-remove:hover {
+    background-color: var(--color-bg-secondary);
+  }
+  .photo-chip-row {
+    margin: 0 -4px 8px;
   }
   .composer-row {
     display: flex;
@@ -1262,7 +1431,6 @@
     margin-top: 4px;
   }
   .conv-primary,
-  .conv-secondary,
   .conv-ghost {
     min-height: 44px;
     padding: 0 18px;
@@ -1279,15 +1447,6 @@
   }
   .conv-primary:hover {
     filter: brightness(1.06);
-  }
-  .conv-secondary {
-    background: transparent;
-    border: 1px solid var(--color-primary);
-    color: var(--color-primary);
-    transition: background-color 140ms ease;
-  }
-  .conv-secondary:hover {
-    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
   }
   .conv-ghost {
     background: transparent;

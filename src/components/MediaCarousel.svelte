@@ -9,17 +9,25 @@
    * dots. Desktop gets hover-revealed chevrons plus mouse drag-to-swipe
    * since there's no touch gesture there.
    *
-   * A single media item renders in a frame that shrink-wraps the
-   * photo, with no carousel chrome.
+   * A single photo fills the content column in a cropped 4:3 preview;
+   * tapping it opens the complete image in the lightbox.
    */
+  import { retryOriginal } from '$lib/imageRetry';
   import { onDestroy } from 'svelte';
+  import ArrowsOutSimpleIcon from 'phosphor-svelte/lib/ArrowsOutSimple';
   import VideoPreview from './VideoPreview.svelte';
+  import Modal from './Modal.svelte';
 
   export let items: string[] = [];
   /** Called when an image tile is tapped (videos play inline). */
   export let onItemClick: (url: string, index: number) => void = () => {};
   /** Optional CDN/proxy rewrite applied to tile image sources. */
-  export let optimizeUrl: (url: string) => string = (url) => url;
+  /** The URL to load for a tile; `kind` says how wide it will be shown. */
+  export let optimizeUrl: (url: string, kind: 'single' | 'tile') => string = (url) => url;
+  /** The first image of the first post on screen: load it eagerly, with high priority (it is the LCP). */
+  export let priority = false;
+  /** NIP-92 imeta alt text keyed by media URL (accessibility). */
+  export let altByUrl: Map<string, string> = new Map();
 
   // Matches the detection used by the feed/NoteContent extractors
   // (file extensions plus video platforms) so a URL classified as
@@ -44,6 +52,19 @@
   let scroller: HTMLDivElement;
   let currentIndex = 0;
 
+  // Reader-facing alt text viewer: the ALT badge on a tile opens a
+  // dialog with the description — alt text should be inspectable, not
+  // just announced to screen readers.
+  let altDialogOpen = false;
+  let altDialogText = '';
+
+  function showAlt(e: Event, url: string) {
+    e.stopPropagation();
+    e.preventDefault();
+    altDialogText = altByUrl.get(url) || '';
+    if (altDialogText) altDialogOpen = true;
+  }
+
   function tileStep(): number {
     const tile = scroller?.firstElementChild as HTMLElement | null;
     return tile ? tile.offsetWidth + TILE_GAP_PX : 0;
@@ -64,9 +85,26 @@
     scroller.scrollTo({ left: index * step, behavior: 'smooth' });
   }
 
-  function handleImageError(e: Event) {
+  /**
+   * On the first error, fall back to the original URL once (the tile loads a
+   * rewritten one; some hosts reject it, the lightbox never did). The
+   * fallback is component state, not an imperative `img.src` write: Svelte
+   * re-applies the `src` binding on every re-render (the feed reassigns its
+   * post arrays constantly), which silently undid an imperative swap and
+   * hid the tile on the next error. Only a second error hides the tile.
+   */
+  let fallback = new Set<string>();
+  function srcFor(url: string, kind: 'single' | 'tile'): string {
+    return fallback.has(url) ? url : optimizeUrl(url, kind);
+  }
+  function handleImageError(e: Event, original: string) {
     const target = e.target as HTMLImageElement;
-    if (target) target.style.display = 'none';
+    if (!target) return;
+    if (retryOriginal(fallback, target.getAttribute('src') ?? target.src, original)) {
+      fallback = fallback; // re-render: the binding now yields the original
+      return;
+    }
+    target.style.display = 'none';
   }
 
   // ── Mouse drag-to-swipe ─────────────────────────────────────────
@@ -172,22 +210,38 @@
   {#if isVideo(items[0])}
     <VideoPreview url={items[0]} />
   {:else}
-    <button
-      type="button"
-      class="single-media-button"
-      aria-label="View image"
-      on:click={() => onItemClick(items[0], 0)}
-    >
-      <img
-        src={optimizeUrl(items[0])}
-        alt=""
-        class="single-media-image"
-        loading="lazy"
-        decoding="async"
-        draggable="false"
-        on:error={handleImageError}
-      />
-    </button>
+    <div class="single-media-wrap">
+      <button
+        type="button"
+        class="single-media-button"
+        aria-label={altByUrl.get(items[0]) || 'View image'}
+        on:click={() => onItemClick(items[0], 0)}
+      >
+        <img
+          src={srcFor(items[0], 'single')}
+          alt={altByUrl.get(items[0]) || ''}
+          class="single-media-image"
+          loading={priority ? 'eager' : 'lazy'}
+          fetchpriority={priority ? 'high' : 'auto'}
+          decoding="async"
+          draggable="false"
+          on:error={(e) => handleImageError(e, items[0])}
+        />
+        <span class="expand-badge" title="Expand image" aria-hidden="true">
+          <ArrowsOutSimpleIcon size={18} weight="bold" />
+        </span>
+      </button>
+      {#if altByUrl.get(items[0])}
+        <button
+          type="button"
+          class="alt-badge"
+          aria-label="View image description"
+          on:click={(e) => showAlt(e, items[0])}
+        >
+          ALT
+        </button>
+      {/if}
+    </div>
   {/if}
 {:else if items.length > 1}
   <div class="relative group gallery-bleed">
@@ -213,18 +267,29 @@
             <button
               type="button"
               class="tile-button"
-              aria-label="View image {index + 1} of {items.length}"
+              aria-label={altByUrl.get(url) || `View image ${index + 1} of ${items.length}`}
               on:click={() => onItemClick(url, index)}
             >
               <img
-                src={optimizeUrl(url)}
-                alt=""
-                loading="lazy"
+                src={srcFor(url, 'tile')}
+                alt={altByUrl.get(url) || ''}
+                loading={priority && index === 0 ? 'eager' : 'lazy'}
+                fetchpriority={priority && index === 0 ? 'high' : 'auto'}
                 decoding="async"
                 draggable="false"
-                on:error={handleImageError}
+                on:error={(e) => handleImageError(e, url)}
               />
             </button>
+            {#if altByUrl.get(url)}
+              <button
+                type="button"
+                class="alt-badge"
+                aria-label="View image description"
+                on:click={(e) => showAlt(e, url)}
+              >
+                ALT
+              </button>
+            {/if}
           {/if}
         </div>
       {/each}
@@ -264,17 +329,26 @@
   </div>
 {/if}
 
+{#if altDialogOpen}
+  <Modal bind:open={altDialogOpen} compact autoHeight floatingClose>
+    <span slot="title" class="alt-dialog-title">Description</span>
+    <p class="alt-dialog-text">{altDialogText}</p>
+  </Modal>
+{/if}
+
 <style>
   /* ── Single media item ───────────────────────────────────────────
-     The frame shrink-wraps the image so the rounded box always matches
-     the photo's own proportions — no letterbox / pillarbox bars. Very
-     tall images cap at 70vh (and narrow accordingly); very wide ones
-     cap at full width with a short box. Images smaller than the column
-     render at natural size rather than upscaling. */
+     A consistent full-column preview keeps single-photo posts from
+     collapsing to the source image's intrinsic width. The lightbox
+     remains the complete, uncropped view. */
+  .single-media-wrap {
+    position: relative;
+  }
   .single-media-button {
+    position: relative;
     display: block;
-    width: fit-content;
-    max-width: 100%;
+    width: 100%;
+    aspect-ratio: 4 / 3;
     border: none;
     padding: 0;
     background: transparent;
@@ -284,16 +358,38 @@
   }
   .single-media-image {
     display: block;
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: 70vh;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 25%;
     -webkit-user-drag: none;
     user-select: none;
     transition: opacity 0.15s ease-out;
   }
   .single-media-button:hover .single-media-image {
     opacity: 0.95;
+  }
+
+  .expand-badge {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.58);
+    color: #fff;
+    opacity: 0.88;
+    pointer-events: none;
+    transition: opacity 0.15s ease-out;
+  }
+
+  .single-media-button:hover .expand-badge,
+  .single-media-button:focus-visible .expand-badge {
+    opacity: 1;
   }
 
   /* ── Multi-item gallery ──────────────────────────────────────── */
@@ -351,6 +447,8 @@
   }
 
   .media-tile {
+    /* Containing block for the per-tile ALT badge. */
+    position: relative;
     /* ~72% of the container so the next tile peeks from the right
        edge, signalling there's more to swipe. */
     flex: 0 0 72%;
@@ -375,6 +473,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center 25%;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
@@ -383,6 +482,57 @@
   }
   .tile-button:hover img {
     opacity: 0.95;
+  }
+
+  /* ── ALT badge (bottom-left — the Cheffy review button owns the
+     bottom-right corner of the media area) ────────────────────────── */
+  /* Visible affordance to read an image's description; opens the
+     alt-text dialog. Sits above the tile click target. */
+  .alt-badge {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    z-index: 11;
+    padding: 2px 7px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.6);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background-color 0.15s ease-out;
+  }
+  .alt-badge:hover,
+  .alt-badge:focus-visible {
+    background: rgba(0, 0, 0, 0.9);
+  }
+
+  /* Modal header kicker — quiet all-caps label instead of a page-level
+     heading; the alt text itself is the content of this dialog. Flex
+     (block-level inside the h2) so the label escapes the h2's 18px
+     line-box strut — inline, the small text rides the strut baseline
+     and sits ~4px below the close button's center — and centers itself
+     in the same 32px box instead. */
+  .alt-dialog-title {
+    display: flex;
+    align-items: center;
+    min-height: 2rem;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-caption);
+  }
+
+  .alt-dialog-text {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: var(--color-text-primary);
   }
 
   /* ── Count badge ("1 / 2" capsule, bottom-centre) ──────────────── */

@@ -1,7 +1,11 @@
 <script lang="ts">
   import { nip19 } from 'nostr-tools';
+  import { scanNostrRefs, type ScannedRef } from '$lib/nostrRefScan';
+  import { truncateAtUrlBoundary } from '$lib/noteTruncate';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { ndk } from '$lib/nostr';
+  import { GATED_RECIPE_KIND, RECIPE_TAGS } from '$lib/consts';
   import ProfileLink from './ProfileLink.svelte';
   import NoteEmbed from './NoteEmbed.svelte';
   import NofferButton from './clink/NofferButton.svelte';
@@ -10,9 +14,13 @@
   import TwitterEmbed from './TwitterEmbed.svelte';
   import YouTubeEmbed from './YouTubeEmbed.svelte';
   import MediaCarousel from './MediaCarousel.svelte';
+  import CheffyMediaReview from './CheffyMediaReview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
+  import { isImageUrl, isVideoUrl, filterImageUrls } from '$lib/imageUrls';
+  import { imetaAltByUrl, parseImeta } from '$lib/feed/imeta';
   import MediaLightbox from './MediaLightbox.svelte';
   import LightningInvoiceCard from './LightningInvoiceCard.svelte';
+  import QuotesIcon from 'phosphor-svelte/lib/Quotes';
 
   export let content: string;
   export let className: string = '';
@@ -20,7 +28,8 @@
   export let showNostrEmbeds: boolean = true;
   export let embedDepth: number = 0; // Track nesting depth to prevent infinite recursion
   export let collapsible: boolean = true; // Enable collapsible long content
-  export let maxLength: number = 500; // Character limit before collapse
+  export let maxLength: number = 1000; // Character limit before collapse — was 500, then 1500; 1000 keeps long recipes expandable without dominating the feed
+  export let event: NDKEvent | undefined = undefined;
 
   let isExpanded: boolean = false;
 
@@ -40,47 +49,27 @@
     selectedImageIndex = 0;
   }
 
-  // Extract all image URLs from parsed content for navigation
-  function extractImageUrls(parts: any[]): string[] {
-    return parts
-      .filter((part) => part.type === 'url' && part.url && isImageUrl(part.url))
-      .map((part) => part.url);
-  }
+  // Image URLs from parsed content, deduplicated ($lib/imageUrls is the
+  // shared source of truth for detection). Dedup keeps the lightbox
+  // correct for notes that post the same image twice: every open site
+  // resolves its pane via allImageUrls.indexOf(url), so both rendered
+  // occurrences land on the single pane that shows that image.
+  $: allImageUrls = filterImageUrls(
+    finalParsedContent
+      .filter((part: any) => part.type === 'url' && part.url && !part.bare)
+      .map((p: any) => p.url)
+  );
 
-  // Update allImageUrls when content changes
-  $: allImageUrls = extractImageUrls(finalParsedContent);
+  // NIP-92 imeta alt text, keyed by media URL, for screen readers.
+  $: altByUrl = event ? imetaAltByUrl(event) : new Map();
+  $: blurhashByUrl = event
+    ? new Map(
+        parseImeta(event)
+          .filter((m) => m.blurhash)
+          .map((m) => [m.url, m.blurhash as string])
+      )
+    : new Map();
 
-  // Image extensions to detect
-  const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
-  const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv)(\?.*)?$/i;
-
-  function isImageUrl(url: string): boolean {
-    try {
-      const urlObj = new URL(url);
-      // Check extension
-      if (IMAGE_EXTENSIONS.test(urlObj.pathname)) return true;
-      // Check common image hosting patterns
-      if (urlObj.hostname.includes('image.nostr.build')) return true;
-      if (urlObj.hostname.includes('nostr.build') && urlObj.pathname.includes('/i/')) return true;
-      if (urlObj.hostname.includes('imgur.com')) return true;
-      if (urlObj.hostname.includes('imgproxy')) return true;
-      if (urlObj.hostname.includes('primal.b-cdn.net')) return true;
-      if (urlObj.hostname.includes('media.tenor.com')) return true;
-      if (urlObj.hostname.includes('i.ibb.co')) return true;
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
-  function isVideoUrl(url: string): boolean {
-    try {
-      const urlObj = new URL(url);
-      return VIDEO_EXTENSIONS.test(urlObj.pathname);
-    } catch {
-      return false;
-    }
-  }
 
   function handleImageError(e: Event) {
     const target = e.target as HTMLImageElement;
@@ -138,16 +127,15 @@
 
   const isYouTube = (url?: string): boolean => !!url && parseYouTube(url) !== null;
 
-  function isMediaPart(part?: { type?: string; url?: string }): boolean {
+  function isMediaPart(part?: { type?: string; url?: string; bare?: boolean }): boolean {
     return Boolean(
-      part?.type === 'url' && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
+      part?.type === 'url' && !part.bare && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
     );
   }
 
-  // Collapse runs of consecutive media URLs (ignoring the whitespace
-  // between them) into a single `media-gallery` part so they render as
-  // a swipeable carousel instead of a vertical stack. Lone media items
-  // keep their inline rendering.
+  // Collapse media URLs (and consecutive runs, ignoring whitespace between
+  // them) into `media-gallery` parts so single photos and galleries share
+  // the same full-width rendering and lightbox behavior.
   function groupMediaRuns(parts: any[]): any[] {
     const out: any[] = [];
     let i = 0;
@@ -175,11 +163,9 @@
           }
           break;
         }
-        if (urls.length > 1) {
-          out.push({ type: 'media-gallery', urls, key: `gallery-${part.key ?? i}` });
-          i = j;
-          continue;
-        }
+        out.push({ type: 'media-gallery', urls, key: `gallery-${part.key ?? i}` });
+        i = j;
+        continue;
       }
       out.push(part);
       i++;
@@ -187,7 +173,7 @@
     return out;
   }
 
-  function isBlockPart(part?: { type?: string; prefix?: string; url?: string }) {
+  function isBlockPart(part?: { type?: string; prefix?: string; url?: string; bare?: boolean }) {
     if (!part?.type) return false;
     if (part.type === 'nostr') {
       // nevent1, note1, and naddr1 are all block-level embedded content
@@ -195,6 +181,9 @@
     }
     if (part.type === 'url') {
       if (!part.url) return false;
+      // Bare domains stay inline links — a fuzzy match is an inference, and
+      // it must never grow into a media gallery or a preview card.
+      if (part.bare) return false;
       return isImageUrl(part.url) || isVideoUrl(part.url) || isYouTube(part.url) || showLinkPreviews;
     }
     return false;
@@ -202,12 +191,6 @@
 
   // Parse content and create clickable links for URLs, hashtags, and nostr references
   function parseContent(text: string) {
-    // Include naddr1 for addressable events (recipes, long-form content).
-    // noffer1 (CLINK static offers) is detected both as a bare token and with
-    // the optional `nostr:` prefix — when present we render an inline "⚡ Pay"
-    // pill (NofferButton) instead of treating it as plain text.
-    const urlRegex =
-      /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1|naddr1|noffer1)([023456789acdefghjklmnpqrstuvwxyz]+)|\b(noffer1)([023456789acdefghjklmnpqrstuvwxyz]{6,})/g;
     const hashtagRegex = /#[\w]+/g;
 
     const parts = [];
@@ -215,46 +198,9 @@
     let match;
     let keyCounter = 0;
 
-    // First find URLs and nostr references
-    const urlMatches: Array<{
-      index: number;
-      content: string;
-      type: 'url' | 'nostr';
-      url?: string;
-      prefix?: string;
-      data?: string;
-    }> = [];
-    urlRegex.lastIndex = 0;
-    while ((match = urlRegex.exec(text)) !== null) {
-      const [fullMatch, url, nostrPrefix, nostrData, bareNofferPrefix, bareNofferData] = match;
-      if (url) {
-        urlMatches.push({
-          index: match.index,
-          content: fullMatch,
-          type: 'url',
-          url: url
-        });
-      } else if (nostrPrefix && nostrData) {
-        urlMatches.push({
-          index: match.index,
-          content: fullMatch,
-          type: 'nostr',
-          prefix: nostrPrefix,
-          data: nostrData
-        });
-      } else if (bareNofferPrefix && bareNofferData) {
-        // Bare `noffer1…` (no `nostr:` prefix) — treat the same as a
-        // nostr:noffer1 reference so the downstream renderer surfaces a
-        // Pay button.
-        urlMatches.push({
-          index: match.index,
-          content: fullMatch,
-          type: 'nostr',
-          prefix: bareNofferPrefix,
-          data: bareNofferData
-        });
-      }
-    }
+    // Links + nostr references, with or without the `nostr:` prefix.
+    // Lives in $lib/nostrRefScan so the regex is unit-testable.
+    const urlMatches: ScannedRef[] = scanNostrRefs(text);
 
     // Helper to check if index is inside a URL/nostr reference
     function isInUrl(index: number): boolean {
@@ -302,6 +248,7 @@
           type: 'url',
           content: match.content,
           url: match.url,
+          bare: match.bare,
           key: `url-${keyCounter++}`
         });
       } else if (match.type === 'nostr') {
@@ -345,31 +292,53 @@
   }
 
   function handleNostrClick(nostrId: string) {
-    // Navigate to the nostr reference
-    goto(`/${nostrId}`);
+    // Navigate to the nostr reference. The parsed content keeps the
+    // `nostr:` URI scheme on the string; the route doesn't take it, and
+    // leaving it on lands the reader at /nostr:nevent1... instead.
+    goto(`/${nostrId.replace(/^nostr:/i, '')}`);
+  }
+
+  // Addressable events don't go through the [nip19] route: recipes and
+  // articles live on type-specific pages, and which one an naddr belongs
+  // to isn't knowable from the address alone. NoteEmbed decides after
+  // fetching the event; a compact chip has to do the same on click.
+  async function openAddressable(ref: string) {
+    const clean = ref.replace(/^nostr:/i, '');
+    let decoded: ReturnType<typeof nip19.decode>;
+    try {
+      decoded = nip19.decode(clean);
+    } catch {
+      return;
+    }
+    if (decoded.type !== 'naddr') return;
+    const { kind, pubkey, identifier } = decoded.data;
+    if (kind === GATED_RECIPE_KIND) {
+      goto(`/recipe/${clean}`);
+      return;
+    }
+    let isRecipe = false;
+    try {
+      const fetched = await Promise.race([
+        $ndk.fetchEvent({ kinds: [kind], authors: [pubkey], '#d': [identifier] }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+      ]);
+      isRecipe =
+        !!fetched &&
+        fetched.tags.some(
+          (t) => t[0] === 't' && RECIPE_TAGS.includes((t[1] || '').toLowerCase())
+        );
+    } catch {
+      // Relay unreachable: the article route still resolves the naddr.
+    }
+    goto(isRecipe ? `/recipe/${clean}` : `/reads/${clean}`);
   }
 
   $: parsedContent = parseContent(content);
 
   // Check if content should be collapsed
   $: shouldCollapse = collapsible && content.length > maxLength;
-  // Truncate the preview at a word boundary so we never slice through a word.
-  // If a URL straddles the limit, extend to include the whole URL instead, so
-  // its file extension survives and isImageUrl() classifies it correctly.
-  function truncateAtUrlBoundary(text: string, limit: number): string {
-    const urlRegex = /https?:\/\/[^\s]+/g;
-    let m;
-    while ((m = urlRegex.exec(text)) !== null) {
-      if (m.index < limit && m.index + m[0].length > limit) {
-        return text.substring(0, m.index + m[0].length);
-      }
-    }
-    // Back up to the last whitespace before the limit so the cut lands between
-    // words, not mid-word.
-    const cut = text.substring(0, limit);
-    const boundary = Math.max(cut.lastIndexOf(' '), cut.lastIndexOf('\n'));
-    return (boundary > 0 ? cut.substring(0, boundary) : cut).trimEnd();
-  }
+  // Truncation lives in $lib/noteTruncate so it's unit-testable and shares
+  // the scanner as its source of truth for what counts as a linkable token.
   $: displayContent = shouldCollapse && !isExpanded ? truncateAtUrlBoundary(content, maxLength) : content;
   $: finalParsedContent = splitLightningInvoices(parseContent(displayContent));
   // Whitespace, including zero-width / BOM characters that String.trim() leaves
@@ -409,6 +378,7 @@
   }
 
   $: renderParts = normalizeParts(groupMediaRuns(finalParsedContent));
+  $: firstMediaIndex = renderParts.findIndex((part: any) => part.type === 'media-gallery');
 
   const LIGHTNING_REGEX = /(?:(?:lightning|nostr):)?((lnbc|lntb|lnbcrt)[a-z0-9]{50,})/gi;
 
@@ -456,19 +426,34 @@
      trailing image) on every note. Per-span pre-wrap keeps the author's real
      newlines while letting the container collapse template whitespace. -->
 <div class="break-words note-content {className} w-full">
+  <div class="note-content-body" class:collapsed={shouldCollapse && !isExpanded}>
   {#each renderParts as part, i}
     {#if part.type === 'text'}<span class="whitespace-pre-wrap break-words">{part.content}</span>
     {:else if part.type === 'media-gallery'}
-      <!-- Consecutive media URLs render as a swipeable carousel:
-           peeking 4:5 tiles with a count badge. -->
+      <!-- Single photos fill the column; consecutive media URLs render
+           as a swipeable carousel with peeking 4:5 tiles. -->
       <div class="my-1">
-        <MediaCarousel
-          items={part.urls}
-          onItemClick={(url) => {
-            const index = allImageUrls.indexOf(url);
-            openImageModal(url, index >= 0 ? index : 0);
-          }}
-        />
+        {#if event && i === firstMediaIndex}
+          <CheffyMediaReview {event}>
+            <MediaCarousel
+              items={part.urls}
+              {altByUrl}
+              onItemClick={(url) => {
+                const index = allImageUrls.indexOf(url);
+                openImageModal(url, index >= 0 ? index : 0);
+              }}
+            />
+          </CheffyMediaReview>
+        {:else}
+          <MediaCarousel
+            items={part.urls}
+            {altByUrl}
+            onItemClick={(url) => {
+              const index = allImageUrls.indexOf(url);
+              openImageModal(url, index >= 0 ? index : 0);
+            }}
+          />
+        {/if}
       </div>
     {:else if part.type === 'hashtag'}
       <button
@@ -478,7 +463,20 @@
         {part.content}
       </button>
     {:else if part.type === 'url'}
-      {#if part.url && isImageUrl(part.url)}
+      {#if part.bare && part.url}
+        <!-- Scheme-less domain the author clearly meant as a link
+             ("see zap.cooking/pow"). Inline only — no preview card, media
+             or embed cascade — so a fuzzy false positive ("oven.to") costs
+             at most a stray underline, never a loaded card. -->
+        <a
+          href={part.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-orange-500 hover:text-orange-600 hover:underline break-all"
+        >
+          {part.content}
+        </a>
+      {:else if part.url && isImageUrl(part.url)}
         {@const imageUrl = part.url || ''}
         {@const imageIndex = allImageUrls.indexOf(imageUrl)}
         <div class="my-1">
@@ -488,7 +486,7 @@
           >
             <img
               src={part.url}
-              alt=""
+              alt={altByUrl.get(part.url) || ''}
               class="max-w-full rounded-lg max-h-96 object-contain hover:opacity-95 transition-opacity"
               loading="lazy"
               on:error={handleImageError}
@@ -521,16 +519,35 @@
         <ProfileLink
           nostrString={part.content}
           colorClass="text-orange-500 hover:text-orange-600"
-          fallbackToRaw={false}
         />
       {:else if part.prefix === 'nevent1' || part.prefix === 'note1'}
         {#if showNostrEmbeds}
           <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {:else}
+          <div class="my-1">
+            <button
+              class="quoted-chip"
+              on:click|stopPropagation|preventDefault={() => handleNostrClick(part.content)}
+            >
+              <QuotesIcon size={12} weight="fill" />
+              Quoted note
+            </button>
+          </div>
         {/if}
       {:else if part.prefix === 'naddr1'}
         <!-- Addressable event (recipe, article, etc.) - render as embedded content -->
         {#if showNostrEmbeds}
           <NoteEmbed nostrString={part.content} depth={embedDepth} />
+        {:else}
+          <div class="my-1">
+            <button
+              class="quoted-chip"
+              on:click|stopPropagation|preventDefault={() => openAddressable(part.content)}
+            >
+              <QuotesIcon size={12} weight="fill" />
+              Quoted post
+            </button>
+          </div>
         {/if}
       {:else if part.prefix === 'noffer1'}
         <!-- CLINK static offer — render an inline "⚡ Pay" pill that opens
@@ -548,6 +565,7 @@
       <LightningInvoiceCard invoice={part.invoice} />
     {/if}
   {/each}
+  </div>
 
   {#if shouldCollapse}
     <div class="mt-3 flex justify-center">
@@ -573,13 +591,25 @@
 <!-- Image Modal -->
 {#if imageModalOpen}
   <MediaLightbox
-    images={allImageUrls}
+    images={allImageUrls.map((url) => ({ url, alt: altByUrl.get(url) || '' }))}
+    blurhashByUrl={blurhashByUrl}
     bind:index={selectedImageIndex}
     onClose={closeImageModal}
   />
 {/if}
 
 <style>
+  /* Collapsed previews fade the last ~2 lines out under the "View more"
+     toggle instead of ending on a hard half-line: the fade tells the
+     reader text continues, and (with the line-complete cut) never hides
+     the start of a sentence, only its tail. */
+  .note-content-body.collapsed {
+    max-height: 30rem;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 5.5rem), transparent);
+    mask-image: linear-gradient(to bottom, black calc(100% - 5.5rem), transparent);
+  }
+
   /* First block element gets more top margin */
   .note-content :global(> div:first-of-type),
   .note-content :global(> a:first-of-type) {
@@ -611,5 +641,29 @@
   :global(html.dark) .hashtag-pill:hover {
     background-color: rgb(234 88 12); /* bg-orange-600 */
     color: white;
+  }
+
+  /* Stand-in for a quote where the full embed is suppressed — thread
+     ancestors and reply rows keep their rows compact by passing
+     showNostrEmbeds={false}, and the reference used to render as nothing
+     at all, so the quote silently vanished from the note. */
+  .quoted-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid var(--color-input-border);
+    border-radius: 9999px;
+    color: var(--color-caption);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      border-color 120ms ease;
+  }
+  .quoted-chip:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-text-caption);
   }
 </style>

@@ -11,11 +11,38 @@
    * backdrop gutters, outside the photo frame.
    */
   import { onMount, onDestroy } from 'svelte';
+  import { fade } from 'svelte/transition';
+  import { blurhashToDataUrl } from '$lib/feed/blurhash';
   import { portal } from './Modal.svelte';
 
-  export let images: string[] = [];
+  /** Image URLs, or `{ url, alt }` objects when NIP-92 imeta alt text
+   * is available (accessibility). */
+  export let images: (string | { url: string; alt?: string })[] = [];
   export let index = 0;
   export let onClose: () => void = () => {};
+  /** NIP-92 blurhash keyed by media URL: paints a decoded placeholder
+   * behind the image while it loads (and as ambient fill in the
+   * letterbox gutters afterwards). Optional. */
+  export let blurhashByUrl: Map<string, string> = new Map();
+
+  function urlOf(img: string | { url: string; alt?: string }): string {
+    return typeof img === 'string' ? img : img.url;
+  }
+  function altOf(img: string | { url: string; alt?: string }): string {
+    return typeof img === 'string' ? '' : img.alt || '';
+  }
+  function blurhashBg(url: string): string {
+    const hash = blurhashByUrl.get(url);
+    if (!hash) return '';
+    try {
+      const dataUrl = blurhashToDataUrl(hash);
+      return dataUrl
+        ? `background-image:url(${dataUrl});background-size:cover;background-position:center;`
+        : '';
+    } catch {
+      return '';
+    }
+  }
 
   // Render at document.body so the lightbox escapes any transformed /
   // stacking-context ancestor (e.g. the composer modal dialog, which uses
@@ -31,7 +58,69 @@
   // rendering an empty pager.
   $: if (count === 0) onClose();
 
+  // ── Declared minimum display size ───────────────────────────────
+  // A small image (220×164 GIF, say) must not render at natural size in
+  // a fullscreen overlay: upscale it to at least MIN_DISPLAY_* (pane
+  // permitting). Large media is only ever scaled DOWN to fit.
+  //
+  // The element is sized to the final box explicitly instead of relying
+  // on width/height 100% + object-fit: with contain, the painted content
+  // can be letterboxed inside the element box, and border-radius/shadow
+  // would follow the box — rounding invisible corners. Explicit sizing
+  // makes the box match the visible image exactly.
+  const MIN_DISPLAY_W = 720;
+  const MIN_DISPLAY_H = 540;
+  let naturalSizes: Record<number, { w: number; h: number }> = {};
+  let displaySizes: Record<number, { width: string; height: string }> = {};
+
+  function sizeImage(i: number) {
+    const dim = naturalSizes[i];
+    const pane = scroller?.children[i] as HTMLElement | undefined;
+    if (!dim?.w || !dim?.h || !pane) return;
+    const cs = getComputedStyle(pane);
+    const contentW = pane.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const contentH = pane.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    if (contentW <= 0 || contentH <= 0) return;
+
+    const fit = Math.min(contentW / dim.w, contentH / dim.h);
+    let scale: number;
+    if (fit < 1) {
+      // Larger than the pane: scale down to fit, no minimum applies.
+      scale = fit;
+    } else {
+      // Fits as-is: keep natural size unless that's below the minimum.
+      const minScale = Math.max(MIN_DISPLAY_W / dim.w, MIN_DISPLAY_H / dim.h);
+      scale = Math.min(fit, Math.max(1, minScale));
+    }
+    displaySizes = {
+      ...displaySizes,
+      [i]: {
+        width: `${Math.round(dim.w * scale)}px`,
+        height: `${Math.round(dim.h * scale)}px`
+      }
+    };
+  }
+
+  function sizeAllLoaded() {
+    Object.keys(naturalSizes)
+      .map(Number)
+      .forEach(sizeImage);
+  }
+
+  function handleImgLoad(i: number, e: Event) {
+    const img = e.target as HTMLImageElement;
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    naturalSizes = { ...naturalSizes, [i]: { w: img.naturalWidth, h: img.naturalHeight } };
+    sizeImage(i);
+  }
+
   let scroller: HTMLDivElement;
+  let rootEl: HTMLDivElement;
+  let closeButtonEl: HTMLButtonElement;
+  // Focus moves onto the lightbox while it's up and goes back to whatever
+  // opened it afterwards. The lightbox is portaled to body, so without
+  // this a parent dialog's Tab trap can't reach our close button.
+  let previousActiveElement: HTMLElement | null = null;
 
   function paneWidth(): number {
     return scroller?.offsetWidth || 0;
@@ -41,7 +130,37 @@
     // Jump straight to the tapped image (no animation on open).
     const w = paneWidth();
     if (w && index > 0) scroller.scrollLeft = index * w;
+    previousActiveElement = (document.activeElement as HTMLElement) || null;
+    closeButtonEl?.focus();
   });
+
+  function getFocusable(): HTMLElement[] {
+    if (!rootEl) return [];
+    return Array.from(rootEl.querySelectorAll<HTMLElement>('button:not([disabled])')).filter(
+      (el) => el.getClientRects().length > 0
+    );
+  }
+
+  // Keep Tab inside the lightbox: it's a modal layer over a page (and
+  // possibly a dialog) that is otherwise still reachable.
+  function trapTab(e: KeyboardEvent) {
+    const focusable = getFocusable();
+    if (focusable.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    const inside = !!active && rootEl.contains(active);
+    if (e.shiftKey && (active === first || !inside)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (active === last || !inside)) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
 
   function handleScroll() {
     const w = paneWidth();
@@ -57,6 +176,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') onClose();
+    else if (e.key === 'Tab') trapTab(e);
     else if (e.key === 'ArrowLeft' && index > 0) scrollToIndex(index - 1);
     else if (e.key === 'ArrowRight' && index < count - 1) scrollToIndex(index + 1);
   }
@@ -75,6 +195,14 @@
   let snapDisabled = false;
   let snapRestoreTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Flick detection: track the pointer's instantaneous horizontal
+  // velocity (px/ms, signed — negative = dragging left). A short, fast
+  // release past ~0.5 px/ms (500 px/s) navigates even when the drag
+  // distance is small, matching how casual flicks feel everywhere else.
+  let lastMoveX = 0;
+  let lastMoveT = 0;
+  let flickVelocity = 0;
+
   function handlePointerDown(e: PointerEvent) {
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
     isPointerDown = true;
@@ -83,6 +211,9 @@
     dragStartY = e.clientY;
     dragStartScrollLeft = scroller.scrollLeft;
     dragStartIndex = index;
+    lastMoveX = 0;
+    lastMoveT = 0;
+    flickVelocity = 0;
   }
 
   function handlePointerMove(e: PointerEvent) {
@@ -93,6 +224,12 @@
       endDrag(e);
       return;
     }
+    const now = performance.now();
+    if (lastMoveT !== 0) {
+      flickVelocity = (e.clientX - lastMoveX) / Math.max(1, now - lastMoveT);
+    }
+    lastMoveX = e.clientX;
+    lastMoveT = now;
     const dx = e.clientX - dragStartX;
     const dy = e.clientY - dragStartY;
     if (!dragMoved && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
@@ -111,14 +248,24 @@
     const w = paneWidth();
     if (!w) return;
 
-    const dx = e.clientX - dragStartX;
+    const dx = lastMoveX - dragStartX;
     const nearest = Math.round(scroller.scrollLeft / w);
     let target = nearest;
+    // A quick sub-threshold move followed by a hold-and-release still had
+    // the old sample's velocity armed — invalidate it if the last move is
+    // stale, so only a genuinely recent flick navigates.
+    const FLICK_SAMPLE_MAX_AGE_MS = 120;
+    const flickFresh = lastMoveT !== 0 && performance.now() - lastMoveT <= FLICK_SAMPLE_MAX_AGE_MS;
+    const flicked = flickFresh && Math.abs(flickVelocity) > 0.5 && dragMoved;
     // Flick: a short-but-decisive drag advances one pane in the drag
     // direction even if the nearest snap point is still the start.
     if (Math.abs(dx) > 40) {
       target =
         dx < 0 ? Math.max(dragStartIndex + 1, nearest) : Math.min(dragStartIndex - 1, nearest);
+    } else if (flicked && flickVelocity < 0 && dragStartIndex < count - 1) {
+      target = Math.max(dragStartIndex + 1, nearest);
+    } else if (flicked && flickVelocity > 0 && dragStartIndex > 0) {
+      target = Math.min(dragStartIndex - 1, nearest);
     }
     target = Math.max(0, Math.min(count - 1, target));
 
@@ -144,14 +291,22 @@
 
   onDestroy(() => {
     if (snapRestoreTimer) clearTimeout(snapRestoreTimer);
+    // Only hand focus back if it's still ours (or nowhere). If a parent
+    // has already moved it — e.g. a dialog closing underneath us and
+    // restoring its own opener — leave that alone.
+    const active = document.activeElement;
+    const ours = active === document.body || (!!active && rootEl?.contains(active));
+    if (ours && previousActiveElement?.isConnected) previousActiveElement.focus();
   });
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window on:keydown={handleKeydown} on:resize={sizeAllLoaded} />
 
 <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
 <div
+  bind:this={rootEl}
   class="fixed inset-0 z-[10001] bg-black/85 overflow-hidden"
+  transition:fade={{ duration: 150 }}
   use:portal={portalTarget ?? document.body}
   on:click={onClose}
   role="dialog"
@@ -171,23 +326,29 @@
     on:lostpointercapture={endDrag}
     on:click|capture={suppressClickAfterDrag}
   >
-    {#each images as url, i}
-      <div class="lightbox-pane">
+    {#each images as img, i}
+      <div class="lightbox-pane" style={blurhashBg(urlOf(img))}>
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
         <img
-          src={url}
-          alt={i === index ? 'Full size preview' : ''}
+          src={urlOf(img)}
+          alt={altOf(img) || (i === index ? 'Full size preview' : '')}
           class="lightbox-image"
+          style={displaySizes[i] ? `width:${displaySizes[i].width};height:${displaySizes[i].height};` : ''}
           loading="lazy"
           draggable="false"
+          on:load={(e) => handleImgLoad(i, e)}
           on:click|stopPropagation
         />
+        {#if altOf(img)}
+          <p class="lightbox-alt-caption" role="note">{altOf(img)}</p>
+        {/if}
       </div>
     {/each}
   </div>
 
   <!-- Close button -->
   <button
+    bind:this={closeButtonEl}
     class="absolute top-3 right-3 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition"
     on:click|stopPropagation={onClose}
     aria-label="Close image"
@@ -275,6 +436,7 @@
   }
 
   .lightbox-pane {
+    position: relative;
     flex: 0 0 100%;
     width: 100%;
     height: 100%;
@@ -292,6 +454,34 @@
     }
   }
 
+  /* Visible alt text caption — bottom of the pane,
+     above the close/backdrop chrome. */
+  .lightbox-alt-caption {
+    position: absolute;
+    bottom: 1.25rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(640px, calc(100% - 2rem));
+    max-height: 30%;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0.5rem 0.875rem;
+    border-radius: 0.625rem;
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    text-align: center;
+    /* Alt text may carry authored paragraph breaks (capped at one blank
+       line by normalizeAltBreaks) — preserve them in the caption. */
+    white-space: pre-line;
+    pointer-events: auto;
+  }
+
+  /* The element box is sized explicitly (see the declared-minimum logic
+     above) so it matches the visible image exactly — rounded corners and
+     the shadow track the picture, not a letterboxing container. The
+     max-* guards cover the pre-load frame, where no explicit size exists. */
   .lightbox-image {
     max-width: 100%;
     max-height: 100%;

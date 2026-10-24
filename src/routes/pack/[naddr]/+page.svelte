@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { parseCoordinate } from '$lib/coordinate';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -34,9 +35,11 @@
   import { lazyLoad } from '$lib/lazyLoad';
   import { getImageOrPlaceholder } from '$lib/placeholderImages';
   import { offlineStorage } from '$lib/offlineStorage';
+  import { isHiddenRecipeATag } from '$lib/consts';
   import { isOnline } from '$lib/connectionMonitor';
   import { cookbookStore, cookbookLists } from '$lib/stores/cookbookStore';
   import { buildPackUrl } from '$lib/recipePack';
+  import { isExploreCurationDTag } from '$lib/landing/curation';
   import {
     membershipStatusMap,
     queueMembershipLookup,
@@ -108,6 +111,8 @@
       const decoded = nip19.decode(slug);
       if (decoded.type !== 'naddr') throw new Error('not naddr');
       pointer = decoded.data as nip19.AddressPointer;
+      // The org's /explore curation lists share kind 30004; they aren't packs.
+      if (isExploreCurationDTag(pointer.identifier)) throw new Error('not a pack');
     } catch {
       notFound = true;
       loaded = true;
@@ -129,7 +134,10 @@
         return;
       }
       packEvent = found;
-      const tags = found.tags.filter((t) => t[0] === 'a').map((t) => t[1]);
+      const tags = found.tags
+        .filter((t) => t[0] === 'a')
+        .map((t) => t[1])
+        .filter((a) => !isHiddenRecipeATag(a));
       loaded = true; // header can render now
       await resolveRecipes(tags);
     } catch (err) {
@@ -172,9 +180,9 @@
 
     await Promise.all(
       missing.map(async (aTag) => {
-        const parts = aTag.split(':');
-        if (parts.length !== 3) return;
-        const [kind, pubkey, identifier] = parts;
+        const parsed = parseCoordinate(aTag);
+        if (!parsed) return;
+        const { kind, pubkey, identifier } = parsed;
         try {
           const e = await $ndk.fetchEvent({
             kinds: [Number(kind)],
@@ -217,7 +225,7 @@
   async function importPack() {
     if (isImporting) return;
     if (!$userPublickey) {
-      showToast('info', 'Sign in to save this Recipe Pack to your cookbook.');
+      showToast('info', 'Sign in to save this Recipe Pack to My Kitchen.');
       goto('/login');
       return;
     }
@@ -237,7 +245,7 @@
       }
       const defaultList = await cookbookStore.ensureDefaultList();
       if (!defaultList) {
-        showToast('error', 'Could not access your cookbook. Try again.');
+        showToast('error', 'Could not access My Kitchen. Try again.');
         return;
       }
 
@@ -254,9 +262,9 @@
       const { added, skipped, failed } = result;
 
       if (added === 0 && skipped > 0) {
-        showToast('info', 'Already in your cookbook.');
+        showToast('info', 'Already in My Kitchen.');
       } else if (added > 0 && skipped === 0) {
-        showToast('success', `Added ${added} ${added === 1 ? 'recipe' : 'recipes'} to your cookbook.`);
+        showToast('success', `Added ${added} ${added === 1 ? 'recipe' : 'recipes'} to My Kitchen.`);
       } else if (added > 0 && skipped > 0) {
         showToast('success', `Added ${added}, skipped ${skipped} already saved.`);
       } else if (failed > 0) {
@@ -398,6 +406,7 @@
   url={viewUrl}
   title={title || 'Recipe Pack'}
   imageUrl={image || ''}
+  authorPubkey={packEvent?.pubkey || ''}
 />
 
 <!-- Export as Cookbook (free for Pro / 2100 sats for everyone else) -->
@@ -451,14 +460,14 @@
     </h1>
     <p class="text-caption text-center max-w-md mb-4">
       This pack may have been deleted, or your relays don't have it yet. Try again later, or browse
-      your cookbook.
+      My Kitchen.
     </p>
     <a
-      href="/cookbook"
+      href="/my-kitchen"
       class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
     >
       <ArrowLeftIcon size={18} />
-      Go to Cookbook
+      Go to My Kitchen
     </a>
   </div>
 {:else}
@@ -468,11 +477,11 @@
     <!-- Back link -->
     <div>
       <a
-        href="/cookbook"
+        href="/my-kitchen"
         class="inline-flex items-center gap-1.5 text-sm text-caption hover:text-primary transition-colors"
       >
         <ArrowLeftIcon size={16} />
-        <span>Cookbook</span>
+        <span>My Kitchen</span>
       </a>
     </div>
 
@@ -588,12 +597,12 @@
     <div class="flex flex-wrap gap-2 items-center">
       {#if isOwnPack}
         <a
-          href="/cookbook"
+          href="/my-kitchen"
           class="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors"
           style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
         >
           <BookmarkIcon size={16} />
-          Open your cookbook
+          Open My Kitchen
         </a>
         <!-- Delete (NIP-09 deletion request). Secondary destructive
              styling so the action is reachable but not the focal CTA;
@@ -614,7 +623,7 @@
           style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
         >
           <CheckCircleIcon size={16} weight="fill" class="text-green-500" />
-          Saved in your cookbook
+          Saved in My Kitchen
         </span>
       {:else}
         <button
@@ -627,7 +636,7 @@
             <span>Saving {importProgress.current}/{importProgress.total}…</span>
           {:else}
             <BookmarkIcon size={16} weight="fill" />
-            <span>Save Pack to Cookbook</span>
+            <span>Save Pack to My Kitchen</span>
           {/if}
         </button>
       {/if}

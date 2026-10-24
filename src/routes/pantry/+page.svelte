@@ -1,13 +1,53 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { fetchOwnMembership } from '$lib/membership/ownStatus';
   import { browser } from '$app/environment';
   import { userPublickey } from '$lib/nostr';
   import { goto } from '$app/navigation';
 
   let hasActiveMembership = false;
+  /** 'unknown' = the check itself failed; never shown as the membership pitch. */
+  let membershipState: 'active' | 'inactive' | 'unknown' | null = null;
   let checkingMembership = false;
 
   const PANTRY_RELAY = 'wss://pantry.zap.cooking';
+
+  // Weekly new-recipe stats (fetched via the server-side proxy so the relay
+  // secret never reaches the browser).
+  interface RecipeWeek {
+    week_start: string;
+    count: number;
+  }
+  let recipeWeeks: RecipeWeek[] = [];
+  let recipeWeeksMax = 0;
+  let recipeWeeksLoading = false;
+  let recipeWeeksError = false;
+  let recipeWeeksLoaded = false;
+
+  async function loadRecipesByWeek() {
+    if (recipeWeeksLoaded || recipeWeeksLoading) return;
+
+    recipeWeeksLoading = true;
+    recipeWeeksError = false;
+    try {
+      const res = await fetch('/api/pantry/recipes-by-week');
+      if (!res.ok) throw new Error(`stats request failed: ${res.status}`);
+      const data = await res.json();
+      recipeWeeks = Array.isArray(data?.weeks) ? data.weeks : [];
+      recipeWeeksMax = recipeWeeks.reduce((m, w) => Math.max(m, w.count), 0);
+      recipeWeeksLoaded = true;
+    } catch (err) {
+      console.error('Failed to load recipes-by-week:', err);
+      recipeWeeksError = true;
+    } finally {
+      recipeWeeksLoading = false;
+    }
+  }
+
+  // Load the chart once membership is confirmed.
+  $: if (hasActiveMembership) {
+    loadRecipesByWeek();
+  }
 
   // Check membership status
   async function checkMembership() {
@@ -15,18 +55,12 @@
     
     checkingMembership = true;
     try {
-      const res = await fetch('/api/membership/check-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pubkey: $userPublickey })
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        hasActiveMembership = data.isActive === true;
-      }
+      const own = await fetchOwnMembership($userPublickey);
+      membershipState = own.state;
+      hasActiveMembership = own.state === 'active';
     } catch (err) {
       console.error('Failed to check membership:', err);
+      membershipState = 'unknown';
     } finally {
       checkingMembership = false;
     }
@@ -46,14 +80,15 @@
   <meta property="og:type" content="website" />
   <meta property="og:title" content="The Pantry 🏪 - zap.cooking" />
   <meta property="og:description" content="The Pantry is a members-only corner of Zap Cooking for deeper conversations, early access, and shaping what's next." />
-  <meta property="og:image" content="https://zap.cooking/logo_with_text.png" />
+  <!-- og:image / twitter:image / twitter:card come from the `{#if !hasCustomOgTags}`
+       block in +layout.svelte's <svelte:head>. This route is not in `hasCustomOgTags`,
+       so the layout's set is emitted here and a page-level copy would be a second,
+       silently-drifting claim. -->
 
-  <meta name="twitter:card" content="summary" />
   <meta property="twitter:domain" content="zap.cooking" />
   <meta property="twitter:url" content="https://zap.cooking/pantry" />
   <meta name="twitter:title" content="The Pantry 🏪 - zap.cooking" />
   <meta name="twitter:description" content="The Pantry is a members-only corner of Zap Cooking for deeper conversations, early access, and shaping what's next." />
-  <meta property="twitter:image" content="https://zap.cooking/logo_with_text.png" />
 </svelte:head>
 
 <div class="flex flex-col gap-8">
@@ -104,6 +139,11 @@
       <div class="text-center">
         <p style="color: var(--color-text-secondary)">Checking membership status...</p>
       </div>
+    </section>
+  {:else if membershipState === 'unknown'}
+    <section class="rounded-xl shadow-sm p-5 md:p-6 text-center" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
+      <p class="mb-4" style="color: var(--color-text-secondary)">We couldn't check your membership right now.</p>
+      <button type="button" on:click={checkMembership} class="px-5 py-2 rounded-lg font-medium" style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)">Try again</button>
     </section>
   {:else if !hasActiveMembership}
     <section class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
@@ -162,6 +202,43 @@
       </div>
     </section>
 
+    <!-- New Recipes by Week Section -->
+    <section class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
+      <h2 class="text-2xl font-bold mb-4 flex items-center gap-2" style="color: var(--color-text-primary)">
+        <span>📈</span>
+        <span>New Recipes by Week</span>
+      </h2>
+
+      {#if recipeWeeksLoading}
+        <p class="text-sm" style="color: var(--color-text-secondary)">Loading…</p>
+      {:else if recipeWeeksError}
+        <p class="text-sm" style="color: var(--color-text-secondary)">
+          Recipe stats are unavailable right now. Please check back later.
+        </p>
+      {:else if !recipeWeeks.length || recipeWeeksMax === 0}
+        <p class="text-sm" style="color: var(--color-text-secondary)">
+          No new recipes recorded yet.
+        </p>
+      {:else}
+        <div class="flex items-end gap-1 h-40">
+          {#each recipeWeeks as week (week.week_start)}
+            <div class="flex flex-1 flex-col items-center justify-end h-full">
+              <div class="text-[10px] mb-1" style="color: var(--color-text-secondary)">{week.count}</div>
+              <div
+                class="w-full rounded-t transition-all duration-300"
+                style="height: {recipeWeeksMax ? Math.max(2, (week.count / recipeWeeksMax) * 100) : 2}%; background-color: {week.count === 0 ? 'var(--color-input-border)' : 'var(--color-primary)'};"
+                title="{week.week_start}: {week.count} recipes"
+              ></div>
+              <div class="text-[9px] mt-1" style="color: var(--color-text-secondary)">{week.week_start.slice(5)}</div>
+            </div>
+          {/each}
+        </div>
+        <p class="text-xs mt-4" style="color: var(--color-text-secondary)">
+          Recipes added to the Pantry each week. The July spike reflects a one-time import of existing recipes.
+        </p>
+      {/if}
+    </section>
+
     <!-- Browse Content Section -->
     <section class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
       <h2 class="text-2xl font-bold mb-4 flex items-center gap-2" style="color: var(--color-text-primary)">
@@ -184,7 +261,7 @@
           </svg>
         </a>
         <a
-          href="/community?tab=members"
+          href="/feed?tab=members"
           class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 font-medium transition-colors"
           style="border-color: var(--color-primary); color: var(--color-primary);"
         >

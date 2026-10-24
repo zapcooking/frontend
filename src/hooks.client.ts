@@ -44,26 +44,26 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   }
 }
 
-// Intercept fetch requests for __data.json files that don't exist in static builds
-// This is a backup in case the Service Worker doesn't catch the request
+// Intercept fetch requests for __data.json files that don't exist in
+// packaged static/Capacitor builds. Do NOT treat bare localhost as static —
+// `pnpm dev` / `vite preview` / `wrangler pages dev` all serve from localhost
+// and need real SvelteKit __data.json responses for client-side navigation.
 if (typeof window !== 'undefined') {
   const originalFetch = window.fetch;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    
-    // For __data.json requests, check if this is a static/Capacitor build
-    // Static builds serve from localhost, web builds serve from zap.cooking
+
     if (url.includes('__data.json')) {
-      const isStaticBuild = window.location.hostname === 'localhost' || 
-                           window.location.hostname === '127.0.0.1' ||
-                           window.location.protocol === 'file:' ||
-                           window.location.protocol === 'capacitor:';
-      
-      if (isStaticBuild) {
-        // In static builds, __data.json doesn't exist - return mock data immediately
-        // Don't even try to fetch as it will log errors
-        console.debug('[hooks] Intercepting __data.json request in static build');
-        
+      const protocol = window.location.protocol;
+      const isPackagedStatic =
+        protocol === 'file:' ||
+        protocol === 'capacitor:' ||
+        // Capacitor Android/iOS WebView may still use http://localhost
+        !!(window as Window & { Capacitor?: unknown }).Capacitor;
+
+      if (isPackagedStatic) {
+        console.debug('[hooks] Intercepting __data.json request in packaged static build');
+
         const mockData = {
           type: 'data',
           nodes: [
@@ -75,15 +75,15 @@ if (typeof window !== 'undefined') {
             }
           ]
         };
-        
+
         return new Response(JSON.stringify(mockData), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
         });
       }
     }
-    
-    // For all other requests (or web __data.json), use original fetch
+
+    // For all other requests (or web/dev __data.json), use original fetch
     return originalFetch(input, init);
   };
 
