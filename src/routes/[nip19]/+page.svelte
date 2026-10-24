@@ -40,6 +40,7 @@
   import RailCard from '../../components/RailCard.svelte';
   import PersonRow from '../../components/PersonRow.svelte';
   import { requireAuth } from '$lib/auth/requireAuth';
+import { eventPath } from '$lib/utils/eventUrl';
 
   let decoded: any = null;
   let event: NDKEvent | null = null;
@@ -275,21 +276,7 @@
 
   function gotoNoteUnlessInteractive(e: MouseEvent, evt: NDKEvent) {
     if (e.target instanceof Element && e.target.closest('a, button')) return;
-    goto(noteUrl(evt));
-  }
-
-  // Encode a note/reply event as nevent1 with relay hints for better discoverability.
-  function noteUrl(evt: NDKEvent): string {
-    const relayUrl = evt.relay?.url ?? (evt as any).onRelays?.[0]?.url;
-    try {
-      return '/' + nip19.neventEncode({
-        id: evt.id,
-        relays: relayUrl ? [relayUrl] : [],
-        kind: evt.kind ?? 1
-      });
-    } catch {
-      return '/' + nip19.noteEncode(evt.id);
-    }
+    goto(eventPath(evt));
   }
 
   // Fetch replies to this note
@@ -918,7 +905,7 @@
                     <PollDisplay event={parentNote} />
                   {:else}
                     <a
-                      href="{noteUrl(parentNote)}"
+                      href="{eventPath(parentNote)}"
                       class="block text-base leading-relaxed hover:opacity-80"
                       style="color: var(--color-text-secondary)"
                     >

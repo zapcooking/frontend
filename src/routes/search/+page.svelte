@@ -12,6 +12,7 @@
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { isHumanReadablePostContent } from '$lib/postContentReadability';
   import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
+  import { eventPath } from '$lib/utils/eventUrl';
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import NoteContent from '../../components/NoteContent.svelte';
@@ -369,7 +370,7 @@
               </div>
               <PostActionsMenu event={post} />
             </div>
-            <a href="/{nip19.noteEncode(post.id)}" class="block">
+            <a href={eventPath(post)} class="block">
               <div class="text-[14px] leading-normal" style="color: var(--color-text-primary);">
                 {#if post.kind === 1068}
                   <PollDisplay event={post} />

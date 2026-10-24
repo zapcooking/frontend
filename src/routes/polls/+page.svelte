@@ -12,6 +12,7 @@
   import { formatDistanceToNow } from 'date-fns';
   import { nip19 } from 'nostr-tools';
   import { goto } from '$app/navigation';
+  import { eventPath } from '$lib/utils/eventUrl';
   import PostActionsMenu from '../../components/PostActionsMenu.svelte';
 
   let polls: NDKEvent[] = [];
@@ -49,8 +50,7 @@
 
   function navigateToNote(event: NDKEvent) {
     try {
-      const noteId = nip19.noteEncode(event.id);
-      goto(`/${noteId}`);
+      goto(eventPath(event));
     } catch {}
   }
 

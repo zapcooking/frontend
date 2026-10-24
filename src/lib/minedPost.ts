@@ -12,7 +12,7 @@
  * stopped and a publish can fail, and the note the reader typed has to
  * survive both; it is cleared here only once the relays have it.
  */
-import { nip19 } from 'nostr-tools';
+import { eventIdPath } from '$lib/utils/eventUrl';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { publishQueue } from '$lib/publishQueue';
 import { minePowIntoEvent, powCancel, isPowCanceled } from '$lib/powMiner';
@@ -63,7 +63,7 @@ export async function startMinedPost({
   try {
     const result = await publishQueue.publishWithRetry(event, relayMode as never);
     if (result.success) {
-      const noteLink = event.id ? `/${nip19.noteEncode(event.id)}` : null;
+      const noteLink = event.id ? eventIdPath(event.id) : null;
       showToast(
         'success',
         'Note published',

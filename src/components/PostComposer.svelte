@@ -17,6 +17,7 @@
   import CustomAvatar from './CustomAvatar.svelte';
   import ProfileLink from './ProfileLink.svelte';
   import { nip19 } from 'nostr-tools';
+  import { eventIdPath } from '$lib/utils/eventUrl';
   import NoteContent from './NoteContent.svelte';
   import { addClientTagToEvent } from '$lib/nip89';
   import { buildHashtagTags, MAX_HASHTAGS } from '$lib/hashtags';
@@ -864,7 +865,7 @@
       console.log('[PostComposer] Publish result:', result);
 
       if (result.success) {
-        const noteLink = event.id ? `/${nip19.noteEncode(event.id)}` : null;
+        const noteLink = event.id ? eventIdPath(event.id) : null;
         showToast('success', 'Note published', 12000, noteLink ? { label: 'View', href: noteLink } : undefined);
         if (variant !== 'modal') {
           resetComposerState();
