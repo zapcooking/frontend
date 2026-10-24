@@ -14,8 +14,11 @@ import {
   getBestEncryptionMethod,
   encrypt,
   decrypt,
+  decryptWithSource,
+  noteLegacyMigration,
   detectEncryptionMethod,
-  canCreateNostrBackup,
+  getNostrBackupBlocker,
+  describeNostrBackupBlocker,
   canDecryptSilently,
   type EncryptionMethod
 } from '$lib/encryptionService';
@@ -55,24 +58,18 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
     throw new Error('No NWC connection string provided');
   }
 
-  // Check encryption support
-  if (!hasEncryptionSupport()) {
+  // Block sessions that can't encrypt to the user's real key, with a
+  // session-specific reason (this also covers a missing local key or an
+  // extension without encryption). Some NIP-46 remote signers may encrypt
+  // under their session/auth key rather than the user's real identity key,
+  // producing ciphertext that no future session can decrypt. Since we
+  // can't reliably tell which remote signers behave this way, the
+  // conservative default is to allow new backups only from nsec / passkey
+  // / NIP-07 users.
+  const backupBlocker = getNostrBackupBlocker();
+  if (backupBlocker) {
     throw new Error(
-      'No encryption method available. Encryption is supported when logged in with a private key (nsec) or a NIP-07 browser extension.'
-    );
-  }
-
-  // Block NIP-46 remote signers from creating Nostr-relay backups.
-  // Some NIP-46 remote signers may encrypt under their session/auth
-  // key rather than the user's real identity key, producing ciphertext
-  // that no future session can decrypt. Since we can't reliably tell
-  // which remote signers behave this way, the conservative default is
-  // to allow new backups only from nsec / NIP-07 users.
-  if (!canCreateNostrBackup()) {
-    throw new Error(
-      'Nostr-relay backup is unavailable when using a remote signer (NIP-46). ' +
-        'Save your NWC connection string manually, or sign in with a private key (nsec) ' +
-        'or a NIP-07 browser extension to enable cloud backup.'
+      describeNostrBackupBlocker(backupBlocker, 'Save your NWC connection string manually')
     );
   }
 
@@ -224,8 +221,8 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
   console.log('[NWC Restore] Starting decryption with', encryptionMethod, '...');
   const decryptStart = Date.now();
 
-  const connectionString = await withTimeout(
-    decrypt(pubkey, latestEvent.content, encryptionMethod),
+  const { plaintext: connectionString, source } = await withTimeout(
+    decryptWithSource(pubkey, latestEvent.content, encryptionMethod, { legacy: 'prompt' }),
     DECRYPT_TIMEOUT,
     'Decryption timed out. Please approve the request in your signer app.'
   );
@@ -246,6 +243,18 @@ export async function restoreNwcFromNostr(pubkey: string): Promise<string | null
   if (!isValidNwc) {
     console.error('[NWC Restore] Invalid content preview:', connectionString.slice(0, 50));
     throw new Error('Decrypted data does not appear to be a valid NWC connection string.');
+  }
+
+  // Encrypted under a legacy key (#897): republish under the session key
+  // through the normal guarded path. Best effort — the restore stands
+  // either way, and a blocked session (NIP-46) keeps the old backup.
+  if (source !== 'session') {
+    try {
+      await backupNwcToNostr(pubkey, connectionString);
+      noteLegacyMigration('NWC backup', source);
+    } catch (e) {
+      console.warn('[NWC Restore] Legacy-encrypted backup not migrated:', (e as Error)?.message);
+    }
   }
 
   console.log('[NWC Restore] Successfully restored NWC connection from Nostr backup');

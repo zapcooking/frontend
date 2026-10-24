@@ -5,6 +5,11 @@
   import { userPublickey } from '$lib/nostr';
   import { portal } from '../Modal.svelte';
   import { getAuthManager } from '$lib/authManager';
+  import {
+    legacyBackupNoticePending,
+    claimLegacyBackupNotice
+  } from '$lib/wallet/legacyBackupNotice';
+  import { stackedDialog } from '$lib/wallet/stackedDialog';
   import Button from '../Button.svelte';
   import {
     wallets,
@@ -244,6 +249,47 @@
   // Wallet options (shared between Spark and NWC)
   let expandedWalletId: number | null = null;
   let revealedMnemonic: string | null = null;
+
+  // One-time "save your recovery phrase" notice for a Spark wallet whose
+  // backup only opened through the legacy decrypt fallback (#897). Driven
+  // by store subscriptions rather than `$:` (see the reactive-slot note on
+  // the Nostr-backup gate below).
+  let legacyNoticeWalletId: string | null = null;
+
+  function checkLegacyBackupNotice(pending: string[], list: { kind: number; data: string }[]) {
+    if (legacyNoticeWalletId || pending.length === 0) return;
+    legacyNoticeWalletId = claimLegacyBackupNotice(pending, list);
+  }
+
+  onMount(() => {
+    let pending: string[] = [];
+    let list: { kind: number; data: string }[] = [];
+    const unsubPending = legacyBackupNoticePending.subscribe((value) => {
+      pending = value;
+      checkLegacyBackupNotice(pending, list);
+    });
+    const unsubWallets = wallets.subscribe((value) => {
+      list = value;
+      checkLegacyBackupNotice(pending, list);
+    });
+    return () => {
+      unsubPending();
+      unsubWallets();
+    };
+  });
+
+  async function showLegacyNoticePhrase() {
+    legacyNoticeWalletId = null;
+    await handleRevealMnemonic();
+  }
+
+  async function copyRevealedMnemonic() {
+    if (revealedMnemonic && (await copyToClipboard(revealedMnemonic))) {
+      successMessage = 'Recovery phrase copied';
+    } else {
+      errorMessage = 'Failed to copy to clipboard';
+    }
+  }
   let isBackingUp = false;
   // Picker-home altcoin-curious prompt toggle
   let showAltcoinReply = false;
@@ -5350,8 +5396,16 @@
         <div
           class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
           style="background-color: var(--color-bg-primary);"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reveal-mnemonic-title"
+          use:stackedDialog={{ onEscape: closeRevealMnemonicModal }}
         >
-          <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
+          <h2
+            id="reveal-mnemonic-title"
+            class="text-xl font-bold mb-4"
+            style="color: var(--color-text-primary)"
+          >
             Recovery Phrase
           </h2>
           <div
@@ -5383,7 +5437,61 @@
               {/if}
             </button>
           </div>
-          <Button on:click={closeRevealMnemonicModal} class="w-full">Close</Button>
+          <div class="flex gap-3">
+            <button
+              class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors cursor-pointer hover:bg-white/5"
+              style="border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
+              on:click={copyRevealedMnemonic}
+            >
+              <CopyIcon size={16} />
+              Copy
+            </button>
+            <Button on:click={closeRevealMnemonicModal} class="flex-1">Close</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if legacyNoticeWalletId && !revealedMnemonic && portalTarget}
+    <div use:portal={portalTarget}>
+      <div
+        class="fixed inset-0 bg-black/50 flex z-[10001] p-4"
+        style="display: flex; align-items: center; justify-content: center;"
+        data-testid="legacy-backup-notice"
+      >
+        <div
+          class="rounded-2xl p-6 max-w-md w-full"
+          style="background-color: var(--color-bg-primary);"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="legacy-notice-title"
+          aria-describedby="legacy-notice-body"
+          use:stackedDialog={{ onEscape: () => (legacyNoticeWalletId = null) }}
+        >
+          <h2
+            id="legacy-notice-title"
+            class="text-xl font-bold mb-4"
+            style="color: var(--color-text-primary)"
+          >
+            <WarningIcon size={22} class="inline mr-2 text-amber-500" />
+            Save your recovery phrase
+          </h2>
+          <p id="legacy-notice-body" class="text-sm mb-6" style="color: var(--color-text-secondary)">
+            Save your recovery phrase now. This backup may not be readable later.
+          </p>
+          <div class="flex gap-3">
+            <button
+              class="flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors cursor-pointer hover:bg-white/5"
+              style="border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
+              on:click={() => (legacyNoticeWalletId = null)}
+            >
+              Not now
+            </button>
+            <Button on:click={showLegacyNoticePhrase} class="flex-1" data-autofocus>
+              Show phrase
+            </Button>
+          </div>
         </div>
       </div>
     </div>

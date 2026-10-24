@@ -168,6 +168,9 @@ export class AuthManager {
   private listeners: ((state: AuthState) => void)[] = [];
   private nip46Signer: NDKNip46Signer | null = null;
   private nip46ResponseSub: NDKSubscription | null = null;
+  // While postAnonymously has a throwaway signer on ndk.signer: the
+  // session's own signer (see getSignerSwap).
+  private signerSwap: { signer: unknown; depth: number } | null = null;
 
   constructor(ndk: any) {
     this.ndk = ndk;
@@ -1568,8 +1571,12 @@ export class AuthManager {
     const { privateKey } = this.generateAnonymousKey();
     const signer = new NDKPrivateKeySigner(privateKey);
 
-    // Temporarily set signer for this post
-    const originalSigner = this.ndk.signer;
+    // Temporarily set signer for this post. The session signer is recorded
+    // first (and kept across overlapping posts) so encryptionService never
+    // encrypts or decrypts with the throwaway key.
+    if (this.signerSwap) this.signerSwap.depth++;
+    else this.signerSwap = { signer: this.ndk.signer, depth: 1 };
+    const originalSigner = this.signerSwap.signer;
     this.ndk.signer = signer;
 
     try {
@@ -1584,9 +1591,19 @@ export class AuthManager {
 
       await event.publish();
     } finally {
-      // Restore original signer
-      this.ndk.signer = originalSigner;
+      // Restore original signer once the last overlapping post is done
+      if (this.signerSwap && --this.signerSwap.depth === 0) {
+        this.ndk.signer = originalSigner;
+        this.signerSwap = null;
+      }
     }
+  }
+
+  // The session's own signer while an anonymous post has a throwaway one on
+  // ndk.signer, else null. Synchronous, so a caller that reads it right
+  // where it uses the signer has no window for a swap to slip in.
+  getSignerSwap(): { signer: unknown } | null {
+    return this.signerSwap ? { signer: this.signerSwap.signer } : null;
   }
 
   // ============================================================
