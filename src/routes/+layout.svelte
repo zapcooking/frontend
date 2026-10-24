@@ -370,6 +370,12 @@
       authState = authManager.getState();
       syncSignedIn(authState);
 
+      // A new account's profile that no relay has accepted yet: show it
+      // locally from the start (the profile cache is in memory only).
+      if (browser && localStorage.getItem('zapcooking_pending_kind0')) {
+        void import('$lib/pendingKind0').then((m) => m.seedPendingKind0Locally());
+      }
+
       // Locked passkey vault (record present, no plaintext key, no bunker):
       // nothing opens by itself. The header shows "Continue as {name}" and
       // one tap unlocks. Guarded on the other restore inputs so an in-flight

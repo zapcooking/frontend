@@ -103,6 +103,28 @@ export async function retryPendingKind0(pubkey: string, deps: RetryDeps): Promis
   }
 }
 
+/**
+ * Show a still-pending profile locally: it isn't on any relay yet, and the
+ * profile cache is in memory, so after a reload nothing else would know
+ * the member's name. Called on load, before any session settles (the
+ * locked-vault "Continue as" chip reads it too).
+ */
+export async function seedPendingKind0Locally(): Promise<void> {
+  let event: SignedKind0 | null = null;
+  try {
+    const raw = storage()?.getItem(PENDING_KIND0_KEY);
+    event = raw ? (JSON.parse(raw) as SignedKind0) : null;
+  } catch {
+    event = null;
+  }
+  if (!event || event.kind !== 0 || typeof event.pubkey !== 'string') return;
+  const [{ NDKEvent }, { ingestProfileEvent }] = await Promise.all([
+    import('@nostr-dev-kit/ndk'),
+    import('$lib/profileResolver')
+  ]);
+  ingestProfileEvent(event.pubkey, new NDKEvent(undefined, event));
+}
+
 const running = new Set<string>();
 
 /**
