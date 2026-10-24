@@ -17,6 +17,7 @@
   import LongformTile from '../../components/landing/LongformTile.svelte';
   import LandingImportHero from '../../components/landing/LandingImportHero.svelte';
   import LandingMembership from '../../components/landing/LandingMembership.svelte';
+  import LandingRecipePacks from '../../components/landing/LandingRecipePacks.svelte';
   import { magazineText, magazineName } from '$lib/landing/display';
 
   export let data: PageData;
@@ -85,10 +86,10 @@
   <div class="landing-body">
     <LandingHeader />
     <main id="main" class="magazine">
-      <section class="masthead" aria-labelledby="welcome">
-        <h1 id="welcome">Explore</h1>
+      <div class="masthead">
         <p class="intro">
-          Discover recipes, reads, and cooks. Save your favorites and share what you make.
+          Discover recipes, recipe packs, reads, and cooks. Save your favorites and share what you
+          make.
         </p>
         <form action="/search" method="GET" class="search" role="search">
           <label for="recipe-search" class="sr-only">Search recipes</label>
@@ -102,7 +103,7 @@
           />
           <button type="submit" aria-label="Search recipes">Search <Arrow /></button>
         </form>
-      </section>
+      </div>
 
       {#if d.cover || d.picks.length}
         <section class="cover-section" aria-label="The cover selection">
@@ -170,6 +171,8 @@
           </ul>
         </section>
       {/if}
+
+      <LandingRecipePacks packs={d.packs ?? []} />
 
       {#if d.collections.length}
         <section id="collections" class="section" aria-labelledby="collections-heading">
@@ -336,9 +339,10 @@
       <LandingMembership />
     </main>
     <footer class="magazine footer">
-      <a href="/explore" aria-label="Zap Cooking home" class="footer-brand"
-        >Zap Cooking<span>.</span></a
-      >
+      <a href="/explore" aria-label="Zap Cooking home" class="footer-brand">
+        <img src="/zapcooking-text-light.svg" class="logo-l" alt="" width="160" height="22" />
+        <img src="/zapcooking-text-dark.svg" class="logo-d" alt="" width="160" height="22" />
+      </a>
       <p>Food is culture. Food is community.</p>
       <nav aria-label="Footer">
         <a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a
@@ -420,11 +424,6 @@
     font-weight: 700;
     color: var(--landing-accent-text);
     margin: 0 0 12px;
-  }
-  h1 {
-    font-size: clamp(30px, 3vw, 36px);
-    line-height: 1.2;
-    margin: 0 0 18px;
   }
   .intro {
     font-size: 15px;
@@ -684,13 +683,20 @@
     display: inline-flex;
     align-items: center;
     min-height: 44px;
-    font-size: 22px;
-    font-weight: 800;
-    letter-spacing: -1px;
-    white-space: nowrap;
+    flex-shrink: 0;
   }
-  .footer-brand span {
-    color: var(--landing-accent-text);
+  .footer-brand img {
+    width: 160px;
+    height: auto;
+  }
+  .logo-d {
+    display: none;
+  }
+  :global(html.dark) .logo-l {
+    display: none;
+  }
+  :global(html.dark) .logo-d {
+    display: block;
   }
   .footer p {
     font-size: 12px;
@@ -716,9 +722,6 @@
     }
     .masthead {
       padding: 26px 0 23px;
-    }
-    h1 {
-      font-size: 38px;
     }
     .intro {
       font-size: 13px;
@@ -802,10 +805,6 @@
   @media (max-width: 767px) and (max-height: 720px) {
     .masthead {
       padding: 14px 0;
-    }
-    h1 {
-      font-size: 32px;
-      margin-bottom: 10px;
     }
     .intro {
       font-size: 12px;
