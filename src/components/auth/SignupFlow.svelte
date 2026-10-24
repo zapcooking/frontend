@@ -423,7 +423,7 @@
             <input type="checkbox" bind:checked={syncOn} disabled={passkeyBusy} class="mt-0.5" />
             <span class="text-xs text-caption">
               <span class="font-medium" style="color: var(--color-text-primary)">
-                Sign in on your other devices.
+                Sign in on other devices.
               </span>
               An encrypted copy is saved so you can sign in on your other devices. Only you can unlock
               it.
