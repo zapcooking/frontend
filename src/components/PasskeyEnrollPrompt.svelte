@@ -35,6 +35,7 @@
   import {
     passkeyMethodLabel,
     confirmFailedText,
+    cancelChoiceText,
     type PasskeyMethodLabel
   } from '$lib/auth/passkeyLabel';
   import { nip19 } from 'nostr-tools';
@@ -50,6 +51,10 @@
   let doneUnconfirmed = false;
   // That unlock failed and the vault was removed: ask for a backup key.
   let confirmFailed = false;
+  // Its unlock was cancelled twice or more: keep trying, or remove it.
+  let cancelChoice = false;
+  // Removed from that choice: the backup-key panel, without "couldn't unlock".
+  let removedByChoice = false;
   let failedBackupOk = false;
   let label: PasskeyMethodLabel = 'passkey';
   let errorMsg = '';
@@ -69,12 +74,17 @@
   $: if (!visible) backupOk = false;
 
   function evaluate() {
-    if (!browser || !authState || busy || done || confirmFailed) return;
+    if (!browser || !authState || busy || done || confirmFailed || cancelChoice) return;
     const am = getAuthManager();
     nsecHex = am?.getSessionPrivateKeyHex() ?? '';
     npub = authState.publicKey ? nip19.npubEncode(authState.publicKey) : '';
     if (authState.isAuthenticated && am?.takeVaultConfirmFailure()) {
       confirmFailed = true;
+      visible = false;
+      return;
+    }
+    if (authState.isAuthenticated && am?.takeVaultCancelChoice()) {
+      cancelChoice = true;
       visible = false;
       return;
     }
@@ -151,14 +161,33 @@
 
   function closeFailed() {
     confirmFailed = false;
+    removedByChoice = false;
     evaluate();
+  }
+
+  /** "Keep trying": nothing changes; the choice returns after the next failure. */
+  function keepTrying() {
+    cancelChoice = false;
+    evaluate();
+  }
+
+  /** "Remove and save backup key": drop the passkey, then the backup-key panel. */
+  function removeForBackup() {
+    getAuthManager()?.discardUnconfirmedVault();
+    cancelChoice = false;
+    removedByChoice = true;
+    confirmFailed = true;
   }
 </script>
 
 {#if confirmFailed}
   <aside class="vault-prompt" aria-label="Save your backup key">
     <p class="vault-prompt-title">⚠️ Save your backup key</p>
-    <p class="vault-prompt-body" role="alert">{confirmFailedText(label)}</p>
+    <p class="vault-prompt-body" role="alert">
+      {removedByChoice
+        ? "Passkey removed. You're still signed in — save your backup key so you can always get back in."
+        : confirmFailedText(label)}
+    </p>
     {#if nsecHex && npub}
       <div class="vault-prompt-gate">
         <KeyBackupGate
@@ -178,6 +207,17 @@
         disabled={!failedBackupOk}
       >
         Done
+      </button>
+    </div>
+  </aside>
+{:else if cancelChoice}
+  <aside class="vault-prompt" aria-label="Passkey didn't finish">
+    <p class="vault-prompt-title">🔑 Passkey didn't finish</p>
+    <p class="vault-prompt-body" role="alert">{cancelChoiceText(label)}</p>
+    <div class="vault-prompt-actions">
+      <button type="button" class="vault-prompt-primary" on:click={keepTrying}>Keep trying</button>
+      <button type="button" class="vault-prompt-dismiss" on:click={removeForBackup}>
+        Remove and save backup key
       </button>
     </div>
   </aside>

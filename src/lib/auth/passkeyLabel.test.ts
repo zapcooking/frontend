@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { passkeyMethodLabel, passkeySignInText, confirmFailedText } from './passkeyLabel';
+import {
+  passkeyMethodLabel,
+  passkeySignInText,
+  confirmFailedText,
+  cancelChoiceText
+} from './passkeyLabel';
 
 const UA = {
   iphone:
@@ -53,6 +58,12 @@ describe('one-prompt unlock failure copy', () => {
     );
     expect(confirmFailedText('passkey')).toBe(
       "Your passkey couldn't unlock your account, so we kept you signed in. Save your backup key."
+    );
+    expect(cancelChoiceText('Face ID')).toBe(
+      "Face ID didn't finish twice. Keep trying it, or remove it and save your backup key instead?"
+    );
+    expect(cancelChoiceText('passkey')).toBe(
+      "Your passkey didn't finish twice. Keep trying it, or remove it and save your backup key instead?"
     );
   });
 });

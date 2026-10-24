@@ -563,20 +563,35 @@ describe('one-prompt enrollment (PRF at create)', () => {
     await nextVisitLocked(); // the chip again next time
   });
 
-  it('a second NotAllowedError (Microsoft Password Manager shape) removes the vault and asks for a backup key', async () => {
+  it('from the second NotAllowedError on: signed in, vault kept, keep-trying/remove choice offered', async () => {
     simulatedAuthenticator({ createPrf: true, getPrf: 'NotAllowedError' });
     await (await nsecSession()).enrollVault();
-    await (await nextVisitLocked()).unlockVault(); // visit 1: cancel, kept
+    const first = await nextVisitLocked();
+    await first.unlockVault(); // visit 1: plain cancel
+    expect(first.takeVaultCancelChoice()).toBe(false);
 
-    const am = await nextVisitLocked();
-    await am.unlockVault(); // visit 2: second one
+    const second = await nextVisitLocked();
+    await second.unlockVault(); // visit 2: second cancel
 
+    expect(second.getState().isAuthenticated).toBe(true);
+    expect(second.getState().authMethod).toBe('privateKey');
+    expect(vaultInStore()).toBeDefined(); // never removed automatically
+    expect(isVaultUnconfirmed()).toBe(true);
+    expect(second.takeVaultConfirmFailure()).toBe(false);
+    expect(second.takeVaultCancelChoice()).toBe(true);
+    expect(second.takeVaultCancelChoice()).toBe(false); // offered once per failure
+
+    // "Keep trying" changes nothing: the next failure offers the choice again.
+    const third = await nextVisitLocked();
+    await third.unlockVault();
+    expect(vaultInStore()).toBeDefined();
+    expect(third.takeVaultCancelChoice()).toBe(true);
+
+    // "Remove and save backup key".
+    third.discardUnconfirmedVault();
     expect(vaultInStore()).toBeUndefined();
-    expect(am.getState().isAuthenticated).toBe(true);
-    expect(am.getState().authMethod).toBe('privateKey');
     expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
-    expect(am.takeVaultConfirmFailure()).toBe(true);
-    expect(am.takeVaultConfirmFailure()).toBe(false); // shown once
+    await nextVisit(); // plain nsec session from now on
   });
 
   it('bad PRF on the unlock: vault removed at once, signed in from the plaintext key', async () => {

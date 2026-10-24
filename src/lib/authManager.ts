@@ -173,6 +173,9 @@ export class AuthManager {
   // The unlock of an unconfirmed vault failed and the vault was removed: the
   // enroll card shows the backup-key message (takeVaultConfirmFailure).
   private vaultConfirmFailed = false;
+  // That unlock was cancel-shaped for the second time (or more): the enroll
+  // card offers keep-trying / remove (takeVaultCancelChoice).
+  private vaultCancelChoice = false;
   private nip46ResponseSub: NDKSubscription | null = null;
   // While postAnonymously has a throwaway signer on ndk.signer: the
   // session's own signer (see getSignerSwap).
@@ -1827,17 +1830,20 @@ export class AuthManager {
 
   // The unlock of an unconfirmed vault didn't succeed: sign in from the
   // plaintext key it was backing up. A cancel-shaped error (NotAllowedError)
-  // keeps the vault the first time; the second — on a later visit, since
-  // this signs the user in — is treated as the provider failing (Microsoft
-  // Password Manager raises the same error for its PRF get() failure). Any
-  // other failure removes the vault at once. Removal sets the flag that
-  // shows the backup-key message.
+  // never removes the vault by itself — it can be a dismissed sheet or a
+  // provider whose PRF get() fails (Microsoft Password Manager raises the
+  // same error). From the second one on (counted across visits, since this
+  // signs the user in) the enroll card asks: keep trying, or remove it and
+  // save the backup key. Any other failure removes the vault at once and
+  // raises the backup-key message.
   private async fallBackFromUnconfirmedVault(error: unknown): Promise<boolean> {
     const plaintext = localStorage.getItem('nostrcooking_privateKey');
     if (!plaintext) return false;
-    if (!isCeremonyCancelled(error) || countCancelledUnlock() >= 2) {
+    if (!isCeremonyCancelled(error)) {
       this.discardUnconfirmedVault();
       this.vaultConfirmFailed = true;
+    } else if (countCancelledUnlock() >= 2) {
+      this.vaultCancelChoice = true;
     }
     // A kept (still unconfirmed) vault isn't adopted: this is an nsec session.
     await this.authenticateWithPrivateKey(plaintext);
@@ -1857,6 +1863,14 @@ export class AuthManager {
     const failed = this.vaultConfirmFailed;
     this.vaultConfirmFailed = false;
     return failed;
+  }
+
+  // True once after a second (or later) cancel-shaped unlock of an
+  // unconfirmed vault: offer keep trying / remove and save the backup key.
+  takeVaultCancelChoice(): boolean {
+    const offer = this.vaultCancelChoice && isVaultUnconfirmed();
+    this.vaultCancelChoice = false;
+    return offer;
   }
 
   // Drop an unconfirmed vault. Nothing is lost: the plaintext key never left,

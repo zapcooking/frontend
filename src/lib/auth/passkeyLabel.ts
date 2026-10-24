@@ -35,3 +35,9 @@ export function confirmFailedText(label: PasskeyMethodLabel): string {
   const who = label === 'passkey' ? 'Your passkey' : label;
   return `${who} couldn't unlock your account, so we kept you signed in. Save your backup key.`;
 }
+
+/** Offered after an unconfirmed passkey's unlock was cancelled twice (or more). */
+export function cancelChoiceText(label: PasskeyMethodLabel): string {
+  const who = label === 'passkey' ? 'Your passkey' : label;
+  return `${who} didn't finish twice. Keep trying it, or remove it and save your backup key instead?`;
+}
