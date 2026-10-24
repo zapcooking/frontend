@@ -7,6 +7,7 @@
    * supports TEXT slot entries + notes; recipe assignment arrives in
    * PR10 via the same slot editor modal (see the "PR10 seam" comment).
    */
+  import { parseCoordinate } from '$lib/coordinate';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount, onDestroy, tick } from 'svelte';
@@ -221,9 +222,9 @@
       if (missing.length > 0 && $isOnline && $ndk) {
         await Promise.all(
           missing.map(async (aTag) => {
-            const parts = aTag.split(':');
-            if (parts.length !== 3) return;
-            const [kind, pubkey, identifier] = parts;
+            const parsed = parseCoordinate(aTag);
+            if (!parsed) return;
+            const { kind, pubkey, identifier } = parsed;
             try {
               const e = await $ndk.fetchEvent({
                 kinds: [Number(kind)],

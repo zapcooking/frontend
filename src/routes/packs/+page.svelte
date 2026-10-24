@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { parseCoordinate } from '$lib/coordinate';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -218,11 +219,9 @@
       const relaySet = NDKRelaySet.fromRelayUrls(standardRelays, $ndk, false);
       const groups = new Map<string, { kind: number; pubkey: string; dTags: Set<string> }>();
       for (const aTag of aTags) {
-        const parts = aTag.split(':');
-        if (parts.length !== 3) continue;
-        const [kindStr, pubkey, dTag] = parts;
-        const kind = Number(kindStr);
-        if (!Number.isFinite(kind) || !pubkey || !dTag) continue;
+        const parsed = parseCoordinate(aTag);
+        if (!parsed?.identifier) continue;
+        const { kind, pubkey, identifier: dTag } = parsed;
         const key = `${kind}:${pubkey}`;
         const existing = groups.get(key);
         if (existing) existing.dTags.add(dTag);

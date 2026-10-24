@@ -4,6 +4,7 @@
  * a pure snapshot/apply module.
  */
 
+import { parseCoordinate } from '../coordinate';
 import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
 import { isOnline } from '$lib/connectionMonitor';
@@ -54,9 +55,9 @@ export async function loadRecipeLinesByATag(aTags: string[]): Promise<Map<string
 
   await Promise.all(
     missing.map(async (aTag) => {
-      const parts = aTag.split(':');
-      if (parts.length !== 3) return;
-      const [kind, pubkey, identifier] = parts;
+      const parsed = parseCoordinate(aTag);
+      if (!parsed) return;
+      const { kind, pubkey, identifier } = parsed;
       try {
         const event = await ndkInstance.fetchEvent({
           kinds: [Number(kind)],
