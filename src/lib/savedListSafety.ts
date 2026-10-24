@@ -88,6 +88,21 @@ export function newestList(...lists: Array<ListEvent | null | undefined>): ListE
   return best;
 }
 
+/**
+ * The read quorum (see the top of this file): at least MIN_EMPTY_ANSWERS
+ * list-capable relays answered, and at least half of the member's own
+ * list-capable write relays. Silent relays and NON_EVIDENCE_RELAYS count
+ * for nothing.
+ */
+export function readQuorumMet(answers: ListRelayAnswer[], ownWrite: string[]): boolean {
+  const answered = new Set(answers.filter((a) => a.ok).map((a) => key(a.url)));
+  const evidence = [...answered].filter((u) => !NON_EVIDENCE.has(u));
+  const ownCapable = [...new Set(ownWrite.map(key))].filter((u) => !NON_EVIDENCE.has(u));
+  const ownAnswered = ownCapable.filter((u) => answered.has(u)).length;
+  const ownHalf = ownCapable.length === 0 || ownAnswered * 2 >= ownCapable.length;
+  return evidence.length >= MIN_EMPTY_ANSWERS && ownHalf;
+}
+
 export function decideSavedListBase(o: {
   answers: ListRelayAnswer[];
   /** The member's own write relays (kind 10002). */
@@ -100,15 +115,7 @@ export function decideSavedListBase(o: {
   fresh: boolean;
 }): SavedListDecision {
   if (o.fresh) return { ok: true, base: newestList(o.local, o.seen) };
-
-  const answered = new Set(o.answers.filter((a) => a.ok).map((a) => key(a.url)));
-  const evidence = [...answered].filter((u) => !NON_EVIDENCE.has(u));
-  const ownCapable = [...new Set(o.ownWrite.map(key))].filter((u) => !NON_EVIDENCE.has(u));
-  const ownAnswered = ownCapable.filter((u) => answered.has(u)).length;
-  const ownHalf = ownCapable.length === 0 || ownAnswered * 2 >= ownCapable.length;
-  if (evidence.length < MIN_EMPTY_ANSWERS || !ownHalf) {
-    return { ok: false, reason: 'unconfirmed' };
-  }
+  if (!readQuorumMet(o.answers, o.ownWrite)) return { ok: false, reason: 'unconfirmed' };
 
   const found = newestList(...o.answers.map((a) => a.list));
   return { ok: true, base: newestList(found, o.local, o.seen) };

@@ -18,7 +18,8 @@ import { bytesToHex } from '@noble/hashes/utils.js';
  * module for reads, and NDKRelay connectivity for publishes.
  *
  * Bounds (savedListSafety / savedList): 5 s per read phase (relay-list cache,
- * discovery, list read), 8 s OK wait, 30 s extension, 60 s bunker.
+ * discovery, list read) — or the quorum plus a 1 s grace once a list is
+ * found — 8 s OK wait (or the first 2 OKs), 30 s extension, 60 s bunker.
  */
 
 const NOS = 'wss://nos.lol';
@@ -34,6 +35,8 @@ const net = vi.hoisted(() => ({
   lists: {} as Record<string, unknown>,
   /** OK after this many ms (null = never); `stores` = the relays keep the event. */
   publish: { okAfterMs: 0 as number | null, stores: true },
+  /** Relays that never acknowledge a publish (dead), whatever `publish` says. */
+  deadPublish: [] as string[],
   cache: 'answer' as 'answer' | 'held'
 }));
 
@@ -87,7 +90,7 @@ vi.mock('$lib/nip65Routing', () => ({
       Object.defineProperty(c, 'status', { get: () => 5 }); // CONNECTED
       c.publish = (raw) => {
         if (net.publish.stores) net.lists[raw.tags.find((t) => t[0] === 'd')![1]] = raw;
-        const ms = net.publish.okAfterMs;
+        const ms = net.deadPublish.includes(u) ? null : net.publish.okAfterMs;
         return ms === null ? new Promise(() => {}) : new Promise((res) => setTimeout(() => res(''), ms));
       };
       return r;
@@ -122,10 +125,11 @@ vi.mock('$lib/offlineStorage', () => ({
 }));
 
 import { ndk, userPublickey } from '$lib/nostr';
-import { createRelayQuery } from '$lib/savedList';
+import { createRelayQuery, readListFromRelays } from '$lib/savedList';
 import {
   cookbookStore,
   LIST_SAVE_UNCONFIRMED_MESSAGE,
+  LIST_NOT_FOUND_MESSAGE,
   LIST_UNCONFIRMED_MESSAGE,
   SIGNER_TIMEOUT_MESSAGE,
   type SavedListResult
@@ -163,6 +167,7 @@ beforeEach(() => {
     }
   };
   net.publish = { okAfterMs: 0, stores: true };
+  net.deadPublish = [];
   net.cache = 'answer';
   cookbookStore.__setSavedListQueryForTests(createRelayQuery(async () => relayModule as never));
 });
@@ -261,5 +266,49 @@ describe('every held case ends in success or a visible refusal, within its bound
   it('a bunker that never answers: refused at 60 s', async () => {
     ndkInstance.signer = silentSigner(NDKNip46Signer) as never;
     expect(endedWithin(await timed(edit()), 60_100)).toEqual({ ok: false, message: SIGNER_TIMEOUT_MESSAGE });
+  });
+
+  // ── Early completion (#888): one dead relay doesn't cost the full timeouts ──
+
+  it('publish: one relay never acknowledges, two do: saved at once (not after 8 s)', async () => {
+    net.deadPublish = [NOS];
+    expect(endedWithin(await timed(edit()), 100)).toMatchObject({ ok: true, changed: true });
+  });
+
+  it('publish: only one relay acknowledges: still saved, at the 8 s bound', async () => {
+    net.deadPublish = [NOS, PRIMAL];
+    const r = await timed(edit());
+    expect(endedWithin(r, 8_100)).toMatchObject({ ok: true, changed: true });
+    expect(r!.ms).toBeGreaterThanOrEqual(7_900);
+  });
+
+  it('read: one relay silent, the list found on the others: done after the 1 s grace', async () => {
+    net.read = { [NOS]: 'held' };
+    const r = await timed(edit());
+    expect(endedWithin(r, 1_100)).toMatchObject({ ok: true, changed: true });
+    expect(r!.ms).toBeGreaterThanOrEqual(1_000);
+  });
+
+  it('read: no list anywhere yet: every relay is still waited for (absence keeps the full read)', async () => {
+    net.lists = {};
+    net.read = { [NOS]: 'held' };
+    const r = await timed(edit());
+    expect(endedWithin(r, 5_100)).toEqual({ ok: false, message: LIST_NOT_FOUND_MESSAGE });
+    expect(r!.ms).toBeGreaterThanOrEqual(5_000);
+  });
+
+  it('one dead relay (silent to reads, never acknowledges): saved in about the 1 s grace', async () => {
+    net.read = { [NOS]: 'noconnect' };
+    net.deadPublish = [NOS];
+    expect(endedWithin(await timed(edit()), 1_100)).toMatchObject({ ok: true, changed: true });
+  });
+
+  it('the display read (no `early`) still waits the full 5 s for a silent relay, list found or not', async () => {
+    net.read = { [NOS]: 'held' };
+    const query = createRelayQuery(async () => relayModule as never);
+    const r = await timed(readListFromRelays(PUBKEY, D, query));
+    expect(r!.ms).toBeGreaterThanOrEqual(5_000);
+    expect(r!.value.answers.find((a) => a.url === NOS)?.ok).toBe(false);
+    expect(r!.value.answers.some((a) => a.list)).toBe(true);
   });
 });

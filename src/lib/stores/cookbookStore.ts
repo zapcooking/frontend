@@ -30,6 +30,7 @@ import {
   getListSeen,
   isFreshAccount,
   noteListSeen,
+  publishUntilAcked,
   readListFromRelays,
   signWithin,
   type QueryList
@@ -382,7 +383,7 @@ function createCookbookStore() {
         const { listRelayUrls } = await import('$lib/nip65Routing');
         urls = await listRelayUrls(pubkey);
       } else {
-        const read = await readListFromRelays(pubkey, listId, savedListQuery);
+        const read = await readListFromRelays(pubkey, listId, savedListQuery, { early: true });
         if (read.discovery === 'unknown') {
           console.warn("[CookbookStore] List edit refused: couldn't establish the member's write relays", listId);
           return { ok: false, message: unconfirmed };
@@ -455,7 +456,7 @@ function createCookbookStore() {
       return { ok: false, message: publishFailed };
     }
     try {
-      await event.publish(relaySet, LIST_PUBLISH_OK_TIMEOUT_MS);
+      await publishUntilAcked(event, relaySet, LIST_PUBLISH_OK_TIMEOUT_MS);
     } catch (error) {
       // The event went out, but no relay acknowledged it in time: it may
       // well be stored. The next edit must stay strictly newer than it either
@@ -496,7 +497,7 @@ function createCookbookStore() {
     createdAt: number
   ): Promise<ListEvent | null> {
     try {
-      const read = await readListFromRelays(pubkey, listId, savedListQuery);
+      const read = await readListFromRelays(pubkey, listId, savedListQuery, { early: true });
       const lists = read.answers.map(a => a.list).filter((l): l is ListEvent => !!l);
       const ours = lists.find(l => l.id === event.id);
       if (ours) return ours;
