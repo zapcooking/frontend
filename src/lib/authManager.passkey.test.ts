@@ -59,7 +59,7 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
 });
 
 import { AuthManager, VaultConflictError } from './authManager';
-import { VAULT_STORAGE_KEY, type VaultRecord } from './passkeyVault';
+import { VAULT_STORAGE_KEY, isVaultUnconfirmed, type VaultRecord } from './passkeyVault';
 import { hexToBytes, bytesToB64 } from './passkeyVaultCrypto';
 import { resolveSecuritySections } from './securitySections';
 
@@ -436,5 +436,198 @@ describe('getSessionPrivateKeyHex', () => {
   it('returns null when there is no nsec session', () => {
     const am = new AuthManager(ndk);
     expect(am.getSessionPrivateKeyHex()).toBeNull();
+  });
+});
+
+// ── One-prompt setup ─────────────────────────────────────────────
+
+// Simulated authenticator. createPrf: create() returns the PRF output (as
+// iCloud Keychain, Google Password Manager and 1Password do). getPrf: what
+// this provider's get() yields for the same salt — the create() value by
+// default, other bytes for a bad provider, or the NotAllowedError Microsoft
+// Password Manager raises.
+function simulatedAuthenticator(opts: {
+  createPrf: boolean;
+  getPrf?: Uint8Array | 'NotAllowedError';
+}) {
+  const prf = hexToBytes(fixture.prfOutputHex);
+  credentials.create.mockImplementation(async () => ({
+    id: fixture.credentialIdB64url,
+    rawId: new ArrayBuffer(0),
+    type: 'public-key',
+    response: {
+      getPublicKey: () => new Uint8Array([48, 1]).buffer,
+      getPublicKeyAlgorithm: () => -7
+    },
+    getClientExtensionResults: () =>
+      opts.createPrf
+        ? { prf: { enabled: true, results: { first: prf.slice().buffer } } }
+        : { prf: { enabled: true } }
+  }));
+  credentials.get.mockImplementation(async () => {
+    if (opts.getPrf === 'NotAllowedError') throw new DOMException('denied', 'NotAllowedError');
+    const out = opts.getPrf ?? prf;
+    return {
+      id: fixture.credentialIdB64url,
+      rawId: new ArrayBuffer(0),
+      type: 'public-key',
+      response: {
+        signature: new Uint8Array([1]).buffer,
+        authenticatorData: new Uint8Array([2]).buffer,
+        clientDataJSON: new Uint8Array([3]).buffer
+      },
+      getClientExtensionResults: () => ({ prf: { results: { first: out.slice().buffer } } })
+    };
+  });
+}
+
+async function nsecSession() {
+  const am = new AuthManager(ndk);
+  await am.authenticateWithPrivateKey(fixture.nsecHex);
+  return am;
+}
+
+/** A later visit: a fresh AuthManager restoring from storage. */
+async function nextVisit() {
+  const am = new AuthManager(makeNdk());
+  await vi.waitFor(() => expect(am.getState().isAuthenticated).toBe(true));
+  return am;
+}
+
+describe('one-prompt enrollment (PRF at create)', () => {
+  it('one ceremony: vault written, plaintext key and nsec session kept', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    const am = await nsecSession();
+
+    await expect(am.enrollVault()).resolves.toEqual({ confirmed: false });
+
+    expect(credentials.create).toHaveBeenCalledTimes(1);
+    expect(credentials.get).not.toHaveBeenCalled();
+    expect(vaultInStore()).toBeDefined();
+    expect(isVaultUnconfirmed()).toBe(true);
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+    expect(am.getState().authMethod).toBe('privateKey');
+    // Confirmation waits for the next visit.
+    expect(am.needsVaultConfirmation()).toBe(false);
+  });
+
+  it('falls back to create + get (today) when create() returns no PRF result', async () => {
+    simulatedAuthenticator({ createPrf: false });
+    const am = await nsecSession();
+
+    await expect(am.enrollVault()).resolves.toEqual({ confirmed: true });
+
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(store.get(PK_KEY)).toBeUndefined();
+    expect(am.getState().authMethod).toBe('passkey');
+    expect(isVaultUnconfirmed()).toBe(false);
+  });
+
+  it('next visit restores from the plaintext key, then a verified unlock deletes it', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    await (await nsecSession()).enrollVault();
+
+    const am = await nextVisit();
+    expect(am.getState().authMethod).toBe('privateKey');
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex); // not adopted while unconfirmed
+    expect(am.needsVaultConfirmation()).toBe(true);
+
+    await expect(am.confirmVault()).resolves.toBe('confirmed');
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(store.get(PK_KEY)).toBeUndefined();
+    expect(am.getState().authMethod).toBe('passkey');
+    expect(isVaultUnconfirmed()).toBe(false);
+    expect(am.needsVaultConfirmation()).toBe(false);
+  });
+
+  it('bad PRF on the confirming unlock: vault removed, still signed in from the plaintext key', async () => {
+    simulatedAuthenticator({ createPrf: true, getPrf: new Uint8Array(32).fill(7) });
+    await (await nsecSession()).enrollVault();
+    const am = await nextVisit();
+
+    await expect(am.confirmVault()).resolves.toBe('failed');
+
+    expect(vaultInStore()).toBeUndefined();
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+    expect(am.getState().isAuthenticated).toBe(true);
+    expect(am.getState().authMethod).toBe('privateKey');
+    expect(am.needsVaultConfirmation()).toBe(false);
+  });
+
+  it('NotAllowedError (Microsoft Password Manager shape): once is a cancel, twice a failure', async () => {
+    simulatedAuthenticator({ createPrf: true, getPrf: 'NotAllowedError' });
+    await (await nsecSession()).enrollVault();
+    const am = await nextVisit();
+
+    await expect(am.confirmVault()).resolves.toBe('cancelled');
+    expect(vaultInStore()).toBeDefined();
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+
+    await expect(am.confirmVault()).resolves.toBe('failed');
+    expect(vaultInStore()).toBeUndefined();
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+    expect(am.getState().isAuthenticated).toBe(true);
+  });
+
+  it('the plaintext key is never deleted without a verified unlock (logout drops the vault instead)', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    const am = await nsecSession();
+    await am.enrollVault();
+
+    await am.logout();
+
+    // Logout deletes the plaintext key as always — and the unconfirmed vault
+    // with it, so no session can ever depend on it alone.
+    expect(store.get(PK_KEY)).toBeUndefined();
+    expect(vaultInStore()).toBeUndefined();
+  });
+
+  it('removing an unconfirmed vault needs no ceremony and keeps the plaintext key', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    const am = await nsecSession();
+    await am.enrollVault();
+
+    await am.removeVault();
+
+    expect(credentials.get).not.toHaveBeenCalled();
+    expect(vaultInStore()).toBeUndefined();
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+  });
+
+  it('a passkey session (no plaintext key to fall back on) keeps create + get', async () => {
+    simulatedAuthenticator({ createPrf: true });
+    await (await nsecSession()).enrollVault();
+    const am = await nextVisit();
+    await am.confirmVault(); // now a confirmed passkey session, plaintext gone
+    credentials.create.mockClear();
+    credentials.get.mockClear();
+
+    await expect(am.enrollVault({ migrate: true })).resolves.toEqual({ confirmed: true });
+
+    expect(credentials.create.mock.calls[0][0].publicKey.extensions).toEqual({ prf: {} });
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(store.get(PK_KEY)).toBeUndefined();
+  });
+
+  it('sync: nothing is uploaded until the confirming unlock, which uploads', async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
+      url.endsWith('/challenge')
+        ? { ok: true, json: async () => ({ challenge: 'AAAA' }) }
+        : { ok: true, json: async () => ({ ok: true }) }
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const puts = () =>
+      fetchMock.mock.calls.filter(
+        (call: unknown[]) => (call[1] as RequestInit | undefined)?.method === 'PUT'
+      );
+
+    simulatedAuthenticator({ createPrf: true });
+    await (await nsecSession()).enrollVault({ sync: true });
+    expect(puts()).toHaveLength(0);
+
+    const am = await nextVisit();
+    await expect(am.confirmVault()).resolves.toBe('confirmed');
+    await vi.waitFor(() => expect(puts()).toHaveLength(1));
+    vi.unstubAllGlobals();
   });
 });

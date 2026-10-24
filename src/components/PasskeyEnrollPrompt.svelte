@@ -12,6 +12,12 @@
    * Dismissal is a snooze: "Not now" hides the prompt for 30 days, "Don't
    * ask again" hides it for good (see isPromptDismissed). Enrollment from
    * here syncs by default, matching Settings and signup.
+   *
+   * One-prompt setup: where the provider returns PRF at create() the vault
+   * starts unconfirmed and the plaintext key stays. On a later visit this
+   * card asks for one confirming unlock (needsVaultConfirmation); if that
+   * fails the vault is dropped, the session carries on, and the card asks
+   * for a backup key.
    */
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
@@ -26,6 +32,12 @@
     type VaultSupport
   } from '$lib/passkeyVault';
   import { PASSKEY_SYNC_ENABLED } from '$lib/passkeySync';
+  import {
+    passkeyMethodLabel,
+    passkeyConfirmText,
+    confirmFailedText,
+    type PasskeyMethodLabel
+  } from '$lib/auth/passkeyLabel';
   import { nip19 } from 'nostr-tools';
   import KeyBackupGate from './KeyBackupGate.svelte';
 
@@ -35,6 +47,14 @@
   let visible = false;
   let busy = false;
   let done = false;
+  // Set up in one prompt: confirmed on a later visit.
+  let doneUnconfirmed = false;
+  // A later visit's confirmation step, and its outcome.
+  let confirmVisible = false;
+  let confirmSnoozed = false;
+  let confirmFailed = false;
+  let failedBackupOk = false;
+  let label: PasskeyMethodLabel = 'passkey';
   let errorMsg = '';
   // Same default as enrollWithSync (Settings) and secureSyncOn (signup).
   let sync = true;
@@ -52,9 +72,11 @@
   $: if (!visible) backupOk = false;
 
   function evaluate() {
-    if (!browser || !authState || busy || done) return;
-    nsecHex = getAuthManager()?.getSessionPrivateKeyHex() ?? '';
+    if (!browser || !authState || busy || done || confirmFailed) return;
+    const am = getAuthManager();
+    nsecHex = am?.getSessionPrivateKeyHex() ?? '';
     npub = authState.publicKey ? nip19.npubEncode(authState.publicKey) : '';
+    confirmVisible = !confirmSnoozed && support === 'full' && !!am?.needsVaultConfirmation();
     visible = shouldOfferEnrollment({
       authMethod: authState.authMethod,
       isAuthenticated: authState.isAuthenticated,
@@ -66,6 +88,10 @@
   }
 
   onMount(async () => {
+    label = passkeyMethodLabel({
+      userAgent: navigator.userAgent,
+      maxTouchPoints: navigator.maxTouchPoints
+    });
     support = await detectSupport();
     const am = getAuthManager();
     if (!am) return;
@@ -102,7 +128,8 @@
     busy = true;
     errorMsg = '';
     try {
-      await am.enrollVault({ sync });
+      const { confirmed } = await am.enrollVault({ sync });
+      doneUnconfirmed = !confirmed;
       done = true;
     } catch (e) {
       if (isCeremonyCancelled(e)) {
@@ -120,11 +147,104 @@
       evaluate();
     }
   }
+
+  async function confirm() {
+    const am = getAuthManager();
+    if (!am) return;
+    busy = true;
+    errorMsg = '';
+    try {
+      const outcome = await am.confirmVault();
+      if (outcome === 'confirmed') {
+        doneUnconfirmed = false;
+        done = true;
+        confirmVisible = false;
+      } else if (outcome === 'failed') {
+        confirmFailed = true;
+        confirmVisible = false;
+      }
+      // 'cancelled': the vault stays unconfirmed; the card stays put.
+    } catch (e) {
+      errorMsg = e instanceof Error ? e.message : 'Could not confirm the passkey.';
+    } finally {
+      busy = false;
+      evaluate();
+    }
+  }
+
+  /** "Not now" on the confirmation: ask again on the next visit. */
+  function snoozeConfirm() {
+    confirmSnoozed = true;
+    confirmVisible = false;
+    errorMsg = '';
+  }
+
+  function closeFailed() {
+    confirmFailed = false;
+    evaluate();
+  }
 </script>
 
-{#if visible || done}
+{#if confirmFailed}
+  <aside class="vault-prompt" aria-label="Save your backup key">
+    <p class="vault-prompt-title">⚠️ Save your backup key</p>
+    <p class="vault-prompt-body" role="alert">{confirmFailedText(label)}</p>
+    {#if nsecHex && npub}
+      <div class="vault-prompt-gate">
+        <KeyBackupGate
+          {nsecHex}
+          {npub}
+          allowAcknowledge={true}
+          on:satisfied={() => (failedBackupOk = true)}
+          on:unsatisfied={() => (failedBackupOk = false)}
+        />
+      </div>
+    {/if}
+    <div class="vault-prompt-actions">
+      <button
+        type="button"
+        class="vault-prompt-primary"
+        on:click={closeFailed}
+        disabled={!failedBackupOk}
+      >
+        Done
+      </button>
+    </div>
+  </aside>
+{:else if confirmVisible}
+  <aside class="vault-prompt" aria-label="Finish setting up your passkey">
+    <p class="vault-prompt-title">🔑 Finish setting up your passkey</p>
+    <p class="vault-prompt-body">
+      Confirm your passkey once, and your key will no longer be stored in plain text in this
+      browser.
+    </p>
+    {#if errorMsg}
+      <p class="vault-prompt-error" role="alert">{errorMsg}</p>
+    {/if}
+    <div class="vault-prompt-actions">
+      <button type="button" class="vault-prompt-primary" on:click={confirm} disabled={busy}>
+        {busy ? 'Waiting for passkey…' : passkeyConfirmText(label)}
+      </button>
+      <button type="button" class="vault-prompt-dismiss" on:click={snoozeConfirm} disabled={busy}>
+        Not now
+      </button>
+    </div>
+  </aside>
+{:else if visible || done}
   <aside class="vault-prompt" aria-label="Protect your key with a passkey">
-    {#if done}
+    {#if done && doneUnconfirmed}
+      <p class="vault-prompt-title">🔑 Passkey added</p>
+      <p class="vault-prompt-body">
+        Next time you open Zap Cooking, confirm it once to finish. Until then your key also stays in
+        this browser, so you can't get locked out. Remember: the passkey is <strong>not</strong> a backup
+        — keep your nsec backup safe.
+      </p>
+      <div class="vault-prompt-actions">
+        <button type="button" class="vault-prompt-primary" on:click={() => (done = false)}>
+          Done
+        </button>
+      </div>
+    {:else if done}
       <p class="vault-prompt-title">🔒 Passkey protection is on</p>
       <p class="vault-prompt-body">
         Your key is no longer stored in plain text in this browser. You'll unlock with your passkey

@@ -30,6 +30,10 @@ import {
   PrfUnsupportedError,
   UnlockFailedError,
   VAULT_STORAGE_KEY,
+  VAULT_UNCONFIRMED_KEY,
+  isVaultUnconfirmed,
+  markVaultUnconfirmed,
+  countCancelledConfirm,
   type VaultRecord
 } from './passkeyVault';
 import { hexToBytes, bytesToB64, b64urlToBytes } from './passkeyVaultCrypto';
@@ -274,6 +278,74 @@ describe('enrollPasskey', () => {
     expect(new Uint8Array(createArgs.excludeCredentials[0].id)).toEqual(
       b64urlToBytes(fixture.credentialIdB64url)
     );
+  });
+});
+
+describe('enrollPasskey — one prompt (allowCreatePrf)', () => {
+  it('a create()-time PRF result builds the vault and skips the get(): one ceremony', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+
+    const { record, assertion, confirmed } = await enrollPasskey(
+      fixture.nsecHex,
+      fixture.pubkeyHex,
+      'Test',
+      { allowCreatePrf: true }
+    );
+
+    expect(credentials.create).toHaveBeenCalledTimes(1);
+    expect(credentials.get).not.toHaveBeenCalled();
+    expect(confirmed).toBe(false);
+    expect(assertion).toBeNull();
+    expect(getVaultRecord()).toEqual(record);
+    // create() asked for the PRF output, not just for PRF to be enabled.
+    const ext = credentials.create.mock.calls[0][0].publicKey.extensions;
+    expect(ext.prf.eval.first).toBeInstanceOf(Uint8Array);
+
+    // A get() reproducing the same PRF decrypts it.
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    await expect(unlockPasskey(record)).resolves.toMatchObject({ privkeyHex: fixture.nsecHex });
+  });
+
+  it('falls back to create + get when create() returns no PRF result', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfEnabled: true }));
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+
+    const { confirmed } = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test', {
+      allowCreatePrf: true
+    });
+
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(confirmed).toBe(true);
+  });
+
+  it('without allowCreatePrf a create()-time PRF is ignored: create + get, as before', async () => {
+    credentials.create.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+    credentials.get.mockResolvedValue(fakeCredential(NEW_CRED_ID, { prfResult: PRF_BYTES() }));
+
+    const { confirmed } = await enrollPasskey(fixture.nsecHex, fixture.pubkeyHex, 'Test');
+
+    expect(credentials.create.mock.calls[0][0].publicKey.extensions).toEqual({ prf: {} });
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(confirmed).toBe(true);
+  });
+});
+
+describe('unconfirmed-vault marker', () => {
+  it('matches only the record holding that credential, and goes with the record', () => {
+    saveVaultRecord(fixtureRecord());
+    expect(isVaultUnconfirmed()).toBe(false);
+
+    markVaultUnconfirmed('some-other-credential');
+    expect(isVaultUnconfirmed()).toBe(false);
+
+    markVaultUnconfirmed(fixture.credentialIdB64url);
+    expect(isVaultUnconfirmed()).toBe(true);
+    expect(countCancelledConfirm()).toBe(1);
+    expect(countCancelledConfirm()).toBe(2);
+
+    deleteVaultRecord();
+    expect(store.has(VAULT_UNCONFIRMED_KEY)).toBe(false);
+    expect(isVaultUnconfirmed()).toBe(false);
   });
 });
 

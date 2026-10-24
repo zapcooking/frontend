@@ -21,7 +21,11 @@ import {
   deleteVaultRecord,
   enrollPasskey,
   unlockPasskey,
-  isCeremonyCancelled
+  isCeremonyCancelled,
+  isVaultUnconfirmed,
+  markVaultUnconfirmed,
+  clearVaultUnconfirmed,
+  countCancelledConfirm
 } from './passkeyVault';
 import { hexToBytes } from './passkeyVaultCrypto';
 import {
@@ -167,6 +171,9 @@ export class AuthManager {
 
   private listeners: ((state: AuthState) => void)[] = [];
   private nip46Signer: NDKNip46Signer | null = null;
+  // A one-prompt enrollment ran in this page load: its confirmation waits
+  // for the next visit (see needsVaultConfirmation).
+  private enrolledUnconfirmedThisLoad = false;
   private nip46ResponseSub: NDKSubscription | null = null;
   // While postAnonymously has a throwaway signer on ndk.signer: the
   // session's own signer (see getSignerSwap).
@@ -397,7 +404,10 @@ export class AuthManager {
       let adoptVault = false;
       if (vault) {
         if (vault.pubkey === derivedPubkey) {
-          adoptVault = true;
+          // An unconfirmed vault (one-prompt enrollment, never decrypted by
+          // an unlock) isn't adopted: the session stays an nsec session and
+          // keeps its plaintext key until confirmVault() succeeds.
+          adoptVault = !isVaultUnconfirmed(vault);
         } else if (opts?.replaceVault) {
           deleteVaultRecord();
         } else {
@@ -1668,6 +1678,8 @@ export class AuthManager {
         record,
         serverChallenge ? { serverChallenge } : undefined
       );
+      // A real unlock decrypted it: an unconfirmed vault is confirmed now.
+      clearVaultUnconfirmed();
       const signer = new NDKPrivateKeySigner(privkeyHex);
       this.ndk.signer = signer;
       const user = await signer.user();
@@ -1721,7 +1733,13 @@ export class AuthManager {
   // provider would refuse otherwise), re-encrypts under a fresh DEK, and
   // replaces the record; the old passkey becomes a provider-side orphan
   // (disclosed in the UI copy).
-  async enrollVault(opts?: { sync?: boolean; migrate?: boolean }): Promise<void> {
+  //
+  // One prompt where the provider returns PRF at create(): the vault is then
+  // UNCONFIRMED — the plaintext key and the nsec session stay exactly as they
+  // were until confirmVault() decrypts the vault with a real unlock (next
+  // visit). The sync upload waits for that unlock's assertion (pending flag).
+  // Returns whether the vault is confirmed.
+  async enrollVault(opts?: { sync?: boolean; migrate?: boolean }): Promise<{ confirmed: boolean }> {
     if (!browser) throw new Error('Browser environment required');
     const { isAuthenticated, authMethod, publicKey } = this.authState;
     if (!isAuthenticated || (authMethod !== 'privateKey' && authMethod !== 'passkey')) {
@@ -1740,10 +1758,29 @@ export class AuthManager {
     const wantSync = PASSKEY_SYNC_ENABLED && opts?.sync === true;
     const serverChallenge = wantSync ? await fetchChallengeSafe() : null;
 
-    const { record, assertion } = await enrollPasskey(privkeyHex, publicKey, label, {
+    // One prompt only where the plaintext key is stored to fall back on: a
+    // passkey session (re-create for sync) has none, so it keeps create + get.
+    const hasPlaintextKey =
+      authMethod === 'privateKey' && !!localStorage.getItem('nostrcooking_privateKey');
+    const { record, assertion, confirmed } = await enrollPasskey(privkeyHex, publicKey, label, {
+      allowCreatePrf: hasPlaintextKey,
       ...(serverChallenge ? { serverChallenge } : {}),
       ...(opts?.migrate ? { excludeExisting: false } : {})
     });
+
+    if (!confirmed) {
+      markVaultUnconfirmed(record.keys[0].credentialId);
+      this.enrolledUnconfirmedThisLoad = true;
+      if (wantSync) {
+        setSyncEnabled(true);
+        if (syncableKeyEntry(record)) setUploadPending(true);
+      } else if (opts?.sync === false) {
+        setSyncEnabled(false);
+      }
+      this.updateState({});
+      return { confirmed: false };
+    }
+
     localStorage.removeItem('nostrcooking_privateKey');
     this.updateState({ authMethod: 'passkey' });
 
@@ -1761,6 +1798,74 @@ export class AuthManager {
     } else if (opts?.sync === false) {
       setSyncEnabled(false);
     }
+    return { confirmed: true };
+  }
+
+  // An unconfirmed vault for this session that should be confirmed now. Not
+  // in the page load that created it: the point of one-prompt setup is that
+  // the confirming unlock happens on a later visit.
+  needsVaultConfirmation(): boolean {
+    const record = getVaultRecord();
+    return (
+      !this.enrolledUnconfirmedThisLoad &&
+      this.authState.isAuthenticated &&
+      this.authState.authMethod === 'privateKey' &&
+      !!record &&
+      record.pubkey === this.authState.publicKey &&
+      isVaultUnconfirmed(record)
+    );
+  }
+
+  // Confirm a one-prompt enrollment: a real unlock ceremony must decrypt the
+  // vault before the plaintext key is deleted. Never a lockout: the session
+  // runs on the plaintext key throughout, so any failure just removes the
+  // vault ('failed' — the caller shows the backup-key flow).
+  //
+  // A dismissed sheet counts as 'cancelled' and keeps the vault, once: some
+  // providers fail PRF on get() with the same NotAllowedError a cancel
+  // raises (Microsoft Password Manager), so a second one is a failure.
+  async confirmVault(): Promise<'confirmed' | 'cancelled' | 'failed'> {
+    if (!browser) throw new Error('Browser environment required');
+    const record = getVaultRecord();
+    if (!record || !isVaultUnconfirmed(record)) throw new Error('No passkey waiting for confirmation');
+    if (!this.authState.isAuthenticated || this.authState.publicKey !== record.pubkey) {
+      throw new Error('This passkey belongs to a different account than the current session.');
+    }
+
+    // This unlock's assertion is also the pending sync upload's.
+    const serverChallenge =
+      PASSKEY_SYNC_ENABLED && isSyncEnabled() && isUploadPending() && syncableKeyEntry(record)
+        ? await fetchChallengeSafe()
+        : null;
+
+    let unlocked: Awaited<ReturnType<typeof unlockPasskey>>;
+    try {
+      unlocked = await unlockPasskey(record, serverChallenge ? { serverChallenge } : undefined);
+    } catch (e) {
+      if (isCeremonyCancelled(e) && countCancelledConfirm() < 2) return 'cancelled';
+      this.discardUnconfirmedVault();
+      return 'failed';
+    }
+    if (unlocked.privkeyHex !== this.getSessionPrivateKeyHex()) {
+      this.discardUnconfirmedVault();
+      return 'failed';
+    }
+
+    clearVaultUnconfirmed();
+    localStorage.removeItem('nostrcooking_privateKey');
+    this.updateState({ authMethod: 'passkey' });
+    if (serverChallenge && unlocked.assertion) void uploadVault(record, unlocked.assertion);
+    return 'confirmed';
+  }
+
+  // Drop an unconfirmed vault. Nothing is lost: the plaintext key never left,
+  // and nothing was uploaded (the upload waits for the confirming unlock).
+  discardUnconfirmedVault(): void {
+    if (!isVaultUnconfirmed()) return;
+    deleteVaultRecord();
+    setSyncEnabled(false);
+    setUploadPending(false);
+    this.updateState({});
   }
 
   // Passkey-first signup (Phase 3): enroll a JUST-GENERATED key, then start
@@ -1858,6 +1963,12 @@ export class AuthManager {
           'Sign in as that account to remove it.'
       );
     }
+    // Unconfirmed: the plaintext key is still here, so no ceremony is needed
+    // (and the provider may be one that can't complete it).
+    if (isVaultUnconfirmed(record)) {
+      this.discardUnconfirmedVault();
+      return;
+    }
 
     // Removal's fresh unlock ceremony doubles as the server-blob DELETE
     // assertion (single prompt — never a second). Challenge fetch failure
@@ -1953,6 +2064,9 @@ export class AuthManager {
         'This vault was created before cross-device sign-in existed. Re-create the passkey to enable it.'
       );
     }
+    if (isVaultUnconfirmed(record)) {
+      throw new Error('Confirm your passkey first.');
+    }
 
     const serverChallenge = await fetchChallengeSafe();
     if (!serverChallenge) {
@@ -2009,6 +2123,9 @@ export class AuthManager {
   // unlock-gated settings action (removeVault).
   private clearStorage(): void {
     if (browser) {
+      // An unconfirmed vault must never outlive the plaintext key it backs
+      // up: nothing has shown this provider can unlock it.
+      if (isVaultUnconfirmed()) deleteVaultRecord();
       if (this.nip46ResponseSub) {
         this.nip46ResponseSub.stop();
         this.nip46ResponseSub = null;

@@ -29,3 +29,14 @@ export function passkeyMethodLabel({ userAgent, maxTouchPoints = 0 }: DeviceHint
 export function passkeySignInText(label: PasskeyMethodLabel): string {
   return label === 'passkey' ? 'Sign in with a passkey' : `Sign in with ${label}`;
 }
+
+/** "Confirm with Face ID" / "Confirm with your passkey". */
+export function passkeyConfirmText(label: PasskeyMethodLabel): string {
+  return label === 'passkey' ? 'Confirm with your passkey' : `Confirm with ${label}`;
+}
+
+/** Shown when the unlock confirming a one-prompt setup fails. */
+export function confirmFailedText(label: PasskeyMethodLabel): string {
+  const who = label === 'passkey' ? 'Your passkey' : label;
+  return `${who} couldn't unlock your account, so we kept you signed in. Save your backup key.`;
+}

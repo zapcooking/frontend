@@ -33,6 +33,14 @@ import { getPublicKey } from 'nostr-tools';
 
 export const VAULT_STORAGE_KEY = 'nostrcooking_vault_v1';
 export const VAULT_PROMPT_DISMISSED_KEY = 'nostrcooking_vault_prompt_dismissed';
+/**
+ * Set while the vault was built from create()-time PRF (one-prompt
+ * enrollment) and no unlock has decrypted it yet: { credentialId,
+ * cancelledConfirms }. Until then AuthManager keeps the plaintext key, so a
+ * provider whose get() can't reproduce the create() PRF never locks anyone
+ * out. Kept outside the frozen v1 record shape (and so out of sync blobs).
+ */
+export const VAULT_UNCONFIRMED_KEY = 'nostrcooking_vault_unconfirmed';
 
 /**
  * All credentials bind to the production rp id — never the current origin.
@@ -139,6 +147,46 @@ export function saveVaultRecord(record: VaultRecord): void {
 export function deleteVaultRecord(): void {
   if (!browser) return;
   localStorage.removeItem(VAULT_STORAGE_KEY);
+  localStorage.removeItem(VAULT_UNCONFIRMED_KEY);
+}
+
+interface UnconfirmedState {
+  credentialId: string;
+  cancelledConfirms: number;
+}
+
+function readUnconfirmed(): UnconfirmedState | null {
+  if (!browser) return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(VAULT_UNCONFIRMED_KEY) || 'null');
+    return typeof parsed?.credentialId === 'string' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The record's entry is still unconfirmed (one-prompt enrollment, no unlock yet). */
+export function isVaultUnconfirmed(record: VaultRecord | null = getVaultRecord()): boolean {
+  const state = readUnconfirmed();
+  return !!record && !!state && record.keys.some((k) => k.credentialId === state.credentialId);
+}
+
+export function markVaultUnconfirmed(credentialId: string): void {
+  const state: UnconfirmedState = { credentialId, cancelledConfirms: 0 };
+  localStorage.setItem(VAULT_UNCONFIRMED_KEY, JSON.stringify(state));
+}
+
+export function clearVaultUnconfirmed(): void {
+  if (browser) localStorage.removeItem(VAULT_UNCONFIRMED_KEY);
+}
+
+/** Count a cancelled confirm ceremony; returns the new total. */
+export function countCancelledConfirm(): number {
+  const state = readUnconfirmed();
+  if (!state) return 0;
+  state.cancelledConfirms += 1;
+  localStorage.setItem(VAULT_UNCONFIRMED_KEY, JSON.stringify(state));
+  return state.cancelledConfirms;
 }
 
 // ── Feature detection ───────────────────────────────────────────
@@ -369,17 +417,27 @@ async function assertWithPrf(
  * Full enrollment ceremony. Creates a passkey, then IMMEDIATELY does a get()
  * and verifies the PRF output round-trips a wrap/unwrap + nsec encrypt/decrypt
  * before anything is persisted — several providers only return PRF results on
- * get(), so create()-time signals are never trusted alone. On any failure the
- * vault storage is left untouched (an orphan passkey may remain in the user's
- * provider; we cannot delete authenticator-side credentials).
+ * get(). With opts.allowCreatePrf a create()-time PRF result is used instead
+ * (one prompt), but only provisionally: the record is `confirmed: false` and
+ * the caller keeps the plaintext key until a real unlock decrypts it, because
+ * some providers return a create() PRF that get() can't reproduce. On any
+ * failure the vault storage is left untouched (an orphan passkey may remain
+ * in the user's provider; we cannot delete authenticator-side credentials).
  */
 export interface EnrollResult {
   record: VaultRecord;
   /**
    * The verify-get assertion. When opts.serverChallenge was provided this is
    * redeemable as the vault-sync TOFU PUT assertion (two-prompt budget).
+   * Null for a one-prompt enrollment (no get() ran).
    */
   assertion: AssertionWire | null;
+  /**
+   * False when the vault was built from create()-time PRF (opts.allowCreatePrf,
+   * one prompt): no get() has proven the provider reproduces that PRF, so the
+   * caller must keep the plaintext key until an unlock decrypts the vault.
+   */
+  confirmed: boolean;
 }
 
 export interface EnrollOptions extends CeremonyOptions {
@@ -389,6 +447,13 @@ export interface EnrollOptions extends CeremonyOptions {
    * the provider, and excludeCredentials would make the provider refuse.
    */
   excludeExisting?: boolean;
+  /**
+   * One-prompt enrollment: ask create() for the PRF output too, and when it
+   * returns one, build the vault from it and skip the verify-get. The result
+   * is then `confirmed: false`. Without a create()-time PRF result this is
+   * today's create + get, unchanged.
+   */
+  allowCreatePrf?: boolean;
 }
 
 export async function enrollPasskey(
@@ -431,7 +496,7 @@ export async function enrollPasskey(
         userVerification: 'required'
       },
       excludeCredentials,
-      extensions: { prf: {} } as any
+      extensions: (opts?.allowCreatePrf ? prfExtensionEval() : { prf: {} }) as any
     }
   })) as PublicKeyCredential | null;
   if (!created) throw new PasskeyVaultError('Passkey creation returned no credential');
@@ -465,12 +530,16 @@ export async function enrollPasskey(
     /* provider without getPublicKey — sync unavailable, vault still fine */
   }
 
-  // Verify-on-get: derive the KEK from a real assertion, never from create().
-  // With opts.serverChallenge this same prompt also produces the TOFU PUT
-  // assertion — enrollment must never grow a third ceremony.
-  const { credentialId, prfOutput, assertion } = await assertWithPrf([created.id], opts).catch(
-    tagOrphan
-  );
+  // One prompt when allowed and create() returned the PRF output: build the
+  // vault from it, unconfirmed until an unlock decrypts it. Otherwise
+  // verify-on-get: derive the KEK from a real assertion. With
+  // opts.serverChallenge that prompt also produces the TOFU PUT assertion —
+  // enrollment must never grow a third ceremony.
+  const createPrf = opts?.allowCreatePrf ? getPrfResult(created) : null;
+  const confirmed = !createPrf;
+  const { credentialId, prfOutput, assertion } = createPrf
+    ? { credentialId: created.id, prfOutput: createPrf, assertion: null }
+    : await assertWithPrf([created.id], opts).catch(tagOrphan);
 
   const kek = deriveKek(prfOutput);
   const dek = generateDek();
@@ -502,7 +571,7 @@ export async function enrollPasskey(
       ]
     };
     saveVaultRecord(record);
-    return { record, assertion };
+    return { record, assertion, confirmed };
   } catch (e) {
     if (e instanceof PasskeyVaultError) tagOrphan(e);
     tagOrphan(
