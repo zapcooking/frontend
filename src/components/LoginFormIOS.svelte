@@ -207,10 +207,6 @@
     const profilePicture = newAccountPicture;
 
     try {
-      if (browser) {
-        localStorage.setItem('zapcooking_wallet_welcome_force', '1');
-      }
-
       // Convert Uint8Array to hex string for authentication
       const privateKeyHex = Array.from(generatedKeys.privateKey)
         .map((b) => b.toString(16).padStart(2, '0'))

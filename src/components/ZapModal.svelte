@@ -27,6 +27,13 @@
   import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
   import { showToast } from '$lib/toast';
   import { requireAuth, signedIn } from '$lib/auth/requireAuth';
+  import {
+    hasAnyWallet,
+    walletCheckPending,
+    shouldOfferWalletAtZap,
+    zapWalletPromptSeen,
+    offerWalletSetup
+  } from '$lib/wallet/zapWalletPrompt';
 
   // True when we can pay an invoice directly without launching the
   // Bitcoin Connect payment modal:
@@ -166,6 +173,35 @@
     awaitingAuth = true;
     await requireAuth({ kind: 'zap', reason: 'Sign in to zap as you' });
     awaitingAuth = false;
+  }
+
+  // A signed-in member with no wallet gets the wallet picker once, at
+  // their first ⚡ tap. The sheet steps aside the same way while it is up
+  // and comes back with the amount kept; "maybe later" (closing the
+  // picker) still leaves the external-wallet / QR path to pay with.
+  let awaitingWallet = false;
+  let walletOffered = false;
+
+  $: if (
+    open &&
+    !awaitingAuth &&
+    !awaitingWallet &&
+    !walletOffered &&
+    shouldOfferWalletAtZap({
+      signedIn: $signedIn,
+      hasWallet: $hasAnyWallet,
+      checkPending: $walletCheckPending,
+      seen: zapWalletPromptSeen()
+    })
+  ) {
+    offerWalletAtZap();
+  }
+
+  async function offerWalletAtZap() {
+    walletOffered = true;
+    awaitingWallet = true;
+    await offerWalletSetup();
+    awaitingWallet = false;
   }
 
   let zapManager: ZapManager;
@@ -413,7 +449,7 @@
 
 </script>
 
-{#if !awaitingAuth}
+{#if !awaitingAuth && !awaitingWallet}
 <Modal bind:open>
   <h1 slot="title">Zap</h1>
   <div class="flex flex-col gap-3">
