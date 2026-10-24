@@ -1693,30 +1693,26 @@ export function hasNip04Support(): boolean {
 export async function backupWalletToNostr(pubkey: string): Promise<any> {
   if (!browser) throw new Error('Backup can only be performed in browser');
 
-  const mnemonic = await loadMnemonic(pubkey);
-  if (!mnemonic) {
-    throw new Error('No wallet found to backup');
-  }
-
-  // Check encryption support
-  if (!hasEncryptionSupport()) {
-    throw new Error(
-      'No encryption method available. Encryption is supported when logged in with a private key (nsec) or a NIP-07 browser extension.'
-    );
-  }
-
-  // Block NIP-46 remote signers from creating Nostr-relay backups.
-  // Some NIP-46 remote signers may encrypt under their session/auth
-  // key rather than the user's real identity key, producing ciphertext
-  // that no future session can decrypt — even on the same account.
-  // Since we can't reliably detect which remote signers behave this
-  // way, the conservative default is to allow new backups only from
+  // Block sessions that can't encrypt to the user's real key, with a
+  // session-specific reason (this also covers a missing local key or an
+  // extension without encryption). Checked before loading the mnemonic,
+  // which may itself need to decrypt, so the reason isn't masked by
+  // "No wallet found". Some NIP-46 remote signers may encrypt under their
+  // session/auth key rather than the user's real identity key, producing
+  // ciphertext that no future session can decrypt — even on the same
+  // account. Since we can't reliably detect which remote signers behave
+  // this way, the conservative default is to allow new backups only from
   // nsec / passkey / NIP-07 users.
   const backupBlocker = getNostrBackupBlocker();
   if (backupBlocker) {
     throw new Error(
       describeNostrBackupBlocker(backupBlocker, 'Please save your recovery phrase manually')
     );
+  }
+
+  const mnemonic = await loadMnemonic(pubkey);
+  if (!mnemonic) {
+    throw new Error('No wallet found to backup');
   }
 
   // Create the backup event (kind 30078 - NIP-78 application-specific data)

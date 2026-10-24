@@ -19,7 +19,8 @@ const { fakeNdk, fakePubkey, encryption } = vi.hoisted(() => ({
   encryption: {
     encrypt: vi.fn(),
     decrypt: vi.fn(),
-    canCreateNostrBackup: vi.fn()
+    canCreateNostrBackup: vi.fn(),
+    getNostrBackupBlocker: vi.fn()
   }
 }));
 
@@ -61,9 +62,11 @@ beforeEach(async () => {
   encryption.encrypt.mockReset();
   encryption.decrypt.mockReset();
   encryption.canCreateNostrBackup.mockReset();
+  encryption.getNostrBackupBlocker.mockReset();
   encryption.encrypt.mockResolvedValue({ ciphertext: 'ENVELOPE-CIPHERTEXT', method: 'nip44v2' });
   encryption.decrypt.mockResolvedValue(NWC_URL);
   encryption.canCreateNostrBackup.mockReturnValue(true);
+  encryption.getNostrBackupBlocker.mockReturnValue(null);
 
   mod = await import('./walletStore');
   const nostr = await import('$lib/nostr');
@@ -105,6 +108,49 @@ describe('at-rest encryption of NWC connection strings', () => {
 
     const stored = readStored();
     expect(stored[0].data).toBe(NWC_URL); // NIP-46 sessions can't wrap
+    expect(encryption.encrypt).not.toHaveBeenCalled();
+  });
+
+  it('wraps a plaintext entry once auth restores after the startup save', async () => {
+    // Page load: AuthManager hasn't restored the session yet.
+    encryption.canCreateNostrBackup.mockReturnValue(false);
+    encryption.getNostrBackupBlocker.mockReturnValue('signed-out');
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(readStored()[0].data).toBe(NWC_URL);
+
+    // Still restoring on the first retry tick — nothing happens.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(encryption.encrypt).not.toHaveBeenCalled();
+
+    // Session restored.
+    encryption.canCreateNostrBackup.mockReturnValue(true);
+    encryption.getNostrBackupBlocker.mockReturnValue(null);
+    userPubkeyStore.set(fakePubkey);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(encryption.encrypt).toHaveBeenCalledWith(fakePubkey, NWC_URL);
+    expect(readStored()[0].data).toEqual({ enc: 'ENVELOPE-CIPHERTEXT', method: 'nip44v2' });
+  });
+
+  it('stops retrying the at-rest migration for NIP-46 sessions', async () => {
+    encryption.canCreateNostrBackup.mockReturnValue(false);
+    encryption.getNostrBackupBlocker.mockReturnValue('signed-out');
+    store.set(
+      'zapcooking_wallets',
+      JSON.stringify([{ id: 1, kind: 3, name: 'Alby', active: true, data: NWC_URL }])
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    encryption.getNostrBackupBlocker.mockReturnValue('nip46');
+    userPubkeyStore.set(fakePubkey);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(readStored()[0].data).toBe(NWC_URL);
     expect(encryption.encrypt).not.toHaveBeenCalled();
   });
 

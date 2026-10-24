@@ -200,13 +200,25 @@ describe('describeNostrBackupBlocker', () => {
     }
   });
 
-  it('backupNwcToNostr surfaces the accurate reason, not the NIP-46 one', async () => {
-    // Auth method not known yet, but the signer can encrypt, so the
-    // encryption-support check passes and the backup gate decides.
+  it('backupNwcToNostr surfaces the accurate reason for each non-NIP-46 blocker', async () => {
+    const backup = () => backupNwcToNostr('ab'.repeat(32), 'nostr+walletconnect://x');
+
+    // Passkey session whose in-memory key is gone.
+    fakeAuth.method = 'passkey';
+    fakeNdk.signer = {};
+    await expect(backup()).rejects.toThrow(/private key isn't loaded/);
+
+    // NIP-07 extension without encryption.
+    fakeAuth.method = 'nip07';
+    await expect(backup()).rejects.toThrow(/browser extension does not support encryption/);
+
+    // Auth method not known yet.
+    fakeAuth.method = null;
     fakeNdk.signer = { encrypt: vi.fn() };
-    const attempt = backupNwcToNostr('ab'.repeat(32), 'nostr+walletconnect://x');
-    await expect(attempt).rejects.toThrow(/^Sign in to enable Nostr-relay backup/);
-    await expect(attempt).rejects.not.toThrow(/NIP-46/);
+    await expect(backup()).rejects.toThrow(/^Sign in to enable Nostr-relay backup/);
+
+    await expect(backup()).rejects.not.toThrow(/NIP-46|No encryption method available/);
+    expect(published).toHaveLength(0);
   });
 
   it('backupNwcToNostr keeps the NIP-46 message for nip46 sessions', async () => {

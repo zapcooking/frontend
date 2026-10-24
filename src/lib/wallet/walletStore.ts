@@ -3,6 +3,7 @@ import { browser } from '$app/environment';
 import { ndk, userPublickey } from '$lib/nostr';
 import {
   canCreateNostrBackup,
+  getNostrBackupBlocker,
   encrypt,
   decrypt,
   type EncryptionMethod
@@ -87,28 +88,37 @@ let pendingEncrypted: PendingEncryptedWallet[] = [];
 
 let plaintextFallbackWarned = false;
 
+// Set when a save kept an NWC string in plaintext because the session
+// couldn't encrypt yet (auth still restoring on page load). The startup
+// save runs before AuthManager knows the auth method, so without a retry
+// a legacy plaintext entry would stay plaintext until the next edit.
+let plaintextMigrationPending = false;
+
 async function encryptForStorage(
   pubkey: string,
   id: number,
   data: string
 ): Promise<string | EncryptedData> {
-  if (isNwcConnectionString(data) && canCreateNostrBackup()) {
-    try {
-      const { ciphertext, method } = await encrypt(pubkey, data);
-      const envelope: EncryptedData = { enc: ciphertext, method };
-      return envelope;
-    } catch (e) {
-      console.warn('[WalletStore] NWC encryption failed:', e);
-      // Prefer the prior envelope over plaintext — an undecryptable copy
-      // is better than a plaintext secret.
-      const prior = lastEnvelopeById.get(id);
-      if (prior) return prior;
-      if (!plaintextFallbackWarned) {
-        plaintextFallbackWarned = true;
-        console.warn(
-          '[WalletStore] NWC connection string could not be encrypted (signer denied?). It will be stored in plaintext.'
-        );
-      }
+  if (!isNwcConnectionString(data)) return data;
+  if (!canCreateNostrBackup()) {
+    plaintextMigrationPending = true;
+    return data;
+  }
+  try {
+    const { ciphertext, method } = await encrypt(pubkey, data);
+    const envelope: EncryptedData = { enc: ciphertext, method };
+    return envelope;
+  } catch (e) {
+    console.warn('[WalletStore] NWC encryption failed:', e);
+    // Prefer the prior envelope over plaintext — an undecryptable copy
+    // is better than a plaintext secret.
+    const prior = lastEnvelopeById.get(id);
+    if (prior) return prior;
+    if (!plaintextFallbackWarned) {
+      plaintextFallbackWarned = true;
+      console.warn(
+        '[WalletStore] NWC connection string could not be encrypted (signer denied?). It will be stored in plaintext.'
+      );
     }
   }
   return data;
@@ -120,6 +130,7 @@ async function persistWallets(list: Wallet[]): Promise<void> {
   if (!browser) return;
   const pubkey = get(userPublickey);
   const stored: StoredWallet[] = [];
+  plaintextMigrationPending = false;
   for (const w of list) {
     const data = await encryptForStorage(pubkey, w.id, w.data);
     if (isEncryptedData(data)) lastEnvelopeById.set(w.id, data);
@@ -135,6 +146,27 @@ async function persistWallets(list: Wallet[]): Promise<void> {
   } catch (e) {
     console.error('[WalletStore] Failed to save wallets:', e);
   }
+  if (plaintextMigrationPending) scheduleAtRestMigration();
+}
+
+let migrationTimer: ReturnType<typeof setInterval> | null = null;
+
+// Re-save once the session can encrypt, so plaintext NWC strings get
+// wrapped without waiting for a wallet edit. NIP-46 sessions never wrap
+// (see canCreateNostrBackup), so stop waiting once that's known. A failed
+// encrypt (signer denied) is not retried here — no popup loops.
+function scheduleAtRestMigration(): void {
+  if (!browser || migrationTimer) return;
+  migrationTimer = setInterval(() => {
+    const stop = () => {
+      if (migrationTimer) clearInterval(migrationTimer);
+      migrationTimer = null;
+    };
+    if (!plaintextMigrationPending || getNostrBackupBlocker() === 'nip46') return stop();
+    if (!get(userPublickey) || !canCreateNostrBackup()) return;
+    stop();
+    schedulePersist(get(wallets));
+  }, 5000);
 }
 
 let persistChain: Promise<void> = Promise.resolve();

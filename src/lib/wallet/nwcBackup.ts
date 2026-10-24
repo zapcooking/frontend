@@ -56,19 +56,14 @@ export async function backupNwcToNostr(pubkey: string, nwcConnectionString: stri
     throw new Error('No NWC connection string provided');
   }
 
-  // Check encryption support
-  if (!hasEncryptionSupport()) {
-    throw new Error(
-      'No encryption method available. Encryption is supported when logged in with a private key (nsec) or a NIP-07 browser extension.'
-    );
-  }
-
-  // Block NIP-46 remote signers from creating Nostr-relay backups.
-  // Some NIP-46 remote signers may encrypt under their session/auth
-  // key rather than the user's real identity key, producing ciphertext
-  // that no future session can decrypt. Since we can't reliably tell
-  // which remote signers behave this way, the conservative default is
-  // to allow new backups only from nsec / passkey / NIP-07 users.
+  // Block sessions that can't encrypt to the user's real key, with a
+  // session-specific reason (this also covers a missing local key or an
+  // extension without encryption). Some NIP-46 remote signers may encrypt
+  // under their session/auth key rather than the user's real identity key,
+  // producing ciphertext that no future session can decrypt. Since we
+  // can't reliably tell which remote signers behave this way, the
+  // conservative default is to allow new backups only from nsec / passkey
+  // / NIP-07 users.
   const backupBlocker = getNostrBackupBlocker();
   if (backupBlocker) {
     throw new Error(
