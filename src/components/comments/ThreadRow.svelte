@@ -28,6 +28,7 @@
   import PollDisplay from '../PollDisplay.svelte';
   import PowBadge from '../PowBadge.svelte';
   import { threadIndentPx } from '$lib/thread/threadFlatten';
+  import { eventPath } from '$lib/utils/eventUrl';
 
   export let event: NDKEvent;
   export let depth: number = 0;
@@ -84,28 +85,12 @@
   $: npub = nip19.npubEncode(pubkey);
   $: isOp = Boolean(rootAuthor) && pubkey === rootAuthor;
   $: isReply = depth > 0;
-  $: permalink = noteUrl(event);
+  $: permalink = eventPath(event);
   $: replyWord = descendantCount === 1 ? 'reply' : 'replies';
-
-  function noteUrl(evt: NDKEvent): string {
-    const relayUrl = evt.relay?.url ?? (evt as any).onRelays?.[0]?.url;
-    try {
-      return (
-        '/' +
-        nip19.neventEncode({
-          id: evt.id,
-          relays: relayUrl ? [relayUrl] : [],
-          kind: evt.kind ?? 1
-        })
-      );
-    } catch {
-      return '/' + nip19.noteEncode(evt.id);
-    }
-  }
 
   function gotoUnlessInteractive(e: MouseEvent) {
     if (e.target instanceof Element && e.target.closest('a, button')) return;
-    goto(noteUrl(event));
+    goto(eventPath(event));
   }
 </script>
 
