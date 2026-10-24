@@ -8,7 +8,11 @@
  *      spinner (aria-busy) and the other rows must be disabled within 0.8 s;
  *   2. saves Edit Details on the list page — the button must read
  *      "Saving..." within 0.8 s.
- * Both edits must still land (one list event each).
+ * Each edit must then END within 45 s: saved (one list event), or refused
+ * with a message the member sees (a toast, or the modal's error) — a slow
+ * network may legitimately refuse. Refusals are reported apart from
+ * failures (exit 2), as in scripts/qa/saved-list/sign-in-save.mjs.
+ * HOLD_MS overrides the 1.5 s hold.
  *
  *   pnpm build && pnpm preview --port 4174 --strictPort --host 127.0.0.1
  *   NODE_OPTIONS=--max-http-header-size=262144 \
@@ -26,9 +30,10 @@ import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from 'nostr-too
 const LOCAL = (process.env.SAVED_LIST_QA_URL || 'http://127.0.0.1:4173').replace(/\/$/, '');
 const ORIGIN = 'https://qa.zap.cooking';
 const SEED_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://relay.nostr.net', 'wss://nostr.oxtr.dev'];
-const DELAY_MS = 1500;
+const DELAY_MS = Number(process.env.HOLD_MS || 1500);
 
 const results = [];
+const refusals = [];
 const check = (name, ok, detail = '') => {
   results.push(ok);
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
@@ -108,6 +113,43 @@ page.on('websocket', (ws) =>
     }
   })
 );
+/** Messages the store refuses or flags an edit with (cookbookStore). */
+const REFUSAL = /nothing was changed|Couldn't confirm the save|didn't respond|wasn't signed|couldn't be found/;
+const refusalText = () =>
+  page.evaluate((src) => {
+    const re = new RegExp(src);
+    return [...document.querySelectorAll('.toast-container, [role="alert"], .text-red-500, .text-danger')]
+      .map((el) => el.textContent?.trim() ?? '')
+      .find((t) => re.test(t)) ?? null;
+  }, REFUSAL.source);
+/** Poll until saved (`savedFn`) or visibly refused; 'pending' after 45 s. */
+async function ending(savedFn) {
+  const t = Date.now();
+  while (Date.now() - t < 45000) {
+    const refused = await refusalText();
+    if (refused) return { kind: 'refused', message: refused, ms: Date.now() - t };
+    if (await savedFn()) {
+      // A refusal toast can land just after the spinner clears.
+      await page.waitForTimeout(500);
+      const late = await refusalText();
+      if (late) return { kind: 'refused', message: late, ms: Date.now() - t };
+      return { kind: 'saved', ms: Date.now() - t };
+    }
+    await page.waitForTimeout(100);
+  }
+  return { kind: 'pending', ms: Date.now() - t };
+}
+/** Saved: exactly one event with `has`. Refused: visible, and sent at most once. */
+function checkEnding(label, end, events, has) {
+  check(`${label}: ended (saved or a visible refusal) within 45 s`, end.kind !== 'pending', `${end.kind} after ${end.ms} ms`);
+  if (end.kind === 'saved') {
+    check(`${label}: one list event, with the change`, events.length === 1 && has(events[0]), `${events.length} sent`);
+  } else if (end.kind === 'refused') {
+    refusals.push(label);
+    console.log(`REFUSED (network)  ${label}  — "${end.message}" (${events.length} sent)`);
+    check(`${label}: refusal sent at most one event`, events.length <= 1, `${events.length} sent`);
+  }
+}
 const sentFor = (d) => sent.filter((e) => e.tags.some((t) => t[0] === 'd' && t[1] === d));
 const dismissPrompts = async () => {
   for (const sel of ['.explore-prompt-cta', '.vault-prompt-dismiss']) {
@@ -166,12 +208,10 @@ try {
 check('tapped row shows a spinner within 0.8 s', busy, `${Date.now() - t1} ms`);
 check('the tapped row has a spinner', (await rowA.locator('.animate-spin').count()) === 1);
 check('other rows are disabled meanwhile', await rowB.isDisabled());
-await page.waitForFunction(() => !document.querySelector('button[aria-busy="true"]'), null, { timeout: 30000 });
-const took1 = Date.now() - t1;
-check('the edit took over 1 s (relays held back)', took1 > 1000, `${took1} ms`);
+const endA = await ending(async () => !(await page.locator('button[aria-busy="true"]').count()));
+check('the edit took over 1 s (relays held back)', Date.now() - t1 > 1000, `${Date.now() - t1} ms`);
 await page.waitForTimeout(1000);
-const evA = sentFor(D1).at(-1);
-check('one list event for A, with the recipe', sentFor(D1).length === 1 && evA.tags.some((t) => t[0] === 'a' && t[1] === recipe));
+checkEnding('dropdown (A)', endA, sentFor(D1), (e) => e.tags.some((t) => t[0] === 'a' && t[1] === recipe));
 check('row B is enabled again', !(await rowB.isDisabled()));
 slow = false;
 
@@ -196,18 +236,13 @@ try {
   /* not shown */
 }
 check('Save Changes reads "Saving..." within 0.8 s', saving, `${Date.now() - t2} ms`);
-try {
-  await page.locator('#edit-summary').waitFor({ state: 'detached', timeout: 30000 });
-} catch (e) {
-  console.log((await page.innerText('body')).slice(0, 2000));
-  throw e;
-}
+const endB = await ending(async () => !(await page.locator('#edit-summary').count()));
 check('the edit took over 1 s (relays held back)', Date.now() - t2 > 1000, `${Date.now() - t2} ms`);
 await page.waitForTimeout(1000);
-const evB = sentFor(D2).at(-1);
-check('one list event for B, with the summary', sentFor(D2).length === 1 && evB.tags.some((t) => t[0] === 'summary' && t[1] === 'qa pending summary'));
+checkEnding('list page (B)', endB, sentFor(D2), (e) => e.tags.some((t) => t[0] === 'summary' && t[1] === 'qa pending summary'));
 
 await browser.close();
 const failed = results.filter((ok) => !ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
-process.exit(failed ? 1 : 0);
+if (refusals.length) console.log(`refused on a slow network (visible; safe): ${refusals.join(', ')}`);
+process.exit(failed ? 1 : refusals.length ? 2 : 0);
