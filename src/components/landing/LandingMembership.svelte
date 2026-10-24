@@ -59,7 +59,7 @@
     margin-bottom: 1.8rem;
   }
   .eyebrow {
-    color: var(--landing-accent-text, #b83900);
+    color: var(--color-primary);
     font-size: 0.7rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -119,7 +119,7 @@
     margin-top: 1.1rem;
     padding: 0.65rem 1.1rem;
     color: #fff;
-    background: var(--landing-accent-bg, #b83900);
+    background: var(--color-primary);
     text-decoration: none;
     border-radius: 9999px;
     font-weight: 600;
@@ -138,11 +138,11 @@
     display: inline-flex;
     align-items: center;
     min-height: 44px;
-    color: var(--landing-accent-text, #b83900);
+    color: var(--color-primary);
     gap: 0.75rem;
   }
   a:focus-visible {
-    outline: 2px solid var(--landing-accent-text, #b83900);
+    outline: 2px solid var(--color-primary);
     outline-offset: 4px;
   }
   @media (max-width: 600px) {
