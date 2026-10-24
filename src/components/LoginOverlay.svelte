@@ -26,12 +26,21 @@
     type VaultSupport
   } from '$lib/passkeyVault';
   import { onMount, onDestroy, tick } from 'svelte';
+  import { get } from 'svelte/store';
   import { env as publicEnv } from '$env/dynamic/public';
   import { platformIsIOS } from '$lib/platform';
   import LoginFormIOS from './LoginFormIOS.svelte';
   import SuggestedFollowsModal from './SuggestedFollowsModal.svelte';
   import { showToast } from '$lib/toast';
-  import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+  import { loginOverlayOpen, loginOverlaySignup } from '$lib/stores/loginOverlay';
+  import CustomAvatar from './CustomAvatar.svelte';
+  import { profileFor } from '$lib/profileStore';
+  import { continueName } from '$lib/auth/lockedVault';
+  import {
+    passkeyMethodLabel,
+    passkeySignInText,
+    type PasskeyMethodLabel
+  } from '$lib/auth/passkeyLabel';
   import { loginReason, hasPendingAuthRequest } from '$lib/auth/requireAuth';
   import { startSectionTarget } from '$lib/startSectionSettings';
   import {
@@ -141,7 +150,11 @@
   // the user isn't authenticated). All other login methods stay visible
   // below it — a cancelled/failed unlock is never a dead end.
   let vaultRecord: VaultRecord | null = null;
-  let vaultNpub = '';
+  // "Continue as {name}": the vault account's own kind 0 (read from the
+  // profile cache/relays, no signing). Never the npub — without a name the
+  // button just says "Continue" next to the avatar.
+  $: vaultProfile = vaultRecord ? profileFor(vaultRecord.pubkey) : null;
+  $: vaultName = continueName(vaultProfile ? $vaultProfile : null);
   let vaultUnlockBusy = false;
   let vaultUnlockError = '';
   // Unlock card is also gated on platform support: a leftover record on an
@@ -151,6 +164,13 @@
   // Full detection level — the signup step needs 'full' (PRF confirmed
   // plausible), stricter than the unlock card's !== 'none'.
   let vaultSupportLevel: VaultSupport = 'none';
+
+  // The word on the passkey button ("Sign in with Face ID"); a UA guess.
+  let passkeyLabel: PasskeyMethodLabel = 'passkey';
+
+  // QR pairing, bunker URI, nsec import and Google Drive live behind
+  // "More options" so the card leads with one primary action.
+  let moreOptions = false;
 
   // "Secure your account" signup step (Phase 3, behind PASSKEY_SIGNUP_ENABLED).
   let securePending = false; // step renders between generate and backup
@@ -223,7 +243,8 @@
   $: showSyncSignIn = shouldOfferSyncSignIn({
     flagEnabled: PASSKEY_SYNC_ENABLED,
     hasLocalRecord: !!vaultRecord,
-    supported: vaultSupported,
+    // Hidden where the browser reports no PRF: the ceremony could only fail.
+    supported: vaultSupportLevel === 'full',
     isAuthenticated: authState.isAuthenticated
   });
 
@@ -265,13 +286,15 @@
           });
         });
       }
-      if (vaultRecord) {
-        try {
-          vaultNpub = `${nip19.npubEncode(vaultRecord.pubkey).slice(0, 16)}…`;
-        } catch {
-          vaultNpub = '';
-        }
+      passkeyLabel = passkeyMethodLabel({
+        userAgent: navigator.userAgent,
+        maxTouchPoints: navigator.maxTouchPoints
+      });
+      // "Join free" (header, /login?join=1) opens straight on account creation.
+      if (get(loginOverlaySignup) || $page.url.searchParams.get('join') === '1') {
+        generateModal = true;
       }
+      loginOverlaySignup.set(false);
       authManager = createAuthManager($ndk);
       if (authManager) {
         authState = authManager.getState();
@@ -320,6 +343,7 @@
     if (!authManager) return;
     if (!authManager.isNIP07Available()) {
       showMissingSignerNotice = true;
+      moreOptions = true;
       return;
     }
     showMissingSignerNotice = false;
@@ -1398,7 +1422,6 @@
       // close, which is what settles the pending request.
       const resumeInPlace = hasPendingAuthRequest();
       loginOverlayOpen.set(false);
-      if (browser) localStorage.setItem('zapcooking_wallet_welcome_force', '1');
       if (resumeInPlace) return;
       const redirectTo = $page.url.searchParams.get('redirect') || startSectionTarget();
       goto(redirectTo);
@@ -1452,78 +1475,90 @@
         {/if}
       </p>
 
+      <!-- One primary action: the vault on this device ("Continue as"), else
+           a passkey where this browser can do PRF, else the extension. -->
       {#if vaultRecord && vaultSupported && !authState.isAuthenticated}
-        <!-- Locked passkey vault: unlock is the primary action, but every
-             other method stays below — cancelling here is never a dead end,
-             and nothing can delete the vault from this screen. -->
+        <!-- Locked passkey vault. Every other method stays below — cancelling
+             here is never a dead end, and nothing can delete the vault from
+             this screen. -->
         <button
           type="button"
           on:click={unlockVaultPasskey}
           disabled={vaultUnlockBusy || authState.isLoading}
-          aria-label="Unlock your saved key with a passkey"
-          class="signin-cta-primary"
+          aria-label={vaultName ? `Continue as ${vaultName}` : 'Continue with your passkey'}
+          class="signin-cta-primary signin-cta-continue"
         >
-          <span>{vaultUnlockBusy ? 'Waiting for passkey…' : '🔒 Unlock with passkey'}</span>
+          <span class="signin-continue-avatar" aria-hidden="true">
+            <CustomAvatar pubkey={vaultRecord.pubkey} size={30} interactive={false} />
+          </span>
+          <span class="signin-continue-text"
+            >{vaultUnlockBusy
+              ? 'Waiting for passkey…'
+              : vaultName
+                ? `Continue as ${vaultName}`
+                : 'Continue'}</span
+          >
         </button>
-        <p class="signin-vault-hint">
-          Welcome back{vaultNpub ? ` ${vaultNpub}` : ''} — your key is encrypted on this device.
-        </p>
         {#if vaultUnlockError}
           <div class="signin-error" role="alert">{vaultUnlockError}</div>
         {/if}
-        <div class="signin-divider" aria-hidden="true"><span>or sign in another way</span></div>
       {:else if showSyncSignIn}
-        <!-- New-device sign-in via a provider-synced passkey (Phase 2). One
-             biometric ceremony; every failure leaves the normal methods
-             below fully available and persists nothing. -->
+        <!-- No vault here: a passkey synced from another device (Phase 2).
+             One ceremony; every failure leaves the other methods available
+             and persists nothing. -->
         <button
           type="button"
           on:click={signInWithSyncedPasskey}
           disabled={vaultUnlockBusy || authState.isLoading}
-          aria-label="Sign in with a passkey synced from another device"
           class="signin-cta-primary"
         >
-          <span>{vaultUnlockBusy ? 'Waiting for passkey…' : '🔑 Sign in with passkey'}</span>
+          <span>{vaultUnlockBusy ? 'Waiting for passkey…' : passkeySignInText(passkeyLabel)}</span>
         </button>
-        <p class="signin-vault-hint">
-          Set up passkey protection on another device? Sign in with the same passkey here.
-        </p>
         {#if vaultUnlockError}
           <div class="signin-error" role="alert">{vaultUnlockError}</div>
         {/if}
-        <div class="signin-divider" aria-hidden="true"><span>or sign in another way</span></div>
       {/if}
 
-      <button type="button" on:click={loginWithNIP07} disabled={authState.isLoading} aria-label="Sign in to Zap Cooking using your Nostr browser extension" class="signin-cta-primary">
-        <span>{authState.isLoading ? 'Connecting…' : 'Sign in with Browser Signer'}</span>
+      <button
+        type="button"
+        on:click={loginWithNIP07}
+        disabled={authState.isLoading}
+        class={(vaultRecord && vaultSupported) || showSyncSignIn
+          ? 'signin-cta-secondary'
+          : 'signin-cta-primary'}
+      >
+        <span>{authState.isLoading ? 'Connecting…' : 'Use a Nostr extension'}</span>
       </button>
 
       {#if showMissingSignerNotice}
         <div class="signin-notice" role="alert">
-          No browser signer detected. Install
+          No browser extension detected. Install
           <a href="https://getalby.com" target="_blank" rel="noopener noreferrer">Alby</a>
           or
           <a href="https://github.com/fiatjaf/nos2x" target="_blank" rel="noopener noreferrer">nos2x</a>,
-          or pair an external signer below.
+          or use one of the options below.
         </div>
       {/if}
-
-      <button type="button" on:click={() => (generateModal = true)} disabled={authState.isLoading} aria-label="Create a new Zap Cooking profile" class="signin-cta-secondary">
-        <svg class="signin-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="9" cy="8" r="3.5" stroke="currentColor" stroke-width="1.75" />
-          <path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
-          <path d="M18 7v6m-3-3h6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
-        </svg>
-        <span>Create Profile</span>
-      </button>
 
       {#if authState.error}
         <div class="signin-error" role="alert">{authState.error}</div>
       {/if}
 
-      <div class="signin-divider" aria-hidden="true"><span>or</span></div>
+      <button
+        type="button"
+        class="signin-more-toggle"
+        aria-expanded={moreOptions}
+        aria-controls="signin-more-options"
+        on:click={() => (moreOptions = !moreOptions)}
+      >
+        <span>More options</span>
+        <svg class="signin-more-caret" class:signin-more-caret--open={moreOptions} width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
 
-      <div class="signin-tiles" class:signin-tiles--four={googleBackupEnabled} role="group" aria-label="Other sign-in methods">
+      {#if moreOptions}
+      <div id="signin-more-options" class="signin-tiles" class:signin-tiles--four={googleBackupEnabled} role="group" aria-label="Other sign-in methods">
         <button type="button" on:click={startUniversalPairing} disabled={authState.isLoading} aria-label="Sign in by scanning a QR code with your phone signer" class="signin-tile">
           <svg class="signin-tile-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.6" />
@@ -1567,6 +1602,17 @@
           </button>
         {/if}
       </div>
+      {/if}
+
+      <p class="signin-join">
+        New to Zap Cooking?
+        <button
+          type="button"
+          on:click={() => (generateModal = true)}
+          disabled={authState.isLoading}
+          class="signin-join-link">Join free</button
+        >
+      </p>
 
       <footer class="signin-footer">
         <span class="signin-footer-tag">Your identity · Your data · Your money</span>
@@ -1737,12 +1783,6 @@
     line-height: 1.5;
   }
 
-  .signin-vault-hint {
-    font-size: 0.8125rem;
-    color: var(--color-caption);
-    margin: 0.625rem 0 0;
-    line-height: 1.5;
-  }
 
   .signin-cta-primary {
     width: 100%;
@@ -1806,8 +1846,66 @@
   }
 
   .signin-cta-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .signin-cta-continue { justify-content: flex-start; padding-left: 0.625rem; }
+  .signin-continue-avatar {
+    flex-shrink: 0;
+    display: inline-flex;
+    border-radius: 9999px;
+    box-shadow: 0 0 0 2px rgba(255, 248, 236, 0.85);
+  }
+  .signin-continue-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    /* Optically centre against the avatar on the left. */
+    padding-right: 30px;
+  }
+
+  .signin-more-toggle {
+    margin: 1.25rem auto 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    background: none;
+    border: none;
+    padding: 0.375rem 0.5rem;
+    border-radius: 8px;
+    color: var(--color-caption);
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .signin-more-toggle:hover { color: var(--signin-cream); }
+  .signin-more-toggle:focus-visible { outline: 2px solid var(--signin-flame); outline-offset: 2px; }
+  .signin-more-caret { transition: transform 150ms ease; }
+  .signin-more-caret--open { transform: rotate(180deg); }
+  #signin-more-options { margin-top: 0.75rem; }
+
+  .signin-join {
+    margin: 1.25rem 0 0;
+    font-size: 0.875rem;
+    color: var(--color-caption);
+  }
+  .signin-join-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-weight: 600;
+    /* --signin-flame is 2.3:1 on the white card; #c2410c is 5.2:1. The
+       dark card keeps the brand orange (it passes there). */
+    color: #c2410c;
+    cursor: pointer;
+  }
+  :global(.dark) .signin-join-link { color: var(--signin-flame); }
+  .signin-join-link:hover { text-decoration: underline; }
+  .signin-join-link:disabled { opacity: 0.55; cursor: not-allowed; }
   .signin-cta-secondary:focus-visible { outline: 2px solid var(--signin-flame); outline-offset: 2px; }
-  .signin-icon { color: currentColor; flex-shrink: 0; }
 
   .signin-notice a, .signin-footer a { color: var(--signin-flame); text-decoration: none; }
   .signin-notice a:hover, .signin-footer a:hover { text-decoration: underline; }
@@ -1836,24 +1934,7 @@
   }
   :global(.dark) .signin-error { color: #fca5a5; }
 
-  .signin-divider {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin: 1.5rem 0 1rem;
-    color: var(--signin-mute);
-    font-size: 0.6875rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-  }
 
-  .signin-divider::before, .signin-divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--signin-line);
-  }
 
   .signin-tiles {
     display: grid;

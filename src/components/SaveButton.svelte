@@ -18,7 +18,7 @@
   import PlusIcon from 'phosphor-svelte/lib/Plus';
   import { clickOutside } from '$lib/clickOutside';
   import { cookbookStore, DEFAULT_LIST_ID } from '$lib/stores/cookbookStore';
-  import { showToast } from '$lib/toast';
+  import { showListEditRefusal } from '$lib/listEditToast';
   import { get } from 'svelte/store';
   import { fade, slide } from 'svelte/transition';
 
@@ -39,6 +39,8 @@
 
   let dropdownOpen = false;
   let loading = false;
+  /** The dropdown row whose edit is running. */
+  let pendingListId: string | null = null;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let isLongPress = false;
   // The lists come from My Kitchen's store — the one place lists are read
@@ -85,8 +87,9 @@
 
   /**
    * Save to / remove from the Saved list through the store's safe edit. A
-   * refusal ("nothing was changed") is shown with Retry, which repeats the
-   * SAME operation — never re-runs the toggle, which could flip direction.
+   * refusal is shown with Retry, which repeats the SAME operation — never
+   * re-runs the toggle, which could flip direction. A save that went out
+   * but couldn't be confirmed offers Refresh instead (showListEditRefusal).
    */
   async function editSaved(op: 'save' | 'remove'): Promise<void> {
     if (loading) return;
@@ -97,10 +100,7 @@
           ? await cookbookStore.saveToDefaultList(event)
           : await cookbookStore.removeFromDefaultList(recipeATag);
       if (!result.ok) {
-        showToast('error', result.message, 10000, undefined, {
-          label: 'Retry',
-          onClick: () => editSaved(op)
-        });
+        showListEditRefusal(result, () => editSaved(op));
       } else if (result.changed) {
         dispatch(op === 'save' ? 'saved' : 'removed', { listId: DEFAULT_LIST_ID });
       }
@@ -129,19 +129,38 @@
   async function toggleListSelection(listId: string) {
     if (loading) return;
     const wasIn = savedInLists.has(listId);
+    // The edit reads the list from the relays first (up to a few seconds):
+    // the row shows it's working instead of looking frozen.
     if (listId === DEFAULT_LIST_ID) {
-      await editSaved(wasIn ? 'remove' : 'save');
+      pendingListId = listId;
+      try {
+        await editSaved(wasIn ? 'remove' : 'save');
+      } finally {
+        pendingListId = null;
+      }
       return;
     }
+    await editCustom(listId, wasIn ? 'remove' : 'add');
+  }
+
+  /**
+   * Add to / remove from a collection. Like editSaved, a refusal shows the
+   * store's message with Retry, which repeats the SAME operation.
+   */
+  async function editCustom(listId: string, op: 'add' | 'remove'): Promise<void> {
+    if (loading) return;
     loading = true;
+    pendingListId = listId;
     try {
-      const ok = wasIn
-        ? await cookbookStore.removeRecipeFromList(listId, recipeATag)
-        : await cookbookStore.addRecipeToList(listId, event);
-      if (ok) dispatch(wasIn ? 'removed' : 'saved', { listId });
-      else showToast('error', "Couldn't update that list. Please try again.");
+      const result =
+        op === 'remove'
+          ? await cookbookStore.removeRecipeFromListResult(listId, recipeATag)
+          : await cookbookStore.addRecipeToListResult(listId, event);
+      if (result.ok) dispatch(op === 'remove' ? 'removed' : 'saved', { listId });
+      else showListEditRefusal(result, () => editCustom(listId, op));
     } finally {
       loading = false;
+      pendingListId = null;
     }
   }
 
@@ -258,11 +277,15 @@
         {#each lists as list (list.id)}
           <button
             on:click|stopPropagation={() => toggleListSelection(list.id)}
-            class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent-gray transition-colors"
+            disabled={loading}
+            aria-busy={pendingListId === list.id}
+            class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-accent-gray transition-colors disabled:cursor-wait {loading && pendingListId !== list.id ? 'opacity-50' : ''}"
             style="color: var(--color-text-primary)"
           >
             <div class="w-5 h-5 rounded border-2 flex items-center justify-center transition-colors {savedInLists.has(list.id) ? 'bg-green-500 border-green-500' : ''}" style="{savedInLists.has(list.id) ? '' : 'border-color: var(--color-input-border)'}">
-              {#if savedInLists.has(list.id)}
+              {#if pendingListId === list.id}
+                <div class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin {savedInLists.has(list.id) ? 'text-white' : ''}"></div>
+              {:else if savedInLists.has(list.id)}
                 <CheckIcon size={12} weight="bold" class="text-white" />
               {/if}
             </div>
