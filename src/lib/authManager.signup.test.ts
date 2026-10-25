@@ -55,7 +55,7 @@ import { AuthManager, VaultConflictError } from './authManager';
 import { VAULT_STORAGE_KEY, type VaultRecord } from './passkeyVault';
 import { SYNC_ENABLED_KEY, SYNC_PENDING_KEY, SYNC_SERVER_UNCONFIRMED_KEY } from './passkeySync';
 import { isVaultUnconfirmed } from './passkeyVault';
-import { afterPasskey } from './auth/signupFlow';
+import { afterPasskey, backupRequired } from './auth/signupFlow';
 import { hexToBytes, bytesToB64 } from './passkeyVaultCrypto';
 
 const NSEC = fixture.nsecHex;
@@ -336,12 +336,13 @@ describe('one-prompt signup (PRF at create)', () => {
       authenticatorData: 'BA' // [4]
     });
     expect(store.get(SYNC_SERVER_UNCONFIRMED_KEY)).toBe('1');
-    // Unconfirmed: the backup key is required even though the copy landed.
+    // Unconfirmed with the copy stored: the explaining step, backup optional.
     expect(lastConfirmed).toBe(false);
     expect(afterPasskey(true, uploaded, lastConfirmed)).toEqual({
       kind: 'backup',
       reason: 'unconfirmed'
     });
+    expect(backupRequired('unconfirmed')).toBe(false);
   });
 
   it('next visit: the chip unlock confirms the vault AND the server copy (refresh assertion)', async () => {
@@ -374,9 +375,10 @@ describe('one-prompt signup (PRF at create)', () => {
 
     expect(credentials.get).not.toHaveBeenCalled(); // the one-prompt path
     expect(uploaded).toBe(false);
+    // Copy not stored: the backup key is required.
     expect(afterPasskey(true, uploaded, lastConfirmed)).toEqual({
       kind: 'backup',
-      reason: 'unconfirmed'
+      reason: 'upload-failed'
     });
     expect(store.get(SYNC_PENDING_KEY)).toBe('1');
     expect(store.get(SYNC_SERVER_UNCONFIRMED_KEY)).toBeUndefined();

@@ -4,6 +4,7 @@ import {
   isValidPhotoUrl,
   onPasskeyChosen,
   afterPasskey,
+  backupRequired,
   backupFinishRunsPasskey,
   backupCanGoBack,
   protectWithText,
@@ -51,12 +52,18 @@ describe('screen 2: keep your account safe', () => {
     expect(afterPasskey(false, null)).toEqual({ kind: 'done' });
   });
 
-  it('an unconfirmed (one-prompt) passkey always ends on the backup-key step', () => {
-    // Even when the encrypted copy landed: nothing has shown the passkey can
-    // unlock, and that copy depends on the same passkey.
+  it('an unconfirmed (one-prompt) passkey ends on the "unconfirmed" step, backup optional', () => {
+    // Copy landed (sync on) or sync off (backup saved first): explain, don't gate.
     expect(afterPasskey(true, true, false)).toEqual({ kind: 'backup', reason: 'unconfirmed' });
-    expect(afterPasskey(true, false, false)).toEqual({ kind: 'backup', reason: 'unconfirmed' });
     expect(afterPasskey(false, null, false)).toEqual({ kind: 'backup', reason: 'unconfirmed' });
+    expect(backupRequired('unconfirmed')).toBe(false);
+    // Sync on but the copy didn't land: required, as for a confirmed passkey.
+    expect(afterPasskey(true, false, false)).toEqual({ kind: 'backup', reason: 'upload-failed' });
+    expect(afterPasskey(true, null, false)).toEqual({ kind: 'backup', reason: 'upload-failed' });
+    // Every other reason still requires it (sync off: D3).
+    for (const r of ['chosen', 'sync-off', 'upload-failed', 'passkey-failed'] as const) {
+      expect(backupRequired(r)).toBe(true);
+    }
     // The passkey exists: no going back, and finishing doesn't run it again.
     expect(backupCanGoBack('unconfirmed')).toBe(false);
     expect(backupFinishRunsPasskey('unconfirmed')).toBe(false);

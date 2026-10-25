@@ -53,24 +53,31 @@ export function onPasskeyChosen(syncOn: boolean): SafeStep | 'run-passkey' {
 }
 
 /**
- * After the passkey ceremony succeeded. An UNCONFIRMED passkey (one-prompt
- * setup: no get() has shown it can reproduce its key) always needs a saved
- * backup key before finishing — the synced copy depends on the same passkey,
- * and logging out before the first unlock drops the plaintext fallback, so
- * without one a provider that can't unlock would lock the account for good.
- * (With sync off the backup key was already saved this flow; the step then
- * only explains.) Confirmed passkey-only (sync on) needs the encrypted copy
- * to have reached the server; otherwise there is no off-device way back in,
- * so a backup key is required before finishing.
+ * After the passkey ceremony succeeded. Passkey-only (sync on) needs the
+ * encrypted copy to have reached the server; otherwise there is no
+ * off-device way back in, so a backup key is required before finishing.
+ * With sync off the backup key was already saved (it came first).
+ *
+ * An UNCONFIRMED passkey (one-prompt setup) whose copy landed, or with sync
+ * off, ends on the 'unconfirmed' step: it explains that the first unlock
+ * finishes the setup and that the key stays in this browser until then.
+ * There the backup key is optional (backupRequired): either-or, as decided
+ * for sync on; sync off already saved it. If that first unlock later fails,
+ * the backup-key message covers it.
  */
 export function afterPasskey(
   syncOn: boolean,
   uploaded: boolean | null,
   confirmed = true
 ): SafeStep {
+  if (syncOn && uploaded !== true) return { kind: 'backup', reason: 'upload-failed' };
   if (!confirmed) return { kind: 'backup', reason: 'unconfirmed' };
-  if (!syncOn) return { kind: 'done' };
-  return uploaded === true ? { kind: 'done' } : { kind: 'backup', reason: 'upload-failed' };
+  return { kind: 'done' };
+}
+
+/** Whether the backup step's Finish waits for a saved backup key (optional only on 'unconfirmed'). */
+export function backupRequired(reason: BackupReason): boolean {
+  return reason !== 'unconfirmed';
 }
 
 /** The finish button on the backup step: runs the passkey only when it's still to come. */
