@@ -569,6 +569,14 @@
     resetReceiveModal();
     showSendModal = false;
     showReceiveModal = true;
+    // DEV-ONLY screenshot rig (never commit): pre-seed a real invoice string
+    // + a balance after the reset so the receive QR layout can be captured
+    // without a live NWC round-trip.
+    if (browser && window.location.search.includes('devinvoice')) {
+      generatedInvoice = 'lnbc210n1p4del0zpp5jhfxh8pyvqte05pmhun3k97g5tzr402akkcju3qxkc2a3psa6yvsdp40fshqtnrdahkk6twvusx6mmzd9kx2gz32gsxccteda6hggr5v4ehgcqzysxqyz5vqrzjqv3dpepm8kfdxrk3sl6wzqdf49s9c0h9ljtjrek6c08r6aejlwcnur0dwyqqvaqqqyqqqqlgqqqq86qqjqsp5jw970au4eyrrzjyf9q2urzjwphujyvh4gtd3ka0stqhef4ed7uys9qxpqysgq3h44xs649dc6znnr50cxg60qssf7mqhqrrarh7gfaqr6lck530wz0w4sdt0z6zq6pz9kh3hykhplhv9e7hq07mpkx6hf3aj6kl3td8cqvp6pc2';
+      receiveAmount = 21;
+      walletBalance.set(2826); // rig balance so the card renders a real amount
+    }
   }
 
   // Closes whichever overlay view is currently active. Used by the
@@ -3069,7 +3077,7 @@
         <div class="flex items-start justify-between gap-3 mb-2 balance-row">
           <div class="flex-1 min-w-0">
             <div
-              class="inline-block max-w-full rounded-lg -mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5 transition-colors"
+              class="inline-block max-w-full rounded-lg -mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
               role="button"
               tabindex="0"
               aria-label="Toggle SATS / fiat display"
@@ -3148,7 +3156,7 @@
         <div class="flex items-start justify-between gap-3 mb-2 balance-row">
           <div class="flex-1 min-w-0">
             <div
-              class="inline-block max-w-full rounded-lg -mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5 transition-colors"
+              class="inline-block max-w-full rounded-lg -mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
               role="button"
               tabindex="0"
               aria-label="Toggle SATS / fiat display"
@@ -3242,7 +3250,7 @@
           >
             <div class="flex-1 min-w-0">
               <div
-                class="inline-block max-w-full rounded-lg transition-colors {!isPanelScrolled && !showStableBalanceAsPrimary
+                class="inline-block max-w-full rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-amber-500 {!isPanelScrolled && !showStableBalanceAsPrimary
                   ? '-mx-3 px-3 -my-1.5 py-1.5 cursor-pointer select-none hover:bg-white/5'
                   : ''}"
                 role={!isPanelScrolled && !showStableBalanceAsPrimary ? 'button' : undefined}
