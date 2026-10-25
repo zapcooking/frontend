@@ -21,7 +21,7 @@
     { href: '/feed', label: 'Feed', icon: FlameIcon },
     { href: '/recipes', label: 'Recipes', icon: ForkKnifeIcon },
     { href: '/packs', label: 'Recipe Packs', icon: CookbookIcon },
-    { href: '/reads', label: 'Reads', icon: NewspaperIcon },
+    { href: '/reads', label: 'Food stories', icon: NewspaperIcon },
     { href: '/polls', label: 'Polls', icon: PollIcon },
     { href: '/messages', label: 'Messages', icon: EnvelopeIcon },
     { href: '/memories', label: 'Memories', icon: MemoriesIcon }

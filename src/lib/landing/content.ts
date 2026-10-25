@@ -17,6 +17,8 @@ export interface CardAuthor {
 
 /** A public, shareable collection of existing recipes. */
 export interface PackCard {
+	/** Existing cover or matching recipe images already available in the shared pool. */
+	previewImages?: string[];
 	coordinate: string;
 	href: string;
 	title: string;
@@ -50,6 +52,15 @@ export interface LongformCard {
 	moderationText?: string;
 }
 
+export interface FreshTopicTile {
+	slug: string;
+	name: string;
+	href: string;
+	image: string;
+	post: NoteCard;
+	alternatives?: NoteCard[];
+}
+
 export interface NoteCard {
 	id: string;
 	href: string;
@@ -57,6 +68,10 @@ export interface NoteCard {
 	image: string;
 	author: CardAuthor;
 	createdAt: number;
+	tags?: string[];
+	moderationText?: string;
+	/** Explicit signed editorial selection can approve an otherwise caption-free food photo. */
+	editorial?: boolean;
 }
 
 export interface Cook {
@@ -189,7 +204,8 @@ export function noteCard(e: NostrEvent): NoteCard | null {
 		return null;
 	}
 	const text = clip(e.content.replace(URL_ANY, '').replace(NOSTR_REF, ''), 140);
-	return { id: e.id, href, text, image, author: { pubkey: e.pubkey }, createdAt: e.created_at };
+	return { id: e.id, href, text, image, author: { pubkey: e.pubkey }, createdAt: e.created_at,
+		tags: e.tags.filter((t) => t[0] === 't').map((t) => (t[1] || '').toLowerCase()), moderationText: e.content.slice(0, 1000) };
 }
 
 export interface Profile {

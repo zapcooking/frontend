@@ -14,9 +14,9 @@
 
 <section id="import-recipe" class="import-invitation" aria-labelledby="import-heading">
   <div>
-    <p class="eyebrow">Your recipes belong here</p>
+    <p class="eyebrow">Sous Chef</p>
     <h2 id="import-heading">Bring your recipes to the table.</h2>
-    <p>Turn a recipe link into a clean recipe you can review, save, and share.</p>
+    <p>Turn a recipe link into a recipe you can review, save, and share.</p>
   </div>
   <div>
     <form
@@ -60,13 +60,13 @@
 <style>
   .import-invitation {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
-    padding: 2rem;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 1.5rem;
+    padding: 1.5rem 1.75rem;
     border: 1px solid var(--color-input-border);
     border-radius: 12px;
-    margin: 30px 0 44px;
-    background: var(--color-bg-secondary);
+    margin: 28px 0 36px;
+    background: var(--color-explore-peach, var(--color-bg-secondary));
     color: var(--color-text-primary);
   }
   .eyebrow {
@@ -78,13 +78,14 @@
     margin: 0 0 0.6rem;
   }
   h2 {
-    font-family: inherit;
-    font-size: clamp(1.5rem, 3vw, 2.2rem);
+    font-family: var(--font-editorial, Georgia, serif);
+    font-size: clamp(1.65rem, 2.5vw, 2rem);
     line-height: 1.12;
     margin: 0 0 0.7rem;
     font-weight: 700;
   }
   p {
+    font-size: 0.9rem;
     line-height: 1.55;
     margin: 0.5rem 0;
     color: var(--color-text-secondary);
@@ -100,6 +101,7 @@
     gap: 0.5rem;
   }
   input {
+    min-height: 44px;
     min-width: 0;
     flex: 1;
     background: var(--color-bg-primary);
@@ -108,6 +110,7 @@
     padding: 0.75rem;
     color: var(--color-text-primary);
     font: inherit;
+    font-size: 0.85rem;
   }
   button {
     min-height: 44px;
@@ -116,6 +119,7 @@
     border: 0;
     border-radius: 12px;
     padding: 0.75rem 1rem;
+    font-size: 0.8rem;
     font-weight: 650;
     border-radius: 9999px;
     cursor: pointer;
@@ -131,7 +135,7 @@
     outline-offset: 3px;
   }
   .import-help {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
   }
   a {
     color: var(--color-primary);
