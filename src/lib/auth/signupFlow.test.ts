@@ -51,6 +51,17 @@ describe('screen 2: keep your account safe', () => {
     expect(afterPasskey(false, null)).toEqual({ kind: 'done' });
   });
 
+  it('an unconfirmed (one-prompt) passkey always ends on the backup-key step', () => {
+    // Even when the encrypted copy landed: nothing has shown the passkey can
+    // unlock, and that copy depends on the same passkey.
+    expect(afterPasskey(true, true, false)).toEqual({ kind: 'backup', reason: 'unconfirmed' });
+    expect(afterPasskey(true, false, false)).toEqual({ kind: 'backup', reason: 'unconfirmed' });
+    expect(afterPasskey(false, null, false)).toEqual({ kind: 'backup', reason: 'unconfirmed' });
+    // The passkey exists: no going back, and finishing doesn't run it again.
+    expect(backupCanGoBack('unconfirmed')).toBe(false);
+    expect(backupFinishRunsPasskey('unconfirmed')).toBe(false);
+  });
+
   it('only the backup-first and chosen backup steps can go back to the choice', () => {
     expect(backupCanGoBack('chosen')).toBe(true);
     expect(backupCanGoBack('sync-off')).toBe(true);

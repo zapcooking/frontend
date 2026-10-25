@@ -201,7 +201,7 @@
     if (!enrolled) syncPrefBefore = localStorage.getItem(SYNC_ENABLED_KEY);
     const prefBefore = syncPrefBefore;
     try {
-      const { uploaded } = await authManager.enrollAtSignup(
+      const { uploaded, confirmed } = await authManager.enrollAtSignup(
         bytesToHex(account.privateKey),
         account.publicKey,
         { sync: syncOn, signIn: false, awaitUpload: syncOn }
@@ -214,7 +214,7 @@
         return;
       }
       enrolled = true;
-      const next = afterPasskey(syncOn, uploaded);
+      const next = afterPasskey(syncOn, uploaded, confirmed);
       if (next.kind === 'done') await finish();
       else step = next;
     } catch (error) {
@@ -511,6 +511,13 @@
                 >(A passkey may have been created in your password manager; it's safe to delete.)</span
               >
             {/if}
+          </div>
+        {:else if step.reason === 'unconfirmed'}
+          <div class="signup-note" role="status">
+            {passkeyLabel === 'passkey' ? 'Your passkey is' : `${passkeyLabel} is`} set up. It's
+            proven to work the first time you unlock with it — next time you open Zap Cooking — so
+            save a backup key to finish. Until that first unlock, your key also stays stored in
+            this browser.
           </div>
         {:else if step.reason === 'sync-off'}
           <p class="text-sm text-caption">

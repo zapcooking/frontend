@@ -221,7 +221,10 @@ export async function uploadVault(
       return false;
     }
     setUploadPending(false);
-    setServerCopyUnconfirmed(false);
+    // An upload that REPLACED an unconfirmed entry's key stays unconfirmed
+    // server-side: keep the flag so the next unlock's refresh confirms it.
+    const body = await res.json().catch(() => null);
+    setServerCopyUnconfirmed(body?.unconfirmed === true);
     markRefreshed();
     return true;
   } catch {
