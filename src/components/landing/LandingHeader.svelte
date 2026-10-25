@@ -71,7 +71,7 @@
     display: inline-flex;
   }
   .join {
-    background: var(--landing-accent-bg, var(--color-primary));
+    background: var(--color-primary);
     color: white !important;
     padding: 0 18px;
     border-radius: 999px;

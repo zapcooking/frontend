@@ -88,7 +88,6 @@ export const NOSCRIPT_DARK_STYLE =
 	'--color-primary:#ff5722;--color-input-border:#4b5563;--color-caption:#94a3b8;' +
 	'--color-text-primary:#f3f4f6;--color-text-secondary:#d1d5db;--color-bg-primary:#111827;' +
 	'--color-bg-secondary:#1f2937;--color-card-sunken:#0c111c}' +
-	'html .landing.landing.landing{--landing-accent-text:#ff8a5c}' +
 	'.logo-l{display:none!important}.logo-d{display:block!important}' +
 	// The footer's Support link: Tailwind's dark: variant needs html.dark (orange-400).
 	'.landing .text-orange-700{color:#fb923c!important}' +

@@ -74,7 +74,7 @@
     letter-spacing: 0.13em;
     font-size: 0.7rem;
     font-weight: 700;
-    color: var(--landing-accent-text, var(--color-primary));
+    color: var(--color-primary);
     margin: 0 0 0.6rem;
   }
   h2 {
@@ -111,7 +111,7 @@
   }
   button {
     min-height: 44px;
-    background: #b83c17;
+    background: var(--color-primary);
     color: white;
     border: 0;
     border-radius: 12px;
@@ -134,7 +134,7 @@
     font-size: 0.8rem;
   }
   a {
-    color: var(--landing-accent-text, var(--color-primary));
+    color: var(--color-primary);
     text-decoration: underline;
     text-underline-offset: 3px;
   }

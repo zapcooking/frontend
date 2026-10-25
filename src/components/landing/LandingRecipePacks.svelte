@@ -70,7 +70,7 @@
   }
   .eyebrow {
     margin: 0 0 8px;
-    color: var(--landing-accent-text);
+    color: var(--color-primary);
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.16em;
@@ -114,7 +114,7 @@
     aspect-ratio: 16 / 9;
     border-radius: 12px;
     background: var(--color-bg-secondary);
-    color: var(--landing-accent-text);
+    color: var(--color-primary);
   }
   .recipe-count {
     position: absolute;
