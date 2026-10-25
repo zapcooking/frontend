@@ -354,13 +354,11 @@ if (want('passkey')) {
   await page.goto(ORIGIN + '/recipes', { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Sign in', exact: true }).first().click();
   await page.locator('.signin-card').getByRole('button', { name: 'Join free', exact: true }).click();
-  await page.getByRole('button', { name: 'Create Profile', exact: true }).click();
-  await page.getByRole('button', { name: 'Set up passkey' }).click();
-  const dl = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download backup file' }).click();
-  await dl;
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
-  await page.getByRole('button', { name: /Continue to Zap Cooking/ }).click();
+  // Signup: "Pick a name", then "Keep your account safe" with a passkey
+  // (sync on by default — passkey-only once the encrypted copy lands).
+  await page.locator('#signup-name').fill('QA Saved List');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: /^Protect with / }).click();
   await page.waitForTimeout(1500);
   await clearOverlays(page);
   await page.getByRole('button', { name: /Skip for now/ }).click();

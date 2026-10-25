@@ -4,7 +4,12 @@
  */
 
 import { json } from '@sveltejs/kit';
-import { b64urlToBytes, verifyAssertion, type VerifiedAssertion } from './webauthn.server';
+import {
+  b64urlToBytes,
+  verifyAssertion,
+  verifyRegistration,
+  type VerifiedAssertion
+} from './webauthn.server';
 import { redeemChallenge } from './challenge.server';
 
 /**
@@ -71,6 +76,21 @@ export async function checkAssertion(
   spkiB64url: string,
   alg: number
 ): Promise<VerifiedAssertion> {
+  const { verified } = await checkAssertionAgainst(env, assertion, [{ spki: spkiB64url, alg }]);
+  return verified;
+}
+
+/**
+ * checkAssertion against candidate keys in order: the challenge is redeemed
+ * ONCE, then the first key the signature verifies against wins. Throws when
+ * none does. (Used for an unconfirmed entry: its stored key first — which
+ * confirms it — then a submitted replacement.)
+ */
+export async function checkAssertionAgainst(
+  env: VaultSyncEnv,
+  assertion: AssertionBody,
+  keys: Array<{ spki: string; alg: number }>
+): Promise<{ verified: VerifiedAssertion; index: number }> {
   const clientDataJSON = b64urlToBytes(assertion.clientDataJSON);
   // The challenge lives inside clientDataJSON; redeem it BEFORE signature
   // work so a replayed challenge is rejected as cheaply as possible.
@@ -83,14 +103,69 @@ export async function checkAssertion(
   if (typeof challenge !== 'string') throw new Error('no challenge in clientDataJSON');
   await redeemChallenge(env.kv, env.secret, challenge);
 
-  return verifyAssertion(
+  const input = {
+    signature: b64urlToBytes(assertion.signature),
+    authenticatorData: b64urlToBytes(assertion.authenticatorData),
+    clientDataJSON
+  };
+  for (let index = 0; index < keys.length; index++) {
+    try {
+      const verified = await verifyAssertion(
+        input,
+        b64urlToBytes(keys[index].spki),
+        keys[index].alg,
+        challenge
+      );
+      return { verified, index };
+    } catch {
+      /* try the next candidate key */
+    }
+  }
+  throw new Error('assertion did not verify against any candidate key');
+}
+
+/** Wire shape of a registration (create()) response in request bodies (base64url). */
+export interface RegistrationBody {
+  credentialId: string;
+  clientDataJSON: string;
+  authenticatorData: string;
+}
+
+export function isRegistrationBody(r: unknown): r is RegistrationBody {
+  const body = r as Partial<RegistrationBody> | null | undefined;
+  return (
+    !!body &&
+    typeof body.credentialId === 'string' &&
+    typeof body.clientDataJSON === 'string' &&
+    typeof body.authenticatorData === 'string'
+  );
+}
+
+/**
+ * Registration check for an unconfirmed first upload: challenge extraction +
+ * redemption, then verifyRegistration. Throws on any failure — callers catch
+ * and return uniform404().
+ */
+export async function checkRegistration(
+  env: VaultSyncEnv,
+  registration: RegistrationBody
+): Promise<VerifiedAssertion> {
+  const clientDataJSON = b64urlToBytes(registration.clientDataJSON);
+  let challenge: string;
+  try {
+    challenge = JSON.parse(new TextDecoder().decode(clientDataJSON)).challenge;
+  } catch {
+    throw new Error('clientDataJSON unparseable');
+  }
+  if (typeof challenge !== 'string') throw new Error('no challenge in clientDataJSON');
+  await redeemChallenge(env.kv, env.secret, challenge);
+
+  return verifyRegistration(
     {
-      signature: b64urlToBytes(assertion.signature),
-      authenticatorData: b64urlToBytes(assertion.authenticatorData),
-      clientDataJSON
+      clientDataJSON,
+      authenticatorData: b64urlToBytes(registration.authenticatorData),
+      credentialId: b64urlToBytes(registration.credentialId)
     },
-    b64urlToBytes(spkiB64url),
-    alg,
     challenge
   );
 }

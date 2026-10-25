@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 
 const mocks = vi.hoisted(() => {
-  // cheffyChat reads localStorage at module load (experience counter)
+  // cheffyChat reads localStorage at module load (launcher hint)
   // and mints object URLs for thumbnails. Neither exists in the node
   // test environment, and both must be in place before the import.
   const memory = new Map<string, string>();
@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock('$lib/nip98', () => ({ signNip98AuthHeader: vi.fn().mockResolvedValue('Nostr signed') }));
 vi.mock('$app/environment', () => ({ browser: true }));
 vi.mock('$lib/nostr', async () => {
   const { writable } = await import('svelte/store');
@@ -77,6 +78,7 @@ function chatBody() {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('window', { location: { origin: 'https://zap.cooking' } });
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset().mockResolvedValue({
     ok: true,

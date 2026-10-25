@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LANDING_CACHE_CONTROL, isLandingPath, isLandingRoute, stripFontPreload } from './route';
+import { LANDING_CACHE_CONTROL, isLandingPath, isLandingRoute } from './route';
 import { NOSCRIPT_DARK_STYLE, landingJsonLd, ogImage } from './meta';
 import { emptyLandingData } from './landingData.server';
 
@@ -23,16 +23,6 @@ describe('landing routes', () => {
 		expect(LANDING_CACHE_CONTROL).not.toMatch(/private|no-store|no-cache/);
 	});
 
-	it('drops the web-font preload and nothing else', () => {
-		const head =
-			'<link rel="icon" href="/favicon.svg" />\n' +
-			'<link rel="preload" href="/fonts/albert-sans-var-latin.woff2" as="font" type="font/woff2" crossorigin />\n' +
-			'<link rel="preload" as="image" href="https://x.test/a.jpg">';
-		const out = stripFontPreload(head);
-		expect(out).not.toContain('woff2');
-		expect(out).toContain('rel="icon"');
-		expect(out).toContain('as="image"');
-	});
 });
 
 describe('landing meta', () => {

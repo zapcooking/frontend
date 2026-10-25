@@ -1,41 +1,31 @@
 <script lang="ts">
-  /**
-   * /explore: the magazine landing page, the front door to Zap Cooking.
-   * Server-rendered with `csr = false`: no client JS, the root layout renders
-   * only this page (see $lib/landing/route), and every section is in the
-   * HTML so the page is complete with JavaScript off.
-   */
   import type { PageData } from './$types';
-  import { CURATED_TAG_SECTIONS } from '$lib/consts';
-  import { COOK_PLUS_TOOLS } from '$lib/cookPlusCopy';
   import { avatarUrl } from '$lib/imageOptimizer';
   import { responsiveImg } from '$lib/landing/responsiveImg';
-  import { shortName, tagHref, topicCountLabel } from '$lib/landing/display';
   import { userHref } from '$lib/landing/content';
-  import { ANDROID_APP_URL, landingJsonLd, landingMeta, NOSCRIPT_DARK_STYLE } from '$lib/landing/meta';
+  import { DEFAULT_HEADLINE, EDITORIAL_SUPPORTING_LINE } from '$lib/landing/editorialConfig';
+  import { landingJsonLd, landingMeta, NOSCRIPT_DARK_STYLE } from '$lib/landing/meta';
+  import Arrow from '../../components/landing/Arrow.svelte';
   import LandingHeader from '../../components/landing/LandingHeader.svelte';
+  import LandingSideNav from '../../components/landing/LandingSideNav.svelte';
   import LandingImage from '../../components/landing/LandingImage.svelte';
   import LongformTile from '../../components/landing/LongformTile.svelte';
-  import Footer from '../../components/Footer.svelte';
+  import LandingImportHero from '../../components/landing/LandingImportHero.svelte';
+  import LandingMembership from '../../components/landing/LandingMembership.svelte';
+  import LandingRecipePacks from '../../components/landing/LandingRecipePacks.svelte';
 
   export let data: PageData;
-
   $: d = data.landing;
   $: paid = data.paid;
   $: meta = landingMeta(d);
-  $: hero = d.cover ? responsiveImg(d.cover.image, [480, 768, 1200], '(min-width: 1024px) 66vw, 100vw') : null;
-
-  const avatar = (url: string | undefined, px: number) => (url ? avatarUrl(url, px) || url : undefined);
-
-  const FREE_TOOLS: { name: string; href: string; body: string; external?: boolean }[] = [
-    { name: 'Recipes', href: '/recipes', body: 'Thousands of recipes from cooks everywhere, free to cook and share.' },
-    { name: 'The feed', href: '/feed', body: 'What cooks are making right now, straight from the kitchen.' },
-    { name: 'Recipe Packs', href: '/packs', body: 'Collections of recipes put together by the community.' },
-    { name: 'Share a recipe', href: '/create', body: 'Publish your own. You keep it, everyone can cook it.' },
-    { name: 'Import a recipe', href: '/souschef', body: 'Paste a link and get a clean recipe you can save.' },
-    // Android only: there is no iOS App Store listing.
-    { name: 'Android app', href: ANDROID_APP_URL, body: 'Zap Cooking for Android, on Google Play.', external: true }
-  ];
+  $: hero = d.cover
+    ? responsiveImg(
+        d.cover.image,
+        [480, 768, 1200],
+        '(min-width: 1280px) 48vw, (min-width: 1024px) 50vw, (min-width: 768px) 60vw, 100vw'
+      )
+    : null;
+  const avatar = (url: string | undefined) => (url ? avatarUrl(url, 80) || url : undefined);
 </script>
 
 <svelte:head>
@@ -66,624 +56,671 @@
 </svelte:head>
 
 <div class="landing">
-  <LandingHeader />
+  <LandingSideNav />
+  <div class="landing-body">
+    <LandingHeader />
+    <main id="main" class="magazine">
+      <section class="masthead" aria-labelledby="community-headline">
+        <p class="brand-signature">Food. Friends. Freedom.</p>
+        <h1 id="community-headline">{d.headline || DEFAULT_HEADLINE}</h1>
+        <p class="intro">
+          {d.supportingLine || EDITORIAL_SUPPORTING_LINE}
+        </p>
+      </section>
 
-  <main id="main" class="mx-auto max-w-6xl px-4 pb-16">
-    <!-- Masthead -->
-    <div class="masthead">
-      <p class="kicker">Updated daily</p>
-      <h1 class="font-display">Recipes, cooks and food stories, open to everyone.</h1>
-      <p class="dek">
-        Zap Cooking is a kitchen on Nostr: cook from thousands of recipes, follow the people who make them,
-        and send them a zap when a dish turns out great.
-      </p>
-      <p class="cta-row">
-        <a href="/login?join=1" class="btn-primary">Join free</a>
-        <a href="/recipes" class="btn-quiet">Browse recipes <span aria-hidden="true">→</span></a>
-      </p>
-    </div>
-
-    <!-- 1. Cover story + picks -->
-    <section aria-labelledby="cover-h" class="cover-grid">
-      {#if d.cover}
-        <article class="cover">
-          <a href={d.cover.href} class="cover-link">
-            <LandingImage
-              url={d.cover.image}
-              alt={d.cover.title}
-              ratio="4 / 3"
-              widths={[480, 768, 1200]}
-              sizes="(min-width: 1024px) 66vw, 100vw"
-              hero
-            />
-            <p class="kicker mt-4">Cover story</p>
-            <h2 id="cover-h" class="font-display cover-title">{d.cover.title}</h2>
-          </a>
-          {#if d.cover.summary}<p class="dek">{d.cover.summary}</p>{/if}
-          <p class="byline">
-            by <a href={userHref(d.cover.author.pubkey)}>{d.cover.author.name || shortName(d.cover.author.pubkey)}</a>
-          </p>
-        </article>
-      {:else}
-        <!-- Never an empty cover: an editorial one when no photo is available. -->
-        <article class="cover cover-static">
-          <p class="kicker">Cover story</p>
-          <h2 id="cover-h" class="font-display cover-title">Food is open source.</h2>
-          <p class="dek">Every recipe here belongs to the cook who wrote it, and anyone can cook it.</p>
-          <p><a href="/recipes" class="btn-primary">Start cooking</a></p>
-        </article>
+      {#if d.cover || d.picks.length}
+        <section class="cover-section" aria-label="Featured recipes and food stories">
+          <div class="cover-top">
+            <p class="eyebrow">At the table today</p>
+            <a class="text-link" href={data.nextEditionHref}>More inspiration <Arrow /></a>
+          </div>
+          <div class="cover-spread" class:lead-only={!d.picks.length}>
+            {#if d.cover}
+              <article class="lead">
+                <a href={d.cover.href} class="lead-image" aria-label={d.cover.title}>
+                  <LandingImage
+                    url={d.cover.image}
+                    alt=""
+                    ratio="16 / 10"
+                    widths={[480, 768, 1200]}
+                    sizes="(min-width: 1280px) 48vw, (min-width: 1024px) 50vw, (min-width: 768px) 60vw, 100vw"
+                    hero
+                  />
+                </a>
+                <div class="lead-caption">
+                  <p class="eyebrow">Featured recipe</p>
+                  <h2><a href={d.cover.href}>{d.cover.title}</a></h2>
+                  <a class="byline" href={userHref(d.cover.author.pubkey)}>
+                    {#if d.cover.author.picture}<img
+                        src={avatar(d.cover.author.picture)}
+                        alt=""
+                        width="24"
+                        height="24"
+                      />{/if}
+                    By {d.cover.author.name || 'A community cook'}
+                  </a>
+                </div>
+              </article>
+            {/if}
+            {#if d.picks.length}
+              <div class="supporting">
+                {#each d.picks as pick (pick.coordinate)}
+                  <LongformTile
+                    card={pick}
+                    ratio="16 / 8"
+                    label={pick.type === 'article' ? 'Food story' : 'Cook something new'}
+                    sizes="(min-width: 1280px) 24vw, (min-width: 768px) 28vw, 46vw"
+                    widths={[320, 480, 640]}
+                  />
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </section>
       {/if}
-      {#if d.picks.length}
-        <aside aria-label="Editor's picks" class="picks">
-          <p class="kicker">Editor's picks</p>
-          {#each d.picks as pick (pick.coordinate)}
-            <LongformTile card={pick} sizes="(min-width: 1024px) 30vw, 100vw" widths={[320, 480, 640]} />
-          {/each}
-        </aside>
+
+      <LandingImportHero />
+
+      {#if d.newRecipes.length}
+        <section class="section" aria-labelledby="recipes-heading">
+          <div class="section-top">
+            <div>
+              <p class="eyebrow">From their kitchen to yours</p>
+              <h2 id="recipes-heading">Recipes to try</h2>
+            </div>
+            <a class="text-link" href="/recipes">All recipes <Arrow /></a>
+          </div>
+          <ul class="recipe-grid" role="list">
+            {#each d.newRecipes as recipe (recipe.coordinate)}<li>
+                <LongformTile card={recipe} />
+              </li>{/each}
+          </ul>
+        </section>
       {/if}
-    </section>
 
-    <!-- 1b. Boosted recipes (paid) -->
-    {#if paid.boosts.length}
-      <section aria-labelledby="boosted-h" class="band">
-        <div class="band-head">
-          <h2 id="boosted-h" class="font-display">Boosted recipes</h2>
-          <p class="paid-label">Paid placement</p>
-        </div>
-        <ul class="grid-4" role="list">
-          {#each paid.boosts as b (b.id)}
-            <li>
-              <a href={b.href} class="tile-plain">
-                {#if b.image}
-                  <LandingImage url={b.image} alt={b.title} ratio="4 / 3" sizes="(min-width: 1024px) 25vw, 50vw" widths={[320, 480, 640]} />
-                {/if}
-                <span class="badge-paid">Boosted</span>
-                <h3 class="font-display text-lg leading-snug">{b.title}</h3>
-              </a>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
+      {#if d.reads.length}
+        <section class="section food-stories" aria-labelledby="stories-heading">
+          <div class="section-top">
+            <div>
+              <p class="eyebrow">A little food for thought</p>
+              <h2 id="stories-heading">Food stories</h2>
+            </div>
+            <a class="text-link" href="/reads">All food stories <Arrow /></a>
+          </div>
+          <ul class="story-grid" class:single={d.reads.length === 1} role="list">
+            {#each d.reads as story (story.coordinate)}<li>
+                <LongformTile card={story} ratio="16 / 10" showSummary />
+              </li>{/each}
+          </ul>
+        </section>
+      {/if}
 
-    <!-- 2. Fresh from the kitchen -->
-    {#if d.fresh.length}
-      <section aria-labelledby="fresh-h" class="band">
-        <div class="band-head">
-          <h2 id="fresh-h" class="font-display">Fresh from the kitchen</h2>
-          <a href="/feed" class="more">See the Fresh feed <span aria-hidden="true">→</span></a>
-        </div>
-        <ul class="row" role="list" aria-label="Recent posts">
-          {#each d.fresh as note (note.id)}
-            <li class="row-item">
-              <a href={note.href} class="tile-plain">
-                <LandingImage url={note.image} alt={note.text || `A photo by ${note.author.name || 'a cook'}`} ratio="1 / 1" sizes="(min-width: 1024px) 16vw, 45vw" widths={[240, 360, 480]} />
-                {#if note.text}<p class="note-text">{note.text}</p>{/if}
-                <p class="byline">{note.author.name || shortName(note.author.pubkey)}</p>
-              </a>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
+      {#if (d.freshTopics?.length ?? 0) || d.fresh.length}
+        <section class="section fresh-section" aria-labelledby="fresh-heading">
+          <div class="section-top">
+            <div>
+              <p class="eyebrow">Made, found, and shared</p>
+              <h2 id="fresh-heading">Fresh from the kitchen</h2>
+            </div>
+            <a class="text-link" href="/feed?tab=fresh">Explore the Fresh feed <Arrow /></a>
+          </div>
+          {#if d.freshTopics?.length}
+            <div class="fresh-part">
+              <div class="subsection-top">
+                <h3>Find your flavor</h3>
+                <p>Follow your appetite into the community.</p>
+              </div>
+              <ul class="topic-grid" role="list">
+                {#each d.freshTopics as topic (topic.slug)}
+                  <li>
+                    <a class="topic-link" href={topic.href}>
+                      <LandingImage
+                        url={topic.image}
+                        alt=""
+                        ratio="4 / 3"
+                        widths={[240, 360, 480]}
+                        sizes="(min-width: 1024px) 20vw, (min-width: 768px) 30vw, 46vw"
+                      />
+                      <h4>{topic.name} <Arrow /></h4>
+                    </a>
+                    <a
+                      class="topic-credit"
+                      href={topic.post.href}
+                      aria-label={`Photo by ${topic.post.author.name || 'a community cook'}: open the original post`}
+                      >Photo by {topic.post.author.name || 'a community cook'}</a
+                    >
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+          {#if d.fresh.length}
+            <div class="fresh-part just-served">
+              <div class="subsection-top">
+                <h3>Just served</h3>
+                <p>Recent moments from everyday kitchens.</p>
+              </div>
+              <ul class="community-grid" role="list">
+                {#each d.fresh as note (note.id)}
+                  <li>
+                    <a
+                      class="note-link"
+                      href={note.href}
+                      aria-label={note.text ||
+                        `Kitchen photo by ${note.author.name || 'a community cook'}`}
+                    >
+                      <LandingImage
+                        url={note.image}
+                        alt=""
+                        ratio="1 / 1"
+                        widths={[240, 360, 480]}
+                        sizes="(min-width: 1024px) 20vw, (min-width: 768px) 30vw, 46vw"
+                      />
+                      {#if note.text}<p class="note-text">{note.text}</p>{/if}
+                    </a>
+                    <a class="byline" href={userHref(note.author.pubkey)}
+                      >{note.author.name || 'A community cook'}</a
+                    >
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+        </section>
+      {/if}
 
-    <!-- 2b. New recipes -->
-    {#if d.newRecipes.length}
-      <section aria-labelledby="new-h" class="band">
-        <div class="band-head">
-          <h2 id="new-h" class="font-display">New recipes</h2>
-          <a href="/recent" class="more">All new recipes <span aria-hidden="true">→</span></a>
-        </div>
-        <ul class="grid-4" role="list">
-          {#each d.newRecipes as r (r.coordinate)}
-            <li><LongformTile card={r} /></li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
+      <LandingRecipePacks packs={d.packs ?? []} />
 
-    <!-- 3. Topics -->
-    {#if d.topics.length}
-      <section aria-labelledby="topics-h" class="band">
-        <div class="band-head">
-          <h2 id="topics-h" class="font-display">Topics</h2>
-          <a href="/feed" class="more">Open the feed <span aria-hidden="true">→</span></a>
-        </div>
-        <ul class="grid-4" role="list">
-          {#each d.topics as t (t.slug)}
-            <li>
-              <a href={t.href} class="topic">
-                <LandingImage url={t.image} alt="" ratio="3 / 2" sizes="(min-width: 1024px) 25vw, 50vw" widths={[320, 480]} />
-                <span class="topic-text">
-                  <span class="topic-name font-display">{t.name}</span>
-                  {#if t.count !== null}<span class="topic-count">{topicCountLabel(t.count)}</span>{/if}
-                </span>
-              </a>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
+      {#if paid.boosts.length || paid.sponsors.length}
+        <section class="section paid-section" aria-labelledby="partners-heading">
+          <div class="section-top">
+            <h2 id="partners-heading">From our partners</h2>
+            <span class="eyebrow">Paid placements</span>
+          </div>
+          <ul class="paid-grid" role="list">
+            {#each paid.boosts as boost (boost.id)}<li>
+                <a href={boost.href} rel="sponsored">
+                  {#if boost.image}<LandingImage url={boost.image} alt="" ratio="16 / 9" />{/if}
+                  <span class="paid-label">Boosted · Paid placement</span>
+                  <h3>{boost.title || 'Featured recipe'}</h3>
+                </a>
+              </li>{/each}
+            {#each paid.sponsors as sponsor (sponsor.id)}<li>
+                <a href={sponsor.linkUrl} rel="sponsored noopener" target="_blank">
+                  {#if sponsor.imageUrl}<LandingImage
+                      url={sponsor.imageUrl}
+                      alt=""
+                      ratio="16 / 9"
+                    />{/if}
+                  <span class="paid-label">Sponsored</span>
+                  <h3>{sponsor.title || 'Our partner'}</h3>
+                  <p>{sponsor.description || ''}</p>
+                </a>
+              </li>{/each}
+          </ul>
+          <a class="text-link" href="/sponsors">About our sponsors <Arrow /></a>
+        </section>
+      {/if}
 
-    <!-- 4. Cooks to follow -->
-    {#if d.cooks.length}
-      <section aria-labelledby="cooks-h" class="band">
-        <div class="band-head">
-          <h2 id="cooks-h" class="font-display">Cooks to follow</h2>
-        </div>
-        <ul class="row" role="list" aria-label="Cooks">
-          {#each d.cooks as c (c.pubkey)}
-            <li class="cook">
-              <a href={c.href} class="cook-link">
-                {#if c.picture}
-                  <img src={avatar(c.picture, 160)} alt="" width="80" height="80" loading="lazy" decoding="async" class="cook-avatar" />
-                {:else}
-                  <span class="cook-avatar cook-initial" aria-hidden="true">{c.name.slice(0, 1).toUpperCase()}</span>
-                {/if}
-                <span class="cook-name">{c.name}</span>
-              </a>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
-
-    <!-- 5. Food reads -->
-    {#if d.reads.length}
-      <section aria-labelledby="reads-h" class="band">
-        <div class="band-head">
-          <h2 id="reads-h" class="font-display">Food reads</h2>
-          <a href="/reads" class="more">More reads <span aria-hidden="true">→</span></a>
-        </div>
-        <ul class="grid-2" class:single={d.reads.length === 1} role="list">
-          {#each d.reads as r (r.coordinate)}
-            <li><LongformTile card={r} ratio="16 / 9" sizes="(min-width: 768px) 50vw, 100vw" widths={[480, 768, 1024]} showSummary /></li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
-
-    <!-- 6. Browse by tag -->
-    <section aria-labelledby="tags-h" class="band">
-      <div class="band-head"><h2 id="tags-h" class="font-display">Browse by tag</h2></div>
-      {#each CURATED_TAG_SECTIONS as group (group.title)}
-        <h3 class="tag-group">{group.title}</h3>
-        <ul class="chips" role="list">
-          {#each group.tags as tag (tag)}
-            <li><a href={tagHref(tag)} class="chip">{tag}</a></li>
-          {/each}
-        </ul>
-      {/each}
-    </section>
-
-    <!-- 7. What you can do here -->
-    <section aria-labelledby="tools-h" class="band">
-      <div class="band-head"><h2 id="tools-h" class="font-display">What you can do here</h2></div>
-      <ul class="grid-tools" role="list">
-        {#each FREE_TOOLS as tool (tool.href)}
-          <li>
-            <a href={tool.href} class="tool" rel={tool.external ? 'noopener' : undefined} target={tool.external ? '_blank' : undefined}>
-              <h3 class="font-display text-lg">{tool.name}</h3>
-              <p>{tool.body}</p>
-            </a>
-          </li>
-        {/each}
-      </ul>
-    </section>
-
-    <!-- 8. Membership -->
-    <section aria-labelledby="member-h" class="band membership">
-      <h2 id="member-h" class="font-display">Membership</h2>
-      <p class="dek">Members get the kitchen tools, private groups, and the archive of everything they've posted.</p>
-      <ul class="member-tools" role="list">
-        {#each COOK_PLUS_TOOLS as tool (tool.key)}
-          <li><strong>{tool.name}.</strong> {tool.short}</li>
-        {/each}
-      </ul>
-      <p><a href="/membership" class="btn-primary">About membership</a></p>
-    </section>
-
-    <!-- 9. Partners (paid) -->
-    {#if paid.sponsors.length}
-      <section aria-labelledby="partners-h" class="band">
-        <div class="band-head">
-          <h2 id="partners-h" class="font-display">Supported by our partners</h2>
-          <a href="/sponsors" class="more">About sponsors <span aria-hidden="true">→</span></a>
-        </div>
-        <ul class="grid-2" role="list">
-          {#each paid.sponsors as s (s.id)}
-            <li>
-              <a href={s.linkUrl} class="sponsor" rel="sponsored noopener" target="_blank">
-                <span class="badge-paid">Sponsored</span>
-                {#if s.imageUrl}
-                  <img src={s.imageUrl} alt="" loading="lazy" decoding="async" class="sponsor-img" />
-                {/if}
-                <span class="sponsor-title font-display">{s.title}</span>
-                {#if s.description}<span class="sponsor-desc">{s.description}</span>{/if}
-              </a>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
-  </main>
-
-  <div class="mx-auto max-w-6xl px-4"><Footer /></div>
+      <LandingMembership />
+    </main>
+    <footer class="magazine footer">
+      <a href="/explore" aria-label="Zap Cooking home" class="footer-brand">
+        <img src="/zapcooking-text-light.svg" class="logo-l" alt="" width="160" height="22" />
+        <img src="/zapcooking-text-dark.svg" class="logo-d" alt="" width="160" height="22" />
+      </a>
+      <p>Food. Friends. Freedom.</p>
+      <nav aria-label="Footer">
+        <a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a
+          href="/sponsors">Sponsors</a
+        >
+      </nav>
+    </footer>
+  </div>
 </div>
 
 <style>
   .landing {
-    /* White on accent-bg and accent-text on the page pass 4.5:1 in both themes. */
-    --landing-accent-text: #b83900;
-    --landing-accent-bg: #b83900;
-    --landing-muted: var(--color-text-secondary);
-    min-height: 100vh;
-    /* System text: no web-font download competing with the hero image. */
-    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    background-color: var(--color-bg-primary);
+    background: var(--color-explore-cream);
     color: var(--color-text-primary);
+    font-family: 'Albert Sans', ui-sans-serif, system-ui, sans-serif;
   }
-  :global(html.dark) .landing {
-    --landing-accent-text: #ff8a5c;
-    --landing-accent-bg: #b83900;
+  .landing-body {
+    min-width: 0;
+    min-height: 100vh;
   }
-  .landing :global(.font-display) {
-    font-family: 'Iowan Old Style', 'Palatino Linotype', Charter, 'Bitstream Charter', Georgia, serif;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+  .magazine {
+    max-width: 1240px;
+    margin: auto;
+    padding: 0 32px;
+  }
+  :where(.landing) :global(a) {
+    color: inherit;
+    text-decoration: none;
+  }
+  .landing :global(a:hover) {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .landing :global(a:focus-visible),
+  .landing :global(button:focus-visible),
+  .landing :global(input:focus-visible) {
+    outline: 3px solid var(--color-primary);
+    outline-offset: 4px;
+  }
+  .landing :global(ul) {
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
   .landing :global(.text-secondary-landing) {
-    color: var(--landing-muted);
+    color: var(--color-text-secondary);
   }
   .landing :global(.text-caption-landing) {
     color: var(--color-caption);
   }
-  .landing a {
-    color: inherit;
-  }
-  .landing :global(a:focus-visible) {
-    outline: 2px solid var(--landing-accent-text);
-    outline-offset: 3px;
-    border-radius: 6px;
-  }
-
-  .kicker {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--landing-accent-text);
-  }
   .masthead {
-    padding: 2.5rem 0 2rem;
-    border-bottom: 1px solid var(--color-input-border);
-    margin-bottom: 2rem;
-    max-width: 48rem;
+    padding: 28px 0 20px;
   }
-  .masthead h1 {
-    font-size: clamp(2rem, 5vw, 3.25rem);
-    line-height: 1.1;
-    margin: 0.5rem 0 1rem;
-  }
-  .dek {
-    font-size: 1.05rem;
-    line-height: 1.6;
-    color: var(--landing-muted);
-    margin: 0.5rem 0;
-  }
-  .cta-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    margin-top: 1.25rem;
-  }
-  .btn-primary {
-    display: inline-block;
-    padding: 0.65rem 1.2rem;
-    border-radius: 999px;
-    background: var(--landing-accent-bg);
-    color: #fff !important;
-    font-weight: 600;
-    text-decoration: none;
-  }
-  .btn-quiet {
-    display: inline-block;
-    padding: 0.65rem 0.5rem;
-    font-weight: 600;
-    text-decoration: none;
-  }
-  .btn-quiet:hover,
-  .more:hover,
-  .byline a:hover {
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-
-  .cover-grid {
-    display: grid;
-    gap: 2rem;
-  }
-  @media (min-width: 1024px) {
-    .cover-grid {
-      grid-template-columns: 2fr 1fr;
-    }
-  }
-  .cover-link {
-    display: block;
-    text-decoration: none;
-  }
-  .cover-title {
-    font-size: clamp(1.6rem, 3.5vw, 2.5rem);
-    line-height: 1.15;
-    margin: 0.35rem 0 0.25rem;
-  }
-  .cover-link:hover .cover-title {
-    text-decoration: underline;
-    text-underline-offset: 4px;
-  }
-  .cover-static {
-    padding: 3rem 2rem;
-    border-radius: 1rem;
-    background: var(--color-bg-secondary);
-  }
-  .byline {
-    font-size: 0.875rem;
-    color: var(--color-caption);
-    margin-top: 0.35rem;
-  }
-  .picks {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-  @media (min-width: 1024px) {
-    .picks {
-      border-left: 1px solid var(--color-input-border);
-      padding-left: 2rem;
-    }
-  }
-
-  .band {
-    margin-top: 3.5rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--color-input-border);
-  }
-  .band-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 1.25rem;
-  }
-  .band-head h2,
-  .membership h2 {
-    font-size: clamp(1.4rem, 2.6vw, 1.9rem);
-    line-height: 1.2;
-  }
-  .more {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--landing-accent-text);
-    text-decoration: none;
-    white-space: nowrap;
-  }
-  ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  .grid-4 {
-    display: grid;
-    gap: 1.5rem 1rem;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  @media (min-width: 1024px) {
-    .grid-4 {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-  }
-  .grid-2 {
-    display: grid;
-    gap: 2rem;
-  }
-  @media (min-width: 768px) {
-    .grid-2 {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-  /* One curated read: a single feature card, not half an empty grid. */
-  .grid-2.single {
-    grid-template-columns: minmax(0, 40rem);
-  }
-  .row {
-    display: flex;
-    gap: 1rem;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    padding-bottom: 0.5rem;
-  }
-  .row-item {
-    flex: 0 0 min(45%, 12rem);
-    scroll-snap-align: start;
-  }
-  @media (min-width: 1024px) {
-    .row-item {
-      flex: 1 1 0;
-    }
-  }
-  .tile-plain {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    text-decoration: none;
-  }
-  .note-text {
-    font-size: 0.9rem;
-    line-height: 1.4;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .topic {
-    position: relative;
-    display: block;
-    border-radius: 0.75rem;
-    overflow: hidden;
-    text-decoration: none;
-  }
-  .topic-text {
-    position: absolute;
-    inset: auto 0 0 0;
-    padding: 2.5rem 0.9rem 0.8rem;
-    display: flex;
-    flex-direction: column;
-    background: linear-gradient(to top, rgb(0 0 0 / 0.78), rgb(0 0 0 / 0));
-    color: #fff;
-  }
-  .topic-name {
-    font-size: 1.2rem;
-  }
-  .topic-count {
-    font-size: 0.8rem;
-    opacity: 0.95;
-  }
-  .topic:hover .topic-name {
-    text-decoration: underline;
-  }
-
-  .cook {
-    flex: 0 0 6.5rem;
-    scroll-snap-align: start;
-  }
-  .cook-link {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    text-decoration: none;
-    text-align: center;
-  }
-  .cook-avatar {
-    width: 5rem;
-    height: 5rem;
-    border-radius: 999px;
-    object-fit: cover;
-    background: var(--color-card-sunken);
-  }
-  .cook-initial {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.75rem;
+  .brand-signature,
+  .eyebrow {
+    color: var(--color-primary);
+    font-size: 10px;
     font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin: 0 0 10px;
   }
-  .cook-name {
-    font-size: 0.85rem;
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-editorial, Georgia, serif);
+    font-weight: 500;
+    letter-spacing: -0.035em;
+  }
+  h1 {
+    font-size: clamp(32px, 3.4vw, 48px);
+    line-height: 1.12;
+    min-height: 1.12em;
+    margin: 0 0 12px;
+    text-wrap: balance;
+  }
+  .intro {
+    color: var(--color-text-secondary);
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .cover-top,
+  .section-top {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .cover-top {
+    align-items: center;
+    border-top: 1px solid var(--color-input-border);
+    margin-bottom: 14px;
+  }
+  .cover-top .eyebrow {
+    margin: 0;
+  }
+  .text-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: end;
+    gap: 10px;
+    min-height: 44px;
+    font-size: 13px;
     font-weight: 600;
-    line-height: 1.25;
+    flex-shrink: 0;
+  }
+  .cover-spread {
+    display: grid;
+    grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr);
+    gap: 28px;
+  }
+  .cover-spread.lead-only {
+    grid-template-columns: 1fr;
+  }
+  .lead-only .lead {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 28px;
+    align-items: center;
+  }
+  .lead-image {
+    display: block;
+  }
+  .lead-image :global(img) {
+    max-height: 350px;
+  }
+  .lead-caption {
+    padding-top: 15px;
+  }
+  .lead-caption .eyebrow {
+    margin-bottom: 7px;
+  }
+  .lead h2 {
+    font-size: clamp(26px, 2.5vw, 36px);
+    line-height: 1.1;
+    margin: 0;
     overflow-wrap: anywhere;
   }
-
-  .tag-group {
-    font-size: 0.95rem;
-    font-weight: 600;
-    margin: 1rem 0 0.6rem;
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-  .chip {
+  .lead h2 a {
     display: inline-block;
-    padding: 0.35rem 0.8rem;
-    border-radius: 999px;
-    border: 1px solid var(--color-input-border);
-    font-size: 0.875rem;
-    text-decoration: none;
+    min-height: 44px;
   }
-  .chip:hover {
-    border-color: var(--landing-accent-text);
-  }
-
-  .grid-tools {
-    display: grid;
-    gap: 1rem;
-  }
-  @media (min-width: 768px) {
-    .grid-tools {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-  .tool {
-    display: block;
-    height: 100%;
-    padding: 1.1rem 1.2rem;
-    border-radius: 0.9rem;
-    background: var(--color-bg-secondary);
-    text-decoration: none;
-  }
-  .tool p {
-    margin-top: 0.35rem;
-    font-size: 0.9rem;
-    line-height: 1.5;
-    color: var(--landing-muted);
-  }
-  .tool:hover h3 {
-    text-decoration: underline;
-  }
-
-  .membership {
-    padding: 1.75rem 1.5rem;
-    border-radius: 1rem;
-    border-top: none;
-    background: var(--color-bg-secondary);
-  }
-  .member-tools {
-    margin: 1rem 0 1.25rem;
-    display: grid;
-    gap: 0.5rem;
-    line-height: 1.5;
-  }
-
-  .paid-label {
-    font-size: 0.8rem;
+  .byline {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 44px;
+    font-size: 12px;
     color: var(--color-caption);
   }
-  .badge-paid {
-    align-self: flex-start;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    padding: 0.15rem 0.5rem;
-    border-radius: 999px;
-    border: 1px solid var(--color-caption);
-    color: var(--color-text-primary);
+  .byline img {
+    border-radius: 50%;
   }
-  .sponsor {
+  .supporting {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+  }
+  .supporting :global(.tile-title) {
+    font-size: 23px;
+  }
+  .supporting :global(.landing-img) {
+    max-height: 164px;
+  }
+  .section {
+    padding: 36px 0;
+    border-top: 1px solid var(--color-input-border);
+  }
+  .section-top h2 {
+    font-size: clamp(29px, 2.6vw, 36px);
+    line-height: 1.1;
+    margin: 0;
+  }
+  .section-top .eyebrow {
+    margin-bottom: 8px;
+  }
+  .recipe-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 24px;
+  }
+  .story-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 28px;
+  }
+  .story-grid :global(.tile-title) {
+    font-size: 26px;
+  }
+  .story-grid.single :global(.tile) {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 0 28px;
+  }
+  .story-grid.single :global(.tile-content) {
+    grid-row: span 2;
+  }
+  .story-grid.single :global(.tile-byline) {
+    align-self: start;
+  }
+  .subsection-top {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 1rem;
-    border-radius: 0.9rem;
-    border: 1px solid var(--color-input-border);
-    text-decoration: none;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    margin-bottom: 18px;
   }
-  .sponsor-img {
-    width: 100%;
-    aspect-ratio: 3 / 1;
-    object-fit: cover;
-    border-radius: 0.5rem;
+  .subsection-top h3 {
+    font-size: 25px;
+    margin: 0;
   }
-  .sponsor-title {
-    font-size: 1.1rem;
+  .subsection-top p {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin: 0;
   }
-  .sponsor-desc {
-    font-size: 0.9rem;
-    color: var(--landing-muted);
+  .fresh-part + .fresh-part {
+    margin-top: 32px;
+    padding-top: 26px;
+    border-top: 1px solid var(--color-input-border);
+  }
+  .topic-grid,
+  .community-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+    gap: 20px;
+  }
+  .topic-link,
+  .note-link {
+    display: block;
+  }
+  .topic-link h4 {
+    font-size: 20px;
+    line-height: 1.2;
+    margin: 12px 0 0;
+  }
+  .topic-link h4 :global(svg) {
+    margin-left: 5px;
+  }
+  .topic-credit {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--color-caption);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .note-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--color-text-secondary);
+    margin: 10px 0 0;
+    display: -webkit-box;
+    line-clamp: 3;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .paid-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 24px;
+  }
+  .paid-label {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-caption);
+    margin: 12px 0 8px;
+  }
+  .paid-grid h3 {
+    font-size: 23px;
+    margin: 0;
+  }
+  .paid-grid p {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+  .footer {
+    border-top: 1px solid var(--color-input-border);
+    padding-top: 26px;
+    padding-bottom: 26px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .footer-brand {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    flex-shrink: 0;
+  }
+  .footer-brand img {
+    width: 160px;
+    height: auto;
+  }
+  .logo-d {
+    display: none;
+  }
+  :global(html.dark) .logo-l {
+    display: none;
+  }
+  :global(html.dark) .logo-d {
+    display: block;
+  }
+  .footer p {
+    font-size: 12px;
+    color: var(--color-caption);
+  }
+  .footer nav {
+    display: flex;
+    gap: 20px;
+    margin-left: auto;
+    font-size: 12px;
+  }
+  .footer nav a {
+    display: inline-flex;
+    align-items: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  @media (min-width: 1024px) {
+    .landing-body {
+      margin-left: calc(14rem + 5px);
+    }
+  }
+  @media (min-width: 1280px) {
+    .landing-body {
+      margin-left: calc(20rem + 5px);
+    }
+  }
+  @media (max-width: 767px) {
+    .magazine {
+      padding-left: 18px;
+      padding-right: 18px;
+    }
+    .masthead {
+      padding: 21px 0 14px;
+    }
+    h1 {
+      font-size: 32px;
+      min-height: 2.24em;
+      margin-bottom: 9px;
+    }
+    .brand-signature {
+      font-size: 9px;
+      margin-bottom: 9px;
+    }
+    .intro {
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .cover-spread,
+    .lead-only .lead {
+      grid-template-columns: 1fr;
+      gap: 18px;
+    }
+    .lead-image :global(img) {
+      max-height: 190px;
+    }
+    .lead-caption {
+      padding-top: 11px;
+    }
+    .lead h2 {
+      font-size: 27px;
+    }
+    .lead-caption .eyebrow {
+      display: none;
+    }
+    .supporting {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .supporting :global(.tile-title) {
+      font-size: 19px;
+    }
+    .supporting :global(.tile-byline) {
+      font-size: 11px;
+    }
+    .supporting :global(.tile-byline img) {
+      display: none;
+    }
+    .section {
+      padding: 28px 0;
+    }
+    .section-top {
+      gap: 12px;
+      align-items: start;
+    }
+    .section-top h2 {
+      font-size: 29px;
+    }
+    .section-top .text-link {
+      max-width: 114px;
+      text-align: right;
+      font-size: 12px;
+    }
+    .recipe-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 22px 16px;
+    }
+    .story-grid {
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+    .story-grid :global(.tile-title) {
+      font-size: 25px;
+    }
+    .story-grid.single :global(.tile) {
+      display: block;
+    }
+    .topic-grid,
+    .community-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .subsection-top h3 {
+      font-size: 24px;
+    }
+    .fresh-part + .fresh-part {
+      margin-top: 22px;
+      padding-top: 22px;
+    }
+    .footer {
+      flex-wrap: wrap;
+      gap: 8px 24px;
+    }
+    .footer nav {
+      margin-left: 0;
+      width: 100%;
+    }
+  }
+  @media (max-width: 767px) and (max-height: 720px) {
+    .masthead {
+      padding: 14px 0 10px;
+    }
+    h1 {
+      font-size: 30px;
+    }
+    .intro {
+      font-size: 12px;
+    }
+    .lead-image :global(img) {
+      max-height: 155px;
+    }
+    .lead h2 {
+      font-size: 25px;
+    }
   }
 </style>

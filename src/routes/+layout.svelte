@@ -37,11 +37,12 @@
   // via Settings → Security.
   const PASSKEY_ENROLL_PROMPT_ENABLED = true;
   import { createAuthManager, type AuthState } from '$lib/authManager';
-  import { detectSupport, getVaultRecord } from '$lib/passkeyVault';
+  import { detectSupport, getVaultRecord, isVaultUnconfirmed } from '$lib/passkeyVault';
   import {
     lockedVaultPubkey,
     shouldOfferContinue,
-    isStrandedLockedVault
+    isStrandedLockedVault,
+    shouldSignInPastUnconfirmedVault
   } from '$lib/auth/lockedVault';
   import { stopMessageSubscription, clearMessages } from '$lib/stores/messages';
   import { clearDecryptCache } from '$lib/encryptionService';
@@ -370,6 +371,12 @@
       authState = authManager.getState();
       syncSignedIn(authState);
 
+      // A new account's profile that no relay has accepted yet: show it
+      // locally from the start (the profile cache is in memory only).
+      if (browser && localStorage.getItem('zapcooking_pending_kind0')) {
+        void import('$lib/pendingKind0').then((m) => m.seedPendingKind0Locally());
+      }
+
       // Locked passkey vault (record present, no plaintext key, no bunker):
       // nothing opens by itself. The header shows "Continue as {name}" and
       // one tap unlocks. Guarded on the other restore inputs so an in-flight
@@ -379,12 +386,17 @@
           isAuthenticated: false,
           vaultStatus: 'locked' as const,
           hasPlaintextKey: !!localStorage.getItem('nostrcooking_privateKey'),
+          vaultUnconfirmed: isVaultUnconfirmed(),
           isNip46: localStorage.getItem('nostrcooking_authMethod') === 'nip46'
         };
         detectSupport().then((support) => {
           const input = { ...lockedInput, isAuthenticated: authState.isAuthenticated, support };
           if (shouldOfferContinue(input)) {
             lockedVaultPubkey.set(getVaultRecord()?.pubkey ?? null);
+          } else if (shouldSignInPastUnconfirmedVault(input)) {
+            // Unconfirmed setup in a browser that can't unlock it: the
+            // plaintext key is still here, so just sign in.
+            void authManager.signInPastUnconfirmedVault();
           } else if (isStrandedLockedVault(input)) {
             // Nothing here can unlock it: drop the cached pubkey so the
             // header offers Sign in / Join free, not an account menu with
@@ -411,6 +423,11 @@
           // still ahead. autoRestoreWalletAtLogin holds the flag through
           // an actual restore and clears it on every outcome.
           evaluateWalletSetupState(state.publicKey);
+          // A new account's first profile that no relay accepted yet keeps
+          // retrying in the background across reloads ($lib/pendingKind0).
+          if (localStorage.getItem('zapcooking_pending_kind0')) {
+            void import('$lib/pendingKind0').then((m) => m.startPendingKind0Retry(state.publicKey));
+          }
           // Upgrade a legacy V1 Spark mnemonic (key = sha256(pubkey), so
           // readable by anyone with localStorage access) without waiting
           // for the user to open the wallet. Deferred so it never competes

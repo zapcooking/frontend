@@ -21,8 +21,21 @@ import { NDKUser } from '@nostr-dev-kit/ndk';
  * dropped for everyone else; author REQs then route to the pool, which is
  * what the explicit pool relay sets (#708/#716) already asked for.
  *
+ * The active user's lookup is also BOUNDED (OUTBOX_LOOKUP_BOUND_MS). A bare
+ * `event.publish()` awaits it before sending a single frame
+ * (`getWriteRelaysFor` → `trackUsers`), and `getRelayListForUsers` resolves
+ * only on the subscription's EOSE, with no timeout of its own. When that
+ * EOSE never comes (seen with a pool relay that refuses the connection), the
+ * first bare publish of a key the tracker hasn't seen — a brand-new
+ * account's, typically — waited forever. Past the bound the publish goes
+ * ahead on the pool relays (NDK's fallback when it knows no write relays);
+ * the lookup keeps running and fills the tracker if it ever answers. NDK
+ * records the author before awaiting, so only the first caller ever waits.
+ *
  * Returns a function that restores the original (tests).
  */
+export const OUTBOX_LOOKUP_BOUND_MS = 4000;
+
 export function limitOutboxTracking(ndk: Pick<NDK, 'outboxTracker' | 'activeUser'>): () => void {
   const tracker = ndk.outboxTracker;
   if (!tracker) return () => {};
@@ -33,7 +46,16 @@ export function limitOutboxTracking(ndk: Pick<NDK, 'outboxTracker' | 'activeUser
       (item) => me !== undefined && keyOf(item) === me
     );
     if (mine.length === 0) return [];
-    return original.call(tracker, mine as NDKUser[] | string[], skipCache);
+    const lookup = original.call(tracker, mine as NDKUser[] | string[], skipCache);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const bound = new Promise<[]>((resolve) => {
+      timer = setTimeout(() => resolve([]), OUTBOX_LOOKUP_BOUND_MS);
+    });
+    try {
+      return await Promise.race([lookup, bound]);
+    } finally {
+      clearTimeout(timer);
+    }
   };
   return () => {
     tracker.trackUsers = original;

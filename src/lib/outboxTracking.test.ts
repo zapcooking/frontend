@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NDKUser } from '@nostr-dev-kit/ndk';
-import { limitOutboxTracking } from './outboxTracking';
+import { limitOutboxTracking, OUTBOX_LOOKUP_BOUND_MS } from './outboxTracking';
 
 const ME = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);
@@ -52,5 +52,29 @@ describe('limitOutboxTracking', () => {
     expect(() =>
       limitOutboxTracking({ outboxTracker: undefined, activeUser: undefined })()
     ).not.toThrow();
+  });
+
+  it("bounds the active user's lookup: a relay-list fetch that never answers can't hold a publish", async () => {
+    vi.useFakeTimers();
+    try {
+      const { ndk, trackUsers } = fakeNdk(ME);
+      trackUsers.mockImplementation(() => new Promise(() => {})); // EOSE never comes
+      limitOutboxTracking(ndk);
+      let settled = false;
+      const p = ndk.outboxTracker!.trackUsers([ME]).then(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(OUTBOX_LOOKUP_BOUND_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await p;
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a lookup that answers in time resolves with its result', async () => {
+    const { ndk } = fakeNdk(ME);
+    limitOutboxTracking(ndk);
+    await expect(ndk.outboxTracker!.trackUsers([ME])).resolves.toEqual([undefined]);
   });
 });

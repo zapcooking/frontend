@@ -106,6 +106,15 @@ describe('recipe draftStore', () => {
       expect(get(draftsStore)).toHaveLength(0);
     });
 
+    it('keeps imported source attribution when the draft is saved and edited', () => {
+      const sourceUrl = 'https://example.com/soup';
+      const result = saveDraft({ ...emptyFields, title: 'Soup', sourceUrl,
+        additionalMarkdown: `Original recipe: <${sourceUrl}>` });
+      saveDraft({ ...result.draft!, title: 'My soup' }, result.draftId!);
+      expect(storedDrafts(storage)[0].sourceUrl).toBe(sourceUrl);
+      expect(storedDrafts(storage)[0].additionalMarkdown).toContain(sourceUrl);
+    });
+
     it('creates and queues a sync once any field has content', () => {
       const result = saveDraft({ ...emptyFields, title: 'Soup' });
       expect(result.draftId).toMatch(/^draft_/);
@@ -186,6 +195,17 @@ describe('recipe draftStore', () => {
       updateSyncAvailability(); // kicks off a background sync; await a clean one next
       await syncDrafts();
     }
+
+    it('restores source attribution from a synced imported recipe draft', async () => {
+      const sourceUrl = 'https://example.com/soup';
+      nip37.fetchRemoteDrafts.mockResolvedValue([
+        remote(makeDraft('imported', { title: 'Soup', sourceUrl,
+          additionalMarkdown: `Original recipe: <${sourceUrl}>` }), 'recipe')
+      ]);
+      await runSync();
+      expect(storedDrafts(storage)[0].sourceUrl).toBe(sourceUrl);
+      expect(storedDrafts(storage)[0].additionalMarkdown).toContain(sourceUrl);
+    });
 
     it('ignores article drafts on the relay instead of listing them as recipes', async () => {
       const article = { id: 'draft_article', title: '', subtitle: '', content: '', coverImage: '', tags: [], createdAt: 1, updatedAt: 1 };
