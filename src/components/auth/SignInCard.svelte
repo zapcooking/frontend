@@ -19,7 +19,8 @@
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import CustomAvatar from '../CustomAvatar.svelte';
   import { profileFor } from '$lib/profileStore';
-  import { continueName } from '$lib/auth/lockedVault';
+  import { continueName, lockedVaultPubkey } from '$lib/auth/lockedVault';
+  import { userPublickey } from '$lib/nostr';
   import {
     passkeyMethodLabel,
     passkeySignInText,
@@ -111,6 +112,10 @@
   $: vaultName = continueName(vaultProfile ? $vaultProfile : null);
   let vaultUnlockBusy = false;
   let vaultUnlockError = '';
+  // "Forget this login on this device": inline confirmation, worded by
+  // whether a server copy exists to sign back in with.
+  let confirmingForget = false;
+  let forgetHasServerCopy = false;
   // Unlock card is also gated on platform support: a leftover record on an
   // unsupported origin (e.g. an old preview build's localStorage) must not
   // offer an unlock that can no longer bind to the real rp id.
@@ -135,22 +140,60 @@
     });
   }
 
+  // A dismissed passkey sheet is a normal outcome — no error banner; the
+  // other sign-in methods below remain available either way. A passkey
+  // picked from the OS list may belong to another account than the saved
+  // login: its ceremony already ran, so "Replace saved login?" resumes it.
+  function onPasskeyError(error: any, fallback: string) {
+    if (error instanceof VaultConflictError && error.resume) {
+      raise(error.message, error.resume);
+      return;
+    }
+    vaultUnlockError = isCeremonyCancelled(error) ? '' : error?.message || fallback;
+  }
+
   async function unlockVaultPasskey() {
     if (!authManager) return;
     vaultUnlockBusy = true;
     vaultUnlockError = '';
     try {
-      // Success closes the overlay via the auth-state subscription.
+      // Success closes the overlay via the auth-state subscription. After a
+      // cancel this visit, AuthManager lists every passkey instead (the
+      // saved one may be gone from the password manager).
       await authManager.unlockVault();
     } catch (error: any) {
-      // A dismissed passkey sheet is a normal outcome — no error banner; the
-      // other sign-in methods below remain available either way.
-      vaultUnlockError = isCeremonyCancelled(error)
-        ? ''
-        : error?.message || 'Could not unlock with this passkey.';
+      onPasskeyError(error, 'Could not unlock with this passkey.');
     } finally {
       vaultUnlockBusy = false;
     }
+  }
+
+  // "Use a different passkey": the OS lists every zap.cooking passkey.
+  async function useDifferentPasskey() {
+    if (!authManager) return;
+    vaultUnlockBusy = true;
+    vaultUnlockError = '';
+    try {
+      await authManager.signInWithAnyPasskey();
+      vaultRecord = getVaultRecord();
+    } catch (error: any) {
+      onPasskeyError(error, 'Could not sign in with that passkey.');
+    } finally {
+      vaultUnlockBusy = false;
+    }
+  }
+
+  function askForgetLogin() {
+    forgetHasServerCopy = !!authManager?.savedLoginHasServerCopy();
+    confirmingForget = true;
+  }
+
+  function forgetLogin() {
+    authManager?.forgetSavedLogin();
+    vaultRecord = null;
+    confirmingForget = false;
+    lockedVaultPubkey.set(null);
+    userPublickey.set('');
   }
 
   // Cross-device sign-in (Phase 2, behind PASSKEY_SYNC_ENABLED): only on
@@ -729,8 +772,8 @@
          a passkey where this browser can do PRF, else the extension. -->
     {#if vaultRecord && vaultSupported && !authState.isAuthenticated}
       <!-- Locked passkey vault. Every other method stays below — cancelling
-           here is never a dead end, and nothing can delete the vault from
-           this screen. -->
+           here is never a dead end. Only "Forget this login", behind its own
+           confirmation, removes the saved login from this screen. -->
       <button
         type="button"
         on:click={unlockVaultPasskey}
@@ -751,6 +794,41 @@
       </button>
       {#if vaultUnlockError}
         <div class="signin-error" role="alert">{vaultUnlockError}</div>
+      {/if}
+      <div class="signin-vault-links">
+        <button
+          type="button"
+          class="signin-link"
+          on:click={useDifferentPasskey}
+          disabled={vaultUnlockBusy || authState.isLoading}
+        >
+          Use a different passkey
+        </button>
+        <button
+          type="button"
+          class="signin-link"
+          on:click={askForgetLogin}
+          disabled={vaultUnlockBusy || authState.isLoading}
+        >
+          Forget this login on this device
+        </button>
+      </div>
+      {#if confirmingForget}
+        <div class="signin-notice" role="alert">
+          <p>
+            {forgetHasServerCopy
+              ? 'Forget this login on this device? You can sign back in later with your passkey, or with your backup key.'
+              : "Forget this login on this device? It isn't saved on Zap Cooking's servers, so you'll need your backup key (nsec) to sign back in."}
+          </p>
+          <div class="signin-forget-actions">
+            <button type="button" class="signin-link signin-link-danger" on:click={forgetLogin}>
+              Forget
+            </button>
+            <button type="button" class="signin-link" on:click={() => (confirmingForget = false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
       {/if}
     {:else if showSyncSignIn}
       <!-- No vault here: a passkey synced from another device (Phase 2).
@@ -1074,6 +1152,36 @@
     padding-right: 30px;
   }
 
+  .signin-vault-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.25rem 1rem;
+    margin-top: 0.625rem;
+  }
+  .signin-link {
+    background: none;
+    border: none;
+    padding: 0.25rem 0.375rem;
+    color: var(--color-caption);
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .signin-link:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .signin-link-danger {
+    color: #ef4444;
+  }
+  .signin-forget-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+  }
   .signin-more-toggle {
     margin: 1.25rem auto 0;
     display: inline-flex;

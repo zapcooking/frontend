@@ -4,6 +4,8 @@
   import { continueName } from '$lib/auth/lockedVault';
   import { getAuthManager } from '$lib/authManager';
   import { isCeremonyCancelled } from '$lib/passkeyVault';
+  import { VaultConflictError } from '$lib/authManager';
+  import { raiseVaultConflict } from '$lib/auth/vaultConflict';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { showToast } from '$lib/toast';
 
@@ -19,7 +21,9 @@
   // needs the user gesture). A dismissed passkey sheet looks the same as a
   // passkey that isn't on this device or a timeout (all NotAllowedError), so
   // that case gets a toast with a way to the other methods instead of
-  // nothing; it never opens the sheet by itself. Any other failure opens it.
+  // nothing, and the next tap lists every passkey (AuthManager). A passkey
+  // picked there for another account asks "Replace saved login?" in the
+  // sign-in sheet. Any other failure opens the sheet.
   async function unlock() {
     const manager = getAuthManager();
     if (!manager || busy) return;
@@ -27,10 +31,13 @@
     try {
       await manager.unlockVault();
     } catch (error) {
-      if (!isCeremonyCancelled(error)) {
+      if (error instanceof VaultConflictError && error.resume) {
+        loginOverlayOpen.set(true);
+        raiseVaultConflict(error.message, error.resume);
+      } else if (!isCeremonyCancelled(error)) {
         loginOverlayOpen.set(true);
       } else {
-        showToast('info', "Passkey sign-in didn't finish.", 8000, undefined, {
+        showToast('info', "Passkey sign-in didn't finish. Tap Continue again to pick a different passkey.", 8000, undefined, {
           label: 'Other ways to sign in',
           onClick: () => loginOverlayOpen.set(true)
         });
