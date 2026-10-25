@@ -192,7 +192,7 @@
   }
 
   .error-details {
-    @apply text-left bg-gray-50 dark:bg-gray-800 p-4 rounded-lg;
+    @apply text-left bg-[var(--color-bg-secondary)] dark:bg-gray-800 p-4 rounded-lg;
   }
 
   .error-stack {
@@ -216,7 +216,7 @@
   }
 
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
+    @apply bg-[var(--color-input-border)] text-gray-800 hover:bg-[var(--color-accent-gray)] dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
   }
 
   .error-suggestion {

@@ -44,7 +44,7 @@
 				<a
 					href="/my-store/kitchen"
 					class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-					style="background-color: var(--color-bg-tertiary, rgba(0,0,0,0.1)); color: var(--color-text-primary);"
+					style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0,0,0,0.1))); color: var(--color-text-primary);"
 				>
 					<PencilSimpleIcon size={16} />
 					Edit
@@ -53,7 +53,7 @@
 			<a
 				href={`/user/${npub}`}
 				class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-				style="background-color: var(--color-bg-tertiary, rgba(0,0,0,0.1)); color: var(--color-text-primary);"
+				style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0,0,0,0.1))); color: var(--color-text-primary);"
 			>
 				<UserIcon size={16} />
 				Profile
@@ -99,7 +99,7 @@
 	.banner-container {
 		@apply w-full;
 		aspect-ratio: 4 / 1;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.banner-placeholder {

@@ -446,7 +446,7 @@
 
   .parent-quote-embed {
     padding: 0.5rem 0.75rem;
-    background: var(--color-input);
+    background: var(--color-light-input-bg, var(--color-input));
     border-left: 3px solid var(--color-primary, #f97316);
     border-radius: 0.375rem;
   }

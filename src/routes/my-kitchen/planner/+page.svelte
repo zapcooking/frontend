@@ -382,7 +382,7 @@
             type="button"
             on:click={openGenerateConfirm}
             disabled={weekRecipeSlots.aTags.length === 0}
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
             style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
             title={weekRecipeSlots.aTags.length === 0
               ? 'Add recipes to this week to generate a grocery list'
@@ -397,7 +397,7 @@
           <button
             type="button"
             on:click={() => plannerStore.goToCurrentWeek()}
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800"
             style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
           >
             <CalendarBlankIcon size={16} />

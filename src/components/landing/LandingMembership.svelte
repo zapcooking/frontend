@@ -13,7 +13,6 @@
 
 <section id="membership" aria-labelledby="membership-heading" class="membership-section">
   <div class="membership-intro">
-    <p class="eyebrow">A place at the table</p>
     <h2 id="membership-heading">Make more of your kitchen.</h2>
     <p>Keep the recipes you love. Share what you make. Find your people.</p>
   </div>
@@ -46,101 +45,92 @@
 
 <style>
   .membership-section {
+    padding: 36px 0;
     border-top: 1px solid var(--color-input-border);
-    padding: 2.5rem 0;
   }
   .membership-intro {
-    max-width: 38rem;
-    margin-bottom: 1.25rem;
-  }
-  .eyebrow {
-    color: var(--color-primary);
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
+    max-width: 60ch;
+    margin-bottom: 28px;
   }
   h2,
   h3 {
     font-family: var(--font-editorial, Georgia, serif);
+    font-weight: 500;
     letter-spacing: -0.025em;
   }
   h2 {
-    font-size: clamp(1.8rem, 3vw, 2.4rem);
+    margin: 0 0 12px;
+    font-size: var(--explore-section, 32px);
     line-height: 1.12;
-    margin: 0.5rem 0 0.65rem;
   }
   h3 {
-    font-size: 1.55rem;
+    margin: 0 0 12px;
+    font-size: var(--explore-title, 24px);
     line-height: 1.2;
-    margin: 0 0 0.65rem;
   }
   p {
     color: var(--color-text-secondary);
-    line-height: 1.6;
-    font-size: 0.9rem;
+    font-size: var(--explore-body, 16px);
+    line-height: 1.5;
   }
   .membership-options {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+    gap: 32px;
   }
   .membership-option {
-    padding: 1.4rem;
-    border: 1px solid var(--color-input-border);
-    border-radius: 14px;
+    min-width: 0;
+    padding-top: 20px;
+    border-top: 1px solid var(--color-input-border);
   }
   .membership-option[hidden],
   .cheffy-invitation[hidden] {
     display: none;
   }
   .membership-option p {
+    max-width: 60ch;
     margin: 0;
-  }
-  .plus {
-    background: var(--color-explore-peach, var(--color-bg-secondary));
   }
   .membership-button {
     display: inline-flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 1.5rem;
+    gap: 16px;
     min-height: 44px;
-    margin-top: 1rem;
-    padding: 0.65rem 1.1rem;
-    color: #fff;
-    background: var(--color-primary);
-    text-decoration: none;
-    border-radius: 9999px;
+    margin-top: 12px;
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 4px;
     font-weight: 600;
-    font-size: 0.85rem;
+    font-size: var(--explore-body, 16px);
   }
   .membership-option .billing-note {
-    margin-top: 0.6rem;
-    font-size: 0.7rem;
+    margin-top: 8px;
     color: var(--color-caption);
+    font-size: var(--explore-meta, 13px);
+    line-height: 1.4;
   }
   .account-links {
     display: flex;
     flex-wrap: wrap;
-    gap: 1rem;
-    margin-top: 0.6rem;
+    gap: 16px;
+    margin-top: 12px;
   }
   .account-links a,
   .cheffy-invitation a {
     display: inline-flex;
     align-items: center;
+    gap: 8px;
     min-height: 44px;
     color: var(--color-primary);
-    gap: 0.5rem;
     font-weight: 600;
   }
   .cheffy-invitation {
-    margin: 0.75rem 0 0;
-    font-size: 0.8rem;
+    margin: 20px 0 0;
+    font-size: var(--explore-meta, 13px);
+    line-height: 1.4;
   }
   .cheffy-invitation a {
-    margin-left: 0.35rem;
+    margin-left: 4px;
   }
   a:focus-visible {
     outline: 2px solid var(--color-primary);
@@ -148,10 +138,10 @@
   }
   @media (max-width: 600px) {
     .membership-section {
-      padding: 2rem 0;
+      padding: 28px 0;
     }
-    .membership-option {
-      padding: 1.2rem;
+    .membership-options {
+      gap: 24px;
     }
   }
 </style>

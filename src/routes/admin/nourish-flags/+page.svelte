@@ -1249,7 +1249,7 @@
     color: var(--color-text-secondary);
     padding: 0.125rem 0.375rem;
     border-radius: 0.25rem;
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
+    background: var(--color-light-input-bg,var(--color-bg-tertiary, rgba(255, 255, 255, 0.04)));
   }
 
   .tab-badge {
@@ -1305,7 +1305,7 @@
   }
 
   .btn-rescore-retry {
-    background: var(--color-bg-tertiary);
+    background: var(--color-light-input-bg,var(--color-bg-tertiary));
     color: var(--color-text-primary);
     border: 1px solid var(--color-input-border);
   }
@@ -1407,7 +1407,7 @@
   }
 
   .btn-cancel {
-    background: var(--color-bg-tertiary);
+    background: var(--color-light-input-bg,var(--color-bg-tertiary));
     color: var(--color-text-primary);
     border: 1px solid var(--color-input-border);
   }
@@ -1490,7 +1490,7 @@
   .btn-batch-abort {
     padding: 0.3rem 0.75rem;
     border-radius: 0.4rem;
-    background: var(--color-bg-tertiary);
+    background: var(--color-light-input-bg,var(--color-bg-tertiary));
     color: var(--color-text-primary);
     border: 1px solid var(--color-input-border);
     font-size: 0.8125rem;
@@ -1505,7 +1505,7 @@
   .batch-progress-track {
     width: 100%;
     height: 6px;
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+    background: var(--color-light-input-border,var(--color-bg-tertiary, rgba(255, 255, 255, 0.06)));
     border-radius: 3px;
     overflow: hidden;
   }
@@ -1539,7 +1539,7 @@
   .btn-batch-close {
     padding: 0.3rem 0.75rem;
     border-radius: 0.4rem;
-    background: var(--color-bg-tertiary);
+    background: var(--color-light-input-bg,var(--color-bg-tertiary));
     color: var(--color-text-primary);
     border: 1px solid var(--color-input-border);
     font-size: 0.8125rem;
@@ -1547,7 +1547,7 @@
   }
 
   .row-header:hover {
-    background: var(--color-bg-tertiary);
+    background: var(--color-light-input-bg,var(--color-bg-tertiary));
   }
 
   .target {

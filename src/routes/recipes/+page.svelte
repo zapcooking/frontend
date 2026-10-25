@@ -619,7 +619,7 @@
         title="Hide recipes without images (applies to all recipe grids)"
         class="relative w-9 h-5 rounded-full transition-colors cursor-pointer flex-shrink-0 {$hideImagelessRecipesSetting
           ? 'bg-primary'
-          : 'bg-gray-300 dark:bg-gray-600'}"
+          : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
         on:click={() => hideImagelessRecipesSetting.setEnabled(!$hideImagelessRecipesSetting)}
       >
         <span

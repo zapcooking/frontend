@@ -53,7 +53,7 @@
     position: relative;
     z-index: 30;
     border-bottom: 1px solid var(--color-input-border);
-    background: var(--color-explore-cream, var(--color-bg-primary));
+    background: var(--color-light-bg-primary, var(--color-explore-cream, var(--color-bg-primary)));
   }
   .header-inner {
     max-width: 1200px;

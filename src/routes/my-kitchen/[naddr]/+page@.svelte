@@ -794,7 +794,7 @@
                 class="w-full h-full object-cover pointer-events-none"
               />
             {:else}
-              <div class="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center pointer-events-none">
+              <div class="w-full h-full bg-gradient-to-br from-[var(--color-light-input-border,var(--color-gray-200))] to-[var(--color-light-accent-gray,var(--color-gray-300))] dark:from-gray-700 dark:to-gray-800 flex items-center justify-center pointer-events-none">
                 <span class="text-xs text-caption text-center px-2">{recipeTitle}</span>
               </div>
             {/if}

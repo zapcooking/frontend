@@ -252,7 +252,7 @@
 			<h2 class="text-lg font-semibold mb-3" style="color: var(--color-text-primary)">Store</h2>
 			{#if loadingKitchen}
 				<div class="p-6 rounded-2xl animate-pulse" style="background-color: var(--color-bg-secondary);">
-					<div class="h-4 w-1/3 rounded" style="background-color: var(--color-bg-tertiary, rgba(0,0,0,0.1));"></div>
+					<div class="h-4 w-1/3 rounded" style="background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0,0,0,0.1)));"></div>
 				</div>
 			{:else if existingKitchen}
 				<div class="p-4 rounded-2xl flex items-center justify-between" style="background-color: var(--color-bg-secondary);">
@@ -260,7 +260,7 @@
 						{#if existingKitchen.avatar}
 							<img src={existingKitchen.avatar} alt="" class="w-10 h-10 rounded-full object-cover" />
 						{:else}
-							<div class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--color-bg-tertiary, rgba(0,0,0,0.1));">
+							<div class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0,0,0,0.1)));">
 								<StorefrontIcon size={20} class="opacity-50" />
 							</div>
 						{/if}
@@ -271,7 +271,7 @@
 							{/if}
 						</div>
 					</div>
-					<a href="/my-store/kitchen" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-white/5" style="color: var(--color-text-secondary);">
+					<a href="/my-store/kitchen" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,color-mix(in_srgb,#fff_5%,transparent))]" style="color: var(--color-text-secondary);">
 						<PencilSimpleIcon size={16} />
 						Edit
 					</a>

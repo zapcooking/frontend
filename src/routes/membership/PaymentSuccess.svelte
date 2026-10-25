@@ -247,7 +247,7 @@
     <button
       type="button"
       on:click={handleGoToProfile}
-      class="w-full py-4 px-6 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white rounded-full font-semibold text-lg transition-colors"
+      class="w-full py-4 px-6 bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:bg-gray-800 hover:bg-[var(--color-light-input-border,var(--color-gray-200))] dark:hover:bg-gray-700 text-gray-900 dark:text-white rounded-full font-semibold text-lg transition-colors"
     >
       View My Profile
     </button>

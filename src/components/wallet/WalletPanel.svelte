@@ -6923,7 +6923,7 @@
   >
     <div
       class="rounded-2xl p-6 max-w-md w-full"
-      style="background-color: var(--color-bg); border: 1px solid var(--color-input-border);"
+      style="background-color: var(--color-light-bg-secondary, var(--color-bg)); border: 1px solid var(--color-input-border);"
     >
       <h3 class="text-lg font-semibold text-primary-color mb-4">Refund Deposit</h3>
 

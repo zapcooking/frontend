@@ -239,7 +239,7 @@
     flex: 1;
     height: 4px;
     border-radius: 2px;
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+    background: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(255, 255, 255, 0.06)));
     overflow: hidden;
   }
   .dim-fill {

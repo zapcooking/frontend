@@ -144,7 +144,7 @@
     max-height: 16rem;
     object-fit: contain;
     border-radius: 0.625rem;
-    background: var(--color-input, #1f2937);
+    background: var(--color-light-input-bg, var(--color-input, #1f2937));
   }
   .alt-ai-button {
     display: inline-flex;
@@ -219,7 +219,7 @@
     line-height: 1.45;
     border: 1px solid var(--color-input-border);
     border-radius: 0.625rem;
-    background: var(--color-input, transparent);
+    background: var(--color-light-input-bg, var(--color-input, transparent));
     color: var(--color-text-primary);
     resize: vertical;
   }

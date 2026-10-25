@@ -13,8 +13,7 @@
   <section class="packs-section" aria-labelledby="packs-heading">
     <div class="section-top">
       <div>
-        <p class="eyebrow">Recipe packs</p>
-        <h2 id="packs-heading">Find your next cooking adventure.</h2>
+        <h2 id="packs-heading">Recipe packs</h2>
         <p class="section-description">Favorite recipes, gathered into packs to save and share.</p>
       </div>
       <a class="text-link" href="/packs">Explore all recipe packs <Arrow /></a>
@@ -51,19 +50,21 @@
                     <BookOpen size={52} weight="light" />
                   </div>
                 {/if}
+              </div>
+            </a>
+            <div class="pack-copy">
+              <h3><a href={pack.href}>{pack.title}</a></h3>
+              {#if pack.description}<p class="description">{pack.description}</p>{/if}
+              <div class="pack-metadata">
+                <a class="byline" href={userHref(pack.author.pubkey)}
+                  >By {pack.author.name?.trim() || 'A cook'}</a
+                >
                 {#if Number.isInteger(pack.recipeCount) && pack.recipeCount > 0}
                   <span class="recipe-count"
                     >{pack.recipeCount} {pack.recipeCount === 1 ? 'recipe' : 'recipes'}</span
                   >
                 {/if}
               </div>
-            </a>
-            <div class="pack-copy">
-              <h3><a href={pack.href}>{pack.title} <Arrow /></a></h3>
-              {#if pack.description}<p class="description">{pack.description}</p>{/if}
-              <a class="byline" href={userHref(pack.author.pubkey)}
-                >By {pack.author.name?.trim() || 'A cook'}</a
-              >
               {#if visiblePacks.length === 1}
                 <a class="open-pack" href={pack.href}>Open recipe pack <Arrow /></a>
               {/if}
@@ -77,10 +78,8 @@
 
 <style>
   .packs-section {
-    margin: 32px 0;
-    padding: clamp(22px, 3vw, 36px);
-    border-radius: 22px;
-    background: var(--color-explore-sage);
+    padding: 36px 0;
+    border-top: 1px solid var(--color-input-border);
     color: var(--color-text-primary);
   }
   .section-top {
@@ -90,14 +89,6 @@
     gap: 24px;
     margin-bottom: 28px;
   }
-  .eyebrow {
-    margin: 0 0 10px;
-    color: var(--color-primary);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-  }
   h2,
   h3 {
     font-family: var(--font-editorial, Georgia, serif);
@@ -105,16 +96,16 @@
     letter-spacing: -0.025em;
   }
   h2 {
-    max-width: 24ch;
     margin: 0;
-    font-size: clamp(28px, 3vw, 38px);
-    line-height: 1.1;
+    font-size: var(--explore-section, 32px);
+    line-height: 1.12;
   }
   .section-description {
+    max-width: 60ch;
     margin: 12px 0 0;
-    font-size: 14px;
-    line-height: 1.6;
     color: var(--color-text-secondary);
+    font-size: var(--explore-body, 16px);
+    line-height: 1.5;
   }
   .text-link,
   .open-pack {
@@ -122,7 +113,7 @@
     align-items: center;
     gap: 10px;
     min-height: 44px;
-    font-size: 13px;
+    font-size: var(--explore-meta, 13px);
     font-weight: 600;
   }
   .text-link {
@@ -130,25 +121,42 @@
   }
   .pack-grid {
     display: grid;
-    grid-template-columns: repeat(var(--pack-count), minmax(0, 1fr));
-    gap: 24px;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 24px 32px;
+  }
+  .pack-grid > li {
+    min-width: 0;
+  }
+  .pack-grid > li:first-child {
+    grid-row: 1 / span 3;
+  }
+  .pack-grid > li:not(:first-child) {
+    grid-column: 2;
+    padding-top: 20px;
+    border-top: 1px solid var(--color-input-border);
+  }
+  .pack-grid > li:not(:first-child) article {
+    display: grid;
+    grid-template-columns: minmax(96px, 0.45fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 16px;
   }
   .pack-image-link {
     display: block;
     min-width: 0;
   }
   .pack-cover {
-    position: relative;
-    aspect-ratio: 16 / 10;
-    border-radius: 14px;
+    aspect-ratio: 4 / 3;
     overflow: hidden;
-    background: var(--color-bg-primary);
+    background: var(--color-bg-secondary);
   }
   .image-cell,
   .image-cell :global(img) {
     width: 100%;
     height: 100%;
     min-height: 0;
+    border-radius: 0;
     object-fit: cover;
   }
   .collage {
@@ -167,25 +175,14 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: var(--color-primary);
-  }
-  .recipe-count {
-    position: absolute;
-    left: 12px;
-    bottom: 12px;
-    padding: 5px 10px;
-    border-radius: 999px;
-    background: var(--color-bg-primary);
-    color: var(--color-text-primary);
-    font-size: 12px;
-    font-weight: 600;
+    color: var(--color-caption);
   }
   .pack-copy {
     min-width: 0;
   }
   h3 {
-    margin: 12px 0 0;
-    font-size: 24px;
+    margin: 16px 0 0;
+    font-size: var(--explore-title, 24px);
     line-height: 1.2;
     overflow-wrap: anywhere;
   }
@@ -193,14 +190,14 @@
     display: inline-block;
     min-height: 44px;
   }
-  h3 :global(svg) {
-    margin-left: 3px;
+  .pack-grid > li:not(:first-child) h3 {
+    margin-top: 0;
   }
   .description {
-    margin: 6px 0 0;
+    margin: 8px 0 0;
     color: var(--color-text-secondary);
-    font-size: 14px;
-    line-height: 1.6;
+    font-size: var(--explore-body, 16px);
+    line-height: 1.5;
     display: -webkit-box;
     line-clamp: 3;
     -webkit-line-clamp: 3;
@@ -208,22 +205,40 @@
     overflow: hidden;
     overflow-wrap: anywhere;
   }
-  .byline {
+  .pack-metadata {
     display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    color: var(--color-caption);
+    font-size: var(--explore-meta, 13px);
+    line-height: 1.4;
+  }
+  .byline {
+    display: inline-flex;
     align-items: center;
     min-height: 44px;
-    font-size: 12px;
-    color: var(--color-text-secondary);
+    color: inherit;
+  }
+  .recipe-count::before {
+    content: ' · ';
+    white-space: pre;
+  }
+  .single {
+    grid-template-columns: 1fr;
+  }
+  .single > li:first-child {
+    grid-row: auto;
   }
   .single article {
     display: grid;
     grid-template-columns: 1.15fr 1fr;
     align-items: center;
-    gap: clamp(24px, 4vw, 48px);
+    gap: 32px;
   }
   .single h3 {
     margin-top: 0;
-    font-size: clamp(26px, 3vw, 36px);
+    font-size: var(--explore-section, 32px);
+    line-height: 1.12;
   }
   .single .description {
     line-clamp: 5;
@@ -233,30 +248,48 @@
     margin-top: 12px;
     color: var(--color-primary);
   }
-  @media (max-width: 1023px) {
+  @media (max-width: 900px) {
     .section-top {
       align-items: start;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
-    .pack-grid.four {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .pack-grid {
+      grid-template-columns: 1fr;
+    }
+    .pack-grid > li:first-child {
+      grid-row: auto;
+    }
+    .pack-grid > li:not(:first-child) {
+      grid-column: 1;
+    }
+    .pack-grid > li:not(:first-child) article {
+      grid-template-columns: minmax(112px, 0.35fr) minmax(0, 1fr);
+      gap: 20px;
+    }
+    .pack-grid > li:first-child article {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      align-items: center;
+      gap: 24px;
+    }
+    .pack-grid > li:first-child h3 {
+      margin-top: 0;
     }
   }
   @media (max-width: 600px) {
     .packs-section {
-      margin: 24px 0;
-      padding: 22px 18px;
+      padding: 28px 0;
     }
-    .pack-grid:not(.single),
-    .single article {
-      grid-template-columns: 1fr;
+    .pack-grid > li:first-child article {
+      display: block;
     }
-    .single article {
-      gap: 20px;
+    .pack-grid > li:first-child h3 {
+      margin-top: 16px;
     }
-    .pack-grid {
-      gap: 28px;
+    .pack-grid > li:not(:first-child) article {
+      grid-template-columns: 104px minmax(0, 1fr);
+      gap: 16px;
     }
   }
 </style>

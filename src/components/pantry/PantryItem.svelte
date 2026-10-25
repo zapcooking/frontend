@@ -78,7 +78,7 @@
     />
     <button
       type="button"
-      class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+      class="p-1.5 rounded-lg hover:bg-[var(--color-input-bg)] dark:hover:bg-gray-800"
       style="color: var(--color-text-secondary);"
       aria-label="Cancel"
       on:click={cancel}
@@ -116,7 +116,7 @@
     </button>
     <button
       type="button"
-      class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+      class="p-1.5 rounded-lg hover:bg-[var(--color-input-bg)] dark:hover:bg-gray-800"
       style="color: var(--color-text-secondary);"
       aria-label="Edit {item.name}"
       {disabled}

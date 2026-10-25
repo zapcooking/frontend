@@ -542,7 +542,7 @@
 
 	.provider-card code {
 		@apply px-1 py-0.5 rounded;
-		background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+		background-color: var(--color-light-input-bg,var(--color-bg-tertiary, rgba(255, 255, 255, 0.06)));
 		color: var(--color-accent, #f97316);
 		font-size: 0.7rem;
 	}

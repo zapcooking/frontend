@@ -232,7 +232,7 @@
 
 	.image-container {
 		@apply w-full aspect-square relative;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.image {
@@ -286,7 +286,7 @@
 	}
 
 	.message-button {
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 		color: var(--color-accent);
 		border: 1px solid rgba(249, 115, 22, 0.3);
 	}

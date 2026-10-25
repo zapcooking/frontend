@@ -776,7 +776,7 @@
               role="switch"
               aria-checked={$timerSettings.postCountdownEnabled}
               aria-label="Enable send countdown"
-              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownEnabled ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-600'}"
+              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownEnabled ? 'bg-orange-500' : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
               on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownEnabled: !$timerSettings.postCountdownEnabled })}
             >
               <span class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.postCountdownEnabled ? 'translate-x-5' : ''}"></span>
@@ -809,7 +809,7 @@
                   role="switch"
                   aria-checked={$timerSettings.postCountdownIncludesReplies}
                   aria-label="Apply countdown to replies"
-                  class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownIncludesReplies ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-600'}"
+                  class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownIncludesReplies ? 'bg-orange-500' : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
                   on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownIncludesReplies: !$timerSettings.postCountdownIncludesReplies })}
                 >
                   <span class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.postCountdownIncludesReplies ? 'translate-x-5' : ''}"></span>
@@ -844,7 +844,7 @@
               class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.powBits !==
               null
                 ? 'bg-orange-500'
-                : 'bg-gray-300 dark:bg-gray-600'}"
+                : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
               on:click={() =>
                 saveTimerSettings({
                   ...$timerSettings,
@@ -1289,7 +1289,7 @@
                 ? 'cursor-pointer'
                 : 'cursor-not-allowed'} {$navBalanceVisible
                 ? 'bg-amber-500'
-                : 'bg-gray-300 dark:bg-gray-600'}"
+                : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
               on:click={() => hasNavWallet && setNavBalanceVisible(!$navBalanceVisible)}
             >
               <span
@@ -1336,7 +1336,7 @@
                 ? 'cursor-pointer'
                 : 'cursor-not-allowed'} {$oneTapZapEnabled && hasInAppWallet
                 ? 'bg-amber-500'
-                : 'bg-gray-300 dark:bg-gray-600'}"
+                : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
               on:click={() => hasInAppWallet && setOneTapZapEnabled(!$oneTapZapEnabled)}
             >
               <span
@@ -1510,7 +1510,7 @@
               aria-label="Hide recipes without images"
               class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$hideImagelessRecipesSetting
                 ? 'bg-primary'
-                : 'bg-gray-300 dark:bg-gray-600'}"
+                : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
               on:click={() =>
                 hideImagelessRecipesSetting.setEnabled(!$hideImagelessRecipesSetting)}
             >
@@ -1660,7 +1660,7 @@
             <button
               type="button"
               class="w-full py-2 rounded-lg font-medium text-sm transition-colors"
-              style="background-color: var(--color-accent); color: white;"
+              style="background-color: var(--color-light-bg-brand,var(--color-accent)); color: white;"
               on:click={saveWotProvider}
               disabled={wotSaving}
             >

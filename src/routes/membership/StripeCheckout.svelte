@@ -96,7 +96,7 @@
       type="button"
       on:click={handleRedirectToStripe}
       disabled={!stripeUrl || isRedirecting}
-      class="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded-full font-bold text-lg transition-colors flex items-center justify-center gap-2"
+      class="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-[var(--color-light-accent-gray,var(--color-gray-300))] disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded-full font-bold text-lg transition-colors flex items-center justify-center gap-2"
     >
       <span>Continue to Stripe Checkout</span>
       <ArrowSquareOutIcon size={20} />
