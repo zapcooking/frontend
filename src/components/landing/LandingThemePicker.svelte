@@ -6,6 +6,8 @@
       <option value="after-hours">After Hours ’80s</option>
       <option value="recipe-club">Recipe Club ’90s</option>
       <option value="recipe-box">Recipe Box</option>
+      <option value="corner-diner">Corner Diner</option>
+      <option value="sunday-market">Sunday Market</option>
     </select>
   </label>
   <span class="sr-only" data-explore-theme-status role="status" aria-live="polite"></span>

@@ -360,6 +360,195 @@ html[data-explore-theme='recipe-box'] .landing .packs-section {
     repeating-linear-gradient(90deg, var(--explore-pattern) 0 12px, transparent 12px 24px);
 }
 
+/* Corner Diner: a vanilla-and-turquoise menu with tomato ink and a checker trim. */
+html[data-explore-theme='corner-diner'] .landing {
+  --font-editorial: Impact, 'Arial Narrow', 'Franklin Gothic Medium', sans-serif;
+  --explore-heading-weight: 700;
+  --explore-heading-spacing: 0.005em;
+  --explore-image-radius: 18px;
+  --explore-control-radius: 999px;
+  --explore-accent-text: #9c3423;
+  --explore-pattern: #9c342326;
+  --explore-masthead-bg: #cce9e3;
+  --explore-masthead-ink: #943222;
+  --explore-masthead-muted: #4c5a55;
+  --explore-picker-focus: var(--explore-masthead-ink);
+  --color-text-primary: #2c3431;
+  --color-text-secondary: #4c5a55;
+  --color-caption: #58645c;
+  --color-bg-primary: #fff9e9;
+  --color-bg-secondary: #f1eddd;
+  --color-input-bg: #fffdf6;
+  --color-input-border: #99afa4;
+  --color-accent-gray: #99afa4;
+  --color-card-sunken: #e9e4d5;
+  --color-explore-peach: #f9e5d9;
+  --color-explore-sage: #dcece5;
+}
+
+html.dark[data-explore-theme='corner-diner'] .landing {
+  --explore-accent-text: #ffb5a0;
+  --explore-pattern: #f8c4a52e;
+  --explore-masthead-bg: #233f3a;
+  --explore-masthead-ink: #ffb5a0;
+  --explore-masthead-muted: #dfd6c4;
+  --color-text-primary: #fff5e5;
+  --color-text-secondary: #dfd6c4;
+  --color-caption: #c2cbbd;
+  --color-bg-primary: #1d2522;
+  --color-bg-secondary: #2b3631;
+  --color-input-bg: #232d28;
+  --color-input-border: #718d80;
+  --color-accent-gray: #718d80;
+  --color-card-sunken: #141c18;
+  --color-explore-peach: #3b2c25;
+  --color-explore-sage: #283b35;
+}
+
+html[data-explore-theme='corner-diner'] .landing .masthead {
+  margin: 24px 0;
+  padding: 32px 28px 28px;
+  background: var(--explore-masthead-bg);
+  border: 1px solid var(--color-input-border);
+  border-radius: 24px;
+}
+
+html[data-explore-theme='corner-diner'] .landing .masthead::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 28px;
+  left: 28px;
+  height: 12px;
+  background: conic-gradient(
+      var(--explore-pattern) 25%,
+      transparent 0 50%,
+      var(--explore-pattern) 0 75%,
+      transparent 0
+    )
+    0 0 / 12px 12px;
+  pointer-events: none;
+}
+
+html[data-explore-theme='corner-diner'] .landing .masthead h1 {
+  max-width: 24ch;
+  text-transform: uppercase;
+  font-stretch: condensed;
+}
+
+html[data-explore-theme='corner-diner'] .landing .masthead .tagline {
+  padding: 4px 0;
+  border-block: 1px solid currentColor;
+  letter-spacing: 0.12em;
+}
+
+html[data-explore-theme='corner-diner'] .landing :is(.cover-top, .section) {
+  border-top: 3px double var(--explore-accent-text);
+}
+
+html[data-explore-theme='corner-diner'] .landing :is(.import-invitation, .packs-section) {
+  border-radius: 20px;
+}
+
+/* Sunday Market: rounded produce-label type, citrus paper and colorful stall trim. */
+html[data-explore-theme='sunday-market'] .landing {
+  --font-editorial: 'Cooper Black', 'Bookman Old Style', Georgia, serif;
+  --explore-heading-weight: 700;
+  --explore-heading-spacing: -0.025em;
+  --explore-image-radius: 12px;
+  --explore-accent-text: #306337;
+  --explore-citrus: #f7df72;
+  --explore-leaf: #306337;
+  --explore-berry: #99344a;
+  --explore-label-bg: var(--explore-citrus);
+  --explore-label-ink: #306337;
+  --explore-masthead-ink: var(--explore-leaf);
+  --color-text-primary: #263b2e;
+  --color-text-secondary: #53604e;
+  --color-caption: #5b654b;
+  --color-bg-primary: #fffcf4;
+  --color-bg-secondary: #f0efdf;
+  --color-input-bg: #fffffb;
+  --color-input-border: #a4b293;
+  --color-accent-gray: #a4b293;
+  --color-card-sunken: #e9e9d8;
+  --color-explore-peach: #fff1bb;
+  --color-explore-sage: #e8efdc;
+}
+
+html.dark[data-explore-theme='sunday-market'] .landing {
+  --explore-accent-text: #bddb9d;
+  --explore-citrus: #e6ce68;
+  --explore-leaf: #bddb9d;
+  --explore-berry: #f7b4bf;
+  --explore-label-bg: #e6ce68;
+  --explore-label-ink: #294f2e;
+  --color-text-primary: #f6f3de;
+  --color-text-secondary: #d6dcc5;
+  --color-caption: #c0caaa;
+  --color-bg-primary: #1d251c;
+  --color-bg-secondary: #2b3526;
+  --color-input-bg: #242e20;
+  --color-input-border: #758562;
+  --color-accent-gray: #758562;
+  --color-card-sunken: #151c13;
+  --color-explore-peach: #3d371f;
+  --color-explore-sage: #283c28;
+}
+
+html[data-explore-theme='sunday-market'] .landing .masthead {
+  margin-bottom: 12px;
+  padding-bottom: 32px;
+}
+
+html[data-explore-theme='sunday-market'] .landing .masthead::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--explore-citrus) 0 42px,
+    transparent 42px 48px,
+    var(--explore-leaf) 48px 90px,
+    transparent 90px 96px,
+    var(--explore-berry) 96px 138px,
+    transparent 138px 144px
+  );
+  pointer-events: none;
+}
+
+html[data-explore-theme='sunday-market'] .landing .masthead h1 {
+  max-width: 25ch;
+}
+
+html[data-explore-theme='sunday-market'] .landing .masthead .tagline {
+  padding: 7px 15px;
+  background: var(--explore-label-bg);
+  border: 1px solid var(--explore-label-ink);
+  border-radius: 999px;
+  color: var(--explore-label-ink);
+  letter-spacing: 0.06em;
+}
+
+html[data-explore-theme='sunday-market'] .landing :is(.cover-top, .section) {
+  border-top: 2px solid var(--explore-leaf);
+}
+
+html[data-explore-theme='sunday-market'] .landing .import-invitation {
+  border-color: var(--explore-berry);
+  border-radius: 12px;
+}
+
+html[data-explore-theme='sunday-market'] .landing .packs-section {
+  border-color: var(--explore-leaf);
+  border-top: 6px solid var(--explore-citrus);
+  border-radius: 12px;
+}
+
 @media (max-width: 767px) {
   html .landing .magazine .packs-section {
     padding: 20px 16px;
@@ -373,6 +562,16 @@ html[data-explore-theme='recipe-box'] .landing .packs-section {
 
   html[data-explore-theme='recipe-box'] .landing .masthead {
     margin-top: 20px;
+  }
+
+  html[data-explore-theme='corner-diner'] .landing .masthead {
+    margin: 20px 0;
+    padding: 28px 18px 22px;
+    border-radius: 20px;
+  }
+
+  html[data-explore-theme='corner-diner'] .landing .masthead h1 {
+    font-size: clamp(28px, 9vw, 36px);
   }
 }
 
@@ -392,6 +591,15 @@ html[data-explore-theme='recipe-box'] .landing .packs-section {
     --color-explore-peach: #ffffff;
     --color-explore-sage: #ffffff;
     --explore-accent-text: #222222;
+    --explore-citrus: #777777;
+    --explore-leaf: #777777;
+    --explore-berry: #777777;
+    --explore-masthead-bg: #ffffff;
+    --explore-masthead-ink: #111111;
+    --explore-masthead-muted: #333333;
+    --explore-label-bg: #ffffff;
+    --explore-label-ink: #111111;
+    --explore-pattern: transparent;
     --font-editorial: Georgia, serif;
   }
 

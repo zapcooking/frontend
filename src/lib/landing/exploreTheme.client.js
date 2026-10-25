@@ -16,7 +16,9 @@
     original: 'Zap Original',
     'after-hours': 'After Hours ’80s',
     'recipe-club': 'Recipe Club ’90s',
-    'recipe-box': 'Recipe Box'
+    'recipe-box': 'Recipe Box',
+    'corner-diner': 'Corner Diner',
+    'sunday-market': 'Sunday Market'
   };
   /** @param {unknown} value */
   const normalize = (value) =>
