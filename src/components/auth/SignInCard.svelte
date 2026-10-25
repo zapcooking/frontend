@@ -1067,7 +1067,8 @@
     --signin-flame: #f7931a;
     --signin-ember: #ff5f1f;
     --signin-cream: #0f172a;
-    --signin-mute: #94a3b8;
+    /* #94a3b8 was 2.56:1 on the white card; this is 4.76:1. Dark keeps it. */
+    --signin-mute: #64748b;
   }
 
   :global(.dark) .login-viewport-center {
@@ -1168,8 +1169,10 @@
     height: 52px;
     border-radius: 14px;
     border: none;
-    background: linear-gradient(135deg, var(--signin-flame) 0%, var(--signin-ember) 100%);
-    color: #fff8ec;
+    /* Darker than the flame → ember brand pair: cream on that was 2.18–2.88:1.
+       White on #d43f00 → #c2410c is 4.66–5.18:1, in both themes. */
+    background: linear-gradient(135deg, #d43f00 0%, #c2410c 100%);
+    color: #fff;
     font-family: inherit;
     font-weight: 600;
     font-size: 0.9375rem;
@@ -1324,7 +1327,12 @@
   .signin-join-link:disabled { opacity: 0.55; cursor: not-allowed; }
   .signin-cta-secondary:focus-visible { outline: 2px solid var(--signin-flame); outline-offset: 2px; }
 
-  .signin-notice a, .signin-footer a { color: var(--signin-flame); text-decoration: none; }
+  /* Same fix as .signin-join-link: #c2410c on the light card (5.18:1, 4.71:1 on
+     the notice), the brand orange on the dark one. */
+  .signin-notice a, .signin-footer a { color: #c2410c; text-decoration: none; }
+  :global(.dark) .signin-footer a { color: var(--signin-flame); }
+  /* The flame is 4.49:1 on the dark notice's elevated surface; this is 4.97:1. */
+  :global(.dark) .signin-notice a { color: #f9a03f; }
   .signin-notice a:hover, .signin-footer a:hover { text-decoration: underline; }
 
   .signin-notice {
