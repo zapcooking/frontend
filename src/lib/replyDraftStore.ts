@@ -178,6 +178,34 @@ export function deleteReplyDraft(targetId: string): void {
   if (records.delete(targetId)) persist(records);
 }
 
+/**
+ * Drop drafts whose words are already on the wire. A proof-of-work reply
+ * publishes from a background job; if the page unloads between the relay
+ * accepting the event and the job's own draft cleanup, the record survives
+ * reload and the pill offers to "continue" words that were already sent.
+ *
+ * `match` reports whether a stored draft is the one that published: same
+ * account, and the stored text equal to the published content (mention-
+ * substituted wire form, so the raw draft is compared against what the
+ * composer handed the miner). Only exact matches are removed — a draft the
+ * member has edited since stays.
+ *
+ * Returns the ids of the drafts that were dropped.
+ */
+export function prunePublishedReplyDrafts(
+  match: (draft: ReplyDraftRecord) => boolean
+): string[] {
+  const dropped: string[] = [];
+  for (const [id, rec] of records) {
+    if (match(rec)) {
+      records.delete(id);
+      dropped.push(id);
+    }
+  }
+  if (dropped.length > 0) persist(records);
+  return dropped;
+}
+
 export function clearReplyDrafts(): void {
   records = new Map();
   persist(records);

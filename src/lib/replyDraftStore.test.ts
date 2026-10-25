@@ -131,3 +131,39 @@ describe('deleteReplyDraft', () => {
     expect(getReplyDraft('b', PK)?.text).toBe('b');
   });
 });
+
+describe('prunePublishedReplyDrafts', () => {
+  it('drops the draft whose text matches a published reply', async () => {
+    seedDraft('target', 'Fishkill Farms this weekend?', PK);
+    const { prunePublishedReplyDrafts, getReplyDraft } = await loadModule();
+    prunePublishedReplyDrafts((d) => d.pubkey === PK && d.text === 'Fishkill Farms this weekend?');
+    expect(getReplyDraft('target', PK)).toBeNull();
+  });
+
+  it('keeps drafts that do not match the published words (edited since)', async () => {
+    seedDraft('target', 'an edited version of the reply', PK);
+    const { prunePublishedReplyDrafts, getReplyDraft } = await loadModule();
+    prunePublishedReplyDrafts((d) => d.text === 'Fishkill Farms this weekend?');
+    expect(getReplyDraft('target', PK)?.text).toBe('an edited version of the reply');
+  });
+
+  it('keeps another account\u2019s matching draft (pubkey scoped)', async () => {
+    seedDraft('target', 'same words', OTHER_PK);
+    const { prunePublishedReplyDrafts, getReplyDraft } = await loadModule();
+    prunePublishedReplyDrafts((d) => d.pubkey === PK && d.text === 'same words');
+    expect(getReplyDraft('target', OTHER_PK)?.text).toBe('same words');
+  });
+
+  it('drops only the matching drafts and persists the rest', async () => {
+    seedDraft('t1', 'published words', PK);
+    seedDraft('t2', 'still cooking this one', PK);
+    const { prunePublishedReplyDrafts, getReplyDraft } = await loadModule();
+    const dropped = prunePublishedReplyDrafts((d) => d.text === 'published words');
+    expect(dropped).toEqual(['t1']);
+    expect(getReplyDraft('t1', PK)).toBeNull();
+    expect(getReplyDraft('t2', PK)?.text).toBe('still cooking this one');
+    const stored = JSON.parse(stub.getItem(STORAGE_KEY) || '{}');
+    expect(stored).toHaveProperty('t2');
+    expect(stored).not.toHaveProperty('t1');
+  });
+});
