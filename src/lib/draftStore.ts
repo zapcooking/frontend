@@ -40,6 +40,7 @@ export interface RecipeDraft {
   ingredients: string[];
   directions: string[];
   additionalMarkdown: string;
+  sourceUrl?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -267,6 +268,7 @@ function normalizeRemoteDraft(remote: RemoteDraft): DraftWithSyncState {
     ingredients: draft.ingredients ?? [],
     directions: draft.directions ?? [],
     additionalMarkdown: draft.additionalMarkdown ?? '',
+    sourceUrl: draft.sourceUrl,
     createdAt: draft.createdAt ?? remote.createdAt ?? now,
     updatedAt: draft.updatedAt ?? remote.createdAt ?? now,
     syncStatus: 'synced',

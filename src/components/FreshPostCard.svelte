@@ -29,6 +29,7 @@
     mediaUrls,
     contentWithoutMedia,
     isImageUrl,
+    getQuotedNote,
     getQuotedNoteId,
     noteHref
   } from '$lib/freshFeed/posts';
@@ -97,7 +98,8 @@
   $: alts = imetaAltByUrl(event);
   $: reply = kind === 'note' && isReply(event);
   $: parentId = reply ? getParentNoteId(event) : null;
-  $: quotedId = kind === 'note' && !reply ? getQuotedNoteId(raw) : null;
+  $: quoted = kind === 'note' && !reply ? getQuotedNote(raw) : null;
+  $: quotedId = quoted?.id ?? null;
   $: text =
     kind === 'note' ? contentWithoutMedia(quotedId ? safeStrip(raw.content) : raw.content) : '';
   $: article = kind === 'article' ? eventToArticleData(event, true) : null;
@@ -292,7 +294,7 @@
     {/if}
 
     {#if quotedId}
-      {@const href = noteHref(quotedId)}
+      {@const href = noteHref(quotedId, quoted?.relayHint)}
       {#if href}
         {#await fetchReplyContext($ndk, quotedId)}
           <div class="parent-quote-embed mb-3">
@@ -469,6 +471,9 @@
     margin: 0 0 0.375rem 0;
     overflow-wrap: anywhere;
     word-break: break-word;
+    /* The preview keeps the author's paragraph breaks (see $lib/notePreview);
+       the line-clamp below still caps the visible height. */
+    white-space: pre-wrap;
     display: -webkit-box;
     -webkit-line-clamp: 6;
     line-clamp: 6;

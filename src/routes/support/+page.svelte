@@ -64,18 +64,19 @@
     </h3>
 
     <p>
-      When you create an account, the app shows your private key and lets you download a backup
-      file or copy the key. Keep that copy somewhere safe and private. You can also save an
-      encrypted backup to your own Google Drive, unlocked with a PIN you choose. On the website,
-      you can protect the key on this device with a passkey (Face ID, Touch ID, or your screen
-      lock). A passkey is not a backup — it only unlocks the copy already on that device.
+      When you create an account, you choose how to keep it safe: protect it with a passkey (Face
+      ID, Touch ID, fingerprint, or your device screen lock), or save a backup key by downloading
+      the file or copying the key. With a passkey and "Sign in on other devices" on, an encrypted
+      copy of your key is saved so you can sign in on your other devices with the same passkey;
+      only your passkey can unlock it. Keeping your own copy of the key is still a good idea: you
+      can reveal it in Settings at any time.
     </p>
 
     <p>
-      To recover an account, sign in by entering your private key, or restore the Google Drive
-      backup with your PIN. Signed-in users can also reveal the private key in Settings if it is
-      stored on that device. If you used a browser extension or a remote signer, the key stays in
-      that tool, not in Zap Cooking.
+      To recover an account, sign in with your passkey, enter your private key, or — if you made a
+      Google Drive backup earlier — restore it with your PIN under More options. Signed-in users
+      can also reveal the private key in Settings if it is stored on that device. If you used a
+      browser extension or a remote signer, the key stays in that tool, not in Zap Cooking.
     </p>
 
     <h3 class="text-xl font-semibold mt-4 mb-2" style="color: var(--color-text-primary)">

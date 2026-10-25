@@ -13,6 +13,8 @@ import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { ndk, userPublickey } from '$lib/nostr';
 import { signNip98AuthHeader } from '$lib/nip98';
+import { CHEFFY_TRIAL_LIMIT } from '$lib/cheffyTrial';
+import { loadCheffyTrial } from '$lib/cheffyTrialClient';
 import {
   pickLine,
   looksLikeStructuredRecipe,
@@ -87,61 +89,36 @@ export function dismissCheffyHint() {
   }
 }
 
-// ── First-use experience ("experience", never "free question") ──
-// A non-member (logged out OR logged in without an active membership) may
-// chat with Cheffy a few times from the /explore invite as a controlled
-// preview, so they get a real back-and-forth before any membership pitch.
-// The server is the real gate (HttpOnly cookie counter); these stores
-// mirror it to drive the preview UI and the soft conversion card.
-export const EXPERIENCE_MAX_TURNS = 3;
-const EXPERIENCE_COUNT_KEY = 'zapcooking:cheffy-experience-used:v1';
-
-function readExperienceCount(): number {
-  if (!browser) return 0;
-  const n = parseInt(localStorage.getItem(EXPERIENCE_COUNT_KEY) || '0', 10);
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
-
-/** Preview answers this device has spent. Persisted; mirrors the cookie. */
-export const cheffyExperienceCount = writable<number>(readExperienceCount());
-
-/** True once every preview turn is spent. */
+// Account trial state is a server result, never a device entitlement.
+export const EXPERIENCE_MAX_TURNS = CHEFFY_TRIAL_LIMIT;
+export const cheffyExperienceCount = writable(0);
 export const cheffyExperienceUsed = derived(
   cheffyExperienceCount,
-  ($count) => $count >= EXPERIENCE_MAX_TURNS
+  (count) => count >= CHEFFY_TRIAL_LIMIT
 );
-
-/** True while the current messenger session is a non-member preview. */
 export const cheffyExperienceMode = writable(false);
-
-/** Which soft conversion card to show inside the messenger, or null.
- *  'response' = after the preview turns are spent;
- *  'used'     = the experience was already spent before this session. */
+export const cheffyTrialStatus = writable<'idle' | 'loading' | 'ready' | 'error'>('idle');
 export type CheffyConversion = null | 'response' | 'used';
 export const cheffyConversion = writable<CheffyConversion>(null);
+let trialAccount = '';
 
-function persistExperienceCount(count: number) {
-  if (!browser) return;
+export async function refreshCheffyTrial() {
+  const account = get(userPublickey);
+  if (!account) return;
+  trialAccount = account;
+  cheffyTrialStatus.set('loading');
   try {
-    localStorage.setItem(EXPERIENCE_COUNT_KEY, String(count));
+    const remaining = await loadCheffyTrial(get(ndk));
+    if (account !== get(userPublickey)) return;
+    cheffyExperienceCount.set(CHEFFY_TRIAL_LIMIT - remaining);
+    cheffyTrialStatus.set('ready');
+    if (remaining === 0) cheffyConversion.set('used');
   } catch {
-    // storage blocked — the server cookie still enforces the cap
+    if (account === get(userPublickey)) cheffyTrialStatus.set('error');
   }
 }
-
-/** Record one spent preview answer. */
-function recordExperienceTurn() {
-  cheffyExperienceCount.update((c) => {
-    const next = c + 1;
-    persistExperienceCount(next);
-    return next;
-  });
-}
-
-/** Force the spent state when the server says the preview is used up. */
 function markExperienceExhausted() {
-  cheffyExperienceCount.set(EXPERIENCE_MAX_TURNS);
-  persistExperienceCount(EXPERIENCE_MAX_TURNS);
+  cheffyExperienceCount.set(CHEFFY_TRIAL_LIMIT);
 }
 
 // ── Conversation state ──────────────────────────────────────────
@@ -165,7 +142,7 @@ let lastStatusLine = '';
  * it is a separate variant that carries its own file rather than a null.
  */
 type LastTurn =
-  | { kind: 'text'; prompt: string; mode: 'chat' | 'hungry' }
+  | { kind: 'text'; prompt: string; mode: 'chat' | 'hungry'; trialRequestId: string }
   | { kind: 'photo'; file: File; question: string };
 let lastTurn: LastTurn | null = null;
 
@@ -215,11 +192,13 @@ async function dispatchTurn(
   promptForApi: string,
   mode: 'chat' | 'hungry',
   apiHistory: { role: 'user' | 'assistant'; content: string }[],
-  expectRecipe: boolean
+  expectRecipe: boolean,
+  trialRequestId: string
 ) {
   cheffyLoading.set(true);
-  // Captured per-turn: a preview request never leaks prior turns and is
-  // tagged so the server can apply the controlled experience path.
+  const account = get(userPublickey);
+  let retryable = true;
+  // Capture the trial mode before signing this turn's exact request body.
   const isExperience = get(cheffyExperienceMode);
   const statusLine = pickLine(expectRecipe ? COOKING_LINES : THINKING_LINES, lastStatusLine);
   lastStatusLine = statusLine;
@@ -237,36 +216,31 @@ async function dispatchTurn(
   ]);
 
   try {
-    // Identity is proved with NIP-98, not asserted with a body pubkey.
-    // Signing is best-effort: the anonymous "experience" preview has no
-    // signer, and the server treats a missing header as anonymous. Only a
-    // PRESENT-but-invalid header is rejected, so a signing failure must
-    // send no header rather than a broken one.
+    // Every message proves account ownership; trial retries retain their request id.
     const bodyString = JSON.stringify({
       prompt: promptForApi,
       mode,
       messages: apiHistory,
-      ...(isExperience ? { experience: true } : {})
+      ...(isExperience ? { experience: true, trialRequestId } : {})
     });
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (get(userPublickey)) {
-      try {
-        headers.Authorization = await signNip98AuthHeader(get(ndk), {
-          method: 'POST',
-          url: new URL('/api/zappy', window.location.origin).toString(),
-          bodyString
-        });
-      } catch (e) {
-        console.warn('[Cheffy] NIP-98 signing unavailable, continuing unauthenticated:', e);
-      }
-    }
+    if (!get(userPublickey)) throw new Error('Sign in to use your free Cheffy messages.');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Authorization: await signNip98AuthHeader(get(ndk), {
+        method: 'POST',
+        url: new URL('/api/zappy', window.location.origin).toString(),
+        bodyString
+      })
+    };
 
+    if (account !== get(userPublickey)) return;
     const resp = await fetch('/api/zappy', {
       method: 'POST',
       headers,
       body: bodyString
     });
     const data = await resp.json();
+    if (account !== get(userPublickey)) return;
 
     // Experience already spent — swap the pending bubble for the friendly
     // conversion card rather than surfacing a technical error.
@@ -278,6 +252,12 @@ async function dispatchTurn(
       return;
     }
 
+    if (data?.code === 'TRIAL_REQUEST_COMPLETED') {
+      retryable = false;
+      lastTurn = null;
+      cheffyDraft.set(promptForApi);
+      await refreshCheffyTrial();
+    }
     if (!resp.ok || !data.ok) {
       throw new Error(data.error || 'Cheffy could not respond.');
     }
@@ -296,16 +276,17 @@ async function dispatchTurn(
     );
     cheffyAnnounce.set(isRecipe ? 'Cheffy shared a recipe.' : 'Cheffy replied.');
 
-    // Spend one preview turn. Only invite the visitor to create a free
-    // kitchen or unlock Cook+ once all preview turns are used up — let
-    // them actually chat with Cheffy first.
+    // The server returns the durable remaining allowance after this reply.
     if (isExperience) {
-      recordExperienceTurn();
+      if (Number.isInteger(data.trial?.remaining)) {
+        cheffyExperienceCount.set(CHEFFY_TRIAL_LIMIT - data.trial.remaining);
+      }
       if (get(cheffyExperienceCount) >= EXPERIENCE_MAX_TURNS) {
         cheffyConversion.set('response');
       }
     }
   } catch (err) {
+    if (account !== get(userPublickey)) return;
     const detail = err instanceof Error ? err.message : 'Cheffy could not respond.';
     cheffyThread.update((t) =>
       t.map((m) =>
@@ -315,19 +296,25 @@ async function dispatchTurn(
               kind: 'error',
               content: detail,
               expression: 'concerned',
-              statusLine: pickLine(ERROR_LINES, m.statusLine)
+              statusLine: pickLine(ERROR_LINES, m.statusLine),
+              retryable
             }
           : m
       )
     );
     cheffyAnnounce.set('Cheffy hit a snag.');
   } finally {
-    cheffyLoading.set(false);
+    if (account === get(userPublickey)) cheffyLoading.set(false);
   }
 }
 
 export async function sendCheffy(content: string, mode: 'chat' | 'hungry' = 'chat') {
-  if (get(cheffyLoading)) return;
+  if (get(cheffyLoading) || !get(userPublickey)) return;
+  if (
+    get(cheffyExperienceMode) &&
+    (get(cheffyTrialStatus) !== 'ready' || get(cheffyExperienceUsed))
+  )
+    return;
   const text = content.trim();
   if (mode !== 'hungry' && !text) return;
 
@@ -338,14 +325,20 @@ export async function sendCheffy(content: string, mode: 'chat' | 'hungry' = 'cha
     { id: nextId(), role: 'user', content: display, kind: 'text' }
   ]);
   cheffyStarted.set(true);
-  lastTurn = { kind: 'text', prompt: mode === 'hungry' ? '' : text, mode };
+  lastTurn = {
+    kind: 'text',
+    prompt: mode === 'hungry' ? '' : text,
+    mode,
+    trialRequestId: crypto.randomUUID()
+  };
   if (mode !== 'hungry') cheffyDraft.set('');
 
   await dispatchTurn(
     mode === 'hungry' ? '' : text,
     mode,
     apiHistory,
-    mode === 'hungry' || looksLikeRecipeRequest(text)
+    mode === 'hungry' || looksLikeRecipeRequest(text),
+    lastTurn.trialRequestId
   );
 }
 
@@ -485,20 +478,17 @@ async function dispatchPhotoTurn(file: File, text: string) {
 }
 
 /**
- * Enter the first-use experience from the /explore invite. Opens the
- * messenger as a non-member preview and sends the one prompt. If this
- * device already spent its experience, skips the API and shows the soft
- * conversion card instead of a paywall.
+ * Open a signed-in account's free sample and check its durable allowance
+ * before sending the first prompt. Guests receive the sign-in invitation.
  */
-export function startCheffyExperience(content: string, mode: 'chat' | 'hungry' = 'chat') {
+export async function startCheffyExperience(content: string, mode: 'chat' | 'hungry' = 'chat') {
+  openCheffy();
+  if (!get(userPublickey)) return;
   cheffyExperienceMode.set(true);
   cheffyConversion.set(null);
-  openCheffy();
-  if (get(cheffyExperienceUsed)) {
-    cheffyConversion.set('used');
-    return;
-  }
-  void sendCheffy(content, mode);
+  await refreshCheffyTrial();
+  if (get(cheffyTrialStatus) === 'ready' && !get(cheffyExperienceUsed))
+    await sendCheffy(content, mode);
 }
 
 export async function retryCheffy() {
@@ -518,7 +508,8 @@ export async function retryCheffy() {
     turn.prompt,
     turn.mode,
     apiHistory,
-    turn.mode === 'hungry' || looksLikeRecipeRequest(turn.prompt)
+    turn.mode === 'hungry' || looksLikeRecipeRequest(turn.prompt),
+    turn.trialRequestId
   );
 }
 
@@ -536,3 +527,18 @@ export function startOverCheffy() {
   lastTurn = null;
   cheffyAnnounce.set('Conversation cleared.');
 }
+
+// Account changes cannot inherit another account's usage hint or conversation.
+userPublickey.subscribe((account) => {
+  if (trialAccount && trialAccount !== account) {
+    cheffyExperienceCount.set(0);
+    cheffyTrialStatus.set('idle');
+    cheffyExperienceMode.set(false);
+    cheffyConversion.set(null);
+    cheffyThread.set([]);
+    cheffyDraft.set('');
+    cheffyLoading.set(false);
+    lastTurn = null;
+  }
+  trialAccount = account;
+});

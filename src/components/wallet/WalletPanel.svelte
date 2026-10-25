@@ -5,6 +5,11 @@
   import { userPublickey } from '$lib/nostr';
   import { portal } from '../Modal.svelte';
   import { getAuthManager } from '$lib/authManager';
+  import {
+    legacyBackupNoticePending,
+    claimLegacyBackupNotice
+  } from '$lib/wallet/legacyBackupNotice';
+  import { stackedDialog } from '$lib/wallet/stackedDialog';
   import Button from '../Button.svelte';
   import {
     wallets,
@@ -244,6 +249,47 @@
   // Wallet options (shared between Spark and NWC)
   let expandedWalletId: number | null = null;
   let revealedMnemonic: string | null = null;
+
+  // One-time "save your recovery phrase" notice for a Spark wallet whose
+  // backup only opened through the legacy decrypt fallback (#897). Driven
+  // by store subscriptions rather than `$:` (see the reactive-slot note on
+  // the Nostr-backup gate below).
+  let legacyNoticeWalletId: string | null = null;
+
+  function checkLegacyBackupNotice(pending: string[], list: { kind: number; data: string }[]) {
+    if (legacyNoticeWalletId || pending.length === 0) return;
+    legacyNoticeWalletId = claimLegacyBackupNotice(pending, list);
+  }
+
+  onMount(() => {
+    let pending: string[] = [];
+    let list: { kind: number; data: string }[] = [];
+    const unsubPending = legacyBackupNoticePending.subscribe((value) => {
+      pending = value;
+      checkLegacyBackupNotice(pending, list);
+    });
+    const unsubWallets = wallets.subscribe((value) => {
+      list = value;
+      checkLegacyBackupNotice(pending, list);
+    });
+    return () => {
+      unsubPending();
+      unsubWallets();
+    };
+  });
+
+  async function showLegacyNoticePhrase() {
+    legacyNoticeWalletId = null;
+    await handleRevealMnemonic();
+  }
+
+  async function copyRevealedMnemonic() {
+    if (revealedMnemonic && (await copyToClipboard(revealedMnemonic))) {
+      successMessage = 'Recovery phrase copied';
+    } else {
+      errorMessage = 'Failed to copy to clipboard';
+    }
+  }
   let isBackingUp = false;
   // Picker-home altcoin-curious prompt toggle
   let showAltcoinReply = false;
@@ -3102,7 +3148,7 @@
                 {#if $displayCurrency === 'SATS' || weblnBalance === null}
                   &nbsp;
                 {:else if !$balanceVisible}
-                  ***
+                  •••
                 {:else}
                   {formatBalance(weblnBalance)} sats
                 {/if}
@@ -3184,7 +3230,7 @@
                 {#if $displayCurrency === 'SATS' || $bitcoinConnectBalance === null}
                   &nbsp;
                 {:else if !$balanceVisible}
-                  ***
+                  •••
                 {:else}
                   {formatBalance($bitcoinConnectBalance)} sats
                 {/if}
@@ -3266,7 +3312,7 @@
                       {#if $balanceVisible}
                         ${formatStableBalance($stableBalance.balance, $stableBalance.decimals)} {$stableBalance.label}
                       {:else}
-                        $*** {$stableBalance.label}
+                        $••• {$stableBalance.label}
                       {/if}
                     </span>
                   {:else if $walletBalance === null}
@@ -3296,7 +3342,7 @@
                     {:else if $displayCurrency === 'SATS' || $walletBalance === null}
                       &nbsp;
                     {:else if !$balanceVisible}
-                      ***
+                      •••
                     {:else}
                       {formatBalance($walletBalance)} sats
                     {/if}
@@ -4463,7 +4509,7 @@
                           {#if $balanceVisible}
                             -{tx.amount.toLocaleString()} sats
                           {:else}
-                            -*** sats
+                            -••• sats
                           {/if}
                         </div>
                       </div>
@@ -4508,7 +4554,7 @@
                           {#if $balanceVisible}
                             -{tx.amount.toLocaleString()} sats
                           {:else}
-                            -*** sats
+                            -••• sats
                           {/if}
                         </div>
                       </div>
@@ -4573,7 +4619,7 @@
                         {#if $balanceVisible}
                           {tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                         {:else}
-                          {tx.type === 'incoming' ? '+' : '-'}*** {tx.asset?.ticker || 'sats'}
+                          {tx.type === 'incoming' ? '+' : '-'}••• {tx.asset?.ticker || 'sats'}
                         {/if}
                       </div>
                     </div>
@@ -4633,7 +4679,7 @@
                           {#if $balanceVisible}
                             {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                           {:else}
-                            {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}*** {tx.asset?.ticker || 'sats'}
+                            {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}••• {tx.asset?.ticker || 'sats'}
                           {/if}
                         </div>
                         <CaretDownIcon
@@ -5350,8 +5396,16 @@
         <div
           class="rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
           style="background-color: var(--color-bg-primary);"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reveal-mnemonic-title"
+          use:stackedDialog={{ onEscape: closeRevealMnemonicModal }}
         >
-          <h2 class="text-xl font-bold mb-4" style="color: var(--color-text-primary)">
+          <h2
+            id="reveal-mnemonic-title"
+            class="text-xl font-bold mb-4"
+            style="color: var(--color-text-primary)"
+          >
             Recovery Phrase
           </h2>
           <div
@@ -5383,7 +5437,61 @@
               {/if}
             </button>
           </div>
-          <Button on:click={closeRevealMnemonicModal} class="w-full">Close</Button>
+          <div class="flex gap-3">
+            <button
+              class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors cursor-pointer hover:bg-white/5"
+              style="border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
+              on:click={copyRevealedMnemonic}
+            >
+              <CopyIcon size={16} />
+              Copy
+            </button>
+            <Button on:click={closeRevealMnemonicModal} class="flex-1">Close</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if legacyNoticeWalletId && !revealedMnemonic && portalTarget}
+    <div use:portal={portalTarget}>
+      <div
+        class="fixed inset-0 bg-black/50 flex z-[10001] p-4"
+        style="display: flex; align-items: center; justify-content: center;"
+        data-testid="legacy-backup-notice"
+      >
+        <div
+          class="rounded-2xl p-6 max-w-md w-full"
+          style="background-color: var(--color-bg-primary);"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="legacy-notice-title"
+          aria-describedby="legacy-notice-body"
+          use:stackedDialog={{ onEscape: () => (legacyNoticeWalletId = null) }}
+        >
+          <h2
+            id="legacy-notice-title"
+            class="text-xl font-bold mb-4"
+            style="color: var(--color-text-primary)"
+          >
+            <WarningIcon size={22} class="inline mr-2 text-amber-500" />
+            Save your recovery phrase
+          </h2>
+          <p id="legacy-notice-body" class="text-sm mb-6" style="color: var(--color-text-secondary)">
+            Save your recovery phrase now. This backup may not be readable later.
+          </p>
+          <div class="flex gap-3">
+            <button
+              class="flex-1 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors cursor-pointer hover:bg-white/5"
+              style="border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
+              on:click={() => (legacyNoticeWalletId = null)}
+            >
+              Not now
+            </button>
+            <Button on:click={showLegacyNoticePhrase} class="flex-1" data-autofocus>
+              Show phrase
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -6351,7 +6459,7 @@
             <div class="text-sm text-caption mb-2">Send only Bitcoin to this address:</div>
 
             <!-- QR Code -->
-            <div class="qr-wrapper mx-auto p-4 rounded-xl bg-white max-w-xs w-full">
+            <div class="qr-wrapper receive-qr mx-auto p-4 rounded-xl bg-white max-w-xs w-full">
               <svg
                 class="w-full"
                 use:qr={{
@@ -6731,7 +6839,7 @@
 
             <!-- QR Code -->
             {#if generatedInvoice && generatedInvoice.length > 0}
-              <div class="qr-wrapper mx-auto p-4 rounded-xl bg-white max-w-xs w-full">
+              <div class="qr-wrapper receive-qr mx-auto p-4 rounded-xl bg-white max-w-xs w-full">
                 <svg
                   class="w-full"
                   use:qr={{
@@ -7032,6 +7140,34 @@
       padding-right: 1.5rem;
       padding-top: 2rem;
       padding-bottom: 2rem;
+    }
+  }
+  /* Receive-view QR: a Lightning invoice at error-correction H is a lot of
+     modules, and the QR at natural size plus the badge, invoice text, and
+     action buttons overflowed the mobile panel — the white card hung past
+     the panel edge and the buttons landed under the bottom nav. Cap the
+     whole card to the scroll viewport so everything stays inside the panel:
+     the QR shrinks (its svg keeps the viewBox aspect), and the leftover
+     space goes to the content below. Only needed where the panel is
+     height-constrained (mobile inset panel); desktop's 780px dialog fits
+     the natural size. */
+  .receive-qr {
+    max-width: min(16rem, 100%);
+  }
+  .receive-qr svg {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    display: block;
+  }
+  @media (max-width: 1023.98px) {
+    .receive-qr {
+      /* 390px phone: panel height ≈ 100dvh - header - nav ≈ 640px.
+         Heading (~30) + amount (~28) + QR + badge (~40) + invoice box
+         (~120) + buttons (~56) + gaps/padding (~120) — the QR gets what
+         remains, capped so the rest of the flow stays visible without
+         scrolling under the nav. */
+      max-width: min(13.5rem, 100%);
     }
   }
   /* Panel root becomes a flex column filling the modal body so the

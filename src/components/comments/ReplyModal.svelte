@@ -37,10 +37,21 @@
 
 	let composer: ReplyComposer;
 
+	// Mirrored from the composer while a publish is in flight. Closing the
+	// modal mid-post unmounts the composer, and with it the draft the failure
+	// path would have restored — so backdrop click, Esc, and the floating X
+	// (Modal's cleanup path) all wait until the publish settles. A
+	// proof-of-work reply closes the modal at once instead: it is handed to
+	// the background miner (see ReplyComposer) and the floating indicator
+	// carries the wait.
+	let posting = false;
+
+	// A notification only — the composer says when to close (`on:close`). A
+	// proof-of-work reply publishes from the background after this modal has
+	// closed, and can land while a newer reply is being typed in it.
 	function handlePosted(posted: NDKEvent) {
 		dispatch('posted', posted);
 		onPosted?.(posted);
-		open = false;
 	}
 
 	// Backdrop / Esc / the floating X run through the Modal's cleanup —
@@ -69,6 +80,7 @@
 		maxWidth="40rem"
 		autoHeight
 		cleanup={handleCleanupClose}
+		locked={posting}
 	>
 		<!-- Modal always points aria-labelledby="title" at an element with
 		     that id; noHeader removes the built-in one, so provide a
@@ -111,7 +123,9 @@
 			submitLabel="Reply"
 			showCancel={true}
 			autoFocus={true}
+			bind:posting
 			on:cancel={handleCancel}
+			on:close={() => (open = false)}
 			onPosted={handlePosted}
 		/>
 	</Modal>

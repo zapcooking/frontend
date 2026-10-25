@@ -8,6 +8,7 @@
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
+import { buildNotePreview } from './notePreview';
 import { isEventRootedComment } from './thread/replyParent';
 
 // NDKFilter's kind list defaults to the NDKKind enum, which predates kind
@@ -125,20 +126,6 @@ export function isReplyForScope(event: NDKEvent): boolean {
 export function isTopLevelForScope(event: NDKEvent): boolean {
   if (event.kind === 1111) return false;
   return !isThreadReply(event);
-}
-
-/**
- * Clean content for preview (remove URLs, nostr links, extra whitespace)
- */
-function cleanContentForPreview(content: string, maxLength = 70): string {
-  const cleaned = content
-    .replace(/https?:\/\/[^\s]+/g, '')
-    .replace(/nostr:[^\s]+/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  
-  if (cleaned.length <= maxLength) return cleaned;
-  return cleaned.substring(0, maxLength) + '...';
 }
 
 /**
@@ -263,7 +250,7 @@ export async function prefetchReplyContexts(
       const context: ReplyContext = {
         authorName: getDisplayName(note.pubkey, profile),
         authorPubkey: note.pubkey,
-        notePreview: cleanContentForPreview(note.content || ''),
+        notePreview: buildNotePreview(note.content || ''),
         noteId: parentId,
         fullNote: note
       };
@@ -351,7 +338,7 @@ export async function fetchReplyContext(
     const context: ReplyContext = {
       authorName: getDisplayName(note.pubkey, profile),
       authorPubkey: note.pubkey,
-      notePreview: cleanContentForPreview(note.content || ''),
+      notePreview: buildNotePreview(note.content || ''),
       noteId,
       fullNote: note
     };

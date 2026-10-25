@@ -184,9 +184,6 @@ importers:
       '@sveltejs/adapter-cloudflare':
         specifier: ^7.2.9
         version: 7.2.9(@sveltejs/kit@2.70.3(patch_hash=cpgfncnfcdysblzf4epwlt2icq)(@sveltejs/vite-plugin-svelte@3.1.2(svelte@4.2.20)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))(svelte@4.2.20)(typescript@5.9.3)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))(wrangler@4.151.2(@types/node@18.19.64)(bufferutil@4.1.0)(utf-8-validate@5.0.10))
-      '@sveltejs/adapter-static':
-        specifier: ^3.0.10
-        version: 3.0.10(@sveltejs/kit@2.70.3(patch_hash=cpgfncnfcdysblzf4epwlt2icq)(@sveltejs/vite-plugin-svelte@3.1.2(svelte@4.2.20)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))(svelte@4.2.20)(typescript@5.9.3)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))
       '@sveltejs/adapter-vercel':
         specifier: ^6.3.4
         version: 6.3.4(@sveltejs/kit@2.70.3(patch_hash=cpgfncnfcdysblzf4epwlt2icq)(@sveltejs/vite-plugin-svelte@3.1.2(svelte@4.2.20)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))(svelte@4.2.20)(typescript@5.9.3)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))(encoding@0.1.13)(rollup@4.64.10)
@@ -1259,11 +1256,6 @@ packages:
     peerDependencies:
       '@sveltejs/kit': ^2.0.0
       wrangler: ^4.0.0
-
-  '@sveltejs/adapter-static@3.0.10':
-    resolution: {integrity: sha512-7D9lYFWJmB7zxZyTE/qxjksvMqzMuYrrsyh1f4AlZqeZeACPRySjbC3aFiY55wb1tWUaKOQG9PVbm74JcN2Iew==}
-    peerDependencies:
-      '@sveltejs/kit': ^2.0.0
 
   '@sveltejs/adapter-vercel@6.3.4':
     resolution: {integrity: sha512-MxEgTqIlmNg4qy5Rz4vwDKs2vNUrsL+DjcfegUVr/spPWSvWrSYFTUPY7tLbHsi8RxdUqpxC9UN/yzkOzZeMGA==}
@@ -4974,10 +4966,6 @@ snapshots:
       '@sveltejs/kit': 2.70.3(patch_hash=cpgfncnfcdysblzf4epwlt2icq)(@sveltejs/vite-plugin-svelte@3.1.2(svelte@4.2.20)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))(svelte@4.2.20)(typescript@5.9.3)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0))
       worktop: 0.8.0-next.18
       wrangler: 4.151.2(@types/node@18.19.64)(bufferutil@4.1.0)(utf-8-validate@5.0.10)
-
-  '@sveltejs/adapter-static@3.0.10(@sveltejs/kit@2.70.3(patch_hash=cpgfncnfcdysblzf4epwlt2icq)(@sveltejs/vite-plugin-svelte@3.1.2(svelte@4.2.20)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))(svelte@4.2.20)(typescript@5.9.3)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))':
-    dependencies:
-      '@sveltejs/kit': 2.70.3(patch_hash=cpgfncnfcdysblzf4epwlt2icq)(@sveltejs/vite-plugin-svelte@3.1.2(svelte@4.2.20)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))(svelte@4.2.20)(typescript@5.9.3)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0))
 
   '@sveltejs/adapter-vercel@6.3.4(@sveltejs/kit@2.70.3(patch_hash=cpgfncnfcdysblzf4epwlt2icq)(@sveltejs/vite-plugin-svelte@3.1.2(svelte@4.2.20)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))(svelte@4.2.20)(typescript@5.9.3)(vite@5.4.21(@types/node@18.19.64)(lightningcss@1.32.0)))(encoding@0.1.13)(rollup@4.64.10)':
     dependencies:

@@ -9,11 +9,11 @@
 
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
-import { nip19 } from 'nostr-tools';
 import { signNip98AuthHeader } from './nip98';
 import { pickLine } from './cheffy';
 import { postComment, PostCommentError } from './comments/postComment';
 import { buildInboxAwareRelaySet } from './nip65Routing';
+import { eventPath } from '$lib/utils/eventUrl';
 
 /**
  * Post-button flag, flipped ON in Phase 3 alongside the postComment()
@@ -204,15 +204,12 @@ export type PublishOutcome =
     };
 
 /**
- * Thread-view link for a published reply. House pattern: nevent with
- * author + kind hints, falling back to a bare note1 encoding.
+ * Thread-view link for a published reply: nevent1 with relay hints (where
+ * the event was seen) plus author + kind. $lib/utils/eventUrl is the one
+ * place that builds note links; note1 survives only as a failure fallback.
  */
 export function noteLinkFor(event: NDKEvent): string {
-  try {
-    return '/' + nip19.neventEncode({ id: event.id, author: event.pubkey, kind: event.kind ?? 1 });
-  } catch {
-    return '/' + nip19.noteEncode(event.id);
-  }
+  return eventPath(event);
 }
 
 export interface PublishNoteReviewOpts {

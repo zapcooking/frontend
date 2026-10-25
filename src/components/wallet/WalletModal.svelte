@@ -1,7 +1,12 @@
 <script lang="ts">
   import Modal from '../Modal.svelte';
   import WalletPanel from './WalletPanel.svelte';
-  import { walletModalOpen, walletModalElevated, closeWallet } from '$lib/wallet/walletModalStore';
+  import {
+    walletModalOpen,
+    walletModalElevated,
+    walletModalSuspended,
+    closeWallet
+  } from '$lib/wallet/walletModalStore';
   import { weblnConnected } from '$lib/wallet/webln';
   import { bitcoinConnectEnabled } from '$lib/wallet/bitcoinConnect';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
@@ -20,7 +25,13 @@
   });
 </script>
 
-<Modal bind:open={$walletModalOpen} cleanup={closeWallet} compact noHeader>
+<Modal
+  bind:open={$walletModalOpen}
+  cleanup={closeWallet}
+  compact
+  noHeader
+  suspended={$walletModalSuspended}
+>
   <div
     class="wallet-modal-body"
     class:wallet-modal-body--external={externalWallet}

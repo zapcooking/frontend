@@ -75,7 +75,7 @@
   // overlapping outro/intro never shifts layout. The first render skips
   // the animation — a page-load pop on every mount would be noise.
   $: swapText = !visible
-    ? '***'
+    ? '•••'
     : loading || sats === null
       ? '...'
       : $displayCurrency === 'SATS'

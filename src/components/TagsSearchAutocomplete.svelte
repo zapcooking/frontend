@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { recipeTags, type recipeTagSimple, RECIPE_TAGS, isHiddenRecipeEvent } from '$lib/consts';
+  import { recipeTags, type recipeTagSimple, RECIPE_TAGS } from '$lib/consts';
   import { ndk, userPublickey } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
   import { NDKRelaySet, type NDKEvent } from '@nostr-dev-kit/ndk';
@@ -8,8 +8,10 @@
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { isHumanReadablePostContent, postSnippet } from '$lib/postContentReadability';
   import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
+  import { eventIdPath } from '$lib/utils/eventUrl';
   import { feedCacheService } from '$lib/feedCache';
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
+  import { recipeSearchFilters, recipeSearchResult } from '$lib/recipeSearch';
 
   export let placeholderString: string;
   export let autofocus = false;
@@ -181,18 +183,11 @@
       if (cachedEvents && cachedEvents.length > 0) {
         const map = new Map<string, (typeof recipeCache)[0]>();
         for (const event of cachedEvents) {
-          if (isHiddenRecipeEvent(event) || isBlockedFromReads(event)) continue;
-          const title = event.tags.find((t) => t[0] === 'title')?.[1] || 'Untitled';
+          if (isBlockedFromReads(event)) continue;
+          const recipe = recipeSearchResult(event);
+          if (!recipe) continue;
           const summary = event.tags.find((t) => t[0] === 'summary')?.[1] || '';
-          const d = event.tags.find((t) => t[0] === 'd')?.[1] || '';
-          const naddr = nip19.naddrEncode({
-            kind: 30023,
-            pubkey: event.pubkey,
-            identifier: d
-          });
-          if (!map.has(naddr)) {
-            map.set(naddr, { title, summary, naddr, author: event.pubkey });
-          }
+          if (!map.has(recipe.naddr)) map.set(recipe.naddr, { ...recipe, summary });
         }
         recipeCache = Array.from(map.values());
 
@@ -217,19 +212,11 @@
       const tempMap = new Map<string, (typeof recipeCache)[0]>();
 
       recipeSubscription.on('event', (event: any) => {
-        if (isHiddenRecipeEvent(event) || isBlockedFromReads(event)) return;
-        const title = event.tags.find((t: any) => t[0] === 'title')?.[1] || 'Untitled';
-        const summary = event.tags.find((t: any) => t[0] === 'summary')?.[1] || '';
-        const d = event.tags.find((t: any) => t[0] === 'd')?.[1] || '';
-        const naddr = nip19.naddrEncode({
-          kind: 30023,
-          pubkey: event.pubkey,
-          identifier: d
-        });
-
-        if (!tempMap.has(naddr)) {
-          tempMap.set(naddr, { title, summary, naddr, author: event.pubkey });
-        }
+        if (isBlockedFromReads(event)) return;
+        const recipe = recipeSearchResult(event);
+        if (!recipe) return;
+        const summary = event.tags.find((t: string[]) => t[0] === 'summary')?.[1] || '';
+        if (!tempMap.has(recipe.naddr)) tempMap.set(recipe.naddr, { ...recipe, summary });
 
         // Update cache progressively every 10 recipes
         if (tempMap.size % 10 === 0) {
@@ -364,13 +351,18 @@
 
   function selectPost(postId: string) {
     // Navigate to the note thread page
-    window.location.href = `/${nip19.noteEncode(postId)}`;
+    try {
+      window.location.href = eventIdPath(postId);
+    } catch {
+      /* not an event id — nothing to navigate to */
+    }
     tagquery = '';
     searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
   }
 
   function cancelNetworkSearch() {
+    networkSearchVersion++;
     if (networkSearchSub) {
       try { networkSearchSub.stop(); } catch { /* ignore */ }
       networkSearchSub = null;
@@ -382,8 +374,8 @@
   }
 
   async function searchNetworkRecipes(query: string) {
-    const thisVersion = ++networkSearchVersion;
     cancelNetworkSearch();
+    const thisVersion = networkSearchVersion;
 
     const ndkInstance = get(ndk);
     if (!ndkInstance) return;
@@ -406,35 +398,24 @@
       // kinds:[30023] + search matches ANY longform article (fiction,
       // spam) containing the query, which is what filled the section with
       // non-recipes.
-      { kinds: [30023], search: query, limit: 50, '#t': RECIPE_TAGS },
+      recipeSearchFilters(query, 50),
       { closeOnEose: true },
       relaySet
     );
     networkSearchSub = sub;
 
-      sub.on('event', (event: NDKEvent) => {
+    sub.on('event', (event: NDKEvent) => {
       if (thisVersion !== networkSearchVersion) return;
-      const d = event.tags.find((t: string[]) => t[0] === 'd')?.[1];
-      if (!d) return;
-      // Title-less long-form still searches; show the d-tag like the
-      // article pages do.
-      const title = event.tags.find((t: string[]) => t[0] === 'title')?.[1] || d;
-      if (isHiddenRecipeEvent(event) || isBlockedFromReads(event)) return;
-      // Not every search relay honors #t alongside search — re-check
-      // here so untagged longform can't slip through as a recipe.
-      const hasRecipeTag = event.tags.some(
-        (t: string[]) => t[0] === 't' && RECIPE_TAGS.includes(t[1]?.toLowerCase() || '')
-      );
-      if (!hasRecipeTag) return;
-
-      const naddr = nip19.naddrEncode({ kind: 30023, pubkey: event.pubkey, identifier: d });
-      if (searchResults.recipes.some((r) => r.naddr === naddr)) return;
-
-      searchResults.recipes = [...searchResults.recipes, { title, naddr, author: event.pubkey }].slice(0, 8);
+      if (isBlockedFromReads(event)) return;
+      const recipe = recipeSearchResult(event);
+      if (!recipe || searchResults.recipes.some((r) => r.naddr === recipe.naddr)) return;
+      searchResults.recipes = [...searchResults.recipes, recipe].slice(0, 8);
       searchResults = searchResults;
     });
 
     const cleanup = () => {
+      if (thisVersion !== networkSearchVersion) return;
+      networkSearchVersion++;
       if (networkSearchTimeout) { clearTimeout(networkSearchTimeout); networkSearchTimeout = null; }
       if (networkSearchSub === sub) networkSearchSub = null;
     };
