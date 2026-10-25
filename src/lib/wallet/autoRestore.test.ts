@@ -158,7 +158,7 @@ describe('autoRestoreWalletAtLogin', () => {
     mocks.connectWallet.mockResolvedValue({ success: true });
 
     await expect(mod.autoRestoreWalletAtLogin(mocks.fakePubkey)).resolves.toBe(true);
-    expect(mocks.connectWallet).toHaveBeenCalledWith(3, NWC_URL);
+    expect(mocks.connectWallet).toHaveBeenCalledWith(3, NWC_URL, 'restore');
   });
 
   it('refuses an NWC backup that is a different connection', async () => {
@@ -186,7 +186,7 @@ describe('autoRestoreWalletAtLogin', () => {
     expect(calledPubkey).toBe(mocks.fakePubkey);
     expect(calledApiKey).toBe('test-key');
     expect(calledBackup.walletId).toBe('abcd0123abcd0123');
-    expect(mocks.connectWallet).toHaveBeenCalledWith(4, 'id(test mnemonic)');
+    expect(mocks.connectWallet).toHaveBeenCalledWith(4, 'id(test mnemonic)', 'restore');
   });
 
   it('falls back to the newest Spark backup when the remembered one is gone', async () => {

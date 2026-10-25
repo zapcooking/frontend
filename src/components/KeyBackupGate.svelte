@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
    * "Save your backup key" gate, shared by every path that leads to passkey
-   * enrollment: signup (LoginOverlay), the login-time prompt, and Settings.
+   * enrollment: signup, Settings, and the failed-unlock dialog.
    * Renders the nsec (masked until revealed) with copy, the npub with copy,
    * and the backup-file download; dispatches `satisfied` once the user has
    * downloaded the file, completed a verified clipboard copy, or — only when
@@ -19,6 +19,7 @@
   import { showToast } from '$lib/toast';
   import { hexToBytes } from '$lib/passkeyVaultCrypto';
   import { backupGateSatisfied, downloadKeysBackupFile } from '$lib/keyBackupGate';
+  import { markBackupSaved } from '$lib/accountNudge';
 
   /** Session private key, 64-char hex. */
   export let nsecHex: string;
@@ -58,7 +59,19 @@
   });
   $: if (satisfied !== wasSatisfied) {
     wasSatisfied = satisfied;
+    if (satisfied) recordBackup();
     dispatch(satisfied ? 'satisfied' : 'unsatisfied');
+  }
+
+  // Remembered per account (accountNudge), so the "save a backup key" nudge
+  // isn't offered for a key that's already been saved.
+  function recordBackup() {
+    try {
+      const decoded = nip19.decode(npub);
+      if (decoded.type === 'npub') markBackupSaved(decoded.data);
+    } catch {
+      // A bad npub only means the nudge may still show.
+    }
   }
 
   // Returns whether the write actually landed — a rejected clipboard write
