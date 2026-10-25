@@ -18,6 +18,7 @@
   import KeyBackupGate from './KeyBackupGate.svelte';
   import { getAuthManager, type AuthState } from '$lib/authManager';
   import { isServerCopyUnconfirmed } from '$lib/passkeySync';
+  import { markPasskeyUnsupported } from '$lib/accountNudge';
   import {
     passkeyMethodLabel,
     confirmFailedText,
@@ -43,6 +44,8 @@
     const am = getAuthManager();
     if (!am) return;
     if (am.takeVaultConfirmFailure()) {
+      // This browser's passkey just failed: don't nudge to turn it on again here.
+      if (state.publicKey) markPasskeyUnsupported(state.publicKey);
       show('confirm-failed', state);
     } else if (am.takeVaultCancelChoice()) {
       show('cancel-choice', state);
@@ -79,6 +82,9 @@
   function removeForBackup() {
     removedServerCopyLingers = isServerCopyUnconfirmed();
     getAuthManager()?.discardUnconfirmedVault();
+    // Removed by choice: don't nudge to turn it back on here either.
+    const pubkey = getAuthManager()?.getState().publicKey;
+    if (pubkey) markPasskeyUnsupported(pubkey);
     removedByChoice = true;
     backupOk = false;
     mode = 'confirm-failed';

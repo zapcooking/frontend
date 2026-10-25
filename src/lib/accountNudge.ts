@@ -35,7 +35,10 @@ export interface NudgeState {
   dismissed: boolean;
   /** Seen on the notifications page: no longer counted on the badge. */
   seen: boolean;
-  /** Enrollment failed for lack of PRF here: stop offering the passkey. */
+  /**
+   * Stop offering the passkey on this browser: enrollment failed for lack of
+   * PRF, or a one-prompt passkey failed its first unlock or was removed.
+   */
   passkeyUnsupported: boolean;
 }
 
