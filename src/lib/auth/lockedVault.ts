@@ -18,6 +18,11 @@ export interface LockedVaultInput {
   vaultStatus: 'none' | 'locked' | 'unlocked' | undefined;
   /** A plaintext key is restoring instead (legacy nsec session). */
   hasPlaintextKey: boolean;
+  /**
+   * The vault is an unconfirmed one-prompt setup: it starts locked even
+   * though its plaintext key is still stored (as the unlock's fallback).
+   */
+  vaultUnconfirmed?: boolean;
   /** A bunker session is reconnecting instead. */
   isNip46: boolean;
   /** passkeyVault.detectSupport(): an unsupported origin can't unlock. */
@@ -29,7 +34,7 @@ function isLockedVaultSession(input: Omit<LockedVaultInput, 'support'>): boolean
   return (
     !input.isAuthenticated &&
     input.vaultStatus === 'locked' &&
-    !input.hasPlaintextKey &&
+    (!input.hasPlaintextKey || !!input.vaultUnconfirmed) &&
     !input.isNip46
   );
 }
@@ -46,6 +51,14 @@ export function shouldOfferContinue(input: LockedVaultInput): boolean {
  */
 export function isStrandedLockedVault(input: LockedVaultInput): boolean {
   return isLockedVaultSession(input) && input.support === 'none';
+}
+
+/**
+ * A stranded vault that is unconfirmed still has its plaintext key: sign in
+ * from that rather than leave the member signed out.
+ */
+export function shouldSignInPastUnconfirmedVault(input: LockedVaultInput): boolean {
+  return isStrandedLockedVault(input) && !!input.vaultUnconfirmed && input.hasPlaintextKey;
 }
 
 /**

@@ -15,6 +15,7 @@
     detectSupportDetail,
     getVaultRecord,
     isCeremonyCancelled,
+    isVaultUnconfirmed,
     type VaultSupport,
     type VaultSupportReason
   } from '$lib/passkeyVault';
@@ -35,6 +36,8 @@
   let support: VaultSupport = 'none';
   let supportReason: VaultSupportReason = null;
   let recordPubkey: string | null = null;
+  // One-prompt enrollment not yet confirmed by an unlock (plaintext kept).
+  let recordUnconfirmed = false;
   let authState: AuthState | null = null;
   let unsubscribe: (() => void) | null = null;
   let attachRetry: ReturnType<typeof setInterval> | null = null;
@@ -59,6 +62,7 @@
     authState = am?.getState() ?? null;
     const record = getVaultRecord();
     recordPubkey = record?.pubkey ?? null;
+    recordUnconfirmed = isVaultUnconfirmed(record);
     sessionKeyHex = am?.getSessionPrivateKeyHex() ?? null;
     syncOn = isSyncEnabled();
     recordSyncable = !!syncableKeyEntry(record);
@@ -122,7 +126,8 @@
     supportReason,
     sessionMethod: authState?.isAuthenticated ? authState.authMethod : null,
     sessionPubkey: authState?.publicKey ?? '',
-    recordPubkey
+    recordPubkey,
+    recordUnconfirmed
   });
 
   const HIDDEN_COPY: Record<VaultHiddenReason, string> = {
@@ -164,10 +169,14 @@
     errorMsg = '';
     notice = '';
     try {
-      await am.enrollVault(PASSKEY_SYNC_ENABLED ? { sync: enrollWithSync } : undefined);
-      notice =
-        'Passkey protection is on. Your key is no longer stored in plain text in this browser. ' +
-        'The passkey is not a backup — keep your revealed nsec somewhere safe.';
+      const { confirmed } = await am.enrollVault(
+        PASSKEY_SYNC_ENABLED ? { sync: enrollWithSync } : undefined
+      );
+      notice = confirmed
+        ? 'Passkey protection is on. Your key is no longer stored in plain text in this browser. ' +
+          'The passkey is not a backup — keep your revealed nsec somewhere safe.'
+        : 'Passkey added. Next time you open Zap Cooking, unlock with it to finish — until then ' +
+          "your key also stays in this browser, so you can't get locked out.";
       dispatch('changed');
     } catch (e) {
       errorMsg = friendlyError(e, 'Could not set up the passkey. Nothing was changed.');
@@ -175,6 +184,18 @@
       busy = false;
       refresh();
     }
+  }
+
+  function toggleUnconfirmedSync() {
+    getAuthManager()?.setUnconfirmedVaultSync(!syncOn);
+    refresh();
+  }
+
+  function removeUnconfirmed() {
+    getAuthManager()?.discardUnconfirmedVault();
+    notice = 'Passkey removed. Your key stays in this browser as before.';
+    dispatch('changed');
+    refresh();
   }
 
   async function toggleSync() {
@@ -262,7 +283,55 @@
       <p class="text-sm font-medium" style="color: var(--color-text-primary)">Passkey Protection</p>
     </div>
 
-    {#if card.kind === 'enrolled'}
+    {#if card.kind === 'unconfirmed'}
+      <p class="text-xs text-caption mb-3">
+        Your passkey is set up. The next time you open Zap Cooking, unlock with it once to finish —
+        after that your key is no longer stored in plain text in this browser. Until then it stays
+        here too, so you can't get locked out.
+      </p>
+      {#if PASSKEY_SYNC_ENABLED && recordSyncable}
+        <div
+          class="bg-input border rounded-lg p-3 mb-3"
+          style="border-color: var(--color-input-border)"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+                Sign in on other devices: {syncOn ? 'On' : 'Off'}
+              </p>
+              <p class="text-xs text-caption mt-0.5">
+                {syncOn
+                  ? 'An encrypted copy of your key is uploaded to Zap Cooking servers when you first unlock with this passkey. Only your passkey can unlock it.'
+                  : 'Off — your key stays only on this device.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={syncOn}
+              aria-label="Sign in on other devices: {syncOn ? 'On' : 'Off'}"
+              class="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors {syncOn
+                ? 'bg-green-500/15 text-green-600'
+                : 'bg-secondary text-caption'}"
+              on:click={toggleUnconfirmedSync}
+              disabled={busy}
+            >
+              {syncOn ? 'On' : 'Off'}
+            </button>
+          </div>
+        </div>
+      {/if}
+      <div class="flex flex-wrap gap-2">
+        <button
+          type="button"
+          class="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-sm font-medium transition-colors"
+          on:click={removeUnconfirmed}
+          disabled={busy}
+        >
+          Remove passkey
+        </button>
+      </div>
+    {:else if card.kind === 'enrolled'}
       <p class="text-xs text-caption mb-3">
         Your Nostr key is encrypted on this device and unlocked with your passkey. The passkey is
         <strong>not</strong> a backup of your key — if you lose both the passkey and your nsec

@@ -12,6 +12,12 @@
    * Dismissal is a snooze: "Not now" hides the prompt for 30 days, "Don't
    * ask again" hides it for good (see isPromptDismissed). Enrollment from
    * here syncs by default, matching Settings and signup.
+   *
+   * One-prompt setup: where the provider returns PRF at create() the vault
+   * starts unconfirmed and the plaintext key stays. The next visit starts
+   * locked and the normal "Continue as" unlock confirms it. If that unlock
+   * fails, AuthManager removes the vault and signs in from the plaintext key,
+   * and this card asks for a backup key (takeVaultConfirmFailure).
    */
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
@@ -26,6 +32,12 @@
     type VaultSupport
   } from '$lib/passkeyVault';
   import { PASSKEY_SYNC_ENABLED } from '$lib/passkeySync';
+  import {
+    passkeyMethodLabel,
+    confirmFailedText,
+    cancelChoiceText,
+    type PasskeyMethodLabel
+  } from '$lib/auth/passkeyLabel';
   import { nip19 } from 'nostr-tools';
   import KeyBackupGate from './KeyBackupGate.svelte';
 
@@ -35,6 +47,16 @@
   let visible = false;
   let busy = false;
   let done = false;
+  // Set up in one prompt: confirmed by the next visit's unlock.
+  let doneUnconfirmed = false;
+  // That unlock failed and the vault was removed: ask for a backup key.
+  let confirmFailed = false;
+  // Its unlock was cancelled twice or more: keep trying, or remove it.
+  let cancelChoice = false;
+  // Removed from that choice: the backup-key panel, without "couldn't unlock".
+  let removedByChoice = false;
+  let failedBackupOk = false;
+  let label: PasskeyMethodLabel = 'passkey';
   let errorMsg = '';
   // Same default as enrollWithSync (Settings) and secureSyncOn (signup).
   let sync = true;
@@ -52,9 +74,20 @@
   $: if (!visible) backupOk = false;
 
   function evaluate() {
-    if (!browser || !authState || busy || done) return;
-    nsecHex = getAuthManager()?.getSessionPrivateKeyHex() ?? '';
+    if (!browser || !authState || busy || done || confirmFailed || cancelChoice) return;
+    const am = getAuthManager();
+    nsecHex = am?.getSessionPrivateKeyHex() ?? '';
     npub = authState.publicKey ? nip19.npubEncode(authState.publicKey) : '';
+    if (authState.isAuthenticated && am?.takeVaultConfirmFailure()) {
+      confirmFailed = true;
+      visible = false;
+      return;
+    }
+    if (authState.isAuthenticated && am?.takeVaultCancelChoice()) {
+      cancelChoice = true;
+      visible = false;
+      return;
+    }
     visible = shouldOfferEnrollment({
       authMethod: authState.authMethod,
       isAuthenticated: authState.isAuthenticated,
@@ -66,6 +99,10 @@
   }
 
   onMount(async () => {
+    label = passkeyMethodLabel({
+      userAgent: navigator.userAgent,
+      maxTouchPoints: navigator.maxTouchPoints
+    });
     support = await detectSupport();
     const am = getAuthManager();
     if (!am) return;
@@ -102,7 +139,8 @@
     busy = true;
     errorMsg = '';
     try {
-      await am.enrollVault({ sync });
+      const { confirmed } = await am.enrollVault({ sync });
+      doneUnconfirmed = !confirmed;
       done = true;
     } catch (e) {
       if (isCeremonyCancelled(e)) {
@@ -120,11 +158,84 @@
       evaluate();
     }
   }
+
+  function closeFailed() {
+    confirmFailed = false;
+    removedByChoice = false;
+    evaluate();
+  }
+
+  /** "Keep trying": nothing changes; the choice returns after the next failure. */
+  function keepTrying() {
+    cancelChoice = false;
+    evaluate();
+  }
+
+  /** "Remove and save backup key": drop the passkey, then the backup-key panel. */
+  function removeForBackup() {
+    getAuthManager()?.discardUnconfirmedVault();
+    cancelChoice = false;
+    removedByChoice = true;
+    confirmFailed = true;
+  }
 </script>
 
-{#if visible || done}
+{#if confirmFailed}
+  <aside class="vault-prompt" aria-label="Save your backup key">
+    <p class="vault-prompt-title">⚠️ Save your backup key</p>
+    <p class="vault-prompt-body" role="alert">
+      {removedByChoice
+        ? "Passkey removed. You're still signed in — save your backup key so you can always get back in."
+        : confirmFailedText(label)}
+    </p>
+    {#if nsecHex && npub}
+      <div class="vault-prompt-gate">
+        <KeyBackupGate
+          {nsecHex}
+          {npub}
+          allowAcknowledge={true}
+          on:satisfied={() => (failedBackupOk = true)}
+          on:unsatisfied={() => (failedBackupOk = false)}
+        />
+      </div>
+    {/if}
+    <div class="vault-prompt-actions">
+      <button
+        type="button"
+        class="vault-prompt-primary"
+        on:click={closeFailed}
+        disabled={!failedBackupOk}
+      >
+        Done
+      </button>
+    </div>
+  </aside>
+{:else if cancelChoice}
+  <aside class="vault-prompt" aria-label="Passkey didn't finish">
+    <p class="vault-prompt-title">🔑 Passkey didn't finish</p>
+    <p class="vault-prompt-body" role="alert">{cancelChoiceText(label)}</p>
+    <div class="vault-prompt-actions">
+      <button type="button" class="vault-prompt-primary" on:click={keepTrying}>Keep trying</button>
+      <button type="button" class="vault-prompt-dismiss" on:click={removeForBackup}>
+        Remove and save backup key
+      </button>
+    </div>
+  </aside>
+{:else if visible || done}
   <aside class="vault-prompt" aria-label="Protect your key with a passkey">
-    {#if done}
+    {#if done && doneUnconfirmed}
+      <p class="vault-prompt-title">🔑 Passkey added</p>
+      <p class="vault-prompt-body">
+        Next time you open Zap Cooking, unlock with your passkey to finish. Until then your key also
+        stays in this browser, so you can't get locked out. Remember: the passkey is
+        <strong>not</strong> a backup — keep your nsec backup safe.
+      </p>
+      <div class="vault-prompt-actions">
+        <button type="button" class="vault-prompt-primary" on:click={() => (done = false)}>
+          Done
+        </button>
+      </div>
+    {:else if done}
       <p class="vault-prompt-title">🔒 Passkey protection is on</p>
       <p class="vault-prompt-body">
         Your key is no longer stored in plain text in this browser. You'll unlock with your passkey

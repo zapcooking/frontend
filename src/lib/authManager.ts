@@ -21,7 +21,11 @@ import {
   deleteVaultRecord,
   enrollPasskey,
   unlockPasskey,
-  isCeremonyCancelled
+  openVaultWithPrf,
+  isCeremonyCancelled,
+  isVaultUnconfirmed,
+  clearVaultUnconfirmed,
+  countCancelledUnlock
 } from './passkeyVault';
 import { hexToBytes } from './passkeyVaultCrypto';
 import {
@@ -37,8 +41,13 @@ import {
   refreshVaultEntry,
   isRefreshDue,
   deleteVaultBlob,
-  signInWithPasskey
+  signInWithPasskey,
+  pickPasskey,
+  openSyncedVault,
+  SyncSignInError,
+  type SyncSignInResult
 } from './passkeySync';
+import type { AssertionWire, VaultRecord } from './passkeyVault';
 
 // Permissions requested in the NIP-46 connect handshake. NDK 2.10's
 // blockUntilReady omits the perms param entirely, so permission-enforcing
@@ -137,6 +146,12 @@ export interface AuthOptions {
  */
 export class VaultConflictError extends Error {
   vaultPubkey: string;
+  /**
+   * Set when the replacing sign-in already ran its ceremony (a passkey
+   * picked from the OS list): confirming "Replace saved login?" finishes it
+   * without a second prompt.
+   */
+  resume?: () => Promise<void>;
   constructor(vaultPubkey: string) {
     let label = vaultPubkey;
     try {
@@ -167,6 +182,17 @@ export class AuthManager {
 
   private listeners: ((state: AuthState) => void)[] = [];
   private nip46Signer: NDKNip46Signer | null = null;
+  // The unlock of an unconfirmed vault failed and the vault was removed: the
+  // enroll card shows the backup-key message (takeVaultConfirmFailure).
+  private vaultConfirmFailed = false;
+  // That unlock was cancel-shaped for the second time (or more): the enroll
+  // card offers keep-trying / remove (takeVaultCancelChoice).
+  private vaultCancelChoice = false;
+  // A saved-passkey unlock ended cancel-shaped in this page load. WebAuthn
+  // reports "that passkey isn't on this device any more" (deleted from the
+  // password manager) exactly like a cancel, so the next attempt lists every
+  // passkey instead — the saved one too, if it still exists.
+  private unlockCancelledThisLoad = false;
   private nip46ResponseSub: NDKSubscription | null = null;
   // While postAnonymously has a throwaway signer on ndk.signer: the
   // session's own signer (see getSignerSwap).
@@ -229,6 +255,20 @@ export class AuthManager {
           console.error('Failed to restore NIP-46 authentication:', error);
           this.clearStorage();
         }
+      }
+
+      // One-prompt setup not confirmed yet: start LOCKED like any passkey
+      // session (the "Continue as" chip unlocks, and that unlock confirms
+      // it). The plaintext key stays as a silent fallback — unlockVault
+      // signs in from it if the unlock is cancelled or fails.
+      const storedVault = getVaultRecord();
+      if (
+        storedPrivateKey &&
+        storedVault &&
+        storedVault.pubkey === storedPublicKey &&
+        isVaultUnconfirmed(storedVault)
+      ) {
+        return;
       }
 
       if (storedPrivateKey && storedPublicKey) {
@@ -397,7 +437,10 @@ export class AuthManager {
       let adoptVault = false;
       if (vault) {
         if (vault.pubkey === derivedPubkey) {
-          adoptVault = true;
+          // An unconfirmed vault (one-prompt enrollment, never decrypted by
+          // an unlock) isn't adopted: the session stays an nsec session and
+          // keeps its plaintext key until an unlock confirms the vault.
+          adoptVault = !isVaultUnconfirmed(vault);
         } else if (opts?.replaceVault) {
           deleteVaultRecord();
         } else {
@@ -1640,10 +1683,17 @@ export class AuthManager {
   // Unlock the vault via a passkey ceremony and start the nsec session with
   // the key in memory only. Failure (including user cancel) is NEVER
   // destructive: the record and all storage stay untouched.
+  //
+  // An UNCONFIRMED vault (one-prompt setup) is confirmed by a successful
+  // unlock, which deletes the plaintext key. If the unlock doesn't succeed,
+  // the session is restored from the plaintext key instead — never a
+  // lockout (see fallBackFromUnconfirmedVault).
   async unlockVault(): Promise<void> {
     if (!browser) throw new Error('Browser environment required');
     const record = getVaultRecord();
     if (!record) throw new Error('No passkey vault found on this device');
+    if (this.unlockCancelledThisLoad) return this.signInWithAnyPasskey();
+    const unconfirmed = isVaultUnconfirmed(record);
 
     this.updateState({ isLoading: true, error: null });
     try {
@@ -1654,40 +1704,16 @@ export class AuthManager {
       // which is due at most once a day per device. Otherwise the unlock
       // makes no network call. Challenge fetch failure degrades to a
       // normal (offline-capable) unlock. Never a second prompt.
-      let serverChallenge: string | null = null;
-      if (
-        PASSKEY_SYNC_ENABLED &&
-        isSyncEnabled() &&
-        syncableKeyEntry(record) &&
-        (isUploadPending() || isRefreshDue())
-      ) {
-        serverChallenge = await fetchChallengeSafe();
-      }
+      const serverChallenge = this.isSyncDue(record) ? await fetchChallengeSafe() : null;
 
       const { privkeyHex, assertion } = await unlockPasskey(
         record,
         serverChallenge ? { serverChallenge } : undefined
       );
-      const signer = new NDKPrivateKeySigner(privkeyHex);
-      this.ndk.signer = signer;
-      const user = await signer.user();
-
-      this.updateState({
-        isAuthenticated: true,
-        user,
-        publicKey: user.hexpubkey,
-        authMethod: 'passkey',
-        isLoading: false,
-        error: null
-      });
-      localStorage.setItem('nostrcooking_loggedInPublicKey', user.hexpubkey);
-
-      if (serverChallenge && assertion) {
-        // Fire-and-forget: both manage the pending flag themselves.
-        if (isUploadPending()) void uploadVault(record, assertion);
-        else void refreshVaultEntry(record, assertion);
-      }
+      await this.startVaultSession(record, privkeyHex, serverChallenge ? assertion : null);
     } catch (error) {
+      if (isCeremonyCancelled(error)) this.unlockCancelledThisLoad = true;
+      if (unconfirmed && (await this.fallBackFromUnconfirmedVault(error))) return;
       this.ndk.signer = null;
       this.updateState({
         isAuthenticated: false,
@@ -1706,6 +1732,198 @@ export class AuthManager {
     }
   }
 
+  // The synced copy wants this unlock's assertion (pending upload or TTL refresh).
+  private isSyncDue(record: VaultRecord): boolean {
+    return (
+      PASSKEY_SYNC_ENABLED &&
+      isSyncEnabled() &&
+      !!syncableKeyEntry(record) &&
+      (isUploadPending() || isRefreshDue())
+    );
+  }
+
+  // A passkey decrypted this device's vault: start the memory-only session.
+  // An unconfirmed vault is confirmed by it (its plaintext fallback goes).
+  // `assertion` signed a server challenge, when there is one to spend.
+  private async startVaultSession(
+    record: VaultRecord,
+    privkeyHex: string,
+    assertion: AssertionWire | null
+  ): Promise<void> {
+    if (isVaultUnconfirmed(record)) {
+      clearVaultUnconfirmed();
+      localStorage.removeItem('nostrcooking_privateKey');
+    }
+    const signer = new NDKPrivateKeySigner(privkeyHex);
+    this.ndk.signer = signer;
+    const user = await signer.user();
+
+    this.updateState({
+      isAuthenticated: true,
+      user,
+      publicKey: user.hexpubkey,
+      authMethod: 'passkey',
+      isLoading: false,
+      error: null
+    });
+    localStorage.setItem('nostrcooking_loggedInPublicKey', user.hexpubkey);
+
+    if (assertion && this.isSyncDue(record)) {
+      // Fire-and-forget: both manage the pending flag themselves.
+      if (isUploadPending()) void uploadVault(record, assertion);
+      else void refreshVaultEntry(record, assertion);
+    }
+  }
+
+  // "Use a different passkey" (the chip, the sign-in sheet, and the next
+  // unlock after a cancel): a discoverable get() lists every zap.cooking
+  // passkey. The saved one unlocks this device's vault (no server); any
+  // other opens its server copy. One saved passkey account per device: a
+  // different account than the saved vault throws VaultConflictError with
+  // `resume`, so "Replace saved login?" can finish without a second prompt.
+  async signInWithAnyPasskey(): Promise<void> {
+    if (!browser) throw new Error('Browser environment required');
+    const local = getVaultRecord();
+    this.updateState({ isLoading: true, error: null });
+    try {
+      const challenge = PASSKEY_SYNC_ENABLED ? await fetchChallengeSafe() : null;
+      const picked = await pickPasskey(challenge);
+      this.unlockCancelledThisLoad = false;
+
+      if (local?.keys.some((k) => k.credentialId === picked.credentialId)) {
+        const privkeyHex = await openVaultWithPrf(local, picked.credentialId, picked.prfOutput);
+        await this.startVaultSession(local, privkeyHex, challenge ? picked.assertion : null);
+        return;
+      }
+
+      if (!challenge) {
+        throw new SyncSignInError('Could not reach the sign-in service');
+      }
+      const synced = await openSyncedVault(picked);
+      if (local && local.pubkey !== synced.record.pubkey) {
+        const conflict = new VaultConflictError(local.pubkey);
+        conflict.resume = () => this.adoptSyncedSession(synced);
+        this.updateState({ isLoading: false });
+        throw conflict;
+      }
+      await this.adoptSyncedSession(synced);
+    } catch (error) {
+      if (error instanceof VaultConflictError) throw error;
+      if (isCeremonyCancelled(error)) this.unlockCancelledThisLoad = true;
+      this.ndk.signer = null;
+      this.updateState({
+        isAuthenticated: false,
+        user: null,
+        publicKey: '',
+        authMethod: null,
+        isLoading: false,
+        error: isCeremonyCancelled(error)
+          ? null
+          : error instanceof Error
+            ? error.message
+            : 'Passkey sign-in failed'
+      });
+      throw error;
+    }
+  }
+
+  // Start a session from a passkey's decrypted server copy and make it this
+  // device's saved login (replacing any other: one per device). The copy is
+  // proven to open with that passkey, so it is confirmed — any plaintext key
+  // an unconfirmed vault kept here goes with the vault it backed.
+  private async adoptSyncedSession({ privkeyHex, record }: SyncSignInResult): Promise<void> {
+    const signer = new NDKPrivateKeySigner(privkeyHex);
+    this.ndk.signer = signer;
+    const user = await signer.user();
+
+    this.updateState({
+      isAuthenticated: true,
+      user,
+      publicKey: user.hexpubkey,
+      authMethod: 'passkey',
+      isLoading: false,
+      error: null
+    });
+    localStorage.setItem('nostrcooking_loggedInPublicKey', user.hexpubkey);
+    // Session is live — NOW persist (a failed decrypt never reaches here).
+    // An unconfirmed vault's plaintext fallback goes with the vault it backed.
+    if (isVaultUnconfirmed()) localStorage.removeItem('nostrcooking_privateKey');
+    deleteVaultRecord();
+    saveVaultRecord(record);
+    setSyncEnabled(true);
+    setUploadPending(false);
+  }
+
+  // Sync preference for an unconfirmed vault: just stored — the encrypted
+  // copy uploads at the confirming unlock, never before.
+  setUnconfirmedVaultSync(on: boolean): void {
+    const record = getVaultRecord();
+    if (!record || !isVaultUnconfirmed(record)) throw new Error('No unconfirmed passkey on this device');
+    setSyncEnabled(on);
+    setUploadPending(on && !!syncableKeyEntry(record));
+    this.updateState({});
+  }
+
+  // "Forget this login on this device" (signed out, from the sign-in sheet):
+  // removes the saved passkey login — the local vault, and the plaintext key
+  // an unconfirmed one still keeps. Nothing on the server changes, so a
+  // confirmed vault with a synced copy can be restored by signing in with
+  // the passkey. Without one, the backup key is the only way back, so the
+  // caller must have had it saved first (backupSaved: the backup flow's
+  // Download or verified Copy) — refused otherwise.
+  forgetSavedLogin({ backupSaved = false }: { backupSaved?: boolean } = {}): void {
+    if (!browser) throw new Error('Browser environment required');
+    if (this.authState.isAuthenticated) throw new Error('Sign out first to forget a saved login.');
+    const record = getVaultRecord();
+    if (!record) return;
+    if (!this.savedLoginHasServerCopy() && !backupSaved) {
+      throw new Error('Save your backup key before forgetting this login.');
+    }
+    if (isVaultUnconfirmed(record)) localStorage.removeItem('nostrcooking_privateKey');
+    deleteVaultRecord();
+    setSyncEnabled(false);
+    setUploadPending(false);
+    if (localStorage.getItem('nostrcooking_loggedInPublicKey') === record.pubkey) {
+      localStorage.removeItem('nostrcooking_loggedInPublicKey');
+    }
+    this.unlockCancelledThisLoad = false;
+    this.updateState({});
+  }
+
+  // The saved login's key for the backup flow before Forget, without a
+  // prompt: an unconfirmed vault's plaintext fallback. Null otherwise — use
+  // revealSavedLoginKey().
+  getSavedLoginPlaintextKey(): string | null {
+    const record = getVaultRecord();
+    if (!record || !isVaultUnconfirmed(record)) return null;
+    const stored = localStorage.getItem('nostrcooking_privateKey');
+    return stored && /^[0-9a-fA-F]{64}$/.test(stored) ? stored.toLowerCase() : null;
+  }
+
+  // One unlock ceremony that only reads the saved login's key, for its
+  // backup before Forget: memory only, no session, nothing persisted.
+  async revealSavedLoginKey(): Promise<string> {
+    if (!browser) throw new Error('Browser environment required');
+    const record = getVaultRecord();
+    if (!record) throw new Error('No saved login on this device');
+    const { privkeyHex } = await unlockPasskey(record);
+    return privkeyHex;
+  }
+
+  // Whether the saved login has a copy on Zap Cooking's servers (as far as
+  // this device knows): sync on and nothing left to upload.
+  savedLoginHasServerCopy(): boolean {
+    const record = getVaultRecord();
+    return (
+      !!record &&
+      PASSKEY_SYNC_ENABLED &&
+      isSyncEnabled() &&
+      !isUploadPending() &&
+      !isVaultUnconfirmed(record) &&
+      !!syncableKeyEntry(record)
+    );
+  }
+
   // Enroll a passkey for the current nsec session. The plaintext key is
   // deleted ONLY after enrollPasskey has verified a full round-trip on a
   // real get() assertion; any earlier failure leaves storage untouched.
@@ -1721,7 +1939,13 @@ export class AuthManager {
   // provider would refuse otherwise), re-encrypts under a fresh DEK, and
   // replaces the record; the old passkey becomes a provider-side orphan
   // (disclosed in the UI copy).
-  async enrollVault(opts?: { sync?: boolean; migrate?: boolean }): Promise<void> {
+  //
+  // One prompt where the provider returns PRF at create(): the vault is then
+  // UNCONFIRMED — the plaintext key and this nsec session stay exactly as
+  // they were. The next visit starts locked and its unlock confirms the vault
+  // (unlockVault). The sync upload waits for that unlock's assertion (pending
+  // flag). Returns whether the vault is confirmed.
+  async enrollVault(opts?: { sync?: boolean; migrate?: boolean }): Promise<{ confirmed: boolean }> {
     if (!browser) throw new Error('Browser environment required');
     const { isAuthenticated, authMethod, publicKey } = this.authState;
     if (!isAuthenticated || (authMethod !== 'privateKey' && authMethod !== 'passkey')) {
@@ -1740,10 +1964,30 @@ export class AuthManager {
     const wantSync = PASSKEY_SYNC_ENABLED && opts?.sync === true;
     const serverChallenge = wantSync ? await fetchChallengeSafe() : null;
 
-    const { record, assertion } = await enrollPasskey(privkeyHex, publicKey, label, {
+    // One prompt only where the plaintext key is stored to fall back on: a
+    // passkey session (re-create for sync) has none, so it keeps create + get.
+    // Never for migrate, which replaces a confirmed vault.
+    const hasPlaintextKey =
+      authMethod === 'privateKey' && !!localStorage.getItem('nostrcooking_privateKey');
+    const { record, assertion, confirmed } = await enrollPasskey(privkeyHex, publicKey, label, {
+      allowCreatePrf: hasPlaintextKey && !opts?.migrate,
       ...(serverChallenge ? { serverChallenge } : {}),
       ...(opts?.migrate ? { excludeExisting: false } : {})
     });
+
+    if (!confirmed) {
+      // enrollPasskey marked the record unconfirmed before saving it. This
+      // session carries on as an nsec session; the next visit starts locked.
+      if (wantSync) {
+        setSyncEnabled(true);
+        if (syncableKeyEntry(record)) setUploadPending(true);
+      } else if (opts?.sync === false) {
+        setSyncEnabled(false);
+      }
+      this.updateState({});
+      return { confirmed: false };
+    }
+
     localStorage.removeItem('nostrcooking_privateKey');
     this.updateState({ authMethod: 'passkey' });
 
@@ -1761,6 +2005,62 @@ export class AuthManager {
     } else if (opts?.sync === false) {
       setSyncEnabled(false);
     }
+    return { confirmed: true };
+  }
+
+  // The unlock of an unconfirmed vault didn't succeed: sign in from the
+  // plaintext key it was backing up. A cancel-shaped error (NotAllowedError)
+  // never removes the vault by itself — it can be a dismissed sheet or a
+  // provider whose PRF get() fails (Microsoft Password Manager raises the
+  // same error). From the second one on (counted across visits, since this
+  // signs the user in) the enroll card asks: keep trying, or remove it and
+  // save the backup key. Any other failure removes the vault at once and
+  // raises the backup-key message.
+  private async fallBackFromUnconfirmedVault(error: unknown): Promise<boolean> {
+    const plaintext = localStorage.getItem('nostrcooking_privateKey');
+    if (!plaintext) return false;
+    if (!isCeremonyCancelled(error)) {
+      this.discardUnconfirmedVault();
+      this.vaultConfirmFailed = true;
+    } else if (countCancelledUnlock() >= 2) {
+      this.vaultCancelChoice = true;
+    }
+    // A kept (still unconfirmed) vault isn't adopted: this is an nsec session.
+    await this.authenticateWithPrivateKey(plaintext);
+    return true;
+  }
+
+  // Sign in from the plaintext key behind an unconfirmed vault this browser
+  // can't unlock at all (no WebAuthn here): the vault stays for a browser
+  // that can.
+  async signInPastUnconfirmedVault(): Promise<void> {
+    const plaintext = localStorage.getItem('nostrcooking_privateKey');
+    if (plaintext && isVaultUnconfirmed()) await this.authenticateWithPrivateKey(plaintext);
+  }
+
+  // True once after an unconfirmed vault's unlock failed and it was removed.
+  takeVaultConfirmFailure(): boolean {
+    const failed = this.vaultConfirmFailed;
+    this.vaultConfirmFailed = false;
+    return failed;
+  }
+
+  // True once after a second (or later) cancel-shaped unlock of an
+  // unconfirmed vault: offer keep trying / remove and save the backup key.
+  takeVaultCancelChoice(): boolean {
+    const offer = this.vaultCancelChoice && isVaultUnconfirmed();
+    this.vaultCancelChoice = false;
+    return offer;
+  }
+
+  // Drop an unconfirmed vault. Nothing is lost: the plaintext key never left,
+  // and nothing was uploaded (the upload waits for the confirming unlock).
+  discardUnconfirmedVault(): void {
+    if (!isVaultUnconfirmed()) return;
+    deleteVaultRecord();
+    setSyncEnabled(false);
+    setUploadPending(false);
+    this.updateState({});
   }
 
   // Passkey-first signup (Phase 3): enroll a JUST-GENERATED key, then start
@@ -1858,6 +2158,12 @@ export class AuthManager {
           'Sign in as that account to remove it.'
       );
     }
+    // Unconfirmed: the plaintext key is still here, so no ceremony is needed
+    // (and the provider may be one that can't complete it).
+    if (isVaultUnconfirmed(record)) {
+      this.discardUnconfirmedVault();
+      return;
+    }
 
     // Removal's fresh unlock ceremony doubles as the server-blob DELETE
     // assertion (single prompt — never a second). Challenge fetch failure
@@ -1900,24 +2206,7 @@ export class AuthManager {
 
     this.updateState({ isLoading: true, error: null });
     try {
-      const { privkeyHex, record } = await signInWithPasskey();
-
-      const signer = new NDKPrivateKeySigner(privkeyHex);
-      this.ndk.signer = signer;
-      const user = await signer.user();
-
-      this.updateState({
-        isAuthenticated: true,
-        user,
-        publicKey: user.hexpubkey,
-        authMethod: 'passkey',
-        isLoading: false,
-        error: null
-      });
-      localStorage.setItem('nostrcooking_loggedInPublicKey', user.hexpubkey);
-      // Session is live — NOW persist (a failed decrypt never reaches here).
-      saveVaultRecord(record);
-      setSyncEnabled(true);
+      await this.adoptSyncedSession(await signInWithPasskey());
     } catch (error) {
       this.ndk.signer = null;
       this.updateState({
@@ -1952,6 +2241,9 @@ export class AuthManager {
       throw new Error(
         'This vault was created before cross-device sign-in existed. Re-create the passkey to enable it.'
       );
+    }
+    if (isVaultUnconfirmed(record)) {
+      throw new Error('Confirm your passkey first.');
     }
 
     const serverChallenge = await fetchChallengeSafe();
@@ -2009,6 +2301,9 @@ export class AuthManager {
   // unlock-gated settings action (removeVault).
   private clearStorage(): void {
     if (browser) {
+      // An unconfirmed vault must never outlive the plaintext key it backs
+      // up: nothing has shown this provider can unlock it.
+      if (isVaultUnconfirmed()) deleteVaultRecord();
       if (this.nip46ResponseSub) {
         this.nip46ResponseSub.stop();
         this.nip46ResponseSub = null;
