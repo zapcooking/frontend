@@ -1,0 +1,90 @@
+[
+  {
+    "theme": "light",
+    "width": 360,
+    "main": 96,
+    "base": 96,
+    "after": 96,
+    "unchangedFailures": [
+      {
+        "id": "color-contrast",
+        "nodes": [
+          {
+            "selector": "header.landing-header > div.header-inner > form.header-search > button",
+            "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 3.84 (foreground color: #ec4700, background color: #ffffff, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "selector": "div > form > div.import-fields > button",
+            "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 3.84 (foreground color: #ffffff, background color: #ec4700, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "selector": "section#import-recipe > div > p.import-help > a",
+            "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 3.67 (foreground color: #ec4700, background color: #f9fafb, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "width": 1440,
+    "main": 96,
+    "base": 96,
+    "after": 96,
+    "unchangedFailures": [
+      {
+        "id": "color-contrast",
+        "nodes": [
+          {
+            "selector": "header.landing-header > div.header-inner > form.header-search > button",
+            "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 3.84 (foreground color: #ec4700, background color: #ffffff, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "selector": "div > form > div.import-fields > button",
+            "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 3.84 (foreground color: #ffffff, background color: #ec4700, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "selector": "section#import-recipe > div > p.import-help > a",
+            "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 3.67 (foreground color: #ec4700, background color: #f9fafb, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "width": 360,
+    "main": 96,
+    "base": 96,
+    "after": 96,
+    "unchangedFailures": [
+      {
+        "id": "color-contrast",
+        "nodes": [
+          {
+            "selector": "div > form > div.import-fields > button",
+            "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 3.16 (foreground color: #ffffff, background color: #ff5722, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "width": 1440,
+    "main": 96,
+    "base": 96,
+    "after": 96,
+    "unchangedFailures": [
+      {
+        "id": "color-contrast",
+        "nodes": [
+          {
+            "selector": "div > form > div.import-fields > button",
+            "explanation": "Fix any of the following:\n  Element has insufficient color contrast of 3.16 (foreground color: #ffffff, background color: #ff5722, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ]
+      }
+    ]
+  }
+]

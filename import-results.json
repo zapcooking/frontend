@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "scope": "Actual dev /explore with mocked extraction responses and handoff destination",
+  "checks": [
+    "safe blocked-source recovery",
+    "source preserved on reload",
+    "successful anonymous recipe handoff"
+  ],
+  "errors": []
+}

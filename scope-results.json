@@ -1,0 +1,27 @@
+{
+  "pageEslintBefore": [
+    {
+      "ruleId": null,
+      "fatal": true,
+      "severity": 2,
+      "message": "Parsing error: Unexpected keyword or identifier.",
+      "line": 54,
+      "column": 45,
+      "nodeType": null
+    }
+  ],
+  "pageEslintAfter": [
+    {
+      "ruleId": null,
+      "fatal": true,
+      "severity": 2,
+      "message": "Parsing error: Unexpected keyword or identifier.",
+      "line": 55,
+      "column": 45,
+      "nodeType": null
+    }
+  ],
+  "newLintIssues": 0,
+  "importScriptFormStyles": "byte-identical",
+  "routeServerChanged": false
+}
