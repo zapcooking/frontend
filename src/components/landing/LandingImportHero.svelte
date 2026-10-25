@@ -14,8 +14,11 @@
 
 <section id="import-recipe" class="import-invitation" aria-labelledby="import-heading">
   <div>
-    <h2 id="import-heading">Bring your recipes to the table.</h2>
-    <p>Turn a recipe link into a recipe you can review, save, and share.</p>
+    <h2 id="import-heading">Bring a favorite to the table.</h2>
+    <p>
+      Found a recipe you love? Let Sous Chef turn the link into a recipe you can review, save, and
+      share.
+    </p>
   </div>
   <div>
     <form

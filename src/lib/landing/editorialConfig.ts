@@ -8,7 +8,7 @@ export const EDITORIAL_HEADLINES: readonly string[] = [
   'Recipes worth passing around.'
 ];
 export const EDITORIAL_SUPPORTING_LINE =
-  'Discover recipes, share what you’re cooking, and meet the people behind the food.';
+  'Find your next recipe, save the ones you love, and share something from your kitchen.';
 
 export function editionBucket(
   nowSeconds: number,
