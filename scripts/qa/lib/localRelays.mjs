@@ -289,6 +289,8 @@ export async function startRelayNet({ behaviors = {} } = {}) {
     for (const c of children) c.kill();
   }
   process.once('exit', close);
+  process.once('SIGINT', () => process.exit(130));
+  process.once('SIGTERM', () => process.exit(143));
 
   return {
     local,
