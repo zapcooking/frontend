@@ -40,8 +40,11 @@
   import {
     PASSKEY_SYNC_ENABLED,
     PASSKEY_SIGNUP_ENABLED,
-    shouldOfferSyncSignIn
+    shouldOfferSyncSignIn,
+    PasskeyNotReadyError
   } from '$lib/passkeySync';
+  import KeyBackupGate from '../KeyBackupGate.svelte';
+  import { nip19 } from 'nostr-tools';
 
   /**
    * The sign-in card and its method sheets (nsec, bunker, QR pairing,
@@ -112,10 +115,19 @@
   $: vaultName = continueName(vaultProfile ? $vaultProfile : null);
   let vaultUnlockBusy = false;
   let vaultUnlockError = '';
-  // "Forget this login on this device": inline confirmation, worded by
-  // whether a server copy exists to sign back in with.
+  // The picked passkey has no server copy and no vault here holds it: the
+  // error gets an "Other ways to sign in" link.
+  let vaultUnlockNotReady = false;
+  // "Forget this login on this device": inline confirmation. Without a
+  // server copy to sign back in with, the backup key must be saved first
+  // (Download or a verified Copy) — for a confirmed vault its key is read
+  // with one unlock (memory only).
   let confirmingForget = false;
   let forgetHasServerCopy = false;
+  let forgetKeyHex: string | null = null;
+  let forgetBackupOk = false;
+  let forgetBusy = false;
+  let forgetError = '';
   // Unlock card is also gated on platform support: a leftover record on an
   // unsupported origin (e.g. an old preview build's localStorage) must not
   // offer an unlock that can no longer bind to the real rp id.
@@ -149,7 +161,14 @@
       raise(error.message, error.resume);
       return;
     }
+    vaultUnlockNotReady = error instanceof PasskeyNotReadyError;
     vaultUnlockError = isCeremonyCancelled(error) ? '' : error?.message || fallback;
+  }
+
+  function showOtherWays() {
+    vaultUnlockError = '';
+    vaultUnlockNotReady = false;
+    moreOptions = true;
   }
 
   async function unlockVaultPasskey() {
@@ -185,13 +204,44 @@
 
   function askForgetLogin() {
     forgetHasServerCopy = !!authManager?.savedLoginHasServerCopy();
+    forgetKeyHex = forgetHasServerCopy ? null : (authManager?.getSavedLoginPlaintextKey() ?? null);
+    forgetBackupOk = false;
+    forgetError = '';
     confirmingForget = true;
   }
 
-  function forgetLogin() {
-    authManager?.forgetSavedLogin();
-    vaultRecord = null;
+  function cancelForget() {
     confirmingForget = false;
+    forgetKeyHex = null;
+    forgetBackupOk = false;
+    forgetError = '';
+  }
+
+  async function revealKeyForForget() {
+    if (!authManager) return;
+    forgetBusy = true;
+    forgetError = '';
+    try {
+      forgetKeyHex = await authManager.revealSavedLoginKey();
+    } catch (error: any) {
+      forgetError = isCeremonyCancelled(error)
+        ? ''
+        : error?.message || 'Could not unlock this passkey to show the backup key.';
+    } finally {
+      forgetBusy = false;
+    }
+  }
+
+  function forgetLogin() {
+    if (!authManager) return;
+    try {
+      authManager.forgetSavedLogin({ backupSaved: forgetBackupOk });
+    } catch (error: any) {
+      forgetError = error?.message || 'Could not forget this login.';
+      return;
+    }
+    vaultRecord = null;
+    cancelForget();
     lockedVaultPubkey.set(null);
     userPublickey.set('');
   }
@@ -216,10 +266,7 @@
       await authManager.signInWithPasskeySync();
       vaultRecord = getVaultRecord(); // device is a Phase 1 device now
     } catch (error: any) {
-      vaultUnlockError = isCeremonyCancelled(error)
-        ? ''
-        : error?.message ||
-          'Passkey sign-in did not complete. You can sign in another way below.';
+      onPasskeyError(error, 'Passkey sign-in did not complete. You can sign in another way below.');
     } finally {
       vaultUnlockBusy = false;
     }
@@ -793,7 +840,14 @@
         >
       </button>
       {#if vaultUnlockError}
-        <div class="signin-error" role="alert">{vaultUnlockError}</div>
+        <div class="signin-error" role="alert">
+          {vaultUnlockError}
+          {#if vaultUnlockNotReady}
+            <button type="button" class="signin-link" on:click={showOtherWays}>
+              Other ways to sign in
+            </button>
+          {/if}
+        </div>
       {/if}
       <div class="signin-vault-links">
         <button
@@ -815,18 +869,49 @@
       </div>
       {#if confirmingForget}
         <div class="signin-notice" role="alert">
-          <p>
-            {forgetHasServerCopy
-              ? 'Forget this login on this device? You can sign back in later with your passkey, or with your backup key.'
-              : "Forget this login on this device? It isn't saved on Zap Cooking's servers, so you'll need your backup key (nsec) to sign back in."}
-          </p>
+          {#if forgetHasServerCopy}
+            <p>
+              Forget this login on this device? You can sign back in later with your passkey, or
+              with your backup key.
+            </p>
+          {:else}
+            <p>
+              This login isn't saved on Zap Cooking's servers, so your backup key (nsec) is the
+              only way back in. Save it before forgetting this login.
+            </p>
+            {#if forgetKeyHex}
+              <div class="signin-forget-gate">
+                <KeyBackupGate
+                  nsecHex={forgetKeyHex}
+                  npub={nip19.npubEncode(vaultRecord.pubkey)}
+                  on:satisfied={() => (forgetBackupOk = true)}
+                  on:unsatisfied={() => (forgetBackupOk = false)}
+                />
+              </div>
+            {:else}
+              <button
+                type="button"
+                class="signin-link"
+                on:click={revealKeyForForget}
+                disabled={forgetBusy}
+              >
+                {forgetBusy ? 'Waiting for passkey…' : 'Unlock with your passkey to show the backup key'}
+              </button>
+            {/if}
+          {/if}
+          {#if forgetError}
+            <p class="signin-forget-error">{forgetError}</p>
+          {/if}
           <div class="signin-forget-actions">
-            <button type="button" class="signin-link signin-link-danger" on:click={forgetLogin}>
+            <button
+              type="button"
+              class="signin-link signin-link-danger"
+              on:click={forgetLogin}
+              disabled={forgetBusy || (!forgetHasServerCopy && !forgetBackupOk)}
+            >
               Forget
             </button>
-            <button type="button" class="signin-link" on:click={() => (confirmingForget = false)}>
-              Cancel
-            </button>
+            <button type="button" class="signin-link" on:click={cancelForget}>Cancel</button>
           </div>
         </div>
       {/if}
@@ -843,7 +928,14 @@
         <span>{vaultUnlockBusy ? 'Waiting for passkey…' : passkeySignInText(passkeyLabel)}</span>
       </button>
       {#if vaultUnlockError}
-        <div class="signin-error" role="alert">{vaultUnlockError}</div>
+        <div class="signin-error" role="alert">
+          {vaultUnlockError}
+          {#if vaultUnlockNotReady}
+            <button type="button" class="signin-link" on:click={showOtherWays}>
+              Other ways to sign in
+            </button>
+          {/if}
+        </div>
       {/if}
     {/if}
 
@@ -1176,6 +1268,14 @@
   }
   .signin-link-danger {
     color: #ef4444;
+  }
+  .signin-forget-gate {
+    margin: 0.5rem 0;
+    text-align: left;
+  }
+  .signin-forget-error {
+    color: #ef4444;
+    margin-top: 0.5rem;
   }
   .signin-forget-actions {
     display: flex;

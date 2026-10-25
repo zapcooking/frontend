@@ -62,6 +62,21 @@ export class PasskeySyncError extends Error {}
 /** Sign-in failed before anything was persisted — caller falls through. */
 export class SyncSignInError extends PasskeySyncError {}
 
+export const PASSKEY_NOT_READY_MESSAGE =
+  "This passkey isn't ready on this device yet. Sign in with it once on the device where you " +
+  "set it up, with 'Sign in on other devices' turned on.";
+
+/**
+ * The picked passkey has no server copy (and no vault on this device holds
+ * it): it was set up elsewhere without sync, or that device hasn't uploaded
+ * yet. The server's uniform 404 can't say more, by design.
+ */
+export class PasskeyNotReadyError extends SyncSignInError {
+  constructor() {
+    super(PASSKEY_NOT_READY_MESSAGE);
+  }
+}
+
 export function isSyncEnabled(): boolean {
   return browser && localStorage.getItem(SYNC_ENABLED_KEY) === '1';
 }
@@ -345,6 +360,7 @@ export async function pickPasskey(challenge: string | null): Promise<PickedPassk
 export async function openSyncedVault(picked: PickedPasskey): Promise<SyncSignInResult> {
   const { credentialId, prfOutput, assertion } = picked;
   let blob: string;
+  let notReady = false;
   try {
     const hash = await sha256Hex(b64urlToBytes(credentialId));
     const httpRes = await fetch(`/api/vault-sync/${hash}`, {
@@ -352,12 +368,14 @@ export async function openSyncedVault(picked: PickedPasskey): Promise<SyncSignIn
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assertion })
     });
+    notReady = httpRes.status === 404;
     if (!httpRes.ok) throw new Error(String(httpRes.status));
     const body = await httpRes.json();
     if (typeof body?.blob !== 'string') throw new Error('no blob');
     blob = body.blob;
   } catch {
     zeroize(prfOutput);
+    if (notReady) throw new PasskeyNotReadyError();
     throw new SyncSignInError('No synced sign-in found for this passkey');
   }
 

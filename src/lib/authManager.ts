@@ -1868,12 +1868,17 @@ export class AuthManager {
   // removes the saved passkey login — the local vault, and the plaintext key
   // an unconfirmed one still keeps. Nothing on the server changes, so a
   // confirmed vault with a synced copy can be restored by signing in with
-  // the passkey; otherwise the backup key is the way back.
-  forgetSavedLogin(): void {
+  // the passkey. Without one, the backup key is the only way back, so the
+  // caller must have had it saved first (backupSaved: the backup flow's
+  // Download or verified Copy) — refused otherwise.
+  forgetSavedLogin({ backupSaved = false }: { backupSaved?: boolean } = {}): void {
     if (!browser) throw new Error('Browser environment required');
     if (this.authState.isAuthenticated) throw new Error('Sign out first to forget a saved login.');
     const record = getVaultRecord();
     if (!record) return;
+    if (!this.savedLoginHasServerCopy() && !backupSaved) {
+      throw new Error('Save your backup key before forgetting this login.');
+    }
     if (isVaultUnconfirmed(record)) localStorage.removeItem('nostrcooking_privateKey');
     deleteVaultRecord();
     setSyncEnabled(false);
@@ -1883,6 +1888,26 @@ export class AuthManager {
     }
     this.unlockCancelledThisLoad = false;
     this.updateState({});
+  }
+
+  // The saved login's key for the backup flow before Forget, without a
+  // prompt: an unconfirmed vault's plaintext fallback. Null otherwise — use
+  // revealSavedLoginKey().
+  getSavedLoginPlaintextKey(): string | null {
+    const record = getVaultRecord();
+    if (!record || !isVaultUnconfirmed(record)) return null;
+    const stored = localStorage.getItem('nostrcooking_privateKey');
+    return stored && /^[0-9a-fA-F]{64}$/.test(stored) ? stored.toLowerCase() : null;
+  }
+
+  // One unlock ceremony that only reads the saved login's key, for its
+  // backup before Forget: memory only, no session, nothing persisted.
+  async revealSavedLoginKey(): Promise<string> {
+    if (!browser) throw new Error('Browser environment required');
+    const record = getVaultRecord();
+    if (!record) throw new Error('No saved login on this device');
+    const { privkeyHex } = await unlockPasskey(record);
+    return privkeyHex;
   }
 
   // Whether the saved login has a copy on Zap Cooking's servers (as far as

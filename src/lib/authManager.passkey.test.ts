@@ -69,6 +69,7 @@ import {
   encryptNsec
 } from './passkeyVaultCrypto';
 import { getPublicKey } from 'nostr-tools';
+import { PasskeyNotReadyError, PASSKEY_NOT_READY_MESSAGE } from './passkeySync';
 import { resolveSecuritySections } from './securitySections';
 
 const PK_KEY = 'nostrcooking_privateKey';
@@ -811,49 +812,97 @@ describe('no dead ends on the chip', () => {
     vi.unstubAllGlobals();
   });
 
-  it('a picked passkey with no server copy fails without changing anything', async () => {
+  it('a picked passkey with no server copy and no local vault: "isn\'t ready on this device yet"', async () => {
     seedVault();
     const am = new AuthManager(ndk);
     syncService(null);
     pickFromOsList(OTHER_CRED, OTHER_PRF());
 
-    await expect(am.signInWithAnyPasskey()).rejects.toThrow(/No synced sign-in/);
+    const error = await am.signInWithAnyPasskey().catch((e) => e);
+    expect(error).toBeInstanceOf(PasskeyNotReadyError);
+    expect(error.message).toBe(PASSKEY_NOT_READY_MESSAGE);
     expect(JSON.parse(vaultInStore()!)).toEqual(fixtureRecord());
     expect(am.getState().isAuthenticated).toBe(false);
     vi.unstubAllGlobals();
   });
 
-  it('"Forget this login on this device" removes the saved login (and an unconfirmed one\'s plaintext key)', async () => {
+  it('the same message from the chip: the next tap after a cancel picks a passkey that has no copy', async () => {
+    seedVault();
+    const am = new AuthManager(ndk);
+    syncService(null);
+    credentials.get.mockRejectedValueOnce(new DOMException('cancelled', 'NotAllowedError'));
+    await expect(am.unlockVault()).rejects.toThrow();
+
+    pickFromOsList(OTHER_CRED, OTHER_PRF());
+    await expect(am.unlockVault()).rejects.toBeInstanceOf(PasskeyNotReadyError);
+    expect(JSON.parse(vaultInStore()!)).toEqual(fixtureRecord());
+    vi.unstubAllGlobals();
+  });
+
+  it('Forget, unconfirmed vault: refused until the backup key is saved, then removes it and its plaintext key', async () => {
     simulatedAuthenticator({ createPrf: true });
     await (await nsecSession()).enrollVault();
     const am = await nextVisitLocked();
     expect(am.savedLoginHasServerCopy()).toBe(false); // never uploaded
+    // The backup flow gets the key without a prompt (its plaintext fallback).
+    expect(am.getSavedLoginPlaintextKey()).toBe(fixture.nsecHex);
 
-    am.forgetSavedLogin();
+    expect(() => am.forgetSavedLogin()).toThrow(/Save your backup key/);
+    expect(vaultInStore()).toBeDefined();
+    expect(store.get(PK_KEY)).toBe(fixture.nsecHex);
+
+    am.forgetSavedLogin({ backupSaved: true }); // Download or verified Copy done
 
     expect(vaultInStore()).toBeUndefined();
     expect(store.get(PK_KEY)).toBeUndefined();
     expect(store.get(PUB_KEY)).toBeUndefined();
-    // Nothing left to restore from: the next visit is a plain signed-out one.
     const next = new AuthManager(makeNdk());
     await flush();
     expect(next.getState().isAuthenticated).toBe(false);
     expect(next.getVaultStatus()).toBe('none');
   });
 
-  it('forgetting a synced, confirmed login is restorable; refused while signed in', async () => {
+  it('Forget, confirmed vault without a server copy: one unlock reads the backup key, then Forget is allowed', async () => {
     seedVault();
-    store.set('nostrcooking_vault_sync_enabled', '1');
+    store.set(PUB_KEY, fixture.pubkeyHex);
     const am = new AuthManager(ndk);
+    await flush();
+    expect(am.savedLoginHasServerCopy()).toBe(false);
+    expect(am.getSavedLoginPlaintextKey()).toBeNull();
+    expect(() => am.forgetSavedLogin()).toThrow(/Save your backup key/);
+
+    credentials.get.mockResolvedValue(fakeAssertion(SAVED_PRF()));
+    await expect(am.revealSavedLoginKey()).resolves.toBe(fixture.nsecHex);
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(am.getState().isAuthenticated).toBe(false); // memory only, no session
+    expect(store.get(PK_KEY)).toBeUndefined(); // nothing persisted
+
+    am.forgetSavedLogin({ backupSaved: true });
+    expect(vaultInStore()).toBeUndefined();
+  });
+
+  it('Forget, confirmed vault with a server copy: the confirmation alone is enough', async () => {
+    store.set('nostrcooking_vault_sync_enabled', '1');
     const record = fixtureRecord();
     record.keys[0].spki = 'AAAA';
     record.keys[0].alg = -7;
     store.set(VAULT_STORAGE_KEY, JSON.stringify(record));
+    const am = new AuthManager(ndk);
+    await flush();
     expect(am.savedLoginHasServerCopy()).toBe(true);
 
+    am.forgetSavedLogin();
+
+    expect(credentials.get).not.toHaveBeenCalled();
+    expect(vaultInStore()).toBeUndefined();
+  });
+
+  it('Forget is refused while signed in', async () => {
+    seedVault();
+    const am = new AuthManager(ndk);
     credentials.get.mockResolvedValue(fakeAssertion(SAVED_PRF()));
     await am.unlockVault();
-    expect(() => am.forgetSavedLogin()).toThrow(/Sign out first/);
+    expect(() => am.forgetSavedLogin({ backupSaved: true })).toThrow(/Sign out first/);
     expect(vaultInStore()).toBeDefined();
   });
 });

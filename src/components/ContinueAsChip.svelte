@@ -6,6 +6,7 @@
   import { isCeremonyCancelled } from '$lib/passkeyVault';
   import { VaultConflictError } from '$lib/authManager';
   import { raiseVaultConflict } from '$lib/auth/vaultConflict';
+  import { PasskeyNotReadyError } from '$lib/passkeySync';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { showToast } from '$lib/toast';
 
@@ -34,6 +35,11 @@
       if (error instanceof VaultConflictError && error.resume) {
         loginOverlayOpen.set(true);
         raiseVaultConflict(error.message, error.resume);
+      } else if (error instanceof PasskeyNotReadyError) {
+        showToast('info', error.message, 12000, undefined, {
+          label: 'Other ways to sign in',
+          onClick: () => loginOverlayOpen.set(true)
+        });
       } else if (!isCeremonyCancelled(error)) {
         loginOverlayOpen.set(true);
       } else {
