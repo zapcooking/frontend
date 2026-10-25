@@ -93,7 +93,7 @@
 	.banner-container {
 		@apply relative w-full;
 		aspect-ratio: 3 / 1;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.banner-placeholder {

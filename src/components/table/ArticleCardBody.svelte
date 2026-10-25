@@ -121,7 +121,7 @@
         <!-- Featured Badge -->
         <div class="absolute top-4 left-4">
           <span
-            class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm"
+            class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-[var(--color-bg-primary)]/90 dark:bg-gray-900/90 backdrop-blur-sm"
             style="color: var(--color-primary);"
           >
             Featured
@@ -262,6 +262,10 @@
 </div>
 
 <style>
+  :global(html:not(.dark)) div[class~='bg-gray-200'] {
+    background-color: var(--color-skeleton-base);
+  }
+
   .article-card-body :global(.line-clamp-1) {
     display: -webkit-box;
     -webkit-line-clamp: 1;

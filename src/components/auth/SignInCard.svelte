@@ -1093,7 +1093,7 @@
     position: relative;
     width: 100%;
     max-width: 440px;
-    background: var(--signin-surface);
+    background: var(--color-light-bg-primary, var(--signin-surface));
     border: 1px solid var(--signin-line);
     border-radius: 24px;
     padding: 2.25rem 1.75rem 1.5rem;
@@ -1130,7 +1130,7 @@
   }
 
   .signin-close-btn:hover {
-    background: color-mix(in srgb, var(--signin-elevated) 70%, transparent);
+    background: color-mix(in srgb, var(--color-light-input-bg, var(--signin-elevated)) 70%, transparent);
     color: var(--signin-cream);
   }
 
@@ -1207,7 +1207,7 @@
     margin-top: 0.75rem;
     border-radius: 14px;
     border: 1px solid var(--signin-line);
-    background: var(--signin-elevated);
+    background: var(--color-light-input-bg, var(--signin-elevated));
     color: var(--signin-cream);
     font-family: inherit;
     font-weight: 500;
@@ -1224,7 +1224,7 @@
   .signin-cta-secondary:hover:not(:disabled) {
     transform: translateY(-1px);
     border-color: color-mix(in srgb, var(--signin-flame) 55%, transparent);
-    background: color-mix(in srgb, var(--signin-elevated) 80%, var(--signin-cream));
+    background: color-mix(in srgb, var(--color-light-input-bg, var(--signin-elevated)) 80%, var(--signin-cream));
   }
 
   .signin-cta-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -1339,7 +1339,7 @@
     margin-top: 0.625rem;
     padding: 0.625rem 0.75rem;
     border-radius: 10px;
-    background: var(--signin-elevated);
+    background: var(--color-light-input-bg, var(--signin-elevated));
     border: 1px solid var(--signin-line);
     font-size: 0.8125rem;
     color: var(--color-caption);
@@ -1374,7 +1374,7 @@
   }
 
   .signin-tile {
-    background: var(--signin-elevated);
+    background: var(--color-light-input-bg, var(--signin-elevated));
     border: 1px solid var(--signin-line);
     border-radius: 14px;
     padding: 0.875rem 0.5rem 0.75rem;
@@ -1392,7 +1392,7 @@
   .signin-tile:hover:not(:disabled) {
     transform: translateY(-1px);
     border-color: color-mix(in srgb, var(--signin-flame) 50%, transparent);
-    background: color-mix(in srgb, var(--signin-elevated) 80%, var(--signin-cream));
+    background: color-mix(in srgb, var(--color-light-input-bg, var(--signin-elevated)) 80%, var(--signin-cream));
   }
 
   .signin-tile:focus-visible { outline: 2px solid var(--signin-flame); outline-offset: 2px; }

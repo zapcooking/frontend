@@ -143,7 +143,7 @@
     {#if refreshNotice}
       <p
         class="text-xs rounded-lg border px-3 py-2 mb-4"
-        style="color: var(--color-text-secondary); border-color: var(--color-input-border); background-color: var(--color-input);"
+        style="color: var(--color-text-secondary); border-color: var(--color-input-border); background-color: var(--color-light-input-bg,var(--color-input));"
         role="status"
       >
         {refreshNotice}

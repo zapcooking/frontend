@@ -1066,7 +1066,7 @@
                   />
                 {:else}
                   <div
-                    class="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center pointer-events-none"
+                    class="w-full h-full bg-gradient-to-br from-[var(--color-light-input-border,var(--color-gray-200))] to-[var(--color-light-accent-gray,var(--color-gray-300))] dark:from-gray-700 dark:to-gray-800 flex items-center justify-center pointer-events-none"
                   >
                     <span class="text-xs text-caption text-center px-2">{recipeTitle}</span>
                   </div>
@@ -1237,7 +1237,7 @@
         {#if $isOnline && !isSyncingRecipes}
           <button
             on:click={syncAllRecipes}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800"
             style="color: var(--color-text-secondary); border: 1px solid var(--color-input-border);"
             title="Sync all recipes for offline use"
           >
@@ -1374,7 +1374,7 @@
             <button
               on:click={openShareCookbook}
               disabled={totalUniqueSaved === 0}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
               title="Share your saved recipes as a Recipe Pack"
               aria-label="Share My Kitchen as Recipe Pack"
@@ -1387,7 +1387,7 @@
             <div class="relative" use:clickOutside on:click_outside={() => (sortMenuOpen = false)}>
               <button
                 on:click={() => (sortMenuOpen = !sortMenuOpen)}
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800"
                 style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
                 aria-haspopup="true"
                 aria-expanded={sortMenuOpen}
@@ -1425,7 +1425,7 @@
             >
               <button
                 on:click={() => (filterMenuOpen = !filterMenuOpen)}
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800"
                 style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
                 aria-haspopup="true"
                 aria-expanded={filterMenuOpen}

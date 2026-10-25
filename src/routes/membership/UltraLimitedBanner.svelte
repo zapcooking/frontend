@@ -67,7 +67,7 @@
             type="button"
             disabled
             class="w-full sm:w-auto sm:min-w-[320px] sm:max-w-[420px] px-6 sm:px-8 py-3.5 sm:py-4 rounded-full font-bold text-base sm:text-lg
-                   bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400
+                   bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600 text-gray-500 dark:text-gray-400
                    cursor-not-allowed"
             aria-disabled="true"
           >
@@ -151,7 +151,7 @@
 
         <!-- Progress Bar -->
         <div class="mb-3 sm:mb-4">
-          <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 sm:h-3 lg:h-4 overflow-hidden">
+          <div class="w-full bg-[var(--color-light-input-border,var(--color-gray-200))] dark:bg-gray-700 rounded-full h-2.5 sm:h-3 lg:h-4 overflow-hidden">
             <div 
               class="bg-gradient-to-r from-orange-500 to-amber-500 h-full rounded-full transition-all duration-500 ease-out"
               style="width: {displayProgress}%"
@@ -192,7 +192,7 @@
           {#if whyExpanded}
             <div 
               id="why-21-content"
-              class="mt-2 sm:mt-3 mx-auto max-w-md p-3 sm:p-4 bg-white/60 dark:bg-gray-800/60 rounded-lg text-xs sm:text-sm text-gray-600 dark:text-gray-300 leading-relaxed"
+              class="mt-2 sm:mt-3 mx-auto max-w-md p-3 sm:p-4 bg-[color-mix(in_srgb,var(--color-light-bg-primary,#fff)_60%,transparent)] dark:bg-gray-800/60 rounded-lg text-xs sm:text-sm text-gray-600 dark:text-gray-300 leading-relaxed"
               role="region"
               aria-label="Why 21 explanation"
             >

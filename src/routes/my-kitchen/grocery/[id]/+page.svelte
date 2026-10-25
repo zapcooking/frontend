@@ -234,7 +234,7 @@
           />
           <button
             on:click={cancelEditTitle}
-            class="p-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+            class="p-2 rounded-lg transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800"
             style="color: var(--color-text-secondary)"
             aria-label="Cancel"
           >
@@ -260,7 +260,7 @@
           </h1>
           <button
             on:click={startEditingTitle}
-            class="p-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+            class="p-2 rounded-lg transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800"
             style="color: var(--color-text-secondary)"
             aria-label="Edit title"
           >

@@ -61,7 +61,6 @@
     <LandingHeader />
     <main id="main" class="magazine">
       <section class="masthead" aria-labelledby="community-headline">
-        <p class="brand-signature">Food. Friends. Freedom.</p>
         <h1 id="community-headline">{d.headline || DEFAULT_HEADLINE}</h1>
         <p class="intro">
           {d.supportingLine || EDITORIAL_SUPPORTING_LINE}
@@ -71,7 +70,6 @@
       {#if d.cover || d.picks.length}
         <section class="cover-section" aria-label="Featured recipes and food stories">
           <div class="cover-top">
-            <p class="eyebrow">At the table today</p>
             <a class="text-link" href={data.nextEditionHref}>More inspiration <Arrow /></a>
           </div>
           <div class="cover-spread" class:lead-only={!d.picks.length}>
@@ -88,7 +86,6 @@
                   />
                 </a>
                 <div class="lead-caption">
-                  <p class="eyebrow">Featured recipe</p>
                   <h2><a href={d.cover.href}>{d.cover.title}</a></h2>
                   <a class="byline" href={userHref(d.cover.author.pubkey)}>
                     {#if d.cover.author.picture}<img
@@ -108,7 +105,6 @@
                   <LongformTile
                     card={pick}
                     ratio="16 / 8"
-                    label={pick.type === 'article' ? 'Food story' : 'Cook something new'}
                     sizes="(min-width: 1280px) 24vw, (min-width: 768px) 28vw, 46vw"
                     widths={[320, 480, 640]}
                   />
@@ -125,7 +121,6 @@
         <section class="section" aria-labelledby="recipes-heading">
           <div class="section-top">
             <div>
-              <p class="eyebrow">From their kitchen to yours</p>
               <h2 id="recipes-heading">Recipes to try</h2>
             </div>
             <a class="text-link" href="/recipes">All recipes <Arrow /></a>
@@ -142,7 +137,6 @@
         <section class="section food-stories" aria-labelledby="stories-heading">
           <div class="section-top">
             <div>
-              <p class="eyebrow">A little food for thought</p>
               <h2 id="stories-heading">Food stories</h2>
             </div>
             <a class="text-link" href="/reads">All food stories <Arrow /></a>
@@ -159,7 +153,6 @@
         <section class="section fresh-section" aria-labelledby="fresh-heading">
           <div class="section-top">
             <div>
-              <p class="eyebrow">Made, found, and shared</p>
               <h2 id="fresh-heading">Fresh from the kitchen</h2>
             </div>
             <a class="text-link" href="/feed?tab=fresh">Explore the Fresh feed <Arrow /></a>
@@ -200,11 +193,11 @@
                 <h3>Just served</h3>
                 <p>Recent moments from everyday kitchens.</p>
               </div>
-              <ul class="community-grid" role="list">
+              <ul class="community-list" role="list">
                 {#each d.fresh as note (note.id)}
                   <li>
                     <a
-                      class="note-link"
+                      class="note-image"
                       href={note.href}
                       aria-label={note.text ||
                         `Kitchen photo by ${note.author.name || 'a community cook'}`}
@@ -216,11 +209,15 @@
                         widths={[240, 360, 480]}
                         sizes="(min-width: 1024px) 20vw, (min-width: 768px) 30vw, 46vw"
                       />
-                      {#if note.text}<p class="note-text">{note.text}</p>{/if}
                     </a>
-                    <a class="byline" href={userHref(note.author.pubkey)}
-                      >{note.author.name || 'A community cook'}</a
-                    >
+                    <div class="note-copy">
+                      {#if note.text}<a class="note-link" href={note.href}
+                          ><p class="note-text">{note.text}</p></a
+                        >{/if}
+                      <a class="byline" href={userHref(note.author.pubkey)}
+                        >{note.author.name || 'A community cook'}</a
+                      >
+                    </div>
                   </li>
                 {/each}
               </ul>
@@ -235,7 +232,7 @@
         <section class="section paid-section" aria-labelledby="partners-heading">
           <div class="section-top">
             <h2 id="partners-heading">From our partners</h2>
-            <span class="eyebrow">Paid placements</span>
+            <span class="paid-disclosure">Paid placements</span>
           </div>
           <ul class="paid-grid" role="list">
             {#each paid.boosts as boost (boost.id)}<li>
@@ -281,18 +278,23 @@
 
 <style>
   .landing {
-    background: var(--color-explore-cream);
+    background: var(--color-bg-primary);
     color: var(--color-text-primary);
     font-family: 'Albert Sans', ui-sans-serif, system-ui, sans-serif;
   }
   .landing-body {
+    --explore-display: 48px;
+    --explore-section: 32px;
+    --explore-title: 24px;
+    --explore-body: 16px;
+    --explore-meta: 13px;
     min-width: 0;
     min-height: 100vh;
   }
   .magazine {
-    max-width: 1240px;
+    max-width: 1280px;
     margin: auto;
-    padding: 0 32px;
+    padding: 0 40px;
   }
   :where(.landing) :global(a) {
     color: inherit;
@@ -313,23 +315,12 @@
     padding: 0;
     list-style: none;
   }
-  .landing :global(.text-secondary-landing) {
-    color: var(--color-text-secondary);
-  }
-  .landing :global(.text-caption-landing) {
-    color: var(--color-caption);
+  .magazine :global(.landing-img) {
+    border-radius: 0;
   }
   .masthead {
-    padding: 28px 0 20px;
-  }
-  .brand-signature,
-  .eyebrow {
-    color: var(--color-primary);
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    margin: 0 0 10px;
+    padding: 36px 0 28px;
+    max-width: 900px;
   }
   h1,
   h2,
@@ -338,76 +329,64 @@
     font-family: var(--font-editorial, Georgia, serif);
     font-weight: 500;
     letter-spacing: -0.035em;
+    text-wrap: pretty;
   }
   h1 {
-    font-size: clamp(32px, 3.4vw, 48px);
-    line-height: 1.12;
-    min-height: 1.12em;
-    margin: 0 0 12px;
+    font-size: var(--explore-display);
+    line-height: 1.04;
+    margin: 0 0 18px;
     text-wrap: balance;
+    text-align: left;
   }
   .intro {
     color: var(--color-text-secondary);
-    font-size: 15px;
-    line-height: 1.6;
+    font-size: var(--explore-body);
+    line-height: 1.5;
     margin: 0;
-  }
-  .cover-top,
-  .section-top {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 20px;
-    margin-bottom: 20px;
+    max-width: 66ch;
   }
   .cover-top {
-    align-items: center;
-    border-top: 1px solid var(--color-input-border);
-    margin-bottom: 14px;
-  }
-  .cover-top .eyebrow {
-    margin: 0;
+    display: flex;
+    justify-content: flex-end;
+    border-top: 1px solid var(--color-text-primary);
+    padding: 4px 0 12px;
   }
   .text-link {
     display: inline-flex;
     align-items: center;
-    justify-content: end;
     gap: 10px;
     min-height: 44px;
-    font-size: 13px;
+    font-size: var(--explore-meta);
     font-weight: 600;
-    flex-shrink: 0;
   }
   .cover-spread {
     display: grid;
     grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr);
-    gap: 28px;
+    gap: 32px;
   }
   .cover-spread.lead-only {
     grid-template-columns: 1fr;
   }
   .lead-only .lead {
     display: grid;
-    grid-template-columns: 1.4fr 1fr;
-    gap: 28px;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 32px;
     align-items: center;
   }
   .lead-image {
     display: block;
   }
   .lead-image :global(img) {
-    max-height: 350px;
+    max-height: 360px;
   }
   .lead-caption {
-    padding-top: 15px;
-  }
-  .lead-caption .eyebrow {
-    margin-bottom: 7px;
+    padding-top: 20px;
   }
   .lead h2 {
-    font-size: clamp(26px, 2.5vw, 36px);
-    line-height: 1.1;
+    font-size: var(--explore-section);
+    line-height: 1.08;
     margin: 0;
+    max-width: 28ch;
     overflow-wrap: anywhere;
   }
   .lead h2 a {
@@ -417,113 +396,187 @@
   .byline {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
     min-height: 44px;
-    font-size: 12px;
+    font-size: var(--explore-meta);
+    line-height: 1.4;
     color: var(--color-caption);
   }
   .byline img {
-    border-radius: 50%;
+    display: none;
   }
   .supporting {
     display: grid;
-    gap: 12px;
+    gap: 24px;
     align-content: start;
+    padding-left: 28px;
+    border-left: 1px solid var(--color-input-border);
   }
-  .supporting :global(.tile-title) {
-    font-size: 23px;
-  }
-  .supporting :global(.landing-img) {
-    max-height: 164px;
-  }
-  .section {
-    padding: 36px 0;
+  .supporting :global(.tile + .tile) {
+    padding-top: 24px;
     border-top: 1px solid var(--color-input-border);
   }
-  .section-top h2 {
-    font-size: clamp(29px, 2.6vw, 36px);
-    line-height: 1.1;
-    margin: 0;
+  .supporting :global(.landing-img) {
+    max-height: 160px;
   }
-  .section-top .eyebrow {
-    margin-bottom: 8px;
+  .section {
+    padding: 40px 0;
+    border-top: 1px solid var(--color-text-primary);
+  }
+  .section-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 28px;
+  }
+  .section-top h2 {
+    font-size: var(--explore-section);
+    line-height: 1.08;
+    margin: 0;
   }
   .recipe-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 24px;
+    grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+    gap: 0 40px;
+  }
+  .recipe-grid li:first-child {
+    grid-row: span 3;
+  }
+  .recipe-grid li:first-child :global(.tile-title) {
+    font-size: var(--explore-section);
+  }
+  .recipe-grid li:not(:first-child) {
+    padding: 20px 0;
+    border-top: 1px solid var(--color-input-border);
+  }
+  .recipe-grid li:nth-child(2) {
+    padding-top: 0;
+    border-top: 0;
+  }
+  .recipe-grid li:not(:first-child) :global(.tile) {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 18px;
+  }
+  .recipe-grid li:not(:first-child) :global(.tile-copy) {
+    padding-top: 0;
+  }
+  .recipe-grid li:only-child {
+    grid-column: 1 / -1;
+  }
+  .recipe-grid li:only-child :global(.tile) {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 28px;
   }
   .story-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 28px;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 0 40px;
   }
-  .story-grid :global(.tile-title) {
-    font-size: 26px;
+  .story-grid li:first-child {
+    grid-row: span 2;
+  }
+  .story-grid li:first-child :global(.tile-title) {
+    font-size: var(--explore-section);
+  }
+  .story-grid li:not(:first-child) {
+    padding: 24px 0;
+    border-top: 1px solid var(--color-input-border);
+  }
+  .story-grid li:nth-child(2) {
+    padding-top: 0;
+    border-top: 0;
+  }
+  .story-grid li:not(:first-child) :global(.tile) {
+    display: grid;
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 18px;
+  }
+  .story-grid li:not(:first-child) :global(.tile-copy) {
+    padding-top: 0;
+  }
+  .story-grid.single {
+    grid-template-columns: 1fr;
   }
   .story-grid.single :global(.tile) {
     display: grid;
-    grid-template-columns: 1.2fr 1fr;
-    gap: 0 28px;
-  }
-  .story-grid.single :global(.tile-content) {
-    grid-row: span 2;
-  }
-  .story-grid.single :global(.tile-byline) {
-    align-self: start;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 32px;
   }
   .subsection-top {
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
     gap: 8px 20px;
-    margin-bottom: 18px;
+    margin-bottom: 24px;
   }
   .subsection-top h3 {
-    font-size: 25px;
+    font-size: var(--explore-title);
     margin: 0;
   }
   .subsection-top p {
-    font-size: 13px;
+    font-size: var(--explore-meta);
     color: var(--color-text-secondary);
     margin: 0;
   }
   .fresh-part + .fresh-part {
     margin-top: 32px;
-    padding-top: 26px;
+    padding-top: 28px;
     border-top: 1px solid var(--color-input-border);
   }
-  .topic-grid,
-  .community-grid {
+  .topic-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 24px;
   }
-  .topic-link,
-  .note-link {
+  .topic-link {
     display: block;
   }
   .topic-link h4 {
-    font-size: 20px;
-    line-height: 1.2;
-    margin: 12px 0 0;
+    font-size: var(--explore-title);
+    line-height: 1.12;
+    margin: 14px 0 0;
   }
   .topic-link h4 :global(svg) {
-    margin-left: 5px;
+    margin-left: 4px;
+    width: 13px;
   }
   .topic-credit {
     display: inline-flex;
     align-items: center;
     min-height: 44px;
     color: var(--color-caption);
-    font-size: 11px;
+    font-size: var(--explore-meta);
     line-height: 1.4;
   }
+  .community-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 32px;
+  }
+  .community-list li {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 20px;
+    padding: 20px 0;
+    border-top: 1px solid var(--color-input-border);
+  }
+  .note-image {
+    display: block;
+    align-self: start;
+  }
+  .note-copy {
+    min-width: 0;
+  }
+  .note-link {
+    display: block;
+    min-height: 44px;
+  }
   .note-text {
-    font-size: 13px;
-    line-height: 1.6;
-    color: var(--color-text-secondary);
-    margin: 10px 0 0;
+    font-size: var(--explore-body);
+    line-height: 1.5;
+    margin: 0;
     display: -webkit-box;
     line-clamp: 3;
     -webkit-line-clamp: 3;
@@ -531,31 +584,34 @@
     overflow: hidden;
     overflow-wrap: anywhere;
   }
+  .paid-disclosure {
+    font-size: var(--explore-meta);
+    color: var(--color-caption);
+  }
   .paid-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 24px;
+    gap: 28px;
   }
   .paid-label {
     display: block;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
+    font-size: var(--explore-meta);
     color: var(--color-caption);
-    margin: 12px 0 8px;
+    margin: 14px 0 8px;
   }
   .paid-grid h3 {
-    font-size: 23px;
+    font-size: var(--explore-title);
     margin: 0;
   }
   .paid-grid p {
-    font-size: 13px;
+    font-size: var(--explore-body);
+    line-height: 1.5;
     color: var(--color-text-secondary);
   }
   .footer {
     border-top: 1px solid var(--color-input-border);
-    padding-top: 26px;
-    padding-bottom: 26px;
+    padding-top: 24px;
+    padding-bottom: 24px;
     display: flex;
     align-items: center;
     gap: 24px;
@@ -580,14 +636,14 @@
     display: block;
   }
   .footer p {
-    font-size: 12px;
+    font-size: var(--explore-meta);
     color: var(--color-caption);
   }
   .footer nav {
     display: flex;
     gap: 20px;
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--explore-meta);
   }
   .footer nav a {
     display: inline-flex;
@@ -605,97 +661,131 @@
       margin-left: calc(20rem + 5px);
     }
   }
-  @media (max-width: 767px) {
+  @media (max-width: 1100px) {
     .magazine {
-      padding-left: 18px;
-      padding-right: 18px;
+      padding-left: 28px;
+      padding-right: 28px;
+    }
+    .recipe-grid,
+    .story-grid {
+      column-gap: 28px;
+    }
+    .recipe-grid li:not(:first-child) :global(.tile),
+    .story-grid li:not(:first-child) :global(.tile) {
+      grid-template-columns: 88px minmax(0, 1fr);
+      gap: 14px;
+    }
+    .supporting {
+      padding-left: 20px;
+    }
+  }
+  @media (max-width: 767px) {
+    .landing-body {
+      --explore-display: 36px;
+      --explore-section: 28px;
+      --explore-title: 22px;
+    }
+    .magazine {
+      padding-left: 20px;
+      padding-right: 20px;
     }
     .masthead {
-      padding: 21px 0 14px;
+      padding: 28px 0 24px;
     }
     h1 {
-      font-size: 32px;
-      min-height: 2.24em;
-      margin-bottom: 9px;
+      line-height: 1.06;
+      margin-bottom: 14px;
     }
-    .brand-signature {
-      font-size: 9px;
-      margin-bottom: 9px;
-    }
-    .intro {
-      font-size: 13px;
-      line-height: 1.5;
+    .cover-top {
+      padding-bottom: 10px;
     }
     .cover-spread,
     .lead-only .lead {
       grid-template-columns: 1fr;
-      gap: 18px;
+      gap: 28px;
     }
     .lead-image :global(img) {
-      max-height: 190px;
+      max-height: 240px;
     }
     .lead-caption {
-      padding-top: 11px;
-    }
-    .lead h2 {
-      font-size: 27px;
-    }
-    .lead-caption .eyebrow {
-      display: none;
+      padding-top: 16px;
     }
     .supporting {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
+      grid-template-columns: 1fr;
+      padding-left: 0;
+      border-left: 0;
+      gap: 0;
     }
-    .supporting :global(.tile-title) {
-      font-size: 19px;
+    .supporting :global(.tile) {
+      display: grid;
+      grid-template-columns: 104px minmax(0, 1fr);
+      gap: 18px;
+      padding: 20px 0;
+      border-top: 1px solid var(--color-input-border);
     }
-    .supporting :global(.tile-byline) {
-      font-size: 11px;
+    .supporting :global(.tile + .tile) {
+      padding-top: 20px;
     }
-    .supporting :global(.tile-byline img) {
-      display: none;
+    .supporting :global(.tile-copy) {
+      padding-top: 0;
+    }
+    .supporting :global(.landing-img) {
+      aspect-ratio: 4 / 3 !important;
     }
     .section {
-      padding: 28px 0;
+      padding: 32px 0;
     }
     .section-top {
-      gap: 12px;
-      align-items: start;
-    }
-    .section-top h2 {
-      font-size: 29px;
+      margin-bottom: 24px;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
     }
     .section-top .text-link {
-      max-width: 114px;
-      text-align: right;
-      font-size: 12px;
+      margin-left: auto;
     }
-    .recipe-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 22px 16px;
-    }
+    .recipe-grid,
     .story-grid {
       grid-template-columns: 1fr;
-      gap: 24px;
+      gap: 0;
     }
-    .story-grid :global(.tile-title) {
-      font-size: 25px;
+    .recipe-grid li:first-child,
+    .story-grid li:first-child {
+      grid-row: auto;
+      margin-bottom: 24px;
     }
+    .recipe-grid li:nth-child(2),
+    .story-grid li:nth-child(2) {
+      padding-top: 20px;
+      border-top: 1px solid var(--color-input-border);
+    }
+    .recipe-grid li:not(:first-child) :global(.tile),
+    .story-grid li:not(:first-child) :global(.tile) {
+      grid-template-columns: 104px minmax(0, 1fr);
+      gap: 18px;
+    }
+    .recipe-grid li:only-child :global(.tile),
     .story-grid.single :global(.tile) {
       display: block;
     }
-    .topic-grid,
-    .community-grid {
+    .story-grid li:not(:first-child) :global(.tile-summary) {
+      font-size: var(--explore-meta);
+      line-clamp: 3;
+      -webkit-line-clamp: 3;
+    }
+    .topic-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
+      gap: 24px 20px;
     }
-    .subsection-top h3 {
-      font-size: 24px;
+    .community-list {
+      grid-template-columns: 1fr;
     }
-    .fresh-part + .fresh-part {
-      margin-top: 22px;
-      padding-top: 22px;
+    .subsection-top {
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .subsection-top p {
+      flex-basis: 100%;
     }
     .footer {
       flex-wrap: wrap;
@@ -704,23 +794,6 @@
     .footer nav {
       margin-left: 0;
       width: 100%;
-    }
-  }
-  @media (max-width: 767px) and (max-height: 720px) {
-    .masthead {
-      padding: 14px 0 10px;
-    }
-    h1 {
-      font-size: 30px;
-    }
-    .intro {
-      font-size: 12px;
-    }
-    .lead-image :global(img) {
-      max-height: 155px;
-    }
-    .lead h2 {
-      font-size: 25px;
     }
   }
 </style>

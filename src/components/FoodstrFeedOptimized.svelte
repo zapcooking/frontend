@@ -5133,7 +5133,7 @@
     <!-- Background loading indicator (subtle, centered at top) - only show if no new posts button -->
     {#if backgroundLoading && !showNewPostsButton}
       <div
-        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-card/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg"
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-[var(--color-light-bg-secondary,var(--color-card))]/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg"
         style="border: 1px solid var(--color-input-border)"
       >
         <div
@@ -5924,7 +5924,7 @@
   /* Parent quote embed - always visible */
   .parent-quote-embed {
     padding: 0.5rem 0.75rem;
-    background: var(--color-input);
+    background: var(--color-light-input-bg, var(--color-input));
     border-left: 3px solid var(--color-primary, #f97316);
     border-radius: 0.375rem;
   }

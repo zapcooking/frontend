@@ -196,12 +196,12 @@
           type="text"
           readonly
           value={invoice.substring(0, 40) + '...'}
-          class="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 rounded-xl text-sm font-mono text-gray-600 dark:text-gray-400"
+          class="flex-1 px-4 py-3 bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:bg-gray-800 rounded-xl text-sm font-mono text-gray-600 dark:text-gray-400"
         />
         <button
           type="button"
           on:click={copyInvoice}
-          class="px-4 py-3 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-xl transition-colors flex items-center gap-2"
+          class="px-4 py-3 bg-[var(--color-light-input-border,var(--color-gray-200))] dark:bg-gray-700 hover:bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:hover:bg-gray-600 rounded-xl transition-colors flex items-center gap-2"
         >
           {#if copied}
             <CheckIcon size={20} class="text-green-500" />

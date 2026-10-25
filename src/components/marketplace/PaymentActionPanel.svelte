@@ -37,7 +37,7 @@
 {#if paymentState === 'success'}
 	<div
 		class="flex flex-col items-center gap-3 py-4 rounded-xl"
-		style="background-color: var(--color-bg-tertiary);"
+		style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));"
 	>
 		<div class="w-12 h-12 rounded-full flex items-center justify-center bg-emerald-500/20">
 			<CheckIcon size={24} weight="bold" class="text-emerald-400" />

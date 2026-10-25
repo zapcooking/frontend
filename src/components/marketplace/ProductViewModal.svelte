@@ -96,7 +96,7 @@
 
 	<div class="flex flex-col gap-5">
 		<!-- Product Image -->
-		<div class="relative aspect-video rounded-xl overflow-hidden" style="background-color: var(--color-bg-tertiary);">
+		<div class="relative aspect-video rounded-xl overflow-hidden" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));">
 			<img src={imageUrl} alt={imageAlt} class="w-full h-full object-cover" />
 		</div>
 
@@ -137,7 +137,7 @@
 		<!-- Category & Location -->
 		<div class="flex flex-wrap items-center gap-3 text-xs" style="color: var(--color-text-secondary)">
 			{#if product?.category}
-				<span class="flex items-center gap-1 px-2 py-1 rounded-full" style="background-color: var(--color-bg-tertiary);">
+				<span class="flex items-center gap-1 px-2 py-1 rounded-full" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));">
 					<TagIcon size={12} />
 					{CATEGORY_LABELS[product.category] || product.category}
 				</span>
@@ -151,7 +151,7 @@
 		</div>
 
 		<!-- Seller -->
-		<div class="flex items-center gap-3 p-3 rounded-xl" style="background-color: var(--color-bg-tertiary);">
+		<div class="flex items-center gap-3 p-3 rounded-xl" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));">
 			<CustomAvatar pubkey={product?.pubkey || ''} size={40} className="flex-shrink-0" />
 			<div class="flex flex-col flex-1">
 				<span class="text-sm" style="color: var(--color-text-secondary)">Sold by</span>

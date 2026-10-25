@@ -117,7 +117,7 @@
     </div>
   {/if}
 
-  <div class="bg-white rounded-lg border border-gray-200 p-6">
+  <div class="bg-[var(--color-light-bg-primary,#fff)] rounded-lg border border-gray-200 p-6">
     <div class="mb-4">
       <label for="feed-content" class="block text-sm font-medium text-gray-700 mb-2">
         What's on your mind?

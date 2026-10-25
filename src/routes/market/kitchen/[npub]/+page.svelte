@@ -222,7 +222,7 @@
 	}
 
 	.tab-btn.active {
-		background-color: var(--color-accent);
+		background-color: var(--color-light-bg-brand,var(--color-accent));
 		color: white;
 	}
 

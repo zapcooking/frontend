@@ -1117,7 +1117,7 @@
             <div class="flex flex-wrap gap-2">
               {#each detectedIngredients as ingredient}
                 <span
-                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-white/80 dark:bg-gray-800/80 border border-teal-300 dark:border-teal-700"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-[color-mix(in_srgb,var(--color-light-bg-primary,#fff)_80%,transparent)] dark:bg-gray-800/80 border border-teal-300 dark:border-teal-700"
                   style="color: var(--color-text-primary)"
                 >
                   {ingredient}
@@ -1140,7 +1140,7 @@
                     type="text"
                     bind:value={newIngredient}
                     placeholder="Add item…"
-                    class="w-24 px-2 py-1 text-sm rounded-full border border-teal-300 dark:border-teal-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    class="w-24 px-2 py-1 text-sm rounded-full border border-teal-300 dark:border-teal-700 bg-[var(--color-light-bg-primary,#fff)] dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
                     on:blur={() => {
                       if (!newIngredient.trim()) showIngredientInput = false;
                     }}
@@ -1532,7 +1532,7 @@
     color: var(--color-text-secondary);
   }
   .photo-chip-remove:hover {
-    background-color: var(--color-hover, rgba(127, 127, 127, 0.12));
+    background-color: var(--color-light-input-bg, var(--color-hover, rgba(127, 127, 127, 0.12)));
   }
   .msg-cheffy {
     gap: 10px;

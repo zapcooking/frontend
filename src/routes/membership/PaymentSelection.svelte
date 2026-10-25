@@ -136,7 +136,7 @@
     class="w-full py-4 px-6 rounded-full font-bold text-lg transition-all duration-200
            {selectedMethod 
              ? 'bg-primary text-white hover:bg-primary/90' 
-             : 'bg-gray-200 text-gray-500 cursor-not-allowed'}"
+             : 'bg-[var(--color-light-input-border,var(--color-gray-200))] text-gray-500 cursor-not-allowed'}"
   >
     {#if isLoading}
       <span class="flex items-center justify-center gap-2">

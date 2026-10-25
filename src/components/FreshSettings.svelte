@@ -40,7 +40,7 @@
         aria-label="Special cards"
         class="relative w-12 h-7 rounded-full transition-colors cursor-pointer flex-shrink-0 {!$prefs.off
           ? 'bg-primary'
-          : 'bg-gray-300 dark:bg-gray-600'}"
+          : 'bg-[var(--color-accent-gray)] dark:bg-gray-600'}"
         on:click={() => setSpecialsOff(!$prefs.off)}
       >
         <span

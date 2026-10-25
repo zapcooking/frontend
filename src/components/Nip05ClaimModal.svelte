@@ -150,7 +150,7 @@
   >
     <!-- Modal -->
     <div
-      class="relative w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden"
+      class="relative w-full max-w-md bg-[var(--color-bg-primary)] dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden"
       transition:fly={{ y: 20, duration: 300 }}
     >
       <!-- Close Button -->
@@ -158,7 +158,7 @@
         <button
           type="button"
           on:click={handleClose}
-          class="absolute top-4 right-4 z-10 p-2 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          class="absolute top-4 right-4 z-10 p-2 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-[var(--color-input-bg)] dark:hover:bg-gray-800 transition-colors"
           aria-label="Close modal"
         >
           <XIcon size={24} />
@@ -198,7 +198,7 @@
                   bind:value={username}
                   on:input={handleUsernameInput}
                   placeholder="yourname"
-                  class="w-full px-4 py-3 pr-24 bg-gray-100 dark:bg-gray-800 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 {error && !isChecking ? 'border-red-300 dark:border-red-700' : isAvailable ? 'border-green-300 dark:border-green-700' : 'border-gray-200 dark:border-gray-700'} text-gray-900 dark:text-white"
+                  class="w-full px-4 py-3 pr-24 bg-[var(--color-input-bg)] dark:bg-gray-800 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 {error && !isChecking ? 'border-red-300 dark:border-red-700' : isAvailable ? 'border-green-300 dark:border-green-700' : 'border-gray-200 dark:border-gray-700'} text-gray-900 dark:text-white"
                   disabled={isClaiming}
                 />
                 <span class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
@@ -234,7 +234,7 @@
               <button
                 type="button"
                 on:click={handleSkip}
-                class="flex-1 px-4 py-3 rounded-xl font-semibold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                class="flex-1 px-4 py-3 rounded-xl font-semibold text-gray-700 dark:text-gray-300 bg-[var(--color-input-bg)] dark:bg-gray-800 hover:bg-[var(--color-input-border)] dark:hover:bg-gray-700 transition-colors"
                 disabled={isClaiming}
               >
                 Skip for Now
@@ -243,7 +243,7 @@
                 type="button"
                 on:click={handleClaim}
                 disabled={!isAvailable || isClaiming || !username.trim()}
-                class="flex-1 px-4 py-3 rounded-xl font-semibold text-white bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
+                class="flex-1 px-4 py-3 rounded-xl font-semibold text-white bg-orange-500 hover:bg-orange-600 disabled:bg-[var(--color-light-accent-gray,var(--color-gray-300))] disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
               >
                 {#if isClaiming}
                   <span class="flex items-center justify-center gap-2">

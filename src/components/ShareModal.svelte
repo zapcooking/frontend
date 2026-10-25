@@ -414,7 +414,7 @@
       <button
         on:click={handleGenerateImage}
         disabled={isGeneratingImage}
-        class="w-full py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white disabled:opacity-50"
+        class="w-full py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-[var(--color-input-border)] dark:bg-gray-700 hover:bg-[var(--color-accent-gray)] dark:hover:bg-gray-600 text-gray-800 dark:text-white disabled:opacity-50"
         aria-label="Generate share image"
       >
         {#if isGeneratingImage}
@@ -502,7 +502,7 @@
         readonly
         value={effectiveShareUrl}
         class="w-full input font-mono text-sm px-3 py-2 rounded-lg"
-        style="background-color: var(--color-input); border: 1px solid var(--color-input-border);"
+        style="background-color: var(--color-light-input-bg, var(--color-input)); border: 1px solid var(--color-input-border);"
         on:focus={handleInputFocus}
         on:click={handleInputClick}
         aria-label="Share URL"
@@ -529,7 +529,7 @@
             {copied
               ? 'bg-green-500 hover:bg-green-600 text-white'
               : showNativeShare 
-                ? 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white'
+                ? 'bg-[var(--color-input-border)] dark:bg-gray-700 hover:bg-[var(--color-accent-gray)] dark:hover:bg-gray-600 text-gray-800 dark:text-white'
                 : 'bg-primary hover:bg-primary/90 text-white'}"
           aria-label={copied ? 'Copied' : 'Copy link'}
         >
@@ -596,7 +596,7 @@
               on:click={copyQrImage}
               disabled={qrImageCopying}
               class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm font-medium transition disabled:opacity-50
-                {qrImageCopied ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90'}"
+                {qrImageCopied ? 'bg-green-500 text-white' : 'bg-[var(--color-input-border)] dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90'}"
               aria-label={qrImageCopied ? 'Copied' : 'Copy QR image'}
             >
               {#if qrImageCopied}
@@ -613,7 +613,7 @@
               type="button"
               on:click={() => saveQrImage()}
               disabled={qrImageSaving}
-              class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90 transition disabled:opacity-50"
+              class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm font-medium bg-[var(--color-input-border)] dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90 transition disabled:opacity-50"
               aria-label="Save QR image"
             >
               {#if qrImageSaving}

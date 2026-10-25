@@ -143,6 +143,17 @@ body {
   --bc-color-brand-button-text-dark: #ffffff;
 }
 
+/* Background-only aliases for legacy fills that must retain their exact dark appearance. */
+:root:not(.dark) {
+  --color-light-bg-primary: var(--color-bg-primary);
+  --color-light-bg-secondary: var(--color-bg-secondary);
+  --color-light-input-bg: var(--color-input-bg);
+  --color-light-input-border: var(--color-input-border);
+  --color-light-accent-gray: var(--color-accent-gray);
+  --color-light-skeleton-base: var(--color-skeleton-base);
+  --color-light-bg-brand: var(--color-primary);
+}
+
 html.dark {
   --zap-orange: #ff7a3d;
   --color-primary: #ff5722;
@@ -465,10 +476,10 @@ a.nostr-mention:hover {
 /* Fresh special cards (recipe box, topic spotlight, memory): a warm,
    paper-toned index card with a tab on its top edge. */
 .fresh-paper {
-  --box-paper: #fbf6ec;
+  --box-paper: var(--color-bg-secondary);
   --box-edge: #ecdfc6;
   --box-ink: #8a5a2b;
-  --box-chip: #f3e9d6;
+  --box-chip: var(--color-input-bg);
   --box-rule: rgba(176, 132, 82, 0.18);
 }
 

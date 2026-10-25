@@ -643,7 +643,7 @@
     font-size: 0.75rem;
     padding: 0.125rem 0.375rem;
     border-radius: 0.25rem;
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
+    background: var(--color-light-bg-secondary, var(--color-bg-tertiary, rgba(255, 255, 255, 0.04)));
     color: var(--color-text-secondary);
     white-space: nowrap;
   }

@@ -93,7 +93,7 @@
       on:load={handleImageLoad}
     />
     {#if !imageLoaded}
-      <div class="absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700"></div>
+      <div class="absolute inset-0 animate-pulse bg-[var(--color-skeleton-base)] dark:bg-gray-700"></div>
     {/if}
 
     <!-- Bookmark Icon -->

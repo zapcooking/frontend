@@ -245,7 +245,7 @@
 
 		<!-- Price preview -->
 		{#if priceInput && parseFloat(priceInput) > 0}
-			<div class="flex flex-col gap-1 p-3 rounded-lg" style="background-color: var(--color-bg-tertiary, rgba(0,0,0,0.1));">
+			<div class="flex flex-col gap-1 p-3 rounded-lg" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0,0,0,0.1)));">
 				<span class="text-xs font-medium" style="color: var(--color-text-secondary)">Listing preview</span>
 				{#if currency === 'SATS'}
 					<span class="text-lg font-bold text-orange-500">

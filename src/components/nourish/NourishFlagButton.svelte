@@ -314,7 +314,7 @@
     font-size: 0.875rem;
     font-weight: 500;
     color: var(--color-text-primary);
-    background: var(--color-input);
+    background: var(--color-light-input-bg, var(--color-input));
     border-radius: 0.5rem;
     cursor: pointer;
   }

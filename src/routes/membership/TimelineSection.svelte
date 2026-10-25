@@ -33,7 +33,7 @@
       </p>
     </div>
     
-    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 sm:h-6 overflow-hidden">
+    <div class="w-full bg-[var(--color-light-input-border,var(--color-gray-200))] dark:bg-gray-700 rounded-full h-4 sm:h-6 overflow-hidden">
       <div 
         class="bg-gradient-to-r from-orange-500 to-amber-500 h-full rounded-full transition-all duration-500 ease-out"
         style="width: {displayProgress}%"
@@ -50,7 +50,7 @@
   <div class="space-y-6 sm:space-y-8 mb-8 sm:mb-12">
     <!-- Phase 1: First 21 -->
     <div class="relative pl-6 sm:pl-8 pb-6 sm:pb-8 border-l-2 sm:border-l-4 {currentPhase === 'first21' ? 'border-orange-500' : 'border-gray-300 dark:border-gray-600'}">
-      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'first21' ? 'bg-orange-500 ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-gray-300 dark:bg-gray-600'}"></div>
+      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'first21' ? 'bg-orange-500 ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"></div>
       <div class="ml-2 sm:ml-4">
         <div class="flex flex-wrap items-center gap-2 mb-1.5 sm:mb-2">
           <h3 class="text-base sm:text-xl font-bold text-gray-900 dark:text-white">
@@ -79,7 +79,7 @@
 
     <!-- Phase 2: Spots 22-50 -->
     <div class="relative pl-6 sm:pl-8 pb-6 sm:pb-8 border-l-2 sm:border-l-4 {currentPhase === 'founding' ? 'border-orange-500' : 'border-gray-300 dark:border-gray-600'}">
-      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'founding' ? 'bg-orange-500 ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-gray-300 dark:bg-gray-600'}"></div>
+      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'founding' ? 'bg-orange-500 ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"></div>
       <div class="ml-2 sm:ml-4">
         <div class="flex flex-wrap items-center gap-2 mb-1.5 sm:mb-2">
           <h3 class="text-base sm:text-xl font-bold text-gray-900 dark:text-white">
@@ -108,7 +108,7 @@
 
     <!-- Phase 3: After 50 -->
     <div class="relative pl-6 sm:pl-8 border-l-2 sm:border-l-4 {currentPhase === 'regular' ? 'border-orange-500' : 'border-gray-300 dark:border-gray-600'}">
-      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'regular' ? 'bg-orange-500 ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-gray-300 dark:bg-gray-600'}"></div>
+      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'regular' ? 'bg-orange-500 ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"></div>
       <div class="ml-2 sm:ml-4">
         <div class="flex flex-wrap items-center gap-2 mb-1.5 sm:mb-2">
           <h3 class="text-base sm:text-xl font-bold text-gray-900 dark:text-white">

@@ -411,7 +411,7 @@
   }
 
   .reply-btn:hover {
-    background-color: var(--color-input);
+    background-color: var(--color-light-input-bg, var(--color-input));
     color: var(--color-text-primary);
   }
 

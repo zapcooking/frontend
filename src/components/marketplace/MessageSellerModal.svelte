@@ -203,7 +203,7 @@
 		</div>
 
 		<!-- ═══ Product summary card ═══ -->
-		<div class="flex gap-3 p-3 rounded-xl" style="background-color: var(--color-bg-tertiary);">
+		<div class="flex gap-3 p-3 rounded-xl" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));">
 			<img
 				src={imageUrl}
 				alt={product?.title}
@@ -297,7 +297,7 @@
 			</div>
 		{:else}
 			<!-- Not logged in / no encryption -->
-			<div class="text-sm p-4 rounded-xl" style="background-color: var(--color-bg-tertiary); color: var(--color-text-secondary);">
+			<div class="text-sm p-4 rounded-xl" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary)); color: var(--color-text-secondary);">
 				{#if !$userPublickey}
 					<p>Log in to message this seller.</p>
 				{:else if !encryptionServiceLoaded}
@@ -348,7 +348,7 @@
 			<div class="flex flex-col gap-4 pt-1">
 				<!-- Full image -->
 				{#if product?.images?.length}
-					<div class="relative aspect-video rounded-xl overflow-hidden" style="background-color: var(--color-bg-tertiary);">
+					<div class="relative aspect-video rounded-xl overflow-hidden" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));">
 						<img
 							src={imageUrl}
 							alt={product?.title}

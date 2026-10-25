@@ -72,7 +72,7 @@
   }
 
   .loading-state.full-screen {
-    @apply fixed inset-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm z-50;
+    @apply fixed inset-0 bg-[var(--color-bg-primary)]/80 dark:bg-gray-900/80 backdrop-blur-sm z-50;
   }
 
   .loading-content {

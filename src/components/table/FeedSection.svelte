@@ -143,15 +143,15 @@
           class="rounded-xl overflow-hidden animate-pulse"
           style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
         >
-          <div class="aspect-[16/9] w-full bg-gray-200 dark:bg-gray-700"></div>
+          <div class="aspect-[16/9] w-full bg-[var(--color-skeleton-base)] dark:bg-gray-700"></div>
           <div class="p-5">
-            <div class="h-6 w-3/4 rounded bg-gray-200 dark:bg-gray-700 mb-3"></div>
+            <div class="h-6 w-3/4 rounded bg-[var(--color-skeleton-base)] dark:bg-gray-700 mb-3"></div>
             <div class="flex items-center gap-2 mb-3">
-              <div class="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700"></div>
-              <div class="h-4 w-24 rounded bg-gray-200 dark:bg-gray-700"></div>
+              <div class="w-8 h-8 rounded-full bg-[var(--color-skeleton-base)] dark:bg-gray-700"></div>
+              <div class="h-4 w-24 rounded bg-[var(--color-skeleton-base)] dark:bg-gray-700"></div>
             </div>
-            <div class="h-4 w-full rounded bg-gray-200 dark:bg-gray-700 mb-2"></div>
-            <div class="h-4 w-5/6 rounded bg-gray-200 dark:bg-gray-700"></div>
+            <div class="h-4 w-full rounded bg-[var(--color-skeleton-base)] dark:bg-gray-700 mb-2"></div>
+            <div class="h-4 w-5/6 rounded bg-[var(--color-skeleton-base)] dark:bg-gray-700"></div>
           </div>
         </div>
       {/each}

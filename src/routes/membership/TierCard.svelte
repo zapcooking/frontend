@@ -131,8 +131,8 @@
 
   // Card styling based on tier
   $: cardClasses = {
-    open: 'bg-white border-gray-200 dark:border-gray-600',
-    cook: 'bg-white border-gray-200 dark:border-gray-600',
+    open: 'bg-[var(--color-light-bg-primary,#fff)] border-gray-200 dark:border-gray-600',
+    cook: 'bg-[var(--color-light-bg-primary,#fff)] border-gray-200 dark:border-gray-600',
     pro: 'bg-gradient-to-br from-orange-50 to-amber-50 border-orange-400 dark:border-orange-500'
   }[tier];
 
@@ -218,7 +218,7 @@
     <!-- Sold Out Badge -->
     {#if isSoldOut}
       <div class="tier-badge">
-        <span class="inline-block px-3 py-2 bg-gray-200 text-gray-600 text-sm font-semibold rounded-full">
+        <span class="inline-block px-3 py-2 bg-[var(--color-light-input-border,var(--color-gray-200))] text-gray-600 text-sm font-semibold rounded-full">
           Founder spots filled
         </span>
       </div>
@@ -368,7 +368,7 @@
 
   .tier-disclosure-row:focus {
     outline: none;
-    background-color: rgba(0, 0, 0, 0.02);
+    background-color: var(--color-light-bg-secondary,rgba(0, 0, 0, 0.02));
   }
 
   .tier-features-list {
@@ -403,7 +403,7 @@
   }
 
   .tier-cta-disabled {
-    background-color: #e5e7eb;
+    background-color: var(--color-light-input-border,#e5e7eb);
     color: #6b7280;
     cursor: not-allowed;
   }

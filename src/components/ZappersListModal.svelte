@@ -167,7 +167,7 @@
         {#each displayZappers as zapper, index (zapper.pubkey)}
           <div
             class="relative w-full flex flex-wrap items-center gap-3 p-3 rounded-lg hover:bg-accent-gray transition-colors text-left"
-            style="background-color: {index === 0 ? 'var(--color-input)' : 'transparent'}"
+            style="background-color: {index === 0 ? 'var(--color-light-input-bg, var(--color-input))' : 'transparent'}"
           >
             <button
               type="button"

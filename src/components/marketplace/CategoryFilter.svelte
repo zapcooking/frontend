@@ -175,7 +175,7 @@
 
 	.chip-count {
 		@apply text-[10px] font-semibold px-1.5 rounded-full;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.2));
+		background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0, 0, 0, 0.2)));
 		line-height: 1.5;
 	}
 

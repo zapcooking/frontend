@@ -160,7 +160,7 @@
 				type="button"
 				on:click={loadKitchens}
 				class="px-4 py-2 rounded-lg font-medium transition-colors"
-				style="background-color: var(--color-accent); color: white;"
+				style="background-color: var(--color-light-bg-brand,var(--color-accent)); color: white;"
 			>
 				Try Again
 			</button>
@@ -286,17 +286,17 @@
 
 	.skeleton-banner {
 		aspect-ratio: 3 / 1;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.skeleton-line {
 		@apply h-3 rounded;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.skeleton-button {
 		@apply h-8 rounded-lg mt-2;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.animate-fade-in {
