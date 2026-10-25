@@ -19,11 +19,14 @@
  *     node scripts/qa/lists/custom-list-edit.mjs
  *
  * Pages load from https://qa.zap.cooking routed to the preview (as in
- * scripts/qa/saved-list/sign-in-save.mjs). Exit code 1 when a check fails.
+ * scripts/qa/saved-list/sign-in-save.mjs). Every relay is local
+ * (scripts/qa/lib/localRelays.mjs: `nak serve` on PATH); the recipes are
+ * local fixtures. Exit code 1 when a check fails.
  */
 const playwright = await import(process.env.SAVED_LIST_PLAYWRIGHT_MODULE || 'playwright');
 const { chromium } = playwright.chromium ? playwright : playwright.default;
 import { generateSecretKey, getPublicKey, finalizeEvent, nip19 } from 'nostr-tools';
+import { startRelayNet, recipeEvent } from '../lib/localRelays.mjs';
 
 const LOCAL = (process.env.SAVED_LIST_QA_URL || 'http://127.0.0.1:4173').replace(/\/$/, '');
 const ORIGIN = 'https://qa.zap.cooking';
@@ -35,82 +38,24 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
 };
 
-/** Publish to relays with plain WebSockets; returns how many accepted. */
-async function seed(event, urls) {
-  const one = (url) =>
-    new Promise((resolve) => {
-      let ws;
-      const timer = setTimeout(() => done(false), 8000);
-      const done = (ok) => {
-        clearTimeout(timer);
-        try {
-          ws?.close();
-        } catch {
-          /* closed */
-        }
-        resolve(ok);
-      };
-      try {
-        ws = new WebSocket(url);
-      } catch {
-        return done(false);
-      }
-      ws.onerror = () => done(false);
-      ws.onopen = () => ws.send(JSON.stringify(['EVENT', event]));
-      ws.onmessage = (m) => {
-        try {
-          const msg = JSON.parse(m.data);
-          if (msg[0] === 'OK' && msg[1] === event.id) done(msg[2] === true);
-        } catch {
-          /* not JSON */
-        }
-      };
-    });
-  const oks = await Promise.all(urls.map(one));
-  return oks.filter(Boolean).length;
-}
-
 const sk = generateSecretKey();
 const pk = getPublicKey(sk);
 const D = `qa-custom-${Date.now()}`;
-// Real recipes (the list page hides its actions when none resolve): two
-// ordinary ones and one whose d tag is a URL, from the recipes feed.
-async function findRecipes() {
-  const b = await chromium.launch({ executablePath: process.env.SAVED_LIST_QA_CHROME || undefined, headless: true });
-  const c = await b.newContext({ serviceWorkers: 'block' });
-  await c.route(`${ORIGIN}/**`, async (route) => {
-    const u = new URL(route.request().url());
-    try {
-      await route.fulfill({ response: await route.fetch({ url: LOCAL + u.pathname + u.search }) });
-    } catch {
-      await route.abort();
-    }
-  });
-  const p = await c.newPage();
-  await p.goto(ORIGIN + '/recipes', { waitUntil: 'domcontentloaded' });
-  await p.waitForSelector('a[href^="/recipe/"]', { timeout: 60000 });
-  await p.waitForTimeout(4000);
-  const hrefs = await p.$$eval('a[href^="/recipe/"]', (as) => [...new Set(as.map((a) => a.getAttribute('href')))]);
-  await b.close();
-  const coords = [];
-  for (const h of hrefs) {
-    try {
-      const d = nip19.decode(h.split('/').pop());
-      if (d.type === 'naddr') coords.push(`${d.data.kind}:${d.data.pubkey}:${d.data.identifier}`);
-    } catch {
-      /* not an naddr */
-    }
-  }
-  const second = (a) => a.indexOf(':', a.indexOf(':') + 1);
-  const url = coords.find((a) => a.slice(second(a) + 1).includes(':'));
-  const plain = coords.filter((a) => a !== url && !a.slice(second(a) + 1).includes(':'));
-  return { url, plain };
-}
-const found = await findRecipes();
-check('found a URL-d recipe and two others', !!found.url && found.plain.length >= 2, found.url ?? 'none');
-if (!found.url || found.plain.length < 2) process.exit(1);
-const [r1, r3] = found.plain;
-const rUrl = found.url;
+const net = await startRelayNet();
+// Recipes the list resolves (the list page hides its actions when none do):
+// two ordinary ones and one whose d tag is a URL, on every local relay.
+const chef = generateSecretKey();
+const coord = (e) => `30023:${e.pubkey}:${e.tags.find((t) => t[0] === 'd')[1]}`;
+const recipes = [
+  recipeEvent(finalizeEvent, chef, { d: `qa-custom-r1-${Date.now()}`, title: 'QA custom one' }),
+  recipeEvent(finalizeEvent, chef, { d: `qa-custom-r3-${Date.now()}`, title: 'QA custom three' }),
+  recipeEvent(finalizeEvent, chef, {
+    d: `https://cooking.example/recipes/${Date.now()}-qa-url-recipe`,
+    title: 'QA URL recipe'
+  })
+];
+for (const r of recipes) await net.seedEverywhere(r);
+const [r1, r3, rUrl] = recipes.map(coord);
 const FOREIGN = ['zap-sort', 'manual'];
 const IMAGE = 'https://image.example/qa-cover.jpg';
 const now = Math.floor(Date.now() / 1000);
@@ -135,13 +80,14 @@ const listEv = (created_at, recipes) =>
   );
 
 const v1 = listEv(now - 120, [r1, rUrl]);
-check('v1 seeded', (await seed(v1, SEED_RELAYS)) >= 2);
+check('v1 seeded', (await net.seed(v1, SEED_RELAYS)) >= 2);
 
 const browser = await chromium.launch({
   executablePath: process.env.SAVED_LIST_QA_CHROME || undefined,
   headless: true
 });
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+await net.route(ctx);
 await ctx.route(`${ORIGIN}/**`, async (route) => {
   const u = new URL(route.request().url());
   try {
@@ -150,20 +96,13 @@ await ctx.route(`${ORIGIN}/**`, async (route) => {
     await route.abort();
   }
 });
-const page = await ctx.newPage();
+const page = await net.newPage(ctx);
 page.setDefaultTimeout(30000);
 const sent = [];
-page.on('websocket', (ws) =>
-  ws.on('framesent', (f) => {
-    try {
-      const m = JSON.parse(f.payload);
-      if (m[0] === 'EVENT' && m[1]?.kind === 30001 && m[1].tags.some((t) => t[0] === 'd' && t[1] === D))
-        if (!sent.some((e) => e.id === m[1].id)) sent.push(m[1]);
-    } catch {
-      /* not JSON */
-    }
-  })
-);
+net.onFrame(({ dir, msg: m }) => {
+  if (dir === 'sent' && m[0] === 'EVENT' && m[1]?.kind === 30001 && m[1].tags.some((t) => t[0] === 'd' && t[1] === D))
+    if (!sent.some((e) => e.id === m[1].id)) sent.push(m[1]);
+});
 
 // Sign in with the throwaway key, then open the list.
 await page.goto(ORIGIN + '/recipes', { waitUntil: 'domcontentloaded' });
@@ -186,7 +125,7 @@ try {
 
 // Another device saves r3: a newer version the page never loaded.
 const v2 = listEv(now - 60, [r1, rUrl, r3]);
-check('v2 (other device) seeded', (await seed(v2, SEED_RELAYS)) >= 2);
+check('v2 (other device) seeded', (await net.seed(v2, SEED_RELAYS)) >= 2);
 
 for (const sel of ['.explore-prompt-cta', '.vault-prompt-dismiss']) {
   const el = page.locator(sel);
@@ -226,7 +165,9 @@ if (ev) {
   check('strictly newer than the newest copy', ev.created_at > v2.created_at, `${ev.created_at} > ${v2.created_at}`);
 }
 
+net.verify(check);
 await browser.close();
+net.close();
 const failed = results.filter((ok) => !ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);
