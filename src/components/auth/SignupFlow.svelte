@@ -37,6 +37,7 @@
     afterPasskey,
     backupFinishRunsPasskey,
     backupCanGoBack,
+    backupRequired,
     protectWithText,
     finishWithText,
     MAX_SIGNUP_NAME_LENGTH,
@@ -119,6 +120,8 @@
   let syncOn = PASSKEY_SYNC_ENABLED;
   let step: SafeStep = { kind: 'choose' };
   let backupSaved = false;
+  // The 'unconfirmed' step's optional "Save a backup key" was opened.
+  let showOptionalBackup = false;
   let passkeyBusy = false;
   let passkeyNote = '';
   let orphanNote = false;
@@ -229,7 +232,7 @@
   }
 
   function backupFinish() {
-    if (step.kind !== 'backup' || !backupSaved) return;
+    if (step.kind !== 'backup' || (backupRequired(step.reason) && !backupSaved)) return;
     if (backupFinishRunsPasskey(step.reason)) runPasskey();
     else finish();
   }
@@ -338,6 +341,7 @@
     step = { kind: 'choose' };
     syncOn = PASSKEY_SYNC_ENABLED;
     backupSaved = false;
+    showOptionalBackup = false;
     passkeyNote = '';
     orphanNote = false;
     enrolled = false;
@@ -514,10 +518,9 @@
           </div>
         {:else if step.reason === 'unconfirmed'}
           <div class="signup-note" role="status">
-            {passkeyLabel === 'passkey' ? 'Your passkey is' : `${passkeyLabel} is`} set up. It's
-            proven to work the first time you unlock with it — next time you open Zap Cooking — so
-            save a backup key to finish. Until that first unlock, your key also stays stored in
-            this browser.
+            {passkeyLabel === 'passkey' ? 'Your passkey is' : `${passkeyLabel} is`} set up. Unlock
+            with it the next time you open Zap Cooking to finish setting it up. Until that first
+            unlock, your key also stays stored in this browser.
           </div>
         {:else if step.reason === 'sync-off'}
           <p class="text-sm text-caption">
@@ -531,18 +534,22 @@
             safe and private.
           </p>
         {/if}
-        <!-- A brand-new key can't already be backed up: no self-attested option. -->
-        <KeyBackupGate
-          nsecHex={bytesToHex(keys.privateKey)}
-          npub={nip19.npubEncode(keys.publicKey)}
-          allowAcknowledge={false}
-          on:satisfied={() => (backupSaved = true)}
-          on:unsatisfied={() => (backupSaved = false)}
-        />
+        <!-- A brand-new key can't already be backed up: no self-attested option.
+             Optional on 'unconfirmed' (behind "Save a backup key"); kept mounted
+             once saved so a backup made earlier in this flow stays counted. -->
+        {#if backupRequired(step.reason) || backupSaved || showOptionalBackup}
+          <KeyBackupGate
+            nsecHex={bytesToHex(keys.privateKey)}
+            npub={nip19.npubEncode(keys.publicKey)}
+            allowAcknowledge={false}
+            on:satisfied={() => (backupSaved = true)}
+            on:unsatisfied={() => (backupSaved = false)}
+          />
+        {/if}
         <Button
           on:click={backupFinish}
           primary={true}
-          disabled={!backupSaved || passkeyBusy || finishing}
+          disabled={(backupRequired(step.reason) && !backupSaved) || passkeyBusy || finishing}
           class="w-full"
         >
           {passkeyBusy
@@ -553,10 +560,17 @@
                 ? finishWithText(passkeyLabel)
                 : 'Finish'}
         </Button>
-        {#if !backupSaved}
+        {#if backupRequired(step.reason) && !backupSaved}
           <p class="text-xs text-caption text-center -mt-2">
             Download the file, or reveal and copy the key, to continue.
           </p>
+        {:else if !backupSaved && !showOptionalBackup}
+          <button
+            type="button"
+            class="signup-link mx-auto text-sm"
+            disabled={finishing}
+            on:click={() => (showOptionalBackup = true)}>Save a backup key</button
+          >
         {/if}
         {#if backupCanGoBack(step.reason) && passkeyOffered}
           <button
