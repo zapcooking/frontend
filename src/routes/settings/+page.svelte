@@ -1,6 +1,6 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import { goto } from '$app/navigation';
+  import { goto, afterNavigate } from '$app/navigation';
   import { standardRelays } from '$lib/consts';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
   import GlobeIcon from 'phosphor-svelte/lib/Globe';
@@ -22,6 +22,8 @@
   import FreshSettings from '../../components/FreshSettings.svelte';
   import LazarusRecoverySection from '../../components/LazarusRecoverySection.svelte';
   import PasskeyVaultSection from '../../components/PasskeyVaultSection.svelte';
+  import AccountNudgeItem from '../../components/AccountNudgeItem.svelte';
+  import { markBackupSaved } from '$lib/accountNudge';
   import { resolveSecuritySections, resolveDisplayPubkey } from '$lib/securitySections';
   import { nip19 } from 'nostr-tools';
   import { theme, type Theme } from '$lib/themeStore';
@@ -75,7 +77,7 @@
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
   import WeblnLogo from '../../components/icons/WeblnLogo.svelte';
   import BitcoinConnectLogo from '../../components/icons/BitcoinConnectLogo.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { get } from 'svelte/store';
   import MembershipBadge from '../../components/MembershipBadge.svelte';
   import type { MembershipTier } from '$lib/membershipStore';
@@ -329,6 +331,20 @@
     }
   }
 
+  // The account nudge (and /settings#security links) open Security in place.
+  let securityOpen = false;
+
+  async function openSecurity() {
+    securityOpen = true;
+    await tick();
+    document.getElementById('security')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Runs on arrival and on same-page hash links (the bell's nudge).
+  afterNavigate(({ to }) => {
+    if (to?.url.hash === '#security') openSecurity();
+  });
+
   onMount(() => {
     updateConnectedRelays();
     fetchNIP65Relays();
@@ -439,6 +455,8 @@
     if (browser) {
       try {
         await navigator.clipboard.writeText(text);
+        // A landed copy of the private key counts as a saved backup.
+        if (keyType === 'private' && pk) markBackupSaved(pk);
         copiedKey = keyType;
         setTimeout(() => {
           copiedKey = '';
@@ -655,6 +673,8 @@
   <h1 class="mb-6">Settings</h1>
 
   <div class="flex flex-col gap-4">
+    <AccountNudgeItem where="settings" on:act={openSecurity} />
+
     <!-- Appearance Section -->
     <Accordion title="Appearance" open={true}>
       <div class="flex flex-col gap-4">
@@ -1690,7 +1710,7 @@
     </Accordion>
 
     <!-- Security Section -->
-    <Accordion title="Security" open={false}>
+    <Accordion id="security" title="Security" bind:open={securityOpen}>
       <div class="flex flex-col gap-5">
         <!-- Public Key -->
         <div>

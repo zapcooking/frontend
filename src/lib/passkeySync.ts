@@ -48,8 +48,6 @@ export const PASSKEY_SYNC_ENABLED = true;
 /**
  * LAUNCHED (July 2026) together with PASSKEY_SYNC_ENABLED (R3: both flip in
  * one PR with the guard). Gates the signup "Secure your account" step.
- * PASSKEY_ENROLL_PROMPT_ENABLED (migration prompt, +layout.svelte) is a
- * later wave and stays off.
  */
 export const PASSKEY_SIGNUP_ENABLED = true;
 

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  passkeyNudgeTitle,
+  unconfirmedSetUpText,
   passkeyMethodLabel,
   passkeySignInText,
   confirmFailedText,
@@ -65,5 +67,25 @@ describe('one-prompt unlock failure copy', () => {
     expect(cancelChoiceText('passkey')).toBe(
       "Your passkey didn't finish twice. Keep trying it, or remove it and save your backup key instead?"
     );
+  });
+});
+
+describe('account nudge and signup copy', () => {
+  it('names the platform in the passkey nudge', () => {
+    expect(passkeyNudgeTitle('Face ID')).toBe('Turn on Face ID to sign in with a tap');
+    expect(passkeyNudgeTitle('Windows Hello')).toBe('Turn on Windows Hello to sign in with a tap');
+    expect(passkeyNudgeTitle('fingerprint')).toBe('Turn on fingerprint unlock to sign in with a tap');
+    expect(passkeyNudgeTitle('passkey')).toBe('Turn on a passkey to sign in with a tap');
+  });
+
+  it("says how to finish an unconfirmed one-prompt passkey", () => {
+    expect(unconfirmedSetUpText('Face ID')).toBe(
+      'Face ID is set up. Next time you open Zap Cooking, sign in with Face ID to finish.'
+    );
+    expect(unconfirmedSetUpText('Touch ID')).toBe(
+      'Touch ID is set up. Next time you open Zap Cooking, sign in with Touch ID to finish.'
+    );
+    expect(unconfirmedSetUpText('fingerprint')).toMatch(/^Fingerprint unlock is set up\./);
+    expect(unconfirmedSetUpText('passkey')).toMatch(/^Your passkey is set up\./);
   });
 });

@@ -21,6 +21,7 @@
   import { totalUnreadCount } from '$lib/stores/messages';
   import { navBalanceVisible } from '$lib/wallet';
   import { userPublickey } from '$lib/nostr';
+  import { lockedVaultPubkey } from '$lib/auth/lockedVault';
   import SidebarWallet from './SidebarWallet.svelte';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import BasketIcon from 'phosphor-svelte/lib/Basket';
@@ -184,9 +185,9 @@
            the drawer and opens the wallet modal (the drawer stacks above
            the modal, so it must close first). Sits ABOVE the My Kitchen
            group and carries no heading — same placement as the desktop
-           sidebar. Hidden for logged-out users and when the wallet
+           sidebar. Hidden for logged-out (and locked) users and when the wallet
            widget is switched off in settings. -->
-      {#if $userPublickey && $navBalanceVisible}
+      {#if $userPublickey && !$lockedVaultPubkey && $navBalanceVisible}
         <div class="mt-1">
           <SidebarWallet onBeforeOpen={close} />
         </div>

@@ -16,6 +16,7 @@
     getVaultRecord,
     isCeremonyCancelled,
     isVaultUnconfirmed,
+    PrfUnsupportedError,
     type VaultSupport,
     type VaultSupportReason
   } from '$lib/passkeyVault';
@@ -30,6 +31,7 @@
   import KeyBackupGate from './KeyBackupGate.svelte';
   import { downloadKeysBackupFile } from '$lib/keyBackupGate';
   import { hexToBytes } from '$lib/passkeyVaultCrypto';
+  import { markBackupSaved, markPasskeyUnsupported, refreshNudge } from '$lib/accountNudge';
 
   const dispatch = createEventDispatcher();
 
@@ -66,6 +68,8 @@
     sessionKeyHex = am?.getSessionPrivateKeyHex() ?? null;
     syncOn = isSyncEnabled();
     recordSyncable = !!syncableKeyEntry(record);
+    // A passkey enrolled or removed here changes which nudge applies.
+    refreshNudge();
   }
 
   // Auth flows notify subscribers synchronously from updateState(), and the
@@ -154,7 +158,9 @@
 
   function downloadBackup() {
     if (!sessionKeyHex || !sessionNpub) return;
-    downloadKeysBackupFile(nip19.nsecEncode(hexToBytes(sessionKeyHex)), sessionNpub);
+    if (downloadKeysBackupFile(nip19.nsecEncode(hexToBytes(sessionKeyHex)), sessionNpub)) {
+      if (authState?.publicKey) markBackupSaved(authState.publicKey);
+    }
   }
 
   function friendlyError(e: unknown, fallback: string): string {
@@ -179,6 +185,10 @@
           "your key also stays in this browser, so you can't get locked out.";
       dispatch('changed');
     } catch (e) {
+      // No PRF from this provider: stop offering the passkey nudge here.
+      if (e instanceof PrfUnsupportedError && authState?.publicKey) {
+        markPasskeyUnsupported(authState.publicKey);
+      }
       errorMsg = friendlyError(e, 'Could not set up the passkey. Nothing was changed.');
     } finally {
       busy = false;

@@ -3,6 +3,7 @@
   import { onMount, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { userPublickey } from '$lib/nostr';
+  import { recordNudgeMoment } from '$lib/accountNudge';
   import { portal } from '../Modal.svelte';
   import { getAuthManager } from '$lib/authManager';
   import {
@@ -2179,6 +2180,7 @@
       const provider = await requestProvider();
       if (provider) {
         enableBitcoinConnect();
+        if ($userPublickey) recordNudgeMoment($userPublickey, 'wallet');
         showAddWallet = false;
         successMessage = 'External wallet connected via Bitcoin Connect!';
       }
@@ -2208,6 +2210,7 @@
     try {
       const result = await enableWebln();
       if (result.success) {
+        if ($userPublickey) recordNudgeMoment($userPublickey, 'wallet');
         showAddWallet = false;
         successMessage = `Connected to ${result.walletName}!`;
         // Refresh balance from WebLN

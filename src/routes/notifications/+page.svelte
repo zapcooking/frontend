@@ -34,6 +34,8 @@
   import AtIcon from 'phosphor-svelte/lib/At';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import VideoIcon from 'phosphor-svelte/lib/Video';
+  import AccountNudgeItem from '../../components/AccountNudgeItem.svelte';
+  import { activeNudge, markNudgeSeen } from '$lib/accountNudge';
 
   // Pull-to-refresh ref
   let pullToRefreshEl: PullToRefresh;
@@ -422,6 +424,10 @@
     void refreshAndResetView();
   }
 
+  // The account nudge pinned above the list counts on the badge until it's
+  // been shown here once (it can turn up after mount: support detection is async).
+  $: if ($activeNudge && !$activeNudge.seen) markNudgeSeen($activeNudge.pubkey);
+
   onMount(async () => {
     if ($userPublickey) {
       // Ensure mute list is loaded before snapshotting unread IDs,
@@ -718,6 +724,12 @@
         </a>
       </div>
     {:else}
+      {#if $activeNudge}
+        <div class="mb-6">
+          <AccountNudgeItem where="notifications" />
+        </div>
+      {/if}
+
       <!-- Tabs -->
       <div class="mb-6">
         <div class="flex overflow-x-auto scrollbar-hide pb-0 border-b border-solid" style="border-color: var(--color-input-border); background: none; border-radius: 0; border-top: none; border-left: none; border-right: none;">
