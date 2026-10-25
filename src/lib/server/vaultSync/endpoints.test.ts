@@ -432,6 +432,184 @@ describe('DELETE /api/vault-sync/:hash', () => {
   });
 });
 
+// ── Registration-authorized first upload (PR B, one-prompt signup) ──
+
+/**
+ * A create() response's wire form: authenticatorData with the AT flag and
+ * attested credential data (aaguid | idLength | id | COSE key), and a
+ * webauthn.create clientDataJSON over a fresh server challenge.
+ */
+async function mintRegistration(
+  opts: {
+    type?: string;
+    challenge?: string;
+    credentialId?: string;
+    attestedCredentialId?: string;
+    flags?: number;
+    rpIdHashFrom?: Uint8Array;
+  } = {}
+) {
+  const challenge = opts.challenge ?? (await issueChallenge(SECRET)).challenge;
+  const claimed = opts.credentialId ?? CRED_ID;
+  const attested = b64urlToBytes(opts.attestedCredentialId ?? claimed);
+  const head = (opts.rpIdHashFrom ?? AUTH_DATA).slice(0, 32);
+  const authData = new Uint8Array([
+    ...head,
+    opts.flags ?? 0x45, // UP | UV | AT
+    0,
+    0,
+    0,
+    0, // signCount
+    ...new Uint8Array(16), // aaguid
+    attested.length >> 8,
+    attested.length & 0xff,
+    ...attested,
+    0xa5,
+    0x01,
+    0x02 // start of a COSE key (not parsed server-side)
+  ]);
+  const cdj = new TextEncoder().encode(
+    JSON.stringify({ type: opts.type ?? 'webauthn.create', challenge, origin: fixture.origin })
+  );
+  return {
+    credentialId: claimed,
+    authenticatorData: b64url(authData),
+    clientDataJSON: b64url(cdj)
+  };
+}
+
+async function registrationUpload(registration: unknown, spki = fixture.spkiB64url) {
+  return uploadPUT(event(putRequest({ blob: fixture.blob, spki, alg: fixture.alg, registration })));
+}
+
+const storedEntry = async () => {
+  const e = store.get(await credentialIdHash());
+  return e ? { ...JSON.parse(e.value), ttl: e.ttl } : null;
+};
+
+describe('PUT /api/vault-sync (registration-authorized first upload)', () => {
+  it('stores the entry UNCONFIRMED with the short TTL', async () => {
+    const res = await registrationUpload(await mintRegistration());
+    expect(res.status).toBe(200);
+    const entry = await storedEntry();
+    expect(entry.unconfirmed).toBe(true);
+    expect(entry.credentialPublicKey).toBe(fixture.spkiB64url);
+    expect(entry.blob).toBe(fixture.blob);
+    expect(entry.ttl).toBe(30 * 24 * 60 * 60);
+  });
+
+  it('never touches an existing entry (confirmed or not)', async () => {
+    await uploadFixtureBlob();
+    const before = store.get(await credentialIdHash());
+    const res = await registrationUpload(await mintRegistration());
+    expect(res.status).toBe(404);
+    expect(store.get(await credentialIdHash())).toEqual(before);
+
+    store.clear();
+    await registrationUpload(await mintRegistration());
+    const unconfirmed = store.get(await credentialIdHash());
+    expect((await registrationUpload(await mintRegistration())).status).toBe(404);
+    expect(store.get(await credentialIdHash())).toEqual(unconfirmed);
+  });
+
+  it('requires spki/alg (400) and rejects every bad registration with the uniform 404', async () => {
+    const noKey = await uploadPUT(
+      event(putRequest({ blob: fixture.blob, registration: await mintRegistration() }))
+    );
+    expect(noKey.status).toBe(400);
+
+    const used = (await issueChallenge(SECRET)).challenge;
+    expect((await registrationUpload(await mintRegistration({ challenge: used }))).status).toBe(
+      200
+    );
+    store.delete(await credentialIdHash()); // keep the challenge's single-use tombstone
+    const cases: Array<[string, Promise<unknown>]> = [
+      ['an assertion clientData type', mintRegistration({ type: 'webauthn.get' })],
+      ['a reused challenge', mintRegistration({ challenge: used })],
+      ['a forged challenge', mintRegistration({ challenge: 'AAAA' })],
+      [
+        'a different attested credential',
+        mintRegistration({ attestedCredentialId: 'AAAAAAAAAAAAAAAAAAAAAA' })
+      ],
+      ['no UV', mintRegistration({ flags: 0x41 })],
+      ['no AT (no attested credential data)', mintRegistration({ flags: 0x05 })],
+      ['another rp id', mintRegistration({ rpIdHashFrom: new Uint8Array(32) })]
+    ];
+    for (const [label, reg] of cases) {
+      const res = await registrationUpload(await reg);
+      expect(res.status, label).toBe(404);
+      expect(await res.json(), label).toEqual({ error: 'not_found' });
+    }
+    expect(store.has(await credentialIdHash())).toBe(false); // nothing stored
+  });
+
+  it('the first real assertion (fetch) confirms it: flag gone, full TTL', async () => {
+    await registrationUpload(await mintRegistration());
+    const res = await fetchPOST(
+      event(
+        new Request('https://zap.cooking/api/vault-sync/x', {
+          method: 'POST',
+          body: JSON.stringify({ assertion: await mintAssertion() })
+        }),
+        { credentialIdHash: await credentialIdHash() }
+      )
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).blob).toBe(fixture.blob);
+    const entry = await storedEntry();
+    expect(entry.unconfirmed).toBeUndefined();
+    expect(entry.ttl).toBe(370 * 24 * 60 * 60);
+  });
+
+  it('an assertion-backed upload replaces an unconfirmed entry whose registered key never verifies', async () => {
+    // Registered with a key the credential doesn't actually sign with.
+    const bogusSpki = fixture.spkiB64url.slice(0, -4) + 'AAAA';
+    await registrationUpload(await mintRegistration(), bogusSpki);
+    expect((await storedEntry()).credentialPublicKey).toBe(bogusSpki);
+
+    const res = await uploadPUT(
+      event(
+        putRequest({
+          blob: fixture.blob,
+          spki: fixture.spkiB64url,
+          alg: fixture.alg,
+          assertion: await mintAssertion()
+        })
+      )
+    );
+    expect(res.status).toBe(200);
+    const entry = await storedEntry();
+    expect(entry.credentialPublicKey).toBe(fixture.spkiB64url);
+    expect(entry.unconfirmed).toBeUndefined();
+    expect(entry.ttl).toBe(370 * 24 * 60 * 60);
+  });
+
+  it('a confirmed entry still keeps its stored key against a submitted one', async () => {
+    await registrationUpload(await mintRegistration());
+    await fetchPOST(
+      event(
+        new Request('https://zap.cooking/api/vault-sync/x', {
+          method: 'POST',
+          body: JSON.stringify({ assertion: await mintAssertion() })
+        }),
+        { credentialIdHash: await credentialIdHash() }
+      )
+    ); // confirmed now
+    const res = await uploadPUT(
+      event(
+        putRequest({
+          blob: fixture.blob,
+          spki: fixture.spkiB64url.slice(0, -4) + 'AAAA',
+          alg: fixture.alg,
+          assertion: await mintAssertion({ wrongKey: true })
+        })
+      )
+    );
+    expect(res.status).toBe(404);
+    expect((await storedEntry()).credentialPublicKey).toBe(fixture.spkiB64url);
+  });
+});
+
 describe('rate limiting', () => {
   it('fetch trips the per-hour bucket at 20', async () => {
     let last: Response | null = null;
