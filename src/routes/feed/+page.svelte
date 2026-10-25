@@ -80,6 +80,13 @@
     browser ? readStoredFeedTab() : null,
     hasSignedInSession()
   );
+  let lastTabParam = $page.url.searchParams.get('tab');
+  // A shared topic URL or browser Back/Forward can change tabs without a click.
+  // Track URL changes separately so setTab's immediate update is not reverted.
+  $: if (browser && $page.url.searchParams.get('tab') !== lastTabParam) {
+    lastTabParam = $page.url.searchParams.get('tab');
+    activeTab = initialFeedTab(lastTabParam, readStoredFeedTab(), hasSignedInSession());
+  }
 
   // Fresh is the landing tab: start its first page now, while the rest of
   // the page hydrates and mounts, instead of when the feed mounts.
@@ -162,6 +169,7 @@
     // Update URL for bookmarking/sharing
     const url = new URL($page.url);
     url.searchParams.set('tab', tab);
+    if (tab !== 'fresh') url.searchParams.delete('topic');
     goto(url.pathname + url.search, { noScroll: true, replaceState: true });
   }
 

@@ -4,7 +4,7 @@
  *
  * One list per slot, tag order = display order:
  *   30004 d=explore-hero    `a` refs: approved cover pool (up to 20 recipes).
- *       List order breaks ties inside deterministic six-hour editions.
+ *       List order breaks ties inside deterministic daily editions.
  *   30004 d=explore-reads   `a` refs: food reads
  *   30015 d=explore-topics  `t` tags: topic slugs
  *   30000 d=feed-foodies    `p` tags: cooks (also the feed relay's trust list).

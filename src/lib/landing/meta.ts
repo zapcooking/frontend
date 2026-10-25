@@ -6,6 +6,7 @@
 
 import { optimizeImageUrl, imageRoute } from '$lib/imageOptimizer';
 import type { LandingData } from './landingData.server';
+import { EDITORIAL_SUPPORTING_LINE } from './editorialConfig';
 
 export const SITE = 'https://zap.cooking';
 export const LANDING_CANONICAL = `${SITE}/explore`;
@@ -35,8 +36,7 @@ export function ogImage(d: Pick<LandingData, 'cover'>): string {
 export function landingMeta(d: Pick<LandingData, 'cover'>): LandingMeta {
 	return {
 		title: 'Zap Cooking: recipes, cooks and food stories',
-		description:
-			'Discover recipes from real cooks. Save your favorites. Bring your own to the table.',
+		description: EDITORIAL_SUPPORTING_LINE,
 		canonical: LANDING_CANONICAL,
 		image: ogImage(d)
 	};
@@ -87,7 +87,8 @@ export const NOSCRIPT_DARK_STYLE =
 	'<noscript><style>@media (prefers-color-scheme: dark){:root:root{' +
 	'--color-primary:#ff5722;--color-input-border:#4b5563;--color-caption:#94a3b8;' +
 	'--color-text-primary:#f3f4f6;--color-text-secondary:#d1d5db;--color-bg-primary:#111827;' +
-	'--color-bg-secondary:#1f2937;--color-card-sunken:#0c111c}' +
+	'--color-bg-secondary:#1f2937;--color-card-sunken:#0c111c;' +
+	'--color-explore-cream:#191b1b;--color-explore-peach:#35261f;--color-explore-sage:#252e25}' +
 	'.logo-l{display:none!important}.logo-d{display:block!important}' +
 	// The footer's Support link: Tailwind's dark: variant needs html.dark (orange-400).
 	'.landing .text-orange-700{color:#fb923c!important}' +

@@ -19,6 +19,7 @@ import {
 	type LandingData
 } from './landingData.server';
 import { ORG_PUBKEY } from './curation';
+import { EDITORIAL_EDITION_SECONDS } from './editorialConfig';
 import { FakeWebSocket, ev, pk, relay, relays, testVerify } from './fakeRelay.testutil';
 
 const NOW = 1_800_000_000;
@@ -50,7 +51,7 @@ function article(d: string, author: string, extra: string[][] = []) {
 		kind: 30023,
 		pubkey: author,
 		created_at: NOW - 5000,
-		tags: [['d', d], ['title', `Read ${d}`], ['image', IMG(d)], ...extra]
+		tags: [['d', d], ['title', `Read ${d}`], ['image', IMG(d)], ...(!extra.length ? [['t', 'food']] : []), ...extra]
 	});
 }
 function orgList(kind: number, d: string, tags: string[][], over: { pubkey?: string; sig?: string } = {}) {
@@ -144,7 +145,7 @@ describe('buildLandingData', () => {
 		expect(fresh?.since).toBe(NOW - 14 * 86400 + 60);
 		const topic = feed.reqs.find((f) => f.search === 'topic:baking');
 		expect(topic?.since).toBe(NOW - 14 * 86400 + 60);
-		expect(topic?.limit).toBe(5);
+		expect(topic?.limit).toBe(8);
 	});
 
 	it('ignores lists that fail verification and falls back (featured topics, newest recipes)', async () => {
@@ -164,6 +165,8 @@ describe('buildLandingData', () => {
 	it('without a reads list: food articles from the last 90 days, shown only when 2 qualify', async () => {
 		const feed = seed();
 		relay(LIST_RELAYS[0], []);
+		const untagged = feed.events.find((event) => event.tags.some((tag) => tag[0] === 'd' && tag[1] === 'trusted-read'))!;
+		untagged.tags = untagged.tags.filter((tag) => tag[0] !== 't');
 		// One qualifies (the bitcoin/politics one has no food tag): no section, no padding.
 		expect((await buildLandingData(deps)).reads).toEqual([]);
 
@@ -274,7 +277,7 @@ describe('last good data', () => {
 			author: { pubkey: pk('a') },
 			publishedAt: 1
 		},
-		fresh: [{ id: 'f', href: '/note1', text: 'old', image: IMG('f'), author: { pubkey: pk('a') }, createdAt: 1 }]
+		fresh: [{ id: 'f', href: '/note1', text: 'Bread', image: IMG('f'), author: { pubkey: pk('a') }, createdAt: 1 }]
 	};
 
 	it('a section that comes back empty keeps its last good version', () => {
@@ -294,14 +297,14 @@ describe('last good data', () => {
 		expect(mergeWithLastGood(emptyLandingData(2), lastWithReads).data.reads).toEqual(lastWithReads.reads);
 	});
 
-	it('holds approved candidates stable within six hours, then admits newly resolved candidates', () => {
+	it('holds approved candidates stable within the configured day, then admits newly resolved candidates', () => {
 		const first = longformCardForTest('a');
 		const late = longformCardForTest('b');
 		const coverList = { version: 1, coordinates: [first.coordinate, late.coordinate] };
-		const last = { ...emptyLandingData(21600), coverPool: [first], coverList };
-		const refreshed = { ...emptyLandingData(21600 + 120), coverPool: [first, late], coverList };
+		const last = { ...emptyLandingData(EDITORIAL_EDITION_SECONDS), coverPool: [first], coverList };
+		const refreshed = { ...emptyLandingData(EDITORIAL_EDITION_SECONDS + 120), coverPool: [first, late], coverList };
 		expect(mergeWithLastGood(refreshed, last).data.coverPool).toEqual([first]);
-		expect(mergeWithLastGood({ ...refreshed, builtAt: 43200 }, last).data.coverPool).toEqual([first, late]);
+		expect(mergeWithLastGood({ ...refreshed, builtAt: EDITORIAL_EDITION_SECONDS * 2 }, last).data.coverPool).toEqual([first, late]);
 	});
 
 	it('pins the new bucket before stale-while-revalidate can alter its candidate selection', () => {
@@ -309,21 +312,21 @@ describe('last good data', () => {
 		const resolvedPreviously = longformCardForTest('b');
 		const resolvedThisBucket = longformCardForTest('c');
 		const coverList = { version: 1, coordinates: [first.coordinate, resolvedPreviously.coordinate, resolvedThisBucket.coordinate] };
-		const previous = { ...emptyLandingData(43000), coverPoolBucket: 1, coverList, coverPool: [first], recipePool: [first, resolvedPreviously] };
-		const pinned = pinCoverPool(previous, 43200);
+		const previous = { ...emptyLandingData(EDITORIAL_EDITION_SECONDS * 2 - 200), coverPoolBucket: 1, coverList, coverPool: [first], recipePool: [first, resolvedPreviously] };
+		const pinned = pinCoverPool(previous, EDITORIAL_EDITION_SECONDS * 2);
 		expect(pinned.coverPool).toEqual([first, resolvedPreviously]);
-		const background = { ...emptyLandingData(43201), coverList, coverPool: [first, resolvedPreviously, resolvedThisBucket], recipePool: [first, resolvedPreviously, resolvedThisBucket] };
+		const background = { ...emptyLandingData(EDITORIAL_EDITION_SECONDS * 2 + 1), coverList, coverPool: [first, resolvedPreviously, resolvedThisBucket], recipePool: [first, resolvedPreviously, resolvedThisBucket] };
 		const merged = mergeWithLastGood(background, pinned).data;
 		expect(merged.coverPool).toEqual(pinned.coverPool);
-		expect(pinCoverPool(merged, 64800).coverPool).toEqual([first, resolvedPreviously, resolvedThisBucket]);
+		expect(pinCoverPool(merged, EDITORIAL_EDITION_SECONDS * 3).coverPool).toEqual([first, resolvedPreviously, resolvedThisBucket]);
 	});
 
 	it('distinguishes an editorial removal from a relay outage and respects new overrides immediately', () => {
 		const first = longformCardForTest('a');
 		const replacement = longformCardForTest('b');
-		const last = { ...emptyLandingData(21600), coverPool: [first], coverList: { version: 1, coordinates: [first.coordinate] } };
-		expect(mergeWithLastGood(emptyLandingData(21720), last).data.coverPool).toEqual([first]);
-		const removed = { ...emptyLandingData(21720), coverList: { version: 2, coordinates: [] } };
+		const last = { ...emptyLandingData(EDITORIAL_EDITION_SECONDS), coverPool: [first], coverList: { version: 1, coordinates: [first.coordinate] } };
+		expect(mergeWithLastGood(emptyLandingData(EDITORIAL_EDITION_SECONDS + 120), last).data.coverPool).toEqual([first]);
+		const removed = { ...emptyLandingData(EDITORIAL_EDITION_SECONDS + 120), coverList: { version: 2, coordinates: [] } };
 		expect(mergeWithLastGood(removed, last).data.coverPool).toEqual([]);
 		const changed = { ...removed, coverPool: [replacement], coverList: { version: 2, coordinates: [replacement.coordinate] } };
 		expect(mergeWithLastGood(changed, last).data.coverPool).toEqual([replacement]);
