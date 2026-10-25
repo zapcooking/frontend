@@ -39,8 +39,9 @@ function makeKv() {
 
 let kv: ReturnType<typeof makeKv>;
 let platform: any;
+let clientIp = '203.0.113.5';
 const event = (request: Request, params: Record<string, string> = {}) =>
-  ({ request, platform, params, getClientAddress: () => '203.0.113.5' }) as any;
+  ({ request, platform, params, getClientAddress: () => clientIp }) as any;
 
 async function credentialIdHash(credIdB64url = CRED_ID): Promise<string> {
   const digest = new Uint8Array(
@@ -119,6 +120,7 @@ async function uploadFixtureBlob() {
 }
 
 beforeEach(() => {
+  clientIp = '203.0.113.5';
   store = new Map();
   kv = makeKv();
   platform = { env: { VAULT_SYNC: kv, VAULT_SYNC_CHALLENGE_SECRET: SECRET } };
@@ -447,6 +449,9 @@ async function mintRegistration(
     attestedCredentialId?: string;
     flags?: number;
     rpIdHashFrom?: Uint8Array;
+    origin?: string;
+    /** Replace the authenticatorData bytes outright (truncation cases). */
+    authData?: Uint8Array;
   } = {}
 ) {
   const challenge = opts.challenge ?? (await issueChallenge(SECRET)).challenge;
@@ -469,11 +474,15 @@ async function mintRegistration(
     0x02 // start of a COSE key (not parsed server-side)
   ]);
   const cdj = new TextEncoder().encode(
-    JSON.stringify({ type: opts.type ?? 'webauthn.create', challenge, origin: fixture.origin })
+    JSON.stringify({
+      type: opts.type ?? 'webauthn.create',
+      challenge,
+      origin: opts.origin ?? fixture.origin
+    })
   );
   return {
     credentialId: claimed,
-    authenticatorData: b64url(authData),
+    authenticatorData: b64url(opts.authData ?? authData),
     clientDataJSON: b64url(cdj)
   };
 }
@@ -532,10 +541,32 @@ describe('PUT /api/vault-sync (registration-authorized first upload)', () => {
         mintRegistration({ attestedCredentialId: 'AAAAAAAAAAAAAAAAAAAAAA' })
       ],
       ['no UV', mintRegistration({ flags: 0x41 })],
+      ['no UP', mintRegistration({ flags: 0x44 })],
+      ['a bad origin', mintRegistration({ origin: 'https://evil.example' })],
+      [
+        'an expired challenge',
+        mintRegistration({
+          challenge: (await issueChallenge(SECRET, Date.now() - 3 * 60 * 1000)).challenge
+        })
+      ],
+      [
+        'truncated authData (no attested credential data)',
+        mintRegistration({ authData: AUTH_DATA.slice(0, 37) })
+      ],
+      [
+        'a credential id that runs past the end',
+        (async () => {
+          const ok = await mintRegistration();
+          const bytes = b64urlToBytes(ok.authenticatorData);
+          return { ...ok, authenticatorData: b64url(bytes.slice(0, 55 + 4)) }; // id cut short
+        })()
+      ],
       ['no AT (no attested credential data)', mintRegistration({ flags: 0x05 })],
       ['another rp id', mintRegistration({ rpIdHashFrom: new Uint8Array(32) })]
     ];
+    let n = 0;
     for (const [label, reg] of cases) {
+      clientIp = `198.51.100.${++n}`; // own bucket per case: registrations are rate-limited
       const res = await registrationUpload(await reg);
       expect(res.status, label).toBe(404);
       expect(await res.json(), label).toEqual({ error: 'not_found' });
@@ -578,10 +609,63 @@ describe('PUT /api/vault-sync (registration-authorized first upload)', () => {
       )
     );
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, unconfirmed: true });
     const entry = await storedEntry();
     expect(entry.credentialPublicKey).toBe(fixture.spkiB64url);
+    // A replacement never confirms itself: still unconfirmed, still 30 days.
+    expect(entry.unconfirmed).toBe(true);
+    expect(entry.ttl).toBe(30 * 24 * 60 * 60);
+
+    // Only an assertion verifying against the STORED key confirms it.
+    await fetchPOST(
+      event(
+        new Request('https://zap.cooking/api/vault-sync/x', {
+          method: 'POST',
+          body: JSON.stringify({ assertion: await mintAssertion() })
+        }),
+        { credentialIdHash: await credentialIdHash() }
+      )
+    );
+    const confirmed = await storedEntry();
+    expect(confirmed.unconfirmed).toBeUndefined();
+    expect(confirmed.ttl).toBe(370 * 24 * 60 * 60);
+  });
+
+  it('an upload whose assertion verifies against the stored key confirms an unconfirmed entry', async () => {
+    await registrationUpload(await mintRegistration());
+    const res = await uploadPUT(
+      event(
+        putRequest({
+          blob: fixture.blob,
+          spki: fixture.spkiB64url, // the client always submits it; the stored key matches
+          alg: fixture.alg,
+          assertion: await mintAssertion()
+        })
+      )
+    );
+    expect(await res.json()).toEqual({ ok: true, unconfirmed: false });
+    const entry = await storedEntry();
     expect(entry.unconfirmed).toBeUndefined();
     expect(entry.ttl).toBe(370 * 24 * 60 * 60);
+  });
+
+  it('a blob that does not hold the registered credential → uniform 404', async () => {
+    const other = 'AAAAAAAAAAAAAAAAAAAAAA';
+    const res = await registrationUpload(
+      await mintRegistration({ credentialId: other, attestedCredentialId: other })
+    );
+    expect(res.status).toBe(404);
+    expect(store.has(await credentialIdHash(other))).toBe(false);
+  });
+
+  it('registration uploads have their own tighter per-IP bucket', async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      store.delete(await credentialIdHash());
+      statuses.push((await registrationUpload(await mintRegistration())).status);
+    }
+    expect(statuses.slice(0, 5)).toEqual([200, 200, 200, 200, 200]);
+    expect(statuses[5]).toBe(429);
   });
 
   it('a confirmed entry still keeps its stored key against a submitted one', async () => {

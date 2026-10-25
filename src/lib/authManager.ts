@@ -1855,6 +1855,7 @@ export class AuthManager {
     saveVaultRecord(record);
     setSyncEnabled(true);
     setUploadPending(false);
+    setServerCopyUnconfirmed(false);
   }
 
   // Sync preference for an unconfirmed vault: just stored — the encrypted
@@ -2094,7 +2095,7 @@ export class AuthManager {
     privkeyHex: string,
     pubkey: string,
     opts?: { sync?: boolean; signIn?: boolean; awaitUpload?: boolean }
-  ): Promise<{ uploaded: boolean | null }> {
+  ): Promise<{ uploaded: boolean | null; confirmed: boolean }> {
     if (!browser) throw new Error('Browser environment required');
     if (!PASSKEY_SIGNUP_ENABLED) throw new Error('Passkey signup is not enabled');
 
@@ -2123,7 +2124,7 @@ export class AuthManager {
     // then doesn't adopt it — authenticateWithPrivateKey stores the
     // plaintext key as an nsec session does — and the next visit's unlock
     // confirms it. Without a create()-time PRF result: create + get, as before.
-    const { record, assertion, registration } = await enrollPasskey(
+    const { record, assertion, registration, confirmed } = await enrollPasskey(
       privkeyHex,
       pubkey,
       label,
@@ -2155,7 +2156,7 @@ export class AuthManager {
     } else if (opts?.sync === false) {
       setSyncEnabled(false);
     }
-    return { uploaded };
+    return { uploaded, confirmed };
   }
 
   // Remove the vault (downgrade to plaintext-localStorage sessions). Requires
@@ -2205,6 +2206,7 @@ export class AuthManager {
     deleteVaultRecord();
     setSyncEnabled(false);
     setUploadPending(false);
+    setServerCopyUnconfirmed(false);
 
     if (serverChallenge && assertion) {
       // Best-effort, never blocks the downgrade; 404 = already gone.
@@ -2286,6 +2288,7 @@ export class AuthManager {
       await deleteVaultBlob(assertion); // 404 = already gone (idempotent)
       setSyncEnabled(false);
       setUploadPending(false);
+      setServerCopyUnconfirmed(false);
     }
   }
 

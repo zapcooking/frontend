@@ -33,8 +33,14 @@ export function isValidPhotoUrl(url: string): boolean {
  *   sync-off      — passkey with sync off: backup first, passkey after
  *   upload-failed — passkey-only, but the off-device copy didn't land
  *   passkey-failed— the passkey couldn't be set up on this device
+ *   unconfirmed   — one-prompt passkey: nothing has shown it can unlock yet
  */
-export type BackupReason = 'chosen' | 'sync-off' | 'upload-failed' | 'passkey-failed';
+export type BackupReason =
+  | 'chosen'
+  | 'sync-off'
+  | 'upload-failed'
+  | 'passkey-failed'
+  | 'unconfirmed';
 
 export type SafeStep =
   | { kind: 'choose' }
@@ -47,12 +53,22 @@ export function onPasskeyChosen(syncOn: boolean): SafeStep | 'run-passkey' {
 }
 
 /**
- * After the passkey ceremony succeeded. Passkey-only (sync on) needs the
- * encrypted copy to have reached the server; otherwise there is no
- * off-device way back in, so a backup key is required before finishing.
- * With sync off the backup key was already saved (it came first).
+ * After the passkey ceremony succeeded. An UNCONFIRMED passkey (one-prompt
+ * setup: no get() has shown it can reproduce its key) always needs a saved
+ * backup key before finishing — the synced copy depends on the same passkey,
+ * and logging out before the first unlock drops the plaintext fallback, so
+ * without one a provider that can't unlock would lock the account for good.
+ * (With sync off the backup key was already saved this flow; the step then
+ * only explains.) Confirmed passkey-only (sync on) needs the encrypted copy
+ * to have reached the server; otherwise there is no off-device way back in,
+ * so a backup key is required before finishing.
  */
-export function afterPasskey(syncOn: boolean, uploaded: boolean | null): SafeStep {
+export function afterPasskey(
+  syncOn: boolean,
+  uploaded: boolean | null,
+  confirmed = true
+): SafeStep {
+  if (!confirmed) return { kind: 'backup', reason: 'unconfirmed' };
   if (!syncOn) return { kind: 'done' };
   return uploaded === true ? { kind: 'done' } : { kind: 'backup', reason: 'upload-failed' };
 }

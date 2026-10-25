@@ -278,22 +278,25 @@ function onePromptAuthenticator(getPrf: Uint8Array | 'NotAllowedError' = PRF()) 
   });
 }
 
-const puts = () => fetchMock.mock.calls.filter(([, init]: any) => init?.method === 'PUT');
+const init = (call: unknown[]) => call[1] as RequestInit | undefined;
+const puts = () => fetchMock.mock.calls.filter((call: unknown[]) => init(call)?.method === 'PUT');
 const posts = () =>
   fetchMock.mock.calls.filter(
-    ([url, init]: any) => init?.method === 'POST' && !String(url).endsWith('/challenge')
+    (call: unknown[]) => init(call)?.method === 'POST' && !String(call[0]).endsWith('/challenge')
   );
 
 /** Signup screen 2 as SignupFlow runs it: enroll, then sign in at finish. */
 async function signUp(am: AuthManager, sync: boolean) {
-  const { uploaded } = await am.enrollAtSignup(NSEC, PUBKEY, {
+  const { uploaded, confirmed } = await am.enrollAtSignup(NSEC, PUBKEY, {
     sync,
     signIn: false,
     awaitUpload: sync
   });
+  lastConfirmed = confirmed;
   await am.authenticateWithPrivateKey(NSEC); // finish()
   return uploaded;
 }
+let lastConfirmed = true;
 
 /** A later visit restoring from storage: starts locked. */
 async function nextVisit() {
@@ -333,7 +336,12 @@ describe('one-prompt signup (PRF at create)', () => {
       authenticatorData: 'BA' // [4]
     });
     expect(store.get(SYNC_SERVER_UNCONFIRMED_KEY)).toBe('1');
-    expect(afterPasskey(true, uploaded)).toEqual({ kind: 'done' }); // passkey-only: no backup step
+    // Unconfirmed: the backup key is required even though the copy landed.
+    expect(lastConfirmed).toBe(false);
+    expect(afterPasskey(true, uploaded, lastConfirmed)).toEqual({
+      kind: 'backup',
+      reason: 'unconfirmed'
+    });
   });
 
   it('next visit: the chip unlock confirms the vault AND the server copy (refresh assertion)', async () => {
@@ -366,7 +374,10 @@ describe('one-prompt signup (PRF at create)', () => {
 
     expect(credentials.get).not.toHaveBeenCalled(); // the one-prompt path
     expect(uploaded).toBe(false);
-    expect(afterPasskey(true, uploaded)).toEqual({ kind: 'backup', reason: 'upload-failed' });
+    expect(afterPasskey(true, uploaded, lastConfirmed)).toEqual({
+      kind: 'backup',
+      reason: 'unconfirmed'
+    });
     expect(store.get(SYNC_PENDING_KEY)).toBe('1');
     expect(store.get(SYNC_SERVER_UNCONFIRMED_KEY)).toBeUndefined();
 
@@ -429,5 +440,28 @@ describe('one-prompt signup (PRF at create)', () => {
     expect(setItemKeys).not.toContain(PK_KEY);
     expect(am.getState().authMethod).toBe('passkey');
     expect(JSON.parse(puts()[0][1].body).assertion.credentialId).toBe(CRED_ID);
+  });
+
+  it('an upload the server stored unconfirmed (a replacement) keeps the refresh-to-confirm flag', async () => {
+    acceptingServer();
+    onePromptAuthenticator();
+    await signUp(new AuthManager(ndk), true);
+    // The confirming unlock's refresh 404s (registered key never verifies);
+    // its upload replaces the entry, which the server keeps unconfirmed.
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/challenge'))
+        return json(200, { challenge: SERVER_CHALLENGE, expiresAt: Date.now() + 120000 });
+      if (init?.method === 'PUT') return json(200, { ok: true, unconfirmed: true });
+      return json(404, { error: 'not_found' });
+    });
+    const am = await nextVisit();
+    await am.unlockVault();
+    await vi.waitFor(() =>
+      expect(puts().some((call: unknown[]) => JSON.parse(String(init(call)?.body)).assertion)).toBe(
+        true
+      )
+    );
+    await flush();
+    expect(store.get(SYNC_SERVER_UNCONFIRMED_KEY)).toBe('1'); // next unlock refreshes again
   });
 });

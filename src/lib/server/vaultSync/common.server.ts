@@ -76,6 +76,21 @@ export async function checkAssertion(
   spkiB64url: string,
   alg: number
 ): Promise<VerifiedAssertion> {
+  const { verified } = await checkAssertionAgainst(env, assertion, [{ spki: spkiB64url, alg }]);
+  return verified;
+}
+
+/**
+ * checkAssertion against candidate keys in order: the challenge is redeemed
+ * ONCE, then the first key the signature verifies against wins. Throws when
+ * none does. (Used for an unconfirmed entry: its stored key first — which
+ * confirms it — then a submitted replacement.)
+ */
+export async function checkAssertionAgainst(
+  env: VaultSyncEnv,
+  assertion: AssertionBody,
+  keys: Array<{ spki: string; alg: number }>
+): Promise<{ verified: VerifiedAssertion; index: number }> {
   const clientDataJSON = b64urlToBytes(assertion.clientDataJSON);
   // The challenge lives inside clientDataJSON; redeem it BEFORE signature
   // work so a replayed challenge is rejected as cheaply as possible.
@@ -88,16 +103,25 @@ export async function checkAssertion(
   if (typeof challenge !== 'string') throw new Error('no challenge in clientDataJSON');
   await redeemChallenge(env.kv, env.secret, challenge);
 
-  return verifyAssertion(
-    {
-      signature: b64urlToBytes(assertion.signature),
-      authenticatorData: b64urlToBytes(assertion.authenticatorData),
-      clientDataJSON
-    },
-    b64urlToBytes(spkiB64url),
-    alg,
-    challenge
-  );
+  const input = {
+    signature: b64urlToBytes(assertion.signature),
+    authenticatorData: b64urlToBytes(assertion.authenticatorData),
+    clientDataJSON
+  };
+  for (let index = 0; index < keys.length; index++) {
+    try {
+      const verified = await verifyAssertion(
+        input,
+        b64urlToBytes(keys[index].spki),
+        keys[index].alg,
+        challenge
+      );
+      return { verified, index };
+    } catch {
+      /* try the next candidate key */
+    }
+  }
+  throw new Error('assertion did not verify against any candidate key');
 }
 
 /** Wire shape of a registration (create()) response in request bodies (base64url). */
@@ -107,12 +131,13 @@ export interface RegistrationBody {
   authenticatorData: string;
 }
 
-export function isRegistrationBody(r: any): r is RegistrationBody {
+export function isRegistrationBody(r: unknown): r is RegistrationBody {
+  const body = r as Partial<RegistrationBody> | null | undefined;
   return (
-    !!r &&
-    typeof r.credentialId === 'string' &&
-    typeof r.clientDataJSON === 'string' &&
-    typeof r.authenticatorData === 'string'
+    !!body &&
+    typeof body.credentialId === 'string' &&
+    typeof body.clientDataJSON === 'string' &&
+    typeof body.authenticatorData === 'string'
   );
 }
 

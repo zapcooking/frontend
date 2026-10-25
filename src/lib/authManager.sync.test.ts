@@ -243,7 +243,7 @@ describe('signup enrollment options (signIn / awaitUpload)', () => {
       sync: false,
       signIn: false
     });
-    expect(result).toEqual({ uploaded: null });
+    expect(result).toEqual({ uploaded: null, confirmed: true });
     expect(store.get(VAULT_STORAGE_KEY)).toBeDefined();
     expect(am.getState().isAuthenticated).toBe(false);
     expect(store.get(PK_KEY)).toBeUndefined();
@@ -258,7 +258,7 @@ describe('signup enrollment options (signIn / awaitUpload)', () => {
       signIn: false,
       awaitUpload: true
     });
-    expect(result).toEqual({ uploaded: true });
+    expect(result).toEqual({ uploaded: true, confirmed: true });
     expect(callsTo('PUT')).toHaveLength(1);
     expect(store.get(SYNC_PENDING_KEY)).toBeUndefined();
   });
@@ -276,7 +276,7 @@ describe('signup enrollment options (signIn / awaitUpload)', () => {
       signIn: false,
       awaitUpload: true
     });
-    expect(result).toEqual({ uploaded: false });
+    expect(result).toEqual({ uploaded: false, confirmed: true });
     expect(store.get(SYNC_PENDING_KEY)).toBe('1');
   });
 
@@ -289,7 +289,7 @@ describe('signup enrollment options (signIn / awaitUpload)', () => {
       signIn: false,
       awaitUpload: true
     });
-    expect(result).toEqual({ uploaded: false });
+    expect(result).toEqual({ uploaded: false, confirmed: true });
   });
 });
 
@@ -355,7 +355,7 @@ describe('vault-sync request deadlines', () => {
     for (let i = 0; i < 20 && callsTo('PUT').length === 0; i++) await flush();
     expect(callsTo('PUT')).toHaveLength(1);
     d.fireAll();
-    expect(await p).toEqual({ uploaded: false });
+    expect(await p).toEqual({ uploaded: false, confirmed: true });
     expect(store.get(SYNC_PENDING_KEY)).toBe('1');
     d.spy.mockRestore();
   });

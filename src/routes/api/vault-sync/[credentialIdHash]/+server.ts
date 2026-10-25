@@ -106,12 +106,12 @@ export const POST: RequestHandler = async ({ request, platform, params, getClien
   // design (Gate 2 addition 4). The assertion verified against the stored
   // key, so an unconfirmed entry (registration-authorized upload) is
   // confirmed now: the flag goes and it gets the full TTL.
-  const { unconfirmed: _wasUnconfirmed, ...confirmedEntry } = result.entry;
   const refreshed: VaultSyncEntry = {
-    ...confirmedEntry,
+    ...result.entry,
     signCount: result.signCount,
     updatedAt: Date.now()
   };
+  delete refreshed.unconfirmed;
   await result.env.kv.put(result.kvKey, JSON.stringify(refreshed), {
     expirationTtl: ENTRY_TTL_S
   });

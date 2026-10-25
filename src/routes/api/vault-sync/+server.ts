@@ -1,20 +1,30 @@
 /**
  * PUT /api/vault-sync — upload or update a vault-sync blob.
  *
- * Assertion-gated, with one exception. First upload (no KV entry) is
- * TOFU-hardened: the assertion is verified against the SUBMITTED SPKI, so
- * even registration proves live possession of the credential's private
- * key. Updates verify against the STORED SPKI — an entry's public key is
- * never overwritten once confirmed.
+ * Assertion-gated, with one exception. An assertion-backed first upload (no
+ * KV entry) is TOFU-hardened: the assertion is verified against the
+ * SUBMITTED SPKI, so even the first upload proves live possession of the
+ * credential's private key. Updates verify against the STORED SPKI — a
+ * confirmed entry's public key is never overwritten.
  *
  * The exception (PR B, one-prompt signup): a FIRST upload may instead carry
- * the registration (create()) response over a server challenge. That can't
- * prove key possession (passkeys use "none" attestation), so the entry is
- * stored UNCONFIRMED with a short TTL. The first verified assertion — fetch,
- * refresh, or an assertion-backed upload — confirms it. An unconfirmed
- * entry may be replaced by an assertion-backed upload (TOFU against the
- * submitted SPKI), which fixes an entry whose registered key never verifies.
- * A registration never touches an existing entry.
+ * the registration (create()) response over a server challenge, because no
+ * assertion exists yet. This is NOT authentication: passkeys use "none"
+ * attestation, so every field checked (challenge, origin, rpIdHash, flags,
+ * attested credential id) is unsigned, and anyone can forge a passing
+ * registration with no authenticator and no keypair — only a fresh
+ * challenge. The entry is therefore stored UNCONFIRMED with a short TTL,
+ * registration uploads get their own tighter per-IP bucket (the only real
+ * control on volume), and a registration never touches an existing entry.
+ *
+ * Only an assertion that verifies against an entry's STORED key confirms
+ * it (fetch, refresh, or an upload). An assertion-backed upload with a
+ * different, submitted key may REPLACE an unconfirmed entry — that fixes
+ * one whose registered key never verifies — but the replacement stays
+ * unconfirmed (short TTL) until an assertion verifies against it. Someone
+ * who knows the credential id can still replace an unconfirmed entry and
+ * then confirm it with their own key: the protection there is that
+ * credential ids never leave the client except to this server.
  *
  * Privacy (R2 ruling): KV is keyed by sha256(credentialId) only; the
  * pubkey↔credentialId linkage exists only inside the opaque value; request
@@ -27,7 +37,7 @@ import {
   getEnv,
   uniform404,
   sha256Hex,
-  checkAssertion,
+  checkAssertionAgainst,
   isAssertionBody,
   checkRegistration,
   isRegistrationBody
@@ -81,6 +91,13 @@ export const PUT: RequestHandler = async ({ request, platform, getClientAddress 
       // Registration only ever creates an entry, unconfirmed.
       if (existing) return uniform404();
       if (!submittedKey) return json({ error: 'bad_request' }, { status: 400 });
+      const registerLimited = await checkPerIpRateLimit(env.kv, {
+        ip: getClientAddress(),
+        scope: 'vault-sync-register',
+        perHour: 5,
+        perDay: 20
+      });
+      if (registerLimited.limited) return json(registerLimited.body, { status: 429 });
       const verified = await checkRegistration(env, body.registration);
       validateBlob(body.blob, credentialId);
       const entry: VaultSyncEntry = {
@@ -93,41 +110,41 @@ export const PUT: RequestHandler = async ({ request, platform, getClientAddress 
         unconfirmed: true
       };
       await env.kv.put(kvKey, JSON.stringify(entry), { expirationTtl: UNCONFIRMED_TTL_S });
-      return json({ ok: true });
+      return json({ ok: true, unconfirmed: true });
     }
 
-    let spki: string;
-    let alg: number;
-    if (existing && !(existing.unconfirmed && submittedKey)) {
-      // Update: stored key wins; submitted spki (if any) is ignored. (An
-      // unconfirmed entry without a submitted key verifies against its
-      // stored one — which confirms it.)
-      spki = existing.credentialPublicKey;
-      alg = existing.alg;
+    // Candidate keys, in order. Confirmed entry: its stored key only (a
+    // submitted spki is ignored). Unconfirmed entry: its stored key (which
+    // confirms it), then a submitted replacement. No entry: TOFU against the
+    // submitted key, which must be present.
+    const candidates: Array<{ spki: string; alg: number }> = [];
+    if (existing) {
+      candidates.push({ spki: existing.credentialPublicKey, alg: existing.alg });
+      if (existing.unconfirmed && submittedKey) candidates.push({ spki: body.spki, alg: body.alg });
     } else {
-      // TOFU first upload, or replacing an UNCONFIRMED entry: SPKI + alg
-      // required, assertion must verify against exactly what is submitted.
-      if (!submittedKey) {
-        return json({ error: 'bad_request' }, { status: 400 });
-      }
-      spki = body.spki;
-      alg = body.alg;
+      if (!submittedKey) return json({ error: 'bad_request' }, { status: 400 });
+      candidates.push({ spki: body.spki, alg: body.alg });
     }
 
-    const verified = await checkAssertion(env, body.assertion, spki, alg);
+    const { verified, index } = await checkAssertionAgainst(env, body.assertion, candidates);
     validateBlob(body.blob, credentialId);
 
-    // A verified assertion: the stored entry is confirmed.
+    // Replacing an unconfirmed entry's key (index 1) keeps it unconfirmed:
+    // only an assertion verifying against the STORED key confirms.
+    const unconfirmed = !!existing && index === 1;
     const entry: VaultSyncEntry = {
       version: 1,
       blob: body.blob,
-      credentialPublicKey: spki,
-      alg,
+      credentialPublicKey: candidates[index].spki,
+      alg: candidates[index].alg,
       signCount: verified.signCount,
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      ...(unconfirmed ? { unconfirmed: true as const } : {})
     };
-    await env.kv.put(kvKey, JSON.stringify(entry), { expirationTtl: ENTRY_TTL_S });
-    return json({ ok: true });
+    await env.kv.put(kvKey, JSON.stringify(entry), {
+      expirationTtl: unconfirmed ? UNCONFIRMED_TTL_S : ENTRY_TTL_S
+    });
+    return json({ ok: true, unconfirmed });
   } catch {
     // Auth-shaped or shape-validation failure — uniform, no detail, no logs.
     return uniform404();
