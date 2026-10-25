@@ -617,6 +617,20 @@ export async function unlockPasskey(
     record.keys.map((k) => k.credentialId),
     opts
   );
+  const privkeyHex = await openVaultWithPrf(record, credentialId, prfOutput);
+  return { privkeyHex, credentialId, assertion };
+}
+
+/**
+ * Decrypt the vault with a ceremony's PRF output for one of its credentials
+ * (unlockPasskey, or a passkey picked from the OS list). Fails closed on any
+ * mismatch; never mutates storage. Zeroizes prfOutput.
+ */
+export async function openVaultWithPrf(
+  record: VaultRecord,
+  credentialId: string,
+  prfOutput: Uint8Array
+): Promise<string> {
   const entry = record.keys.find((k) => k.credentialId === credentialId);
   if (!entry) {
     zeroize(prfOutput);
@@ -631,7 +645,7 @@ export async function unlockPasskey(
     if (getPublicKey(hexToBytes(privkeyHex)) !== record.pubkey) {
       throw new UnlockFailedError('Decrypted key does not match the vault pubkey');
     }
-    return { privkeyHex, credentialId, assertion };
+    return privkeyHex;
   } catch (e) {
     if (e instanceof PasskeyVaultError) throw e;
     throw new UnlockFailedError(

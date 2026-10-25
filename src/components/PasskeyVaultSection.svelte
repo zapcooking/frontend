@@ -186,6 +186,11 @@
     }
   }
 
+  function toggleUnconfirmedSync() {
+    getAuthManager()?.setUnconfirmedVaultSync(!syncOn);
+    refresh();
+  }
+
   function removeUnconfirmed() {
     getAuthManager()?.discardUnconfirmedVault();
     notice = 'Passkey removed. Your key stays in this browser as before.';
@@ -284,6 +289,38 @@
         after that your key is no longer stored in plain text in this browser. Until then it stays
         here too, so you can't get locked out.
       </p>
+      {#if PASSKEY_SYNC_ENABLED && recordSyncable}
+        <div
+          class="bg-input border rounded-lg p-3 mb-3"
+          style="border-color: var(--color-input-border)"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-medium" style="color: var(--color-text-primary)">
+                Sign in on other devices: {syncOn ? 'On' : 'Off'}
+              </p>
+              <p class="text-xs text-caption mt-0.5">
+                {syncOn
+                  ? 'An encrypted copy of your key is uploaded to Zap Cooking servers when you first unlock with this passkey. Only your passkey can unlock it.'
+                  : 'Off — your key stays only on this device.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={syncOn}
+              aria-label="Sign in on other devices: {syncOn ? 'On' : 'Off'}"
+              class="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors {syncOn
+                ? 'bg-green-500/15 text-green-600'
+                : 'bg-secondary text-caption'}"
+              on:click={toggleUnconfirmedSync}
+              disabled={busy}
+            >
+              {syncOn ? 'On' : 'Off'}
+            </button>
+          </div>
+        </div>
+      {/if}
       <div class="flex flex-wrap gap-2">
         <button
           type="button"
