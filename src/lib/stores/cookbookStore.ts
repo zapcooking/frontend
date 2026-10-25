@@ -17,6 +17,7 @@ import { RECIPE_TAGS, RECIPE_TAG_PREFIX_NEW, isHiddenRecipeATag } from '$lib/con
 import { offlineStorage, type SyncOperation, type OfflineCookbook, type SerializedCookbookData } from '$lib/offlineStorage';
 import { isCurrentlyOnline, onConnect } from '$lib/connectionMonitor';
 import { parseCoordinate } from '$lib/coordinate';
+import { recordNudgeMoment } from '$lib/accountNudge';
 import {
   buildSavedListEdit,
   decideSavedListBase,
@@ -523,7 +524,14 @@ function createCookbookStore() {
     create?: { title: string }
   ): Promise<SavedListResult> {
     const pubkey = get(userPublickey);
-    const run = listEditQueue.catch(() => {}).then(() => doEditList(listId, change, pubkey, create));
+    const run = listEditQueue
+      .catch(() => {})
+      .then(() => doEditList(listId, change, pubkey, create))
+      .then((result) => {
+        // The first saved recipe is a natural moment for the account nudge.
+        if (result.ok && result.added > 0 && pubkey) recordNudgeMoment(pubkey, 'saved-recipe');
+        return result;
+      });
     listEditQueue = run.catch(() => {});
     return run;
   }

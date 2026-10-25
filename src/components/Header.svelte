@@ -87,6 +87,11 @@
     queueMembershipLookup($userPublickey);
   }
 
+  // A locked vault session keeps $userPublickey (seeded from localStorage)
+  // but isn't signed in yet: no member icons until it's unlocked. Also leaves
+  // the phone header room for the "Continue as" chip.
+  $: showMemberChrome = !!$userPublickey && !$lockedVaultPubkey;
+
   $: userMembershipStatus = $userPublickey
     ? membershipMap[$userPublickey.trim().toLowerCase()]
     : undefined;
@@ -212,7 +217,7 @@
     </div>
 
     <!-- Unified Intelligence icon (logged in) -->
-    {#if $userPublickey}
+    {#if showMemberChrome}
       <div class="relative">
         <button
           type="button"
@@ -254,14 +259,14 @@
 
     <!-- Notifications bell + dropdown (desktop only — mobile keeps the
          bottom-nav bell) -->
-    {#if $userPublickey}
+    {#if showMemberChrome}
       <div class="hidden sm:inline-flex sm:items-center">
         <NotificationBell />
       </div>
     {/if}
 
     <!-- Tier badge for active members -->
-    {#if $userPublickey && isActiveMember && getTierLabel(membershipTier)}
+    {#if showMemberChrome && isActiveMember && getTierLabel(membershipTier)}
       <a
         href="/membership"
         class="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border transition-colors hover:opacity-80 {getTierClasses(

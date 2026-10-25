@@ -2,12 +2,12 @@
  * Key-backup gate: the logic behind KeyBackupGate.svelte, extracted so it is
  * unit-testable (this repo has no Svelte component-test infra).
  *
- * The gate sits in front of every passkey enrollment path (signup, the
- * login-time prompt, Settings) so the user has a real copy of their nsec
+ * The gate sits in front of every passkey enrollment path (signup,
+ * Settings) so the user has a real copy of their nsec
  * BEFORE the ceremony deletes the plaintext key. Two saves can be observed —
  * a download click and a clipboard write that actually landed — and a third
  * (self-attested) is allowed only where the caller opts in: an existing user
- * enrolling from Settings or the prompt may already hold a backup, while a
+ * enrolling from Settings may already hold a backup, while a
  * brand-new signup cannot, so signup never offers the acknowledgement.
  */
 

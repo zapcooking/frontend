@@ -4,13 +4,15 @@
   export let title: string = '';
   export let open: boolean = false;
   export let variant: 'default' | 'danger' = 'default';
+  /** Anchor id for links into the section (e.g. /settings#security). */
+  export let id: string | undefined = undefined;
 
   function toggle() {
     open = !open;
   }
 </script>
 
-<div class="rounded-lg border border-[var(--color-input-border)] overflow-hidden">
+<div {id} class="rounded-lg border border-[var(--color-input-border)] overflow-hidden scroll-mt-20">
   <button
     type="button"
     class="w-full flex items-center justify-between px-4 py-3 text-left font-medium transition-colors

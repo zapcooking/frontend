@@ -36,6 +36,8 @@
   import Avatar from './Avatar.svelte';
   import CustomName from './CustomName.svelte';
   import NotifText from './notifications/NotifText.svelte';
+  import AccountNudgeItem from './AccountNudgeItem.svelte';
+  import { activeNudge, nudgeUnread, markNudgeSeen } from '$lib/accountNudge';
 
   type Tab = 'all' | 'replies' | 'zaps' | 'dms';
 
@@ -121,7 +123,7 @@
   ).length;
   $: notifsUnread = sortedNotifs.filter((n) => isUnread(n, notifLastSeen)).length;
   $: dmNewCount = dmRows.filter((dm) => dm.timestamp > dmLastSeen).length;
-  $: totalUnread = notifsUnread + dmNewCount;
+  $: totalUnread = notifsUnread + dmNewCount + $nudgeUnread;
 
   type Row = { kind: 'notification'; notification: Notification } | ({ kind: 'dm' } & DmRow);
 
@@ -185,6 +187,7 @@
     open = false;
     notifications.markAllAsRead();
     markAllSeen();
+    if ($activeNudge) markNudgeSeen($activeNudge.pubkey);
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -342,6 +345,9 @@
         aria-labelledby="notif-tab-{activeTab}"
         class="notif-list"
       >
+        {#if activeTab === 'all' && $activeNudge}
+          <AccountNudgeItem where="bell" on:navigate={close} />
+        {/if}
         {#if rows.length === 0}
           {#if activeTab === 'dms' && $messagesLoading}
             <p class="notif-empty">Loading messages…</p>

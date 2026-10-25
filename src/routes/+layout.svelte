@@ -24,18 +24,14 @@
   import LoginOverlay from '../components/LoginOverlay.svelte';
   import ProfilePreviewModal from '../components/ProfilePreviewModal.svelte';
   import { openProfilePreview } from '$lib/stores/profilePreview';
-  import PasskeyEnrollPrompt from '../components/PasskeyEnrollPrompt.svelte';
+  import AccountNudgeController from '../components/AccountNudgeController.svelte';
+  import VaultUnlockOutcomeDialog from '../components/VaultUnlockOutcomeDialog.svelte';
   import CookPlusDiscoveryModal from '../components/CookPlusDiscoveryModal.svelte';
   import CookPlusPromoBar from '../components/CookPlusPromoBar.svelte';
   import { loginOverlayOpen } from '$lib/stores/loginOverlay';
   import { syncSignedIn } from '$lib/auth/requireAuth';
   import { bottomDockOccupied } from '$lib/stores/bottomDock';
 
-  // Launch gate for the passkey migration prompt (launched September 2026;
-  // CI's flag-guard pins it true on main). While false, existing
-  // plaintext-key users are never prompted — enrollment is reachable only
-  // via Settings → Security.
-  const PASSKEY_ENROLL_PROMPT_ENABLED = true;
   import { createAuthManager, type AuthState } from '$lib/authManager';
   import { detectSupport, getVaultRecord, isVaultUnconfirmed } from '$lib/passkeyVault';
   import {
@@ -716,8 +712,11 @@
       {#if $loginOverlayOpen}
         <LoginOverlay />
       {/if}
-      {#if PASSKEY_ENROLL_PROMPT_ENABLED && authManager}
-        <PasskeyEnrollPrompt />
+      {#if authManager}
+        <!-- The passkey/backup nudge shows only in Settings and Notifications
+             (never floating); the dialog follows a failed one-prompt unlock. -->
+        <AccountNudgeController />
+        <VaultUnlockOutcomeDialog />
       {/if}
       {#if !kitchenMode}
         <CookPlusDiscoveryModal membershipEnabled={data.membershipEnabled === 'true'} />

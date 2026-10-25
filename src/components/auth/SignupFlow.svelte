@@ -28,7 +28,11 @@
     setServerCopyUnconfirmed,
     SYNC_ENABLED_KEY
   } from '$lib/passkeySync';
-  import { passkeyMethodLabel, type PasskeyMethodLabel } from '$lib/auth/passkeyLabel';
+  import {
+    passkeyMethodLabel,
+    unconfirmedSetUpText,
+    type PasskeyMethodLabel
+  } from '$lib/auth/passkeyLabel';
   import { raiseVaultConflict, SIGNUP_VAULT_CONFLICT_MESSAGE } from '$lib/auth/vaultConflict';
   import {
     isValidSignupName,
@@ -518,9 +522,8 @@
           </div>
         {:else if step.reason === 'unconfirmed'}
           <div class="signup-note" role="status">
-            {passkeyLabel === 'passkey' ? 'Your passkey is' : `${passkeyLabel} is`} set up. Unlock
-            with it the next time you open Zap Cooking to finish setting it up. Until that first
-            unlock, your key also stays stored in this browser.
+            {unconfirmedSetUpText(passkeyLabel)} Until that first unlock, your key also stays stored
+            in this browser.
           </div>
         {:else if step.reason === 'sync-off'}
           <p class="text-sm text-caption">

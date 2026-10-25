@@ -2,6 +2,7 @@
   import { page } from '$app/stores';
   import { theme } from '$lib/themeStore';
   import { userPublickey } from '$lib/nostr';
+  import { lockedVaultPubkey } from '$lib/auth/lockedVault';
   import { navBalanceVisible } from '$lib/wallet';
   import SidebarWallet from './SidebarWallet.svelte';
   import { slide } from 'svelte/transition';
@@ -244,9 +245,9 @@
            card, like the mobile app's wallet surface. Tapping it opens
            the wallet modal. Sits ABOVE the My Kitchen group so opening
            that group doesn't shift the card, and carries no heading —
-           the widget is self-evident. Hidden for logged-out users and
+           the widget is self-evident. Hidden for logged-out (and locked) users and
            when the wallet widget is switched off in settings. -->
-      {#if $userPublickey && $navBalanceVisible}
+      {#if $userPublickey && !$lockedVaultPubkey && $navBalanceVisible}
         <div class="mt-1">
           <SidebarWallet />
         </div>

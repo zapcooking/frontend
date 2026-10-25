@@ -187,7 +187,7 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
         // connection than the one this device remembers.
         return false;
       }
-      result = await connectWallet(3, connectionString);
+      result = await connectWallet(3, connectionString, 'restore');
     } else {
       const apiKey = import.meta.env.VITE_BREEZ_API_KEY;
       if (!apiKey) return false;
@@ -201,7 +201,7 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
       const mnemonic = await restoreSparkBackup(pubkey, apiKey, chosen);
       if (!mnemonic) return false;
 
-      result = await connectWallet(4, getSparkWalletId(mnemonic));
+      result = await connectWallet(4, getSparkWalletId(mnemonic), 'restore');
     }
 
     if (result.success) {
