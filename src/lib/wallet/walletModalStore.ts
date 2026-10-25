@@ -17,6 +17,11 @@ export const walletModalView = writable<WalletView>('main');
  * instead of dropping below the header and bottom nav.
  */
 export const walletModalElevated = writable(false);
+/**
+ * A dialog stacked on top of the wallet modal (see stackedDialog) is open:
+ * the modal keeps its content but stops trapping Tab and handling Escape.
+ */
+export const walletModalSuspended = writable(false);
 
 export function openWallet(view: WalletView = 'main', opts: { elevated?: boolean } = {}): void {
   walletModalView.set(view);

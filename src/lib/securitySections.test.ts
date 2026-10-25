@@ -72,6 +72,38 @@ describe('resolveSecuritySections', () => {
   });
 });
 
+describe('resolveVaultSection — unconfirmed one-prompt vault', () => {
+  const PK = 'a7'.repeat(32);
+  const base = { support: 'full' as const, supportReason: null, sessionPubkey: PK };
+
+  it("is 'unconfirmed' for the owning nsec session, otherwise as before", () => {
+    expect(
+      resolveVaultSection({
+        ...base,
+        sessionMethod: 'privateKey',
+        recordPubkey: PK,
+        recordUnconfirmed: true
+      })
+    ).toEqual({ kind: 'unconfirmed' });
+    expect(
+      resolveVaultSection({
+        ...base,
+        sessionMethod: 'privateKey',
+        recordPubkey: PK,
+        recordUnconfirmed: false
+      })
+    ).toEqual({ kind: 'enrolled' });
+    expect(
+      resolveVaultSection({
+        ...base,
+        sessionMethod: 'privateKey',
+        recordPubkey: '77'.repeat(32),
+        recordUnconfirmed: true
+      })
+    ).toEqual({ kind: 'hidden', reason: 'foreign-record' });
+  });
+});
+
 describe('resolveVaultSection — identity-bound gating matrix', () => {
   const SESSION_PK = 'a7'.repeat(32);
   const OTHER_PK = '77'.repeat(32);

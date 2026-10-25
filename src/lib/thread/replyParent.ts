@@ -90,6 +90,29 @@ export function getThreadRootId(event: ParentableEvent): string | null {
 
 
 /**
+ * True when `event` is a kind-1111 comment rooted on a nostr event.
+ *
+ * Per NIP-22, the root scope tag names what the comment is attached to:
+ * uppercase `E` for an event id, `A` for an addressable (parameterized-
+ * replaceable) address, `I` for an external entity like a web page. Only
+ * the first two name a nostr thread, so only those make a comment a
+ * *reply* in a profile's Replies tab — an `I`-rooted comment belongs to
+ * the external page's comment section, and a comment with no root scope
+ * at all cannot be threaded by anyone.
+ *
+ * The root scope tag is the only discriminator, and case is the whole
+ * trick (`E` ≠ `e`): every comment — including one rooted on a web page —
+ * carries a lowercase parent-scope tag (`e`) pointing at the thing it
+ * answers, so testing for lowercase `e` would leak external comments into
+ * the replies list.
+ */
+export function isEventRootedComment(event: ParentableEvent): boolean {
+  if (event.kind !== 1111) return false;
+  const tags = (event.tags || []).filter((t) => Array.isArray(t) && t.length > 1 && t[1]);
+  return tags.some((t) => t[0] === 'E' || t[0] === 'A');
+}
+
+/**
  * True when `event` is a kind-1 note replying to a kind-1111 comment.
  *
  * Comment threads are a 1111-only namespace: a kind 1 whose reply target

@@ -15,6 +15,25 @@ export interface CardAuthor {
 	picture?: string;
 }
 
+/** A public, shareable collection of existing recipes. */
+export interface PackCard {
+	/** Existing cover or matching recipe images already available in the shared pool. */
+	previewImages?: string[];
+	coordinate: string;
+	href: string;
+	title: string;
+	description?: string;
+	image?: string;
+	author: CardAuthor;
+	recipeCount: number;
+	/** Retained so cached packs can respect new recipe blocks. */
+	recipeCoordinates: string[];
+	publishedAt: number;
+	eventId?: string;
+	moderationText?: string;
+	tags?: string[];
+}
+
 /** A recipe or a long-form article. */
 export interface LongformCard {
 	type: 'recipe' | 'article';
@@ -26,6 +45,20 @@ export interface LongformCard {
 	image: string;
 	author: CardAuthor;
 	publishedAt: number;
+	/** Normalized recipe tags, only used where the author supplied them. */
+	tags?: string[];
+	/** Public event identity and text retained for moderation of cached cards. */
+	eventId?: string;
+	moderationText?: string;
+}
+
+export interface FreshTopicTile {
+	slug: string;
+	name: string;
+	href: string;
+	image: string;
+	post: NoteCard;
+	alternatives?: NoteCard[];
 }
 
 export interface NoteCard {
@@ -35,6 +68,10 @@ export interface NoteCard {
 	image: string;
 	author: CardAuthor;
 	createdAt: number;
+	tags?: string[];
+	moderationText?: string;
+	/** Explicit signed editorial selection can approve an otherwise caption-free food photo. */
+	editorial?: boolean;
 }
 
 export interface Cook {
@@ -135,13 +172,18 @@ export function longformCard(e: NostrEvent): LongformCard | null {
 	const published = seconds(Number(tag(e, 'published_at')));
 	return {
 		type: recipe ? 'recipe' : 'article',
+		eventId: e.id,
+		moderationText: e.content.slice(0, 500),
 		coordinate,
 		href: recipe ? `/recipe/${link}` : `/reads/${link}`,
 		title: clip(title, 120),
 		summary: summary ? clip(summary, 200) : undefined,
 		image,
 		author: { pubkey: e.pubkey },
-		publishedAt: Number.isFinite(published) && published > 0 ? published : e.created_at
+		publishedAt: Number.isFinite(published) && published > 0 ? published : e.created_at,
+		tags: [...new Set(e.tags.filter((t) => t[0] === 't').map((t) =>
+			(t[1] || '').toLowerCase().replace(/^(?:zapcooking|nostrcooking)-/, '').trim()
+		))].filter((t) => !!t && !RECIPE_TAGS.includes(t))
 	};
 }
 
@@ -162,7 +204,8 @@ export function noteCard(e: NostrEvent): NoteCard | null {
 		return null;
 	}
 	const text = clip(e.content.replace(URL_ANY, '').replace(NOSTR_REF, ''), 140);
-	return { id: e.id, href, text, image, author: { pubkey: e.pubkey }, createdAt: e.created_at };
+	return { id: e.id, href, text, image, author: { pubkey: e.pubkey }, createdAt: e.created_at,
+		tags: e.tags.filter((t) => t[0] === 't').map((t) => (t[1] || '').toLowerCase()), moderationText: e.content.slice(0, 1000) };
 }
 
 export interface Profile {

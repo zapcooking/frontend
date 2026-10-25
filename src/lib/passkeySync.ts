@@ -21,6 +21,7 @@ import {
   isCeremonyCancelled,
   saveVaultRecord,
   type AssertionWire,
+  type RegistrationWire,
   type VaultRecord
 } from '$lib/passkeyVault';
 import {
@@ -62,6 +63,21 @@ export class PasskeySyncError extends Error {}
 /** Sign-in failed before anything was persisted — caller falls through. */
 export class SyncSignInError extends PasskeySyncError {}
 
+export const PASSKEY_NOT_READY_MESSAGE =
+  "This passkey isn't ready on this device yet. Sign in with it once on the device where you " +
+  "set it up, with 'Sign in on other devices' turned on.";
+
+/**
+ * The picked passkey has no server copy (and no vault on this device holds
+ * it): it was set up elsewhere without sync, or that device hasn't uploaded
+ * yet. The server's uniform 404 can't say more, by design.
+ */
+export class PasskeyNotReadyError extends SyncSignInError {
+  constructor() {
+    super(PASSKEY_NOT_READY_MESSAGE);
+  }
+}
+
 export function isSyncEnabled(): boolean {
   return browser && localStorage.getItem(SYNC_ENABLED_KEY) === '1';
 }
@@ -86,6 +102,23 @@ export function isRefreshDue(now = Date.now()): boolean {
 
 function markRefreshed(now = Date.now()): void {
   if (browser) localStorage.setItem(SYNC_REFRESHED_AT_KEY, String(now));
+}
+
+/**
+ * Set when the server copy was stored from a registration response
+ * (unconfirmed server-side): the next unlock spends its assertion on a
+ * refresh, which confirms it. Cleared by any accepted assertion.
+ */
+export const SYNC_SERVER_UNCONFIRMED_KEY = 'nostrcooking_vault_sync_server_unconfirmed';
+
+export function isServerCopyUnconfirmed(): boolean {
+  return browser && localStorage.getItem(SYNC_SERVER_UNCONFIRMED_KEY) === '1';
+}
+
+export function setServerCopyUnconfirmed(on: boolean): void {
+  if (!browser) return;
+  if (on) localStorage.setItem(SYNC_SERVER_UNCONFIRMED_KEY, '1');
+  else localStorage.removeItem(SYNC_SERVER_UNCONFIRMED_KEY);
 }
 
 export function isUploadPending(): boolean {
@@ -188,7 +221,54 @@ export async function uploadVault(
       return false;
     }
     setUploadPending(false);
+    // An upload that REPLACED an unconfirmed entry's key stays unconfirmed
+    // server-side: keep the flag so the next unlock's refresh confirms it.
+    const body = await res.json().catch(() => null);
+    setServerCopyUnconfirmed(body?.unconfirmed === true);
     markRefreshed();
+    return true;
+  } catch {
+    setUploadPending(true);
+    return false;
+  }
+}
+
+/**
+ * First upload authorized by a one-prompt enrollment's registration response
+ * (no assertion exists yet). The server stores it UNCONFIRMED; the next
+ * unlock's refresh confirms it. Returns true on success; false marks the
+ * upload pending, so that unlock uploads with its assertion instead.
+ */
+export async function uploadVaultWithRegistration(
+  record: VaultRecord,
+  registration: RegistrationWire
+): Promise<boolean> {
+  const entry =
+    record.keys.find(
+      (k) =>
+        k.credentialId === registration.credentialId &&
+        typeof k.spki === 'string' &&
+        (k.alg === -7 || k.alg === -257)
+    ) ?? null;
+  if (!entry) return false;
+  try {
+    const res = await fetch('/api/vault-sync', {
+      method: 'PUT',
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        blob: JSON.stringify(record),
+        spki: entry.spki,
+        alg: entry.alg,
+        registration
+      })
+    });
+    if (!res.ok) {
+      setUploadPending(true);
+      return false;
+    }
+    setUploadPending(false);
+    setServerCopyUnconfirmed(true);
     return true;
   } catch {
     setUploadPending(true);
@@ -220,6 +300,7 @@ export async function refreshVaultEntry(
     });
     if (res.ok) {
       markRefreshed();
+      setServerCopyUnconfirmed(false);
       return true;
     }
     if (res.status === 404) return uploadVault(record, assertion);
@@ -281,25 +362,28 @@ function isValidRecordShape(r: any): r is VaultRecord {
   );
 }
 
+/** A passkey the user picked from the OS list, with this ceremony's PRF output. */
+export interface PickedPasskey {
+  credentialId: string;
+  /** 32 bytes; callers must zeroize it (openSyncedVault does). */
+  prfOutput: Uint8Array;
+  assertion: AssertionWire;
+}
+
 /**
- * The whole new-device flow, ONE ceremony: server challenge → discoverable
- * get() (empty allowCredentials — the user picks their passkey) with
- * challenge AND prf.eval in the same prompt → assertion-gated blob fetch →
- * local decrypt with the PRF-derived KEK → byte-verify the key against the
- * record pubkey. Throws SyncSignInError (or the cancellation DOMException)
- * with NOTHING persisted; only AuthManager persists, after the session is
- * established.
+ * Discoverable get(): empty allowCredentials, so the OS lists every
+ * zap.cooking passkey and the user picks one. One prompt carries both the
+ * challenge and prf.eval (the PRF input is the same for every credential).
+ * With a null challenge (sync service unreachable) the assertion is local
+ * only — enough to unlock a credential this device's vault already holds.
  */
-export async function signInWithPasskey(): Promise<SyncSignInResult> {
+export async function pickPasskey(challenge: string | null): Promise<PickedPasskey> {
   if (!browser) throw new SyncSignInError('browser required');
-
-  const challenge = await fetchChallenge().catch(() => {
-    throw new SyncSignInError('Could not reach the sign-in service');
-  });
-
   const cred = (await navigator.credentials.get({
     publicKey: {
-      challenge: b64urlToBytes(challenge) as BufferSource,
+      challenge: (challenge
+        ? b64urlToBytes(challenge)
+        : crypto.getRandomValues(new Uint8Array(32))) as BufferSource,
       rpId: RP_ID,
       allowCredentials: [],
       userVerification: 'required',
@@ -321,27 +405,43 @@ export async function signInWithPasskey(): Promise<SyncSignInResult> {
     throw new SyncSignInError('This passkey flow did not provide the required key material');
   }
 
-  const assertion: AssertionWire = {
+  return {
     credentialId: cred.id,
-    signature: bytesToB64url(new Uint8Array(res.signature)),
-    authenticatorData: bytesToB64url(new Uint8Array(res.authenticatorData)),
-    clientDataJSON: bytesToB64url(new Uint8Array(res.clientDataJSON))
+    prfOutput,
+    assertion: {
+      credentialId: cred.id,
+      signature: bytesToB64url(new Uint8Array(res.signature)),
+      authenticatorData: bytesToB64url(new Uint8Array(res.authenticatorData)),
+      clientDataJSON: bytesToB64url(new Uint8Array(res.clientDataJSON))
+    }
   };
+}
 
+/**
+ * The picked passkey's server copy: assertion-gated blob fetch → local
+ * decrypt with the PRF-derived KEK → byte-verify the key against the record
+ * pubkey. Throws SyncSignInError with NOTHING persisted; only AuthManager
+ * persists, after the session is established. Zeroizes picked.prfOutput.
+ */
+export async function openSyncedVault(picked: PickedPasskey): Promise<SyncSignInResult> {
+  const { credentialId, prfOutput, assertion } = picked;
   let blob: string;
+  let notReady = false;
   try {
-    const hash = await sha256Hex(b64urlToBytes(cred.id));
+    const hash = await sha256Hex(b64urlToBytes(credentialId));
     const httpRes = await fetch(`/api/vault-sync/${hash}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ assertion })
     });
+    notReady = httpRes.status === 404;
     if (!httpRes.ok) throw new Error(String(httpRes.status));
     const body = await httpRes.json();
     if (typeof body?.blob !== 'string') throw new Error('no blob');
     blob = body.blob;
   } catch {
     zeroize(prfOutput);
+    if (notReady) throw new PasskeyNotReadyError();
     throw new SyncSignInError('No synced sign-in found for this passkey');
   }
 
@@ -352,7 +452,7 @@ export async function signInWithPasskey(): Promise<SyncSignInResult> {
   try {
     const record = JSON.parse(blob);
     if (!isValidRecordShape(record)) throw new Error('bad record shape');
-    const entry = record.keys.find((k) => k.credentialId === cred.id);
+    const entry = record.keys.find((k) => k.credentialId === credentialId);
     if (!entry) throw new Error('credential not in record');
     dek = await unwrapDek(b64ToBytes(entry.wrappedDek), b64ToBytes(entry.dekIv), kek);
     const privkeyHex = decryptNsec(record.nsecCiphertext, dek);
@@ -369,6 +469,20 @@ export async function signInWithPasskey(): Promise<SyncSignInResult> {
   } finally {
     zeroize(kek, dek, prfOutput);
   }
+}
+
+/**
+ * The whole new-device flow, ONE ceremony: server challenge → discoverable
+ * get() (pickPasskey) → the picked passkey's server copy (openSyncedVault).
+ * Throws SyncSignInError (or the cancellation DOMException) with NOTHING
+ * persisted.
+ */
+export async function signInWithPasskey(): Promise<SyncSignInResult> {
+  if (!browser) throw new SyncSignInError('browser required');
+  const challenge = await fetchChallenge().catch(() => {
+    throw new SyncSignInError('Could not reach the sign-in service');
+  });
+  return openSyncedVault(await pickPasskey(challenge));
 }
 
 /**
