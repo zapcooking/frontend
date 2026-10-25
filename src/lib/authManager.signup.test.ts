@@ -9,7 +9,9 @@ import fixture from '../test/fixtures/vault-v1.json';
  *
  * The headline pin (§2 ruling): the plaintext private key is NEVER written
  * to localStorage at any instant during the happy path — asserted with a
- * setItem SPY over the whole flow, not just absence at the end.
+ * setItem SPY over the whole flow, not just absence at the end. That pin is
+ * for the two-prompt path (no PRF at create). One-prompt signup (PR B)
+ * deliberately keeps the plaintext key until the first verified unlock.
  */
 
 vi.mock('$app/environment', () => ({ browser: true }));
@@ -51,7 +53,9 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
 
 import { AuthManager, VaultConflictError } from './authManager';
 import { VAULT_STORAGE_KEY, type VaultRecord } from './passkeyVault';
-import { SYNC_ENABLED_KEY } from './passkeySync';
+import { SYNC_ENABLED_KEY, SYNC_PENDING_KEY, SYNC_SERVER_UNCONFIRMED_KEY } from './passkeySync';
+import { isVaultUnconfirmed } from './passkeyVault';
+import { afterPasskey } from './auth/signupFlow';
 import { hexToBytes, bytesToB64 } from './passkeyVaultCrypto';
 
 const NSEC = fixture.nsecHex;
@@ -72,6 +76,7 @@ function fakeCredential(ext: { prfResult?: Uint8Array; prfEnabled?: boolean } = 
       signature: new Uint8Array([1]).buffer,
       authenticatorData: new Uint8Array([2]).buffer,
       clientDataJSON: new Uint8Array([3]).buffer,
+      getAuthenticatorData: () => new Uint8Array([4]).buffer,
       getPublicKey: () => new Uint8Array([9, 9]).buffer,
       getPublicKeyAlgorithm: () => -7
     },
@@ -256,5 +261,173 @@ describe('enrollAtSignup — foreign-vault guard (defense-in-depth)', () => {
     await am.enrollAtSignup(NSEC, PUBKEY, { sync: false });
     expect(am.getState().authMethod).toBe('passkey');
     expect(fetchMock.mock.calls.length).toBe(callsBefore); // replace made no network call
+  });
+});
+
+// ── One-prompt signup (PR B) ──────────────────────────────────────
+
+const PRF = () => hexToBytes(fixture.prfOutputHex);
+const SERVER_CHALLENGE = 'c2VydmVyLWNoYWxsZW5nZQ';
+
+/** create() returns the PRF output (iCloud Keychain / GPM / 1Password shape). */
+function onePromptAuthenticator(getPrf: Uint8Array | 'NotAllowedError' = PRF()) {
+  credentials.create.mockResolvedValue(fakeCredential({ prfResult: PRF() }));
+  credentials.get.mockImplementation(async () => {
+    if (getPrf === 'NotAllowedError') throw new DOMException('denied', 'NotAllowedError');
+    return fakeCredential({ prfResult: getPrf });
+  });
+}
+
+const puts = () => fetchMock.mock.calls.filter(([, init]: any) => init?.method === 'PUT');
+const posts = () =>
+  fetchMock.mock.calls.filter(
+    ([url, init]: any) => init?.method === 'POST' && !String(url).endsWith('/challenge')
+  );
+
+/** Signup screen 2 as SignupFlow runs it: enroll, then sign in at finish. */
+async function signUp(am: AuthManager, sync: boolean) {
+  const { uploaded } = await am.enrollAtSignup(NSEC, PUBKEY, {
+    sync,
+    signIn: false,
+    awaitUpload: sync
+  });
+  await am.authenticateWithPrivateKey(NSEC); // finish()
+  return uploaded;
+}
+
+/** A later visit restoring from storage: starts locked. */
+async function nextVisit() {
+  const am = new AuthManager({ signer: null, activeUser: null });
+  await flush();
+  expect(am.getState().isAuthenticated).toBe(false);
+  expect(am.getVaultStatus()).toBe('locked');
+  return am;
+}
+
+describe('one-prompt signup (PRF at create)', () => {
+  it('one ceremony; vault unconfirmed; plaintext kept; first upload authorized by the registration', async () => {
+    acceptingServer();
+    onePromptAuthenticator();
+    const am = new AuthManager(ndk);
+
+    const uploaded = await signUp(am, true);
+
+    expect(credentials.create).toHaveBeenCalledTimes(1);
+    expect(credentials.get).not.toHaveBeenCalled();
+    // The create() signed over the server challenge.
+    const challenge = new Uint8Array(credentials.create.mock.calls[0][0].publicKey.challenge);
+    expect(btoa(String.fromCharCode(...challenge)).replace(/=+$/, '')).toBe(
+      'c2VydmVyLWNoYWxsZW5nZQ'
+    );
+    expect(isVaultUnconfirmed()).toBe(true);
+    expect(store.get(PK_KEY)).toBe(NSEC); // kept until the first verified unlock
+    expect(am.getState().authMethod).toBe('privateKey');
+
+    expect(uploaded).toBe(true);
+    expect(puts()).toHaveLength(1);
+    const body = JSON.parse(puts()[0][1].body);
+    expect(body.assertion).toBeUndefined();
+    expect(body.registration).toEqual({
+      credentialId: CRED_ID,
+      clientDataJSON: 'Aw', // [3]
+      authenticatorData: 'BA' // [4]
+    });
+    expect(store.get(SYNC_SERVER_UNCONFIRMED_KEY)).toBe('1');
+    expect(afterPasskey(true, uploaded)).toEqual({ kind: 'done' }); // passkey-only: no backup step
+  });
+
+  it('next visit: the chip unlock confirms the vault AND the server copy (refresh assertion)', async () => {
+    acceptingServer();
+    onePromptAuthenticator();
+    await signUp(new AuthManager(ndk), true);
+    fetchMock.mockClear();
+    acceptingServer();
+
+    const am = await nextVisit();
+    await am.unlockVault();
+    await flush();
+
+    expect(am.getState().authMethod).toBe('passkey');
+    expect(store.get(PK_KEY)).toBeUndefined();
+    expect(isVaultUnconfirmed()).toBe(false);
+    expect(posts()).toHaveLength(1); // the refresh: its assertion confirms the entry
+    expect(JSON.parse(posts()[0][1].body).assertion.credentialId).toBe(CRED_ID);
+    expect(store.get(SYNC_SERVER_UNCONFIRMED_KEY)).toBeUndefined();
+  });
+
+  it('upload not stored: the backup key is still required; the next unlock uploads with its assertion', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith('/challenge')
+        ? json(200, { challenge: SERVER_CHALLENGE, expiresAt: Date.now() + 120000 })
+        : json(503, { error: 'not_configured' })
+    );
+    onePromptAuthenticator();
+    const uploaded = await signUp(new AuthManager(ndk), true);
+
+    expect(credentials.get).not.toHaveBeenCalled(); // the one-prompt path
+    expect(uploaded).toBe(false);
+    expect(afterPasskey(true, uploaded)).toEqual({ kind: 'backup', reason: 'upload-failed' });
+    expect(store.get(SYNC_PENDING_KEY)).toBe('1');
+    expect(store.get(SYNC_SERVER_UNCONFIRMED_KEY)).toBeUndefined();
+
+    fetchMock.mockClear();
+    acceptingServer();
+    const am = await nextVisit();
+    await am.unlockVault();
+    await vi.waitFor(() => expect(puts()).toHaveLength(1));
+    const body = JSON.parse(puts()[0][1].body);
+    expect(body.assertion.credentialId).toBe(CRED_ID);
+    expect(body.registration).toBeUndefined();
+  });
+
+  it('sync off: one ceremony, no network, unconfirmed with the plaintext key kept', async () => {
+    onePromptAuthenticator();
+    const am = new AuthManager(ndk);
+    await signUp(am, false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(credentials.get).not.toHaveBeenCalled();
+    expect(isVaultUnconfirmed()).toBe(true);
+    expect(store.get(PK_KEY)).toBe(NSEC);
+  });
+
+  it('a cancel on the next visit signs in from the plaintext key and keeps the vault', async () => {
+    acceptingServer();
+    onePromptAuthenticator('NotAllowedError');
+    await signUp(new AuthManager(ndk), true);
+    const am = await nextVisit();
+
+    await am.unlockVault();
+
+    expect(am.getState().isAuthenticated).toBe(true);
+    expect(am.getState().authMethod).toBe('privateKey');
+    expect(isVaultUnconfirmed()).toBe(true);
+    expect(store.get(PK_KEY)).toBe(NSEC);
+  });
+
+  it('a non-cancel failure removes the vault, keeps the user signed in, asks for the backup key', async () => {
+    acceptingServer();
+    onePromptAuthenticator(new Uint8Array(32).fill(7)); // get() PRF ≠ create() PRF
+    await signUp(new AuthManager(ndk), true);
+    const am = await nextVisit();
+
+    await am.unlockVault();
+
+    expect(store.get(VAULT_STORAGE_KEY)).toBeUndefined();
+    expect(am.getState().isAuthenticated).toBe(true);
+    expect(store.get(PK_KEY)).toBe(NSEC);
+    expect(am.takeVaultConfirmFailure()).toBe(true);
+    // The server copy stays unconfirmed until it expires; nothing local refers to it.
+    expect(store.get(SYNC_SERVER_UNCONFIRMED_KEY)).toBeUndefined();
+  });
+
+  it('no PRF at create: create + get as before (plaintext never written)', async () => {
+    acceptingServer();
+    happyAuthenticator();
+    const am = new AuthManager(ndk);
+    await signUp(am, true);
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    expect(setItemKeys).not.toContain(PK_KEY);
+    expect(am.getState().authMethod).toBe('passkey');
+    expect(JSON.parse(puts()[0][1].body).assertion.credentialId).toBe(CRED_ID);
   });
 });

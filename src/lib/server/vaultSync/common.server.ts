@@ -4,7 +4,12 @@
  */
 
 import { json } from '@sveltejs/kit';
-import { b64urlToBytes, verifyAssertion, type VerifiedAssertion } from './webauthn.server';
+import {
+  b64urlToBytes,
+  verifyAssertion,
+  verifyRegistration,
+  type VerifiedAssertion
+} from './webauthn.server';
 import { redeemChallenge } from './challenge.server';
 
 /**
@@ -91,6 +96,51 @@ export async function checkAssertion(
     },
     b64urlToBytes(spkiB64url),
     alg,
+    challenge
+  );
+}
+
+/** Wire shape of a registration (create()) response in request bodies (base64url). */
+export interface RegistrationBody {
+  credentialId: string;
+  clientDataJSON: string;
+  authenticatorData: string;
+}
+
+export function isRegistrationBody(r: any): r is RegistrationBody {
+  return (
+    !!r &&
+    typeof r.credentialId === 'string' &&
+    typeof r.clientDataJSON === 'string' &&
+    typeof r.authenticatorData === 'string'
+  );
+}
+
+/**
+ * Registration check for an unconfirmed first upload: challenge extraction +
+ * redemption, then verifyRegistration. Throws on any failure — callers catch
+ * and return uniform404().
+ */
+export async function checkRegistration(
+  env: VaultSyncEnv,
+  registration: RegistrationBody
+): Promise<VerifiedAssertion> {
+  const clientDataJSON = b64urlToBytes(registration.clientDataJSON);
+  let challenge: string;
+  try {
+    challenge = JSON.parse(new TextDecoder().decode(clientDataJSON)).challenge;
+  } catch {
+    throw new Error('clientDataJSON unparseable');
+  }
+  if (typeof challenge !== 'string') throw new Error('no challenge in clientDataJSON');
+  await redeemChallenge(env.kv, env.secret, challenge);
+
+  return verifyRegistration(
+    {
+      clientDataJSON,
+      authenticatorData: b64urlToBytes(registration.authenticatorData),
+      credentialId: b64urlToBytes(registration.credentialId)
+    },
     challenge
   );
 }

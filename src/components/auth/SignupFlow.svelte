@@ -25,6 +25,7 @@
     shouldOfferSignupEnrollment,
     shouldShowHybridPointer,
     setUploadPending,
+    setServerCopyUnconfirmed,
     SYNC_ENABLED_KEY
   } from '$lib/passkeySync';
   import { passkeyMethodLabel, type PasskeyMethodLabel } from '$lib/auth/passkeyLabel';
@@ -246,8 +247,11 @@
     try {
       if (!signedInAsNewAccount()) {
         try {
-          // With a vault saved for this key this adopts it (passkey login,
-          // no plaintext); otherwise the backup-key path stores the key.
+          // With a confirmed vault saved for this key this adopts it (passkey
+          // login, no plaintext). An unconfirmed one (one-prompt setup) isn't
+          // adopted: the key is stored as the fallback until the next
+          // visit's unlock confirms the vault. No vault: the backup-key path
+          // stores the key.
           await authManager.authenticateWithPrivateKey(bytesToHex(account.privateKey));
         } catch (error) {
           if (error instanceof VaultConflictError) {
@@ -311,6 +315,7 @@
     if (getVaultRecord()?.pubkey !== pubkey) return;
     deleteVaultRecord();
     setUploadPending(false);
+    setServerCopyUnconfirmed(false);
     if (prefBefore === null) localStorage.removeItem(SYNC_ENABLED_KEY);
     else localStorage.setItem(SYNC_ENABLED_KEY, prefBefore);
   }

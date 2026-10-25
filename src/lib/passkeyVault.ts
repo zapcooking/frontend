@@ -367,6 +367,17 @@ export interface AssertionWire {
   clientDataJSON: string;
 }
 
+/**
+ * Wire form of a create() response (base64url) that authorizes a FIRST
+ * vault-sync upload, stored unconfirmed (see the PUT route). Only
+ * meaningful when the create() signed over a server-issued challenge.
+ */
+export interface RegistrationWire {
+  credentialId: string;
+  clientDataJSON: string;
+  authenticatorData: string;
+}
+
 export interface CeremonyOptions {
   /**
    * Server-issued challenge (base64url, from POST /api/vault-sync/challenge).
@@ -386,6 +397,17 @@ function wireAssertion(cred: PublicKeyCredential): AssertionWire | null {
     signature: bytesToB64url(new Uint8Array(res.signature)),
     authenticatorData: bytesToB64url(new Uint8Array(res.authenticatorData)),
     clientDataJSON: bytesToB64url(new Uint8Array(res.clientDataJSON))
+  };
+}
+
+function wireRegistration(cred: PublicKeyCredential): RegistrationWire | null {
+  const res = cred.response as AuthenticatorAttestationResponse | undefined;
+  const authData = res?.getAuthenticatorData?.();
+  if (!authData || !res?.clientDataJSON) return null;
+  return {
+    credentialId: cred.id,
+    clientDataJSON: bytesToB64url(new Uint8Array(res.clientDataJSON)),
+    authenticatorData: bytesToB64url(new Uint8Array(authData))
   };
 }
 
@@ -444,6 +466,12 @@ export interface EnrollResult {
    * caller must keep the plaintext key until an unlock decrypts the vault.
    */
   confirmed: boolean;
+  /**
+   * One-prompt enrollment over opts.serverChallenge: the create() response,
+   * redeemable as a registration-authorized (unconfirmed) first upload.
+   * Null otherwise, or when the browser lacks getAuthenticatorData().
+   */
+  registration: RegistrationWire | null;
 }
 
 export interface EnrollOptions extends CeremonyOptions {
@@ -483,9 +511,14 @@ export async function enrollPasskey(
           id: b64urlToBytes(k.credentialId) as BufferSource
         }));
 
+  // With a server challenge the create() signs over it too, so a one-prompt
+  // enrollment's registration response can authorize the first upload. (The
+  // fallback get() reuses it; the server redeems a challenge only once.)
   const created = (await navigator.credentials.create({
     publicKey: {
-      challenge: randomChallenge() as BufferSource,
+      challenge: (opts?.serverChallenge
+        ? b64urlToBytes(opts.serverChallenge)
+        : randomChallenge()) as BufferSource,
       rp: { id: RP_ID, name: 'Zap Cooking' },
       user: {
         id: hexToBytes(pubkey) as BufferSource,
@@ -543,6 +576,8 @@ export async function enrollPasskey(
   // enrollment must never grow a third ceremony.
   const createPrf = opts?.allowCreatePrf ? getPrfResult(created) : null;
   const confirmed = !createPrf;
+  const registration =
+    !confirmed && opts?.serverChallenge ? wireRegistration(created) : null;
   const { credentialId, prfOutput, assertion } = createPrf
     ? { credentialId: created.id, prfOutput: createPrf, assertion: null }
     : await assertWithPrf([created.id], opts).catch(tagOrphan);
@@ -580,7 +615,7 @@ export async function enrollPasskey(
     // by a failed record write matches no record, so it is inert.)
     if (!confirmed) markVaultUnconfirmed(credentialId);
     saveVaultRecord(record);
-    return { record, assertion, confirmed };
+    return { record, assertion, confirmed, registration };
   } catch (e) {
     if (e instanceof PasskeyVaultError) tagOrphan(e);
     tagOrphan(
