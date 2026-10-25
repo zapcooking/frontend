@@ -41,13 +41,17 @@ import {
   getBestEncryptionMethod as _getBestEncryptionMethod,
   encrypt,
   decrypt,
+  decryptWithSource,
   detectEncryptionMethod,
   canCreateNostrBackup,
+  getNostrBackupBlocker,
+  describeNostrBackupBlocker,
   type EncryptionMethod
 } from '$lib/encryptionService';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { fetchSparkBackupEvents } from './backupEventFetch';
+import { settleLegacySparkBackup } from '$lib/wallet/legacyBackupNotice';
 
 /**
  * Dynamically import bip39 with Buffer polyfill
@@ -1691,31 +1695,26 @@ export function hasNip04Support(): boolean {
 export async function backupWalletToNostr(pubkey: string): Promise<any> {
   if (!browser) throw new Error('Backup can only be performed in browser');
 
+  // Block sessions that can't encrypt to the user's real key, with a
+  // session-specific reason (this also covers a missing local key or an
+  // extension without encryption). Checked before loading the mnemonic,
+  // which may itself need to decrypt, so the reason isn't masked by
+  // "No wallet found". Some NIP-46 remote signers may encrypt under their
+  // session/auth key rather than the user's real identity key, producing
+  // ciphertext that no future session can decrypt — even on the same
+  // account. Since we can't reliably detect which remote signers behave
+  // this way, the conservative default is to allow new backups only from
+  // nsec / passkey / NIP-07 users.
+  const backupBlocker = getNostrBackupBlocker();
+  if (backupBlocker) {
+    throw new Error(
+      describeNostrBackupBlocker(backupBlocker, 'Please save your recovery phrase manually')
+    );
+  }
+
   const mnemonic = await loadMnemonic(pubkey);
   if (!mnemonic) {
     throw new Error('No wallet found to backup');
-  }
-
-  // Check encryption support
-  if (!hasEncryptionSupport()) {
-    throw new Error(
-      'No encryption method available. Encryption is supported when logged in with a private key (nsec) or a NIP-07 browser extension.'
-    );
-  }
-
-  // Block NIP-46 remote signers from creating Nostr-relay backups.
-  // Some NIP-46 remote signers may encrypt under their session/auth
-  // key rather than the user's real identity key, producing ciphertext
-  // that no future session can decrypt — even on the same account.
-  // Since we can't reliably detect which remote signers behave this
-  // way, the conservative default is to allow new backups only from
-  // nsec / NIP-07 users.
-  if (!canCreateNostrBackup()) {
-    throw new Error(
-      'Nostr-relay backup is unavailable when using a remote signer (NIP-46). ' +
-        'Please save your recovery phrase manually, or sign in with a private key (nsec) ' +
-        'or a NIP-07 browser extension to enable cloud backup.'
-    );
   }
 
   // Create the backup event (kind 30078 - NIP-78 application-specific data)
@@ -1915,8 +1914,8 @@ export async function restoreSparkBackup(
   const encryptionMethod = backup.encryptionMethod || detectEncryptionMethod(backup.content);
   const DECRYPT_TIMEOUT = 15000;
 
-  const mnemonic = await withTimeout(
-    decrypt(pubkey, backup.content, encryptionMethod),
+  const { plaintext: mnemonic, source } = await withTimeout(
+    decryptWithSource(pubkey, backup.content, encryptionMethod, { legacy: 'prompt' }),
     DECRYPT_TIMEOUT,
     'Decryption timed out. Please approve the request in your signer app.'
   );
@@ -1955,6 +1954,14 @@ export async function restoreSparkBackup(
   } catch (e) {
     logger.warn('[Spark] Could not fetch lightning address after restore:', String(e));
   }
+
+  // Encrypted under a legacy key (#897): republish under the session key
+  // through the normal guarded path (which reads back the mnemonic just
+  // saved), or for NIP-46 — which can't create backups — queue the
+  // one-time "save your recovery phrase" notice.
+  await settleLegacySparkBackup(getSparkWalletId(normalizedMnemonic), source, () =>
+    backupWalletToNostr(pubkey)
+  );
 
   logger.info('[Spark] Wallet restored from Nostr backup successfully');
   return normalizedMnemonic;

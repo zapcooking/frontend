@@ -13,11 +13,19 @@
  * - Expiration handling (90-day default)
  */
 
+import { sourceUrl as normalizeSourceUrl } from '$lib/anonImport';
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { NDKEvent, NDKRelaySet, type NDKFilter } from '@nostr-dev-kit/ndk';
 import { getNdkInstance, userPublickey, ndkReady } from '$lib/nostr';
-import { encrypt, decrypt, hasEncryptionSupport, detectEncryptionMethod } from '$lib/encryptionService';
+import {
+  encrypt,
+  decryptWithSource,
+  noteLegacyMigration,
+  hasEncryptionSupport,
+  detectEncryptionMethod,
+  type DecryptSource
+} from '$lib/encryptionService';
 import { getOutboxRelays } from '$lib/relayListCache';
 import type { RecipeDraft } from '$lib/draftStore';
 import type { ArticleDraft } from '$lib/articleEditor';
@@ -87,6 +95,10 @@ export interface PrivateRelayList {
 // Debounce timers for publishing
 const publishDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// Last local publish/delete per draft id (d-tag), so a background legacy
+// migration (#897) can tell its fetched copy has been superseded.
+const lastDraftWriteAt = new Map<string, number>();
+
 // In-memory cache of private relay list
 let cachedPrivateRelays: PrivateRelayList | null = null;
 
@@ -134,7 +146,11 @@ export async function getPrivateRelays(pubkey: string): Promise<string[]> {
       if (event.content) {
         try {
           const method = detectEncryptionMethod(event.content);
-          const decrypted = await decrypt(pubkey, event.content, method);
+          const { plaintext: decrypted, source } = await decryptWithSource(
+            pubkey,
+            event.content,
+            method
+          );
           const relayData = JSON.parse(decrypted);
 
           // Extract relay URLs from decrypted content
@@ -149,6 +165,13 @@ export async function getPrivateRelays(pubkey: string): Promise<string[]> {
           if (relays.length > 0) {
             cachedPrivateRelays = { relays, updatedAt: Date.now() };
             console.log('[NIP-37] Found private relay list:', relays);
+            // Encrypted under a legacy key (#897): republish under the
+            // session key through the normal guarded path.
+            if (source !== 'session') {
+              void setPrivateRelays(relays).then((ok) => {
+                if (ok) noteLegacyMigration('private relay list', source);
+              });
+            }
             return relays;
           }
         } catch (e) {
@@ -306,18 +329,24 @@ async function encryptArticleDraftContent(draft: ArticleDraft, pubkey: string): 
 /**
  * Decrypt draft content from NIP-37 event
  */
-async function decryptDraftContent(content: string, pubkey: string, draftType: 'recipe' | 'article' = 'recipe'): Promise<RecipeDraft | ArticleDraft | null> {
+async function decryptDraftContent(
+  content: string,
+  pubkey: string,
+  draftType: 'recipe' | 'article' = 'recipe'
+): Promise<{ draft: RecipeDraft | ArticleDraft; plaintext: string; source: DecryptSource } | null> {
   try {
     const method = detectEncryptionMethod(content);
-    const decrypted = await decrypt(pubkey, content, method);
-    const eventData = JSON.parse(decrypted);
+    const { plaintext, source } = await decryptWithSource(pubkey, content, method, {
+      legacy: 'prompt'
+    });
+    const eventData = JSON.parse(plaintext);
 
     // Parse based on draft type
-    if (draftType === 'article') {
-      return await parseArticleToDraft(eventData);
-    } else {
-      return parseRecipeToDraft(eventData);
-    }
+    const draft =
+      draftType === 'article'
+        ? await parseArticleToDraft(eventData)
+        : parseRecipeToDraft(eventData);
+    return { draft, plaintext, source };
   } catch (e) {
     console.error('[NIP-37] Failed to decrypt draft:', e);
     return null;
@@ -378,6 +407,8 @@ function buildRecipeMarkdown(draft: RecipeDraft): string {
  */
 function buildRecipeTags(draft: RecipeDraft): string[][] {
   const tags: string[][] = [];
+  const source = normalizeSourceUrl(draft.sourceUrl || '');
+  if (source) tags.push(['r', source]);
 
   // Title
   if (draft.title) {
@@ -522,6 +553,7 @@ function parseRecipeToDraft(eventData: { kind: number; content: string; tags: st
     ingredients: sections.ingredients,
     directions: sections.directions,
     additionalMarkdown: sections.additionalMarkdown,
+    sourceUrl: normalizeSourceUrl(tags.find(t => t[0] === 'r')?.[1] || '') || undefined,
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -636,6 +668,7 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
   }
 
   fetchInProgress = (async () => {
+    const fetchedAt = Date.now();
     try {
       await ndkReady;
       const ndkInstance = getNdkInstance();
@@ -666,6 +699,7 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
 
       // Process and deduplicate drafts
       const draftsMap = new Map<string, RemoteDraft>();
+      const legacyByEventId = new Map<string, { event: NDKEvent; plaintext: string; source: DecryptSource }>();
       const now = Date.now();
       let skippedExpired = 0;
       let skippedDeleted = 0;
@@ -695,8 +729,12 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
         const draftType: 'recipe' | 'article' = draftTypeTag?.[1] === 'article' ? 'article' : 'recipe';
 
         // Decrypt content
-        const draft = await decryptDraftContent(event.content, pubkey, draftType);
-        if (!draft) continue;
+        const decrypted = await decryptDraftContent(event.content, pubkey, draftType);
+        if (!decrypted) continue;
+        const { draft } = decrypted;
+        if (decrypted.source !== 'session') {
+          legacyByEventId.set(event.id, { event, ...decrypted });
+        }
 
         // Use d-tag as draft ID
         draft.id = dTag;
@@ -718,6 +756,12 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
       }
 
       const drafts = [...draftsMap.values()];
+
+      // Newest versions encrypted under a legacy key (#897): republish them
+      // under the session key. Background; the fetch result doesn't wait.
+      const legacy = drafts.flatMap((d) => legacyByEventId.get(d.eventId) ?? []);
+      if (legacy.length > 0) void migrateLegacyDraftWraps(pubkey, legacy, fetchedAt);
+
       if (skippedDeleted > 0 || skippedExpired > 0) {
         console.log(`[NIP-37] Skipped ${skippedDeleted} deleted, ${skippedExpired} expired drafts`);
       }
@@ -733,6 +777,49 @@ export async function fetchRemoteDrafts(): Promise<RemoteDraft[]> {
   })();
 
   return fetchInProgress;
+}
+
+/**
+ * Re-encrypt legacy-decrypted draft wraps (#897) under the session key and
+ * republish them. The original plaintext and tags (d, k, draft-type,
+ * expiration) are kept exactly — rebuilding through publishDraft would
+ * round-trip the draft through the parser and reset its expiration. Same
+ * guards and relays as publishDraft.
+ *
+ * Never supersedes a newer version: the replacement is dated one second
+ * after the copy it was decrypted from, so any later edit or deletion
+ * (whatever order the publishes land in) still wins on the relays, and a
+ * draft with a local edit pending or written since the fetch is skipped.
+ */
+async function migrateLegacyDraftWraps(
+  pubkey: string,
+  wraps: Array<{ event: NDKEvent; plaintext: string; source: DecryptSource }>,
+  fetchedAt: number
+): Promise<void> {
+  if (get(userPublickey) !== pubkey || !hasEncryptionSupport()) return;
+  try {
+    const ndkInstance = getNdkInstance();
+    const relays = await getPrivateRelays(pubkey);
+    for (const { event, plaintext, source } of wraps) {
+      const dTag = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
+      const superseded = () =>
+        publishDebounceTimers.has(dTag) || (lastDraftWriteAt.get(dTag) ?? 0) >= fetchedAt;
+      if (superseded()) continue;
+
+      const { ciphertext } = await encrypt(pubkey, plaintext);
+      const wrap = new NDKEvent(ndkInstance);
+      wrap.kind = KIND_DRAFT_WRAP;
+      wrap.content = ciphertext;
+      wrap.tags = event.tags.map((t) => [...t]);
+      wrap.created_at = (event.created_at ?? 0) + 1;
+      await wrap.sign();
+      if (superseded()) continue;
+      await wrap.publish(NDKRelaySet.fromRelayUrls(relays, ndkInstance));
+      noteLegacyMigration('draft', source);
+    }
+  } catch (e) {
+    console.warn('[NIP-37] Legacy-encrypted draft not migrated:', (e as Error)?.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -787,6 +874,7 @@ export async function publishDraft(draft: RecipeDraft): Promise<boolean> {
     console.log(`[NIP-37] Skipping publish of empty draft ${draft.id}`);
     return false;
   }
+  lastDraftWriteAt.set(draft.id, Date.now());
 
   try {
     await ndkReady;
@@ -881,6 +969,7 @@ export async function publishArticleDraft(draft: ArticleDraft): Promise<boolean>
     console.log(`[NIP-37] Skipping publish of empty article draft ${draft.id}`);
     return false;
   }
+  lastDraftWriteAt.set(draft.id, Date.now());
 
   try {
     await ndkReady;
@@ -936,6 +1025,7 @@ export async function deleteDraftRemote(draftId: string, draftType: 'recipe' | '
     console.error('[NIP-37] Cannot delete draft: not logged in');
     return false;
   }
+  lastDraftWriteAt.set(draftId, Date.now());
 
   try {
     await ndkReady;

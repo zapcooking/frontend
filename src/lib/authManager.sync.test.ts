@@ -46,7 +46,12 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
 
 import { AuthManager, VaultConflictError } from './authManager';
 import { VAULT_STORAGE_KEY, type VaultRecord } from './passkeyVault';
-import { SYNC_ENABLED_KEY, SYNC_PENDING_KEY } from './passkeySync';
+import {
+  SYNC_ENABLED_KEY,
+  SYNC_PENDING_KEY,
+  SYNC_REFRESHED_AT_KEY,
+  SYNC_REFRESH_INTERVAL_MS
+} from './passkeySync';
 import { hexToBytes, bytesToB64 } from './passkeyVaultCrypto';
 
 const CRED_ID = fixture.credentialIdB64url;
@@ -222,6 +227,140 @@ describe('enrollment with sync', () => {
   });
 });
 
+describe('signup enrollment options (signIn / awaitUpload)', () => {
+  function passkeyCeremony() {
+    credentials.create.mockResolvedValue(fakeCredential(CRED_ID, { prfEnabled: true }));
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+  }
+
+  it('signIn:false enrolls (record saved) without signing in', async () => {
+    acceptingServer();
+    passkeyCeremony();
+    const am = new AuthManager(ndk);
+    const result = await am.enrollAtSignup(fixture.nsecHex, fixture.pubkeyHex, {
+      sync: false,
+      signIn: false
+    });
+    expect(result).toEqual({ uploaded: null, confirmed: true });
+    expect(store.get(VAULT_STORAGE_KEY)).toBeDefined();
+    expect(am.getState().isAuthenticated).toBe(false);
+    expect(store.get(PK_KEY)).toBeUndefined();
+  });
+
+  it('awaitUpload reports a landed upload and clears nothing pending', async () => {
+    acceptingServer();
+    passkeyCeremony();
+    const am = new AuthManager(ndk);
+    const result = await am.enrollAtSignup(fixture.nsecHex, fixture.pubkeyHex, {
+      sync: true,
+      signIn: false,
+      awaitUpload: true
+    });
+    expect(result).toEqual({ uploaded: true, confirmed: true });
+    expect(callsTo('PUT')).toHaveLength(1);
+    expect(store.get(SYNC_PENDING_KEY)).toBeUndefined();
+  });
+
+  it('awaitUpload reports a failed upload (pending kept for the next unlock)', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith('/challenge')
+        ? json(200, { challenge: 'YQ', expiresAt: Date.now() + 120000 })
+        : json(500, {})
+    );
+    passkeyCeremony();
+    const am = new AuthManager(ndk);
+    const result = await am.enrollAtSignup(fixture.nsecHex, fixture.pubkeyHex, {
+      sync: true,
+      signIn: false,
+      awaitUpload: true
+    });
+    expect(result).toEqual({ uploaded: false, confirmed: true });
+    expect(store.get(SYNC_PENDING_KEY)).toBe('1');
+  });
+
+  it('awaitUpload with no server challenge (offline) reports not uploaded', async () => {
+    fetchMock.mockRejectedValue(new TypeError('offline'));
+    passkeyCeremony();
+    const am = new AuthManager(ndk);
+    const result = await am.enrollAtSignup(fixture.nsecHex, fixture.pubkeyHex, {
+      sync: true,
+      signIn: false,
+      awaitUpload: true
+    });
+    expect(result).toEqual({ uploaded: false, confirmed: true });
+  });
+});
+
+describe('vault-sync request deadlines', () => {
+  // A fetch that never answers on its own — only the abort signal ends it.
+  function hangingUnlessAborted(match: (url: string, init?: RequestInit) => boolean) {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (!match(String(url), init)) {
+        return Promise.resolve(
+          String(url).endsWith('/challenge')
+            ? json(200, { challenge: 'YQ', expiresAt: Date.now() + 120000 })
+            : json(200, { ok: true })
+        );
+      }
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('timeout', 'TimeoutError')));
+      });
+    });
+  }
+  // AbortSignal.timeout → a signal the test fires, so no real 5–10 s wait.
+  function controllableDeadlines() {
+    const controllers: AbortController[] = [];
+    const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => {
+      const c = new AbortController();
+      controllers.push(c);
+      return c.signal;
+    });
+    return { fireAll: () => controllers.forEach((c) => c.abort()), spy };
+  }
+
+  it('a stalled challenge fetch does not hold the unlock: it goes ahead locally', async () => {
+    seedVault();
+    store.set(SYNC_ENABLED_KEY, '1'); // refresh due (never stamped)
+    hangingUnlessAborted((url) => url.endsWith('/challenge'));
+    const d = controllableDeadlines();
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    const p = am.unlockVault();
+    await flush();
+    expect(credentials.get).not.toHaveBeenCalled(); // still waiting on the challenge
+    d.fireAll();
+    await p;
+    expect(am.getState().isAuthenticated).toBe(true);
+    expect(credentials.get).toHaveBeenCalledTimes(1);
+    d.spy.mockRestore();
+  });
+
+  it('a stalled signup upload reports not uploaded and stays pending', async () => {
+    hangingUnlessAborted((_url, init) => init?.method === 'PUT');
+    const d = controllableDeadlines();
+    credentials.create.mockResolvedValue(fakeCredential(CRED_ID, { prfEnabled: true }));
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    const am = new AuthManager(ndk);
+    const p = am.enrollAtSignup(fixture.nsecHex, fixture.pubkeyHex, {
+      sync: true,
+      signIn: false,
+      awaitUpload: true
+    });
+    for (let i = 0; i < 20 && callsTo('PUT').length === 0; i++) await flush();
+    expect(callsTo('PUT')).toHaveLength(1);
+    d.fireAll();
+    expect(await p).toEqual({ uploaded: false, confirmed: true });
+    expect(store.get(SYNC_PENDING_KEY)).toBe('1');
+    d.spy.mockRestore();
+  });
+});
+
 describe('pending-upload retry on unlock', () => {
   it('retries the upload with the unlock ceremony assertion (single prompt)', async () => {
     seedVault();
@@ -241,9 +380,86 @@ describe('pending-upload retry on unlock', () => {
     expect(store.get(SYNC_PENDING_KEY)).toBeUndefined();
   });
 
-  it('no pending flag → unlock makes zero network calls', async () => {
+  it('sync on, nothing pending → the same ceremony refreshes the entry TTL (no PUT)', async () => {
     seedVault();
     store.set(SYNC_ENABLED_KEY, '1');
+    acceptingServer();
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    await am.unlockVault();
+    await flush();
+
+    expect(credentials.get).toHaveBeenCalledTimes(1); // still one prompt
+    const posts = callsTo('POST').filter(([url]) => !String(url).endsWith('/challenge'));
+    expect(posts).toHaveLength(1);
+    expect(String(posts[0][0])).toMatch(/^\/api\/vault-sync\/[0-9a-f]{64}$/);
+    expect(JSON.parse(posts[0][1]!.body as string).assertion.credentialId).toBe(CRED_ID);
+    expect(callsTo('PUT')).toHaveLength(0);
+  });
+
+  it('refresh is throttled to once a day per device: a second unlock the same day makes no call', async () => {
+    seedVault();
+    store.set(SYNC_ENABLED_KEY, '1');
+    acceptingServer();
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    await am.unlockVault();
+    await flush();
+    const stamped = Number(store.get(SYNC_REFRESHED_AT_KEY));
+    expect(stamped).toBeGreaterThan(0);
+    fetchMock.mockClear();
+
+    await am.unlockVault();
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // A day later it's due again.
+    store.set(SYNC_REFRESHED_AT_KEY, String(stamped - SYNC_REFRESH_INTERVAL_MS));
+    await am.unlockVault();
+    await flush();
+    expect(callsTo('POST').filter(([url]) => !String(url).endsWith('/challenge'))).toHaveLength(1);
+  });
+
+  it('a pending upload still retries the same day (throttle applies to refreshes only)', async () => {
+    seedVault();
+    store.set(SYNC_ENABLED_KEY, '1');
+    store.set(SYNC_REFRESHED_AT_KEY, String(Date.now()));
+    store.set(SYNC_PENDING_KEY, '1');
+    acceptingServer();
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    await am.unlockVault();
+    await flush();
+    expect(callsTo('PUT')).toHaveLength(1);
+  });
+
+  it('sync on but the entry is gone (404) → the same assertion re-uploads it', async () => {
+    seedVault();
+    store.set(SYNC_ENABLED_KEY, '1');
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/challenge')) return json(200, { challenge: 'YQ', expiresAt: Date.now() + 120000 });
+      if (init?.method === 'POST') return json(404, { error: 'not_found' });
+      return json(200, { ok: true });
+    });
+    const am = new AuthManager(ndk);
+    credentials.get.mockResolvedValue(
+      fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })
+    );
+    await am.unlockVault();
+    await flush();
+    expect(callsTo('PUT')).toHaveLength(1);
+    expect(store.get(SYNC_PENDING_KEY)).toBeUndefined();
+  });
+
+  it('sync off → unlock makes zero network calls', async () => {
+    seedVault();
+    store.set(SYNC_ENABLED_KEY, '0');
     const am = new AuthManager(ndk);
     credentials.get.mockResolvedValue(
       fakeCredential(CRED_ID, { prfResult: hexToBytes(fixture.prfOutputHex) })

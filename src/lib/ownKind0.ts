@@ -10,6 +10,7 @@ import {
 import { getPublicKey } from 'nostr-tools';
 import { getOutboxRelays } from './relayListCache';
 import { ingestProfileEvent } from './profileResolver';
+import { clearPendingKind0, pendingKind0For } from './pendingKind0';
 
 /**
  * Read-modify-write for the signed-in user's own kind:0.
@@ -283,6 +284,11 @@ export async function publishKind0Changes(
   changes: Record<string, string | undefined>,
   aliases: Record<string, string[]> = {}
 ): Promise<Kind0PublishResult> {
+  // A signup profile no relay has accepted yet is still this account's
+  // newest profile: the relay read can't see it ('none', or an older one),
+  // and building on that would drop the queued name and photo when this
+  // update clears the pending copy below.
+  loaded = withPendingKind0(ndk, pubkey, loaded);
   const base = loaded.status === 'found' ? loaded.content : {};
 
   const event = new NDKEvent(ndk);
@@ -306,7 +312,31 @@ export async function publishKind0Changes(
     throw new Error('No relay accepted the profile update. Please try again.');
   }
   ingestProfileEvent(pubkey, event);
+  // A newer profile reached a relay: an older unsent signup kind 0 must
+  // not be republished over it.
+  clearPendingKind0(pubkey);
   return { event, relayCount: relays.size };
+}
+
+/** The newer of the relay read and this account's pending signup kind 0. */
+export function withPendingKind0(ndk: NDK, pubkey: string, loaded: LoadedKind0): LoadedKind0 {
+  const pending = pendingKind0For(pubkey);
+  if (!pending) return loaded;
+  if (loaded.status === 'found' && (loaded.event.created_at ?? 0) >= pending.created_at) {
+    return loaded;
+  }
+  let content: unknown;
+  try {
+    content = JSON.parse(pending.content);
+  } catch {
+    return loaded;
+  }
+  if (!content || typeof content !== 'object' || Array.isArray(content)) return loaded;
+  return {
+    status: 'found',
+    content: content as Record<string, unknown>,
+    event: new NDKEvent(ndk, pending)
+  };
 }
 
 export const KIND0_WRONG_SIGNER_MESSAGE =
@@ -320,11 +350,20 @@ export const KIND0_WRONG_SIGNER_MESSAGE =
  * session that was still restoring lands late — and signing with it would
  * replace that EXISTING user's profile with this fresh one. Never sign a
  * from-`{}` profile with anything but the key it was generated for.
+ *
+ * Published to `relayUrls` (the app's relays: a new key has no relay list,
+ * so that is what the outbox model would pick anyway) with a bounded wait.
+ * A bare event.publish() first asks NDK's outbox tracker for the author's
+ * relay list, and for a key nobody has seen that lookup can wait forever —
+ * signup hung on it before sending a single frame.
  */
+export const NEW_ACCOUNT_KIND0_TIMEOUT_MS = 8000;
+
 export async function publishNewAccountKind0(
   ndk: NDK,
   privateKey: Uint8Array,
-  content: Record<string, string>
+  content: Record<string, string>,
+  relayUrls: string[]
 ): Promise<Kind0PublishResult> {
   const pubkey = getPublicKey(privateKey);
   const event = new NDKEvent(ndk);
@@ -333,9 +372,32 @@ export async function publishNewAccountKind0(
   event.content = JSON.stringify(content);
   await event.sign(new NDKPrivateKeySigner(privateKey));
   if (event.pubkey !== pubkey) throw new Error(KIND0_WRONG_SIGNER_MESSAGE);
-  const relays = await event.publish();
-  if (relays.size > 0) ingestProfileEvent(pubkey, event);
-  return { event, relayCount: relays.size };
+  // Into the local profile cache whether or not a relay took it yet: the
+  // member's own name shows straight away, and $lib/pendingKind0 keeps
+  // republishing it until a relay accepts it.
+  ingestProfileEvent(pubkey, event);
+  const relayCount = await publishSignedKind0(ndk, event, relayUrls);
+  return { event, relayCount };
+}
+
+/**
+ * Publish an already-signed kind 0 to `relayUrls` with the bounded wait.
+ * Returns how many relays accepted it; 0 on a timeout or any refusal
+ * (never throws — the caller decides whether to retry).
+ */
+export async function publishSignedKind0(
+  ndk: NDK,
+  event: NDKEvent,
+  relayUrls: string[]
+): Promise<number> {
+  try {
+    const relays = new Set(relayUrls.map((url) => ndk.pool.getRelay(url, true)));
+    const accepted = await event.publish(new NDKRelaySet(relays, ndk), NEW_ACCOUNT_KIND0_TIMEOUT_MS);
+    return accepted.size;
+  } catch (error) {
+    console.warn('[ownKind0] kind 0 publish not accepted:', (error as Error)?.message || error);
+    return 0;
+  }
 }
 
 /**

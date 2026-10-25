@@ -12,8 +12,11 @@
  * nsec (import key), bunker (a minimal NIP-46 signer run by this script).
  * Plus: an account that already has a Saved list keeps its recipes, and an
  * account whose own relay list includes a dead relay still saves on the
- * first tap (the quorum: ≥2 list-capable relays and a majority of its
- * list-capable write relays answered).
+ * first tap (the quorum: ≥2 list-capable relays and at least half of its
+ * list-capable write relays answered) — with 3 write relays (1 dead) and
+ * with 2 (1 dead) — and an account with no relay list reads and writes the
+ * list relays. Every case checks the list never goes to purplepag.es or
+ * nostr.wine, which refuse kind 30001.
  *
  * Runs against the built preview. Passkeys only work on *.zap.cooking
  * (rp id zap.cooking), so pages are loaded from https://qa.zap.cooking and
@@ -25,7 +28,7 @@
  *   NODE_OPTIONS=--max-http-header-size=262144 \
  *   SAVED_LIST_PLAYWRIGHT_MODULE=/path/to/node_modules/playwright-core/index.js \
  *   SAVED_LIST_QA_CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
- *     node scripts/qa/saved-list/sign-in-save.mjs [passkey extension nsec bunker existing deadrelay]
+ *     node scripts/qa/saved-list/sign-in-save.mjs [passkey extension nsec bunker existing deadrelay halfdead norelaylist]
  *
  * (The header-size option: the preview's recipe pages send a large
  * modulepreload Link header that Node's default 16 KB limit rejects when
@@ -45,6 +48,9 @@ const LOCAL = (process.env.SAVED_LIST_QA_URL || 'http://127.0.0.1:4173').replace
 const ORIGIN = 'https://qa.zap.cooking';
 const BUNKER_RELAY = process.env.SAVED_LIST_QA_BUNKER_RELAY || 'wss://nostr.mom';
 const DTAG = 'nostrcooking-bookmarks';
+const LIST_RELAYS = ['wss://relay.nostr.net', 'wss://nostr.oxtr.dev'];
+const REFUSING = ['wss://purplepag.es', 'wss://nostr.wine'];
+const relayKey = (u) => u.toLowerCase().replace(/\/+$/, '');
 const only = process.argv.slice(2);
 const want = (name) => only.length === 0 || only.includes(name);
 
@@ -81,8 +87,9 @@ async function newContext() {
   const relayStatus = [];
   page.on('console', (m) => {
     const t = m.text();
-    if (t.includes('Saved list edit refused'))
-      relayStatus.push(t.replace(/^.*read incomplete /, ''));
+    // "List edit refused: …" since #885 (every list); "Saved list edit refused" before.
+    if (/(Saved )?[Ll]ist edit refused/.test(t))
+      relayStatus.push(t.replace(/^.*(read incomplete|refused:) /, ''));
   });
   const toasts = [];
   await page.exposeFunction('__qaToast', (t) => toasts.push(t));
@@ -101,6 +108,9 @@ async function newContext() {
   const sent = new Map();
   const ok = new Map();
   const sockets = [];
+  // Relays each Saved-list EVENT was sent to, and relays asked for the list.
+  const sentTo = new Set();
+  const readFrom = new Set();
   page.on('websocket', (ws) => {
     sockets.push(ws.url());
     ws.on('framesent', (f) => {
@@ -112,6 +122,13 @@ async function newContext() {
           m[1].tags.some((t) => t[0] === 'd' && t[1] === DTAG)
         ) {
           sent.set(m[1].id, m[1]);
+          sentTo.add(relayKey(ws.url()));
+        }
+        if (
+          m[0] === 'REQ' &&
+          m.slice(2).some((flt) => flt?.kinds?.includes(30001) && flt['#d']?.includes(DTAG))
+        ) {
+          readFrom.add(relayKey(ws.url()));
         }
       } catch {
         /* not JSON — ignore */
@@ -127,7 +144,7 @@ async function newContext() {
       }
     });
   });
-  return { ctx, page, sent, ok, toasts, relayStatus, sockets };
+  return { ctx, page, sent, ok, toasts, relayStatus, sockets, sentTo, readFrom };
 }
 
 /**
@@ -194,6 +211,12 @@ async function clearOverlays(page) {
   }
 }
 
+/** QR, bunker, nsec and Google Drive sit behind "More options" on the sign-in card. */
+async function openMoreOptions(page) {
+  const toggle = page.getByRole('button', { name: 'More options' });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+}
+
 async function tapSaveAndExpectSheet(page) {
   await page.locator('button[title^="Save to My Kitchen"]').first().click();
   await page.locator('.signin-card').waitFor();
@@ -203,7 +226,7 @@ async function tapSaveAndExpectSheet(page) {
 /** After sign-in: saved without a second tap, one list event, accepted, holds the recipe. */
 async function assertSaved(
   label,
-  { page, sent, ok, toasts, relayStatus },
+  { page, sent, ok, toasts, relayStatus, sentTo },
   recipeATagPart,
   keep = []
 ) {
@@ -228,6 +251,18 @@ async function assertSaved(
       }
       return;
     }
+    if (toasts.some((t) => t.includes("Couldn't confirm the save"))) {
+      // Sent, but no relay acknowledged it and the check read didn't find it:
+      // visible (with Refresh) and safe as long as it went out once.
+      const once = sent.size === 1;
+      if (once) {
+        refusals.push(label);
+        console.log(`UNCONFIRMED (network)  ${label}  — sent once, no relay confirmed it`);
+      } else {
+        check(`${label}: unconfirmed after sending exactly once`, false, `${sent.size} sent`);
+      }
+      return;
+    }
     await page.waitForTimeout(500);
   }
   check(
@@ -248,6 +283,51 @@ async function assertSaved(
     recipes.some((a) => a.endsWith(recipeATagPart))
   );
   for (const a of keep) check(`${label}: kept ${a.slice(-12)}`, recipes.includes(a));
+  check(
+    `${label}: never sent to purplepag.es / nostr.wine`,
+    REFUSING.every((u) => !sentTo.has(u)),
+    [...sentTo].join(' ')
+  );
+  check(
+    `${label}: sent to the list relays`,
+    LIST_RELAYS.every((u) => sentTo.has(u)),
+    [...sentTo].join(' ')
+  );
+}
+
+/** Sign in with a new nsec whose kind 10002 (if any) is `writeRelays`; Save must succeed. */
+async function deadRelayCase(label, writeRelays, dead) {
+  const sk = generateSecretKey();
+  const relayList = finalizeEvent(
+    {
+      kind: 10002,
+      created_at: Math.floor(Date.now() / 1000) - 60,
+      tags: writeRelays.map((u) => ['r', u]),
+      content: ''
+    },
+    sk
+  );
+  const stored = await seed(relayList, [
+    'wss://nos.lol',
+    'wss://relay.primal.net',
+    'wss://purplepag.es',
+    'wss://relay.damus.io'
+  ]);
+  check(`${label}: relay list seeded`, stored > 0, `${stored}/4`);
+  await new Promise((r) => setTimeout(r, 1500));
+  const run = await newContext();
+  const { ctx, page } = run;
+  await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
+  await tapSaveAndExpectSheet(page);
+  await openMoreOptions(page);
+  await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
+  await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
+  await page.getByRole('button', { name: 'Login', exact: true }).click();
+  await assertSaved(label, run, `:${recipeD}`);
+  // The dead relay really was in the read: the relay list was honored and
+  // the quorum went ahead without it.
+  check(`${label}: the read tried it`, run.sockets.some((u) => u.startsWith(dead)));
+  await ctx.close();
 }
 
 const recipePath = await findRecipe();
@@ -273,14 +353,12 @@ if (want('passkey')) {
   });
   await page.goto(ORIGIN + '/recipes', { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Sign in', exact: true }).first().click();
-  await page.getByRole('button', { name: 'Create a new Zap Cooking profile' }).click();
-  await page.getByRole('button', { name: 'Create Profile', exact: true }).click();
-  await page.getByRole('button', { name: 'Set up passkey' }).click();
-  const dl = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download backup file' }).click();
-  await dl;
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
-  await page.getByRole('button', { name: /Continue to Zap Cooking/ }).click();
+  await page.locator('.signin-card').getByRole('button', { name: 'Join free', exact: true }).click();
+  // Signup: "Pick a name", then "Keep your account safe" with a passkey
+  // (sync on by default — passkey-only once the encrypted copy lands).
+  await page.locator('#signup-name').fill('QA Saved List');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: /^Protect with / }).click();
   await page.waitForTimeout(1500);
   await clearOverlays(page);
   await page.getByRole('button', { name: /Skip for now/ }).click();
@@ -297,7 +375,11 @@ if (want('passkey')) {
   sent.clear();
   const tagline = await tapSaveAndExpectSheet(page);
   check('passkey: sheet says why', tagline === 'Sign in to save this recipe', tagline);
-  await page.getByRole('button', { name: 'Unlock your saved key with a passkey' }).click();
+  // The vault's one primary: "Continue as {name}" ("Continue with your passkey" before the name loads).
+  await page
+    .locator('.signin-card')
+    .getByRole('button', { name: /^Continue (as |with your passkey)/ })
+    .click();
   await assertSaved('passkey', run, `:${recipeD}`);
   await ctx.close();
 }
@@ -319,7 +401,7 @@ if (want('extension')) {
   const tagline = await tapSaveAndExpectSheet(page);
   check('extension: sheet says why', tagline === 'Sign in to save this recipe', tagline);
   await page
-    .getByRole('button', { name: 'Sign in to Zap Cooking using your Nostr browser extension' })
+    .getByRole('button', { name: 'Use a Nostr extension', exact: true })
     .click();
   await assertSaved('extension', run, `:${recipeD}`);
   await ctx.close();
@@ -333,6 +415,7 @@ if (want('nsec')) {
   await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
   const tagline = await tapSaveAndExpectSheet(page);
   check('nsec: sheet says why', tagline === 'Sign in to save this recipe', tagline);
+  await openMoreOptions(page);
   await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
   await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
   await page.getByRole('button', { name: 'Login', exact: true }).click();
@@ -362,6 +445,7 @@ if (want('existing')) {
   const { ctx, page, sent } = run;
   await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
   await tapSaveAndExpectSheet(page);
+  await openMoreOptions(page);
   await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
   await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
   await page.getByRole('button', { name: 'Login', exact: true }).click();
@@ -376,46 +460,36 @@ if (want('existing')) {
 }
 
 // ── dead relay: the account's own relay list includes an unreachable relay ──
-if (want('deadrelay')) {
+// Resolves but is not a relay: the socket opens and fails — dead, and observable.
+const DEAD = 'wss://example.com/dead-relay';
+// Two live list-capable write relays + one that never answers: 2/3.
+if (want('deadrelay'))
+  await deadRelayCase('dead relay', ['wss://nos.lol', 'wss://relay.primal.net', DEAD], DEAD);
+// One live + one dead: 1/2 is at least half, and nos.lol + the list relays
+// meet the two-answer floor, so the first tap must save.
+if (want('halfdead')) await deadRelayCase('half dead', ['wss://nos.lol', DEAD], DEAD);
+
+// ── no relay list: a brand-new key with no kind 10002 ──
+if (want('norelaylist')) {
   const sk = generateSecretKey();
-  // Resolves but is not a relay: the socket opens and fails — dead, and observable.
-  const DEAD = 'wss://example.com/dead-relay';
-  // Write relays: two live list-capable ones + one that never answers →
-  // 2/3 is a majority, so the first tap must save.
-  const relayList = finalizeEvent(
-    {
-      kind: 10002,
-      created_at: Math.floor(Date.now() / 1000) - 60,
-      tags: [
-        ['r', 'wss://nos.lol'],
-        ['r', 'wss://relay.primal.net'],
-        ['r', DEAD]
-      ],
-      content: ''
-    },
-    sk
-  );
-  const stored = await seed(relayList, [
-    'wss://nos.lol',
-    'wss://relay.primal.net',
-    'wss://purplepag.es',
-    'wss://relay.damus.io'
-  ]);
-  check('dead relay: relay list seeded', stored > 0, `${stored}/4`);
-  await new Promise((r) => setTimeout(r, 1500));
   const run = await newContext();
-  const { ctx, page } = run;
+  const { ctx, page, readFrom } = run;
   await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
   await tapSaveAndExpectSheet(page);
+  await openMoreOptions(page);
   await page.getByRole('button', { name: 'Sign in by importing a private key' }).click();
   await page.locator('[data-nsec-field]').fill(nip19.nsecEncode(sk));
   await page.getByRole('button', { name: 'Login', exact: true }).click();
-  await assertSaved('dead relay', run, `:${recipeD}`);
-  // The dead relay really was in the read: the relay list was honored and
-  // the quorum went ahead without it.
+  await assertSaved('no relay list', run, `:${recipeD}`);
   check(
-    'dead relay: the read tried it',
-    run.sockets.some((u) => u.startsWith(DEAD))
+    'no relay list: read from the list relays',
+    LIST_RELAYS.every((u) => readFrom.has(u)),
+    [...readFrom].join(' ')
+  );
+  check(
+    'no relay list: never read from purplepag.es / nostr.wine',
+    REFUSING.every((u) => !readFrom.has(u)),
+    [...readFrom].join(' ')
   );
   await ctx.close();
 }
@@ -510,6 +584,7 @@ if (want('bunker')) {
     await page.goto(ORIGIN + recipePath, { waitUntil: 'domcontentloaded' });
     const tagline = await tapSaveAndExpectSheet(page);
     check('bunker: sheet says why', tagline === 'Sign in to save this recipe', tagline);
+    await openMoreOptions(page);
     await page
       .getByRole('button', { name: 'Sign in with a bunker URI from a remote signer' })
       .click();
@@ -531,5 +606,5 @@ await browser.close();
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 if (refusals.length)
-  console.log(`refused on an incomplete relay read (safe; rerun): ${refusals.join(', ')}`);
+  console.log(`refused or unconfirmed on a bad network (safe; rerun): ${refusals.join(', ')}`);
 process.exit(failed ? 1 : refusals.length ? 2 : 0);

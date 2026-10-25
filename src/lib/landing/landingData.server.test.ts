@@ -12,6 +12,8 @@ import {
 	emptyLandingData,
 	getLandingData,
 	mergeWithLastGood,
+	moderateLandingData,
+	pinCoverPool,
 	parseNip11Topics,
 	type CacheLike,
 	type LandingData
@@ -123,7 +125,7 @@ describe('buildLandingData', () => {
 		expect(d.newRecipes.map((c) => c.title)).toEqual(['Recipe older']);
 
 		// Topics: list order; counts under 5 hidden; tiles without a photo dropped.
-		expect(d.topics).toEqual([{ slug: 'baking', name: 'Baking', count: 46, image: IMG('n1'), href: '/feed' }]);
+		expect(d.topics).toEqual([{ slug: 'baking', name: 'Baking', count: 46, image: IMG('n1'), href: '/tag/baking' }]);
 
 		// Cooks: list order, only those with a profile.
 		expect(d.cooks.map((c) => c.name)).toEqual(['Cook', 'Writer']);
@@ -291,6 +293,55 @@ describe('last good data', () => {
 		// An unanswered reads query (relay down) does fall back.
 		expect(mergeWithLastGood(emptyLandingData(2), lastWithReads).data.reads).toEqual(lastWithReads.reads);
 	});
+
+	it('holds approved candidates stable within six hours, then admits newly resolved candidates', () => {
+		const first = longformCardForTest('a');
+		const late = longformCardForTest('b');
+		const coverList = { version: 1, coordinates: [first.coordinate, late.coordinate] };
+		const last = { ...emptyLandingData(21600), coverPool: [first], coverList };
+		const refreshed = { ...emptyLandingData(21600 + 120), coverPool: [first, late], coverList };
+		expect(mergeWithLastGood(refreshed, last).data.coverPool).toEqual([first]);
+		expect(mergeWithLastGood({ ...refreshed, builtAt: 43200 }, last).data.coverPool).toEqual([first, late]);
+	});
+
+	it('pins the new bucket before stale-while-revalidate can alter its candidate selection', () => {
+		const first = longformCardForTest('a');
+		const resolvedPreviously = longformCardForTest('b');
+		const resolvedThisBucket = longformCardForTest('c');
+		const coverList = { version: 1, coordinates: [first.coordinate, resolvedPreviously.coordinate, resolvedThisBucket.coordinate] };
+		const previous = { ...emptyLandingData(43000), coverPoolBucket: 1, coverList, coverPool: [first], recipePool: [first, resolvedPreviously] };
+		const pinned = pinCoverPool(previous, 43200);
+		expect(pinned.coverPool).toEqual([first, resolvedPreviously]);
+		const background = { ...emptyLandingData(43201), coverList, coverPool: [first, resolvedPreviously, resolvedThisBucket], recipePool: [first, resolvedPreviously, resolvedThisBucket] };
+		const merged = mergeWithLastGood(background, pinned).data;
+		expect(merged.coverPool).toEqual(pinned.coverPool);
+		expect(pinCoverPool(merged, 64800).coverPool).toEqual([first, resolvedPreviously, resolvedThisBucket]);
+	});
+
+	it('distinguishes an editorial removal from a relay outage and respects new overrides immediately', () => {
+		const first = longformCardForTest('a');
+		const replacement = longformCardForTest('b');
+		const last = { ...emptyLandingData(21600), coverPool: [first], coverList: { version: 1, coordinates: [first.coordinate] } };
+		expect(mergeWithLastGood(emptyLandingData(21720), last).data.coverPool).toEqual([first]);
+		const removed = { ...emptyLandingData(21720), coverList: { version: 2, coordinates: [] } };
+		expect(mergeWithLastGood(removed, last).data.coverPool).toEqual([]);
+		const changed = { ...removed, coverPool: [replacement], coverList: { version: 2, coordinates: [replacement.coordinate] } };
+		expect(mergeWithLastGood(changed, last).data.coverPool).toEqual([replacement]);
+	});
+
+	it('rechecks last-good approved recipes against current moderation', () => {
+		const card = longformCardForTest('a');
+		const cached = { ...emptyLandingData(1), cover: card, coverPool: [card], recipePool: [card], newRecipes: [card] };
+		const result = moderateLandingData(cached, { blockedPubkeys: [pk('a')], blockedEventIds: [], blockedNaddrs: [], denylist: [] });
+		expect(result.coverPool).toEqual([]);
+		expect(result.recipePool).toEqual([]);
+		expect(result.cover).toBeNull();
+		expect(result.newRecipes).toEqual([]);
+	});
+
+	function longformCardForTest(suffix: string) {
+		return { ...good.cover!, coordinate: `30023:${pk(suffix)}:dish`, author: { pubkey: pk(suffix) } };
+	}
 
 	function memCache(): CacheLike & { store: Map<string, string> } {
 		const store = new Map<string, string>();

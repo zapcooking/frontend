@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { sourceUrl as normalizeSourceUrl, withSourceAttribution } from '$lib/anonImport';
+  import { findSourceDuplicate } from '$lib/recipeSource';
+  import { newRecipeIdentifier } from '$lib/coordinate';
   import { writable, type Writable } from 'svelte/store';
   import TagsComboBox from '../../components/TagsComboBox.svelte';
   import StringComboBox from '../../components/StringComboBox.svelte';
@@ -48,8 +51,10 @@
   let directionsArray: Writable<string[]> = writable([]);
   let directions = ``;
   let additionalMarkdown = '';
+  let sourceUrl = '';
 
   let resultMessage = ' ';
+  let duplicateRecipeHref: string | null = null;
   let disablePublishButton = false;
   let currentDraftId: string | null = null;
 
@@ -152,7 +157,8 @@
       servings,
       ingredients: $ingredientsArray,
       directions: $directionsArray,
-      additionalMarkdown
+      additionalMarkdown,
+      sourceUrl: sourceUrl || undefined
     };
     const saveResult = saveDraft(draftData, currentDraftId || undefined, false);
     const { draftId } = saveResult;
@@ -205,6 +211,7 @@
       ingredientsArray.set(draft.ingredients);
       directionsArray.set(draft.directions);
       additionalMarkdown = draft.additionalMarkdown;
+      sourceUrl = normalizeSourceUrl(draft.sourceUrl || '');
       draftSaveMessage = 'Draft loaded';
       setTimeout(() => {
         draftSaveMessage = '';
@@ -272,7 +279,8 @@
       servings,
       ingredients: $ingredientsArray,
       directions: $directionsArray,
-      additionalMarkdown
+      additionalMarkdown,
+      sourceUrl: sourceUrl || undefined
     };
 
     // Save with immediate sync when sync is available
@@ -362,6 +370,11 @@
     formatStringArrays();
     disablePublishButton = true;
     try {
+      duplicateRecipeHref = await findSourceDuplicate($ndk, $userPublickey || '', sourceUrl);
+      if (duplicateRecipeHref) {
+        resultMessage = 'Error: You have already published a recipe from this link. Your draft is still saved.';
+        return;
+      }
       const md = createMarkdown(
         chefsnotes,
         preptime,
@@ -369,7 +382,7 @@
         servings,
         ingredients,
         directions,
-        additionalMarkdown
+        withSourceAttribution(additionalMarkdown, sourceUrl)
       );
       const va = validateMarkdownTemplate(md);
       if (typeof va == 'string') {
@@ -377,11 +390,14 @@
       } else if ($images.length == 0) {
         resultMessage = `Error: No Image Uploaded`;
       } else if (va) {
+        // A new recipe's d-tag, kept for the naddr below (#881: no colons).
+        const identifier = newRecipeIdentifier(title);
         const event = new NDKEvent($ndk);
         event.kind = 30023;
         event.content = md;
-        event.tags.push(['d', title.toLowerCase().replaceAll(' ', '-')]);
+        event.tags.push(['d', identifier]);
         event.tags.push(['title', title]);
+        if (sourceUrl) event.tags.push(['r', sourceUrl]);
         event.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
         event.tags.push([
           't',
@@ -447,7 +463,7 @@
         }
 
         const naddr = nip19.naddrEncode({
-          identifier: title.toLowerCase().replaceAll(' ', '-'),
+          identifier,
           pubkey: recipePubkey,
           kind: 30023
         });
@@ -712,6 +728,7 @@
           : ''}
     >
       {resultMessage}
+      {#if duplicateRecipeHref}<a href={duplicateRecipeHref} class="underline">Open your existing recipe</a>{/if}
     </span>
     <!-- shrink-0 + nowrap: "Save Draft" stays one line whatever text sits
          beside it. The auto-save status used to share this row and squeeze

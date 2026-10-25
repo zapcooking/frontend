@@ -3,6 +3,7 @@
    * Preview of a Cheffy-generated week before it is written to the planner.
    * Meals stay local until the user approves.
    */
+  import { parseCoordinate } from '$lib/coordinate';
   import { createEventDispatcher } from 'svelte';
   import { nip19 } from 'nostr-tools';
   import type { MealPlanDayKey, MealSlotKey } from '$lib/mealplan/schema';
@@ -51,14 +52,10 @@
   })).filter((g) => g.meals.length > 0);
 
   function recipeHref(a: string): string | null {
-    const parts = a.split(':');
-    if (parts.length !== 3) return null;
+    const c = parseCoordinate(a);
+    if (!c) return null;
     try {
-      return `/recipe/${nip19.naddrEncode({
-        kind: Number(parts[0]),
-        pubkey: parts[1],
-        identifier: parts[2]
-      })}`;
+      return `/recipe/${nip19.naddrEncode(c)}`;
     } catch {
       return null;
     }

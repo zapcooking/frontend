@@ -179,10 +179,6 @@
     dispatch(open ? 'replyopen' : 'replyclose');
   }
 
-  function handleReplyPosted() {
-    setReplyBox(false);
-  }
-
   // Anon users see "Sign in to reply" styled as the Reply button: sign-in
   // opens over the page, then this comment's reply box opens.
   async function signInToReply() {
@@ -287,10 +283,11 @@
                 <ReplyComposer
                   parentEvent={rootEvent}
                   replyTo={event}
+                  draftKey={event.id}
                   placeholder="Write a reply..."
                   submitLabel="Reply"
                   showCancel
-                  onPosted={handleReplyPosted}
+                  on:close={() => setReplyBox(false)}
                   on:cancel={() => setReplyBox(false)}
                 />
               </div>

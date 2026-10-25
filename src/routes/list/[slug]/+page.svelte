@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { parseCoordinate } from '$lib/coordinate';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -61,18 +62,11 @@
     // load list
     event?.tags?.forEach(async (a) => {
       if (a[0] == 'a') {
-        const parts = a[1].split(':');
-        if (parts.length !== 3) {
+        const parsed = parseCoordinate(a[1]);
+        if (!parsed) {
           return;
         }
-        const [kind, pubkey, identifier] = parts;
-        if (
-          typeof kind !== 'string' ||
-          typeof pubkey !== 'string' ||
-          typeof identifier !== 'string'
-        ) {
-          return;
-        }
+        const { kind, pubkey, identifier } = parsed;
         const newEv = await $ndk.fetchEvent({
           kinds: [Number(kind)],
           '#d': [identifier],

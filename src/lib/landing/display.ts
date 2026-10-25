@@ -21,3 +21,15 @@ export function topicCountLabel(n: number): string {
 export function tagHref(tag: string): string {
 	return `/tag/${encodeURIComponent(tag)}`;
 }
+
+/** Omit protocol-heavy sentences from public magazine excerpts; never rewrite a cook's claims. */
+export function magazineText(value: string | undefined): string {
+  if (!value) return '';
+  return value.split(/(?<=[.!?])\s+/).filter((sentence) =>
+    !/\b(?:nostr|lightning|bitcoin|relays?|npub\w*|nsec\w*|sats?|zaps?|zapped|zapping)\b/i.test(sentence)
+  ).join(' ').trim();
+}
+
+export function magazineName(value: string | undefined): string {
+  return magazineText(value) || 'A cook';
+}

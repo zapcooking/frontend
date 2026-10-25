@@ -2,7 +2,7 @@ import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS } from '$lib/consts';
 import { isEventMutedBy, type MuteList } from '$lib/muteFilter';
 import { FREE_WINDOW_SECONDS, type RelayEvent } from './relay';
-import { eventIdPath } from '$lib/utils/eventUrl';
+import { eventIdPath, parseEventRef } from '$lib/utils/eventUrl';
 
 /**
  * What the Fresh feed shows, and how. Pure functions so they can be tested
@@ -186,7 +186,8 @@ export function noteHref(
 }
 
 /** The quoted note: a `q` tag first, then the first `nostr:note1/nevent1`
- *  in the text. The `q` tag's relay hint rides along when present. */
+ *  in the text. The `q` tag's relay hint (or the nevent's first wss://
+ *  relay) rides along when present. */
 export function getQuotedNote(
   e: Pick<RelayEvent, 'tags' | 'content'>
 ): { id: string; relayHint?: string } | null {
@@ -200,7 +201,9 @@ export function getQuotedNote(
       /nostr:(nevent1[023456789acdefghjklmnpqrstuvwxyz]+|note1[023456789acdefghjklmnpqrstuvwxyz]+)/
     );
     const contentId = match?.[1] ? decodeToEventIdHex(match[1]) : null;
-    return contentId ? { id: contentId } : null;
+    if (!contentId) return null;
+    const contentHint = parseEventRef(match![1])?.hints[0];
+    return contentHint ? { id: contentId, relayHint: contentHint } : { id: contentId };
   } catch {
     return null;
   }

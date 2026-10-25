@@ -1,3 +1,4 @@
+import { parseCoordinate } from '../coordinate';
 import { get } from 'svelte/store';
 import { ndk } from '$lib/nostr';
 import { discoverRecipesForPlanning } from '$lib/services/recipeDiscoveryService';
@@ -27,11 +28,12 @@ export const zapKitchen: KitchenIntegrations = {
       .filter((x) => x.score >= 2)
       .sort((a, b) => b.score - a.score)
       .slice(0, 3);
-    return scored.map(({ r }) => {
-      const [kind, pubkey, ...slug] = r.a.split(':');
+    return scored.flatMap(({ r }) => {
+      const c = parseCoordinate(r.a);
+      if (!c) return [];
       return {
         title: r.title,
-        url: `/recipe/${nip19.naddrEncode({ kind: Number(kind), pubkey, identifier: slug.join(':') })}`,
+        url: `/recipe/${nip19.naddrEncode(c)}`,
         image: r.image
       };
     });

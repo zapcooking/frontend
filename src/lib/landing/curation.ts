@@ -3,7 +3,8 @@
  * Pure (no network): parsing, validation, and the Recipe Pack guard.
  *
  * One list per slot, tag order = display order:
- *   30004 d=explore-hero    `a` refs: 1st = cover, next = picks
+ *   30004 d=explore-hero    `a` refs: approved cover pool (up to 20 recipes).
+ *       List order breaks ties inside deterministic six-hour editions.
  *   30004 d=explore-reads   `a` refs: food reads
  *   30015 d=explore-topics  `t` tags: topic slugs
  *   30000 d=feed-foodies    `p` tags: cooks (also the feed relay's trust list).
@@ -11,6 +12,8 @@
  *       window that starts one cook later each UTC day and wraps: list order
  *       is kept within the window (rotateDaily), everyone gets a turn.
  */
+
+import { parseCoordinate, type Coordinate } from '../coordinate';
 
 /** zap.cooking's org pubkey (the `_` NIP-05 name). */
 export const ORG_PUBKEY = '319ad3e790634dbe86f14db9c2995b26ee3c6228be55f89c4c7fea9acc01d50a';
@@ -73,25 +76,18 @@ export function pickOrgList<E extends ListEventLike>(
 	return best;
 }
 
-export interface Coordinate {
-	kind: number;
-	pubkey: string;
-	identifier: string;
-}
+export type { Coordinate };
 
 const HEX64 = /^[0-9a-f]{64}$/;
 
-/** `30023:<pubkey>:<d>` → coordinate (the d-tag may contain colons). */
-export function parseCoordinate(a: string | undefined): Coordinate | null {
-	if (!a) return null;
-	const first = a.indexOf(':');
-	const second = a.indexOf(':', first + 1);
-	if (first < 1 || second < 0) return null;
-	const kind = Number(a.slice(0, first));
-	const pubkey = a.slice(first + 1, second).toLowerCase();
-	const identifier = a.slice(second + 1);
-	if (!Number.isInteger(kind) || !HEX64.test(pubkey) || !identifier) return null;
-	return { kind, pubkey, identifier };
+/**
+ * A curated ref as a lookup key: `kind:<pubkey>:<d>` with the pubkey
+ * lower-cased and a non-empty d (which may contain colons).
+ */
+export function canonicalCoordinate(a: string | undefined): Coordinate | null {
+	const c = parseCoordinate(a);
+	if (!c?.identifier) return null;
+	return { ...c, pubkey: c.pubkey.toLowerCase() };
 }
 
 export function coordinateKey(c: Coordinate): string {
@@ -107,7 +103,7 @@ export function listCoordinates(e: Pick<ListEventLike, 'tags'>): Coordinate[] {
 	const out: Coordinate[] = [];
 	for (const t of e.tags) {
 		if (t[0] !== 'a') continue;
-		const c = parseCoordinate(t[1]);
+		const c = canonicalCoordinate(t[1]);
 		if (!c || !CARD_KINDS.includes(c.kind)) continue;
 		const key = coordinateKey(c);
 		if (seen.has(key)) continue;

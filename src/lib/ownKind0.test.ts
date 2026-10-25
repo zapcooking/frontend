@@ -12,9 +12,16 @@ vi.mock('./nostr', async () => {
 vi.mock('./relayListCache', () => ({ getOutboxRelays: vi.fn(async () => outbox.urls) }));
 vi.mock('./profileCache', () => ({ profileCacheManager: { invalidateProfile: vi.fn() } }));
 vi.mock('./nip98', () => ({ signNip98AuthHeader: vi.fn() }));
+const pending = vi.hoisted(() => ({ event: null as any }));
+vi.mock('./pendingKind0', () => ({
+  pendingKind0For: (pk: string) => (pending.event?.pubkey === pk ? pending.event : null),
+  clearPendingKind0: (pk?: string) => {
+    if (!pk || pending.event?.pubkey === pk) pending.event = null;
+  }
+}));
 
 const outbox = vi.hoisted(() => ({ urls: [] as string[] }));
-const published = vi.hoisted(() => ({ events: [] as any[], acceptedBy: 3 }));
+const published = vi.hoisted(() => ({ events: [] as any[], args: [] as any[][], acceptedBy: 3, throws: false }));
 const USER = vi.hoisted(() => 'a'.repeat(64));
 /** Who the global ndk.signer is signed in as. */
 const globalSigner = vi.hoisted(() => ({ pubkey: 'a'.repeat(64) }));
@@ -28,12 +35,19 @@ vi.mock('@nostr-dev-kit/ndk', async () => {
       tags: string[][] = [];
       created_at?: number;
       pubkey = '';
-      constructor(public ndk?: unknown) {}
+      constructor(
+        public ndk?: unknown,
+        raw?: Record<string, unknown>
+      ) {
+        if (raw) Object.assign(this, raw);
+      }
       async sign(signer?: { pubkey: string }) {
         this.pubkey = signer ? signer.pubkey : globalSigner.pubkey;
       }
-      async publish() {
+      async publish(...args: any[]) {
         published.events.push(this);
+        published.args.push(args);
+        if (published.throws) throw new Error('Not enough relays received the event');
         return new Set(Array.from({ length: published.acceptedBy }, (_, i) => ({ url: `r${i}` })));
       }
     },
@@ -61,6 +75,8 @@ import {
   updateOwnKind0,
   updateOwnPicture,
   publishNewAccountKind0,
+  publishKind0Changes,
+  NEW_ACCOUNT_KIND0_TIMEOUT_MS,
   Kind0LoadError,
   KIND0_LOAD_TIMEOUT_MS,
   KIND0_WRONG_SIGNER_MESSAGE,
@@ -170,7 +186,10 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-19T12:00:00Z'));
   published.events = [];
+  published.args = [];
   published.acceptedBy = 3;
+  published.throws = false;
+  pending.event = null;
   globalSigner.pubkey = USER;
   outbox.urls = [];
   clearProfileCache();
@@ -480,7 +499,7 @@ describe('signing account', () => {
     const heard: string[] = [];
     const stop = onProfileCached((pk) => heard.push(pk));
 
-    await publishNewAccountKind0(makeNdk({}), key, { name: 'newcook', about: 'hi' });
+    await publishNewAccountKind0(makeNdk({}), key, { name: 'newcook', about: 'hi' }, [POOL]);
     stop();
 
     expect(published.events).toHaveLength(1);
@@ -489,6 +508,26 @@ describe('signing account', () => {
     expect(published.events[0].tags).toEqual([]);
     expect(lastContent()).toEqual({ name: 'newcook', about: 'hi' });
     expect(heard).toEqual([getPublicKey(key)]);
+  });
+
+  it('signup: no relay accepting (timeout/refusal) never throws, and the profile is cached locally', async () => {
+    published.throws = true;
+    const key = generateSecretKey();
+    const heard: string[] = [];
+    const stop = onProfileCached((pk) => heard.push(pk));
+    const result = await publishNewAccountKind0(makeNdk({}), key, { name: 'newcook' }, [POOL]);
+    stop();
+    expect(result.relayCount).toBe(0);
+    expect(result.event.pubkey).toBe(getPublicKey(key)); // the signed event, kept for the retry
+    expect(heard).toEqual([getPublicKey(key)]);
+  });
+
+  it('signup: publishes to the given relays with a bounded wait (no outbox lookup)', async () => {
+    const key = generateSecretKey();
+    await publishNewAccountKind0(makeNdk({}), key, { name: 'newcook' }, [POOL]);
+    const [relaySet, timeoutMs] = published.args[published.args.length - 1];
+    expect([...relaySet.relays].map((r: any) => r.url)).toEqual([POOL]);
+    expect(timeoutMs).toBe(NEW_ACCOUNT_KIND0_TIMEOUT_MS);
   });
 });
 
@@ -527,5 +566,38 @@ describe('spark syncLightningAddressToProfile', () => {
       /nothing was changed/
     );
     expect(published.events).toHaveLength(0);
+  });
+});
+
+describe('updates while the signup profile is still pending (no relay has it)', () => {
+  const signup = { name: 'newcook', picture: 'https://img.test/me.png' };
+  const pendingEvent = (created_at: number) => ({
+    id: 'e'.repeat(64),
+    sig: 'f'.repeat(128),
+    ...kind0(signup, created_at)
+  });
+
+  it('a later bio/lud16 edit builds on the pending profile, not on {}, then clears it', async () => {
+    pending.event = pendingEvent(2000);
+    await settle(
+      publishKind0Changes(makeNdk({}), USER, { status: 'none' }, { lud16: 'cook@zap.test' })
+    );
+    expect(lastContent()).toEqual({ ...signup, lud16: 'cook@zap.test' });
+    expect(published.events[0].created_at).toBeGreaterThan(2000);
+    expect(pending.event).toBeNull();
+  });
+
+  it('a relay profile newer than the pending one wins as the base', async () => {
+    pending.event = pendingEvent(1000);
+    const relay = kind0({ name: 'renamed elsewhere' }, 3000);
+    await settle(
+      publishKind0Changes(
+        makeNdk({}),
+        USER,
+        { status: 'found', content: { name: 'renamed elsewhere' }, event: relay as any },
+        { about: 'hi' }
+      )
+    );
+    expect(lastContent()).toEqual({ name: 'renamed elsewhere', about: 'hi' });
   });
 });

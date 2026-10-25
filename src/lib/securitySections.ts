@@ -54,6 +54,7 @@ export type VaultHiddenReason =
  */
 export type VaultSectionResult =
   | { kind: 'enrolled' }
+  | { kind: 'unconfirmed' }
   | { kind: 'offer' }
   | { kind: 'hidden'; reason: VaultHiddenReason }
   | null;
@@ -70,7 +71,9 @@ export type VaultSectionResult =
  * refuses a pubkey mismatch (defense-in-depth per the B ruling).
  *
  * Invariant: the inputs that produce 'enrolled' and 'offer' are exactly
- * those of the pre-`hidden` version — button visibility never changed.
+ * those of the pre-`hidden` version — button visibility never changed —
+ * except that an unconfirmed record (one-prompt enrollment) is
+ * 'unconfirmed' rather than 'enrolled'.
  */
 export function resolveVaultSection(ctx: {
   support: 'full' | 'no-prf' | 'none';
@@ -82,6 +85,8 @@ export function resolveVaultSection(ctx: {
   sessionPubkey: string;
   /** Vault record pubkey, or null when no record exists. */
   recordPubkey: string | null;
+  /** The record is a one-prompt enrollment no unlock has confirmed yet. */
+  recordUnconfirmed?: boolean;
 }): VaultSectionResult {
   // Logged out / anonymous: no card, explanatory or otherwise. Checked first
   // so a logged-out page stays clean even where support is 'none'.
@@ -92,9 +97,8 @@ export function resolveVaultSection(ctx: {
   const nsecSession = ctx.sessionMethod === 'privateKey' || ctx.sessionMethod === 'passkey';
   if (!nsecSession) return { kind: 'hidden', reason: 'external-signer' };
   if (ctx.recordPubkey) {
-    return ctx.recordPubkey === ctx.sessionPubkey
-      ? { kind: 'enrolled' }
-      : { kind: 'hidden', reason: 'foreign-record' };
+    if (ctx.recordPubkey !== ctx.sessionPubkey) return { kind: 'hidden', reason: 'foreign-record' };
+    return ctx.recordUnconfirmed ? { kind: 'unconfirmed' } : { kind: 'enrolled' };
   }
   // No record: offer enrollment only for plaintext sessions with confirmed
   // PRF support ('no-prf' would fail the ceremony).
