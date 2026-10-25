@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 describe('Explore public recipe pack discovery', () => {
-  it('uses the same public discovery relays as /packs, verifies revisions and shows the newest three', async () => {
+  it('uses the same public discovery relays as /packs, verifies revisions and shows the newest four', async () => {
     const first = makePack('first', NOW - 3);
     relay(standardRelays[0], [
       first,
@@ -55,15 +55,22 @@ describe('Explore public recipe pack discovery', () => {
       first,
       makePack('third', NOW - 1),
       makePack('fourth', NOW - 4),
+      makePack('fifth', NOW - 5),
       ev({ kind: 0, pubkey: author, content: '{"name":"A cook"}' })
     ]);
     const data = await buildLandingData(deps);
     expect(data.packs?.map((card) => card.title)).toEqual([
       'Pack third',
       'Pack second',
-      'Pack first'
+      'Pack first',
+      'Pack fourth'
     ]);
-    expect(data.packs?.map((card) => card.author.name)).toEqual(['A cook', 'A cook', 'A cook']);
+    expect(data.packs?.map((card) => card.author.name)).toEqual([
+      'A cook',
+      'A cook',
+      'A cook',
+      'A cook'
+    ]);
     for (const url of standardRelays)
       expect(relays.get(url)!.reqs).toContainEqual({
         kinds: [30004],
