@@ -209,7 +209,7 @@ export async function startRelayNet({ behaviors = {} } = {}) {
       if (isLocalHost(u.hostname) || ['GET', 'HEAD', 'OPTIONS'].includes(req.method()))
         return r.fallback();
       const line = `${req.method()} ${u.origin}${u.pathname}`;
-      (READ_ONLY_POSTS.some((re) => re.test(req.url())) ? blockedReads : publicWrites).push(line);
+      (req.method() === 'POST' && READ_ONLY_POSTS.some((re) => re.test(req.url())) ? blockedReads : publicWrites).push(line);
       return r.abort();
     });
     await Promise.all(ctx.pages().map(guard));
