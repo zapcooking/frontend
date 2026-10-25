@@ -21,6 +21,7 @@ import {
   isCeremonyCancelled,
   saveVaultRecord,
   type AssertionWire,
+  type RegistrationWire,
   type VaultRecord
 } from '$lib/passkeyVault';
 import {
@@ -101,6 +102,23 @@ export function isRefreshDue(now = Date.now()): boolean {
 
 function markRefreshed(now = Date.now()): void {
   if (browser) localStorage.setItem(SYNC_REFRESHED_AT_KEY, String(now));
+}
+
+/**
+ * Set when the server copy was stored from a registration response
+ * (unconfirmed server-side): the next unlock spends its assertion on a
+ * refresh, which confirms it. Cleared by any accepted assertion.
+ */
+export const SYNC_SERVER_UNCONFIRMED_KEY = 'nostrcooking_vault_sync_server_unconfirmed';
+
+export function isServerCopyUnconfirmed(): boolean {
+  return browser && localStorage.getItem(SYNC_SERVER_UNCONFIRMED_KEY) === '1';
+}
+
+export function setServerCopyUnconfirmed(on: boolean): void {
+  if (!browser) return;
+  if (on) localStorage.setItem(SYNC_SERVER_UNCONFIRMED_KEY, '1');
+  else localStorage.removeItem(SYNC_SERVER_UNCONFIRMED_KEY);
 }
 
 export function isUploadPending(): boolean {
@@ -203,7 +221,54 @@ export async function uploadVault(
       return false;
     }
     setUploadPending(false);
+    // An upload that REPLACED an unconfirmed entry's key stays unconfirmed
+    // server-side: keep the flag so the next unlock's refresh confirms it.
+    const body = await res.json().catch(() => null);
+    setServerCopyUnconfirmed(body?.unconfirmed === true);
     markRefreshed();
+    return true;
+  } catch {
+    setUploadPending(true);
+    return false;
+  }
+}
+
+/**
+ * First upload authorized by a one-prompt enrollment's registration response
+ * (no assertion exists yet). The server stores it UNCONFIRMED; the next
+ * unlock's refresh confirms it. Returns true on success; false marks the
+ * upload pending, so that unlock uploads with its assertion instead.
+ */
+export async function uploadVaultWithRegistration(
+  record: VaultRecord,
+  registration: RegistrationWire
+): Promise<boolean> {
+  const entry =
+    record.keys.find(
+      (k) =>
+        k.credentialId === registration.credentialId &&
+        typeof k.spki === 'string' &&
+        (k.alg === -7 || k.alg === -257)
+    ) ?? null;
+  if (!entry) return false;
+  try {
+    const res = await fetch('/api/vault-sync', {
+      method: 'PUT',
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        blob: JSON.stringify(record),
+        spki: entry.spki,
+        alg: entry.alg,
+        registration
+      })
+    });
+    if (!res.ok) {
+      setUploadPending(true);
+      return false;
+    }
+    setUploadPending(false);
+    setServerCopyUnconfirmed(true);
     return true;
   } catch {
     setUploadPending(true);
@@ -235,6 +300,7 @@ export async function refreshVaultEntry(
     });
     if (res.ok) {
       markRefreshed();
+      setServerCopyUnconfirmed(false);
       return true;
     }
     if (res.status === 404) return uploadVault(record, assertion);

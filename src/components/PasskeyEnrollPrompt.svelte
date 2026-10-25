@@ -31,7 +31,7 @@
     VAULT_PROMPT_DISMISSED_KEY,
     type VaultSupport
   } from '$lib/passkeyVault';
-  import { PASSKEY_SYNC_ENABLED } from '$lib/passkeySync';
+  import { PASSKEY_SYNC_ENABLED, isServerCopyUnconfirmed } from '$lib/passkeySync';
   import {
     passkeyMethodLabel,
     confirmFailedText,
@@ -55,6 +55,9 @@
   let cancelChoice = false;
   // Removed from that choice: the backup-key panel, without "couldn't unlock".
   let removedByChoice = false;
+  // That vault had an unconfirmed copy on the server, which can't be deleted
+  // without a working passkey: it expires on its own.
+  let removedServerCopyLingers = false;
   let failedBackupOk = false;
   let label: PasskeyMethodLabel = 'passkey';
   let errorMsg = '';
@@ -173,6 +176,7 @@
 
   /** "Remove and save backup key": drop the passkey, then the backup-key panel. */
   function removeForBackup() {
+    removedServerCopyLingers = isServerCopyUnconfirmed();
     getAuthManager()?.discardUnconfirmedVault();
     cancelChoice = false;
     removedByChoice = true;
@@ -187,6 +191,12 @@
       {removedByChoice
         ? "Passkey removed. You're still signed in — save your backup key so you can always get back in."
         : confirmFailedText(label)}
+      {#if removedByChoice && removedServerCopyLingers}
+        <span class="block mt-1">
+          An encrypted copy may stay on Zap Cooking's servers for up to 30 days before it's deleted
+          automatically. Only that passkey could open it.
+        </span>
+      {/if}
     </p>
     {#if nsecHex && npub}
       <div class="vault-prompt-gate">

@@ -25,6 +25,7 @@
     shouldOfferSignupEnrollment,
     shouldShowHybridPointer,
     setUploadPending,
+    setServerCopyUnconfirmed,
     SYNC_ENABLED_KEY
   } from '$lib/passkeySync';
   import { passkeyMethodLabel, type PasskeyMethodLabel } from '$lib/auth/passkeyLabel';
@@ -36,6 +37,7 @@
     afterPasskey,
     backupFinishRunsPasskey,
     backupCanGoBack,
+    backupRequired,
     protectWithText,
     finishWithText,
     MAX_SIGNUP_NAME_LENGTH,
@@ -118,6 +120,8 @@
   let syncOn = PASSKEY_SYNC_ENABLED;
   let step: SafeStep = { kind: 'choose' };
   let backupSaved = false;
+  // The 'unconfirmed' step's optional "Save a backup key" was opened.
+  let showOptionalBackup = false;
   let passkeyBusy = false;
   let passkeyNote = '';
   let orphanNote = false;
@@ -200,7 +204,7 @@
     if (!enrolled) syncPrefBefore = localStorage.getItem(SYNC_ENABLED_KEY);
     const prefBefore = syncPrefBefore;
     try {
-      const { uploaded } = await authManager.enrollAtSignup(
+      const { uploaded, confirmed } = await authManager.enrollAtSignup(
         bytesToHex(account.privateKey),
         account.publicKey,
         { sync: syncOn, signIn: false, awaitUpload: syncOn }
@@ -213,7 +217,7 @@
         return;
       }
       enrolled = true;
-      const next = afterPasskey(syncOn, uploaded);
+      const next = afterPasskey(syncOn, uploaded, confirmed);
       if (next.kind === 'done') await finish();
       else step = next;
     } catch (error) {
@@ -228,7 +232,7 @@
   }
 
   function backupFinish() {
-    if (step.kind !== 'backup' || !backupSaved) return;
+    if (step.kind !== 'backup' || (backupRequired(step.reason) && !backupSaved)) return;
     if (backupFinishRunsPasskey(step.reason)) runPasskey();
     else finish();
   }
@@ -246,8 +250,11 @@
     try {
       if (!signedInAsNewAccount()) {
         try {
-          // With a vault saved for this key this adopts it (passkey login,
-          // no plaintext); otherwise the backup-key path stores the key.
+          // With a confirmed vault saved for this key this adopts it (passkey
+          // login, no plaintext). An unconfirmed one (one-prompt setup) isn't
+          // adopted: the key is stored as the fallback until the next
+          // visit's unlock confirms the vault. No vault: the backup-key path
+          // stores the key.
           await authManager.authenticateWithPrivateKey(bytesToHex(account.privateKey));
         } catch (error) {
           if (error instanceof VaultConflictError) {
@@ -311,6 +318,7 @@
     if (getVaultRecord()?.pubkey !== pubkey) return;
     deleteVaultRecord();
     setUploadPending(false);
+    setServerCopyUnconfirmed(false);
     if (prefBefore === null) localStorage.removeItem(SYNC_ENABLED_KEY);
     else localStorage.setItem(SYNC_ENABLED_KEY, prefBefore);
   }
@@ -333,6 +341,7 @@
     step = { kind: 'choose' };
     syncOn = PASSKEY_SYNC_ENABLED;
     backupSaved = false;
+    showOptionalBackup = false;
     passkeyNote = '';
     orphanNote = false;
     enrolled = false;
@@ -507,6 +516,12 @@
               >
             {/if}
           </div>
+        {:else if step.reason === 'unconfirmed'}
+          <div class="signup-note" role="status">
+            {passkeyLabel === 'passkey' ? 'Your passkey is' : `${passkeyLabel} is`} set up. Unlock
+            with it the next time you open Zap Cooking to finish setting it up. Until that first
+            unlock, your key also stays stored in this browser.
+          </div>
         {:else if step.reason === 'sync-off'}
           <p class="text-sm text-caption">
             Save a backup key first. Then you'll set up {passkeyLabel === 'passkey'
@@ -519,18 +534,22 @@
             safe and private.
           </p>
         {/if}
-        <!-- A brand-new key can't already be backed up: no self-attested option. -->
-        <KeyBackupGate
-          nsecHex={bytesToHex(keys.privateKey)}
-          npub={nip19.npubEncode(keys.publicKey)}
-          allowAcknowledge={false}
-          on:satisfied={() => (backupSaved = true)}
-          on:unsatisfied={() => (backupSaved = false)}
-        />
+        <!-- A brand-new key can't already be backed up: no self-attested option.
+             Optional on 'unconfirmed' (behind "Save a backup key"); kept mounted
+             once saved so a backup made earlier in this flow stays counted. -->
+        {#if backupRequired(step.reason) || backupSaved || showOptionalBackup}
+          <KeyBackupGate
+            nsecHex={bytesToHex(keys.privateKey)}
+            npub={nip19.npubEncode(keys.publicKey)}
+            allowAcknowledge={false}
+            on:satisfied={() => (backupSaved = true)}
+            on:unsatisfied={() => (backupSaved = false)}
+          />
+        {/if}
         <Button
           on:click={backupFinish}
           primary={true}
-          disabled={!backupSaved || passkeyBusy || finishing}
+          disabled={(backupRequired(step.reason) && !backupSaved) || passkeyBusy || finishing}
           class="w-full"
         >
           {passkeyBusy
@@ -541,10 +560,17 @@
                 ? finishWithText(passkeyLabel)
                 : 'Finish'}
         </Button>
-        {#if !backupSaved}
+        {#if backupRequired(step.reason) && !backupSaved}
           <p class="text-xs text-caption text-center -mt-2">
             Download the file, or reveal and copy the key, to continue.
           </p>
+        {:else if !backupSaved && !showOptionalBackup}
+          <button
+            type="button"
+            class="signup-link mx-auto text-sm"
+            disabled={finishing}
+            on:click={() => (showOptionalBackup = true)}>Save a backup key</button
+          >
         {/if}
         {#if backupCanGoBack(step.reason) && passkeyOffered}
           <button

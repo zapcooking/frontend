@@ -33,8 +33,14 @@ export function isValidPhotoUrl(url: string): boolean {
  *   sync-off      — passkey with sync off: backup first, passkey after
  *   upload-failed — passkey-only, but the off-device copy didn't land
  *   passkey-failed— the passkey couldn't be set up on this device
+ *   unconfirmed   — one-prompt passkey: nothing has shown it can unlock yet
  */
-export type BackupReason = 'chosen' | 'sync-off' | 'upload-failed' | 'passkey-failed';
+export type BackupReason =
+  | 'chosen'
+  | 'sync-off'
+  | 'upload-failed'
+  | 'passkey-failed'
+  | 'unconfirmed';
 
 export type SafeStep =
   | { kind: 'choose' }
@@ -51,10 +57,27 @@ export function onPasskeyChosen(syncOn: boolean): SafeStep | 'run-passkey' {
  * encrypted copy to have reached the server; otherwise there is no
  * off-device way back in, so a backup key is required before finishing.
  * With sync off the backup key was already saved (it came first).
+ *
+ * An UNCONFIRMED passkey (one-prompt setup) whose copy landed, or with sync
+ * off, ends on the 'unconfirmed' step: it explains that the first unlock
+ * finishes the setup and that the key stays in this browser until then.
+ * There the backup key is optional (backupRequired): either-or, as decided
+ * for sync on; sync off already saved it. If that first unlock later fails,
+ * the backup-key message covers it.
  */
-export function afterPasskey(syncOn: boolean, uploaded: boolean | null): SafeStep {
-  if (!syncOn) return { kind: 'done' };
-  return uploaded === true ? { kind: 'done' } : { kind: 'backup', reason: 'upload-failed' };
+export function afterPasskey(
+  syncOn: boolean,
+  uploaded: boolean | null,
+  confirmed = true
+): SafeStep {
+  if (syncOn && uploaded !== true) return { kind: 'backup', reason: 'upload-failed' };
+  if (!confirmed) return { kind: 'backup', reason: 'unconfirmed' };
+  return { kind: 'done' };
+}
+
+/** Whether the backup step's Finish waits for a saved backup key (optional only on 'unconfirmed'). */
+export function backupRequired(reason: BackupReason): boolean {
+  return reason !== 'unconfirmed';
 }
 
 /** The finish button on the backup step: runs the passkey only when it's still to come. */

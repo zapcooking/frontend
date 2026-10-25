@@ -38,6 +38,9 @@ import {
   syncableKeyEntry,
   fetchChallengeSafe,
   uploadVault,
+  uploadVaultWithRegistration,
+  isServerCopyUnconfirmed,
+  setServerCopyUnconfirmed,
   refreshVaultEntry,
   isRefreshDue,
   deleteVaultBlob,
@@ -1738,7 +1741,7 @@ export class AuthManager {
       PASSKEY_SYNC_ENABLED &&
       isSyncEnabled() &&
       !!syncableKeyEntry(record) &&
-      (isUploadPending() || isRefreshDue())
+      (isUploadPending() || isRefreshDue() || isServerCopyUnconfirmed())
     );
   }
 
@@ -1852,6 +1855,7 @@ export class AuthManager {
     saveVaultRecord(record);
     setSyncEnabled(true);
     setUploadPending(false);
+    setServerCopyUnconfirmed(false);
   }
 
   // Sync preference for an unconfirmed vault: just stored — the encrypted
@@ -1883,6 +1887,7 @@ export class AuthManager {
     deleteVaultRecord();
     setSyncEnabled(false);
     setUploadPending(false);
+    setServerCopyUnconfirmed(false);
     if (localStorage.getItem('nostrcooking_loggedInPublicKey') === record.pubkey) {
       localStorage.removeItem('nostrcooking_loggedInPublicKey');
     }
@@ -2053,13 +2058,18 @@ export class AuthManager {
     return offer;
   }
 
-  // Drop an unconfirmed vault. Nothing is lost: the plaintext key never left,
-  // and nothing was uploaded (the upload waits for the confirming unlock).
+  // Drop an unconfirmed vault. Nothing is lost: the plaintext key never left.
+  // A Settings enrollment uploaded nothing (its upload waits for the
+  // confirming unlock); a signup's registration-authorized server copy is
+  // unconfirmed and expires on its own.
   discardUnconfirmedVault(): void {
     if (!isVaultUnconfirmed()) return;
     deleteVaultRecord();
     setSyncEnabled(false);
     setUploadPending(false);
+    // A registration-authorized server copy can't be deleted without an
+    // assertion; unconfirmed entries expire on their own (30 days).
+    setServerCopyUnconfirmed(false);
     this.updateState({});
   }
 
@@ -2085,7 +2095,7 @@ export class AuthManager {
     privkeyHex: string,
     pubkey: string,
     opts?: { sync?: boolean; signIn?: boolean; awaitUpload?: boolean }
-  ): Promise<{ uploaded: boolean | null }> {
+  ): Promise<{ uploaded: boolean | null; confirmed: boolean }> {
     if (!browser) throw new Error('Browser environment required');
     if (!PASSKEY_SIGNUP_ENABLED) throw new Error('Passkey signup is not enabled');
 
@@ -2109,15 +2119,21 @@ export class AuthManager {
     const wantSync = PASSKEY_SYNC_ENABLED && opts?.sync === true;
     const serverChallenge = wantSync ? await fetchChallengeSafe() : null;
 
-    const { record, assertion } = await enrollPasskey(
+    // One prompt where the provider returns PRF at create() (PR B): the
+    // vault starts UNCONFIRMED, exactly as in Settings (#907). Signing in
+    // then doesn't adopt it — authenticateWithPrivateKey stores the
+    // plaintext key as an nsec session does — and the next visit's unlock
+    // confirms it. Without a create()-time PRF result: create + get, as before.
+    const { record, assertion, registration, confirmed } = await enrollPasskey(
       privkeyHex,
       pubkey,
       label,
-      serverChallenge ? { serverChallenge } : undefined
+      { allowCreatePrf: true, ...(serverChallenge ? { serverChallenge } : {}) }
     );
 
-    // Record exists for this pubkey now — this authenticates via adoption:
-    // authMethod 'passkey', plaintext never persisted.
+    // Record exists for this pubkey now. Confirmed: this authenticates via
+    // adoption (authMethod 'passkey', plaintext never persisted).
+    // Unconfirmed: an nsec session whose plaintext key is the fallback.
     if (opts?.signIn !== false) await this.authenticateWithPrivateKey(privkeyHex);
 
     let uploaded: boolean | null = null;
@@ -2126,6 +2142,13 @@ export class AuthManager {
       if (serverChallenge && assertion && syncableKeyEntry(record)) {
         if (opts?.awaitUpload) uploaded = await uploadVault(record, assertion);
         else void uploadVault(record, assertion);
+      } else if (registration && syncableKeyEntry(record)) {
+        // One prompt, no assertion: the create() response authorizes the
+        // first upload, stored unconfirmed server-side until the next
+        // unlock's assertion confirms it. On failure the pending flag makes
+        // that unlock upload with its assertion instead.
+        if (opts?.awaitUpload) uploaded = await uploadVaultWithRegistration(record, registration);
+        else void uploadVaultWithRegistration(record, registration);
       } else {
         if (syncableKeyEntry(record)) setUploadPending(true);
         if (opts?.awaitUpload) uploaded = false;
@@ -2133,7 +2156,7 @@ export class AuthManager {
     } else if (opts?.sync === false) {
       setSyncEnabled(false);
     }
-    return { uploaded };
+    return { uploaded, confirmed };
   }
 
   // Remove the vault (downgrade to plaintext-localStorage sessions). Requires
@@ -2183,6 +2206,7 @@ export class AuthManager {
     deleteVaultRecord();
     setSyncEnabled(false);
     setUploadPending(false);
+    setServerCopyUnconfirmed(false);
 
     if (serverChallenge && assertion) {
       // Best-effort, never blocks the downgrade; 404 = already gone.
@@ -2264,6 +2288,7 @@ export class AuthManager {
       await deleteVaultBlob(assertion); // 404 = already gone (idempotent)
       setSyncEnabled(false);
       setUploadPending(false);
+      setServerCopyUnconfirmed(false);
     }
   }
 
