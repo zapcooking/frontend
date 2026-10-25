@@ -14,8 +14,10 @@
 
 <section id="import-recipe" class="import-invitation" aria-labelledby="import-heading">
   <div>
-    <h2 id="import-heading">Bring your recipes to the table.</h2>
-    <p>Turn a recipe link into a recipe you can review, save, and share.</p>
+    <h2 id="import-heading">Already have favorites elsewhere?</h2>
+    <p>
+      Bring them to the table. Turn a recipe link into a recipe you can review, save, and share.
+    </p>
   </div>
   <div>
     <form
