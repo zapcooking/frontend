@@ -12,8 +12,11 @@
   import LongformTile from '../../components/landing/LongformTile.svelte';
   import LandingImportHero from '../../components/landing/LandingImportHero.svelte';
   import LandingPromises from '../../components/landing/LandingPromises.svelte';
+  import LandingThemePicker from '../../components/landing/LandingThemePicker.svelte';
   import LandingMembership from '../../components/landing/LandingMembership.svelte';
   import LandingRecipePacks from '../../components/landing/LandingRecipePacks.svelte';
+  import exploreThemeScript from '$lib/landing/exploreTheme.client.js?url';
+  import '$lib/landing/exploreThemes.css';
 
   export let data: PageData;
   $: d = data.landing;
@@ -30,6 +33,8 @@
 </script>
 
 <svelte:head>
+  <!-- Restore this device's style before the body paints; no app hydration or cache variation. -->
+  <script src={exploreThemeScript}></script>
   <title>{meta.title}</title>
   <meta name="description" content={meta.description} />
   <link rel="canonical" href={meta.canonical} />
@@ -62,14 +67,15 @@
     <LandingHeader />
     <main id="main" class="magazine">
       <section class="masthead" aria-labelledby="community-headline">
+        <div class="masthead-toolbar">
+          <p class="tagline">Food. Friends. Freedom.</p>
+          <LandingThemePicker />
+        </div>
         <h1 id="community-headline">{d.headline || DEFAULT_HEADLINE}</h1>
-        <p class="tagline">Food. Friends. Freedom.</p>
         <p class="intro">
-          {d.supportingLine || EDITORIAL_SUPPORTING_LINE}
+          {EDITORIAL_SUPPORTING_LINE}
         </p>
       </section>
-
-      <LandingPromises recipes={d.newRecipes} />
 
       {#if d.cover || d.picks.length}
         <section class="cover-section" aria-label="Featured recipes and food stories">
@@ -136,6 +142,7 @@
       {/if}
 
       <LandingImportHero />
+      <LandingPromises />
 
       {#if d.reads.length}
         <section class="section food-stories" aria-labelledby="stories-heading">
@@ -324,7 +331,14 @@
   }
   .masthead {
     padding: 36px 0 28px;
-    max-width: 900px;
+  }
+  .masthead-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    margin-bottom: 20px;
   }
   h1,
   h2,
@@ -350,7 +364,7 @@
     max-width: 66ch;
   }
   .tagline {
-    margin: 0 0 12px;
+    margin: 0;
     color: var(--color-text-secondary);
     font-size: var(--explore-meta);
     line-height: 1.5;
