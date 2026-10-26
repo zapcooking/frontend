@@ -1,0 +1,11 @@
+{
+  "--color-action": "#ff5722",
+  "--color-on-action": "#ffffff",
+  "--explore-action-ink": "#111827",
+  "--color-bg-primary": "color-mix(in srgb, #111827 70%, #1f2937)",
+  "--color-card-sunken": "#1f2937",
+  "--color-profile-highlight": "#c084fc",
+  "--color-nav-active": "#f97316",
+  "--color-create-start": "#f97316",
+  "--color-create-end": "#f59e0b"
+}

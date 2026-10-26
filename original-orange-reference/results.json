@@ -1,0 +1,1328 @@
+{
+  "palette": [
+    {
+      "theme": "original",
+      "mode": "light",
+      "tokens": 63,
+      "differences": [
+        {
+          "token": "--color-on-action",
+          "before": "#111827",
+          "after": "#ffffff"
+        }
+      ]
+    },
+    {
+      "theme": "original",
+      "mode": "dark",
+      "tokens": 63,
+      "differences": [
+        {
+          "token": "--color-on-action",
+          "before": "#111827",
+          "after": "#ffffff"
+        }
+      ]
+    },
+    {
+      "theme": "warm-kitchen",
+      "mode": "light",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "warm-kitchen",
+      "mode": "dark",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "after-hours",
+      "mode": "light",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "after-hours",
+      "mode": "dark",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "recipe-club",
+      "mode": "light",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "recipe-club",
+      "mode": "dark",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "recipe-box",
+      "mode": "light",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "recipe-box",
+      "mode": "dark",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "corner-diner",
+      "mode": "light",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "corner-diner",
+      "mode": "dark",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "sunday-market",
+      "mode": "light",
+      "tokens": 63,
+      "differences": []
+    },
+    {
+      "theme": "sunday-market",
+      "mode": "dark",
+      "tokens": 63,
+      "differences": []
+    }
+  ],
+  "components": [
+    {
+      "theme": "original",
+      "mode": "light",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(236, 71, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(236, 71, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(249, 115, 22), rgb(245, 158, 11))",
+          "boxShadow": "color(srgb 0.976471 0.45098 0.0862745 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(249, 115, 22)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(17, 24, 39)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.658824 0.333333 0.968627 / 0.55), color(srgb 0.658824 0.333333 0.968627 / 0.18) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.658824 0.333333 0.968627 / 0.35) 0px 0px 0px 1px, color(srgb 0.658824 0.333333 0.968627 / 0.25) 0px 0px 10px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(21, 28, 43)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right, oklch(0.705 0.213 47.604) 0%, oklch(0.769 0.188 70.08) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#ec4700",
+        "--color-action": "#ec4700",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#ffffff",
+        "--color-card-sunken": "#f1f2f4",
+        "--color-feed-tab-start": "oklch(70.5% 0.213 47.604)",
+        "--color-feed-tab-end": "oklch(76.9% 0.188 70.08)",
+        "--color-nav-active": "#f97316",
+        "--color-create-start": "#f97316",
+        "--color-create-end": "#f59e0b",
+        "--color-profile-glow": "#a855f7",
+        "--color-profile-highlight": "#a855f7"
+      }
+    },
+    {
+      "theme": "original",
+      "mode": "dark",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(255, 87, 34)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(255, 87, 34)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(249, 115, 22), rgb(245, 158, 11))",
+          "boxShadow": "color(srgb 0.976471 0.45098 0.0862745 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(249, 115, 22)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(243, 244, 246)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.752941 0.517647 0.988235 / 0.6), color(srgb 0.658823 0.333333 0.968627 / 0.2) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.752941 0.517647 0.988235 / 0.4) 0px 0px 0px 1px, color(srgb 0.658824 0.333333 0.968628 / 0.3) 0px 0px 12px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(239, 240, 243)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right, oklch(0.705 0.213 47.604) 0%, oklch(0.769 0.188 70.08) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#ff5722",
+        "--color-action": "#ff5722",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "color-mix(in srgb, #111827 70%, #1f2937)",
+        "--color-card-sunken": "#1f2937",
+        "--color-feed-tab-start": "oklch(70.5% 0.213 47.604)",
+        "--color-feed-tab-end": "oklch(76.9% 0.188 70.08)",
+        "--color-nav-active": "#f97316",
+        "--color-create-start": "#f97316",
+        "--color-create-end": "#f59e0b",
+        "--color-profile-glow": "#a855f7",
+        "--color-profile-highlight": "#c084fc"
+      }
+    },
+    {
+      "theme": "warm-kitchen",
+      "mode": "light",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(189, 60, 11), color(srgb 0.671059 0.223529 0.052549))",
+          "boxShadow": "color(srgb 0.741176 0.235294 0.0431373 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(167, 49, 8)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(40, 35, 31)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.654902 0.192157 0.0313726 / 0.55), color(srgb 0.654902 0.192157 0.0313726 / 0.18) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.654902 0.192157 0.0313726 / 0.35) 0px 0px 0px 1px, color(srgb 0.654902 0.192157 0.0313726 / 0.25) 0px 0px 10px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(42, 37, 33)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(167, 49, 8) 0%, rgb(167, 49, 8) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#a73108",
+        "--color-action": "#bd3c0b",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#fff9f2",
+        "--color-card-sunken": "#eee2d4",
+        "--color-feed-tab-start": "#a73108",
+        "--color-feed-tab-end": "#a73108",
+        "--color-nav-active": "#a73108",
+        "--color-create-start": "#bd3c0b",
+        "--color-create-end": "color-mix(in srgb, #bd3c0b 88%, #28231f)",
+        "--color-profile-glow": "#a73108",
+        "--color-profile-highlight": "#a73108"
+      }
+    },
+    {
+      "theme": "warm-kitchen",
+      "mode": "dark",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(189, 60, 11), color(srgb 0.671059 0.223529 0.052549))",
+          "boxShadow": "color(srgb 0.741176 0.235294 0.0431373 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(255, 177, 139)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(255, 245, 233)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 1 0.694118 0.545098 / 0.6), color(srgb 1 0.694118 0.545098 / 0.2) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 1 0.694118 0.545098 / 0.4) 0px 0px 0px 1px, color(srgb 1 0.694118 0.545098 / 0.3) 0px 0px 12px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(241, 231, 220)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(255, 177, 139) 0%, rgb(255, 177, 139) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#ffb18b",
+        "--color-action": "#bd3c0b",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#201c19",
+        "--color-card-sunken": "#191512",
+        "--color-feed-tab-start": "#ffb18b",
+        "--color-feed-tab-end": "#ffb18b",
+        "--color-nav-active": "#ffb18b",
+        "--color-create-start": "#bd3c0b",
+        "--color-create-end": "color-mix(in srgb, #bd3c0b 88%, #28231f)",
+        "--color-profile-glow": "#ffb18b",
+        "--color-profile-highlight": "#ffb18b"
+      }
+    },
+    {
+      "theme": "after-hours",
+      "mode": "light",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(189, 60, 11), color(srgb 0.671059 0.223529 0.052549))",
+          "boxShadow": "color(srgb 0.741176 0.235294 0.0431373 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(155, 45, 37)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(50, 34, 56)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.607843 0.176471 0.145098 / 0.55), color(srgb 0.607843 0.176471 0.145098 / 0.18) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.607843 0.176471 0.145098 / 0.35) 0px 0px 0px 1px, color(srgb 0.607843 0.176471 0.145098 / 0.25) 0px 0px 10px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(51, 35, 57)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(155, 45, 37) 0%, rgb(155, 45, 37) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#9b2d25",
+        "--color-action": "#bd3c0b",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#fff7e8",
+        "--color-card-sunken": "#eee1db",
+        "--color-feed-tab-start": "#9b2d25",
+        "--color-feed-tab-end": "#9b2d25",
+        "--color-nav-active": "#9b2d25",
+        "--color-create-start": "#bd3c0b",
+        "--color-create-end": "color-mix(in srgb, #bd3c0b 88%, #28231f)",
+        "--color-profile-glow": "#9b2d25",
+        "--color-profile-highlight": "#9b2d25"
+      }
+    },
+    {
+      "theme": "after-hours",
+      "mode": "dark",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(189, 60, 11), color(srgb 0.671059 0.223529 0.052549))",
+          "boxShadow": "color(srgb 0.741176 0.235294 0.0431373 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(255, 179, 139)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(255, 241, 229)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 1 0.701961 0.545098 / 0.6), color(srgb 1 0.701961 0.545098 / 0.2) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 1 0.701961 0.545098 / 0.4) 0px 0px 0px 1px, color(srgb 1 0.701961 0.545098 / 0.3) 0px 0px 12px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(241, 227, 217)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(255, 179, 139) 0%, rgb(255, 179, 139) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#ffb38b",
+        "--color-action": "#bd3c0b",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#211829",
+        "--color-card-sunken": "#19111f",
+        "--color-feed-tab-start": "#ffb38b",
+        "--color-feed-tab-end": "#ffb38b",
+        "--color-nav-active": "#ffb38b",
+        "--color-create-start": "#bd3c0b",
+        "--color-create-end": "color-mix(in srgb, #bd3c0b 88%, #28231f)",
+        "--color-profile-glow": "#ffb38b",
+        "--color-profile-highlight": "#ffb38b"
+      }
+    },
+    {
+      "theme": "recipe-club",
+      "mode": "light",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(189, 60, 11), color(srgb 0.671059 0.223529 0.052549))",
+          "boxShadow": "color(srgb 0.741176 0.235294 0.0431373 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(35, 67, 152)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(23, 36, 73)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.137255 0.262745 0.596078 / 0.55), color(srgb 0.137255 0.262745 0.596078 / 0.18) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.137255 0.262745 0.596078 / 0.35) 0px 0px 0px 1px, color(srgb 0.137255 0.262745 0.596078 / 0.25) 0px 0px 10px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(28, 40, 76)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(35, 67, 152) 0%, rgb(35, 67, 152) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#234398",
+        "--color-action": "#bd3c0b",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#fffdf4",
+        "--color-card-sunken": "#e8e7df",
+        "--color-feed-tab-start": "#234398",
+        "--color-feed-tab-end": "#234398",
+        "--color-nav-active": "#234398",
+        "--color-create-start": "#bd3c0b",
+        "--color-create-end": "color-mix(in srgb, #bd3c0b 88%, #28231f)",
+        "--color-profile-glow": "#234398",
+        "--color-profile-highlight": "#234398"
+      }
+    },
+    {
+      "theme": "recipe-club",
+      "mode": "dark",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(189, 60, 11), color(srgb 0.671059 0.223529 0.052549))",
+          "boxShadow": "color(srgb 0.741176 0.235294 0.0431373 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(179, 197, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(246, 242, 228)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.701961 0.772549 1 / 0.6), color(srgb 0.701961 0.772549 1 / 0.2) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.701961 0.772549 1 / 0.4) 0px 0px 0px 1px, color(srgb 0.701961 0.772549 1 / 0.3) 0px 0px 12px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(225, 223, 214)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(179, 197, 255) 0%, rgb(179, 197, 255) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#b3c5ff",
+        "--color-action": "#bd3c0b",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#181d2d",
+        "--color-card-sunken": "#101624",
+        "--color-feed-tab-start": "#b3c5ff",
+        "--color-feed-tab-end": "#b3c5ff",
+        "--color-nav-active": "#b3c5ff",
+        "--color-create-start": "#bd3c0b",
+        "--color-create-end": "color-mix(in srgb, #bd3c0b 88%, #28231f)",
+        "--color-profile-glow": "#b3c5ff",
+        "--color-profile-highlight": "#b3c5ff"
+      }
+    },
+    {
+      "theme": "recipe-box",
+      "mode": "light",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(172, 57, 14)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(172, 57, 14)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(172, 57, 14), color(srgb 0.612392 0.213176 0.062902))",
+          "boxShadow": "color(srgb 0.67451 0.223529 0.054902 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(62, 93, 66)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(48, 56, 43)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.243137 0.364706 0.258824 / 0.55), color(srgb 0.243137 0.364706 0.258824 / 0.18) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.243137 0.364706 0.258824 / 0.35) 0px 0px 0px 1px, color(srgb 0.243137 0.364706 0.258824 / 0.25) 0px 0px 10px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(48, 56, 43)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(62, 93, 66) 0%, rgb(62, 93, 66) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#3e5d42",
+        "--color-action": "#ac390e",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#fffdf3",
+        "--color-card-sunken": "#e8e8d8",
+        "--color-feed-tab-start": "#3e5d42",
+        "--color-feed-tab-end": "#3e5d42",
+        "--color-nav-active": "#3e5d42",
+        "--color-create-start": "#ac390e",
+        "--color-create-end": "color-mix(in srgb, #ac390e 88%, #28231f)",
+        "--color-profile-glow": "#3e5d42",
+        "--color-profile-highlight": "#3e5d42"
+      }
+    },
+    {
+      "theme": "recipe-box",
+      "mode": "dark",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(172, 57, 14)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(172, 57, 14)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(172, 57, 14), color(srgb 0.612392 0.213176 0.062902))",
+          "boxShadow": "color(srgb 0.67451 0.223529 0.054902 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(190, 215, 170)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(244, 243, 227)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.745098 0.843137 0.666667 / 0.6), color(srgb 0.745098 0.843137 0.666667 / 0.2) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.745098 0.843137 0.666667 / 0.4) 0px 0px 0px 1px, color(srgb 0.745098 0.843137 0.666667 / 0.3) 0px 0px 12px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(239, 238, 222)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(190, 215, 170) 0%, rgb(190, 215, 170) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#bed7aa",
+        "--color-action": "#ac390e",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#1c231b",
+        "--color-card-sunken": "#141b13",
+        "--color-feed-tab-start": "#bed7aa",
+        "--color-feed-tab-end": "#bed7aa",
+        "--color-nav-active": "#bed7aa",
+        "--color-create-start": "#ac390e",
+        "--color-create-end": "color-mix(in srgb, #ac390e 88%, #28231f)",
+        "--color-profile-glow": "#bed7aa",
+        "--color-profile-highlight": "#bed7aa"
+      }
+    },
+    {
+      "theme": "corner-diner",
+      "mode": "light",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(189, 60, 11), color(srgb 0.671059 0.223529 0.052549))",
+          "boxShadow": "color(srgb 0.741176 0.235294 0.0431373 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(156, 52, 35)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(44, 52, 49)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.611765 0.203922 0.137255 / 0.55), color(srgb 0.611765 0.203922 0.137255 / 0.18) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.611765 0.203922 0.137255 / 0.35) 0px 0px 0px 1px, color(srgb 0.611765 0.203922 0.137255 / 0.25) 0px 0px 10px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(44, 52, 49)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(156, 52, 35) 0%, rgb(156, 52, 35) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#9c3423",
+        "--color-action": "#bd3c0b",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#fff9e9",
+        "--color-card-sunken": "#e9e4d5",
+        "--color-feed-tab-start": "#9c3423",
+        "--color-feed-tab-end": "#9c3423",
+        "--color-nav-active": "#9c3423",
+        "--color-create-start": "#bd3c0b",
+        "--color-create-end": "color-mix(in srgb, #bd3c0b 88%, #28231f)",
+        "--color-profile-glow": "#9c3423",
+        "--color-profile-highlight": "#9c3423"
+      }
+    },
+    {
+      "theme": "corner-diner",
+      "mode": "dark",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(189, 60, 11), color(srgb 0.671059 0.223529 0.052549))",
+          "boxShadow": "color(srgb 0.741176 0.235294 0.0431373 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(255, 181, 160)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(255, 245, 229)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 1 0.709804 0.627451 / 0.6), color(srgb 1 0.709804 0.627451 / 0.2) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 1 0.709804 0.627451 / 0.4) 0px 0px 0px 1px, color(srgb 1 0.709804 0.627451 / 0.3) 0px 0px 12px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(209, 203, 189)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(255, 181, 160) 0%, rgb(255, 181, 160) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#ffb5a0",
+        "--color-action": "#bd3c0b",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#1d2522",
+        "--color-card-sunken": "#141c18",
+        "--color-feed-tab-start": "#ffb5a0",
+        "--color-feed-tab-end": "#ffb5a0",
+        "--color-nav-active": "#ffb5a0",
+        "--color-create-start": "#bd3c0b",
+        "--color-create-end": "color-mix(in srgb, #bd3c0b 88%, #28231f)",
+        "--color-profile-glow": "#ffb5a0",
+        "--color-profile-highlight": "#ffb5a0"
+      }
+    },
+    {
+      "theme": "sunday-market",
+      "mode": "light",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(189, 60, 11), color(srgb 0.671059 0.223529 0.052549))",
+          "boxShadow": "color(srgb 0.741176 0.235294 0.0431373 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(48, 99, 55)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(38, 59, 46)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.188235 0.388235 0.215686 / 0.55), color(srgb 0.188235 0.388235 0.215686 / 0.18) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.188235 0.388235 0.215686 / 0.35) 0px 0px 0px 1px, color(srgb 0.188235 0.388235 0.215686 / 0.25) 0px 0px 10px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(38, 59, 46)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(48, 99, 55) 0%, rgb(48, 99, 55) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#306337",
+        "--color-action": "#bd3c0b",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#fffcf4",
+        "--color-card-sunken": "#e9e9d8",
+        "--color-feed-tab-start": "#306337",
+        "--color-feed-tab-end": "#306337",
+        "--color-nav-active": "#306337",
+        "--color-create-start": "#bd3c0b",
+        "--color-create-end": "color-mix(in srgb, #bd3c0b 88%, #28231f)",
+        "--color-profile-glow": "#306337",
+        "--color-profile-highlight": "#306337"
+      }
+    },
+    {
+      "theme": "sunday-market",
+      "mode": "dark",
+      "samples": {
+        "all": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "6px 12px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "open": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgb(189, 60, 11)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "8px 16px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "create": {
+          "color": "rgb(255, 255, 255)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(135deg, rgb(189, 60, 11), color(srgb 0.671059 0.223529 0.052549))",
+          "boxShadow": "color(srgb 0.741176 0.235294 0.0431373 / 0.35) 0px 10px 25px 0px",
+          "font": "600 16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "9999px"
+        },
+        "nav": {
+          "color": "rgb(189, 219, 157)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "none",
+          "boxShadow": "none",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        },
+        "ring": {
+          "color": "rgb(246, 243, 222)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "radial-gradient(circle at 30% 30%, color(srgb 0.741176 0.858824 0.615686 / 0.6), color(srgb 0.741176 0.858824 0.615686 / 0.2) 60%, rgba(0, 0, 0, 0) 80%)",
+          "boxShadow": "color(srgb 0.741176 0.858824 0.615686 / 0.4) 0px 0px 0px 1px, color(srgb 0.741176 0.858824 0.615686 / 0.3) 0px 0px 12px 0px",
+          "font": "16px / 24px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "16px",
+          "padding": "2px",
+          "borderRadius": "999px"
+        },
+        "tab": {
+          "color": "rgb(208, 210, 190)",
+          "backgroundColor": "rgba(0, 0, 0, 0)",
+          "backgroundImage": "linear-gradient(to right in oklab, rgb(189, 219, 157) 0%, rgb(189, 219, 157) 100%)",
+          "boxShadow": "none",
+          "font": "500 14px / 20px \"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "fontSize": "14px",
+          "padding": "0px",
+          "borderRadius": "0px"
+        }
+      },
+      "colors": {
+        "--color-primary": "#bddb9d",
+        "--color-action": "#bd3c0b",
+        "--color-on-action": "#ffffff",
+        "--color-bg-primary": "#1d251c",
+        "--color-card-sunken": "#151c13",
+        "--color-feed-tab-start": "#bddb9d",
+        "--color-feed-tab-end": "#bddb9d",
+        "--color-nav-active": "#bddb9d",
+        "--color-create-start": "#bd3c0b",
+        "--color-create-end": "color-mix(in srgb, #bd3c0b 88%, #28231f)",
+        "--color-profile-glow": "#bddb9d",
+        "--color-profile-highlight": "#bddb9d"
+      }
+    }
+  ],
+  "screenshots": [
+    {
+      "type": "real components, sample state",
+      "mode": "light",
+      "width": 360
+    },
+    {
+      "type": "real components, sample state",
+      "mode": "light",
+      "width": 768
+    },
+    {
+      "type": "real components, sample state",
+      "mode": "light",
+      "width": 1440
+    },
+    {
+      "type": "real components, sample state",
+      "mode": "dark",
+      "width": 360
+    },
+    {
+      "type": "real components, sample state",
+      "mode": "dark",
+      "width": 768
+    },
+    {
+      "type": "real components, sample state",
+      "mode": "dark",
+      "width": 1440
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 360,
+      "overflow": false
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 768,
+      "overflow": false
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 1440,
+      "overflow": false
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 360,
+      "overflow": false
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 768,
+      "overflow": false
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 1440,
+      "overflow": false
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 360,
+      "overflow": false
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 768,
+      "overflow": false
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 1440,
+      "overflow": false
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 360,
+      "overflow": false
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 768,
+      "overflow": false
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 1440,
+      "overflow": false
+    }
+  ],
+  "errors": [],
+  "passed": true
+}

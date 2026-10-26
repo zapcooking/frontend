@@ -1,0 +1,162 @@
+{
+  "summary": {
+    "files": 4,
+    "introduced": 0,
+    "resolved": 0,
+    "baselineErrors": 2,
+    "currentErrors": 2,
+    "baselineWarnings": 0,
+    "currentWarnings": 0,
+    "filesWithBaselineParseErrors": [],
+    "filesWithCurrentParseErrors": []
+  },
+  "files": [
+    {
+      "file": "src/components/BottomNav.svelte",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/components/CreateMenuButton.svelte",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/components/Header.svelte",
+      "beforeErrors": 1,
+      "beforeWarnings": 0,
+      "afterErrors": 1,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'isDarkMode' is defined but never used.",
+          "line": 70,
+          "column": 6,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 70,
+          "endColumn": 16
+        }
+      ],
+      "afterMessages": [
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'isDarkMode' is defined but never used.",
+          "line": 70,
+          "column": 6,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 70,
+          "endColumn": 16
+        }
+      ]
+    },
+    {
+      "file": "src/routes/feed/+page.svelte",
+      "beforeErrors": 1,
+      "beforeWarnings": 0,
+      "afterErrors": 1,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'hasActiveMembership' is assigned a value but never used.",
+          "line": 96,
+          "column": 7,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 96,
+          "endColumn": 26
+        }
+      ],
+      "afterMessages": [
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'hasActiveMembership' is assigned a value but never used.",
+          "line": 96,
+          "column": 7,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 96,
+          "endColumn": 26
+        }
+      ]
+    }
+  ],
+  "prettier": {
+    "summary": {
+      "files": 5,
+      "beforePassing": 2,
+      "afterPassing": 2,
+      "existingFailures": [
+        "src/components/BottomNav.svelte",
+        "src/components/Header.svelte",
+        "src/routes/feed/+page.svelte"
+      ],
+      "introducedFailures": [],
+      "resolvedFailures": [],
+      "errors": []
+    },
+    "files": [
+      {
+        "file": "src/components/BottomNav.svelte",
+        "beforePass": false,
+        "afterPass": false,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/components/CreateMenuButton.svelte",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/components/Header.svelte",
+        "beforePass": false,
+        "afterPass": false,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/lib/themes/palettes.css",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/routes/feed/+page.svelte",
+        "beforePass": false,
+        "afterPass": false,
+        "introducedFailure": false
+      }
+    ]
+  }
+}

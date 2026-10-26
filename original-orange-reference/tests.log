@@ -1,0 +1,14 @@
+
+ RUN  v3.2.7 /workspace/frontend
+
+ ✓ src/lib/landing/exploreTheme.test.ts (24 tests) 154ms
+ ✓ src/lib/themeStore.test.ts (4 tests) 106ms
+ ✓ src/components/auth/signInContrast.test.ts (15 tests) 35ms
+ ✓ src/lib/cheffyLauncherRelocation.test.ts (7 tests) 5ms
+ ✓ src/routes/feed/feedIntro.test.ts (1 test) 5ms
+
+ Test Files  5 passed (5)
+      Tests  51 passed (51)
+   Start at  10:35:36
+   Duration  2.31s (transform 283ms, setup 0ms, collect 366ms, tests 305ms, environment 1ms, prepare 528ms)
+

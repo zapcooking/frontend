@@ -1,0 +1,19 @@
+[
+  {
+    "stage": "final",
+    "run": 1,
+    "lighthouseVersion": "12.8.2",
+    "fetchTime": "2026-10-26T10:37:44.691Z",
+    "performance": 0.44,
+    "accessibility": 0.95,
+    "LCP": 10573.0176,
+    "TBT": 475.8248000000003,
+    "FCP": 6181.4511999999995,
+    "CLS": 0.0529034130859375,
+    "scriptRequests": 188,
+    "jsTransferBytes": 1082134,
+    "jsResourceBytes": 3163850,
+    "runtimeError": null,
+    "warnings": []
+  }
+]
