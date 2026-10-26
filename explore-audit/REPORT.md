@@ -51,4 +51,6 @@ These are controlled local Lighthouse 12.8.2/Chromium measurements at 360×800 w
 - Browser tests cover permission behavior, skip navigation with/without JS, delayed membership restoration/logout, import with app chunks blocked, in-flight hydration adoption, and immediate form-removal races. Independent review found and verified the fix for a success continuation that could outrun MutationObserver teardown.
 - Existing wallet/auth/payment implementation is reused. Tests use synthetic public identities/providers and do not send funds or sign events. Live data success, real payment integration, VoiceOver, native apps, and other browser engines are not certified here.
 
+Final production screenshots at 360, 768, and 1440px in both modes are in `final-screenshots/`. Captures wait for actual hydrated guest invitations and the enabled import form; all six have one footer and no document overflow. Existing 360px shared-header Join free clipping remains.
+
 Reports: [shell checks](shell/REPORT.md), [independent review](independent-review.md), [Workers evidence](workers.md), [production headers](production-headers.json), [production rendering](production-results.json).
