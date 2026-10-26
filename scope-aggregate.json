@@ -1,0 +1,1958 @@
+{
+  "summary": {
+    "generatedAt": "2026-10-26T00:01:55.839Z",
+    "baseline": "198c665e",
+    "total": 215,
+    "foundation": 4,
+    "passed": 211,
+    "flagged": 0,
+    "scriptChanges": [
+      "src/components/Button.svelte",
+      "src/components/DesktopSideNav.svelte",
+      "src/components/IntelligenceMenu.svelte",
+      "src/components/MobileNavDrawer.svelte",
+      "src/components/SaveButton.svelte",
+      "src/components/ZapButton.svelte",
+      "src/components/landing/LandingThemePicker.svelte",
+      "src/components/planner/CheffyPlanModal.svelte",
+      "src/components/table/ArticleCardBody.svelte",
+      "src/routes/explore/+page.svelte",
+      "src/routes/membership/TierCard.svelte",
+      "src/routes/recipes/+page.svelte",
+      "src/routes/settings/+page.svelte"
+    ]
+  },
+  "rows": [
+    {
+      "file": "src/components/AccountNudgeItem.svelte",
+      "afterSha256": "3079bfe407ffc22b4364a2c2e59c43d0d5cd8ac0d7eb87d893c44002a3f8b572",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/AltTextEditorModal.svelte",
+      "afterSha256": "ade12dbd4d36a43f1fb7f5be570a977638849b5752c0008760d06355e469965e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ArticleCard.svelte",
+      "afterSha256": "565e22cb595642a0b54412dee57c7a7db4d4fdb538236a915223ac1202e587b0",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/AuthorName.svelte",
+      "afterSha256": "3822162d73192248a07574d1fd689ff84ecfdf2a6ada80684f8e184d7bfedad2",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/BottomNav.svelte",
+      "afterSha256": "0733284d694f57914686b10fc79fabdd77d1eea352e8f27ba2dea35350ecc3eb",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Button.svelte",
+      "afterSha256": "8c00e38cb3f8e3e12a29c65f58b158e31984916cb0f068d33e2485a41f5fcac3",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": true,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/CheffyMessenger.svelte",
+      "afterSha256": "25566982027b1264e341e428526a17535ce7dd62ccb2edda312e68b6f47fd433",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/CheffyNoteReview.svelte",
+      "afterSha256": "4c89ef1fa19bcd2aaca28f7ad826145d6811e434fad3b8fca17bc9a657f06c82",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/CheffyRecipeCard.svelte",
+      "afterSha256": "b92ef207b50d874c5eb9b49ac92a38a98f97a3ca9c0c88fb3bb72f9b00de0b63",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/CheffyStarterPrompts.svelte",
+      "afterSha256": "af1a97dcc0e5ca9c9e52eeeb13320cf5a27fa7c0a37c31c94b2a9fc8a2a18218",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ClientAttribution.svelte",
+      "afterSha256": "726c88848570fab3e290fdc669209b7d9904a2e4675fd32f00dcd11c88d6701e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ContinueAsChip.svelte",
+      "afterSha256": "88949b2578cbdc110f14726b2b4e46bf8d5c678b64f962dd70f9195d71430c1c",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ConverterWidget.svelte",
+      "afterSha256": "3ed1f6eca5b592d622e3a8a603440e06634a5fbe8330636715c6242aeecfb083",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/CookPlusPromoBar.svelte",
+      "afterSha256": "4c81f81e7f3ddc8448a92b12a79893fc765beabdde1c9713e340e9667b662b9a",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/CookingToolsWidget.svelte",
+      "afterSha256": "7222a099e5f630b8fb709a60060f684a4044482e99bb0c2265910bee98e9f0bd",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/CreateMenuButton.svelte",
+      "afterSha256": "abc86b679bba3601bf20bb6bb3102f6c6e7443d14de3dfbe0b4b31f74c4a321d",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/CulinaryMesh.svelte",
+      "afterSha256": "219e86f015e44a1c8073fc9215373a11a447201c4f8b439dd91213c2aa83a1e9",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/CustomName.svelte",
+      "afterSha256": "021008f849a6d532efac8a54201918100625b12b8c485505f20cf93c10fb6355",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/DesktopSideNav.svelte",
+      "afterSha256": "c2e02da30d1b6648065220e04422b9202eef93d2bdffd5643475623876988fd2",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": true,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ErrorBoundary.svelte",
+      "afterSha256": "d6e9b8e37dcef89db3ef24cb212e4b5db0a330ee1050c18c48abde6e7f24c419",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ExportCookbookModal.svelte",
+      "afterSha256": "2ae1d49743222670c6853d74f127e98044aaa2fb532fc0c229f75bf4654e14c3",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Feed.svelte",
+      "afterSha256": "bfcae3125af58f7afe300bd41c1f19969aebf6f1d91c1e4f785bff2d54b18ba1",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FeedPostSkeleton.svelte",
+      "afterSha256": "2bd0cbafbfd6bde85c89b4a625b73e5d3b48990384f64e1faa8c45f1398a6022",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FollowButton.svelte",
+      "afterSha256": "bae2eeb2878aee5430633875c5872ada05cf169898fa155733edf65eafde29c3",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FoodstrFeedOptimized.svelte",
+      "afterSha256": "284ed5fa4f5990c1bd654911400cb7091e3ff59e829023414db40754a7965185",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Footer.svelte",
+      "afterSha256": "1a0e499c856587338490c32a093b86e9ef77fd1f698edf5f161d312729383407",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FreshFeed.svelte",
+      "afterSha256": "8d5af892cf33631c8ecf5119b4abcc879f779bbf0e08ae6fae179ebbfd86e5cc",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FreshFinishLine.svelte",
+      "afterSha256": "ede1a4eb9cc91ccd4a1651567ac4e055498bcff8cccc088f33a7a62df3aa5b26",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FreshFloorCard.svelte",
+      "afterSha256": "60f3ec7bdccd9cd1aeb9ef7fb0bbe848c84fb8da4f6b8da910f45fb135194306",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FreshMemberPitch.svelte",
+      "afterSha256": "7f7d2a70cf27655e9c5f85be956627c5a721b174a59739c248dd28a38c5616d2",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FreshOnThisDayCard.svelte",
+      "afterSha256": "82b5dd98de924a2babd979b4f0023b0e72495299b207ae95fb942dea625d5baf",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FreshRecipeBox.svelte",
+      "afterSha256": "aa6671124f7b05327a757373ec18f8562d7b0dd529532443ed3eb33f0cb5afa8",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FreshReportModal.svelte",
+      "afterSha256": "e8ef93d655da1c14a3a9a1ac9ce519268e5f194669b0b845e97427dcf6b1f36d",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FreshSettings.svelte",
+      "afterSha256": "28b87bfd65d416fb2b8c753e8270f35314eb114b48c7ab78b1136d966360f7e3",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FreshSpecialShell.svelte",
+      "afterSha256": "c1062fffcbcec99a8b67fbfe6d761c9c7bcd2827a0fa8ff85425c026b9b9c7ee",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/FreshTopicChips.svelte",
+      "afterSha256": "3f3af5ce07a354ea9eb2da49beed09903ada778fa1d390d89e02d46e77772f2e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Header.svelte",
+      "afterSha256": "9adfcfbc4a181c28f574dcdd843e03957a2ae422cf7f9a74cde8714103e1834a",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/IntelligenceMenu.svelte",
+      "afterSha256": "463e245bcae3562c60aa7cd5c08772a436628bae8389314752330881246d1665",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": true,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/LazarusDeltaPanel.svelte",
+      "afterSha256": "57f13223f6c371dc99961da0007d47331d169f1b8eea90c6c1d7275233db0b0a",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/LazarusRecoverySection.svelte",
+      "afterSha256": "643f0c3493969f44fb02f9c2496bc07bec8b22f5d497ffe28e506b164abf41de",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/LightningInvoiceCard.svelte",
+      "afterSha256": "b93018fd031858fdb68f26a60c62e1c8d3b06c22f1f7bac5c7f8004e28d8a259",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/LinkPreview.svelte",
+      "afterSha256": "5a21f88e7c7664a51724ed83bf761fb33c85e5431a1b44868552e00178c9fc01",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/LoadingState.svelte",
+      "afterSha256": "ea39cd3e9f285b4ca12b2e0e291248d39e01c9de3487709c0243620fa47d19c4",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/MediaDrawer.svelte",
+      "afterSha256": "cf6cd7af073b32e4d803fdf5385c63db57dc2779cbf1fab6a092f1903043e9aa",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/MediaUploader.svelte",
+      "afterSha256": "8fdb0612f03d037903033ec8edfff47f47fe9893ba88929b549c240e6d37beca",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/MemoriesCard.svelte",
+      "afterSha256": "553899fc98178cc1a2185b8f7f89116bca8f8000c2881fe4d7dc4dc54edde4b6",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/MemoryNoteCard.svelte",
+      "afterSha256": "aed35154eb459e76f2cdd96a9843d19ce0d76edb30c663e002e29903d2a2d629",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/MentionDropdown.svelte",
+      "afterSha256": "358830771f4eca0404b578d884584aeb8cec8619b226967780b5bb486c206d82",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/MobileNavDrawer.svelte",
+      "afterSha256": "05406231cadb7d50e9de2c23c5a1e392114e47e67b904a87fd68eada086da365",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": true,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/MuteListEditor.svelte",
+      "afterSha256": "51aac11f3b53231852555de8996b60f6960d2bff0d31b4beb5cd827cc1a12ff3",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Nip05ClaimModal.svelte",
+      "afterSha256": "24c8830de8b766eea7d7390fe5829f9dea537d199c3b4af9b7127373dff0c330",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/NoteContent.svelte",
+      "afterSha256": "47ccb2457b7614d9b83f97cec60bd94f3c4857e4a20e8f4c62e4a60a189c81a5",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/NoteEmbed.svelte",
+      "afterSha256": "758137ba9c2ab5c86b633dd3128ae79aadc7579ee733f14749dc239a7801c8f5",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/NoteTotalZaps.svelte",
+      "afterSha256": "42849926df4313d30cfdaa8616587b89aa5e3cbceb0f8e5acfecb3c3319cedff",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/NotificationBell.svelte",
+      "afterSha256": "2469d34ce081cf09e66309aa6a7e3d53c2c1bebe1a2bdd6268ba88c1e53afc27",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/NotificationPanel.svelte",
+      "afterSha256": "05f80fb8dd3bd0dd852738a46f6924605b923f42c8fdfe5101186a69ac68c9fe",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/PendingIndicator.svelte",
+      "afterSha256": "0b70bb9c8d44da046f8f85b3b537b14075dfac47d58117e14f86a6c80635ef4a",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/PollCreator.svelte",
+      "afterSha256": "a0bbe9d8647590eb6d13b3fa3792337c5ffb159040b1177eb1e2243c20922a9e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/PollDisplay.svelte",
+      "afterSha256": "cd5cb0cc68a9f3972b84d12cf3aae76fb961d1b5135266301ff98375357aa771",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/PostComposer.svelte",
+      "afterSha256": "88cf1165ec96d1f5f49fb9977ecc5e0e4c821f2ba4013e33f43fe7c11a51ad11",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/PostEngagementToggle.svelte",
+      "afterSha256": "58c0a425197fe97b8539b0cfee8ab315e735605884be04e4553ddfdb084775d4",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ProfileDrafts.svelte",
+      "afterSha256": "c0839d06a65fff364b83ffa71687c07b4a1a3dbc1094418ad39b6f131226e81a",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ProfileSheet.svelte",
+      "afterSha256": "d7dd2fb9fb37ecac91a526feffb62550abaab133556a0561251d175a3cfa0378",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/PullToRefresh.svelte",
+      "afterSha256": "4997e887f2e5cfd6ca6f888031d9a57fcd17ad9fc28eaa241721dcd7c3b4d5a8",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/QueryBatcherDemo.svelte",
+      "afterSha256": "12d577829d4de68366dffef9aaeb6444d4dc9c6ba2a61ef1113d4fe7aab3da1e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Reactions/EmojiReactionPicker.svelte",
+      "afterSha256": "d51fced58f9e456c78fc3577de1c18e433dcb716030082a24eb3ae7f1cdb5602",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Reactions/ReactionDisplay.svelte",
+      "afterSha256": "e3741c6c6da5aa95a44639977c6f818739c8c0fd4ba7b455d91f05d5e859897b",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Recipe/DirectionsPhases.svelte",
+      "afterSha256": "7afa8f6355eefbe5e4321edc0a30456629e10baa3a707e7132901186dfa9d1ad",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Recipe/Ingredients.svelte",
+      "afterSha256": "f01fb5dc81b70c98344ca68b7341b7efba7d6618580ee2e31f1e0dbf645ebfb0",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Recipe/PrintRecipeModal.svelte",
+      "afterSha256": "435e0490e308242b9596cfe9b3b1e416a8071314c049318c1d450a35adfd2d0e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/Recipe/Recipe.svelte",
+      "afterSha256": "a0f5f1672d596f5c9cddbf014ad6351e7c02ebb908b33fc0eb3e3e294de68bb6",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/RecipePickerModal.svelte",
+      "afterSha256": "de316504a5040b48ad3384c455e751aba0ebcc4c5759a5d962aacd0f11e83ecd",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/RelaySelectorDebug.svelte",
+      "afterSha256": "9056463ca7610aab5ed31c3ea18d93eec19f988e8b3878da3114c0c452d640d6",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/RichTextNostr.svelte",
+      "afterSha256": "639ea0c53bb18587688579af0fef4972043555e7297e96a25225345d5fffc4b3",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/SaveButton.svelte",
+      "afterSha256": "940e00f8b6fe0cc93e0829b2411ef1f8c5e3ce22d626e77b5fdc0fe71b223028",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": true,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/SectionHeader.svelte",
+      "afterSha256": "c85852f53a37ecfb87089bb0a74b530526e9ed17bcbc04db779176c3bc46f43b",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/SectionNav.svelte",
+      "afterSha256": "27c72ec85c3d19f05031ed6cbf6a89def59c4a7b90554f6b33d2de9f2b7bb7c2",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ShareModal.svelte",
+      "afterSha256": "fb032a2a7fba95417245533150d7488cf7b6981967006f731651e4156499a391",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ShareMyRecipesAction.svelte",
+      "afterSha256": "6f94832245f692bd6e6e6dab5123432d894f5773ad30580a99afa96e749cc2d6",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/SharePackModal.svelte",
+      "afterSha256": "d93e7dcaa1541c5da27480f646452628ce49d843ed66a0e2dbe5c770b7945842",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/SidebarWallet.svelte",
+      "afterSha256": "81223758a9b7bbb137bc3593a5f4a73e4d8be11e966a6c4a0f088d4e79a1d776",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/SuggestedFollowsModal.svelte",
+      "afterSha256": "b69b4aab9d2eb7c64141e6abe30f87f766a1f6b7441d83f3b92b981102b3ee5d",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/TimerWidget.svelte",
+      "afterSha256": "4448b457d81ea045aad1ffd10bdf257b06ce3914a94299ada3df6cf9b674af98",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/TopZappers.svelte",
+      "afterSha256": "cb8f19f6ab8a7a760b492abfc4f5d793155d478f731a95f76392c7f491a3b2a8",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/TwitterEmbed.svelte",
+      "afterSha256": "31815f13c9a1a365e8688aeaaebcb0bbce172b16cdbef7d7e7082baa5523a84c",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/UserSidePanel.svelte",
+      "afterSha256": "c11ea93351a7bb5f4387467b4aa7d333aff588dba1c02917f676965c88502a02",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/VaultUnlockOutcomeDialog.svelte",
+      "afterSha256": "574144c43e9e0440d82a6c1d637f01c56153023cffe6596a192186cc4b02b0d1",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ZapButton.svelte",
+      "afterSha256": "038275abd300848f4e9242eb303f070582a116b591622817f84dad9f81e2385e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": true,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/ZapDisplay.svelte",
+      "afterSha256": "78d7c62f3f042dcc69521fcc4956f5a6e5270521bf549fd6380cce7ce983bd5f",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/auth/SignInCard.svelte",
+      "afterSha256": "c8a442534635f7f1b93bb0caddde677bb612b4b1d8a043751b54cd9ceee9badf",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/auth/SignupFlow.svelte",
+      "afterSha256": "62fa74cfaf6ce6994e0983a09b38cd58e1105c388c5cc5535127056c25cbc5e0",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/clink/NofferButton.svelte",
+      "afterSha256": "5d6b09ba81cbae68b9a1d4de26984adc51500b5e3152fa30d1dba90668375809",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/clink/NofferPayModal.svelte",
+      "afterSha256": "8c4dcf951830153e56c3bd46a68670797e611994895b3d5c618fb567b76a3450",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/comments/ReplyComposer.svelte",
+      "afterSha256": "5a444700d4de22fb35bef64b37362b6890458d2f867c09c9ceecea9f885bc48e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/grocery/AddToListModal.svelte",
+      "afterSha256": "6b2740140cda29f8435af4dfbcb9497776089a4a375132b0f48fccbcc3320fbe",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/grocery/GroceryItemRow.svelte",
+      "afterSha256": "db13426ed5155e1f489b6c368b79105fc34f38c0613af6329382a6bd58e025d0",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/grocery/GroceryListCard.svelte",
+      "afterSha256": "5f3a1453a142c943c150d196e69c8034e3e79c61b6a944d452a015380c8e6e86",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/landing/LandingThemePicker.svelte",
+      "afterSha256": "7aed7634c69f256b6e8cc69d96cbf0e2deeef14e318a418b2205038e7eb78f1b",
+      "group": "foundation",
+      "findings": [],
+      "scriptChanged": true,
+      "review": "Excluded from aggregate equality: intentional global initialization/import or Settings style-control work; root reviews directly."
+    },
+    {
+      "file": "src/components/marketplace/CategoryFilter.svelte",
+      "afterSha256": "89797e1723d2b372439cf12a5fd2b83b5f427fc2d7700b471b1d6cc100ab8529",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/marketplace/KitchenCard.svelte",
+      "afterSha256": "91643493dbf8ba873b97284ec684638f348161779f5f94d2d7c830d0c26e107f",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/marketplace/KitchenForm.svelte",
+      "afterSha256": "06b9211dd8d3e24bf16de34a9baa64d11df493a9f2f28abddf24acdf1ee5bfb4",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/marketplace/KitchenHeader.svelte",
+      "afterSha256": "e0b6f6b8e8b719c0736de439755ed6d8e04e5a34341a9ad9ab67a5de71843287",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/marketplace/MessageSellerModal.svelte",
+      "afterSha256": "64d6ddfde65667cc56b5aecd4adc48ce88a274810639a94f1a4d90f4828321a4",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/marketplace/PaymentActionPanel.svelte",
+      "afterSha256": "3010db0ee649ada2e4c305b6d62a5211ae8bde82447f289a3ef2992aeac83a0c",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/marketplace/ProductCard.svelte",
+      "afterSha256": "38c7bafe97d98fc81df95a4bb35f16b8e504c27ec398c69278f5427ab73afcfb",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/marketplace/ProductForm.svelte",
+      "afterSha256": "8443a22afab21fa1574af16d3219e200fe2e08fe88ac9582f1a48af8a9c84f98",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/marketplace/ProductViewModal.svelte",
+      "afterSha256": "d207560add37f1d32c3e228cf422f9a96d66154202ea9ca67bc6ddd0ff32af41",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/marketplace/SellerAcknowledgmentModal.svelte",
+      "afterSha256": "55f33be69c89321b0c8067059d3a93d57e731cf4999f52d6c077a0701ac2e693",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/marketplace/TrustBadge.svelte",
+      "afterSha256": "495d6377c543a8dac67875a33a507463453457cdc24282cf47cf856ab9ca5d82",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/mesh/MeshControlPanel.svelte",
+      "afterSha256": "358afdebc33d0c41e3d812d87e8c6031c4fa0b0aaa7d363ffae83ecabe9d8c98",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/mesh/MeshDetailDrawer.svelte",
+      "afterSha256": "885f457f2decea83f25d49a0cba571d0c96443a01fab44b3beee2a09f46f7644",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/mesh/MeshHeroOverlay.svelte",
+      "afterSha256": "32899736492fb397ab0f4acb772edb4c3f33918fa2066e17ffb82bed43848140",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/mesh/MeshLegend.svelte",
+      "afterSha256": "e10c2ad9a51d0e3c56b596db4b02ca9a5fd84aa0e8e83605ec7614e1e3fece31",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/notifications/NotifText.svelte",
+      "afterSha256": "c9d4a543d3ccd18e7d81c5f693a59ec7d8e42dfb2e2848d82709115a73dac07e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/nourish/NourishDimensionTile.svelte",
+      "afterSha256": "aad0a5e6caeb8b68e4ec6bdca7719115df90a9e5993de5b5216eeea05203bcc0",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/nourish/NourishInputTabs.svelte",
+      "afterSha256": "80be2277d79301dd9b9f3acad2fff2d0ce2772ec6ec8d60141d37d3440a913b3",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/nourish/NourishLoadingState.svelte",
+      "afterSha256": "69c5d54d6e49548199dcf2bd52fea9eca5751a4e36c386e35e1df248f114dd93",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/nourish/NourishModal.svelte",
+      "afterSha256": "142be664ae1d59f98762c217172206d67a85686930791574d47594296d897014",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/nourish/NourishPhotoInput.svelte",
+      "afterSha256": "a595b8c1f99b3053a3c0c66467e319ee6a268984605e648741559f0639918cfc",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/nourish/NourishResult.svelte",
+      "afterSha256": "006bfe918d21b0db668667a1957c9c6d2c4c9b28c3d4830e778e32a5b9f011b5",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/pantry/PantryEditor.svelte",
+      "afterSha256": "a49e369fd1fa8baa88abf41c6af2ebb7169b923f26ec0ebaf52caffb1c59886d",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/pantry/PantryItem.svelte",
+      "afterSha256": "1c03eb4495a96db61a4eb5b505e7c5902431be96d66c3a15175cbef713b5f3f8",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/planner/CheffyPlanModal.svelte",
+      "afterSha256": "a71328714ceef252427b86f6dd3a5d3b3e68562a18303bbe7028b72f66cdc2df",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": true,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/planner/GeneratedPlanPreview.svelte",
+      "afterSha256": "4ff4f963abeae506824f67b5a5e88d1c6143ea517fc05ea2dff3453d0da61e91",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/pow/PowHeatMap.svelte",
+      "afterSha256": "1c07f8e658e8e44d4155f65852b810fe1e5523c0aa9f9d5952553f843ece2c19",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/pow/PowZapButton.svelte",
+      "afterSha256": "e9a43910b9a425883ce0af1ebb853e9cee761bad200b59d2f380cd3d5da8d193",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/reads/ArticleMetadata.svelte",
+      "afterSha256": "3b1e3e55cef8f6480b83b4c98321a1e0206d18849eb585d858190c87101b63f6",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/reads/ContentUnavailable.svelte",
+      "afterSha256": "e41911ac91660d4b274e6b79f798f59ac34931abfeb5187b4dcbb52f2da9858b",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/reads/EditorToolbar.svelte",
+      "afterSha256": "6a6856d7a9036b75683a5c05375d64e98eef4ae0281b90a30194df611cdaa34b",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/reads/LongformEditorModal.svelte",
+      "afterSha256": "7aad8527b8e21fa0801c6999d2fa35f84d33fd8de531a3733e359fda97308a6c",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/reads/MentionList.svelte",
+      "afterSha256": "1c8a828cfb7074900347c6cf086973d1657cbaa5ee27cd1e151b7bb52e9723ff",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/reads/ReportArticleModal.svelte",
+      "afterSha256": "aa2f68fa173607b9426a143ccc62b637e3a0329593a3b59f64a671dcc3e1897e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/reads/TiptapEditor.svelte",
+      "afterSha256": "0dc572af89b83ac770cca52ed5a57a01af658e164710af7ed9b5273d9aeaf423",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/table/ArticleCardBody.svelte",
+      "afterSha256": "847433dc06f54c7fac4c0a6c0e4d2b781de97bd6e27a9470e4ba5d0e0504d4ae",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": true,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/table/CoverSection.svelte",
+      "afterSha256": "9f5dfb7132022639eefd09911b73250394d89e824deba2bab6da7940d91a5fae",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/table/FeedSection.svelte",
+      "afterSha256": "3880870334c25a94f324b151551cafc5f0e58564b8edad9f07b914770c908cba",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/table/FilterBar.svelte",
+      "afterSha256": "652641bf8e2eafa4ccef421cd9fbcc9a72e0bee1fbbeb9aca9d17f77ff0a2ef7",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/wallet/WalletModal.svelte",
+      "afterSha256": "8288e8e15cee7d7232550e0fc8d3e7b77c7df97480e1ec53e9c14c4b10d35d95",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/components/wallet/WalletPanel.svelte",
+      "afterSha256": "4770f4c1101293e303f36c8aee3e0298f9a77b07c6cd848401252b91ea089dbf",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/lib/components/groups/AddMemberModal.svelte",
+      "afterSha256": "8ecf22809dd10da7b7476f7f402c4cdebdf982f29fe38464af2957e3c91ff629",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/lib/components/groups/CreateGroupModal.svelte",
+      "afterSha256": "e413f52b181a6f7c934664c4f5c59e39d130ed5ab971d4fdf5569394e1c61d7b",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/lib/components/groups/GroupList.svelte",
+      "afterSha256": "ba904eebc353247fc7908d6ab244903eda1dc1010fd990bb898cd3c35cff1439",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/lib/components/groups/GroupMessage.svelte",
+      "afterSha256": "04898302e921d14deabefffd56c69d44018cdddafbf06e375a083ebdad640f7f",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/lib/components/groups/GroupThread.svelte",
+      "afterSha256": "8916f45941e23c2d1757e7f7ad4533a625e616ad82207954007e48c07223e48d",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/lib/components/groups/InviteLinkModal.svelte",
+      "afterSha256": "00f59e496cc7610b98497ae6443908ed8a7c53be7d77cfd0f536a688d89c3b39",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/lib/components/messages/ConversationList.svelte",
+      "afterSha256": "772bf03f281ee403d4309592801f9c80b105709d635d89ea1b7558f96a7d9300",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/lib/components/messages/MessageBubble.svelte",
+      "afterSha256": "74caf8fcdc7d748f678bf6489c289e8a47c2294052b181e8bb0e1de65b676b0f",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/lib/components/messages/MessageThread.svelte",
+      "afterSha256": "f4ca53174c2a527b30e8cf0ec5cbe5be529dea60db7823a9f8832d050cf6b52c",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/+layout.svelte",
+      "afterSha256": "a514360374a57ed8bf5bdb4ad7b527cf5f9aabba5c06b4134446aa8b53463b44",
+      "group": "foundation",
+      "findings": [],
+      "scriptChanged": false,
+      "review": "Excluded from aggregate equality: intentional global initialization/import or Settings style-control work; root reviews directly."
+    },
+    {
+      "file": "src/routes/admin/deletion-requests/+page.svelte",
+      "afterSha256": "bd35ece7262602801b8306e804916c57b146342e33c12d17c623830a8bab3ebb",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/admin/nourish-flags/+page.svelte",
+      "afterSha256": "3b1b76e903c823bbfdce87d2f39a9da91c0f1141864b36fe2b0c065117704bae",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/admin/promos/+page.svelte",
+      "afterSha256": "241823fb6ff7665393f976c056b81068aca113d38e347f14f5b92b8a06bfd225",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/admin/reads-moderation/+page.svelte",
+      "afterSha256": "a570ab99ddb42c6bef38416b076cc9cb0a49ea3399c090e0098bf2c1624a3435",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/boost/+page.svelte",
+      "afterSha256": "8b3d969aee0c659138f19982955a34361fb0d737edba1166d483aee0b750f29d",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/cheffy/+page.svelte",
+      "afterSha256": "5993813e6c7a0b77df6be3f58b12e8409e6e2bce65b2f5c433e33a7543ac87fb",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/create/+page.svelte",
+      "afterSha256": "39dfb6da91cb917d203af6aa9b4394db15226c22906c4862790c8c1672c92d5a",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/delete-account/+page.svelte",
+      "afterSha256": "cfab835c2a9a3de8b55d08e47fc2c8e38a8522b68c63272525d0d0e7d7b7b766",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/drafts/+page.svelte",
+      "afterSha256": "06f7c6d45723423a79fd5d08bd11b6d53922ae04ddcd7f4e1bd4ba0239b384fd",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/explore/+page.svelte",
+      "afterSha256": "b6910d960c3e2a00f8dc3e0f3c5b3d37d20409d66fd2826676d1b6ba5134faf5",
+      "group": "foundation",
+      "findings": [],
+      "scriptChanged": true,
+      "review": "Excluded from aggregate equality: intentional global initialization/import or Settings style-control work; root reviews directly."
+    },
+    {
+      "file": "src/routes/feed-post/+page.svelte",
+      "afterSha256": "e6cc8dd2406bfb5c4232eb0f224b83ab5906508c4c4132cf649df94f9b7a4928",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/feed/+page.svelte",
+      "afterSha256": "7026edec2ecc545f5d57b4c7f3f8d21bfa9313524e0b1723543ce8d23ca51140",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/founders/+page.svelte",
+      "afterSha256": "46df657474cb5231a48f688323ac9d183dfe04e5856e6d3f43930e3e12c17fa0",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/groups/join/+page.svelte",
+      "afterSha256": "c55c6a53fa9fc14fec3b2dba7fda4bd3f32cb6d4c7a24d48822f1f5d9f190750",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/kitchen/+page.svelte",
+      "afterSha256": "e69fe2df47b2139b6d7bb4aaaf16ac5268e1f796796532e07e29b79dcaf964ba",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/list/[slug]/fork/+page.svelte",
+      "afterSha256": "225b791cb09238ca234f677bb30fa79d34e9f62ea95256a771efecf5ef30675c",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/market/+page.svelte",
+      "afterSha256": "3a67ed6ed2f4298fa8d186be70254ea85aee343ec948e6fab29028d27ca7e7f2",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/market/kitchen/[npub]/+page.svelte",
+      "afterSha256": "53065ae9b464b4b35718e946be478c180789191a2c38d9e6507bffeb827e9d16",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/market/products/+page.svelte",
+      "afterSha256": "462a557a5208d2d5ce22a7c6cd747a1cc21aa37bc8cbf7b2c723ac01d89420c9",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/market/trust/+page.svelte",
+      "afterSha256": "72a2534f11ce505ca02e408a0ec90037717e3426401d0a86a69e4ad6346a225e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/+page.svelte",
+      "afterSha256": "49bd359c7471f8fe84238c7b7fddda58d8b166be22067bb66b96c965f65a610c",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/BitcoinPayment.svelte",
+      "afterSha256": "e04926dd9277d32276c4aa0718279c8fe00bfd0cedceb6d9789a1d237b6481c2",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/HeroSection.svelte",
+      "afterSha256": "c0ef256abce345dac9508a411fc626cfb4c49c36f8fa311f0f3489a8852a70b7",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/PaymentModal.svelte",
+      "afterSha256": "2ded91f1c20a8a58a63e3ad47e6247bc8b42f048a2cdb3ff95b148675e2f3a17",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/PaymentSelection.svelte",
+      "afterSha256": "1b52c0656ca5a050fae801ebd453756c7422643cc9f6f9af7cc04d28c5df4395",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/PaymentSuccess.svelte",
+      "afterSha256": "e6ea3ba9c1e68b456c46faf652052fc1154b05f08dd86966a65b6f28e6e36e9f",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/PlanPicker.svelte",
+      "afterSha256": "ac4a8f98dac1477917ca54b20e624223f042b88a4036880b580a6fe3d3c79c65",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/StripeCheckout.svelte",
+      "afterSha256": "4d7d26e0b9485c62b0cb4359810c52a3d2d50980836d7c29424f741ff185f357",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/TierCard.svelte",
+      "afterSha256": "3e4193d5b159afeb76d8f937926901035000b3ee562ebcef8edeac4e270597f9",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": true,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/TimelineSection.svelte",
+      "afterSha256": "7fa3f07e94ac8c3c73dbab44516c8e93703189f5faae670728a7d9fb3430fb58",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/UltraLimitedBanner.svelte",
+      "afterSha256": "e284deb5f40a4a3d8db82ae4b4530d38ce1b9418e0a611c5828a1437d5ffae37",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/confirmation/+page.svelte",
+      "afterSha256": "54600d439d0b714e8917b11cad8362012aa94af6f9da6ec61b9bbff5acc9ab1f",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/cook-plus-checkout/+page.svelte",
+      "afterSha256": "ba9d12d865742d54b2b1140e75a0b410802359033979084e500ceff0d364c3b5",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/genesis-checkout/+page.svelte",
+      "afterSha256": "10aac34a3db6c54d7bb8adfcc7afb43349c3fec30ec85735ad7de0c1cf49cebe",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/pro-kitchen-checkout/+page.svelte",
+      "afterSha256": "76834a9b2d8617e4e1bbe5a4dc16244fd30954582046b08c6c4b4d6171310c52",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/membership/success/[tier]/+page.svelte",
+      "afterSha256": "c4315475220ccb4299f1ed04adf213f56d935abf7d9575bc4ddc424e5fb73775",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/memories/+page.svelte",
+      "afterSha256": "cdac1134a507f8aa14975f0c61043ad55530eab9bf88ac93c634eec845ef34e2",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/mesh/+page.svelte",
+      "afterSha256": "2c8bed252b2c75c0e1a0de7994db5dfa046196470afa41b0faa3c2453cd3d327",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/messages/+page.svelte",
+      "afterSha256": "aaa2629ef0c483ae9d9292acc2de31034a02f65270309472577f5fdd1f7fff28",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/my-kitchen/+page.svelte",
+      "afterSha256": "33b8b6efd0edcd37a1d9bde97703a2139d9950bc9104a23615b7866a66153f04",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/my-kitchen/[naddr]/+page@.svelte",
+      "afterSha256": "ec5acfad8db1939b7e51b5b4da731b41c031fab74df584d37917476015d0452b",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/my-kitchen/grocery/+page.svelte",
+      "afterSha256": "2dc230e7da485bd6407d35542ca492c764feead149193f9e4fd95656ca3c71e7",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/my-kitchen/grocery/[id]/+page.svelte",
+      "afterSha256": "93edd106f86d3e22d2b71592fd8a80ea15fe7f41253fdab22da5e44b47dacb39",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/my-kitchen/pantry/+page.svelte",
+      "afterSha256": "537aa88bd72a0197540e01b80c00e47be99822620f9d75613233ec957c26b0c9",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/my-kitchen/planner/+page.svelte",
+      "afterSha256": "382a5e93ae7fdaf2d872514f791e650cdbd226413114f3f32b977502840d387c",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/my-store/+page.svelte",
+      "afterSha256": "de6cf23216a7d27af6a7a612837686cd9e8b8780e63f954bad519f24417e0e6b",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/my-store/edit/[id]/+page.svelte",
+      "afterSha256": "87352a4251ec8031bd5b5a1f12303fb3044e42b558b23d58c19c6a5ec2b7fdd7",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/my-store/kitchen/+page.svelte",
+      "afterSha256": "c09c4ff2efdba81b12562c8cb3db2f9cfb6ac8fd3e84b9609ac202db33ad0c9f",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/my-store/new/+page.svelte",
+      "afterSha256": "b42ce70bd849a1e7a8feb86bc7bfadf68840afd9525cd2c0822e2e7fbffdb744",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/notifications/+page.svelte",
+      "afterSha256": "67aba46d50d3812950ac833b987bb48efb699888914f294f46af22477fa6b378",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/nourish/+page.svelte",
+      "afterSha256": "91fefd91058e4bcc7eb00b3bf6a1b9818563cd1024fca2e9a2bf5469c74d0a10",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/nourish/explore/+page.svelte",
+      "afterSha256": "3bf9f4b757bd57236c4183870ad5b5b69b9754e58a333f0f8ce1c13b3d38f38f",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/pack/[naddr]/+page.svelte",
+      "afterSha256": "915a394a6e47e636eb05c19bdd95aa1284c03e2971520eba5340b8d694a4d32c",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/packs/+page.svelte",
+      "afterSha256": "6a7d53e4bad7db20c705c1057262acc556391e9e4e75345a95d4a176b2dbfe27",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/pantry/+page.svelte",
+      "afterSha256": "a9962a4a7542630b731edaef6bb884256b33dc84ef843534c9f4b73f75fecfa9",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/r/[naddr]/+page.svelte",
+      "afterSha256": "71b6a3357f019eafa3f32ef561b470cc8f1546fe275e7d74ab55a011c80286b8",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/reads/+page.svelte",
+      "afterSha256": "d3af8394fc565dd174a18ecf2403fc2969fb2e6a81efd760a416b1c6c52becbd",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/reads/[naddr]/+page.svelte",
+      "afterSha256": "052f67f51fc5792f7e4a442ac59d29cfe3bcaa9efbf443a01199987531eee503",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/recipe/[slug]/+page.svelte",
+      "afterSha256": "0b8c4ddf69bf570e272f094458d9301c63750c8fa9b690bc40192540f4e9bf2d",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/recipes/+page.svelte",
+      "afterSha256": "f5a34c0b1e99ecbd56addd4a674d76871790a4b086cd987883c476ef168e09f2",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": true,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/s/[code]/+page.svelte",
+      "afterSha256": "359265d9c5b75a308ca3c16eebb5ccf2499e8515e45edc0eabae2e4f1d119e50",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/s/[code]/info/+page.svelte",
+      "afterSha256": "d9dda9ab4fb230b15428d04874d27d5fc03d2b9df7f4d938eb599c48ed00a104",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/settings/+page.svelte",
+      "afterSha256": "83875dea7eae15888b8eaaf7450872b7125d6cb95c5a8ba4471ace485d0a1735",
+      "group": "foundation",
+      "findings": [],
+      "scriptChanged": true,
+      "review": "Excluded from aggregate equality: intentional global initialization/import or Settings style-control work; root reviews directly."
+    },
+    {
+      "file": "src/routes/souschef/+page.svelte",
+      "afterSha256": "bccb20a828a6dadfd647c93d8534d28292ef56fd0d05486fccc10060791e8df6",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/sponsors/+page.svelte",
+      "afterSha256": "a8007d5ad1e945c1401c28a0df187016fd883a39bc753f81ab4e3737d2635e1e",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    },
+    {
+      "file": "src/routes/user/[slug]/+page.svelte",
+      "afterSha256": "1f353ff4c09472c1af71804443abfdc86a517aab159958e1d08d607d72a63271",
+      "group": "palette-only",
+      "findings": [],
+      "scriptChanged": false,
+      "compiles": true,
+      "newWarnings": 0
+    }
+  ]
+}

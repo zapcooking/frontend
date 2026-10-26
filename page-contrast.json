@@ -1,0 +1,441 @@
+[
+  {
+    "mode": "light",
+    "theme": "original",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "original",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "original",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "light",
+    "theme": "after-hours",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "after-hours",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "after-hours",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "light",
+    "theme": "recipe-club",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "recipe-club",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "recipe-club",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "light",
+    "theme": "recipe-box",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "recipe-box",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "recipe-box",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "light",
+    "theme": "corner-diner",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "corner-diner",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "corner-diner",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "light",
+    "theme": "sunday-market",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "sunday-market",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "light",
+    "theme": "sunday-market",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "dark",
+    "theme": "original",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "original",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "original",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "dark",
+    "theme": "after-hours",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "after-hours",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "after-hours",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "dark",
+    "theme": "recipe-club",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "recipe-club",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "recipe-club",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "dark",
+    "theme": "recipe-box",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "recipe-box",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "recipe-box",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "dark",
+    "theme": "corner-diner",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "corner-diner",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": []
+  },
+  {
+    "mode": "dark",
+    "theme": "corner-diner",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  },
+  {
+    "mode": "dark",
+    "theme": "sunday-market",
+    "route": "/feed",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "sunday-market",
+    "route": "/settings",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 4
+      }
+    ]
+  },
+  {
+    "mode": "dark",
+    "theme": "sunday-market",
+    "route": "/login",
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 5
+      }
+    ],
+    "scopeNote": "Login app shell only: initial harness waited for #app-scroll, not visible SignInCard. Actual overlay coverage is in signin-contrast-after.json."
+  }
+]

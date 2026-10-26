@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "comparedShellSnapshots": 30,
+  "unchangedNodes": 588,
+  "componentStates": 6,
+  "diffs": [],
+  "notes": [
+    "Matched stable visible nodes by tag/text/accessibility name/href rather than Svelte class hashes. Color changes are excluded.",
+    "Settings may gain an approved Style control; below300px, vertical position is not compared there. All other geometry, typography and box metrics are compared.",
+    "Unavailable-data shell states are deterministic; live content, authenticated flows and typography on other platforms are outside this check."
+  ]
+}

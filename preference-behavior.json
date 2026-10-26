@@ -1,0 +1,22 @@
+[
+  {
+    "kind": "navigation/reload/cross-tab/mode independence",
+    "passed": true
+  },
+  {
+    "kind": "system appearance change",
+    "passed": true
+  },
+  {
+    "kind": "invalid saved preference",
+    "passed": true
+  },
+  {
+    "kind": "blocked storage",
+    "passed": true
+  },
+  {
+    "kind": "no-JS dark fallback",
+    "passed": true
+  }
+]

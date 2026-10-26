@@ -1,0 +1,182 @@
+[
+  {
+    "mode": "light",
+    "theme": "original",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "light",
+    "theme": "after-hours",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "light",
+    "theme": "recipe-club",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "light",
+    "theme": "recipe-box",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "light",
+    "theme": "corner-diner",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "light",
+    "theme": "sunday-market",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "dark",
+    "theme": "original",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "dark",
+    "theme": "after-hours",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "dark",
+    "theme": "recipe-club",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "dark",
+    "theme": "recipe-box",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "dark",
+    "theme": "corner-diner",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  },
+  {
+    "mode": "dark",
+    "theme": "sunday-market",
+    "qr": {
+      "background": "rgb(255, 255, 255)",
+      "ink": "rgb(0, 0, 0)",
+      "fill": "rgb(0, 0, 0)"
+    },
+    "print": {
+      "page": "#ffffff",
+      "text": "#111111",
+      "sheetBackground": "rgba(0, 0, 0, 0)",
+      "sheetText": "rgb(0, 0, 0)"
+    }
+  }
+]
