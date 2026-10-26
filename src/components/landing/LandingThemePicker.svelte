@@ -14,6 +14,7 @@
     <span>{label}</span>
     <select data-explore-theme-select>
       <option value="original">Zap Original</option>
+      <option value="warm-kitchen">Warm Kitchen</option>
       <option value="after-hours">After Hours ’80s</option>
       <option value="recipe-club">Recipe Club ’90s</option>
       <option value="recipe-box">Recipe Box</option>

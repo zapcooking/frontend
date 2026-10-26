@@ -16,6 +16,7 @@
   /** @type {Record<string, string>} */
   const styles = {
     original: 'Zap Original',
+    'warm-kitchen': 'Warm Kitchen',
     'after-hours': 'After Hours ’80s',
     'recipe-club': 'Recipe Club ’90s',
     'recipe-box': 'Recipe Box',

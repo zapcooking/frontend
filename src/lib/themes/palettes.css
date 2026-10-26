@@ -1,4 +1,4 @@
-/* Shared palettes for all six styles. Colors come from the existing Explore styles; display typography and decoration remain local to Explore. Primary is readable accent text, never a filled button: use action/on-action for that pair. */
+/* Shared palettes reuse the original app neutrals and existing Explore colors. Display typography and decoration remain local to Explore. Primary is readable accent text, never a filled button: use action/on-action for that pair. */
 html:root {
   --explore-action-bg: #bd3c0b;
   --explore-action-ink: #ffffff;
@@ -8,15 +8,15 @@ html:root {
   --explore-masthead-ink: var(--color-text-primary);
   --explore-masthead-muted: var(--color-text-secondary);
   --color-primary: var(--explore-accent-text);
-  --color-text-primary: #28231f;
-  --color-text-secondary: #60554b;
-  --color-caption: #6b5d51;
-  --color-bg-primary: #fff9f2;
-  --color-bg-secondary: #f4e9dd;
-  --color-input-bg: #fffdf9;
-  --color-input-border: #c7b7a7;
-  --color-accent-gray: #c7b7a7;
-  --color-card-sunken: #eee2d4;
+  --color-text-primary: #111827;
+  --color-text-secondary: #4b5563;
+  --color-caption: #4b5563;
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f9fafb;
+  --color-input-bg: #f3f4f6;
+  --color-input-border: #e5e7eb;
+  --color-accent-gray: #d1d5db;
+  --color-card-sunken: #f1f2f4;
   --color-explore-cream: var(--color-bg-primary);
   --color-explore-peach: #ffe8d8;
   --color-explore-sage: #edf1e5;
@@ -69,6 +69,18 @@ html:root.dark {
   --color-warning: #fbbf24;
   --color-info: #93c5fd;
   --color-danger: #fca5a5;
+}
+/* Preserve the former off-white Original as an opt-in style. Both use the same existing dark palette. */
+html:root:not(.dark)[data-explore-theme='warm-kitchen'] {
+  --color-text-primary: #28231f;
+  --color-text-secondary: #60554b;
+  --color-caption: #6b5d51;
+  --color-bg-primary: #fff9f2;
+  --color-bg-secondary: #f4e9dd;
+  --color-input-bg: #fffdf9;
+  --color-input-border: #c7b7a7;
+  --color-accent-gray: #c7b7a7;
+  --color-card-sunken: #eee2d4;
 }
 html:root[data-explore-theme='after-hours'] {
   --explore-accent-text: #9b2d25;

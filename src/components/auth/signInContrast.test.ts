@@ -10,6 +10,7 @@ const palettes = postcss.parse(
 );
 const styles = [
   'original',
+  'warm-kitchen',
   'after-hours',
   'recipe-club',
   'recipe-box',
@@ -23,6 +24,7 @@ function palette(style: string, dark: boolean): Record<string, string> {
     'html:root',
     ...(dark ? ['html:root.dark'] : []),
     `html:root[data-explore-theme='${style}']`,
+    ...(!dark ? [`html:root:not(.dark)[data-explore-theme='${style}']`] : []),
     ...(dark ? [`html:root.dark[data-explore-theme='${style}']`] : [])
   ]);
   for (const node of palettes.nodes) {

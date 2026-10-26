@@ -140,18 +140,20 @@ function fixture(
 }
 
 describe('shared appearance preferences without app hydration', () => {
-  it('restores a saved style before DOM ready without changing global appearance or writing storage', () => {
-    const f = fixture('recipe-box');
-    expect(f.attrs.get('data-explore-theme')).toBe('recipe-box');
-    expect(f.attrs.get('class')).toBe('dark');
-    expect(f.controls.every((control) => control.hidden)).toBe(true);
-    expect(f.storage.getItem).toHaveBeenCalledWith(storageKey);
-    expect(f.storage.setItem).not.toHaveBeenCalled();
-    f.ready();
-    expect(f.selects.map((select) => select.value)).toEqual(['recipe-box', 'recipe-box']);
-    expect(f.controls.every((control) => !control.hidden)).toBe(true);
-    expect(f.statuses.every((status) => status.textContent === '')).toBe(true);
-  });
+  for (const style of ['original', 'warm-kitchen', 'recipe-box']) {
+    it(`restores saved ${style} before DOM ready without changing color mode or writing storage`, () => {
+      const f = fixture(style);
+      expect(f.attrs.get('data-explore-theme')).toBe(style);
+      expect(f.attrs.get('class')).toBe('dark');
+      expect(f.controls.every((control) => control.hidden)).toBe(true);
+      expect(f.storage.getItem).toHaveBeenCalledWith(storageKey);
+      expect(f.storage.setItem).not.toHaveBeenCalled();
+      f.ready();
+      expect(f.selects.map((select) => select.value)).toEqual([style, style]);
+      expect(f.controls.every((control) => !control.hidden)).toBe(true);
+      expect(f.statuses.every((status) => status.textContent === '')).toBe(true);
+    });
+  }
 
   for (const saved of [undefined, 'unknown', '__proto__', 'constructor', 'AFTER-HOURS']) {
     it(`uses the original style for unsupported stored value ${saved} without overwriting it`, () => {
@@ -310,11 +312,12 @@ describe('app navigation and independent color mode', () => {
   it('keeps the server-rendered picker options aligned with the prepaint allowlist', () => {
     const component = readFileSync('src/components/landing/LandingThemePicker.svelte', 'utf8');
     const options = [...component.matchAll(/<option value="([^"]+)">([^<]+)<\/option>/g)];
-    expect(options).toHaveLength(6);
+    expect(options).toHaveLength(7);
     for (const [, value, label] of options) {
       const f = fixture(undefined, { ready: true });
       f.change(value);
       expect(f.attrs.get('data-explore-theme')).toBe(value);
+      expect(f.values.get(storageKey)).toBe(value);
       expect(f.statuses[0].textContent).toBe(`${label} selected.`);
     }
   });
