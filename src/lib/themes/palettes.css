@@ -27,6 +27,13 @@ html:root {
   --color-action: var(--explore-action-bg);
   --color-on-action: var(--explore-action-ink);
   --color-action-hover: color-mix(in srgb, var(--color-action) 88%, #28231f);
+  --color-feed-tab-start: var(--color-primary);
+  --color-feed-tab-end: var(--color-primary);
+  --color-nav-active: var(--color-primary);
+  --color-create-start: var(--color-action);
+  --color-create-end: var(--color-action-hover);
+  --color-profile-glow: var(--color-primary);
+  --color-profile-highlight: var(--color-primary);
   --color-auth-action: var(--color-action);
   --color-auth-action-hover: var(--color-action-hover);
   --color-auth-on-action: var(--color-on-action);
@@ -86,8 +93,17 @@ html:root[data-explore-theme='original'] {
   --color-primary: #ec4700;
   --explore-accent-text: #d43f00;
   --explore-action-bg: #ec4700;
-  --explore-action-ink: #111827;
+  --explore-action-ink: #ffffff;
   --color-action-hover: color-mix(in srgb, var(--color-action) 90%, #ffffff);
+  /* These were distinct before themes: orange/amber tabs and compose button,
+     a warmer active navigation icon, and a purple profile halo. */
+  --color-feed-tab-start: var(--color-orange-500);
+  --color-feed-tab-end: var(--color-amber-500);
+  --color-nav-active: #f97316;
+  --color-create-start: #f97316;
+  --color-create-end: #f59e0b;
+  --color-profile-glow: #a855f7;
+  --color-profile-highlight: #a855f7;
   --zap-orange: #ec4700;
   --color-auth-action: #d43f00;
   --color-auth-action-hover: #c2410c;
@@ -105,6 +121,7 @@ html:root.dark[data-explore-theme='original'] {
   --explore-accent-text: #ff5722;
   --explore-action-bg: #ff5722;
   --zap-orange: #ff7a3d;
+  --color-profile-highlight: #c084fc;
   /* A small lift within the original gray palette, with notes on a raised surface. */
   --color-bg-primary: color-mix(in srgb, #111827 70%, #1f2937);
   --color-card-sunken: var(--color-bg-secondary);
@@ -325,6 +342,7 @@ html:root.dark[data-explore-theme='sunday-market'] {
     --explore-accent-text: #ff5722;
     --explore-action-bg: #ff5722;
     --zap-orange: #ff7a3d;
+    --color-profile-highlight: #c084fc;
     --color-auth-link: #f9a03f;
     --color-hashtag-bg: #37302d;
     --color-hashtag-text: #fb923c;

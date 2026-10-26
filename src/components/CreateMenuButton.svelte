@@ -373,19 +373,19 @@
     justify-content: center;
     gap: 0.4rem;
     border-radius: 9999px;
-    background: linear-gradient(135deg, var(--color-action), var(--color-action-hover));
+    background: linear-gradient(135deg, var(--color-create-start), var(--color-create-end));
     color: var(--color-on-action);
     font-weight: 600;
     transition:
       transform 0.2s ease,
       box-shadow 0.2s ease,
       opacity 0.2s ease;
-    box-shadow: 0 10px 25px color-mix(in srgb, var(--color-action) 35%, transparent);
+    box-shadow: 0 10px 25px color-mix(in srgb, var(--color-create-start) 35%, transparent);
   }
 
   .create-trigger:hover {
     transform: translateY(-1px);
-    box-shadow: 0 12px 28px color-mix(in srgb, var(--color-action) 45%, transparent);
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--color-create-start) 45%, transparent);
   }
 
   .create-trigger-cancel {

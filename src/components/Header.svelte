@@ -368,7 +368,7 @@
     color: var(--color-primary);
   }
 
-  /* Avatar — selected accent glow ring, scales softly on hover/tap */
+  /* Avatar — Original's purple halo; other styles use their selected accent. */
   .zh-avatar-btn {
     display: inline-flex;
     padding: 0;
@@ -391,31 +391,31 @@
     background:
       radial-gradient(
         circle at 30% 30%,
-        color-mix(in srgb, var(--color-primary) 55%, transparent),
-        color-mix(in srgb, var(--color-primary) 18%, transparent) 60%,
+        color-mix(in srgb, var(--color-profile-glow) 55%, transparent),
+        color-mix(in srgb, var(--color-profile-glow) 18%, transparent) 60%,
         transparent 80%
       );
     box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent),
-      0 0 10px color-mix(in srgb, var(--color-primary) 25%, transparent);
+      0 0 0 1px color-mix(in srgb, var(--color-profile-glow) 35%, transparent),
+      0 0 10px color-mix(in srgb, var(--color-profile-glow) 25%, transparent);
   }
   :global(.dark) .zh-avatar-ring {
     background:
       radial-gradient(
         circle at 30% 30%,
-        color-mix(in srgb, var(--color-primary) 60%, transparent),
-        color-mix(in srgb, var(--color-primary) 20%, transparent) 60%,
+        color-mix(in srgb, var(--color-profile-highlight) 60%, transparent),
+        color-mix(in srgb, var(--color-profile-glow) 20%, transparent) 60%,
         transparent 80%
       );
     box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-primary) 40%, transparent),
-      0 0 12px color-mix(in srgb, var(--color-primary) 30%, transparent);
+      0 0 0 1px color-mix(in srgb, var(--color-profile-highlight) 40%, transparent),
+      0 0 12px color-mix(in srgb, var(--color-profile-glow) 30%, transparent);
   }
 
   /* Filled actions use a separate contrast-safe role from link accents. */
   .join-button {
-    color: var(--color-on-action);
-    background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action-hover) 100%);
+    color: var(--color-auth-on-action);
+    background: linear-gradient(135deg, var(--color-auth-action) 0%, var(--color-auth-action-hover) 100%);
     border: 1px solid transparent;
     cursor: pointer;
   }
