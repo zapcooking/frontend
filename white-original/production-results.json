@@ -1,0 +1,31 @@
+{
+  "routes": [
+    {
+      "route": "/explore",
+      "status": 200,
+      "appearanceScriptBeforeBody": true,
+      "appearanceScriptCount": 1,
+      "cacheControl": "public, max-age=60, s-maxage=180",
+      "appHydration": false
+    },
+    {
+      "route": "/messages",
+      "status": 200,
+      "appearanceScriptBeforeBody": true,
+      "appearanceScriptCount": 1,
+      "cacheControl": null,
+      "appHydration": true
+    },
+    {
+      "route": "/user/1111111111111111111111111111111111111111111111111111111111111111",
+      "status": 200,
+      "appearanceScriptBeforeBody": true,
+      "appearanceScriptCount": 1,
+      "cacheControl": null,
+      "appHydration": true
+    }
+  ],
+  "cloudflareStaticControllerMatchesSource": true,
+  "controllerRevalidates": true,
+  "rendering": "Existing cached runtime SSR preserved for Explore; actual built server response checked, not catch-all status."
+}

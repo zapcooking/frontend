@@ -1,0 +1,16 @@
+{
+  "testedCommit": "2d8c85dac3e6284ea6952d4385b347d2fa927cae",
+  "baselineCommit": "506f3e06",
+  "completedAtUtc": "2026-10-26T00:38:09.018973+00:00",
+  "matrixStates": 36,
+  "rootTokensPerState": 53,
+  "screenshots": 36,
+  "behaviorGroupsPassed": 1,
+  "feedSettingsContrastStates": 8,
+  "feedSettingsContrastViolations": 0,
+  "feedSettingsIncompleteNodeObservations": 16,
+  "visibleSignInContrastStates": 4,
+  "visibleSignInContrastViolations": 0,
+  "signInGradientMinimumContrast": 5.504674824654083,
+  "productFilesEditedByVerification": 0
+}

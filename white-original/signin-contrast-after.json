@@ -1,0 +1,474 @@
+[
+  {
+    "stage": "after",
+    "mode": "light",
+    "theme": "original",
+    "route": "/login",
+    "width": 360,
+    "scope": ".signin-card (visible, primary action and More options required)",
+    "visibleCard": {
+      "text": "WELCOME TO\n\nShare recipes and get paid by your community.\n\nUse a Nostr extension\nMore options\n\nNew to Zap Cooking? Join free\n\nYour identity · Your data · Your money\nTerms\n·\nPrivacy",
+      "geometry": {
+        "x": 16,
+        "y": 297.84375,
+        "width": 328,
+        "height": 404.3125
+      },
+      "font": "\"Albert Sans\", Inter, system-ui, -apple-system, sans-serif",
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(17, 24, 39)",
+      "display": "block",
+      "visibility": "visible"
+    },
+    "gradientContrast": {
+      "gradient": "linear-gradient(135deg, rgb(189, 60, 11) 0%, color(srgb 0.671059 0.223529 0.052549) 100%)",
+      "foreground": "rgb(255, 255, 255)",
+      "stops": [
+        [
+          189,
+          60,
+          11,
+          255
+        ],
+        [
+          171,
+          57,
+          13,
+          255
+        ]
+      ],
+      "foregroundRgb": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "samples": 1001,
+      "minimumRatio": 5.504674824654083,
+      "threshold": 4.5,
+      "passed": true
+    },
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-cta-primary > .s-bLjE_fAWjt6C"
+        ],
+        "html": "<span class=\"s-bLjE_fAWjt6C\">Use a Nostr extension</span>",
+        "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient"
+      }
+    ],
+    "passes": [
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-eyebrow"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-tagline"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-more-toggle > .s-bLjE_fAWjt6C:nth-child(1)"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-join"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-join-link"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-footer-tag"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          "a[href$=\"terms\"][target=\"_blank\"][rel=\"noopener noreferrer\"]"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-footer-links > .s-bLjE_fAWjt6C[aria-hidden=\"true\"]"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          "a[href$=\"privacy\"][target=\"_blank\"][rel=\"noopener noreferrer\"]"
+        ]
+      }
+    ],
+    "errors": []
+  },
+  {
+    "stage": "after",
+    "mode": "light",
+    "theme": "warm-kitchen",
+    "route": "/login",
+    "width": 360,
+    "scope": ".signin-card (visible, primary action and More options required)",
+    "visibleCard": {
+      "text": "WELCOME TO\n\nShare recipes and get paid by your community.\n\nUse a Nostr extension\nMore options\n\nNew to Zap Cooking? Join free\n\nYour identity · Your data · Your money\nTerms\n·\nPrivacy",
+      "geometry": {
+        "x": 16,
+        "y": 297.84375,
+        "width": 328,
+        "height": 404.3125
+      },
+      "font": "\"Albert Sans\", Inter, system-ui, -apple-system, sans-serif",
+      "background": "rgb(255, 249, 242)",
+      "color": "rgb(40, 35, 31)",
+      "display": "block",
+      "visibility": "visible"
+    },
+    "gradientContrast": {
+      "gradient": "linear-gradient(135deg, rgb(189, 60, 11) 0%, color(srgb 0.671059 0.223529 0.052549) 100%)",
+      "foreground": "rgb(255, 255, 255)",
+      "stops": [
+        [
+          189,
+          60,
+          11,
+          255
+        ],
+        [
+          171,
+          57,
+          13,
+          255
+        ]
+      ],
+      "foregroundRgb": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "samples": 1001,
+      "minimumRatio": 5.504674824654083,
+      "threshold": 4.5,
+      "passed": true
+    },
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-cta-primary > .s-bLjE_fAWjt6C"
+        ],
+        "html": "<span class=\"s-bLjE_fAWjt6C\">Use a Nostr extension</span>",
+        "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient"
+      }
+    ],
+    "passes": [
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-eyebrow"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-tagline"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-more-toggle > .s-bLjE_fAWjt6C:nth-child(1)"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-join"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-join-link"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-footer-tag"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          "a[href$=\"terms\"][target=\"_blank\"][rel=\"noopener noreferrer\"]"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-footer-links > .s-bLjE_fAWjt6C[aria-hidden=\"true\"]"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          "a[href$=\"privacy\"][target=\"_blank\"][rel=\"noopener noreferrer\"]"
+        ]
+      }
+    ],
+    "errors": []
+  },
+  {
+    "stage": "after",
+    "mode": "dark",
+    "theme": "original",
+    "route": "/login",
+    "width": 360,
+    "scope": ".signin-card (visible, primary action and More options required)",
+    "visibleCard": {
+      "text": "WELCOME TO\n\nShare recipes and get paid by your community.\n\nUse a Nostr extension\nMore options\n\nNew to Zap Cooking? Join free\n\nYour identity · Your data · Your money\nTerms\n·\nPrivacy",
+      "geometry": {
+        "x": 16,
+        "y": 297.84375,
+        "width": 328,
+        "height": 404.3125
+      },
+      "font": "\"Albert Sans\", Inter, system-ui, -apple-system, sans-serif",
+      "background": "rgb(32, 28, 25)",
+      "color": "rgb(255, 245, 233)",
+      "display": "block",
+      "visibility": "visible"
+    },
+    "gradientContrast": {
+      "gradient": "linear-gradient(135deg, rgb(189, 60, 11) 0%, color(srgb 0.671059 0.223529 0.052549) 100%)",
+      "foreground": "rgb(255, 255, 255)",
+      "stops": [
+        [
+          189,
+          60,
+          11,
+          255
+        ],
+        [
+          171,
+          57,
+          13,
+          255
+        ]
+      ],
+      "foregroundRgb": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "samples": 1001,
+      "minimumRatio": 5.504674824654083,
+      "threshold": 4.5,
+      "passed": true
+    },
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-cta-primary > .s-bLjE_fAWjt6C"
+        ],
+        "html": "<span class=\"s-bLjE_fAWjt6C\">Use a Nostr extension</span>",
+        "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient"
+      }
+    ],
+    "passes": [
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-eyebrow"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-tagline"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-more-toggle > .s-bLjE_fAWjt6C:nth-child(1)"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-join"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-join-link"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-footer-tag"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          "a[href$=\"terms\"][target=\"_blank\"][rel=\"noopener noreferrer\"]"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-footer-links > .s-bLjE_fAWjt6C[aria-hidden=\"true\"]"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          "a[href$=\"privacy\"][target=\"_blank\"][rel=\"noopener noreferrer\"]"
+        ]
+      }
+    ],
+    "errors": []
+  },
+  {
+    "stage": "after",
+    "mode": "dark",
+    "theme": "warm-kitchen",
+    "route": "/login",
+    "width": 360,
+    "scope": ".signin-card (visible, primary action and More options required)",
+    "visibleCard": {
+      "text": "WELCOME TO\n\nShare recipes and get paid by your community.\n\nUse a Nostr extension\nMore options\n\nNew to Zap Cooking? Join free\n\nYour identity · Your data · Your money\nTerms\n·\nPrivacy",
+      "geometry": {
+        "x": 16,
+        "y": 297.84375,
+        "width": 328,
+        "height": 404.3125
+      },
+      "font": "\"Albert Sans\", Inter, system-ui, -apple-system, sans-serif",
+      "background": "rgb(32, 28, 25)",
+      "color": "rgb(255, 245, 233)",
+      "display": "block",
+      "visibility": "visible"
+    },
+    "gradientContrast": {
+      "gradient": "linear-gradient(135deg, rgb(189, 60, 11) 0%, color(srgb 0.671059 0.223529 0.052549) 100%)",
+      "foreground": "rgb(255, 255, 255)",
+      "stops": [
+        [
+          189,
+          60,
+          11,
+          255
+        ],
+        [
+          171,
+          57,
+          13,
+          255
+        ]
+      ],
+      "foregroundRgb": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "samples": 1001,
+      "minimumRatio": 5.504674824654083,
+      "threshold": 4.5,
+      "passed": true
+    },
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-cta-primary > .s-bLjE_fAWjt6C"
+        ],
+        "html": "<span class=\"s-bLjE_fAWjt6C\">Use a Nostr extension</span>",
+        "summary": "Fix any of the following:\n  Element's background color could not be determined due to a background gradient"
+      }
+    ],
+    "passes": [
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-eyebrow"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-tagline"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-more-toggle > .s-bLjE_fAWjt6C:nth-child(1)"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-join"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-join-link"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-footer-tag"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          "a[href$=\"terms\"][target=\"_blank\"][rel=\"noopener noreferrer\"]"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          ".signin-footer-links > .s-bLjE_fAWjt6C[aria-hidden=\"true\"]"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "target": [
+          "a[href$=\"privacy\"][target=\"_blank\"][rel=\"noopener noreferrer\"]"
+        ]
+      }
+    ],
+    "errors": []
+  }
+]

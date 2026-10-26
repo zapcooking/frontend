@@ -1,0 +1,106 @@
+[
+  {
+    "route": "/feed",
+    "theme": "original",
+    "mode": "light",
+    "width": 360,
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 1
+      }
+    ]
+  },
+  {
+    "route": "/settings",
+    "theme": "original",
+    "mode": "light",
+    "width": 360,
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 2
+      }
+    ]
+  },
+  {
+    "route": "/feed",
+    "theme": "warm-kitchen",
+    "mode": "light",
+    "width": 360,
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 1
+      }
+    ]
+  },
+  {
+    "route": "/settings",
+    "theme": "warm-kitchen",
+    "mode": "light",
+    "width": 360,
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 2
+      }
+    ]
+  },
+  {
+    "route": "/feed",
+    "theme": "original",
+    "mode": "dark",
+    "width": 360,
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 2
+      }
+    ]
+  },
+  {
+    "route": "/settings",
+    "theme": "original",
+    "mode": "dark",
+    "width": 360,
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  },
+  {
+    "route": "/feed",
+    "theme": "warm-kitchen",
+    "mode": "dark",
+    "width": 360,
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 2
+      }
+    ]
+  },
+  {
+    "route": "/settings",
+    "theme": "warm-kitchen",
+    "mode": "dark",
+    "width": 360,
+    "violations": [],
+    "incomplete": [
+      {
+        "id": "color-contrast",
+        "nodes": 3
+      }
+    ]
+  }
+]
