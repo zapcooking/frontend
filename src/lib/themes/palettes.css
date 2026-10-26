@@ -93,7 +93,10 @@ html:root[data-explore-theme='original'] {
   --color-primary: #ec4700;
   --explore-accent-text: #d43f00;
   --explore-action-bg: #ec4700;
-  --explore-action-ink: #ffffff;
+  /* Explore's small import label keeps its readable ink; app controls retain
+     the original white labels shown in the reference design. */
+  --explore-action-ink: #111827;
+  --color-on-action: #ffffff;
   --color-action-hover: color-mix(in srgb, var(--color-action) 90%, #ffffff);
   /* These were distinct before themes: orange/amber tabs and compose button,
      a warmer active navigation icon, and a purple profile halo. */
