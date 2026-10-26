@@ -131,16 +131,16 @@
 
   // Card styling based on tier
   $: cardClasses = {
-    open: 'bg-[var(--color-light-bg-primary,#fff)] border-gray-200 dark:border-gray-600',
-    cook: 'bg-[var(--color-light-bg-primary,#fff)] border-gray-200 dark:border-gray-600',
-    pro: 'bg-gradient-to-br from-orange-50 to-amber-50 border-orange-400 dark:border-orange-500'
+    open: 'bg-[var(--color-light-bg-primary,#fff)] border-[var(--color-input-border)] dark:border-[var(--color-input-border)]',
+    cook: 'bg-[var(--color-light-bg-primary,#fff)] border-[var(--color-input-border)] dark:border-[var(--color-input-border)]',
+    pro: 'bg-gradient-to-br from-[var(--color-bg-secondary)] to-[var(--color-input-bg)] border-primary dark:border-primary'
   }[tier];
 
   // Button styling based on tier
   $: buttonClasses = {
-    open: 'bg-gray-900 text-white hover:bg-gray-800',
+    open: 'bg-action text-on-action hover:bg-action-hover',
     cook: 'bg-pink-600 text-white hover:bg-pink-700',
-    pro: 'bg-orange-500 text-white hover:bg-orange-600'
+    pro: 'bg-action text-white hover:bg-action-hover'
   }[tier];
 </script>
 
@@ -168,9 +168,9 @@
     <div class="tier-price">
       {#if isFree}
         <div class="flex items-baseline gap-2">
-          <span class="text-4xl font-bold text-gray-900">Free</span>
+          <span class="text-4xl font-bold text-[var(--color-text-primary)]">Free</span>
         </div>
-        <p class="text-sm text-gray-500 mt-1">Forever free</p>
+        <p class="text-sm text-[var(--color-caption)] mt-1">Forever free</p>
       {:else if currentPricing}
         <!-- Bitcoin Price (primary) -->
         <div class="flex items-center gap-2 mb-1">
@@ -178,10 +178,10 @@
           <span class="text-3xl font-bold text-orange-600 dark:text-orange-500">
             {formatSats(currentPricing.sats)}
           </span>
-          <span class="text-base text-gray-600 font-medium">sats{period === 'annual' ? '/year' : '/mo'}</span>
+          <span class="text-base text-[var(--color-text-secondary)] font-medium">sats{period === 'annual' ? '/year' : '/mo'}</span>
         </div>
         <!-- USD Alternative -->
-        <p class="text-sm text-gray-500">
+        <p class="text-sm text-[var(--color-caption)]">
           or {formatUSD(currentPricing.usd)}{period === 'annual' ? '/year' : '/mo'} via card
         </p>
       {/if}
@@ -193,8 +193,8 @@
         <button
           type="button"
           on:click={toggleBadge}
-          class="inline-flex items-center gap-2 px-3 py-2 bg-orange-500 text-white text-sm font-semibold rounded-full
-                 hover:bg-orange-600 active:bg-orange-700 transition-colors cursor-pointer
+          class="inline-flex items-center gap-2 px-3 py-2 bg-action text-on-action text-sm font-semibold rounded-full
+                 hover:bg-action-hover active:bg-action transition-colors cursor-pointer
                  focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
           aria-expanded={badgeExpanded}
         >
@@ -203,9 +203,9 @@
         </button>
         
         {#if badgeExpanded}
-          <div class="mt-3 p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-sm text-gray-700 dark:text-gray-300">
+          <div class="mt-3 p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-sm text-[var(--color-text-secondary)]">
             <p class="font-medium text-orange-700 dark:text-orange-400 mb-2">Founders Club Perks:</p>
-            <ul class="space-y-1.5 text-gray-600 dark:text-gray-400">
+            <ul class="space-y-1.5 text-[var(--color-text-secondary)]">
               <li>• Custom Zap Cooking T-shirt</li>
               <li>• Personalized desk plaque</li>
               <li>• Free worldwide shipping</li>
@@ -218,7 +218,7 @@
     <!-- Sold Out Badge -->
     {#if isSoldOut}
       <div class="tier-badge">
-        <span class="inline-block px-3 py-2 bg-[var(--color-light-input-border,var(--color-gray-200))] text-gray-600 text-sm font-semibold rounded-full">
+        <span class="inline-block px-3 py-2 bg-[var(--color-input-bg)] text-[var(--color-text-secondary)] text-sm font-semibold rounded-full">
           Founder spots filled
         </span>
       </div>
@@ -238,14 +238,14 @@
         class="tier-disclosure-row"
         aria-expanded={mobileExpanded}
       >
-        <span class="font-semibold text-base text-gray-900">What's included</span>
+        <span class="font-semibold text-base text-[var(--color-text-primary)]">What's included</span>
         <CaretDownIcon 
           size={20} 
-          class="text-gray-500 transition-transform duration-200 flex-shrink-0 {mobileExpanded ? 'rotate-180' : ''}" 
+          class="text-[var(--color-caption)] transition-transform duration-200 flex-shrink-0 {mobileExpanded ? 'rotate-180' : ''}"
         />
       </button>
     {:else}
-      <h3 class="font-semibold mb-3 text-gray-900 text-sm uppercase tracking-wide">What's included</h3>
+      <h3 class="font-semibold mb-3 text-[var(--color-text-primary)] text-sm uppercase tracking-wide">What's included</h3>
     {/if}
 
     <!-- Features List -->
@@ -254,7 +254,7 @@
         {#each config.features as feature}
           <li class="flex items-start gap-3">
             <CheckIcon size={20} weight="bold" class="text-emerald-500 flex-shrink-0 mt-0.5" />
-            <span class="text-sm text-gray-700 leading-relaxed">{feature}</span>
+            <span class="text-sm text-[var(--color-text-secondary)] leading-relaxed">{feature}</span>
           </li>
         {/each}
       </ul>
@@ -325,7 +325,7 @@
   .tier-description {
     font-size: 14px;
     line-height: 1.5;
-    color: #4b5563;
+    color: var(--color-text-secondary);
     height: 42px;
     margin-bottom: 16px;
     overflow: hidden;
@@ -359,8 +359,8 @@
     height: 52px;
     padding: 0 20px;
     margin: 0 -20px;
-    border-top: 1px solid #e5e7eb;
-    border-bottom: 1px solid #e5e7eb;
+    border-top: 1px solid var(--color-input-border);
+    border-bottom: 1px solid var(--color-input-border);
     background: transparent;
     cursor: pointer;
     text-align: left;
@@ -399,12 +399,12 @@
 
   .tier-cta-button:focus {
     outline: none;
-    box-shadow: 0 0 0 4px rgba(236, 71, 0, 0.3);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 30%, transparent);
   }
 
   .tier-cta-disabled {
-    background-color: var(--color-light-input-border,#e5e7eb);
-    color: #6b7280;
+    background-color: var(--color-light-input-border,var(--color-bg-secondary));
+    color: var(--color-caption);
     cursor: not-allowed;
   }
 </style>

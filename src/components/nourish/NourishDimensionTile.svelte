@@ -142,8 +142,8 @@
     gap: 0.35rem;
     padding: 0.55rem 0.65rem 0.6rem;
     border-radius: 0.55rem;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--color-input-border);
+    background: var(--color-input-bg);
     transition: background 150ms ease, border-color 150ms ease;
     min-width: 0;
   }

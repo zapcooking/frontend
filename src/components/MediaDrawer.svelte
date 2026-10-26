@@ -172,8 +172,8 @@
     flex-shrink: 0;
     padding: 0 0.375rem;
     border-radius: 0.25rem;
-    background: var(--color-primary, #f97316);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.5625rem;
     font-weight: 700;
     letter-spacing: 0.04em;

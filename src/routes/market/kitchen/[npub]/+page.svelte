@@ -126,8 +126,8 @@
 		</div>
 	{:else if error}
 		<div class="text-center py-12">
-			<p class="text-red-500 mb-4">{error}</p>
-			<a href="/market" class="text-orange-500 hover:underline">Back to The Market</a>
+			<p class="text-[var(--color-danger)] mb-4">{error}</p>
+			<a href="/market" class="text-primary hover:underline">Back to The Market</a>
 		</div>
 	{:else if kitchen}
 		<!-- Kitchen Header -->
@@ -197,7 +197,7 @@
 				{#if kitchen.lightningAddress}
 					<div>
 						<h3 class="text-sm font-semibold mb-2" style="color: var(--color-text-secondary)">Lightning Address</h3>
-						<p class="text-orange-500">{kitchen.lightningAddress}</p>
+						<p class="text-primary">{kitchen.lightningAddress}</p>
 					</div>
 				{/if}
 				{#if !kitchen.description && !kitchen.location && !kitchen.lightningAddress}
@@ -222,7 +222,7 @@
 	}
 
 	.tab-btn.active {
-		background-color: var(--color-light-bg-brand,var(--color-accent));
+		background-color: var(--color-action);
 		color: white;
 	}
 

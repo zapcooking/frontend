@@ -472,7 +472,7 @@
           href={part.url}
           target="_blank"
           rel="noopener noreferrer"
-          class="text-orange-500 hover:text-orange-600 hover:underline break-all"
+          class="text-primary hover:text-[var(--color-text-primary)] hover:underline break-all"
         >
           {part.content}
         </a>
@@ -509,7 +509,7 @@
           href={part.url}
           target="_blank"
           rel="noopener noreferrer"
-          class="text-orange-500 hover:text-orange-600 hover:underline break-all"
+          class="text-primary hover:text-[var(--color-text-primary)] hover:underline break-all"
         >
           {part.content}
         </a>
@@ -518,7 +518,7 @@
       {#if part.prefix === 'nprofile1' || part.prefix === 'npub1'}
         <ProfileLink
           nostrString={part.content}
-          colorClass="text-orange-500 hover:text-orange-600"
+          colorClass="text-primary hover:text-[var(--color-text-primary)]"
         />
       {:else if part.prefix === 'nevent1' || part.prefix === 'note1'}
         {#if showNostrEmbeds}
@@ -555,7 +555,7 @@
         <NofferButton noffer={part.content} />
       {:else}
         <button
-          class="text-orange-500 hover:text-orange-600 hover:underline cursor-pointer"
+          class="text-primary hover:text-[var(--color-text-primary)] hover:underline cursor-pointer"
           on:click={() => handleNostrClick(part.content)}
         >
           {part.content}
@@ -625,22 +625,22 @@
 
   /* Hashtag pill - light mode (default) */
   .hashtag-pill {
-    background-color: rgb(255 247 237); /* bg-orange-50 */
-    color: rgb(234 88 12); /* text-orange-600 */
+    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    color: var(--color-primary);
   }
   .hashtag-pill:hover {
-    background-color: rgb(249 115 22); /* bg-orange-500 */
-    color: white;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
   }
 
   /* Hashtag pill - dark mode */
   :global(html.dark) .hashtag-pill {
-    background-color: rgb(55 48 45); /* dark brownish-gray */
-    color: rgb(251 146 60); /* text-orange-400 */
+    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    color: var(--color-primary);
   }
   :global(html.dark) .hashtag-pill:hover {
-    background-color: rgb(234 88 12); /* bg-orange-600 */
-    color: white;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
   }
 
   /* Stand-in for a quote where the full embed is suppressed — thread

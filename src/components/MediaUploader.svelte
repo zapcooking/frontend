@@ -479,7 +479,7 @@
     background: rgba(0, 0, 0, 0.85);
   }
   .mu-alt-toggle.has-alt {
-    background: var(--color-primary, #f97316);
+    background: var(--color-action);
   }
 </style>
 

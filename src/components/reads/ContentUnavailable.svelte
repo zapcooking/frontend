@@ -12,7 +12,7 @@
   </p>
   <a
     href={backHref}
-    class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-full hover:opacity-80"
+    class="inline-flex items-center gap-2 px-4 py-2 bg-action text-on-action rounded-full hover:opacity-80"
   >
     <ArrowLeftIcon size={16} weight="bold" />
     {backLabel}

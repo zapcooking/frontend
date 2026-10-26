@@ -196,11 +196,11 @@
     padding: 0.15rem 0.5rem;
     border-radius: 9999px;
     background: rgba(34, 197, 94, 0.14);
-    color: #15803d;
+    color: var(--color-success);
   }
 
   :global(html.dark) .plan-badge {
-    color: #4ade80;
+    color: var(--color-success);
   }
 
   .plan-note {

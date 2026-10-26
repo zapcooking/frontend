@@ -224,7 +224,7 @@
         on:click={handleSend}
         disabled={!messageInput.trim() || sending}
         class="p-2.5 rounded-l-none rounded-r-xl transition-colors cursor-pointer disabled:opacity-40 self-stretch"
-        style="background-color: var(--color-primary); color: #ffffff;"
+        style="background-color: var(--color-action); color: var(--color-on-action);"
       >
         {#if sending}
           <div

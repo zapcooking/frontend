@@ -201,7 +201,7 @@
 	<!-- Header -->
 	<div class="flex items-center justify-between mb-6">
 		<div class="flex items-center gap-3">
-			<StorefrontIcon size={32} weight="duotone" class="text-orange-500" />
+			<StorefrontIcon size={32} weight="duotone" class="text-primary" />
 			<h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">My Store</h1>
 		</div>
 		{#if hasActiveMembership}
@@ -228,7 +228,7 @@
 		</section>
 	{:else if !hasActiveMembership}
 		<div class="membership-gate text-center py-12 px-6 rounded-2xl" style="background-color: var(--color-bg-secondary);">
-			<LockIcon size={64} weight="duotone" class="mx-auto mb-4 text-orange-500" />
+			<LockIcon size={64} weight="duotone" class="mx-auto mb-4 text-primary" />
 			<h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
 				Membership Required
 			</h2>
@@ -239,7 +239,7 @@
 			<a
 				href="/membership"
 				class="inline-block px-6 py-3 rounded-xl font-semibold transition-transform hover:scale-105"
-				style="background: linear-gradient(135deg, #f97316, #fb923c); color: white;"
+				style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 			>
 				View Membership Plans
 			</a>
@@ -284,7 +284,7 @@
 					<a
 						href="/my-store/kitchen"
 						class="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all hover:scale-105"
-						style="background: linear-gradient(135deg, #f97316, #ea580c); color: white;"
+						style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 					>
 						<PlusIcon size={16} weight="bold" />
 						Create Store
@@ -343,7 +343,7 @@
 		</p>
 
 		{#if deleteError}
-			<div class="p-3 rounded-lg text-sm" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
+			<div class="p-3 rounded-lg text-sm" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger);">
 				{deleteError}
 			</div>
 		{/if}
@@ -389,7 +389,7 @@
 			</p>
 
 			{#if relistError}
-				<div class="p-3 rounded-lg text-sm" style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;">
+				<div class="p-3 rounded-lg text-sm" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger);">
 					{relistError}
 				</div>
 			{/if}
@@ -402,7 +402,7 @@
 					on:click={confirmRelist}
 					disabled={relisting}
 					class="px-4 py-2 rounded-lg font-semibold text-white transition-colors disabled:opacity-50"
-					style="background: linear-gradient(135deg, #f97316, #ea580c);"
+					style="background: linear-gradient(135deg, var(--color-action), var(--color-action));"
 				>
 					{#if relisting}
 						Relisting...
@@ -417,7 +417,7 @@
 
 <!-- Success Toast -->
 {#if relistSuccess}
-	<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-sm font-medium text-white shadow-lg" style="background: linear-gradient(135deg, #f97316, #ea580c);">
+	<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-sm font-medium text-white shadow-lg" style="background: linear-gradient(135deg, var(--color-action), var(--color-action));">
 		{relistSuccess}
 	</div>
 {/if}

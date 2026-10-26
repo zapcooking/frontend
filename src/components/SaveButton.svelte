@@ -70,7 +70,7 @@
   $: variantClasses = {
     primary: isSaved 
       ? 'bg-green-500 hover:bg-green-600 text-white' 
-      : 'bg-primary hover:bg-primary/90 text-white',
+      : 'bg-action hover:bg-action-hover text-on-action',
     secondary: isSaved
       ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800'
       : 'bg-input hover:bg-accent-gray border border-input-border',
@@ -293,7 +293,7 @@
               <div class="flex items-center gap-2">
                 <span class="truncate font-medium">{list.title}</span>
                 {#if list.isDefault}
-                  <span class="text-xs px-1.5 py-0.5 rounded bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400">
+                  <span class="text-xs px-1.5 py-0.5 rounded bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary">
                     Default
                   </span>
                 {/if}
@@ -313,7 +313,7 @@
           class="flex items-center gap-3 px-3 py-2 text-left hover:bg-accent-gray transition-colors"
           style="color: var(--color-text-primary)"
         >
-          <div class="w-5 h-5 rounded-full flex items-center justify-center" style="background-color: var(--color-accent-gray);">
+          <div class="w-5 h-5 rounded-full flex items-center justify-center" style="background-color: var(--color-input-bg);">
             <PlusIcon size={12} weight="bold" />
           </div>
           <span class="text-sm">Manage Collections</span>

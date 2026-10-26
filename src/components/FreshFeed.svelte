@@ -1497,7 +1497,7 @@
       <div class="fixed top-4 left-1/2 -translate-x-1/2 z-50">
         <button
           on:click={showPending}
-          class="py-2 px-4 bg-primary text-white rounded-full shadow-lg hover:bg-primary/90 transition-all flex items-center gap-2"
+          class="py-2 px-4 bg-action text-on-action rounded-full shadow-lg hover:bg-action-hover transition-all flex items-center gap-2"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -1579,7 +1579,7 @@
             </p>
             <button
               type="button"
-              class="px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+              class="px-4 py-2 rounded-full text-sm font-medium bg-action text-on-action"
               on:click={retryMembership}
             >
               Retry
@@ -1597,7 +1597,7 @@
             </p>
             <button
               type="button"
-              class="px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+              class="px-4 py-2 rounded-full text-sm font-medium bg-action text-on-action"
               on:click={archiveLogin}
             >
               Log in to the feed
@@ -1611,7 +1611,7 @@
           </p>
           <button
             on:click={() => (archiveView === 'day' ? openOnThisDay() : openTimeMachine(monthKey))}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Retry
           </button>
@@ -1732,7 +1732,7 @@
           </p>
           <button
             on:click={retryTopic}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Retry
           </button>
@@ -1761,7 +1761,7 @@
           </div>
           <button
             on:click={loadFirst}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Retry
           </button>
@@ -1775,7 +1775,7 @@
             <p class="text-sm">New posts from the curated food relay will show up here.</p>
             <button
               on:click={loadFirst}
-              class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
             >
               Refresh
             </button>
@@ -2041,7 +2041,7 @@
       <p class="text-sm mb-4" style="color: var(--color-text-primary);">{notice}</p>
       <button
         on:click={() => (notice = null)}
-        class="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+        class="w-full px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
       >
         Close
       </button>

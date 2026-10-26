@@ -175,8 +175,8 @@
     border-radius: 999px;
     font-size: 0.9375rem;
     font-weight: 600;
-    color: #fff;
-    background: var(--color-primary);
+    color: var(--color-on-action);
+    background: var(--color-action);
   }
 
   .explore-only {
@@ -220,6 +220,6 @@
   }
 
   .older-button:hover {
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
 </style>

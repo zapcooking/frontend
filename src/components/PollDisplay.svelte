@@ -375,7 +375,7 @@
 
   .poll-card-selected {
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 1px var(--color-primary), 0 0 12px rgba(249, 115, 22, 0.15);
+    box-shadow: 0 0 0 1px var(--color-primary), 0 0 12px color-mix(in srgb, var(--color-primary) 15%, transparent);
   }
 
   .poll-card-user {
@@ -462,8 +462,8 @@
     width: 1.375rem;
     height: 1.375rem;
     border-radius: 50%;
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -518,11 +518,11 @@
 
   button.poll-row:hover:not(:disabled) {
     border-color: var(--color-primary);
-    background: rgba(249, 115, 22, 0.03);
+    background: color-mix(in srgb, var(--color-primary) 3%, transparent);
   }
 
   :global(.dark) button.poll-row:hover:not(:disabled) {
-    background: rgba(255, 122, 61, 0.05);
+    background: color-mix(in srgb, var(--color-primary) 5%, transparent);
   }
 
   button.poll-row:disabled {
@@ -532,11 +532,11 @@
 
   .poll-row-selected {
     border-color: var(--color-primary);
-    background: rgba(249, 115, 22, 0.06);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
   }
 
   :global(.dark) .poll-row-selected {
-    background: rgba(255, 122, 61, 0.08);
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
 
   .poll-row-result:not(:disabled) {
@@ -558,14 +558,14 @@
     top: 0;
     left: 0;
     bottom: 0;
-    background: rgba(249, 115, 22, 0.08);
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
     animation: fillGrow 0.4s ease;
     transition: width 0.3s ease;
     pointer-events: none;
   }
 
   :global(.dark) .poll-row-fill {
-    background: rgba(255, 122, 61, 0.12);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   }
 
   .poll-row-label {
@@ -645,8 +645,8 @@
     padding: 0.3125rem 0.875rem;
     font-size: 0.75rem;
     font-weight: 600;
-    color: white;
-    background: linear-gradient(135deg, #f97316, #f59e0b);
+    color: var(--color-on-action);
+    background: linear-gradient(135deg, var(--color-action), var(--color-action-hover));
     border: none;
     border-radius: 9999px;
     cursor: pointer;
@@ -699,13 +699,13 @@
     border: 1px solid var(--color-primary);
     border-top: none;
     border-radius: 0 0 0.625rem 0.625rem;
-    background: rgba(249, 115, 22, 0.03);
+    background: color-mix(in srgb, var(--color-primary) 3%, transparent);
     max-height: 11rem;
     overflow-y: auto;
   }
 
   :global(.dark) .poll-voters {
-    background: rgba(255, 122, 61, 0.05);
+    background: color-mix(in srgb, var(--color-primary) 5%, transparent);
   }
 
   .poll-voters-card {

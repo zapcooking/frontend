@@ -35,7 +35,7 @@
     <button
       type="button"
       on:click={handleBack}
-      class="flex items-center gap-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 mb-4 transition-colors"
+      class="flex items-center gap-2 text-[var(--color-caption)] hover:text-[var(--color-text-primary)] mb-4 transition-colors"
     >
       <ArrowLeftIcon size={20} />
       <span>Back</span>
@@ -47,7 +47,7 @@
     <div class="w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center mx-auto mb-4">
       <CreditCardIcon size={32} weight="fill" class="text-blue-500" />
     </div>
-    <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+    <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-2">
       {isRedirecting ? 'Processing...' : 'Redirecting to Stripe'}
     </h2>
     {#if pricing}
@@ -86,7 +86,7 @@
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
       </svg>
-      <p class="text-gray-600 dark:text-gray-400">
+      <p class="text-[var(--color-text-secondary)]">
         Processing your payment...
       </p>
     </div>
@@ -96,7 +96,7 @@
       type="button"
       on:click={handleRedirectToStripe}
       disabled={!stripeUrl || isRedirecting}
-      class="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-[var(--color-light-accent-gray,var(--color-gray-300))] disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded-full font-bold text-lg transition-colors flex items-center justify-center gap-2"
+      class="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-[var(--color-input-bg)] disabled:text-[var(--color-caption)] disabled:cursor-not-allowed text-white rounded-full font-bold text-lg transition-colors flex items-center justify-center gap-2"
     >
       <span>Continue to Stripe Checkout</span>
       <ArrowSquareOutIcon size={20} />
@@ -104,7 +104,7 @@
   {/if}
 
   <!-- Security Note -->
-  <p class="text-center text-xs text-gray-500 dark:text-gray-400 mt-4">
+  <p class="text-center text-xs text-[var(--color-caption)] mt-4">
     🔒 You'll be redirected to Stripe's secure checkout
   </p>
 </div>

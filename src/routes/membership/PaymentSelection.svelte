@@ -48,7 +48,7 @@
       Choose Payment Method
     </h2>
     {#if pricing}
-      <p class="text-gray-600 dark:text-gray-400">
+      <p class="text-[var(--color-text-secondary)]">
         {pricing.tierName} • {pricing.period}
       </p>
     {/if}
@@ -63,7 +63,7 @@
       class="w-full p-4 rounded-xl border-2 transition-all duration-200 text-left relative
              {selectedMethod === 'bitcoin' 
                ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/30' 
-               : 'border-gray-200 dark:border-gray-700 hover:border-orange-300 dark:hover:border-orange-700'}"
+               : 'border-[var(--color-input-border)] dark:border-[var(--color-input-border)] hover:border-orange-300 dark:hover:border-orange-700'}"
     >
       <!-- Savings Badge -->
       {#if pricing && pricing.savings > 0}
@@ -78,7 +78,7 @@
         </div>
         <div class="flex-1">
           <div class="flex items-center gap-2 mb-1">
-            <span class="font-bold text-gray-900 dark:text-white">Bitcoin / Lightning</span>
+            <span class="font-bold text-[var(--color-text-primary)]">Bitcoin / Lightning</span>
             {#if selectedMethod === 'bitcoin'}
               <CheckCircleIcon size={20} weight="fill" class="text-orange-500" />
             {/if}
@@ -87,7 +87,7 @@
             <div class="text-2xl font-bold text-orange-600 dark:text-orange-400">
               ⚡ {formatSats(pricing.sats)} sats
             </div>
-            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <p class="text-sm text-[var(--color-caption)] mt-1">
               Instant payment via Lightning Network
             </p>
           {/if}
@@ -102,7 +102,7 @@
       class="w-full p-4 rounded-xl border-2 transition-all duration-200 text-left
              {selectedMethod === 'card' 
                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' 
-               : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700'}"
+               : 'border-[var(--color-input-border)] dark:border-[var(--color-input-border)] hover:border-blue-300 dark:hover:border-blue-700'}"
     >
       <div class="flex items-start gap-4">
         <div class="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center flex-shrink-0">
@@ -110,7 +110,7 @@
         </div>
         <div class="flex-1">
           <div class="flex items-center gap-2 mb-1">
-            <span class="font-bold text-gray-900 dark:text-white">Credit Card</span>
+            <span class="font-bold text-[var(--color-text-primary)]">Credit Card</span>
             {#if selectedMethod === 'card'}
               <CheckCircleIcon size={20} weight="fill" class="text-blue-500" />
             {/if}
@@ -119,7 +119,7 @@
             <div class="text-2xl font-bold text-blue-600 dark:text-blue-400">
               💳 {formatUSD(pricing.usd)}{pricing.periodLabel}
             </div>
-            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <p class="text-sm text-[var(--color-caption)] mt-1">
               Secure checkout via Stripe
             </p>
           {/if}
@@ -135,8 +135,8 @@
     disabled={!selectedMethod || isLoading}
     class="w-full py-4 px-6 rounded-full font-bold text-lg transition-all duration-200
            {selectedMethod 
-             ? 'bg-primary text-white hover:bg-primary/90' 
-             : 'bg-[var(--color-light-input-border,var(--color-gray-200))] text-gray-500 cursor-not-allowed'}"
+             ? 'bg-action text-on-action hover:bg-action/90'
+             : 'bg-[var(--color-input-bg)] text-[var(--color-caption)] cursor-not-allowed'}"
   >
     {#if isLoading}
       <span class="flex items-center justify-center gap-2">
@@ -152,7 +152,7 @@
   </button>
 
   <!-- Security Note -->
-  <p class="text-center text-xs text-gray-500 dark:text-gray-400 mt-4">
+  <p class="text-center text-xs text-[var(--color-caption)] mt-4">
     🔒 Your payment is secure and encrypted
   </p>
 </div>

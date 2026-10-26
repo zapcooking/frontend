@@ -1,47 +1,89 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import postcss from 'postcss';
 
-/**
- * Pins the sign-in sheet's contrast fixes (login PR 5, from #891's review):
- * WCAG 2.x 4.5:1 for its 12–15 px text. Reads the colors from the component
- * source, so a change that reintroduces a failing pair fails here.
- */
+/** Sign-in's small labels and action text must retain AA contrast in every saved style. */
 const src = readFileSync(fileURLToPath(new URL('./SignInCard.svelte', import.meta.url)), 'utf8');
+const palettes = postcss.parse(
+  readFileSync(fileURLToPath(new URL('../../lib/themes/palettes.css', import.meta.url)), 'utf8')
+);
+const styles = [
+  'original',
+  'after-hours',
+  'recipe-club',
+  'recipe-box',
+  'corner-diner',
+  'sunday-market'
+];
 
-function luminance(hex: string): number {
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(1 + i, 3 + i), 16) / 255);
-  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+function palette(style: string, dark: boolean): Record<string, string> {
+  const values: Record<string, string> = {};
+  const selectors = new Set([
+    'html:root',
+    ...(dark ? ['html:root.dark'] : []),
+    `html:root[data-explore-theme='${style}']`,
+    ...(dark ? [`html:root.dark[data-explore-theme='${style}']`] : [])
+  ]);
+  for (const node of palettes.nodes) {
+    if (node.type !== 'rule' || !selectors.has(node.selector)) continue;
+    node.walkDecls((decl) => {
+      values[decl.prop] = decl.value;
+    });
+  }
+  return values;
 }
+
+function resolve(value: string, values: Record<string, string>): string {
+  return value.replace(/var\((--[\w-]+)\)/g, (_, name) => resolve(values[name], values));
+}
+
+function rgb(value: string): number[] {
+  const hex = value.match(/^#([0-9a-f]{6})$/i);
+  if (hex) return [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16) / 255);
+  const mix = value.match(/^color-mix\(in srgb, (#[0-9a-f]{6}) ([\d.]+)%, (#[0-9a-f]{6})\)$/i);
+  if (!mix) throw new Error(`Unsupported test color: ${value}`);
+  const weight = Number(mix[2]) / 100;
+  const other = rgb(mix[3]);
+  return rgb(mix[1]).map((channel, i) => channel * weight + other[i] * (1 - weight));
+}
+
 function contrast(a: string, b: string): number {
+  const luminance = (value: string) => {
+    const [r, g, blue] = rgb(value).map((c) =>
+      c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    );
+    return 0.2126 * r + 0.7152 * g + 0.0722 * blue;
+  };
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }
-function rule(selector: string): string {
-  const at = src.indexOf(`${selector} {`);
-  expect(at, `${selector} rule`).toBeGreaterThan(-1);
-  return src.slice(at, src.indexOf('}', at));
-}
-const hexes = (css: string) => css.match(/#[0-9a-fA-F]{6}\b/g) ?? [];
-// The light-theme tokens come first; the .dark block overrides them later.
-const lightVar = (name: string) => src.match(new RegExp(`--signin-${name}: (#[0-9a-f]{6})`))![1];
 
 describe('sign-in sheet contrast', () => {
-  it('primary button: white on every gradient stop is at least 4.5:1', () => {
-    const css = rule('  .signin-cta-primary');
-    const bg = css.match(/background: linear-gradient\(([^;]+)\);/)![1];
-    const stops = hexes(bg);
-    expect(stops.length).toBe(2);
-    const text = css.match(/\n\s+color: (#[0-9a-fA-F]{3,6});/)![1];
-    const fg = text.length === 4 ? '#ffffff' : text;
-    for (const stop of stops) expect(contrast(fg, stop)).toBeGreaterThanOrEqual(4.5);
+  it('uses shared surface, label, link and action roles instead of a private palette', () => {
+    expect(src).toContain('--signin-surface: var(--color-bg-primary)');
+    expect(src).toContain('--signin-cream: var(--color-text-primary)');
+    expect(src).toContain('--signin-mute: var(--color-caption)');
+    expect(src).toContain('--signin-flame: var(--color-primary)');
+    const cta = src.match(/\.signin-cta-primary \{([^}]+)\}/)![1];
+    expect(cta).toContain('var(--color-action)');
+    expect(cta).toContain('var(--color-action-hover)');
+    expect(cta).toContain('color: var(--color-on-action)');
   });
 
-  it('light card: footer links and grey text are at least 4.5:1', () => {
-    const surface = lightVar('surface');
-    const linkRule = src.match(/\.signin-notice a, \.signin-footer a \{ color: (#[0-9a-f]{6})/)![1];
-    expect(contrast(linkRule, surface)).toBeGreaterThanOrEqual(4.5);
-    expect(contrast(lightVar('mute'), surface)).toBeGreaterThanOrEqual(4.5);
-  });
+  for (const style of styles)
+    for (const dark of [false, true]) {
+      it(`${style} ${dark ? 'dark' : 'light'}: action stops, footer links and captions are at least 4.5:1`, () => {
+        const values = palette(style, dark);
+        const color = (name: string) => resolve(`var(--color-${name})`, values);
+        for (const background of ['action', 'action-hover']) {
+          expect(contrast(color('on-action'), color(background))).toBeGreaterThanOrEqual(4.5);
+        }
+        for (const background of ['bg-primary', 'input-bg']) {
+          for (const foreground of ['primary', 'caption', 'text-primary']) {
+            expect(contrast(color(foreground), color(background))).toBeGreaterThanOrEqual(4.5);
+          }
+        }
+      });
+    }
 });

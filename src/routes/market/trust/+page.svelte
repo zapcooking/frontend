@@ -143,7 +143,7 @@
 	<!-- Hero -->
 	<div class="hero mb-8">
 		<div class="flex items-center gap-3 mb-3">
-			<ShieldCheckIcon size={36} weight="fill" class="text-green-500" />
+			<ShieldCheckIcon size={36} weight="fill" class="text-[var(--color-success)]" />
 			<h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">
 				Web of Trust
 			</h1>
@@ -268,7 +268,7 @@
 	<!-- Trust Provider Settings -->
 	<div class="provider-section mb-8">
 		<div class="flex items-center gap-3 mb-4">
-			<GearIcon size={24} weight="duotone" class="text-orange-500" />
+			<GearIcon size={24} weight="duotone" class="text-primary" />
 			<h2 class="text-lg font-bold" style="color: var(--color-text-primary)">
 				Choose Your Trust Provider
 			</h2>
@@ -287,7 +287,7 @@
 				<a
 					href="/login"
 					class="inline-flex items-center gap-2 mt-3 px-4 py-2 rounded-lg font-medium text-sm transition-all hover:scale-105"
-					style="background: linear-gradient(135deg, #f97316, #ea580c); color: white;"
+					style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 				>
 					Sign in
 				</a>
@@ -302,12 +302,12 @@
 			<div class="provider-card mb-4">
 				<div class="flex items-center gap-2 mb-1">
 					{#if currentProvider}
-						<CheckCircleIcon size={16} weight="fill" class="text-green-500" />
+						<CheckCircleIcon size={16} weight="fill" class="text-[var(--color-success)]" />
 						<span class="text-sm font-semibold" style="color: var(--color-text-primary)">
 							Personalized scoring active
 						</span>
 					{:else}
-						<GlobeIcon size={16} class="text-blue-400" />
+						<GlobeIcon size={16} class="text-[var(--color-info)]" />
 						<span class="text-sm font-semibold" style="color: var(--color-text-primary)">
 							Using global scores
 						</span>
@@ -360,7 +360,7 @@
 							on:click={() => selectKnownProvider(provider)}
 						>
 							<div class="flex items-center gap-2">
-								<ShieldCheckIcon size={16} weight="fill" class="text-green-500" />
+								<ShieldCheckIcon size={16} weight="fill" class="text-[var(--color-success)]" />
 								<span class="font-semibold text-sm" style="color: var(--color-text-primary)">
 									{provider.name}
 								</span>
@@ -458,18 +458,18 @@
 	}
 
 	.trust-high {
-		color: #16a34a;
+		color: var(--color-success);
 		background-color: rgba(22, 163, 74, 0.12);
 	}
 
 	.trust-medium {
-		color: #d97706;
+		color: var(--color-warning);
 		background-color: rgba(217, 119, 6, 0.12);
 	}
 
 	.trust-low {
-		color: #6b7280;
-		background-color: rgba(107, 114, 128, 0.1);
+		color: var(--color-caption);
+		background-color: color-mix(in srgb, var(--color-caption) 10%, transparent);
 	}
 
 	.level-range {
@@ -496,7 +496,7 @@
 
 	.section-icon {
 		@apply flex-shrink-0 mt-0.5;
-		color: var(--color-accent, #f97316);
+		color: var(--color-primary);
 	}
 
 	.info-section h2 {
@@ -543,7 +543,7 @@
 	.provider-card code {
 		@apply px-1 py-0.5 rounded;
 		background-color: var(--color-light-input-bg,var(--color-bg-tertiary, rgba(255, 255, 255, 0.06)));
-		color: var(--color-accent, #f97316);
+		color: var(--color-primary);
 		font-size: 0.7rem;
 	}
 
@@ -560,13 +560,13 @@
 	}
 
 	.mode-option.selected {
-		border-color: var(--color-accent, #f97316);
-		background-color: rgba(249, 115, 22, 0.05);
+		border-color: var(--color-primary);
+		background-color: color-mix(in srgb, var(--color-primary) 5%, transparent);
 	}
 
 	.mode-option input[type='radio'] {
 		@apply mt-1 flex-shrink-0;
-		accent-color: var(--color-accent, #f97316);
+		accent-color: var(--color-primary);
 	}
 
 	.mode-label {
@@ -592,8 +592,8 @@
 	}
 
 	.known-provider.active {
-		border-color: var(--color-accent, #f97316);
-		background-color: rgba(249, 115, 22, 0.05);
+		border-color: var(--color-primary);
+		background-color: color-mix(in srgb, var(--color-primary) 5%, transparent);
 	}
 
 	/* Custom fields */
@@ -614,7 +614,7 @@
 
 	.field-input:focus {
 		outline: none;
-		border-color: var(--color-accent, #f97316);
+		border-color: var(--color-primary);
 	}
 
 	.field-input::placeholder {
@@ -627,7 +627,7 @@
 
 	.save-button {
 		@apply flex items-center justify-center gap-2 w-full py-2.5 rounded-xl font-semibold text-sm transition-all;
-		background: linear-gradient(135deg, #f97316, #ea580c);
+		background: linear-gradient(135deg, var(--color-action), var(--color-action));
 		color: white;
 	}
 
@@ -648,12 +648,12 @@
 	}
 
 	.save-message.success {
-		color: #16a34a;
+		color: var(--color-success);
 		background-color: rgba(22, 163, 74, 0.1);
 	}
 
 	.save-message.error {
-		color: #ef4444;
+		color: var(--color-danger);
 		background-color: rgba(239, 68, 68, 0.1);
 	}
 </style>

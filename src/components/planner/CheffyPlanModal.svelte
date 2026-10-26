@@ -450,7 +450,7 @@
 
   function chipClass(on: boolean): string {
     return on
-      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white border-transparent'
+      ? 'bg-gradient-to-r from-action to-action text-on-action border-transparent'
       : 'hover:bg-accent-gray';
   }
 </script>
@@ -510,7 +510,7 @@
     </div>
   {:else if step === 'preview'}
     {#if error}
-      <p class="text-sm text-red-500">{error}</p>
+      <p class="text-sm text-[var(--color-danger)]">{error}</p>
     {/if}
     {#if coverageNote}
       <p class="text-sm text-caption">{coverageNote}</p>
@@ -552,11 +552,11 @@
   {:else}
     <form class="flex flex-col gap-5" on:submit|preventDefault={handleGenerate}>
       {#if error}
-        <p class="text-sm text-red-500">{error}</p>
+        <p class="text-sm text-[var(--color-danger)]">{error}</p>
         {#if prioritizePantry && $pantryItems.length === 0}
           <a
             href="/my-kitchen/pantry"
-            class="text-sm font-medium text-orange-500 hover:underline"
+            class="text-sm font-medium text-primary hover:underline"
             on:click={close}
           >
             Add ingredients to your pantry
@@ -756,7 +756,7 @@
         <button
           type="submit"
           disabled={targetCount === 0 || mealSlots.length === 0 || days.length === 0}
-          class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all disabled:opacity-50"
         >
           <CheffyIcon size={20} expression="happy" />
           {prioritizePantry ? 'Plan with My Pantry' : 'Plan with Cheffy'}

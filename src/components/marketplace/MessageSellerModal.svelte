@@ -235,12 +235,12 @@
 					on:input={() => (userEditedMessage = true)}
 					rows="3"
 					class="w-full p-3 rounded-xl text-sm resize-none"
-					style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid rgba(249, 115, 22, 0.25);"
+					style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);"
 					placeholder="Write a message..."
 				/>
 
 				{#if dmError}
-					<p class="text-xs text-red-400">{dmError}</p>
+					<p class="text-xs text-[var(--color-danger)]">{dmError}</p>
 				{/if}
 
 				<!-- Send button (primary CTA) -->
@@ -307,7 +307,7 @@
 					<button
 						type="button"
 						on:click={recheckEncryption}
-						class="text-xs text-orange-500 hover:text-orange-400 underline"
+						class="text-xs text-primary hover:text-primary underline"
 					>
 						Retry
 					</button>

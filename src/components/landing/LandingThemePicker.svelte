@@ -1,6 +1,17 @@
-<div class="theme-picker" data-explore-theme-control hidden>
+<script lang="ts">
+  import { onMount } from 'svelte';
+
+  export let label = 'Choose your style';
+  export let inApp = false;
+
+  onMount(() => {
+    document.dispatchEvent(new Event('zapcooking:theme-controls-ready'));
+  });
+</script>
+
+<div class="theme-picker" class:app-style-picker={inApp} data-explore-theme-control hidden>
   <label>
-    <span>Choose your style</span>
+    <span>{label}</span>
     <select data-explore-theme-select>
       <option value="original">Zap Original</option>
       <option value="after-hours">After Hours ’80s</option>
@@ -45,6 +56,15 @@
   select:focus-visible {
     outline: 3px solid var(--explore-picker-focus, var(--color-primary));
     outline-offset: 4px;
+  }
+  .app-style-picker label {
+    color: var(--color-text-secondary);
+  }
+  .app-style-picker select {
+    border-radius: 8px;
+  }
+  .app-style-picker select:focus-visible {
+    outline-color: var(--color-primary);
   }
   .sr-only {
     position: absolute;

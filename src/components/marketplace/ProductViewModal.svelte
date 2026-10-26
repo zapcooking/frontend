@@ -110,7 +110,7 @@
 						aria-label={allImageAlts[i] || `Image ${i + 1} of ${allImages.length}`}
 						aria-pressed={activeImageIndex === i}
 						class="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all"
-						style="border-color: {activeImageIndex === i ? 'var(--color-accent)' : 'transparent'}; opacity: {activeImageIndex === i ? '1' : '0.6'};"
+						style="border-color: {activeImageIndex === i ? 'var(--color-primary)' : 'transparent'}; opacity: {activeImageIndex === i ? '1' : '0.6'};"
 					>
 						<img src={thumb} alt="" class="w-full h-full object-cover" />
 					</button>
@@ -231,7 +231,7 @@
 					type="button"
 					on:click={openMessageModal}
 					class="w-full py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
-					style="border: 1.5px solid rgba(249, 115, 22, 0.4); color: #f97316; background-color: rgba(249, 115, 22, 0.1);"
+					style="border: 1.5px solid color-mix(in srgb, var(--color-primary) 40%, transparent); color: var(--color-primary); background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);"
 				>
 					<ChatCircleIcon size={18} weight="fill" />
 					Message seller

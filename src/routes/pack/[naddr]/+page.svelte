@@ -464,7 +464,7 @@
     </p>
     <a
       href="/my-kitchen"
-      class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
+      class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all"
     >
       <ArrowLeftIcon size={18} />
       Go to My Kitchen
@@ -497,7 +497,7 @@
         {:else}
           <div
             class="absolute inset-0"
-            style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #f97316 100%);"
+            style="background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action-hover) 50%, var(--color-action) 100%);"
           ></div>
         {/if}
         <div class="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent"></div>
@@ -629,7 +629,7 @@
         <button
           on:click={importPack}
           disabled={isImporting || recipeEvents.length === 0}
-          class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-semibold transition-all shadow-md shadow-orange-500/25 disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
+          class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-semibold transition-all shadow-md shadow-primary/25 disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
         >
           {#if isImporting}
             <CircleNotchIcon size={16} class="animate-spin" />

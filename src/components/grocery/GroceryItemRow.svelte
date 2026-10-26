@@ -83,7 +83,7 @@
     on:click={toggleItem}
     class="mt-0.5 w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all {item.checked
       ? 'bg-green-500 border-green-500'
-      : 'border-gray-400 dark:border-gray-400 hover:border-green-400'}"
+      : 'border-[var(--color-input-border)] dark:border-[var(--color-input-border)] hover:border-green-400'}"
     aria-label={item.checked ? 'Uncheck item' : 'Check item'}
   >
     {#if item.checked}

@@ -44,7 +44,7 @@
   >
     <!-- Modal Container -->
     <div
-      class="relative w-full max-w-lg bg-[var(--color-light-bg-primary,#fff)] dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden"
+      class="relative w-full max-w-lg bg-[var(--color-light-bg-primary,#fff)] dark:bg-[var(--color-bg-primary)] rounded-2xl shadow-2xl overflow-hidden"
       transition:fly={{ y: 20, duration: 300 }}
     >
       <!-- Close Button (not shown during payment) -->
@@ -52,7 +52,7 @@
         <button
           type="button"
           on:click={handleClose}
-          class="absolute top-4 right-4 z-10 p-2 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800 transition-colors"
+          class="absolute top-4 right-4 z-10 p-2 rounded-full text-[var(--color-caption)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-[var(--color-bg-secondary)] transition-colors"
           aria-label="Close modal"
         >
           <XIcon size={24} />

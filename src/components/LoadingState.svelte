@@ -72,7 +72,7 @@
   }
 
   .loading-state.full-screen {
-    @apply fixed inset-0 bg-[var(--color-bg-primary)]/80 dark:bg-gray-900/80 backdrop-blur-sm z-50;
+    @apply fixed inset-0 bg-[var(--color-bg-primary)]/80 dark:bg-[var(--color-bg-primary)]/80 backdrop-blur-sm z-50;
   }
 
   .loading-content {
@@ -108,11 +108,11 @@
   }
 
   .loading-text {
-    @apply text-gray-600 dark:text-gray-400 text-center;
+    @apply text-[var(--color-text-secondary)] dark:text-[var(--color-caption)] text-center;
   }
 
   .cancel-button {
-    @apply px-3 py-1 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors;
+    @apply px-3 py-1 text-sm text-[var(--color-caption)] dark:text-[var(--color-caption)] hover:text-[var(--color-text-secondary)] dark:hover:text-[var(--color-text-primary)] transition-colors;
   }
 
   /* Disable animations for users who prefer reduced motion */

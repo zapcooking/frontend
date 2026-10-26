@@ -844,7 +844,7 @@
 
 
 	{#if uploadError}
-		<p class="text-red-500 text-xs">{uploadError}</p>
+		<p class="text-[var(--color-danger)] text-xs">{uploadError}</p>
 	{/if}
 
 	{#if media.length > 0}
@@ -1074,10 +1074,10 @@
 					<span class="text-xs text-caption">Sending in {countdownDisplayNum}s…</span>
 				{/if}
 				{#if pollConfig}
-					<span class="text-xs text-orange-600 flex items-center gap-1">
+					<span class="text-xs text-primary flex items-center gap-1">
 						<ChartBarHorizontalIcon size={12} />
 						Poll ({pollConfig.options.length})
-						<button type="button" on:click={() => (pollConfig = null)} class="hover:text-orange-800">×</button>
+						<button type="button" on:click={() => (pollConfig = null)} class="hover:text-primary">×</button>
 					</span>
 				{/if}
 
@@ -1289,7 +1289,7 @@
 		font-size: 0.9375rem;
 		font-weight: 600;
 		color: var(--color-text-secondary);
-		background: var(--color-accent-gray);
+		background: var(--color-input-bg);
 		transition: opacity 0.15s;
 	}
 
@@ -1325,22 +1325,22 @@
 	.rc-post:disabled { opacity: 0.5; cursor: not-allowed; }
 
 	.rc-post--solid {
-		background-image: linear-gradient(to right, #f97316, #f59e0b);
+		background-image: linear-gradient(to right, var(--color-action), var(--color-action));
 	}
 
 	.rc-post--solid:hover:not(:disabled) {
-		background-image: linear-gradient(to right, #ea6c0a, #d97706);
+		background-image: linear-gradient(to right, var(--color-action-hover), var(--color-action-hover));
 	}
 
 	.rc-post--countdown {
-		background: var(--color-accent-gray);
+		background: var(--color-action-hover);
 	}
 
 	.rc-post-fill {
 		position: absolute;
 		inset: 0;
 		border-radius: inherit;
-		background-image: linear-gradient(to right, #f97316, #f59e0b);
+		background-image: linear-gradient(to right, var(--color-action), var(--color-action));
 		width: var(--fill, 0%);
 		pointer-events: none;
 	}
@@ -1364,7 +1364,7 @@
 	.countdown-clock-btn:hover,
 	.countdown-clock-btn.active {
 		color: var(--color-text-primary);
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 	}
 
 	.countdown-settings-wrap {
@@ -1439,7 +1439,7 @@
 		border-radius: 0.375rem;
 		font-size: 0.75rem;
 		color: var(--color-text-secondary);
-		background: var(--color-accent-gray);
+		background: var(--color-input-bg);
 		transition: background 0.15s, color 0.15s;
 	}
 
@@ -1539,7 +1539,7 @@
 	}
 
 	.media-menu-item:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 	}
 
 	/* ALT badge — same shape and size as the main composer's. */
@@ -1564,7 +1564,7 @@
 		background: rgba(0, 0, 0, 0.85);
 	}
 	.rc-alt-toggle.has-alt {
-		background: var(--color-primary, #f97316);
+		background: var(--color-action);
 	}
 
 	/* Attachment thumbnails: one ordered strip, same mechanics as the main
@@ -1595,7 +1595,7 @@
 		justify-content: center;
 		text-align: center;
 		padding: 0.25rem;
-		background: var(--color-accent-gray);
+		background: var(--color-input-bg);
 		font-size: 0.5625rem;
 		line-height: 1.2;
 		color: var(--color-caption);
@@ -1617,7 +1617,7 @@
 	}
 
 	.rc-thumb-steppers button:hover:not(:disabled) {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 		color: var(--color-text-primary);
 	}
 
@@ -1678,7 +1678,7 @@
 
 	.rc-attach-x:hover:not(:disabled) {
 		color: var(--color-text-primary);
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 	}
 
 

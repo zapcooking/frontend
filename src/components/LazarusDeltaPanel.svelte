@@ -413,8 +413,8 @@
     padding: 0.55rem 1.4rem;
     border-radius: 9999px;
     border: none;
-    background-image: linear-gradient(to right, #f97316, #f59e0b);
-    color: #fff;
+    background-image: linear-gradient(to right, var(--color-action), var(--color-action-hover));
+    color: var(--color-on-action);
     font-size: 0.9375rem;
     font-weight: 600;
     cursor: pointer;
@@ -434,7 +434,7 @@
     padding: 0.45rem 1.1rem;
     border-radius: 9999px;
     border: none;
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
     color: var(--color-text-secondary);
     font-size: 0.875rem;
     cursor: pointer;

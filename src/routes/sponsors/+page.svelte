@@ -787,7 +787,7 @@
                   </button>
 
                   {#if error}
-                    <p class="text-xs mt-2" style="color: #ef4444;">{error}</p>
+                    <p class="text-xs mt-2" style="color: var(--color-danger);">{error}</p>
                   {/if}
                 </section>
               {/if}
@@ -832,8 +832,8 @@
     letter-spacing: 0.08em;
     padding: 3px 10px;
     border-radius: 9999px;
-    background-color: var(--color-primary);
-    color: white;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
   }
 
   /* ── Info modal ──────────────────────────────────────────────── */
@@ -896,7 +896,7 @@
     justify-content: center;
     font-size: 1rem;
     border-radius: 0.5rem;
-    background: rgba(236, 71, 0, 0.1);
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
   }
 
   .info-item-title {
@@ -1139,7 +1139,7 @@
   }
 
   .required {
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .char-count {
@@ -1215,11 +1215,11 @@
 
   .tier-card--selected {
     border-color: var(--color-primary);
-    background: rgba(236, 71, 0, 0.06);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
   }
 
   :global(html.dark) .tier-card--selected {
-    background: rgba(236, 71, 0, 0.12);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   }
 
   /* ── Pricing table ─────────────────────────────────────────── */
@@ -1287,11 +1287,11 @@
 
   .duration-card--selected {
     border-color: var(--color-primary);
-    background: rgba(236, 71, 0, 0.06);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
   }
 
   :global(html.dark) .duration-card--selected {
-    background: rgba(236, 71, 0, 0.12);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   }
 
   .sponsor-btn {
@@ -1321,14 +1321,14 @@
   }
 
   .sponsor-btn--pay {
-    background-color: var(--color-primary);
+    background-color: var(--color-action);
     border-color: var(--color-primary);
-    color: white;
+    color: var(--color-on-action);
   }
 
   .sponsor-btn--pay:hover:not(:disabled) {
     filter: brightness(1.1);
-    color: white;
+    color: var(--color-on-action);
   }
 
   .success-card {
@@ -1396,12 +1396,12 @@
   }
 
   .admin-btn--hide:hover:not(:disabled) {
-    border-color: #ef4444;
-    color: #ef4444;
+    border-color: var(--color-danger);
+    color: var(--color-danger);
   }
 
   .admin-btn--unhide:hover:not(:disabled) {
-    border-color: #22c55e;
-    color: #22c55e;
+    border-color: var(--color-success);
+    color: var(--color-success);
   }
 </style>

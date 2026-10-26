@@ -150,7 +150,7 @@
   >
     <!-- Modal -->
     <div
-      class="relative w-full max-w-md bg-[var(--color-bg-primary)] dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden"
+      class="relative w-full max-w-md bg-[var(--color-bg-primary)] dark:bg-[var(--color-bg-primary)] rounded-2xl shadow-2xl overflow-hidden"
       transition:fly={{ y: 20, duration: 300 }}
     >
       <!-- Close Button -->
@@ -158,7 +158,7 @@
         <button
           type="button"
           on:click={handleClose}
-          class="absolute top-4 right-4 z-10 p-2 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-[var(--color-input-bg)] dark:hover:bg-gray-800 transition-colors"
+          class="absolute top-4 right-4 z-10 p-2 rounded-full text-[var(--color-caption)] hover:text-[var(--color-text-secondary)] dark:text-[var(--color-caption)] dark:hover:text-[var(--color-text-primary)] hover:bg-[var(--color-input-bg)] dark:hover:bg-[var(--color-input-bg)] transition-colors"
           aria-label="Close modal"
         >
           <XIcon size={24} />
@@ -169,15 +169,15 @@
         {#if !success}
           <!-- Claim Form -->
           <div class="text-center mb-6">
-            <div class="w-16 h-16 rounded-full bg-orange-100 dark:bg-orange-900/50 flex items-center justify-center mx-auto mb-4">
-              <SealCheckIcon size={32} weight="fill" class="text-orange-500" />
+            <div class="w-16 h-16 rounded-full bg-primary/10 dark:bg-primary/10 flex items-center justify-center mx-auto mb-4">
+              <SealCheckIcon size={32} weight="fill" class="text-primary" />
             </div>
-            <h2 class="text-2xl font-bold !text-black mb-2">
+            <h2 class="text-2xl font-bold !text-[var(--color-text-primary)] mb-2">
               {isChangingUsername ? 'Change Your Username' : 'Claim Your NIP-05 Identity'}
             </h2>
-            <p class="text-gray-600 dark:text-gray-400">
+            <p class="text-[var(--color-text-secondary)] dark:text-[var(--color-caption)]">
               {#if isChangingUsername}
-                Current: <strong class="text-orange-500">{currentNip05}</strong><br/>
+                Current: <strong class="text-primary">{currentNip05}</strong><br/>
                 Choose a new username for your verified identity
               {:else}
                 Get a verified <strong>@zap.cooking</strong> identifier with your {tier === 'cook_plus' ? 'Cook+' : tier === 'founders' ? 'Founders Club' : 'Pro Kitchen'} membership
@@ -188,7 +188,7 @@
           <div class="space-y-4">
             <!-- Username Input -->
             <div>
-              <label for="nip05-username" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label for="nip05-username" class="block text-sm font-medium text-[var(--color-text-secondary)] dark:text-[var(--color-text-secondary)] mb-2">
                 Choose Your Username
               </label>
               <div class="relative">
@@ -198,10 +198,10 @@
                   bind:value={username}
                   on:input={handleUsernameInput}
                   placeholder="yourname"
-                  class="w-full px-4 py-3 pr-24 bg-[var(--color-input-bg)] dark:bg-gray-800 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 {error && !isChecking ? 'border-red-300 dark:border-red-700' : isAvailable ? 'border-green-300 dark:border-green-700' : 'border-gray-200 dark:border-gray-700'} text-gray-900 dark:text-white"
+                  class="w-full px-4 py-3 pr-24 bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)] border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary {error && !isChecking ? 'border-red-300 dark:border-red-700' : isAvailable ? 'border-green-300 dark:border-green-700' : 'border-[var(--color-input-border)] dark:border-[var(--color-input-border)]'} text-[var(--color-text-primary)] dark:text-[var(--color-text-primary)]"
                   disabled={isClaiming}
                 />
-                <span class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
+                <span class="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--color-caption)] dark:text-[var(--color-caption)]">
                   @zap.cooking
                 </span>
               </div>
@@ -217,14 +217,14 @@
               {/if}
               
               {#if isChecking}
-                <p class="mt-2 text-sm text-gray-500">Checking availability...</p>
+                <p class="mt-2 text-sm text-[var(--color-caption)]">Checking availability...</p>
               {/if}
               
               {#if error}
                 <p class="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>
               {/if}
               
-              <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-2 text-xs text-[var(--color-caption)] dark:text-[var(--color-caption)]">
                 3-20 characters, letters, numbers, and underscores only
               </p>
             </div>
@@ -234,7 +234,7 @@
               <button
                 type="button"
                 on:click={handleSkip}
-                class="flex-1 px-4 py-3 rounded-xl font-semibold text-gray-700 dark:text-gray-300 bg-[var(--color-input-bg)] dark:bg-gray-800 hover:bg-[var(--color-input-border)] dark:hover:bg-gray-700 transition-colors"
+                class="flex-1 px-4 py-3 rounded-xl font-semibold text-[var(--color-text-secondary)] dark:text-[var(--color-text-secondary)] bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)] hover:bg-[var(--color-hover-bg)] dark:hover:bg-[var(--color-hover-bg)] transition-colors"
                 disabled={isClaiming}
               >
                 Skip for Now
@@ -243,7 +243,7 @@
                 type="button"
                 on:click={handleClaim}
                 disabled={!isAvailable || isClaiming || !username.trim()}
-                class="flex-1 px-4 py-3 rounded-xl font-semibold text-white bg-orange-500 hover:bg-orange-600 disabled:bg-[var(--color-light-accent-gray,var(--color-gray-300))] disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
+                class="flex-1 px-4 py-3 rounded-xl font-semibold text-on-action bg-action hover:bg-action-hover disabled:bg-[var(--color-light-accent-gray,var(--color-gray-300))] disabled:text-[var(--color-caption)] disabled:cursor-not-allowed transition-colors"
               >
                 {#if isClaiming}
                   <span class="flex items-center justify-center gap-2">
@@ -265,16 +265,16 @@
             <div class="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/50 flex items-center justify-center mx-auto mb-4">
               <CheckCircleIcon size={32} weight="fill" class="text-green-500" />
             </div>
-            <h2 class="text-2xl font-bold !text-black mb-2">
+            <h2 class="text-2xl font-bold !text-[var(--color-text-primary)] mb-2">
               {isChangingUsername ? 'Username Updated!' : 'NIP-05 Claimed!'}
             </h2>
-            <p class="text-lg text-gray-600 dark:text-gray-400 mb-6">
-              Your identity <strong class="text-orange-600">{claimedNip05}</strong> is now verified
+            <p class="text-lg text-[var(--color-text-secondary)] dark:text-[var(--color-caption)] mb-6">
+              Your identity <strong class="text-primary">{claimedNip05}</strong> is now verified
             </p>
             <button
               type="button"
               on:click={handleClose}
-              class="w-full px-4 py-3 rounded-xl font-semibold text-white bg-orange-500 hover:bg-orange-600 transition-colors"
+              class="w-full px-4 py-3 rounded-xl font-semibold text-on-action bg-action hover:bg-action-hover transition-colors"
             >
               Continue
             </button>

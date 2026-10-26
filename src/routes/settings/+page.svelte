@@ -27,6 +27,7 @@
   import { resolveSecuritySections, resolveDisplayPubkey } from '$lib/securitySections';
   import { nip19 } from 'nostr-tools';
   import { theme, type Theme } from '$lib/themeStore';
+  import LandingThemePicker from '../../components/landing/LandingThemePicker.svelte';
   import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
   import { getAuthManager, type NIP46ConnectionInfo } from '$lib/authManager';
   import { signNip98AuthHeader } from '$lib/nip98';
@@ -539,14 +540,8 @@
     }
   }
 
-  // Theme state
-  let selectedTheme: Theme = 'system';
-
-  if (browser) {
-    theme.subscribe((value) => {
-      selectedTheme = value;
-    });
-  }
+  // Auto-subscribe so client navigation releases the appearance listener.
+  $: selectedTheme = $theme;
 
   function handleThemeChange(newTheme: Theme) {
     selectedTheme = newTheme;
@@ -683,14 +678,15 @@
           <p class="text-xs text-caption mb-3">Choose how Zap.Cooking looks to you.</p>
         </div>
 
-        <div class="flex gap-2">
+        <div class="flex gap-2" role="group" aria-label="Color mode">
           <button
             type="button"
             class="px-4 py-2 rounded-full text-sm font-medium transition-colors
               {selectedTheme === 'light'
-              ? 'bg-primary text-white'
+              ? 'bg-action text-on-action'
               : 'bg-secondary hover:bg-accent-gray'}"
             style={selectedTheme !== 'light' ? 'color: var(--color-text-primary)' : ''}
+            aria-pressed={selectedTheme === 'light'}
             on:click={() => handleThemeChange('light')}
           >
             Light
@@ -699,9 +695,10 @@
             type="button"
             class="px-4 py-2 rounded-full text-sm font-medium transition-colors
               {selectedTheme === 'dark'
-              ? 'bg-primary text-white'
+              ? 'bg-action text-on-action'
               : 'bg-secondary hover:bg-accent-gray'}"
             style={selectedTheme !== 'dark' ? 'color: var(--color-text-primary)' : ''}
+            aria-pressed={selectedTheme === 'dark'}
             on:click={() => handleThemeChange('dark')}
           >
             Dark
@@ -710,14 +707,17 @@
             type="button"
             class="px-4 py-2 rounded-full text-sm font-medium transition-colors
               {selectedTheme === 'system'
-              ? 'bg-primary text-white'
+              ? 'bg-action text-on-action'
               : 'bg-secondary hover:bg-accent-gray'}"
             style={selectedTheme !== 'system' ? 'color: var(--color-text-primary)' : ''}
+            aria-pressed={selectedTheme === 'system'}
             on:click={() => handleThemeChange('system')}
           >
             System
           </button>
         </div>
+
+        <LandingThemePicker label="Style" inApp />
 
         <!-- Start section: where the app opens on sign-in or a cold visit.
              Saved per account (NIP-78) with local + cookie mirrors, so the
@@ -738,7 +738,7 @@
               aria-pressed={$startSection === 'explore'}
               class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
                 {$startSection === 'explore'
-                ? 'bg-primary text-white'
+                ? 'bg-action text-on-action'
                 : 'bg-secondary hover:bg-accent-gray'}"
               style={$startSection !== 'explore' ? 'color: var(--color-text-primary)' : ''}
               on:click={() => saveStartSection('explore')}
@@ -751,7 +751,7 @@
               aria-pressed={$startSection === 'feed'}
               class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
                 {$startSection === 'feed'
-                ? 'bg-primary text-white'
+                ? 'bg-action text-on-action'
                 : 'bg-secondary hover:bg-accent-gray'}"
               style={$startSection !== 'feed' ? 'color: var(--color-text-primary)' : ''}
               on:click={() => saveStartSection('feed')}
@@ -764,7 +764,7 @@
               aria-pressed={$startSection === 'recipes'}
               class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
                 {$startSection === 'recipes'
-                ? 'bg-primary text-white'
+                ? 'bg-action text-on-action'
                 : 'bg-secondary hover:bg-accent-gray'}"
               style={$startSection !== 'recipes' ? 'color: var(--color-text-primary)' : ''}
               on:click={() => saveStartSection('recipes')}
@@ -786,7 +786,7 @@
           <div class="flex items-center justify-between">
             <div class="flex-1">
               <div class="flex items-center gap-2">
-                <ClockIcon size={18} class="text-orange-500" />
+                <ClockIcon size={18} class="text-primary" />
                 <span class="font-medium" style="color: var(--color-text-primary)">Send countdown</span>
               </div>
               <p class="text-sm text-caption mt-1">Shows a timer before posting so you can cancel or send immediately.</p>
@@ -796,10 +796,10 @@
               role="switch"
               aria-checked={$timerSettings.postCountdownEnabled}
               aria-label="Enable send countdown"
-              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownEnabled ? 'bg-orange-500' : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
+              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownEnabled ? 'bg-action' : 'bg-[var(--color-input-border)]'}"
               on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownEnabled: !$timerSettings.postCountdownEnabled })}
             >
-              <span class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.postCountdownEnabled ? 'translate-x-5' : ''}"></span>
+              <span class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$timerSettings.postCountdownEnabled ? 'translate-x-5' : ''}"></span>
             </button>
           </div>
 
@@ -811,7 +811,7 @@
                   <button
                     type="button"
                     aria-pressed={$timerSettings.postCountdownSecs === secs}
-                    class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {$timerSettings.postCountdownSecs === secs ? 'bg-orange-500 text-white' : 'bg-secondary hover:bg-accent-gray'}"
+                    class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {$timerSettings.postCountdownSecs === secs ? 'bg-action text-on-action' : 'bg-secondary hover:bg-accent-gray'}"
                     style={$timerSettings.postCountdownSecs !== secs ? 'color: var(--color-text-primary)' : ''}
                     on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownSecs: secs })}
                   >{secs}s</button>
@@ -829,10 +829,10 @@
                   role="switch"
                   aria-checked={$timerSettings.postCountdownIncludesReplies}
                   aria-label="Apply countdown to replies"
-                  class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownIncludesReplies ? 'bg-orange-500' : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
+                  class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownIncludesReplies ? 'bg-action' : 'bg-[var(--color-input-border)]'}"
                   on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownIncludesReplies: !$timerSettings.postCountdownIncludesReplies })}
                 >
-                  <span class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.postCountdownIncludesReplies ? 'translate-x-5' : ''}"></span>
+                  <span class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$timerSettings.postCountdownIncludesReplies ? 'translate-x-5' : ''}"></span>
                 </button>
               </div>
             </div>
@@ -846,7 +846,7 @@
           <div class="flex items-center justify-between">
             <div class="flex-1">
               <div class="flex items-center gap-2">
-                <HammerIcon size={18} class="text-orange-500" />
+                <HammerIcon size={18} class="text-primary" />
                 <span class="font-medium" style="color: var(--color-text-primary)"
                   >Proof of work</span
                 >
@@ -863,8 +863,8 @@
               aria-label="Enable proof of work"
               class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.powBits !==
               null
-                ? 'bg-orange-500'
-                : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
+                ? 'bg-action'
+                : 'bg-[var(--color-input-border)]'}"
               on:click={() =>
                 saveTimerSettings({
                   ...$timerSettings,
@@ -872,7 +872,7 @@
                 })}
             >
               <span
-                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.powBits !==
+                class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$timerSettings.powBits !==
                 null
                   ? 'translate-x-5'
                   : ''}"
@@ -892,7 +892,7 @@
                     aria-pressed={$timerSettings.powBits === level.bits}
                     class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {$timerSettings.powBits ===
                     level.bits
-                      ? 'bg-orange-500 text-white'
+                      ? 'bg-action text-on-action'
                       : 'bg-secondary hover:bg-accent-gray'}"
                     style={$timerSettings.powBits !== level.bits
                       ? 'color: var(--color-text-primary)'
@@ -1053,7 +1053,7 @@
                           weight="fill"
                           class={connectedRelaySet.has(normalizeRelayUrl(relay))
                             ? 'text-green-500'
-                            : 'text-gray-400'}
+                            : 'text-caption'}
                         />
                         <span
                           class="text-xs font-mono truncate"
@@ -1078,7 +1078,7 @@
                           weight="fill"
                           class={connectedRelaySet.has(normalizeRelayUrl(relay))
                             ? 'text-green-500'
-                            : 'text-gray-400'}
+                            : 'text-caption'}
                         />
                         <span
                           class="text-xs font-mono truncate"
@@ -1103,7 +1103,7 @@
                           weight="fill"
                           class={connectedRelaySet.has(normalizeRelayUrl(relay))
                             ? 'text-green-500'
-                            : 'text-gray-400'}
+                            : 'text-caption'}
                         />
                         <span
                           class="text-xs font-mono truncate"
@@ -1138,7 +1138,7 @@
                   weight="fill"
                   class={connectedRelaySet.has(normalizeRelayUrl(relay))
                     ? 'text-green-500'
-                    : 'text-gray-400'}
+                    : 'text-caption'}
                 />
                 <span
                   class="flex-1 text-xs font-mono truncate"
@@ -1259,7 +1259,7 @@
                     >Active</span
                   >
                 {:else if $weblnConnected}
-                  <span class="text-xs px-2 py-1 rounded-full bg-gray-500/20 text-gray-500"
+                  <span class="text-xs px-2 py-1 rounded-full bg-input text-caption"
                     >Paused</span
                   >
                 {/if}
@@ -1308,12 +1308,12 @@
               class="relative w-12 h-7 rounded-full transition-colors {hasNavWallet
                 ? 'cursor-pointer'
                 : 'cursor-not-allowed'} {$navBalanceVisible
-                ? 'bg-amber-500'
-                : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
+                ? 'bg-action'
+                : 'bg-[var(--color-input-border)]'}"
               on:click={() => hasNavWallet && setNavBalanceVisible(!$navBalanceVisible)}
             >
               <span
-                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$navBalanceVisible
+                class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$navBalanceVisible
                   ? 'translate-x-5'
                   : ''}"
               ></span>
@@ -1355,12 +1355,12 @@
               class="relative w-12 h-7 rounded-full transition-colors {hasInAppWallet
                 ? 'cursor-pointer'
                 : 'cursor-not-allowed'} {$oneTapZapEnabled && hasInAppWallet
-                ? 'bg-amber-500'
-                : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
+                ? 'bg-action'
+                : 'bg-[var(--color-input-border)]'}"
               on:click={() => hasInAppWallet && setOneTapZapEnabled(!$oneTapZapEnabled)}
             >
               <span
-                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$oneTapZapEnabled
+                class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$oneTapZapEnabled
                   ? 'translate-x-5'
                   : ''}"
               ></span>
@@ -1455,7 +1455,7 @@
               type="button"
               class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors
                 {selectedCurrency === currency.code
-                ? 'bg-primary text-white'
+                ? 'bg-action text-on-action'
                 : 'bg-secondary hover:bg-accent-gray'}"
               style={selectedCurrency !== currency.code ? 'color: var(--color-text-primary)' : ''}
               on:click={() => handleCurrencyChange(currency.code)}
@@ -1529,13 +1529,13 @@
               aria-checked={$hideImagelessRecipesSetting}
               aria-label="Hide recipes without images"
               class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$hideImagelessRecipesSetting
-                ? 'bg-primary'
-                : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"
+                ? 'bg-action'
+                : 'bg-[var(--color-input-border)]'}"
               on:click={() =>
                 hideImagelessRecipesSetting.setEnabled(!$hideImagelessRecipesSetting)}
             >
               <span
-                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$hideImagelessRecipesSetting
+                class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$hideImagelessRecipesSetting
                   ? 'translate-x-5'
                   : ''}"
               ></span>
@@ -1680,7 +1680,7 @@
             <button
               type="button"
               class="w-full py-2 rounded-lg font-medium text-sm transition-colors"
-              style="background-color: var(--color-light-bg-brand,var(--color-accent)); color: white;"
+              style="background-color: var(--color-action); color: var(--color-on-action);"
               on:click={saveWotProvider}
               disabled={wotSaving}
             >

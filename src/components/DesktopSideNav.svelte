@@ -162,7 +162,7 @@
       'rounded-xl',
       'transition-colors',
       'cursor-pointer',
-      active ? 'nav-active border-l-2 border-orange-500' : 'nav-hover'
+      active ? 'nav-active border-l-2 border-primary' : 'nav-hover'
     ].join(' ');
   }
 

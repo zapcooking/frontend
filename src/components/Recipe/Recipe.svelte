@@ -886,7 +886,7 @@
               title={authorCanReceiveZaps ? 'Zap this recipe' : 'Author has no lightning address'}
             >
               {#if isZapping}
-                <div class="flex gap-1.5 items-center text-orange-500">
+                <div class="flex gap-1.5 items-center text-primary">
                   <LightningIcon size={24} weight="fill" class="animate-spin" />
                 </div>
               {:else if zapSuccess}

@@ -131,14 +131,14 @@
 	<!-- ═══ Header ═══ -->
 	<div class="flex items-center justify-between mb-5">
 		<div class="flex items-center gap-2.5">
-			<StorefrontIcon size={28} weight="duotone" class="text-orange-500" />
+			<StorefrontIcon size={28} weight="duotone" class="text-primary" />
 			<h1 class="text-xl font-bold" style="color: var(--color-text-primary)">The Market</h1>
 		</div>
 		{#if $userPublickey}
 			<a
 				href="/my-store/new"
 				class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105"
-				style="background: linear-gradient(135deg, #f97316, #ea580c); color: white;"
+				style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 			>
 				<PlusIcon size={16} weight="bold" />
 				<span class="hidden sm:inline">List</span>
@@ -250,12 +250,12 @@
 		</div>
 	{:else if error}
 		<div class="text-center py-12">
-			<p class="text-red-500 mb-4">{error}</p>
+			<p class="text-[var(--color-danger)] mb-4">{error}</p>
 			<button
 				type="button"
 				on:click={loadProducts}
 				class="px-4 py-2 rounded-lg font-medium transition-colors"
-				style="background-color: var(--color-light-bg-brand,var(--color-accent)); color: white;"
+				style="background-color: var(--color-action); color: var(--color-on-action);"
 			>
 				Try Again
 			</button>
@@ -289,7 +289,7 @@
 				<a
 					href="/my-store/new"
 					class="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-transform hover:scale-105"
-					style="background: linear-gradient(135deg, #f97316, #fb923c); color: white;"
+					style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 				>
 					<PlusIcon size={20} weight="bold" />
 					Create Your First Listing
@@ -330,13 +330,13 @@
 
 	.nav-tab:hover {
 		color: var(--color-text-primary);
-		border-color: rgba(249, 115, 22, 0.3);
+		border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
 	}
 
 	.nav-tab.active {
-		background-color: rgba(249, 115, 22, 0.12);
-		color: #f97316;
-		border-color: #f97316;
+		background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
+		color: var(--color-primary);
+		border-color: var(--color-primary);
 	}
 
 	/* ── Modifier Row ── */
@@ -366,7 +366,7 @@
 
 	.mod-clear:hover {
 		opacity: 1;
-		color: #ef4444;
+		color: var(--color-danger);
 	}
 
 	.mod-select {
@@ -380,14 +380,14 @@
 
 	.mod-select:focus {
 		outline: none;
-		border-color: rgba(249, 115, 22, 0.4);
+		border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
 	}
 
 	/* ── Search ── */
 	.search-container {
 		@apply flex items-center gap-2 flex-1 min-w-0 rounded-lg;
 		background-color: var(--color-bg-secondary);
-		border: 1px solid rgba(249, 115, 22, 0.3);
+		border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
 		padding: 5px 10px;
 		animation: expandIn 0.15s ease-out;
 	}

@@ -60,12 +60,9 @@
     align-items: center;
     justify-content: center;
     gap: 0.4rem;
-    color: #fff;
-    /* Zap-orange → amber gradient. The diagonal gradient picks up the
-       brand orange (#ec4700, also `--zap-orange` in app.css) on the
-       leading edge and warms into amber-500 on the trailing edge —
-       mirrors the orange/amber sweep used elsewhere for zap pills. */
-    background: linear-gradient(135deg, #ec4700 0%, #f59e0b 100%);
+    color: var(--color-on-action);
+    /* Filled payment actions share the accessible action/foreground pair. */
+    background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action-hover) 100%);
     border: none;
     cursor: pointer;
     transition:
@@ -78,13 +75,13 @@
   }
   .noffer-pay-btn:hover {
     filter: brightness(1.05);
-    box-shadow: 0 0 18px rgba(236, 71, 0, 0.45);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--color-primary) 45%, transparent);
   }
   .noffer-pay-btn:active {
     transform: scale(0.97);
   }
   .noffer-pay-btn:focus-visible {
-    outline: 2px solid #ec4700;
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
 
@@ -97,7 +94,7 @@
     border-radius: 9999px;
     font-size: 0.8125rem;
     font-weight: 700;
-    box-shadow: 0 0 0 1px rgba(236, 71, 0, 0.5), 0 2px 8px rgba(236, 71, 0, 0.25);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 50%, transparent), 0 2px 8px color-mix(in srgb, var(--color-primary) 25%, transparent);
   }
 
   /* Action-row peer — profile sheet. Mirrors the Tailwind its siblings
@@ -129,9 +126,9 @@
     border-radius: 0.5rem;
     font-size: 1rem;
     font-weight: 500;
-    box-shadow: 0 4px 14px rgba(236, 71, 0, 0.32);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--color-primary) 32%, transparent);
   }
   .noffer-pay-btn--cta:hover {
-    box-shadow: 0 6px 22px rgba(236, 71, 0, 0.5);
+    box-shadow: 0 6px 22px color-mix(in srgb, var(--color-primary) 50%, transparent);
   }
 </style>

@@ -64,8 +64,8 @@
   .badge {
     padding: 0 0.375rem;
     border-radius: 9999px;
-    background: var(--color-primary);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.6875rem;
     font-weight: 700;
     line-height: 1.25rem;

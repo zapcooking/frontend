@@ -356,19 +356,19 @@
     transform: scale(0.96);
   }
 
-  /* Intelligence button — when active, soft purple ring + glow */
+  /* Intelligence button — selected accent ring + glow */
   .zh-intelligence-btn.is-active {
-    background-color: rgba(168, 85, 247, 0.1);
+    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
     box-shadow:
-      inset 0 0 0 1px rgba(168, 85, 247, 0.35),
-      0 0 12px rgba(168, 85, 247, 0.18);
-    color: rgb(216, 180, 254);
+      inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent),
+      0 0 12px color-mix(in srgb, var(--color-primary) 18%, transparent);
+    color: var(--color-primary);
   }
   :global(.dark) .zh-intelligence-btn.is-active {
-    color: rgb(233, 213, 255);
+    color: var(--color-primary);
   }
 
-  /* Avatar — soft purple glow ring, scales softly on hover/tap */
+  /* Avatar — selected accent glow ring, scales softly on hover/tap */
   .zh-avatar-btn {
     display: inline-flex;
     padding: 0;
@@ -391,32 +391,31 @@
     background:
       radial-gradient(
         circle at 30% 30%,
-        rgba(168, 85, 247, 0.55),
-        rgba(168, 85, 247, 0.18) 60%,
+        color-mix(in srgb, var(--color-primary) 55%, transparent),
+        color-mix(in srgb, var(--color-primary) 18%, transparent) 60%,
         transparent 80%
       );
     box-shadow:
-      0 0 0 1px rgba(168, 85, 247, 0.35),
-      0 0 10px rgba(168, 85, 247, 0.25);
+      0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent),
+      0 0 10px color-mix(in srgb, var(--color-primary) 25%, transparent);
   }
   :global(.dark) .zh-avatar-ring {
     background:
       radial-gradient(
         circle at 30% 30%,
-        rgba(192, 132, 252, 0.6),
-        rgba(168, 85, 247, 0.2) 60%,
+        color-mix(in srgb, var(--color-primary) 60%, transparent),
+        color-mix(in srgb, var(--color-primary) 20%, transparent) 60%,
         transparent 80%
       );
     box-shadow:
-      0 0 0 1px rgba(192, 132, 252, 0.4),
-      0 0 12px rgba(168, 85, 247, 0.3);
+      0 0 0 1px color-mix(in srgb, var(--color-primary) 40%, transparent),
+      0 0 12px color-mix(in srgb, var(--color-primary) 30%, transparent);
   }
 
-  /* Darker than the brand orange so the 12-14px label meets 4.5:1
-     (#fff8ec on #c2410c 4.9:1, on #b13a0a 5.7:1). */
+  /* Filled actions use a separate contrast-safe role from link accents. */
   .join-button {
-    color: #fff8ec;
-    background: linear-gradient(135deg, #c2410c 0%, #b13a0a 100%);
+    color: var(--color-on-action);
+    background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action-hover) 100%);
     border: 1px solid transparent;
     cursor: pointer;
   }
@@ -424,7 +423,7 @@
     filter: brightness(1.06);
   }
   .join-button:focus-visible {
-    outline: 2px solid #ec4700;
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
 

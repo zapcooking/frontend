@@ -1301,9 +1301,9 @@
               {/if}
 
               {#if pollConfig || zapPollConfig}
-                <div class="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
-                  <ChartBarHorizontalIcon size={14} class="text-orange-600 dark:text-orange-400" />
-                  <span class="text-xs font-medium text-orange-700 dark:text-orange-300">
+                <div class="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary">
+                  <ChartBarHorizontalIcon size={14} class="text-primary" />
+                  <span class="text-xs font-medium text-primary">
                     {#if zapPollConfig}
                       Zap Poll: {zapPollConfig.options.length} options (min {zapPollConfig.valueMinimum} sats)
                     {:else if pollConfig}
@@ -1313,7 +1313,7 @@
                   <button
                     type="button"
                     on:click={() => { pollConfig = null; zapPollConfig = null; }}
-                    class="ml-auto text-orange-500 hover:text-orange-700 p-0.5"
+                    class="ml-auto text-primary hover:text-[var(--color-text-primary)] p-0.5"
                     aria-label="Remove poll"
                   >
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1338,11 +1338,11 @@
             <div class="w-full h-1 rounded-full bg-input-border overflow-hidden -mt-1 mb-1">
               {#if uploadImageTotal > 1}
                 <div
-                  class="h-full rounded-full bg-orange-500 transition-all duration-500"
+                  class="h-full rounded-full bg-action transition-all duration-500"
                   style="width: {(uploadImageIndex / uploadImageTotal) * 100}%"
                 ></div>
               {:else}
-                <div class="h-full rounded-full bg-orange-500 upload-sweep"></div>
+                <div class="h-full rounded-full bg-action upload-sweep"></div>
               {/if}
             </div>
           {/if}
@@ -1682,7 +1682,7 @@
     background: rgba(0, 0, 0, 0.85);
   }
   .alt-toggle.has-alt {
-    background: var(--color-primary, #f97316);
+    background: var(--color-action);
   }
 
   /* Attachment thumbnails: cells size to the 5rem preview; the steppers row
@@ -1725,7 +1725,7 @@
   }
 
   .thumb-steppers button:hover:not(:disabled) {
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
     color: var(--color-text-primary);
   }
 
@@ -1737,7 +1737,7 @@
     justify-content: center;
     text-align: center;
     padding: 0.25rem;
-    background: var(--color-accent-gray);
+    background: var(--color-input-bg);
     font-size: 0.5625rem;
     line-height: 1.2;
     color: var(--color-caption);
@@ -1873,7 +1873,7 @@
   }
 
   .media-menu-item:hover {
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
 
   /* ── Paste-to-attach offers ─────────────────────────────────── */
@@ -1935,7 +1935,7 @@
 
   .attach-x:hover:not(:disabled) {
     color: var(--color-text-primary);
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
 
   /* ── Post button group ──────────────────────────────────────── */
@@ -1953,7 +1953,7 @@
   .countdown-clock-btn:hover,
   .countdown-clock-btn.active {
     color: var(--color-text-primary);
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
 
   .countdown-settings-wrap {
@@ -2028,7 +2028,7 @@
     border-radius: 0.375rem;
     font-size: 0.75rem;
     color: var(--color-text-secondary);
-    background: var(--color-accent-gray);
+    background: var(--color-input-bg);
     transition: background 0.15s, color 0.15s;
   }
 
@@ -2097,7 +2097,7 @@
   }
 
   .tool-btn:hover:not(:disabled) {
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
 
   /* Hashtag suggestion pills: one horizontal row that scrolls, never wraps.
@@ -2211,7 +2211,7 @@
     font-size: 0.875rem;
     font-weight: 500;
     color: var(--color-text-secondary);
-    background: var(--color-accent-gray);
+    background: var(--color-input-bg);
     transition: opacity 0.15s;
   }
 
@@ -2242,22 +2242,22 @@
   .action-post:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .action-post--solid {
-    background-image: linear-gradient(to right, #f97316, #f59e0b);
+    background-image: linear-gradient(to right, var(--color-action), var(--color-action));
   }
 
   .action-post--solid:hover:not(:disabled) {
-    background-image: linear-gradient(to right, #ea6c0a, #d97706);
+    background-image: linear-gradient(to right, var(--color-action-hover), var(--color-action-hover));
   }
 
   .action-post--countdown {
-    background: var(--color-accent-gray);
+    background: var(--color-action-hover);
   }
 
   .action-post-fill {
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background-image: linear-gradient(to right, #f97316, #f59e0b);
+    background-image: linear-gradient(to right, var(--color-action), var(--color-action));
     width: var(--fill, 0%);
     pointer-events: none;
   }

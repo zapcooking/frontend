@@ -1264,13 +1264,13 @@
     padding: 0.875rem 1.75rem;
     border: none;
     border-radius: 9999px;
-    background: var(--color-primary);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-weight: 700;
     font-size: 1rem;
     line-height: 1.2;
     cursor: pointer;
-    box-shadow: 0 6px 18px rgba(236, 71, 0, 0.22);
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--color-primary) 22%, transparent);
     transition:
       background-color 0.15s ease,
       transform 0.15s ease,
@@ -1278,8 +1278,8 @@
   }
 
   .cta-primary:hover {
-    background: #d63a00;
-    box-shadow: 0 8px 22px rgba(236, 71, 0, 0.3);
+    background: var(--color-action-hover);
+    box-shadow: 0 8px 22px color-mix(in srgb, var(--color-primary) 30%, transparent);
     transform: translateY(-1px);
   }
 
@@ -1313,7 +1313,7 @@
   }
 
   .link-button:hover {
-    color: #d63a00;
+    color: var(--color-primary);
   }
 
   .link-button:focus-visible {
@@ -1346,7 +1346,12 @@
     font-size: 2.5rem;
     font-weight: 900;
     margin: 0 0 0.75rem;
-    background: linear-gradient(135deg, var(--color-primary) 0%, #ff8c42 50%, #ffb347 100%);
+    background: linear-gradient(
+      135deg,
+      var(--color-primary) 0%,
+      var(--color-primary) 50%,
+      var(--color-primary) 100%
+    );
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -1367,7 +1372,12 @@
   }
 
   html.dark .hero h1 {
-    background: linear-gradient(135deg, #ff5722 0%, #ff8c42 50%, #ffb347 100%);
+    background: linear-gradient(
+      135deg,
+      var(--color-primary) 0%,
+      var(--color-primary) 50%,
+      var(--color-primary) 100%
+    );
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -1414,12 +1424,12 @@
   }
 
   .cta-save {
-    color: #15803d;
+    color: var(--color-success);
     font-weight: 700;
   }
 
   :global(html.dark) .cta-save {
-    color: #4ade80;
+    color: var(--color-success);
   }
 
   .cta-alt {
@@ -1730,8 +1740,8 @@
     gap: 0.5rem;
     padding: 0.625rem 1rem;
     border-radius: 9999px;
-    background: var(--color-primary);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-weight: 600;
   }
 
@@ -1783,7 +1793,7 @@
     padding: 0.25rem 0.55rem;
     border-radius: 9999px;
     background: rgba(34, 197, 94, 0.1);
-    color: #22c55e;
+    color: var(--color-success);
     white-space: nowrap;
   }
 
@@ -1858,8 +1868,8 @@
     max-width: 85%;
     padding: 9px 13px;
     border-radius: 15px 15px 4px 15px;
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.92rem;
     line-height: 1.4;
   }
@@ -1908,8 +1918,8 @@
   }
 
   .ch-composer-send {
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
   }
 
   .ch-composer-input {
@@ -2154,7 +2164,11 @@
     border-radius: 16px;
     padding: 1.75rem;
     margin-bottom: 2rem;
-    background-image: linear-gradient(135deg, rgba(249, 115, 22, 0.05) 0%, transparent 60%);
+    background-image: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary) 5%, transparent) 0%,
+      transparent 60%
+    );
   }
 
   .member-dashboard-header {
@@ -2174,14 +2188,14 @@
     border-radius: 9999px;
     box-shadow:
       0 0 12px rgba(245, 158, 11, 0.4),
-      0 0 24px rgba(249, 115, 22, 0.15);
+      0 0 24px color-mix(in srgb, var(--color-primary) 15%, transparent);
   }
 
   .member-avatar-glow.founders-glow {
     box-shadow:
       0 0 14px rgba(245, 158, 11, 0.5),
-      0 0 28px rgba(249, 115, 22, 0.25),
-      0 0 48px rgba(249, 115, 22, 0.1);
+      0 0 28px color-mix(in srgb, var(--color-primary) 25%, transparent),
+      0 0 48px color-mix(in srgb, var(--color-primary) 10%, transparent);
   }
 
   .member-dashboard-identity-text {
@@ -2192,7 +2206,7 @@
 
   .member-dashboard-tier {
     font-size: 0.8rem;
-    color: var(--color-primary, #f97316);
+    color: var(--color-primary, var(--color-primary));
     font-weight: 500;
   }
 
@@ -2209,7 +2223,7 @@
 
   .member-dashboard-active-badge {
     background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
+    color: var(--color-success);
     padding: 0.25rem 0.75rem;
     border-radius: 9999px;
     font-size: 0.8rem;
@@ -2277,12 +2291,12 @@
     color: var(--color-text-primary);
     padding: 0.5rem 0.75rem;
     border-radius: 8px;
-    background: rgba(249, 115, 22, 0.06);
-    border: 1px solid rgba(249, 115, 22, 0.12);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 12%, transparent);
   }
 
   .member-dashboard-perk :global(svg) {
-    color: #f59e0b;
+    color: var(--color-warning);
     flex-shrink: 0;
   }
 
@@ -2298,10 +2312,10 @@
   .member-dashboard-upgrade-button {
     flex: 1;
     padding: 0.875rem 1.5rem;
-    background: var(--color-primary);
+    background: var(--color-action);
     border: 2px solid var(--color-primary);
     border-radius: 10px;
-    color: white;
+    color: var(--color-on-action);
     font-size: 1rem;
     font-weight: 600;
     cursor: pointer;
@@ -2309,8 +2323,8 @@
   }
 
   .member-dashboard-upgrade-button:hover {
-    background: #d63a00;
-    border-color: #d63a00;
+    background: var(--color-action-hover);
+    border-color: var(--color-primary);
   }
 
   .member-dashboard .manage-error {
@@ -2347,7 +2361,7 @@
   }
 
   .cancel-membership-link:hover:not(:disabled) {
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .cancel-membership-link:disabled {
@@ -2365,7 +2379,7 @@
 
   .cancel-error {
     font-size: 0.75rem;
-    color: #ef4444;
+    color: var(--color-danger);
     margin-bottom: 0.375rem;
   }
 
@@ -2376,18 +2390,24 @@
   }
 
   .genesis-hero-card {
-    background: rgba(17, 24, 39, 0.6);
+    background: color-mix(in srgb, var(--color-bg-secondary) 60%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 2px solid;
-    border-image: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 50%, #ff4500 100%) 1;
+    border-image: linear-gradient(
+        135deg,
+        var(--color-primary) 0%,
+        var(--color-primary) 50%,
+        var(--color-primary) 100%
+      )
+      1;
     border-radius: 16px;
     padding: 2.5rem;
     cursor: pointer;
     transition: all 0.3s ease;
     box-shadow:
-      0 8px 32px rgba(236, 71, 0, 0.15),
-      0 0 0 1px rgba(236, 71, 0, 0.1),
+      0 8px 32px color-mix(in srgb, var(--color-primary) 15%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--color-primary) 10%, transparent),
       inset 0 1px 0 rgba(255, 255, 255, 0.05);
     position: relative;
     overflow: hidden;
@@ -2400,7 +2420,11 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: linear-gradient(135deg, rgba(236, 71, 0, 0.05) 0%, rgba(255, 107, 0, 0.03) 100%);
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary) 5%, transparent) 0%,
+      color-mix(in srgb, var(--color-primary) 3%, transparent) 100%
+    );
     pointer-events: none;
     z-index: 0;
   }
@@ -2408,10 +2432,16 @@
   .genesis-hero-card:hover {
     transform: translateY(-2px);
     box-shadow:
-      0 12px 40px rgba(236, 71, 0, 0.25),
-      0 0 0 1px rgba(236, 71, 0, 0.2),
+      0 12px 40px color-mix(in srgb, var(--color-primary) 25%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--color-primary) 20%, transparent),
       inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    border-image: linear-gradient(135deg, var(--color-primary) 0%, #ff8c42 50%, #ff6b00 100%) 1;
+    border-image: linear-gradient(
+        135deg,
+        var(--color-primary) 0%,
+        var(--color-primary) 50%,
+        var(--color-primary) 100%
+      )
+      1;
   }
 
   .genesis-hero-card:focus {
@@ -2441,7 +2471,7 @@
     font-size: 2rem;
     font-weight: 700;
     margin: 0 0 0.5rem 0;
-    color: #f3f4f6;
+    color: var(--color-text-primary);
     text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
 
@@ -2449,7 +2479,7 @@
     font-size: 1.5rem;
     font-weight: 600;
     margin: 0;
-    color: #d1d5db;
+    color: var(--color-text-secondary);
   }
 
   .genesis-hero-arrow {
@@ -2459,7 +2489,7 @@
   }
 
   .arrow-icon {
-    color: #d1d5db;
+    color: var(--color-text-secondary);
     transition: transform 0.3s ease;
   }
 
@@ -2478,7 +2508,7 @@
   .progress-bar {
     width: 100%;
     height: 4px;
-    background: rgba(236, 71, 0, 0.15);
+    background: color-mix(in srgb, var(--color-primary) 15%, transparent);
     border-radius: 2px;
     overflow: hidden;
     margin-bottom: 0.75rem;
@@ -2486,9 +2516,9 @@
 
   .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--color-primary) 0%, #ff8c42 100%);
+    background: linear-gradient(90deg, var(--color-primary) 0%, var(--color-primary) 100%);
     border-radius: 2px;
-    box-shadow: 0 0 8px rgba(236, 71, 0, 0.4);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--color-primary) 40%, transparent);
     animation: fillProgress 1.2s ease-out;
   }
 
@@ -2499,7 +2529,7 @@
   }
 
   .progress-text {
-    color: #9ca3af;
+    color: var(--color-caption);
     font-size: 0.9rem;
     margin: 0;
     text-align: center;
@@ -2508,28 +2538,38 @@
 
   /* Dark mode adjustments */
   html.dark .genesis-hero-card {
-    background: rgba(31, 41, 55, 0.7);
-    border-image: linear-gradient(135deg, #ff5722 0%, #ff8c42 50%, #ff6b00 100%) 1;
+    background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
+    border-image: linear-gradient(
+        135deg,
+        var(--color-primary) 0%,
+        var(--color-primary) 50%,
+        var(--color-primary) 100%
+      )
+      1;
   }
 
   html.dark .genesis-hero-card::before {
-    background: linear-gradient(135deg, rgba(255, 87, 34, 0.08) 0%, rgba(255, 140, 66, 0.05) 100%);
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary) 8%, transparent) 0%,
+      color-mix(in srgb, var(--color-primary) 5%, transparent) 100%
+    );
   }
 
   html.dark .genesis-hero-text h2 {
-    color: #f9fafb;
+    color: var(--color-text-primary);
   }
 
   html.dark .genesis-hero-countdown {
-    color: #e5e7eb;
+    color: var(--color-text-primary);
   }
 
   html.dark .arrow-icon {
-    color: #e5e7eb;
+    color: var(--color-text-primary);
   }
 
   html.dark .progress-text {
-    color: #d1d5db;
+    color: var(--color-text-secondary);
   }
 
   .genesis-hero-card.sold-out {
@@ -2543,16 +2583,22 @@
   }
 
   .genesis-checkout-card {
-    background: rgba(17, 24, 39, 0.6);
+    background: color-mix(in srgb, var(--color-bg-secondary) 60%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 2px solid;
-    border-image: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 50%, #ff4500 100%) 1;
+    border-image: linear-gradient(
+        135deg,
+        var(--color-primary) 0%,
+        var(--color-primary) 50%,
+        var(--color-primary) 100%
+      )
+      1;
     border-radius: 16px;
     padding: 2.5rem;
     box-shadow:
-      0 8px 32px rgba(236, 71, 0, 0.15),
-      0 0 0 1px rgba(236, 71, 0, 0.1);
+      0 8px 32px color-mix(in srgb, var(--color-primary) 15%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--color-primary) 10%, transparent);
   }
 
   .genesis-checkout-header {
@@ -2563,7 +2609,7 @@
   .genesis-checkout-header h3 {
     font-size: 2rem;
     font-weight: 700;
-    color: #f3f4f6;
+    color: var(--color-text-primary);
     margin: 0 0 0.5rem 0;
   }
 
@@ -2577,7 +2623,7 @@
   .genesis-checkout-price span {
     font-size: 1.2rem;
     font-weight: 400;
-    color: #9ca3af;
+    color: var(--color-caption);
   }
 
   .genesis-checkout-benefits {
@@ -2587,7 +2633,7 @@
   .genesis-checkout-benefits h4 {
     font-size: 1.2rem;
     font-weight: 600;
-    color: #f3f4f6;
+    color: var(--color-text-primary);
     margin: 0 0 1.5rem 0;
   }
 
@@ -2602,7 +2648,7 @@
   .genesis-checkout-benefits .section-header {
     font-size: 0.875rem;
     font-weight: 700;
-    color: #f3f4f6;
+    color: var(--color-text-primary);
     margin: 0 0 0.75rem 0;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -2610,7 +2656,7 @@
 
   .genesis-checkout-benefits .section-divider {
     height: 1px;
-    background: rgba(236, 71, 0, 0.15);
+    background: color-mix(in srgb, var(--color-primary) 15%, transparent);
     margin: 1.5rem 0;
   }
 
@@ -2625,20 +2671,20 @@
     align-items: flex-start;
     gap: 0.75rem;
     padding: 0.75rem 0;
-    color: #d1d5db;
+    color: var(--color-text-secondary);
     font-size: 1rem;
     border-bottom: none;
   }
 
   .genesis-checkout-benefits .checkmark {
-    color: #22c55e;
+    color: var(--color-success);
     font-weight: bold;
     flex-shrink: 0;
     margin-top: 0.125rem;
   }
 
   .genesis-checkout-benefits .feature-text {
-    color: #d1d5db;
+    color: var(--color-text-secondary);
     line-height: 1.5;
   }
 
@@ -2646,13 +2692,13 @@
     text-align: center;
     margin-bottom: 2rem;
     padding: 1rem;
-    background: rgba(236, 71, 0, 0.1);
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
     border-radius: 8px;
   }
 
   .genesis-checkout-urgency p {
     margin: 0;
-    color: #f3f4f6;
+    color: var(--color-text-primary);
     font-size: 1.1rem;
   }
 
@@ -2664,21 +2710,25 @@
   .genesis-claim-button {
     width: 100%;
     padding: 1.25rem 2rem;
-    background: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action) 100%);
+    color: var(--color-on-action);
     border: none;
     border-radius: 12px;
     font-size: 1.25rem;
     font-weight: 700;
     cursor: pointer;
     transition: all 0.3s ease;
-    box-shadow: 0 4px 12px rgba(236, 71, 0, 0.3);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--color-primary) 30%, transparent);
   }
 
   .genesis-claim-button:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(236, 71, 0, 0.4);
-    background: linear-gradient(135deg, #ff5722 0%, #ff8c42 100%);
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--color-primary) 40%, transparent);
+    background: linear-gradient(
+      135deg,
+      var(--color-action-hover) 0%,
+      var(--color-action-hover) 100%
+    );
   }
 
   .genesis-claim-button:disabled {
@@ -2687,7 +2737,7 @@
   }
 
   html.dark .genesis-checkout-card {
-    background: rgba(31, 41, 55, 0.7);
+    background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
   }
 
   /* Founders Club Link */
@@ -2710,10 +2760,10 @@
   }
 
   .founders-link-button:hover {
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action-hover);
+    color: var(--color-on-action);
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(236, 71, 0, 0.3);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--color-primary) 30%, transparent);
   }
 
   /* ── Kept: benefit list primitives used by the Founders card ── */
@@ -2736,7 +2786,7 @@
 
   .section-divider {
     height: 1px;
-    background: rgba(236, 71, 0, 0.15);
+    background: color-mix(in srgb, var(--color-primary) 15%, transparent);
     margin: 1.5rem 0;
   }
 
@@ -2755,7 +2805,7 @@
   }
 
   .checkmark {
-    color: #22c55e;
+    color: var(--color-success);
     font-weight: bold;
     flex-shrink: 0;
     margin-top: 0.125rem;
@@ -2786,7 +2836,7 @@
   }
 
   .active-membership-card {
-    background: rgba(17, 24, 39, 0.6);
+    background: color-mix(in srgb, var(--color-bg-secondary) 60%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 2px solid rgba(34, 197, 94, 0.4);
@@ -2804,13 +2854,13 @@
   .active-membership-header h3 {
     font-size: 1.25rem;
     font-weight: 700;
-    color: #f3f4f6;
+    color: var(--color-text-primary);
     margin: 0;
   }
 
   .active-badge {
     background: rgba(34, 197, 94, 0.2);
-    color: #22c55e;
+    color: var(--color-success);
     padding: 0.25rem 0.75rem;
     border-radius: 20px;
     font-size: 0.8rem;
@@ -2829,7 +2879,7 @@
   }
 
   .membership-expiry {
-    color: #9ca3af;
+    color: var(--color-caption);
     font-size: 0.95rem;
     margin: 0;
   }
@@ -2837,7 +2887,7 @@
   .manage-error {
     background: rgba(220, 38, 38, 0.1);
     border: 1px solid rgba(220, 38, 38, 0.3);
-    color: #ef4444;
+    color: var(--color-danger);
     padding: 0.75rem;
     border-radius: 8px;
     margin-bottom: 1rem;
@@ -2859,8 +2909,8 @@
   }
 
   .manage-subscription-button:hover:not(:disabled) {
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action-hover);
+    color: var(--color-on-action);
   }
 
   .manage-subscription-button:disabled {
@@ -2869,7 +2919,7 @@
   }
 
   html.dark .active-membership-card {
-    background: rgba(31, 41, 55, 0.7);
+    background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
   }
 
   /* ── Kept: Founders copy, FAQ, card hint ────────────────── */
@@ -2936,7 +2986,7 @@
 
   /* Card hint */
   .card-hint {
-    color: #9ca3af;
+    color: var(--color-caption);
     font-size: 0.8rem;
     text-align: center;
     margin: 0.75rem 0 0 0;

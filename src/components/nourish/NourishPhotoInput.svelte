@@ -126,8 +126,8 @@
     cursor: pointer;
   }
   .photo-dropzone.dragOver {
-    border-color: #22c55e;
-    background: rgba(34, 197, 94, 0.04);
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 4%, transparent);
   }
   .photo-dropzone.disabled {
     opacity: 0.5;
@@ -167,8 +167,8 @@
     transition: background 150ms, border-color 150ms;
   }
   .dropzone-btn:hover {
-    background: rgba(34, 197, 94, 0.06);
-    border-color: rgba(34, 197, 94, 0.3);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
   }
 
   /* Preview */

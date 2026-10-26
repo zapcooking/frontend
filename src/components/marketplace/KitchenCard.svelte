@@ -85,8 +85,8 @@
 	}
 
 	.kitchen-card:hover {
-		border-color: rgba(249, 115, 22, 0.3);
-		box-shadow: 0 8px 24px rgba(249, 115, 22, 0.1);
+		border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+		box-shadow: 0 8px 24px color-mix(in srgb, var(--color-primary) 10%, transparent);
 		transform: translateY(-2px);
 	}
 
@@ -97,7 +97,7 @@
 	}
 
 	.banner-placeholder {
-		background: linear-gradient(135deg, rgba(249, 115, 22, 0.15), rgba(251, 146, 60, 0.1));
+		background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 15%, transparent), color-mix(in srgb, var(--color-primary) 10%, transparent));
 	}
 
 	.avatar-wrap {
@@ -109,11 +109,11 @@
 	}
 
 	.visit-button {
-		background-color: var(--color-accent);
+		background-color: var(--color-action);
 		color: white;
 	}
 
 	.kitchen-card:hover .visit-button {
-		background-color: #ea580c;
+		background-color: var(--color-action);
 	}
 </style>

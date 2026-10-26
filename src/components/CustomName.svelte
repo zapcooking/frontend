@@ -48,11 +48,11 @@
   }
 
   .name--interactive:hover {
-    color: #ec4700;
+    color: var(--color-primary);
   }
 
   .name--interactive:focus {
-    outline: 2px solid #ec4700;
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
     border-radius: 2px;
   }

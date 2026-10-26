@@ -52,7 +52,7 @@
 </script>
 
 {#if clientInfo && displayName}
-  <span class="client-attribution text-gray-400 text-xs" title="Posted via {displayName}">
+  <span class="client-attribution text-[var(--color-caption)] text-xs" title="Posted via {displayName}">
     {bare ? '' : '· '}via {displayName}
   </span>
 {/if}

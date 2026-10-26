@@ -565,8 +565,8 @@
   style="background: {isConstellation
     ? 'radial-gradient(ellipse at center, rgba(10,12,25,1) 0%, rgba(3,5,15,1) 100%)'
     : isDarkMode
-      ? 'radial-gradient(ellipse at center, rgba(20,15,12,1) 0%, rgba(10,8,6,1) 100%)'
-      : 'radial-gradient(ellipse at center, rgba(255,252,248,1) 0%, rgba(245,240,235,1) 100%)'};"
+      ? 'radial-gradient(ellipse at center, var(--color-bg-primary) 0%, var(--color-card-sunken) 100%)'
+      : 'radial-gradient(ellipse at center, var(--color-bg-primary) 0%, var(--color-card-sunken) 100%)'};"
   bind:this={containerEl}
   on:mousedown={handleContainerMouseDown}
   on:mousemove={handleContainerMouseMove}

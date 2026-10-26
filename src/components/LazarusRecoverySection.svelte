@@ -889,7 +889,7 @@
   .lz-sort.active {
     color: var(--color-text-primary);
     border-color: var(--color-input-border);
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
 
   .lz-empty-toggle {
@@ -981,13 +981,13 @@
   }
 
   .lz-badge--current {
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
     color: var(--color-text-secondary);
   }
 
   .lz-badge--recommended {
-    background: var(--color-primary, #f97316);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
   }
 
   .lz-badge--warn {

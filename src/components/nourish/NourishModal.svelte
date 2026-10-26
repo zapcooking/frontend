@@ -553,7 +553,7 @@
 		     and "not yet scored" miss state wouldn't be actionable. -->
 		<div class="lock-state">
 			<div class="lock-icon-wrap">
-				<LockIcon size={24} weight="fill" class="text-orange-500" />
+				<LockIcon size={24} weight="fill" class="text-primary" />
 			</div>
 			<h3 class="lock-title">Unlock Nourish</h3>
 			<p class="lock-desc">See how this recipe scores for gut health, protein, and real food quality.</p>
@@ -630,7 +630,7 @@
 		opacity: 0.4;
 	}
 	.footer-link {
-		color: var(--color-accent, #f97316);
+		color: var(--color-primary);
 	}
 	.footer-link:hover { text-decoration: underline; }
 </style>
