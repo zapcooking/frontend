@@ -151,7 +151,7 @@
       {#if isOwnProfile && !lists}
         <a
           href="/create"
-          class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-medium text-sm rounded-full transition-all"
+          class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action font-medium text-sm rounded-full transition-all"
         >
           <span>✨</span>
           Create a recipe

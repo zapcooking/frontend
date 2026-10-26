@@ -128,7 +128,7 @@
         </div>
       {:else}
         {#if state.kind === 'error'}
-          <p class="text-red-600">{state.message}</p>
+          <p class="text-[var(--color-danger)]">{state.message}</p>
         {/if}
         <p>You'll be asked to approve a signature. It proves the request comes from this account's key.</p>
         <div>

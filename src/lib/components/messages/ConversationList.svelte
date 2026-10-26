@@ -58,7 +58,7 @@
     <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Messages</h2>
     <button
       class="p-2 rounded-full transition-colors cursor-pointer"
-      style="background-color: var(--color-primary); color: #ffffff;"
+      style="background-color: var(--color-action); color: var(--color-on-action);"
       on:click={() => dispatch('newMessage')}
       title="New message"
     >

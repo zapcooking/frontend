@@ -225,7 +225,7 @@
           <div class="flex justify-between items-start">
             <div class="flex items-center gap-3">
               <div
-                class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
+                class="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary flex items-center justify-center flex-shrink-0"
               >
                 <ForkKnifeIcon size={20} weight="fill" class="text-white" />
               </div>
@@ -261,7 +261,7 @@
                 aria-selected={tab === t.id}
                 on:click={() => setTab(t.id === 'saved' ? 'saved' : 'published')}
                 class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {tab === t.id
-                  ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm'
+                  ? 'bg-gradient-to-r from-action to-action text-on-action shadow-sm'
                   : ''}"
                 style={tab === t.id ? '' : 'color: var(--color-text-secondary);'}
               >
@@ -290,7 +290,7 @@
           <!-- Rows -->
           {#if loading}
             <div class="flex items-center justify-center py-10">
-              <SpinnerIcon size={24} class="animate-spin text-orange-500" />
+              <SpinnerIcon size={24} class="animate-spin text-primary" />
             </div>
           {:else if filteredRows.length === 0}
             <div class="flex flex-col items-center text-center gap-2 py-8">
@@ -300,14 +300,14 @@
                 <p class="text-sm" style="color: var(--color-text-primary);">
                   No saved recipes yet.
                 </p>
-                <a href="/recipes" class="text-sm font-medium text-orange-500 hover:underline">
+                <a href="/recipes" class="text-sm font-medium text-primary hover:underline">
                   Browse recipes to save some
                 </a>
               {:else}
                 <p class="text-sm" style="color: var(--color-text-primary);">
                   You haven't published any recipes yet.
                 </p>
-                <a href="/create" class="text-sm font-medium text-orange-500 hover:underline">
+                <a href="/create" class="text-sm font-medium text-primary hover:underline">
                   Create a recipe
                 </a>
               {/if}
@@ -337,7 +337,7 @@
                     {row.title}
                   </span>
                   {#if selectedA === row.a}
-                    <CheckIcon size={18} class="text-orange-500 flex-shrink-0" weight="bold" />
+                    <CheckIcon size={18} class="text-primary flex-shrink-0" weight="bold" />
                   {/if}
                 </button>
               {/each}
@@ -358,7 +358,7 @@
               type="button"
               disabled={!selectedRow}
               on:click={confirmSelection}
-              class="px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              class="px-4 py-2 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Add to slot
             </button>

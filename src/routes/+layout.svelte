@@ -771,14 +771,13 @@
     pointer-events: none;
   }
 
-  /* Dark-mode header gets a subtle navy lean; the divider uses a faint
-     white line. */
+  /* Dark mode uses the selected palette while retaining the existing glass treatment. */
   :global(.dark) .header-blur {
-    background-color: rgba(14, 21, 41, 0.78);
-    background-image: linear-gradient(to bottom, rgba(33, 39, 73, 0.45), rgba(14, 21, 41, 0.65));
+    background-color: color-mix(in srgb, var(--color-bg-primary) 78%, transparent);
+    background-image: linear-gradient(to bottom, color-mix(in srgb, var(--color-bg-secondary) 45%, transparent), color-mix(in srgb, var(--color-bg-primary) 65%, transparent));
   }
   :global(.dark) .header-blur::after {
-    background: rgba(255, 255, 255, 0.06);
+    background: color-mix(in srgb, var(--color-input-border) 30%, transparent);
   }
 
   /* Safe-area-aware top padding, applied at ALL widths so the painted header
@@ -836,8 +835,8 @@
       pointer-events: none;
     }
     :global(.dark) .header-pipe {
-      border-left-color: rgba(255, 255, 255, 0.06);
-      border-bottom-color: rgba(255, 255, 255, 0.06);
+      border-left-color: color-mix(in srgb, var(--color-input-border) 30%, transparent);
+      border-bottom-color: color-mix(in srgb, var(--color-input-border) 30%, transparent);
     }
   }
 
@@ -866,7 +865,7 @@
       z-index: 20;
     }
     :global(.dark) .sidebar-separator {
-      border-left-color: rgba(255, 255, 255, 0.12);
+      border-left-color: color-mix(in srgb, var(--color-input-border) 60%, transparent);
     }
   }
   @media (min-width: 1280px) {

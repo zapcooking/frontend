@@ -150,11 +150,11 @@
     gap: 0.75rem;
     margin-top: 0.625rem;
   }
-  /* Not --color-primary: white on it is 3.84:1 (3.16:1 dark). This is 5.18:1. */
+  /* Filled actions use a contrast-safe background independent of link accents. */
   .nudge-primary {
     display: inline-block;
-    background: #c2410c;
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     border: none;
     border-radius: 10px;
     font-size: 0.8125rem;

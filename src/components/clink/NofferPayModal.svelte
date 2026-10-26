@@ -201,7 +201,7 @@
       <div class="flex flex-col items-center py-6">
         <div
           class="w-16 h-16 rounded-full flex items-center justify-center mb-3"
-          style="background-color: rgba(16, 185, 129, 0.15); color: #10b981;"
+          style="background-color: rgba(16, 185, 129, 0.15); color: var(--color-success);"
         >
           <Checkmark weight="fill" size={32} />
         </div>
@@ -214,7 +214,7 @@
       <div class="flex flex-col items-center py-2">
         <div
           class="w-16 h-16 rounded-full flex items-center justify-center mb-3"
-          style="background-color: rgba(245, 158, 11, 0.12); color: #f59e0b;"
+          style="background-color: rgba(245, 158, 11, 0.12); color: var(--color-warning);"
         >
           <LightningSlashIcon weight="fill" size={32} />
         </div>

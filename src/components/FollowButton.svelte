@@ -84,7 +84,7 @@
   }
   .follow-btn:hover {
     color: var(--color-primary);
-    background-color: var(--color-accent-gray);
+    background-color: var(--color-hover-bg);
   }
   .follow-btn:disabled {
     opacity: 0.5;

@@ -79,19 +79,10 @@ export function landingJsonLd(d: Pick<LandingData, 'cover' | 'picks' | 'reads'>)
 }
 
 /**
- * Readers without JavaScript never get `html.dark`, so follow the OS.
- * Mirrors Zap Original's dark palette in exploreThemes.css. Apply it locally
- * as well as at the root because Explore defines its own scoped color tokens.
+ * The shared palette follows the OS without JavaScript. Logo selection still
+ * needs this fallback because the usual dark selectors depend on html.dark.
  */
 export const NOSCRIPT_DARK_STYLE =
-	'<noscript><style>@media (prefers-color-scheme: dark){:root:root,.landing.landing{' +
-	'--explore-accent-text:#ffb18b;--explore-pattern:#d9ad8526;' +
-	'--color-primary:#ffb18b;--color-input-border:#716152;--color-caption:#c9b4a2;' +
-	'--color-text-primary:#fff5e9;--color-text-secondary:#dfcdbd;--color-bg-primary:#201c19;' +
-	'--color-bg-secondary:#302721;--color-input-bg:#261f1a;--color-accent-gray:#716152;' +
-	'--color-card-sunken:#191512;--color-explore-cream:#201c19;' +
-	'--color-explore-peach:#3e2a21;--color-explore-sage:#2b3328}' +
+	'<noscript><style>@media screen and (prefers-color-scheme: dark){' +
 	'.logo-l{display:none!important}.logo-d{display:block!important}' +
-	// The footer's Support link: Tailwind's dark: variant needs html.dark (orange-400).
-	'.landing .text-orange-700{color:#fb923c!important}' +
-	'body{background-color:#201c19}}</style></noscript>';
+	'}</style></noscript>';

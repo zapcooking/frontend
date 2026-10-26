@@ -671,21 +671,8 @@
   <title>Sous Chef - zap.cooking</title>
 </svelte:head>
 
-<!--
-  Scoped purple theme — see IntelligenceMenu.svelte's Sous Chef entry
-  (`accent: 'rgb(168, 85, 247)'`) for the source of truth. We override
-  --color-primary on this wrapper only, so every `text-primary` /
-  `bg-primary` / `border-primary` utility class descending from here
-  (including those inside <Button>) resolves to purple. Outside this
-  subtree the global orange palette is untouched.
-
-  Tailwind v4's compiled utilities use `var(--color-primary)`
-  (verified against dist/_app CSS), so the cascade override propagates
-  correctly. The remaining hard-coded orange literals on inline
-  `style=` attributes are replaced with purple equivalents in the same
-  pass — those don't pick up the variable.
--->
-<div class="flex flex-col max-w-[760px] mx-auto gap-6 pb-8" style="--color-primary: #a855f7;">
+<!-- Inherit the selected site palette; tool workflows and layout stay independent of style. -->
+<div class="flex flex-col max-w-[760px] mx-auto gap-6 pb-8">
   <!-- Header -->
   <div class="flex flex-col gap-2">
     <div class="flex items-center gap-3">
@@ -718,7 +705,7 @@
            TODO(tier-consolidation): when Cook+ is removed in the
            planned single-tier consolidation, rewrite this copy to
            "members" and revisit whether the gate should narrow then. -->
-      <div class="flex items-start gap-3 p-4 rounded-xl" style="background-color: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.25);">
+      <div class="flex items-start gap-3 p-4 rounded-xl" style="background-color: color-mix(in srgb, var(--color-primary) 8%, transparent); border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);">
         <SparkleIcon size={22} class="text-primary flex-shrink-0 mt-0.5" weight="fill" />
         <div class="flex-1">
           <p class="text-sm">
@@ -808,8 +795,8 @@
         <!-- Error message -->
         {#if extractionError}
           <div class="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
-            <WarningIcon size={20} class="text-red-500 flex-shrink-0 mt-0.5" />
-            <p class="text-sm text-red-500">{extractionError}</p>
+            <WarningIcon size={20} class="text-[var(--color-danger)] flex-shrink-0 mt-0.5" />
+            <p class="text-sm text-[var(--color-danger)]">{extractionError}</p>
           </div>
         {/if}
         
@@ -836,7 +823,7 @@
       <div class="flex flex-col gap-6">
         {#if isAnonPreview}
           <!-- Anon-preview banner (via landing hero handoff) -->
-          <div class="flex items-start gap-3 p-4 rounded-xl" style="background-color: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.25);">
+          <div class="flex items-start gap-3 p-4 rounded-xl" style="background-color: color-mix(in srgb, var(--color-primary) 8%, transparent); border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);">
             <SparkleIcon size={24} class="text-primary flex-shrink-0 mt-0.5" weight="fill" />
             <div class="flex-1">
               <p class="font-semibold" style="color: var(--color-primary);">Recipe imported — sign in to save or publish</p>
@@ -867,7 +854,7 @@
           </div>
         {/if}
         
-        {#if stageStorageError}<p role="alert" class="text-red-500">{stageStorageError}</p>{/if}
+        {#if stageStorageError}<p role="alert" class="text-[var(--color-danger)]">{stageStorageError}</p>{/if}
         {#if anonPreviewSourceUrl && !isAnonPreview}
           <p class="text-sm text-caption">Original recipe: <a href={anonPreviewSourceUrl} target="_blank" rel="noopener noreferrer">{anonPreviewSourceUrl}</a></p>
         {/if}
@@ -957,8 +944,8 @@
         <div class="flex flex-col gap-5 pt-6">
           {#if publishError}
             <div class="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
-              <WarningIcon size={20} class="text-red-500 flex-shrink-0 mt-0.5" />
-              <div><p role="alert" class="text-sm text-red-500">{publishError}</p>{#if duplicateRecipeHref}<a class="underline" href={duplicateRecipeHref}>Open your existing recipe</a>{/if}</div>
+              <WarningIcon size={20} class="text-[var(--color-danger)] flex-shrink-0 mt-0.5" />
+              <div><p role="alert" class="text-sm text-[var(--color-danger)]">{publishError}</p>{#if duplicateRecipeHref}<a class="underline" href={duplicateRecipeHref}>Open your existing recipe</a>{/if}</div>
             </div>
           {/if}
 
@@ -976,7 +963,7 @@
               on:click={signInToKeepRecipe}
               disabled={!!stageStorageError}
               class="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all"
-              style="background: linear-gradient(135deg, #a855f7 0%, #c084fc 100%); color: white; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);"
+              style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action); box-shadow: 0 2px 8px color-mix(in srgb, var(--color-primary) 30%, transparent);"
             >
               <SparkleIcon size={18} weight="fill" />
               Sign in to save or publish
@@ -991,7 +978,7 @@
             on:click={publishRecipe}
             disabled={isPublishing || !title || $images.length === 0 || $selectedTags.length === 0 || $ingredientsArray.length === 0 || $directionsArray.length === 0}
             class="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            style="background: linear-gradient(135deg, #a855f7 0%, #c084fc 100%); color: white; box-shadow: 0 2px 8px rgba(168, 85, 247, 0.3);"
+            style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action); box-shadow: 0 2px 8px color-mix(in srgb, var(--color-primary) 30%, transparent);"
             class:hover:shadow-lg={!isPublishing && title && $images.length > 0 && $selectedTags.length > 0 && $ingredientsArray.length > 0 && $directionsArray.length > 0}
           >
             {#if isPublishing}

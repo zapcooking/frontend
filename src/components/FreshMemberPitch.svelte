@@ -58,7 +58,7 @@
     <div class="flex flex-wrap items-center gap-3 mt-4">
       <a
         href="/membership"
-        class="inline-block px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+        class="inline-block px-4 py-2 rounded-full text-sm font-medium bg-action text-on-action"
         on:click={() => (open = false)}
       >
         {signedIn ? 'Become a member' : 'Learn about membership'}

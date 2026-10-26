@@ -35,7 +35,7 @@
       href={item.href}
       aria-current={active ? 'page' : undefined}
       class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors {active
-        ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm'
+        ? 'bg-gradient-to-r from-action to-action-hover text-on-action shadow-sm'
         : ''}"
       style={active ? '' : 'color: var(--color-text-secondary);'}
     >

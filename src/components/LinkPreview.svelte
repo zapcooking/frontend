@@ -139,7 +139,7 @@
     href={url}
     target="_blank"
     rel="noopener noreferrer"
-    class="text-orange-500 hover:text-orange-600 hover:underline break-all"
+    class="text-primary hover:text-primary hover:underline break-all"
   >
     {url}
   </a>

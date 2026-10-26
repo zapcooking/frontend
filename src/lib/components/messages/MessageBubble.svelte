@@ -170,7 +170,7 @@
     style={isMine
       ? protocol === 'nip17'
         ? 'background-color: rgba(124, 58, 237, 0.85); color: #ffffff;'
-        : 'background-color: var(--color-primary); color: #ffffff;'
+        : 'background-color: var(--color-action); color: var(--color-on-action);'
       : protocol === 'nip17'
         ? 'background-color: rgba(124, 58, 237, 0.12); color: var(--color-text-primary);'
         : 'background-color: var(--color-input-bg); color: var(--color-text-primary);'}

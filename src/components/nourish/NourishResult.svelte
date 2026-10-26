@@ -445,22 +445,18 @@
     gap: 0.55rem;
   }
 
-  /* Upgrade banner — green-family treatment to match the rest of the
-     card. Uses color-mix against --color-primary... actually no —
-     primary is orange. The Nourish card is a green island on the
-     site, so use hardcoded green tokens consistent with the existing
-     strength pills. */
+  /* Upgrade invitation follows the site palette; nutrient strength colors remain semantic. */
   .nr-upgrade-banner {
     display: flex;
     align-items: center;
     gap: 0.55rem;
     padding: 0.55rem 0.7rem;
     border-radius: 0.55rem;
-    background: rgba(34, 197, 94, 0.08);
-    border: 1px solid rgba(34, 197, 94, 0.2);
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
   }
   :global(.nr-upgrade-sparkle) {
-    color: #22c55e;
+    color: var(--color-primary);
     flex-shrink: 0;
   }
   .nr-upgrade-copy {
@@ -474,7 +470,7 @@
     margin: 0;
     font-size: 0.78rem;
     font-weight: 600;
-    color: #22c55e;
+    color: var(--color-primary);
     line-height: 1.2;
   }
   .nr-upgrade-sub {
@@ -491,8 +487,8 @@
     padding: 0.35rem 0.7rem;
     border-radius: 9999px;
     border: none;
-    background: #22c55e;
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.73rem;
     font-weight: 600;
     cursor: pointer;
@@ -715,7 +711,7 @@
   .nr-reset {
     font-size: 0.8125rem;
     font-weight: 500;
-    color: #22c55e;
+    color: var(--color-primary);
     cursor: pointer;
     background: none;
     border: none;
@@ -729,7 +725,7 @@
   }
   .nr-rescore:hover:not(:disabled),
   .nr-reset:hover {
-    background: rgba(34, 197, 94, 0.08);
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
   .nr-rescore:disabled {
     opacity: 0.55;

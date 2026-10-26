@@ -208,8 +208,8 @@
     border-radius: 999px;
     font-size: 0.875rem;
     font-weight: 600;
-    color: #fff;
-    background: var(--color-primary);
+    color: var(--color-on-action);
+    background: var(--color-action);
     transition: filter 0.2s;
   }
 

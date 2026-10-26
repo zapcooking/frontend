@@ -44,7 +44,7 @@
       </p>
       <a
         href="/membership"
-        class="inline-block mt-3 px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+        class="inline-block mt-3 px-4 py-2 rounded-full text-sm font-medium bg-action text-on-action"
       >
         {prompt.signedIn ? 'Become a member' : 'Learn about membership'}
       </a>
@@ -57,7 +57,7 @@
       </p>
       <button
         type="button"
-        class="mt-3 px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+        class="mt-3 px-4 py-2 rounded-full text-sm font-medium bg-action text-on-action"
         on:click={() => dispatch('login')}
       >
         Try again
@@ -76,7 +76,7 @@
       </p>
       <button
         type="button"
-        class="mt-3 px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+        class="mt-3 px-4 py-2 rounded-full text-sm font-medium bg-action text-on-action"
         on:click={() => dispatch('login')}
       >
         Log in to the feed

@@ -15,7 +15,6 @@
   import LandingThemePicker from '../../components/landing/LandingThemePicker.svelte';
   import LandingMembership from '../../components/landing/LandingMembership.svelte';
   import LandingRecipePacks from '../../components/landing/LandingRecipePacks.svelte';
-  import exploreThemeScript from '$lib/landing/exploreTheme.client.js?url';
   import '$lib/landing/exploreThemes.css';
 
   export let data: PageData;
@@ -33,8 +32,6 @@
 </script>
 
 <svelte:head>
-  <!-- Restore this device's style before the body paints; no app hydration or cache variation. -->
-  <script src={exploreThemeScript}></script>
   <title>{meta.title}</title>
   <meta name="description" content={meta.description} />
   <link rel="canonical" href={meta.canonical} />

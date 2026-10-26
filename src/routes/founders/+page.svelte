@@ -146,8 +146,8 @@
     top: -12px;
     left: 50%;
     transform: translateX(-50%);
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-weight: bold;
     padding: 0.25rem 0.75rem;
     border-radius: 20px;
@@ -202,7 +202,7 @@
 
   /* Dark mode adjustments */
   html.dark .founder-card {
-    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+    background: linear-gradient(135deg, var(--color-bg-secondary) 0%, var(--color-bg-primary) 100%);
   }
 
   /* Mobile adjustments */

@@ -78,7 +78,7 @@
       >
         Global Food
         {#if activeTab === 'global'}
-          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"></span>
         {/if}
       </button>
 
@@ -93,7 +93,7 @@
       >
         Following
         {#if activeTab === 'following'}
-          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"></span>
         {/if}
       </button>
 
@@ -104,7 +104,7 @@
       >
         Notes & Replies
         {#if activeTab === 'replies'}
-          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"></span>
         {/if}
       </button>
     </div>

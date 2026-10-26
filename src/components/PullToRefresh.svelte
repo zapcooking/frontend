@@ -318,13 +318,13 @@
 
   /* Triggered state */
   .pull-indicator.triggered .spinner {
-    background: var(--color-primary, #EC4700);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
   }
 
   .pull-indicator.refreshing .spinner {
-    background: var(--color-primary, #EC4700);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
   }
 </style>
 

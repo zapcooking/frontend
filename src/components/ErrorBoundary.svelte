@@ -184,19 +184,19 @@
   }
 
   .error-title {
-    @apply text-xl font-semibold text-gray-900 dark:text-gray-100;
+    @apply text-xl font-semibold text-[var(--color-text-primary)] dark:text-[var(--color-text-primary)];
   }
 
   .error-message {
-    @apply text-gray-600 dark:text-gray-400;
+    @apply text-[var(--color-text-secondary)] dark:text-[var(--color-caption)];
   }
 
   .error-details {
-    @apply text-left bg-[var(--color-bg-secondary)] dark:bg-gray-800 p-4 rounded-lg;
+    @apply text-left bg-[var(--color-bg-secondary)] dark:bg-[var(--color-bg-secondary)] p-4 rounded-lg;
   }
 
   .error-stack {
-    @apply text-sm text-gray-700 dark:text-gray-300;
+    @apply text-sm text-[var(--color-text-secondary)] dark:text-[var(--color-text-secondary)];
   }
 
   .error-stack pre {
@@ -212,14 +212,14 @@
   }
 
   .btn-primary {
-    @apply bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50;
+    @apply bg-action text-on-action hover:bg-action-hover disabled:opacity-50;
   }
 
   .btn-secondary {
-    @apply bg-[var(--color-input-border)] text-gray-800 hover:bg-[var(--color-accent-gray)] dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
+    @apply bg-[var(--color-input-bg)] text-[var(--color-text-primary)] hover:bg-[var(--color-hover-bg)] dark:bg-[var(--color-input-bg)] dark:text-[var(--color-text-primary)] dark:hover:bg-[var(--color-hover-bg)];
   }
 
   .error-suggestion {
-    @apply text-sm text-gray-500 dark:text-gray-400 mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg;
+    @apply text-sm text-[var(--color-caption)] dark:text-[var(--color-caption)] mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg;
   }
 </style>

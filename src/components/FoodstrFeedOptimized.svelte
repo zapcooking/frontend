@@ -5148,7 +5148,7 @@
       <div class="fixed top-4 left-1/2 -translate-x-1/2 z-50">
         <button
           on:click={loadPendingPosts}
-          class="py-2 px-4 bg-primary text-white rounded-full shadow-lg hover:bg-primary/90 transition-all flex items-center gap-2"
+          class="py-2 px-4 bg-action text-on-action rounded-full shadow-lg hover:bg-action-hover transition-all flex items-center gap-2"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -5178,7 +5178,7 @@
         <button
           on:click={() => setFoodFilter(!foodFilterEnabled)}
           class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {foodFilterEnabled
-            ? 'bg-primary'
+            ? 'bg-action'
             : 'bg-accent-gray'}"
         >
           <span
@@ -5232,7 +5232,7 @@
           </div>
           <button
             on:click={() => retryWithDelay()}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Retry Connection
           </button>
@@ -5266,7 +5266,7 @@
                   unmuteAuthor(authorPubkey);
                 }
               }}
-              class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+              class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
             >
               Unmute User
             </button>
@@ -5303,7 +5303,7 @@
                   </p>
                   <button
                     on:click={() => dispatch('view-reads')}
-                    class="mt-3 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                    class="mt-3 px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
                   >
                     View their Reads
                   </button>
@@ -5348,14 +5348,14 @@
                    as the switch above the feed. -->
               <button
                 on:click={() => setFoodFilter(false)}
-                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
               >
                 Show all posts
               </button>
             {:else if !foodToggleVisible}
               <button
                 on:click={() => retryWithDelay()}
-                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
               >
                 Refresh Feed
               </button>
@@ -5860,7 +5860,7 @@
       </p>
       <button
         on:click={() => (isGeneratingImage = false)}
-        class="text-xs px-3 py-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white transition"
+        class="text-xs px-3 py-1.5 rounded bg-[var(--color-input-bg)] hover:bg-accent-gray text-[var(--color-text-primary)] transition"
       >
         Cancel
       </button>
@@ -5885,7 +5885,7 @@
       </p>
       <button
         on:click={() => (imageGenerationError = null)}
-        class="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+        class="w-full px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
       >
         Close
       </button>

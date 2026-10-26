@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { LANDING_CACHE_CONTROL, isLandingPath, isLandingRoute } from './route';
 import { NOSCRIPT_DARK_STYLE, landingJsonLd, ogImage } from './meta';
 import { emptyLandingData } from './landingData.server';
@@ -39,9 +40,11 @@ describe('landing meta', () => {
 		}
 	});
 
-	it('no-JS dark mode also lightens the footer Support link (orange-700 is 3.4:1 on #111827)', () => {
-		expect(NOSCRIPT_DARK_STYLE).toContain('@media (prefers-color-scheme: dark)');
-		expect(NOSCRIPT_DARK_STYLE).toMatch(/\.landing \.text-orange-700\{color:#fb923c!important\}/);
+	it('keeps no-JS dark logos and uses the shared OS fallback without overriding explicit modes or print', () => {
+		expect(NOSCRIPT_DARK_STYLE).toContain('@media screen and (prefers-color-scheme: dark)');
+		expect(NOSCRIPT_DARK_STYLE).toContain('.logo-l{display:none!important}.logo-d{display:block!important}');
+		const palettes = readFileSync('src/lib/themes/palettes.css', 'utf8');
+		expect(palettes).toMatch(/@media screen and \(prefers-color-scheme: dark\)\s*\{\s*html:root:not\(\[data-color-mode\]\):not\(\.dark\)/);
 	});
 
 	it('JSON-LD can never close its <script> early', () => {

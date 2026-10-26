@@ -191,7 +191,7 @@
           </div>
 
           {#if !isRead(item)}
-            <span class="w-2 h-2 bg-orange-500 rounded-full flex-shrink-0 mt-2"></span>
+            <span class="w-2 h-2 bg-primary rounded-full flex-shrink-0 mt-2"></span>
           {/if}
         </button>
       {/each}
@@ -203,7 +203,7 @@
     <div class="border-t" style="border-color: var(--color-input-border)">
       <button
         on:click={viewAll}
-        class="w-full px-4 py-3 text-sm text-center text-orange-500 hover:bg-accent-gray font-medium cursor-pointer"
+        class="w-full px-4 py-3 text-sm text-center text-primary hover:bg-accent-gray font-medium cursor-pointer"
       >
         See all notifications
       </button>

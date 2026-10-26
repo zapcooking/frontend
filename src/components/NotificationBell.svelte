@@ -531,8 +531,8 @@
   }
   .notif-tab.active {
     color: var(--color-text-primary);
-    border-image: linear-gradient(to right, #f97316, #f59e0b) 1;
-    border-bottom: 2px solid #f97316;
+    border-image: linear-gradient(to right, var(--color-primary), var(--color-primary)) 1;
+    border-bottom: 2px solid var(--color-primary);
   }
   /* Unread count beside the tab label — quiet, not part of the bold
      label. */
@@ -571,10 +571,10 @@
     background-color: var(--color-input-bg);
   }
   .notif-row.unread {
-    background-color: color-mix(in srgb, #f97316 5%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 5%, transparent);
   }
   .notif-row.unread:hover {
-    background-color: color-mix(in srgb, #f97316 9%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 9%, transparent);
   }
 
   .notif-row-body {
@@ -627,7 +627,7 @@
     height: 0.5rem;
     margin-top: 6px;
     border-radius: 9999px;
-    background-color: #f97316;
+    background-color: var(--color-primary);
   }
 
   .notif-footer {

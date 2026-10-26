@@ -79,7 +79,7 @@
 				<button
 					on:click={handleCopy}
 					class="w-full py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer flex items-center justify-center gap-2"
-					style="background-color: var(--color-primary); color: #ffffff;"
+					style="background-color: var(--color-action); color: var(--color-on-action);"
 				>
 					{#if copied}
 						<CheckIcon size={16} weight="bold" />

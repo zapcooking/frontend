@@ -208,7 +208,7 @@
         </button>
         <button
           on:click={close}
-          class="flex-shrink-0 p-2 rounded-full hover:bg-opacity-10 hover:bg-gray-500 transition-colors cursor-pointer"
+          class="flex-shrink-0 p-2 rounded-full hover:bg-opacity-10 hover:bg-[var(--color-input-bg)] transition-colors cursor-pointer"
           style="color: var(--color-text-primary);"
           aria-label="Close menu"
         >

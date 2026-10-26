@@ -139,7 +139,7 @@
   }
 
   .nav-tab.active {
-    color: var(--color-accent, #f97316);
+    color: var(--color-primary);
   }
 
   .badge-dot {

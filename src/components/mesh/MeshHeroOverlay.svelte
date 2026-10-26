@@ -251,7 +251,7 @@
 
   <!-- Centered overlay content -->
   <div class="hero-overlay">
-    <h1 class="hero-title" style="color: {isDarkMode ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.9)'};">
+    <h1 class="hero-title" style="color: {isDarkMode ? 'var(--color-text-primary)' : 'var(--color-text-primary)'};">
       Culinary Mesh
     </h1>
     <div class="hero-ctas">
@@ -274,13 +274,13 @@
     max-height: 280px;
     overflow: hidden;
     border-radius: 16px;
-    background: radial-gradient(ellipse at center, rgba(255,252,248,1) 0%, rgba(245,240,235,1) 100%);
+    background: radial-gradient(ellipse at center, var(--color-bg-primary) 0%, var(--color-card-sunken) 100%);
     opacity: 0;
     transition: opacity 0.8s ease-out;
   }
 
   .mesh-hero.dark {
-    background: radial-gradient(ellipse at center, rgba(20,15,12,1) 0%, rgba(10,8,6,1) 100%);
+    background: radial-gradient(ellipse at center, var(--color-bg-primary) 0%, var(--color-card-sunken) 100%);
   }
 
   .mesh-hero.ready {
@@ -378,8 +378,8 @@
   .hero-cta-primary {
     padding: 10px 24px;
     border-radius: 999px;
-    background-color: var(--color-primary);
-    color: white;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     font-weight: 600;
     font-size: 14px;
     text-decoration: none;
@@ -395,7 +395,7 @@
     padding: 10px 24px;
     border-radius: 999px;
     border: 1px solid var(--color-input-border);
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--color-input-bg);
     backdrop-filter: blur(8px);
     color: var(--color-text-primary);
     font-weight: 600;
@@ -405,7 +405,7 @@
   }
 
   .hero-cta-secondary:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--color-hover-bg);
   }
 
   @media (max-width: 640px) {

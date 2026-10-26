@@ -103,7 +103,7 @@
 	}
 
 	.banner-placeholder {
-		background: linear-gradient(135deg, rgba(249, 115, 22, 0.2), rgba(251, 146, 60, 0.1));
+		background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 20%, transparent), color-mix(in srgb, var(--color-primary) 10%, transparent));
 	}
 
 	.avatar-wrap {

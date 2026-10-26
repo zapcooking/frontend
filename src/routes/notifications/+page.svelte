@@ -718,7 +718,7 @@
         <a
           href="/login?redirect=/notifications"
           class="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all"
-          style="background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); color: white;"
+          style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
         >
           Sign in
         </a>
@@ -745,7 +745,7 @@
               {tab.label}
               {#if activeTab === tab.id}
                 <span
-                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
                 ></span>
               {/if}
             </button>
@@ -925,10 +925,10 @@
     background-color: var(--color-input-bg);
   }
   .notif-unread {
-    background-color: color-mix(in srgb, #f97316 6%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 6%, transparent);
   }
   .notif-unread:hover {
-    background-color: color-mix(in srgb, #f97316 10%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
   }
   .notif-zap-accent {
     border-left: 2.5px solid #f59e0b;
@@ -991,7 +991,7 @@
     width: 0.5rem;
     height: 0.5rem;
     border-radius: 9999px;
-    background-color: #f97316;
+    background-color: var(--color-primary);
     flex-shrink: 0;
   }
 
@@ -1015,7 +1015,7 @@
     margin-top: 0.5rem;
     padding: 0.5rem 0.625rem;
     border-left: 2.5px solid;
-    border-image: linear-gradient(to bottom, #f97316, #f59e0b) 1;
+    border-image: linear-gradient(to bottom, var(--color-primary), var(--color-primary)) 1;
     border-radius: 0 0.375rem 0.375rem 0;
     background-color: var(--color-input-bg);
   }

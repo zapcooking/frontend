@@ -113,7 +113,7 @@
       </p>
       <a
         href="/login?redirect=/memories"
-        class="inline-block px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:opacity-90 transition-opacity"
+        class="inline-block px-4 py-2 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:bg-action-hover transition-opacity"
       >
         Sign in
       </a>

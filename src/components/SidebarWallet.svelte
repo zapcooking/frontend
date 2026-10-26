@@ -252,23 +252,23 @@
     outline: none;
   }
   .sidebar-wallet-card:hover {
-    border-color: rgba(251, 191, 36, 0.45);
+    border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
   }
   .sidebar-wallet-card:active {
     transform: scale(0.98);
   }
   .sidebar-wallet-card:focus-visible {
-    box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.35);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 35%, transparent);
   }
   :global(.dark) .sidebar-wallet-card {
-    background-color: rgba(255, 255, 255, 0.08) !important;
-    border-color: rgba(251, 191, 36, 0.35) !important;
-    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.08);
+    background-color: var(--color-bg-secondary) !important;
+    border-color: color-mix(in srgb, var(--color-primary) 35%, transparent) !important;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
   :global(.dark) .sidebar-wallet-card:focus-visible {
     box-shadow:
-      inset 0 0 0 1px rgba(251, 191, 36, 0.08),
-      0 0 0 2px rgba(251, 191, 36, 0.35);
+      inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 8%, transparent),
+      0 0 0 2px color-mix(in srgb, var(--color-primary) 35%, transparent);
   }
 
   /* Amber gradient orb behind the lightning bolt — the wallet brand
@@ -280,7 +280,7 @@
     width: 26px;
     height: 26px;
     border-radius: 999px;
-    background: linear-gradient(135deg, #f97316, #f59e0b);
+    background: linear-gradient(135deg, #ec4700, #f59e0b);
     flex-shrink: 0;
   }
 
@@ -326,7 +326,7 @@
       color 140ms ease;
   }
   .card-action:hover {
-    background-color: rgba(251, 191, 36, 0.12);
+    background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
     color: var(--color-text-primary);
   }
   .card-action:disabled {

@@ -1,0 +1,304 @@
+/* Shared palettes reuse the original app neutrals and existing Explore colors. Display typography and decoration remain local to Explore. Primary is readable accent text, never a filled button: use action/on-action for that pair. */
+html:root {
+  --explore-action-bg: #bd3c0b;
+  --explore-action-ink: #ffffff;
+  --explore-accent-text: #a73108;
+  --explore-pattern: #ad68451a;
+  --explore-masthead-bg: transparent;
+  --explore-masthead-ink: var(--color-text-primary);
+  --explore-masthead-muted: var(--color-text-secondary);
+  --color-primary: var(--explore-accent-text);
+  --color-text-primary: #111827;
+  --color-text-secondary: #4b5563;
+  --color-caption: #4b5563;
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f9fafb;
+  --color-input-bg: #f3f4f6;
+  --color-input-border: #e5e7eb;
+  --color-accent-gray: #d1d5db;
+  --color-card-sunken: #f1f2f4;
+  --color-explore-cream: var(--color-bg-primary);
+  --color-explore-peach: #ffe8d8;
+  --color-explore-sage: #edf1e5;
+  --color-light-bg-primary: var(--color-bg-primary);
+  --color-light-bg-secondary: var(--color-bg-secondary);
+  --color-light-input-bg: var(--color-input-bg);
+  --color-light-input-border: var(--color-input-border);
+  --color-action: var(--explore-action-bg);
+  --color-on-action: var(--explore-action-ink);
+  --color-action-hover: color-mix(in srgb, var(--color-action) 88%, #28231f);
+  --color-selected-bg: color-mix(in srgb, var(--color-primary) 12%, var(--color-bg-primary));
+  --color-hover-bg: color-mix(in srgb, var(--color-primary) 6%, var(--color-bg-primary));
+  --color-skeleton-base: var(--color-card-sunken);
+  --color-skeleton-highlight: var(--color-bg-secondary);
+  --color-light-accent-gray: var(--color-accent-gray);
+  --color-light-skeleton-base: var(--color-skeleton-base);
+  --color-light-bg-brand: var(--color-action);
+  --color-accent: var(--color-primary);
+  --color-link: var(--color-primary);
+  --color-text-caption: var(--color-caption);
+  --color-text-muted: var(--color-caption);
+  --color-bg-tertiary: var(--color-input-bg);
+  --color-bg-hover: var(--color-hover-bg);
+  --color-input: var(--color-input-bg);
+  --color-surface: var(--color-bg-secondary);
+  --color-border: var(--color-input-border);
+  --zap-orange: var(--color-primary);
+  color-scheme: light;
+  --color-success: #166534;
+  --color-warning: #92400e;
+  --color-info: #1d4ed8;
+  --color-danger: #b91c1c;
+}
+html:root.dark {
+  --explore-accent-text: #ffb18b;
+  --explore-pattern: #d9ad8526;
+  --color-text-primary: #fff5e9;
+  --color-text-secondary: #dfcdbd;
+  --color-caption: #c9b4a2;
+  --color-bg-primary: #201c19;
+  --color-bg-secondary: #302721;
+  --color-input-bg: #261f1a;
+  --color-input-border: #716152;
+  --color-accent-gray: #716152;
+  --color-card-sunken: #191512;
+  --color-explore-peach: #3e2a21;
+  --color-explore-sage: #2b3328;
+  color-scheme: dark;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-info: #93c5fd;
+  --color-danger: #fca5a5;
+}
+/* Preserve the former off-white Original as an opt-in style. Both use the same existing dark palette. */
+html:root:not(.dark)[data-explore-theme='warm-kitchen'] {
+  --color-text-primary: #28231f;
+  --color-text-secondary: #60554b;
+  --color-caption: #6b5d51;
+  --color-bg-primary: #fff9f2;
+  --color-bg-secondary: #f4e9dd;
+  --color-input-bg: #fffdf9;
+  --color-input-border: #c7b7a7;
+  --color-accent-gray: #c7b7a7;
+  --color-card-sunken: #eee2d4;
+}
+html:root[data-explore-theme='after-hours'] {
+  --explore-accent-text: #9b2d25;
+  --explore-pattern: #336b661f;
+  --explore-masthead-bg: #35213f;
+  --explore-masthead-ink: #fff7e6;
+  --explore-masthead-muted: #efdfde;
+  --explore-picker-focus: var(--explore-masthead-ink);
+  --color-text-primary: #322238;
+  --color-text-secondary: #625063;
+  --color-caption: #6f5968;
+  --color-bg-primary: #fff7e8;
+  --color-bg-secondary: #f4e6da;
+  --color-input-bg: #fffdf7;
+  --color-input-border: #bcaaad;
+  --color-accent-gray: #bcaaad;
+  --color-card-sunken: #eee1db;
+  --color-explore-peach: #ffe0ca;
+  --color-explore-sage: #e5eee5;
+}
+html:root.dark[data-explore-theme='after-hours'] {
+  --explore-accent-text: #ffb38b;
+  --explore-pattern: #9be0cd21;
+  --explore-masthead-bg: #392646;
+  --explore-masthead-ink: #fff7e6;
+  --explore-masthead-muted: #efdfde;
+  --color-text-primary: #fff1e5;
+  --color-text-secondary: #e2cedd;
+  --color-caption: #cfb8cd;
+  --color-bg-primary: #211829;
+  --color-bg-secondary: #302236;
+  --color-input-bg: #291d31;
+  --color-input-border: #80687e;
+  --color-accent-gray: #80687e;
+  --color-card-sunken: #19111f;
+  --color-explore-peach: #432735;
+  --color-explore-sage: #213b36;
+}
+html:root[data-explore-theme='recipe-club'] {
+  --explore-accent-text: #234398;
+  --explore-pattern: #25499c12;
+  --explore-label-bg: #fff0a1;
+  --explore-label-ink: #24386b;
+  --color-text-primary: #172449;
+  --color-text-secondary: #4c5265;
+  --color-caption: #5b6073;
+  --color-bg-primary: #fffdf4;
+  --color-bg-secondary: #eeeee6;
+  --color-input-bg: #fffffc;
+  --color-input-border: #9da6bd;
+  --color-accent-gray: #9da6bd;
+  --color-card-sunken: #e8e7df;
+  --color-explore-peach: #ffe6d4;
+  --color-explore-sage: #ecedff;
+}
+html:root.dark[data-explore-theme='recipe-club'] {
+  --explore-accent-text: #b3c5ff;
+  --explore-pattern: #a4b9ff17;
+  --explore-label-bg: #efe49b;
+  --explore-label-ink: #263564;
+  --color-text-primary: #f6f2e4;
+  --color-text-secondary: #d1d4e6;
+  --color-caption: #b7bed9;
+  --color-bg-primary: #181d2d;
+  --color-bg-secondary: #242b3f;
+  --color-input-bg: #1e2537;
+  --color-input-border: #6d7898;
+  --color-accent-gray: #6d7898;
+  --color-card-sunken: #101624;
+  --color-explore-peach: #3b2b29;
+  --color-explore-sage: #282b44;
+}
+html:root[data-explore-theme='recipe-box'] {
+  --explore-accent-text: #3e5d42;
+  --explore-pattern: #526f4a12;
+  --explore-action-bg: #ac390e;
+  --color-text-primary: #30382b;
+  --color-text-secondary: #56604c;
+  --color-caption: #60694f;
+  --color-bg-primary: #fffdf3;
+  --color-bg-secondary: #eeefdf;
+  --color-input-bg: #fffffa;
+  --color-input-border: #abb59a;
+  --color-accent-gray: #abb59a;
+  --color-card-sunken: #e8e8d8;
+  --color-explore-peach: #f6e5d3;
+  --color-explore-sage: #e9efdc;
+}
+html:root.dark[data-explore-theme='recipe-box'] {
+  --explore-accent-text: #bed7aa;
+  --explore-pattern: #9ab78116;
+  --color-text-primary: #f4f3e3;
+  --color-text-secondary: #d1d6bf;
+  --color-caption: #b8c3a3;
+  --color-bg-primary: #1c231b;
+  --color-bg-secondary: #283025;
+  --color-input-bg: #222a1f;
+  --color-input-border: #6e7c5e;
+  --color-accent-gray: #6e7c5e;
+  --color-card-sunken: #141b13;
+  --color-explore-peach: #3b3023;
+  --color-explore-sage: #2b3626;
+}
+html:root[data-explore-theme='corner-diner'] {
+  --explore-accent-text: #9c3423;
+  --explore-pattern: #9c342326;
+  --explore-masthead-bg: #cce9e3;
+  --explore-masthead-ink: #943222;
+  --explore-masthead-muted: #4c5a55;
+  --explore-picker-focus: var(--explore-masthead-ink);
+  --color-text-primary: #2c3431;
+  --color-text-secondary: #4c5a55;
+  --color-caption: #58645c;
+  --color-bg-primary: #fff9e9;
+  --color-bg-secondary: #f1eddd;
+  --color-input-bg: #fffdf6;
+  --color-input-border: #99afa4;
+  --color-accent-gray: #99afa4;
+  --color-card-sunken: #e9e4d5;
+  --color-explore-peach: #f9e5d9;
+  --color-explore-sage: #dcece5;
+}
+html:root.dark[data-explore-theme='corner-diner'] {
+  --explore-accent-text: #ffb5a0;
+  --explore-pattern: #f8c4a52e;
+  --explore-masthead-bg: #233f3a;
+  --explore-masthead-ink: #ffb5a0;
+  --explore-masthead-muted: #dfd6c4;
+  --color-text-primary: #fff5e5;
+  --color-text-secondary: #dfd6c4;
+  --color-caption: #c2cbbd;
+  --color-bg-primary: #1d2522;
+  --color-bg-secondary: #2b3631;
+  --color-input-bg: #232d28;
+  --color-input-border: #718d80;
+  --color-accent-gray: #718d80;
+  --color-card-sunken: #141c18;
+  --color-explore-peach: #3b2c25;
+  --color-explore-sage: #283b35;
+}
+html:root[data-explore-theme='sunday-market'] {
+  --explore-accent-text: #306337;
+  --explore-citrus: #f7df72;
+  --explore-leaf: #306337;
+  --explore-berry: #99344a;
+  --explore-label-bg: var(--explore-citrus);
+  --explore-label-ink: #306337;
+  --explore-masthead-ink: var(--explore-leaf);
+  --color-text-primary: #263b2e;
+  --color-text-secondary: #53604e;
+  --color-caption: #5b654b;
+  --color-bg-primary: #fffcf4;
+  --color-bg-secondary: #f0efdf;
+  --color-input-bg: #fffffb;
+  --color-input-border: #a4b293;
+  --color-accent-gray: #a4b293;
+  --color-card-sunken: #e9e9d8;
+  --color-explore-peach: #fff1bb;
+  --color-explore-sage: #e8efdc;
+}
+html:root.dark[data-explore-theme='sunday-market'] {
+  --explore-accent-text: #bddb9d;
+  --explore-citrus: #e6ce68;
+  --explore-leaf: #bddb9d;
+  --explore-berry: #f7b4bf;
+  --explore-label-bg: #e6ce68;
+  --explore-label-ink: #294f2e;
+  --color-text-primary: #f6f3de;
+  --color-text-secondary: #d6dcc5;
+  --color-caption: #c0caaa;
+  --color-bg-primary: #1d251c;
+  --color-bg-secondary: #2b3526;
+  --color-input-bg: #242e20;
+  --color-input-border: #758562;
+  --color-accent-gray: #758562;
+  --color-card-sunken: #151c13;
+  --color-explore-peach: #3d371f;
+  --color-explore-sage: #283c28;
+}
+/* Without JavaScript there is no stored preference to restore. Follow the OS with the Original palette; the prepaint script sets data-color-mode for explicit choices. */
+@media screen and (prefers-color-scheme: dark) {
+  html:root:not([data-color-mode]):not(.dark) {
+    --explore-accent-text: #ffb18b;
+    --explore-pattern: #d9ad8526;
+    --color-text-primary: #fff5e9;
+    --color-text-secondary: #dfcdbd;
+    --color-caption: #c9b4a2;
+    --color-bg-primary: #201c19;
+    --color-bg-secondary: #302721;
+    --color-input-bg: #261f1a;
+    --color-input-border: #716152;
+    --color-accent-gray: #716152;
+    --color-card-sunken: #191512;
+    --color-explore-peach: #3e2a21;
+    --color-explore-sage: #2b3328;
+    color-scheme: dark;
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
+    --color-info: #93c5fd;
+    --color-danger: #fca5a5;
+  }
+}
+@media print {
+  html:root:root:root:root {
+    --color-text-primary: #111111;
+    --color-text-secondary: #333333;
+    --color-caption: #444444;
+    --color-primary: #222222;
+    --color-bg-primary: #ffffff;
+    --color-bg-secondary: #ffffff;
+    --color-input-bg: #ffffff;
+    --color-input-border: #777777;
+    --color-accent-gray: #777777;
+    --color-card-sunken: #ffffff;
+    --color-success: #166534;
+    --color-warning: #92400e;
+    --color-info: #1d4ed8;
+    --color-danger: #b91c1c;
+    color-scheme: light;
+  }
+}

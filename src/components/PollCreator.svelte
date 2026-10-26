@@ -321,7 +321,7 @@
         Cancel
       </button>
       <button
-        class="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        class="px-4 py-2 text-sm font-medium text-on-action bg-gradient-to-r from-action to-action-hover hover:from-action-hover hover:to-action-hover rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all"
         disabled={!canCreate || uploadingIndex !== null}
         on:click={handleCreate}
       >
@@ -348,9 +348,9 @@
   }
 
   .poll-type-btn.active {
-    background: var(--color-primary, #f97316);
-    color: white;
-    border-color: var(--color-primary, #f97316);
+    background: var(--color-action);
+    color: var(--color-on-action);
+    border-color: var(--color-action);
   }
 
   .poll-option-input {
@@ -459,9 +459,9 @@
   }
 
   .duration-preset.active {
-    background: var(--color-primary, #f97316);
-    color: white;
-    border-color: var(--color-primary, #f97316);
+    background: var(--color-action);
+    color: var(--color-on-action);
+    border-color: var(--color-action);
   }
 
   .duration-preset:hover:not(.active) {

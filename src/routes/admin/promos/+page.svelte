@@ -506,7 +506,7 @@
     color: var(--color-text-secondary);
   }
   .status-error {
-    color: #ef4444;
+    color: var(--color-danger);
   }
   .card {
     border: 1px solid var(--color-input-border);
@@ -583,12 +583,12 @@
     cursor: not-allowed;
   }
   .btn-primary {
-    background: var(--color-primary);
-    border-color: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    border-color: var(--color-action);
+    color: var(--color-on-action);
   }
   .btn-danger {
-    color: #ef4444;
+    color: var(--color-danger);
     border-color: rgba(239, 68, 68, 0.4);
   }
   .codes {

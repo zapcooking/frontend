@@ -1190,7 +1190,7 @@
   }
 
   .status-error {
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .tabs {
@@ -1260,8 +1260,8 @@
     padding: 0 0.375rem;
     margin-left: 0.375rem;
     border-radius: 9999px;
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.6875rem;
     font-weight: 600;
   }
@@ -1291,8 +1291,8 @@
   .btn-rescore-retry {
     padding: 0.375rem 0.75rem;
     border-radius: 0.4rem;
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.8125rem;
     font-weight: 500;
     border: none;
@@ -1326,7 +1326,7 @@
   .rescore-error {
     margin: 0;
     font-size: 0.8125rem;
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .rescore-success {
@@ -1413,8 +1413,8 @@
   }
 
   .btn-confirm {
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
   }
 
   /* ── Bulk rescore batch UI ── */
@@ -1446,8 +1446,8 @@
     padding: 0.45rem 0.9rem;
     border-radius: 0.5rem;
     border: none;
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
@@ -1484,7 +1484,7 @@
   }
 
   .batch-fail {
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .btn-batch-abort {
@@ -1572,7 +1572,7 @@
   }
 
   .count.high {
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .count.low {

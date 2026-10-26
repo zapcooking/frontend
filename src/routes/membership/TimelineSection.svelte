@@ -18,7 +18,7 @@
 </script>
 
 <div class="max-w-4xl mx-auto px-1 sm:px-0">
-  <h2 class="text-2xl sm:text-3xl lg:text-4xl font-bold text-center mb-6 sm:mb-8 text-gray-900 dark:text-white">
+  <h2 class="text-2xl sm:text-3xl lg:text-4xl font-bold text-center mb-6 sm:mb-8 text-[var(--color-text-primary)]">
     Founding Member Timeline
   </h2>
 
@@ -28,12 +28,12 @@
       <div class="text-3xl sm:text-4xl lg:text-5xl font-bold text-orange-600 dark:text-orange-400 mb-1 sm:mb-2">
         {foundingSpotsFilled}/50
       </div>
-      <p class="text-sm sm:text-lg text-gray-600 dark:text-gray-400">
+      <p class="text-sm sm:text-lg text-[var(--color-text-secondary)]">
         founding spots filled
       </p>
     </div>
     
-    <div class="w-full bg-[var(--color-light-input-border,var(--color-gray-200))] dark:bg-gray-700 rounded-full h-4 sm:h-6 overflow-hidden">
+    <div class="w-full bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)] rounded-full h-4 sm:h-6 overflow-hidden">
       <div 
         class="bg-gradient-to-r from-orange-500 to-amber-500 h-full rounded-full transition-all duration-500 ease-out"
         style="width: {displayProgress}%"
@@ -49,11 +49,11 @@
   <!-- Timeline Phases -->
   <div class="space-y-6 sm:space-y-8 mb-8 sm:mb-12">
     <!-- Phase 1: First 21 -->
-    <div class="relative pl-6 sm:pl-8 pb-6 sm:pb-8 border-l-2 sm:border-l-4 {currentPhase === 'first21' ? 'border-orange-500' : 'border-gray-300 dark:border-gray-600'}">
-      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'first21' ? 'bg-orange-500 ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"></div>
+    <div class="relative pl-6 sm:pl-8 pb-6 sm:pb-8 border-l-2 sm:border-l-4 {currentPhase === 'first21' ? 'border-orange-500' : 'border-[var(--color-input-border)] dark:border-[var(--color-input-border)]'}">
+      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'first21' ? 'bg-action ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)]'}"></div>
       <div class="ml-2 sm:ml-4">
         <div class="flex flex-wrap items-center gap-2 mb-1.5 sm:mb-2">
-          <h3 class="text-base sm:text-xl font-bold text-gray-900 dark:text-white">
+          <h3 class="text-base sm:text-xl font-bold text-[var(--color-text-primary)]">
             Week 1-2: First 21
           </h3>
           {#if currentPhase === 'first21'}
@@ -62,7 +62,7 @@
             </span>
           {/if}
         </div>
-        <p class="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-1.5 sm:mb-2">
+        <p class="text-sm sm:text-base text-[var(--color-text-secondary)] mb-1.5 sm:mb-2">
           Physical perks: T-shirt, desk plate, and shipping included
         </p>
         {#if spotsRemaining > 0 && spotsRemaining <= 21}
@@ -70,7 +70,7 @@
             {spotsRemaining} spots remaining in this phase
           </p>
         {:else if spotsRemaining === 0}
-          <p class="text-xs sm:text-sm font-semibold text-gray-600 dark:text-gray-400">
+          <p class="text-xs sm:text-sm font-semibold text-[var(--color-text-secondary)]">
             This phase is complete
           </p>
         {/if}
@@ -78,11 +78,11 @@
     </div>
 
     <!-- Phase 2: Spots 22-50 -->
-    <div class="relative pl-6 sm:pl-8 pb-6 sm:pb-8 border-l-2 sm:border-l-4 {currentPhase === 'founding' ? 'border-orange-500' : 'border-gray-300 dark:border-gray-600'}">
-      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'founding' ? 'bg-orange-500 ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"></div>
+    <div class="relative pl-6 sm:pl-8 pb-6 sm:pb-8 border-l-2 sm:border-l-4 {currentPhase === 'founding' ? 'border-orange-500' : 'border-[var(--color-input-border)] dark:border-[var(--color-input-border)]'}">
+      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'founding' ? 'bg-action ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)]'}"></div>
       <div class="ml-2 sm:ml-4">
         <div class="flex flex-wrap items-center gap-2 mb-1.5 sm:mb-2">
-          <h3 class="text-base sm:text-xl font-bold text-gray-900 dark:text-white">
+          <h3 class="text-base sm:text-xl font-bold text-[var(--color-text-primary)]">
             Week 3-8: Spots 22-50
           </h3>
           {#if currentPhase === 'founding'}
@@ -91,7 +91,7 @@
             </span>
           {/if}
         </div>
-        <p class="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-1.5 sm:mb-2">
+        <p class="text-sm sm:text-base text-[var(--color-text-secondary)] mb-1.5 sm:mb-2">
           Digital founding benefits: Badge, early access, and recognition
         </p>
         {#if currentPhase === 'founding'}
@@ -99,7 +99,7 @@
             {50 - foundingSpotsFilled} spots remaining in this phase
           </p>
         {:else if foundingSpotsFilled >= 50}
-          <p class="text-xs sm:text-sm font-semibold text-gray-600 dark:text-gray-400">
+          <p class="text-xs sm:text-sm font-semibold text-[var(--color-text-secondary)]">
             This phase is complete
           </p>
         {/if}
@@ -107,11 +107,11 @@
     </div>
 
     <!-- Phase 3: After 50 -->
-    <div class="relative pl-6 sm:pl-8 border-l-2 sm:border-l-4 {currentPhase === 'regular' ? 'border-orange-500' : 'border-gray-300 dark:border-gray-600'}">
-      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'regular' ? 'bg-orange-500 ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))] dark:bg-gray-600'}"></div>
+    <div class="relative pl-6 sm:pl-8 border-l-2 sm:border-l-4 {currentPhase === 'regular' ? 'border-orange-500' : 'border-[var(--color-input-border)] dark:border-[var(--color-input-border)]'}">
+      <div class="absolute -left-2 sm:-left-3 top-0 w-4 h-4 sm:w-6 sm:h-6 rounded-full {currentPhase === 'regular' ? 'bg-action ring-2 sm:ring-4 ring-orange-200 dark:ring-orange-900' : 'bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)]'}"></div>
       <div class="ml-2 sm:ml-4">
         <div class="flex flex-wrap items-center gap-2 mb-1.5 sm:mb-2">
-          <h3 class="text-base sm:text-xl font-bold text-gray-900 dark:text-white">
+          <h3 class="text-base sm:text-xl font-bold text-[var(--color-text-primary)]">
             After 50: Regular Pricing
           </h3>
           {#if currentPhase === 'regular'}
@@ -120,7 +120,7 @@
             </span>
           {/if}
         </div>
-        <p class="text-sm sm:text-base text-gray-600 dark:text-gray-400">
+        <p class="text-sm sm:text-base text-[var(--color-text-secondary)]">
           Standard membership pricing applies. Founding benefits no longer available.
         </p>
       </div>
@@ -133,8 +133,8 @@
       type="button"
       on:click={handleCTAClick}
       class="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 rounded-full font-bold text-base sm:text-lg
-             bg-orange-500 hover:bg-orange-600 active:bg-orange-700
-             text-white shadow-lg hover:shadow-xl
+             bg-action hover:bg-action-hover active:bg-action
+             text-on-action shadow-lg hover:shadow-xl
              transition-all duration-200
              focus:outline-none focus:ring-4 focus:ring-orange-500/50"
     >

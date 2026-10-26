@@ -39,8 +39,8 @@
         aria-checked={!$prefs.off}
         aria-label="Special cards"
         class="relative w-12 h-7 rounded-full transition-colors cursor-pointer flex-shrink-0 {!$prefs.off
-          ? 'bg-primary'
-          : 'bg-[var(--color-accent-gray)] dark:bg-gray-600'}"
+          ? 'bg-action'
+          : 'bg-[var(--color-accent-gray)] bg-[var(--color-input-bg)]'}"
         on:click={() => setSpecialsOff(!$prefs.off)}
       >
         <span

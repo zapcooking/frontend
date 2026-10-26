@@ -602,11 +602,11 @@
     padding: 0;
     font: inherit;
     font-weight: 600;
-    color: #c2410c;
+    color: var(--color-primary);
     cursor: pointer;
   }
   :global(.dark) .signup-link {
-    color: #fb923c;
+    color: var(--color-primary);
   }
   .signup-link--quiet {
     font-weight: 500;

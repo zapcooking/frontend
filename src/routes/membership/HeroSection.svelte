@@ -6,14 +6,14 @@
   <!-- Title with lightning icons - hide icons on very small screens -->
   <div class="flex items-center justify-center gap-2 sm:gap-3 mb-3 sm:mb-4">
     <LightningIcon size={24} weight="fill" class="text-primary hidden sm:block sm:w-8 sm:h-8" />
-    <h1 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 dark:text-white">
+    <h1 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-[var(--color-text-primary)]">
       Choose Your Kitchen
     </h1>
     <LightningIcon size={24} weight="fill" class="text-primary hidden sm:block sm:w-8 sm:h-8" />
   </div>
   
   <!-- Subtitle -->
-  <p class="text-base sm:text-lg md:text-xl lg:text-2xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto mt-2 sm:mt-4 px-2">
+  <p class="text-base sm:text-lg md:text-xl lg:text-2xl text-[var(--color-text-secondary)] max-w-3xl mx-auto mt-2 sm:mt-4 px-2">
     Join a community where food culture lives openly. Support creators directly with Bitcoin or card. No algorithms. No ads.
   </p>
 

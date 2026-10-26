@@ -204,7 +204,7 @@
     <h1 class="text-2xl font-bold text-red-600">Recipe Loading Error</h1>
     <p class="text-caption">{error}</p>
     <button
-      class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+      class="px-4 py-2 bg-action text-on-action rounded hover:bg-action-hover"
       on:click={() => loadData()}
     >
       Try Again
@@ -214,7 +214,7 @@
   <div class="flex flex-col justify-center items-center page-loader gap-4">
     <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Recipe Deleted</h1>
     <p class="text-caption">This recipe has been deleted by its author.</p>
-    <a href="/" class="px-4 py-2 bg-primary text-white rounded-full hover:opacity-80">
+    <a href="/" class="px-4 py-2 bg-action text-on-action rounded-full hover:opacity-80">
       Browse Recipes
     </a>
   </div>

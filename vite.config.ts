@@ -50,11 +50,6 @@ export default defineConfig({
     exclude: ['@breeztech/breez-sdk-spark']
   },
   build: {
-    // Vite 5 has no ?no-inline flag. Keep this classic head script on our
-    // origin so CSP script-src 'self' allows it; other assets keep the default.
-    assetsInlineLimit(file) {
-      if (file.endsWith('/src/lib/landing/exploreTheme.client.js')) return false;
-    },
     rollupOptions: {
       onwarn(warning, warn) {
         // Suppress warnings about Svelte 5 functions (untrack, fork, settled) 

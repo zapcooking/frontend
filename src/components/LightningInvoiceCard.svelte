@@ -255,8 +255,8 @@
     height: 2.25rem;
     border-radius: 9999px;
     border: none;
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     font-weight: 600;
     font-size: 0.9rem;
     cursor: pointer;

@@ -143,7 +143,7 @@
   <button
     type="submit"
     disabled={disabled || !name.trim()}
-    class="flex items-center justify-center gap-2 px-4 py-2 border border-orange-500/40 text-orange-500 hover:bg-orange-500/10 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+    class="flex items-center justify-center gap-2 px-4 py-2 border border-primary/40 text-primary hover:bg-primary/10 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
   >
     <PlusIcon size={18} weight="bold" />
     <span>Add ingredient</span>

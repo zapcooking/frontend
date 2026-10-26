@@ -139,8 +139,8 @@
 
 <style>
   .outcome-primary {
-    background: var(--color-primary, #f97316);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     border: none;
     border-radius: 10px;
     font-size: 0.875rem;

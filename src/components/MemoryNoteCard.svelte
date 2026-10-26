@@ -107,7 +107,7 @@
       {/if}
       <button
         on:click={share}
-        class="flex items-center gap-1 text-xs font-medium text-orange-500 hover:text-orange-600 transition-colors"
+        class="flex items-center gap-1 text-xs font-medium text-primary hover:text-[var(--color-text-primary)] transition-colors"
         aria-label="Share this memory as a quote"
       >
         <QuotesIcon size={14} />

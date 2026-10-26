@@ -475,8 +475,8 @@
     padding: 0.5rem 1rem;
     border: none;
     border-radius: 0.375rem;
-    background: var(--color-primary, #007bff);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     cursor: pointer;
     font-size: 0.875rem;
   }

@@ -100,7 +100,7 @@
   on:click={handleClick}
   disabled={isLoading || !pubkey}
   class={buttonClass ||
-    'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-input-bg)] dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed'}
+    'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-input-bg)] dark:hover:bg-[var(--color-input-bg)] disabled:opacity-50 disabled:cursor-not-allowed'}
   style={buttonClass
     ? ''
     : 'background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);'}

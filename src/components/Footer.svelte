@@ -12,10 +12,7 @@
   <div class="footer-inner">
     <!-- Utility links — de-emphasized (rarely clicked). -->
     <nav class="footer-links text-caption">
-      <a
-        href="/support"
-        class="text-orange-700 hover:text-orange-800 dark:text-orange-400 dark:hover:text-orange-300 font-semibold transition-colors"
-      >
+      <a href="/support" class="text-primary hover:text-primary font-semibold transition-colors">
         ⚡ Support
       </a>
       <a href="/about" class="hover:text-primary transition-colors">About</a>

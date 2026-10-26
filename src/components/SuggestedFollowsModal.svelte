@@ -226,7 +226,7 @@
     {#if loading}
       <div class="flex flex-col items-center justify-center py-10 gap-3">
         <div
-          class="animate-spin w-7 h-7 border-2 border-orange-500 border-t-transparent rounded-full"
+          class="animate-spin w-7 h-7 border-2 border-primary border-t-transparent rounded-full"
         ></div>
         <p class="text-sm" style="color: var(--color-text-secondary);">Finding your people...</p>
       </div>
@@ -296,7 +296,7 @@
               {#if selectedPubkeys.has(user.pubkey)}
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  class="w-3.5 h-3.5 text-white"
+                  class="w-3.5 h-3.5 text-on-action"
                   viewBox="0 0 20 20"
                   fill="currentColor"
                 >
@@ -376,8 +376,8 @@
   }
 
   .check-on {
-    background-color: var(--color-primary, #f97316);
-    border-color: var(--color-primary, #f97316);
+    background-color: var(--color-action);
+    border-color: var(--color-action);
   }
 
   .check-off {

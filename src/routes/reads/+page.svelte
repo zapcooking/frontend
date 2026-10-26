@@ -1086,17 +1086,17 @@
     gap: 0.375rem;
     padding: 0.5rem 0.875rem;
     border-radius: 9999px;
-    background: linear-gradient(135deg, #f97316, #f59e0b);
+    background: linear-gradient(135deg, var(--color-action), var(--color-action));
     color: white;
     font-size: 0.875rem;
     font-weight: 600;
     transition: all 0.15s ease;
-    box-shadow: 0 4px 12px rgba(249, 115, 22, 0.25);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--color-action) 25%, transparent);
   }
 
   .write-article-btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(249, 115, 22, 0.35);
+    box-shadow: 0 6px 16px color-mix(in srgb, var(--color-action) 35%, transparent);
   }
 
   .drafts-link {
@@ -1115,7 +1115,7 @@
   }
 
   .drafts-link:hover {
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
     color: var(--color-text-primary);
     border-color: var(--color-text-secondary);
   }
@@ -1127,8 +1127,8 @@
     min-width: 1.25rem;
     height: 1.25rem;
     padding: 0 0.375rem;
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.75rem;
     font-weight: 600;
     border-radius: 9999px;

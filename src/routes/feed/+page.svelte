@@ -315,7 +315,7 @@
             >
             {#if activeTab === 'fresh'}
               <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
               ></span>
             {/if}
           </button>
@@ -330,7 +330,7 @@
             Global
             {#if activeTab === 'global'}
               <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
               ></span>
             {/if}
           </button>
@@ -349,7 +349,7 @@
             Following
             {#if activeTab === 'following'}
               <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
               ></span>
             {/if}
           </button>
@@ -364,7 +364,7 @@
             Replies
             {#if activeTab === 'replies'}
               <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
               ></span>
             {/if}
           </button>
@@ -379,7 +379,7 @@
             Groups
             {#if activeTab === 'members'}
               <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
               ></span>
             {/if}
           </button>
@@ -404,7 +404,7 @@
               {/if}
               {#if freshDiscovery.timeMachineOpen}
                 <span
-                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
                 ></span>
               {/if}
             </button>

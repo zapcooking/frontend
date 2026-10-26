@@ -1054,8 +1054,8 @@
                 on:click|stopPropagation={() => selectCoverRecipe(recipeATag)}
                 disabled={isSubmitting}
                 class="relative aspect-square rounded-lg overflow-hidden border-2 transition-all cursor-pointer {isSelected
-                  ? 'border-orange-500 ring-2 ring-orange-200'
-                  : 'border-transparent hover:border-orange-300'}"
+                  ? 'border-primary ring-2 ring-primary/20'
+                  : 'border-transparent hover:border-primary'}"
                 aria-label="Select {recipeTitle} as cover"
               >
                 {#if recipeImage}
@@ -1074,7 +1074,7 @@
 
                 {#if isSelected}
                   <div
-                    class="absolute bottom-2 right-2 bg-orange-500 text-white text-xs px-2 py-1 rounded font-semibold"
+                    class="absolute bottom-2 right-2 bg-action text-on-action text-xs px-2 py-1 rounded font-semibold"
                   >
                     ✓ Selected
                   </div>
@@ -1168,7 +1168,7 @@
       <!-- Left: Title and Icon -->
       <div class="flex items-center gap-3">
         <div
-          class="w-12 h-12 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
+          class="w-12 h-12 rounded-full bg-gradient-to-br from-action to-action flex items-center justify-center flex-shrink-0"
         >
           <BookmarkIcon size={24} weight="fill" class="text-white" />
         </div>
@@ -1212,12 +1212,12 @@
           </div>
         {:else if syncState === 'offline'}
           <div
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-gray-500/10 border border-gray-500/30"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-[var(--color-input-bg)]/10 border border-[var(--color-input-border)]/30"
           >
-            <CloudSlashIcon size={16} weight="fill" class="text-gray-400" />
-            <span class="text-gray-500 dark:text-gray-400 font-medium">Offline Mode</span>
-            <span class="text-gray-400 dark:text-gray-500">•</span>
-            <span class="text-gray-500 dark:text-gray-400">{cachedRecipeCount} recipes</span>
+            <CloudSlashIcon size={16} weight="fill" class="text-caption" />
+            <span class="text-caption font-medium">Offline Mode</span>
+            <span class="text-caption">•</span>
+            <span class="text-caption">{cachedRecipeCount} recipes</span>
           </div>
         {:else if syncState === 'pending'}
           <button
@@ -1237,7 +1237,7 @@
         {#if $isOnline && !isSyncingRecipes}
           <button
             on:click={syncAllRecipes}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))]"
             style="color: var(--color-text-secondary); border: 1px solid var(--color-input-border);"
             title="Sync all recipes for offline use"
           >
@@ -1250,7 +1250,7 @@
         <div class="relative" use:clickOutside on:click_outside={() => (createMenuOpen = false)}>
           <button
             on:click={() => (createMenuOpen = !createMenuOpen)}
-            class="flex items-center gap-1.5 pl-4 pr-3 py-1.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all text-sm"
+            class="flex items-center gap-1.5 pl-4 pr-3 py-1.5 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all text-sm"
             aria-haspopup="true"
             aria-expanded={createMenuOpen}
             aria-label="Add to My Kitchen"
@@ -1320,7 +1320,7 @@
             on:click={() => setView('packs')}
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors {viewMode ===
             'packs'
-              ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm'
+              ? 'bg-gradient-to-r from-action to-action text-on-action shadow-sm'
               : ''}"
             style={viewMode === 'packs' ? '' : 'color: var(--color-text-secondary);'}
           >
@@ -1334,7 +1334,7 @@
             on:click={() => setView('feed')}
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors {viewMode ===
             'feed'
-              ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm'
+              ? 'bg-gradient-to-r from-action to-action text-on-action shadow-sm'
               : ''}"
             style={viewMode === 'feed' ? '' : 'color: var(--color-text-secondary);'}
             disabled={totalUniqueSaved === 0}
@@ -1354,7 +1354,7 @@
             on:click={() => setView('published')}
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors {viewMode ===
             'published'
-              ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm'
+              ? 'bg-gradient-to-r from-action to-action text-on-action shadow-sm'
               : ''}"
             style={viewMode === 'published' ? '' : 'color: var(--color-text-secondary);'}
             title="Recipes you've published"
@@ -1374,7 +1374,7 @@
             <button
               on:click={openShareCookbook}
               disabled={totalUniqueSaved === 0}
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] disabled:opacity-50 disabled:cursor-not-allowed"
               style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
               title="Share your saved recipes as a Recipe Pack"
               aria-label="Share My Kitchen as Recipe Pack"
@@ -1387,7 +1387,7 @@
             <div class="relative" use:clickOutside on:click_outside={() => (sortMenuOpen = false)}>
               <button
                 on:click={() => (sortMenuOpen = !sortMenuOpen)}
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))]"
                 style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
                 aria-haspopup="true"
                 aria-expanded={sortMenuOpen}
@@ -1425,7 +1425,7 @@
             >
               <button
                 on:click={() => (filterMenuOpen = !filterMenuOpen)}
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:hover:bg-gray-800"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))]"
                 style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
                 aria-haspopup="true"
                 aria-expanded={filterMenuOpen}
@@ -1462,7 +1462,7 @@
                     >
                       <span class="truncate flex items-center gap-1.5">
                         {#if list.isDefault}
-                          <PinIcon size={12} weight="fill" class="text-orange-500 flex-shrink-0" />
+                          <PinIcon size={12} weight="fill" class="text-primary flex-shrink-0" />
                         {/if}
                         {list.title}
                       </span>
@@ -1499,9 +1499,9 @@
       <!-- Empty State -->
       <div class="flex flex-col items-center justify-center py-16 px-4">
         <div
-          class="w-20 h-20 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+          class="w-20 h-20 rounded-full bg-gradient-to-br from-primary/10 to-primary/10 dark:from-primary/30 dark:to-primary/30 flex items-center justify-center mb-4"
         >
-          <BookmarkIcon size={40} weight="regular" class="text-orange-500" />
+          <BookmarkIcon size={40} weight="regular" class="text-primary" />
         </div>
         <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
           Start Your Kitchen
@@ -1512,7 +1512,7 @@
         <div class="flex gap-3">
           <button
             on:click={openCreateModal}
-            class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
+            class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all"
           >
             <PlusIcon size={18} weight="bold" />
             Create Collection
@@ -1531,9 +1531,9 @@
       {#if filteredATags.length === 0}
         <div class="flex flex-col items-center justify-center py-12 px-4">
           <div
-            class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+            class="w-16 h-16 rounded-full bg-gradient-to-br from-primary/10 to-primary/10 dark:from-primary/30 dark:to-primary/30 flex items-center justify-center mb-4"
           >
-            <BookmarkIcon size={32} weight="regular" class="text-orange-500" />
+            <BookmarkIcon size={32} weight="regular" class="text-primary" />
           </div>
           <h3 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
             {collectionFilter === 'all' ? 'No saved recipes yet' : 'No recipes in this collection'}
@@ -1632,9 +1632,9 @@
       {:else if publishedEvents.length === 0}
         <div class="flex flex-col items-center justify-center py-12 px-4">
           <div
-            class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+            class="w-16 h-16 rounded-full bg-gradient-to-br from-primary/10 to-primary/10 dark:from-primary/30 dark:to-primary/30 flex items-center justify-center mb-4"
           >
-            <PencilSimpleIcon size={32} weight="regular" class="text-orange-500" />
+            <PencilSimpleIcon size={32} weight="regular" class="text-primary" />
           </div>
           <h3 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
             No published recipes yet
@@ -1644,7 +1644,7 @@
           </p>
           <a
             href="/create"
-            class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
+            class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all"
           >
             <PlusIcon size={18} weight="bold" />
             Create a Recipe
@@ -1696,7 +1696,7 @@
             on:mouseleave={() => (hoveredListId = null)}
             class="group relative h-40 rounded-2xl overflow-hidden cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-xl text-left collection-card saved-collection"
             style="box-shadow: {hoveredListId === list.id
-              ? '0 8px 24px rgba(255, 107, 53, 0.3)'
+              ? '0 8px 24px color-mix(in srgb, var(--color-action) 30%, transparent)'
               : '0 2px 8px rgba(0,0,0,0.1)'};"
             aria-label={hasAnySaved
               ? `View all ${totalUniqueSaved} of my recipes`
@@ -1707,7 +1707,7 @@
               class="absolute inset-0"
               style={getListCoverImage(list)
                 ? `background-image: url('${getListCoverImage(list)}'); background-size: cover; background-position: center;`
-                : 'background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);'}
+                : 'background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action-hover) 100%);'}
             >
               <div
                 class="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-colors"
@@ -1773,7 +1773,7 @@
               class="absolute inset-0"
               style={getListCoverImage(list)
                 ? `background-image: url('${getListCoverImage(list)}'); background-size: cover; background-position: center;`
-                : 'background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);'}
+                : 'background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action-hover) 100%);'}
             >
               <div
                 class="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-colors"

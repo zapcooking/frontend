@@ -799,7 +799,7 @@
 
   .sound-btn:hover,
   .close-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 
   .sound-btn.sound-on {
@@ -870,9 +870,9 @@
   .add-btn {
     padding: 8px;
     border-radius: 6px;
-    background: var(--color-primary);
+    background: var(--color-action);
     border: none;
-    color: white;
+    color: var(--color-on-action);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1017,7 +1017,7 @@
   }
 
   .action-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 
   .action-btn.delete:hover {
@@ -1085,7 +1085,7 @@
   }
 
   .time-preset-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 
   .presets-section {
@@ -1124,7 +1124,7 @@
   }
 
   .preset-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
     transform: scale(1.02);
   }
 
@@ -1223,6 +1223,6 @@
   }
 
   .minimize-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 </style>

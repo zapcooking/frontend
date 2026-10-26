@@ -251,8 +251,8 @@
     color: var(--color-text-primary);
   }
   .save {
-    background: var(--color-primary, #ff6b35);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     border: none;
     border-radius: 999px;
     padding: 0.6rem 1.25rem;
@@ -264,10 +264,10 @@
     opacity: 0.6;
   }
   .error {
-    color: #b91c1c;
+    color: var(--color-danger);
   }
   .ok {
-    color: #15803d;
+    color: var(--color-success);
     font-size: 0.9rem;
   }
   .logs {
