@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, setContext } from 'svelte';
   import '../app.css';
   import Header from '../components/Header.svelte';
   import { browser } from '$app/environment';
-  import { derived } from 'svelte/store';
+  import { derived, writable } from 'svelte/store';
   import { page, updated } from '$app/stores';
   import { goto, beforeNavigate } from '$app/navigation';
   import { userPublickey, ndk } from '$lib/nostr';
   import { lastFeedUrl } from '$lib/feedOrigin';
   import { isLandingRoute } from '$lib/landing/route';
+  import { LANDING_AUTH_CONTEXT, type LandingAuthSnapshot } from '$lib/landing/authContext';
   import BottomNav from '../components/BottomNav.svelte';
   import DesktopSideNav from '../components/DesktopSideNav.svelte';
   import NotificationSubscriber from '../components/NotificationSubscriber.svelte';
@@ -303,6 +304,10 @@
     pathSegment.startsWith('nevent1');
 
   let authManager: any = null;
+  // Instance-scoped snapshots let landing invitations distinguish session
+  // restoration from logout without sharing visitor state during SSR.
+  const landingAuthState = writable<LandingAuthSnapshot>(null);
+  setContext(LANDING_AUTH_CONTEXT, { subscribe: landingAuthState.subscribe });
   let authState: AuthState = {
     isAuthenticated: false,
     user: null,
@@ -331,6 +336,15 @@
     scrollActiveSurfaceToTop(document.getElementById('app-scroll'));
   }
 
+  function skipToContent(event: MouseEvent) {
+    const content = document.getElementById('app-content');
+    if (!content) return;
+    event.preventDefault();
+    content.focus({ preventScroll: true });
+    const scroller = document.getElementById('app-scroll');
+    if (scroller) scroller.scrollTop = 0;
+  }
+
   onMount(async () => {
     try {
       // Block accidental nsec pastes everywhere except the login/key-import
@@ -342,13 +356,14 @@
       // Initialize theme first to prevent FOUC
       theme.initialize();
 
-      // Request notification permissions on app launch (first time only)
-      // This is for general app notifications (zaps, replies, etc.)
-      // Timer notifications have their own permission flow
-      if (browser) {
+      // Public landing visits must not prompt for notification permission.
+      // Other app routes keep their existing launch flow; timer notifications
+      // still request permission from their own user-triggered controls.
+      if (browser && !isLandingRoute($page.route.id)) {
         try {
           const { requestPermissionsOnAppLaunch } = await import('$lib/native/notifications');
-          await requestPermissionsOnAppLaunch();
+          // A route change can finish while the module is downloading.
+          if (!isLandingRoute($page.route.id)) await requestPermissionsOnAppLaunch();
         } catch (error) {
           console.error('[Layout] Error requesting notification permissions:', error);
         }
@@ -357,6 +372,7 @@
       // Initialize auth manager
       authManager = createAuthManager($ndk);
       authState = authManager.getState();
+      landingAuthState.set({ state: authState, initial: true });
       syncSignedIn(authState);
 
       // A new account's profile that no relay has accepted yet: show it
@@ -398,6 +414,7 @@
       // Subscribe to auth state changes
       unsubscribe = authManager.subscribe((state: AuthState) => {
         authState = state;
+        landingAuthState.set({ state, initial: false });
         syncSignedIn(state);
         if (state.isAuthenticated) lockedVaultPubkey.set(null);
 
@@ -596,6 +613,7 @@
 </svelte:head>
 
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
+  <a class="skip-to-content" href="#app-content" on:click={skipToContent}>Skip to content</a>
   <div
     class="h-screen scroll-smooth overflow-hidden transition-colors duration-200 safe-area-container"
   >
@@ -650,7 +668,7 @@
         >
           <!-- Grow the page content so the footer is pushed to the bottom on
                short pages instead of floating mid-viewport. -->
-          <div class="flex-1 min-w-0 max-w-full">
+          <div id="app-content" tabindex="-1" class="flex-1 min-w-0 max-w-full">
             <slot />
           </div>
           {#if !kitchenMode && !$page.url.pathname.startsWith('/messages') && !$page.url.pathname.startsWith('/groups')}
@@ -719,6 +737,28 @@
 </ErrorBoundary>
 
 <style>
+  .skip-to-content {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 10000;
+    padding: 0.75rem 1rem;
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    border: 2px solid var(--color-primary);
+    border-radius: 0.5rem;
+    transform: translateY(calc(-100% - 2rem));
+  }
+  .skip-to-content:focus {
+    transform: translateY(0);
+  }
+  #app-content {
+    scroll-margin-top: calc(var(--header-h) + 0.75rem);
+  }
+  #app-content:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 4px;
+  }
   .kitchen-scroll {
     scrollbar-width: none;
   }

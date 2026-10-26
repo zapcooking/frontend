@@ -1,19 +1,21 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { userPublickey } from '$lib/nostr';
+  import { getContext, onMount } from 'svelte';
+  import type { Readable } from 'svelte/store';
   import Arrow from './Arrow.svelte';
   import { COOK_PLUS_TOOLS } from '$lib/cookPlusCopy';
   import { MEMBERSHIP_PATH } from '$lib/cookPlusPricing';
   import { CHEFFY_TRIAL_LIMIT } from '$lib/cheffyTrial';
   import { createLandingAudienceController } from '$lib/landing/membership.client.js';
+  import { LANDING_AUTH_CONTEXT, type LandingAuthSnapshot } from '$lib/landing/authContext';
 
+  const authState = getContext<Readable<LandingAuthSnapshot>>(LANDING_AUTH_CONTEXT);
   let section: HTMLElement;
   onMount(() => {
     const audience = createLandingAudienceController(section);
-    // The subscription fires once on mount and again after same-tab account changes.
-    const unsubscribe = userPublickey.subscribe((pubkey) => void audience.refresh(pubkey));
+    // A temporary empty legacy pubkey during restoration is not a logout.
+    const unsubscribe = authState?.subscribe((snapshot) => void audience.updateAuth(snapshot));
     return () => {
-      unsubscribe();
+      unsubscribe?.();
       audience.destroy();
     };
   });

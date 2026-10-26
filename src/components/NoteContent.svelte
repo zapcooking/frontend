@@ -625,22 +625,22 @@
 
   /* Hashtag pill - light mode (default) */
   .hashtag-pill {
-    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
-    color: var(--color-primary);
+    background-color: var(--color-hashtag-bg);
+    color: var(--color-hashtag-text);
   }
   .hashtag-pill:hover {
-    background-color: var(--color-action);
-    color: var(--color-on-action);
+    background-color: var(--color-hashtag-hover-bg);
+    color: var(--color-hashtag-hover-text);
   }
 
   /* Hashtag pill - dark mode */
   :global(html.dark) .hashtag-pill {
-    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
-    color: var(--color-primary);
+    background-color: var(--color-hashtag-bg);
+    color: var(--color-hashtag-text);
   }
   :global(html.dark) .hashtag-pill:hover {
-    background-color: var(--color-action);
-    color: var(--color-on-action);
+    background-color: var(--color-hashtag-hover-bg);
+    color: var(--color-hashtag-hover-text);
   }
 
   /* Stand-in for a quote where the full embed is suppressed — thread

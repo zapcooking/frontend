@@ -68,6 +68,7 @@ export function applyLandingAudience(root, audience) {
 export function createLandingAudienceController(element, environment = window) {
   let generation = 0;
   let disposed = false;
+  let authPending = false;
   /** @type {AbortController | null} */
   let request = null;
   /** @type {ReturnType<typeof setTimeout> | null} */
@@ -90,6 +91,8 @@ export function createLandingAudienceController(element, environment = window) {
     cancelRequest();
     // Hide invitations while a changed identity is being resolved.
     applyLandingAudience(root, 'unknown');
+    // Storage/pageshow events cannot turn an in-flight restore into a guest.
+    if (authPending) return;
     const controller = new AbortController();
     request = controller;
     const timeout = setTimeout(() => controller.abort(), 5000);
@@ -117,6 +120,23 @@ export function createLandingAudienceController(element, environment = window) {
     }
     if (!disposed && current === generation) applyLandingAudience(root, audience);
   };
+  /** @param {import('./authContext').LandingAuthSnapshot} snapshot */
+  const updateAuth = (snapshot) => {
+    authPending = !snapshot || snapshot.state.isLoading;
+    if (snapshot?.initial && !snapshot.state.isAuthenticated && !authPending) {
+      // NIP-07 waits for extension injection before setting isLoading. A
+      // cached account (or unreadable storage) is unresolved at that point,
+      // as is a locked passkey session. Only an absent identity proves guest.
+      try {
+        authPending = readLandingIdentity(environment.localStorage).kind !== 'guest';
+      } catch {
+        authPending = true;
+      }
+    }
+    // Later settled snapshots are authoritative, including logout before
+    // AuthManager removes the old identity from storage.
+    return refresh(snapshot?.state.isAuthenticated ? snapshot.state.publicKey : '');
+  };
   /** @param {PageTransitionEvent} event */
   const pageShown = (event) => {
     if (event.persisted) void refresh();
@@ -129,6 +149,7 @@ export function createLandingAudienceController(element, environment = window) {
   environment.addEventListener('storage', storageChanged);
   return {
     refresh,
+    updateAuth,
     destroy() {
       disposed = true;
       generation++;

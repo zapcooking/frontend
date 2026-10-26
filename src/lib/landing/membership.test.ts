@@ -9,9 +9,17 @@ import {
 } from './membership.client.js';
 import { COOK_PLUS_TOOLS } from '../cookPlusCopy';
 import { CHEFFY_MONTHLY_MESSAGES } from '../cookPlusPricing';
+import type { LandingAuthSnapshot } from './authContext';
 
 const pk = 'a'.repeat(64);
 const storage = (value: string | null) => ({ getItem: () => value });
+const authSnapshot = (
+  publicKey: string,
+  { initial = false, isLoading = false } = {}
+): LandingAuthSnapshot => ({
+  state: { isAuthenticated: !!publicKey, publicKey, isLoading },
+  initial
+});
 
 describe('landing audience isolation', () => {
   it('shows invitations for visitors without making a membership request', async () => {
@@ -120,7 +128,7 @@ describe('landing audience component lifecycle', () => {
   it('uses a sign-in identity before its first storage write', async () => {
     const ui = audienceFixture();
     const controller = ui.mount();
-    await controller.refresh(pk);
+    await controller.updateAuth(authSnapshot(pk));
     expect(ui.fetcher).toHaveBeenCalledOnce();
     expect(JSON.parse(ui.fetcher.mock.calls[0][1].body)).toEqual({ pubkey: pk });
     expect(ui.guest.hidden).toBe(true);
@@ -135,7 +143,7 @@ describe('landing audience component lifecycle', () => {
     ui.identity(pk);
     const controller = ui.mount();
     const nextPubkey = 'b'.repeat(64);
-    await controller.refresh(nextPubkey);
+    await controller.updateAuth(authSnapshot(nextPubkey));
     expect(ui.fetcher).toHaveBeenCalledOnce();
     expect(JSON.parse(ui.fetcher.mock.calls[0][1].body)).toEqual({ pubkey: nextPubkey });
     ui.identity(nextPubkey);
@@ -153,10 +161,10 @@ describe('landing audience component lifecycle', () => {
         })
     );
     const controller = ui.mount();
-    const oldAccount = controller.refresh(pk);
+    const oldAccount = controller.updateAuth(authSnapshot(pk));
     const signal = ui.fetcher.mock.calls[0][1].signal as AbortSignal;
     // Auth emits the empty identity before removing the old storage key.
-    await controller.refresh('');
+    await controller.updateAuth(authSnapshot(''));
     expect(ui.fetcher).toHaveBeenCalledOnce();
     ui.identity(null);
     expect(signal.aborted).toBe(true);
@@ -211,6 +219,85 @@ describe('landing audience component lifecycle', () => {
     ui.identity(null);
     ui.emit('pageshow', { persisted: true });
     await vi.waitFor(() => expect(ui.guest.hidden).toBe(false));
+    controller.destroy();
+  });
+
+  it('waits for the layout auth snapshot before showing guest invitations', async () => {
+    const ui = audienceFixture();
+    const controller = ui.mount();
+    await controller.updateAuth(null);
+    ui.emit('pageshow', { persisted: true });
+    expect(ui.guest.hidden).toBe(true);
+    expect(ui.upgrade.hidden).toBe(true);
+    expect(ui.fetcher).not.toHaveBeenCalled();
+    await controller.updateAuth(authSnapshot('', { initial: true }));
+    expect(ui.guest.hidden).toBe(false);
+    expect(ui.upgrade.hidden).toBe(false);
+    controller.destroy();
+  });
+
+  for (const { label, isLoading } of [
+    { label: 'extension injection wait', isLoading: false },
+    { label: 'remote signer restoration', isLoading: true }
+  ]) {
+    it(`keeps invitations hidden through ${label} and member restoration`, async () => {
+      const ui = audienceFixture();
+      ui.identity(pk);
+      const controller = ui.mount();
+      await controller.updateAuth(authSnapshot('', { initial: true, isLoading }));
+      expect(ui.guest.hidden).toBe(true);
+      expect(ui.upgrade.hidden).toBe(true);
+      expect(ui.fetcher).not.toHaveBeenCalled();
+      // The root's legacy pubkey becomes empty at this intermediate state.
+      await controller.updateAuth(authSnapshot('', { isLoading: true }));
+      ui.emit('storage', { key: IDENTITY_KEY });
+      ui.emit('pageshow', { persisted: true });
+      expect(ui.guest.hidden).toBe(true);
+      expect(ui.upgrade.hidden).toBe(true);
+      expect(ui.fetcher).not.toHaveBeenCalled();
+      await controller.updateAuth(authSnapshot(pk));
+      expect(ui.fetcher).toHaveBeenCalledOnce();
+      expect(ui.guest.hidden).toBe(true);
+      expect(ui.upgrade.hidden).toBe(true);
+      expect(ui.account.hidden).toBe(false);
+      controller.destroy();
+    });
+  }
+
+  it('shows guest invitations after a failed restore settles even with a cached identity', async () => {
+    const ui = audienceFixture();
+    ui.identity(pk);
+    const controller = ui.mount();
+    await controller.updateAuth(authSnapshot('', { initial: true }));
+    await controller.updateAuth(authSnapshot('', { isLoading: true }));
+    await controller.updateAuth(authSnapshot(''));
+    expect(ui.guest.hidden).toBe(false);
+    expect(ui.upgrade.hidden).toBe(false);
+    expect(ui.fetcher).not.toHaveBeenCalled();
+    controller.destroy();
+  });
+
+  it('cancels the old membership request when restoration starts and ignores its late reply', async () => {
+    const ui = audienceFixture();
+    ui.identity(pk);
+    let finish!: (response: unknown) => void;
+    ui.fetcher.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    const controller = ui.mount();
+    const oldAccount = controller.updateAuth(authSnapshot(pk));
+    const signal = ui.fetcher.mock.calls[0][1].signal as AbortSignal;
+    await controller.updateAuth(authSnapshot('', { isLoading: true }));
+    expect(signal.aborted).toBe(true);
+    finish({ ok: true, json: async () => ({ isActive: false }) });
+    await oldAccount;
+    expect(ui.guest.hidden).toBe(true);
+    expect(ui.upgrade.hidden).toBe(true);
+    await controller.updateAuth(authSnapshot(''));
+    expect(ui.guest.hidden).toBe(false);
     controller.destroy();
   });
 });

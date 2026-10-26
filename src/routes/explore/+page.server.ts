@@ -9,8 +9,9 @@ import { LANDING_CACHE_CONTROL } from '$lib/landing/route';
 import { imageIdentity } from '$lib/landing/imageIdentity';
 import type { LongformCard } from '$lib/landing/content';
 
-// Public content stays server-rendered and shared-cacheable. Hydration enables
-// the same account, navigation and wallet controls as the rest of the app.
+// Public content stays server-rendered with its own aggregate cache. The HTML
+// and route-data responses are not cached across deploys: hydration references
+// hashed assets for the current build, including the shared account/nav/wallet UI.
 export const csr = true;
 export const prerender = false;
 

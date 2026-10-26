@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { enhanceLandingImport } from '$lib/landing/import.client';
+  import { enhanceLandingImport } from '$lib/landing/import.client.js';
+  import earlyImportScript from '$lib/landing/import.client.js?url';
   import { ANON_IMPORT_HANDOFF_KEY, ANON_IMPORT_INPUT_KEY } from '$lib/anonImport';
   import { EXTRACT_ERROR_FALLBACK } from '$lib/extractErrors';
   let form: HTMLFormElement;
@@ -14,6 +15,8 @@
       'That page is too large to import. Try its print-friendly recipe page, or paste the recipe text into Sous Chef with Cook+.'
   };
 </script>
+
+<svelte:head><script type="module" src={earlyImportScript}></script></svelte:head>
 
 <section id="import-recipe" class="import-invitation" aria-labelledby="import-heading">
   <div>
@@ -139,7 +142,7 @@
     line-height: 1.4;
   }
   a {
-    color: var(--color-primary);
+    color: var(--color-import-link);
     text-decoration: underline;
     text-underline-offset: 3px;
   }

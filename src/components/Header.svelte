@@ -30,7 +30,6 @@
   } from '$lib/stores/membershipStatus';
 
   let intelligenceMenuOpen = false;
-  $: recipeOnly = $page.route.id === '/explore';
 
   // Count active timers (running or paused + done)
   $: activeTimers = $timerStore.timers.filter(
@@ -49,14 +48,10 @@
       goto(target.path);
       return;
     }
-    goto(`/search?${recipeOnly ? 'type=recipes&' : ''}q=${encodeURIComponent(query)}`);
+    goto(`/search?q=${encodeURIComponent(query)}`);
   }
 
   function openTag(query: string) {
-    if (recipeOnly) {
-      openSearch(query);
-      return;
-    }
     mobileSearchOpen.set(false);
     // Same invariant as openSearch: a secret key is never written into a
     // URL, so it cannot become `/tag/nsec1…` either.
@@ -198,8 +193,7 @@
     on:focusin={scrollToTopOnSearch}
   >
     <TagsSearchAutocomplete
-      placeholderString={recipeOnly ? 'Search recipes...' : 'Search recipes, tags, or users...'}
-      {recipeOnly}
+      placeholderString={'Search recipes, tags, or users...'}
       action={openTag}
       onSubmitQuery={openSearch}
     />

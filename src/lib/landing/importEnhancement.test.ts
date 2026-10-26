@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EXTRACT_ERROR_FALLBACK } from '../extractErrors';
-import { enhanceLandingImport } from './import.client';
+import { enhanceLandingImport } from './import.client.js';
 
 type Listener = (event: Event) => void | Promise<void>;
 function eventTarget() {
@@ -21,13 +21,14 @@ function eventTarget() {
     }
   };
 }
-function setup(response: unknown, ok = true, statusCode = 200) {
+function setup(response: unknown, ok = true, statusCode = 200, componentOwned = true) {
   const storage = new Map<string, string>();
   const input = { value: '', ...eventTarget() };
   const button = { disabled: true, textContent: 'Import a recipe free' };
   const status = { textContent: '' };
   const form = {
     ...eventTarget(),
+    isConnected: true,
     dataset: {
       errors: JSON.stringify(EXTRACT_ERROR_FALLBACK),
       handoffKey: 'handoff',
@@ -46,10 +47,12 @@ function setup(response: unknown, ok = true, statusCode = 200) {
     fetch,
     location: { assign }
   } as unknown as Parameters<typeof enhanceLandingImport>[1];
-  const mount = () => enhanceLandingImport(form as unknown as HTMLFormElement, environment);
-  const destroy = mount();
+  const mount = (owned = true) =>
+    enhanceLandingImport(form as unknown as HTMLFormElement, environment, owned);
+  const destroy = mount(componentOwned);
   input.value = 'https://recipes.example/soup';
   return {
+    form,
     input,
     button,
     status,
@@ -132,5 +135,61 @@ describe('landing URL import enhancement', () => {
     await pending;
     expect(ui.storage.has('handoff')).toBe(false);
     expect(ui.assign).not.toHaveBeenCalled();
+  });
+
+  it('adopts a pre-hydration import without duplicating or cancelling its request', async () => {
+    const ui = setup({}, true, 200, false);
+    let finish!: (response: unknown) => void;
+    ui.fetch.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    const pending = ui.submit();
+    const signal = ui.fetch.mock.calls[0][1].signal as AbortSignal;
+    // Hydration can restore static attributes/text before onMount adopts the form.
+    ui.button.textContent = 'Import a recipe free';
+    ui.status.textContent = '';
+    const cleanup = ui.mount();
+    expect(cleanup).toBe(ui.destroy);
+    expect(ui.button.disabled).toBe(true);
+    expect(ui.button.textContent).toBe('Importing…');
+    expect(ui.status.textContent).toContain('Reading your recipe');
+    expect(signal.aborted).toBe(false);
+    await ui.submit();
+    expect(ui.fetch).toHaveBeenCalledOnce();
+    finish({ ok: false, status: 429, json: async () => ({}) });
+    await pending;
+    expect(ui.button.disabled).toBe(false);
+    expect(ui.status.textContent).toContain('free import limit');
+    cleanup();
+    expect(signal.aborted).toBe(true);
+  });
+
+  it('restores early readiness and errors after hydration without clearing the typed link', async () => {
+    const ui = setup({ code: 'SOURCE_BLOCKED' }, false, 400, false);
+    await ui.submit();
+    const message = ui.status.textContent;
+    ui.button.disabled = true;
+    ui.status.textContent = '';
+    ui.input.value = 'https://recipes.example/next';
+    ui.mount();
+    expect(ui.button.disabled).toBe(false);
+    expect(ui.status.textContent).toBe(message);
+    expect(ui.input.value).toBe('https://recipes.example/next');
+  });
+
+  it('ignores an early response when the form is removed before observer cleanup runs', async () => {
+    const ui = setup({}, true, 200, false);
+    let finishBody!: (value: unknown) => void;
+    ui.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => new Promise((resolve) => (finishBody = resolve))
+    });
+    const pending = ui.submit();
+    await Promise.resolve();
+    // Resolving the body queues its continuation before MutationObserver teardown.
+    finishBody({ success: true, recipe: { title: 'Soup' } });
+    ui.form.isConnected = false;
+    await pending;
+    expect(ui.storage.has('handoff')).toBe(false);
+    expect(ui.assign).not.toHaveBeenCalled();
+    ui.destroy();
   });
 });

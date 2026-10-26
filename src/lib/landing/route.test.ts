@@ -18,10 +18,8 @@ describe('landing routes', () => {
 		expect(isLandingPath('/api/explore')).toBe(false);
 	});
 
-	it('is edge-cacheable for everyone (shared, never private)', () => {
-		expect(LANDING_CACHE_CONTROL).toMatch(/\bpublic\b/);
-		expect(LANDING_CACHE_CONTROL).toMatch(/s-maxage=180\b/);
-		expect(LANDING_CACHE_CONTROL).not.toMatch(/private|no-store|no-cache/);
+	it('does not retain hydrated HTML or route data across deployments', () => {
+		expect(LANDING_CACHE_CONTROL).toBe('no-store');
 	});
 
 });
