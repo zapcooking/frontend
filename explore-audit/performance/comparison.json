@@ -1,0 +1,32 @@
+{
+  "main-quiet": {
+    "LCP": 2269.3544404693603,
+    "TBT": 24,
+    "FCP": 2194.3544404693603,
+    "CLS": 0.04761875000000001,
+    "performance": 0.9,
+    "accessibility": 0.95,
+    "scriptRequests": 4,
+    "jsTransferBytes": 3398,
+    "jsResourceBytes": 12815
+  },
+  "after-quiet": {
+    "LCP": 10555.42274999999,
+    "TBT": 519.0000000000027,
+    "FCP": 6181.783400000009,
+    "CLS": 0.0529034130859375,
+    "performance": 0.43,
+    "accessibility": 0.95,
+    "scriptRequests": 188,
+    "jsTransferBytes": 1082133,
+    "jsResourceBytes": 3163809
+  },
+  "conditions": {
+    "lighthouse": "12.8.2",
+    "mobile": "360x800, DPR1, Moto G Power user agent",
+    "throttling": "simulate; 150ms RTT, 1638.4Kbps throughput, 4x CPU",
+    "server": "local Node production SSR with gzip; no edge-cache/KV bindings, public discovery unavailable/empty; all local APIs503; external browser HTTPS/WSS blocked",
+    "runs": 3,
+    "timingNote": "Fresh paired runs after typechecking and other browser fixture runners finished; earlier contended runs excluded."
+  }
+}

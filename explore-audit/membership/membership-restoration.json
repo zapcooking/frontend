@@ -1,0 +1,139 @@
+{
+  "passed": true,
+  "observations": [
+    {
+      "step": "cached member during extension injection wait",
+      "phase": "initial SSR/hydration",
+      "membership": {
+        "guest": false,
+        "upgrade": false,
+        "account": true
+      },
+      "headerSignIn": false,
+      "headerJoin": false,
+      "state": {
+        "isAuthenticated": false,
+        "user": null,
+        "publicKey": "",
+        "authMethod": null,
+        "isLoading": false,
+        "error": null
+      }
+    },
+    {
+      "step": "actual authManager loading callback",
+      "phase": "signer getPublicKey pending",
+      "membership": {
+        "guest": false,
+        "upgrade": false,
+        "account": true
+      },
+      "headerSignIn": true,
+      "headerJoin": true,
+      "state": {
+        "isAuthenticated": false,
+        "user": null,
+        "publicKey": "",
+        "authMethod": null,
+        "isLoading": true,
+        "error": null
+      }
+    },
+    {
+      "step": "auth settled before membership response",
+      "phase": "authenticated; membership lookup pending",
+      "membership": {
+        "guest": false,
+        "upgrade": false,
+        "account": true
+      },
+      "headerSignIn": false,
+      "headerJoin": false,
+      "state": {
+        "isAuthenticated": true,
+        "publicKey": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "step": "actual logout settles guest",
+      "phase": "explicit logout",
+      "membership": {
+        "guest": true,
+        "upgrade": true,
+        "account": false
+      },
+      "headerSignIn": true,
+      "headerJoin": true
+    }
+  ],
+  "samplesBeforeLogout": [
+    {
+      "phase": "initial SSR/hydration",
+      "membership": {
+        "guest": false,
+        "upgrade": false,
+        "account": false
+      },
+      "headerSignIn": true,
+      "headerJoin": true
+    },
+    {
+      "phase": "initial SSR/hydration",
+      "membership": {
+        "guest": false,
+        "upgrade": false,
+        "account": true
+      },
+      "headerSignIn": false,
+      "headerJoin": false
+    },
+    {
+      "phase": "signer getPublicKey pending",
+      "membership": {
+        "guest": false,
+        "upgrade": false,
+        "account": true
+      },
+      "headerSignIn": false,
+      "headerJoin": false
+    },
+    {
+      "phase": "signer getPublicKey pending",
+      "membership": {
+        "guest": false,
+        "upgrade": false,
+        "account": true
+      },
+      "headerSignIn": true,
+      "headerJoin": true
+    },
+    {
+      "phase": "authenticated; membership lookup pending",
+      "membership": {
+        "guest": false,
+        "upgrade": false,
+        "account": true
+      },
+      "headerSignIn": true,
+      "headerJoin": true
+    },
+    {
+      "phase": "authenticated; membership lookup pending",
+      "membership": {
+        "guest": false,
+        "upgrade": false,
+        "account": true
+      },
+      "headerSignIn": false,
+      "headerJoin": false
+    }
+  ],
+  "membershipRequests": [
+    {
+      "method": "POST",
+      "body": "{\"pubkey\":\"2222222222222222222222222222222222222222222222222222222222222222\"}"
+    }
+  ],
+  "noSigning": true,
+  "headerGuestControlsStillAppearDuringRestore": true
+}

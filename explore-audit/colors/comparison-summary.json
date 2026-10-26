@@ -1,0 +1,45 @@
+{
+  "passed": true,
+  "paletteStates": 14,
+  "existingPaletteTokens": 54,
+  "unchangedOtherThemeStates": [
+    "warm-kitchen/light",
+    "warm-kitchen/dark",
+    "after-hours/light",
+    "after-hours/dark",
+    "recipe-club/light",
+    "recipe-club/dark",
+    "recipe-box/light",
+    "recipe-box/dark",
+    "corner-diner/light",
+    "corner-diner/dark",
+    "sunday-market/light",
+    "sunday-market/dark"
+  ],
+  "unchangedTokenComparisons": 648,
+  "componentStates": 14,
+  "componentsPerState": 7,
+  "unchangedOtherThemeComponentRecords": 84,
+  "unchangedOtherThemeHoverRecords": 24,
+  "unchangedGeometryProperties": 588,
+  "original": [
+    {
+      "mode": "light",
+      "primary": "rgb(236, 71, 0)",
+      "noteText": "rgb(234, 88, 12)",
+      "noteFill": "rgb(255, 247, 237)",
+      "noteHover": "rgb(249, 115, 22)",
+      "cheffyRing": "color(srgb 0.946353 0.480471 0.28)",
+      "noteSurface": "rgb(241, 242, 244)"
+    },
+    {
+      "mode": "dark",
+      "primary": "rgb(255, 87, 34)",
+      "noteText": "rgb(251, 146, 60)",
+      "noteFill": "rgb(55, 48, 45)",
+      "noteHover": "rgb(234, 88, 12)",
+      "cheffyRing": "color(srgb 1 0.525647 0.376)",
+      "noteSurface": "rgb(31, 41, 55)"
+    }
+  ]
+}

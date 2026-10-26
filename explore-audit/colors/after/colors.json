@@ -1,0 +1,852 @@
+[
+  {
+    "stage": "after",
+    "mode": "light",
+    "route": "/feed",
+    "tokens": {
+      "--color-primary": "#ec4700",
+      "--zap-orange": "#ec4700",
+      "--color-action": "#ec4700",
+      "--color-on-action": "#111827",
+      "--color-bg-primary": "#ffffff",
+      "--color-bg-secondary": "#f9fafb",
+      "--color-input-bg": "#f3f4f6",
+      "--color-card-sunken": "#f1f2f4"
+    },
+    "body": {
+      "text": "(function () {\n        var theme = 'system';\n        try {\n          var saved = localStorage.getItem('nostrcooking_theme');\n          if (s",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    "landing": null,
+    "app": {
+      "text": "Food is Open Source ⚡ People share meals, recipes, and food ideas here. Sign in to share your own and follow cooks you like.  FreshBeta  Glo",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 1000
+      }
+    },
+    "header": {
+      "text": "Sign in Join free",
+      "color": "rgb(17, 24, 39)",
+      "bg": "color(srgb 1 1 1 / 0.7)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 75
+      }
+    },
+    "sidebar": {
+      "text": "Feed       Recipes       Reads       Polls       Market       Messages       Memories      My Kitchen",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 1000
+      }
+    },
+    "primary": null,
+    "outline": null,
+    "noteHashtag": null,
+    "richHashtag": null,
+    "cheffy": null,
+    "avatar": null,
+    "freshPost": null,
+    "join": {
+      "text": "Join free",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "linear-gradient(135deg, rgb(236, 71, 0) 0%, color(srgb 0.932941 0.350588 0.1) 100%)",
+      "border": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 1333.484375,
+        "y": 18.5,
+        "width": 90.515625,
+        "height": 38
+      }
+    },
+    "drawer": {
+      "bg": "rgb(249, 250, 251)",
+      "color": "rgb(17, 24, 39)"
+    },
+    "errors": []
+  },
+  {
+    "stage": "after",
+    "mode": "light",
+    "route": "/explore",
+    "tokens": {
+      "--color-primary": "#ec4700",
+      "--zap-orange": "#ec4700",
+      "--color-action": "#ec4700",
+      "--color-on-action": "#111827",
+      "--color-bg-primary": "#ffffff",
+      "--color-bg-secondary": "#f9fafb",
+      "--color-input-bg": "#f3f4f6",
+      "--color-card-sunken": "#f1f2f4"
+    },
+    "body": {
+      "text": "(function () {\n        var theme = 'system';\n        try {\n          var saved = localStorage.getItem('nostrcooking_theme');\n          if (s",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    "landing": {
+      "text": "Food. Friends. Freedom. Choose your style Zap OriginalWarm KitchenAfter Hours ’80sRecipe Club ’90sRecipe BoxCorner DinerSunday Market   Ever",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 351,
+        "y": 87,
+        "width": 1073,
+        "height": 811.609375
+      }
+    },
+    "app": {
+      "text": "Food. Friends. Freedom. Choose your style Zap OriginalWarm KitchenAfter Hours ’80sRecipe Club ’90sRecipe BoxCorner DinerSunday Market   Ever",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 1000
+      }
+    },
+    "header": {
+      "text": "Sign in Join free",
+      "color": "rgb(17, 24, 39)",
+      "bg": "color(srgb 1 1 1 / 0.7)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 75
+      }
+    },
+    "sidebar": {
+      "text": "Feed       Recipes       Reads       Polls       Market       Messages       Memories      My Kitchen",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 1000
+      }
+    },
+    "primary": null,
+    "outline": null,
+    "noteHashtag": null,
+    "richHashtag": null,
+    "cheffy": null,
+    "avatar": null,
+    "freshPost": null,
+    "join": {
+      "text": "Join free",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "linear-gradient(135deg, rgb(236, 71, 0) 0%, color(srgb 0.932941 0.350588 0.1) 100%)",
+      "border": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 1333.484375,
+        "y": 18.5,
+        "width": 90.515625,
+        "height": 38
+      }
+    },
+    "drawer": {
+      "bg": "rgb(249, 250, 251)",
+      "color": "rgb(17, 24, 39)"
+    },
+    "errors": []
+  },
+  {
+    "stage": "after",
+    "mode": "light",
+    "route": "/__verification_colors",
+    "tokens": {
+      "--color-primary": "#ec4700",
+      "--zap-orange": "#ec4700",
+      "--color-action": "#ec4700",
+      "--color-on-action": "#111827",
+      "--color-bg-primary": "#ffffff",
+      "--color-bg-secondary": "#f9fafb",
+      "--color-input-bg": "#f3f4f6",
+      "--color-card-sunken": "#f1f2f4"
+    },
+    "body": {
+      "text": "(function () {\n        var theme = 'system';\n        try {\n          var saved = localStorage.getItem('nostrcooking_theme');\n          if (s",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    "landing": null,
+    "app": {
+      "text": "Food is Open Source ⚡ People share meals, recipes, and food ideas here. Sign in to share your own and follow cooks you like.  FreshBeta  Glo",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 1000
+      }
+    },
+    "header": {
+      "text": "Sign in Join free",
+      "color": "rgb(17, 24, 39)",
+      "bg": "color(srgb 1 1 1 / 0.7)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 75
+      }
+    },
+    "sidebar": {
+      "text": "Feed       Recipes       Reads       Polls       Market       Messages       Memories      My Kitchen",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 1000
+      }
+    },
+    "primary": {
+      "text": "Primary button",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(236, 71, 0)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 360,
+        "y": 85,
+        "width": 142.53125,
+        "height": 44
+      }
+    },
+    "outline": {
+      "text": "Accent button",
+      "color": "rgb(236, 71, 0)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "none",
+      "border": "rgb(236, 71, 0)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 526.53125,
+        "y": 84,
+        "width": 139.59375,
+        "height": 46
+      }
+    },
+    "noteHashtag": {
+      "text": "#cooking",
+      "color": "rgb(234, 88, 12)",
+      "bg": "rgb(255, 247, 237)",
+      "backgroundImage": "none",
+      "border": "rgb(234, 88, 12)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 525.875,
+        "y": 151,
+        "width": 88.59375,
+        "height": 28
+      }
+    },
+    "richHashtag": {
+      "text": "#cooking",
+      "color": "rgb(234, 88, 12)",
+      "bg": "rgb(255, 247, 237)",
+      "backgroundImage": "none",
+      "border": "rgb(234, 88, 12)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 493.375,
+        "y": 195,
+        "width": 73.8125,
+        "height": 20
+      }
+    },
+    "cheffy": {
+      "text": "",
+      "color": "rgb(236, 71, 0)",
+      "bg": "color(srgb 0.989569 0.89898 0.86)",
+      "backgroundImage": "none",
+      "border": "color(srgb 0.946353 0.480471 0.28)",
+      "shadow": "rgba(0, 0, 0, 0.38) 0px 9px 24px 0px, color(srgb 0.92549 0.278431 0 / 0.16) 0px 0px 0px 3px",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 690.125,
+        "y": 83,
+        "width": 48,
+        "height": 48
+      }
+    },
+    "avatar": {
+      "text": "",
+      "color": "rgb(236, 71, 0)",
+      "bg": "color(srgb 0.92549 0.278431 0 / 0.14)",
+      "backgroundImage": "none",
+      "border": "rgb(236, 71, 0)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 762.125,
+        "y": 87,
+        "width": 38,
+        "height": 38
+      }
+    },
+    "freshPost": {
+      "text": "· 2y      TEST DATA: A simple supper. #cooking       ♡ 💬 🔁 ⚡",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(241, 242, 244)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 360,
+        "y": 241,
+        "width": 720,
+        "height": 177.75
+      }
+    },
+    "join": {
+      "text": "Join free",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "linear-gradient(135deg, rgb(236, 71, 0) 0%, color(srgb 0.932941 0.350588 0.1) 100%)",
+      "border": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 1333.484375,
+        "y": 18.5,
+        "width": 90.515625,
+        "height": 38
+      }
+    },
+    "noteHashtagHover": {
+      "color": "rgb(255, 255, 255)",
+      "bg": "rgb(249, 115, 22)"
+    },
+    "richHashtagHover": {
+      "color": "rgb(255, 255, 255)",
+      "bg": "rgb(249, 115, 22)"
+    },
+    "errors": []
+  },
+  {
+    "stage": "after",
+    "mode": "dark",
+    "route": "/feed",
+    "tokens": {
+      "--color-primary": "#ff5722",
+      "--zap-orange": "#ff7a3d",
+      "--color-action": "#ff5722",
+      "--color-on-action": "#111827",
+      "--color-bg-primary": "color-mix(in srgb, #111827 70%, #1f2937)",
+      "--color-bg-secondary": "#1f2937",
+      "--color-input-bg": "#374151",
+      "--color-card-sunken": "#1f2937"
+    },
+    "body": {
+      "text": "(function () {\n        var theme = 'system';\n        try {\n          var saved = localStorage.getItem('nostrcooking_theme');\n          if (s",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    "landing": null,
+    "app": {
+      "text": "Food is Open Source ⚡ People share meals, recipes, and food ideas here. Sign in to share your own and follow cooks you like.  FreshBeta  Glo",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 1000
+      }
+    },
+    "header": {
+      "text": "Sign in Join free",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765 / 0.78)",
+      "backgroundImage": "linear-gradient(color(srgb 0.121569 0.160784 0.215686 / 0.45), color(srgb 0.0831373 0.114118 0.171765 / 0.65))",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 75
+      }
+    },
+    "sidebar": {
+      "text": "Feed       Recipes       Reads       Polls       Market       Messages       Memories      My Kitchen",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 1000
+      }
+    },
+    "primary": null,
+    "outline": null,
+    "noteHashtag": null,
+    "richHashtag": null,
+    "cheffy": null,
+    "avatar": null,
+    "freshPost": null,
+    "join": {
+      "text": "Join free",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "linear-gradient(135deg, rgb(255, 87, 34) 0%, color(srgb 1 0.407059 0.22) 100%)",
+      "border": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 1333.484375,
+        "y": 18.5,
+        "width": 90.515625,
+        "height": 38
+      }
+    },
+    "drawer": {
+      "bg": "rgb(31, 41, 55)",
+      "color": "rgb(243, 244, 246)"
+    },
+    "errors": []
+  },
+  {
+    "stage": "after",
+    "mode": "dark",
+    "route": "/explore",
+    "tokens": {
+      "--color-primary": "#ff5722",
+      "--zap-orange": "#ff7a3d",
+      "--color-action": "#ff5722",
+      "--color-on-action": "#111827",
+      "--color-bg-primary": "color-mix(in srgb, #111827 70%, #1f2937)",
+      "--color-bg-secondary": "#1f2937",
+      "--color-input-bg": "#374151",
+      "--color-card-sunken": "#1f2937"
+    },
+    "body": {
+      "text": "(function () {\n        var theme = 'system';\n        try {\n          var saved = localStorage.getItem('nostrcooking_theme');\n          if (s",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    "landing": {
+      "text": "Food. Friends. Freedom. Choose your style Zap OriginalWarm KitchenAfter Hours ’80sRecipe Club ’90sRecipe BoxCorner DinerSunday Market   Ever",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 351,
+        "y": 87,
+        "width": 1073,
+        "height": 811.609375
+      }
+    },
+    "app": {
+      "text": "Food. Friends. Freedom. Choose your style Zap OriginalWarm KitchenAfter Hours ’80sRecipe Club ’90sRecipe BoxCorner DinerSunday Market   Ever",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 1000
+      }
+    },
+    "header": {
+      "text": "Sign in Join free",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765 / 0.78)",
+      "backgroundImage": "linear-gradient(color(srgb 0.121569 0.160784 0.215686 / 0.45), color(srgb 0.0831373 0.114118 0.171765 / 0.65))",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 75
+      }
+    },
+    "sidebar": {
+      "text": "Feed       Recipes       Reads       Polls       Market       Messages       Memories      My Kitchen",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 1000
+      }
+    },
+    "primary": null,
+    "outline": null,
+    "noteHashtag": null,
+    "richHashtag": null,
+    "cheffy": null,
+    "avatar": null,
+    "freshPost": null,
+    "join": {
+      "text": "Join free",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "linear-gradient(135deg, rgb(255, 87, 34) 0%, color(srgb 1 0.407059 0.22) 100%)",
+      "border": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 1333.484375,
+        "y": 18.5,
+        "width": 90.515625,
+        "height": 38
+      }
+    },
+    "drawer": {
+      "bg": "rgb(31, 41, 55)",
+      "color": "rgb(243, 244, 246)"
+    },
+    "errors": []
+  },
+  {
+    "stage": "after",
+    "mode": "dark",
+    "route": "/__verification_colors",
+    "tokens": {
+      "--color-primary": "#ff5722",
+      "--zap-orange": "#ff7a3d",
+      "--color-action": "#ff5722",
+      "--color-on-action": "#111827",
+      "--color-bg-primary": "color-mix(in srgb, #111827 70%, #1f2937)",
+      "--color-bg-secondary": "#1f2937",
+      "--color-input-bg": "#374151",
+      "--color-card-sunken": "#1f2937"
+    },
+    "body": {
+      "text": "(function () {\n        var theme = 'system';\n        try {\n          var saved = localStorage.getItem('nostrcooking_theme');\n          if (s",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    "landing": null,
+    "app": {
+      "text": "Food is Open Source ⚡ People share meals, recipes, and food ideas here. Sign in to share your own and follow cooks you like.  FreshBeta  Glo",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 1000
+      }
+    },
+    "header": {
+      "text": "Sign in Join free",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765 / 0.78)",
+      "backgroundImage": "linear-gradient(color(srgb 0.121569 0.160784 0.215686 / 0.45), color(srgb 0.0831373 0.114118 0.171765 / 0.65))",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 75
+      }
+    },
+    "sidebar": {
+      "text": "Feed       Recipes       Reads       Polls       Market       Messages       Memories      My Kitchen",
+      "color": "rgb(243, 244, 246)",
+      "bg": "color(srgb 0.0831373 0.114118 0.171765)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 1000
+      }
+    },
+    "primary": {
+      "text": "Primary button",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 87, 34)",
+      "backgroundImage": "none",
+      "border": "rgb(17, 24, 39)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 360,
+        "y": 85,
+        "width": 142.53125,
+        "height": 44
+      }
+    },
+    "outline": {
+      "text": "Accent button",
+      "color": "rgb(255, 87, 34)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "none",
+      "border": "rgb(255, 87, 34)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 526.53125,
+        "y": 84,
+        "width": 139.59375,
+        "height": 46
+      }
+    },
+    "noteHashtag": {
+      "text": "#cooking",
+      "color": "rgb(251, 146, 60)",
+      "bg": "rgb(55, 48, 45)",
+      "backgroundImage": "none",
+      "border": "rgb(251, 146, 60)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 525.875,
+        "y": 151,
+        "width": 88.59375,
+        "height": 28
+      }
+    },
+    "richHashtag": {
+      "text": "#cooking",
+      "color": "rgb(251, 146, 60)",
+      "bg": "rgb(55, 48, 45)",
+      "backgroundImage": "none",
+      "border": "rgb(251, 146, 60)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 493.375,
+        "y": 195,
+        "width": 73.8125,
+        "height": 20
+      }
+    },
+    "cheffy": {
+      "text": "",
+      "color": "rgb(255, 87, 34)",
+      "bg": "color(srgb 0.211498 0.145906 0.166384)",
+      "backgroundImage": "none",
+      "border": "color(srgb 1 0.525647 0.376)",
+      "shadow": "rgba(0, 0, 0, 0.38) 0px 9px 24px 0px, color(srgb 1 0.341176 0.133333 / 0.16) 0px 0px 0px 3px",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 690.125,
+        "y": 83,
+        "width": 48,
+        "height": 48
+      }
+    },
+    "avatar": {
+      "text": "",
+      "color": "rgb(255, 87, 34)",
+      "bg": "color(srgb 1 0.341176 0.133333 / 0.14)",
+      "backgroundImage": "none",
+      "border": "rgb(255, 87, 34)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 762.125,
+        "y": 87,
+        "width": 38,
+        "height": 38
+      }
+    },
+    "freshPost": {
+      "text": "· 2y      TEST DATA: A simple supper. #cooking       ♡ 💬 🔁 ⚡",
+      "color": "rgb(243, 244, 246)",
+      "bg": "rgb(31, 41, 55)",
+      "backgroundImage": "none",
+      "border": "rgb(243, 244, 246)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 360,
+        "y": 241,
+        "width": 720,
+        "height": 177.75
+      }
+    },
+    "join": {
+      "text": "Join free",
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "linear-gradient(135deg, rgb(255, 87, 34) 0%, color(srgb 1 0.407059 0.22) 100%)",
+      "border": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "font": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+      "rect": {
+        "x": 1333.484375,
+        "y": 18.5,
+        "width": 90.515625,
+        "height": 38
+      }
+    },
+    "noteHashtagHover": {
+      "color": "rgb(255, 255, 255)",
+      "bg": "rgb(234, 88, 12)"
+    },
+    "richHashtagHover": {
+      "color": "rgb(255, 255, 255)",
+      "bg": "rgb(234, 88, 12)"
+    },
+    "errors": []
+  }
+]

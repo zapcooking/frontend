@@ -1,0 +1,31 @@
+{
+  "results": [
+    {
+      "visitor": "guest",
+      "status": 200,
+      "cacheControl": "no-store",
+      "setCookie": false,
+      "realExploreContent": true,
+      "sharedShell": true,
+      "sharedFooterCount": 1,
+      "hydration": true,
+      "privateCookieMarkerAbsent": true,
+      "prepaintControllerCount": 1
+    },
+    {
+      "visitor": "cookie-marker",
+      "status": 200,
+      "cacheControl": "no-store",
+      "setCookie": false,
+      "realExploreContent": true,
+      "sharedShell": true,
+      "sharedFooterCount": 1,
+      "hydration": true,
+      "privateCookieMarkerAbsent": true,
+      "prepaintControllerCount": 1
+    }
+  ],
+  "staticControllerMatchesSource": true,
+  "obsoleteStandaloneImportAssetAbsent": true,
+  "rendering": "Public runtime SSR with no-store HTML/data plus the shared hydrated app shell. Account/wallet state remains client-side."
+}

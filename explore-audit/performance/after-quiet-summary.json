@@ -1,0 +1,53 @@
+[
+  {
+    "stage": "after-quiet",
+    "run": 1,
+    "lighthouseVersion": "12.8.2",
+    "fetchTime": "2026-10-26T02:42:42.211Z",
+    "performance": 0.45,
+    "accessibility": 0.95,
+    "LCP": 10575.37320000002,
+    "TBT": 439.39860000000135,
+    "FCP": 6181.783400000009,
+    "CLS": 0.0529034130859375,
+    "scriptRequests": 188,
+    "jsTransferBytes": 1082690,
+    "jsResourceBytes": 3163809,
+    "runtimeError": null,
+    "warnings": []
+  },
+  {
+    "stage": "after-quiet",
+    "run": 2,
+    "lighthouseVersion": "12.8.2",
+    "fetchTime": "2026-10-26T02:43:00.498Z",
+    "performance": 0.43,
+    "accessibility": 0.95,
+    "LCP": 10547.552049999995,
+    "TBT": 519.0000000000027,
+    "FCP": 6323.474599999998,
+    "CLS": 0,
+    "scriptRequests": 188,
+    "jsTransferBytes": 1082133,
+    "jsResourceBytes": 3163809,
+    "runtimeError": null,
+    "warnings": []
+  },
+  {
+    "stage": "after-quiet",
+    "run": 3,
+    "lighthouseVersion": "12.8.2",
+    "fetchTime": "2026-10-26T02:43:17.935Z",
+    "performance": 0.4,
+    "accessibility": 0.95,
+    "LCP": 10555.42274999999,
+    "TBT": 608.9999999999991,
+    "FCP": 6178.969874999995,
+    "CLS": 0.0529034130859375,
+    "scriptRequests": 188,
+    "jsTransferBytes": 1082133,
+    "jsResourceBytes": 3163809,
+    "runtimeError": null,
+    "warnings": []
+  }
+]

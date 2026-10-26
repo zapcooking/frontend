@@ -1,0 +1,38 @@
+[
+  {
+    "path": "/explore",
+    "cookiePresent": false,
+    "status": 200,
+    "cacheControl": "no-store",
+    "setCookie": false,
+    "privateMarkerAbsent": true,
+    "vary": null
+  },
+  {
+    "path": "/explore",
+    "cookiePresent": true,
+    "status": 200,
+    "cacheControl": "no-store",
+    "setCookie": false,
+    "privateMarkerAbsent": true,
+    "vary": null
+  },
+  {
+    "path": "/explore/__data.json?x-sveltekit-invalidated=11",
+    "cookiePresent": false,
+    "status": 200,
+    "cacheControl": "no-store",
+    "setCookie": false,
+    "privateMarkerAbsent": true,
+    "vary": null
+  },
+  {
+    "path": "/explore/__data.json?x-sveltekit-invalidated=11",
+    "cookiePresent": true,
+    "status": 200,
+    "cacheControl": "no-store",
+    "setCookie": false,
+    "privateMarkerAbsent": true,
+    "vary": null
+  }
+]

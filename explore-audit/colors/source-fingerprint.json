@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-10-26T02:40:50.185033+00:00",
+  "parentCommit": "970d0f485efa2693d46fa67f11d1836c5622de6e",
+  "files": {
+    "src/lib/themes/palettes.css": "edb5c58da80414deb6a246a1b373fab021ffa362c7f867a8a41c77d928724192",
+    "src/app.css": "ebe6881e40eb5623f75cba5663cfaaa23b5b86d72f8420edafe4e8550957d51c",
+    "src/components/Button.svelte": "8c00e38cb3f8e3e12a29c65f58b158e31984916cb0f068d33e2485a41f5fcac3",
+    "src/components/Header.svelte": "9adfcfbc4a181c28f574dcdd843e03957a2ae422cf7f9a74cde8714103e1834a",
+    "src/components/NoteContent.svelte": "20c682836b9d85ee472014133170dd3d33e5fa5dfe3e3b411a36bf317b2010cd",
+    "src/components/RichTextNostr.svelte": "e67d514d38f66345cfd60e3957035339fbfd189c25d617419bae57d514292ec2",
+    "src/components/CheffyNoteReviewTrigger.svelte": "da1a19a60a839e96c1bca2f8dd609a59564f54603f4c1c6d37d6b08340a22367",
+    "src/components/CheffyAvatar.svelte": "045327164a87d78a32dd8e24161aeb62e115db4217b2f7d82f1979113740267a",
+    "src/components/FreshPostCard.svelte": "c139fd5e234d6a7f9d98b33abf58da7a36cc3ad45b2a82c7a24ff320cfbd5efd",
+    "src/components/auth/SignInCard.svelte": "fdd8a0beaf8231dd3461f735a4af9100ca30105b6a40ee4755e8c339ed3aa9e6",
+    "src/components/auth/signInContrast.test.ts": "efb694a022c1d752555211bde646e101a208fb4f03f189fd90a8226e0a8ca1f5",
+    "src/components/landing/LandingImportHero.svelte": "6511bfd4825068b298dcd9133ff4d3cf4ea0e256290eabf97855c52de320abca"
+  },
+  "aggregateSha256": "74eef47c5da783b8838c333a5946efd1a6a668aaea7a75734ee7288402dbd877",
+  "note": "Final original brand orange with dark action labels, readable Explore small accent and neutral import links; before/after browser verification completed."
+}

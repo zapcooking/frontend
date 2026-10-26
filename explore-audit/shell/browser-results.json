@@ -1,0 +1,62 @@
+[
+  {
+    "route": "/explore",
+    "width": 360,
+    "status": 200,
+    "permissionCalls": 0,
+    "hasNotification": true,
+    "focused": "app-content",
+    "scrollTop": 0,
+    "contentTop": 74,
+    "headerBottom": 62,
+    "skipCount": 1,
+    "contentCount": 1,
+    "mainCount": 1,
+    "errors": []
+  },
+  {
+    "route": "/explore",
+    "width": 1440,
+    "status": 200,
+    "permissionCalls": 0,
+    "hasNotification": true,
+    "focused": "app-content",
+    "scrollTop": 0,
+    "contentTop": 87,
+    "headerBottom": 75,
+    "skipCount": 1,
+    "contentCount": 1,
+    "mainCount": 1,
+    "errors": []
+  },
+  {
+    "route": "/feed",
+    "width": 360,
+    "status": 200,
+    "permissionCalls": 1,
+    "hasNotification": true,
+    "focused": "app-content",
+    "scrollTop": 0,
+    "contentTop": 74,
+    "headerBottom": 62,
+    "skipCount": 1,
+    "contentCount": 1,
+    "mainCount": 0,
+    "errors": []
+  },
+  {
+    "route": "/feed",
+    "width": 1440,
+    "status": 200,
+    "permissionCalls": 1,
+    "hasNotification": true,
+    "focused": "app-content",
+    "scrollTop": 0,
+    "contentTop": 87,
+    "headerBottom": 75,
+    "skipCount": 1,
+    "contentCount": 1,
+    "mainCount": 0,
+    "errors": []
+  }
+]

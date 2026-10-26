@@ -1,0 +1,16 @@
+[
+  {
+    "scenario": "all app JS blocked",
+    "blockedAppScripts": 171,
+    "posts": 1,
+    "importEnabled": true,
+    "errorVisible": true
+  },
+  {
+    "scenario": "hydration adopts pending early request",
+    "sameController": true,
+    "posts": 1,
+    "pendingStatePreserved": true,
+    "componentNavigation": true
+  }
+]

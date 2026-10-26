@@ -1,0 +1,15 @@
+{
+  "commit": "80c9d1ec2a9fce99b532eb3ee3e8fe85aa5e4ea2",
+  "typecheck": {
+    "errors": 0,
+    "existingWarnings": 124
+  },
+  "focusedTests": 198,
+  "finalColorRelatedTests": 41,
+  "productionBuildPassed": true,
+  "introducedLintMessages": 0,
+  "introducedFormattingFailures": 0,
+  "colorOtherThemeTokenComparisons": 648,
+  "mobilePerformanceRegressionUnresolved": true,
+  "headerInitialGuestStateUnchanged": true
+}
