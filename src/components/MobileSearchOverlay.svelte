@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { blur } from 'svelte/transition';
   import { clickOutside } from '$lib/clickOutside';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
@@ -7,6 +8,7 @@
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
 
   $: open = $mobileSearchOpen;
+  $: recipeOnly = $page.route.id === '/explore';
 
   function openSearch(query: string) {
     mobileSearchOpen.set(false);
@@ -19,10 +21,14 @@
       goto(target.path);
       return;
     }
-    goto(`/search?q=${encodeURIComponent(query)}`);
+    goto(`/search?${recipeOnly ? 'type=recipes&' : ''}q=${encodeURIComponent(query)}`);
   }
 
   function openTag(query: string) {
+    if (recipeOnly) {
+      openSearch(query);
+      return;
+    }
     mobileSearchOpen.set(false);
     // Same invariant as openSearch: a secret key is never written into a
     // URL, so it cannot become `/tag/nsec1…` either.
@@ -53,7 +59,8 @@
       on:click_outside={close}
     >
       <TagsSearchAutocomplete
-        placeholderString={'Search recipes, tags, or users...'}
+        placeholderString={recipeOnly ? 'Search recipes...' : 'Search recipes, tags, or users...'}
+        {recipeOnly}
         action={openTag}
         onSubmitQuery={openSearch}
         autofocus={true}

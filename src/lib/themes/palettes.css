@@ -53,6 +53,38 @@ html:root {
 html:root.dark {
   --explore-accent-text: #ffb18b;
   --explore-pattern: #d9ad8526;
+  --color-text-primary: #f3f4f6;
+  --color-text-secondary: #d1d5db;
+  --color-caption: #d1d5db;
+  --color-bg-primary: #111827;
+  --color-bg-secondary: #1f2937;
+  --color-input-bg: #374151;
+  --color-input-border: #4b5563;
+  --color-accent-gray: #4b5563;
+  --color-card-sunken: #0c111c;
+  --color-explore-peach: var(--color-bg-secondary);
+  --color-explore-sage: var(--color-card-sunken);
+  color-scheme: dark;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-info: #93c5fd;
+  --color-danger: #fca5a5;
+}
+/* Warm Kitchen retains the former off-white and brown palettes as an opt-in style. */
+html:root:not(.dark)[data-explore-theme='warm-kitchen'] {
+  --color-text-primary: #28231f;
+  --color-text-secondary: #60554b;
+  --color-caption: #6b5d51;
+  --color-bg-primary: #fff9f2;
+  --color-bg-secondary: #f4e9dd;
+  --color-input-bg: #fffdf9;
+  --color-input-border: #c7b7a7;
+  --color-accent-gray: #c7b7a7;
+  --color-card-sunken: #eee2d4;
+}
+html:root.dark[data-explore-theme='warm-kitchen'] {
+  --explore-accent-text: #ffb18b;
+  --explore-pattern: #d9ad8526;
   --color-text-primary: #fff5e9;
   --color-text-secondary: #dfcdbd;
   --color-caption: #c9b4a2;
@@ -64,23 +96,6 @@ html:root.dark {
   --color-card-sunken: #191512;
   --color-explore-peach: #3e2a21;
   --color-explore-sage: #2b3328;
-  color-scheme: dark;
-  --color-success: #4ade80;
-  --color-warning: #fbbf24;
-  --color-info: #93c5fd;
-  --color-danger: #fca5a5;
-}
-/* Preserve the former off-white Original as an opt-in style. Both use the same existing dark palette. */
-html:root:not(.dark)[data-explore-theme='warm-kitchen'] {
-  --color-text-primary: #28231f;
-  --color-text-secondary: #60554b;
-  --color-caption: #6b5d51;
-  --color-bg-primary: #fff9f2;
-  --color-bg-secondary: #f4e9dd;
-  --color-input-bg: #fffdf9;
-  --color-input-border: #c7b7a7;
-  --color-accent-gray: #c7b7a7;
-  --color-card-sunken: #eee2d4;
 }
 html:root[data-explore-theme='after-hours'] {
   --explore-accent-text: #9b2d25;
@@ -265,17 +280,17 @@ html:root.dark[data-explore-theme='sunday-market'] {
   html:root:not([data-color-mode]):not(.dark) {
     --explore-accent-text: #ffb18b;
     --explore-pattern: #d9ad8526;
-    --color-text-primary: #fff5e9;
-    --color-text-secondary: #dfcdbd;
-    --color-caption: #c9b4a2;
-    --color-bg-primary: #201c19;
-    --color-bg-secondary: #302721;
-    --color-input-bg: #261f1a;
-    --color-input-border: #716152;
-    --color-accent-gray: #716152;
-    --color-card-sunken: #191512;
-    --color-explore-peach: #3e2a21;
-    --color-explore-sage: #2b3328;
+    --color-text-primary: #f3f4f6;
+    --color-text-secondary: #d1d5db;
+    --color-caption: #d1d5db;
+    --color-bg-primary: #111827;
+    --color-bg-secondary: #1f2937;
+    --color-input-bg: #374151;
+    --color-input-border: #4b5563;
+    --color-accent-gray: #4b5563;
+    --color-card-sunken: #0c111c;
+    --color-explore-peach: var(--color-bg-secondary);
+    --color-explore-sage: var(--color-card-sunken);
     color-scheme: dark;
     --color-success: #4ade80;
     --color-warning: #fbbf24;

@@ -58,28 +58,17 @@ html .landing .magazine .packs-section {
   border-radius: 14px;
 }
 
-html .landing .landing-header .header-search {
-  background: var(--color-input-bg);
-}
-
 html .landing .magazine .import-fields input {
   background: var(--color-input-bg);
 }
 
-html .landing .landing-header .account a.join,
 html .landing .magazine .import-fields button {
   background: var(--explore-action-bg);
   color: var(--explore-action-ink);
 }
 
-html .landing .landing-header .header-search button,
 html .landing .magazine :is(.membership-button, .cheffy-invitation a) {
   color: var(--explore-accent-text);
-}
-
-html .landing .landing-side-nav a.active,
-html .landing .drawer-panel a.active {
-  background: var(--color-explore-peach);
 }
 
 /* After Hours: a small supper-club poster, geometric lettering and curved photos. */

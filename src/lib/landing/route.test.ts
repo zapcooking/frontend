@@ -42,7 +42,8 @@ describe('landing meta', () => {
 
 	it('keeps no-JS dark logos and uses the shared OS fallback without overriding explicit modes or print', () => {
 		expect(NOSCRIPT_DARK_STYLE).toContain('@media screen and (prefers-color-scheme: dark)');
-		expect(NOSCRIPT_DARK_STYLE).toContain('.logo-l{display:none!important}.logo-d{display:block!important}');
+		expect(NOSCRIPT_DARK_STYLE).toContain('html:not(.dark) img[src="/zapcooking-text-light.svg"]{display:none!important}');
+		expect(NOSCRIPT_DARK_STYLE).toContain('html:not(.dark) img[src="/zapcooking-text-dark.svg"]{display:block!important}');
 		const palettes = readFileSync('src/lib/themes/palettes.css', 'utf8');
 		expect(palettes).toMatch(/@media screen and \(prefers-color-scheme: dark\)\s*\{\s*html:root:not\(\[data-color-mode\]\):not\(\.dark\)/);
 	});

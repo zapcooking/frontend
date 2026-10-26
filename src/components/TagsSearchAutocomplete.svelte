@@ -19,6 +19,8 @@
   // Global search bars pass this so submitting a keyword opens the results
   // feed. Tag pickers leave it unset and keep picking the first match.
   export let onSubmitQuery: ((query: string) => void) | null = null;
+  // Explore keeps its recipe-only search while reusing the shared search UI.
+  export let recipeOnly = false;
 
   // The global search bars (Header, MobileSearchOverlay) pass onSubmitQuery;
   // tag pickers (TagsComboBox in the recipe editors) don't. A tag picker only
@@ -50,6 +52,17 @@
 
   // Prevent stale user search results
   let userSearchVersion = 0;
+
+  // The header persists across routes. Discard user results from a prior
+  // page when Explore's recipe-only scope becomes active, including late replies.
+  function updateRecipeScope(onlyRecipes: boolean) {
+    if (!onlyRecipes) return;
+    userSearchVersion++;
+    searchResults.users = [];
+    searchResults.note = null;
+    searchResults = searchResults;
+  }
+  $: updateRecipeScope(recipeOnly);
 
   // NIP-50 full-text search relays. Both index kind-1 posts; results are
   // fanned in from both and deduped, so one being slow or down doesn't
@@ -123,7 +136,7 @@
       searchResults.tags = [];
       searchResults.recipes = [];
       searchResults.users = [];
-      if (target.kind === 'note') {
+      if (target.kind === 'note' && !recipeOnly) {
         searchResults.note = { id: target.id };
         showAutocomplete = true;
         return;
@@ -155,7 +168,7 @@
       try {
         // NIP-50 searches fire and stream results independently
         searchNetworkRecipes(normalizedQuery);
-        await searchUsers(normalizedQuery);
+        if (!recipeOnly) await searchUsers(normalizedQuery);
       } catch (e) {
         console.debug('Search error:', e);
       } finally {
@@ -287,7 +300,7 @@
       // Paint each index (Primal, Nostr Archives) as it answers, then the
       // final ranked merge; a newer search discards this one's results.
       const paintUsers = (profiles: SearchProfile[]) => {
-        if (thisVersion !== userSearchVersion) return;
+        if (recipeOnly || thisVersion !== userSearchVersion) return;
         searchResults.users = profiles.map((profile) => ({
           name: getDisplayName(profile),
           npub: profile.npub,
@@ -298,7 +311,7 @@
       paintUsers(await searchProfiles(query, 5, { onPartial: paintUsers }));
     } catch (e) {
       // If request was superseded, don't overwrite
-      if (thisVersion !== userSearchVersion) return;
+      if (recipeOnly || thisVersion !== userSearchVersion) return;
       console.warn('User search failed:', e);
       searchResults.users = [];
       searchResults = searchResults;

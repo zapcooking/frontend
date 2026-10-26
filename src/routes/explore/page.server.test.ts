@@ -42,8 +42,8 @@ async function run(search = '', personalization = '') {
 }
 
 describe('/explore', () => {
-  it('disables app hydration (csr = false) and is never prerendered', () => {
-    expect(mod.csr).toBe(false);
+  it('hydrates the shared app shell while retaining runtime public SSR', () => {
+    expect(mod.csr).toBe(true);
     expect(mod.prerender).toBe(false);
   });
 

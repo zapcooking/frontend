@@ -1,6 +1,11 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { enhanceLandingImport } from '$lib/landing/import.client';
   import { ANON_IMPORT_HANDOFF_KEY, ANON_IMPORT_INPUT_KEY } from '$lib/anonImport';
   import { EXTRACT_ERROR_FALLBACK } from '$lib/extractErrors';
+  let form: HTMLFormElement;
+  onMount(() => enhanceLandingImport(form));
+
   const errors = {
     ...EXTRACT_ERROR_FALLBACK,
     SOURCE_BLOCKED:
@@ -9,8 +14,6 @@
       'That page is too large to import. Try its print-friendly recipe page, or paste the recipe text into Sous Chef with Cook+.'
   };
 </script>
-
-<svelte:head><script src="/landing-import.js" defer></script></svelte:head>
 
 <section id="import-recipe" class="import-invitation" aria-labelledby="import-heading">
   <div>
@@ -22,6 +25,7 @@
   </div>
   <div>
     <form
+      bind:this={form}
       data-landing-import
       data-errors={JSON.stringify(errors)}
       data-handoff-key={ANON_IMPORT_HANDOFF_KEY}

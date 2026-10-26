@@ -1,17 +1,34 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { userPublickey } from '$lib/nostr';
   import Arrow from './Arrow.svelte';
   import { COOK_PLUS_TOOLS } from '$lib/cookPlusCopy';
   import { MEMBERSHIP_PATH } from '$lib/cookPlusPricing';
   import { CHEFFY_TRIAL_LIMIT } from '$lib/cheffyTrial';
-  import membershipScript from '$lib/landing/membership.client.js?url';
+  import { createLandingAudienceController } from '$lib/landing/membership.client.js';
+
+  let section: HTMLElement;
+  onMount(() => {
+    const audience = createLandingAudienceController(section);
+    // The subscription fires once on mount and again after same-tab account changes.
+    const unsubscribe = userPublickey.subscribe((pubkey) => void audience.refresh(pubkey));
+    return () => {
+      unsubscribe();
+      audience.destroy();
+    };
+  });
 </script>
 
 <svelte:head>
-  <script type="module" src={membershipScript}></script>
   {@html '<noscript><style>@layer base{html [data-landing-guest][hidden],html [data-landing-upgrade][hidden]{display:block!important}html a[data-landing-guest][hidden]{display:inline-flex!important}}</style></noscript>'}
 </svelte:head>
 
-<section id="membership" aria-labelledby="membership-heading" class="membership-section">
+<section
+  bind:this={section}
+  id="membership"
+  aria-labelledby="membership-heading"
+  class="membership-section"
+>
   <div class="membership-intro">
     <h2 id="membership-heading">Make more of your kitchen.</h2>
     <p>Keep the recipes you love. Share what you make. Find your people.</p>

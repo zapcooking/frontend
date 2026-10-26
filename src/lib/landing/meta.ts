@@ -35,7 +35,7 @@ export function ogImage(d: Pick<LandingData, 'cover'>): string {
 
 export function landingMeta(d: Pick<LandingData, 'cover'>): LandingMeta {
 	return {
-		title: 'Zap Cooking: recipes, cooks and food stories',
+		title: 'Zap Cooking: recipes, cooks and reads',
 		description: EDITORIAL_SUPPORTING_LINE,
 		canonical: LANDING_CANONICAL,
 		image: ogImage(d)
@@ -84,5 +84,6 @@ export function landingJsonLd(d: Pick<LandingData, 'cover' | 'picks' | 'reads'>)
  */
 export const NOSCRIPT_DARK_STYLE =
 	'<noscript><style>@media screen and (prefers-color-scheme: dark){' +
-	'.logo-l{display:none!important}.logo-d{display:block!important}' +
+	'html:not(.dark) img[src="/zapcooking-text-light.svg"]{display:none!important}' +
+	'html:not(.dark) img[src="/zapcooking-text-dark.svg"]{display:block!important}' +
 	'}</style></noscript>';

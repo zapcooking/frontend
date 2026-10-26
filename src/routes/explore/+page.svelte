@@ -1,13 +1,12 @@
 <script lang="ts">
-  import type { PageData } from './$types';
+  import { afterNavigate } from '$app/navigation';
+  import type { PageData, Snapshot } from './$types';
   import { avatarUrl } from '$lib/imageOptimizer';
   import { responsiveImg } from '$lib/landing/responsiveImg';
   import { userHref } from '$lib/landing/content';
   import { DEFAULT_HEADLINE, EDITORIAL_SUPPORTING_LINE } from '$lib/landing/editorialConfig';
   import { landingJsonLd, landingMeta, NOSCRIPT_DARK_STYLE } from '$lib/landing/meta';
   import Arrow from '../../components/landing/Arrow.svelte';
-  import LandingHeader from '../../components/landing/LandingHeader.svelte';
-  import LandingSideNav from '../../components/landing/LandingSideNav.svelte';
   import LandingImage from '../../components/landing/LandingImage.svelte';
   import LongformTile from '../../components/landing/LongformTile.svelte';
   import LandingImportHero from '../../components/landing/LandingImportHero.svelte';
@@ -16,6 +15,24 @@
   import LandingMembership from '../../components/landing/LandingMembership.svelte';
   import LandingRecipePacks from '../../components/landing/LandingRecipePacks.svelte';
   import '$lib/landing/exploreThemes.css';
+
+  // The shared shell scrolls this element, while SvelteKit manages window scroll.
+  // Keep Explore's own history position without changing other routes' behavior.
+  export const snapshot: Snapshot<number> = {
+    capture: () => document.getElementById('app-scroll')?.scrollTop ?? 0,
+    restore: (scrollTop) => {
+      const scroller = document.getElementById('app-scroll');
+      if (scroller) scroller.scrollTop = scrollTop;
+    }
+  };
+
+  afterNavigate(({ type, to }) => {
+    // Snapshots/browser restoration own reloads and back/forward; SvelteKit
+    // scrolls fragment targets into view before this callback runs.
+    if (type === 'enter' || type === 'popstate' || to?.url.hash) return;
+    const scroller = document.getElementById('app-scroll');
+    if (scroller) scroller.scrollTop = 0;
+  });
 
   export let data: PageData;
   $: d = data.landing;
@@ -59,9 +76,7 @@
 </svelte:head>
 
 <div class="landing">
-  <LandingSideNav />
   <div class="landing-body">
-    <LandingHeader />
     <main id="main" class="magazine">
       <section class="masthead" aria-labelledby="community-headline">
         <div class="masthead-toolbar">
@@ -75,7 +90,7 @@
       </section>
 
       {#if d.cover || d.picks.length}
-        <section class="cover-section" aria-label="Featured recipes and food stories">
+        <section class="cover-section" aria-label="Featured recipes and reads">
           <div class="cover-top">
             <a class="text-link" href={data.nextEditionHref}>More inspiration <Arrow /></a>
           </div>
@@ -145,9 +160,9 @@
         <section class="section food-stories" aria-labelledby="stories-heading">
           <div class="section-top">
             <div>
-              <h2 id="stories-heading">Food stories</h2>
+              <h2 id="stories-heading">Reads</h2>
             </div>
-            <a class="text-link" href="/reads">All food stories <Arrow /></a>
+            <a class="text-link" href="/reads">All reads <Arrow /></a>
           </div>
           <ul class="story-grid" class:single={d.reads.length === 1} role="list">
             {#each d.reads as story (story.coordinate)}<li>
@@ -269,18 +284,6 @@
 
       <LandingMembership />
     </main>
-    <footer class="magazine footer">
-      <a href="/explore" aria-label="Zap Cooking home" class="footer-brand">
-        <img src="/zapcooking-text-light.svg" class="logo-l" alt="" width="160" height="22" />
-        <img src="/zapcooking-text-dark.svg" class="logo-d" alt="" width="160" height="22" />
-      </a>
-      <p>Food. Friends. Freedom.</p>
-      <nav aria-label="Footer">
-        <a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a
-          href="/sponsors">Sponsors</a
-        >
-      </nav>
-    </footer>
   </div>
 </div>
 
@@ -290,6 +293,9 @@
     color: var(--color-text-primary);
     font-family: 'Albert Sans', ui-sans-serif, system-ui, sans-serif;
   }
+  .landing :global([id]) {
+    scroll-margin-top: calc(var(--header-h) + 16px);
+  }
   .landing-body {
     --explore-display: 48px;
     --explore-section: 32px;
@@ -297,12 +303,11 @@
     --explore-body: 16px;
     --explore-meta: 13px;
     min-width: 0;
-    min-height: 100vh;
   }
   .magazine {
     max-width: 1280px;
     margin: auto;
-    padding: 0 40px;
+    padding: 0 16px;
   }
   :where(.landing) :global(a) {
     color: inherit;
@@ -629,64 +634,7 @@
     line-height: 1.5;
     color: var(--color-text-secondary);
   }
-  .footer {
-    border-top: 1px solid var(--color-input-border);
-    padding-top: 24px;
-    padding-bottom: 24px;
-    display: flex;
-    align-items: center;
-    gap: 24px;
-  }
-  .footer-brand {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
-    flex-shrink: 0;
-  }
-  .footer-brand img {
-    width: 160px;
-    height: auto;
-  }
-  .logo-d {
-    display: none;
-  }
-  :global(html.dark) .logo-l {
-    display: none;
-  }
-  :global(html.dark) .logo-d {
-    display: block;
-  }
-  .footer p {
-    font-size: var(--explore-meta);
-    color: var(--color-caption);
-  }
-  .footer nav {
-    display: flex;
-    gap: 20px;
-    margin-left: auto;
-    font-size: var(--explore-meta);
-  }
-  .footer nav a {
-    display: inline-flex;
-    align-items: center;
-    min-width: 44px;
-    min-height: 44px;
-  }
-  @media (min-width: 1024px) {
-    .landing-body {
-      margin-left: calc(14rem + 5px);
-    }
-  }
-  @media (min-width: 1280px) {
-    .landing-body {
-      margin-left: calc(20rem + 5px);
-    }
-  }
   @media (max-width: 1100px) {
-    .magazine {
-      padding-left: 28px;
-      padding-right: 28px;
-    }
     .recipe-grid,
     .story-grid {
       column-gap: 28px;
@@ -707,8 +655,8 @@
       --explore-title: 22px;
     }
     .magazine {
-      padding-left: 20px;
-      padding-right: 20px;
+      padding-left: 0;
+      padding-right: 0;
     }
     .masthead {
       padding: 28px 0 24px;
@@ -807,14 +755,6 @@
     }
     .subsection-top p {
       flex-basis: 100%;
-    }
-    .footer {
-      flex-wrap: wrap;
-      gap: 8px 24px;
-    }
-    .footer nav {
-      margin-left: 0;
-      width: 100%;
     }
   }
 </style>

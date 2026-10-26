@@ -152,14 +152,6 @@
     if (from?.url?.pathname === '/feed') {
       lastFeedUrl.set(from.url.pathname + from.url.search);
     }
-    // Landing routes ship no client JS (csr = false), so the client router
-    // can't render them: a client-side navigation to one (link, goto, back
-    // button) becomes a page load.
-    if (!willUnload && to?.url && to.url.origin === location.origin && isLandingRoute(to.route?.id)) {
-      cancel();
-      location.href = to.url.href;
-      return;
-    }
     if ($updated && !willUnload && to?.url) {
       // Cancel the client-side navigation first so SvelteKit doesn't start
       // resolving (stale) route chunks before the full-page load takes over.
@@ -299,8 +291,8 @@
   // The persistent Cheffy messenger is hidden on the full Cheffy page
   // (redundant), the chrome-less messaging surfaces, and auth flows.
   $: showCheffy = isCheffyRoute($page.url.pathname);
-  // Landing routes ($lib/landing/route) are server-rendered with no client
-  // JS: the layout renders only the page (its own header, footer and meta).
+  // The public magazine supplies its own metadata while sharing the same
+  // hydrated navigation, account controls and wallet as the rest of the app.
   $: landing = isLandingRoute($page.route.id);
   $: hasCustomOgTags =
     landing ||
@@ -603,9 +595,6 @@
   {/if}
 </svelte:head>
 
-{#if landing}
-  <slot />
-{:else}
 <ErrorBoundary fallback="Something went wrong with the page layout. Please refresh the page.">
   <div
     class="h-screen scroll-smooth overflow-hidden transition-colors duration-200 safe-area-container"
@@ -728,7 +717,6 @@
     </div>
   </div>
 </ErrorBoundary>
-{/if}
 
 <style>
   .kitchen-scroll {
