@@ -139,7 +139,7 @@
   }
 
   .nav-tab.active {
-    color: var(--color-primary);
+    color: var(--color-nav-active);
   }
 
   .badge-dot {

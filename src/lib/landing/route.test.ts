@@ -18,10 +18,8 @@ describe('landing routes', () => {
 		expect(isLandingPath('/api/explore')).toBe(false);
 	});
 
-	it('is edge-cacheable for everyone (shared, never private)', () => {
-		expect(LANDING_CACHE_CONTROL).toMatch(/\bpublic\b/);
-		expect(LANDING_CACHE_CONTROL).toMatch(/s-maxage=180\b/);
-		expect(LANDING_CACHE_CONTROL).not.toMatch(/private|no-store|no-cache/);
+	it('does not retain hydrated HTML or route data across deployments', () => {
+		expect(LANDING_CACHE_CONTROL).toBe('no-store');
 	});
 
 });
@@ -42,7 +40,8 @@ describe('landing meta', () => {
 
 	it('keeps no-JS dark logos and uses the shared OS fallback without overriding explicit modes or print', () => {
 		expect(NOSCRIPT_DARK_STYLE).toContain('@media screen and (prefers-color-scheme: dark)');
-		expect(NOSCRIPT_DARK_STYLE).toContain('.logo-l{display:none!important}.logo-d{display:block!important}');
+		expect(NOSCRIPT_DARK_STYLE).toContain('html:not(.dark) img[src="/zapcooking-text-light.svg"]{display:none!important}');
+		expect(NOSCRIPT_DARK_STYLE).toContain('html:not(.dark) img[src="/zapcooking-text-dark.svg"]{display:block!important}');
 		const palettes = readFileSync('src/lib/themes/palettes.css', 'utf8');
 		expect(palettes).toMatch(/@media screen and \(prefers-color-scheme: dark\)\s*\{\s*html:root:not\(\[data-color-mode\]\):not\(\.dark\)/);
 	});

@@ -1,6 +1,12 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { enhanceLandingImport } from '$lib/landing/import.client.js';
+  import earlyImportScript from '$lib/landing/import.client.js?url';
   import { ANON_IMPORT_HANDOFF_KEY, ANON_IMPORT_INPUT_KEY } from '$lib/anonImport';
   import { EXTRACT_ERROR_FALLBACK } from '$lib/extractErrors';
+  let form: HTMLFormElement;
+  onMount(() => enhanceLandingImport(form));
+
   const errors = {
     ...EXTRACT_ERROR_FALLBACK,
     SOURCE_BLOCKED:
@@ -10,7 +16,7 @@
   };
 </script>
 
-<svelte:head><script src="/landing-import.js" defer></script></svelte:head>
+<svelte:head><script type="module" src={earlyImportScript}></script></svelte:head>
 
 <section id="import-recipe" class="import-invitation" aria-labelledby="import-heading">
   <div>
@@ -22,6 +28,7 @@
   </div>
   <div>
     <form
+      bind:this={form}
       data-landing-import
       data-errors={JSON.stringify(errors)}
       data-handoff-key={ANON_IMPORT_HANDOFF_KEY}
@@ -135,7 +142,7 @@
     line-height: 1.4;
   }
   a {
-    color: var(--color-primary);
+    color: var(--color-import-link);
     text-decoration: underline;
     text-underline-offset: 3px;
   }

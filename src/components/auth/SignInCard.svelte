@@ -610,7 +610,7 @@
             target="_blank"
             rel="noopener noreferrer"
             class="text-sm underline break-all"
-            style="color: var(--color-primary, #f97316)"
+            style="color: var(--color-auth-link)"
           >
             {authState.authChallengeUrl}
           </a>
@@ -1170,8 +1170,8 @@
     border-radius: 14px;
     border: none;
     /* Filled actions use their own contrast-tested background/foreground pair. */
-    background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action-hover) 100%);
-    color: var(--color-on-action);
+    background: linear-gradient(135deg, var(--color-auth-action) 0%, var(--color-auth-action-hover) 100%);
+    color: var(--color-auth-on-action);
     font-family: inherit;
     font-weight: 600;
     font-size: 0.9375rem;
@@ -1317,19 +1317,19 @@
     font: inherit;
     font-weight: 600;
     /* Links use the readable accent, independently of filled actions. */
-    color: var(--color-primary);
+    color: var(--color-auth-link);
     cursor: pointer;
   }
-  :global(.dark) .signin-join-link { color: var(--signin-flame); }
+  :global(.dark) .signin-join-link { color: var(--color-auth-link); }
   .signin-join-link:hover { text-decoration: underline; }
   .signin-join-link:disabled { opacity: 0.55; cursor: not-allowed; }
   .signin-cta-secondary:focus-visible { outline: 2px solid var(--signin-flame); outline-offset: 2px; }
 
   /* The shared accent is paired with both page and raised surfaces. */
-  .signin-notice a, .signin-footer a { color: var(--color-primary); text-decoration: none; }
-  :global(.dark) .signin-footer a { color: var(--signin-flame); }
+  .signin-notice a, .signin-footer a { color: var(--color-auth-link); text-decoration: none; }
+  :global(.dark) .signin-footer a { color: var(--color-auth-link); }
   /* The notice shares the same contrast-tested link role. */
-  :global(.dark) .signin-notice a { color: var(--color-primary); }
+  :global(.dark) .signin-notice a { color: var(--color-auth-link); }
   .signin-notice a:hover, .signin-footer a:hover { text-decoration: underline; }
 
   .signin-notice {

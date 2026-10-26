@@ -42,16 +42,16 @@ async function run(search = '', personalization = '') {
 }
 
 describe('/explore', () => {
-  it('disables app hydration (csr = false) and is never prerendered', () => {
-    expect(mod.csr).toBe(false);
+  it('hydrates the shared app shell while retaining runtime public SSR', () => {
+    expect(mod.csr).toBe(true);
     expect(mod.prerender).toBe(false);
   });
 
-  it('is edge-cacheable and indexable (noindex dropped at the cutover)', async () => {
+  it("is indexable without caching a prior deploy's hydrated shell", async () => {
     getLandingData.mockResolvedValueOnce(emptyLandingData(1));
     getLandingPaid.mockResolvedValueOnce({ boosts: [], sponsors: [] });
     const { headers } = await run();
-    expect(headers['cache-control']).toBe('public, max-age=60, s-maxage=180');
+    expect(headers['cache-control']).toBe('no-store');
     expect(headers['x-robots-tag']).toBeUndefined();
   });
 

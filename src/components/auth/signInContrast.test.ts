@@ -28,7 +28,11 @@ function palette(style: string, dark: boolean): Record<string, string> {
     ...(dark ? [`html:root.dark[data-explore-theme='${style}']`] : [])
   ]);
   for (const node of palettes.nodes) {
-    if (node.type !== 'rule' || !selectors.has(node.selector)) continue;
+    if (
+      node.type !== 'rule' ||
+      !node.selector.split(',').some((selector) => selectors.has(selector.trim()))
+    )
+      continue;
     node.walkDecls((decl) => {
       values[decl.prop] = decl.value;
     });
@@ -68,9 +72,28 @@ describe('sign-in sheet contrast', () => {
     expect(src).toContain('--signin-mute: var(--color-caption)');
     expect(src).toContain('--signin-flame: var(--color-primary)');
     const cta = src.match(/\.signin-cta-primary \{([^}]+)\}/)![1];
-    expect(cta).toContain('var(--color-action)');
-    expect(cta).toContain('var(--color-action-hover)');
-    expect(cta).toContain('color: var(--color-on-action)');
+    expect(cta).toContain('var(--color-auth-action)');
+    expect(cta).toContain('var(--color-auth-action-hover)');
+    expect(cta).toContain('color: var(--color-auth-on-action)');
+    const css = postcss.parse(src.match(/<style>([\s\S]+)<\/style>/)![1]);
+    for (const selector of [
+      '.signin-join-link',
+      ':global(.dark) .signin-join-link',
+      '.signin-notice a',
+      '.signin-footer a',
+      ':global(.dark) .signin-notice a',
+      ':global(.dark) .signin-footer a'
+    ]) {
+      let color: string | undefined;
+      css.walkRules((rule) => {
+        if (rule.selector.split(',').some((value) => value.trim() === selector)) {
+          rule.walkDecls('color', (decl) => {
+            color = decl.value;
+          });
+        }
+      });
+      expect(color, selector).toBe('var(--color-auth-link)');
+    }
   });
 
   for (const style of styles)
@@ -78,11 +101,11 @@ describe('sign-in sheet contrast', () => {
       it(`${style} ${dark ? 'dark' : 'light'}: action stops, footer links and captions are at least 4.5:1`, () => {
         const values = palette(style, dark);
         const color = (name: string) => resolve(`var(--color-${name})`, values);
-        for (const background of ['action', 'action-hover']) {
-          expect(contrast(color('on-action'), color(background))).toBeGreaterThanOrEqual(4.5);
+        for (const background of ['auth-action', 'auth-action-hover']) {
+          expect(contrast(color('auth-on-action'), color(background))).toBeGreaterThanOrEqual(4.5);
         }
         for (const background of ['bg-primary', 'input-bg']) {
-          for (const foreground of ['primary', 'caption', 'text-primary']) {
+          for (const foreground of ['auth-link', 'caption', 'text-primary']) {
             expect(contrast(color(foreground), color(background))).toBeGreaterThanOrEqual(4.5);
           }
         }

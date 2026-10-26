@@ -1,4 +1,4 @@
-/* Shared palettes reuse the original app neutrals and existing Explore colors. Display typography and decoration remain local to Explore. Primary is readable accent text, never a filled button: use action/on-action for that pair. */
+/* Shared palettes reuse the original app neutrals and existing Explore colors. Display typography and decoration remain local to Explore. Brand accents, filled actions, and small sign-in text have separate color roles. */
 html:root {
   --explore-action-bg: #bd3c0b;
   --explore-action-ink: #ffffff;
@@ -27,6 +27,22 @@ html:root {
   --color-action: var(--explore-action-bg);
   --color-on-action: var(--explore-action-ink);
   --color-action-hover: color-mix(in srgb, var(--color-action) 88%, #28231f);
+  --color-feed-tab-start: var(--color-primary);
+  --color-feed-tab-end: var(--color-primary);
+  --color-nav-active: var(--color-primary);
+  --color-create-start: var(--color-action);
+  --color-create-end: var(--color-action-hover);
+  --color-profile-glow: var(--color-primary);
+  --color-profile-highlight: var(--color-primary);
+  --color-auth-action: var(--color-action);
+  --color-auth-action-hover: var(--color-action-hover);
+  --color-auth-on-action: var(--color-on-action);
+  --color-auth-link: var(--color-primary);
+  --color-import-link: var(--color-primary);
+  --color-hashtag-bg: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --color-hashtag-text: var(--color-primary);
+  --color-hashtag-hover-bg: var(--color-action);
+  --color-hashtag-hover-text: var(--color-on-action);
   --color-selected-bg: color-mix(in srgb, var(--color-primary) 12%, var(--color-bg-primary));
   --color-hover-bg: color-mix(in srgb, var(--color-primary) 6%, var(--color-bg-primary));
   --color-skeleton-base: var(--color-card-sunken);
@@ -53,6 +69,85 @@ html:root {
 html:root.dark {
   --explore-accent-text: #ffb18b;
   --explore-pattern: #d9ad8526;
+  --color-text-primary: #f3f4f6;
+  --color-text-secondary: #d1d5db;
+  --color-caption: #d1d5db;
+  --color-bg-primary: #111827;
+  --color-bg-secondary: #1f2937;
+  --color-input-bg: #374151;
+  --color-input-border: #4b5563;
+  --color-accent-gray: #4b5563;
+  --color-card-sunken: #0c111c;
+  --color-explore-peach: var(--color-bg-secondary);
+  --color-explore-sage: var(--color-card-sunken);
+  color-scheme: dark;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-info: #93c5fd;
+  --color-danger: #fca5a5;
+}
+/* Original keeps the site's pre-theme brand orange. Other styles retain their
+   existing accent/action pairs, including Warm Kitchen's inherited colors. */
+html:root:not([data-explore-theme]),
+html:root[data-explore-theme='original'] {
+  --color-primary: #ec4700;
+  --explore-accent-text: #d43f00;
+  --explore-action-bg: #ec4700;
+  /* Explore's small import label keeps its readable ink; app controls retain
+     the original white labels shown in the reference design. */
+  --explore-action-ink: #111827;
+  --color-on-action: #ffffff;
+  --color-action-hover: color-mix(in srgb, var(--color-action) 90%, #ffffff);
+  /* These were distinct before themes: orange/amber tabs and compose button,
+     a warmer active navigation icon, and a purple profile halo. */
+  --color-feed-tab-start: var(--color-orange-500);
+  --color-feed-tab-end: var(--color-amber-500);
+  --color-nav-active: #f97316;
+  --color-create-start: #f97316;
+  --color-create-end: #f59e0b;
+  --color-profile-glow: #a855f7;
+  --color-profile-highlight: #a855f7;
+  --zap-orange: #ec4700;
+  --color-auth-action: #d43f00;
+  --color-auth-action-hover: #c2410c;
+  --color-auth-on-action: #ffffff;
+  --color-auth-link: #c2410c;
+  --color-import-link: var(--color-text-secondary);
+  --color-hashtag-bg: #fff7ed;
+  --color-hashtag-text: #ea580c;
+  --color-hashtag-hover-bg: #f97316;
+  --color-hashtag-hover-text: #ffffff;
+}
+html:root.dark:not([data-explore-theme]),
+html:root.dark[data-explore-theme='original'] {
+  --color-primary: #ff5722;
+  --explore-accent-text: #ff5722;
+  --explore-action-bg: #ff5722;
+  --zap-orange: #ff7a3d;
+  --color-profile-highlight: #c084fc;
+  /* A small lift within the original gray palette, with notes on a raised surface. */
+  --color-bg-primary: color-mix(in srgb, #111827 70%, #1f2937);
+  --color-card-sunken: var(--color-bg-secondary);
+  --color-auth-link: #f9a03f;
+  --color-hashtag-bg: #37302d;
+  --color-hashtag-text: #fb923c;
+  --color-hashtag-hover-bg: #ea580c;
+}
+/* Warm Kitchen retains the former off-white and brown palettes as an opt-in style. */
+html:root:not(.dark)[data-explore-theme='warm-kitchen'] {
+  --color-text-primary: #28231f;
+  --color-text-secondary: #60554b;
+  --color-caption: #6b5d51;
+  --color-bg-primary: #fff9f2;
+  --color-bg-secondary: #f4e9dd;
+  --color-input-bg: #fffdf9;
+  --color-input-border: #c7b7a7;
+  --color-accent-gray: #c7b7a7;
+  --color-card-sunken: #eee2d4;
+}
+html:root.dark[data-explore-theme='warm-kitchen'] {
+  --explore-accent-text: #ffb18b;
+  --explore-pattern: #d9ad8526;
   --color-text-primary: #fff5e9;
   --color-text-secondary: #dfcdbd;
   --color-caption: #c9b4a2;
@@ -64,23 +159,6 @@ html:root.dark {
   --color-card-sunken: #191512;
   --color-explore-peach: #3e2a21;
   --color-explore-sage: #2b3328;
-  color-scheme: dark;
-  --color-success: #4ade80;
-  --color-warning: #fbbf24;
-  --color-info: #93c5fd;
-  --color-danger: #fca5a5;
-}
-/* Preserve the former off-white Original as an opt-in style. Both use the same existing dark palette. */
-html:root:not(.dark)[data-explore-theme='warm-kitchen'] {
-  --color-text-primary: #28231f;
-  --color-text-secondary: #60554b;
-  --color-caption: #6b5d51;
-  --color-bg-primary: #fff9f2;
-  --color-bg-secondary: #f4e9dd;
-  --color-input-bg: #fffdf9;
-  --color-input-border: #c7b7a7;
-  --color-accent-gray: #c7b7a7;
-  --color-card-sunken: #eee2d4;
 }
 html:root[data-explore-theme='after-hours'] {
   --explore-accent-text: #9b2d25;
@@ -263,19 +341,27 @@ html:root.dark[data-explore-theme='sunday-market'] {
 /* Without JavaScript there is no stored preference to restore. Follow the OS with the Original palette; the prepaint script sets data-color-mode for explicit choices. */
 @media screen and (prefers-color-scheme: dark) {
   html:root:not([data-color-mode]):not(.dark) {
-    --explore-accent-text: #ffb18b;
+    --color-primary: #ff5722;
+    --explore-accent-text: #ff5722;
+    --explore-action-bg: #ff5722;
+    --zap-orange: #ff7a3d;
+    --color-profile-highlight: #c084fc;
+    --color-auth-link: #f9a03f;
+    --color-hashtag-bg: #37302d;
+    --color-hashtag-text: #fb923c;
+    --color-hashtag-hover-bg: #ea580c;
     --explore-pattern: #d9ad8526;
-    --color-text-primary: #fff5e9;
-    --color-text-secondary: #dfcdbd;
-    --color-caption: #c9b4a2;
-    --color-bg-primary: #201c19;
-    --color-bg-secondary: #302721;
-    --color-input-bg: #261f1a;
-    --color-input-border: #716152;
-    --color-accent-gray: #716152;
-    --color-card-sunken: #191512;
-    --color-explore-peach: #3e2a21;
-    --color-explore-sage: #2b3328;
+    --color-text-primary: #f3f4f6;
+    --color-text-secondary: #d1d5db;
+    --color-caption: #d1d5db;
+    --color-bg-primary: color-mix(in srgb, #111827 70%, #1f2937);
+    --color-bg-secondary: #1f2937;
+    --color-input-bg: #374151;
+    --color-input-border: #4b5563;
+    --color-accent-gray: #4b5563;
+    --color-card-sunken: var(--color-bg-secondary);
+    --color-explore-peach: var(--color-bg-secondary);
+    --color-explore-sage: var(--color-card-sunken);
     color-scheme: dark;
     --color-success: #4ade80;
     --color-warning: #fbbf24;
