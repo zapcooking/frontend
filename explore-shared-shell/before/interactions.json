@@ -1,0 +1,62 @@
+[
+  {
+    "kind": "drawer",
+    "stage": "before",
+    "route": "/feed",
+    "opened": {
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 288,
+        "height": 1000
+      },
+      "links": [
+        {
+          "href": "/feed",
+          "text": "Feed"
+        },
+        {
+          "href": "/recipes",
+          "text": "Recipes"
+        },
+        {
+          "href": "/reads",
+          "text": "Reads"
+        },
+        {
+          "href": "/polls",
+          "text": "Polls"
+        },
+        {
+          "href": "/market",
+          "text": "Market"
+        },
+        {
+          "href": "/messages",
+          "text": "Messages"
+        },
+        {
+          "href": "/memories",
+          "text": "Memories"
+        }
+      ],
+      "readsIcon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>",
+      "focus": {
+        "tag": "BUTTON",
+        "label": "Open navigation menu",
+        "insideDrawer": false
+      },
+      "overflow": "hidden"
+    },
+    "afterTab": {
+      "label": "zap.cooking home",
+      "insideDrawer": false
+    },
+    "afterEscape": {
+      "label": "zap.cooking home",
+      "bodyOverflow": ""
+    },
+    "closeButton": true,
+    "navigationCloses": true
+  }
+]

@@ -1,0 +1,964 @@
+{
+  "summary": {
+    "files": 16,
+    "introduced": 0,
+    "resolved": 0,
+    "baselineErrors": 18,
+    "currentErrors": 18,
+    "baselineWarnings": 0,
+    "currentWarnings": 0,
+    "filesWithBaselineParseErrors": [
+      "src/routes/explore/+page.svelte"
+    ],
+    "filesWithCurrentParseErrors": [
+      "src/routes/explore/+page.svelte"
+    ]
+  },
+  "files": [
+    {
+      "file": "src/components/Header.svelte",
+      "beforeErrors": 1,
+      "beforeWarnings": 0,
+      "afterErrors": 1,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'isDarkMode' is defined but never used.",
+          "line": 70,
+          "column": 6,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 70,
+          "endColumn": 16
+        }
+      ],
+      "afterMessages": [
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'isDarkMode' is defined but never used.",
+          "line": 75,
+          "column": 6,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 75,
+          "endColumn": 16
+        }
+      ]
+    },
+    {
+      "file": "src/components/MobileSearchOverlay.svelte",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/components/TagsSearchAutocomplete.svelte",
+      "beforeErrors": 9,
+      "beforeWarnings": 0,
+      "afterErrors": 9,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'userPublickey' is defined but never used.",
+          "line": 4,
+          "column": 17,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 4,
+          "endColumn": 30
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'nip19' is defined but never used.",
+          "line": 5,
+          "column": 12,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 5,
+          "endColumn": 17
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'isHumanReadablePostContent' is defined but never used.",
+          "line": 9,
+          "column": 12,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 9,
+          "endColumn": 38
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'postSnippet' is defined but never used.",
+          "line": 9,
+          "column": 40,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 9,
+          "endColumn": 51
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'inputFocused' is assigned a value but never used.",
+          "line": 32,
+          "column": 7,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 32,
+          "endColumn": 19
+        },
+        {
+          "ruleId": "@typescript-eslint/no-explicit-any",
+          "severity": 2,
+          "message": "Unexpected any. Specify a different type.",
+          "line": 58,
+          "column": 25,
+          "nodeType": "TSAnyKeyword",
+          "messageId": "unexpectedAny",
+          "endLine": 58,
+          "endColumn": 28,
+          "suggestions": [
+            {
+              "messageId": "suggestUnknown",
+              "fix": {
+                "range": [
+                  2628,
+                  2631
+                ],
+                "text": "unknown"
+              },
+              "desc": "Use `unknown` instead, this will force you to explicitly, and safely assert the type is correct."
+            },
+            {
+              "messageId": "suggestNever",
+              "fix": {
+                "range": [
+                  2628,
+                  2631
+                ],
+                "text": "never"
+              },
+              "desc": "Use `never` instead, this is useful when instantiating generic type parameters that you don't need to know the type of."
+            }
+          ]
+        },
+        {
+          "ruleId": "@typescript-eslint/no-explicit-any",
+          "severity": 2,
+          "message": "Unexpected any. Specify a different type.",
+          "line": 68,
+          "column": 27,
+          "nodeType": "TSAnyKeyword",
+          "messageId": "unexpectedAny",
+          "endLine": 68,
+          "endColumn": 30,
+          "suggestions": [
+            {
+              "messageId": "suggestUnknown",
+              "fix": {
+                "range": [
+                  3111,
+                  3114
+                ],
+                "text": "unknown"
+              },
+              "desc": "Use `unknown` instead, this will force you to explicitly, and safely assert the type is correct."
+            },
+            {
+              "messageId": "suggestNever",
+              "fix": {
+                "range": [
+                  3111,
+                  3114
+                ],
+                "text": "never"
+              },
+              "desc": "Use `never` instead, this is useful when instantiating generic type parameters that you don't need to know the type of."
+            }
+          ]
+        },
+        {
+          "ruleId": "@typescript-eslint/no-explicit-any",
+          "severity": 2,
+          "message": "Unexpected any. Specify a different type.",
+          "line": 214,
+          "column": 46,
+          "nodeType": "TSAnyKeyword",
+          "messageId": "unexpectedAny",
+          "endLine": 214,
+          "endColumn": 49,
+          "suggestions": [
+            {
+              "messageId": "suggestUnknown",
+              "fix": {
+                "range": [
+                  7835,
+                  7838
+                ],
+                "text": "unknown"
+              },
+              "desc": "Use `unknown` instead, this will force you to explicitly, and safely assert the type is correct."
+            },
+            {
+              "messageId": "suggestNever",
+              "fix": {
+                "range": [
+                  7835,
+                  7838
+                ],
+                "text": "never"
+              },
+              "desc": "Use `never` instead, this is useful when instantiating generic type parameters that you don't need to know the type of."
+            }
+          ]
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'selectPost' is defined but never used.",
+          "line": 352,
+          "column": 12,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 352,
+          "endColumn": 22
+        }
+      ],
+      "afterMessages": [
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'userPublickey' is defined but never used.",
+          "line": 4,
+          "column": 17,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 4,
+          "endColumn": 30
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'nip19' is defined but never used.",
+          "line": 5,
+          "column": 12,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 5,
+          "endColumn": 17
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'isHumanReadablePostContent' is defined but never used.",
+          "line": 9,
+          "column": 12,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 9,
+          "endColumn": 38
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'postSnippet' is defined but never used.",
+          "line": 9,
+          "column": 40,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 9,
+          "endColumn": 51
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'inputFocused' is assigned a value but never used.",
+          "line": 34,
+          "column": 7,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 34,
+          "endColumn": 19
+        },
+        {
+          "ruleId": "@typescript-eslint/no-explicit-any",
+          "severity": 2,
+          "message": "Unexpected any. Specify a different type.",
+          "line": 71,
+          "column": 25,
+          "nodeType": "TSAnyKeyword",
+          "messageId": "unexpectedAny",
+          "endLine": 71,
+          "endColumn": 28,
+          "suggestions": [
+            {
+              "messageId": "suggestUnknown",
+              "fix": {
+                "range": [
+                  3141,
+                  3144
+                ],
+                "text": "unknown"
+              },
+              "desc": "Use `unknown` instead, this will force you to explicitly, and safely assert the type is correct."
+            },
+            {
+              "messageId": "suggestNever",
+              "fix": {
+                "range": [
+                  3141,
+                  3144
+                ],
+                "text": "never"
+              },
+              "desc": "Use `never` instead, this is useful when instantiating generic type parameters that you don't need to know the type of."
+            }
+          ]
+        },
+        {
+          "ruleId": "@typescript-eslint/no-explicit-any",
+          "severity": 2,
+          "message": "Unexpected any. Specify a different type.",
+          "line": 81,
+          "column": 27,
+          "nodeType": "TSAnyKeyword",
+          "messageId": "unexpectedAny",
+          "endLine": 81,
+          "endColumn": 30,
+          "suggestions": [
+            {
+              "messageId": "suggestUnknown",
+              "fix": {
+                "range": [
+                  3624,
+                  3627
+                ],
+                "text": "unknown"
+              },
+              "desc": "Use `unknown` instead, this will force you to explicitly, and safely assert the type is correct."
+            },
+            {
+              "messageId": "suggestNever",
+              "fix": {
+                "range": [
+                  3624,
+                  3627
+                ],
+                "text": "never"
+              },
+              "desc": "Use `never` instead, this is useful when instantiating generic type parameters that you don't need to know the type of."
+            }
+          ]
+        },
+        {
+          "ruleId": "@typescript-eslint/no-explicit-any",
+          "severity": 2,
+          "message": "Unexpected any. Specify a different type.",
+          "line": 227,
+          "column": 46,
+          "nodeType": "TSAnyKeyword",
+          "messageId": "unexpectedAny",
+          "endLine": 227,
+          "endColumn": 49,
+          "suggestions": [
+            {
+              "messageId": "suggestUnknown",
+              "fix": {
+                "range": [
+                  8380,
+                  8383
+                ],
+                "text": "unknown"
+              },
+              "desc": "Use `unknown` instead, this will force you to explicitly, and safely assert the type is correct."
+            },
+            {
+              "messageId": "suggestNever",
+              "fix": {
+                "range": [
+                  8380,
+                  8383
+                ],
+                "text": "never"
+              },
+              "desc": "Use `never` instead, this is useful when instantiating generic type parameters that you don't need to know the type of."
+            }
+          ]
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'selectPost' is defined but never used.",
+          "line": 365,
+          "column": 12,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 365,
+          "endColumn": 22
+        }
+      ]
+    },
+    {
+      "file": "src/components/landing/LandingImportHero.svelte",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/components/landing/LandingMembership.svelte",
+      "beforeErrors": 1,
+      "beforeWarnings": 0,
+      "afterErrors": 1,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [
+        {
+          "ruleId": "svelte/no-at-html-tags",
+          "severity": 2,
+          "message": "`{@html}` can lead to XSS attack.",
+          "line": 11,
+          "column": 3,
+          "nodeType": "SvelteMustacheTag",
+          "messageId": "unexpected",
+          "endLine": 11,
+          "endColumn": 221
+        }
+      ],
+      "afterMessages": [
+        {
+          "ruleId": "svelte/no-at-html-tags",
+          "severity": 2,
+          "message": "`{@html}` can lead to XSS attack.",
+          "line": 23,
+          "column": 3,
+          "nodeType": "SvelteMustacheTag",
+          "messageId": "unexpected",
+          "endLine": 23,
+          "endColumn": 221
+        }
+      ]
+    },
+    {
+      "file": "src/lib/landing/import.client.ts",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/lib/landing/importEnhancement.test.ts",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/lib/landing/membership.client.js",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/lib/landing/membership.test.ts",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/lib/landing/meta.ts",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/lib/landing/route.test.ts",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/lib/landing/route.ts",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/routes/+layout.svelte",
+      "beforeErrors": 6,
+      "beforeWarnings": 0,
+      "afterErrors": 6,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'goto' is defined but never used.",
+          "line": 8,
+          "column": 12,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 8,
+          "endColumn": 16
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'startSectionTarget' is defined but never used.",
+          "line": 68,
+          "column": 5,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 68,
+          "endColumn": 23
+        },
+        {
+          "ruleId": "@typescript-eslint/no-explicit-any",
+          "severity": 2,
+          "message": "Unexpected any. Specify a different type.",
+          "line": 313,
+          "column": 20,
+          "nodeType": "TSAnyKeyword",
+          "messageId": "unexpectedAny",
+          "endLine": 313,
+          "endColumn": 23,
+          "suggestions": [
+            {
+              "messageId": "suggestUnknown",
+              "fix": {
+                "range": [
+                  14969,
+                  14972
+                ],
+                "text": "unknown"
+              },
+              "desc": "Use `unknown` instead, this will force you to explicitly, and safely assert the type is correct."
+            },
+            {
+              "messageId": "suggestNever",
+              "fix": {
+                "range": [
+                  14969,
+                  14972
+                ],
+                "text": "never"
+              },
+              "desc": "Use `never` instead, this is useful when instantiating generic type parameters that you don't need to know the type of."
+            }
+          ]
+        },
+        {
+          "ruleId": "svelte/valid-compile",
+          "severity": 2,
+          "message": "A11y: visible, non-interactive elements with an on:click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as <button type=\"button\"> or <a> might be more appropriate. See https://svelte.dev/docs/accessibility-warnings#a11y-click-events-have-key-events for more details.(a11y-click-events-have-key-events)",
+          "line": 624,
+          "column": 9,
+          "nodeType": null,
+          "endLine": 632,
+          "endColumn": 15
+        },
+        {
+          "ruleId": "svelte/valid-compile",
+          "severity": 2,
+          "message": "A11y: <div> with click handler must have an ARIA role(a11y-no-static-element-interactions)",
+          "line": 624,
+          "column": 9,
+          "nodeType": null,
+          "endLine": 632,
+          "endColumn": 15
+        },
+        {
+          "ruleId": "svelte/valid-compile",
+          "severity": 2,
+          "message": "Unused CSS selector \".safe-area-content\"(css-unused-selector)",
+          "line": 748,
+          "column": 5,
+          "nodeType": null,
+          "endLine": 748,
+          "endColumn": 23
+        }
+      ],
+      "afterMessages": [
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'goto' is defined but never used.",
+          "line": 8,
+          "column": 12,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 8,
+          "endColumn": 16
+        },
+        {
+          "ruleId": "@typescript-eslint/no-unused-vars",
+          "severity": 2,
+          "message": "'startSectionTarget' is defined but never used.",
+          "line": 68,
+          "column": 5,
+          "nodeType": "Identifier",
+          "messageId": "unusedVar",
+          "endLine": 68,
+          "endColumn": 23
+        },
+        {
+          "ruleId": "@typescript-eslint/no-explicit-any",
+          "severity": 2,
+          "message": "Unexpected any. Specify a different type.",
+          "line": 305,
+          "column": 20,
+          "nodeType": "TSAnyKeyword",
+          "messageId": "unexpectedAny",
+          "endLine": 305,
+          "endColumn": 23,
+          "suggestions": [
+            {
+              "messageId": "suggestUnknown",
+              "fix": {
+                "range": [
+                  14606,
+                  14609
+                ],
+                "text": "unknown"
+              },
+              "desc": "Use `unknown` instead, this will force you to explicitly, and safely assert the type is correct."
+            },
+            {
+              "messageId": "suggestNever",
+              "fix": {
+                "range": [
+                  14606,
+                  14609
+                ],
+                "text": "never"
+              },
+              "desc": "Use `never` instead, this is useful when instantiating generic type parameters that you don't need to know the type of."
+            }
+          ]
+        },
+        {
+          "ruleId": "svelte/valid-compile",
+          "severity": 2,
+          "message": "A11y: visible, non-interactive elements with an on:click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as <button type=\"button\"> or <a> might be more appropriate. See https://svelte.dev/docs/accessibility-warnings#a11y-click-events-have-key-events for more details.(a11y-click-events-have-key-events)",
+          "line": 613,
+          "column": 9,
+          "nodeType": null,
+          "endLine": 621,
+          "endColumn": 15
+        },
+        {
+          "ruleId": "svelte/valid-compile",
+          "severity": 2,
+          "message": "A11y: <div> with click handler must have an ARIA role(a11y-no-static-element-interactions)",
+          "line": 613,
+          "column": 9,
+          "nodeType": null,
+          "endLine": 621,
+          "endColumn": 15
+        },
+        {
+          "ruleId": "svelte/valid-compile",
+          "severity": 2,
+          "message": "Unused CSS selector \".safe-area-content\"(css-unused-selector)",
+          "line": 736,
+          "column": 5,
+          "nodeType": null,
+          "endLine": 736,
+          "endColumn": 23
+        }
+      ]
+    },
+    {
+      "file": "src/routes/explore/+page.server.ts",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    },
+    {
+      "file": "src/routes/explore/+page.svelte",
+      "beforeErrors": 1,
+      "beforeWarnings": 0,
+      "afterErrors": 1,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [
+        {
+          "ruleId": null,
+          "fatal": true,
+          "severity": 2,
+          "message": "Parsing error: Unexpected keyword or identifier.",
+          "line": 57,
+          "column": 45,
+          "nodeType": null
+        }
+      ],
+      "currentParseErrors": [
+        {
+          "ruleId": null,
+          "fatal": true,
+          "severity": 2,
+          "message": "Parsing error: Unexpected keyword or identifier.",
+          "line": 74,
+          "column": 45,
+          "nodeType": null
+        }
+      ],
+      "beforeMessages": [
+        {
+          "ruleId": null,
+          "fatal": true,
+          "severity": 2,
+          "message": "Parsing error: Unexpected keyword or identifier.",
+          "line": 57,
+          "column": 45,
+          "nodeType": null
+        }
+      ],
+      "afterMessages": [
+        {
+          "ruleId": null,
+          "fatal": true,
+          "severity": 2,
+          "message": "Parsing error: Unexpected keyword or identifier.",
+          "line": 74,
+          "column": 45,
+          "nodeType": null
+        }
+      ]
+    },
+    {
+      "file": "src/routes/explore/page.server.test.ts",
+      "beforeErrors": 0,
+      "beforeWarnings": 0,
+      "afterErrors": 0,
+      "afterWarnings": 0,
+      "introduced": [],
+      "resolved": [],
+      "baselineParseErrors": [],
+      "currentParseErrors": [],
+      "beforeMessages": [],
+      "afterMessages": []
+    }
+  ],
+  "prettier": {
+    "summary": {
+      "files": 18,
+      "beforePassing": 11,
+      "afterPassing": 11,
+      "existingFailures": [
+        "src/components/Header.svelte",
+        "src/components/MobileSearchOverlay.svelte",
+        "src/components/TagsSearchAutocomplete.svelte",
+        "src/lib/landing/meta.ts",
+        "src/lib/landing/route.test.ts",
+        "src/lib/landing/route.ts",
+        "src/routes/+layout.svelte"
+      ],
+      "introducedFailures": [],
+      "resolvedFailures": [],
+      "errors": []
+    },
+    "files": [
+      {
+        "file": "src/components/Header.svelte",
+        "beforePass": false,
+        "afterPass": false,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/components/MobileSearchOverlay.svelte",
+        "beforePass": false,
+        "afterPass": false,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/components/TagsSearchAutocomplete.svelte",
+        "beforePass": false,
+        "afterPass": false,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/components/landing/LandingImportHero.svelte",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/components/landing/LandingMembership.svelte",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/lib/landing/exploreThemes.css",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/lib/landing/import.client.ts",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/lib/landing/importEnhancement.test.ts",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/lib/landing/membership.client.js",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/lib/landing/membership.test.ts",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/lib/landing/meta.ts",
+        "beforePass": false,
+        "afterPass": false,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/lib/landing/route.test.ts",
+        "beforePass": false,
+        "afterPass": false,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/lib/landing/route.ts",
+        "beforePass": false,
+        "afterPass": false,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/lib/themes/palettes.css",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/routes/+layout.svelte",
+        "beforePass": false,
+        "afterPass": false,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/routes/explore/+page.server.ts",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/routes/explore/+page.svelte",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      },
+      {
+        "file": "src/routes/explore/page.server.test.ts",
+        "beforePass": true,
+        "afterPass": true,
+        "introducedFailure": false
+      }
+    ]
+  }
+}

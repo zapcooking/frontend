@@ -1,0 +1,61 @@
+{
+  "passed": true,
+  "observations": [
+    {
+      "step": "store then storage: nonmember",
+      "state": {
+        "guest": false,
+        "upgrade": true,
+        "account": true
+      }
+    },
+    {
+      "step": "store then storage: member",
+      "state": {
+        "guest": false,
+        "upgrade": false,
+        "account": true
+      }
+    },
+    {
+      "step": "store then storage: status unavailable",
+      "state": {
+        "guest": false,
+        "upgrade": false,
+        "account": true
+      }
+    },
+    {
+      "step": "empty store then storage removal: logout",
+      "state": {
+        "guest": true,
+        "upgrade": true,
+        "account": false
+      }
+    },
+    {
+      "step": "logout while membership response pending",
+      "state": {
+        "guest": true,
+        "upgrade": true,
+        "account": false
+      }
+    },
+    {
+      "step": "stale member response cannot repaint logged-out page",
+      "state": {
+        "guest": true,
+        "upgrade": true,
+        "account": false
+      },
+      "delayedRequests": 1,
+      "abortedRequests": 1
+    }
+  ],
+  "requestFailures": [
+    {
+      "body": "{\"pubkey\":\"3333333333333333333333333333333333333333333333333333333333333333\"}",
+      "error": "net::ERR_ABORTED"
+    }
+  ]
+}

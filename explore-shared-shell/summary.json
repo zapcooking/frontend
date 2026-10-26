@@ -1,0 +1,19 @@
+{
+  "baselineShellStates": 12,
+  "currentShellStates": 18,
+  "shellComparisonGroups": 144,
+  "shellComparisonDifferences": 0,
+  "baselineDrawerFlows": 1,
+  "currentDrawerFlows": 2,
+  "syntheticWalletFlows": 4,
+  "walletVisibilityStates": 16,
+  "paymentCalls": 0,
+  "invoiceCalls": 0,
+  "lifecyclePaletteGroups": 5,
+  "focusedMembershipAuthOrderingChecks": 6,
+  "searchInteractions": 8,
+  "focusedScrollChecks": 6,
+  "productFilesEditedByVerification": 0,
+  "sourceFingerprint": "659499a6b4fd09320924fa8bd17d40fe22e769f40489fd2c447f3ef43f5671ce",
+  "sourceFileCount": 24
+}

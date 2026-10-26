@@ -1,0 +1,4226 @@
+[
+  {
+    "stage": "before",
+    "mode": "light",
+    "route": "/feed",
+    "width": 360,
+    "path": "/feed",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 62
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "color(srgb 1 1 1 / 0.7)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 16,
+        "y": 12,
+        "width": 328,
+        "height": 38
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Open navigation menu",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 16,
+          "y": 12,
+          "width": 38,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "",
+        "label": "zap.cooking home",
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 58,
+          "y": 18.5625,
+          "width": 96,
+          "height": 24.875
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-light.svg",
+        "geometry": {
+          "x": 58,
+          "y": 24.5625,
+          "width": 96,
+          "height": 12.875
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "6px 0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Search",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 166,
+          "y": 13,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 208,
+          "y": 13,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 250,
+          "y": 16,
+          "width": 59.453125,
+          "height": 30
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "12px",
+          "weight": "500",
+          "lineHeight": "16px"
+        },
+        "box": {
+          "padding": "6px 10px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 313.453125,
+          "y": 16,
+          "width": 70.4375,
+          "height": 30
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "12px",
+          "weight": "600",
+          "lineHeight": "16px"
+        },
+        "box": {
+          "padding": "6px 10px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": null,
+    "sidebarLinks": [],
+    "sidebarLogos": [],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "Food is Open Source ⚡ People share meals, recipes, and food ideas here. Sign in to share your own and follow cooks you like. FreshBeta Global Following Replies Groups Time machine All Time machine More ⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "62px 0px 0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#ffffff",
+      "--color-bg-secondary": "#f9fafb",
+      "--color-input-bg": "#f3f4f6",
+      "--color-input-border": "#e5e7eb",
+      "--color-text-primary": "#111827",
+      "--color-text-secondary": "#4b5563",
+      "--color-caption": "#4b5563"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "light",
+    "route": "/feed",
+    "width": 768,
+    "path": "/feed",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 768,
+        "height": 75
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "color(srgb 1 1 1 / 0.7)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 16,
+        "y": 12,
+        "width": 736,
+        "height": 51
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Open navigation menu",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 16,
+          "y": 18.5,
+          "width": 38,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "",
+        "label": "zap.cooking home",
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 58,
+          "y": 20.921875,
+          "width": 128,
+          "height": 33.15625
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-light.svg",
+        "geometry": {
+          "x": 58,
+          "y": 28.921875,
+          "width": 128,
+          "height": 17.15625
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "8px 0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "INPUT",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 212,
+          "y": 12.5,
+          "width": 276,
+          "height": 50
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgb(243, 244, 246)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 538,
+          "y": 19.5,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 584,
+          "y": 18.5,
+          "width": 77.6875,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "500",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 669.6875,
+          "y": 18.5,
+          "width": 90.515625,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "600",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": null,
+    "sidebarLinks": [],
+    "sidebarLogos": [],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "Food is Open Source ⚡ People share meals, recipes, and food ideas here. Sign in to share your own and follow cooks you like. FreshBeta Global Following Replies Groups Time machine All Time machine More ⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 768,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "75px 0px 0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#ffffff",
+      "--color-bg-secondary": "#f9fafb",
+      "--color-input-bg": "#f3f4f6",
+      "--color-input-border": "#e5e7eb",
+      "--color-text-primary": "#111827",
+      "--color-text-secondary": "#4b5563",
+      "--color-caption": "#4b5563"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "light",
+    "route": "/feed",
+    "width": 1440,
+    "path": "/feed",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 75
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "color(srgb 1 1 1 / 0.7)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 341,
+        "y": 12,
+        "width": 1083,
+        "height": 51
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "INPUT",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 353,
+          "y": 12.5,
+          "width": 672,
+          "height": 50
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgb(243, 244, 246)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1201.796875,
+          "y": 19.5,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1247.796875,
+          "y": 18.5,
+          "width": 77.6875,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "500",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1333.484375,
+          "y": 18.5,
+          "width": 90.515625,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "600",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": {
+      "tag": "ASIDE",
+      "text": "Feed Recipes Reads Polls Market Messages Memories My Kitchen",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "sidebarLinks": [
+      {
+        "tag": "A",
+        "text": "",
+        "label": null,
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 12,
+          "width": 296,
+          "height": 51
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px 0px 0px 8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Feed",
+        "label": null,
+        "href": "/feed",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 100,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgb(243, 244, 246)"
+      },
+      {
+        "tag": "A",
+        "text": "Recipes",
+        "label": null,
+        "href": "/recipes",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 152,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Reads",
+        "label": null,
+        "href": "/reads",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 204,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Polls",
+        "label": null,
+        "href": "/polls",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 256,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Market",
+        "label": null,
+        "href": "/market",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 308,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Messages",
+        "label": null,
+        "href": "/messages",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 360,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Memories",
+        "label": null,
+        "href": "/memories",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 412,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebarLogos": [
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-light.svg",
+        "geometry": {
+          "x": 20,
+          "y": 26.765625,
+          "width": 160,
+          "height": 21.453125
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "Food is Open Source ⚡ People share meals, recipes, and food ideas here. Sign in to share your own and follow cooks you like. FreshBeta Global Following Replies Groups Time machine All Time machine More ⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "75px 0px 0px",
+        "margin": "0px 0px 0px 325px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#ffffff",
+      "--color-bg-secondary": "#f9fafb",
+      "--color-input-bg": "#f3f4f6",
+      "--color-input-border": "#e5e7eb",
+      "--color-text-primary": "#111827",
+      "--color-text-secondary": "#4b5563",
+      "--color-caption": "#4b5563"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "light",
+    "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "width": 360,
+    "path": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 62
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "color(srgb 1 1 1 / 0.7)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 16,
+        "y": 12,
+        "width": 328,
+        "height": 38
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Open navigation menu",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 16,
+          "y": 12,
+          "width": 38,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "",
+        "label": "zap.cooking home",
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 58,
+          "y": 18.5625,
+          "width": 96,
+          "height": 24.875
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-light.svg",
+        "geometry": {
+          "x": 58,
+          "y": 24.5625,
+          "width": 96,
+          "height": 12.875
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "6px 0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Search",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 166,
+          "y": 13,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 208,
+          "y": 13,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 250,
+          "y": 16,
+          "width": 59.453125,
+          "height": 30
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "12px",
+          "weight": "500",
+          "lineHeight": "16px"
+        },
+        "box": {
+          "padding": "6px 10px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 313.453125,
+          "y": 16,
+          "width": 70.4375,
+          "height": 30
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "12px",
+          "weight": "600",
+          "lineHeight": "16px"
+        },
+        "box": {
+          "padding": "6px 10px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": null,
+    "sidebarLinks": [],
+    "sidebarLogos": [],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "62px 0px 0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#ffffff",
+      "--color-bg-secondary": "#f9fafb",
+      "--color-input-bg": "#f3f4f6",
+      "--color-input-border": "#e5e7eb",
+      "--color-text-primary": "#111827",
+      "--color-text-secondary": "#4b5563",
+      "--color-caption": "#4b5563"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "light",
+    "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "width": 768,
+    "path": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 768,
+        "height": 75
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "color(srgb 1 1 1 / 0.7)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 16,
+        "y": 12,
+        "width": 736,
+        "height": 51
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Open navigation menu",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 16,
+          "y": 18.5,
+          "width": 38,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "",
+        "label": "zap.cooking home",
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 58,
+          "y": 20.921875,
+          "width": 128,
+          "height": 33.15625
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-light.svg",
+        "geometry": {
+          "x": 58,
+          "y": 28.921875,
+          "width": 128,
+          "height": 17.15625
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "8px 0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "INPUT",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 212,
+          "y": 12.5,
+          "width": 276,
+          "height": 50
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgb(243, 244, 246)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 538,
+          "y": 19.5,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 584,
+          "y": 18.5,
+          "width": 77.6875,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "500",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 669.6875,
+          "y": 18.5,
+          "width": 90.515625,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "600",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": null,
+    "sidebarLinks": [],
+    "sidebarLogos": [],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 768,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "75px 0px 0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#ffffff",
+      "--color-bg-secondary": "#f9fafb",
+      "--color-input-bg": "#f3f4f6",
+      "--color-input-border": "#e5e7eb",
+      "--color-text-primary": "#111827",
+      "--color-text-secondary": "#4b5563",
+      "--color-caption": "#4b5563"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "light",
+    "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "width": 1440,
+    "path": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 75
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "color(srgb 1 1 1 / 0.7)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 341,
+        "y": 12,
+        "width": 1083,
+        "height": 51
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "INPUT",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 353,
+          "y": 12.5,
+          "width": 672,
+          "height": 50
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgb(243, 244, 246)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1201.796875,
+          "y": 19.5,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1247.796875,
+          "y": 18.5,
+          "width": 77.6875,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "500",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1333.484375,
+          "y": 18.5,
+          "width": 90.515625,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "600",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": {
+      "tag": "ASIDE",
+      "text": "Feed Recipes Reads Polls Market Messages Memories My Kitchen",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "sidebarLinks": [
+      {
+        "tag": "A",
+        "text": "",
+        "label": null,
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 12,
+          "width": 296,
+          "height": 51
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px 0px 0px 8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Feed",
+        "label": null,
+        "href": "/feed",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 100,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Recipes",
+        "label": null,
+        "href": "/recipes",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 152,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Reads",
+        "label": null,
+        "href": "/reads",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 204,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Polls",
+        "label": null,
+        "href": "/polls",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 256,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Market",
+        "label": null,
+        "href": "/market",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 308,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Messages",
+        "label": null,
+        "href": "/messages",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 360,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Memories",
+        "label": null,
+        "href": "/memories",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 412,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebarLogos": [
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-light.svg",
+        "geometry": {
+          "x": 20,
+          "y": 26.765625,
+          "width": 160,
+          "height": 21.453125
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(17, 24, 39)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "75px 0px 0px",
+        "margin": "0px 0px 0px 325px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(17, 24, 39)",
+      "bg": "rgb(255, 255, 255)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#ffffff",
+      "--color-bg-secondary": "#f9fafb",
+      "--color-input-bg": "#f3f4f6",
+      "--color-input-border": "#e5e7eb",
+      "--color-text-primary": "#111827",
+      "--color-text-secondary": "#4b5563",
+      "--color-caption": "#4b5563"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "dark",
+    "route": "/feed",
+    "width": 360,
+    "path": "/feed",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 62
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "color(srgb 0.12549 0.109804 0.0980392 / 0.78)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 16,
+        "y": 12,
+        "width": 328,
+        "height": 38
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Open navigation menu",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 16,
+          "y": 12,
+          "width": 38,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "",
+        "label": "zap.cooking home",
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 58,
+          "y": 18.5625,
+          "width": 96,
+          "height": 24.875
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-dark.svg",
+        "geometry": {
+          "x": 58,
+          "y": 24.5625,
+          "width": 96,
+          "height": 12.875
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "6px 0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Search",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 166,
+          "y": 13,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 208,
+          "y": 13,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 250,
+          "y": 16,
+          "width": 59.453125,
+          "height": 30
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "12px",
+          "weight": "500",
+          "lineHeight": "16px"
+        },
+        "box": {
+          "padding": "6px 10px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 313.453125,
+          "y": 16,
+          "width": 70.4375,
+          "height": 30
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "12px",
+          "weight": "600",
+          "lineHeight": "16px"
+        },
+        "box": {
+          "padding": "6px 10px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": null,
+    "sidebarLinks": [],
+    "sidebarLogos": [],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "Food is Open Source ⚡ People share meals, recipes, and food ideas here. Sign in to share your own and follow cooks you like. FreshBeta Global Following Replies Groups Time machine All Time machine More ⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "62px 0px 0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgb(32, 28, 25)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#201c19",
+      "--color-bg-secondary": "#302721",
+      "--color-input-bg": "#261f1a",
+      "--color-input-border": "#716152",
+      "--color-text-primary": "#fff5e9",
+      "--color-text-secondary": "#dfcdbd",
+      "--color-caption": "#c9b4a2"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "dark",
+    "route": "/feed",
+    "width": 768,
+    "path": "/feed",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 768,
+        "height": 75
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "color(srgb 0.12549 0.109804 0.0980392 / 0.78)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 16,
+        "y": 12,
+        "width": 736,
+        "height": 51
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Open navigation menu",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 16,
+          "y": 18.5,
+          "width": 38,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "",
+        "label": "zap.cooking home",
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 58,
+          "y": 20.921875,
+          "width": 128,
+          "height": 33.15625
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-dark.svg",
+        "geometry": {
+          "x": 58,
+          "y": 28.921875,
+          "width": 128,
+          "height": 17.15625
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "8px 0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "INPUT",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 212,
+          "y": 12.5,
+          "width": 276,
+          "height": 50
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgb(38, 31, 26)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 538,
+          "y": 19.5,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 584,
+          "y": 18.5,
+          "width": 77.6875,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "500",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 669.6875,
+          "y": 18.5,
+          "width": 90.515625,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "600",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": null,
+    "sidebarLinks": [],
+    "sidebarLogos": [],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "Food is Open Source ⚡ People share meals, recipes, and food ideas here. Sign in to share your own and follow cooks you like. FreshBeta Global Following Replies Groups Time machine All Time machine More ⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 768,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "75px 0px 0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgb(32, 28, 25)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#201c19",
+      "--color-bg-secondary": "#302721",
+      "--color-input-bg": "#261f1a",
+      "--color-input-border": "#716152",
+      "--color-text-primary": "#fff5e9",
+      "--color-text-secondary": "#dfcdbd",
+      "--color-caption": "#c9b4a2"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "dark",
+    "route": "/feed",
+    "width": 1440,
+    "path": "/feed",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 75
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "color(srgb 0.12549 0.109804 0.0980392 / 0.78)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 341,
+        "y": 12,
+        "width": 1083,
+        "height": 51
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "INPUT",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 353,
+          "y": 12.5,
+          "width": 672,
+          "height": 50
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgb(38, 31, 26)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1201.796875,
+          "y": 19.5,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1247.796875,
+          "y": 18.5,
+          "width": 77.6875,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "500",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1333.484375,
+          "y": 18.5,
+          "width": 90.515625,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "600",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": {
+      "tag": "ASIDE",
+      "text": "Feed Recipes Reads Polls Market Messages Memories My Kitchen",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "sidebarLinks": [
+      {
+        "tag": "A",
+        "text": "",
+        "label": null,
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 12,
+          "width": 296,
+          "height": 51
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px 0px 0px 8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Feed",
+        "label": null,
+        "href": "/feed",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 100,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgb(38, 31, 26)"
+      },
+      {
+        "tag": "A",
+        "text": "Recipes",
+        "label": null,
+        "href": "/recipes",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 152,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Reads",
+        "label": null,
+        "href": "/reads",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 204,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Polls",
+        "label": null,
+        "href": "/polls",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 256,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Market",
+        "label": null,
+        "href": "/market",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 308,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Messages",
+        "label": null,
+        "href": "/messages",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 360,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Memories",
+        "label": null,
+        "href": "/memories",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 412,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebarLogos": [
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-dark.svg",
+        "geometry": {
+          "x": 20,
+          "y": 26.765625,
+          "width": 160,
+          "height": 21.453125
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "Food is Open Source ⚡ People share meals, recipes, and food ideas here. Sign in to share your own and follow cooks you like. FreshBeta Global Following Replies Groups Time machine All Time machine More ⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "75px 0px 0px",
+        "margin": "0px 0px 0px 325px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgb(32, 28, 25)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#201c19",
+      "--color-bg-secondary": "#302721",
+      "--color-input-bg": "#261f1a",
+      "--color-input-border": "#716152",
+      "--color-text-primary": "#fff5e9",
+      "--color-text-secondary": "#dfcdbd",
+      "--color-caption": "#c9b4a2"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "dark",
+    "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "width": 360,
+    "path": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 62
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "color(srgb 0.12549 0.109804 0.0980392 / 0.78)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 16,
+        "y": 12,
+        "width": 328,
+        "height": 38
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Open navigation menu",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 16,
+          "y": 12,
+          "width": 38,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "",
+        "label": "zap.cooking home",
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 58,
+          "y": 18.5625,
+          "width": 96,
+          "height": 24.875
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-dark.svg",
+        "geometry": {
+          "x": 58,
+          "y": 24.5625,
+          "width": 96,
+          "height": 12.875
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "6px 0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Search",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 166,
+          "y": 13,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 208,
+          "y": 13,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 250,
+          "y": 16,
+          "width": 59.453125,
+          "height": 30
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "12px",
+          "weight": "500",
+          "lineHeight": "16px"
+        },
+        "box": {
+          "padding": "6px 10px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 313.453125,
+          "y": 16,
+          "width": 70.4375,
+          "height": 30
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "12px",
+          "weight": "600",
+          "lineHeight": "16px"
+        },
+        "box": {
+          "padding": "6px 10px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": null,
+    "sidebarLinks": [],
+    "sidebarLogos": [],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "62px 0px 0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgb(32, 28, 25)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#201c19",
+      "--color-bg-secondary": "#302721",
+      "--color-input-bg": "#261f1a",
+      "--color-input-border": "#716152",
+      "--color-text-primary": "#fff5e9",
+      "--color-text-secondary": "#dfcdbd",
+      "--color-caption": "#c9b4a2"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "dark",
+    "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "width": 768,
+    "path": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 768,
+        "height": 75
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "color(srgb 0.12549 0.109804 0.0980392 / 0.78)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 16,
+        "y": 12,
+        "width": 736,
+        "height": 51
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Open navigation menu",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 16,
+          "y": 18.5,
+          "width": 38,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "",
+        "label": "zap.cooking home",
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 58,
+          "y": 20.921875,
+          "width": 128,
+          "height": 33.15625
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-dark.svg",
+        "geometry": {
+          "x": 58,
+          "y": 28.921875,
+          "width": 128,
+          "height": 17.15625
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "8px 0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "INPUT",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 212,
+          "y": 12.5,
+          "width": 276,
+          "height": 50
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgb(38, 31, 26)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 538,
+          "y": 19.5,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 584,
+          "y": 18.5,
+          "width": 77.6875,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "500",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 669.6875,
+          "y": 18.5,
+          "width": 90.515625,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "600",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": null,
+    "sidebarLinks": [],
+    "sidebarLogos": [],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 768,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "75px 0px 0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgb(32, 28, 25)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#201c19",
+      "--color-bg-secondary": "#302721",
+      "--color-input-bg": "#261f1a",
+      "--color-input-border": "#716152",
+      "--color-text-primary": "#fff5e9",
+      "--color-text-secondary": "#dfcdbd",
+      "--color-caption": "#c9b4a2"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  },
+  {
+    "stage": "before",
+    "mode": "dark",
+    "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "width": 1440,
+    "path": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+    "overflow": false,
+    "header": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 75
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "12px 16px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "color(srgb 0.12549 0.109804 0.0980392 / 0.78)"
+    },
+    "headerRow": {
+      "tag": "DIV",
+      "text": "Sign in Join free",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 341,
+        "y": 12,
+        "width": 1083,
+        "height": 51
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "headerControls": [
+      {
+        "tag": "INPUT",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 353,
+          "y": 12.5,
+          "width": 672,
+          "height": 50
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgb(38, 31, 26)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "",
+        "label": "Show cooking tools",
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1201.796875,
+          "y": 19.5,
+          "width": 36,
+          "height": 36
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "999px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Sign in",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1247.796875,
+          "y": 18.5,
+          "width": 77.6875,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "500",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "BUTTON",
+        "text": "Join free",
+        "label": null,
+        "href": null,
+        "src": null,
+        "geometry": {
+          "x": 1333.484375,
+          "y": 18.5,
+          "width": 90.515625,
+          "height": 38
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "14px",
+          "weight": "600",
+          "lineHeight": "20px"
+        },
+        "box": {
+          "padding": "8px 16px",
+          "margin": "0px",
+          "borderRadius": "3.35544e+07px"
+        },
+        "color": "rgb(255, 255, 255)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebar": {
+      "tag": "ASIDE",
+      "text": "Feed Recipes Reads Polls Market Messages Memories My Kitchen",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "0px",
+        "margin": "0px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgba(0, 0, 0, 0)"
+    },
+    "sidebarLinks": [
+      {
+        "tag": "A",
+        "text": "",
+        "label": null,
+        "href": "/explore",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 12,
+          "width": 296,
+          "height": 51
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px 0px 0px 8px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Feed",
+        "label": null,
+        "href": "/feed",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 100,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Recipes",
+        "label": null,
+        "href": "/recipes",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 152,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Reads",
+        "label": null,
+        "href": "/reads",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 204,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Polls",
+        "label": null,
+        "href": "/polls",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 256,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Market",
+        "label": null,
+        "href": "/market",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 308,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Messages",
+        "label": null,
+        "href": "/messages",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 360,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      },
+      {
+        "tag": "A",
+        "text": "Memories",
+        "label": null,
+        "href": "/memories",
+        "src": null,
+        "geometry": {
+          "x": 12,
+          "y": 412,
+          "width": 296,
+          "height": 48
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "6px 12px",
+          "margin": "0px",
+          "borderRadius": "12px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "sidebarLogos": [
+      {
+        "tag": "IMG",
+        "text": "",
+        "label": null,
+        "href": null,
+        "src": "/zapcooking-text-dark.svg",
+        "geometry": {
+          "x": 20,
+          "y": 26.765625,
+          "width": 160,
+          "height": 21.453125
+        },
+        "font": {
+          "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+          "size": "16px",
+          "weight": "400",
+          "lineHeight": "24px"
+        },
+        "box": {
+          "padding": "0px",
+          "margin": "0px",
+          "borderRadius": "0px"
+        },
+        "color": "rgb(255, 245, 233)",
+        "bg": "rgba(0, 0, 0, 0)"
+      }
+    ],
+    "reads": {
+      "text": "Reads",
+      "href": "/reads",
+      "icon": "<rect width=\"256\" height=\"256\" fill=\"none\"></rect><path d=\"M88,112a8,8,0,0,1,8-8h80a8,8,0,0,1,0,16H96A8,8,0,0,1,88,112Zm8,40h80a8,8,0,0,0,0-16H96a8,8,0,0,0,0,16ZM232,64V184a24,24,0,0,1-24,24H32A24,24,0,0,1,8,184.11V88a8,8,0,0,1,16,0v96a8,8,0,0,0,16,0V64A16,16,0,0,1,56,48H216A16,16,0,0,1,232,64Zm-16,0H56V184a23.84,23.84,0,0,1-1.37,8H208a8,8,0,0,0,8-8Z\"></path>"
+    },
+    "app": {
+      "tag": "DIV",
+      "text": "⚡ Support About Founders Sponsors Report a Bug Terms Privacy Safety Disclosure © 2026 zap.cooking · v4.2.1028 build b416b7f7 · Guardrail by @branta since Block 933,735 ✅",
+      "label": null,
+      "href": null,
+      "src": null,
+      "geometry": {
+        "x": 325,
+        "y": 0,
+        "width": 1115,
+        "height": 1000
+      },
+      "font": {
+        "family": "\"Albert Sans\", ui-sans-serif, system-ui, sans-serif",
+        "size": "16px",
+        "weight": "400",
+        "lineHeight": "24px"
+      },
+      "box": {
+        "padding": "75px 0px 0px",
+        "margin": "0px 0px 0px 325px",
+        "borderRadius": "0px"
+      },
+      "color": "rgb(255, 245, 233)",
+      "bg": "rgb(32, 28, 25)"
+    },
+    "tokens": {
+      "--color-bg-primary": "#201c19",
+      "--color-bg-secondary": "#302721",
+      "--color-input-bg": "#261f1a",
+      "--color-input-border": "#716152",
+      "--color-text-primary": "#fff5e9",
+      "--color-text-secondary": "#dfcdbd",
+      "--color-caption": "#c9b4a2"
+    },
+    "duplicateLandingChrome": 0,
+    "walletVisible": false,
+    "footerCount": 1,
+    "errors": []
+  }
+]

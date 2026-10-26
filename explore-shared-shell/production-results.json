@@ -1,0 +1,31 @@
+{
+  "results": [
+    {
+      "visitor": "guest",
+      "status": 200,
+      "cacheControl": "public, max-age=60, s-maxage=180",
+      "setCookie": false,
+      "realExploreContent": true,
+      "sharedShell": true,
+      "sharedFooterCount": 1,
+      "hydration": true,
+      "privateCookieMarkerAbsent": true,
+      "prepaintControllerCount": 1
+    },
+    {
+      "visitor": "cookie-marker",
+      "status": 200,
+      "cacheControl": "public, max-age=60, s-maxage=180",
+      "setCookie": false,
+      "realExploreContent": true,
+      "sharedShell": true,
+      "sharedFooterCount": 1,
+      "hydration": true,
+      "privateCookieMarkerAbsent": true,
+      "prepaintControllerCount": 1
+    }
+  ],
+  "staticControllerMatchesSource": true,
+  "obsoleteStandaloneImportAssetAbsent": true,
+  "rendering": "Cached public runtime SSR plus the existing hydrated app shell. Account/wallet state remains client-side."
+}

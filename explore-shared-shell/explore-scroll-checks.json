@@ -1,0 +1,56 @@
+[
+  {
+    "kind": "ordinary client arrival via existing logo",
+    "path": "/explore",
+    "scrollTop": 0,
+    "maxScroll": 393,
+    "windowTop": 0,
+    "h1Top": 187.390625,
+    "retained": "retained"
+  },
+  {
+    "kind": "back restores Explore snapshot after another route was scrolled",
+    "path": "/explore",
+    "scrollTop": 200,
+    "maxScroll": 393,
+    "windowTop": 0,
+    "h1Top": -12.609375,
+    "retained": "retained"
+  },
+  {
+    "kind": "forward restores Explore snapshot",
+    "path": "/explore",
+    "scrollTop": 200,
+    "maxScroll": 393,
+    "windowTop": 0,
+    "h1Top": -12.609375,
+    "retained": "retained"
+  },
+  {
+    "kind": "reload preserves Explore snapshot within current content bounds",
+    "savedBeforeReload": 250,
+    "path": "/explore",
+    "scrollTop": 250,
+    "maxScroll": 393,
+    "windowTop": 0,
+    "h1Top": -62.609375
+  },
+  {
+    "kind": "fragment arrival retains browser target scrolling",
+    "targetTop": 91.296875,
+    "headerBottom": 75,
+    "path": "/explore#import-recipe",
+    "scrollTop": 252,
+    "maxScroll": 393,
+    "windowTop": 0,
+    "h1Top": -64.609375
+  },
+  {
+    "kind": "programmatic goto arrival resets Explore",
+    "path": "/explore",
+    "scrollTop": 0,
+    "maxScroll": 393,
+    "windowTop": 0,
+    "h1Top": 187.390625
+  }
+]

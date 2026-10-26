@@ -1,0 +1,57 @@
+{
+  "passed": true,
+  "results": [
+    {
+      "file": "src/components/Header.svelte",
+      "recipeOnly": false,
+      "keywordRoute": true,
+      "tagRoute": true,
+      "identifierRoute": true,
+      "secretsBlocked": true
+    },
+    {
+      "file": "src/components/Header.svelte",
+      "recipeOnly": true,
+      "keywordRoute": true,
+      "tagRoute": true,
+      "identifierRoute": true,
+      "secretsBlocked": true
+    },
+    {
+      "file": "src/components/MobileSearchOverlay.svelte",
+      "recipeOnly": false,
+      "keywordRoute": true,
+      "tagRoute": true,
+      "identifierRoute": true,
+      "secretsBlocked": true
+    },
+    {
+      "file": "src/components/MobileSearchOverlay.svelte",
+      "recipeOnly": true,
+      "keywordRoute": true,
+      "tagRoute": true,
+      "identifierRoute": true,
+      "secretsBlocked": true
+    },
+    {
+      "component": "TagsSearchAutocomplete",
+      "recipeOnly": false,
+      "recipesQueried": true,
+      "usersScoped": true,
+      "notesScoped": true,
+      "staleSuggestionsCleared": true
+    },
+    {
+      "component": "TagsSearchAutocomplete",
+      "recipeOnly": true,
+      "recipesQueried": true,
+      "usersScoped": true,
+      "notesScoped": true,
+      "staleSuggestionsCleared": true
+    },
+    {
+      "component": "TagsSearchAutocomplete",
+      "lateProfileReplyIgnored": true
+    }
+  ]
+}

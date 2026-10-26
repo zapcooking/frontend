@@ -1,0 +1,1015 @@
+{
+  "checks": 144,
+  "passed": 144,
+  "differences": [],
+  "details": [
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 360,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 360,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 360,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 360,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 360,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 360,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 360,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 360,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 768,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 768,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 768,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 768,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 768,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 768,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 768,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 768,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 1440,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 1440,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 1440,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 1440,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 1440,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 1440,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 1440,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "light",
+      "width": 1440,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 360,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 360,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 360,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 360,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 360,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 360,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 360,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 360,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 768,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 768,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 768,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 768,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 768,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 768,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 768,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 768,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 1440,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 1440,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 1440,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 1440,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 1440,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 1440,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 1440,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "light",
+      "width": 1440,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 360,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 360,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 360,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 360,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 360,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 360,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 360,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 360,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 768,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 768,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 768,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 768,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 768,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 768,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 768,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 768,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 1440,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 1440,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 1440,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 1440,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 1440,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 1440,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 1440,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/feed",
+      "mode": "dark",
+      "width": 1440,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 360,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 360,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 360,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 360,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 360,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 360,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 360,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 360,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 768,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 768,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 768,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 768,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 768,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 768,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 768,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 768,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 1440,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 1440,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 1440,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 1440,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 1440,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 1440,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 1440,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/recipe/naddr1qvzqqqr4gupzqyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3qq2xyun0waek2u3dwejhy6txd93kzarfdahqq65fpc",
+      "mode": "dark",
+      "width": 1440,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 360,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 360,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 360,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 360,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 360,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 360,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 360,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 360,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 768,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 768,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 768,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 768,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 768,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 768,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 768,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 768,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 1440,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 1440,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 1440,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 1440,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 1440,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 1440,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 1440,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "light",
+      "width": 1440,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 360,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 360,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 360,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 360,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 360,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 360,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 360,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 360,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 768,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 768,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 768,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 768,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 768,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 768,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 768,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 768,
+      "key": "Reads label/link/icon",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 1440,
+      "key": "header",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 1440,
+      "key": "headerRow",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 1440,
+      "key": "headerControls",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 1440,
+      "key": "sidebar",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 1440,
+      "key": "sidebarLinks",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 1440,
+      "key": "sidebarLogos",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 1440,
+      "key": "app",
+      "pass": true
+    },
+    {
+      "route": "/explore",
+      "mode": "dark",
+      "width": 1440,
+      "key": "Reads label/link/icon",
+      "pass": true
+    }
+  ]
+}

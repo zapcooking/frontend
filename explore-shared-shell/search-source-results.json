@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "results": [
+    {
+      "file": "src/components/Header.svelte",
+      "compiled": true,
+      "newCompilerWarnings": [],
+      "newLintMessages": [],
+      "beforeLintMessages": 1,
+      "afterLintMessages": 1,
+      "beforeFormat": false,
+      "afterFormat": false,
+      "introducedFormatFailure": false
+    },
+    {
+      "file": "src/components/MobileSearchOverlay.svelte",
+      "compiled": true,
+      "newCompilerWarnings": [],
+      "newLintMessages": [],
+      "beforeLintMessages": 0,
+      "afterLintMessages": 0,
+      "beforeFormat": false,
+      "afterFormat": false,
+      "introducedFormatFailure": false
+    },
+    {
+      "file": "src/components/TagsSearchAutocomplete.svelte",
+      "compiled": true,
+      "newCompilerWarnings": [],
+      "newLintMessages": [],
+      "beforeLintMessages": 9,
+      "afterLintMessages": 9,
+      "beforeFormat": false,
+      "afterFormat": false,
+      "introducedFormatFailure": false
+    }
+  ]
+}

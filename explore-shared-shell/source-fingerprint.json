@@ -1,0 +1,104 @@
+{
+  "baseline": "b416b7f7638d0876981ce9058bcb1bdc20d5aca7",
+  "branch": "fix/explore-navigation-original-dark",
+  "timeUtc": "2026-10-26T01:53:17.919284+00:00",
+  "files": [
+    {
+      "path": "src/components/Header.svelte",
+      "sha256": "a23629900f348d517d23861451cc05f33cc9596757bac3eb12287eaba69afa55"
+    },
+    {
+      "path": "src/components/MobileSearchOverlay.svelte",
+      "sha256": "552586addeee6cf404c6b1980cc46ec63a8fea942e345f138fdbc79eba09c29c"
+    },
+    {
+      "path": "src/components/TagsSearchAutocomplete.svelte",
+      "sha256": "b7c9f8a54bf9d79333e306cfcfe1caa4133d0fce334f2cf9b1d83d4be952731d"
+    },
+    {
+      "path": "src/components/landing/LandingHeader.svelte",
+      "sha256": null
+    },
+    {
+      "path": "src/components/landing/LandingImportHero.svelte",
+      "sha256": "8639fc7ec5a4279d035157838c3767e1c02b0236c8a5c699e97d18b1e8c404c3"
+    },
+    {
+      "path": "src/components/landing/LandingMembership.svelte",
+      "sha256": "68fb20ae22d010584a51339f66e67b31d7fb06b32b0a6cf8483c0e3680c9ff6e"
+    },
+    {
+      "path": "src/components/landing/LandingNavLinks.svelte",
+      "sha256": null
+    },
+    {
+      "path": "src/components/landing/LandingSideNav.svelte",
+      "sha256": null
+    },
+    {
+      "path": "src/lib/landing/drawer.client.js",
+      "sha256": null
+    },
+    {
+      "path": "src/lib/landing/drawer.test.ts",
+      "sha256": null
+    },
+    {
+      "path": "src/lib/landing/exploreThemes.css",
+      "sha256": "7ae7c553ecd9c2cbf016754ee21923c91438e945d9146161169b93024d74f7eb"
+    },
+    {
+      "path": "src/lib/landing/import.client.ts",
+      "sha256": "6c5d62729137c58dfd67f4390d811df6caecfd340b64d783fccee87557166ef9"
+    },
+    {
+      "path": "src/lib/landing/importEnhancement.test.ts",
+      "sha256": "25b0985d9cc4b6791316d61692c1be581ae3a0ca180faf931a309510e4acecf5"
+    },
+    {
+      "path": "src/lib/landing/membership.client.js",
+      "sha256": "ccc211c5910dc0050374e1b924625a3b23a69f83bf810a7dfd9aa510d850bd30"
+    },
+    {
+      "path": "src/lib/landing/membership.test.ts",
+      "sha256": "8422e830b4da11195e3bf5d90c639df6a8df7d0b24ae5ec94bf208a0664dcbdb"
+    },
+    {
+      "path": "src/lib/landing/meta.ts",
+      "sha256": "6d4ce5b34f030d5c6832d67281298bc262b27c41bd4ff86835840227405e0238"
+    },
+    {
+      "path": "src/lib/landing/route.test.ts",
+      "sha256": "ff3868d7e321faac042b8d8b3e21fb749042a5bcc2a3920d2ffbc90ca6c77be3"
+    },
+    {
+      "path": "src/lib/landing/route.ts",
+      "sha256": "6fb26506236695448ae1b502c22d42e26cae10d4fee96c8f2e111a477309b818"
+    },
+    {
+      "path": "src/lib/themes/palettes.css",
+      "sha256": "380a5f45482c31bc914c9232e543cd97a5391407c382592ef2a2c2298f882880"
+    },
+    {
+      "path": "src/routes/+layout.svelte",
+      "sha256": "93dc4d5b1b43089b81fb4e3b97f4fb9e98c033e5cf0e739ccfb8f6cbbe414f72"
+    },
+    {
+      "path": "src/routes/explore/+page.server.ts",
+      "sha256": "3f27328a1231d142a85a4148a6c1ec05f3fd3c795aba19e0bf7876fe4ed459f1"
+    },
+    {
+      "path": "src/routes/explore/+page.svelte",
+      "sha256": "680300405e83c036e26c594e93b952963d44996f501a8f6215665676a640e5d8"
+    },
+    {
+      "path": "src/routes/explore/page.server.test.ts",
+      "sha256": "74e125564aab514beb8250c8eb61747b0b23339e2fe8e90cac8ce87b3d0e2020"
+    },
+    {
+      "path": "static/landing-import.js",
+      "sha256": null
+    }
+  ],
+  "fingerprint": "659499a6b4fd09320924fa8bd17d40fe22e769f40489fd2c447f3ef43f5671ce"
+}

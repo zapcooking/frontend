@@ -1,0 +1,66 @@
+[
+  {
+    "route": "/explore",
+    "width": 360,
+    "kind": "keyword",
+    "placeholder": "Search recipes...",
+    "target": "/search?type=recipes&q=chicken%20rice",
+    "passed": true
+  },
+  {
+    "route": "/explore",
+    "width": 360,
+    "kind": "tag",
+    "placeholder": "Search recipes...",
+    "target": "/search?type=recipes&q=Mexican",
+    "passed": true
+  },
+  {
+    "route": "/feed",
+    "width": 360,
+    "kind": "keyword",
+    "placeholder": "Search recipes, tags, or users...",
+    "target": "/search?q=chicken%20rice",
+    "passed": true
+  },
+  {
+    "route": "/feed",
+    "width": 360,
+    "kind": "tag",
+    "placeholder": "Search recipes, tags, or users...",
+    "target": "/tag/Mexican",
+    "passed": true
+  },
+  {
+    "route": "/explore",
+    "width": 1440,
+    "kind": "keyword",
+    "placeholder": "Search recipes...",
+    "target": "/search?type=recipes&q=chicken%20rice",
+    "passed": true
+  },
+  {
+    "route": "/explore",
+    "width": 1440,
+    "kind": "tag",
+    "placeholder": "Search recipes...",
+    "target": "/search?type=recipes&q=Mexican",
+    "passed": true
+  },
+  {
+    "route": "/feed",
+    "width": 1440,
+    "kind": "keyword",
+    "placeholder": "Search recipes, tags, or users...",
+    "target": "/search?q=chicken%20rice",
+    "passed": true
+  },
+  {
+    "route": "/feed",
+    "width": 1440,
+    "kind": "tag",
+    "placeholder": "Search recipes, tags, or users...",
+    "target": "/tag/Mexican",
+    "passed": true
+  }
+]

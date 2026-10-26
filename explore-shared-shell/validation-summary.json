@@ -1,0 +1,25 @@
+{
+  "baseline": "b416b7f7638d0876981ce9058bcb1bdc20d5aca7",
+  "typecheck": {
+    "errors": 0,
+    "existingWarnings": 124
+  },
+  "tests": {
+    "filesPassed": 21,
+    "testsPassed": 190
+  },
+  "productionBuild": {
+    "passed": true,
+    "adapter": "Cloudflare"
+  },
+  "productionServerPassed": true,
+  "lint": {
+    "commandPassed": false,
+    "prettierFilesFailing": 882,
+    "introducedEslintMessages": 0,
+    "introducedPrettierFailures": 0,
+    "changedSourceExistingEslintErrors": 18,
+    "changedFilesExistingPrettierFailures": 7
+  },
+  "productCommit": "970d0f48"
+}
