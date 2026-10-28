@@ -29,6 +29,12 @@
   export let lists = false;
   export let loaded = false;
 
+  // Empty recipe grids greet with a random kitchen emoji (timers, plates,
+  // pans) instead of a single static icon. Picked once per instance.
+  const RECIPE_EMPTY_EMOJIS = ['⏲️', '🍽️', '🍳', '🥘', '🫕', '🥣', '🧑‍🍳', '🥄'];
+  const recipeEmptyEmoji =
+    RECIPE_EMPTY_EMOJIS[Math.floor(Math.random() * RECIPE_EMPTY_EMOJIS.length)];
+
   // Context for empty state customization
   export let isOwnProfile = false; // true if viewing your own profile
   export let isProfileView = false; // true if this is a profile page
@@ -113,11 +119,11 @@
 {:else}
   <!-- Empty state -->
   <div class="flex flex-col items-center justify-center py-8 px-4">
-    <div class="text-4xl mb-3">
+    <div class="text-6xl mb-3" aria-hidden="true">
       {#if lists}
         📋
       {:else}
-        🍳
+        {recipeEmptyEmoji}
       {/if}
     </div>
 

@@ -6,16 +6,16 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import type { NDKFilter, NDKUser, NDKUserProfile } from '@nostr-dev-kit/ndk';
   import { nip19 } from 'nostr-tools';
-  import ZapModal from '../../../components/ZapModal.svelte';
-  import Feed from '../../../components/Feed.svelte';
+  import ZapModal from '../../../../components/ZapModal.svelte';
+  import Feed from '../../../../components/Feed.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
   import { buildPoolRelaySet } from '$lib/eventFetch';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
-  import Avatar from '../../../components/Avatar.svelte';
-  import CustomName from '../../../components/CustomName.svelte';
-  import Button from '../../../components/Button.svelte';
+  import Avatar from '../../../../components/Avatar.svelte';
+  import CustomName from '../../../../components/CustomName.svelte';
+  import Button from '../../../../components/Button.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
@@ -30,26 +30,26 @@
   import { setPubkeyMuted } from '$lib/muteToggle';
   import { requestProvider } from 'webln';
   import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
-  import ProfileEditModal from '../../../components/ProfileEditModal.svelte';
-  import ParsedBio from '../../../components/ParsedBio.svelte';
-  import ProfileDrafts from '../../../components/ProfileDrafts.svelte';
-  import Modal from '../../../components/Modal.svelte';
-  import FoodstrFeedOptimized from '../../../components/FoodstrFeedOptimized.svelte';
-  import ShareMyRecipesAction from '../../../components/ShareMyRecipesAction.svelte';
+  import ProfileEditModal from '../../../../components/ProfileEditModal.svelte';
+  import ParsedBio from '../../../../components/ParsedBio.svelte';
+  import ProfileDrafts from '../../../../components/ProfileDrafts.svelte';
+  import Modal from '../../../../components/Modal.svelte';
+  import FoodstrFeedOptimized from '../../../../components/FoodstrFeedOptimized.svelte';
+  import ShareMyRecipesAction from '../../../../components/ShareMyRecipesAction.svelte';
   import FloppyDiskIcon from 'phosphor-svelte/lib/FloppyDisk';
-  import BookOpenIcon from 'phosphor-svelte/lib/BookOpen';
-  import ImageSquareIcon from 'phosphor-svelte/lib/ImageSquare';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import { onMount, onDestroy } from 'svelte';
-  import { RECIPE_TAGS } from '$lib/consts';
-  import ArticleFeed from '../../../components/ArticleFeed.svelte';
+  import { RECIPE_TAGS, isHiddenRecipeEvent } from '$lib/consts';
+  import { foodFilterSetting } from '$lib/foodFilterSettings';
+  import RecipeCard from '../../../../components/RecipeCard.svelte';
+  import { withoutMuted } from '$lib/muteFilter';  import ArticleFeed from '../../../../components/ArticleFeed.svelte';
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
-  import MembershipBeltBadge from '../../../components/MembershipBeltBadge.svelte';
+  import MembershipBeltBadge from '../../../../components/MembershipBeltBadge.svelte';
   import { fetchUserStatsFromPrimal, getPrimalCache, type PrimalUserStats } from '$lib/primalCache';
-  import LazarusRecoveryModal from '../../../components/LazarusRecoveryModal.svelte';
+  import LazarusRecoveryModal from '../../../../components/LazarusRecoveryModal.svelte';
   import ArrowCounterClockwiseIcon from 'phosphor-svelte/lib/ArrowCounterClockwise';
-  import MuteListEditor from '../../../components/MuteListEditor.svelte';
-  import ProfileSheet from '../../../components/ProfileSheet.svelte';
+  import MuteListEditor from '../../../../components/MuteListEditor.svelte';
+  import ProfileSheet from '../../../../components/ProfileSheet.svelte';
   import { normalizeAltBreaks } from '$lib/feed/imeta';
 
   let hexpubkey: string | undefined = undefined;
@@ -61,17 +61,49 @@
   let followRecoveryModal = false;
   let isZapping = false;
 
-  // Tab state: 'recipes' | 'posts' | 'media' | 'reads' | 'following' | 'drafts'
-  // Default to 'posts' tab for a more social-first experience
-  let activeTab:
-    | 'recipes'
-    | 'posts'
-    | 'replies'
-    | 'media'
-    | 'reads'
-    | 'following'
-    | 'drafts'
-    | 'muted' = 'posts';
+  // Tab state: 'recipes' | 'posts' | 'replies' | 'media' | 'reads' | 'following' | 'drafts' | 'muted'
+  // Recipes is the default. The active tab is mirrored to the URL as
+  // /user/<npub>/<tab> (see setTab) so any section can be deep-linked.
+  const PROFILE_TABS = [
+    'recipes',
+    'posts',
+    'replies',
+    'media',
+    'reads',
+    'following',
+    'drafts',
+    'muted'
+  ] as const;
+  type ProfileTab = (typeof PROFILE_TABS)[number];
+  const DEFAULT_TAB: ProfileTab = 'recipes';
+
+  function parseProfileTab(value: string | null | undefined): ProfileTab | null {
+    if (!value) return null;
+    if (!PROFILE_TABS.includes(value as ProfileTab)) return null;
+    // Owner-only tabs: blocked once the profile is known to be someone else's.
+    // Unresolved (hexpubkey undefined) is allowed — on a hard load of
+    // /user/<own npub>/drafts the tab param is read before the profile
+    // resolves, and the drafts/muted content itself falls back safely.
+    if ((value === 'drafts' || value === 'muted') && hexpubkey && $userPublickey !== hexpubkey)
+      return null;
+    return value as ProfileTab;
+  }
+
+  let activeTab: ProfileTab = DEFAULT_TAB;
+
+  function setTab(tab: ProfileTab) {
+    activeTab = tab;
+    goto(`/user/${$page.params.slug}/${tab}`, { replaceState: true, noScroll: true, keepFocus: true });
+  }
+
+  // The "All posts / Only Food" toggle lives in the tab-bar row so its
+  // height never shifts tab content. The mounted notes feed (posts or
+  // replies) owns the filter logic; this just drives it.
+  function toggleFoodFilter() {
+    const next = !$foodFilterSetting;
+    const feed = activeTab === 'replies' ? foodstrRepliesFeedComponent : foodstrFeedComponent;
+    feed?.setFoodFilter(next);
+  }
 
   // Reads tab state (longform articles)
   let readsEvents: NDKEvent[] = [];
@@ -127,6 +159,31 @@
   let repliesSentinel: HTMLElement;
   let foodstrFeedComponent: FoodstrFeedOptimized;
   let foodstrRepliesFeedComponent: FoodstrFeedOptimized;
+
+  // Posts feed resolved to nothing: preview the author's recipes and
+  // reads under the empty state so the section is never a dead end.
+  let postsFeedEmpty = false;
+  // 3 = one full row of the preview grid (grid-cols-2 sm:grid-cols-3); a
+  // fourth card would orphan onto a second row at sm+.
+  const RECIPE_PREVIEW_COUNT = 3;
+  const READS_PREVIEW_COUNT = 2;
+
+  // Empty tabs greet with a random emoji instead of an outline icon.
+  // Picked once per page load.
+  const MEDIA_EMPTY_EMOJIS = ['📷', '📸', '🎥', '🎬', '🎨'];
+  const mediaEmptyEmoji = MEDIA_EMPTY_EMOJIS[Math.floor(Math.random() * MEDIA_EMPTY_EMOJIS.length)];
+  const READS_EMPTY_EMOJIS = ['📚', '📖', '👓', '🕶️'];
+  const readsEmptyEmoji = READS_EMPTY_EMOJIS[Math.floor(Math.random() * READS_EMPTY_EMOJIS.length)];
+  $: previewRecipes = withoutMuted(
+    $muteListStore.muteList,
+    events.filter((e) => !isHiddenRecipeEvent(e))
+  ).slice(0, RECIPE_PREVIEW_COUNT);
+  // Reads for the preview reuse the Reads tab's loader — once fetched,
+  // switching to the tab shows the same list with no refetch.
+  $: if (postsFeedEmpty && activeTab === 'posts' && hexpubkey && !readsLoaded) {
+    loadReads();
+  }
+
   let recipeObserver: IntersectionObserver | null = null;
   let postsObserver: IntersectionObserver | null = null;
   let repliesObserver: IntersectionObserver | null = null;
@@ -159,20 +216,12 @@
     loadData();
   }
 
-  // Handle ?tab= query parameter for direct tab navigation
+  // Handle /user/<npub>/<tab> deep links, plus the legacy ?tab= query form.
   $: {
-    const tabParam = $page.url.searchParams.get('tab');
-    const allowedTabs = new Set(['recipes', 'posts', 'media', 'reads', 'following', 'drafts']);
-
-    if (tabParam && allowedTabs.has(tabParam)) {
-      // Only allow "drafts" tab for the profile owner
-      if (tabParam === 'drafts') {
-        if ($userPublickey && $userPublickey === hexpubkey) {
-          activeTab = 'drafts';
-        }
-      } else {
-        activeTab = tabParam as any;
-      }
+    const tabParam = $page.params.tab ?? $page.url.searchParams.get('tab');
+    const tab = parseProfileTab(tabParam);
+    if (tab) {
+      activeTab = tab;
     }
     // Redirect old 'lists' tab to cookbook
     if (tabParam === 'lists') {
@@ -192,7 +241,9 @@
       profile = {};
       hexpubkey = undefined;
       loaded = false;
-      activeTab = 'posts'; // Default to posts tab for social-first experience
+      // Honor a tab in the URL (deep link / refresh); otherwise default to Recipes
+      activeTab =
+        parseProfileTab($page.params.tab ?? $page.url.searchParams.get('tab')) ?? DEFAULT_TAB;
       // Reset pagination state
       hasMoreRecipes = true;
       loadingMoreRecipes = false;
@@ -414,19 +465,26 @@
   async function toggleMute() {
     if (!$userPublickey || !hexpubkey || muteLoading) return;
 
+    const next = !isMuted;
     muteLoading = true;
 
     try {
       // Edits the latest relay copy; keeps every other entry (see $lib/muteToggle).
-      await setPubkeyMuted($userPublickey, hexpubkey, !isMuted);
+      // The mute store updates inside the call, so the profile hides immediately.
+      await setPubkeyMuted($userPublickey, hexpubkey, next);
 
       // Update local state
-      mutedUsers = isMuted
-        ? mutedUsers.filter((pk) => pk !== hexpubkey)
-        : [...new Set([...mutedUsers, hexpubkey])];
-      isMuted = !isMuted;
+      mutedUsers = next
+        ? [...new Set([...mutedUsers, hexpubkey])]
+        : mutedUsers.filter((pk) => pk !== hexpubkey);
+      isMuted = next;
     } catch (error) {
       console.error('Error toggling mute:', error);
+      // The mute applied locally; only the relay sync failed.
+      showToast(
+        'error',
+        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+      );
     } finally {
       muteLoading = false;
     }
@@ -646,7 +704,7 @@
   // Jump from an empty posts feed to the author's longform (the feed
   // component probes for kind-30023 content and offers the jump).
   function goToReads() {
-    activeTab = 'reads';
+    setTab('reads');
   }
 
   // Load user's longform articles (reads)
@@ -1688,7 +1746,7 @@
   {#if profileStats}
     <div class="flex flex-wrap items-center gap-x-5 gap-y-1.5 pb-3">
       <button
-        on:click={() => (activeTab = 'following')}
+        on:click={() => setTab('following')}
         class="flex items-center gap-1.5 text-sm transition-colors hover:opacity-70"
         style="color: var(--color-text-secondary)"
       >
@@ -1718,13 +1776,15 @@
   {/if}
 
   <!-- Tabs -->
-  <div
-    class="border-b mb-4 overflow-x-auto scrollbar-hide"
-    style="border-color: var(--color-input-border)"
-  >
-    <div class="flex gap-1 min-w-max">
+  <!-- Tabs. The "All posts / Only Food" toggle shares this row (posts and
+       replies only) so no tab has content above it — otherwise switching
+       to a tab without the toggle shifted every tab's content start. -->
+  <div class="border-b mb-4" style="border-color: var(--color-input-border)">
+    <div class="flex items-center justify-between gap-2">
+      <div class="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
+        <div class="flex gap-1 min-w-max">
       <button
-        on:click={() => (activeTab = 'recipes')}
+        on:click={() => setTab('recipes')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
         style="color: {activeTab === 'recipes'
           ? 'var(--color-text-primary)'
@@ -1738,7 +1798,7 @@
         {/if}
       </button>
       <button
-        on:click={() => (activeTab = 'posts')}
+        on:click={() => setTab('posts')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
         style="color: {activeTab === 'posts'
           ? 'var(--color-text-primary)'
@@ -1752,7 +1812,7 @@
         {/if}
       </button>
       <button
-        on:click={() => (activeTab = 'replies')}
+        on:click={() => setTab('replies')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
         style="color: {activeTab === 'replies'
           ? 'var(--color-text-primary)'
@@ -1766,7 +1826,7 @@
         {/if}
       </button>
       <button
-        on:click={() => (activeTab = 'media')}
+        on:click={() => setTab('media')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
         style="color: {activeTab === 'media'
           ? 'var(--color-text-primary)'
@@ -1780,7 +1840,7 @@
         {/if}
       </button>
       <button
-        on:click={() => (activeTab = 'reads')}
+        on:click={() => setTab('reads')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
         style="color: {activeTab === 'reads'
           ? 'var(--color-text-primary)'
@@ -1794,7 +1854,7 @@
         {/if}
       </button>
       <button
-        on:click={() => (activeTab = 'following')}
+        on:click={() => setTab('following')}
         class="px-4 py-2 text-sm font-medium transition-colors relative"
         style="color: {activeTab === 'following'
           ? 'var(--color-text-primary)'
@@ -1809,7 +1869,7 @@
       </button>
       {#if $userPublickey && $userPublickey === hexpubkey}
         <button
-          on:click={() => (activeTab = 'muted')}
+          on:click={() => setTab('muted')}
           class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
           style="color: {activeTab === 'muted'
             ? 'var(--color-text-primary)'
@@ -1824,7 +1884,7 @@
           {/if}
         </button>
         <button
-          on:click={() => (activeTab = 'drafts')}
+          on:click={() => setTab('drafts')}
           class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
           style="color: {activeTab === 'drafts'
             ? 'var(--color-text-primary)'
@@ -1838,6 +1898,35 @@
             ></span>
           {/if}
         </button>
+      {/if}
+        </div>
+      </div>
+      {#if activeTab === 'posts' || activeTab === 'replies'}
+        <div class="flex items-center gap-2 flex-shrink-0 pr-1">
+          {#if $foodFilterSetting}
+            <span class="text-sm whitespace-nowrap">
+              🍳 <span class="text-caption">Only</span><span
+                class="font-bold"
+                style="color: var(--color-text-primary)">Food</span
+              >
+            </span>
+          {:else}
+            <span class="text-sm text-caption whitespace-nowrap">All posts</span>
+          {/if}
+          <button
+            on:click={toggleFoodFilter}
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {$foodFilterSetting
+              ? 'bg-primary'
+              : 'bg-accent-gray'}"
+            aria-label={$foodFilterSetting ? 'Show all posts' : 'Show only food'}
+          >
+            <span
+              class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform {$foodFilterSetting
+                ? 'translate-x-6'
+                : 'translate-x-1'}"
+            />
+          </button>
+        </div>
       {/if}
     </div>
   </div>
@@ -1896,21 +1985,74 @@
       {/if}
     {/if}
   {:else if activeTab === 'posts'}
-    <div class="max-w-2xl w-full">
+    <div class="max-w-2xl w-full mx-auto">
       <FoodstrFeedOptimized
         bind:this={foodstrFeedComponent}
+        bind:authorFeedEmpty={postsFeedEmpty}
         authorPubkey={hexpubkey}
         authorScope="top-level"
+        authorHasRecipes={loaded && events.length > 0}
+        hideFoodToggle={true}
         on:view-reads={goToReads}
       />
+      {#if postsFeedEmpty && previewRecipes.length > 0}
+        <!-- Both previews share one width (3×160px cards + 2×16px gaps) and
+             sit centered on the same axis as the empty-state message above,
+             so the empty state reads as one column, not a left-stuck strip. -->
+        <section class="mt-8 max-w-[512px] mx-auto">
+          <div class="flex items-center justify-between mb-4">
+            <h2
+              class="text-sm font-semibold uppercase tracking-wide"
+              style="color: var(--color-text-secondary)"
+            >
+              Recipes
+            </h2>
+            <button
+              on:click={() => setTab('recipes')}
+              class="text-xs font-medium px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
+              style="background: var(--color-bg-secondary); color: var(--color-text-primary);"
+            >
+              View all
+            </button>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-6 justify-items-center items-start">
+            {#each previewRecipes as event (event.id)}
+              <RecipeCard {event} />
+            {/each}
+          </div>
+        </section>
+      {/if}
+      {#if postsFeedEmpty && readsLoaded && readsEvents.length > 0}
+        <section class="mt-8 max-w-[512px] mx-auto">
+          <div class="flex items-center justify-between mb-4">
+            <h2
+              class="text-sm font-semibold uppercase tracking-wide"
+              style="color: var(--color-text-secondary)"
+            >
+              Reads
+            </h2>
+            <button
+              on:click={() => setTab('reads')}
+              class="text-xs font-medium px-3 py-1.5 rounded-full transition-colors hover:opacity-80"
+              style="background: var(--color-bg-secondary); color: var(--color-text-primary);"
+            >
+              View all
+            </button>
+          </div>
+          <div class="reads-feed-vertical">
+            <ArticleFeed articles={formatReadsArticles(readsEvents.slice(0, READS_PREVIEW_COUNT))} />
+          </div>
+        </section>
+      {/if}
       <div bind:this={postsSentinel} class="py-4 text-center"></div>
     </div>
   {:else if activeTab === 'replies'}
-    <div class="max-w-2xl w-full">
+    <div class="max-w-2xl w-full mx-auto">
       <FoodstrFeedOptimized
         bind:this={foodstrRepliesFeedComponent}
         authorPubkey={hexpubkey}
         authorScope="replies"
+        hideFoodToggle={true}
         on:view-reads={goToReads}
       />
       <div bind:this={repliesSentinel} class="py-4 text-center"></div>
@@ -1961,7 +2103,7 @@
     {:else}
       <div class="py-12 text-center">
         <div class="max-w-sm mx-auto space-y-4" style="color: var(--color-caption)">
-          <ImageSquareIcon size={48} class="mx-auto opacity-50" />
+          <div class="text-6xl mx-auto" aria-hidden="true">{mediaEmptyEmoji}</div>
           <p class="text-lg font-medium">No media yet</p>
           <p class="text-sm">This user hasn't posted any images or videos.</p>
         </div>
@@ -2033,7 +2175,7 @@
     {:else}
       <div class="py-12 text-center">
         <div class="max-w-sm mx-auto space-y-4" style="color: var(--color-caption)">
-          <BookOpenIcon size={48} class="mx-auto opacity-50" />
+          <div class="text-6xl mx-auto" aria-hidden="true">{readsEmptyEmoji}</div>
           <p class="text-lg font-medium">No articles found</p>
           <p class="text-sm">This user hasn't published any longform articles yet.</p>
         </div>
@@ -2174,10 +2316,13 @@
     overflow: hidden;
   }
 
-  /* Vertical layout for reads feed on profile page */
+  /* Vertical layout for reads feed on profile page. Cards match the
+     posts-tab preview column width (512px = 3×160px recipe cards + gaps)
+     and center on the section's center axis. */
   .reads-feed-vertical {
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 24px;
     max-width: 100%;
   }
@@ -2192,13 +2337,13 @@
   .reads-feed-vertical :global(.article-card-wrapper) {
     flex: none;
     width: 100%;
-    max-width: 600px;
+    max-width: 512px;
     height: auto;
   }
 
   .article-card-skeleton {
     width: 100%;
-    max-width: 600px;
+    max-width: 512px;
     height: 400px;
     display: flex;
     flex-direction: column;
