@@ -43,12 +43,15 @@ CATEGORIES = [
 ]
 
 # Canonical quick-reaction defaults — identical on iOS, Android, and web.
-# 18 entries = the reaction picker's full 3x6 grid. Reactions (rows 1-2),
-# then the cooking app's food + celebration + seasonal picks (row 3).
+# 24 entries = 4 rows x 6 in the iOS picker (Android's popup flows uncapped).
+# Rows 1-2: reactions. Rows 3-4: everything culinary, together in sequence —
+# chef, then food (cooked, meats, fish, veg, dishes), no seasonal picks
+# (🎃 🎄 … live in the catalog, not the defaults).
 QUICK_REACTIONS = [
     "❤️", "🔥", "👍", "😂", "🙏", "🤙",
-    "💯", "✨", "🎉", "🤌", "🧑‍🍳", "😋",
-    "🤤", "🍳", "🌶️", "🌮", "🥂", "🎃",
+    "💯", "✨", "🎉", "🥂", "😋", "🤤",
+    "🤌", "🧑‍🍳", "🍳", "🥩", "🍗", "🐟",
+    "🥦", "🌶️", "🌮", "🍜", "🍝", "🍔",
 ]
 
 SKIN_TONES = set(range(0x1F3FB, 0x1F3FF + 1))
