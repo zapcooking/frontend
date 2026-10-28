@@ -42,6 +42,21 @@ CATEGORIES = [
     ("Flags", "Flags"),
 ]
 
+# Curated tab icons — stable regardless of catalog order. Deriving them from
+# the group's first emoji drifts with Unicode releases (Activities opens with
+# 🎃, so the library tab became a jack-o-lantern).
+CATEGORY_ICONS = {
+    "Smileys": "😀",
+    "People": "👋",
+    "Animals": "🐶",
+    "Food": "🍔",
+    "Activities": "⚽",
+    "Travel": "✈️",
+    "Objects": "💡",
+    "Symbols": "♻️",
+    "Flags": "🏴‍☠️",
+}
+
 # Canonical quick-reaction defaults — identical on iOS, Android, and web.
 # 24 entries = 4 rows x 6 in the iOS picker (Android's popup flows uncapped).
 # Rows 1-2: reactions. Rows 3-4: everything culinary, together in sequence —
@@ -116,7 +131,7 @@ def emit_swift(catalog: dict) -> str:
     parts = []
     for group, name in CATEGORIES:
         emojis = catalog[group]
-        icon = "🏴‍☠️" if name == "Flags" else emojis[0]
+        icon = CATEGORY_ICONS[name]
         body = wrap([f'"{e}"' for e in emojis], " " * 16)
         parts.append(
             "        EmojiCategory(\n"
@@ -134,7 +149,7 @@ def emit_kotlin(catalog: dict) -> str:
     parts = []
     for group, name in CATEGORIES:
         emojis = [kotlin_escape(e) for e in catalog[group]]
-        icon = kotlin_escape("🏴‍☠️" if name == "Flags" else catalog[group][0])
+        icon = kotlin_escape(CATEGORY_ICONS[name])
         body = wrap([f'"{e}"' for e in emojis], " " * 16)
         parts.append(
             "        EmojiCategory(\n"
