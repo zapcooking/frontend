@@ -172,6 +172,10 @@
   // Picked once per page load.
   const MEDIA_EMPTY_EMOJIS = ['📷', '📸', '🎥', '🎬', '🎨'];
   const mediaEmptyEmoji = MEDIA_EMPTY_EMOJIS[Math.floor(Math.random() * MEDIA_EMPTY_EMOJIS.length)];
+  // Empty Following tab: wayfinding and togetherness symbols.
+  const FOLLOWING_EMPTY_EMOJIS = ['🗺️', '🧭', '🫂', '👣', '👥'];
+  const followingEmptyEmoji =
+    FOLLOWING_EMPTY_EMOJIS[Math.floor(Math.random() * FOLLOWING_EMPTY_EMOJIS.length)];
   const READS_EMPTY_EMOJIS = ['📚', '📖', '👓', '🕶️'];
   const readsEmptyEmoji = READS_EMPTY_EMOJIS[Math.floor(Math.random() * READS_EMPTY_EMOJIS.length)];
   $: previewRecipes = withoutMuted(
@@ -2219,7 +2223,7 @@
       </div>
     {:else if followingProfiles.length === 0}
       <div class="py-12 text-center">
-        <UsersIcon size={48} class="mx-auto mb-4 opacity-30" />
+        <div class="text-6xl mx-auto mb-4" aria-hidden="true">{followingEmptyEmoji}</div>
         <p class="text-lg font-medium" style="color: var(--color-text-secondary)">
           Not following anyone yet
         </p>
