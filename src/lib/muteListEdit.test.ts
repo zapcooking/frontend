@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
 	addPubkeyMute,
+	addEventMute,
 	removePubkeyMute,
+	removeEventMute,
 	type MuteListContent,
 	type MuteListCrypto
 } from './muteListEdit';
@@ -43,26 +45,57 @@ async function privateEntries(list: MuteListContent) {
 }
 
 describe('addPubkeyMute', () => {
-	it('keeps every existing public entry and the private part byte-for-byte', () => {
+	it('adds a private mute, keeping every public tag untouched', async () => {
 		const before = existingList();
-		const after = addPubkeyMute(before, C)!;
-		expect(after.tags).toEqual([...before.tags, ['p', C]]);
-		expect(after.content).toBe(before.content);
+		const after = (await addPubkeyMute(before, C, fakeCrypto()))!;
+		expect(after.tags).toEqual(before.tags);
+		expect(await privateEntries(after)).toEqual([...privateTags, ['p', C]]);
 	});
 
-	it('does not mutate the input', () => {
+	it('does not mutate the input', async () => {
 		const before = existingList();
 		const snapshot = JSON.parse(JSON.stringify(before));
-		addPubkeyMute(before, C);
+		await addPubkeyMute(before, C, fakeCrypto());
 		expect(before).toEqual(snapshot);
 	});
 
-	it('is a no-op when the pubkey is already muted publicly', () => {
-		expect(addPubkeyMute(existingList(), A)).toBeNull();
+	it('is a no-op when the pubkey is already muted privately', async () => {
+		expect(await addPubkeyMute(existingList(), B, fakeCrypto())).toBeNull();
 	});
 
-	it('starts a list when there is none', () => {
-		expect(addPubkeyMute(null, C)).toEqual({ tags: [['p', C]], content: '' });
+	it('converts an existing public mute to private', async () => {
+		const before = existingList();
+		const after = (await addPubkeyMute(before, A, fakeCrypto()))!;
+		// the public tag goes away, the mute reappears in the private part
+		expect(after.tags).toEqual(before.tags.filter((t) => t[1] !== A));
+		expect(await privateEntries(after)).toEqual([...privateTags, ['p', A]]);
+	});
+
+	it('starts an encrypted list when there is none', async () => {
+		const after = (await addPubkeyMute(null, C, fakeCrypto()))!;
+		expect(after.tags).toEqual([]);
+		expect(await privateEntries(after)).toEqual([['p', C]]);
+	});
+
+	it('keeps the legacy Mutable object format when that is what is there', async () => {
+		const legacy = {
+			pubkeys: [{ value: B }],
+			words: [{ value: 'w' }],
+			tags: [{ value: 't' }],
+			threads: [{ value: 'e' }]
+		};
+		const before = { tags: [['word', 'x']], content: `enc:${btoa(JSON.stringify(legacy))}` };
+		const after = (await addPubkeyMute(before, C, fakeCrypto()))!;
+		expect(await privateEntries(after)).toEqual({
+			...legacy,
+			pubkeys: [{ value: B }, { value: C, private: true }]
+		});
+	});
+
+	it('throws instead of clobbering private mutes when decryption fails', async () => {
+		const crypto = fakeCrypto();
+		crypto.decrypt.mockRejectedValueOnce(new Error('signer denied'));
+		await expect(addPubkeyMute(existingList(), C, crypto)).rejects.toThrow('signer denied');
 	});
 });
 
@@ -109,9 +142,17 @@ describe('removePubkeyMute', () => {
 describe('mute round-trip', () => {
 	it('mute then unmute returns the original list exactly', async () => {
 		const before = existingList();
-		const muted = addPubkeyMute(before, C)!;
+		const muted = (await addPubkeyMute(before, C, fakeCrypto()))!;
 		const unmuted = (await removePubkeyMute(muted, C, fakeCrypto()))!;
 		expect(unmuted).toEqual(before);
+	});
+
+	it('migrating a public mute then unmuting removes it entirely', async () => {
+		const before = existingList();
+		const migrated = (await addPubkeyMute(before, A, fakeCrypto()))!;
+		const unmuted = (await removePubkeyMute(migrated, A, fakeCrypto()))!;
+		expect(unmuted.tags).toEqual(before.tags.filter((t) => t[1] !== A));
+		expect(await privateEntries(unmuted)).toEqual(privateTags);
 	});
 });
 
@@ -140,47 +181,70 @@ describe('withoutMuted (every recipe grid and feed row)', () => {
     const events = [ev('a', 'bad'.padEnd(64, '0'))];
     expect(withoutMuted(null, events)).toBe(events);
   });
+
+  it('drops privately muted entries the same as public ones', async () => {
+    const { withoutMuted } = await import('./muteFilter');
+    const privateList = {
+      pubkeys: [{ type: 'pubkey' as const, value: 'bad'.padEnd(64, '0'), private: true }],
+      words: [],
+      tags: [],
+      threads: [{ type: 'thread' as const, value: 'thread1', private: true }]
+    };
+    const out = withoutMuted(privateList, [
+      ev('a', 'bad'.padEnd(64, '0')),
+      ev('thread1', 'ok'.padEnd(64, '0')),
+      ev('c', 'ok'.padEnd(64, '0'))
+    ]);
+    expect(out.map((e) => e.id)).toEqual(['c']);
+  });
 });
 
 describe('event mutes (thread / note-and-replies)', () => {
 	const EVENT = 'e'.repeat(64);
 
-	it('adds a public e mute to an absent list', async () => {
-		const { addEventMute } = await import('./muteListEdit');
-		const edited = addEventMute(null, EVENT);
-		expect(edited?.tags).toEqual([['e', EVENT]]);
-		expect(edited?.content).toBe('');
+	it('adds a private e mute to an absent list', async () => {
+		const edited = (await addEventMute(null, EVENT, fakeCrypto()))!;
+		expect(edited.tags).toEqual([]);
+		expect(await privateEntries(edited)).toEqual([['e', EVENT]]);
 	});
 
-	it('adds the e tag without disturbing existing tags or private content', async () => {
-		const { addEventMute } = await import('./muteListEdit');
+	it('adds the private e mute without disturbing existing tags or private content', async () => {
 		const before = existingList();
-		const edited = addEventMute(before, EVENT)!;
-		expect(edited.tags.some((t) => t[0] === 'e' && t[1] === EVENT)).toBe(true);
+		const edited = (await addEventMute(before, EVENT, fakeCrypto()))!;
 		// every original tag survives verbatim, in order
-		expect(edited.tags.slice(0, before.tags.length)).toEqual(before.tags);
-		expect(edited.content).toBe(before.content);
+		expect(edited.tags).toEqual(before.tags);
+		expect(await privateEntries(edited)).toEqual([...privateTags, ['e', EVENT]]);
 	});
 
-	it('returns null when the event is already muted publicly', async () => {
-		const { addEventMute, addPubkeyMute } = await import('./muteListEdit');
-		const seeded = addPubkeyMute(null, A)!;
-		const once = addEventMute(seeded, EVENT)!;
-		expect(addEventMute(once, EVENT)).toBeNull();
+	it('is a no-op when the event is already muted privately', async () => {
+		const priv = 'f'.repeat(64);
+		expect(await addEventMute(existingList(), priv, fakeCrypto())).toBeNull();
 	});
 
-	it('removes the e mute and keeps private content byte-for-byte', async () => {
-		const { addEventMute, removeEventMute } = await import('./muteListEdit');
+	it('converts a public e mute to private', async () => {
 		const before = existingList();
-		const withMute = addEventMute(before, EVENT)!;
-		const removed = removeEventMute(withMute, EVENT)!;
-		expect(removed.tags).toEqual(before.tags);
+		const edited = (await addEventMute(before, '1'.repeat(64), fakeCrypto()))!;
+		expect(edited.tags).toEqual(before.tags.filter((t) => t[1] !== '1'.repeat(64)));
+		expect(await privateEntries(edited)).toEqual([...privateTags, ['e', '1'.repeat(64)]]);
+	});
+
+	it('removes a public e mute and keeps private content byte-for-byte', async () => {
+		const before = existingList();
+		const removed = (await removeEventMute(before, '1'.repeat(64), fakeCrypto()))!;
+		expect(removed.tags).toEqual(before.tags.filter((t) => t[1] !== '1'.repeat(64)));
 		expect(removed.content).toBe(before.content);
 	});
 
-	it('returns null when the public list does not mute the event', async () => {
-		const { removeEventMute } = await import('./muteListEdit');
-		expect(removeEventMute(null, EVENT)).toBeNull();
-		expect(removeEventMute(existingList(), EVENT)).toBeNull();
+	it('removes a private e mute', async () => {
+		const priv = 'f'.repeat(64);
+		const before = existingList();
+		const removed = (await removeEventMute(before, priv, fakeCrypto()))!;
+		expect(removed.tags).toEqual(before.tags);
+		expect(await privateEntries(removed)).toEqual(privateTags.filter((t) => t[1] !== priv));
+	});
+
+	it('returns null when the list does not mute the event', async () => {
+		expect(await removeEventMute(null, EVENT, fakeCrypto())).toBeNull();
+		expect(await removeEventMute(existingList(), EVENT, fakeCrypto())).toBeNull();
 	});
 });

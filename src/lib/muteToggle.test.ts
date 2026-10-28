@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 
 vi.mock('$lib/nostr', () => ({ ndk: { subscribe: () => () => {} } }));
@@ -9,7 +9,7 @@ vi.mock('$lib/encryptionService', () => ({
 }));
 vi.mock('$lib/muteListStore', () => ({ muteListStore: { invalidate: vi.fn(), load: vi.fn() } }));
 
-const { fetchMuteListStrict, planPubkeyMute } = await import('./muteToggle');
+const { fetchMuteListStrict, planPubkeyMute, planEventMute } = await import('./muteToggle');
 
 const ME = 'e'.repeat(64);
 const A = 'a'.repeat(64);
@@ -80,25 +80,78 @@ describe('fetchMuteListStrict', () => {
 });
 
 describe('planPubkeyMute', () => {
+	beforeEach(() => {
+		crypto.decrypt.mockReset();
+		crypto.encrypt.mockReset();
+		crypto.decrypt.mockResolvedValue(JSON.stringify([['word', 'x']]));
+		crypto.encrypt.mockResolvedValue('new-cipher');
+	});
+
 	it('refuses to publish when the relay copy is unavailable', async () => {
 		await expect(planPubkeyMute({ status: 'unavailable' }, B, true, crypto)).rejects.toThrow(
 			/not reachable/
 		);
 	});
 
-	it('starts a new list only when the relay copy is confirmed absent', async () => {
+	it('mutes privately: an absent relay copy yields tags-free content with the encrypted entry', async () => {
 		expect(await planPubkeyMute({ status: 'absent' }, B, true, crypto)).toEqual({
-			tags: [['p', B]],
-			content: ''
+			tags: [],
+			content: 'new-cipher'
 		});
+		expect(JSON.parse(crypto.encrypt.mock.calls[0][0])).toEqual([['p', B]]);
 	});
 
-	it('edits a found list, keeping every other entry', async () => {
+	it('mutes privately on a found list, keeping every other entry', async () => {
 		const tags = [['p', A, 'spam'], ['word', 'x'], ['t', 'nsfw'], ['e', '1'.repeat(64)]];
 		const found = { status: 'found' as const, event: muteEvent(1, tags, 'ciphertext') };
 		expect(await planPubkeyMute(found, B, true, crypto)).toEqual({
-			tags: [...tags, ['p', B]],
-			content: 'ciphertext'
+			tags,
+			content: 'new-cipher'
 		});
+		expect(crypto.decrypt).toHaveBeenCalledWith('ciphertext');
+	});
+
+	it('unmuting removes the pubkey from the decrypted private part', async () => {
+		const tags = [['p', A, 'spam']];
+		const found = {
+			status: 'found' as const,
+			event: muteEvent(1, tags, 'ciphertext')
+		};
+		crypto.decrypt.mockResolvedValue(JSON.stringify([['p', B], ['word', 'x']]));
+		expect(await planPubkeyMute(found, B, false, crypto)).toEqual({
+			tags,
+			content: 'new-cipher'
+		});
+		expect(JSON.parse(crypto.encrypt.mock.calls[0][0])).toEqual([['word', 'x']]);
+	});
+});
+
+describe('planEventMute', () => {
+	beforeEach(() => {
+		crypto.decrypt.mockReset();
+		crypto.encrypt.mockReset();
+		crypto.decrypt.mockResolvedValue('[]');
+		crypto.encrypt.mockResolvedValue('new-cipher');
+	});
+
+	const EVENT = 'e'.repeat(64);
+
+	it('refuses to publish when the relay copy is unavailable', async () => {
+		await expect(planEventMute({ status: 'unavailable' }, EVENT, true, crypto)).rejects.toThrow(
+			/not reachable/
+		);
+	});
+
+	it('mutes an event privately', async () => {
+		expect(await planEventMute({ status: 'absent' }, EVENT, true, crypto)).toEqual({
+			tags: [],
+			content: 'new-cipher'
+		});
+		expect(JSON.parse(crypto.encrypt.mock.calls[0][0])).toEqual([['e', EVENT]]);
+	});
+
+	it('unmuting an event with no mute publishes nothing', async () => {
+		const found = { status: 'found' as const, event: muteEvent(1, [['p', A]], 'cipher') };
+		expect(await planEventMute(found, EVENT, false, crypto)).toBeNull();
 	});
 });

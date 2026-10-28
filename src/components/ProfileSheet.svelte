@@ -190,12 +190,19 @@
     const me = get(userPublickey);
     if (!me || !hex || muteLoading) return;
 
+    const next = !isMuted;
     muteLoading = true;
     try {
       // Edits the latest relay copy; keeps every other entry (see $lib/muteToggle).
-      await setPubkeyMuted(me, hex, !isMuted);
+      // The store updates inside the call, so isMuted flips immediately.
+      await setPubkeyMuted(me, hex, next);
     } catch (err) {
       console.error('[ProfileSheet] mute toggle failed:', err);
+      // The mute applied locally; only the relay sync failed.
+      showToast(
+        'error',
+        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+      );
     } finally {
       muteLoading = false;
     }
