@@ -534,7 +534,7 @@
     
     // Navigate to user's drafts tab
     if ($userPublickey) {
-      goto(`/user/${nip19.npubEncode($userPublickey)}?tab=drafts`);
+      goto(`/user/${nip19.npubEncode($userPublickey)}/drafts`);
     }
   }
   
