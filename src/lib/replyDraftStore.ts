@@ -182,3 +182,37 @@ export function clearReplyDrafts(): void {
   records = new Map();
   persist(records);
 }
+
+/**
+ * Target ids whose reply is currently being mined/published in the
+ * background (see $lib/comments/minedReply).
+ *
+ * During the flight the draft record stays on disk only so a stopped or
+ * failed mine can hand the words back — it is not an invitation for a
+ * freshly mounted composer to restore them: the words are being posted
+ * right now, not waiting to be typed again. Composers check this before
+ * restoring on mount; the flag clears when the flight ends either way
+ * (success deletes the draft, a stop or failure hands the words back).
+ */
+const replyPublishing = writable<ReadonlySet<string>>(new Set());
+
+export const replyPublishingStore = { subscribe: replyPublishing.subscribe };
+
+export function beginReplyPublish(targetId: string): void {
+  if (!targetId) return;
+  replyPublishing.update((set) => {
+    const next = new Set(set);
+    next.add(targetId);
+    return next;
+  });
+}
+
+export function endReplyPublish(targetId: string): void {
+  if (!targetId) return;
+  replyPublishing.update((set) => {
+    if (!set.has(targetId)) return set;
+    const next = new Set(set);
+    next.delete(targetId);
+    return next;
+  });
+}

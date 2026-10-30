@@ -47,7 +47,14 @@
 	} from '$lib/composerMedia';
 	import { isVideoUrl } from '$lib/feed/imeta';
 	import { postComment as postCommentLib } from '$lib/comments/postComment';
-	import { saveReplyDraft, getReplyDraft, deleteReplyDraft } from '$lib/replyDraftStore';
+	import {
+		saveReplyDraft,
+		getReplyDraft,
+		deleteReplyDraft,
+		replyPublishingStore,
+		beginReplyPublish,
+		endReplyPublish
+	} from '$lib/replyDraftStore';
 	import AltTextEditorModal from '../AltTextEditorModal.svelte';
 	import { showToast } from '$lib/toast';
 	import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
@@ -408,7 +415,12 @@
 		// editor (binding is reactive and lands after onMount — the same race
 		// autoFocus's setTimeout works around; calling syncContent here would
 		// be a no-op on an unbound controller).
-		if (draftKey) {
+		// A mined reply for this target may still be in flight: its draft
+		// sits on disk only until the publish lands. Restoring it here
+		// would show words that are about to post as an editable box —
+		// and keep them there after they did — so an in-flight target
+		// opens empty instead.
+		if (draftKey && !get(replyPublishingStore).has(draftKey)) {
 			const draft = getReplyDraft(draftKey, $userPublickey);
 			if (draft) {
 				media = [...draft.media];
@@ -617,6 +629,9 @@
 		}
 
 		posting = true;
+		// Set in the mined hand-off branch: there the flight flag is owned
+		// by startMinedReply, and the finally below must not end it early.
+		let handedOff = false;
 		// Declared outside the try so the catch can restore it; reassigned
 		// below once the final text is extracted.
 		let draftSnapshot: ReplyDraft = {
@@ -686,10 +701,14 @@
 					onPosted,
 					restoreInPlace: (returned) => restoreHandedOff(handedOffTarget, returned)
 				});
+				handedOff = true;
 				dispatch('close');
 				return;
 			}
 
+			// The plain publish path owns the draft store flight flag itself:
+			// the mined hand-off above leaves it to startMinedReply.
+			if (draftKey) beginReplyPublish(draftKey);
 			const { event: posted } = await postCommentLib($ndk, {
 				parentEvent,
 				replyTo,
@@ -716,6 +735,9 @@
 			console.error('[ReplyComposer] post failed:', error);
 			showToast('error', "Couldn't post comment — please try again.");
 		} finally {
+			// The mined hand-off path owns its own flight flag (cleared when
+			// startMinedReply's own flight ends); this clears the plain path.
+			if (draftKey && !(powBits && handedOff)) endReplyPublish(draftKey);
 			posting = false;
 		}
 	}
