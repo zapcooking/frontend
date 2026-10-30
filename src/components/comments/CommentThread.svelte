@@ -20,6 +20,7 @@
     createCommentSubscription,
     type CommentSubscription
   } from '$lib/comments/subscription';
+  import { isReply } from '$lib/replyContext';
 
   /**
    * The root event being commented on.
@@ -151,15 +152,19 @@
       <div class="mt-3 space-y-4 pt-3" style="border-top: 1px solid var(--color-input-border)">
         <div class="comments-list">
           {#if $events.length === 0}
-            <p class="text-sm text-caption">
-              No replies yet.
-              {#if !$signedIn}
-                <button type="button" class="underline hover:opacity-80" on:click={signInToComment}>Sign in</button>
-                to reply!
-              {:else}
-                Be the first to reply!
-              {/if}
-            </p>
+            {#if !isReply(event)}
+              <!-- Top-level posts get the empty-state nudge; a reply's
+                   inline thread stays quiet when it has no children. -->
+              <p class="text-sm text-caption">
+                No replies yet.
+                {#if !$signedIn}
+                  <button type="button" class="underline hover:opacity-80" on:click={signInToComment}>Sign in</button>
+                  to reply!
+                {:else}
+                  Be the first to reply!
+                {/if}
+              </p>
+            {/if}
           {:else}
             {#each $events as comment (comment.id)}
               <CommentCard

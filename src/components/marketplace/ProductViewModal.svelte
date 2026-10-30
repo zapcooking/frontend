@@ -96,7 +96,7 @@
 
 	<div class="flex flex-col gap-5">
 		<!-- Product Image -->
-		<div class="relative aspect-video rounded-xl overflow-hidden" style="background-color: var(--color-bg-tertiary);">
+		<div class="relative aspect-video rounded-xl overflow-hidden" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));">
 			<img src={imageUrl} alt={imageAlt} class="w-full h-full object-cover" />
 		</div>
 
@@ -110,7 +110,7 @@
 						aria-label={allImageAlts[i] || `Image ${i + 1} of ${allImages.length}`}
 						aria-pressed={activeImageIndex === i}
 						class="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all"
-						style="border-color: {activeImageIndex === i ? 'var(--color-accent)' : 'transparent'}; opacity: {activeImageIndex === i ? '1' : '0.6'};"
+						style="border-color: {activeImageIndex === i ? 'var(--color-primary)' : 'transparent'}; opacity: {activeImageIndex === i ? '1' : '0.6'};"
 					>
 						<img src={thumb} alt="" class="w-full h-full object-cover" />
 					</button>
@@ -137,7 +137,7 @@
 		<!-- Category & Location -->
 		<div class="flex flex-wrap items-center gap-3 text-xs" style="color: var(--color-text-secondary)">
 			{#if product?.category}
-				<span class="flex items-center gap-1 px-2 py-1 rounded-full" style="background-color: var(--color-bg-tertiary);">
+				<span class="flex items-center gap-1 px-2 py-1 rounded-full" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));">
 					<TagIcon size={12} />
 					{CATEGORY_LABELS[product.category] || product.category}
 				</span>
@@ -151,7 +151,7 @@
 		</div>
 
 		<!-- Seller -->
-		<div class="flex items-center gap-3 p-3 rounded-xl" style="background-color: var(--color-bg-tertiary);">
+		<div class="flex items-center gap-3 p-3 rounded-xl" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));">
 			<CustomAvatar pubkey={product?.pubkey || ''} size={40} className="flex-shrink-0" />
 			<div class="flex flex-col flex-1">
 				<span class="text-sm" style="color: var(--color-text-secondary)">Sold by</span>
@@ -231,7 +231,7 @@
 					type="button"
 					on:click={openMessageModal}
 					class="w-full py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
-					style="border: 1.5px solid rgba(249, 115, 22, 0.4); color: #f97316; background-color: rgba(249, 115, 22, 0.1);"
+					style="border: 1.5px solid color-mix(in srgb, var(--color-primary) 40%, transparent); color: var(--color-primary); background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);"
 				>
 					<ChatCircleIcon size={18} weight="fill" />
 					Message seller

@@ -127,6 +127,6 @@
   }
 
   .special-menu-list button:hover {
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
 </style>

@@ -80,6 +80,13 @@
     browser ? readStoredFeedTab() : null,
     hasSignedInSession()
   );
+  let lastTabParam = $page.url.searchParams.get('tab');
+  // A shared topic URL or browser Back/Forward can change tabs without a click.
+  // Track URL changes separately so setTab's immediate update is not reverted.
+  $: if (browser && $page.url.searchParams.get('tab') !== lastTabParam) {
+    lastTabParam = $page.url.searchParams.get('tab');
+    activeTab = initialFeedTab(lastTabParam, readStoredFeedTab(), hasSignedInSession());
+  }
 
   // Fresh is the landing tab: start its first page now, while the rest of
   // the page hydrates and mounts, instead of when the feed mounts.
@@ -162,6 +169,7 @@
     // Update URL for bookmarking/sharing
     const url = new URL($page.url);
     url.searchParams.set('tab', tab);
+    if (tab !== 'fresh') url.searchParams.delete('topic');
     goto(url.pathname + url.search, { noScroll: true, replaceState: true });
   }
 
@@ -307,7 +315,7 @@
             >
             {#if activeTab === 'fresh'}
               <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[var(--color-feed-tab-start)] to-[var(--color-feed-tab-end)]"
               ></span>
             {/if}
           </button>
@@ -322,7 +330,7 @@
             Global
             {#if activeTab === 'global'}
               <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[var(--color-feed-tab-start)] to-[var(--color-feed-tab-end)]"
               ></span>
             {/if}
           </button>
@@ -341,7 +349,7 @@
             Following
             {#if activeTab === 'following'}
               <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[var(--color-feed-tab-start)] to-[var(--color-feed-tab-end)]"
               ></span>
             {/if}
           </button>
@@ -356,7 +364,7 @@
             Replies
             {#if activeTab === 'replies'}
               <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[var(--color-feed-tab-start)] to-[var(--color-feed-tab-end)]"
               ></span>
             {/if}
           </button>
@@ -371,7 +379,7 @@
             Groups
             {#if activeTab === 'members'}
               <span
-                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[var(--color-feed-tab-start)] to-[var(--color-feed-tab-end)]"
               ></span>
             {/if}
           </button>
@@ -396,7 +404,7 @@
               {/if}
               {#if freshDiscovery.timeMachineOpen}
                 <span
-                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[var(--color-feed-tab-start)] to-[var(--color-feed-tab-end)]"
                 ></span>
               {/if}
             </button>

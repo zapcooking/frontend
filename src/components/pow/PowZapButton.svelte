@@ -225,8 +225,8 @@
   .primary {
     padding: 0.625rem 1rem;
     border-radius: 999px;
-    background: var(--color-primary);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-weight: 600;
   }
   .primary:disabled {

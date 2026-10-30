@@ -80,7 +80,7 @@
         type="button"
         aria-pressed={chip.kind === 'more' ? undefined : selected}
         class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors
-          {selected ? 'bg-primary text-white' : 'hover:bg-accent-gray'}
+          {selected ? 'bg-action text-on-action' : 'hover:bg-accent-gray'}
           {chip.kind === 'archive' ? 'lg:hidden' : ''}"
         style={selected
           ? ''

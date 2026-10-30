@@ -189,7 +189,7 @@
     color: var(--color-text-secondary);
   }
   .status-error {
-    color: #ef4444;
+    color: var(--color-danger);
   }
   .tabs {
     display: flex;
@@ -203,9 +203,9 @@
     font-size: 0.875rem;
   }
   .tabs button.active {
-    background: var(--color-primary);
-    border-color: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    border-color: var(--color-action);
+    color: var(--color-on-action);
   }
   .list {
     list-style: none;
@@ -248,7 +248,7 @@
     color: var(--color-text-secondary);
   }
   .overdue {
-    color: #ef4444;
+    color: var(--color-danger);
     font-weight: 600;
   }
   .soon {

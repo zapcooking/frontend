@@ -1072,9 +1072,14 @@ import { eventPath } from '$lib/utils/eventUrl';
           {/each}
         </div>
       {:else if directReplies.length === 0}
-        <p class="text-sm py-4 text-center" style="color: var(--color-caption)">
-          No replies yet. {#if !$userPublickey}<button type="button" class="underline hover:opacity-80" style="color: var(--color-primary)" on:click={() => (isTopLevelFocus ? requireAuth({ kind: 'reply', reason: 'Sign in to reply' }) : openReplyModal())}>Sign in</button> to reply!{:else}Be the first to reply!{/if}
-        </p>
+        {#if isTopLevelFocus}
+          <!-- The empty-state nudge only makes sense on a top-level post.
+               When the focused note is itself a reply, an empty reply list
+               is normal — stay quiet instead of nudging. -->
+          <p class="text-sm py-4 text-center" style="color: var(--color-caption)">
+            No replies yet. {#if !$userPublickey}<button type="button" class="underline hover:opacity-80" style="color: var(--color-primary)" on:click={() => (isTopLevelFocus ? requireAuth({ kind: 'reply', reason: 'Sign in to reply' }) : openReplyModal())}>Sign in</button> to reply!{:else}Be the first to reply!{/if}
+          </p>
+        {/if}
       {:else}
         <!-- Jumble-style reply list: direct replies in chronological order,
              each with its nested conversation folded beneath it — so a

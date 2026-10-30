@@ -41,3 +41,21 @@ export function cancelChoiceText(label: PasskeyMethodLabel): string {
   const who = label === 'passkey' ? 'Your passkey' : label;
   return `${who} didn't finish twice. Keep trying it, or remove it and save your backup key instead?`;
 }
+
+/** The account nudge for nsec sessions: "Turn on Face ID to sign in with a tap". */
+export function passkeyNudgeTitle(label: PasskeyMethodLabel): string {
+  if (label === 'passkey') return 'Turn on a passkey to sign in with a tap';
+  if (label === 'fingerprint') return 'Turn on fingerprint unlock to sign in with a tap';
+  return `Turn on ${label} to sign in with a tap`;
+}
+
+/** Signup's one-prompt step, before the first unlock confirms the passkey. */
+export function unconfirmedSetUpText(label: PasskeyMethodLabel): string {
+  if (label === 'passkey') {
+    return 'Your passkey is set up. Next time you open Zap Cooking, sign in with it to finish.';
+  }
+  if (label === 'fingerprint') {
+    return 'Fingerprint unlock is set up. Next time you open Zap Cooking, sign in with your fingerprint to finish.';
+  }
+  return `${label} is set up. Next time you open Zap Cooking, sign in with ${label} to finish.`;
+}

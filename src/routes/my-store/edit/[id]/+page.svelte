@@ -122,13 +122,13 @@
 		</div>
 	{:else if error && !product}
 		<div class="text-center py-12">
-			<p class="text-red-500 mb-4">{error}</p>
-			<a href="/my-store" class="text-orange-500 hover:underline">Back to My Store</a>
+			<p class="text-[var(--color-danger)] mb-4">{error}</p>
+			<a href="/my-store" class="text-primary hover:underline">Back to My Store</a>
 		</div>
 	{:else if product}
 		{#if error}
 			<div class="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30">
-				<p class="text-red-500 text-sm">{error}</p>
+				<p class="text-[var(--color-danger)] text-sm">{error}</p>
 			</div>
 		{/if}
 

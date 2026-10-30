@@ -57,13 +57,9 @@
   // than 3 elements.
   $: recentCount = recipeWeeks.slice(-3).reduce((sum, w) => sum + w.count, 0);
 
-  // Brand palette for the trend, aligned to Zap Cooking's warm identity:
-  // the number + arrow use --color-primary (the canonical brand orange,
-  // theme-aware), and the sparkline traces an orange→amber gradient that
-  // echoes the active-tab underline (from-orange-500 to-amber-500). The
-  // trend always reads "up" — a positive, on-brand signal.
-  const BRAND_GRAD_FROM = '#f97316'; // orange-500
-  const BRAND_GRAD_TO = '#f59e0b'; // amber-500
+  // Keep the trend and active-tab underline in the selected style's accent.
+  const BRAND_GRAD_FROM = 'var(--color-primary)';
+  const BRAND_GRAD_TO = 'var(--color-primary)';
 
   // Sparkline geometry: a smooth curve over the 12-week series, y-scaled to
   // the series max (Math.max guard vs. div-by-0), with a soft gradient area
@@ -534,7 +530,7 @@
       >
         Recipes
         {#if activeTab === 'recent'}
-          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+          <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"></span>
         {/if}
       </button>
       <a
@@ -618,8 +614,8 @@
         aria-label="Hide recipes without images"
         title="Hide recipes without images (applies to all recipe grids)"
         class="relative w-9 h-5 rounded-full transition-colors cursor-pointer flex-shrink-0 {$hideImagelessRecipesSetting
-          ? 'bg-primary'
-          : 'bg-gray-300 dark:bg-gray-600'}"
+          ? 'bg-action'
+          : 'bg-[var(--color-light-accent-gray,var(--color-gray-300))]'}"
         on:click={() => hideImagelessRecipesSetting.setEnabled(!$hideImagelessRecipesSetting)}
       >
         <span
@@ -644,7 +640,7 @@
       >
         {#if loadingMore}
           <div
-            class="w-5 h-5 rounded-full border-2 border-orange-200 border-t-orange-500 animate-spin mr-2"
+            class="w-5 h-5 rounded-full border-2 border-primary border-t-primary animate-spin mr-2"
           ></div>
           <span>Loading more recipes…</span>
         {/if}

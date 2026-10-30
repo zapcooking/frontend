@@ -234,7 +234,7 @@
           />
           <button
             on:click={cancelEditTitle}
-            class="p-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+            class="p-2 rounded-lg transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))]"
             style="color: var(--color-text-secondary)"
             aria-label="Cancel"
           >
@@ -242,7 +242,7 @@
           </button>
           <button
             on:click={saveTitle}
-            class="p-2 rounded-lg bg-green-500 hover:bg-green-600 text-white transition-colors"
+            class="p-2 rounded-lg bg-action hover:bg-action-hover text-on-action transition-colors"
             aria-label="Save title"
           >
             <CheckIcon size={20} weight="bold" />
@@ -260,7 +260,7 @@
           </h1>
           <button
             on:click={startEditingTitle}
-            class="p-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+            class="p-2 rounded-lg transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))]"
             style="color: var(--color-text-secondary)"
             aria-label="Edit title"
           >
@@ -335,7 +335,7 @@
           type="button"
           disabled={retryingUnresolved}
           on:click={retryUnresolvedRecipes}
-          class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-50"
+          class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all disabled:opacity-50"
         >
           {retryingUnresolved ? 'Retrying…' : 'Retry'}
         </button>
@@ -370,7 +370,7 @@
           </p>
           <a
             href="/my-kitchen/planner"
-            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all"
           >
             <CalendarBlankIcon size={16} />
             Plan Meals

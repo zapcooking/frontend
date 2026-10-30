@@ -373,8 +373,8 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.5rem 0.75rem;
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 		border-radius: 0.5rem;
 		font-size: 0.875rem;
 	}
@@ -470,7 +470,7 @@
 		margin: 1rem 0;
 		padding: 0.5rem 1rem;
 		border-left: 4px solid var(--color-primary);
-		background: var(--color-accent-gray);
+		background: var(--color-input-bg);
 		border-radius: 0 0.5rem 0.5rem 0;
 		font-style: italic;
 		color: var(--color-text-secondary);
@@ -479,7 +479,7 @@
 	.editor-content :global(pre) {
 		margin: 1rem 0;
 		padding: 1rem;
-		background: #1e1e1e;
+		background: var(--color-card-sunken);
 		border-radius: 0.5rem;
 		overflow-x: auto;
 	}
@@ -487,12 +487,12 @@
 	.editor-content :global(code) {
 		font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
 		font-size: 0.875rem;
-		color: #e5e5e5;
+		color: var(--color-text-primary);
 	}
 
 	.editor-content :global(p code) {
 		padding: 0.125rem 0.375rem;
-		background: var(--color-accent-gray);
+		background: var(--color-input-bg);
 		border-radius: 0.25rem;
 		color: var(--color-primary);
 	}
@@ -542,7 +542,7 @@
 
 	/* Mention pills */
 	.editor-content :global(.mention) {
-		background: var(--color-accent-gray, #f3f4f6);
+		background: var(--color-input-bg);
 		color: var(--color-primary, #f97316);
 		border-radius: 0.25rem;
 		padding: 0.125rem 0.375rem;

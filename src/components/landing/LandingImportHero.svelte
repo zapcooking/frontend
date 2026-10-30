@@ -1,6 +1,12 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { enhanceLandingImport } from '$lib/landing/import.client.js';
+  import earlyImportScript from '$lib/landing/import.client.js?url';
   import { ANON_IMPORT_HANDOFF_KEY, ANON_IMPORT_INPUT_KEY } from '$lib/anonImport';
   import { EXTRACT_ERROR_FALLBACK } from '$lib/extractErrors';
+  let form: HTMLFormElement;
+  onMount(() => enhanceLandingImport(form));
+
   const errors = {
     ...EXTRACT_ERROR_FALLBACK,
     SOURCE_BLOCKED:
@@ -10,16 +16,19 @@
   };
 </script>
 
-<svelte:head><script src="/landing-import.js" defer></script></svelte:head>
+<svelte:head><script type="module" src={earlyImportScript}></script></svelte:head>
 
 <section id="import-recipe" class="import-invitation" aria-labelledby="import-heading">
   <div>
-    <p class="eyebrow">Your recipes belong here</p>
-    <h2 id="import-heading">Bring your recipes to the table.</h2>
-    <p>Turn a recipe link into a clean recipe you can review, save, and share.</p>
+    <h2 id="import-heading">Bring a favorite to the table.</h2>
+    <p>
+      Found a recipe you love? Let Sous Chef turn the link into a recipe you can review, save, and
+      share.
+    </p>
   </div>
   <div>
     <form
+      bind:this={form}
       data-landing-import
       data-errors={JSON.stringify(errors)}
       data-handoff-key={ANON_IMPORT_HANDOFF_KEY}
@@ -60,64 +69,61 @@
 <style>
   .import-invitation {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
-    padding: 2rem;
-    border: 1px solid var(--color-input-border);
-    border-radius: 12px;
-    margin: 30px 0 44px;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 32px;
+    margin: 36px 0;
+    padding: 28px;
+    border-block: 1px solid var(--color-input-border);
     background: var(--color-bg-secondary);
     color: var(--color-text-primary);
   }
-  .eyebrow {
-    text-transform: uppercase;
-    letter-spacing: 0.13em;
-    font-size: 0.7rem;
-    font-weight: 700;
-    color: var(--color-primary);
-    margin: 0 0 0.6rem;
-  }
   h2 {
-    font-family: inherit;
-    font-size: clamp(1.5rem, 3vw, 2.2rem);
+    max-width: 20ch;
+    margin: 0 0 12px;
+    font-family: var(--font-editorial, Georgia, serif);
+    font-size: var(--explore-section, 32px);
+    font-weight: 500;
     line-height: 1.12;
-    margin: 0 0 0.7rem;
-    font-weight: 700;
+    letter-spacing: -0.025em;
   }
   p {
-    line-height: 1.55;
-    margin: 0.5rem 0;
+    max-width: 60ch;
+    margin: 8px 0;
     color: var(--color-text-secondary);
+    font-size: var(--explore-body, 16px);
+    line-height: 1.5;
   }
   label {
     display: block;
-    font-size: 0.8rem;
-    font-weight: 650;
-    margin-bottom: 0.5rem;
+    margin-bottom: 8px;
+    font-size: var(--explore-meta, 13px);
+    font-weight: 600;
   }
   .import-fields {
     display: flex;
-    gap: 0.5rem;
+    gap: 8px;
   }
   input {
+    min-height: 48px;
     min-width: 0;
     flex: 1;
-    background: var(--color-bg-primary);
+    padding: 12px;
     border: 1px solid var(--color-input-border);
-    border-radius: 12px;
-    padding: 0.75rem;
+    border-radius: 0;
+    background: var(--color-bg-primary);
     color: var(--color-text-primary);
     font: inherit;
+    font-size: var(--explore-body, 16px);
   }
   button {
-    min-height: 44px;
+    min-height: 48px;
+    padding: 12px 16px;
+    border: 0;
+    border-radius: 0;
     background: var(--color-primary);
     color: white;
-    border: 0;
-    border-radius: 12px;
-    padding: 0.75rem 1rem;
-    font-weight: 650;
-    border-radius: 9999px;
+    font-size: var(--explore-meta, 13px);
+    font-weight: 600;
     cursor: pointer;
   }
   button:disabled {
@@ -130,11 +136,13 @@
     outline: 3px solid var(--color-primary);
     outline-offset: 3px;
   }
-  .import-help {
-    font-size: 0.8rem;
+  .import-help,
+  #import-status {
+    font-size: var(--explore-meta, 13px);
+    line-height: 1.4;
   }
   a {
-    color: var(--color-primary);
+    color: var(--color-import-link);
     text-decoration: underline;
     text-underline-offset: 3px;
   }
@@ -146,14 +154,19 @@
   #import-status:empty {
     display: none;
   }
-  #import-status {
-    font-size: 0.85rem;
-  }
-  @media (max-width: 700px) {
+  @media (max-width: 900px) {
     .import-invitation {
       grid-template-columns: 1fr;
-      gap: 1rem;
-      padding: 1.25rem;
+      gap: 20px;
+    }
+    h2 {
+      max-width: none;
+    }
+  }
+  @media (max-width: 600px) {
+    .import-invitation {
+      margin: 28px 0;
+      padding: 20px 16px;
     }
     .import-fields {
       flex-direction: column;

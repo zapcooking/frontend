@@ -35,7 +35,7 @@
   <button
     class="{className} cursor-pointer"
     style="color: {isHovering
-      ? '#ec4700'
+      ? 'var(--color-primary)'
       : 'var(--color-text-primary)'}; background: none; border: none; padding: 0; text-decoration: none;"
     on:click={handleClick}
     on:mouseenter={() => (isHovering = true)}

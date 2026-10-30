@@ -126,7 +126,7 @@
 		</section>
 	{:else if !hasActiveMembership}
 		<div class="membership-gate text-center py-12 px-6 rounded-2xl" style="background-color: var(--color-bg-secondary);">
-			<LockIcon size={64} weight="duotone" class="mx-auto mb-4 text-orange-500" />
+			<LockIcon size={64} weight="duotone" class="mx-auto mb-4 text-primary" />
 			<h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
 				Membership Required
 			</h2>
@@ -136,7 +136,7 @@
 			<a
 				href="/membership"
 				class="inline-block px-6 py-3 rounded-xl font-semibold"
-				style="background: linear-gradient(135deg, #f97316, #fb923c); color: white;"
+				style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 			>
 				View Membership Plans
 			</a>
@@ -153,7 +153,7 @@
 	{:else}
 		{#if error}
 			<div class="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30">
-				<p class="text-red-500 text-sm">{error}</p>
+				<p class="text-[var(--color-danger)] text-sm">{error}</p>
 			</div>
 		{/if}
 

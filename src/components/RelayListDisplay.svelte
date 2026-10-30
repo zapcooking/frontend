@@ -108,7 +108,7 @@
   .relay-list-display {
     padding: 1rem;
     border-radius: 0.5rem;
-    background: var(--color-surface, #f5f5f5);
+    background: var(--color-light-bg-secondary, var(--color-surface, #f5f5f5));
   }
   
   .loading {

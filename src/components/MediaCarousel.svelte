@@ -457,7 +457,7 @@
     overflow: hidden;
     scroll-snap-align: start;
     scroll-snap-stop: always;
-    background: var(--color-input, #1f2937);
+    background: var(--color-light-input-bg, var(--color-input, #1f2937));
   }
 
   .tile-button {

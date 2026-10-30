@@ -36,6 +36,8 @@
   import Avatar from './Avatar.svelte';
   import CustomName from './CustomName.svelte';
   import NotifText from './notifications/NotifText.svelte';
+  import AccountNudgeItem from './AccountNudgeItem.svelte';
+  import { activeNudge, nudgeUnread, markNudgeSeen } from '$lib/accountNudge';
 
   type Tab = 'all' | 'replies' | 'zaps' | 'dms';
 
@@ -121,7 +123,7 @@
   ).length;
   $: notifsUnread = sortedNotifs.filter((n) => isUnread(n, notifLastSeen)).length;
   $: dmNewCount = dmRows.filter((dm) => dm.timestamp > dmLastSeen).length;
-  $: totalUnread = notifsUnread + dmNewCount;
+  $: totalUnread = notifsUnread + dmNewCount + $nudgeUnread;
 
   type Row = { kind: 'notification'; notification: Notification } | ({ kind: 'dm' } & DmRow);
 
@@ -185,6 +187,7 @@
     open = false;
     notifications.markAllAsRead();
     markAllSeen();
+    if ($activeNudge) markNudgeSeen($activeNudge.pubkey);
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -342,6 +345,9 @@
         aria-labelledby="notif-tab-{activeTab}"
         class="notif-list"
       >
+        {#if activeTab === 'all' && $activeNudge}
+          <AccountNudgeItem where="bell" on:navigate={close} />
+        {/if}
         {#if rows.length === 0}
           {#if activeTab === 'dms' && $messagesLoading}
             <p class="notif-empty">Loading messages…</p>
@@ -525,8 +531,8 @@
   }
   .notif-tab.active {
     color: var(--color-text-primary);
-    border-image: linear-gradient(to right, #f97316, #f59e0b) 1;
-    border-bottom: 2px solid #f97316;
+    border-image: linear-gradient(to right, var(--color-primary), var(--color-primary)) 1;
+    border-bottom: 2px solid var(--color-primary);
   }
   /* Unread count beside the tab label — quiet, not part of the bold
      label. */
@@ -565,10 +571,10 @@
     background-color: var(--color-input-bg);
   }
   .notif-row.unread {
-    background-color: color-mix(in srgb, #f97316 5%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 5%, transparent);
   }
   .notif-row.unread:hover {
-    background-color: color-mix(in srgb, #f97316 9%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 9%, transparent);
   }
 
   .notif-row-body {
@@ -621,7 +627,7 @@
     height: 0.5rem;
     margin-top: 6px;
     border-radius: 9999px;
-    background-color: #f97316;
+    background-color: var(--color-primary);
   }
 
   .notif-footer {

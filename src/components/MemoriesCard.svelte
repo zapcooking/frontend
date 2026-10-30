@@ -206,7 +206,7 @@
           {/each}
           <a
             href="/memories"
-            class="text-sm font-medium text-orange-500 hover:text-orange-600 transition-colors"
+            class="text-sm font-medium text-primary hover:text-primary transition-colors"
           >
             See all memories →
           </a>

@@ -120,7 +120,7 @@
         <div class="flex flex-col sm:flex-row gap-3 justify-center">
           <button
             on:click={() => goto('/login')}
-            class="px-6 py-3 rounded-lg bg-primary text-white font-medium hover:bg-[#d64000] transition-colors"
+            class="px-6 py-3 rounded-lg bg-action text-on-action font-medium hover:bg-action-hover transition-colors"
           >
             Sign In
           </button>
@@ -156,7 +156,7 @@
         </p>
         <button
           on:click={() => goto('/membership')}
-          class="px-6 py-3 rounded-lg bg-primary text-white font-medium hover:bg-[#d64000] transition-colors"
+          class="px-6 py-3 rounded-lg bg-action text-on-action font-medium hover:bg-action-hover transition-colors"
         >
           Become a Member
         </button>
@@ -253,7 +253,7 @@
           href="https://fevela.me/?r=wss%3A%2F%2Fpantry.zap.cooking" 
           target="_blank" 
           rel="noopener noreferrer"
-          class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-[#d64000] transition-colors"
+          class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-action text-on-action font-medium hover:bg-action-hover transition-colors"
         >
           <span>Browse on fevela.me</span>
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

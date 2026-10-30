@@ -151,7 +151,7 @@
 	<!-- Title -->
 	<div class="flex flex-col gap-2">
 		<label for="title" class="font-medium" style="color: var(--color-text-primary)">
-			Title <span class="text-red-500">*</span>
+			Title <span class="text-[var(--color-danger)]">*</span>
 		</label>
 		<input
 			id="title"
@@ -162,14 +162,14 @@
 			class:input-error={errors.title}
 		/>
 		{#if errors.title}
-			<span class="text-xs text-red-500">{errors.title}</span>
+			<span class="text-xs text-[var(--color-danger)]">{errors.title}</span>
 		{/if}
 	</div>
 
 	<!-- Summary -->
 	<div class="flex flex-col gap-2">
 		<label for="summary" class="font-medium" style="color: var(--color-text-primary)">
-			Short Summary <span class="text-red-500">*</span>
+			Short Summary <span class="text-[var(--color-danger)]">*</span>
 		</label>
 		<input
 			id="summary"
@@ -200,7 +200,7 @@
 	<!-- Currency -->
 	<div class="flex flex-col gap-2">
 		<label for="currency" class="font-medium" style="color: var(--color-text-primary)">
-			Currency <span class="text-red-500">*</span>
+			Currency <span class="text-[var(--color-danger)]">*</span>
 		</label>
 		<select
 			id="currency"
@@ -219,7 +219,7 @@
 	<!-- Price -->
 	<div class="flex flex-col gap-2">
 		<label for="price" class="font-medium" style="color: var(--color-text-primary)">
-			Price <span class="text-red-500">*</span>
+			Price <span class="text-[var(--color-danger)]">*</span>
 		</label>
 		<div class="relative">
 			<input
@@ -240,12 +240,12 @@
 			</span>
 		</div>
 		{#if errors.price}
-			<span class="text-xs text-red-500">{errors.price}</span>
+			<span class="text-xs text-[var(--color-danger)]">{errors.price}</span>
 		{/if}
 
 		<!-- Price preview -->
 		{#if priceInput && parseFloat(priceInput) > 0}
-			<div class="flex flex-col gap-1 p-3 rounded-lg" style="background-color: var(--color-bg-tertiary, rgba(0,0,0,0.1));">
+			<div class="flex flex-col gap-1 p-3 rounded-lg" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0,0,0,0.1)));">
 				<span class="text-xs font-medium" style="color: var(--color-text-secondary)">Listing preview</span>
 				{#if currency === 'SATS'}
 					<span class="text-lg font-bold text-orange-500">
@@ -267,7 +267,7 @@
 		{/if}
 
 		{#if requiresShipping}
-			<div class="flex items-start gap-2 p-2 rounded-lg" style="background-color: rgba(249, 115, 22, 0.1);">
+			<div class="flex items-start gap-2 p-2 rounded-lg" style="background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);">
 				<span class="text-orange-500 mt-0.5">💡</span>
 				<span class="text-xs" style="color: var(--color-text-secondary)">
 					<strong style="color: var(--color-text-primary)">Tip:</strong> Include shipping costs in your price. Buyers pay the full amount upfront, then DM you their shipping address.
@@ -279,7 +279,7 @@
 	<!-- Category -->
 	<div class="flex flex-col gap-2">
 		<label for="category" class="font-medium" style="color: var(--color-text-primary)">
-			Category <span class="text-red-500">*</span>
+			Category <span class="text-[var(--color-danger)]">*</span>
 		</label>
 		<select
 			id="category"
@@ -297,21 +297,21 @@
 	<!-- Images -->
 	<div class="flex flex-col gap-2">
 		<label class="font-medium" style="color: var(--color-text-primary)">
-			Images <span class="text-red-500">*</span>
+			Images <span class="text-[var(--color-danger)]">*</span>
 		</label>
 		<span class="text-xs" style="color: var(--color-text-secondary)">
 			First image will be your cover photo
 		</span>
 		<MediaUploader uploadedImages={images} altTexts={imageAlts} />
 		{#if errors.images}
-			<span class="text-xs text-red-500">{errors.images}</span>
+			<span class="text-xs text-[var(--color-danger)]">{errors.images}</span>
 		{/if}
 	</div>
 
 	<!-- Lightning Address -->
 	<div class="flex flex-col gap-2">
 		<label for="lightning" class="font-medium" style="color: var(--color-text-primary)">
-			Lightning Address <span class="text-red-500">*</span>
+			Lightning Address <span class="text-[var(--color-danger)]">*</span>
 		</label>
 		<input
 			id="lightning"
@@ -325,7 +325,7 @@
 			Buyers will pay directly to this address
 		</span>
 		{#if errors.lightning}
-			<span class="text-xs text-red-500">{errors.lightning}</span>
+			<span class="text-xs text-[var(--color-danger)]">{errors.lightning}</span>
 		{/if}
 	</div>
 
@@ -392,7 +392,7 @@
 
 	.input:focus {
 		outline: none;
-		border-color: var(--color-accent);
+		border-color: var(--color-primary);
 	}
 
 	.input-error {

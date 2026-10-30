@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import './lib/themes/palettes.css';
 @plugin "@tailwindcss/forms";
 @plugin "@tailwindcss/typography";
 
@@ -16,7 +17,9 @@
   font-weight: 100 900;
   font-display: swap;
   src: url('/fonts/albert-sans-var-latin.woff2') format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
@@ -25,7 +28,10 @@
   font-weight: 100 900;
   font-display: swap;
   src: url('/fonts/albert-sans-var-latin-ext.woff2') format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
 }
 
 /* Orbitron 700 — timer displays only (CookingToolsWidget, TimerWidget). */
@@ -35,7 +41,9 @@
   font-weight: 700;
   font-display: swap;
   src: url('/fonts/orbitron-700-latin.woff2') format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /* Prevent horizontal overflow on mobile and optimize touch scrolling */
@@ -102,23 +110,10 @@ body {
   box-sizing: border-box;
 }
 
-/* Define CSS custom properties for theme colors */
+/* Global semantic status colors and intentional provider tokens. The shared style palettes live in lib/themes/palettes.css. */
 :root {
-  --zap-orange: #ec4700;
-  --color-primary: #ec4700;
-  --color-input-bg: #f3f4f6;
-  --color-input-border: #e5e7eb;
-  --color-accent-gray: #d1d5db;
-  --color-caption: #6b7280;
-  --color-danger: #dc2626;
-  --color-text-primary: #111827;
-  --color-text-secondary: #4b5563;
-  --color-bg-primary: #ffffff;
-  --color-bg-secondary: #f9fafb;
-  /* Sunken surface — a shade DARKER than the page (recessed panels). */
-  --color-card-sunken: #f1f2f4;
-  --color-skeleton-base: #e5e7eb;
-  --color-skeleton-highlight: #f3f4f6;
+  /* Display type remains opt-in; site-wide UI typography is unchanged. */
+  --font-editorial: Georgia, 'Times New Roman', serif;
 
   /* Mute editor privacy cards */
   --mute-private-bg: #ede9fe;
@@ -131,30 +126,14 @@ body {
   --mute-public-badge-bg: #fed7aa;
 
   /* Bitcoin Connect theming */
-  --bc-color-brand: #ec4700;
-  --bc-color-brand-dark: #ff5722;
+  --bc-color-brand: var(--color-action);
+  --bc-color-brand-dark: var(--color-action);
   --bc-brand-mix: 100%;
   --bc-color-brand-button-text: #ffffff;
   --bc-color-brand-button-text-dark: #ffffff;
 }
 
 html.dark {
-  --zap-orange: #ff7a3d;
-  --color-primary: #ff5722;
-  --color-input-bg: #374151;
-  --color-input-border: #4b5563;
-  --color-accent-gray: #4b5563;
-  --color-caption: #94a3b8;
-  --color-danger: #ef4444;
-  --color-text-primary: #f3f4f6;
-  --color-text-secondary: #d1d5db;
-  --color-bg-primary: #111827;
-  --color-bg-secondary: #1f2937;
-  /* Sunken surface — a shade DARKER than the page (recessed panels). */
-  --color-card-sunken: #0c111c;
-  --color-skeleton-base: #1f2937;
-  --color-skeleton-highlight: #374151;
-
   /* Mute editor privacy cards */
   --mute-private-bg: #2e1f4a;
   --mute-private-border: #6d28d9;
@@ -183,6 +162,9 @@ body {
   /* Define colors for Tailwind utility classes */
   --color-primary: #ec4700;
   --color-danger: #dc2626;
+  --color-action: #bd3c0b;
+  --color-action-hover: #a73108;
+  --color-on-action: #ffffff;
 }
 
 /* Input styling with proper light/dark support */
@@ -221,7 +203,12 @@ h3 {
 }
 
 .bg-accent-gray {
-  background-color: var(--color-accent-gray) !important;
+  background-color: var(--color-hover-bg) !important;
+}
+
+/* Legacy neutral hover controls need a surface role, not the border color. */
+.hover\:bg-accent-gray:hover {
+  background-color: var(--color-hover-bg) !important;
 }
 
 .nav-active {
@@ -457,19 +444,11 @@ a.nostr-mention:hover {
 /* Fresh special cards (recipe box, topic spotlight, memory): a warm,
    paper-toned index card with a tab on its top edge. */
 .fresh-paper {
-  --box-paper: #fbf6ec;
-  --box-edge: #ecdfc6;
-  --box-ink: #8a5a2b;
-  --box-chip: #f3e9d6;
-  --box-rule: rgba(176, 132, 82, 0.18);
-}
-
-html.dark .fresh-paper {
-  --box-paper: #1f1a14;
-  --box-edge: #3a2f22;
-  --box-ink: #e2b47c;
-  --box-chip: #2b231a;
-  --box-rule: rgba(226, 180, 124, 0.12);
+  --box-paper: var(--color-bg-secondary);
+  --box-edge: var(--color-input-border);
+  --box-ink: var(--color-primary);
+  --box-chip: var(--color-input-bg);
+  --box-rule: color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .fresh-paper .box-tab {

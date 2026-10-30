@@ -91,7 +91,7 @@
         Cancel
       </button>
       <button
-        class="px-4 py-2 rounded-full text-sm text-white bg-primary hover:opacity-90 disabled:opacity-50"
+        class="px-4 py-2 rounded-full text-sm text-on-action bg-action hover:opacity-90 disabled:opacity-50"
         on:click={submit}
         disabled={submitting}
       >

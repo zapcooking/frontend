@@ -610,7 +610,7 @@
             target="_blank"
             rel="noopener noreferrer"
             class="text-sm underline break-all"
-            style="color: var(--color-primary, #f97316)"
+            style="color: var(--color-auth-link)"
           >
             {authState.authChallengeUrl}
           </a>
@@ -619,7 +619,7 @@
       {#if bunkerConnecting}
         <div class="bg-input border rounded-lg p-3" style="border-color: var(--color-primary, #f97316)">
           <div class="flex items-center gap-2">
-            <div class="animate-spin h-4 w-4 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+            <div class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
             <p class="text-sm" style="color: var(--color-text-primary)">Connecting to bunker... This may take a moment.</p>
           </div>
           <p class="text-xs text-caption mt-1">Check your signer app to approve the connection request.</p>
@@ -686,7 +686,7 @@
         </div>
       {:else if nip46PairingStatus}
         <div class="flex items-center justify-center gap-2 py-8">
-          <div class="animate-spin h-5 w-5 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+          <div class="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full"></div>
           <p class="text-sm" style="color: var(--color-text-primary)">{nip46PairingStatus}</p>
         </div>
       {/if}
@@ -735,7 +735,7 @@
         </div>
         {#if googleBusy}
           <div class="flex items-center justify-center gap-2 py-2">
-            <div class="animate-spin h-4 w-4 border-2 border-orange-500 border-t-transparent rounded-full"></div>
+            <div class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
             <p class="text-sm" style="color: var(--color-text-primary)">Connecting to Google Drive…</p>
           </div>
         {/if}
@@ -1060,23 +1060,24 @@
   }
 
   .login-viewport-center {
-    --signin-ink: #f5f6f8;
-    --signin-surface: #ffffff;
-    --signin-elevated: #f3f4f6;
-    --signin-line: #e5e7eb;
-    --signin-flame: #f7931a;
-    --signin-ember: #ff5f1f;
-    --signin-cream: #0f172a;
-    --signin-mute: #94a3b8;
+    --signin-ink: var(--color-bg-primary);
+    --signin-surface: var(--color-bg-primary);
+    --signin-elevated: var(--color-input-bg);
+    --signin-line: var(--color-input-border);
+    --signin-flame: var(--color-primary);
+    --signin-ember: var(--color-action);
+    --signin-cream: var(--color-text-primary);
+    /* Shared palette pairs stay readable in every style and appearance mode. */
+    --signin-mute: var(--color-caption);
   }
 
   :global(.dark) .login-viewport-center {
-    --signin-ink: #111827;
-    --signin-surface: #1f2937;
-    --signin-elevated: #374151;
-    --signin-line: #4b5563;
-    --signin-cream: #f3f4f6;
-    --signin-mute: #94a3b8;
+    --signin-ink: var(--color-bg-primary);
+    --signin-surface: var(--color-bg-primary);
+    --signin-elevated: var(--color-input-bg);
+    --signin-line: var(--color-input-border);
+    --signin-cream: var(--color-text-primary);
+    --signin-mute: var(--color-caption);
   }
 
   .signin-scrim {
@@ -1092,14 +1093,14 @@
     position: relative;
     width: 100%;
     max-width: 440px;
-    background: var(--signin-surface);
+    background: var(--color-light-bg-primary, var(--signin-surface));
     border: 1px solid var(--signin-line);
     border-radius: 24px;
     padding: 2.25rem 1.75rem 1.5rem;
     box-shadow:
       0 1px 0 rgba(245, 235, 221, 0.04) inset,
       0 24px 64px rgba(0, 0, 0, 0.55),
-      0 4px 12px rgba(247, 147, 26, 0.06);
+      0 4px 12px color-mix(in srgb, var(--color-primary) 6%, transparent);
     text-align: center;
     color: var(--signin-cream);
     font-family: 'Albert Sans', 'Inter', system-ui, -apple-system, sans-serif;
@@ -1129,7 +1130,7 @@
   }
 
   .signin-close-btn:hover {
-    background: color-mix(in srgb, var(--signin-elevated) 70%, transparent);
+    background: color-mix(in srgb, var(--color-light-input-bg, var(--signin-elevated)) 70%, transparent);
     color: var(--signin-cream);
   }
 
@@ -1168,8 +1169,9 @@
     height: 52px;
     border-radius: 14px;
     border: none;
-    background: linear-gradient(135deg, var(--signin-flame) 0%, var(--signin-ember) 100%);
-    color: #fff8ec;
+    /* Filled actions use their own contrast-tested background/foreground pair. */
+    background: linear-gradient(135deg, var(--color-auth-action) 0%, var(--color-auth-action-hover) 100%);
+    color: var(--color-auth-on-action);
     font-family: inherit;
     font-weight: 600;
     font-size: 0.9375rem;
@@ -1204,7 +1206,7 @@
     margin-top: 0.75rem;
     border-radius: 14px;
     border: 1px solid var(--signin-line);
-    background: var(--signin-elevated);
+    background: var(--color-light-input-bg, var(--signin-elevated));
     color: var(--signin-cream);
     font-family: inherit;
     font-weight: 500;
@@ -1221,7 +1223,7 @@
   .signin-cta-secondary:hover:not(:disabled) {
     transform: translateY(-1px);
     border-color: color-mix(in srgb, var(--signin-flame) 55%, transparent);
-    background: color-mix(in srgb, var(--signin-elevated) 80%, var(--signin-cream));
+    background: color-mix(in srgb, var(--color-light-input-bg, var(--signin-elevated)) 80%, var(--signin-cream));
   }
 
   .signin-cta-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -1267,14 +1269,14 @@
     cursor: not-allowed;
   }
   .signin-link-danger {
-    color: #ef4444;
+    color: var(--color-danger);
   }
   .signin-forget-gate {
     margin: 0.5rem 0;
     text-align: left;
   }
   .signin-forget-error {
-    color: #ef4444;
+    color: var(--color-danger);
     margin-top: 0.5rem;
   }
   .signin-forget-actions {
@@ -1314,24 +1316,27 @@
     padding: 0;
     font: inherit;
     font-weight: 600;
-    /* --signin-flame is 2.3:1 on the white card; #c2410c is 5.2:1. The
-       dark card keeps the brand orange (it passes there). */
-    color: #c2410c;
+    /* Links use the readable accent, independently of filled actions. */
+    color: var(--color-auth-link);
     cursor: pointer;
   }
-  :global(.dark) .signin-join-link { color: var(--signin-flame); }
+  :global(.dark) .signin-join-link { color: var(--color-auth-link); }
   .signin-join-link:hover { text-decoration: underline; }
   .signin-join-link:disabled { opacity: 0.55; cursor: not-allowed; }
   .signin-cta-secondary:focus-visible { outline: 2px solid var(--signin-flame); outline-offset: 2px; }
 
-  .signin-notice a, .signin-footer a { color: var(--signin-flame); text-decoration: none; }
+  /* The shared accent is paired with both page and raised surfaces. */
+  .signin-notice a, .signin-footer a { color: var(--color-auth-link); text-decoration: none; }
+  :global(.dark) .signin-footer a { color: var(--color-auth-link); }
+  /* The notice shares the same contrast-tested link role. */
+  :global(.dark) .signin-notice a { color: var(--color-auth-link); }
   .signin-notice a:hover, .signin-footer a:hover { text-decoration: underline; }
 
   .signin-notice {
     margin-top: 0.625rem;
     padding: 0.625rem 0.75rem;
     border-radius: 10px;
-    background: var(--signin-elevated);
+    background: var(--color-light-input-bg, var(--signin-elevated));
     border: 1px solid var(--signin-line);
     font-size: 0.8125rem;
     color: var(--color-caption);
@@ -1346,10 +1351,10 @@
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid rgba(239, 68, 68, 0.6);
     font-size: 0.8125rem;
-    color: #b91c1c;
+    color: var(--color-danger);
     line-height: 1.5;
   }
-  :global(.dark) .signin-error { color: #fca5a5; }
+  :global(.dark) .signin-error { color: var(--color-danger); }
 
 
 
@@ -1366,7 +1371,7 @@
   }
 
   .signin-tile {
-    background: var(--signin-elevated);
+    background: var(--color-light-input-bg, var(--signin-elevated));
     border: 1px solid var(--signin-line);
     border-radius: 14px;
     padding: 0.875rem 0.5rem 0.75rem;
@@ -1384,7 +1389,7 @@
   .signin-tile:hover:not(:disabled) {
     transform: translateY(-1px);
     border-color: color-mix(in srgb, var(--signin-flame) 50%, transparent);
-    background: color-mix(in srgb, var(--signin-elevated) 80%, var(--signin-cream));
+    background: color-mix(in srgb, var(--color-light-input-bg, var(--signin-elevated)) 80%, var(--signin-cream));
   }
 
   .signin-tile:focus-visible { outline: 2px solid var(--signin-flame); outline-offset: 2px; }

@@ -580,7 +580,7 @@
   .confirmation-page {
     position: relative;
     min-height: 100vh;
-    background: #0F1219;
+    background: var(--color-bg-primary);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -602,7 +602,7 @@
     width: 800px;
     height: 800px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(232, 101, 43, 0.3) 0%, transparent 70%);
+    background: radial-gradient(circle, color-mix(in srgb, var(--color-primary) 30%, transparent) 0%, transparent 70%);
     opacity: 0.5;
     pointer-events: none;
     filter: blur(80px);
@@ -629,8 +629,8 @@
   .spinner {
     width: 48px;
     height: 48px;
-    border: 3px solid rgba(232, 101, 43, 0.2);
-    border-top-color: #E8652B;
+    border: 3px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+    border-top-color: var(--color-primary);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
     margin: 0 auto 1rem;
@@ -642,13 +642,13 @@
 
   .loading-text {
     font-family: 'DM Sans', sans-serif;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--color-text-secondary);
     font-size: 15px;
   }
 
   .error-heading {
     font-family: 'Outfit', 'DM Sans', sans-serif;
-    color: #ef4444;
+    color: var(--color-danger);
     font-size: 22px;
     font-weight: 600;
     margin: 0 0 8px 0;
@@ -659,7 +659,7 @@
      by someone who has just been frightened. */
   .error-text {
     font-family: 'DM Sans', sans-serif;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--color-text-secondary);
     font-size: 15px;
     line-height: 1.6;
     max-width: 34rem;
@@ -671,9 +671,9 @@
     text-decoration: none;
     padding: 12px 28px;
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.6);
+    border: 1px solid var(--color-input-border);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-secondary);
     font-family: 'DM Sans', sans-serif;
     font-size: 14px;
     font-weight: 500;
@@ -682,8 +682,8 @@
   }
 
   .error-button:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
+    background: var(--color-input-bg);
+    color: var(--color-text-primary);
   }
 
   /* ===== Main content ===== */
@@ -728,7 +728,7 @@
     font-weight: 700;
     text-align: center;
     margin: 20px 0 0 0;
-    background: linear-gradient(135deg, #F28C5A 0%, #E8652B 50%, #C4501E 100%);
+    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary) 50%, var(--color-primary) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -740,15 +740,15 @@
   .tagline {
     font-family: 'DM Sans', sans-serif;
     font-size: 16px;
-    color: rgba(255, 255, 255, 0.45);
+    color: var(--color-caption);
     text-align: center;
     margin: 10px 0 32px 0;
   }
 
   /* ===== Status bar ===== */
   .status-bar {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
     border-radius: 16px;
     padding: 18px 24px;
     margin-bottom: 20px;
@@ -776,20 +776,20 @@
   .status-text {
     font-family: 'DM Sans', sans-serif;
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.55);
+    color: var(--color-text-secondary);
   }
 
   .status-date {
     font-family: 'DM Sans', sans-serif;
     font-size: 14px;
-    color: #E8652B;
+    color: var(--color-primary);
     font-weight: 600;
   }
 
   /* ===== Perks card ===== */
   .perks-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
     border-radius: 16px;
     padding: 20px 24px;
     margin-bottom: 24px;
@@ -799,7 +799,7 @@
     font-family: 'DM Sans', sans-serif;
     font-size: 12px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--color-caption);
     text-transform: uppercase;
     letter-spacing: 0.08em;
     margin: 0 0 14px 0;
@@ -841,21 +841,21 @@
   .perk-text {
     font-family: 'DM Sans', sans-serif;
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--color-text-secondary);
   }
 
   /* ===== Username claim card ===== */
   .claim-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
     border-radius: 20px;
     padding: 32px 28px;
     transition: border-color 0.4s ease, box-shadow 0.4s ease;
   }
 
   .claim-card.has-username {
-    border-color: rgba(232, 101, 43, 0.31);
-    box-shadow: 0 0 30px rgba(232, 101, 43, 0.3);
+    border-color: color-mix(in srgb, var(--color-primary) 31%, transparent);
+    box-shadow: 0 0 30px color-mix(in srgb, var(--color-primary) 30%, transparent);
   }
 
   /* Preview pill */
@@ -868,8 +868,8 @@
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
     border-radius: 50px;
     padding: 14px 24px;
     transition: all 0.4s ease;
@@ -877,8 +877,8 @@
   }
 
   .preview-pill.has-username {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.12);
+    background: var(--color-bg-secondary);
+    border-color: var(--color-input-border);
     transform: scale(1.02);
   }
 
@@ -886,12 +886,12 @@
     width: 26px;
     height: 26px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--color-bg-secondary);
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 13px;
-    color: #fff;
+    color: var(--color-text-primary);
     flex-shrink: 0;
     transition: background 0.4s ease, box-shadow 0.4s ease;
   }
@@ -904,17 +904,17 @@
   .preview-name {
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-size: 16px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--color-caption);
     letter-spacing: -0.02em;
     transition: color 0.3s ease;
   }
 
   .preview-name.active {
-    color: #fff;
+    color: var(--color-text-primary);
   }
 
   .preview-domain {
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--color-caption);
   }
 
   /* Claim headings */
@@ -922,7 +922,7 @@
     font-family: 'Outfit', 'DM Sans', sans-serif;
     font-size: 19px;
     font-weight: 600;
-    color: #fff;
+    color: var(--color-text-primary);
     text-align: center;
     margin: 0 0 6px 0;
   }
@@ -930,7 +930,7 @@
   .claim-subtext {
     font-family: 'DM Sans', sans-serif;
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--color-caption);
     text-align: center;
     margin: 0 0 24px 0;
     line-height: 1.5;
@@ -940,16 +940,16 @@
   .input-wrapper {
     display: flex;
     align-items: center;
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--color-input-bg);
     border-radius: 14px;
-    border: 2px solid rgba(255, 255, 255, 0.08);
+    border: 2px solid var(--color-input-border);
     padding: 4px 6px 4px 4px;
     transition: border-color 0.3s ease, box-shadow 0.3s ease;
   }
 
   .input-wrapper.focused {
-    border-color: #E8652B;
-    box-shadow: 0 0 20px rgba(232, 101, 43, 0.3);
+    border-color: var(--color-primary);
+    box-shadow: 0 0 20px color-mix(in srgb, var(--color-primary) 30%, transparent);
   }
 
   .username-input {
@@ -959,19 +959,19 @@
     outline: none;
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-size: 16px;
-    color: #fff;
+    color: var(--color-text-primary);
     padding: 12px 14px;
     min-width: 0;
   }
 
   .username-input::placeholder {
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--color-caption);
   }
 
   .input-suffix {
     font-family: 'JetBrains Mono', monospace;
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.2);
+    color: var(--color-caption);
     padding-right: 12px;
     white-space: nowrap;
   }
@@ -980,21 +980,21 @@
   .validation-error {
     font-family: 'DM Sans', sans-serif;
     font-size: 12px;
-    color: #ef4444;
+    color: var(--color-danger);
     margin: 8px 0 0 4px;
   }
 
   .validation-checking {
     font-family: 'DM Sans', sans-serif;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--color-caption);
     margin: 8px 0 0 4px;
   }
 
   .validation-available {
     font-family: 'DM Sans', sans-serif;
     font-size: 12px;
-    color: #22C55E;
+    color: var(--color-success);
     margin: 8px 0 0 4px;
   }
 
@@ -1011,8 +1011,8 @@
     padding: 15px 24px;
     border-radius: 14px;
     border: none;
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.3);
+    background: var(--color-bg-secondary);
+    color: var(--color-caption);
     font-family: 'DM Sans', sans-serif;
     font-size: 16px;
     font-weight: 600;
@@ -1022,14 +1022,14 @@
   }
 
   .claim-button.active {
-    background: linear-gradient(135deg, #F28C5A 0%, #E8652B 50%, #C4501E 100%);
-    color: #fff;
+    background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action) 50%, var(--color-action) 100%);
+    color: var(--color-on-action);
     cursor: pointer;
-    box-shadow: 0 4px 20px rgba(232, 101, 43, 0.3);
+    box-shadow: 0 4px 20px color-mix(in srgb, var(--color-primary) 30%, transparent);
   }
 
   .claim-button.active:hover {
-    box-shadow: 0 6px 28px rgba(232, 101, 43, 0.4);
+    box-shadow: 0 6px 28px color-mix(in srgb, var(--color-primary) 40%, transparent);
     transform: translateY(-1px);
   }
 
@@ -1042,9 +1042,9 @@
     width: 100%;
     padding: 12px 24px;
     border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--color-input-border);
     background: transparent;
-    color: rgba(255, 255, 255, 0.25);
+    color: var(--color-caption);
     font-family: 'DM Sans', sans-serif;
     font-size: 13px;
     cursor: pointer;
@@ -1052,8 +1052,8 @@
   }
 
   .skip-button:hover {
-    border-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.4);
+    border-color: var(--color-input-border);
+    color: var(--color-caption);
   }
 
   .skip-button:disabled {
@@ -1079,7 +1079,7 @@
     align-items: center;
     justify-content: center;
     font-size: 22px;
-    color: #fff;
+    color: var(--color-on-action);
     margin-bottom: 16px;
     box-shadow: 0 0 24px rgba(34, 197, 94, 0.3);
   }
@@ -1088,21 +1088,21 @@
     font-family: 'Outfit', 'DM Sans', sans-serif;
     font-size: 20px;
     font-weight: 600;
-    color: #fff;
+    color: var(--color-text-primary);
     margin: 0 0 8px 0;
   }
 
   .success-nip05 {
     font-family: 'JetBrains Mono', monospace;
     font-size: 15px;
-    color: #22C55E;
+    color: var(--color-success);
     margin: 0 0 6px 0;
   }
 
   .success-subtext {
     font-family: 'DM Sans', sans-serif;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--color-caption);
     margin: 0 0 24px 0;
     line-height: 1.6;
   }
@@ -1111,18 +1111,18 @@
     padding: 14px 36px;
     border-radius: 14px;
     border: none;
-    background: linear-gradient(135deg, #F28C5A 0%, #E8652B 50%, #C4501E 100%);
-    color: #fff;
+    background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action) 50%, var(--color-action) 100%);
+    color: var(--color-on-action);
     font-family: 'DM Sans', sans-serif;
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
-    box-shadow: 0 4px 20px rgba(232, 101, 43, 0.3);
+    box-shadow: 0 4px 20px color-mix(in srgb, var(--color-primary) 30%, transparent);
     transition: all 0.3s ease;
   }
 
   .start-cooking-button:hover {
-    box-shadow: 0 6px 28px rgba(232, 101, 43, 0.4);
+    box-shadow: 0 6px 28px color-mix(in srgb, var(--color-primary) 40%, transparent);
     transform: translateY(-1px);
   }
 
@@ -1136,8 +1136,8 @@
     padding: 14px 36px;
     border-radius: 14px;
     border: none;
-    background: linear-gradient(135deg, #34D399 0%, #22C55E 50%, #16A34A 100%);
-    color: #fff;
+    background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action) 50%, var(--color-action) 100%);
+    color: var(--color-on-action);
     font-family: 'DM Sans', sans-serif;
     font-size: 15px;
     font-weight: 600;
@@ -1160,7 +1160,7 @@
   .profile-update-error {
     font-family: 'DM Sans', sans-serif;
     font-size: 13px;
-    color: #ef4444;
+    color: var(--color-danger);
     margin: 0 0 16px 0;
   }
 

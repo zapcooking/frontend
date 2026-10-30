@@ -318,7 +318,7 @@
         {/key}
         {#if resolvedPicture}
           <button
-            class="absolute inset-0 rounded-full cursor-zoom-in transition-colors hover:bg-black/10 focus-visible:ring-2 focus-visible:ring-orange-500"
+            class="absolute inset-0 rounded-full cursor-zoom-in transition-colors hover:bg-black/10 focus-visible:ring-2 focus-visible:ring-primary"
             on:click={() => (avatarLightboxOpen = true)}
             aria-label="View profile picture"
             title="View profile picture"
@@ -383,7 +383,7 @@
       {#if !isSelf}
         {#if lightningAddress && !isMuted}
           <button
-            class="flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-yellow-500 px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-yellow-400 disabled:opacity-50"
+            class="flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-action px-3 py-1.5 text-sm font-medium text-on-action transition-colors hover:bg-action-hover disabled:opacity-50"
             disabled={isZapping}
             on:click={handleZap}
           >
@@ -419,7 +419,7 @@
             disabled={followLoading}
             class="flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 {isFollowing
               ? 'bg-input hover:bg-accent-gray'
-              : 'bg-orange-500 text-white hover:bg-orange-600'}"
+              : 'bg-action text-on-action hover:bg-action-hover'}"
             style={isFollowing ? 'color: var(--color-text-primary)' : ''}
           >
             {#if followLoading}

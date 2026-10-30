@@ -78,7 +78,7 @@
     />
     <button
       type="button"
-      class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+      class="p-1.5 rounded-lg hover:bg-[var(--color-input-bg)] dark:hover:bg-[var(--color-bg-secondary)]"
       style="color: var(--color-text-secondary);"
       aria-label="Cancel"
       on:click={cancel}
@@ -87,7 +87,7 @@
     </button>
     <button
       type="button"
-      class="p-1.5 rounded-lg bg-green-500 hover:bg-green-600 text-white"
+      class="p-1.5 rounded-lg bg-action hover:bg-action-hover text-on-action"
       aria-label="Save ingredient"
       on:click={save}
     >
@@ -116,7 +116,7 @@
     </button>
     <button
       type="button"
-      class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+      class="p-1.5 rounded-lg hover:bg-[var(--color-input-bg)] dark:hover:bg-[var(--color-bg-secondary)]"
       style="color: var(--color-text-secondary);"
       aria-label="Edit {item.name}"
       {disabled}

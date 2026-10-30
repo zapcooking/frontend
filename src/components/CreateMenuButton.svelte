@@ -373,23 +373,23 @@
     justify-content: center;
     gap: 0.4rem;
     border-radius: 9999px;
-    background: linear-gradient(135deg, #f97316, #f59e0b);
-    color: #fff;
+    background: linear-gradient(135deg, var(--color-create-start), var(--color-create-end));
+    color: var(--color-on-action);
     font-weight: 600;
     transition:
       transform 0.2s ease,
       box-shadow 0.2s ease,
       opacity 0.2s ease;
-    box-shadow: 0 10px 25px rgba(249, 115, 22, 0.35);
+    box-shadow: 0 10px 25px color-mix(in srgb, var(--color-create-start) 35%, transparent);
   }
 
   .create-trigger:hover {
     transform: translateY(-1px);
-    box-shadow: 0 12px 28px rgba(249, 115, 22, 0.45);
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--color-create-start) 45%, transparent);
   }
 
   .create-trigger-cancel {
-    background: var(--color-input-border);
+    background: var(--color-input-bg);
     color: var(--color-text-primary);
     box-shadow: none;
   }
@@ -397,7 +397,7 @@
   .create-trigger-cancel:hover {
     transform: none;
     box-shadow: none;
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
 
   .create-trigger.is-scrolling {
@@ -514,7 +514,7 @@
   }
 
   .create-menu-item:hover {
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
     color: var(--color-text-primary);
   }
 

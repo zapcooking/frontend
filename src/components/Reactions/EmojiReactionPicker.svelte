@@ -116,7 +116,7 @@
       {#each QUICK_EMOJIS as emoji}
         <button
           type="button"
-          class="flex items-center justify-center text-2xl rounded-lg border border-transparent transition-all duration-200 cursor-pointer aspect-square p-3 hover:scale-110 {userReactions.has(emoji) ? 'bg-primary text-white' : 'bg-accent-gray hover:border-primary'}"
+          class="flex items-center justify-center text-2xl rounded-lg border border-transparent transition-all duration-200 cursor-pointer aspect-square p-3 hover:scale-110 {userReactions.has(emoji) ? 'bg-action text-on-action' : 'bg-accent-gray hover:border-primary'}"
           on:click={() => handleEmojiClick(emoji)}
           title={userReactions.has(emoji) ? 'Remove reaction' : 'React with ' + emoji}
           aria-label={userReactions.has(emoji) ? 'Remove reaction ' + emoji : 'React with ' + emoji}

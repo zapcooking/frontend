@@ -850,7 +850,7 @@
 	}
 
 	.close-btn:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 		color: var(--color-text-primary);
 	}
 
@@ -867,7 +867,7 @@
 	}
 
 	.drafts-btn:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 		color: var(--color-text-primary);
 	}
 
@@ -878,8 +878,8 @@
 		min-width: 1.25rem;
 		height: 1.25rem;
 		padding: 0 0.375rem;
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 		font-size: 0.75rem;
 		font-weight: 600;
 		border-radius: 9999px;
@@ -935,13 +935,13 @@
 
 	.preview-btn:hover,
 	.save-btn:hover:not(:disabled) {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 		color: var(--color-text-primary);
 	}
 
 	.preview-btn.active {
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 	}
 
 	.save-btn.error {
@@ -963,7 +963,7 @@
 		border-radius: 0.5rem;
 		font-size: 0.875rem;
 		font-weight: 600;
-		background: linear-gradient(135deg, #f97316, #f59e0b);
+		background: linear-gradient(135deg, var(--color-action), var(--color-action));
 		color: white;
 		transition: all 0.15s ease;
 	}
@@ -1094,7 +1094,7 @@
 
 	.preview-tag {
 		padding: 0.25rem 0.625rem;
-		background: var(--color-accent-gray);
+		background: var(--color-input-bg);
 		color: var(--color-primary);
 		font-size: 0.875rem;
 		font-weight: 500;
@@ -1129,7 +1129,7 @@
 		margin: 1.5rem 0;
 		padding: 1rem 1.5rem;
 		border-left: 4px solid var(--color-primary);
-		background: var(--color-accent-gray);
+		background: var(--color-input-bg);
 		border-radius: 0 0.5rem 0.5rem 0;
 		font-style: italic;
 	}
@@ -1196,12 +1196,12 @@
 	}
 
 	.confirm-btn.cancel:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 	}
 
 	.confirm-btn.save {
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 	}
 
 	.confirm-btn.save:hover {
@@ -1311,11 +1311,11 @@
 		cursor: pointer;
 	}
 	.lf-alt-toggle:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 	}
 	.lf-alt-toggle.has-alt {
-		background: var(--color-primary);
-		color: #fff;
+		background: var(--color-action);
+		color: var(--color-on-action);
 	}
 	.lf-alt-label {
 		font-weight: 500;

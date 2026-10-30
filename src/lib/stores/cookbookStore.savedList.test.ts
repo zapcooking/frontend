@@ -45,6 +45,8 @@ vi.mock('$lib/nostr', async () => {
     getCurrentRelays: () => ['wss://nos.lol', 'wss://relay.primal.net']
   };
 });
+const nudge = vi.hoisted(() => ({ recordNudgeMoment: vi.fn() }));
+vi.mock('$lib/accountNudge', () => nudge);
 vi.mock('$lib/nip65Routing', () => ({
   listRelayUrls: vi.fn(async () => Object.keys(net.relays)),
   listRelayUrlsFrom: vi.fn(async () => Object.keys(net.relays)),
@@ -415,5 +417,26 @@ describe('My Kitchen list page edits to Saved (editSavedList)', () => {
     expect(published[0].tags).toContainEqual(['summary', 'weeknights']);
     expect(published[0].tags).toContainEqual(['cover', aTag('r1')]);
     expect(recipesIn(published[0])).toEqual([aTag('r1')]);
+  });
+});
+
+describe('account nudge: the first saved recipe is a natural moment', () => {
+  it('a save that adds a recipe records it', async () => {
+    net.relays = { [NOS]: 'empty', [PRIMAL]: 'empty' };
+    expect(await settle(cookbookStore.quickSave(recipe('r1')))).toBe(true);
+    expect(nudge.recordNudgeMoment).toHaveBeenCalledWith(PUBKEY, 'saved-recipe');
+  });
+
+  it('a remove-only edit does not', async () => {
+    net.relays = { [NOS]: listOn(1700000000, [aTag('old1')]), [PRIMAL]: 'empty' };
+    const result = await settle(cookbookStore.removeFromDefaultList(aTag('old1')));
+    expect(result.ok).toBe(true);
+    expect(nudge.recordNudgeMoment).not.toHaveBeenCalled();
+  });
+
+  it('a save that fails does not', async () => {
+    net.relays = { [NOS]: 'silent', [PRIMAL]: 'silent' };
+    expect(await settle(cookbookStore.quickSave(recipe('r1')))).toBe(false);
+    expect(nudge.recordNudgeMoment).not.toHaveBeenCalled();
   });
 });

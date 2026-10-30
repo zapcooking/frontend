@@ -265,8 +265,8 @@
     letter-spacing: 0.06em;
     padding: 0.125rem 0.375rem;
     border-radius: 0.25rem;
-    background: rgba(34, 197, 94, 0.12);
-    color: #22c55e;
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary);
   }
   .page-subtitle {
     font-size: 0.875rem;
@@ -302,8 +302,8 @@
     align-items: center;
     padding: 0.35rem 0.7rem;
     border-radius: 9999px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--color-input-border);
+    background: var(--color-input-bg);
     color: var(--color-text-secondary);
     font-size: 0.75rem;
     font-weight: 500;
@@ -312,13 +312,13 @@
     transition: background 150ms, border-color 150ms, color 150ms;
   }
   .filter-chip:hover:not(:disabled) {
-    background: rgba(34, 197, 94, 0.06);
-    border-color: rgba(34, 197, 94, 0.2);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
   }
   .filter-chip.active {
-    background: rgba(34, 197, 94, 0.14);
-    border-color: rgba(34, 197, 94, 0.4);
-    color: #22c55e;
+    background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+    color: var(--color-primary);
     font-weight: 600;
   }
   .degrade-note {
@@ -327,8 +327,8 @@
     margin: 0;
     padding: 0.5rem 0.75rem;
     border-radius: 0.5rem;
-    background: rgba(34, 197, 94, 0.06);
-    border: 1px solid rgba(34, 197, 94, 0.15);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 15%, transparent);
   }
   .refresh-note {
     font-size: 0.6875rem;
@@ -360,8 +360,8 @@
     gap: 0.25rem;
     padding: 0.3rem 0.625rem;
     border-radius: 9999px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--color-input-border);
+    background: var(--color-input-bg);
     color: var(--color-text-secondary);
     font-size: 0.75rem;
     font-weight: 500;
@@ -370,13 +370,13 @@
     transition: background 150ms, border-color 150ms, color 150ms;
   }
   .sort-btn:hover:not(:disabled) {
-    background: rgba(34, 197, 94, 0.06);
-    border-color: rgba(34, 197, 94, 0.2);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
   }
   .sort-btn.active {
-    background: rgba(34, 197, 94, 0.1);
-    border-color: rgba(34, 197, 94, 0.3);
-    color: #22c55e;
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+    color: var(--color-primary);
     font-weight: 600;
   }
   .sort-btn:disabled {
@@ -411,7 +411,7 @@
   .state-link {
     font-size: 0.8125rem;
     font-weight: 500;
-    color: #22c55e;
+    color: var(--color-primary);
     text-decoration: none;
     margin-top: 0.25rem;
   }
@@ -421,9 +421,9 @@
   .retry-btn {
     font-size: 0.8125rem;
     font-weight: 500;
-    color: #22c55e;
+    color: var(--color-primary);
     background: none;
-    border: 1px solid rgba(34, 197, 94, 0.3);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
     border-radius: 0.375rem;
     padding: 0.375rem 0.75rem;
     cursor: pointer;
@@ -431,7 +431,7 @@
     transition: background 150ms;
   }
   .retry-btn:hover {
-    background: rgba(34, 197, 94, 0.08);
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
   }
 
   /* Recipe grid — thin sets (n≤3) stay readable, not a sparse dashboard */

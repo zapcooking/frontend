@@ -41,7 +41,7 @@ const cspReportOnly = {
   // structured data on a browser that does.
   'script-src': [
     'self',
-    'sha256-qcZmwq07vWNn5ZauV94XXX/jdJANrJDL/eXSfIaHFSc=',
+    'sha256-a1viY4NXOMi0VmqfCKuKNNeUceU1Z3JZoeXoe98ysC0=',
     'sha256-O1WCjsIYQjIDYZDkln/ClIQsHZwGqAgth96xr5mS/Q8=',
     'sha256-gXQRzOfEF9ICX1ARzegNXE7MR/gA6nlSg8mmiPpqMao='
   ],

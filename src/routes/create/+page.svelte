@@ -590,8 +590,8 @@
     <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
       <a
         href="/boost?recipe={publishedNaddr}"
-        class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold text-white transition-all min-h-[44px]"
-        style="background-color: var(--color-primary);"
+        class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold text-on-action transition-all min-h-[44px]"
+        style="background-color: var(--color-action);"
       >
         &#9889; Boost This Recipe
       </a>
@@ -722,7 +722,7 @@
   <div class="flex justify-end items-center gap-2">
     <span
       class={resultMessage.includes('Error')
-        ? 'text-red-500'
+        ? 'text-[var(--color-danger)]'
         : resultMessage.includes('Success')
           ? 'text-green-500'
           : ''}
@@ -781,7 +781,7 @@
       <Button
         on:click={saveDraftAndClose}
         disabled={isSavingDraft}
-        class="!bg-orange-500 hover:!bg-orange-600"
+        class="!bg-action hover:!bg-action-hover"
       >
         {isSavingDraft ? 'Saving...' : 'Save Draft'}
       </Button>

@@ -224,7 +224,7 @@
       {token.content}
     {:else if token.type === 'hashtag'}
       <button
-        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600 hover:bg-orange-500 hover:text-white transition-colors cursor-pointer"
+        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--color-hashtag-bg)] text-[var(--color-hashtag-text)] hover:bg-[var(--color-hashtag-hover-bg)] hover:text-[var(--color-hashtag-hover-text)] transition-colors cursor-pointer"
         on:click={() => handleHashtagClick(token.content)}
       >
         {token.content}

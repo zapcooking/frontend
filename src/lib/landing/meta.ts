@@ -6,6 +6,7 @@
 
 import { optimizeImageUrl, imageRoute } from '$lib/imageOptimizer';
 import type { LandingData } from './landingData.server';
+import { EDITORIAL_SUPPORTING_LINE } from './editorialConfig';
 
 export const SITE = 'https://zap.cooking';
 export const LANDING_CANONICAL = `${SITE}/explore`;
@@ -34,9 +35,8 @@ export function ogImage(d: Pick<LandingData, 'cover'>): string {
 
 export function landingMeta(d: Pick<LandingData, 'cover'>): LandingMeta {
 	return {
-		title: 'Zap Cooking: recipes, cooks and food stories',
-		description:
-			'Discover recipes from real cooks. Save your favorites. Bring your own to the table.',
+		title: 'Zap Cooking: recipes, cooks and reads',
+		description: EDITORIAL_SUPPORTING_LINE,
 		canonical: LANDING_CANONICAL,
 		image: ogImage(d)
 	};
@@ -79,16 +79,11 @@ export function landingJsonLd(d: Pick<LandingData, 'cover' | 'picks' | 'reads'>)
 }
 
 /**
- * Readers without JavaScript never get `html.dark`, so follow the OS.
- * Mirrors the dark tokens in app.css that the landing page uses; doubled
- * selectors because app.css loads after this and would win a tie.
+ * The shared palette follows the OS without JavaScript. Logo selection still
+ * needs this fallback because the usual dark selectors depend on html.dark.
  */
 export const NOSCRIPT_DARK_STYLE =
-	'<noscript><style>@media (prefers-color-scheme: dark){:root:root{' +
-	'--color-primary:#ff5722;--color-input-border:#4b5563;--color-caption:#94a3b8;' +
-	'--color-text-primary:#f3f4f6;--color-text-secondary:#d1d5db;--color-bg-primary:#111827;' +
-	'--color-bg-secondary:#1f2937;--color-card-sunken:#0c111c}' +
-	'.logo-l{display:none!important}.logo-d{display:block!important}' +
-	// The footer's Support link: Tailwind's dark: variant needs html.dark (orange-400).
-	'.landing .text-orange-700{color:#fb923c!important}' +
-	'body{background-color:#111827}}</style></noscript>';
+	'<noscript><style>@media screen and (prefers-color-scheme: dark){' +
+	'html:not(.dark) img[src="/zapcooking-text-light.svg"]{display:none!important}' +
+	'html:not(.dark) img[src="/zapcooking-text-dark.svg"]{display:block!important}' +
+	'}</style></noscript>';

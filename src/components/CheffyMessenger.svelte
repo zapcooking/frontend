@@ -1103,8 +1103,8 @@
     max-width: 85%;
     padding: 9px 13px;
     border-radius: 15px 15px 4px 15px;
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.92rem;
     line-height: 1.4;
     white-space: pre-wrap;
@@ -1239,7 +1239,7 @@
   .scan-error {
     margin: 0 0 8px;
     font-size: 0.8rem;
-    color: #ef4444;
+    color: var(--color-danger);
   }
   /* Held-photo chip above the composer row. */
   .photo-chip {
@@ -1308,8 +1308,8 @@
     background-color: var(--color-input-bg);
   }
   .composer-send {
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     transition: filter 140ms ease;
   }
   .composer-send:hover:not(:disabled) {
@@ -1389,8 +1389,8 @@
     padding: 0 20px;
     border-radius: 999px;
     border: 0;
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     font-weight: 600;
     font-size: 0.95rem;
     cursor: pointer;
@@ -1441,8 +1441,8 @@
   }
   .conv-primary {
     border: 0;
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     transition: filter 140ms ease;
   }
   .conv-primary:hover {

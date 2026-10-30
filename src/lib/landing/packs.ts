@@ -6,11 +6,50 @@ import { evaluateReadsContent } from '$lib/reads/moderation';
 import type { ReadsModerationLists } from '$lib/reads/moderationConfig';
 import type { NostrEvent } from '$lib/relayCollect';
 import { isExploreCurationDTag } from './curation';
-import { eventImage, type PackCard } from './content';
+import { eventImage, type LongformCard, type PackCard } from './content';
+import { imageIdentity } from './imageIdentity';
 
 // Matches /packs discovery; importing recipePack.ts would pull client stores into SSR.
 export const PACK_KIND = 30004;
 export const PACK_TAGS = ['zap-cooking', 'recipe-pack'];
+/** Public discovery gets a little more headroom than the fast feed/profile round. */
+export const PACK_DISCOVERY_TIMEOUT_MS = 2500;
+
+/** Use only the pack's own cover or images of recipes it actually references. */
+export function selectPackImages(
+  packs: PackCard[],
+  recipes: LongformCard[],
+  usedImages: ReadonlySet<string>
+): PackCard[] {
+  const used = new Set(usedImages);
+  const recipeByCoordinate = new Map(
+    recipes
+      .filter((recipe) => recipe.type === 'recipe')
+      .map((recipe) => [recipe.coordinate, recipe])
+  );
+  return packs.map((pack) => {
+    const previewImages: string[] = [];
+    const add = (image: string | undefined) => {
+      if (!image) return;
+      const identity = imageIdentity(image);
+      if (used.has(identity)) return;
+      used.add(identity);
+      previewImages.push(image);
+    };
+    add(pack.image);
+    if (!previewImages.length) {
+      for (const coordinate of pack.recipeCoordinates) {
+        add(recipeByCoordinate.get(coordinate)?.image);
+        if (previewImages.length === 3) break;
+      }
+    }
+    return {
+      ...pack,
+      image: previewImages.length === 1 ? previewImages[0] : undefined,
+      previewImages
+    };
+  });
+}
 
 const value = (event: NostrEvent, name: string) =>
   event.tags.find((tag) => tag[0] === name)?.[1]?.trim();

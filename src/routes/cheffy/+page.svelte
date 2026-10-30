@@ -1107,7 +1107,7 @@
                 </button>
                 <button
                   type="button"
-                  class="text-xs text-caption hover:text-red-500"
+                  class="text-xs text-caption hover:text-[var(--color-danger)]"
                   on:click={clearIngredients}
                 >
                   Clear
@@ -1117,13 +1117,13 @@
             <div class="flex flex-wrap gap-2">
               {#each detectedIngredients as ingredient}
                 <span
-                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-white/80 dark:bg-gray-800/80 border border-teal-300 dark:border-teal-700"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-[color-mix(in_srgb,var(--color-light-bg-primary,#fff)_80%,transparent)] dark:bg-[var(--color-bg-secondary)]/80 border border-[var(--color-input-border)] dark:border-[var(--color-input-border)]"
                   style="color: var(--color-text-primary)"
                 >
                   {ingredient}
                   <button
                     type="button"
-                    class="text-gray-400 hover:text-red-500 transition-colors"
+                    class="text-[var(--color-caption)] hover:text-[var(--color-danger)] transition-colors"
                     aria-label={`Remove ${ingredient}`}
                     on:click={() => removeIngredient(ingredient)}
                   >
@@ -1140,7 +1140,7 @@
                     type="text"
                     bind:value={newIngredient}
                     placeholder="Add item…"
-                    class="w-24 px-2 py-1 text-sm rounded-full border border-teal-300 dark:border-teal-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    class="w-24 px-2 py-1 text-sm rounded-full border border-[var(--color-input-border)] dark:border-[var(--color-input-border)] bg-[var(--color-light-bg-primary,#fff)] dark:bg-[var(--color-bg-secondary)] focus:outline-none focus:ring-2 focus:ring-primary"
                     on:blur={() => {
                       if (!newIngredient.trim()) showIngredientInput = false;
                     }}
@@ -1175,8 +1175,8 @@
 
         {#if scanError}
           <div class="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
-            <WarningIcon size={18} class="text-red-500 flex-shrink-0 mt-0.5" />
-            <p class="text-sm text-red-500">{scanError}</p>
+            <WarningIcon size={18} class="text-[var(--color-danger)] flex-shrink-0 mt-0.5" />
+            <p class="text-sm text-[var(--color-danger)]">{scanError}</p>
           </div>
         {/if}
 
@@ -1335,7 +1335,7 @@
         <div class="relative">
           <CheffyAvatar size={72} expression="excited" animate variant="character" />
           <div class="absolute -top-2 -right-2 animate-bounce">
-            <HeartIcon size={30} class="text-red-500" weight="fill" />
+            <HeartIcon size={30} class="text-[var(--color-danger)]" weight="fill" />
           </div>
         </div>
         <Checkmark color="#90EE90" weight="fill" class="w-16 h-16" />
@@ -1348,8 +1348,8 @@
       </div>
     {:else if zapStatus === 'error'}
       <div class="flex flex-col items-center justify-center py-4 gap-3">
-        <WarningIcon size={48} class="text-red-500" />
-        <p class="text-center text-red-500">{zapError}</p>
+        <WarningIcon size={48} class="text-[var(--color-danger)]" />
+        <p class="text-center text-[var(--color-danger)]">{zapError}</p>
         <Button on:click={() => (zapStatus = 'idle')}>Try Again</Button>
       </div>
     {:else}
@@ -1364,7 +1364,7 @@
               on:click={() => (zapAmount = option.amount)}
               class="flex flex-col items-center justify-center py-3 px-2 rounded-xl transition-all duration-200 cursor-pointer
                 {zapAmount === option.amount
-                ? 'bg-primary text-white shadow-md scale-105'
+                ? 'bg-action text-on-action shadow-md scale-105'
                 : 'bg-input hover:bg-accent-gray'}"
               style={zapAmount !== option.amount ? 'color: var(--color-text-primary)' : ''}
             >
@@ -1427,7 +1427,7 @@
 {#if showZapSuccess && !zapModalOpen}
   <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 toast-pop">
     <div
-      class="flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-white font-semibold shadow-lg"
+      class="flex items-center gap-2 px-4 py-3 rounded-full bg-action text-on-action font-semibold shadow-lg"
     >
       <CheffyIcon size={20} expression="excited" />
       <span>{zapToastLine}</span>
@@ -1445,7 +1445,7 @@
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.03em;
-    color: var(--color-text-caption, #9ca3af);
+    color: var(--color-caption);
     background-color: color-mix(in srgb, var(--color-primary) 8%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
   }
@@ -1476,8 +1476,8 @@
     max-width: 85%;
     padding: 10px 14px;
     border-radius: 16px 16px 4px 16px;
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.95rem;
     line-height: 1.4;
     white-space: pre-wrap;
@@ -1532,7 +1532,7 @@
     color: var(--color-text-secondary);
   }
   .photo-chip-remove:hover {
-    background-color: var(--color-hover, rgba(127, 127, 127, 0.12));
+    background-color: var(--color-light-input-bg, var(--color-hover, rgba(127, 127, 127, 0.12)));
   }
   .msg-cheffy {
     gap: 10px;
@@ -1731,7 +1731,7 @@
     border-radius: 999px;
     background: transparent;
     border: 0;
-    color: var(--color-text-caption, #9ca3af);
+    color: var(--color-caption);
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;

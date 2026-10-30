@@ -320,7 +320,7 @@
         title="{zapper.amount} sats"
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
-        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        <LightningIcon size={12} class="text-[var(--color-warning)] flex-shrink-0" weight="fill" />
         <span class="text-xs text-caption font-semibold">{formatAmount(zapper.amount)}</span>
       </button>
     {/each}
@@ -330,7 +330,7 @@
         class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
         title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
       >
-        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        <LightningIcon size={12} class="text-[var(--color-warning)] flex-shrink-0" weight="fill" />
         +{hiddenCount}
       </button>
     {/if}
@@ -370,7 +370,7 @@
       <span class="bolt-sparkle-wrap">
         <LightningIcon
           size={18}
-          class="{isZapping || totalSats > 0 ? 'text-yellow-500' : 'text-caption'} {isZapping
+          class="{isZapping || totalSats > 0 ? 'text-[var(--color-warning)]' : 'text-caption'} {isZapping
             ? 'animate-pulse'
             : ''} {boltShimmer ? 'bolt-shimmer' : ''}"
           weight={isZapping || $store.zaps.userZapped ? 'fill' : 'regular'}
@@ -399,7 +399,7 @@
         title="{zapper.amount} sats"
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
-        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        <LightningIcon size={12} class="text-[var(--color-warning)] flex-shrink-0" weight="fill" />
         <span class="text-xs text-caption font-semibold">{formatAmount(zapper.amount)}</span>
       </button>
     {/each}
@@ -411,7 +411,7 @@
         class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
         title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
       >
-        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        <LightningIcon size={12} class="text-[var(--color-warning)] flex-shrink-0" weight="fill" />
         +{hiddenCount}
       </button>
     {/if}
@@ -449,7 +449,7 @@
         <LightningIcon
           size={24}
           class="{isZapping || $store.zaps.totalAmount > 0
-            ? 'text-yellow-500'
+            ? 'text-[var(--color-warning)]'
             : 'text-caption'} {isZapping ? 'animate-pulse' : ''} {boltShimmer
             ? 'bolt-shimmer'
             : ''}"

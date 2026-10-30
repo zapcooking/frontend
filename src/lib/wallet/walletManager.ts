@@ -15,6 +15,7 @@ import {
 } from './paymentOutcome';
 import { hasStoredMnemonic } from '$lib/spark/storage';
 import { ndkReady } from '$lib/nostr';
+import { recordNudgeMoment } from '$lib/accountNudge';
 import {
   type Wallet,
   type WalletKind,
@@ -80,7 +81,12 @@ import {
  */
 export async function connectWallet(
   kind: WalletKind,
-  data?: string
+  data?: string,
+  /**
+   * 'setup': the user connected or created it (the account nudge's natural
+   * moment). 'restore': the login-time auto-restore, which doesn't count.
+   */
+  origin: 'setup' | 'restore' = 'setup'
 ): Promise<{ success: boolean; wallet?: Wallet; error?: string }> {
   try {
     walletLoading.set(true);
@@ -147,6 +153,10 @@ export async function connectWallet(
     setActiveWallet(wallet.id);
 
     await refreshBalance();
+    if (origin === 'setup') {
+      const pubkey = get(userPublickey);
+      if (pubkey) recordNudgeMoment(pubkey, 'wallet');
+    }
     return { success: true, wallet };
   } catch (e) {
     const error = e instanceof Error ? e.message : 'Connection failed';

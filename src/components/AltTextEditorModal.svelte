@@ -144,7 +144,7 @@
     max-height: 16rem;
     object-fit: contain;
     border-radius: 0.625rem;
-    background: var(--color-input, #1f2937);
+    background: var(--color-light-input-bg, var(--color-input, #1f2937));
   }
   .alt-ai-button {
     display: inline-flex;
@@ -172,8 +172,8 @@
   .alt-ai-badge {
     padding: 0 0.4rem;
     border-radius: 9999px;
-    background: var(--color-primary);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.03em;
@@ -219,7 +219,7 @@
     line-height: 1.45;
     border: 1px solid var(--color-input-border);
     border-radius: 0.625rem;
-    background: var(--color-input, transparent);
+    background: var(--color-light-input-bg, var(--color-input, transparent));
     color: var(--color-text-primary);
     resize: vertical;
   }
@@ -244,8 +244,8 @@
     padding: 0.625rem 1rem;
     border: none;
     border-radius: 9999px;
-    background: var(--color-primary, #f97316);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.9375rem;
     font-weight: 600;
     cursor: pointer;

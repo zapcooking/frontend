@@ -56,9 +56,9 @@
         'w-full h-full object-cover transition-transform duration-300 group-hover:scale-110'
     },
     skeleton: {
-      hero: 'absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700',
-      secondary: 'absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700',
-      tertiary: 'absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700 rounded-lg'
+      hero: 'absolute inset-0 animate-pulse bg-[var(--color-input-bg)] dark:bg-[var(--color-bg-secondary)]',
+      secondary: 'absolute inset-0 animate-pulse bg-[var(--color-input-bg)] dark:bg-[var(--color-bg-secondary)]',
+      tertiary: 'absolute inset-0 animate-pulse bg-[var(--color-input-bg)] dark:bg-[var(--color-bg-secondary)] rounded-lg'
     },
     contentWrapper: {
       hero: 'lg:w-2/5 p-6 lg:p-8 flex flex-col justify-center',
@@ -121,7 +121,7 @@
         <!-- Featured Badge -->
         <div class="absolute top-4 left-4">
           <span
-            class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm"
+            class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-[var(--color-bg-primary)]/90 dark:bg-[var(--color-bg-secondary)]/90 backdrop-blur-sm"
             style="color: var(--color-primary);"
           >
             Featured
@@ -197,7 +197,7 @@
         {#each article.tags.slice(0, tagsToShow) as tag}
           <span
             class={classes.tagPill[size]}
-            style="background-color: rgba(255, 107, 53, 0.1); color: #ff6b35;"
+            style="background-color: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary);"
           >
             #{tag}
           </span>
@@ -235,7 +235,7 @@
           {#each article.tags.slice(0, tagsToShow) as tag}
             <span
               class={classes.tagPill[size]}
-              style="background-color: rgba(255, 107, 53, 0.1); color: #ff6b35;"
+              style="background-color: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary);"
             >
               #{tag}
             </span>
@@ -251,7 +251,7 @@
         {#each article.tags.slice(0, tagsToShow) as tag}
           <span
             class={classes.tagPill[size]}
-            style="background-color: rgba(255, 107, 53, 0.1); color: #ff6b35;"
+            style="background-color: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary);"
           >
             #{tag}
           </span>
@@ -262,6 +262,10 @@
 </div>
 
 <style>
+  :global(html:not(.dark)) div[class~='bg-[var(--color-input-bg)]'] {
+    background-color: var(--color-skeleton-base);
+  }
+
   .article-card-body :global(.line-clamp-1) {
     display: -webkit-box;
     -webkit-line-clamp: 1;

@@ -99,7 +99,13 @@
   import { feedInitialLoadDone } from '$lib/startupState';
 
   // Reply context prefetching for better UX
-  import { prefetchReplyContexts } from '$lib/replyContext';
+  import {
+    prefetchReplyContexts,
+    isReplyForScope,
+    isTopLevelForScope,
+    isThreadReply
+  } from '$lib/replyContext';
+  import { getReplyParentId, isEventRootedComment } from '$lib/thread/replyParent';
 
   // IndexedDB event store for cache rehydration (instant paint)
   import { getEventStore, cacheFeedEvents } from '$lib/eventStore';
@@ -2090,9 +2096,10 @@
         const eventStore = getEventStore();
         const timeWindow = calculateTimeWindow('initial');
 
-        // Build filter for cache lookup
+        // Build filter for cache lookup. Profile views also rehydrate
+        // cached kind-1111 comments so a fresh Replies tab paints instantly.
         const cacheFilter: any = {
-          kinds: [1, 6, 1068],
+          kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
           since: timeWindow.since,
           limit: 50
         };
@@ -2118,8 +2125,8 @@
           const validCached = cachedEvents.filter((event) => {
             if (filterMode === 'following' && isReply(event)) return false;
             if (authorPubkey) {
-              if (authorScope === 'top-level' && isReply(event)) return false;
-              if (authorScope === 'replies' && !isReply(event)) return false;
+              if (authorScope === 'top-level' && !isTopLevelForScope(event)) return false;
+              if (authorScope === 'replies' && !isReplyForScope(event)) return false;
             }
             return passesFeedFilters(event);
           });
@@ -2596,8 +2603,12 @@
       // ═══════════════════════════════════════════════════════════════
 
       // Build relay pool filter (always needed as backup, starts immediately)
+      // Profile views also ask for kind-1111 comments: the Replies tab
+      // shows this author's event-rooted comments interleaved with their
+      // kind-1 replies (kinds is OR; the scope filter below does the
+      // routing, author-scoped so no sibling-filter trick is needed).
       const hashtagFilter: any = {
-        kinds: [1, 6, 1068],
+        kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
@@ -2761,10 +2772,15 @@
           return false;
         }
 
-        // Profile view: honor the requested reply scope.
+        // Profile view: honor the requested reply scope. NIP-22
+        // event-rooted comments count as replies (isReplyForScope), so a
+        // Ditto-style comment in a mixed thread lands in Replies — and no
+        // kind-1111 comment ever lands in Posts (isTopLevelForScope), where
+        // its missing lowercase `e` would otherwise pass it off as a
+        // top-level note. External (`I`) and unscoped comments match neither.
         if (authorPubkey) {
-          if (authorScope === 'top-level' && isReply(event)) return false;
-          if (authorScope === 'replies' && !isReply(event)) return false;
+          if (authorScope === 'top-level' && !isTopLevelForScope(event)) return false;
+          if (authorScope === 'replies' && !isReplyForScope(event)) return false;
         }
 
         // Mutes always; food test where it is active for this view
@@ -2944,7 +2960,7 @@
     // Global mode / Profile view - default subscription
     // Single subscription for content (food-filtered or all posts based on context)
     const hashtagFilter: any = {
-      kinds: [1, 6, 1068],
+      kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
       since
     };
 
@@ -2971,8 +2987,8 @@
 
       // Profile view: respect authorScope (matches initial load filter)
       if (authorPubkey) {
-        if (authorScope === 'top-level' && isReply(event)) return;
-        if (authorScope === 'replies' && !isReply(event)) return;
+        if (authorScope === 'top-level' && !isTopLevelForScope(event)) return;
+        if (authorScope === 'replies' && !isReplyForScope(event)) return;
       }
 
       // For Global feed, exclude posts from followed users
@@ -3464,7 +3480,7 @@
 
       const timeWindow = calculateTimeWindow('initial');
       const filter: any = {
-        kinds: [1, 6, 1068],
+        kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
@@ -3509,6 +3525,14 @@
         // Global feed: exclude replies
         if (!authorPubkey && isReply(e)) {
           return false;
+        }
+
+        // Profile view: honor the requested reply scope (matches the
+        // initial load filter; NIP-22 event-rooted comments count as
+        // replies).
+        if (authorPubkey) {
+          if (authorScope === 'top-level' && !isTopLevelForScope(e)) return false;
+          if (authorScope === 'replies' && !isReplyForScope(e)) return false;
         }
 
         // Check muted users
@@ -3631,8 +3655,9 @@
         );
       } else {
         // Global mode / Profile view - use hashtag filter with timeboxing
+        // Profile views also page in kind-1111 comments for the Replies tab.
         const filter: any = {
-          kinds: [1, 6, 1068],
+          kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: authorPubkey && !foodFilterEnabled ? 150 : 100 // Fetch more for profile view when showing all posts
@@ -3736,6 +3761,14 @@
 
         if (!authorPubkey && filterMode === 'global' && isReply(e)) {
           return false; // Global mode: exclude replies
+        }
+
+        // Profile view: honor the requested reply scope (matches the
+        // initial load filter; NIP-22 event-rooted comments count as
+        // replies).
+        if (authorPubkey) {
+          if (authorScope === 'top-level' && !isTopLevelForScope(e)) return false;
+          if (authorScope === 'replies' && !isReplyForScope(e)) return false;
         }
 
         // Mutes always; food test where it is active for this view
@@ -3890,6 +3923,13 @@
   // ═══════════════════════════════════════════════════════════════
 
   function getParentNoteId(event: NDKEvent): string | null {
+    // NIP-22 comments: lowercase `e` parent, else the uppercase `E` root
+    // (a top-level comment may carry only the root).
+    if (event.kind === 1111) {
+      const parentId = getReplyParentId(event);
+      return parentId ? normalizeEventIdHex(parentId) : null;
+    }
+
     // Get all e tags
     const eTags = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'e');
 
@@ -3920,32 +3960,10 @@
     return null;
   }
 
+  // Kind-1/1068 thread reply (mention-only and empty `e` tags don't count);
+  // shared with the profile scope predicates in $lib/replyContext.
   function isReply(event: NDKEvent): boolean {
-    if (event.kind !== 1 && event.kind !== 1068) return false;
-
-    const eTags = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'e' && tag[1]);
-
-    if (eTags.length === 0) return false; // No e tags = top-level
-
-    // Check if any e tag indicates a reply (not just a mention)
-    return eTags.some((tag) => {
-      const marker = tag[3]?.toLowerCase();
-
-      // Explicit reply marker
-      if (marker === 'reply') return true;
-
-      // Root marker (indicates thread participation)
-      if (marker === 'root') return true;
-
-      // Old-style: e tag without marker (assumed to be reply)
-      if (!marker) return true;
-
-      // Mention marker - NOT a reply
-      if (marker === 'mention') return false;
-
-      // Unknown marker - treat as reply to be safe
-      return true;
-    });
+    return isThreadReply(event);
   }
 
   // Resolve reply context (parent note author and preview)
@@ -4005,7 +4023,8 @@
       try {
         // Fetch parent note
         const parentNote = await $ndk.fetchEvent({
-          kinds: [1, 1068 as number] as number[],
+          // A comment's parent can be another comment (kind 1111).
+          kinds: [1, 1068, 1111] as number[],
           ids: [eventId]
         });
 
@@ -5114,7 +5133,7 @@
     <!-- Background loading indicator (subtle, centered at top) - only show if no new posts button -->
     {#if backgroundLoading && !showNewPostsButton}
       <div
-        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-card/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg"
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-[var(--color-light-bg-secondary,var(--color-card))]/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg"
         style="border: 1px solid var(--color-input-border)"
       >
         <div
@@ -5129,7 +5148,7 @@
       <div class="fixed top-4 left-1/2 -translate-x-1/2 z-50">
         <button
           on:click={loadPendingPosts}
-          class="py-2 px-4 bg-primary text-white rounded-full shadow-lg hover:bg-primary/90 transition-all flex items-center gap-2"
+          class="py-2 px-4 bg-action text-on-action rounded-full shadow-lg hover:bg-action-hover transition-all flex items-center gap-2"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -5159,7 +5178,7 @@
         <button
           on:click={() => setFoodFilter(!foodFilterEnabled)}
           class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {foodFilterEnabled
-            ? 'bg-primary'
+            ? 'bg-action'
             : 'bg-accent-gray'}"
         >
           <span
@@ -5213,7 +5232,7 @@
           </div>
           <button
             on:click={() => retryWithDelay()}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Retry Connection
           </button>
@@ -5247,7 +5266,7 @@
                   unmuteAuthor(authorPubkey);
                 }
               }}
-              class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+              class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
             >
               Unmute User
             </button>
@@ -5284,7 +5303,7 @@
                   </p>
                   <button
                     on:click={() => dispatch('view-reads')}
-                    class="mt-3 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                    class="mt-3 px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
                   >
                     View their Reads
                   </button>
@@ -5329,14 +5348,14 @@
                    as the switch above the feed. -->
               <button
                 on:click={() => setFoodFilter(false)}
-                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
               >
                 Show all posts
               </button>
             {:else if !foodToggleVisible}
               <button
                 on:click={() => retryWithDelay()}
-                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
               >
                 Refresh Feed
               </button>
@@ -5457,7 +5476,7 @@
                 <!-- Main content area - full width below header -->
                 <div class="px-2 sm:px-0">
                   <!-- Reply context (orange bracket at top for replies) -->
-                  {#if isReply(event)}
+                  {#if isReply(event) || isEventRootedComment(event)}
                     {@const parentNoteId = getParentNoteId(event)}
                     {#if parentNoteId}
                       {@const parentHref = noteHrefFromEventId(parentNoteId, eventTagRelayHint(event, parentNoteId))}
@@ -5841,7 +5860,7 @@
       </p>
       <button
         on:click={() => (isGeneratingImage = false)}
-        class="text-xs px-3 py-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white transition"
+        class="text-xs px-3 py-1.5 rounded bg-[var(--color-input-bg)] hover:bg-accent-gray text-[var(--color-text-primary)] transition"
       >
         Cancel
       </button>
@@ -5866,7 +5885,7 @@
       </p>
       <button
         on:click={() => (imageGenerationError = null)}
-        class="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+        class="w-full px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
       >
         Close
       </button>
@@ -5905,7 +5924,7 @@
   /* Parent quote embed - always visible */
   .parent-quote-embed {
     padding: 0.5rem 0.75rem;
-    background: var(--color-input);
+    background: var(--color-light-input-bg, var(--color-input));
     border-left: 3px solid var(--color-primary, #f97316);
     border-radius: 0.375rem;
   }

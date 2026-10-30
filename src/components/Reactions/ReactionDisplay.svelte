@@ -20,7 +20,7 @@
       <button
         type="button"
         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border transition-colors cursor-pointer {group.userReacted
-          ? 'bg-primary text-white border-primary'
+          ? 'bg-action text-on-action border-primary'
           : 'bg-input border-transparent hover:border-gray-300'}"
         style={!group.userReacted ? 'border-color: var(--color-input-border);' : ''}
         on:click={() => handleClick(group)}

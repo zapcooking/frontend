@@ -87,14 +87,14 @@
     transition: border-color 150ms ease, background-color 150ms ease;
   }
   .continue-chip:hover:not(:disabled) {
-    border-color: #ec4700;
+    border-color: var(--color-primary);
   }
   .continue-chip:disabled {
     opacity: 0.7;
     cursor: progress;
   }
   .continue-chip:focus-visible {
-    outline: 2px solid #ec4700;
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
   .continue-chip-avatar {

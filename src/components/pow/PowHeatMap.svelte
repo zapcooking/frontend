@@ -176,7 +176,7 @@
     color: var(--color-text-primary);
   }
   .filter.selected {
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
   .filter:focus-visible {
     outline: 2px solid var(--color-primary);

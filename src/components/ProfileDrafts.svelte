@@ -254,7 +254,7 @@
           <div class="flex gap-2 pt-2 border-t" style="border-color: var(--color-input-border)">
             <button
               on:click={() => editDraft(draft.id)}
-              class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-white hover:opacity-90 transition-opacity cursor-pointer"
+              class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-action text-on-action hover:bg-action-hover transition-opacity cursor-pointer"
             >
               <PencilSimpleIcon size={16} />
               Continue Editing

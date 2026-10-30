@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { LANDING_CACHE_CONTROL, isLandingPath, isLandingRoute } from './route';
 import { NOSCRIPT_DARK_STYLE, landingJsonLd, ogImage } from './meta';
 import { emptyLandingData } from './landingData.server';
@@ -17,10 +18,8 @@ describe('landing routes', () => {
 		expect(isLandingPath('/api/explore')).toBe(false);
 	});
 
-	it('is edge-cacheable for everyone (shared, never private)', () => {
-		expect(LANDING_CACHE_CONTROL).toMatch(/\bpublic\b/);
-		expect(LANDING_CACHE_CONTROL).toMatch(/s-maxage=180\b/);
-		expect(LANDING_CACHE_CONTROL).not.toMatch(/private|no-store|no-cache/);
+	it('does not retain hydrated HTML or route data across deployments', () => {
+		expect(LANDING_CACHE_CONTROL).toBe('no-store');
 	});
 
 });
@@ -39,9 +38,12 @@ describe('landing meta', () => {
 		}
 	});
 
-	it('no-JS dark mode also lightens the footer Support link (orange-700 is 3.4:1 on #111827)', () => {
-		expect(NOSCRIPT_DARK_STYLE).toContain('@media (prefers-color-scheme: dark)');
-		expect(NOSCRIPT_DARK_STYLE).toMatch(/\.landing \.text-orange-700\{color:#fb923c!important\}/);
+	it('keeps no-JS dark logos and uses the shared OS fallback without overriding explicit modes or print', () => {
+		expect(NOSCRIPT_DARK_STYLE).toContain('@media screen and (prefers-color-scheme: dark)');
+		expect(NOSCRIPT_DARK_STYLE).toContain('html:not(.dark) img[src="/zapcooking-text-light.svg"]{display:none!important}');
+		expect(NOSCRIPT_DARK_STYLE).toContain('html:not(.dark) img[src="/zapcooking-text-dark.svg"]{display:block!important}');
+		const palettes = readFileSync('src/lib/themes/palettes.css', 'utf8');
+		expect(palettes).toMatch(/@media screen and \(prefers-color-scheme: dark\)\s*\{\s*html:root:not\(\[data-color-mode\]\):not\(\.dark\)/);
 	});
 
 	it('JSON-LD can never close its <script> early', () => {

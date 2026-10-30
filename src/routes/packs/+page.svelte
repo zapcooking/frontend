@@ -410,7 +410,7 @@
     >
       Packs
       <span
-        class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+        class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
       ></span>
     </div>
   </div>
@@ -422,8 +422,8 @@
       on:click={() => setTab('discover')}
       aria-pressed={tab === 'discover'}
       class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
-      class:bg-primary={tab === 'discover'}
-      class:text-white={tab === 'discover'}
+      class:bg-action={tab === 'discover'}
+      class:text-on-action={tab === 'discover'}
       style={tab !== 'discover'
         ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
         : ''}
@@ -434,8 +434,8 @@
       on:click={() => setTab('mine')}
       aria-pressed={tab === 'mine'}
       class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
-      class:bg-primary={tab === 'mine'}
-      class:text-white={tab === 'mine'}
+      class:bg-action={tab === 'mine'}
+      class:text-on-action={tab === 'mine'}
       style={tab !== 'mine'
         ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
         : ''}
@@ -446,8 +446,8 @@
       on:click={() => setTab('saved')}
       aria-pressed={tab === 'saved'}
       class="px-4 py-1.5 rounded-full text-sm font-medium transition-colors cursor-pointer"
-      class:bg-primary={tab === 'saved'}
-      class:text-white={tab === 'saved'}
+      class:bg-action={tab === 'saved'}
+      class:text-on-action={tab === 'saved'}
       style={tab !== 'saved'
         ? 'color: var(--color-text-secondary); background: var(--color-input-bg);'
         : ''}
@@ -460,9 +460,9 @@
   {#if (tab === 'mine' || tab === 'saved') && !$userPublickey}
     <div class="flex flex-col items-center justify-center py-16 px-4">
       <div
-        class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+        class="w-16 h-16 rounded-full bg-gradient-to-br from-primary/10 to-primary/10 dark:from-primary/30 dark:to-primary/30 flex items-center justify-center mb-4"
       >
-        <BookmarkIcon size={32} weight="regular" class="text-orange-500" />
+        <BookmarkIcon size={32} weight="regular" class="text-primary" />
       </div>
       <h2 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
         Sign in to see your packs
@@ -474,7 +474,7 @@
       </p>
       <a
         href="/login"
-        class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
+        class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all"
       >
         Sign in
       </a>
@@ -498,9 +498,9 @@
   {:else if activeEvents.length === 0}
     <div class="flex flex-col items-center justify-center py-16 px-4">
       <div
-        class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+        class="w-16 h-16 rounded-full bg-gradient-to-br from-primary/10 to-primary/10 dark:from-primary/30 dark:to-primary/30 flex items-center justify-center mb-4"
       >
-        <BookmarkIcon size={32} weight="regular" class="text-orange-500" />
+        <BookmarkIcon size={32} weight="regular" class="text-primary" />
       </div>
       <h2 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
         {tab === 'discover'

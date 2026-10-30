@@ -216,8 +216,8 @@
 
     <div class="pt-8">
       <div>
-        <h3 class="text-lg leading-6 font-medium text-gray-900">Recipes</h3>
-        <p class="mt-1 text-sm text-gray-500">Recipes in this list</p>
+        <h3 class="text-lg leading-6 font-medium text-[var(--color-text-primary)]">Recipes</h3>
+        <p class="mt-1 text-sm text-[var(--color-caption)]">Recipes in this list</p>
       </div>
 
       <div class="sm:col-span-6">

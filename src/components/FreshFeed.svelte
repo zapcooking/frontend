@@ -17,6 +17,8 @@
    */
   import { onMount, onDestroy, tick } from 'svelte';
   import { browser } from '$app/environment';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { ndk, userPublickey } from '$lib/nostr';
   import type { LiveTail } from '$lib/freshFeed/relay';
@@ -99,6 +101,7 @@
   import FreshTopicsSheet from './FreshTopicsSheet.svelte';
   import FreshTopicChips from './FreshTopicChips.svelte';
   import { loadTopics, type Topic, type TopicCatalog } from '$lib/freshFeed/topicList';
+  import { findTopic, parseTopicSlug, withFreshTopic } from '$lib/freshFeed/topicRoute';
   import { NO_DISCOVERY, specialPostIds, type FreshDiscovery } from '$lib/freshFeed/discovery';
   import { buildTopicChips, type TopicChip } from '$lib/freshFeed/topicChips';
   import {
@@ -198,6 +201,10 @@
   let topicsOpen = false;
   let catalog: TopicCatalog = { groups: [], featured: null, suggested: null };
   let topicsLoading = false;
+  let catalogReady = false;
+  let mounted = false;
+  let lastTopicRoute: string | null | undefined;
+  let routeResolved = false;
   let topic: Topic | null = null;
   let topicPosts: Post[] = [];
   let topicSeen = new Set<string>();
@@ -604,10 +611,8 @@
   }
 
   function openTopicSlug(slug: string) {
-    for (const g of catalog.groups) {
-      const t = g.topics.find((x) => x.slug === slug);
-      if (t) return openTopic(t);
-    }
+    const t = findTopic(catalog.groups, slug);
+    if (t) openTopic(t);
   }
 
   /** The gate on the full views: a non-member (or signed out) gets the pitch instead. */
@@ -1049,7 +1054,46 @@
   async function refreshCatalog() {
     topicsLoading = true;
     catalog = await loadTopics();
+    catalogReady = true;
     topicsLoading = false;
+  }
+
+  // URL changes (including browser Back/Forward) resolve through the actual
+  // catalog and then use openTopic's existing public-preview/member gate.
+  $: if (browser && mounted && catalogReady && !topicsLoading) {
+    applyTopicRoute($page.url.searchParams.get('topic'), catalog.groups);
+  }
+
+  function applyTopicRoute(raw: string | null, groups: TopicCatalog['groups']) {
+    if (raw === lastTopicRoute && routeResolved) return;
+    const initial = lastTopicRoute === undefined;
+    lastTopicRoute = raw;
+    if (raw === null) {
+      routeResolved = true;
+      if (!initial && topic) closeTopic(false);
+      return;
+    }
+    const slug = parseTopicSlug(raw);
+    const selected = slug ? findTopic(groups, slug) : null;
+    if (!selected) {
+      // A later catalog retry can resolve a valid slug after a network outage.
+      routeResolved = !slug;
+      closeTopic(false);
+      notice = 'That food topic is not available right now. Choose a topic from the Fresh feed.';
+      return;
+    }
+    routeResolved = true;
+    openTopic(selected, false);
+  }
+
+  function writeTopicRoute(slug: string | null) {
+    if (!browser) return;
+    lastTopicRoute = slug;
+    routeResolved = true;
+    const href = withFreshTopic($page.url, slug);
+    if (href !== `${$page.url.pathname}${$page.url.search}${$page.url.hash}`) {
+      void goto(href, { noScroll: true, keepFocus: true });
+    }
   }
 
   async function openTopics() {
@@ -1279,7 +1323,8 @@
    * relay's newest posts on it from the free window, at most five, then
    * the "members see more" card) — $lib/freshFeed/topicGate topicView.
    */
-  function openTopic(t: Topic) {
+  function openTopic(t: Topic, updateUrl = true) {
+    if (updateUrl) writeTopicRoute(t.slug);
     const view = topicView(gate('topic', t.name, () => openTopic(t), false));
     if (archiveView) closeArchive();
     topicGen++;
@@ -1296,7 +1341,8 @@
     if (view !== 'wait') loadTopicPage();
   }
 
-  function closeTopic() {
+  function closeTopic(updateUrl = true) {
+    if (updateUrl) writeTopicRoute(null);
     topicGen++;
     topicLoading = false;
     topicPreview = false;
@@ -1369,6 +1415,7 @@
   }
 
   onMount(() => {
+    mounted = true;
     if (pk) {
       queueMembershipLookup(pk);
       muteListStore.load();
@@ -1450,7 +1497,7 @@
       <div class="fixed top-4 left-1/2 -translate-x-1/2 z-50">
         <button
           on:click={showPending}
-          class="py-2 px-4 bg-primary text-white rounded-full shadow-lg hover:bg-primary/90 transition-all flex items-center gap-2"
+          class="py-2 px-4 bg-action text-on-action rounded-full shadow-lg hover:bg-action-hover transition-all flex items-center gap-2"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -1532,7 +1579,7 @@
             </p>
             <button
               type="button"
-              class="px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+              class="px-4 py-2 rounded-full text-sm font-medium bg-action text-on-action"
               on:click={retryMembership}
             >
               Retry
@@ -1550,7 +1597,7 @@
             </p>
             <button
               type="button"
-              class="px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+              class="px-4 py-2 rounded-full text-sm font-medium bg-action text-on-action"
               on:click={archiveLogin}
             >
               Log in to the feed
@@ -1564,7 +1611,7 @@
           </p>
           <button
             on:click={() => (archiveView === 'day' ? openOnThisDay() : openTimeMachine(monthKey))}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Retry
           </button>
@@ -1685,7 +1732,7 @@
           </p>
           <button
             on:click={retryTopic}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Retry
           </button>
@@ -1714,7 +1761,7 @@
           </div>
           <button
             on:click={loadFirst}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Retry
           </button>
@@ -1728,7 +1775,7 @@
             <p class="text-sm">New posts from the curated food relay will show up here.</p>
             <button
               on:click={loadFirst}
-              class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
             >
               Refresh
             </button>
@@ -1994,7 +2041,7 @@
       <p class="text-sm mb-4" style="color: var(--color-text-primary);">{notice}</p>
       <button
         on:click={() => (notice = null)}
-        class="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+        class="w-full px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
       >
         Close
       </button>

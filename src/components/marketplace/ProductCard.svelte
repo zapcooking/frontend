@@ -172,7 +172,7 @@
 		{/if}
 
 		<!-- Shipping / Delivery indicator -->
-		<div class="flex items-center gap-1.5 text-xs {isDigital ? 'text-emerald-400' : 'text-gray-400'}">
+		<div class="flex items-center gap-1.5 text-xs {isDigital ? 'text-emerald-400' : 'text-[var(--color-caption)]'}">
 			{#if isDigital}
 				<CloudArrowDownIcon size={14} />
 			{:else}
@@ -225,14 +225,14 @@
 	}
 
 	.product-card:hover {
-		border-color: rgba(249, 115, 22, 0.3);
-		box-shadow: 0 8px 24px rgba(249, 115, 22, 0.1);
+		border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+		box-shadow: 0 8px 24px color-mix(in srgb, var(--color-primary) 10%, transparent);
 		transform: translateY(-2px);
 	}
 
 	.image-container {
 		@apply w-full aspect-square relative;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.image {
@@ -255,13 +255,13 @@
 	}
 
 	.relist-button {
-		background-color: rgba(249, 115, 22, 0.9);
+		background-color: color-mix(in srgb, var(--color-action) 90%, transparent);
 		backdrop-filter: blur(4px);
 		color: white;
 	}
 
 	.relist-button:hover {
-		background-color: rgba(234, 88, 12, 1);
+		background-color: var(--color-action-hover);
 		transform: scale(1.1);
 	}
 
@@ -277,22 +277,22 @@
 	}
 
 	.view-button {
-		background-color: var(--color-accent);
+		background-color: var(--color-action);
 		color: white;
 	}
 
 	.product-card:hover .view-button {
-		background-color: #ea580c;
+		background-color: var(--color-action);
 	}
 
 	.message-button {
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
-		color: var(--color-accent);
-		border: 1px solid rgba(249, 115, 22, 0.3);
+		background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
+		color: var(--color-primary);
+		border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
 	}
 
 	.message-button:hover {
-		background-color: rgba(249, 115, 22, 0.15);
-		border-color: rgba(249, 115, 22, 0.5);
+		background-color: color-mix(in srgb, var(--color-primary) 15%, transparent);
+		border-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
 	}
 </style>

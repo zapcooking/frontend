@@ -74,7 +74,7 @@
 	<div class="flex flex-col gap-2 mb-6">
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-3">
-				<StorefrontIcon size={32} weight="duotone" class="text-orange-500" />
+				<StorefrontIcon size={32} weight="duotone" class="text-primary" />
 				<h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">The Market</h1>
 			</div>
 			<div class="flex items-center gap-2">
@@ -82,7 +82,7 @@
 					<a
 						href="/my-store/kitchen"
 						class="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all hover:scale-105"
-						style="background: linear-gradient(135deg, #f97316, #ea580c); color: white;"
+						style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 					>
 						<PlusIcon size={18} weight="bold" />
 						<span class="hidden sm:inline">Create Store</span>
@@ -155,12 +155,12 @@
 		</div>
 	{:else if error}
 		<div class="text-center py-12">
-			<p class="text-red-500 mb-4">{error}</p>
+			<p class="text-[var(--color-danger)] mb-4">{error}</p>
 			<button
 				type="button"
 				on:click={loadKitchens}
 				class="px-4 py-2 rounded-lg font-medium transition-colors"
-				style="background-color: var(--color-accent); color: white;"
+				style="background-color: var(--color-action); color: var(--color-on-action);"
 			>
 				Try Again
 			</button>
@@ -188,7 +188,7 @@
 				<a
 					href="/my-store/kitchen"
 					class="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-transform hover:scale-105"
-					style="background: linear-gradient(135deg, #f97316, #fb923c); color: white;"
+					style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 				>
 					<PlusIcon size={20} weight="bold" />
 					Create Your Store
@@ -221,14 +221,14 @@
 
 	.nav-pill:hover {
 		color: var(--color-text-primary);
-		border-color: var(--color-accent, #f97316);
+		border-color: var(--color-primary);
 	}
 
 	.nav-pill.active {
-		background-color: rgba(249, 115, 22, 0.12);
-		color: #f97316;
-		border-color: #f97316;
-		box-shadow: 0 0 8px rgba(249, 115, 22, 0.25);
+		background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
+		color: var(--color-primary);
+		border-color: var(--color-primary);
+		box-shadow: 0 0 8px color-mix(in srgb, var(--color-primary) 25%, transparent);
 	}
 
 	.kitchens-grid {
@@ -257,7 +257,7 @@
 
 	.search-input:focus {
 		outline: none;
-		border-color: var(--color-accent);
+		border-color: var(--color-primary);
 	}
 
 	.members-pill {
@@ -269,14 +269,14 @@
 
 	.members-pill:hover {
 		color: var(--color-text-primary);
-		border-color: var(--color-accent, #f97316);
+		border-color: var(--color-primary);
 	}
 
 	.members-pill.active {
-		background-color: rgba(249, 115, 22, 0.12);
-		color: #f97316;
-		border-color: #f97316;
-		box-shadow: 0 0 8px rgba(249, 115, 22, 0.25);
+		background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
+		color: var(--color-primary);
+		border-color: var(--color-primary);
+		box-shadow: 0 0 8px color-mix(in srgb, var(--color-primary) 25%, transparent);
 	}
 
 	.skeleton-card {
@@ -286,17 +286,17 @@
 
 	.skeleton-banner {
 		aspect-ratio: 3 / 1;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.skeleton-line {
 		@apply h-3 rounded;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.skeleton-button {
 		@apply h-8 rounded-lg mt-2;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.animate-fade-in {

@@ -1,6 +1,8 @@
 <script lang="ts">
   import ImageIcon from 'phosphor-svelte/lib/Image';
   import VideoIcon from 'phosphor-svelte/lib/Video';
+  import CopyIcon from 'phosphor-svelte/lib/Copy';
+  import CheckIcon from 'phosphor-svelte/lib/Check';
   import type { MediaAttachment } from '$lib/composerMedia';
 
   /**
@@ -16,6 +18,22 @@
   let open = false;
 
   $: count = media.length;
+
+  // Copy feedback is per row and brief: which URL landed should be
+  // readable at a glance, then the row goes back to offering the copy.
+  let copiedIndex: number | null = null;
+  let copyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  async function copyUrl(url: string, index: number) {
+    try {
+      await navigator.clipboard.writeText(url);
+      copiedIndex = index;
+      if (copyTimeout) clearTimeout(copyTimeout);
+      copyTimeout = setTimeout(() => (copiedIndex = null), 800);
+    } catch (error) {
+      console.error('Failed to copy attachment URL:', error);
+    }
+  }
 </script>
 
 <div class="media-drawer">
@@ -54,6 +72,20 @@
           {#if m.alt?.trim()}
             <span class="media-drawer-alt" title={m.alt}>ALT</span>
           {/if}
+          <button
+            type="button"
+            class="media-drawer-copy"
+            class:copied={copiedIndex === i}
+            on:click={() => copyUrl(m.url, i)}
+            title={copiedIndex === i ? 'Copied' : 'Copy URL'}
+            aria-label={copiedIndex === i ? 'URL copied' : `Copy attachment ${i + 1} URL`}
+          >
+            {#if copiedIndex === i}
+              <CheckIcon size={12} weight="bold" />
+            {:else}
+              <CopyIcon size={12} />
+            {/if}
+          </button>
         </li>
       {/each}
     </ul>
@@ -140,10 +172,29 @@
     flex-shrink: 0;
     padding: 0 0.375rem;
     border-radius: 0.25rem;
-    background: var(--color-primary, #f97316);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.5625rem;
     font-weight: 700;
     letter-spacing: 0.04em;
+  }
+
+  .media-drawer-copy {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.125rem;
+    border-radius: 0.25rem;
+    color: var(--color-caption);
+    cursor: pointer;
+  }
+
+  .media-drawer-copy:hover {
+    color: var(--color-text-secondary);
+  }
+
+  .media-drawer-copy.copied {
+    color: var(--color-primary, #f97316);
   }
 </style>

@@ -93,7 +93,7 @@
       on:load={handleImageLoad}
     />
     {#if !imageLoaded}
-      <div class="absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700"></div>
+      <div class="absolute inset-0 animate-pulse bg-[var(--color-skeleton-base)]"></div>
     {/if}
 
     <!-- Bookmark Icon -->
@@ -158,7 +158,7 @@
           {#each tags.slice(0, 3) as tag}
             <span
               class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
-              style="background-color: rgba(255, 107, 53, 0.1); color: #ff6b35;"
+              style="background-color: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary);"
             >
               #{tag}
             </span>

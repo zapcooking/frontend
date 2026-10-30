@@ -8,6 +8,7 @@
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
+  import { nudgeUnread } from '$lib/accountNudge';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { triggerNotificationsNav } from '$lib/notificationsNav';
   import { openWallet, closeWallet, walletModalOpen } from '$lib/wallet';
@@ -96,7 +97,7 @@
     >
       <span class="relative">
         <BellIcon size={28} weight={pathname.startsWith('/notifications') ? 'fill' : 'bold'} />
-        {#if $unreadCount > 0}
+        {#if $unreadCount + $nudgeUnread > 0}
           <span class="badge-dot" aria-hidden="true"></span>
         {/if}
       </span>
@@ -138,7 +139,7 @@
   }
 
   .nav-tab.active {
-    color: var(--color-accent, #f97316);
+    color: var(--color-nav-active);
   }
 
   .badge-dot {

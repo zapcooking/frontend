@@ -784,7 +784,7 @@
             type="button"
             on:click|stopPropagation={() => selectCoverRecipe(recipeEvent)}
             disabled={isSubmitting}
-            class="relative aspect-square rounded-lg overflow-hidden border-2 transition-all cursor-pointer {isSelected ? 'border-orange-500 ring-2 ring-orange-200' : 'border-transparent hover:border-orange-300'}"
+            class="relative aspect-square rounded-lg overflow-hidden border-2 transition-all cursor-pointer {isSelected ? 'border-primary ring-2 ring-orange-200' : 'border-transparent hover:border-primary'}"
             aria-label="Select {recipeTitle} as cover"
           >
             {#if recipeImage}
@@ -794,13 +794,13 @@
                 class="w-full h-full object-cover pointer-events-none"
               />
             {:else}
-              <div class="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center pointer-events-none">
+              <div class="w-full h-full bg-gradient-to-br from-[var(--color-light-input-border,var(--color-gray-200))] to-[var(--color-light-accent-gray,var(--color-gray-300))] dark:from-gray-700 dark:to-gray-800 flex items-center justify-center pointer-events-none">
                 <span class="text-xs text-caption text-center px-2">{recipeTitle}</span>
               </div>
             {/if}
             
             {#if isSelected}
-              <div class="absolute bottom-2 right-2 bg-orange-500 text-white text-xs px-2 py-1 rounded font-semibold">
+              <div class="absolute bottom-2 right-2 bg-action text-on-action text-xs px-2 py-1 rounded font-semibold">
                 ✓ Selected
               </div>
             {/if}
@@ -855,7 +855,7 @@
     <div class="flex flex-wrap items-center justify-center gap-2">
       <button
         on:click={() => loadData()}
-        class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
+        class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all"
       >
         Retry
       </button>
@@ -935,7 +935,7 @@
         <button
           on:click={openSharePackModal}
           disabled={events.length === 0}
-          class="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all shadow-md shadow-orange-500/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+          class="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all shadow-md shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
           title={events.length === 0
             ? 'Add recipes first'
             : 'Publish this collection as a zappable Recipe Pack'}
@@ -1069,9 +1069,9 @@
     {:else}
       <div class="flex flex-col items-center justify-center py-12 px-4">
         <div
-          class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+          class="w-16 h-16 rounded-full bg-gradient-to-br from-primary/10 to-primary/10 dark:from-primary/30 dark:to-primary/30 flex items-center justify-center mb-4"
         >
-          <BookmarkIcon size={32} weight="regular" class="text-orange-500" />
+          <BookmarkIcon size={32} weight="regular" class="text-primary" />
         </div>
         <h3 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
           No recipes in this collection yet.
@@ -1087,7 +1087,7 @@
           {#if isOwner && !offlineMode}
             <button
               on:click={openManageModal}
-              class="flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+              class="flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all"
             >
               <BookmarkIcon size={16} />
               Manage Recipes
@@ -1126,7 +1126,7 @@
     {/if}
     <a
       href="/my-kitchen"
-      class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
+      class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all"
     >
       <ArrowLeftIcon size={18} />
       Back to My Kitchen

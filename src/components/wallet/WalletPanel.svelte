@@ -3,6 +3,7 @@
   import { onMount, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { userPublickey } from '$lib/nostr';
+  import { recordNudgeMoment } from '$lib/accountNudge';
   import { portal } from '../Modal.svelte';
   import { getAuthManager } from '$lib/authManager';
   import {
@@ -2179,6 +2180,7 @@
       const provider = await requestProvider();
       if (provider) {
         enableBitcoinConnect();
+        if ($userPublickey) recordNudgeMoment($userPublickey, 'wallet');
         showAddWallet = false;
         successMessage = 'External wallet connected via Bitcoin Connect!';
       }
@@ -2208,6 +2210,7 @@
     try {
       const result = await enableWebln();
       if (result.success) {
+        if ($userPublickey) recordNudgeMoment($userPublickey, 'wallet');
         showAddWallet = false;
         successMessage = `Connected to ${result.walletName}!`;
         // Refresh balance from WebLN
@@ -3078,7 +3081,7 @@
     <div use:portal={portalTarget}>
       <div
         class="wallet-toast fixed top-4 left-4 right-4 mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[10002]"
-        style="background-color: var(--color-bg-primary); border-color: #ef4444; color: #ef4444;"
+        style="background-color: var(--color-bg-primary); border-color: var(--color-danger); color: var(--color-danger);"
       >
         <WarningIcon size={20} class="flex-shrink-0" />
         <span class="flex-1 min-w-0 break-words text-sm">{errorMessage}</span>
@@ -3094,7 +3097,7 @@
     <div use:portal={portalTarget}>
       <div
         class="wallet-toast fixed top-4 left-4 right-4 mx-auto p-4 rounded-lg flex items-center gap-3 shadow-xl border z-[10002]"
-        style="background-color: var(--color-bg-primary); border-color: #22c55e; color: #22c55e;"
+        style="background-color: var(--color-bg-primary); border-color: var(--color-success); color: var(--color-success);"
       >
         <CheckCircleIcon size={20} class="flex-shrink-0" />
         <span class="flex-1 min-w-0 break-words text-sm">{successMessage}</span>
@@ -3401,7 +3404,7 @@
                   </div>
                   <button
                     type="button"
-                    class="text-xs font-medium text-amber-500 hover:text-amber-400 disabled:opacity-50"
+                    class="text-xs font-medium text-primary hover:text-primary disabled:opacity-50"
                     on:click={() => updateStableBalance(false)}
                     disabled={isUpdatingStableBalance}
                   >
@@ -3417,7 +3420,7 @@
                   </div>
                   <button
                     type="button"
-                    class="text-xs font-medium text-amber-500 hover:text-amber-400 disabled:opacity-50"
+                    class="text-xs font-medium text-primary hover:text-primary disabled:opacity-50"
                     on:click={() => updateStableBalance(true)}
                     disabled={isUpdatingStableBalance}
                   >
@@ -3429,7 +3432,7 @@
                 <p class="mt-1 text-xs text-caption">Eligible incoming Bitcoin converts to USDB. Turning this off converts remaining USDB back to Bitcoin. Conversion rates and fees apply.</p>
                 <div class="mt-3 flex gap-2">
                   <button type="button" class="flex-1 py-2 text-sm text-caption border border-input rounded-lg" on:click={() => (stableBalanceConfirmation = false)}>Not now</button>
-                  <button type="button" class="flex-1 py-2 text-sm font-medium bg-amber-500 text-white rounded-lg disabled:opacity-50" on:click={() => updateStableBalance(true)} disabled={isUpdatingStableBalance}>{isUpdatingStableBalance ? 'Enabling...' : 'Enable USD'}</button>
+                  <button type="button" class="flex-1 py-2 text-sm font-medium bg-action text-on-action rounded-lg disabled:opacity-50" on:click={() => updateStableBalance(true)} disabled={isUpdatingStableBalance}>{isUpdatingStableBalance ? 'Enabling...' : 'Enable USD'}</button>
                 </div>
               {:else}
                 <div class="flex items-center justify-between gap-3">
@@ -3437,7 +3440,7 @@
                     <div class="text-sm font-semibold text-primary-color">USD balance</div>
                     <div class="text-xs text-caption mt-0.5">Protect future wallet value from Bitcoin price movement.</div>
                   </div>
-                  <button type="button" class="text-xs font-medium text-amber-500 hover:text-amber-400" on:click={() => (stableBalanceConfirmation = true)}>Enable</button>
+                  <button type="button" class="text-xs font-medium text-primary hover:text-primary" on:click={() => (stableBalanceConfirmation = true)}>Enable</button>
                 </div>
               {/if}
             </div>
@@ -3448,14 +3451,14 @@
           {#if $activeWallet.kind !== 1 && !isPanelScrolled && dashboardView === 'home'}
             <div class="flex gap-3 mt-6">
               <button
-                class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors"
+                class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-action hover:bg-action-hover text-on-action font-medium transition-colors"
                 on:click={openSendView}
               >
                 <ArrowUpIcon size={20} weight="bold" />
                 Send
               </button>
               <button
-                class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors"
+                class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-action hover:bg-action-hover text-on-action font-medium transition-colors"
                 on:click={openReceiveView}
               >
                 <ArrowDownIcon size={20} weight="bold" />
@@ -3516,7 +3519,7 @@
                 <div class="flex items-center gap-4">
                   {#if encryptionSupported && !isNip46User}
                     <button
-                      class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50"
+                      class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-action hover:bg-action-hover text-on-action transition-colors disabled:opacity-50"
                       on:click={handleBackupActiveWalletNow}
                       disabled={isBackingUp}
                     >
@@ -3587,7 +3590,7 @@
                       </button>
                     </div>
                     <button
-                      class="w-full py-2 px-4 rounded-xl text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+                      class="w-full py-2 px-4 rounded-xl text-sm font-medium bg-action hover:bg-action-hover text-on-action transition-colors"
                       on:click={handlePaperBackupDone}
                     >
                       I've written it down
@@ -3640,7 +3643,7 @@
             <div class="flex items-center gap-2 mb-1">
               <h3 class="font-semibold text-primary-color">Pending Deposits</h3>
               <button
-                class="ml-auto p-1 rounded hover:bg-amber-500/20 transition-colors"
+                class="ml-auto p-1 rounded hover:bg-primary/20 transition-colors"
                 on:click={loadUnclaimedDeposits}
                 disabled={isLoadingDeposits}
                 title="Refresh deposits"
@@ -3693,7 +3696,7 @@
 
                   <div class="flex gap-2">
                     <button
-                      class="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors disabled:opacity-50"
+                      class="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-action hover:bg-action-hover text-on-action font-medium transition-colors disabled:opacity-50"
                       on:click={() => handleClaimDeposit(deposit.txid, deposit.vout)}
                       disabled={isClaimingDeposit}
                     >
@@ -3738,7 +3741,7 @@
               </p>
               <p class="text-sm text-caption mb-4">Browser wallet connected via WebLN</p>
               <button
-                class="px-5 py-3 min-h-[44px] rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
+                class="px-5 py-3 min-h-[44px] rounded-full font-semibold text-sm text-caption hover:text-[var(--color-danger)] transition-colors cursor-pointer"
                 style="border: 1px solid var(--color-input-border);"
                 on:click={handleDisconnectWebln}
               >
@@ -3780,7 +3783,7 @@
                     <div class="mb-4"></div>
                   {/if}
                   <button
-                    class="px-5 py-3 min-h-[44px] rounded-full font-semibold text-sm text-caption hover:text-red-500 transition-colors cursor-pointer"
+                    class="px-5 py-3 min-h-[44px] rounded-full font-semibold text-sm text-caption hover:text-[var(--color-danger)] transition-colors cursor-pointer"
                     style="border: 1px solid var(--color-input-border);"
                     on:click={handleDisableBitcoinConnect}
                   >
@@ -3828,7 +3831,7 @@
                   <span class="text-sm text-caption"> — embedded wallets below are paused</span>
                 </div>
                 <button
-                  class="text-xs px-2 py-1 rounded-full text-caption hover:text-red-500 transition-colors cursor-pointer"
+                  class="text-xs px-2 py-1 rounded-full text-caption hover:text-[var(--color-danger)] transition-colors cursor-pointer"
                   style="border: 1px solid var(--color-input-border);"
                   on:click={handleDisconnectWebln}
                 >
@@ -3875,7 +3878,7 @@
                         <!-- Notification dot for Spark wallets without lightning address (only show after wallet is initialized) -->
                         {#if wallet.kind === 4 && $sparkWalletInitialized && !$sparkLightningAddressStore && expandedWalletId !== wallet.id}
                           <span
-                            class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-amber-500 rounded-full border-2"
+                            class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-action rounded-full border-2"
                             style="border-color: var(--color-input-bg);"
                           ></span>
                         {/if}
@@ -3977,7 +3980,7 @@
                           Recovery Help
                         </button>
                         <button
-                          class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
+                          class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-[var(--color-danger)] hover:bg-red-500/10"
                           style="border: 1px solid var(--color-input-border);"
                           on:click={() =>
                             (walletToDelete = {
@@ -4027,7 +4030,7 @@
                                   class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"
                                 ></div>
                               {:else if isProfileSynced}
-                                <span class="text-green-500" title="Synced to your Nostr profile">
+                                <span class="text-[var(--color-success)]" title="Synced to your Nostr profile">
                                   <CheckCircleIcon size={18} weight="fill" />
                                 </span>
                               {:else}
@@ -4048,7 +4051,7 @@
                                 class="p-3 rounded-lg mb-3"
                                 style="background-color: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);"
                               >
-                                <div class="text-sm text-green-600 flex items-center gap-2">
+                                <div class="text-sm text-[var(--color-success)] flex items-center gap-2">
                                   <CheckCircleIcon size={16} weight="fill" />
                                   This address is set in your Nostr profile
                                 </div>
@@ -4090,7 +4093,7 @@
                             <div class="flex flex-wrap gap-2">
                               {#if !isProfileSynced}
                                 <button
-                                  class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
+                                  class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-action hover:bg-action-hover text-on-action"
                                   on:click={() => (showSyncConfirmModal = true)}
                                 >
                                   <UserCirclePlusIcon size={16} />
@@ -4107,7 +4110,7 @@
                                 </button>
                               {/if}
                               <button
-                                class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                                class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--color-danger)] hover:bg-red-500/10 transition-colors cursor-pointer"
                                 style="border: 1px solid var(--color-input-border);"
                                 on:click={() => (showDeleteAddressConfirmModal = true)}
                               >
@@ -4171,13 +4174,13 @@
                                 </div>
                               {:else if isUsernameAvailable === true}
                                 <div
-                                  class="w-6 h-6 flex items-center justify-center text-green-500 flex-shrink-0"
+                                  class="w-6 h-6 flex items-center justify-center text-[var(--color-success)] flex-shrink-0"
                                 >
                                   <CheckIcon size={20} weight="bold" />
                                 </div>
                               {:else if isUsernameAvailable === false}
                                 <div
-                                  class="w-6 h-6 flex items-center justify-center text-red-500 flex-shrink-0"
+                                  class="w-6 h-6 flex items-center justify-center text-[var(--color-danger)] flex-shrink-0"
                                 >
                                   <XIcon size={20} weight="bold" />
                                 </div>
@@ -4186,12 +4189,12 @@
                               {/if}
                             </div>
                             {#if isUsernameAvailable === false}
-                              <p class="text-xs text-red-500 mb-2">
+                              <p class="text-xs text-[var(--color-danger)] mb-2">
                                 This username is already taken
                               </p>
                             {/if}
                             <button
-                              class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                              class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer bg-action hover:bg-action-hover text-on-action disabled:opacity-50 disabled:cursor-not-allowed"
                               on:click={handleRegisterLightningAddress}
                               disabled={!isUsernameAvailable ||
                                 isRegisteringAddress ||
@@ -4280,7 +4283,7 @@
                           <span class="truncate">Check Backups</span>
                         </button>
                         <button
-                          class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-red-500 hover:bg-red-500/10"
+                          class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer text-[var(--color-danger)] hover:bg-red-500/10"
                           style="background-color: transparent; border: 1px solid var(--color-input-border);"
                           on:click={() =>
                             (walletToDelete = {
@@ -4334,7 +4337,7 @@
                                 {:else if profileLud16 && walletNwcLud16
                                     .toLowerCase()
                                     .trim() === profileLud16.toLowerCase().trim()}
-                                  <span class="text-green-500" title="Synced to your Nostr profile">
+                                  <span class="text-[var(--color-success)]" title="Synced to your Nostr profile">
                                     <CheckCircleIcon size={18} weight="fill" />
                                   </span>
                                 {:else}
@@ -4359,7 +4362,7 @@
                                   class="p-3 rounded-lg mb-3"
                                   style="background-color: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);"
                                 >
-                                  <div class="text-sm text-green-600 flex items-center gap-2">
+                                  <div class="text-sm text-[var(--color-success)] flex items-center gap-2">
                                     <CheckCircleIcon size={16} weight="fill" />
                                     This address is set in your Nostr profile
                                   </div>
@@ -4398,7 +4401,7 @@
 
                               {#if !isNwcSynced && wallet.active}
                                 <button
-                                  class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-amber-500 hover:bg-amber-600 text-white"
+                                  class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer bg-action hover:bg-action-hover text-on-action"
                                   on:click={() => (showNwcSyncConfirmModal = true)}
                                 >
                                   <UserCirclePlusIcon size={16} />
@@ -4472,7 +4475,7 @@
                         </a>
                       {:else}
                         <div
-                          class="w-10 h-10 rounded-full flex items-center justify-center bg-orange-500/20"
+                          class="w-10 h-10 rounded-full flex items-center justify-center bg-primary/20"
                         >
                           <ArrowUpIcon size={20} class="text-orange-500" />
                         </div>
@@ -4526,7 +4529,7 @@
                         </a>
                       {:else}
                         <div
-                          class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20"
+                          class="w-10 h-10 rounded-full flex items-center justify-center bg-primary/20"
                         >
                           <ArrowUpIcon size={20} class="text-amber-500" />
                         </div>
@@ -4574,7 +4577,7 @@
                       </a>
                     {:else}
                       <div
-                        class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-500/20"
+                        class="w-10 h-10 rounded-full flex items-center justify-center bg-primary/20"
                       >
                         {#if tx.type === 'incoming'}
                           <ArrowDownIcon size={20} class="text-amber-500" />
@@ -4645,12 +4648,12 @@
                           ? 'bg-sky-500/20'
                           : tx.type === 'incoming'
                             ? 'bg-green-500/20'
-                            : 'bg-orange-500/20'}"
+                            : 'bg-primary/20'}"
                       >
                         {#if isConversion}
                           <ArrowsLeftRightIcon size={20} class="text-sky-400" />
                         {:else if tx.type === 'incoming'}
-                          <ArrowDownIcon size={20} class="text-green-500" />
+                          <ArrowDownIcon size={20} class="text-[var(--color-success)]" />
                         {:else}
                           <ArrowUpIcon size={20} class="text-orange-500" />
                         {/if}
@@ -4673,7 +4676,7 @@
                           class="font-semibold text-right {isConversion
                             ? 'text-sky-400'
                             : tx.type === 'incoming'
-                              ? 'text-green-500'
+                              ? 'text-[var(--color-success)]'
                               : 'text-orange-500'}"
                         >
                           {#if $balanceVisible}
@@ -4700,7 +4703,7 @@
                           style="border-color: var(--color-input-border);"
                         >
                           <span class="text-caption">Status</span>
-                          <span class="{tx.status === 'failed' ? 'text-red-500' : 'text-primary-color'}">{tx.status === 'failed' ? 'Failed' : 'Completed'}</span>
+                          <span class="{tx.status === 'failed' ? 'text-[var(--color-danger)]' : 'text-primary-color'}">{tx.status === 'failed' ? 'Failed' : 'Completed'}</span>
                         </div>
                         <div
                           class="flex justify-between py-2.5 border-b"
@@ -4745,7 +4748,7 @@
                                 title="Copy transaction ID"
                               >
                                 {#if copiedTxId === tx.txid}
-                                  <CheckIcon size={14} class="text-green-500" />
+                                  <CheckIcon size={14} class="text-[var(--color-success)]" />
                                 {:else}
                                   <CopyIcon size={14} />
                                 {/if}
@@ -4772,7 +4775,7 @@
                                 title="Copy payment hash"
                               >
                                 {#if copiedTxId === tx.id}
-                                  <CheckIcon size={14} class="text-green-500" />
+                                  <CheckIcon size={14} class="text-[var(--color-success)]" />
                                 {:else}
                                   <CopyIcon size={14} />
                                 {/if}
@@ -4900,7 +4903,7 @@
               disabled={hasExistingSparkWallet}
             >
               <div
-                class="w-10 h-10 flex-shrink-0 rounded-full bg-orange-500/20 flex items-center justify-center"
+                class="w-10 h-10 flex-shrink-0 rounded-full bg-primary/20 flex items-center justify-center"
               >
                 <SparkLogo size={24} className="text-orange-500" />
               </div>
@@ -4928,7 +4931,7 @@
               disabled={hasExistingNwcWallet}
             >
               <div
-                class="w-10 h-10 flex-shrink-0 rounded-full bg-amber-500/20 flex items-center justify-center"
+                class="w-10 h-10 flex-shrink-0 rounded-full bg-primary/20 flex items-center justify-center"
               >
                 <NwcLogo size={28} />
               </div>
@@ -4976,7 +4979,7 @@
               disabled={$bitcoinConnectEnabled || $weblnConnected}
             >
               <div
-                class="w-10 h-10 flex-shrink-0 rounded-full bg-orange-500 flex items-center justify-center"
+                class="w-10 h-10 flex-shrink-0 rounded-full bg-action flex items-center justify-center"
               >
                 <BitcoinConnectLogo size={20} className="text-white" />
               </div>
@@ -5030,7 +5033,7 @@
           <div class="mt-4 text-center">
             <button
               type="button"
-              class="text-xs text-caption hover:text-orange-500 transition-colors cursor-pointer underline decoration-dotted underline-offset-4 bg-transparent border-0 p-0"
+              class="text-xs text-caption hover:text-primary transition-colors cursor-pointer underline decoration-dotted underline-offset-4 bg-transparent border-0 p-0"
               on:click={() => (showAltcoinReply = !showAltcoinReply)}
             >
               Looking for Ethereum, Solana, XRP, Cardano or other coins?
@@ -5289,7 +5292,7 @@
                 {#each sparkBackupOptions as backup}
                   <button
                     class={`w-full p-3 rounded-lg text-left transition-colors hover:bg-accent-gray ${
-                      selectedSparkBackupId === backup.id ? 'border-amber-500 bg-amber-500/10' : ''
+                      selectedSparkBackupId === backup.id ? 'border-amber-500 bg-primary/10' : ''
                     }`}
                     style="border: 1px solid var(--color-input-border);"
                     on:click={() => (selectedSparkBackupId = backup.id)}
@@ -5410,7 +5413,7 @@
           </h2>
           <div
             class="mb-4 p-4 rounded-lg"
-            style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;"
+            style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger);"
           >
             <WarningIcon size={20} class="inline mr-2" />
             Never share this phrase with anyone. Anyone with these words can access your funds.
@@ -5633,7 +5636,7 @@
               Cancel
             </Button>
             <button
-              class="w-full px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+              class="w-full px-4 py-2 rounded-full bg-action hover:bg-action-hover text-on-action font-medium transition-colors cursor-pointer disabled:opacity-50"
               on:click={() => {
                 showSparkCreateConfirmModal = false;
                 handleCreateSparkWallet();
@@ -5825,7 +5828,7 @@
               Cancel
             </Button>
             <button
-              class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+              class="flex-1 px-4 py-2 rounded-full bg-action hover:bg-action-hover text-on-action font-medium transition-colors cursor-pointer disabled:opacity-50"
               on:click={handleSyncToProfile}
               disabled={isSyncingProfile}
             >
@@ -5874,7 +5877,7 @@
               Cancel
             </Button>
             <button
-              class="flex-1 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer disabled:opacity-50"
+              class="flex-1 px-4 py-2 rounded-full bg-action hover:bg-action-hover text-on-action font-medium transition-colors cursor-pointer disabled:opacity-50"
               on:click={handleNwcSyncToProfile}
               disabled={isSyncingProfile}
             >
@@ -5961,7 +5964,7 @@
       {#if sendSuccess}
         <div
           class="mb-4 p-4 rounded-lg flex items-center gap-2"
-          style="background-color: rgba(34, 197, 94, 0.1); color: #22c55e;"
+          style="background-color: rgba(34, 197, 94, 0.1); color: var(--color-success);"
         >
           <CheckCircleIcon size={20} />
           <span>{sendSuccess}</span>
@@ -5971,7 +5974,7 @@
       {#if sendError}
         <div
           class="mb-4 p-4 rounded-lg flex items-center gap-2"
-          style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;"
+          style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger);"
         >
           <WarningIcon size={20} />
           <span>{sendError}</span>
@@ -6053,7 +6056,7 @@
               {/if}
             </div>
             {#if qrScanError}
-              <div class="mt-1 text-xs text-red-400 flex items-center gap-1">
+              <div class="mt-1 text-xs text-[var(--color-danger)] flex items-center gap-1">
                 <WarningIcon size={12} />
                 {qrScanError}
               </div>
@@ -6067,7 +6070,7 @@
                 {#if isBtcAddress && $activeWallet?.kind === 4 && $walletBalance !== null && $walletBalance > 0}
                   <button
                     type="button"
-                    class="text-xs text-amber-500 hover:text-amber-400 font-medium"
+                    class="text-xs text-primary hover:text-primary font-medium"
                     on:click={() => {
                       sendAmount = Number($walletBalance);
                       sendingMaxBalance = true;
@@ -6120,7 +6123,7 @@
         {#if isBtcAddress && $activeWallet?.kind === 4}
           {#if !onchainFeeQuote}
             <button
-              class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+              class="w-full py-3 px-4 rounded-xl bg-action hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed text-on-action font-medium transition-colors flex items-center justify-center gap-2"
               on:click={handlePrepareOnchainSend}
               disabled={isPreparingOnchain || !sendInput.trim() || sendAmount <= 0}
             >
@@ -6181,7 +6184,7 @@
             </div>
 
             <button
-              class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+              class="w-full py-3 px-4 rounded-xl bg-action hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed text-on-action font-medium transition-colors flex items-center justify-center gap-2"
               on:click={() => (showOnchainConfirmation = true)}
             >
               <ArrowUpIcon size={20} weight="bold" />
@@ -6242,7 +6245,7 @@
                   Back
                 </button>
                 <button
-                  class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+                  class="flex-1 py-3 px-4 rounded-xl bg-action hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed text-on-action font-medium transition-colors flex items-center justify-center gap-2"
                   on:click={handleSendOnchain}
                   disabled={isSendingOnchain}
                 >
@@ -6264,7 +6267,7 @@
             </div>
           {/if}
           <button
-            class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors flex items-center justify-center gap-2"
+            class="w-full py-3 px-4 rounded-xl bg-action hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed text-on-action font-medium transition-colors flex items-center justify-center gap-2"
             on:click={handleSend}
             disabled={isSending ||
               !sendInput.trim() ||
@@ -6337,7 +6340,7 @@
       {#if receiveError}
         <div
           class="mb-4 p-4 rounded-lg flex items-center gap-2"
-          style="background-color: rgba(239, 68, 68, 0.1); color: #ef4444;"
+          style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger);"
         >
           <WarningIcon size={20} />
           <span>{receiveError}</span>
@@ -6349,8 +6352,8 @@
         <div class="flex rounded-lg p-1 mb-4" style="background-color: var(--color-input-bg);">
           <button
             class="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors"
-            class:bg-amber-500={receiveMode === 'lightning'}
-            class:text-white={receiveMode === 'lightning'}
+            class:bg-action={receiveMode === 'lightning'}
+            class:text-on-action={receiveMode === 'lightning'}
             class:text-caption={receiveMode !== 'lightning'}
             on:click={() => (receiveMode = 'lightning')}
           >
@@ -6358,8 +6361,8 @@
           </button>
           <button
             class="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-1"
-            class:bg-amber-500={receiveMode === 'onchain'}
-            class:text-white={receiveMode === 'onchain'}
+            class:bg-action={receiveMode === 'onchain'}
+            class:text-on-action={receiveMode === 'onchain'}
             class:text-caption={receiveMode !== 'onchain'}
             on:click={() => {
               receiveMode = 'onchain';
@@ -6494,7 +6497,7 @@
 
             <!-- Copy Button -->
             <button
-              class="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors flex items-center justify-center gap-2"
+              class="w-full py-3 px-4 rounded-xl bg-action hover:bg-action-hover text-on-action font-medium transition-colors flex items-center justify-center gap-2"
               on:click={async () => {
                 if (onchainAddress) {
                   await navigator.clipboard.writeText(onchainAddress);
@@ -6524,7 +6527,7 @@
                         </div>
                         <div class="flex gap-2">
                           <button
-                            class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                            class="px-3 py-1 rounded-lg bg-action hover:bg-action-hover text-on-action text-sm font-medium transition-colors disabled:opacity-50"
                             on:click={() => handleClaimDeposit(deposit.txid, deposit.vout)}
                             disabled={isClaimingDeposit}
                           >
@@ -6545,7 +6548,7 @@
                         </div>
                       </div>
                       {#if deposit.claimError && deposit.claimError.type !== 'maxDepositClaimFeeExceeded'}
-                        <div class="mt-2 text-xs text-red-500 flex items-start gap-1">
+                        <div class="mt-2 text-xs text-[var(--color-danger)] flex items-start gap-1">
                           <WarningIcon size={14} class="flex-shrink-0 mt-0.5" />
                           <span>
                             {#if deposit.claimError.type === 'missingUtxo'}
@@ -6585,7 +6588,7 @@
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {#each RECEIVE_PRESETS as preset}
                 <button
-                  class="min-h-[44px] py-3 px-2 rounded-lg border border-input hover:border-amber-500 hover:bg-amber-500/10 text-primary-color font-medium transition-colors"
+                  class="min-h-[44px] py-3 px-2 rounded-lg border border-input hover:border-primary hover:bg-primary/10 text-primary-color font-medium transition-colors"
                   on:click={() => handleGenerateInvoice(preset)}
                   disabled={isGeneratingInvoice}
                 >
@@ -6611,7 +6614,7 @@
               min="1"
             />
             <button
-              class="min-h-[44px] py-3 px-4 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors"
+              class="min-h-[44px] py-3 px-4 rounded-lg bg-action hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed text-on-action font-medium transition-colors"
               on:click={() => handleGenerateInvoice()}
               disabled={isGeneratingInvoice ||
                 !customReceiveAmount ||
@@ -6825,9 +6828,9 @@
               <div
                 class="w-20 h-20 mx-auto mb-4 rounded-full bg-green-500/20 flex items-center justify-center"
               >
-                <CheckCircleIcon size={48} class="text-green-500" weight="fill" />
+                <CheckCircleIcon size={48} class="text-[var(--color-success)]" weight="fill" />
               </div>
-              <div class="text-xl font-bold text-green-500 mb-2">Payment Received!</div>
+              <div class="text-xl font-bold text-[var(--color-success)] mb-2">Payment Received!</div>
               <div class="text-lg text-primary-color">
                 {formatBalance(receiveAmount)} sats
               </div>
@@ -6867,7 +6870,7 @@
 
             <div class="flex gap-2">
               <button
-                class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors flex items-center justify-center gap-2"
+                class="flex-1 py-3 px-4 rounded-xl bg-action hover:bg-action-hover text-on-action font-medium transition-colors flex items-center justify-center gap-2"
                 on:click={async () => {
                   const copied = await copyToClipboard(generatedInvoice);
                   if (copied) {
@@ -6923,7 +6926,7 @@
   >
     <div
       class="rounded-2xl p-6 max-w-md w-full"
-      style="background-color: var(--color-bg); border: 1px solid var(--color-input-border);"
+      style="background-color: var(--color-light-bg-secondary, var(--color-bg)); border: 1px solid var(--color-input-border);"
     >
       <h3 class="text-lg font-semibold text-primary-color mb-4">Refund Deposit</h3>
 
@@ -6968,7 +6971,7 @@
                 Estimated refund network fee (approx. 200 vB): {formatBalance(estRefundFee)} sats.
               </p>
               {#if estRefundFee > refundDeposit_.amountSats * 0.5}
-                <p class="text-xs text-red-500 mt-1">
+                <p class="text-xs text-[var(--color-danger)] mt-1">
                   Warning: The estimated network fee is more than 50% of your deposit. Consider
                   using a lower fee rate.
                 </p>
@@ -6980,8 +6983,8 @@
               <button
                 type="button"
                 class="flex-1 py-1.5 px-2 rounded text-xs border border-input hover:bg-input transition-colors"
-                class:bg-amber-500={refundFeeRate === mempoolFees.fastestFee}
-                class:text-white={refundFeeRate === mempoolFees.fastestFee}
+                class:bg-action={refundFeeRate === mempoolFees.fastestFee}
+                class:text-on-action={refundFeeRate === mempoolFees.fastestFee}
                 class:border-amber-500={refundFeeRate === mempoolFees.fastestFee}
                 on:click={() => (refundFeeRate = mempoolFees?.fastestFee || 10)}
               >
@@ -6990,8 +6993,8 @@
               <button
                 type="button"
                 class="flex-1 py-1.5 px-2 rounded text-xs border border-input hover:bg-input transition-colors"
-                class:bg-amber-500={refundFeeRate === mempoolFees.halfHourFee}
-                class:text-white={refundFeeRate === mempoolFees.halfHourFee}
+                class:bg-action={refundFeeRate === mempoolFees.halfHourFee}
+                class:text-on-action={refundFeeRate === mempoolFees.halfHourFee}
                 class:border-amber-500={refundFeeRate === mempoolFees.halfHourFee}
                 on:click={() => (refundFeeRate = mempoolFees?.halfHourFee || 5)}
               >
@@ -7000,8 +7003,8 @@
               <button
                 type="button"
                 class="flex-1 py-1.5 px-2 rounded text-xs border border-input hover:bg-input transition-colors"
-                class:bg-amber-500={refundFeeRate === mempoolFees.hourFee}
-                class:text-white={refundFeeRate === mempoolFees.hourFee}
+                class:bg-action={refundFeeRate === mempoolFees.hourFee}
+                class:text-on-action={refundFeeRate === mempoolFees.hourFee}
                 class:border-amber-500={refundFeeRate === mempoolFees.hourFee}
                 on:click={() => (refundFeeRate = mempoolFees?.hourFee || 2)}
               >
@@ -7037,7 +7040,7 @@
             Cancel
           </button>
           <button
-            class="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors disabled:opacity-50"
+            class="flex-1 py-3 px-4 rounded-xl bg-action hover:bg-action-hover text-on-action font-medium transition-colors disabled:opacity-50"
             on:click={handleRefundDeposit}
             disabled={isRefunding || !refundAddress.trim()}
           >
@@ -7255,7 +7258,7 @@
       120deg,
       transparent 0%,
       transparent 40%,
-      rgba(255, 255, 255, 0.22) 50%,
+      var(--color-bg-secondary) 50%,
       transparent 60%,
       transparent 100%
     );
@@ -7284,7 +7287,7 @@
      stay above the wallet-modal-body :global() rules that strip
      button backgrounds otherwise. */
   .explore-prompt-cta:hover {
-    background-color: rgba(255, 255, 255, 0.05) !important;
+    background-color: var(--color-input-bg) !important;
     border-color: rgba(245, 158, 11, 0.5) !important;
   }
 

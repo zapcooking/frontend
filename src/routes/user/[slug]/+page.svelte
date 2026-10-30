@@ -1589,7 +1589,7 @@
             <!-- Zap button (hidden for muted users) -->
             {#if (profile?.lud16 || profile?.lud06) && hexpubkey && !$mutedPubkeys.has(hexpubkey)}
               <button
-                class="h-9 w-9 p-2 bg-yellow-500 hover:bg-yellow-400 rounded-full transition-colors disabled:opacity-50 flex items-center justify-center"
+                class="h-9 w-9 p-2 bg-action hover:bg-action-hover rounded-full transition-colors disabled:opacity-50 flex items-center justify-center"
                 on:click={handleZapClick}
                 disabled={isZapping}
                 aria-label="Zap user"
@@ -1615,7 +1615,7 @@
                 disabled={followLoading}
                 class="h-9 w-9 p-2 rounded-full transition-colors disabled:opacity-50 flex items-center justify-center {isFollowing
                   ? 'bg-input hover:bg-accent-gray'
-                  : 'bg-orange-500 hover:bg-orange-600'}"
+                  : 'bg-action hover:bg-action-hover text-on-action'}"
                 style={isFollowing ? 'color: var(--color-text-primary)' : ''}
                 aria-label={isFollowing ? 'Unfollow' : 'Follow'}
               >
@@ -1674,7 +1674,7 @@
           {#if needsTruncation}
             <button
               on:click={() => (bioExpanded = !bioExpanded)}
-              class="text-xs text-orange-500 hover:text-orange-600 transition-colors mt-1"
+              class="text-xs text-primary hover:text-[var(--color-text-primary)] transition-colors mt-1"
             >
               {bioExpanded ? 'Show less' : 'Read more'}
             </button>
@@ -1733,7 +1733,7 @@
         Recipes
         {#if activeTab === 'recipes'}
           <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
           ></span>
         {/if}
       </button>
@@ -1747,7 +1747,7 @@
         Posts
         {#if activeTab === 'posts'}
           <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
           ></span>
         {/if}
       </button>
@@ -1761,7 +1761,7 @@
         Replies
         {#if activeTab === 'replies'}
           <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
           ></span>
         {/if}
       </button>
@@ -1775,7 +1775,7 @@
         Media
         {#if activeTab === 'media'}
           <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
           ></span>
         {/if}
       </button>
@@ -1789,7 +1789,7 @@
         Reads
         {#if activeTab === 'reads'}
           <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
           ></span>
         {/if}
       </button>
@@ -1803,7 +1803,7 @@
         Following
         {#if activeTab === 'following'}
           <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
           ></span>
         {/if}
       </button>
@@ -1819,7 +1819,7 @@
           Muted
           {#if activeTab === 'muted'}
             <span
-              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
             ></span>
           {/if}
         </button>
@@ -1834,7 +1834,7 @@
           Drafts
           {#if activeTab === 'drafts'}
             <span
-              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
             ></span>
           {/if}
         </button>
@@ -1867,7 +1867,7 @@
           </div>
           <button
             on:click={toggleMute}
-            class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Unmute User
           </button>
@@ -1890,7 +1890,7 @@
       {#if hasMoreRecipes}
         <div bind:this={recipeSentinel} class="py-4 text-center">
           {#if loadingMoreRecipes}
-            <div class="text-gray-500 text-sm">Loading more recipes...</div>
+            <div class="text-caption text-sm">Loading more recipes...</div>
           {/if}
         </div>
       {/if}
@@ -1954,7 +1954,7 @@
       {#if hasMoreMedia}
         <div bind:this={mediaSentinel} class="py-4 text-center">
           {#if loadingMoreMedia}
-            <div class="text-gray-500 text-sm">Loading more media...</div>
+            <div class="text-caption text-sm">Loading more media...</div>
           {/if}
         </div>
       {/if}
@@ -1991,7 +1991,7 @@
           </div>
           <button
             on:click={toggleMute}
-            class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Unmute User
           </button>
@@ -2005,15 +2005,15 @@
             class="article-card-skeleton rounded-lg overflow-hidden animate-pulse"
             style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
           >
-            <div class="w-full h-48 bg-gray-200 dark:bg-gray-700"></div>
+            <div class="w-full h-48 bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"></div>
             <div class="p-5">
-              <div class="h-6 w-3/4 rounded bg-gray-200 dark:bg-gray-700 mb-3"></div>
+              <div class="h-6 w-3/4 rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))] mb-3"></div>
               <div class="flex items-center gap-2 mb-3">
-                <div class="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700"></div>
-                <div class="h-4 w-24 rounded bg-gray-200 dark:bg-gray-700"></div>
+                <div class="w-8 h-8 rounded-full bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"></div>
+                <div class="h-4 w-24 rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"></div>
               </div>
-              <div class="h-4 w-full rounded bg-gray-200 dark:bg-gray-700 mb-2"></div>
-              <div class="h-4 w-5/6 rounded bg-gray-200 dark:bg-gray-700"></div>
+              <div class="h-4 w-full rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))] mb-2"></div>
+              <div class="h-4 w-5/6 rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"></div>
             </div>
           </div>
         {/each}
@@ -2026,7 +2026,7 @@
       {#if hasMoreReads}
         <div bind:this={readsSentinel} class="py-4 text-center">
           {#if loadingMoreReads}
-            <div class="text-gray-500 text-sm">Loading more articles...</div>
+            <div class="text-caption text-sm">Loading more articles...</div>
           {/if}
         </div>
       {/if}
@@ -2128,7 +2128,7 @@
       {#if hasMoreRecipes}
         <div bind:this={recipeSentinel} class="py-4 text-center">
           {#if loadingMoreRecipes}
-            <div class="text-gray-500 text-sm">Loading more recipes...</div>
+            <div class="text-caption text-sm">Loading more recipes...</div>
           {/if}
         </div>
       {/if}

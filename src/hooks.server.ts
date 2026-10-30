@@ -205,9 +205,8 @@ export const handle: Handle = async ({ event, resolve }) => {
   const useWildcard = !authIntent || process.env.NODE_ENV === 'development';
 
   // Apply CORS to API routes and all browser-originating requests. Not to
-  // landing pages: they're edge-cached for everyone, and a stored
-  // `Access-Control-Allow-Origin: <origin>` + `Vary: Origin` from the first
-  // request would be served to every reader.
+  // landing pages: their public content does not vary by visitor or Origin.
+  // Keep that response boundary independent of the app/API CORS policy.
   const shouldApplyCors =
     !isLandingPath(event.url.pathname) && (ENABLE_CORS_ALL || isApiRoute || Boolean(origin));
 

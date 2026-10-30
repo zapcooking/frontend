@@ -34,7 +34,7 @@
     </p>
     <a
       href="/membership"
-      class="inline-block mt-3 px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+      class="inline-block mt-3 px-4 py-2 rounded-full text-sm font-medium bg-action text-on-action"
     >
       {signedIn ? 'Become a member' : 'Learn about membership'}
     </a>
@@ -52,7 +52,7 @@
     {/if}
     <button
       type="button"
-      class="mt-3 px-4 py-2 rounded-full text-sm font-medium bg-primary text-white"
+      class="mt-3 px-4 py-2 rounded-full text-sm font-medium bg-action text-on-action"
       on:click={() => dispatch('open')}
     >
       Open

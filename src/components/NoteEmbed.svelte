@@ -568,8 +568,8 @@
   /* Orange bracket style for embedded notes */
   .parent-quote-embed {
     padding: 0.5rem 0.75rem;
-    background: var(--color-input);
-    border-left: 3px solid #f97316;
+    background: var(--color-light-input-bg, var(--color-input));
+    border-left: 3px solid var(--color-primary);
     border-radius: 0.25rem;
   }
 
