@@ -36,7 +36,7 @@ export interface ScannedRef {
  * `https://njump.me/nevent1…` matches as a link instead of being carved up.
  */
 const REF_RE =
-  /(https?:\/\/[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1|naddr1|noffer1)([023456789acdefghjklmnpqrstuvwxyz]+)|\b(nevent1|note1|npub1|nprofile1|naddr1|noffer1)([023456789acdefghjklmnpqrstuvwxyz]{6,})/g;
+  /(https?:\/\/[^\s]+)|(blossom:[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1|naddr1|noffer1)([023456789acdefghjklmnpqrstuvwxyz]+)|\b(nevent1|note1|npub1|nprofile1|naddr1|noffer1)([023456789acdefghjklmnpqrstuvwxyz]{6,})/g;
 
 /**
  * Does a bech32 token actually decode?
@@ -79,10 +79,18 @@ export function scanNostrRefs(text: string): ScannedRef[] {
 
   REF_RE.lastIndex = 0;
   while ((match = REF_RE.exec(text)) !== null) {
-    const [fullMatch, url, nostrPrefix, nostrData, barePrefix, bareData] = match;
+    const [fullMatch, url, blossomUri, nostrPrefix, nostrData, barePrefix, bareData] = match;
 
     if (url) {
       out.push({ index: match.index, content: fullMatch, type: 'url', url });
+      continue;
+    }
+
+    if (blossomUri) {
+      // BUD-10 `blossom:` reference — claimed whole (query hints included) so
+      // the bare-domain pass below never linkifies the dotted hint hosts
+      // inside it. Detection/extension logic lives in $lib/imageUrls.
+      out.push({ index: match.index, content: fullMatch, type: 'url', url: blossomUri });
       continue;
     }
 
