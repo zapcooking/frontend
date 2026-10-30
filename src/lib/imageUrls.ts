@@ -12,12 +12,20 @@
  * Pure and environment-agnostic — safe to import from both client
  * components and server endpoints.
  */
+import { isBlossomUri, parseBlossomUri } from './blossomUri';
 
 const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?.*)?$/i;
 
+// BUD-10 `blossom:` URIs carry their extension in the reference part (before
+// the query, which holds dotted server hints), so a plain pathname test
+// can't see it — detection goes through $lib/blossomUri instead.
+const BLOSSOM_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'avif']);
+const BLOSSOM_VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv']);
+
 // Bare https?:// URL matcher for raw note content. Trailing punctuation
 // that commonly follows a pasted URL in prose is stripped after the match.
-const URL_REGEX = /https?:\/\/[^\s<>"')\]]+/g;
+// BUD-10 `blossom:` references are matched too — they carry no http URL.
+const URL_REGEX = /https?:\/\/[^\s<>"')\]]+|blossom:[^\s<>"')\]]+/gi;
 
 // Hosts that commonly serve images WITHOUT a file extension. This list
 // only rescues extensionless URLs — the extension test already admits
@@ -41,9 +49,14 @@ function matchesHost(hostname: string, domain: string): boolean {
  * True when the URL plausibly points at an image: the pathname carries an
  * image extension, or the host is a known image CDN whose URLs often
  * omit one (nostr.build, imgur, primal's proxy, etc.). Invalid URLs are
- * never images.
+ * never images. BUD-10 `blossom:` URIs are images when their reference
+ * carries an image extension.
  */
 export function isImageUrl(url: string): boolean {
+  if (isBlossomUri(url)) {
+    const ext = parseBlossomUri(url)?.ext;
+    return ext !== null && BLOSSOM_IMAGE_EXTENSIONS.has(ext ?? '');
+  }
   try {
     const { hostname, pathname } = new URL(url);
     if (IMAGE_EXTENSIONS.test(pathname)) return true;
@@ -67,6 +80,10 @@ const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv)(\?.*)?$/i;
  * Invalid URLs are never videos.
  */
 export function isVideoUrl(url: string): boolean {
+  if (isBlossomUri(url)) {
+    const ext = parseBlossomUri(url)?.ext;
+    return ext !== null && BLOSSOM_VIDEO_EXTENSIONS.has(ext ?? '');
+  }
   try {
     return VIDEO_EXTENSIONS.test(new URL(url).pathname);
   } catch {
