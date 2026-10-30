@@ -23,9 +23,13 @@ vi.mock('$lib/muteToggle', () => ({
     return { status: 'found', event: { id: 'mutes', kind: 10000 } };
   })
 }));
-vi.mock('$lib/encryptionService', () => ({ encrypt: vi.fn(), decrypt: vi.fn(), detectEncryptionMethod: vi.fn() }));
+vi.mock('$lib/encryptionService', () => ({
+  encrypt: vi.fn(),
+  decrypt: vi.fn(),
+  detectEncryptionMethod: vi.fn()
+}));
 vi.mock('$lib/outboxPublish', () => ({ outboxRelaySet: vi.fn() }));
-import { fetchMuteList } from './mutableIntegration';
+import { fetchMuteList, fetchMuteListWithStatus } from './mutableIntegration';
 import { fetchMuteListStrict } from '$lib/muteToggle';
 
 beforeEach(() => {
@@ -45,5 +49,14 @@ describe('fetchMuteList', () => {
     expect(await fetchMuteList('a'.repeat(64))).toBeNull();
     vi.mocked(fetchMuteListStrict).mockResolvedValueOnce({ status: 'unavailable' });
     expect(await fetchMuteList('a'.repeat(64))).toBeNull();
+  });
+
+  it('fetchMuteListWithStatus keeps absence and unavailability distinct', async () => {
+    const found = await fetchMuteListWithStatus('a'.repeat(64));
+    expect(found.status).toBe('found');
+    vi.mocked(fetchMuteListStrict).mockResolvedValueOnce({ status: 'absent' });
+    expect((await fetchMuteListWithStatus('a'.repeat(64))).status).toBe('absent');
+    vi.mocked(fetchMuteListStrict).mockResolvedValueOnce({ status: 'unavailable' });
+    expect((await fetchMuteListWithStatus('a'.repeat(64))).status).toBe('unavailable');
   });
 });

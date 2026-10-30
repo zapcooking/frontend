@@ -414,19 +414,26 @@
   async function toggleMute() {
     if (!$userPublickey || !hexpubkey || muteLoading) return;
 
+    const next = !isMuted;
     muteLoading = true;
 
     try {
       // Edits the latest relay copy; keeps every other entry (see $lib/muteToggle).
-      await setPubkeyMuted($userPublickey, hexpubkey, !isMuted);
+      // The mute store updates inside the call, so the profile hides immediately.
+      await setPubkeyMuted($userPublickey, hexpubkey, next);
 
       // Update local state
-      mutedUsers = isMuted
-        ? mutedUsers.filter((pk) => pk !== hexpubkey)
-        : [...new Set([...mutedUsers, hexpubkey])];
-      isMuted = !isMuted;
+      mutedUsers = next
+        ? [...new Set([...mutedUsers, hexpubkey])]
+        : mutedUsers.filter((pk) => pk !== hexpubkey);
+      isMuted = next;
     } catch (error) {
       console.error('Error toggling mute:', error);
+      // The mute applied locally; only the relay sync failed.
+      showToast(
+        'error',
+        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+      );
     } finally {
       muteLoading = false;
     }
