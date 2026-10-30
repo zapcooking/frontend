@@ -69,6 +69,7 @@
 - [ ] Deduplication by event ID
 - [ ] Food filter toggle works
 - [ ] Muted users excluded
+- [ ] Muting from a post's menu hides that post immediately (local store first, relay sync after) and lands as a private (encrypted) entry on the kind-10000 list
 
 ### Following Feed
 - [ ] Loads posts from followed users only
