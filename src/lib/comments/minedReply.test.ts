@@ -7,7 +7,9 @@ vi.mock('$lib/comments/postComment', () => ({ postComment: vi.fn() }));
 vi.mock('$lib/replyDraftStore', () => ({
   saveReplyDraft: vi.fn(),
   deleteReplyDraft: vi.fn(),
-  replyDraftRevision: vi.fn()
+  replyDraftRevision: vi.fn(),
+  beginReplyPublish: vi.fn(),
+  endReplyPublish: vi.fn()
 }));
 // Only the worker-backed pieces are stubbed; isPowCanceled stays real so the
 // stopped-mine path is exercised against the miner's own error shape.
