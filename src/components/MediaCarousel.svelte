@@ -24,6 +24,12 @@
   /** Optional CDN/proxy rewrite applied to tile image sources. */
   /** The URL to load for a tile; `kind` says how wide it will be shown. */
   export let optimizeUrl: (url: string, kind: 'single' | 'tile') => string = (url) => url;
+  /**
+   * BUD-10 `blossom:` URIs resolve to concrete https URLs upstream
+   * (NoteContent's resolver); tiles fetch through this mapping so the
+   * original URI stays the identity used for alt text and dedup.
+   */
+  export let srcOf: (url: string) => string = (url) => url;
   /** The first image of the first post on screen: load it eagerly, with high priority (it is the LCP). */
   export let priority = false;
   /** NIP-92 imeta alt text keyed by media URL (accessibility). */
@@ -95,7 +101,7 @@
    */
   let fallback = new Set<string>();
   function srcFor(url: string, kind: 'single' | 'tile'): string {
-    return fallback.has(url) ? url : optimizeUrl(url, kind);
+    return fallback.has(url) ? url : optimizeUrl(srcOf(url), kind);
   }
   function handleImageError(e: Event, original: string) {
     const target = e.target as HTMLImageElement;

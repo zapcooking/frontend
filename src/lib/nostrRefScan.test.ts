@@ -184,3 +184,26 @@ describe('mixed content', () => {
     expect(text.slice(ref.index, ref.index + ref.content.length)).toBe(ref.content);
   });
 });
+
+describe('BUD-10 blossom references', () => {
+  const FIELD_URI =
+    'blossom:d819b922fbbf3a47e606dab12a6c316b9a0445ff4aa69d749d638ce83884cf1c.jpg' +
+    '?xs=blossom.laantungir.net&xs=cdn.satellite.earth&xs=blossom.primal.net' +
+    '&as=1ec454734dcbf6fe54901ce25c0c7c6bca5edd89443416761fadc321d38df139&sz=117475';
+
+  it('claims the whole blossom URI as one url, query included', () => {
+    const text = `nice chair\n${FIELD_URI}`;
+    const found = urls(text);
+    expect(found).toHaveLength(1);
+    expect(found[0].url).toBe(FIELD_URI);
+    expect(text.slice(found[0].index, found[0].index + found[0].content.length)).toBe(FIELD_URI);
+  });
+
+  it('never linkifies the dotted server hints inside the URI', () => {
+    // Before the blossom branch existed, the bare-domain pass linkified
+    // "blossom.laantungir.net" and friends out of the middle of the URI.
+    const found = scanNostrRefs(`photo incoming ${FIELD_URI} enjoy`);
+    expect(found.filter((r) => r.type === 'url')).toHaveLength(1);
+    expect(found.some((r) => r.url && !r.url.startsWith('blossom:'))).toBe(false);
+  });
+});

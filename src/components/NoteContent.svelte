@@ -17,6 +17,9 @@
   import CheffyMediaReview from './CheffyMediaReview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
   import { isImageUrl, isVideoUrl, filterImageUrls } from '$lib/imageUrls';
+  import { isBlossomUri } from '$lib/blossomUri';
+  import { resolveBlossomUri } from '$lib/blossomUriResolver';
+  import { browser } from '$app/environment';
   import { imetaAltByUrl, parseImeta } from '$lib/feed/imeta';
   import MediaLightbox from './MediaLightbox.svelte';
   import LightningInvoiceCard from './LightningInvoiceCard.svelte';
@@ -62,6 +65,31 @@
 
   // NIP-92 imeta alt text, keyed by media URL, for screen readers.
   $: altByUrl = event ? imetaAltByUrl(event) : new Map();
+
+  // BUD-10 `blossom:` URIs name no server — resolve each one to a concrete
+  // https URL before any media tag uses it as src. Everything else stays
+  // keyed by the original URI (alt text, lightbox pane indexing), so only
+  // the src goes through `srcOf`.
+  let resolvedBlossomUrls: Record<string, string> = {};
+  let pendingBlossomResolutions: Record<string, Promise<string | null> | undefined> = {};
+  $: srcOf = (url: string) => resolvedBlossomUrls[url] ?? url;
+  $: blossomMediaUrls = [...new Set(allImageUrls.filter(isBlossomUri))];
+  $: kickBlossomResolution(blossomMediaUrls);
+  function kickBlossomResolution(urls: string[]) {
+    if (!browser) return;
+    for (const url of urls) {
+      if (resolvedBlossomUrls[url] || pendingBlossomResolutions[url]) continue;
+      const task = resolveBlossomUri(url).then((hit) => {
+        delete pendingBlossomResolutions[url];
+        if (hit && resolvedBlossomUrls[url] !== hit) {
+          resolvedBlossomUrls = { ...resolvedBlossomUrls, [url]: hit };
+        }
+        return hit;
+      });
+      pendingBlossomResolutions[url] = task;
+    }
+  }
+
   $: blurhashByUrl = event
     ? new Map(
         parseImeta(event)
@@ -438,6 +466,7 @@
             <MediaCarousel
               items={part.urls}
               {altByUrl}
+              srcOf={srcOf}
               onItemClick={(url) => {
                 const index = allImageUrls.indexOf(url);
                 openImageModal(url, index >= 0 ? index : 0);
@@ -448,6 +477,7 @@
           <MediaCarousel
             items={part.urls}
             {altByUrl}
+            srcOf={srcOf}
             onItemClick={(url) => {
               const index = allImageUrls.indexOf(url);
               openImageModal(url, index >= 0 ? index : 0);
@@ -485,7 +515,7 @@
             on:click={() => openImageModal(imageUrl, imageIndex >= 0 ? imageIndex : 0)}
           >
             <img
-              src={part.url}
+              src={srcOf(part.url)}
               alt={altByUrl.get(part.url) || ''}
               class="max-w-full rounded-lg max-h-96 object-contain hover:opacity-95 transition-opacity"
               loading="lazy"
@@ -591,7 +621,7 @@
 <!-- Image Modal -->
 {#if imageModalOpen}
   <MediaLightbox
-    images={allImageUrls.map((url) => ({ url, alt: altByUrl.get(url) || '' }))}
+    images={allImageUrls.map((url) => ({ url: srcOf(url), alt: altByUrl.get(url) || '' }))}
     blurhashByUrl={blurhashByUrl}
     bind:index={selectedImageIndex}
     onClose={closeImageModal}
