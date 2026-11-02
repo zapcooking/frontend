@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { get } from 'svelte/store';
+import { get, type Writable } from 'svelte/store';
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 
@@ -21,7 +21,7 @@ vi.mock('$lib/native/notifications', () => ({
   sendImmediateNotification: vi.fn().mockResolvedValue(true)
 }));
 
-import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
+import { muteListStore, mutedPubkeys as mutedPubkeysStore } from '$lib/muteListStore';
 import { checkNotificationPermissions, sendImmediateNotification } from '$lib/native/notifications';
 import {
   notifications,
@@ -30,6 +30,9 @@ import {
   subscribeToNotifications,
   unsubscribeFromNotifications
 } from './notificationStore';
+
+// The real store is derived (read-only); the mock above is writable.
+const mutedPubkeys = mutedPubkeysStore as unknown as Writable<Set<string>>;
 
 const ME = 'a'.repeat(64);
 const SENDER = 'b'.repeat(64);
@@ -81,16 +84,20 @@ afterEach(() => {
 });
 
 describe('muted notification senders', () => {
-  it.each([1, 7, 6, 16, 1111])('suppresses system alerts for kind %s', async (kind) => {
-    mutedPubkeys.set(new Set([SENDER]));
-    emitEvent(kind);
-    await vi.advanceTimersByTimeAsync(1000);
+  // A `for` loop, not it.each — the asymmetric/each helpers don't
+  // typecheck under this repo's svelte-check (see src/lib/types/vitest.d.ts).
+  for (const kind of [1, 7, 6, 16, 1111]) {
+    it(`suppresses system alerts for kind ${kind}`, async () => {
+      mutedPubkeys.set(new Set([SENDER]));
+      emitEvent(kind);
+      await vi.advanceTimersByTimeAsync(1000);
 
-    expect(sendImmediateNotification).not.toHaveBeenCalled();
-    expect(get(visibleNotifications)).toEqual([]);
-    expect(get(unreadCount)).toBe(0);
-    expect(get(notifications)).toHaveLength(1);
-  });
+      expect(sendImmediateNotification).not.toHaveBeenCalled();
+      expect(get(visibleNotifications)).toEqual([]);
+      expect(get(unreadCount)).toBe(0);
+      expect(get(notifications)).toHaveLength(1);
+    });
+  }
 
   it('filters zaps by the embedded sender, not the receipt service', async () => {
     mutedPubkeys.set(new Set([SENDER]));
@@ -143,11 +150,11 @@ describe('muted notification senders', () => {
     emitEvent();
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(sendImmediateNotification).toHaveBeenCalledWith(
-      'Zap Cooking',
-      expect.stringContaining('Someone mentioned you'),
-      expect.objectContaining({ notificationId: 'event-1' })
-    );
+    expect(sendImmediateNotification).toHaveBeenCalledOnce();
+    const [title, body, options] = vi.mocked(sendImmediateNotification).mock.calls[0];
+    expect(title).toBe('Zap Cooking');
+    expect(body).toContain('Someone mentioned you');
+    expect(options?.notificationId).toBe('event-1');
   });
 
   it('keeps an unmuted zap sender visible even when the service is muted', async () => {
