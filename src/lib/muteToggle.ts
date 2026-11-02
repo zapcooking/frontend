@@ -9,14 +9,27 @@ import { muteListStore } from '$lib/muteListStore';
 import { addEventMute, addPubkeyMute, removeEventMute, removePubkeyMute, type MuteListContent } from '$lib/muteListEdit';
 
 /**
- * Mute / unmute one pubkey from a profile surface (ProfileSheet, /user/[slug])
- * without touching the rest of the member's NIP-51 mute list.
+ * Mute / unmute from a post or a profile surface (PostActionsMenu,
+ * FreshMenuItems, ProfileSheet, /user/[slug]) without touching the rest of
+ * the member's NIP-51 mute list.
  *
- * The edit starts from the latest relay copy — never from the in-memory
- * store, which merges legacy localStorage mutes and decrypted private
- * mutes — and only publishes when the relay copy was either found or
- * confirmed absent. A fetch that can't tell (no relays, timeout with no
- * EOSE) aborts: publishing then would overwrite the real list.
+ * Two rules shape every edit here:
+ *
+ * 1. **The local list updates first.** The post on screen must vanish the
+ *    moment the member mutes its author — not after a relay round-trip
+ *    that can take seconds or fail outright. The store (and the legacy
+ *    localStorage mirror) are applied up front; the relay edit then
+ *    confirms the mute for every other device. If the relay edit fails,
+ *    the local mute stands and the caller says the sync failed.
+ *
+ * 2. **The relay edit starts from the latest relay copy — never from the
+ *    in-memory store**, which merges legacy localStorage mutes and
+ *    decrypted private mutes — and only publishes when the relay copy was
+ *    either found or confirmed absent. A fetch that can't tell (no relays,
+ *    timeout with no EOSE) aborts: publishing then would overwrite the
+ *    real list. The added mutes are private (self-encrypted NIP-51
+ *    content), so they land on the same private mute list MutABLE and
+ *    Lazarus read.
  */
 
 export type MuteListFetch =
@@ -85,6 +98,15 @@ export function fetchMuteListStrict(
   });
 }
 
+function relayCopy(fetched: MuteListFetch): MuteListContent | null {
+  if (fetched.status === 'unavailable') {
+    throw new Error('Mute list not reachable on relays; not overwriting it');
+  }
+  return fetched.status === 'found'
+    ? { tags: fetched.event.tags, content: fetched.event.content ?? '' }
+    : null;
+}
+
 /**
  * Compute the list to publish for a single-pubkey mute change, or null when
  * nothing changes. Throws when the relay copy is unavailable.
@@ -95,14 +117,22 @@ export async function planPubkeyMute(
   mute: boolean,
   crypto: Parameters<typeof removePubkeyMute>[2]
 ): Promise<MuteListContent | null> {
-  if (fetched.status === 'unavailable') {
-    throw new Error('Mute list not reachable on relays; not overwriting it');
-  }
-  const existing =
-    fetched.status === 'found'
-      ? { tags: fetched.event.tags, content: fetched.event.content ?? '' }
-      : null;
-  return mute ? addPubkeyMute(existing, hex) : removePubkeyMute(existing, hex, crypto);
+  const existing = relayCopy(fetched);
+  return mute ? addPubkeyMute(existing, hex, crypto) : removePubkeyMute(existing, hex, crypto);
+}
+
+/**
+ * Same as `planPubkeyMute` for an event mute — a whole thread (the
+ * conversation root) or a single note and its direct replies.
+ */
+export async function planEventMute(
+  fetched: MuteListFetch,
+  eventId: string,
+  mute: boolean,
+  crypto: Parameters<typeof removeEventMute>[2]
+): Promise<MuteListContent | null> {
+  const existing = relayCopy(fetched);
+  return mute ? addEventMute(existing, eventId, crypto) : removeEventMute(existing, eventId, crypto);
 }
 
 function readLocalMutes(): string[] {
@@ -114,8 +144,20 @@ function readLocalMutes(): string[] {
   }
 }
 
-/** Mute or unmute `hex` for `me`. Throws (without publishing) on failure. */
+/** Mute or unmute `hex` for `me`. Throws (without publishing) on failure;
+ *  the local mute is applied either way. */
 export async function setPubkeyMuted(me: string, hex: string, mute: boolean): Promise<void> {
+  // Hide (or restore) the content on this device immediately — the relay
+  // round-trip below must not keep a muted post on screen.
+  muteListStore.applyLocalMute({ pubkey: hex }, mute);
+  try {
+    const stored = readLocalMutes();
+    const next = mute ? [...new Set([...stored, hex])] : stored.filter((pk) => pk !== hex);
+    localStorage.setItem('mutedUsers', JSON.stringify(next));
+  } catch {
+    // Private mode or a full quota — the store overlay still hides.
+  }
+
   const ndkInstance = get(ndk);
   const fetched = await fetchMuteListStrict(ndkInstance, me);
   const edited = await planPubkeyMute(fetched, hex, mute, {
@@ -131,35 +173,25 @@ export async function setPubkeyMuted(me: string, hex: string, mute: boolean): Pr
     await muteEvent.publish(await outboxRelaySet(muteEvent, 'list'));
   }
 
-  try {
-    const stored = readLocalMutes();
-    const next = mute ? [...new Set([...stored, hex])] : stored.filter((pk) => pk !== hex);
-    localStorage.setItem('mutedUsers', JSON.stringify(next));
-  } catch {
-    // Private mode or a full quota — the relay copy still stands.
-  }
   muteListStore.invalidate();
   await muteListStore.load(true);
 }
 
 /**
  * Mute / unmute an event id — a whole thread (the conversation root) or a
- * single note and its direct replies — as a public `e` tag on the same
- * kind-10000 list the pubkey mutes live on. Same safety rules as
- * `setPubkeyMuted`: the edit starts from the strict relay copy and aborts
- * rather than publish over a list it could not fetch.
+ * single note and its direct replies. Same rules as `setPubkeyMuted`: the
+ * local list updates first, and the relay edit starts from the strict
+ * relay copy — aborting rather than publish over a list it could not fetch.
  */
 export async function setEventMuted(me: string, eventId: string, mute: boolean): Promise<void> {
+  muteListStore.applyLocalMute({ eventId }, mute);
+
   const ndkInstance = get(ndk);
   const fetched = await fetchMuteListStrict(ndkInstance, me);
-  if (fetched.status === 'unavailable') {
-    throw new Error('Mute list not reachable on relays; not overwriting it');
-  }
-  const existing =
-    fetched.status === 'found'
-      ? { tags: fetched.event.tags, content: fetched.event.content ?? '' }
-      : null;
-  const edited = mute ? addEventMute(existing, eventId) : removeEventMute(existing, eventId);
+  const edited = await planEventMute(fetched, eventId, mute, {
+    decrypt: (ciphertext) => decrypt(me, ciphertext, detectEncryptionMethod(ciphertext)),
+    encrypt: async (plaintext) => (await encrypt(me, plaintext)).ciphertext
+  });
 
   if (edited) {
     const muteEvent = new NDKEvent(ndkInstance);

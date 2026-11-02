@@ -2,7 +2,7 @@ import { outboxRelaySet } from '$lib/outboxPublish';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { get } from 'svelte/store';
 import { ndk, ensureNdkConnected } from '$lib/nostr';
-import { fetchMuteListStrict } from '$lib/muteToggle';
+import { fetchMuteListStrict, type MuteListFetch } from '$lib/muteToggle';
 import { encrypt, decrypt, detectEncryptionMethod } from '$lib/encryptionService';
 
 // Mute-list types and the pure checks that read them live in `muteFilter.ts`
@@ -12,11 +12,14 @@ export * from '$lib/muteFilter';
 import type { MuteList, MutedPubkey, MutedWord, MutedTag, MutedThread } from '$lib/muteFilter';
 
 /**
- * Fetch user's mute list (kind:10000) from relays
+ * Fetch user's mute list (kind:10000) from relays, keeping the strict
+ * fetch's three-way answer: a confirmed absence is cacheable, but
+ * "unavailable" (no relays answered) is not — a caller that caches it
+ * would hide the member's mutes for the cache window.
  */
-export async function fetchMuteList(pubkey: string): Promise<NDKEvent | null> {
+export async function fetchMuteListWithStatus(pubkey: string): Promise<MuteListFetch> {
   const ndkInstance = get(ndk);
-  if (!ndkInstance || !pubkey) return null;
+  if (!ndkInstance || !pubkey) return { status: 'unavailable' };
 
   try {
     // On a cold load this runs before the pool has a connected relay; an
@@ -24,12 +27,16 @@ export async function fetchMuteList(pubkey: string): Promise<NDKEvent | null> {
     // for filter") and never resolves. Wait for the connection, and ask the
     // pool relays explicitly with a timeout ($lib/muteToggle).
     await ensureNdkConnected();
-    const r = await fetchMuteListStrict(ndkInstance, pubkey);
-    return r.status === 'found' ? r.event : null;
+    return await fetchMuteListStrict(ndkInstance, pubkey);
   } catch (error) {
     console.error('Failed to fetch mute list:', error);
-    return null;
+    return { status: 'unavailable' };
   }
+}
+
+export async function fetchMuteList(pubkey: string): Promise<NDKEvent | null> {
+  const result = await fetchMuteListWithStatus(pubkey);
+  return result.status === 'found' ? result.event : null;
 }
 
 /**
@@ -97,6 +104,9 @@ export async function parseMuteListEvent(event: NDKEvent): Promise<MuteList> {
         decrypted = await decrypt(authorPubkey, event.content, method);
       } catch {
         // decrypt() handles all signer types; failure means key unavailable or denied
+        console.warn(
+          '[MuteList] Private mute content present but not decryptable on this device — private mutes will be missing'
+        );
       }
 
       if (decrypted) {

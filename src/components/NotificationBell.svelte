@@ -29,6 +29,7 @@
     initMessageSubscription
   } from '$lib/stores/messages';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { muteListStore } from '$lib/muteListStore';
   import { browser } from '$app/environment';
   import { formatCompactTime } from '$lib/utils';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -166,6 +167,9 @@
       refetchNotifications(ndkInstance, pubkey).catch((e) =>
         console.debug('[NotificationBell] Notification refetch failed:', e)
       );
+      // Re-validate mutes so rows hidden by a late-loading (or retried)
+      // mute list disappear from the open panel; cached loads are cheap.
+      muteListStore.load();
       // The DM store only fills once its subscription runs (otherwise
       // it starts on the /messages page). Kick it off on first open —
       // it's idempotent — so the DMs tab populates. Deliberately NOT on
