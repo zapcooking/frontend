@@ -3,7 +3,7 @@ import { browser } from '$app/environment';
 import type NDK from '@nostr-dev-kit/ndk';
 import { NDKKind, NDKRelaySet } from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
-import { mutedPubkeys } from '$lib/muteListStore';
+import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
 import { isHellthread } from '$lib/notificationUtils';
 import { decode as decodeBolt11 } from '@gandlaf21/bolt11-decode';
 import { extractZapAmountSats } from '$lib/zapAmount';
@@ -856,12 +856,15 @@ async function sendLocalNotificationForNostrEvent(notification: Notification): P
 
   // Check permissions
   try {
+    await muteListStore.load();
+    if (get(mutedPubkeys).has(notification.fromPubkey)) return;
+
     const { checkNotificationPermissions, sendImmediateNotification } = await import(
       '$lib/native/notifications'
     );
     const permission = await checkNotificationPermissions();
 
-    if (permission !== 'granted') {
+    if (permission !== 'granted' || get(mutedPubkeys).has(notification.fromPubkey)) {
       return;
     }
 

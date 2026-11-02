@@ -64,8 +64,9 @@ export function matchReadsOgRoute(pathname: string): { slug: string } | null {
   return { slug: m[1] };
 }
 
-/** Profile routes: `/npub1…`, `/nprofile1…`, and `/user/npub1…`. */
-const PROFILE_ROUTE_RE = /^\/(?:user\/)?((?:npub1|nprofile1)[0-9a-z]+)\/?$/i;
+/** Profile routes: `/npub1…`, `/nprofile1…`, and `/user/npub1…`, each with an
+ *  optional trailing profile-tab segment (`/user/npub1…/recipes`). */
+const PROFILE_ROUTE_RE = /^\/(?:user\/)?((?:npub1|nprofile1)[0-9a-z]+)(?:\/[^/]+)?\/?$/i;
 
 export function matchProfileOgRoute(pathname: string): { slug: string } | null {
   const m = pathname.match(PROFILE_ROUTE_RE);

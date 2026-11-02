@@ -26,6 +26,7 @@
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import { totalUnreadCount } from '$lib/stores/messages';
+  import { loginOverlayOpen, openSignup } from '$lib/stores/loginOverlay';
 
   $: pathname = $page.url.pathname;
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
@@ -251,6 +252,21 @@
         <div class="mt-1">
           <SidebarWallet />
         </div>
+      {:else if !$userPublickey && !$lockedVaultPubkey}
+        <!-- Signed out: the wallet's slot is prime sidebar real estate —
+             put the auth pair there instead of leaving a hole. Same two
+             buttons and treatments as the header: Sign in stays a quiet
+             ghost, Join free carries the darker auth gradient. -->
+        <div class="mt-1">
+          <div class="nav-auth-pair" role="group" aria-label="Sign in or create an account">
+            <button
+              type="button"
+              class="nav-auth-signin"
+              on:click={() => loginOverlayOpen.set(true)}>Sign in</button
+            >
+            <button type="button" class="nav-auth-join" on:click={openSignup}>Join free</button>
+          </div>
+        </div>
       {/if}
 
       <div class="mt-1">
@@ -316,3 +332,57 @@
     </nav>
   </div>
 </aside>
+
+<style>
+  /* The sidebar's signed-out auth pair mirrors the header's buttons: same
+     labels, same treatments — Sign in stays a quiet background-colored
+     ghost, Join free carries the darker auth gradient — so the two
+     surfaces never disagree about which action is which. */
+  .nav-auth-pair {
+    display: flex;
+    gap: 0.375rem;
+  }
+  .nav-auth-signin,
+  .nav-auth-join {
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.625rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      filter 140ms ease,
+      background-color 140ms ease,
+      border-color 140ms ease;
+  }
+  .nav-auth-signin {
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-input-border);
+    background: none;
+  }
+  .nav-auth-signin:hover {
+    border-color: var(--color-accent-gray);
+    background-color: var(--color-input-bg);
+  }
+  .nav-auth-join {
+    color: var(--color-auth-on-action);
+    border: 1px solid transparent;
+    background: linear-gradient(
+      135deg,
+      var(--color-auth-action) 0%,
+      var(--color-auth-action-hover) 100%
+    );
+  }
+  .nav-auth-join:hover {
+    filter: brightness(1.06);
+  }
+  .nav-auth-signin:focus-visible,
+  .nav-auth-join:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+</style>

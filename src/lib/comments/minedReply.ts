@@ -24,7 +24,13 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
 import { postComment } from '$lib/comments/postComment';
 import { minePowIntoEvent, powCancel, isPowCanceled } from '$lib/powMiner';
-import { saveReplyDraft, deleteReplyDraft, replyDraftRevision } from '$lib/replyDraftStore';
+import {
+  saveReplyDraft,
+  deleteReplyDraft,
+  replyDraftRevision,
+  beginReplyPublish,
+  endReplyPublish
+} from '$lib/replyDraftStore';
 import { startMiningOp, reportMiningBest, endMiningOp } from '$lib/stores/miningOp';
 import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
 import { showToast } from '$lib/toast';
@@ -88,6 +94,9 @@ export async function startMinedReply({
   // reply modal hands its composer, so what this writes back is what that
   // composer restores.
   const targetId = (replyTo ?? parentEvent).id;
+  // Flag the flight so composers mounting mid-mine skip restoring this
+  // draft: the words are being posted, not waiting to be typed again.
+  beginReplyPublish(targetId);
   // The record on disk at hand-off — a blur snapshot of these same words, or
   // nothing. Any other revision at the end is a newer draft, not ours.
   const revision = replyDraftRevision(targetId);
@@ -178,5 +187,9 @@ export async function startMinedReply({
     );
   } finally {
     if (opId) removePendingOp(opId);
+    // Flight over either way — success deleted the draft, a stop or
+    // failure handed the words back. From here a fresh composer mount
+    // restores again.
+    endReplyPublish(targetId);
   }
 }

@@ -254,8 +254,11 @@
   // ── Mute section ──────────────────────────────────────────────
   // Three scopes from one menu: the author (pubkey mute), the whole
   // conversation (the thread root as an `e` mute), or this note and its
-  // direct replies (the note id as an `e` mute). All land on the member's
-  // NIP-51 kind-10000 list; labels flip Mute/Unmute from the store state.
+  // direct replies (the note id as an `e` mute). All land as private
+  // entries on the member's NIP-51 kind-10000 list (self-encrypted — the
+  // list MutABLE and Lazarus read); the store applies the hide before the
+  // relay sync, so the post vanishes the moment one of these runs.
+  // Labels flip Mute/Unmute from the store state.
 
   let muting = false;
 
@@ -279,12 +282,20 @@
   async function handleMuteUser() {
     closeMenu();
     if (!$userPublickey || muting) return;
+    // Capture the direction before the call: the store updates inside it,
+    // which flips the `*Muted` flags the toasts used to read after awaiting.
+    const next = !userMuted;
     muting = true;
     try {
-      await setPubkeyMuted($userPublickey, authorPubkey, !userMuted);
-      showToast('info', userMuted ? 'User unmuted' : 'User muted');
+      await setPubkeyMuted($userPublickey, authorPubkey, next);
+      showToast('info', next ? 'User muted' : 'User unmuted');
     } catch {
-      showToast('error', "Couldn't update your mute list — please try again.");
+      // The mute itself applied locally (the content is already hidden);
+      // only the sync to the member's relays failed.
+      showToast(
+        'error',
+        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+      );
     } finally {
       muting = false;
     }
@@ -293,12 +304,16 @@
   async function handleMuteThread() {
     closeMenu();
     if (!$userPublickey || muting || !threadId) return;
+    const next = !threadMuted;
     muting = true;
     try {
-      await setEventMuted($userPublickey, threadId, !threadMuted);
-      showToast('info', threadMuted ? 'Thread unmuted' : 'Thread muted');
+      await setEventMuted($userPublickey, threadId, next);
+      showToast('info', next ? 'Thread muted' : 'Thread unmuted');
     } catch {
-      showToast('error', "Couldn't update your mute list — please try again.");
+      showToast(
+        'error',
+        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+      );
     } finally {
       muting = false;
     }
@@ -307,12 +322,16 @@
   async function handleMuteNote() {
     closeMenu();
     if (!$userPublickey || muting || !event?.id) return;
+    const next = !noteMuted;
     muting = true;
     try {
-      await setEventMuted($userPublickey, event.id, !noteMuted);
-      showToast('info', noteMuted ? 'Note unmuted' : 'Note and replies muted');
+      await setEventMuted($userPublickey, event.id, next);
+      showToast('info', next ? 'Note and replies muted' : 'Note unmuted');
     } catch {
-      showToast('error', "Couldn't update your mute list — please try again.");
+      showToast(
+        'error',
+        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+      );
     } finally {
       muting = false;
     }

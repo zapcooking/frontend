@@ -178,7 +178,69 @@ export function deleteReplyDraft(targetId: string): void {
   if (records.delete(targetId)) persist(records);
 }
 
+/**
+ * Drop drafts whose words are already on the wire. A proof-of-work reply
+ * publishes from a background job; if the page unloads between the relay
+ * accepting the event and the job's own draft cleanup, the record survives
+ * reload and the pill offers to "continue" words that were already sent.
+ *
+ * `match` reports whether a stored draft is the one that published: same
+ * account, and the stored text equal to the published content (mention-
+ * substituted wire form, so the raw draft is compared against what the
+ * composer handed the miner). Only exact matches are removed — a draft the
+ * member has edited since stays.
+ *
+ * Returns the ids of the drafts that were dropped.
+ */
+export function prunePublishedReplyDrafts(
+  match: (draft: ReplyDraftRecord) => boolean
+): string[] {
+  const dropped: string[] = [];
+  for (const [id, rec] of records) {
+    if (match(rec)) {
+      records.delete(id);
+      dropped.push(id);
+    }
+  }
+  if (dropped.length > 0) persist(records);
+  return dropped;
+}
+
 export function clearReplyDrafts(): void {
   records = new Map();
   persist(records);
+}
+
+/**
+ * Target ids whose reply is currently being mined/published in the
+ * background (see $lib/comments/minedReply).
+ *
+ * During the flight the draft record stays on disk only so a stopped or
+ * failed mine can hand the words back — it is not an invitation for a
+ * freshly mounted composer to restore them: the words are being posted
+ * right now, not waiting to be typed again. Composers check this before
+ * restoring on mount; the flag clears when the flight ends either way
+ * (success deletes the draft, a stop or failure hands the words back).
+ */
+const replyPublishing = writable<ReadonlySet<string>>(new Set());
+
+export const replyPublishingStore = { subscribe: replyPublishing.subscribe };
+
+export function beginReplyPublish(targetId: string): void {
+  if (!targetId) return;
+  replyPublishing.update((set) => {
+    const next = new Set(set);
+    next.add(targetId);
+    return next;
+  });
+}
+
+export function endReplyPublish(targetId: string): void {
+  if (!targetId) return;
+  replyPublishing.update((set) => {
+    if (!set.has(targetId)) return set;
+    const next = new Set(set);
+    next.delete(targetId);
+    return next;
+  });
 }

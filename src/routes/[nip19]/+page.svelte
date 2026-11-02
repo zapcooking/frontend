@@ -15,7 +15,11 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
   import { isEventMutedBy } from '$lib/muteFilter';
-  import { replyDraftsStore, replyDraftResumeTarget } from '$lib/replyDraftStore';
+  import {
+    replyDraftsStore,
+    replyDraftResumeTarget,
+    prunePublishedReplyDrafts
+  } from '$lib/replyDraftStore';
   import { onMount, onDestroy, tick } from 'svelte';
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
@@ -555,6 +559,40 @@ import { eventPath } from '$lib/utils/eventUrl';
     if (processedReplies.has(posted.id)) return;
     processedReplies.add(posted.id);
     replies = [...replies, posted].sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+  }
+
+  // A proof-of-work reply publishes from a background job; if the page
+  // unloads between the relay accepting the event and the job's own draft
+  // cleanup, the draft record survives the reload and the reply box offers
+  // to "continue" words that are already on the wire. Reconcile whenever
+  // the thread's replies settle: drop any stored draft of this account
+  // whose raw text exactly matches a published reply to this thread. Text
+  // is the published wire form (mentions substituted), the draft keeps the
+  // raw form — but a reply with no mentions has the same text in both, and
+  // that is the common case this catches. An edited draft never matches
+  // exactly, so real unsent work always survives the sweep.
+  function pruneDraftsMatchingPublished(): void {
+    if (!$userPublickey) return;
+    prunePublishedReplyDrafts((draft) => {
+      if (draft.pubkey !== $userPublickey) return false;
+      // Exact wire-text match: the common no-mention reply, where the raw
+      // draft text and the published content are identical. Drafts with
+      // media/poll slots carry their URLs in the wire content too, so an
+      // exact match still holds for those. A draft the member has edited
+      // or a fresh reply with different words never matches exactly and
+      // always survives.
+      return replies.some(
+        (r) =>
+          (r.author?.hexpubkey || r.pubkey) === $userPublickey &&
+          r.content === draft.text
+      );
+    });
+  }
+
+  // Run after the initial reply batch lands and again as replies arrive —
+  // a mid-mine reload means the published reply may arrive after the page.
+  $: if (replies.length > 0 && $userPublickey) {
+    pruneDraftsMatchingPublished();
   }
 
   // Every reply hangs off exactly one parent, resolved in one place, so
