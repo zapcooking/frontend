@@ -166,6 +166,33 @@
   // 'all' (default) preserves the prior behavior for any other call sites.
   export let authorScope: 'all' | 'top-level' | 'replies' = 'all';
 
+  // Empty feeds greet with a random food emoji instead of a warning icon.
+  // Picked once per component instance.
+  const EMPTY_FEED_FOOD_EMOJIS = [
+    '🍳',
+    '🥕',
+    '🍅',
+    '🥑',
+    '🫑',
+    '🥬',
+    '🧄',
+    '🧅',
+    '🌽',
+    '🍆',
+    '🥔',
+    '🍋',
+    '🍞',
+    '🧀',
+    '🍝',
+    '🍜',
+    '🥘',
+    '🍚',
+    '🥗',
+    '🍯'
+  ];
+  const emptyFoodEmoji =
+    EMPTY_FEED_FOOD_EMOJIS[Math.floor(Math.random() * EMPTY_FEED_FOOD_EMOJIS.length)];
+
   // Exposed refresh function for pull-to-refresh
   export async function refresh(): Promise<void> {
     // If already refreshing, wait for it to complete
@@ -876,6 +903,40 @@
   const PROBE_PAGE_SIZE = 30;
   const PROBE_MAX_PAGES = 3;
 
+  // True when an author's top-level feed has resolved to nothing and
+  // nothing is hiding posts (no food filter, not muted). The profile
+  // page binds this to offer recipe/read previews in place of the bare
+  // empty state; ambiguous cases (filter on) stay false.
+  export let authorFeedEmpty = false;
+  $: authorFeedEmpty =
+    !!authorPubkey &&
+    authorScope === 'top-level' &&
+    !loading &&
+    !error &&
+    !foodFilterEnabled &&
+    events.length === 0 &&
+    !$mutedPubkeys.has(authorPubkey);
+
+  // Whether the author has recipes (kind 30023 with recipe tags). The
+  // feed only queries kinds [1, 6, 1068], so without this the empty
+  // state can't tell a notes-only cook from one who shares recipes
+  // instead. The profile page knows from its own recipe fetch.
+  export let authorHasRecipes = false;
+
+  // Hide the built-in "All posts / Only Food" row for hosts that render
+  // their own toggle elsewhere (the profile page puts it in the tab-bar
+  // row so its height never shifts tab content). setFoodFilter stays
+  // callable so the host toggle drives the same reload path.
+  export let hideFoodToggle = false;
+
+  // Empty-state line for a cook with no standard posts, accurate whether
+  // they publish reads only, recipes only, or both.
+  $: authorEmptyCopy = authorHasLongform && authorHasRecipes
+    ? 'This cook shares recipes and longform reads instead.'
+    : authorHasLongform
+      ? 'This cook publishes longform reads instead.'
+      : 'This cook shares recipes instead.';
+
   async function probeAuthorLongform(pk: string): Promise<void> {
     authorHasLongform = null;
     try {
@@ -1495,7 +1556,7 @@
    * and by the "Show all posts" button in the empty state, so the control the
    * empty state points at is the control it flips.
    */
-  function setFoodFilter(enabled: boolean) {
+  export function setFoodFilter(enabled: boolean) {
     foodFilterEnabled = enabled;
     foodFilterSetting.setEnabled(enabled);
     seenEventIds.clear();
@@ -5163,7 +5224,7 @@
       </div>
     {/if}
 
-    {#if foodToggleVisible}
+    {#if foodToggleVisible && !hideFoodToggle}
       <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">
         {#if foodFilterEnabled}
           <span class="text-sm">
@@ -5275,19 +5336,7 @@
                  what is actually true: is a filter hiding posts, or are there
                  none? Copy per OUTBOX/FEED_EMPTY_STATE_COPY_2026_07_30.md. -->
             <div style="color: var(--color-caption)">
-              <svg
-                class="h-12 w-12 mx-auto mb-4 opacity-50"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                ></path>
-              </svg>
+              <div class="text-6xl mx-auto mb-4" aria-hidden="true">{emptyFoodEmoji}</div>
               {#if authorPubkey}
                 <!-- Profile view: one cook, not the follow graph -->
                 {#if foodFilterEnabled}
@@ -5296,17 +5345,20 @@
                     This cook hasn't posted anything tagged as cooking. Turn off Only Food above to
                     see everything they've posted.
                   </p>
-                {:else if authorHasLongform}
+                {:else if authorHasLongform || authorHasRecipes}
                   <p class="text-lg font-medium">No standard posts found</p>
-                  <p class="text-sm">
-                    This cook publishes longform pieces — their reads live on the Reads tab.
-                  </p>
-                  <button
-                    on:click={() => dispatch('view-reads')}
-                    class="mt-3 px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
-                  >
-                    View their Reads
-                  </button>
+                  <p class="text-sm">{authorEmptyCopy}</p>
+                  {#if authorHasLongform}
+                    <button
+                      on:click={() => dispatch('view-reads')}
+                      class="mt-3 px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
+                    >
+                      View their Reads
+                    </button>
+                  {/if}
+                {:else if authorScope === 'replies'}
+                  <p class="text-lg font-medium">No replies yet</p>
+                  <p class="text-sm">This cook hasn't replied to anything yet.</p>
                 {:else}
                   <p class="text-lg font-medium">No posts yet</p>
                   <p class="text-sm">This cook hasn't posted anything yet.</p>
