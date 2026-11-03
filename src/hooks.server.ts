@@ -1,5 +1,6 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { trimLinkHeader } from '$lib/linkHeader';
 import {
   matchRecipeOgRoute,
   resolveRecipeOgMeta,
@@ -223,9 +224,16 @@ export const handle: Handle = async ({ event, resolve }) => {
     });
   }
 
-  const response = ogTagBlock
-    ? await resolve(event, { transformPageChunk: createOgPageTransformer(ogTagBlock) })
-    : await resolve(event);
+  // The stylesheets are already <link>ed in the HTML, so their preload entries
+  // in the Link header are pure bloat. Drop them, then cap what's left — see
+  // $lib/linkHeader for why an uncapped header breaks Node-based link-preview
+  // fetchers (Signal Desktop).
+  const response = await resolve(event, {
+    preload: ({ type }) => type === 'js',
+    ...(ogTagBlock ? { transformPageChunk: createOgPageTransformer(ogTagBlock) } : {})
+  });
+  const linkHeader = response.headers.get('link');
+  if (linkHeader) response.headers.set('link', trimLinkHeader(linkHeader));
 
   if (!shouldApplyCors) {
     return response;

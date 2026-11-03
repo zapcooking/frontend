@@ -46,6 +46,15 @@ function buildPng(width: number, height: number): Uint8Array {
   return new Uint8Array(bytes);
 }
 
+function buildGif(width: number, height: number, sig = 'GIF89a'): Uint8Array {
+  return new Uint8Array([
+    ...[...sig].map((c) => c.charCodeAt(0)),
+    width & 0xff, (width >> 8) & 0xff,
+    height & 0xff, (height >> 8) & 0xff,
+    0xf7, 0xff, 0x00 // packed fields, background color, aspect ratio
+  ]);
+}
+
 function buildWebpVp8(width: number, height: number): Uint8Array {
   const bytes: number[] = [0x52, 0x49, 0x46, 0x46]; // "RIFF"
   bytes.push(0, 0, 0, 0); // file size (unused)
@@ -106,6 +115,21 @@ describe('probeImageDimensions', () => {
     mockFetchOnce(buildPng(960, 960));
     const result = await probeImageDimensions('https://example.com/c.png');
     expect(result).toEqual({ width: 960, height: 960, mime: 'image/png' });
+  });
+
+  it('parses GIF dimensions from the logical screen descriptor (89a and 87a)', async () => {
+    mockFetchOnce(buildGif(150, 150));
+    expect(await probeImageDimensions('https://example.com/f.gif')).toEqual({
+      width: 150,
+      height: 150,
+      mime: 'image/gif'
+    });
+    mockFetchOnce(buildGif(640, 480, 'GIF87a'));
+    expect(await probeImageDimensions('https://example.com/g.gif')).toEqual({
+      width: 640,
+      height: 480,
+      mime: 'image/gif'
+    });
   });
 
   it('parses WebP lossy (VP8) dimensions', async () => {
