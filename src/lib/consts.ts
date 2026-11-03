@@ -34,6 +34,23 @@ export const RECIPE_TAG_PREFIX_LEGACY = 'nostrcooking';
 export const RECIPE_TAGS = [RECIPE_TAG_PREFIX_NEW, RECIPE_TAG_PREFIX_LEGACY]; // For filtering (supports both)
 
 /**
+ * Is this event a recipe? A kind-30023 long-form event carrying one of
+ * RECIPE_TAGS as a `t` tag (matched case-insensitively). Other kind-30023
+ * events are articles. Kind 35000 (the dropped premium-recipe test) is not
+ * a recipe here.
+ */
+export function isTaggedRecipe(event: { kind?: number; tags?: unknown }): boolean {
+  if (event.kind !== 30023 || !Array.isArray(event.tags)) return false;
+  return event.tags.some(
+    (t) =>
+      Array.isArray(t) &&
+      t[0] === 't' &&
+      typeof t[1] === 'string' &&
+      RECIPE_TAGS.includes(t[1].toLowerCase())
+  );
+}
+
+/**
  * Dev / e2e test recipes that should never surface anywhere on the site.
  * Coordinates are NIP-01 addressable keys `kind:pubkey:d-tag` (not event ids),
  * so later replaceable revisions stay hidden too.

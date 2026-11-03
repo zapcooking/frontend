@@ -315,7 +315,11 @@ describe('copy', () => {
   });
 });
 
-const ROOT = { kind: 30023, pubkey: AUTHOR, tags: [['d', 'pancakes'], ['title', 'Pancakes']] };
+const ROOT = {
+  kind: 30023,
+  pubkey: AUTHOR,
+  tags: [['d', 'pancakes'], ['title', 'Pancakes'], ['t', 'zapcooking']]
+};
 
 describe('platedCard (thread card decision)', () => {
   it('renders a valid top-level plated post as a card: photo, alt, note', () => {
@@ -336,7 +340,7 @@ describe('platedCard (thread card decision)', () => {
     expect(platedCard(cw, ROOT)).toBeNull();
     const replyTags = plated().tags!.map((t) => (t[0] === 'k' ? ['k', '1111'] : t));
     expect(platedCard(plated({ tags: replyTags }), ROOT)).toBeNull();
-    expect(platedCard(plated(), { ...ROOT, tags: [['d', 'waffles']] })).toBeNull();
+    expect(platedCard(plated(), { ...ROOT, tags: [['d', 'waffles'], ['t', 'zapcooking']] })).toBeNull();
   });
 
   it('never makes an unmarked photo comment a card', () => {
@@ -347,6 +351,23 @@ describe('platedCard (thread card decision)', () => {
 
   it("is null for a root that isn't an addressable recipe", () => {
     expect(platedCard(plated(), { kind: 1, pubkey: AUTHOR, tags: [] })).toBeNull();
+  });
+
+  it('accepts either recipe tag, matched case-insensitively', () => {
+    const legacy = { ...ROOT, tags: [['d', 'pancakes'], ['t', 'nostrcooking']] };
+    const upper = { ...ROOT, tags: [['d', 'pancakes'], ['t', 'ZapCooking']] };
+    expect(platedCard(plated(), legacy)).not.toBeNull();
+    expect(platedCard(plated(), upper)).not.toBeNull();
+  });
+
+  it('keeps a plate on an article (kind 30023 without a recipe tag) a normal comment', () => {
+    const article = { ...ROOT, tags: [['d', 'pancakes'], ['title', 'Pancakes'], ['t', 'food']] };
+    expect(platedCard(plated(), article)).toBeNull();
+  });
+
+  it('keeps a plate on a kind-35000 root a normal comment', () => {
+    const gated = { ...ROOT, kind: 35000 };
+    expect(platedCard(plated({ tags: plated().tags!.map((t) => (t[0] === 'A' || t[0] === 'a' ? [t[0], `35000:${AUTHOR}:pancakes`] : t)) }), gated)).toBeNull();
   });
 
   it("still renders the recipe author's own plate as a card (only the row excludes it)", () => {

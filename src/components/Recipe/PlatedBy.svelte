@@ -44,7 +44,6 @@
   import {
     summarizePlated,
     platedGallery,
-    platedAnchorId,
     PLATED_MAX_THUMBNAILS,
     type PlatedItem,
     type PlatedRecipe
@@ -56,6 +55,12 @@
     platedThumbAlt,
     platedThumbLabel
   } from '$lib/plated/copy';
+  import {
+    findPlatedCard,
+    prefersReducedMotion,
+    scrollToCommentsSection,
+    scrollToPlatedCard
+  } from '$lib/plated/navigate';
 
   export let events: Readable<NDKEvent[]>;
   export let eosed: Readable<boolean>;
@@ -122,10 +127,6 @@
     viewerOpen = true;
   }
 
-  function prefersReducedMotion(): boolean {
-    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  }
-
   async function reportFromGallery(plate: PlatedItem) {
     // One dialog at a time: the lightbox's Escape / Tab handling would
     // fight the report modal's.
@@ -137,14 +138,9 @@
   async function seeInComments(plate: PlatedItem) {
     viewerOpen = false;
     await tick(); // the lightbox hands focus back first; then move it on
-    const behavior: ScrollBehavior = prefersReducedMotion() ? 'auto' : 'smooth';
-    const card = document.getElementById(platedAnchorId(plate.id));
-    if (card) {
-      card.scrollIntoView({ block: 'center', behavior });
-      card.focus({ preventScroll: true });
-    } else {
-      document.getElementById('comments-section')?.scrollIntoView({ block: 'start', behavior });
-    }
+    const card = findPlatedCard(plate.id);
+    if (card) scrollToPlatedCard(card);
+    else scrollToCommentsSection();
   }
 
   /**

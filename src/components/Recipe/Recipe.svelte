@@ -31,7 +31,7 @@
     mentionNamesVersion
   } from '$lib/parser';
   import { sanitizeHTML } from '$lib/sanitize';
-  import { goto } from '$app/navigation';
+  import { afterNavigate, goto } from '$app/navigation';
   import { saveDraft } from '$lib/draftStore';
   import { clickOutside } from '$lib/clickOutside';
   import TotalZaps from './TotalZaps.svelte';
@@ -52,9 +52,18 @@
   import {
     ensureReadsModerationLoaded,
     isBlockedReadsPointerClient,
+    readsModerationReady,
     readsModerationVersion
   } from '$lib/reads/moderationClient';
-  import { PLATED_ENABLED, platedRecipeOf } from '$lib/plated/plated';
+  import { PLATED_ENABLED, plateableRecipe, platedRecipeOf } from '$lib/plated/plated';
+  import {
+    findPlatedCard,
+    followPlatedDeepLink,
+    onUserScrollIntent,
+    platedIdFromHash,
+    scrollToCommentsSection,
+    scrollToPlatedCard
+  } from '$lib/plated/navigate';
   import RecipeReactionPills from './RecipeReactionPills.svelte';
   import TopZappers from './TopZappers.svelte';
   import ZapModal from '../ZapModal.svelte';
@@ -191,6 +200,9 @@
   const commentSlot = createSubscriptionSlot<CommentSubscription>();
   let commentSub: CommentSubscription | null = null;
   $: platedRecipe = platedRecipeOf(event as { kind?: number; pubkey?: string; tags?: string[][] });
+  // Only recipes can be plated: an article gets no prompt and no row (its
+  // plated posts stay normal comments — CommentCard's platedCard checks too).
+  $: plateable = PLATED_ENABLED && !!plateableRecipe(event);
   $: if ($ndk) {
     const root = event;
     commentSub = commentSlot.retarget(platedRecipe?.address ?? root.id, () =>
@@ -214,7 +226,30 @@
     ? moderatedSubscription(commentSub, readsModerationVersion, isBlockedReadsPointerClient)
     : null;
 
+  // A notification's `#plated-<id>` link: go to that card once moderation
+  // has settled and the card is in the thread, else to the comments. Stops
+  // if the visitor scrolls first, on navigation and on unmount. Started on
+  // mount too: this component mounts after the page's event fetch, i.e.
+  // after the navigation that afterNavigate would otherwise report.
+  let cancelPlatedLink: (() => void) | null = null;
+  function followPlatedHash() {
+    cancelPlatedLink?.();
+    cancelPlatedLink = null;
+    const id = platedIdFromHash(location.hash);
+    if (!id || !plateable) return;
+    cancelPlatedLink = followPlatedDeepLink(id, {
+      findCard: findPlatedCard,
+      isReady: () => $readsModerationReady,
+      goToCard: scrollToPlatedCard,
+      goToComments: scrollToCommentsSection,
+      onUserScroll: onUserScrollIntent
+    });
+  }
+  onMount(followPlatedHash);
+  afterNavigate(followPlatedHash);
+
   onDestroy(() => {
+    cancelPlatedLink?.();
     unsubMembership();
     if (copyTimeout) clearTimeout(copyTimeout);
     commentSlot.stop();
@@ -1133,7 +1168,7 @@
         </div>
       </div>
 
-      {#if PLATED_ENABLED && platedRecipe && shownComments}
+      {#if plateable && platedRecipe && shownComments}
         <PlatedBy
           bind:this={platedRow}
           events={shownComments.events}
@@ -1285,7 +1320,7 @@
           {/if}
         </div>
       {/if}
-      {#if PLATED_ENABLED && platedRecipe}
+      {#if plateable}
         <PlateItPrompt recipeEvent={event} onPosted={handlePlated} />
       {/if}
       {#key commentSub}

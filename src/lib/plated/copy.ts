@@ -29,8 +29,20 @@ export const PLATED_COPY = {
   galleryLabel: 'Plated photos',
   galleryPrevious: 'Previous photo',
   galleryNext: 'Next photo',
-  gallerySeeInComments: 'See in comments'
+  gallerySeeInComments: 'See in comments',
+
+  /** Notification action after the cook's name: "plated your Sourdough Waffles." */
+  notificationPrefix: 'plated your',
+  notificationNoTitle: 'recipe'
 } as const;
+
+/**
+ * The notification's action text after the cook's name: "plated your
+ * Sourdough Waffles." with a title, else "plated your recipe."
+ */
+export function platedNotificationAction(recipeTitle: string | null): string {
+  return `${PLATED_COPY.notificationPrefix} ${recipeTitle || PLATED_COPY.notificationNoTitle}.`;
+}
 
 /** Accessible name for a row thumbnail, which opens the gallery. */
 export function platedThumbLabel(alt: string): string {
