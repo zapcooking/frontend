@@ -108,18 +108,14 @@ export interface SummarizeOptions {
   muteList?: MuteList | null;
   /** Event ids hidden locally, e.g. reported this session. */
   hiddenIds?: ReadonlySet<string>;
-  /**
-   * Site moderation (the Reads lists): true when an admin has blocked this
-   * event id or author. Applies to every visitor.
-   */
-  isBlocked?: (pointer: { eventId: string; pubkey: string }) => boolean;
 }
 
 /**
  * The "Plated by" row's data from a recipe's fetched comments: valid plated
- * posts, minus the recipe's own author, moderation-blocked events and
- * authors, muted events and locally hidden ids, de-duplicated by event id
- * and then by author (newest plate wins).
+ * posts, minus the recipe's own author, muted events and locally hidden
+ * ids, de-duplicated by event id and then by author (newest plate wins).
+ * Site moderation is applied upstream, to the events the thread shows too
+ * ($lib/comments/moderation).
  */
 export function summarizePlated(
   events: readonly PlatedEventLike[],
@@ -135,7 +131,6 @@ export function summarizePlated(
     if (!isPlatedPost(ev, recipe)) continue;
     if (ev.pubkey === recipe.authorPubkey) continue;
     if (options.hiddenIds?.has(ev.id)) continue;
-    if (options.isBlocked?.({ eventId: ev.id, pubkey: ev.pubkey! })) continue;
     if (isEventMutedBy(options.muteList, ev)) continue;
 
     const image = platedImage(ev)!;

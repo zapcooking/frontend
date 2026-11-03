@@ -48,6 +48,12 @@
     type CommentSubscription
   } from '$lib/comments/subscription';
   import { createSubscriptionSlot } from '$lib/comments/subscriptionSlot';
+  import { moderatedSubscription } from '$lib/comments/moderation';
+  import {
+    ensureReadsModerationLoaded,
+    isBlockedReadsPointerClient,
+    readsModerationVersion
+  } from '$lib/reads/moderationClient';
   import { PLATED_ENABLED, recipeAddress, type PlatedRecipe } from '$lib/plated/plated';
   import RecipeReactionPills from './RecipeReactionPills.svelte';
   import TopZappers from './TopZappers.svelte';
@@ -200,6 +206,14 @@
       createCommentSubscription($ndk, root, { closeOnEose: false, applyMuteFilter: false })
     );
   }
+
+  // What the thread and the Plated row both render: the shared stream with
+  // site moderation applied (admin-blocked event ids / authors and the
+  // replies under them). Re-filters when the moderation overlay arrives.
+  onMount(ensureReadsModerationLoaded);
+  $: shownComments = commentSub
+    ? moderatedSubscription(commentSub, readsModerationVersion, isBlockedReadsPointerClient)
+    : null;
 
   onDestroy(() => {
     unsubMembership();
@@ -1120,10 +1134,10 @@
         </div>
       </div>
 
-      {#if PLATED_ENABLED && platedRecipe && commentSub}
+      {#if PLATED_ENABLED && platedRecipe && shownComments}
         <PlatedBy
-          events={commentSub.events}
-          eosed={commentSub.eosed}
+          events={shownComments.events}
+          eosed={shownComments.eosed}
           recipe={platedRecipe}
           {recipeTitle}
         />
@@ -1275,7 +1289,7 @@
         <PlateItPrompt recipeEvent={event} onPosted={(posted) => commentSub?.addLocal(posted)} />
       {/if}
       {#key commentSub}
-        <CommentThread variant="recipe" {event} subscription={commentSub} />
+        <CommentThread variant="recipe" {event} subscription={shownComments} />
       {/key}
     </div>
 

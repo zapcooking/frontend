@@ -9,13 +9,15 @@
    * initial history has settled, so the count doesn't climb on screen as
    * relays answer, and nothing at all when no cook has plated the recipe.
    *
-   * Moderation: the reader's mute list, plus the site's Reads moderation
-   * lists (seed + admin overlay) by pointer — a blocked event id or author
-   * is gone for every visitor. Reports go to the kind-1984 relay path and
-   * the admin review queue; they never hide a photo for others by
-   * themselves.
+   * Moderation: `events` arrives with site moderation already applied by
+   * Recipe.svelte (the same filtered stream the thread renders — see
+   * $lib/comments/moderation); this adds the reader's mute list. The row
+   * waits for the first moderation-list fetch to settle so a blocked photo
+   * never flashes in first; a failed fetch still settles, and the seed
+   * lists apply. Reports go to the kind-1984 relay path and the admin
+   * review queue; they never hide a photo for others by themselves.
    */
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
   import type { Readable } from 'svelte/store';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import InfoIcon from 'phosphor-svelte/lib/Info';
@@ -28,12 +30,7 @@
   import { requireAuth } from '$lib/auth/requireAuth';
   import type { RelayEvent } from '$lib/freshFeed/relay';
   import type { ReportType } from '$lib/freshFeed/social';
-  import {
-    ensureReadsModerationLoaded,
-    isBlockedReadsPointerClient,
-    readsModerationVersion,
-    submitReadsReport
-  } from '$lib/reads/moderationClient';
+  import { readsModerationReady, submitReadsReport } from '$lib/reads/moderationClient';
   import { platedReportDetails, readsReportReason } from '$lib/plated/report';
   import {
     summarizePlated,
@@ -81,22 +78,9 @@
   let hiddenIds = new Set<string>();
   let brokenIds = new Set<string>();
 
-  // Pointer check only (event id / author), not the keyword denylist:
-  // isBlockedFromReads would scan short comment text with the long-form
-  // denylist and, on a match, auto-block the author and post a keyword hit
-  // that blocks them server-side too. A cook's photo is removed when an
-  // admin blocks it, not by a word in their caption.
-  onMount(ensureReadsModerationLoaded);
-  // A fresh predicate per lists version, so the summary re-runs when the
-  // admin overlay arrives (or a fetch later succeeds).
-  $: isBlocked = blockedBy($readsModerationVersion);
-  function blockedBy(_version: number) {
-    return (pointer: { eventId: string; pubkey: string }) => isBlockedReadsPointerClient(pointer);
-  }
   $: summary = summarizePlated($events, recipe, {
     muteList: $muteListStore.muteList,
-    hiddenIds,
-    isBlocked
+    hiddenIds
   });
   $: shown = summary.plates.filter((p) => !brokenIds.has(p.id)).slice(0, PLATED_MAX_THUMBNAILS);
 
@@ -185,7 +169,7 @@
   }
 </script>
 
-{#if settled && summary.cookCount > 0 && shown.length > 0}
+{#if settled && $readsModerationReady && summary.cookCount > 0 && shown.length > 0}
   <section class="plated-row print:hidden" aria-label={PLATED_COPY.rowLabel}>
     <ul class="plated-thumbs">
       {#each shown as plate (plate.id)}

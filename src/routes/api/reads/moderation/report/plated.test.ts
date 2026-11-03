@@ -2,7 +2,8 @@
  * The Plated removal loop on the server, end to end with no KV bound (the
  * handlers' in-memory fallback): a Plated report lands in the admin review
  * queue, an admin blocks the one event id, and the public moderation list
- * every visitor loads now hides that plate — and only that plate.
+ * every visitor loads now hides that comment from the thread and the row —
+ * and only that one.
  */
 import { describe, it, expect, vi } from 'vitest';
 
@@ -18,6 +19,7 @@ import { GET as adminGet, POST as adminPost } from '../../../admin/reads-moderat
 import { GET as publicGet } from '../+server';
 import { compileModerationLists, isBlockedReadsPointer } from '$lib/reads/moderation';
 import { summarizePlated } from '$lib/plated/plated';
+import { withoutBlockedComments } from '$lib/comments/moderation';
 import { readsReportReason, platedReportDetails } from '$lib/plated/report';
 
 const AUTHOR = 'a'.repeat(64);
@@ -89,9 +91,12 @@ describe('Plated report → admin → removal', () => {
     expect(after.blockedEventIds).toContain(BAD_ID);
     expect(after.blockedPubkeys).not.toContain(COOK);
     const lists = compileModerationLists(after);
-    const s = summarizePlated([plate(BAD_ID, COOK), plate(OK_ID, OTHER_COOK)], { address: ADDRESS, authorPubkey: AUTHOR }, {
-      isBlocked: (p) => isBlockedReadsPointer(p, lists)
-    });
+    // The thread and the row read the same moderated stream.
+    const shown = withoutBlockedComments([plate(BAD_ID, COOK), plate(OK_ID, OTHER_COOK)], (p) =>
+      isBlockedReadsPointer(p, lists)
+    );
+    expect(shown.map((e) => e.id)).toEqual([OK_ID]);
+    const s = summarizePlated(shown, { address: ADDRESS, authorPubkey: AUTHOR });
     expect(s.plates.map((p) => p.id)).toEqual([OK_ID]);
     expect(s.cookCount).toBe(1);
   });

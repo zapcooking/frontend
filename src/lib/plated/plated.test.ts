@@ -12,6 +12,15 @@ import {
 import { platedByLabel, platedThumbAlt } from './copy';
 import type { MuteList } from '$lib/muteFilter';
 import { compileModerationLists, isBlockedReadsPointer } from '$lib/reads/moderation';
+import { withoutBlockedComments } from '$lib/comments/moderation';
+
+/** The row's real input: site moderation first (shared with the thread), then the summary. */
+function moderatedSummary(events: PlatedEventLike[], lists: ReturnType<typeof compileModerationLists>) {
+  return summarizePlated(
+    withoutBlockedComments(events, (p) => isBlockedReadsPointer(p, lists)),
+    RECIPE
+  );
+}
 
 const AUTHOR = 'a'.repeat(64);
 const COOK_1 = '1'.repeat(64);
@@ -219,9 +228,7 @@ describe('summarizePlated', () => {
       blockedNaddrs: [],
       denylist: []
     });
-    const s = summarizePlated([bad, good], RECIPE, {
-      isBlocked: (p) => isBlockedReadsPointer(p, lists)
-    });
+    const s = moderatedSummary([bad, good], lists);
     expect(s.plates.map((p) => p.id)).toEqual([good.id]);
     expect(s.cookCount).toBe(1);
   });
@@ -235,9 +242,7 @@ describe('summarizePlated', () => {
       blockedNaddrs: [],
       denylist: []
     });
-    const s = summarizePlated([older, newer], RECIPE, {
-      isBlocked: (p) => isBlockedReadsPointer(p, lists)
-    });
+    const s = moderatedSummary([older, newer], lists);
     // Only the blocked event goes; the cook's other plate still counts.
     expect(s.plates.map((p) => p.id)).toEqual([older.id]);
   });
@@ -249,10 +254,9 @@ describe('summarizePlated', () => {
       blockedNaddrs: [],
       denylist: []
     });
-    const s = summarizePlated(
+    const s = moderatedSummary(
       [plated({ pubkey: COOK_1, created_at: 1 }), plated({ pubkey: COOK_1, created_at: 2 }), plated({ pubkey: COOK_3 })],
-      RECIPE,
-      { isBlocked: (p) => isBlockedReadsPointer(p, lists) }
+      lists
     );
     expect(s.plates.map((p) => p.pubkey)).toEqual([COOK_3]);
     expect(s.cookCount).toBe(1);
@@ -265,11 +269,7 @@ describe('summarizePlated', () => {
       blockedNaddrs: [],
       denylist: ['breast']
     });
-    const s = summarizePlated(
-      [plated({ content: `Juicy chicken breast!\n${IMG}` })],
-      RECIPE,
-      { isBlocked: (p) => isBlockedReadsPointer(p, lists) }
-    );
+    const s = moderatedSummary([plated({ content: `Juicy chicken breast!\n${IMG}` })], lists);
     expect(s.cookCount).toBe(1);
   });
 
