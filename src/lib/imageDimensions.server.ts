@@ -10,7 +10,7 @@
  * emit those tags for every card (recipe, note, profile, reads) from one
  * shared fetch-and-probe helper.
  *
- * Supports JPEG, PNG, and WebP (lossy VP8, lossless VP8L, extended VP8X) —
+ * Supports JPEG, PNG, GIF, and WebP (lossy VP8, lossless VP8L, extended VP8X) —
  * covers every host observed in the investigation (blossom.primal.net,
  * image.nostr.build, and arbitrary note-embedded URLs). Never throws; any
  * failure (network, timeout, unrecognized format) resolves to `null` so the
@@ -132,8 +132,19 @@ function parseWebp(buf: Uint8Array): ImageDimensions | null {
   return null;
 }
 
+/** GIF: "GIF87a"/"GIF89a" signature, then logical screen width/height (LE16). */
+function parseGif(buf: Uint8Array): ImageDimensions | null {
+  if (buf.length < 10) return null;
+  const sig = String.fromCharCode(buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
+  if (sig !== 'GIF87a' && sig !== 'GIF89a') return null;
+  const width = buf[6] | (buf[7] << 8);
+  const height = buf[8] | (buf[9] << 8);
+  if (width <= 0 || height <= 0) return null;
+  return { width, height, mime: 'image/gif' };
+}
+
 function probeBuffer(buf: Uint8Array): ImageDimensions | null {
-  return parseJpeg(buf) || parsePng(buf) || parseWebp(buf);
+  return parseJpeg(buf) || parsePng(buf) || parseWebp(buf) || parseGif(buf);
 }
 
 /**

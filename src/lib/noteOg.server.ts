@@ -20,12 +20,19 @@ import {
   type RecipeOgMeta
 } from './recipeOgMeta';
 import { extractImageUrls } from './imageUrls';
+import { fetchProfilesForOg } from './profileBatchOg.server';
 
-// The note event is the card; the author profile is a best-effort enrichment.
-// They're bounded SEPARATELY so a slow kind:0 relay can never consume the
-// note's budget and drop the whole card.
+// The note event is the card; the author/mention profiles are a best-effort
+// enrichment. They're bounded SEPARATELY so a slow kind:0 relay can never
+// consume the note's budget and drop the whole card.
 const NOTE_TIMEOUT_MS = 4000;
-const AUTHOR_TIMEOUT_MS = 1500;
+// One shared, short budget for the author + mentioned profiles.
+const PROFILE_TIMEOUT_MS = 2000;
+// Cap how many mentions we resolve (they ride the same batched request).
+const MAX_MENTION_LOOKUPS = 3;
+// Only mentions near the start of the note can survive the ~155-char
+// description cap, so don't resolve ones that never reach the card.
+const MENTION_SCAN_CHARS = 400;
 const FALLBACK_IMAGE = 'https://zap.cooking/social-share.png';
 
 /**
@@ -67,6 +74,8 @@ interface NoteAuthor {
 export interface NoteOgData {
   event: OgEventLike;
   author: NoteAuthor;
+  /** hex pubkey → display name, for `nostr:npub1…` mentions that resolved. */
+  mentions?: Record<string, string>;
 }
 
 /** Emitted when the note can't be resolved — a generic but valid note card. */
@@ -113,44 +122,77 @@ async function resolveNote(slug: string): Promise<NoteOgData | null> {
   const event = toOgEvent(await withTimeout(raceRelays({ ids: [id] }), NOTE_TIMEOUT_MS, null));
   if (!event) return null;
 
-  // Author kind:0 profile — best-effort, on its OWN short budget so it can't
-  // starve the note. A timeout just yields a generic title/image.
-  let author: NoteAuthor = {};
-  if (event.pubkey) {
-    const meta = await withTimeout(
-      raceRelays({ kinds: [0], authors: [event.pubkey] }),
-      AUTHOR_TIMEOUT_MS,
-      null
-    );
-    const content = (meta as Record<string, unknown> | null)?.content;
-    if (typeof content === 'string') {
-      try {
-        const p = JSON.parse(content) as Record<string, string>;
-        author = {
-          name: p.display_name || p.displayName || p.name,
-          picture: p.picture
-        };
-      } catch {
-        /* malformed profile JSON — keep empty author */
-      }
-    }
-  }
+  // Author + mentioned profiles in ONE batched lookup (a socket per relay, not
+  // per pubkey) on its own short budget, so it can't starve the note.
+  const mentionKeys = extractMentionedPubkeys(event.content);
+  const profiles = await fetchProfilesForOg(
+    [...(event.pubkey ? [event.pubkey] : []), ...mentionKeys],
+    PROFILE_TIMEOUT_MS
+  );
 
-  return { event, author };
+  const mentions: Record<string, string> = {};
+  for (const pk of mentionKeys) {
+    const name = profiles[pk]?.name;
+    if (name) mentions[pk] = name;
+  }
+  const authorProfile = event.pubkey ? profiles[event.pubkey] : undefined;
+  const author: NoteAuthor = authorProfile
+    ? { name: authorProfile.name, picture: authorProfile.picture }
+    : {};
+
+  return { event, author, mentions };
 }
 
-function cleanNoteText(content: string): string {
+const MENTION_RE = /nostr:((?:npub1|nprofile1)[0-9a-z]+)/gi;
+
+/** nostr:npub1… / nostr:nprofile1… → hex pubkey, or null if undecodable. */
+function mentionToPubkey(bech32: string): string | null {
+  try {
+    const decoded = nip19.decode(bech32.toLowerCase());
+    if (decoded.type === 'npub') return decoded.data as string;
+    if (decoded.type === 'nprofile') return (decoded.data as nip19.ProfilePointer).pubkey;
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+/** Unique pubkeys mentioned near the start of the note, capped. */
+export function extractMentionedPubkeys(content: string): string[] {
+  const keys: string[] = [];
+  for (const m of content.slice(0, MENTION_SCAN_CHARS).matchAll(MENTION_RE)) {
+    const pk = mentionToPubkey(m[1]);
+    if (pk && !keys.includes(pk)) keys.push(pk);
+    if (keys.length >= MAX_MENTION_LOOKUPS) break;
+  }
+  return keys;
+}
+
+/** `@Name` when the profile resolved, else a short npub so the sentence still reads. */
+function mentionLabel(bech32: string, mentions: Record<string, string>): string {
+  const pk = mentionToPubkey(bech32);
+  if (!pk) return '';
+  const name = mentions[pk]?.replace(/\s+/g, ' ').trim();
+  if (name) return `@${name}`;
+  const npub = nip19.npubEncode(pk);
+  return `@${npub.slice(0, 9)}…${npub.slice(-4)}`;
+}
+
+export function cleanNoteText(content: string, mentions: Record<string, string> = {}): string {
   return content
     .replace(/https?:\/\/[^\s]+/g, '')
+    // People mentions read as part of the sentence ("Thanks to @Name for…"),
+    // so keep them. Quoted events/notes/addresses don't, so those still go.
+    .replace(MENTION_RE, (_m, bech32: string) => mentionLabel(bech32, mentions))
     .replace(/nostr:[^\s]+/g, '')
     .replace(/#\[\d+\]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-export function getNoteOgMeta({ event, author }: NoteOgData): RecipeOgMeta {
+export function getNoteOgMeta({ event, author, mentions }: NoteOgData): RecipeOgMeta {
   const name = author.name?.trim();
-  const text = cleanNoteText(event.content);
+  const text = cleanNoteText(event.content, mentions);
   const imageInBody = findCardImage(event);
 
   return {
@@ -166,7 +208,7 @@ export function getNoteOgMeta({ event, author }: NoteOgData): RecipeOgMeta {
 
 /**
  * Resolve a note for OG rendering. Never throws; the note and author fetches
- * are each independently time-bounded (see NOTE_TIMEOUT_MS / AUTHOR_TIMEOUT_MS)
+ * are each independently time-bounded (see NOTE_TIMEOUT_MS / PROFILE_TIMEOUT_MS)
  * so a slow author lookup can't drop the note card.
  */
 export async function fetchNoteForOg(slug: string): Promise<NoteOgData | null> {

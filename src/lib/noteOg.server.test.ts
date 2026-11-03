@@ -6,7 +6,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { getNoteOgMeta } from './noteOg.server';
+import { nip19 } from 'nostr-tools';
+import { getNoteOgMeta, extractMentionedPubkeys, cleanNoteText } from './noteOg.server';
 import type { OgEventLike } from './recipeOgMeta';
 
 function makeEvent(overrides: Partial<OgEventLike> = {}): OgEventLike {
@@ -80,5 +81,54 @@ describe('getNoteOgMeta image selection', () => {
     });
     const meta = getNoteOgMeta({ event, author: {} });
     expect(meta.image).toBe('https://example.com/fallback.png');
+  });
+});
+
+describe('note mentions in the description', () => {
+  const PK_A = 'a'.repeat(64);
+  const PK_B = 'b'.repeat(64);
+  const npubA = nip19.npubEncode(PK_A);
+  const npubB = nip19.npubEncode(PK_B);
+
+  it('renders a resolved nostr:npub mention as @Name instead of dropping it', () => {
+    const event = makeEvent({ content: `Thanks to nostr:${npubA} for having us on the show.` });
+    const meta = getNoteOgMeta({ event, author: {}, mentions: { [PK_A]: 'Breez' } });
+    expect(meta.description).toBe('Thanks to @Breez for having us on the show.');
+  });
+
+  it('falls back to a short npub when the profile did not resolve', () => {
+    const event = makeEvent({ content: `Thanks to nostr:${npubA} for having us.` });
+    const meta = getNoteOgMeta({ event, author: {} });
+    expect(meta.description).toBe(
+      `Thanks to @${npubA.slice(0, 9)}…${npubA.slice(-4)} for having us.`
+    );
+  });
+
+  it('handles nprofile mentions and keeps trailing punctuation', () => {
+    const nprofile = nip19.nprofileEncode({ pubkey: PK_A, relays: [] });
+    const text = cleanNoteText(`cc nostr:${nprofile}, thanks!`, { [PK_A]: 'Alice' });
+    expect(text).toBe('cc @Alice, thanks!');
+  });
+
+  it('still drops quoted events, notes and urls', () => {
+    const nevent = nip19.neventEncode({ id: 'c'.repeat(64) });
+    const note = nip19.noteEncode('d'.repeat(64));
+    const text = cleanNoteText(`look nostr:${nevent} and nostr:${note} https://example.com/x`);
+    expect(text).toBe('look and');
+  });
+
+  it('extracts unique mentioned pubkeys near the start, capped', () => {
+    const many = Array.from({ length: 6 }, (_, i) =>
+      nip19.npubEncode(String(i + 1).repeat(64))
+    );
+    const content = `nostr:${npubA} nostr:${npubA} nostr:${npubB} ` + many.map((n) => `nostr:${n}`).join(' ');
+    const keys = extractMentionedPubkeys(content);
+    expect(keys).toHaveLength(3);
+    expect(keys.slice(0, 2)).toEqual([PK_A, PK_B]);
+  });
+
+  it('ignores mentions beyond the scan window', () => {
+    const content = 'x'.repeat(500) + ` nostr:${npubA}`;
+    expect(extractMentionedPubkeys(content)).toEqual([]);
   });
 });
