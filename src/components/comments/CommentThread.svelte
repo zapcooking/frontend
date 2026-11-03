@@ -44,6 +44,14 @@
    */
   export let variant: 'recipe' | 'feed';
 
+  /**
+   * Optional subscription owned by the caller (Recipe.svelte shares one
+   * with the Plated row). When set, this thread reads it and never stops
+   * it — the owner controls its lifecycle. When null, the thread opens and
+   * stops its own, as before.
+   */
+  export let subscription: CommentSubscription | null = null;
+
   let sub: CommentSubscription | null = null;
   let events: Readable<NDKEvent[]> = writable([]);
 
@@ -79,7 +87,14 @@
   // Recipe: eager (showComments is true from init). Feed: lazy
   // (showComments toggles from the bridge). `sub` nulled in onDestroy
   // so reconnect paths re-subscribe cleanly.
-  $: if ($ndk && !sub && showComments) {
+  $: if (subscription) {
+    // An own subscription opened before the shared one arrived is redundant.
+    sub?.stop();
+    sub = null;
+    events = subscription.events;
+  }
+
+  $: if (!subscription && $ndk && !sub && showComments) {
     sub = createCommentSubscription($ndk, event, {
       closeOnEose: false,
       applyMuteFilter: variant === 'feed'
@@ -89,7 +104,7 @@
 
   function handlePosted(posted: NDKEvent) {
     // Optimistic add for recipe; feed relies on subscription round-trip.
-    if (variant === 'recipe') sub?.addLocal(posted);
+    if (variant === 'recipe') (subscription ?? sub)?.addLocal(posted);
   }
 
   let openReplyCount = 0;

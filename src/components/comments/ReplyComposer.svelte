@@ -127,6 +127,25 @@
 	export let posting = false;
 
 	/**
+	 * Tags the caller adds to the published event (e.g. a feature marker),
+	 * merged after the composer's own mention / imeta / poll tags. The
+	 * client tag is still appended by postComment.
+	 */
+	export let extraTags: string[][] = [];
+
+	/** Block posting until at least one photo (not a video) is attached. */
+	export let requireImage = false;
+
+	/** Shown under the editor while `requireImage` blocks posting. */
+	export let requireImageMessage = 'Add a photo to post.';
+
+	/** Offer the GIF picker. */
+	export let allowGif = true;
+
+	/** Offer the poll creator (a poll publishes as kind 1068, not a comment). */
+	export let allowPoll = true;
+
+	/**
 	 * `cancel`: the member backed out; `close`: this composer is done — the
 	 * reply went out, or was handed to the background miner — and its host
 	 * should dismiss it.
@@ -424,7 +443,9 @@
 			const draft = getReplyDraft(draftKey, $userPublickey);
 			if (draft) {
 				media = [...draft.media];
-				pollConfig = draft.poll;
+				// A draft saved under the same target by a poll-capable composer
+				// must not turn this one into a poll.
+				pollConfig = allowPoll ? draft.poll : null;
 				composerText = draft.text;
 			}
 		}
@@ -616,7 +637,7 @@
 	}
 
 	async function handleSubmit() {
-		if ((!composerText.trim() && media.length === 0 && !pollConfig) || posting) {
+		if ((!composerText.trim() && media.length === 0 && !pollConfig) || posting || missingImage) {
 			return;
 		}
 
@@ -666,19 +687,20 @@
 			// the main composer and Preview both use.
 			content = composeNoteContent(content, mediaSnapshot);
 
-			const extraTags: string[][] = [];
+			const tags: string[][] = [];
 			const mentions = mentionCtrl.parseMentions(content);
 			for (const pubkey of mentions.values()) {
-				extraTags.push(['p', pubkey]);
+				tags.push(['p', pubkey]);
 			}
 			// NIP-92 imeta alt text per described attachment, in draft order
 			// (shared builder — same wire format as the main composer). Read
 			// from the snapshot — clearState() has already emptied the live
 			// state by this point.
-			extraTags.push(...imetaTagsForMedia(mediaSnapshot));
+			tags.push(...imetaTagsForMedia(mediaSnapshot));
 			if (capturedPollConfig) {
-				extraTags.push(...buildPollTags(capturedPollConfig));
+				tags.push(...buildPollTags(capturedPollConfig));
 			}
+			tags.push(...extraTags);
 			const contentKind = capturedPollConfig ? 1068 : undefined;
 
 			if (powBits) {
@@ -693,7 +715,7 @@
 					parentEvent,
 					replyTo,
 					content,
-					extraTags,
+					extraTags: tags,
 					contentKind,
 					bits: powBits,
 					draft: draftSnapshot,
@@ -713,7 +735,7 @@
 				parentEvent,
 				replyTo,
 				content,
-				extraTags,
+				extraTags: tags,
 				contentKind,
 				signingStrategy: 'explicit-with-timeout'
 			});
@@ -749,8 +771,11 @@
 		media
 	);
 
+	$: missingImage = requireImage && !media.some((m) => !m.isVideo);
+
 	$: isDisabled =
 		(!composerText.trim() && media.length === 0 && !pollConfig) ||
+		missingImage ||
 		posting ||
 		$miningOp !== null ||
 		uploadingImage ||
@@ -864,6 +889,10 @@
 		</div>
 	{/if}
 
+
+	{#if missingImage && !uploadingImage}
+		<p class="text-caption text-xs" role="status">{requireImageMessage}</p>
+	{/if}
 
 	{#if uploadError}
 		<p class="text-[var(--color-danger)] text-xs">{uploadError}</p>
@@ -1045,6 +1074,7 @@
 						disabled={posting || uploadingImage || uploadingVideo}
 					/>
 				</div>
+				{#if allowGif}
 				<button
 					type="button"
 					on:click={() => (showGifPicker = true)}
@@ -1056,6 +1086,8 @@
 				>
 					<GifIcon size={20} />
 				</button>
+				{/if}
+				{#if allowPoll}
 				<button
 					type="button"
 					on:click={() => (showPollCreator = true)}
@@ -1067,6 +1099,7 @@
 				>
 					<ChartBarHorizontalIcon size={20} class={pollConfig ? 'text-primary' : ''} />
 				</button>
+				{/if}
 				<!-- Proof of work for this reply. The bits ride on the glyph, so
 				     what one more tap costs is on screen rather than in a
 				     tooltip. -->
