@@ -8,8 +8,14 @@
    * with CommentThread) — no extra relay traffic. Renders nothing until the
    * initial history has settled, so the count doesn't climb on screen as
    * relays answer, and nothing at all when no cook has plated the recipe.
+   *
+   * Moderation: the reader's mute list, plus the site's Reads moderation
+   * lists (seed + admin overlay) by pointer — a blocked event id or author
+   * is gone for every visitor. Reports go to the kind-1984 relay path and
+   * the admin review queue; they never hide a photo for others by
+   * themselves.
    */
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import type { Readable } from 'svelte/store';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import InfoIcon from 'phosphor-svelte/lib/Info';
@@ -21,6 +27,14 @@
   import { clickOutside } from '$lib/clickOutside';
   import { requireAuth } from '$lib/auth/requireAuth';
   import type { RelayEvent } from '$lib/freshFeed/relay';
+  import type { ReportType } from '$lib/freshFeed/social';
+  import {
+    ensureReadsModerationLoaded,
+    isBlockedReadsPointerClient,
+    readsModerationVersion,
+    submitReadsReport
+  } from '$lib/reads/moderationClient';
+  import { platedReportDetails, readsReportReason } from '$lib/plated/report';
   import {
     summarizePlated,
     PLATED_MAX_THUMBNAILS,
@@ -43,6 +57,18 @@
   const SETTLE_MS = 1500;
   let quiet = false;
   let quietTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // A new recipe on a mounted page starts over: unsettled, nothing hidden.
+  let forAddress = '';
+  $: if (recipe.address !== forAddress) {
+    forAddress = recipe.address;
+    if (quietTimer) clearTimeout(quietTimer);
+    quietTimer = null;
+    quiet = false;
+    hiddenIds = new Set();
+    brokenIds = new Set();
+  }
+
   $: armQuiet($events.length);
   function armQuiet(_count: number) {
     if (quiet) return;
@@ -55,9 +81,22 @@
   let hiddenIds = new Set<string>();
   let brokenIds = new Set<string>();
 
+  // Pointer check only (event id / author), not the keyword denylist:
+  // isBlockedFromReads would scan short comment text with the long-form
+  // denylist and, on a match, auto-block the author and post a keyword hit
+  // that blocks them server-side too. A cook's photo is removed when an
+  // admin blocks it, not by a word in their caption.
+  onMount(ensureReadsModerationLoaded);
+  // A fresh predicate per lists version, so the summary re-runs when the
+  // admin overlay arrives (or a fetch later succeeds).
+  $: isBlocked = blockedBy($readsModerationVersion);
+  function blockedBy(_version: number) {
+    return (pointer: { eventId: string; pubkey: string }) => isBlockedReadsPointerClient(pointer);
+  }
   $: summary = summarizePlated($events, recipe, {
     muteList: $muteListStore.muteList,
-    hiddenIds
+    hiddenIds,
+    isBlocked
   });
   $: shown = summary.plates.filter((p) => !brokenIds.has(p.id)).slice(0, PLATED_MAX_THUMBNAILS);
 
@@ -113,8 +152,32 @@
     reportOpen = true;
   }
 
+  function hideForSession(id: string) {
+    if (!hiddenIds.has(id)) hiddenIds = new Set([...hiddenIds, id]);
+  }
+
+  // Also file the report with the site's moderation queue. Independent of
+  // the kind-1984 publish: neither waits on nor can fail the other, and
+  // either one succeeding hides the photo for this reporter's session.
+  async function onSubmitting(
+    e: CustomEvent<{ post: RelayEvent; type: ReportType; note: string }>
+  ) {
+    const { post, type, note } = e.detail;
+    try {
+      const res = await submitReadsReport({
+        eventId: post.id,
+        pubkey: post.pubkey,
+        reason: readsReportReason(type),
+        details: platedReportDetails(recipe.address, type, note)
+      });
+      if (res.ok) hideForSession(post.id);
+    } catch (err) {
+      console.error('[Plated] moderation report failed:', err);
+    }
+  }
+
   function onReported(e: CustomEvent<RelayEvent>) {
-    hiddenIds = new Set([...hiddenIds, e.detail.id]);
+    hideForSession(e.detail.id);
   }
 
   function onImageError(id: string) {
@@ -122,41 +185,39 @@
   }
 </script>
 
-{#if settled && summary.cookCount > 0}
+{#if settled && summary.cookCount > 0 && shown.length > 0}
   <section class="plated-row print:hidden" aria-label={PLATED_COPY.rowLabel}>
-    {#if shown.length > 0}
-      <ul class="plated-thumbs">
-        {#each shown as plate (plate.id)}
-          {@const alt = platedThumbAlt(recipeTitle, plate.alt)}
-          <li class="plated-thumb">
-            <a href="#comments-section" class="plated-thumb-link" title={PLATED_COPY.seePlates}>
-              <img
-                src={optimizeImageUrl(plate.image, { width: THUMB_PX * 2 })}
-                {alt}
-                width={THUMB_PX}
-                height={THUMB_PX}
-                loading="lazy"
-                decoding="async"
-                on:error={() => onImageError(plate.id)}
-              />
-              <span class="sr-only">{PLATED_COPY.seePlates}</span>
-            </a>
-            <span class="plated-avatar" aria-hidden="true">
-              <CustomAvatar pubkey={plate.pubkey} size={22} interactive={false} />
-            </span>
-            <button
-              type="button"
-              class="plated-report"
-              aria-label={PLATED_COPY.reportLabel}
-              title={PLATED_COPY.reportLabel}
-              on:click={() => report(plate)}
-            >
-              <FlagIcon size={12} weight="bold" />
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {/if}
+    <ul class="plated-thumbs">
+      {#each shown as plate (plate.id)}
+        {@const alt = platedThumbAlt(recipeTitle, plate.alt)}
+        <li class="plated-thumb">
+          <a href="#comments-section" class="plated-thumb-link" title={PLATED_COPY.seePlates}>
+            <img
+              src={optimizeImageUrl(plate.image, { width: THUMB_PX * 2 })}
+              {alt}
+              width={THUMB_PX}
+              height={THUMB_PX}
+              loading="lazy"
+              decoding="async"
+              on:error={() => onImageError(plate.id)}
+            />
+            <span class="sr-only">{PLATED_COPY.seePlates}</span>
+          </a>
+          <span class="plated-avatar" aria-hidden="true">
+            <CustomAvatar pubkey={plate.pubkey} size={22} interactive={false} />
+          </span>
+          <button
+            type="button"
+            class="plated-report"
+            aria-label={PLATED_COPY.reportLabel}
+            title={PLATED_COPY.reportLabel}
+            on:click={() => report(plate)}
+          >
+            <FlagIcon size={12} weight="bold" />
+          </button>
+        </li>
+      {/each}
+    </ul>
 
     <div class="plated-label" use:clickOutside on:click_outside={closeExplain}>
       <span class="plated-count">{platedByLabel(summary.cookCount)}</span>
@@ -189,8 +250,16 @@
     </div>
   </section>
 
-  <FreshReportModal bind:open={reportOpen} post={reportPost} on:reported={onReported} />
 {/if}
+
+<!-- Outside the row: reporting its last photo hides the row, and the
+     modal must stay up until the relay publish settles. -->
+<FreshReportModal
+  bind:open={reportOpen}
+  post={reportPost}
+  on:submitting={onSubmitting}
+  on:reported={onReported}
+/>
 
 <style>
   .plated-row {

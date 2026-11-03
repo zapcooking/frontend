@@ -11,6 +11,7 @@ import {
 } from './plated';
 import { platedByLabel, platedThumbAlt } from './copy';
 import type { MuteList } from '$lib/muteFilter';
+import { compileModerationLists, isBlockedReadsPointer } from '$lib/reads/moderation';
 
 const AUTHOR = 'a'.repeat(64);
 const COOK_1 = '1'.repeat(64);
@@ -207,6 +208,69 @@ describe('summarizePlated', () => {
       hiddenIds: new Set([reported.id!])
     });
     expect(s.plates.map((p) => p.pubkey)).toEqual([COOK_2]);
+  });
+
+  it('drops a moderation-blocked event id for everyone, and the count follows', () => {
+    const bad = plated({ pubkey: COOK_1 });
+    const good = plated({ pubkey: COOK_2 });
+    const lists = compileModerationLists({
+      blockedPubkeys: [],
+      blockedEventIds: [bad.id!],
+      blockedNaddrs: [],
+      denylist: []
+    });
+    const s = summarizePlated([bad, good], RECIPE, {
+      isBlocked: (p) => isBlockedReadsPointer(p, lists)
+    });
+    expect(s.plates.map((p) => p.id)).toEqual([good.id]);
+    expect(s.cookCount).toBe(1);
+  });
+
+  it("blocking one plate leaves the same cook's other, unblocked plate counted", () => {
+    const older = plated({ pubkey: COOK_1, created_at: 1 });
+    const newer = plated({ pubkey: COOK_1, created_at: 2 });
+    const lists = compileModerationLists({
+      blockedPubkeys: [],
+      blockedEventIds: [newer.id!],
+      blockedNaddrs: [],
+      denylist: []
+    });
+    const s = summarizePlated([older, newer], RECIPE, {
+      isBlocked: (p) => isBlockedReadsPointer(p, lists)
+    });
+    // Only the blocked event goes; the cook's other plate still counts.
+    expect(s.plates.map((p) => p.id)).toEqual([older.id]);
+  });
+
+  it('drops every plate by a moderation-blocked pubkey (case-insensitive)', () => {
+    const lists = compileModerationLists({
+      blockedPubkeys: [COOK_1.toUpperCase()],
+      blockedEventIds: [],
+      blockedNaddrs: [],
+      denylist: []
+    });
+    const s = summarizePlated(
+      [plated({ pubkey: COOK_1, created_at: 1 }), plated({ pubkey: COOK_1, created_at: 2 }), plated({ pubkey: COOK_3 })],
+      RECIPE,
+      { isBlocked: (p) => isBlockedReadsPointer(p, lists) }
+    );
+    expect(s.plates.map((p) => p.pubkey)).toEqual([COOK_3]);
+    expect(s.cookCount).toBe(1);
+  });
+
+  it('pointer moderation ignores the keyword denylist for comment text', () => {
+    const lists = compileModerationLists({
+      blockedPubkeys: [],
+      blockedEventIds: [],
+      blockedNaddrs: [],
+      denylist: ['breast']
+    });
+    const s = summarizePlated(
+      [plated({ content: `Juicy chicken breast!\n${IMG}` })],
+      RECIPE,
+      { isBlocked: (p) => isBlockedReadsPointer(p, lists) }
+    );
+    expect(s.cookCount).toBe(1);
   });
 
   it('is empty when nothing qualifies', () => {

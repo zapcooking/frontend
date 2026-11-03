@@ -22,7 +22,13 @@
   export let open = false;
   export let post: RelayEvent | null = null;
 
-  const dispatch = createEventDispatcher<{ reported: RelayEvent }>();
+  // `submitting` fires as the report is sent, before the kind-1984 publish
+  // settles, so a caller can also file it elsewhere (Plated sends it to the
+  // site moderation queue) without that path depending on the relay one.
+  const dispatch = createEventDispatcher<{
+    reported: RelayEvent;
+    submitting: { post: RelayEvent; type: ReportType; note: string };
+  }>();
 
   let type: ReportType = 'spam';
   let note = '';
@@ -40,6 +46,7 @@
     if (!post || busy || !$userPublickey) return;
     busy = true;
     error = '';
+    dispatch('submitting', { post, type, note });
     try {
       await publishReport($ndk, post, type, note);
       if (alsoMute) {
