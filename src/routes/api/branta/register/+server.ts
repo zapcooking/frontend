@@ -8,15 +8,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { registerPayment, isBrantaConfigured } from '$lib/brantaService.server';
-import type { DestinationType } from '@branta-ops/branta';
+import { DestinationType } from '@branta-ops/branta';
 import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 
 const ALLOWED_DESTINATION_TYPES: ReadonlyArray<DestinationType> = [
-	'bitcoin_address',
-	'bolt11',
-	'bolt12',
-	'ln_url',
-	'tether_address'
+	DestinationType.BitcoinAddress,
+	DestinationType.Bolt11
 ];
 
 export const POST: RequestHandler = async ({ request, platform, getClientAddress }) => {
