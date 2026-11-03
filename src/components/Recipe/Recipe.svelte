@@ -41,6 +41,20 @@
   import { getPlaceholderImage } from '$lib/placeholderImages';
   import NoteRepost from '../NoteRepost.svelte';
   import CommentThread from '../comments/CommentThread.svelte';
+  import PlatedBy from './PlatedBy.svelte';
+  import PlateItPrompt from './PlateItPrompt.svelte';
+  import {
+    createCommentSubscription,
+    type CommentSubscription
+  } from '$lib/comments/subscription';
+  import { createSubscriptionSlot } from '$lib/comments/subscriptionSlot';
+  import { moderatedSubscription } from '$lib/comments/moderation';
+  import {
+    ensureReadsModerationLoaded,
+    isBlockedReadsPointerClient,
+    readsModerationVersion
+  } from '$lib/reads/moderationClient';
+  import { PLATED_ENABLED, platedRecipeOf } from '$lib/plated/plated';
   import RecipeReactionPills from './RecipeReactionPills.svelte';
   import TopZappers from './TopZappers.svelte';
   import ZapModal from '../ZapModal.svelte';
@@ -170,9 +184,41 @@
     event &&
     event.tags.some((tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || ''));
 
+  // One comment subscription per recipe, shared by the thread and the
+  // Plated row. This component owns it: the slot stops the previous
+  // recipe's subscription before opening the next, so a recipe change on a
+  // mounted page never shows the old recipe's comments or plates.
+  const commentSlot = createSubscriptionSlot<CommentSubscription>();
+  let commentSub: CommentSubscription | null = null;
+  $: platedRecipe = platedRecipeOf(event as { kind?: number; pubkey?: string; tags?: string[][] });
+  $: if ($ndk) {
+    const root = event;
+    commentSub = commentSlot.retarget(platedRecipe?.address ?? root.id, () =>
+      createCommentSubscription($ndk, root, { closeOnEose: false, applyMuteFilter: false })
+    );
+  }
+
+  // What the thread and the Plated row both render: the shared stream with
+  // site moderation applied (admin-blocked event ids / authors and the
+  // replies under them). Re-filters when the moderation overlay arrives.
+  onMount(ensureReadsModerationLoaded);
+
+  // The posting moment: the new plate goes straight into the shared stream
+  // (thread + row), then the row scrolls into view if the plate made it in.
+  let platedRow: PlatedBy | null = null;
+  function handlePlated(posted: NDKEvent) {
+    commentSub?.addLocal(posted);
+    void platedRow?.reveal(posted.id);
+  }
+  $: shownComments = commentSub
+    ? moderatedSubscription(commentSub, readsModerationVersion, isBlockedReadsPointerClient)
+    : null;
+
   onDestroy(() => {
     unsubMembership();
     if (copyTimeout) clearTimeout(copyTimeout);
+    commentSlot.stop();
+    commentSub = null;
   });
 
   // Track if author has a lightning address (can receive zaps)
@@ -1087,6 +1133,16 @@
         </div>
       </div>
 
+      {#if PLATED_ENABLED && platedRecipe && shownComments}
+        <PlatedBy
+          bind:this={platedRow}
+          events={shownComments.events}
+          eosed={shownComments.eosed}
+          recipe={platedRecipe}
+          {recipeTitle}
+        />
+      {/if}
+
       <!-- Quick Overview Card -->
       <OverviewCard
         prepTime={recipeDetails.prepTime}
@@ -1229,7 +1285,12 @@
           {/if}
         </div>
       {/if}
-      <CommentThread variant="recipe" {event} />
+      {#if PLATED_ENABLED && platedRecipe}
+        <PlateItPrompt recipeEvent={event} onPosted={handlePlated} />
+      {/if}
+      {#key commentSub}
+        <CommentThread variant="recipe" {event} subscription={shownComments} />
+      {/key}
     </div>
 
     <!-- Image Lightbox Modal -->

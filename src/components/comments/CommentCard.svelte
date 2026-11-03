@@ -28,6 +28,10 @@
   import ReplyComposer from './ReplyComposer.svelte';
   import ThreadCommentActions from '../ThreadCommentActions.svelte';
   import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
+  import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
+  import PlatedCommentBody from './PlatedCommentBody.svelte';
+  import { PLATED_ENABLED, platedAnchorId, platedCard } from '$lib/plated/plated';
+  import { PLATED_COPY } from '$lib/plated/copy';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import { getAnonChefName } from '$lib/anonName';
   import { onMount, createEventDispatcher } from 'svelte';
@@ -77,6 +81,14 @@
   // Avatar / CustomAvatar both accept the pubkey/size/className subset
   // we need, so we swap the component rather than branch with {#if}.
   const AvatarComp = variant === 'recipe' ? Avatar : CustomAvatar;
+
+  // Plated card: recipe threads only, and only for a post that passes the
+  // Plated rule for this recipe. A failed photo falls back to the normal
+  // comment body (which shows the URL as usual).
+  $: plate = PLATED_ENABLED && variant === 'recipe' ? platedCard(event, rootEvent) : null;
+  let plateImageFailed = false;
+  $: showPlated = !!plate && !plateImageFailed;
+  $: plateRecipeTitle = rootEvent.tags.find((t) => t[0] === 'title')?.[1] || '';
 
   // Display state
   let displayName = '';
@@ -197,7 +209,15 @@
 </script>
 
 {#if variant !== 'feed' || !$mutedPubkeys.has(event.pubkey)}
-  <div class="comment-card comment-card--{variant}" class:nested={!parentLoading && parentComment !== null}>
+  <!-- tabindex is only ever -1 (a programmatic focus target for the Plated
+       gallery's "See in comments"), never a Tab stop. -->
+  <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+  <div
+    class="comment-card comment-card--{variant}"
+    class:nested={!parentLoading && parentComment !== null}
+    id={showPlated ? platedAnchorId(event.id) : undefined}
+    tabindex={showPlated ? -1 : undefined}
+  >
     <!-- Replying-to indicator + indent for nested replies -->
     {#if !parentLoading && parentComment}
       <div class="reply-to-indicator">
@@ -240,13 +260,27 @@
           <span class="comment-time">
             {formatDate(new Date((event.created_at || 0) * 1000))}
           </span>
+          {#if showPlated}
+            <span class="plated-badge">
+              <CookingPotIcon size={14} weight="fill" aria-hidden="true" />
+              {PLATED_COPY.cardBadge}
+            </span>
+          {/if}
           <ClientAttribution tags={event.tags} enableEnrichment={false} />
 				<PowBadge id={event.id} tags={event.tags} />
         </div>
 
         <!-- Comment Text -->
         <div class="comment-body">
-          <NoteContent content={event.content} />
+          {#if showPlated && plate}
+            <PlatedCommentBody
+              {plate}
+              recipeTitle={plateRecipeTitle}
+              on:fail={() => (plateImageFailed = true)}
+            />
+          {:else}
+            <NoteContent content={event.content} />
+          {/if}
         </div>
 
         <!-- Actions -->
@@ -461,4 +495,24 @@
     width: 32px;
   }
 
+
+  /* Plated card: the badge next to the author's name. */
+  .plated-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-primary);
+  }
+
+  .comment-card:focus {
+    outline: none;
+  }
+
+  .comment-card:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 4px;
+    border-radius: 0.75rem;
+  }
 </style>
