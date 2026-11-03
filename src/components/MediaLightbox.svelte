@@ -24,6 +24,8 @@
    * behind the image while it loads (and as ambient fill in the
    * letterbox gutters afterwards). Optional. */
   export let blurhashByUrl: Map<string, string> = new Map();
+  /** Accessible name for the dialog. Optional; unnamed when empty. */
+  export let ariaLabel = '';
 
   function urlOf(img: string | { url: string; alt?: string }): string {
     return typeof img === 'string' ? img : img.url;
@@ -311,6 +313,7 @@
   on:click={onClose}
   role="dialog"
   aria-modal="true"
+  aria-label={ariaLabel || undefined}
 >
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
@@ -339,7 +342,7 @@
           on:load={(e) => handleImgLoad(i, e)}
           on:click|stopPropagation
         />
-        {#if altOf(img)}
+        {#if altOf(img) && !$$slots.caption}
           <p class="lightbox-alt-caption" role="note">{altOf(img)}</p>
         {/if}
       </div>
@@ -363,7 +366,8 @@
     </svg>
   </button>
 
-  {#if multiple}
+  <!-- A caption bar brings its own position and previous / next. -->
+  {#if multiple && !$$slots.caption}
     <!-- Image counter -->
     <div
       class="absolute top-3 left-3 z-10 bg-black/60 text-white text-sm px-3 py-1.5 rounded-full"
@@ -401,9 +405,29 @@
       </button>
     {/if}
   {/if}
+
+  <!-- Optional caption bar (e.g. the Plated gallery's cook, note and
+       actions). Clicks stay inside it rather than closing the lightbox. -->
+  {#if $$slots.caption}
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="lightbox-caption" on:click|stopPropagation>
+      <slot name="caption" {index} go={scrollToIndex} />
+    </div>
+  {/if}
 </div>
 
 <style>
+  .lightbox-caption {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+    background: rgba(0, 0, 0, 0.92);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
   .lightbox-scroller {
     position: absolute;
     inset: 0;

@@ -53,6 +53,8 @@ export interface PlatedItem {
   image: string;
   /** imeta `alt` for the image, when the cook wrote one. */
   alt: string | null;
+  /** The cook's note: the content without the featured photo's URL. */
+  note: string;
   createdAt: number;
 }
 
@@ -139,6 +141,7 @@ export function summarizePlated(
       pubkey: ev.pubkey!,
       image,
       alt: imetaAltByUrl({ tags: validTags(ev.tags) }).get(image)?.trim() || null,
+      note: platedNote(ev.content ?? '', image),
       createdAt: ev.created_at ?? 0
     };
     const prev = byAuthor.get(item.pubkey);
@@ -163,4 +166,68 @@ export function recipeAddress(event: {
   const d = event.tags?.find((t) => t[0] === 'd')?.[1];
   if (event.kind == null || !event.pubkey || d == null) return null;
   return `${event.kind}:${event.pubkey}:${d}`;
+}
+
+/** The plated recipe a root event describes, or null when it isn't addressable. */
+export function platedRecipeOf(root: {
+  kind?: number;
+  pubkey?: string;
+  author?: { pubkey?: string };
+  tags?: string[][];
+}): PlatedRecipe | null {
+  const authorPubkey = root.author?.pubkey || root.pubkey;
+  const address = recipeAddress({ kind: root.kind, pubkey: authorPubkey, tags: root.tags });
+  return address && authorPubkey ? { address, authorPubkey } : null;
+}
+
+/**
+ * The cook's note: `content` minus every occurrence of the featured photo's
+ * URL, with the blank lines that leaves behind collapsed. Other media and
+ * text stay, so the card shows them under the photo. '' when nothing is left.
+ */
+export function platedNote(content: string, image: string): string {
+  if (!content) return '';
+  const lines = content
+    .split(image)
+    .join('')
+    .split('\n')
+    .map((l) => l.replace(/\s+$/, ''));
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export interface PlatedCard {
+  image: string;
+  alt: string | null;
+  note: string;
+}
+
+/**
+ * Should this thread comment render as a Plated card, and with what? Only a
+ * post that passes the Plated rule for this thread's recipe; anything else
+ * (no marker, a reply, no usable photo, a content warning, another recipe,
+ * a non-addressable root) stays a normal comment.
+ */
+export function platedCard(event: PlatedEventLike, root: Parameters<typeof platedRecipeOf>[0]): PlatedCard | null {
+  const recipe = platedRecipeOf(root);
+  if (!recipe || !isPlatedPost(event, recipe)) return null;
+  const image = platedImage(event)!;
+  return {
+    image,
+    alt: imetaAltByUrl({ tags: validTags(event.tags) }).get(image)?.trim() || null,
+    note: platedNote(event.content ?? '', image)
+  };
+}
+
+/**
+ * The gallery's plates: the row's summary order (one per cook, newest
+ * first — the same moderation, mute, author and report rules), minus any
+ * whose photo failed to load in this session.
+ */
+export function platedGallery(plates: readonly PlatedItem[], brokenIds: ReadonlySet<string>): PlatedItem[] {
+  return plates.filter((p) => !brokenIds.has(p.id));
+}
+
+/** DOM id of a plated card in the thread, for "See in comments". */
+export function platedAnchorId(eventId: string): string {
+  return `plated-${eventId}`;
 }

@@ -21,9 +21,26 @@ export const PLATED_COPY = {
     'Plating means sharing a photo of a recipe you made, so the cook who wrote it and everyone else can see how it turned out.',
 
   rowLabel: 'Photos from cooks who made this recipe',
-  seePlates: 'See plates in the comments',
-  reportLabel: 'Report this photo'
+  reportLabel: 'Report this photo',
+
+  cardBadge: 'Plated this recipe',
+  cardOpenPhoto: 'Open photo',
+
+  galleryLabel: 'Plated photos',
+  galleryPrevious: 'Previous photo',
+  galleryNext: 'Next photo',
+  gallerySeeInComments: 'See in comments'
 } as const;
+
+/** Accessible name for a row thumbnail, which opens the gallery. */
+export function platedThumbLabel(alt: string): string {
+  return `View photo: ${alt}`;
+}
+
+/** "Photo 2 of 5" — the gallery's position, announced as it changes. */
+export function platedGalleryPosition(index: number, count: number): string {
+  return `Photo ${index + 1} of ${count}`;
+}
 
 /** "Plated by 1 cook" / "Plated by 48 cooks". */
 export function platedByLabel(cookCount: number): string {

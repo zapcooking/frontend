@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   hasPlatedMarker,
+  platedCard,
+  platedGallery,
+  platedNote,
+  platedRecipeOf,
+  platedAnchorId,
   isPlatedPost,
   platedImage,
   recipeAddress,
@@ -9,7 +14,7 @@ import {
   type PlatedEventLike,
   type PlatedRecipe
 } from './plated';
-import { platedByLabel, platedThumbAlt } from './copy';
+import { platedByLabel, platedThumbAlt, platedGalleryPosition, platedThumbLabel } from './copy';
 import type { MuteList } from '$lib/muteFilter';
 import { compileModerationLists, isBlockedReadsPointer } from '$lib/reads/moderation';
 import { withoutBlockedComments } from '$lib/comments/moderation';
@@ -307,5 +312,111 @@ describe('copy', () => {
     expect(platedThumbAlt('Pancakes', 'Stack of pancakes')).toBe('Stack of pancakes');
     expect(platedThumbAlt('Pancakes', null)).toBe("A cook's plate of Pancakes");
     expect(platedThumbAlt('', null)).toBe("A cook's plate of this recipe");
+  });
+});
+
+const ROOT = { kind: 30023, pubkey: AUTHOR, tags: [['d', 'pancakes'], ['title', 'Pancakes']] };
+
+describe('platedCard (thread card decision)', () => {
+  it('renders a valid top-level plated post as a card: photo, alt, note', () => {
+    const ev = plated({ content: `Turned out great\n\n${IMG}` });
+    ev.tags!.push(['imeta', `url ${IMG}`, 'alt Golden stack']);
+    expect(platedCard(ev, ROOT)).toEqual({ image: IMG, alt: 'Golden stack', note: 'Turned out great' });
+  });
+
+  it('gives an empty note for a photo-only plate', () => {
+    expect(platedCard(plated({ content: IMG }), ROOT)?.note).toBe('');
+    expect(platedCard(plated({ content: `\n\n${IMG}\n` }), ROOT)?.note).toBe('');
+  });
+
+  it('keeps a marker-tagged post that fails the rule as a normal comment', () => {
+    expect(platedCard(plated({ content: 'no photo' }), ROOT)).toBeNull();
+    const cw = plated();
+    cw.tags!.push(['content-warning', '']);
+    expect(platedCard(cw, ROOT)).toBeNull();
+    const replyTags = plated().tags!.map((t) => (t[0] === 'k' ? ['k', '1111'] : t));
+    expect(platedCard(plated({ tags: replyTags }), ROOT)).toBeNull();
+    expect(platedCard(plated(), { ...ROOT, tags: [['d', 'waffles']] })).toBeNull();
+  });
+
+  it('never makes an unmarked photo comment a card', () => {
+    const ev = plated();
+    ev.tags = ev.tags!.filter((t) => t[0] !== 't');
+    expect(platedCard(ev, ROOT)).toBeNull();
+  });
+
+  it("is null for a root that isn't an addressable recipe", () => {
+    expect(platedCard(plated(), { kind: 1, pubkey: AUTHOR, tags: [] })).toBeNull();
+  });
+
+  it("still renders the recipe author's own plate as a card (only the row excludes it)", () => {
+    expect(platedCard(plated({ pubkey: AUTHOR }), ROOT)).not.toBeNull();
+  });
+
+  it('uses the author pubkey from author when present (NDKEvent shape)', () => {
+    expect(platedRecipeOf({ kind: 30023, pubkey: '', author: { pubkey: AUTHOR }, tags: [['d', 'pancakes']] })).toEqual(RECIPE);
+  });
+});
+
+describe('platedNote', () => {
+  it('removes only the featured photo URL and the blank lines it leaves', () => {
+    const other = 'https://image.nostr.build/second.jpg';
+    expect(platedNote(`So good.\n\n${IMG}\n${other}`, IMG)).toBe(`So good.\n\n${other}`);
+    expect(platedNote(`Before ${IMG} after`, IMG)).toBe('Before  after');
+    expect(platedNote(`A\n\n\n\n${IMG}\n\n\nB`, IMG)).toBe('A\n\nB');
+    expect(platedNote('', IMG)).toBe('');
+  });
+});
+
+describe('platedGallery', () => {
+  it("is the summary's plates in summary order (newest cook first), one per cook", () => {
+    const a1 = plated({ pubkey: COOK_1, created_at: 10 });
+    const a2 = plated({ pubkey: COOK_1, created_at: 30 });
+    const b = plated({ pubkey: COOK_2, created_at: 20 });
+    const c = plated({ pubkey: COOK_3, created_at: 5 });
+    const summary = summarizePlated([a1, b, a2, c], RECIPE);
+    expect(platedGallery(summary.plates, new Set()).map((p) => p.id)).toEqual([a2.id, b.id, c.id]);
+  });
+
+  it('covers every plate, not just the five thumbnails', () => {
+    const cooks = Array.from({ length: 8 }, (_, i) => String(i + 4).repeat(64).slice(0, 64));
+    const summary = summarizePlated(cooks.map((pk, i) => plated({ pubkey: pk, created_at: i })), RECIPE);
+    expect(platedGallery(summary.plates, new Set())).toHaveLength(8);
+  });
+
+  it('drops plates whose photo failed to load, keeping order', () => {
+    const a = plated({ pubkey: COOK_1, created_at: 3 });
+    const b = plated({ pubkey: COOK_2, created_at: 2 });
+    const c = plated({ pubkey: COOK_3, created_at: 1 });
+    const summary = summarizePlated([a, b, c], RECIPE);
+    expect(platedGallery(summary.plates, new Set([b.id!])).map((p) => p.id)).toEqual([a.id, c.id]);
+  });
+
+  it('inherits the row rules: muted, reported, recipe author and moderated plates never reach it', () => {
+    const muted = plated({ pubkey: COOK_1 });
+    const reported = plated({ pubkey: COOK_2 });
+    const own = plated({ pubkey: AUTHOR });
+    const blocked = plated({ pubkey: COOK_3 });
+    const ok = plated({ pubkey: '9'.repeat(64) });
+    const lists = compileModerationLists({ blockedPubkeys: [], blockedEventIds: [blocked.id!], blockedNaddrs: [], denylist: [] });
+    const summary = summarizePlated(
+      withoutBlockedComments([muted, reported, own, blocked, ok], (p) => isBlockedReadsPointer(p, lists)),
+      RECIPE,
+      { muteList: { ...EMPTY_MUTES, pubkeys: [{ type: 'pubkey', value: COOK_1 }] }, hiddenIds: new Set([reported.id!]) }
+    );
+    expect(platedGallery(summary.plates, new Set()).map((p) => p.id)).toEqual([ok.id]);
+  });
+
+  it('carries the note for the caption', () => {
+    const summary = summarizePlated([plated({ content: `Crispy!\n\n${IMG}` })], RECIPE);
+    expect(summary.plates[0].note).toBe('Crispy!');
+  });
+});
+
+describe('gallery copy and anchors', () => {
+  it('announces position and names thumbnails', () => {
+    expect(platedGalleryPosition(0, 5)).toBe('Photo 1 of 5');
+    expect(platedThumbLabel("A cook's plate of Pancakes")).toBe("View photo: A cook's plate of Pancakes");
+    expect(platedAnchorId('abc')).toBe('plated-abc');
   });
 });

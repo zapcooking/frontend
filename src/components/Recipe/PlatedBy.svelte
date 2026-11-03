@@ -16,13 +16,22 @@
    * never flashes in first; a failed fetch still settles, and the seed
    * lists apply. Reports go to the kind-1984 relay path and the admin
    * review queue; they never hide a photo for others by themselves.
+   *
+   * Tapping a thumbnail opens the gallery (MediaLightbox with a caption):
+   * every plate in the summary — one per cook, newest first, the same
+   * moderation / mute / author / report rules — with the cook, their note,
+   * previous / next, report, and "See in comments".
    */
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import type { Readable } from 'svelte/store';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import InfoIcon from 'phosphor-svelte/lib/Info';
   import FlagIcon from 'phosphor-svelte/lib/Flag';
+  import CaretLeftIcon from 'phosphor-svelte/lib/CaretLeft';
+  import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
   import CustomAvatar from '../CustomAvatar.svelte';
+  import CustomName from '../CustomName.svelte';
+  import MediaLightbox from '../MediaLightbox.svelte';
   import FreshReportModal from '../FreshReportModal.svelte';
   import { muteListStore } from '$lib/muteListStore';
   import { optimizeImageUrl } from '$lib/imageOptimizer';
@@ -34,11 +43,19 @@
   import { platedReportDetails, readsReportReason } from '$lib/plated/report';
   import {
     summarizePlated,
+    platedGallery,
+    platedAnchorId,
     PLATED_MAX_THUMBNAILS,
     type PlatedItem,
     type PlatedRecipe
   } from '$lib/plated/plated';
-  import { PLATED_COPY, platedByLabel, platedThumbAlt } from '$lib/plated/copy';
+  import {
+    PLATED_COPY,
+    platedByLabel,
+    platedGalleryPosition,
+    platedThumbAlt,
+    platedThumbLabel
+  } from '$lib/plated/copy';
 
   export let events: Readable<NDKEvent[]>;
   export let eosed: Readable<boolean>;
@@ -82,7 +99,66 @@
     muteList: $muteListStore.muteList,
     hiddenIds
   });
-  $: shown = summary.plates.filter((p) => !brokenIds.has(p.id)).slice(0, PLATED_MAX_THUMBNAILS);
+  $: gallery = platedGallery(summary.plates, brokenIds);
+  $: shown = gallery.slice(0, PLATED_MAX_THUMBNAILS);
+
+  // ── Gallery ──
+  let viewerOpen = false;
+  let viewerIndex = 0;
+  let rowEl: HTMLElement | null = null;
+
+  $: galleryImages = gallery.map((p) => ({ url: p.image, alt: platedThumbAlt(recipeTitle, p.alt) }));
+  // A plate can leave while the viewer is open (moderation overlay, a
+  // report): keep the index in range, and close once nothing is left.
+  $: if (viewerOpen && viewerIndex >= gallery.length) {
+    if (gallery.length === 0) viewerOpen = false;
+    else viewerIndex = gallery.length - 1;
+  }
+
+  function openGallery(id: string) {
+    const i = gallery.findIndex((p) => p.id === id);
+    if (i < 0) return;
+    viewerIndex = i;
+    viewerOpen = true;
+  }
+
+  function prefersReducedMotion(): boolean {
+    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  async function reportFromGallery(plate: PlatedItem) {
+    // One dialog at a time: the lightbox's Escape / Tab handling would
+    // fight the report modal's.
+    viewerOpen = false;
+    await tick();
+    await report(plate);
+  }
+
+  async function seeInComments(plate: PlatedItem) {
+    viewerOpen = false;
+    await tick(); // the lightbox hands focus back first; then move it on
+    const behavior: ScrollBehavior = prefersReducedMotion() ? 'auto' : 'smooth';
+    const card = document.getElementById(platedAnchorId(plate.id));
+    if (card) {
+      card.scrollIntoView({ block: 'center', behavior });
+      card.focus({ preventScroll: true });
+    } else {
+      document.getElementById('comments-section')?.scrollIntoView({ block: 'start', behavior });
+    }
+  }
+
+  /**
+   * After the poster's own plate lands: if it is in the row, bring the row
+   * into view when it's off-screen. A plate the row excludes (recipe
+   * author, muted, moderated) does nothing.
+   */
+  export async function reveal(id: string) {
+    await tick();
+    if (!shown.some((p) => p.id === id) || !rowEl) return;
+    const box = rowEl.getBoundingClientRect();
+    if (box.top >= 0 && box.bottom <= window.innerHeight) return;
+    rowEl.scrollIntoView({ block: 'center', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  }
 
   // ── Explanation popover ──
   const popoverId = `plated-explain-${Math.random().toString(36).slice(2, 8)}`;
@@ -170,12 +246,17 @@
 </script>
 
 {#if settled && $readsModerationReady && summary.cookCount > 0 && shown.length > 0}
-  <section class="plated-row print:hidden" aria-label={PLATED_COPY.rowLabel}>
+  <section class="plated-row print:hidden" aria-label={PLATED_COPY.rowLabel} bind:this={rowEl}>
     <ul class="plated-thumbs">
       {#each shown as plate (plate.id)}
         {@const alt = platedThumbAlt(recipeTitle, plate.alt)}
         <li class="plated-thumb">
-          <a href="#comments-section" class="plated-thumb-link" title={PLATED_COPY.seePlates}>
+          <button
+            type="button"
+            class="plated-thumb-link"
+            aria-label={platedThumbLabel(alt)}
+            on:click={() => openGallery(plate.id)}
+          >
             <img
               src={optimizeImageUrl(plate.image, { width: THUMB_PX * 2 })}
               {alt}
@@ -185,8 +266,7 @@
               decoding="async"
               on:error={() => onImageError(plate.id)}
             />
-            <span class="sr-only">{PLATED_COPY.seePlates}</span>
-          </a>
+          </button>
           <span class="plated-avatar" aria-hidden="true">
             <CustomAvatar pubkey={plate.pubkey} size={22} interactive={false} />
           </span>
@@ -236,6 +316,61 @@
 
 {/if}
 
+{#if viewerOpen && gallery.length > 0}
+  <MediaLightbox
+    images={galleryImages}
+    bind:index={viewerIndex}
+    ariaLabel={PLATED_COPY.galleryLabel}
+    onClose={() => (viewerOpen = false)}
+  >
+    <svelte:fragment slot="caption" let:index let:go>
+      {@const plate = gallery[Math.min(index, gallery.length - 1)]}
+      {#if plate}
+        <div class="gallery-caption">
+          <div class="gallery-cook">
+            <CustomAvatar pubkey={plate.pubkey} size={32} interactive={false} />
+            <span class="gallery-name"><CustomName pubkey={plate.pubkey} interactive={false} /></span>
+            <span class="gallery-position" aria-live="polite">
+              {platedGalleryPosition(index, gallery.length)}
+            </span>
+          </div>
+          {#if plate.note}
+            <p class="gallery-note">{plate.note}</p>
+          {/if}
+          <div class="gallery-actions">
+            <button
+              type="button"
+              class="gallery-btn gallery-nav"
+              aria-label={PLATED_COPY.galleryPrevious}
+              disabled={index <= 0}
+              on:click={() => go(index - 1)}
+            >
+              <CaretLeftIcon size={18} weight="bold" />
+            </button>
+            <button
+              type="button"
+              class="gallery-btn gallery-nav"
+              aria-label={PLATED_COPY.galleryNext}
+              disabled={index >= gallery.length - 1}
+              on:click={() => go(index + 1)}
+            >
+              <CaretRightIcon size={18} weight="bold" />
+            </button>
+            <span class="gallery-spacer"></span>
+            <button type="button" class="gallery-btn" on:click={() => reportFromGallery(plate)}>
+              <FlagIcon size={14} weight="bold" />
+              {PLATED_COPY.reportLabel}
+            </button>
+            <button type="button" class="gallery-btn gallery-primary" on:click={() => seeInComments(plate)}>
+              {PLATED_COPY.gallerySeeInComments}
+            </button>
+          </div>
+        </div>
+      {/if}
+    </svelte:fragment>
+  </MediaLightbox>
+{/if}
+
 <!-- Outside the row: reporting its last photo hides the row, and the
      modal must stay up until the relay publish settles. -->
 <FreshReportModal
@@ -270,6 +405,8 @@
 
   .plated-thumb-link {
     display: block;
+    padding: 0;
+    cursor: zoom-in;
     width: 100%;
     height: 100%;
     border-radius: 0.75rem;
@@ -375,5 +512,101 @@
     border: 1px solid var(--color-input-border);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
     color: var(--color-text-secondary);
+  }
+
+  /* Gallery caption (inside MediaLightbox's caption bar; always on dark). */
+  .gallery-caption {
+    max-width: 40rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .gallery-cook {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .gallery-name {
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .gallery-position {
+    margin-left: auto;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.75);
+    flex-shrink: 0;
+  }
+
+  .gallery-note {
+    font-size: 0.9375rem;
+    line-height: 1.45;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .gallery-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .gallery-spacer {
+    flex: 1;
+  }
+
+  .gallery-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    min-height: 40px;
+    padding: 0 0.875rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  .gallery-nav {
+    width: 40px;
+    padding: 0;
+  }
+
+  .gallery-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.24);
+  }
+
+  .gallery-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  .gallery-btn:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+
+  .gallery-primary {
+    background: var(--color-primary);
+  }
+
+  .gallery-primary:hover:not(:disabled) {
+    background: var(--color-primary);
+    filter: brightness(1.1);
   }
 </style>

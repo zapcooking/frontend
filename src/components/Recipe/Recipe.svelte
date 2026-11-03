@@ -54,7 +54,7 @@
     isBlockedReadsPointerClient,
     readsModerationVersion
   } from '$lib/reads/moderationClient';
-  import { PLATED_ENABLED, recipeAddress, type PlatedRecipe } from '$lib/plated/plated';
+  import { PLATED_ENABLED, platedRecipeOf } from '$lib/plated/plated';
   import RecipeReactionPills from './RecipeReactionPills.svelte';
   import TopZappers from './TopZappers.svelte';
   import ZapModal from '../ZapModal.svelte';
@@ -190,16 +190,7 @@
   // mounted page never shows the old recipe's comments or plates.
   const commentSlot = createSubscriptionSlot<CommentSubscription>();
   let commentSub: CommentSubscription | null = null;
-  $: platedRecipe = (() => {
-    const address = recipeAddress({
-      kind: event.kind,
-      pubkey: event.author?.pubkey || event.pubkey,
-      tags: event.tags as string[][]
-    });
-    return address
-      ? ({ address, authorPubkey: event.author?.pubkey || event.pubkey } satisfies PlatedRecipe)
-      : null;
-  })();
+  $: platedRecipe = platedRecipeOf(event as { kind?: number; pubkey?: string; tags?: string[][] });
   $: if ($ndk) {
     const root = event;
     commentSub = commentSlot.retarget(platedRecipe?.address ?? root.id, () =>
@@ -211,6 +202,14 @@
   // site moderation applied (admin-blocked event ids / authors and the
   // replies under them). Re-filters when the moderation overlay arrives.
   onMount(ensureReadsModerationLoaded);
+
+  // The posting moment: the new plate goes straight into the shared stream
+  // (thread + row), then the row scrolls into view if the plate made it in.
+  let platedRow: PlatedBy | null = null;
+  function handlePlated(posted: NDKEvent) {
+    commentSub?.addLocal(posted);
+    void platedRow?.reveal(posted.id);
+  }
   $: shownComments = commentSub
     ? moderatedSubscription(commentSub, readsModerationVersion, isBlockedReadsPointerClient)
     : null;
@@ -1136,6 +1135,7 @@
 
       {#if PLATED_ENABLED && platedRecipe && shownComments}
         <PlatedBy
+          bind:this={platedRow}
           events={shownComments.events}
           eosed={shownComments.eosed}
           recipe={platedRecipe}
@@ -1286,7 +1286,7 @@
         </div>
       {/if}
       {#if PLATED_ENABLED && platedRecipe}
-        <PlateItPrompt recipeEvent={event} onPosted={(posted) => commentSub?.addLocal(posted)} />
+        <PlateItPrompt recipeEvent={event} onPosted={handlePlated} />
       {/if}
       {#key commentSub}
         <CommentThread variant="recipe" {event} subscription={shownComments} />
