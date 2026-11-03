@@ -2,7 +2,7 @@
  * Branta Payment Verification Endpoint
  *
  * POST /api/branta/verify
- *   body: { payment?: string, qr?: string, secret?: string }
+ *   body: { payment?: string, qr?: string, secret?: string, encryptedDestination?: string }
  *
  * Checks if a payment address/invoice is registered with Branta Guardrail.
  * Uses POST so the (sensitive) Branta secret is not placed in URL query
@@ -40,7 +40,7 @@ export const POST: RequestHandler = async ({ request, platform, getClientAddress
 		return json({ verified: false, ...rate.body }, { status: 429 });
 	}
 
-	let body: { payment?: unknown; qr?: unknown; secret?: unknown };
+	let body: { payment?: unknown; qr?: unknown; secret?: unknown; encryptedDestination?: unknown };
 	try {
 		body = await request.json();
 	} catch {
@@ -60,11 +60,15 @@ export const POST: RequestHandler = async ({ request, platform, getClientAddress
 
 	const rawSecret = typeof body.secret === 'string' ? body.secret : undefined;
 	const encryptionKey = rawSecret?.trim() ? rawSecret : undefined;
+	const encryptedDestination =
+		typeof body.encryptedDestination === 'string' && body.encryptedDestination.trim()
+			? body.encryptedDestination
+			: undefined;
 
 	try {
 		const payment = qrText
 			? await getPaymentInfoByQRCode(qrText, platform)
-			: await getPaymentInfo(paymentString!, encryptionKey, platform);
+			: await getPaymentInfo(paymentString!, encryptionKey, platform, encryptedDestination);
 
 		return json({ verified: payment !== null, payment: payment ?? undefined });
 	} catch (error) {
