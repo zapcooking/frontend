@@ -7,6 +7,7 @@
    * supports TEXT slot entries + notes; recipe assignment arrives in
    * PR10 via the same slot editor modal (see the "PR10 seam" comment).
    */
+  import { parseCoordinate } from '$lib/coordinate';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount, onDestroy, tick } from 'svelte';
@@ -221,9 +222,9 @@
       if (missing.length > 0 && $isOnline && $ndk) {
         await Promise.all(
           missing.map(async (aTag) => {
-            const parts = aTag.split(':');
-            if (parts.length !== 3) return;
-            const [kind, pubkey, identifier] = parts;
+            const parsed = parseCoordinate(aTag);
+            if (!parsed) return;
+            const { kind, pubkey, identifier } = parsed;
             try {
               const e = await $ndk.fetchEvent({
                 kinds: [Number(kind)],
@@ -370,7 +371,7 @@
           <button
             type="button"
             on:click={() => (cheffyPlanOpen = true)}
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all"
           >
             <CheffyIcon size={20} expression="happy" />
             <span>Plan with Cheffy</span>
@@ -381,7 +382,7 @@
             type="button"
             on:click={openGenerateConfirm}
             disabled={weekRecipeSlots.aTags.length === 0}
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))] disabled:opacity-50 disabled:cursor-not-allowed"
             style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
             title={weekRecipeSlots.aTags.length === 0
               ? 'Add recipes to this week to generate a grocery list'
@@ -396,7 +397,7 @@
           <button
             type="button"
             on:click={() => plannerStore.goToCurrentWeek()}
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors hover:bg-[var(--color-light-input-bg,var(--color-gray-100))]"
             style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
           >
             <CalendarBlankIcon size={16} />
@@ -424,9 +425,9 @@
       <!-- Decrypt failed: NEVER rendered as an empty week -->
       <div class="flex flex-col items-center justify-center py-16 px-4 text-center">
         <div
-          class="w-20 h-20 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+          class="w-20 h-20 rounded-full bg-gradient-to-br from-primary/10 to-primary/10 dark:from-primary/30 dark:to-primary/30 flex items-center justify-center mb-4"
         >
-          <LockIcon size={40} weight="regular" class="text-orange-500" />
+          <LockIcon size={40} weight="regular" class="text-primary" />
         </div>
         <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
           Couldn't unlock this week's plan
@@ -443,7 +444,7 @@
           style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-primary);"
           role="status"
         >
-          <LockIcon size={16} class="text-orange-500 flex-shrink-0" />
+          <LockIcon size={16} class="text-primary flex-shrink-0" />
           <span>This week was created by a newer version of Zap Cooking and is read-only here.</span
           >
         </div>
@@ -454,7 +455,7 @@
           class="flex flex-col items-center text-center gap-1 py-6 px-4 rounded-2xl"
           style="background-color: var(--color-input-bg); border: 1px dashed var(--color-input-border);"
         >
-          <CalendarBlankIcon size={28} weight="regular" class="text-orange-500" />
+          <CalendarBlankIcon size={28} weight="regular" class="text-primary" />
           <h2 class="text-base font-semibold" style="color: var(--color-text-primary);">
             Nothing planned this week
           </h2>
@@ -464,7 +465,7 @@
           <button
             type="button"
             on:click={() => (cheffyPlanOpen = true)}
-            class="mt-2 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+            class="mt-2 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all"
           >
             <CheffyIcon size={20} expression="happy" />
             Plan with Cheffy
@@ -507,7 +508,7 @@
               <h3 class="text-sm font-semibold" style="color: var(--color-text-primary);">
                 {DAY_LABELS[day]}
                 {#if isToday}
-                  <span class="text-orange-500 text-xs font-medium ml-1">Today</span>
+                  <span class="text-primary text-xs font-medium ml-1">Today</span>
                 {/if}
               </h3>
               {#if monday}
@@ -523,7 +524,7 @@
                 disabled={isReadOnly}
                 class="w-full text-left rounded-xl px-2.5 py-2 transition-colors border {isReadOnly
                   ? 'cursor-default'
-                  : 'hover:border-orange-400'}"
+                  : 'hover:border-primary'}"
                 style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
                 aria-label="{DAY_LABELS[day]} {SLOT_LABELS[slot]}{entry ? '' : ' — empty'}"
               >
@@ -623,7 +624,7 @@
         <button
           type="button"
           on:click={openRecipePicker}
-          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all"
         >
           Add recipe
         </button>
@@ -654,7 +655,7 @@
             <Button on:click={() => (editorOpen = false)}>Cancel</Button>
             <button
               type="submit"
-              class="px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+              class="px-4 py-2 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all"
             >
               Save
             </button>
@@ -726,7 +727,7 @@
           type="button"
           disabled={generating}
           on:click={generateGroceryList}
-          class="px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-50"
+          class="px-4 py-2 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all disabled:opacity-50"
         >
           {generating ? 'Adding…' : 'Add Week'}
         </button>

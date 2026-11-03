@@ -36,6 +36,15 @@ import { env } from '$env/dynamic/private';
 // consumed by /api/zappy/note-review) — edit voice there, not here.
 import { SYSTEM_INSTRUCTION, FORMAT_SYSTEM_INSTRUCTION } from '$lib/cheffyPrompt.server';
 import { verifyNip98 } from '$lib/nip98.server';
+import { checkMembership } from '$lib/membershipApi.server';
+import { CHEFFY_TRIAL_LIMIT, CHEFFY_TRIAL_PROMPT_CHARS } from '$lib/cheffyTrial';
+import {
+  reserveTrial,
+  finishTrial,
+  releaseTrial,
+  validTrialRequestId,
+  type TrialDatabase
+} from '$lib/cheffyTrial.server';
 
 // "Surprise Me" — asks Cheffy for a complete, ready-to-cook recipe so
 // the strict format kicks in.
@@ -47,26 +56,22 @@ const HUNGRY_PROMPT = `Surprise me with a complete recipe! It could be any cuisi
 const MAX_HISTORY_TURNS = 12;
 const MAX_HISTORY_MESSAGE_CHARS = 4000;
 
-// First-use "experience" — a short controlled preview chat for
-// non-members, initiated from the /explore invite. Deliberately NOT a
-// "free question" or "trial": it is a handful of smaller discovery
-// answers so the visitor gets a real back-and-forth. The turn count is
-// enforced with an HttpOnly cookie (localStorage alone is not trusted).
-// The endpoint fails CLOSED — non-members get nothing unless the request
-// is an explicit, allowed experience request.
-const EXPERIENCE_COOKIE = 'zapcooking_cheffy_experience_used';
-const EXPERIENCE_MAX_TURNS = 3;
-const EXPERIENCE_MAX_HISTORY = 6; // ~3 prior exchanges of context
-const EXPERIENCE_MAX_PROMPT_CHARS = 750;
+// Free accounts can try three text replies. The signed account, not a
+// browser cookie, owns the atomic lifetime quota. Photos/formatting stay paid.
+const EXPERIENCE_MAX_HISTORY = 6;
 const EXPERIENCE_MAX_TOKENS = 700;
-const EXPERIENCE_COOKIE_MAX_AGE = 60 * 60 * 24 * 180; // ~180 days
 
-export const POST: RequestHandler = async ({ request, platform, cookies, url }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+  let reservation: { db: TrialDatabase; pubkey: string; requestId: string } | null = null;
+  let completed = false;
   try {
     // Check for OpenAI API key
     const OPENAI_API_KEY = (platform?.env as any)?.OPENAI_API_KEY || env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {
-      return json({ ok: false, error: 'OpenAI API key not configured' }, { status: 500 });
+      return json(
+        { ok: false, error: 'Cheffy is temporarily unavailable. Please try again later.' },
+        { status: 500 }
+      );
     }
 
     // Read the body ONCE as bytes: NIP-98 hashes the exact payload, and
@@ -89,25 +94,15 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
     const { prompt, mode = 'prompt' } = body;
     const isExperience = body.experience === true;
 
-    // Identity comes from a NIP-98 signature, never from the body.
-    //
-    // A body `pubkey` is a claim, not a proof: anyone could paste a known
-    // member's pubkey and spend our OpenAI budget on their membership (and
-    // the outage fall-through below made ANY pubkey-shaped string enough).
-    //
-    // The Authorization header stays OPTIONAL so the anonymous once-per-
-    // device preview keeps working for callers with no signer. Present but
-    // invalid is a hard 401 — that's a broken or forged client, not an
-    // anonymous one.
-    let authPubkey: string | null = null;
-    if (request.headers.get('authorization')) {
-      const verification = await verifyNip98(request, { bodyBytes });
-      if (!verification.ok) {
-        console.warn(`[Cheffy] NIP-98 rejected (${verification.reason})`);
-        return json({ ok: false, error: 'Authentication required' }, { status: 401 });
-      }
-      authPubkey = verification.pubkey;
+    // Every trial belongs to a verified account. Body identity is ignored.
+    const verification = await verifyNip98(request, { bodyBytes });
+    if (!verification.ok) {
+      return json(
+        { ok: false, code: 'SIGN_IN_REQUIRED', error: 'Sign in to try Cheffy.' },
+        { status: 401 }
+      );
     }
+    const authPubkey = verification.pubkey;
 
     // Validate mode. "chat" and "prompt" are aliases for the
     // conversational path; "prompt" is kept for any older callers.
@@ -127,69 +122,44 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
       );
     }
 
-    // Membership gate (Cheffy is included with any active membership) with a single
-    // controlled "experience" preview for non-members. Members are
-    // unaffected. The experience path is the ONLY way a non-member can
-    // reach Cheffy — and only once per device. `experienceGranted` stays
-    // false for members, so their answers keep full depth.
     let experienceGranted = false;
-    let experienceCount = 0; // preview turns already spent on this device
     const MEMBERSHIP_ENABLED = platform?.env?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
-    if (MEMBERSHIP_ENABLED?.toLowerCase() === 'true') {
-      // Best-effort membership determination. Fail OPEN only for a
-      // NIP-98-verified caller during a membership-service outage; never
-      // for an unauthenticated one.
-      let isMember = false;
-      if (authPubkey) {
-        const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
-        if (!API_SECRET) {
-          // No secret configured — preserve prior fall-through (allow).
-          isMember = true;
-        } else {
-          try {
-            const { hasActiveMembership } = await import('$lib/membershipApi.server');
-            isMember = await hasActiveMembership(authPubkey, API_SECRET);
-          } catch (err) {
-            console.error('[Cheffy] Error checking membership:', err);
-            // Outage: fail open, but only for a caller who PROVED key
-            // control above. Previously any pubkey-shaped string qualified.
-            isMember = true;
-          }
-        }
+    const API_SECRET = platform?.env?.RELAY_API_SECRET || env.RELAY_API_SECRET;
+    if (MEMBERSHIP_ENABLED?.toLowerCase() !== 'true' || !API_SECRET) {
+      return json(
+        { ok: false, error: 'Cheffy access could not be checked. Please try again later.' },
+        { status: 503 }
+      );
+    }
+    // The boolean helper treats an outage as false; use the tri-state result
+    // so unknown membership cannot consume samples or grant paid access.
+    const membership = await checkMembership(authPubkey, API_SECRET);
+    if (membership.state === 'unknown') {
+      return json(
+        { ok: false, error: 'Cheffy access could not be checked. Please try again later.' },
+        { status: 503 }
+      );
+    }
+    if (membership.state !== 'active') {
+      if (!isExperience || !['chat', 'prompt', 'hungry'].includes(mode)) {
+        return json(
+          {
+            ok: false,
+            error: 'Cheffy is available to Cook+ members. Try your free text messages first.'
+          },
+          { status: 403 }
+        );
       }
-
-      if (!isMember) {
-        // Non-members get the controlled discovery preview only — never
-        // recipe formatting, image scanning, or other advanced tools.
-        const experienceModeAllowed = mode === 'chat' || mode === 'prompt' || mode === 'hungry';
-        if (!isExperience || !experienceModeAllowed) {
-          return json(
-            { ok: false, error: 'Cheffy is available to Cook+ members.' },
-            { status: 403 }
-          );
-        }
-        // A few preview turns per device (HttpOnly cookie counter — not
-        // client-trusted). Once spent, invite them to convert.
-        const prior = parseInt(cookies.get(EXPERIENCE_COOKIE) || '0', 10);
-        experienceCount = Number.isFinite(prior) && prior > 0 ? prior : 0;
-        if (experienceCount >= EXPERIENCE_MAX_TURNS) {
-          return json(
-            {
-              ok: false,
-              code: 'CHEFFY_EXPERIENCE_USED',
-              error: 'Create your free kitchen or unlock Cook+ to keep cooking with Cheffy.'
-            },
-            { status: 429 }
-          );
-        }
-        experienceGranted = true;
+      if (!validTrialRequestId(body.trialRequestId)) {
+        return json({ ok: false, error: 'Refresh and try your message again.' }, { status: 400 });
       }
+      experienceGranted = true;
     }
 
     // Limit prompt length. Experience previews are capped tighter; format
     // mode allows longer input for pasted recipes.
     const maxPromptLength = experienceGranted
-      ? EXPERIENCE_MAX_PROMPT_CHARS
+      ? CHEFFY_TRIAL_PROMPT_CHARS
       : isFormatMode
         ? 10000
         : 2000;
@@ -235,9 +205,54 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
       { role: 'user', content: userPrompt }
     ];
 
+    if (experienceGranted) {
+      const db = platform?.env?.SCHEDULER_DB;
+      if (!db)
+        return json(
+          { ok: false, error: 'Free samples are temporarily unavailable. Please try again later.' },
+          { status: 503 }
+        );
+      let result: Awaited<ReturnType<typeof reserveTrial>>;
+      try {
+        result = await reserveTrial(db, authPubkey, body.trialRequestId);
+      } catch {
+        return json(
+          { ok: false, error: 'Free samples are temporarily unavailable. Please try again later.' },
+          { status: 503 }
+        );
+      }
+      if (result === 'exhausted') {
+        return json(
+          {
+            ok: false,
+            code: 'CHEFFY_EXPERIENCE_USED',
+            error:
+              'You have used your three free messages. Join Cook+ to keep cooking with Cheffy.',
+            trial: { remaining: 0, limit: CHEFFY_TRIAL_LIMIT }
+          },
+          { status: 429 }
+        );
+      }
+      if (result !== 'reserved') {
+        return json(
+          {
+            ok: false,
+            code: result === 'pending' ? 'TRIAL_REQUEST_IN_PROGRESS' : 'TRIAL_REQUEST_COMPLETED',
+            error:
+              result === 'pending'
+                ? 'That message is still being answered. Please wait before trying again.'
+                : 'That message was already answered. Start a new message to continue.'
+          },
+          { status: 409 }
+        );
+      }
+      reservation = { db, pubkey: authPubkey, requestId: body.trialRequestId };
+    }
+
     // Call OpenAI API
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
+      signal: AbortSignal.timeout(45000),
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${OPENAI_API_KEY}`
@@ -263,38 +278,40 @@ export const POST: RequestHandler = async ({ request, platform, cookies, url }) 
     const openaiData = await openaiResponse.json();
     const output = openaiData.choices?.[0]?.message?.content;
 
-    if (!output) {
+    if (typeof output !== 'string' || !output.trim()) {
       return json(
         { ok: false, error: 'Cheffy went quiet for a second. Please try again.' },
         { status: 500 }
       );
     }
 
-    // Count a preview turn only on a successful answer, so a failed
-    // attempt never burns the visitor's experience. Derive `secure` from
-    // the request protocol so the turn cap also holds over plain HTTP
-    // (local dev / staging) while staying Secure in production.
-    if (experienceGranted) {
-      const isHttps =
-        url.protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https';
-      cookies.set(EXPERIENCE_COOKIE, String(experienceCount + 1), {
-        path: '/',
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: isHttps,
-        maxAge: EXPERIENCE_COOKIE_MAX_AGE
-      });
+    let trial: { remaining: number; limit: number } | undefined;
+    if (reservation) {
+      const remaining = await finishTrial(
+        reservation.db,
+        reservation.pubkey,
+        reservation.requestId
+      );
+      completed = true;
+      trial = { remaining, limit: CHEFFY_TRIAL_LIMIT };
     }
-
-    return json({
-      ok: true,
-      output: output.trim()
-    });
+    return json(
+      { ok: true, output: output.trim(), ...(trial ? { trial } : {}) },
+      { headers: { 'cache-control': 'private, no-store' } }
+    );
   } catch (error: any) {
     console.error('[Cheffy] Error:', error);
     return json(
-      { ok: false, error: error.message || 'An unexpected error occurred' },
+      { ok: false, error: 'Cheffy could not finish that one. Please try again.' },
       { status: 500 }
     );
+  } finally {
+    if (reservation && !completed) {
+      try {
+        await releaseTrial(reservation.db, reservation.pubkey, reservation.requestId);
+      } catch {
+        console.error('[Cheffy] Could not release a failed trial reservation');
+      }
+    }
   }
 };

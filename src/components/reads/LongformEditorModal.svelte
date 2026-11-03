@@ -6,6 +6,8 @@
 	import { goto } from '$app/navigation';
 	import { nip19 } from 'nostr-tools';
 	import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+	import { buildImetaTagWithAlt } from '$lib/feed/imeta';
+	import AltTextEditorModal from '../AltTextEditorModal.svelte';
 	import { ndk, userPublickey } from '$lib/nostr';
 	import { RELAY_SETS } from '$lib/relays/relaySets';
 	import { getOutboxRelays } from '$lib/relayListCache';
@@ -46,6 +48,21 @@
 
 	// Local state for editing
 	let localDraft: ArticleDraft = createEmptyDraft();
+	// Cover image alt text (NIP-92 imeta) lives in the persisted draft,
+	// keyed by cover URL, so it survives reopening and never leaks onto a
+	// replaced cover image.
+	$: coverAlt = (localDraft.coverImage && localDraft.coverAlts?.[localDraft.coverImage]) || '';
+	let coverAltModalOpen = false;
+
+	function setCoverAlt(text: string) {
+		const url = localDraft.coverImage;
+		if (!url) return;
+		const next = { ...(localDraft.coverAlts || {}) };
+		const cleaned = text.trim();
+		if (cleaned) next[url] = cleaned;
+		else delete next[url];
+		localDraft.coverAlts = next;
+	}
 	let hasUnsavedChanges = false;
 	let showPreview = false;
 	let showCloseConfirm = false;
@@ -142,6 +159,7 @@
 		subtitle: localDraft.subtitle,
 		content: localDraft.content,
 		coverImage: localDraft.coverImage,
+		coverAlts: localDraft.coverAlts || {},
 		tags: localDraft.tags
 	});
 	
@@ -172,6 +190,7 @@
 			subtitle: localDraft.subtitle,
 			content: localDraft.content,
 			coverImage: localDraft.coverImage,
+			coverAlts: localDraft.coverAlts || {},
 			tags: localDraft.tags
 		});
 		hasUnsavedChanges = false;
@@ -385,6 +404,10 @@
 					const { protocol } = new URL(localDraft.coverImage);
 					if (protocol === 'http:' || protocol === 'https:') {
 						event.tags.push(['image', localDraft.coverImage]);
+						// NIP-92 imeta alt text for the cover (screen readers)
+						if (coverAlt.trim()) {
+							event.tags.push(buildImetaTagWithAlt(localDraft.coverImage, coverAlt.trim()));
+						}
 					} else {
 						console.warn('Cover image URL is not http(s), skipping');
 					}
@@ -716,6 +739,17 @@
 								bind:coverImage={localDraft.coverImage}
 								bind:tags={localDraft.tags}
 							/>
+							{#if localDraft.coverImage}
+								<button
+									type="button"
+									class="lf-alt-toggle"
+									class:has-alt={!!coverAlt.trim()}
+									on:click={() => (coverAltModalOpen = true)}
+								>
+									{coverAlt.trim() ? '✓ ALT' : '+ ALT'}
+									<span class="lf-alt-label">image description</span>
+								</button>
+							{/if}
 						</div>
 
 						<!-- Editor Section -->
@@ -766,6 +800,13 @@
 	</div>
 {/if}
 
+<AltTextEditorModal
+	url={localDraft.coverImage}
+	initialText={coverAlt}
+	bind:open={coverAltModalOpen}
+	on:save={(e) => setCoverAlt(e.detail.text)}
+/>
+
 <style>
 	/* Header */
 	.editor-header {
@@ -809,7 +850,7 @@
 	}
 
 	.close-btn:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 		color: var(--color-text-primary);
 	}
 
@@ -826,7 +867,7 @@
 	}
 
 	.drafts-btn:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 		color: var(--color-text-primary);
 	}
 
@@ -837,8 +878,8 @@
 		min-width: 1.25rem;
 		height: 1.25rem;
 		padding: 0 0.375rem;
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 		font-size: 0.75rem;
 		font-weight: 600;
 		border-radius: 9999px;
@@ -894,13 +935,13 @@
 
 	.preview-btn:hover,
 	.save-btn:hover:not(:disabled) {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 		color: var(--color-text-primary);
 	}
 
 	.preview-btn.active {
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 	}
 
 	.save-btn.error {
@@ -922,7 +963,7 @@
 		border-radius: 0.5rem;
 		font-size: 0.875rem;
 		font-weight: 600;
-		background: linear-gradient(135deg, #f97316, #f59e0b);
+		background: linear-gradient(135deg, var(--color-action), var(--color-action));
 		color: white;
 		transition: all 0.15s ease;
 	}
@@ -1053,7 +1094,7 @@
 
 	.preview-tag {
 		padding: 0.25rem 0.625rem;
-		background: var(--color-accent-gray);
+		background: var(--color-input-bg);
 		color: var(--color-primary);
 		font-size: 0.875rem;
 		font-weight: 500;
@@ -1088,7 +1129,7 @@
 		margin: 1.5rem 0;
 		padding: 1rem 1.5rem;
 		border-left: 4px solid var(--color-primary);
-		background: var(--color-accent-gray);
+		background: var(--color-input-bg);
 		border-radius: 0 0.5rem 0.5rem 0;
 		font-style: italic;
 	}
@@ -1155,12 +1196,12 @@
 	}
 
 	.confirm-btn.cancel:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 	}
 
 	.confirm-btn.save {
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 	}
 
 	.confirm-btn.save:hover {
@@ -1252,5 +1293,34 @@
 		.preview-title {
 			font-size: 1.75rem;
 		}
+	}
+
+	.lf-alt-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 0.5rem;
+		padding: 0.3rem 0.65rem;
+		border: none;
+		border-radius: 6px;
+		background: var(--color-input-bg, rgba(0, 0, 0, 0.4));
+		color: var(--color-text-primary);
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		cursor: pointer;
+	}
+	.lf-alt-toggle:hover {
+		background: var(--color-hover-bg);
+	}
+	.lf-alt-toggle.has-alt {
+		background: var(--color-action);
+		color: var(--color-on-action);
+	}
+	.lf-alt-label {
+		font-weight: 500;
+		letter-spacing: 0;
+		text-transform: lowercase;
+		opacity: 0.8;
 	}
 </style>

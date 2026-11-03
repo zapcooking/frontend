@@ -38,7 +38,7 @@
   .engagement-toggle:hover,
   .engagement-toggle:focus-visible {
     color: var(--color-text-primary);
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
 
   .engagement-toggle:focus-visible {

@@ -17,7 +17,11 @@ vi.mock('$lib/groupCacheStorage', () => ({ groupCache }));
 vi.mock('$lib/publishQueue', () => ({ publishQueue }));
 vi.mock('$lib/offlineStorage', () => ({ offlineStorage }));
 
-import { clearAccountData, clearAccountLocalStorage } from './sessionCleanup';
+import {
+  clearAccountData,
+  clearAccountLocalStorage,
+  clearStartSectionCookie
+} from './sessionCleanup';
 
 let store: Map<string, string>;
 
@@ -37,7 +41,28 @@ beforeEach(() => {
   groupCache.clearAll.mockReset().mockResolvedValue(undefined);
   publishQueue.clearQueue.mockReset().mockResolvedValue(undefined);
   offlineStorage.clearAll.mockReset().mockResolvedValue(undefined);
+
+  cookieWrites = [];
+  vi.stubGlobal('document', {
+    set cookie(v: string) {
+      cookieWrites.push(v);
+    },
+    get cookie() {
+      return '';
+    }
+  });
 });
+
+let cookieWrites: string[] = [];
+
+/** True when a write expires the start-section cookie (Max-Age=0, site-wide). */
+function expiresStartSectionCookie(write: string): boolean {
+  return (
+    write.startsWith('zapcooking_start_section=;') &&
+    write.includes('Max-Age=0') &&
+    write.includes('Path=/')
+  );
+}
 
 function seedAccountData() {
   store.set('zapcooking_wallets', '[{"id":1}]');
@@ -100,6 +125,12 @@ describe('clearAccountData', () => {
     expect(offlineStorage.clearAll).toHaveBeenCalledTimes(1);
   });
 
+  it('clears the start-section cookie so / treats the browser as a visitor', async () => {
+    await clearAccountData();
+
+    expect(cookieWrites.some(expiresStartSectionCookie)).toBe(true);
+  });
+
   it('still clears the rest when one database fails', async () => {
     seedAccountData();
     publishQueue.clearQueue.mockRejectedValue(new Error('db locked'));
@@ -110,5 +141,14 @@ describe('clearAccountData', () => {
     expect(store.has('spark_wallet_aaaa')).toBe(false);
     expect(groupCache.clearAll).toHaveBeenCalledTimes(1);
     expect(offlineStorage.clearAll).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('clearStartSectionCookie', () => {
+  it('expires the cookie on the root path', () => {
+    clearStartSectionCookie();
+
+    expect(cookieWrites).toHaveLength(1);
+    expect(expiresStartSectionCookie(cookieWrites[0])).toBe(true);
   });
 });

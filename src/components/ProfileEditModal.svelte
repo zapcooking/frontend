@@ -3,22 +3,15 @@
   import CameraIcon from 'phosphor-svelte/lib/Camera';
   import SpinnerIcon from 'phosphor-svelte/lib/SpinnerGap';
   import CloudArrowUpIcon from 'phosphor-svelte/lib/CloudArrowUp';
-  import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import CheckCircleIcon from 'phosphor-svelte/lib/CheckCircle';
   import WarningCircleIcon from 'phosphor-svelte/lib/WarningCircle';
   import Button from './Button.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { uploadToNostrBuild } from '$lib/mediaUpload';
   import { profileCacheManager } from '$lib/profileCache';
-  import {
-    backupProfile,
-    listProfileBackups,
-    restoreProfileFromBackup,
-    type ProfileBackupData
-  } from '$lib/profileBackup';
+  import { changedFormFields, updateOwnKind0, PROFILE_FIELD_ALIASES } from '$lib/ownKind0';
 
   export let open = false;
   export let profile: any = null;
@@ -38,6 +31,8 @@
     lud16: '',
     noffer: ''
   };
+  // The form as it opened: saving applies only what differs from it.
+  let initialFormData = { ...formData };
 
   // Advanced section visibility — image URL fields (picture / banner)
   // live under here so the main form stays focused on identity fields.
@@ -46,16 +41,8 @@
   // UI state
   let saving = false;
   let error: string | null = null;
-  let backupStatus: 'idle' | 'backing-up' | 'backed-up' | 'error' = 'idle';
   let uploadingPicture = false;
   let uploadingBanner = false;
-  let showRestorePanel = false;
-  let backupList: Array<{ timestamp: number; eventId: string; createdAt: number; data?: import('$lib/profileBackup').ProfileBackupData }> = [];
-  let loadingBackups = false;
-  let restoringBackupIndex: number | null = null;
-  let lastBackupTimestamp: number | null = null;
-  let creatingManualBackup = false;
-  let backupSectionEl: HTMLElement;
 
   // NIP-05 and lud16 are both `local@domain.tld` shaped. NIP-05 allows
   // `_` as the local part (root identifier); both fields are
@@ -223,11 +210,9 @@
       lud16: profile.lud16 || '',
       noffer: rawNoffer
     };
+    initialFormData = { ...formData };
     error = null;
-    backupStatus = 'idle';
-    showRestorePanel = false;
     showAdvanced = false;
-    fetchLastBackupTimestamp();
   }
 
   // Watch for open state change - only initialize when transitioning from closed to open
@@ -238,58 +223,9 @@
     wasOpen = open;
   }
 
-  async function fetchLastBackupTimestamp() {
-    if (!$userPublickey) return;
-    try {
-      const backups = await listProfileBackups($ndk, $userPublickey);
-      if (backups.length > 0) {
-        lastBackupTimestamp = backups[0].timestamp;
-      } else {
-        lastBackupTimestamp = null;
-      }
-    } catch (e) {
-      console.error('[ProfileEdit] Failed to fetch last backup:', e);
-      lastBackupTimestamp = null;
-    }
-  }
-
-  async function createManualBackup() {
-    if (!$userPublickey || creatingManualBackup) return;
-
-    creatingManualBackup = true;
-    error = null;
-
-    try {
-      // Fetch current profile from relay
-      const currentProfile = await fetchCurrentProfile();
-      if (!currentProfile) {
-        error = 'Could not fetch current profile to backup';
-        return;
-      }
-
-      const success = await backupProfile($ndk, $userPublickey, currentProfile);
-      if (success) {
-        lastBackupTimestamp = Date.now();
-        backupStatus = 'backed-up';
-        setTimeout(() => {
-          if (backupStatus === 'backed-up') backupStatus = 'idle';
-        }, 3000);
-      } else {
-        error = 'Failed to create backup';
-      }
-    } catch (e) {
-      console.error('[ProfileEdit] Manual backup failed:', e);
-      error = 'Failed to create backup';
-    } finally {
-      creatingManualBackup = false;
-    }
-  }
-
   function close() {
     open = false;
     error = null;
-    backupStatus = 'idle';
-    showRestorePanel = false;
   }
 
   async function uploadImage(file: File, type: 'picture' | 'banner'): Promise<string | null> {
@@ -365,33 +301,6 @@
     }
   }
 
-  async function fetchCurrentProfile(): Promise<Record<string, any> | null> {
-    try {
-      const user = $ndk.getUser({ pubkey: $userPublickey });
-      await user.fetchProfile();
-
-      if (!user.profile) return null;
-
-      // Get the raw profile content - preserve all fields
-      const events = await $ndk.fetchEvents({
-        kinds: [0],
-        authors: [$userPublickey],
-        limit: 1
-      });
-
-      if (events.size === 0) return null;
-
-      const latestEvent = Array.from(events).sort((a, b) =>
-        (b.created_at || 0) - (a.created_at || 0)
-      )[0];
-
-      return JSON.parse(latestEvent.content);
-    } catch (e) {
-      console.error('[ProfileEdit] Failed to fetch current profile:', e);
-      return null;
-    }
-  }
-
   async function saveProfile() {
     if (!$userPublickey || saving) return;
 
@@ -405,152 +314,39 @@
 
     saving = true;
     error = null;
-    backupStatus = 'backing-up';
 
     try {
-      // Step 1: Fetch current profile to preserve all fields
-      const currentProfile = await fetchCurrentProfile();
-
-      if (currentProfile) {
-        // Step 2: Create backup before making changes
-        const backupSuccess = await backupProfile($ndk, $userPublickey, currentProfile);
-        if (backupSuccess) {
-          backupStatus = 'backed-up';
-          console.log('[ProfileEdit] Backup created successfully');
-        } else {
-          backupStatus = 'error';
-          console.warn('[ProfileEdit] Backup failed, but continuing with save');
-        }
-      }
-
-      // Step 3: Merge form data with existing profile (preserve all fields)
-      const updatedProfile: Record<string, any> = {
-        ...(currentProfile || {}),
-        // Update only the fields we're editing
-        display_name: formData.display_name.trim(),
-        name: formData.name.trim(),
-        about: formData.about.trim(),
-        picture: formData.picture.trim(),
-        banner: formData.banner.trim(),
-        nip05: formData.nip05.trim(),
-        website: formData.website.trim(),
-        lud16: formData.lud16.trim(),
-        noffer: formData.noffer.trim()
-      };
-
-      // Remove empty strings (optional - keeps profile clean)
-      Object.keys(updatedProfile).forEach(key => {
-        if (updatedProfile[key] === '') {
-          delete updatedProfile[key];
-        }
-      });
-
-      // Step 4: Safety check - ensure we're not losing data
-      if (currentProfile) {
-        const currentKeys = Object.keys(currentProfile).filter(k => currentProfile[k]);
-        const updatedKeys = Object.keys(updatedProfile).filter(k => updatedProfile[k]);
-        const editedFields = Object.keys(formData);
-
-        // Check if we would lose any fields that had values
-        const lostFields = currentKeys.filter(
-          k => !updatedKeys.includes(k) && !editedFields.includes(k)
+      // Only the fields the user changed are applied, onto the latest raw
+      // kind:0 — every other field passes through. If that kind:0 can't
+      // be loaded for certain, nothing is published (Kind0LoadError).
+      // A cleared field is removed, with the aliases the form read it from.
+      const changes = changedFormFields(initialFormData, formData);
+      if (Object.keys(changes).length > 0) {
+        const { relayCount } = await updateOwnKind0(
+          $ndk,
+          $userPublickey,
+          changes,
+          PROFILE_FIELD_ALIASES
         );
+        console.log('[ProfileEdit] Profile published to', relayCount, 'relays');
 
-        if (lostFields.length > 0) {
-          console.warn('[ProfileEdit] Would lose fields:', lostFields);
-          // Re-add lost fields
-          lostFields.forEach(field => {
-            updatedProfile[field] = currentProfile[field];
-          });
-        }
+        // CustomName/CustomAvatar still read profileCache until they move
+        // to the profile store; the resolver cache is already updated.
+        profileCacheManager.invalidateProfile($userPublickey);
+
+        // Wait briefly for relays to propagate
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        onProfileUpdated();
       }
-
-      // Step 5: Create and publish kind:0 event
-      const profileEvent = new NDKEvent($ndk);
-      profileEvent.kind = 0;
-      profileEvent.content = JSON.stringify(updatedProfile);
-      profileEvent.tags = [];
-
-      await profileEvent.sign();
-      const publishedRelays = await profileEvent.publish();
-
-      console.log('[ProfileEdit] Profile published to', publishedRelays.size, 'relays');
-
-      if (publishedRelays.size === 0) {
-        throw new Error('Failed to publish profile - no relays confirmed');
-      }
-
-      // Step 6: Clear cache and notify parent
-      profileCacheManager.invalidateProfile($userPublickey);
-
-      // Wait briefly for relays to propagate
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      onProfileUpdated();
       close();
 
     } catch (err: any) {
       console.error('[ProfileEdit] Save failed:', err);
       error = err.message || 'Failed to save profile';
-      backupStatus = 'error';
     } finally {
       saving = false;
     }
-  }
-
-  async function loadBackups() {
-    loadingBackups = true;
-    try {
-      backupList = await listProfileBackups($ndk, $userPublickey);
-    } catch (err) {
-      console.error('[ProfileEdit] Failed to load backups:', err);
-      backupList = [];
-    } finally {
-      loadingBackups = false;
-    }
-  }
-
-  async function toggleRestorePanel() {
-    showRestorePanel = !showRestorePanel;
-    if (showRestorePanel) {
-      if (backupList.length === 0) {
-        await loadBackups();
-      }
-      // Scroll to backup section after panel opens
-      setTimeout(() => {
-        backupSectionEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, 50);
-    }
-  }
-
-  async function restoreBackup(backup: import('$lib/profileBackup').ProfileBackupData, index: number) {
-    if (restoringBackupIndex !== null) return;
-
-    restoringBackupIndex = index;
-    error = null;
-
-    try {
-      const success = await restoreProfileFromBackup($ndk, $userPublickey, backup);
-      if (!success) {
-        throw new Error('Failed to restore profile');
-      }
-
-      // Clear cache and notify
-      profileCacheManager.invalidateProfile($userPublickey);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      onProfileUpdated();
-      close();
-
-    } catch (err: any) {
-      error = err.message || 'Failed to restore backup';
-    } finally {
-      restoringBackupIndex = null;
-    }
-  }
-
-  function formatDate(timestamp: number): string {
-    return new Date(timestamp).toLocaleString();
   }
 </script>
 
@@ -638,18 +434,6 @@
   {#if error}
     <div class="mb-4 p-3 rounded-xl bg-red-500/10 text-red-500 text-sm">
       {error}
-    </div>
-  {/if}
-
-  <!-- Backup Status -->
-  {#if backupStatus === 'backing-up'}
-    <div class="mb-4 p-3 rounded-xl bg-blue-500/10 text-blue-500 text-sm flex items-center gap-2">
-      <SpinnerIcon size={16} class="animate-spin" />
-      Creating backup...
-    </div>
-  {:else if backupStatus === 'backed-up'}
-    <div class="mb-4 p-3 rounded-xl bg-green-500/10 text-green-500 text-sm">
-      Backup created successfully
     </div>
   {/if}
 
@@ -914,72 +698,6 @@
         Save Profile
       {/if}
     </Button>
-  </div>
-
-  <!-- Backup Section -->
-  <div bind:this={backupSectionEl} class="mt-6 pt-4 border-t" style="border-color: var(--color-input-border)">
-    <!-- Backup Info & Actions -->
-    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-      <div class="text-sm text-caption">
-        {#if lastBackupTimestamp}
-          Last backup: {formatDate(lastBackupTimestamp)}
-        {:else}
-          No backups found
-        {/if}
-      </div>
-      <div class="flex gap-2">
-        <button
-          on:click={createManualBackup}
-          disabled={creatingManualBackup || saving}
-          class="text-sm text-primary hover:opacity-80 transition-opacity disabled:opacity-50 flex items-center gap-1"
-        >
-          {#if creatingManualBackup}
-            <SpinnerIcon size={14} class="animate-spin" />
-            Backing up...
-          {:else}
-            <CloudArrowUpIcon size={14} />
-            Create Backup
-          {/if}
-        </button>
-        <button
-          on:click={toggleRestorePanel}
-          class="text-sm text-caption hover:text-primary transition-colors flex items-center gap-1"
-        >
-          <ClockCounterClockwiseIcon size={14} />
-          {showRestorePanel ? 'Hide' : 'Restore'}
-        </button>
-      </div>
-    </div>
-
-    {#if showRestorePanel}
-      <div class="mt-2">
-        {#if loadingBackups}
-          <div class="flex items-center gap-2 text-caption">
-            <SpinnerIcon size={16} class="animate-spin" />
-            Loading backups...
-          </div>
-        {:else if backupList.length === 0}
-          <p class="text-sm text-caption italic">No backups found. Backups are created automatically when you save profile changes.</p>
-        {:else}
-          <div class="flex flex-col gap-2 max-h-48 overflow-y-auto">
-            {#each backupList as backup, i}
-              <div class="flex justify-between items-center p-3 rounded-xl" style="background-color: var(--color-input-bg)">
-                <span class="text-sm" style="color: var(--color-text-primary)">
-                  {formatDate(backup.timestamp)}
-                </span>
-                <button
-                  on:click={() => backup.data && restoreBackup(backup.data, i)}
-                  disabled={restoringBackupIndex !== null || !backup.data}
-                  class="text-sm text-primary hover:opacity-80 transition-opacity disabled:opacity-50"
-                >
-                  {restoringBackupIndex === i ? 'Restoring...' : 'Restore'}
-                </button>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    {/if}
   </div>
 </Modal>
 

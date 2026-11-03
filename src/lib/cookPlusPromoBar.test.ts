@@ -44,7 +44,7 @@ function url(pathname: string, search = ''): { pathname: string; search: string 
   return { pathname, search };
 }
 
-const FEED = url('/community');
+const FEED = url('/feed');
 const RECIPE = url('/recipe/naddr1abc');
 
 function eligible(overrides: Partial<PromoBarEligibilityInput> = {}): PromoBarEligibilityInput {
@@ -64,14 +64,14 @@ function eligible(overrides: Partial<PromoBarEligibilityInput> = {}): PromoBarEl
 describe('route eligibility', () => {
   it('shows on the main feed and recipe detail only', () => {
     expect(promoBarSurfaceFor(FEED)).toBe('feed');
-    expect(promoBarSurfaceFor(url('/community/'))).toBe('feed');
-    expect(promoBarSurfaceFor(url('/community', '?tab=global'))).toBe('feed');
+    expect(promoBarSurfaceFor(url('/feed/'))).toBe('feed');
+    expect(promoBarSurfaceFor(url('/feed', '?tab=global'))).toBe('feed');
     expect(promoBarSurfaceFor(RECIPE)).toBe('recipe');
     expect(promoBarSurfaceFor(url('/recipe/naddr1abc/'))).toBe('recipe');
   });
 
   it("excludes the feed's Groups tab, which is a chat surface", () => {
-    expect(promoBarSurfaceFor(url('/community', '?tab=members'))).toBeNull();
+    expect(promoBarSurfaceFor(url('/feed', '?tab=members'))).toBeNull();
   });
 
   it('excludes every other route, including the ones the modal allows', () => {

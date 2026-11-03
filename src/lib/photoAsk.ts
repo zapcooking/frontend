@@ -166,6 +166,9 @@ export interface PhotoAskRequestOpts {
   imageBase64: string;
   /** The member's own question. Trimmed and capped here; defaulted server-side when empty. */
   question?: string;
+  /** 'alt' switches the server to its neutral alt-text describer (no
+   * food gate); the member's question is ignored in that mode. */
+  purpose?: 'alt';
   /** Called once the NIP-98 header is signed, before the fetch (NIP-46 round trips are slow). */
   onSigned?: () => void;
   /** Test injection points. */
@@ -202,6 +205,7 @@ export async function askAboutPhoto(opts: PhotoAskRequestOpts): Promise<PhotoAsk
   const question = opts.question?.trim().slice(0, QUESTION_MAX_CHARS);
   const body: Record<string, unknown> = { image: imageBase64 };
   if (question) body.question = question;
+  if (opts.purpose) body.purpose = opts.purpose;
   // The signed payload hash and the fetch body must be the same string.
   const bodyString = JSON.stringify(body);
 

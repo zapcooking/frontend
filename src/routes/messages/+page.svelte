@@ -85,7 +85,7 @@
     <a
       href="/login"
       class="mt-4 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors"
-      style="background-color: var(--color-primary); color: #ffffff;"
+      style="background-color: var(--color-action); color: var(--color-on-action);"
     >
       Sign In
     </a>
@@ -105,7 +105,7 @@
 {:else}
   <!-- Messages UI -->
   <div
-    class="flex h-[calc(100vh-8rem)] lg:h-[calc(100vh-6rem)] rounded-xl overflow-hidden border"
+    class="mt-[13px] flex h-[calc(100vh-8rem)] lg:h-[calc(100vh-7rem)] rounded-xl overflow-hidden border"
     style="border-color: var(--color-input-border); background-color: var(--color-bg-secondary);"
   >
     <!-- Conversation List (left panel) -->

@@ -9,8 +9,8 @@
    * lives in /lib/comments and sibling components from earlier stages.
    */
   import { onMount, onDestroy } from 'svelte';
-  import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { requireAuth, signedIn } from '$lib/auth/requireAuth';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { writable, type Readable } from 'svelte/store';
   import CommentCard from './CommentCard.svelte';
@@ -20,6 +20,7 @@
     createCommentSubscription,
     type CommentSubscription
   } from '$lib/comments/subscription';
+  import { isReply } from '$lib/replyContext';
 
   /**
    * The root event being commented on.
@@ -42,6 +43,14 @@
    *    optimistic add, compact composer.
    */
   export let variant: 'recipe' | 'feed';
+
+  /**
+   * Optional subscription owned by the caller (Recipe.svelte shares one
+   * with the Plated row). When set, this thread reads it and never stops
+   * it — the owner controls its lifecycle. When null, the thread opens and
+   * stops its own, as before.
+   */
+  export let subscription: CommentSubscription | null = null;
 
   let sub: CommentSubscription | null = null;
   let events: Readable<NDKEvent[]> = writable([]);
@@ -78,7 +87,14 @@
   // Recipe: eager (showComments is true from init). Feed: lazy
   // (showComments toggles from the bridge). `sub` nulled in onDestroy
   // so reconnect paths re-subscribe cleanly.
-  $: if ($ndk && !sub && showComments) {
+  $: if (subscription) {
+    // An own subscription opened before the shared one arrived is redundant.
+    sub?.stop();
+    sub = null;
+    events = subscription.events;
+  }
+
+  $: if (!subscription && $ndk && !sub && showComments) {
     sub = createCommentSubscription($ndk, event, {
       closeOnEose: false,
       applyMuteFilter: variant === 'feed'
@@ -88,14 +104,14 @@
 
   function handlePosted(posted: NDKEvent) {
     // Optimistic add for recipe; feed relies on subscription round-trip.
-    if (variant === 'recipe') sub?.addLocal(posted);
+    if (variant === 'recipe') (subscription ?? sub)?.addLocal(posted);
   }
 
   let openReplyCount = 0;
   $: anyReplyOpen = openReplyCount > 0;
 
-  let loginRedirectHref = '';
-  $: loginRedirectHref = `/login?redirect=${encodeURIComponent($page.url.pathname)}`;
+  // Sign in over the page; the composer below appears once a session exists.
+  const signInToComment = () => requireAuth({ kind: 'reply', reason: 'Sign in to comment' });
 </script>
 
 {#if variant === 'recipe'}
@@ -122,7 +138,7 @@
     {#if !anyReplyOpen}
       <div class="space-y-3 pt-4 border-t">
         <h3 class="text-lg font-semibold">Add a comment</h3>
-        {#if $ndk?.signer}
+        {#if $signedIn}
           <div class="p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
             <div class="flex gap-3 items-start">
               <div class="flex-shrink-0">
@@ -140,7 +156,7 @@
           </div>
         {:else}
           <p class="text-sm text-caption">Sign in to comment.</p>
-          <a href={loginRedirectHref} class="text-sm underline hover:opacity-80">Sign in</a>
+          <button type="button" class="text-sm underline hover:opacity-80" on:click={signInToComment}>Sign in</button>
         {/if}
       </div>
     {/if}
@@ -151,15 +167,19 @@
       <div class="mt-3 space-y-4 pt-3" style="border-top: 1px solid var(--color-input-border)">
         <div class="comments-list">
           {#if $events.length === 0}
-            <p class="text-sm text-caption">
-              No replies yet.
-              {#if !$userPublickey}
-                <a href={loginRedirectHref} class="underline hover:opacity-80">Sign in</a>
-                to reply!
-              {:else}
-                Be the first to reply!
-              {/if}
-            </p>
+            {#if !isReply(event)}
+              <!-- Top-level posts get the empty-state nudge; a reply's
+                   inline thread stays quiet when it has no children. -->
+              <p class="text-sm text-caption">
+                No replies yet.
+                {#if !$signedIn}
+                  <button type="button" class="underline hover:opacity-80" on:click={signInToComment}>Sign in</button>
+                  to reply!
+                {:else}
+                  Be the first to reply!
+                {/if}
+              </p>
+            {/if}
           {:else}
             {#each $events as comment (comment.id)}
               <CommentCard
@@ -175,7 +195,7 @@
         </div>
 
         {#if !anyReplyOpen}
-          {#if $userPublickey}
+          {#if $signedIn}
             <div>
               <div class="p-3 rounded-lg" style="background-color: var(--color-bg-secondary)">
                 <div class="flex gap-3 items-start">
@@ -197,7 +217,7 @@
               class="text-sm text-caption pt-2"
               style="border-top: 1px solid var(--color-input-border)"
             >
-              <a href={loginRedirectHref} class="text-primary hover:underline">Log in</a> to reply
+              <button type="button" class="text-primary hover:underline" on:click={signInToComment}>Log in</button> to reply
             </div>
           {/if}
         {/if}

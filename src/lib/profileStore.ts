@@ -1,192 +1,348 @@
-import { writable, derived, get, type Writable } from 'svelte/store';
-import { resolveProfile, resolveProfiles, formatDisplayName, type ProfileData } from './profileResolver';
+import { writable, get, type Readable, type Writable } from 'svelte/store';
+import { nip19 } from 'nostr-tools';
+import { browser } from '$app/environment';
 import { ndk } from './nostr';
-import type NDK from '@nostr-dev-kit/ndk';
+import {
+  formatDisplayName,
+  isProfileMissConfirmed,
+  onProfileCached,
+  resolveProfile,
+  resolveProfileByPubkey,
+  resolveProfiles,
+  type ProfileData
+} from './profileResolver';
+import { getAnonChefName } from './anonName';
 
-// Store for individual profile data
-const profileData: Writable<Map<string, ProfileData | null>> = writable(new Map());
+/**
+ * Reactive per-pubkey profile state on top of profileResolver.
+ *
+ * Each hex pubkey gets its own small store, created on first subscribe,
+ * so a row only hears about its own author: a 50-row feed resolving in
+ * one batch is 50 updates, not 50×50, and a late profile for author A
+ * never touches rows for author B.
+ *
+ *   loading      — asked, no answer yet (render a skeleton)
+ *   found        — a kind:0 arrived; also set when a profile enters the
+ *                  resolver cache through any other lookup or a seed
+ *   missing      — a CONFIRMED miss (#853: purplepag.es answered without
+ *                  the author) — the only state that shows an anon name
+ *   unconfirmed  — relays didn't answer, even after one retry (short npub)
+ *
+ * An unconfirmed `null` is retried once, PROFILE_RETRY_DELAY_MS later.
+ * When the last subscriber leaves, a pending retry is cancelled, and
+ * missing/unconfirmed entries are dropped so a later mount asks again.
+ * Found entries are kept (bounded) so remounts render the name at once;
+ * a remount then reconciles with the resolver in case it refreshed the
+ * profile while nothing was listening.
+ *
+ * Relay hints (an nprofile's relays, e.g. a mention) go into the same
+ * per-pubkey entry: hints from every subscriber are merged, never a
+ * second store. Lookups include all hints known at the time; hints that
+ * arrive after a lookup found nothing trigger one more lookup with them.
+ * A profile found through a hint reaches every row for that pubkey via
+ * the resolver's cache listener.
+ */
+export type ProfileState =
+  | { status: 'loading' }
+  | { status: 'found'; profile: ProfileData }
+  | { status: 'missing' }
+  | { status: 'unconfirmed' };
 
-// Store for loading states
-const loadingStates: Writable<Map<string, boolean>> = writable(new Map());
+export const PROFILE_RETRY_DELAY_MS = 4000;
+const MAX_KEPT_PROFILES = 1000;
 
-// Store for error states
-const errorStates: Writable<Map<string, string | null>> = writable(new Map());
+interface Entry {
+  store: Writable<ProfileState>;
+  state: ProfileState;
+  subscribers: number;
+  requested: boolean;
+  retryTimer: ReturnType<typeof setTimeout> | null;
+  /** Relay hints from every subscriber, deduped. */
+  hints: string[];
+  /** false once dropped: late results for it must not write anything. */
+  alive: boolean;
+}
 
-// Actions for profile management
-export const profileActions = {
-  // Load a single profile
-  async loadProfile(nostrString: string): Promise<void> {
-    // Set loading state
-    loadingStates.update(states => {
-      states.set(nostrString, true);
-      return states;
-    });
+const entries = new Map<string, Entry>();
+let activeSubscribers = 0;
+let stopListening: (() => void) | null = null;
 
-    // Clear any previous error
-    errorStates.update(states => {
-      states.set(nostrString, null);
-      return states;
-    });
+// Callers check entry.alive first (request, its retry timer, onCached):
+// a dropped entry never gets another write.
+function setState(entry: Entry, state: ProfileState): void {
+  entry.state = state;
+  entry.store.set(state);
+}
 
-    try {
-      // Get current NDK instance
-      const ndkInstance = get(ndk) as NDK | null;
-      
-      if (!ndkInstance) {
-        throw new Error('NDK not available');
-      }
-
-      const profile = await resolveProfile(nostrString, ndkInstance);
-      
-      // Update profile data
-      profileData.update(data => {
-        data.set(nostrString, profile);
-        return data;
-      });
-    } catch (error) {
-      console.error(`Failed to load profile for ${nostrString}:`, error);
-      
-      // Set error state
-      errorStates.update(states => {
-        states.set(nostrString, error instanceof Error ? error.message : 'Unknown error');
-        return states;
-      });
-    } finally {
-      // Clear loading state
-      loadingStates.update(states => {
-        states.set(nostrString, false);
-        return states;
-      });
-    }
-  },
-
-  // Load multiple profiles in batch
-  async loadProfiles(nostrStrings: string[]): Promise<void> {
-    // Set loading states for all
-    loadingStates.update(states => {
-      nostrStrings.forEach(nostrString => {
-        states.set(nostrString, true);
-      });
-      return states;
-    });
-
-    // Clear previous errors
-    errorStates.update(states => {
-      nostrStrings.forEach(nostrString => {
-        states.set(nostrString, null);
-      });
-      return states;
-    });
-
-    try {
-      // Get current NDK instance
-      const ndkInstance = get(ndk) as NDK | null;
-      
-      if (!ndkInstance) {
-        throw new Error('NDK not available');
-      }
-
-      const profiles = await resolveProfiles(nostrStrings, ndkInstance);
-      
-      // Update profile data
-      profileData.update(data => {
-        profiles.forEach((profile, nostrString) => {
-          data.set(nostrString, profile);
-        });
-        return data;
-      });
-    } catch (error) {
-      console.error('Failed to load profiles:', error);
-      
-      // Set error states
-      errorStates.update(states => {
-        nostrStrings.forEach(nostrString => {
-          states.set(nostrString, error instanceof Error ? error.message : 'Unknown error');
-        });
-        return states;
-      });
-    } finally {
-      // Clear loading states
-      loadingStates.update(states => {
-        nostrStrings.forEach(nostrString => {
-          states.set(nostrString, false);
-        });
-        return states;
-      });
-    }
-  },
-
-  // Clear all data
-  clearAll(): void {
-    profileData.set(new Map());
-    loadingStates.set(new Map());
-    errorStates.set(new Map());
-  },
-
-  // Clear specific profile data
-  clearProfile(nostrString: string): void {
-    profileData.update(data => {
-      data.delete(nostrString);
-      return data;
-    });
-    
-    loadingStates.update(states => {
-      states.delete(nostrString);
-      return states;
-    });
-    
-    errorStates.update(states => {
-      states.delete(nostrString);
-      return states;
-    });
+function clearRetry(entry: Entry): void {
+  if (entry.retryTimer) {
+    clearTimeout(entry.retryTimer);
+    entry.retryTimer = null;
   }
-};
-
-// Derived stores for easy access
-export const profiles = derived(profileData, $profileData => $profileData);
-export const loadingProfiles = derived(loadingStates, $loadingStates => $loadingStates);
-export const profileErrors = derived(errorStates, $errorStates => $errorStates);
-
-// Helper function to get profile data for a specific nostr string
-export function getProfile(nostrString: string): ProfileData | null {
-  let result: ProfileData | null = null;
-  
-  profileData.subscribe(data => {
-    result = data.get(nostrString) || null;
-  })();
-  
-  return result;
 }
 
-// Helper function to check if a profile is loading
-export function isProfileLoading(nostrString: string): boolean {
-  let result = false;
-  
-  loadingStates.subscribe(states => {
-    result = states.get(nostrString) || false;
-  })();
-  
-  return result;
+/**
+ * Whether `next` is at least as new a version as `current`, by the kind:0
+ * event's created_at (not lastFetched — our fetch time; a later fetch can
+ * return an older kind:0 from a stale relay). Seeded profiles carry no
+ * created_at and count as oldest.
+ */
+function isAtLeastAsNew(next: ProfileData, current: ProfileData): boolean {
+  return (next.created_at ?? -Infinity) >= (current.created_at ?? -Infinity);
 }
 
-// Helper function to get profile error
-export function getProfileError(nostrString: string): string | null {
-  let result: string | null = null;
-  
-  errorStates.subscribe(states => {
-    result = states.get(nostrString) || null;
-  })();
-  
-  return result;
+function onCached(pubkey: string, profile: ProfileData): void {
+  const entry = entries.get(pubkey);
+  if (!entry || !entry.alive) return;
+  clearRetry(entry);
+  // A name already shown is only replaced by an at-least-as-new version.
+  if (entry.state.status === 'found' && !isAtLeastAsNew(profile, entry.state.profile)) return;
+  setState(entry, { status: 'found', profile });
 }
 
-// Derived store for formatted display names
-export const displayNames = derived(profiles, $profiles => {
-  const names = new Map<string, string>();
-  
-  $profiles.forEach((profile, nostrString) => {
-    names.set(nostrString, formatDisplayName(profile));
-  });
-  
-  return names;
-});
+function normalizeHint(url: string): string {
+  return url.trim().replace(/\/+$/, '');
+}
+
+/** Merge `hints` into the entry; true if any was new. */
+function addHints(entry: Entry, hints: string[] | undefined): boolean {
+  let added = false;
+  for (const raw of hints ?? []) {
+    if (typeof raw !== 'string' || !/^wss?:\/\//i.test(raw.trim())) continue;
+    const url = normalizeHint(raw);
+    if (!entry.hints.includes(url)) {
+      entry.hints.push(url);
+      added = true;
+    }
+  }
+  return added;
+}
+
+async function lookup(pubkey: string, hints: string[]): Promise<ProfileData | null> {
+  const ndkInstance = get(ndk);
+  if (!ndkInstance) return null;
+  if (hints.length === 0) return resolveProfileByPubkey(pubkey, ndkInstance);
+  // The resolver takes hints through an nprofile (and lets them bypass a
+  // cached miss, since the hinted relays weren't asked).
+  return resolveProfile(nip19.nprofileEncode({ pubkey, relays: hints }), ndkInstance);
+}
+
+async function request(pubkey: string, entry: Entry, isRetry: boolean): Promise<void> {
+  entry.requested = true;
+  const hintsAsked = entry.hints.length;
+  let profile: ProfileData | null = null;
+  try {
+    profile = await lookup(pubkey, [...entry.hints]);
+  } catch {
+    profile = null;
+  }
+  // Dropped while in flight: never write.
+  if (!entry.alive) return;
+  if (entry.state.status === 'found') {
+    // Already showing a name (from onCached, or a retained entry being
+    // reconciled on remount). Take the result only if it's a different
+    // profile whose kind:0 is at least as new (isAtLeastAsNew) — never a
+    // downgrade to a miss, and never over a newer listener update. A cache
+    // hit returns the same object, so it causes no notification.
+    const current = entry.state.profile;
+    if (profile && profile !== current && isAtLeastAsNew(profile, current)) {
+      setState(entry, { status: 'found', profile });
+    }
+    return;
+  }
+  if (profile) {
+    setState(entry, { status: 'found', profile });
+    return;
+  }
+  // Hints arrived while this lookup was in flight: ask again with them
+  // before concluding anything.
+  if (entry.hints.length > hintsAsked) {
+    void request(pubkey, entry, isRetry);
+    return;
+  }
+  // A lookup for late hints that found nothing leaves the shown
+  // placeholder (anon name / short npub) as it was.
+  if (entry.state.status !== 'loading') return;
+  // Every null — fetched, or answered from the resolver's miss cache
+  // without a batch — is checked against the confirmed-miss flag.
+  if (isProfileMissConfirmed(pubkey)) {
+    setState(entry, { status: 'missing' });
+    return;
+  }
+  if (isRetry) {
+    setState(entry, { status: 'unconfirmed' });
+    return;
+  }
+  entry.retryTimer = setTimeout(() => {
+    entry.retryTimer = null;
+    if (entry.alive && entry.state.status === 'loading') void request(pubkey, entry, true);
+  }, PROFILE_RETRY_DELAY_MS);
+}
+
+function evictKeptProfiles(): void {
+  if (entries.size <= MAX_KEPT_PROFILES) return;
+  for (const [pubkey, entry] of entries) {
+    if (entries.size <= MAX_KEPT_PROFILES) break;
+    if (entry.subscribers === 0) {
+      entry.alive = false;
+      entries.delete(pubkey);
+    }
+  }
+}
+
+function acquire(pubkey: string, hints?: string[]): Entry {
+  let entry = entries.get(pubkey);
+  if (!entry) {
+    const state: ProfileState = { status: 'loading' };
+    entry = {
+      store: writable(state),
+      state,
+      subscribers: 0,
+      requested: false,
+      retryTimer: null,
+      hints: [],
+      alive: true
+    };
+    entries.set(pubkey, entry);
+  }
+  const newHints = addHints(entry, hints);
+  entry.subscribers++;
+  activeSubscribers++;
+  // Counted first, so eviction can't pick the entry being acquired even
+  // when every other entry is mounted.
+  evictKeptProfiles();
+  // No fetches, timers or listeners during SSR: the server renders the
+  // loading state (a skeleton) and the browser takes over.
+  if (browser) {
+    if (!stopListening) stopListening = onProfileCached(onCached);
+    if (!entry.requested) {
+      void request(pubkey, entry, false);
+    } else if (entry.subscribers === 1 && entry.state.status === 'found') {
+      // A retained name being remounted: nothing was listening while it
+      // had no subscribers, so reconcile with the resolver (a cache hit,
+      // or a fetch once the cache entry has expired). The current name
+      // stays on screen meanwhile.
+      void request(pubkey, entry, false);
+    } else if (
+      newHints &&
+      (entry.state.status === 'missing' || entry.state.status === 'unconfirmed')
+    ) {
+      // Nothing was found without these relays; ask them. (While loading,
+      // the lookup in flight or the pending retry picks the hints up.)
+      void request(pubkey, entry, true);
+    }
+  }
+  return entry;
+}
+
+function release(pubkey: string, entry: Entry): void {
+  entry.subscribers--;
+  activeSubscribers--;
+  if (entry.subscribers === 0) {
+    clearRetry(entry);
+    if (entry.state.status !== 'found') {
+      entry.alive = false;
+      if (entries.get(pubkey) === entry) entries.delete(pubkey);
+    }
+  }
+  if (activeSubscribers === 0 && stopListening) {
+    stopListening();
+    stopListening = null;
+  }
+}
+
+/**
+ * Reactive profile state for one hex pubkey. `hints`: relays that may
+ * hold the profile (an nprofile's relays); shared with every other
+ * subscriber of the same pubkey.
+ */
+export function profileFor(pubkey: string, hints?: string[]): Readable<ProfileState> {
+  return {
+    subscribe(run, invalidate) {
+      const entry = acquire(pubkey, hints);
+      const unsubscribe = entry.store.subscribe(run, invalidate);
+      return () => {
+        unsubscribe();
+        release(pubkey, entry);
+      };
+    }
+  };
+}
+
+/**
+ * Warm the resolver for nostr profile references (nprofile/npub strings)
+ * — e.g. mentions in note content — so their names are ready when shown.
+ */
+export async function prefetchProfiles(nostrStrings: string[]): Promise<void> {
+  if (!browser || nostrStrings.length === 0) return;
+  const ndkInstance = get(ndk);
+  if (!ndkInstance) return;
+  try {
+    await resolveProfiles(nostrStrings, ndkInstance);
+  } catch {
+    /* prefetch is best-effort */
+  }
+}
+
+/** A real, truncated npub (nip19-encoded, not "npub1" + hex). */
+export function shortNpub(pubkey: string): string {
+  try {
+    const npub = nip19.npubEncode(pubkey);
+    return `${npub.slice(0, 10)}…${npub.slice(-4)}`;
+  } catch {
+    return 'npub…';
+  }
+}
+
+/**
+ * What an author label shows for a given state: a skeleton while
+ * resolving, the profile name when found, the anon pool name only for a
+ * confirmed miss, and a short npub when relays never answered.
+ */
+export function authorLabel(
+  pubkey: string,
+  state: ProfileState | undefined | null
+): { kind: 'skeleton' } | { kind: 'text'; text: string } {
+  if (!pubkey) return { kind: 'text', text: getAnonChefName(null) };
+  switch (state?.status) {
+    case 'found':
+      return { kind: 'text', text: formatDisplayName(state.profile) || getAnonChefName(pubkey) };
+    case 'missing':
+      return { kind: 'text', text: getAnonChefName(pubkey) };
+    case 'unconfirmed':
+      return { kind: 'text', text: shortNpub(pubkey) };
+    default:
+      return { kind: 'skeleton' };
+  }
+}
+
+/**
+ * authorLabel for a pubkey that may not be known yet (CustomName: the
+ * /user header renders before its slug resolves). An empty pubkey is
+ * still loading — a skeleton — not an anonymous author.
+ */
+export function nameLabelFor(
+  pubkey: string | null | undefined,
+  state: ProfileState | undefined | null
+): ReturnType<typeof authorLabel> {
+  return pubkey ? authorLabel(pubkey, state) : { kind: 'skeleton' };
+}
+
+/** Test hook: drop every entry and the cache listener. */
+export function __resetProfileStore(): void {
+  for (const entry of entries.values()) {
+    clearRetry(entry);
+    entry.alive = false;
+  }
+  entries.clear();
+  activeSubscribers = 0;
+  stopListening?.();
+  stopListening = null;
+}
+
+/** Test hook: internal counts for leak assertions. */
+export function __profileStoreStats(): { entries: number; listening: boolean; pendingRetries: number } {
+  let pendingRetries = 0;
+  for (const entry of entries.values()) if (entry.retryTimer) pendingRetries++;
+  return { entries: entries.size, listening: stopListening !== null, pendingRetries };
+}

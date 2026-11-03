@@ -20,7 +20,14 @@ const { encryption } = vi.hoisted(() => ({
   }
 }));
 
-vi.mock('$lib/encryptionService', () => encryption);
+vi.mock('$lib/encryptionService', () => ({
+  ...encryption,
+  decryptWithSource: async (sender: string, ciphertext: string, method: string) => ({
+    plaintext: await encryption.decrypt(sender, ciphertext, method),
+    source: 'session'
+  }),
+  noteLegacyMigration: vi.fn()
+}));
 
 import {
   hasLegacyMnemonic,

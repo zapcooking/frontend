@@ -5,6 +5,39 @@
 
 import { json } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { verifyNip98 } from '$lib/nip98.server';
+
+/** Is the membership gate on for this deployment? */
+export function isMembershipEnabled(platform: any): boolean {
+	const MEMBERSHIP_ENABLED =
+		(platform?.env as any)?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
+	return typeof MEMBERSHIP_ENABLED === 'string'
+		? MEMBERSHIP_ENABLED.toLowerCase() === 'true'
+		: Boolean(MEMBERSHIP_ENABLED);
+}
+
+/**
+ * Who is calling? Identity comes from a NIP-98 signature over this exact
+ * request (method, URL, body hash), never from a `pubkey` field in the body:
+ * a body pubkey is a claim anyone can type, and it used to be interpolated
+ * straight into the pantry lookup URL with the server's bearer.
+ *
+ * Returns the verified pubkey, or a 401 Response when the gate is on and the
+ * signature is missing or invalid. When the gate is off no identity is needed.
+ */
+export async function authenticateNourish(
+	request: Request,
+	bodyBytes: Uint8Array,
+	platform: any
+): Promise<{ pubkey: string | null } | Response> {
+	if (!isMembershipEnabled(platform)) return { pubkey: null };
+	const verification = await verifyNip98(request, { bodyBytes });
+	if (!verification.ok) {
+		console.warn(`[Nourish] NIP-98 rejected (${verification.reason})`);
+		return json({ success: false, error: 'Authentication required' }, { status: 401 });
+	}
+	return { pubkey: verification.pubkey };
+}
 
 /**
  * Validate membership for a Nourish API request.
@@ -14,14 +47,7 @@ export async function requireMembership(
 	pubkey: unknown,
 	platform: any
 ): Promise<Response | null> {
-	const MEMBERSHIP_ENABLED =
-		(platform?.env as any)?.MEMBERSHIP_ENABLED || env.MEMBERSHIP_ENABLED;
-	const membershipEnabled =
-		typeof MEMBERSHIP_ENABLED === 'string'
-			? MEMBERSHIP_ENABLED.toLowerCase() === 'true'
-			: Boolean(MEMBERSHIP_ENABLED);
-
-	if (!membershipEnabled) return null;
+	if (!isMembershipEnabled(platform)) return null;
 
 	if (typeof pubkey !== 'string' || pubkey.trim().length === 0) {
 		return json(

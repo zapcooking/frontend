@@ -3,7 +3,6 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
-  import { triggerExploreNav } from '$lib/exploreNav';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
   import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
   import ListIcon from 'phosphor-svelte/lib/List';
@@ -12,26 +11,15 @@
   import IntelligenceIcon from './icons/IntelligenceIcon.svelte';
   import IntelligenceMenu from './IntelligenceMenu.svelte';
   import NotificationBell from './NotificationBell.svelte';
-  import DenominatedBalance from './DenominatedBalance.svelte';
   import { theme } from '$lib/themeStore';
-  import WalletBalance from './WalletBalance.svelte';
-  import LightningIcon from 'phosphor-svelte/lib/Lightning';
-  import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import { userSidePanelOpen } from '$lib/stores/userSidePanel';
   import { mobileNavOpen } from '$lib/stores/mobileNav';
-  import { loginOverlayOpen } from '$lib/stores/loginOverlay';
+  import { loginOverlayOpen, openSignup } from '$lib/stores/loginOverlay';
+  import { lockedVaultPubkey } from '$lib/auth/lockedVault';
+  import ContinueAsChip from './ContinueAsChip.svelte';
   import { mobileSearchOpen } from '$lib/stores/mobileSearch';
+  import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
   import { timerStore } from '$lib/timerStore';
-  import {
-    navBalanceVisible,
-    walletConnected,
-    walletBalance,
-    walletLoading,
-    balanceVisible,
-    openWallet
-  } from '$lib/wallet';
-  import { weblnConnected } from '$lib/wallet/webln';
-  import { bitcoinConnectEnabled, bitcoinConnectWalletInfo } from '$lib/wallet/bitcoinConnect';
   import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
   import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
   import {
@@ -51,28 +39,35 @@
 
   function openSearch(query: string) {
     mobileSearchOpen.set(false);
+    // A pasted identifier is a destination, not a search term — and a
+    // secret key is neither, so it never reaches the results page (which
+    // would hand it to the search relays verbatim).
+    if (isSecretKeyInput(query)) return;
+    const target = parseNip19Input(query);
+    if (target) {
+      goto(target.path);
+      return;
+    }
     goto(`/search?q=${encodeURIComponent(query)}`);
   }
 
   function openTag(query: string) {
     mobileSearchOpen.set(false);
-    if (query.startsWith('npub')) {
-      goto(`/user/${query}`);
-    } else if (query.startsWith('naddr')) {
-      goto(`/recipe/${query}`);
-    } else if (query.startsWith('note1') || query.startsWith('nevent1')) {
-      goto(`/${query}`);
-    } else {
-      goto(`/tag/${query}`);
+    // Same invariant as openSearch: a secret key is never written into a
+    // URL, so it cannot become `/tag/nsec1…` either.
+    if (isSecretKeyInput(query)) return;
+    // Identifiers route to the thing they name, whether or not they arrived
+    // wearing NIP-21's `nostr:` scheme; anything else is a tag.
+    const target = parseNip19Input(query);
+    if (target) {
+      goto(target.path);
+      return;
     }
+    goto(`/tag/${query}`);
   }
 
   $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
   $: isDarkMode = resolvedTheme === 'dark';
-  $: hasNavWallet =
-    $walletConnected ||
-    $weblnConnected ||
-    ($bitcoinConnectEnabled && $bitcoinConnectWalletInfo.connected);
 
   // Active state highlights the Intelligence icon when the user is
   // currently on one of the AI surfaces.
@@ -91,6 +86,11 @@
   $: if ($userPublickey) {
     queueMembershipLookup($userPublickey);
   }
+
+  // A locked vault session keeps $userPublickey (seeded from localStorage)
+  // but isn't signed in yet: no member icons until it's unlocked. Also leaves
+  // the phone header room for the "Continue as" chip.
+  $: showMemberChrome = !!$userPublickey && !$lockedVaultPubkey;
 
   $: userMembershipStatus = $userPublickey
     ? membershipMap[$userPublickey.trim().toLowerCase()]
@@ -133,13 +133,6 @@
     cookingToolsStore.toggle();
   }
 
-  function handleLogoClick() {
-    if ($page.url.pathname === '/explore') {
-      triggerExploreNav();
-    } else {
-      goto('/explore');
-    }
-  }
 
   /**
    * Engaging search jumps the page back to the top, so results/typing aren't
@@ -168,8 +161,8 @@
       <ListIcon size={22} weight="bold" />
     </button>
 
-    <button
-      on:click={handleLogoClick}
+    <a
+      href="/explore"
       class="zh-logo cursor-pointer transition-transform duration-150 active:scale-95"
       aria-label="zap.cooking home"
     >
@@ -183,16 +176,20 @@
         class="w-24 sm:w-32 my-1.5 sm:my-2 hidden dark:block"
         alt="zap.cooking"
       />
-    </button>
+    </a>
   </div>
 
   <!-- Center: search bar (desktop). Left padding at xl sets the gap from
        the pipe's vertical line to 12px (10px here + the input's 2px margin),
        matching the header's 12px top/bottom padding so the search box has
-       equal visual padding on all three framed sides. -->
+       equal visual padding on all three framed sides. The xl max-width adds
+       the same 10px back on top of the feed column's 42rem (672px) so the
+       visible input box — after this container's 10px padding and the
+       autocomplete's 2px side margins — lands at exactly 672px, flush with
+       the feed column below it. -->
   <!-- focusin (not click) so keyboard tabbing into search also jumps to top. -->
   <div
-    class="hidden sm:flex flex-1 self-center print:hidden min-w-[280px] lg:max-w-xs xl:max-w-2xl xl:min-w-[500px] lg:pl-2.5"
+    class="hidden sm:flex flex-1 self-center print:hidden min-w-[280px] lg:max-w-xs xl:max-w-[calc(42rem+14px)] xl:min-w-[500px] lg:pl-2.5"
     on:focusin={scrollToTopOnSearch}
   >
     <TagsSearchAutocomplete
@@ -220,7 +217,7 @@
     </div>
 
     <!-- Unified Intelligence icon (logged in) -->
-    {#if $userPublickey}
+    {#if showMemberChrome}
       <div class="relative">
         <button
           type="button"
@@ -260,36 +257,16 @@
       {/if}
     </button>
 
-    <!-- Wallet (logged in) -->
-    {#if $userPublickey && $navBalanceVisible}
-      {#if hasNavWallet}
-        <!-- Desktop full WalletBalance widget -->
-        <div class="hidden sm:block">
-          <WalletBalance />
-        </div>
-      {:else}
-        <button
-          type="button"
-          on:click={() => openWallet('setup')}
-          class="hidden sm:flex items-center gap-2 px-3 py-1.5 min-w-[154px] rounded-full text-sm font-medium transition-colors hover:bg-accent-gray cursor-pointer"
-          style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
-        >
-          <LightningIcon size={14} weight="fill" class="text-amber-500" aria-hidden="true" />
-          <span>Set up a Wallet</span>
-        </button>
-      {/if}
-    {/if}
-
     <!-- Notifications bell + dropdown (desktop only — mobile keeps the
          bottom-nav bell) -->
-    {#if $userPublickey}
+    {#if showMemberChrome}
       <div class="hidden sm:inline-flex sm:items-center">
         <NotificationBell />
       </div>
     {/if}
 
     <!-- Tier badge for active members -->
-    {#if $userPublickey && isActiveMember && getTierLabel(membershipTier)}
+    {#if showMemberChrome && isActiveMember && getTierLabel(membershipTier)}
       <a
         href="/membership"
         class="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border transition-colors hover:opacity-80 {getTierClasses(
@@ -302,7 +279,13 @@
 
     <!-- Sign in / User menu -->
     <div class="print:hidden flex-shrink-0 inline-flex items-center">
-      {#if $userPublickey !== ''}
+      {#if $lockedVaultPubkey}
+        <!-- Returning member with a passkey vault on this device: one tap
+             unlocks. Nothing opens by itself on load. Checked before the
+             avatar: a locked session keeps $userPublickey (seeded from
+             localStorage) with no signer behind it. -->
+        <ContinueAsChip pubkey={$lockedVaultPubkey} />
+      {:else if $userPublickey !== ''}
         <button
           class="zh-avatar-btn"
           on:click={() => userSidePanelOpen.set(true)}
@@ -317,13 +300,21 @@
           </span>
         </button>
       {:else}
-        <button
-          type="button"
-          on:click={() => loginOverlayOpen.set(true)}
-          class="px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border font-medium transition duration-300 text-xs sm:text-sm signin-button"
-          style="color: var(--color-text-primary); border-color: var(--color-input-border); background: none; cursor: pointer;"
-          >Sign in</button
-        >
+        <div class="inline-flex items-center gap-1 sm:gap-2">
+          <button
+            type="button"
+            on:click={() => loginOverlayOpen.set(true)}
+            class="px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-full border font-medium transition duration-300 text-xs sm:text-sm whitespace-nowrap signin-button"
+            style="color: var(--color-text-primary); border-color: var(--color-input-border); background: none; cursor: pointer;"
+            >Sign in</button
+          >
+          <button
+            type="button"
+            on:click={openSignup}
+            class="px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-full font-semibold transition duration-300 text-xs sm:text-sm whitespace-nowrap join-button"
+            >Join free</button
+          >
+        </div>
       {/if}
     </div>
   </div>
@@ -365,74 +356,19 @@
     transform: scale(0.96);
   }
 
-  /* Intelligence button — when active, soft purple ring + glow */
+  /* Intelligence button — selected accent ring + glow */
   .zh-intelligence-btn.is-active {
-    background-color: rgba(168, 85, 247, 0.1);
+    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
     box-shadow:
-      inset 0 0 0 1px rgba(168, 85, 247, 0.35),
-      0 0 12px rgba(168, 85, 247, 0.18);
-    color: rgb(216, 180, 254);
+      inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent),
+      0 0 12px color-mix(in srgb, var(--color-primary) 18%, transparent);
+    color: var(--color-primary);
   }
   :global(.dark) .zh-intelligence-btn.is-active {
-    color: rgb(233, 213, 255);
+    color: var(--color-primary);
   }
 
-  /* Mobile wallet pill — compact container split into two interactive
-     zones: a lightning icon (opens the wallet modal) and a balance
-     text (one-tap cycles SATS ↔ preferred fiat). Mobile only; desktop
-     uses the existing WalletBalance widget. The media query is
-     co-located with the component CSS so it beats the Tailwind
-     `sm:hidden` utility (which would otherwise lose to this rule's
-     specificity). */
-  .zh-wallet-mobile {
-    display: inline-flex;
-    align-items: stretch;
-    height: 30px;
-    border-radius: 999px;
-    background-color: var(--color-input-bg);
-    border: 1px solid var(--color-input-border, transparent);
-    color: var(--color-text-primary);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1;
-    overflow: hidden;
-    transition: background-color 140ms ease, border-color 140ms ease;
-  }
-  @media (min-width: 640px) {
-    .zh-wallet-mobile {
-      display: none;
-    }
-  }
-
-  /* When `.zh-wallet-mobile` is used as a single button (the "Set up"
-     branch), fall back to old behavior. */
-  button.zh-wallet-mobile {
-    cursor: pointer;
-    padding: 0 10px 0 8px;
-    gap: 6px;
-    align-items: center;
-  }
-  button.zh-wallet-mobile:active {
-    transform: scale(0.97);
-  }
-
-  :global(.dark) .zh-wallet-mobile {
-    /* Visible translucent fill (~2x previous) so the pill reads as a
-       distinct chip against the dark page bg. */
-    background-color: rgba(255, 255, 255, 0.08);
-    /* Amber-tinted border so the pill picks up the brand colour from
-       the lightning bolt and the wallet modal's amber gradient. */
-    border-color: rgba(251, 191, 36, 0.35);
-    box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.08);
-  }
-  .zh-wallet-amount {
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.01em;
-    min-width: 2.5ch;
-    text-align: right;
-  }
-
-  /* Avatar — soft purple glow ring, scales softly on hover/tap */
+  /* Avatar — Original's purple halo; other styles use their selected accent. */
   .zh-avatar-btn {
     display: inline-flex;
     padding: 0;
@@ -455,25 +391,40 @@
     background:
       radial-gradient(
         circle at 30% 30%,
-        rgba(168, 85, 247, 0.55),
-        rgba(168, 85, 247, 0.18) 60%,
+        color-mix(in srgb, var(--color-profile-glow) 55%, transparent),
+        color-mix(in srgb, var(--color-profile-glow) 18%, transparent) 60%,
         transparent 80%
       );
     box-shadow:
-      0 0 0 1px rgba(168, 85, 247, 0.35),
-      0 0 10px rgba(168, 85, 247, 0.25);
+      0 0 0 1px color-mix(in srgb, var(--color-profile-glow) 35%, transparent),
+      0 0 10px color-mix(in srgb, var(--color-profile-glow) 25%, transparent);
   }
   :global(.dark) .zh-avatar-ring {
     background:
       radial-gradient(
         circle at 30% 30%,
-        rgba(192, 132, 252, 0.6),
-        rgba(168, 85, 247, 0.2) 60%,
+        color-mix(in srgb, var(--color-profile-highlight) 60%, transparent),
+        color-mix(in srgb, var(--color-profile-glow) 20%, transparent) 60%,
         transparent 80%
       );
     box-shadow:
-      0 0 0 1px rgba(192, 132, 252, 0.4),
-      0 0 12px rgba(168, 85, 247, 0.3);
+      0 0 0 1px color-mix(in srgb, var(--color-profile-highlight) 40%, transparent),
+      0 0 12px color-mix(in srgb, var(--color-profile-glow) 30%, transparent);
+  }
+
+  /* Filled actions use a separate contrast-safe role from link accents. */
+  .join-button {
+    color: var(--color-auth-on-action);
+    background: linear-gradient(135deg, var(--color-auth-action) 0%, var(--color-auth-action-hover) 100%);
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .join-button:hover {
+    filter: brightness(1.06);
+  }
+  .join-button:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
 
   .signin-button:hover {

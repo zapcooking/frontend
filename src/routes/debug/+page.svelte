@@ -191,7 +191,7 @@
 <div class="max-w-2xl mx-auto p-6">
   <h1 class="text-2xl font-bold mb-4">Debug Page</h1>
   
-  <div class="bg-gray-100 p-4 rounded-lg">
+  <div class="bg-[var(--color-light-input-bg,var(--color-gray-100))] p-4 rounded-lg">
     <h2 class="font-semibold mb-2">Connection Status:</h2>
     <p class="font-mono text-sm">{debugInfo}</p>
     
@@ -260,7 +260,7 @@
       {@const avgTime = successful.length > 0 ? Math.round(successful.reduce((sum, r) => sum + (r.responseTime || 0), 0) / successful.length) : 0}
       
       {#if successful.length > 0}
-        <div class="mt-4 p-3 bg-gray-50 rounded-lg">
+        <div class="mt-4 p-3 bg-[var(--color-light-bg-secondary,var(--color-gray-50))] rounded-lg">
           <div class="text-sm">
             <div class="font-semibold">Summary:</div>
             <div class="mt-1">
@@ -288,7 +288,7 @@
     <h2 class="font-semibold mb-2">Test Links:</h2>
     <div class="space-y-2">
       <a href="/" class="block text-blue-600 hover:text-blue-800">Home</a>
-      <a href="/community" class="block text-blue-600 hover:text-blue-800">Community</a>
+      <a href="/feed" class="block text-blue-600 hover:text-blue-800">Feed</a>
       <a href="/create" class="block text-blue-600 hover:text-blue-800">Create Recipe</a>
     </div>
   </div>

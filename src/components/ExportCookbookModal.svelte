@@ -739,7 +739,7 @@
           style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
         >
           <div
-            class="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0 text-white font-bold"
+            class="w-8 h-8 rounded-full bg-gradient-to-br from-action to-action-hover flex items-center justify-center flex-shrink-0 text-white font-bold"
             aria-hidden="true"
           >
             ⚡
@@ -962,7 +962,7 @@
                with a clear explanation of what's happening. -->
           <div class="flex items-center gap-3 text-sm">
             <div
-              class="w-5 h-5 rounded-full border-2 border-orange-200 border-t-orange-500 animate-spin"
+              class="w-5 h-5 rounded-full border-2 border-[var(--color-input-border)] border-t-primary animate-spin"
             ></div>
             <span style="color: var(--color-text-primary)"
               >Paying from your Zap Cooking wallet…</span
@@ -1013,7 +1013,7 @@
 
           <div class="flex items-center gap-2 text-sm">
             <div
-              class="w-4 h-4 rounded-full border-2 border-orange-200 border-t-orange-500 animate-spin"
+              class="w-4 h-4 rounded-full border-2 border-[var(--color-input-border)] border-t-primary animate-spin"
             ></div>
             <span class="text-caption">Waiting for payment…</span>
           </div>
@@ -1037,7 +1037,7 @@
   {:else if stage === 'generating'}
     <div class="flex flex-col items-center justify-center gap-4 py-10">
       <div
-        class="w-10 h-10 rounded-full border-4 border-orange-200 border-t-orange-500 animate-spin"
+        class="w-10 h-10 rounded-full border-4 border-[var(--color-input-border)] border-t-primary animate-spin"
       ></div>
       <p class="text-sm" style="color: var(--color-text-primary)">
         {stageMessage || 'Formatting your cookbook…'}
@@ -1057,7 +1057,7 @@
           style="background-color: var(--color-input-bg); border: 1px solid var(--color-input-border);"
         >
           <div
-            class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0 text-white text-lg"
+            class="w-10 h-10 rounded-full bg-gradient-to-br from-action to-action-hover flex items-center justify-center flex-shrink-0 text-white text-lg"
             aria-hidden="true"
           >
             📚

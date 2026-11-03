@@ -6,15 +6,25 @@
     <!-- Apply dark mode before first paint to prevent flash -->
     <script>
       (function () {
+        var theme = 'system';
         try {
-          var theme = localStorage.getItem('nostrcooking_theme') || 'system';
+          var saved = localStorage.getItem('nostrcooking_theme');
+          if (saved === 'light' || saved === 'dark') theme = saved;
+        } catch (e) {
+          // Keep following the system when browser storage is unavailable.
+        }
+        document.documentElement.setAttribute('data-color-mode', theme);
+        try {
           var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
           if (dark) document.documentElement.classList.add('dark');
         } catch (e) {
-          // localStorage or matchMedia unavailable (Safari private mode, hardened browsers, etc.)
+          // Light is the fallback when the system preference is unavailable.
         }
       })();
     </script>
+
+    <!-- Shared preferences also run before paint on routes with ssr=false. -->
+    <script src="%sveltekit.assets%/appearance.js"></script>
 
     <!-- Logo visibility rule inlined so it applies before the Tailwind bundle loads (prevents light-logo flash in dark mode) -->
     <style>

@@ -59,6 +59,29 @@ describe('membership strike-webhook tolerance of foreign receive requests', () =
     expect(mocks.getReceiveRequestReceives).not.toHaveBeenCalled();
   });
 
+  it('200-no-ops on a Genesis Founder invoice (registered by the genesis verifier instead)', async () => {
+    mocks.getInvoiceMetadata.mockResolvedValue({
+      pubkey: 'c'.repeat(64),
+      tier: 'pro',
+      period: 'annual',
+      product: 'genesis',
+      receiveRequestId: 'rr-genesis-1',
+      createdAt: Date.now()
+    });
+    mocks.getReceiveRequestReceives.mockResolvedValue([{ state: 'COMPLETED' }]);
+
+    const res = await POST(
+      makeEvent({
+        eventType: 'receive-request.receive-completed',
+        data: { entityId: 'rr-genesis-1' }
+      })
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).received).toBe(true);
+    // Never a 12-month Pro registration that would shadow the genesis_N record.
+    expect(mocks.registerMember).not.toHaveBeenCalled();
+  });
+
   it('200-acknowledges receive-pending without side effects', async () => {
     const res = await POST(
       makeEvent({

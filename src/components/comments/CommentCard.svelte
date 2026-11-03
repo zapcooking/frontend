@@ -15,18 +15,23 @@
    * that's already spec-compliant.
    */
   import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { requireAuth, signedIn } from '$lib/auth/requireAuth';
   import { mutedPubkeys } from '$lib/muteListStore';
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
   import Avatar from '../Avatar.svelte';
   import CustomAvatar from '../CustomAvatar.svelte';
   import ClientAttribution from '../ClientAttribution.svelte';
+  import PowBadge from '../PowBadge.svelte';
   import NoteContent from '../NoteContent.svelte';
   import ReplyComposer from './ReplyComposer.svelte';
   import ThreadCommentActions from '../ThreadCommentActions.svelte';
   import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
+  import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
+  import PlatedCommentBody from './PlatedCommentBody.svelte';
+  import { PLATED_ENABLED, platedAnchorId, platedCard } from '$lib/plated/plated';
+  import { PLATED_COPY } from '$lib/plated/copy';
   import { resolveProfileByPubkey, formatDisplayName } from '$lib/profileResolver';
   import { getAnonChefName } from '$lib/anonName';
   import { onMount, createEventDispatcher } from 'svelte';
@@ -76,6 +81,14 @@
   // Avatar / CustomAvatar both accept the pubkey/size/className subset
   // we need, so we swap the component rather than branch with {#if}.
   const AvatarComp = variant === 'recipe' ? Avatar : CustomAvatar;
+
+  // Plated card: recipe threads only, and only for a post that passes the
+  // Plated rule for this recipe. A failed photo falls back to the normal
+  // comment body (which shows the URL as usual).
+  $: plate = PLATED_ENABLED && variant === 'recipe' ? platedCard(event, rootEvent) : null;
+  let plateImageFailed = false;
+  $: showPlated = !!plate && !plateImageFailed;
+  $: plateRecipeTitle = rootEvent.tags.find((t) => t[0] === 'title')?.[1] || '';
 
   // Display state
   let displayName = '';
@@ -178,14 +191,11 @@
     dispatch(open ? 'replyopen' : 'replyclose');
   }
 
-  function handleReplyPosted() {
-    setReplyBox(false);
+  // Anon users see "Sign in to reply" styled as the Reply button: sign-in
+  // opens over the page, then this comment's reply box opens.
+  async function signInToReply() {
+    if (await requireAuth({ kind: 'reply', reason: 'Sign in to reply' })) setReplyBox(true);
   }
-
-  // Anon users see a "Sign in to reply" link styled as the Reply button.
-  // Preserves redirect-to-thread post-login.
-  let loginRedirectHref = '';
-  $: loginRedirectHref = `/login?redirect=${encodeURIComponent($page.url.pathname)}`;
 
   function truncateContent(content: string, maxLength: number = 100): string {
     const cleaned = content
@@ -199,7 +209,15 @@
 </script>
 
 {#if variant !== 'feed' || !$mutedPubkeys.has(event.pubkey)}
-  <div class="comment-card comment-card--{variant}" class:nested={!parentLoading && parentComment !== null}>
+  <!-- tabindex is only ever -1 (a programmatic focus target for the Plated
+       gallery's "See in comments"), never a Tab stop. -->
+  <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+  <div
+    class="comment-card comment-card--{variant}"
+    class:nested={!parentLoading && parentComment !== null}
+    id={showPlated ? platedAnchorId(event.id) : undefined}
+    tabindex={showPlated ? -1 : undefined}
+  >
     <!-- Replying-to indicator + indent for nested replies -->
     {#if !parentLoading && parentComment}
       <div class="reply-to-indicator">
@@ -242,12 +260,27 @@
           <span class="comment-time">
             {formatDate(new Date((event.created_at || 0) * 1000))}
           </span>
+          {#if showPlated}
+            <span class="plated-badge">
+              <CookingPotIcon size={14} weight="fill" aria-hidden="true" />
+              {PLATED_COPY.cardBadge}
+            </span>
+          {/if}
           <ClientAttribution tags={event.tags} enableEnrichment={false} />
+				<PowBadge id={event.id} tags={event.tags} />
         </div>
 
         <!-- Comment Text -->
         <div class="comment-body">
-          <NoteContent content={event.content} />
+          {#if showPlated && plate}
+            <PlatedCommentBody
+              {plate}
+              recipeTitle={plateRecipeTitle}
+              on:fail={() => (plateImageFailed = true)}
+            />
+          {:else}
+            <NoteContent content={event.content} />
+          {/if}
         </div>
 
         <!-- Actions -->
@@ -255,7 +288,7 @@
           <ThreadCommentActions {event} compact={variant === 'feed'} showReplyButton={false} />
 
           <!-- Reply button (signed in) or sign-in link (anon) — both variants. -->
-          {#if $userPublickey}
+          {#if $signedIn}
             <button
               type="button"
               on:click={() => setReplyBox(!showReplyBox)}
@@ -265,10 +298,10 @@
               <span>{showReplyBox ? 'Cancel' : 'Reply'}</span>
             </button>
           {:else}
-            <a href={loginRedirectHref} class="reply-btn">
+            <button type="button" on:click={signInToReply} class="reply-btn">
               <ChatCircleIcon size={variant === 'feed' ? 16 : 18} weight="regular" />
               <span>Sign in to reply</span>
-            </a>
+            </button>
           {/if}
         </div>
 
@@ -284,10 +317,11 @@
                 <ReplyComposer
                   parentEvent={rootEvent}
                   replyTo={event}
+                  draftKey={event.id}
                   placeholder="Write a reply..."
                   submitLabel="Reply"
                   showCancel
-                  onPosted={handleReplyPosted}
+                  on:close={() => setReplyBox(false)}
                   on:cancel={() => setReplyBox(false)}
                 />
               </div>
@@ -411,7 +445,7 @@
   }
 
   .reply-btn:hover {
-    background-color: var(--color-input);
+    background-color: var(--color-light-input-bg, var(--color-input));
     color: var(--color-text-primary);
   }
 
@@ -461,4 +495,24 @@
     width: 32px;
   }
 
+
+  /* Plated card: the badge next to the author's name. */
+  .plated-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-primary);
+  }
+
+  .comment-card:focus {
+    outline: none;
+  }
+
+  .comment-card:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 4px;
+    border-radius: 0.75rem;
+  }
 </style>

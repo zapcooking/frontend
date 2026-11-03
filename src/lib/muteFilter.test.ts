@@ -119,3 +119,82 @@ describe('isEventMutedBy', () => {
     expect(isEventMutedBy(list, { id: '', pubkey: '' })).toBe(false);
   });
 });
+
+describe('muted conversations (thread / note-and-replies mutes)', () => {
+  const ROOT = 'r'.repeat(64);
+  const MID = 'm'.repeat(64);
+  const DEEP = 'd'.repeat(64);
+  const SIB = 's'.repeat(64);
+  const THREAD_MUTE = muteList({ threads: [{ type: 'thread', value: ROOT }] });
+  const NOTE_MUTE = muteList({ threads: [{ type: 'thread', value: MID }] });
+
+  // Conversation shape: ROOT <- MID <- DEEP, and SIB (another reply to ROOT).
+  const rootNote = { id: ROOT, tags: [] };
+  const midReply = {
+    id: MID,
+    tags: [
+      ['e', ROOT, '', 'root'],
+      ['e', ROOT, '', 'reply']
+    ]
+  };
+  const deepReply = {
+    id: DEEP,
+    tags: [
+      ['e', ROOT, '', 'root'],
+      ['e', MID, '', 'reply']
+    ]
+  };
+  const siblingReply = {
+    id: SIB,
+    tags: [
+      ['e', ROOT, '', 'root'],
+      ['e', ROOT, '', 'reply']
+    ]
+  };
+
+  it('a thread mute hides the root, its replies, and nested replies', () => {
+    expect(isEventMutedBy(THREAD_MUTE, rootNote)).toBe(true);
+    expect(isEventMutedBy(THREAD_MUTE, midReply)).toBe(true);
+    expect(isEventMutedBy(THREAD_MUTE, deepReply)).toBe(true);
+    expect(isEventMutedBy(THREAD_MUTE, siblingReply)).toBe(true);
+  });
+
+  it('a note mute hides the note and its direct replies, not siblings or deeper descendants', () => {
+    expect(isEventMutedBy(NOTE_MUTE, midReply)).toBe(true);
+    expect(isEventMutedBy(NOTE_MUTE, deepReply)).toBe(true);
+    expect(isEventMutedBy(NOTE_MUTE, siblingReply)).toBe(false);
+    expect(isEventMutedBy(NOTE_MUTE, rootNote)).toBe(false);
+    const grandChild = {
+      id: 'gc'.padEnd(64, '0'),
+      tags: [
+        ['e', ROOT, '', 'root'],
+        ['e', DEEP, '', 'reply']
+      ]
+    };
+    expect(isEventMutedBy(NOTE_MUTE, grandChild)).toBe(false);
+  });
+
+  it('positional tags resolve in the deprecated unmarked form too', () => {
+    const positional = {
+      id: MID,
+      tags: [
+        ['e', ROOT],
+        ['e', MID]
+      ]
+    };
+    expect(isEventMutedBy(NOTE_MUTE, positional)).toBe(true);
+    expect(isEventMutedBy(THREAD_MUTE, positional)).toBe(true);
+  });
+
+  it('unrelated conversations stay visible', () => {
+    const other = { id: 'f'.repeat(64), tags: [['e', 'g'.repeat(64), '', 'root']] };
+    expect(isEventMutedBy(THREAD_MUTE, other)).toBe(false);
+    expect(isEventMutedBy(NOTE_MUTE, other)).toBe(false);
+  });
+
+  it('an event with no tags only matches an exact id mute', () => {
+    const bare = { id: MID };
+    expect(isEventMutedBy(NOTE_MUTE, bare)).toBe(true);
+    expect(isEventMutedBy(THREAD_MUTE, bare)).toBe(false);
+  });
+});

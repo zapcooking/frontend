@@ -264,7 +264,7 @@
 			>
 				<div class="flex items-center">
 					{#each visibleMembers as pubkey, i (pubkey)}
-						<div class="rounded-full border-2 border-white dark:border-gray-900" style:margin-left="{i > 0 ? '-8px' : '0'}">
+						<div class="rounded-full border-2 border-[var(--color-bg-primary)]" style:margin-left="{i > 0 ? '-8px' : '0'}">
 							<CustomAvatar {pubkey} size={24} />
 						</div>
 					{/each}
@@ -329,7 +329,7 @@
 				<LockIcon size={44} weight="light" style="color: var(--color-caption); opacity: 0.4;" />
 				<p class="text-sm font-medium mt-3" style="color: var(--color-text-primary);">This is a private group</p>
 				<p class="text-xs mt-1 max-w-[220px]" style="color: var(--color-caption);">Sign in to view messages and participate.</p>
-				<a href="/login" class="mt-4 px-5 py-2 rounded-xl text-sm font-medium" style="background-color: var(--color-primary); color: #ffffff;">Sign In</a>
+				<a href="/login" class="mt-4 px-5 py-2 rounded-xl text-sm font-medium" style="background-color: var(--color-action); color: var(--color-on-action);">Sign In</a>
 			</div>
 		{:else if messages.length === 0 && !$groupsSyncing && !$groupsLoading}
 			<div class="flex flex-col items-center justify-center h-full text-center px-4">
@@ -350,7 +350,7 @@
 					<p class="text-xs mt-1 max-w-[220px]" style="color: var(--color-caption);">
 						Sign in to participate in this group.
 					</p>
-					<a href="/login" class="mt-4 px-5 py-2 rounded-xl text-sm font-medium" style="background-color: var(--color-primary); color: #ffffff;">Sign In</a>
+					<a href="/login" class="mt-4 px-5 py-2 rounded-xl text-sm font-medium" style="background-color: var(--color-action); color: var(--color-on-action);">Sign In</a>
 				{/if}
 			</div>
 		{:else if messages.length === 0}
@@ -422,7 +422,7 @@
 					on:click={handleSend}
 					disabled={(!messageInput.trim() && !uploading) || sending}
 					class="p-2.5 rounded-l-none rounded-r-xl transition-colors cursor-pointer disabled:opacity-40 self-stretch"
-					style="background-color: var(--color-primary); color: #ffffff;"
+					style="background-color: var(--color-action); color: var(--color-on-action);"
 				>
 					{#if sending}
 						<div

@@ -107,7 +107,7 @@
     <button
       type="button"
       on:click={handleBack}
-      class="flex items-center gap-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 mb-4 transition-colors"
+      class="flex items-center gap-2 text-[var(--color-caption)] hover:text-[var(--color-text-primary)] mb-4 transition-colors"
     >
       <ArrowLeftIcon size={20} />
       <span>Back</span>
@@ -119,7 +119,7 @@
     <div class="w-16 h-16 rounded-full bg-orange-100 dark:bg-orange-900/50 flex items-center justify-center mx-auto mb-4">
       <LightningIcon size={32} weight="fill" class="text-orange-500" />
     </div>
-    <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+    <h2 class="text-2xl font-bold text-[var(--color-text-primary)] mb-2">
       {#if paymentStatus === 'waiting'}
         Pay with Lightning
       {:else if paymentStatus === 'confirming'}
@@ -170,7 +170,7 @@
               <div class="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-2">
                 <CheckIcon size={32} weight="bold" class="text-white" />
               </div>
-              <p class="text-green-600 font-bold">Paid!</p>
+              <p class="text-[var(--color-success)] font-bold">Paid!</p>
             </div>
           {/if}
         </div>
@@ -188,7 +188,7 @@
   <!-- Invoice Copy Section -->
   {#if invoice && paymentStatus === 'waiting'}
     <div class="mb-6">
-      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+      <label class="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
         Lightning Invoice
       </label>
       <div class="flex gap-2">
@@ -196,17 +196,17 @@
           type="text"
           readonly
           value={invoice.substring(0, 40) + '...'}
-          class="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 rounded-xl text-sm font-mono text-gray-600 dark:text-gray-400"
+          class="flex-1 px-4 py-3 bg-[var(--color-light-input-bg,var(--color-gray-100))] dark:bg-[var(--color-bg-secondary)] rounded-xl text-sm font-mono text-[var(--color-text-secondary)]"
         />
         <button
           type="button"
           on:click={copyInvoice}
-          class="px-4 py-3 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-xl transition-colors flex items-center gap-2"
+          class="px-4 py-3 bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)] hover:bg-[var(--color-hover-bg)] dark:hover:bg-[var(--color-hover-bg)] rounded-xl transition-colors flex items-center gap-2"
         >
           {#if copied}
-            <CheckIcon size={20} class="text-green-500" />
+            <CheckIcon size={20} class="text-[var(--color-success)]" />
           {:else}
-            <CopyIcon size={20} class="text-gray-600 dark:text-gray-400" />
+            <CopyIcon size={20} class="text-[var(--color-text-secondary)]" />
           {/if}
         </button>
       </div>
@@ -215,7 +215,7 @@
 
   <!-- Instructions -->
   {#if paymentStatus === 'waiting'}
-    <div class="text-center text-sm text-gray-600 dark:text-gray-400 space-y-2">
+    <div class="text-center text-sm text-[var(--color-text-secondary)] space-y-2">
       <p>Scan the QR code with your Lightning wallet</p>
       <p>or copy the invoice and paste it in your wallet</p>
     </div>

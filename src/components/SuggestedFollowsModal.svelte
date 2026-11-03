@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
+  import { updateFollows, followErrorMessage } from '$lib/followUpdate';
+  import { showToast } from '$lib/toast';
   import { nip19 } from 'nostr-tools';
   import { ndk, ensureNdkConnected } from '$lib/nostr';
   import { profileCacheManager } from '$lib/profileCache';
@@ -170,36 +171,14 @@
     publishing = true;
 
     try {
-      // Fetch existing contact list to preserve relay config and existing follows
-      const activePubkey = $ndk?.activeUser?.pubkey;
-      let existingContent = '';
-      let existingTags: string[][] = [];
-
-      if (activePubkey) {
-        const existing = await $ndk.fetchEvent({
-          kinds: [3],
-          authors: [activePubkey],
-          limit: 1
-        });
-        if (existing) {
-          existingContent = existing.content || '';
-          existingTags = existing.tags || [];
-        }
-      }
-
-      const existingPTags = existingTags.filter((t) => t[0] === 'p');
-      const otherTags = existingTags.filter((t) => t[0] !== 'p');
-      const existingPubkeys = existingPTags.map((t) => t[1]);
-      const mergedPubkeys = new Set([...existingPubkeys, ...Array.from(selectedPubkeys)]);
-
-      const contactEvent = new NDKEvent($ndk);
-      contactEvent.kind = 3;
-      contactEvent.content = existingContent;
-      contactEvent.tags = [...otherTags, ...Array.from(mergedPubkeys).map((pk) => ['p', pk])];
-
-      await contactEvent.publish();
+      // Safe edit: adds the picks to the latest list read from the reader's
+      // relays; a brand-new account (no list anywhere) starts one.
+      await updateFollows($ndk, userPubkey || $ndk?.activeUser?.pubkey || '', {
+        add: Array.from(selectedPubkeys)
+      });
     } catch (error) {
       console.error('Error publishing follow list:', error);
+      showToast('error', followErrorMessage(error));
     } finally {
       publishing = false;
       onComplete();
@@ -247,7 +226,7 @@
     {#if loading}
       <div class="flex flex-col items-center justify-center py-10 gap-3">
         <div
-          class="animate-spin w-7 h-7 border-2 border-orange-500 border-t-transparent rounded-full"
+          class="animate-spin w-7 h-7 border-2 border-primary border-t-transparent rounded-full"
         ></div>
         <p class="text-sm" style="color: var(--color-text-secondary);">Finding your people...</p>
       </div>
@@ -317,7 +296,7 @@
               {#if selectedPubkeys.has(user.pubkey)}
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  class="w-3.5 h-3.5 text-white"
+                  class="w-3.5 h-3.5 text-on-action"
                   viewBox="0 0 20 20"
                   fill="currentColor"
                 >
@@ -397,8 +376,8 @@
   }
 
   .check-on {
-    background-color: var(--color-primary, #f97316);
-    border-color: var(--color-primary, #f97316);
+    background-color: var(--color-action);
+    border-color: var(--color-action);
   }
 
   .check-off {

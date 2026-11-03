@@ -23,6 +23,7 @@
  * 30078s at the relay (writes stay gated) — not client-side AUTH.
  */
 
+import { parseCoordinate } from '../coordinate';
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { NDKRelaySet } from '@nostr-dev-kit/ndk';
@@ -428,12 +429,12 @@ function parseAnalyses(nourishEvents: Iterable<NDKEvent>): AnalysisRow[] {
     if (!parsed) continue;
 
     const aTag = event.tags.find((t) => t[0] === 'a')?.[1] || '';
-    const parts = aTag.split(':');
-    if (parts.length < 3 || parts[0] !== '30023') continue;
+    const coord = parseCoordinate(aTag);
+    if (!coord || coord.kind !== 30023) continue;
     if (isHiddenRecipeATag(aTag)) continue;
 
-    const recipePubkey = parts[1];
-    const recipeDTag = parts.slice(2).join(':');
+    const recipePubkey = coord.pubkey;
+    const recipeDTag = coord.identifier;
 
     const key = `${recipePubkey}:${recipeDTag}`;
     const existing = analyses.find((a) => `${a.recipePubkey}:${a.recipeDTag}` === key);
@@ -738,11 +739,9 @@ export async function fetchOutOfVersionCandidates(
     // Recipe coordinates come from the `a` tag (kind:pubkey:dTag).
     const aTagFull = event.tags.find((t) => t[0] === 'a')?.[1];
     if (!aTagFull) continue;
-    const parts = aTagFull.split(':');
-    if (parts.length < 3) continue;
-    const [, recipePubkey, ...rest] = parts;
-    const recipeDTag = rest.join(':');
-    if (!recipePubkey || !recipeDTag) continue;
+    const coord = parseCoordinate(aTagFull);
+    if (!coord?.identifier) continue;
+    const { pubkey: recipePubkey, identifier: recipeDTag } = coord;
 
     const existing = byCoord.get(aTagFull);
     if (existing && existing.createdAt >= parsed.createdAt) continue;

@@ -11,7 +11,12 @@ import { NDKEvent, NDKUser } from '@nostr-dev-kit/ndk';
 import { ndk, userPublickey } from '$lib/nostr';
 import { ZapManager } from '$lib/zapManager';
 import { activeWallet } from '$lib/wallet';
-import { sendPayment } from '$lib/wallet/walletManager';
+import {
+  sendPayment,
+  walletAvailability,
+  ensurePaymentWalletReady
+} from '$lib/wallet/walletManager';
+import { NO_WALLET_MESSAGE, type PaymentStatus } from '$lib/wallet/paymentOutcome';
 import { oneTapZapEnabled, oneTapZapAmount, defaultZapMessage } from '$lib/autoZapSettings';
 import {
   optimisticZapUpdate,
@@ -43,6 +48,13 @@ export interface OneTapZapResult {
   success: boolean;
   amount?: number;
   error?: string;
+  /**
+   * What happened: 'completed' (sent), 'pending' (may still complete:
+   * never retry), 'failed' (the payment failed: nothing sent),
+   * 'unavailable' (no wallet on this site), or 'prepare' (it failed before
+   * any payment: no Lightning address, LNURL down, ...).
+   */
+  status?: PaymentStatus | 'prepare';
 }
 
 /**
@@ -71,9 +83,9 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
   }
 
   const wallet = get(activeWallet);
-  if (!wallet) {
-    console.log('[OneTapZap] No wallet connected');
-    return { success: false, error: 'No wallet connected' };
+  // Nothing usable on this site (e.g. a preview domain): say so at once.
+  if (!wallet || walletAvailability() === 'none') {
+    return { success: false, status: 'unavailable', error: NO_WALLET_MESSAGE };
   }
 
     const amount = get(oneTapZapAmount);
@@ -109,6 +121,12 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
     const amountMillisats = amount * 1000;
 
     try {
+      // Connect first, so a wallet that can't connect here fails fast and
+      // never shows an optimistic zap.
+      if (!(await ensurePaymentWalletReady())) {
+        return { success: false, status: 'unavailable', error: NO_WALLET_MESSAGE };
+      }
+
       const zapManager = new ZapManager(ndkInstance);
 
     // Create the zap invoice. Throws if the recipient isn't zappable
@@ -140,13 +158,17 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
     });
     console.log('[OneTapZap] Payment result:', paymentResult);
 
-    if (!paymentResult.success) {
-      // Payment failed after the optimistic update — revert it so the
-      // note doesn't show a phantom zap that never actually arrived.
+    if (paymentResult.status !== 'completed') {
+      // Not confirmed (failed, pending, or no wallet) — revert the
+      // optimistic update: a zap only counts once the payment completed.
       if (optimisticApplied && eventId && currentUserPubkey) {
         revertOptimisticZap(eventId, amountMillisats, currentUserPubkey);
       }
-      return { success: false, error: paymentResult.error || 'Payment failed' };
+      return {
+        success: false,
+        status: paymentResult.status,
+        error: paymentResult.error || 'Payment failed'
+      };
     }
 
     // Payment fully completed — mark the self-zap for any UI animation
@@ -155,7 +177,7 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
       markSelfZapCompleted(eventId);
     }
 
-    return { success: true, amount };
+    return { success: true, status: 'completed', amount };
   } catch (e) {
     // createZap threw (no lud16, LNURL down, etc.) OR something else
     // failed mid-flow. If we'd already applied the optimistic update,
@@ -165,6 +187,8 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
     }
     const errorMessage = e instanceof Error ? e.message : 'Unknown error';
     console.error('[OneTapZap] Failed:', errorMessage, e);
-    return { success: false, error: errorMessage };
+    // Before the payment (invoice step) nothing was paid; sendPayment never
+    // throws, so anything caught here is a preparation failure.
+    return { success: false, status: 'prepare', error: errorMessage };
   }
 }

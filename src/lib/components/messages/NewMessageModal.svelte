@@ -53,7 +53,12 @@
     searching = true;
     debounceTimer = setTimeout(async () => {
       try {
-        results = await searchProfiles(query, 8);
+        const live = () => query === input.trim();
+        results = await searchProfiles(query, 8, {
+          onPartial: (partial) => {
+            if (live()) results = partial;
+          }
+        });
         // If the search resolved a direct identifier (npub/hex/nip05) to exactly 1 result, keep it
         // Otherwise show the dropdown
       } catch {

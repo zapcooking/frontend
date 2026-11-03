@@ -1,7 +1,6 @@
 /**
  * The five fields a recipe must have before it can be published.
- * Shared by /create and /create/gated so both forms gate (and explain)
- * the publish button the same way.
+ * Used by /create to gate (and explain) the publish button.
  */
 export interface RecipeRequiredFields {
   title: string;

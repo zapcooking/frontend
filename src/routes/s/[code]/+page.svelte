@@ -4,5 +4,5 @@
 </script>
 
 <div class="flex items-center justify-center min-h-screen">
-  <p class="text-gray-500">Redirecting...</p>
+  <p class="text-[var(--color-caption)]">Redirecting...</p>
 </div>

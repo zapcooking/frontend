@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { parseCoordinate } from '$lib/coordinate';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -38,6 +39,7 @@
   import { isOnline } from '$lib/connectionMonitor';
   import { cookbookStore, cookbookLists } from '$lib/stores/cookbookStore';
   import { buildPackUrl } from '$lib/recipePack';
+  import { isExploreCurationDTag } from '$lib/landing/curation';
   import {
     membershipStatusMap,
     queueMembershipLookup,
@@ -109,6 +111,8 @@
       const decoded = nip19.decode(slug);
       if (decoded.type !== 'naddr') throw new Error('not naddr');
       pointer = decoded.data as nip19.AddressPointer;
+      // The org's /explore curation lists share kind 30004; they aren't packs.
+      if (isExploreCurationDTag(pointer.identifier)) throw new Error('not a pack');
     } catch {
       notFound = true;
       loaded = true;
@@ -176,9 +180,9 @@
 
     await Promise.all(
       missing.map(async (aTag) => {
-        const parts = aTag.split(':');
-        if (parts.length !== 3) return;
-        const [kind, pubkey, identifier] = parts;
+        const parsed = parseCoordinate(aTag);
+        if (!parsed) return;
+        const { kind, pubkey, identifier } = parsed;
         try {
           const e = await $ndk.fetchEvent({
             kinds: [Number(kind)],
@@ -460,7 +464,7 @@
     </p>
     <a
       href="/my-kitchen"
-      class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
+      class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all"
     >
       <ArrowLeftIcon size={18} />
       Go to My Kitchen
@@ -493,7 +497,7 @@
         {:else}
           <div
             class="absolute inset-0"
-            style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #f97316 100%);"
+            style="background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action-hover) 50%, var(--color-action) 100%);"
           ></div>
         {/if}
         <div class="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent"></div>
@@ -625,7 +629,7 @@
         <button
           on:click={importPack}
           disabled={isImporting || recipeEvents.length === 0}
-          class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-semibold transition-all shadow-md shadow-orange-500/25 disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
+          class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-semibold transition-all shadow-md shadow-primary/25 disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none"
         >
           {#if isImporting}
             <CircleNotchIcon size={16} class="animate-spin" />

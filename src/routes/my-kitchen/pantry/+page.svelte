@@ -84,7 +84,7 @@
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="flex items-center gap-3">
         <div
-          class="w-12 h-12 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center flex-shrink-0"
+          class="w-12 h-12 rounded-full bg-gradient-to-br from-action to-action flex items-center justify-center flex-shrink-0"
         >
           <BasketIcon size={24} weight="fill" class="text-white" />
         </div>
@@ -105,7 +105,7 @@
         {#if $pantryItems.length > 0 && !$pantryReadOnly}
           <a
             href="/my-kitchen/planner?planWithPantry=1"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all"
           >
             <CheffyIcon size={20} expression="happy" />
             <span>Plan With My Pantry</span>
@@ -175,9 +175,9 @@
       {#if $pantryItems.length === 0}
         <div class="flex flex-col items-center justify-center py-12 px-4">
           <div
-            class="w-20 h-20 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+            class="w-20 h-20 rounded-full bg-gradient-to-br from-primary/10 to-primary/10 dark:from-primary/30 dark:to-primary/30 flex items-center justify-center mb-4"
           >
-            <BasketIcon size={40} weight="regular" class="text-orange-500" />
+            <BasketIcon size={40} weight="regular" class="text-primary" />
           </div>
           <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
             What's in your kitchen?
@@ -188,7 +188,7 @@
           </p>
           <button
             type="button"
-            class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all"
             on:click={focusAdd}
           >
             Add your first ingredient

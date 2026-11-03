@@ -98,7 +98,10 @@
   <meta name="description" content="Memories — a look back at notes from this day" />
 </svelte:head>
 
-<div class="px-4 max-w-2xl mx-auto w-full memories-page">
+<!-- Container matches the community feed's column (px-4 max-w-2xl w-full,
+     no mx-auto) so the memories page opens at the same horizontal location
+     the feed's memories card occupies — no left/right jump between the two. -->
+<div class="px-4 max-w-2xl w-full memories-page">
   {#if !isLoggedIn}
     <div class="text-center py-16">
       <p class="text-4xl mb-3" aria-hidden="true">📅</p>
@@ -110,7 +113,7 @@
       </p>
       <a
         href="/login?redirect=/memories"
-        class="inline-block px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:opacity-90 transition-opacity"
+        class="inline-block px-4 py-2 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:bg-action-hover transition-opacity"
       >
         Sign in
       </a>
@@ -140,7 +143,7 @@
     {#if refreshNotice}
       <p
         class="text-xs rounded-lg border px-3 py-2 mb-4"
-        style="color: var(--color-text-secondary); border-color: var(--color-input-border); background-color: var(--color-input);"
+        style="color: var(--color-text-secondary); border-color: var(--color-input-border); background-color: var(--color-light-input-bg,var(--color-input));"
         role="status"
       >
         {refreshNotice}
@@ -164,7 +167,7 @@
         {#each sortedGroups as group (group.yearsAgo)}
           <section>
             <h2
-              class="text-sm font-semibold mb-3"
+              class="text-[11px] font-medium uppercase tracking-wide mb-3"
               style="color: var(--color-text-primary);"
             >
               {yearLabel(group.yearsAgo)}

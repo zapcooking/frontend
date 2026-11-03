@@ -30,7 +30,7 @@
       <span>{title}</span>
     </h2>
     {#if subtitle}
-      <p class="text-sm text-gray-500 mt-1">{subtitle}</p>
+      <p class="text-sm text-[var(--color-caption)] mt-1">{subtitle}</p>
     {/if}
   </div>
   {#if actionLink}

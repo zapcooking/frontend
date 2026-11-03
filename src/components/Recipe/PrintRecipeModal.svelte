@@ -502,8 +502,8 @@
   }
 
   .print-toggle input[type='checkbox']:checked {
-    background-color: var(--color-primary);
-    border-color: var(--color-primary);
+    background-color: var(--color-action);
+    border-color: var(--color-action);
   }
 
   .print-toggle input[type='checkbox']:checked::after {
@@ -513,7 +513,7 @@
     top: 1px;
     width: 5px;
     height: 9px;
-    border: solid white;
+    border: solid var(--color-on-action);
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
   }

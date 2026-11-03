@@ -33,11 +33,12 @@ CLAUDE.md
 # Local plans
 docs/plans/tanstack-query-migration.md
 
-# NIP-108 gated content store (contains secrets)
-.gated-content-store.json
-.nip108-dev-store.json
 PR_UI_IMPROVEMENTS.md
 
 # NIP-98 staging matrix scratch runner (Phase gate tooling, never committed)
 nip98-matrix.mjs
 .nip98-matrix-keys.json
+
+# Dev stores left behind by the retired NIP-108 experiment (contained secrets)
+.gated-content-store.json
+.nip108-dev-store.json

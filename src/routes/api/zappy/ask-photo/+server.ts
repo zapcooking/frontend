@@ -47,6 +47,8 @@ import {
   CHEFFY_VISION_MODEL,
   CHEFFY_PHOTO_ASK_INSTRUCTION,
   PHOTO_ASK_DEFAULT_QUESTION,
+  CHEFFY_ALT_TEXT_INSTRUCTION,
+  PHOTO_ALT_TEXT_QUESTION,
   NOT_FOOD_PREFIX
 } from '$lib/cheffyPrompt.server';
 
@@ -96,7 +98,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ ok: false, error: 'Invalid JSON body' }, { status: 400 });
     }
 
-    const { image, question } = body ?? {};
+    const { image, question, purpose } = body ?? {};
+
+    // Alt-text mode: same vision pipeline and membership gate, but a
+    // neutral describer instruction and no food-only refusal — alt text
+    // has to work for any image a member posts.
+    const altMode = purpose === 'alt';
 
     if (typeof image !== 'string' || image.length === 0) {
       return json({ ok: false, error: 'Image data is required' }, { status: 400 });
@@ -110,8 +117,10 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Empty or absent question → the server-side default, so the model
     // always gets a real ask and the wire never carries an empty turn.
-    const askedQuestion =
-      typeof question === 'string' && question.trim()
+    // Alt mode has its own fixed ask; a member question would only pollute it.
+    const askedQuestion = altMode
+      ? PHOTO_ALT_TEXT_QUESTION
+      : typeof question === 'string' && question.trim()
         ? question.trim().slice(0, QUESTION_MAX_CHARS)
         : PHOTO_ASK_DEFAULT_QUESTION;
 
@@ -229,7 +238,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       body: JSON.stringify({
         model: CHEFFY_VISION_MODEL,
         messages: [
-          { role: 'system', content: CHEFFY_PHOTO_ASK_INSTRUCTION },
+          { role: 'system', content: altMode ? CHEFFY_ALT_TEXT_INSTRUCTION : CHEFFY_PHOTO_ASK_INSTRUCTION },
           {
             role: 'user',
             content: [
@@ -250,7 +259,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           }
         ],
         max_tokens: MAX_TOKENS,
-        temperature: 0.7
+        temperature: altMode ? 0.4 : 0.7
       })
     });
 
@@ -305,9 +314,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     // Prompt-level refusal: the photo isn't food. Typed so the client
     // can land Cheffy's playful line in the thread as an answer rather
-    // than as an error bubble.
+    // than as an error bubble. Alt mode has no food gate, so nothing
+    // there can ever be "not food" — the check would misfire on any
+    // description that happens to start with the prefix.
     const trimmed = output.trim();
-    if (trimmed.startsWith(NOT_FOOD_PREFIX)) {
+    if (!altMode && trimmed.startsWith(NOT_FOOD_PREFIX)) {
       const line = trimmed.slice(NOT_FOOD_PREFIX.length).trim();
       return json(
         {

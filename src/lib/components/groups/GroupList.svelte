@@ -275,7 +275,7 @@
 		{#if isLoggedIn}
 			<button
 				class="p-2 rounded-full transition-colors cursor-pointer"
-				style="background-color: var(--color-primary); color: #ffffff;"
+				style="background-color: var(--color-action); color: var(--color-on-action);"
 				on:click={() => dispatch('createGroup')}
 				title="Create group"
 			>
@@ -316,7 +316,7 @@
 					</p>
 					<button
 						class="mt-5 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer"
-						style="background-color: var(--color-primary); color: #ffffff;"
+						style="background-color: var(--color-action); color: var(--color-on-action);"
 						on:click={() => dispatch('createGroup')}
 					>
 						Create Group
@@ -329,7 +329,7 @@
 					<a
 						href="/login"
 						class="mt-5 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors"
-						style="background-color: var(--color-primary); color: #ffffff;"
+						style="background-color: var(--color-action); color: var(--color-on-action);"
 					>
 						Sign In
 					</a>
@@ -355,7 +355,7 @@
 						{:else}
 							<div
 								class="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold"
-								style="background-color: var(--color-primary); color: #ffffff;"
+								style="background-color: var(--color-action); color: var(--color-on-action);"
 							>
 								{group.name.charAt(0).toUpperCase()}
 							</div>
@@ -495,7 +495,7 @@
 			on:click={handleEditSave}
 			disabled={!editName.trim() || editSaving}
 			class="w-full py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer disabled:opacity-40"
-			style="background-color: var(--color-primary); color: #ffffff;"
+			style="background-color: var(--color-action); color: var(--color-on-action);"
 		>
 			{editSaving ? 'Saving...' : 'Save'}
 		</button>
@@ -529,7 +529,7 @@
 			on:click={triggerFileSelect}
 			disabled={pictureUploading}
 			class="w-full py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer disabled:opacity-40"
-			style="background-color: var(--color-primary); color: #ffffff;"
+			style="background-color: var(--color-action); color: var(--color-on-action);"
 		>
 			{#if pictureUploading}
 				Uploading...

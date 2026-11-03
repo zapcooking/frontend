@@ -54,6 +54,9 @@
     let eventCount = 0;
     subscription.on('event', (ev: NDKEvent) => {
       if (!ev.id || processedIds.has(ev.id)) return;
+      // The thread filters include kind-5 deletions (NIP-09) so the page
+      // can apply them; a deletion is not a comment to count.
+      if (ev.kind === 5) return;
       processedIds.add(ev.id);
       eventCount++;
       // Only update if:

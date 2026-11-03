@@ -5,6 +5,24 @@
  * Rewritten following jumble-spark patterns for reliable event handling.
  */
 
+import type {
+  BreezSdk,
+  PrepareSendPaymentResponse,
+  TokenBalance
+} from '@breeztech/breez-sdk-spark/web';
+import {
+  bitcoinAddressReceiveRequest,
+  bolt11ReceiveRequest,
+  buildSendPaymentRequest,
+  claimDepositRequest,
+  onchainSendRequest,
+  payRequestOf,
+  prepareLnurlRequest,
+  prepareSendRequest,
+  refundDepositRequest,
+  sparkAddressReceiveRequest
+} from './sdkRequests';
+export { buildSendPaymentRequest } from './sdkRequests';
 import { browser } from '$app/environment';
 import { writable, get } from 'svelte/store';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -23,13 +41,17 @@ import {
   getBestEncryptionMethod as _getBestEncryptionMethod,
   encrypt,
   decrypt,
+  decryptWithSource,
   detectEncryptionMethod,
   canCreateNostrBackup,
+  getNostrBackupBlocker,
+  describeNostrBackupBlocker,
   type EncryptionMethod
 } from '$lib/encryptionService';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { fetchSparkBackupEvents } from './backupEventFetch';
+import { settleLegacySparkBackup } from '$lib/wallet/legacyBackupNotice';
 
 /**
  * Dynamically import bip39 with Buffer polyfill
@@ -131,7 +153,7 @@ export const sparkSyncing = writable<boolean>(false); // True while explicit syn
 export const recentSparkPayments = writable<any[]>([]);
 
 // --- Internal State (simplified from jumble-spark) ---
-let _sdkInstance: any = null;
+let _sdkInstance: BreezSdk | null = null;
 let _wasmInitialized = false;
 let _currentPubkey: string | null = null;
 let _eventListenerId: string | null = null;
@@ -228,16 +250,15 @@ async function refreshBalanceInternal(): Promise<void> {
   if (!_sdkInstance) return;
   try {
     const info = await _sdkInstance.getInfo({ ensureSynced: false });
-    const balanceValue =
-      info.balanceSats ?? info.balanceSat ?? info.balance_sats ?? info.balance ?? 0;
+    const balanceValue = info.balanceSats ?? 0;
     walletBalance.set(BigInt(balanceValue));
     const tokenBalances = info.tokenBalances;
-    const balances =
+    const balances: TokenBalance[] =
       tokenBalances instanceof Map
         ? Array.from(tokenBalances.values())
         : Array.isArray(tokenBalances)
           ? tokenBalances
-          : Object.values(tokenBalances || {});
+          : (Object.values(tokenBalances || {}) as TokenBalance[]);
     const usdb = balances.find((entry: any) => entry?.tokenMetadata?.identifier === USDB_TOKEN_IDENTIFIER);
     let active = false;
     try {
@@ -607,32 +628,26 @@ export async function sendPayment(
     sparkLoading.set(true);
     const parsedInput = await _sdkInstance.parse(destination);
 
-    if (parsedInput.type === 'lightningAddress') {
+    // Lightning address / LNURL: pay through the LNURL flow.
+    const payRequest = payRequestOf(parsedInput);
+    if (payRequest) {
       if (!amountSats) throw new Error('Amount is required for Lightning address payments');
-      const payRequest = (parsedInput as any).payRequest;
-      const prepareRequest: any = { payRequest, amountSats };
-      if (comment) prepareRequest.comment = comment;
-      const prepareResponse = await _sdkInstance.prepareLnurlPay(prepareRequest);
+      const prepareResponse = await _sdkInstance.prepareLnurlPay(
+        prepareLnurlRequest(payRequest, amountSats, comment)
+      );
       const payment = await _sdkInstance.lnurlPay({ prepareResponse });
       await refreshBalanceInternal();
       return payment;
     }
 
-    if (parsedInput.type === 'lnurlPay') {
-      if (!amountSats) throw new Error('Amount is required for LNURL payments');
-      const payRequest = (parsedInput as any).payRequest;
-      const prepareRequest: any = { payRequest, amountSats };
-      if (comment) prepareRequest.comment = comment;
-      const prepareResponse = await _sdkInstance.prepareLnurlPay(prepareRequest);
-      const payment = await _sdkInstance.lnurlPay({ prepareResponse });
-      await refreshBalanceInternal();
-      return payment;
-    }
-
-    const prepareRequest: any = { paymentRequest: destination };
-    if (amountSats) prepareRequest.amount = BigInt(amountSats);
-    const prepareResponse = await _sdkInstance.prepareSendPayment(prepareRequest);
-    const payment = await _sdkInstance.sendPayment({ prepareResponse });
+    // Invoices and addresses: the SDK takes a tagged PaymentRequest, not the
+    // bare string (see sdkRequests.ts).
+    const prepareResponse = await _sdkInstance.prepareSendPayment(
+      prepareSendRequest(destination, amountSats)
+    );
+    const payment = await _sdkInstance.sendPayment(
+      buildSendPaymentRequest(parsedInput.type, prepareResponse)
+    );
     await refreshBalanceInternal();
     return payment;
   } catch (error) {
@@ -675,27 +690,19 @@ export async function receivePayment(
   try {
     sparkLoading.set(true);
 
-    const request: any = {
-      paymentMethod: {
-        type: 'bolt11Invoice',
-        amountSats: amountSats,
-        description: description || 'Payment via zap.cooking'
-      }
-    };
+    const response = await _sdkInstance.receivePayment(
+      bolt11ReceiveRequest(amountSats, description || 'Payment via zap.cooking')
+    );
 
-    const response = await _sdkInstance.receivePayment(request);
+    logger.info('[Spark] Invoice created:', undefined, response);
 
-    logger.info('[Spark] Invoice created:', response);
-
-    const invoice = response?.paymentRequest || response?.invoice || response?.bolt11;
+    const invoice = response?.paymentRequest;
     if (!invoice) {
       throw new Error('Spark SDK did not return an invoice');
     }
 
-    return {
-      invoice,
-      paymentHash: response?.paymentHash
-    };
+    // 0.23 doesn't return the payment hash separately (it's in the invoice).
+    return { invoice, paymentHash: undefined };
   } catch (error) {
     logger.error('[Spark] Failed to create invoice:', String(error));
     throw error;
@@ -762,15 +769,9 @@ export async function receiveOnchain(): Promise<{ address: string }> {
   try {
     sparkLoading.set(true);
 
-    const request = {
-      paymentMethod: {
-        type: 'bitcoinAddress'
-      }
-    };
+    const response = await _sdkInstance.receivePayment(bitcoinAddressReceiveRequest());
 
-    const response = await _sdkInstance.receivePayment(request);
-
-    logger.info('[Spark] On-chain address generated:', response);
+    logger.info('[Spark] On-chain address generated:', undefined, response);
 
     // The SDK returns the Bitcoin address in the paymentRequest field
     // (same pattern as bolt11Invoice and sparkAddress)
@@ -797,27 +798,17 @@ export async function receiveOnchain(): Promise<{ address: string }> {
 export async function prepareOnchainSend(
   address: string,
   amountSats: number
-): Promise<{ feeQuote: OnchainFeeQuote; prepareResponse: any }> {
+): Promise<{ feeQuote: OnchainFeeQuote; prepareResponse: PrepareSendPaymentResponse }> {
   if (!_sdkInstance) {
     throw new Error('Spark SDK is not initialized');
   }
 
   try {
     // Note: Don't set sparkLoading here - this is just a prepare/quote step, not an actual payment
-    // SDK expects paymentRequest (the Bitcoin address) and optional amount
-    const request: any = {
-      paymentRequest: address
-    };
+    // A tagged PaymentRequest with the address; amount omitted = send all.
+    const response = await _sdkInstance.prepareSendPayment(prepareSendRequest(address, amountSats));
 
-    // Only include amount if specified (allows for "send all" when omitted)
-    // SDK expects amount as a BigInt (u128), not a regular number
-    if (amountSats !== undefined && amountSats > 0) {
-      request.amount = BigInt(Math.floor(amountSats));
-    }
-
-    const response = await _sdkInstance.prepareSendPayment(request);
-
-    logger.info('[Spark] On-chain send prepared:', response);
+    logger.info('[Spark] On-chain send prepared:', undefined, response);
     // Log full structure for debugging
     console.log(
       '[Spark] Full prepareResponse:',
@@ -829,7 +820,8 @@ export async function prepareOnchainSend(
     );
 
     // Extract fee quotes from the response - try multiple possible paths
-    const feeQuoteData = response?.paymentMethod?.feeQuote || response?.feeQuote;
+    const feeQuoteData =
+      response.paymentMethod.type === 'bitcoinAddress' ? response.paymentMethod.feeQuote : undefined;
     console.log(
       '[Spark] feeQuoteData:',
       JSON.stringify(
@@ -897,7 +889,7 @@ export async function prepareOnchainSend(
  * @returns The payment result
  */
 export async function sendOnchain(
-  prepareResponse: any,
+  prepareResponse: PrepareSendPaymentResponse,
   speed: 'fast' | 'medium' | 'slow' = 'medium'
 ): Promise<any> {
   if (!_sdkInstance) {
@@ -907,14 +899,7 @@ export async function sendOnchain(
   try {
     sparkLoading.set(true);
 
-    // SDK expects options with type and confirmationSpeed
-    const request = {
-      prepareResponse,
-      options: {
-        type: 'bitcoinAddress',
-        confirmationSpeed: speed
-      }
-    };
+    const request = onchainSendRequest(prepareResponse, speed);
 
     logger.info(
       '[Spark] Sending on-chain payment with request:',
@@ -927,7 +912,7 @@ export async function sendOnchain(
 
     const response = await _sdkInstance.sendPayment(request);
 
-    logger.info('[Spark] On-chain payment sent:', response);
+    logger.info('[Spark] On-chain payment sent:', undefined, response);
 
     await refreshBalanceInternal();
     return response?.payment || response;
@@ -953,7 +938,7 @@ export async function listUnclaimedDeposits(): Promise<UnclaimedDeposit[]> {
   try {
     const response = await _sdkInstance.listUnclaimedDeposits({});
 
-    logger.info('[Spark] Unclaimed deposits:', response);
+    logger.info('[Spark] Unclaimed deposits:', undefined, response);
 
     const deposits = response?.deposits || [];
     return deposits.map((d: any) => {
@@ -1008,25 +993,20 @@ export async function claimDeposit(
   try {
     sparkLoading.set(true);
 
-    const request: any = {
+    // A fixed max fee when given (0.23: { type: 'fixed', amount }).
+    const request = claimDepositRequest(
       txid,
-      vout
-    };
-
-    // If maxFeeSats is provided, set a fixed max fee
-    if (maxFeeSats !== undefined) {
-      request.maxFee = {
-        type: 'fixed',
-        amountSats: maxFeeSats
-      };
-    }
+      vout,
+      maxFeeSats !== undefined ? { fixedSats: maxFeeSats } : undefined
+    );
 
     const response = await _sdkInstance.claimDeposit(request);
 
-    logger.info('[Spark] Deposit claimed:', response);
+    logger.info('[Spark] Deposit claimed:', undefined, response);
 
     await refreshBalanceInternal();
-    return { txid: response?.txid || txid };
+    // ClaimDepositResponse carries the resulting payment, not a txid.
+    return { txid };
   } catch (error) {
     logger.error('[Spark] Failed to claim deposit:', String(error));
     throw error;
@@ -1054,21 +1034,15 @@ export async function claimDepositWithNetworkFee(
   try {
     sparkLoading.set(true);
 
-    const request = {
-      txid,
-      vout,
-      maxFee: {
-        type: 'networkRecommended',
-        leewaySatPerVbyte
-      }
-    };
+    const request = claimDepositRequest(txid, vout, { leewaySatPerVbyte });
 
     const response = await _sdkInstance.claimDeposit(request);
 
-    logger.info('[Spark] Deposit claimed with network fee:', response);
+    logger.info('[Spark] Deposit claimed with network fee:', undefined, response);
 
     await refreshBalanceInternal();
-    return { txid: response?.txid || txid };
+    // ClaimDepositResponse carries the resulting payment, not a txid.
+    return { txid };
   } catch (error) {
     logger.error('[Spark] Failed to claim deposit with network fee:', String(error));
     throw error;
@@ -1103,21 +1077,13 @@ export async function refundDeposit(
   try {
     sparkLoading.set(true);
 
-    const request = {
-      txid,
-      vout,
-      destinationAddress,
-      fee: {
-        type: 'rate',
-        satPerVbyte: feeSatPerVbyte
-      }
-    };
+    const request = refundDepositRequest(txid, vout, destinationAddress, feeSatPerVbyte);
 
     const response = await _sdkInstance.refundDeposit(request);
 
-    logger.info('[Spark] Deposit refunded:', response);
+    logger.info('[Spark] Deposit refunded:', undefined, response);
 
-    return { txid: response?.txid };
+    return { txid: response?.txId };
   } catch (error) {
     logger.error('[Spark] Failed to refund deposit:', String(error));
     throw error;
@@ -1254,8 +1220,11 @@ export async function recordNip57ZapData(
       metadataItem.preimage = preimage;
     }
 
-    await _sdkInstance.setLnurlMetadata([metadataItem]);
-    logger.info('[Spark] NIP-57 zap data recorded for payment:', paymentHash.slice(0, 16) + '...');
+    // Breez SDK 0.23 removed setLnurlMetadata (there is no replacement):
+    // incoming zap receipts are published by the Lightning address server
+    // (sats.zap.cooking) on its own, so this only skips enriching the local
+    // wallet-history row.
+    logger.debug('[Spark] Zap metadata not recorded (unsupported by this SDK):', metadataItem.paymentHash.slice(0, 16));
   } catch (error) {
     // Non-fatal: zap data recording is best-effort
     logger.warn('[Spark] Failed to record NIP-57 zap data:', String(error));
@@ -1306,10 +1275,8 @@ export async function getSparkWalletInfo(pubkey: string): Promise<SparkWalletInf
     // Get Spark address (static address for receiving from other Spark users)
     let sparkAddress: string | null = null;
     try {
-      const response = await _sdkInstance.receivePayment({
-        paymentMethod: { type: 'sparkAddress' }
-      });
-      sparkAddress = response?.paymentRequest || response?.sparkAddress || null;
+      const response = await _sdkInstance.receivePayment(sparkAddressReceiveRequest());
+      sparkAddress = response?.paymentRequest || null;
     } catch (e) {
       logger.debug('[Spark] Could not get Spark address:', String(e));
     }
@@ -1728,31 +1695,26 @@ export function hasNip04Support(): boolean {
 export async function backupWalletToNostr(pubkey: string): Promise<any> {
   if (!browser) throw new Error('Backup can only be performed in browser');
 
+  // Block sessions that can't encrypt to the user's real key, with a
+  // session-specific reason (this also covers a missing local key or an
+  // extension without encryption). Checked before loading the mnemonic,
+  // which may itself need to decrypt, so the reason isn't masked by
+  // "No wallet found". Some NIP-46 remote signers may encrypt under their
+  // session/auth key rather than the user's real identity key, producing
+  // ciphertext that no future session can decrypt — even on the same
+  // account. Since we can't reliably detect which remote signers behave
+  // this way, the conservative default is to allow new backups only from
+  // nsec / passkey / NIP-07 users.
+  const backupBlocker = getNostrBackupBlocker();
+  if (backupBlocker) {
+    throw new Error(
+      describeNostrBackupBlocker(backupBlocker, 'Please save your recovery phrase manually')
+    );
+  }
+
   const mnemonic = await loadMnemonic(pubkey);
   if (!mnemonic) {
     throw new Error('No wallet found to backup');
-  }
-
-  // Check encryption support
-  if (!hasEncryptionSupport()) {
-    throw new Error(
-      'No encryption method available. Encryption is supported when logged in with a private key (nsec) or a NIP-07 browser extension.'
-    );
-  }
-
-  // Block NIP-46 remote signers from creating Nostr-relay backups.
-  // Some NIP-46 remote signers may encrypt under their session/auth
-  // key rather than the user's real identity key, producing ciphertext
-  // that no future session can decrypt — even on the same account.
-  // Since we can't reliably detect which remote signers behave this
-  // way, the conservative default is to allow new backups only from
-  // nsec / NIP-07 users.
-  if (!canCreateNostrBackup()) {
-    throw new Error(
-      'Nostr-relay backup is unavailable when using a remote signer (NIP-46). ' +
-        'Please save your recovery phrase manually, or sign in with a private key (nsec) ' +
-        'or a NIP-07 browser extension to enable cloud backup.'
-    );
   }
 
   // Create the backup event (kind 30078 - NIP-78 application-specific data)
@@ -1952,8 +1914,8 @@ export async function restoreSparkBackup(
   const encryptionMethod = backup.encryptionMethod || detectEncryptionMethod(backup.content);
   const DECRYPT_TIMEOUT = 15000;
 
-  const mnemonic = await withTimeout(
-    decrypt(pubkey, backup.content, encryptionMethod),
+  const { plaintext: mnemonic, source } = await withTimeout(
+    decryptWithSource(pubkey, backup.content, encryptionMethod, { legacy: 'prompt' }),
     DECRYPT_TIMEOUT,
     'Decryption timed out. Please approve the request in your signer app.'
   );
@@ -1992,6 +1954,14 @@ export async function restoreSparkBackup(
   } catch (e) {
     logger.warn('[Spark] Could not fetch lightning address after restore:', String(e));
   }
+
+  // Encrypted under a legacy key (#897): republish under the session key
+  // through the normal guarded path (which reads back the mnemonic just
+  // saved), or for NIP-46 — which can't create backups — queue the
+  // one-time "save your recovery phrase" notice.
+  await settleLegacySparkBackup(getSparkWalletId(normalizedMnemonic), source, () =>
+    backupWalletToNostr(pubkey)
+  );
 
   logger.info('[Spark] Wallet restored from Nostr backup successfully');
   return normalizedMnemonic;

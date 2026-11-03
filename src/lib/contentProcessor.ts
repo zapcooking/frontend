@@ -1,7 +1,4 @@
-import { profileActions } from './profileStore';
-import { decodeNostrProfile } from './profileResolver';
-import { ndk } from './nostr';
-import type NDK from '@nostr-dev-kit/ndk';
+import { prefetchProfiles } from './profileStore';
 
 // Extract all nostr profile links from content
 export function extractProfileLinks(content: string): string[] {
@@ -16,7 +13,7 @@ export async function preloadProfileLinks(content: string): Promise<void> {
   
   if (profileLinks.length > 0) {
     // Load all profiles in batch for better performance
-    await profileActions.loadProfiles(profileLinks);
+    await prefetchProfiles(profileLinks);
   }
 }
 

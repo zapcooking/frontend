@@ -18,7 +18,7 @@
 
 <div class="mx-auto max-w-md px-4 py-12 text-center">
   {#if data.error}
-    <p class="text-red-600 dark:text-red-400">{data.error}</p>
+    <p class="text-[var(--color-danger)] dark:text-[var(--color-danger)]">{data.error}</p>
   {:else if record && targetPath}
     <h1 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary);">
       {record.type === 'recipe' ? 'Recipe' : 'Article'} link
@@ -28,7 +28,7 @@
     </p>
     <a
       href={targetPath}
-      class="inline-flex items-center gap-2 py-2.5 px-4 rounded-lg font-semibold bg-primary text-white hover:opacity-90 transition"
+      class="inline-flex items-center gap-2 py-2.5 px-4 rounded-lg font-semibold bg-action text-on-action hover:bg-action-hover transition"
     >
       Continue to {record.type === 'recipe' ? 'recipe' : 'article'}
       <ArrowRightIcon size={18} weight="bold" />

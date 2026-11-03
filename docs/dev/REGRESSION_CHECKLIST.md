@@ -69,6 +69,7 @@
 - [ ] Deduplication by event ID
 - [ ] Food filter toggle works
 - [ ] Muted users excluded
+- [ ] Muting from a post's menu hides that post immediately (local store first, relay sync after) and lands as a private (encrypted) entry on the kind-10000 list
 
 ### Following Feed
 - [ ] Loads posts from followed users only
@@ -95,6 +96,7 @@
 - [ ] Copy note ID
 - [ ] Share note link
 - [ ] View author profile
+- [ ] Every note URL the app builds is `nevent1…` with relay hints (copy URI/link, share image QR, thread links, notifications, quoted-note embeds) — a bare `note1…` only appears as an encoding-failure fallback (`$lib/utils/eventUrl`)
 
 ### Feed Performance
 - [ ] Initial load < 2s

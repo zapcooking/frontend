@@ -109,7 +109,7 @@
 	}
 
 	.first-visit-row:hover {
-		background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.08));
+		background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(255, 255, 255, 0.08)));
 	}
 
 	.disclosure-row {

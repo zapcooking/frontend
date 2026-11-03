@@ -118,7 +118,7 @@
   }
 
   .category-pill:hover:not(.active) {
-    background-color: var(--color-accent-gray) !important;
+    background-color: var(--color-hover-bg) !important;
   }
 
   .category-pill.active {

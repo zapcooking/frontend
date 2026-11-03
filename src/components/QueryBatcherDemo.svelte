@@ -313,7 +313,7 @@
   .section {
     margin-bottom: 1.5rem;
     padding: 1rem;
-    background: var(--color-surface, #f8f9fa);
+    background: var(--color-light-bg-secondary, var(--color-surface, #f8f9fa));
     border-radius: 0.5rem;
   }
   
@@ -413,7 +413,7 @@
   .bar-container {
     flex: 1;
     height: 8px;
-    background: #e5e7eb;
+    background: var(--color-light-input-border, #e5e7eb);
     border-radius: 4px;
     overflow: hidden;
   }
@@ -475,8 +475,8 @@
     padding: 0.5rem 1rem;
     border: none;
     border-radius: 0.375rem;
-    background: var(--color-primary, #007bff);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     cursor: pointer;
     font-size: 0.875rem;
   }
@@ -502,7 +502,7 @@
   
   .progress-bar {
     height: 8px;
-    background: #e5e7eb;
+    background: var(--color-light-input-border, #e5e7eb);
     border-radius: 4px;
     overflow: hidden;
     margin-bottom: 0.5rem;
@@ -529,7 +529,7 @@
   .metric {
     text-align: center;
     padding: 0.5rem;
-    background: rgba(255, 255, 255, 0.5);
+    background: color-mix(in srgb, var(--color-light-bg-primary, #ffffff) 50%, transparent);
     border-radius: 0.375rem;
   }
   

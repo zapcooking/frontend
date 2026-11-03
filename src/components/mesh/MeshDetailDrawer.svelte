@@ -239,8 +239,8 @@
     text-align: center;
     padding: 10px 20px;
     border-radius: 10px;
-    background-color: var(--color-primary);
-    color: white;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     font-weight: 600;
     font-size: 14px;
     text-decoration: none;

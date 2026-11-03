@@ -21,6 +21,8 @@ import {
   isUploadPending,
   setUploadPending,
   SyncSignInError,
+  PasskeyNotReadyError,
+  PASSKEY_NOT_READY_MESSAGE,
   SYNC_PENDING_KEY
 } from './passkeySync';
 import { VAULT_STORAGE_KEY, type VaultRecord, type AssertionWire } from './passkeyVault';
@@ -128,15 +130,33 @@ describe('signInWithPasskey (new device)', () => {
     expect(store.size).toBe(0);
   });
 
-  it('blob fetch 404 → SyncSignInError, nothing persisted', async () => {
+  it("blob fetch 404 → PasskeyNotReadyError ('isn't ready on this device'), nothing persisted", async () => {
     fetchMock.mockImplementation(async (url: string) =>
       String(url).endsWith('/challenge')
         ? jsonResponse(200, { challenge: 'YQ', expiresAt: Date.now() + 120000 })
         : jsonResponse(404, { error: 'not_found' })
     );
     credentials.get.mockResolvedValue(assertionCredential(hexToBytes(fixture.prfOutputHex)));
-    await expect(signInWithPasskey()).rejects.toThrow(/No synced sign-in/);
+    const error = await signInWithPasskey().catch((e) => e);
+    expect(error).toBeInstanceOf(PasskeyNotReadyError);
+    expect(error).toBeInstanceOf(SyncSignInError);
+    expect(error.message).toBe(PASSKEY_NOT_READY_MESSAGE);
+    expect(PASSKEY_NOT_READY_MESSAGE).toBe(
+      "This passkey isn't ready on this device yet. Sign in with it once on the device where you set it up, with 'Sign in on other devices' turned on."
+    );
     expect(store.size).toBe(0);
+  });
+
+  it('blob fetch failing for another reason keeps the generic error', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith('/challenge')
+        ? jsonResponse(200, { challenge: 'YQ', expiresAt: Date.now() + 120000 })
+        : jsonResponse(503, { error: 'not_configured' })
+    );
+    credentials.get.mockResolvedValue(assertionCredential(hexToBytes(fixture.prfOutputHex)));
+    const error = await signInWithPasskey().catch((e) => e);
+    expect(error).toBeInstanceOf(SyncSignInError);
+    expect(error).not.toBeInstanceOf(PasskeyNotReadyError);
   });
 
   it('missing PRF output (hybrid/QR shape) → fails closed before any fetch of the blob', async () => {

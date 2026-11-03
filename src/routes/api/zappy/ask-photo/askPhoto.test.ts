@@ -12,6 +12,8 @@ import {
   CHEFFY_VISION_MODEL,
   CHEFFY_PHOTO_ASK_INSTRUCTION,
   PHOTO_ASK_DEFAULT_QUESTION,
+  CHEFFY_ALT_TEXT_INSTRUCTION,
+  PHOTO_ALT_TEXT_QUESTION,
   NOT_FOOD_PREFIX
 } from '$lib/cheffyPrompt.server';
 import { QUESTION_MAX_CHARS } from '$lib/photoAsk';
@@ -269,6 +271,30 @@ describe('responses', () => {
     expect(data.code).toBe('NOT_FOOD');
     expect(data.error).toBe('That is a very smug cat.');
     expect(data.error).not.toContain(NOT_FOOD_PREFIX);
+  });
+
+  describe('alt-text mode (purpose: "alt")', () => {
+    it('uses the alt instruction and fixed ask, ignoring the member question', async () => {
+      const { data } = await call({ image: IMAGE, purpose: 'alt', question: 'is this ripe?' });
+      expect(data.ok).toBe(true);
+      const payload = openaiPayload();
+      expect(payload.messages[0].content).toBe(CHEFFY_ALT_TEXT_INSTRUCTION);
+      expect(payload.messages[1].content[0].text).toBe(PHOTO_ALT_TEXT_QUESTION);
+    });
+
+    it('passes a NOT_FOOD-flavoured answer through instead of refusing', async () => {
+      // The alt instruction never emits the sentinel, but the image may
+      // genuinely be a cat — the describer output must reach the client.
+      fetchMock.mockResolvedValue(openaiOk('A cat sitting on a windowsill.'));
+      const { res, data } = await call({ image: IMAGE, purpose: 'alt' });
+      expect(res.status).toBe(200);
+      expect(data.output).toBe('A cat sitting on a windowsill.');
+    });
+
+    it('drops temperature for deterministic descriptions', async () => {
+      await call({ image: IMAGE, purpose: 'alt' });
+      expect(openaiPayload().temperature).toBe(0.4);
+    });
   });
 
   it('422s IMAGE_UNREADABLE when OpenAI cannot decode the photo', async () => {

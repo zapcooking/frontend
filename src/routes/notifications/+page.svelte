@@ -26,6 +26,7 @@
   import { muteListStore } from '$lib/muteListStore';
   import { resolveProfileByPubkey, getDisplayName } from '$lib/profileResolver';
   import { resolveNote, resolveRecipe } from '$lib/utils/nostrRefs';
+  import { eventPath, eventIdPath } from '$lib/utils/eventUrl';
   import HeartIcon from 'phosphor-svelte/lib/Heart';
   import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
@@ -33,6 +34,8 @@
   import AtIcon from 'phosphor-svelte/lib/At';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import VideoIcon from 'phosphor-svelte/lib/Video';
+  import AccountNudgeItem from '../../components/AccountNudgeItem.svelte';
+  import { activeNudge, markNudgeSeen } from '$lib/accountNudge';
 
   // Pull-to-refresh ref
   let pullToRefreshEl: PullToRefresh;
@@ -421,6 +424,10 @@
     void refreshAndResetView();
   }
 
+  // The account nudge pinned above the list counts on the badge until it's
+  // been shown here once (it can turn up after mount: support detection is async).
+  $: if ($activeNudge && !$activeNudge.seen) markNudgeSeen($activeNudge.pubkey);
+
   onMount(async () => {
     if ($userPublickey) {
       // Ensure mute list is loaded before snapshotting unread IDs,
@@ -518,17 +525,21 @@
 
     if (!eventIdToView) return;
 
+    // The routing lookup's event doubles as the relay-hint source for the
+    // note link below (reaction/zap/repost only — the other types don't
+    // fetch).
+    let fetched: NDKEvent | null = null;
     if (['reaction', 'zap', 'repost'].includes(notification.type)) {
       try {
         const ndkInstance = get(ndk);
         if (ndkInstance) {
-          const event = await ndkInstance.fetchEvent({ ids: [eventIdToView] });
-          if (event && event.kind === 30023) {
-            const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+          fetched = await ndkInstance.fetchEvent({ ids: [eventIdToView] });
+          if (fetched && fetched.kind === 30023) {
+            const dTag = fetched.tags.find((t) => t[0] === 'd')?.[1];
             if (dTag) {
               const naddr = nip19.naddrEncode({
                 kind: 30023,
-                pubkey: event.pubkey,
+                pubkey: fetched.pubkey,
                 identifier: dTag
               });
               goto(`/recipe/${naddr}`);
@@ -541,7 +552,7 @@
       }
     }
 
-    navigateToNote(eventIdToView);
+    navigateToNote(eventIdToView, fetched);
   }
 
   async function handleGroupedClick(item: NotificationDisplayItem) {
@@ -558,17 +569,19 @@
     const eventId = item.targetEventId;
     if (!eventId) return;
 
-    // Try recipe routing
+    // Try recipe routing — the fetched event also carries the relay hints
+    // for the note link below.
+    let fetched: NDKEvent | null = null;
     try {
       const ndkInstance = get(ndk);
       if (ndkInstance) {
-        const event = await ndkInstance.fetchEvent({ ids: [eventId] });
-        if (event && event.kind === 30023) {
-          const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
+        fetched = await ndkInstance.fetchEvent({ ids: [eventId] });
+        if (fetched && fetched.kind === 30023) {
+          const dTag = fetched.tags.find((t) => t[0] === 'd')?.[1];
           if (dTag) {
             const naddr = nip19.naddrEncode({
               kind: 30023,
-              pubkey: event.pubkey,
+              pubkey: fetched.pubkey,
               identifier: dTag
             });
             goto(`/recipe/${naddr}`);
@@ -580,19 +593,16 @@
       console.debug('[Notifications] Could not fetch event for routing:', e);
     }
 
-    navigateToNote(eventId);
+    navigateToNote(eventId, fetched);
   }
 
-  function navigateToNote(eventId: string) {
+  // nevent1 always: the routing-fetched event supplies relay hints when we
+  // have one; a note1/nevent1 payload is normalized — never a bare note1.
+  function navigateToNote(eventId: string, evt?: NDKEvent | null) {
     const raw = String(eventId).trim();
     if (!raw) return;
-    if (raw.startsWith('note1') || raw.startsWith('nevent1')) {
-      goto(`/${raw}`);
-      return;
-    }
     try {
-      const noteId = nip19.noteEncode(raw);
-      goto(`/${noteId}`);
+      goto(evt ? eventPath(evt) : eventIdPath(raw));
     } catch (e) {
       console.warn('[Notifications] Invalid eventId for note view:', raw, e);
     }
@@ -708,12 +718,18 @@
         <a
           href="/login?redirect=/notifications"
           class="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full font-semibold transition-all"
-          style="background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); color: white;"
+          style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
         >
           Sign in
         </a>
       </div>
     {:else}
+      {#if $activeNudge}
+        <div class="mb-6">
+          <AccountNudgeItem where="notifications" />
+        </div>
+      {/if}
+
       <!-- Tabs -->
       <div class="mb-6">
         <div class="flex overflow-x-auto scrollbar-hide pb-0 border-b border-solid" style="border-color: var(--color-input-border); background: none; border-radius: 0; border-top: none; border-left: none; border-right: none;">
@@ -729,7 +745,7 @@
               {tab.label}
               {#if activeTab === tab.id}
                 <span
-                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"
+                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
                 ></span>
               {/if}
             </button>
@@ -909,10 +925,10 @@
     background-color: var(--color-input-bg);
   }
   .notif-unread {
-    background-color: color-mix(in srgb, #f97316 6%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 6%, transparent);
   }
   .notif-unread:hover {
-    background-color: color-mix(in srgb, #f97316 10%, transparent);
+    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
   }
   .notif-zap-accent {
     border-left: 2.5px solid #f59e0b;
@@ -975,7 +991,7 @@
     width: 0.5rem;
     height: 0.5rem;
     border-radius: 9999px;
-    background-color: #f97316;
+    background-color: var(--color-primary);
     flex-shrink: 0;
   }
 
@@ -999,7 +1015,7 @@
     margin-top: 0.5rem;
     padding: 0.5rem 0.625rem;
     border-left: 2.5px solid;
-    border-image: linear-gradient(to bottom, #f97316, #f59e0b) 1;
+    border-image: linear-gradient(to bottom, var(--color-primary), var(--color-primary)) 1;
     border-radius: 0 0.375rem 0.375rem 0;
     background-color: var(--color-input-bg);
   }

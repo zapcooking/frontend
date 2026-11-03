@@ -7,6 +7,7 @@
 import { browser } from '$app/environment';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
+import { eventRef } from '$lib/utils/eventUrl';
 import { sanitizeHTML } from '$lib/sanitize';
 
 // Image detection lives in $lib/imageUrls (shared source of truth).
@@ -708,7 +709,7 @@ async function generateNoteImageInternal(
       const qrContainer = container.querySelector('#qr-code-container');
       if (qrContainer) {
         const qrDataUrl = await generateQRCode(
-          `https://zap.cooking/${nip19.noteEncode(event.id)}`,
+          `https://zap.cooking/${eventRef(event)}`,
           120
         );
         if (qrDataUrl) {
@@ -802,7 +803,6 @@ function createNoteCardHTML(
   referencedNote?: ReferencedNote,
   skipAllImages: boolean = false
 ): string {
-  const noteId = nip19.noteEncode(event.id);
   // Format timestamp nicely
   let timestamp = 'Unknown time';
   if (event.created_at) {

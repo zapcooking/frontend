@@ -2,9 +2,10 @@
   import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { userPublickey } from '$lib/nostr';
+  import { requireAuth } from '$lib/auth/requireAuth';
   import { clickOutside } from '$lib/clickOutside';
   import { postComposerOpen } from '$lib/postComposerStore';
+  import { miningOp } from '$lib/stores/miningOp';
   import { openNewDraft } from './reads/articleDraftStore';
   import AddIcon from 'phosphor-svelte/lib/Plus';
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
@@ -27,26 +28,36 @@
 
   $: isCreateRoute =
     $page.url.pathname.startsWith('/create') || $page.url.pathname.startsWith('/list/create');
-  $: isSignedIn = $userPublickey !== '';
   $: isCancelMode = isCreateRoute;
+  // A mine holds the single worker for as long as it runs, so a second post
+  // started underneath it would sit unread behind the first and look hung.
+  // The floating indicator is already on screen saying what the wait is.
+  $: isMining = $miningOp !== null;
+
+  $: if (isMining) closeMenu();
 
   $: if (isCancelMode) {
     closeMenu();
     clearLongPress();
   }
 
-  function openRecipe() {
+  // Shown to visitors too: each entry asks for sign-in over the page at
+  // the moment it's chosen, then carries on into the editor.
+  async function openRecipe() {
     closeMenu();
+    if (!(await requireAuth({ kind: 'post', reason: 'Sign in to share a recipe' }))) return;
     goto('/create');
   }
 
-  function openPost() {
+  async function openPost() {
     closeMenu();
+    if (!(await requireAuth({ kind: 'post', reason: 'Sign in to post' }))) return;
     postComposerOpen.set(true);
   }
 
-  function openRead() {
+  async function openRead() {
     closeMenu();
+    if (!(await requireAuth({ kind: 'post', reason: 'Sign in to write an article' }))) return;
     openNewDraft();
   }
 
@@ -209,96 +220,105 @@
   });
 </script>
 
-{#if isSignedIn}
-  <div
-    class={`create-menu ${variant === 'floating' ? 'create-menu-floating' : 'create-menu-header'} ${className}`}
-    class:create-menu-open={showMenu && !isCancelMode}
-    role="presentation"
-    on:mouseenter={handleMouseEnter}
-    on:mouseleave={handleMouseLeave}
-    on:focusin={handleFocusIn}
-    on:focusout={handleFocusOut}
-    on:keydown={handleKeydown}
-    use:clickOutside
-    on:click_outside={closeMenu}
-  >
-    <!-- Trigger precedes options in the DOM so Tab moves into the open menu
+<div
+  class={`create-menu ${variant === 'floating' ? 'create-menu-floating' : 'create-menu-header'} ${className}`}
+  class:create-menu-open={showMenu && !isCancelMode}
+  role="presentation"
+  on:mouseenter={handleMouseEnter}
+  on:mouseleave={handleMouseLeave}
+  on:focusin={handleFocusIn}
+  on:focusout={handleFocusOut}
+  on:keydown={handleKeydown}
+  use:clickOutside
+  on:click_outside={closeMenu}
+>
+  <!-- Trigger precedes options in the DOM so Tab moves into the open menu
          instead of skipping past it. Absolute positioning keeps the visual layout. -->
-    <button
-      bind:this={triggerElement}
-      type="button"
-      class={`create-trigger ${variant === 'floating' ? 'create-trigger-floating' : 'create-trigger-header'}`}
-      class:create-trigger-cancel={isCancelMode}
-      class:is-scrolling={isScrolling && variant === 'floating'}
-      aria-label={isCancelMode
+  <button
+    bind:this={triggerElement}
+    type="button"
+    class={`create-trigger ${variant === 'floating' ? 'create-trigger-floating' : 'create-trigger-header'}`}
+    class:create-trigger-cancel={isCancelMode}
+    class:is-scrolling={isScrolling && variant === 'floating'}
+    disabled={isMining}
+    title={isMining ? 'Mining proof of work — finishing your last post' : undefined}
+    aria-label={isMining
+      ? 'Create (unavailable while mining proof of work)'
+      : isCancelMode
         ? 'Cancel'
         : showMenu && variant === 'floating'
           ? 'Close create menu'
           : 'Create'}
-      aria-haspopup={!isCancelMode}
-      aria-expanded={!isCancelMode && showMenu}
-      on:pointerdown={handlePointerDown}
-      on:pointerup={handlePointerUp}
-      on:pointercancel={handlePointerUp}
-      on:pointerleave={handlePointerLeave}
-      on:mouseenter={handleMouseEnter}
-      on:click={handleClick}
+    aria-haspopup={!isCancelMode}
+    aria-expanded={!isCancelMode && showMenu}
+    on:pointerdown={handlePointerDown}
+    on:pointerup={handlePointerUp}
+    on:pointercancel={handlePointerUp}
+    on:pointerleave={handlePointerLeave}
+    on:mouseenter={handleMouseEnter}
+    on:click={handleClick}
+  >
+    <span
+      class="create-trigger-icon"
+      class:icon-rotate={isCancelMode || (showMenu && variant === 'floating')}
     >
-      <span
-        class="create-trigger-icon"
-        class:icon-rotate={isCancelMode || (showMenu && variant === 'floating')}
-      >
-        <AddIcon size={variant === 'floating' ? 22 : 18} weight="bold" />
-      </span>
-      {#if showLabel}
-        <span class="create-label">{isCancelMode ? 'Cancel' : 'Create'}</span>
-      {/if}
-    </button>
-
-    {#if variant === 'floating'}
-      <span class="create-surface-label" aria-hidden="true">Create</span>
+      <AddIcon size={variant === 'floating' ? 22 : 18} weight="bold" />
+    </span>
+    {#if showLabel}
+      <span class="create-label">{isCancelMode ? 'Cancel' : 'Create'}</span>
     {/if}
+  </button>
 
-    <div
-      class={`create-menu-panel ${
-        variant === 'floating' ? 'create-menu-panel-floating' : 'create-menu-panel-header'
-      }`}
-      role="group"
-      aria-label="Create options"
-      aria-hidden={!showMenu || isCancelMode}
+  {#if variant === 'floating'}
+    <span class="create-surface-label" aria-hidden="true">Create</span>
+  {/if}
+
+  <div
+    class={`create-menu-panel ${
+      variant === 'floating' ? 'create-menu-panel-floating' : 'create-menu-panel-header'
+    }`}
+    role="group"
+    aria-label="Create options"
+    aria-hidden={!showMenu || isCancelMode}
+  >
+    <button
+      type="button"
+      class="create-menu-item"
+      tabindex={showMenu && !isCancelMode ? 0 : -1}
+      on:click={openPost}
     >
-      <button
-        type="button"
-        class="create-menu-item"
-        tabindex={showMenu && !isCancelMode ? 0 : -1}
-        on:click={openRecipe}
-      >
-        <span class="create-menu-item-icon"><ForkKnifeIcon size={20} /></span>
-        <span>New recipe</span>
-      </button>
-      <button
-        type="button"
-        class="create-menu-item"
-        tabindex={showMenu && !isCancelMode ? 0 : -1}
-        on:click={openPost}
-      >
-        <span class="create-menu-item-icon"><PencilSimpleIcon size={20} /></span>
-        <span>New post</span>
-      </button>
-      <button
-        type="button"
-        class="create-menu-item"
-        tabindex={showMenu && !isCancelMode ? 0 : -1}
-        on:click={openRead}
-      >
-        <span class="create-menu-item-icon"><NewspaperIcon size={20} /></span>
-        <span>New read</span>
-      </button>
-    </div>
+      <span class="create-menu-item-icon"><PencilSimpleIcon size={20} /></span>
+      <span>New post</span>
+    </button>
+    <button
+      type="button"
+      class="create-menu-item"
+      tabindex={showMenu && !isCancelMode ? 0 : -1}
+      on:click={openRecipe}
+    >
+      <span class="create-menu-item-icon"><ForkKnifeIcon size={20} /></span>
+      <span>New recipe</span>
+    </button>
+    <button
+      type="button"
+      class="create-menu-item"
+      tabindex={showMenu && !isCancelMode ? 0 : -1}
+      on:click={openRead}
+    >
+      <span class="create-menu-item-icon"><NewspaperIcon size={20} /></span>
+      <span>New read</span>
+    </button>
   </div>
-{/if}
+</div>
 
 <style>
+  /* Held, not hidden: the button staying put with the floating indicator
+     beside it reads as "busy", where a vanishing button reads as broken. */
+  .create-trigger:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   .create-menu {
     position: relative;
     display: inline-flex;
@@ -353,23 +373,23 @@
     justify-content: center;
     gap: 0.4rem;
     border-radius: 9999px;
-    background: linear-gradient(135deg, #f97316, #f59e0b);
-    color: #fff;
+    background: linear-gradient(135deg, var(--color-create-start), var(--color-create-end));
+    color: var(--color-on-action);
     font-weight: 600;
     transition:
       transform 0.2s ease,
       box-shadow 0.2s ease,
       opacity 0.2s ease;
-    box-shadow: 0 10px 25px rgba(249, 115, 22, 0.35);
+    box-shadow: 0 10px 25px color-mix(in srgb, var(--color-create-start) 35%, transparent);
   }
 
   .create-trigger:hover {
     transform: translateY(-1px);
-    box-shadow: 0 12px 28px rgba(249, 115, 22, 0.45);
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--color-create-start) 45%, transparent);
   }
 
   .create-trigger-cancel {
-    background: var(--color-input-border);
+    background: var(--color-input-bg);
     color: var(--color-text-primary);
     box-shadow: none;
   }
@@ -377,7 +397,7 @@
   .create-trigger-cancel:hover {
     transform: none;
     box-shadow: none;
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
   }
 
   .create-trigger.is-scrolling {
@@ -494,7 +514,7 @@
   }
 
   .create-menu-item:hover {
-    background: var(--color-accent-gray);
+    background: var(--color-hover-bg);
     color: var(--color-text-primary);
   }
 

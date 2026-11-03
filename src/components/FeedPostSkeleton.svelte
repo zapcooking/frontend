@@ -51,6 +51,6 @@
 <style lang="postcss">
   @reference "../app.css";
   .feed-post-skeleton {
-    @apply border-b border-gray-200 py-4 sm:py-6;
+    @apply border-b border-[var(--color-input-border)] py-4 sm:py-6;
   }
 </style>

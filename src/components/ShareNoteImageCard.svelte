@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { nip19 } from 'nostr-tools';
   import { formatDistanceToNow } from 'date-fns';
   import { formatSats } from '$lib/utils';
   import CustomAvatar from './CustomAvatar.svelte';
   import CustomName from './CustomName.svelte';
   import NoteContent from './NoteContent.svelte';
+  import { eventRef } from '$lib/utils/eventUrl';
 
   export let event: NDKEvent;
   export let engagementData: {
@@ -16,8 +16,9 @@
   export let format: 'square' | 'landscape' = 'square';
   export let showQR: boolean = true;
 
-  $: noteId = nip19.noteEncode(event.id);
-  $: noteUrl = `https://zap.cooking/${noteId}`;
+  // nevent1 with relay hints: any client scanning/pasting this link can
+  // fetch the note even when it lives off their default relays.
+  $: noteUrl = `https://zap.cooking/${eventRef(event)}`;
   $: timestamp = event.created_at 
     ? formatDistanceToNow(new Date(event.created_at * 1000), { addSuffix: true })
     : 'Unknown time';

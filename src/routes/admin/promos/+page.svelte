@@ -506,7 +506,7 @@
     color: var(--color-text-secondary);
   }
   .status-error {
-    color: #ef4444;
+    color: var(--color-danger);
   }
   .card {
     border: 1px solid var(--color-input-border);
@@ -583,12 +583,12 @@
     cursor: not-allowed;
   }
   .btn-primary {
-    background: var(--color-primary);
-    border-color: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    border-color: var(--color-action);
+    color: var(--color-on-action);
   }
   .btn-danger {
-    color: #ef4444;
+    color: var(--color-danger);
     border-color: rgba(239, 68, 68, 0.4);
   }
   .codes {
@@ -624,7 +624,7 @@
     display: inline-block;
     padding: 0.125rem 0.5rem;
     border-radius: 9999px;
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+    background: var(--color-light-input-bg,var(--color-bg-tertiary, rgba(255, 255, 255, 0.06)));
     color: var(--color-text-secondary);
     font-size: 0.6875rem;
     font-weight: 500;
@@ -653,7 +653,7 @@
     font-family: ui-monospace, monospace;
     font-size: 0.8125rem;
     padding: 0.0625rem 0.25rem;
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+    background: var(--color-light-input-bg,var(--color-bg-tertiary, rgba(255, 255, 255, 0.06)));
     border-radius: 0.1875rem;
   }
 

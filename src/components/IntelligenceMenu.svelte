@@ -28,9 +28,7 @@
       label: 'Ask Cheffy',
       blurb: 'Ask anything while you cook',
       Icon: CheffyIcon,
-      // Cheffy's warm orange — uses the CSS var so the accent shifts
-      // automatically between the light (#ec4700) and dark
-      // (#ff5722) palettes.
+      // Follow the selected site's readable accent color.
       accent: 'var(--color-primary)'
     },
     {
@@ -124,7 +122,7 @@
   }
 
   :global(.dark) .intelligence-menu {
-    background-color: rgba(17, 24, 39, 0.92);
+    background-color: color-mix(in srgb, var(--color-bg-secondary) 92%, transparent);
   }
 
   .header-row {
@@ -136,7 +134,7 @@
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--color-text-caption, #9ca3af);
+    color: var(--color-caption);
     opacity: 0.7;
   }
 

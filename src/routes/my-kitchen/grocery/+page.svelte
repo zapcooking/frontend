@@ -136,8 +136,8 @@
   <!-- Header -->
   <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
     <div class="flex items-center gap-3">
-      <div class="w-12 h-12 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center flex-shrink-0">
-        <ShoppingCartIcon size={24} weight="fill" class="text-white" />
+      <div class="w-12 h-12 rounded-full bg-gradient-to-br from-action to-action flex items-center justify-center flex-shrink-0">
+        <ShoppingCartIcon size={24} weight="fill" class="text-on-action" />
       </div>
       <div>
         <h1 class="text-2xl font-bold" style="color: var(--color-text-primary)">Grocery Lists</h1>
@@ -172,7 +172,7 @@
         <button
           on:click={createNewList}
           disabled={isCreating}
-          class="flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-full font-medium transition-all text-sm disabled:opacity-50"
+          class="flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all text-sm disabled:opacity-50"
           aria-label="Create new grocery list"
         >
           <PlusIcon size={18} weight="bold" />
@@ -249,7 +249,7 @@
         <button
           on:click={createNewList}
           disabled={isCreating}
-          class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white rounded-full font-medium transition-all disabled:opacity-50"
+          class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all disabled:opacity-50"
         >
           <PlusIcon size={18} weight="bold" />
           {isCreating ? 'Creating...' : 'Add Item'}

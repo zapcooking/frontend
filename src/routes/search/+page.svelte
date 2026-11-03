@@ -8,8 +8,12 @@
   import { mutedPubkeys } from '$lib/muteListStore';
   import { NDKRelaySet, type NDKEvent, type NDKSubscription } from '@nostr-dev-kit/ndk';
   import { isHiddenRecipeEvent } from '$lib/consts';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
+  import { createRecipeSearch, type RecipeSearchResult } from '$lib/recipeSearch';
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { isHumanReadablePostContent } from '$lib/postContentReadability';
+  import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
+  import { eventPath } from '$lib/utils/eventUrl';
   import Avatar from '../../components/Avatar.svelte';
   import CustomName from '../../components/CustomName.svelte';
   import NoteContent from '../../components/NoteContent.svelte';
@@ -82,7 +86,7 @@
     pending = [];
   }
 
-  async function preconnectRelays(q: string) {
+  async function preconnectRelays() {
     await Promise.all(
       SEARCH_RELAYS.map(async (url) => {
         try {
@@ -93,7 +97,6 @@
         }
       })
     );
-    return searchedFor === q;
   }
 
   async function runSearch(q: string) {
@@ -106,7 +109,8 @@
     searchedFor = q;
     loading = true;
 
-    if (!(await preconnectRelays(q))) return; // superseded by a newer query
+    await preconnectRelays();
+    if (searchedFor !== q) return; // superseded by a newer query
 
     try {
       const relaySet = NDKRelaySet.fromRelayUrls(SEARCH_RELAYS, $ndk, false);
@@ -166,77 +170,58 @@
     }
   }
 
-  // ── Recipes (NIP-50 kind 30023) ────────────────────────────────────
-  let recipeResults: { title: string; naddr: string }[] = [];
+  // ── Recipes: tagged recipe events only, never general long-form articles ──
+  let recipeResults: RecipeSearchResult[] = [];
   let recipesLoading = false;
-  let recipeSub: NDKSubscription | null = null;
-  let recipeTimeout: ReturnType<typeof setTimeout> | null = null;
-  const recipeSeen = new Set<string>();
-
-  function stopRecipeSearch() {
-    if (recipeSub) {
-      try {
-        recipeSub.stop();
-      } catch {
-        /* ignore */
-      }
-      recipeSub = null;
-    }
-    if (recipeTimeout) {
-      clearTimeout(recipeTimeout);
-      recipeTimeout = null;
-    }
-  }
-
-  async function runRecipeSearch(q: string) {
-    stopRecipeSearch();
-    recipeSeen.clear();
-    recipeResults = [];
-    if (!q || !$ndk) return;
-
-    recipesLoading = true;
-    if (!(await preconnectRelays(q))) return;
-
-    try {
+  const recipeSearch = createRecipeSearch<NDKEvent>({
+    connect: preconnectRelays,
+    subscribe: (filters, onEvent, onComplete) => {
       const relaySet = NDKRelaySet.fromRelayUrls(SEARCH_RELAYS, $ndk, false);
-      recipeSub = $ndk.subscribe(
-        { kinds: [30023], search: q, limit: RECIPE_LIMIT },
-        { closeOnEose: true, groupable: false },
-        relaySet
-      );
+      const subscription = $ndk.subscribe(filters, { closeOnEose: true, groupable: false }, relaySet);
+      subscription.on('event', onEvent);
+      subscription.on('eose', onComplete);
+      return subscription;
+    },
+    isBlocked: isBlockedFromReads,
+    onResults: (results) => { recipeResults = results; },
+    onLoading: (loading) => { recipesLoading = loading; },
+    limit: RECIPE_LIMIT,
+    timeoutMs: SEARCH_TIMEOUT_MS
+  });
 
-      recipeSub.on('event', (event: NDKEvent) => {
-        const d = event.tags.find((t) => t[0] === 'd')?.[1];
-        if (!d) return;
-        if (isHiddenRecipeEvent(event)) return;
-        const naddr = nip19.naddrEncode({ kind: 30023, pubkey: event.pubkey, identifier: d });
-        if (recipeSeen.has(naddr)) return;
-        recipeSeen.add(naddr);
-        const title = event.tags.find((t) => t[0] === 'title')?.[1] || d;
-        recipeResults = [...recipeResults, { title, naddr }].slice(0, RECIPE_LIMIT);
-      });
-
-      const finish = () => {
-        recipesLoading = false;
-      };
-      recipeSub.on('eose', finish);
-      recipeTimeout = setTimeout(finish, SEARCH_TIMEOUT_MS);
-    } catch {
-      recipesLoading = false;
-    }
-  }
+  // An identifier that reached this page — pasted into the results page's
+  // own box, or arriving in a shared link — names one thing, so searching
+  // for its text would be answering a question nobody asked. It is sent
+  // where it points instead, replacing the history entry so Back goes to
+  // where the reader came from rather than to a search that never ran.
+  $: identifier = browser ? parseNip19Input(query) : null;
 
   // Re-run all three searches when the query changes (URL-driven —
   // back/forward works). Tab switches don't re-fetch.
   $: if (browser && query !== undefined) {
-    runSearch(query);
-    runUserSearch(query);
-    runRecipeSearch(query);
+    if (identifier) {
+      goto(identifier.path, { replaceState: true });
+    } else if (isSecretKeyInput(query)) {
+      // Never hand a secret key to the relays: NIP-50 sends the term
+      // verbatim, so running this search would publish it. Also scrub it
+      // from the address bar and this history entry, keeping the other
+      // params (e.g. `type`) so the page is otherwise unchanged.
+      stopSearch();
+      recipeSearch.stop();
+      const params = new URLSearchParams($page.url.searchParams);
+      params.delete('q');
+      const rest = params.toString();
+      goto(`/search${rest ? `?${rest}` : ''}`, { replaceState: true, keepFocus: true, noScroll: true });
+    } else {
+      runSearch(query);
+      runUserSearch(query);
+      recipeSearch.run(query);
+    }
   }
 
   onDestroy(() => {
     stopSearch();
-    stopRecipeSearch();
+    recipeSearch.stop();
   });
 
   function formatTimeAgo(timestamp: number): string {
@@ -344,7 +329,7 @@
               </div>
               <PostActionsMenu event={post} />
             </div>
-            <a href="/{nip19.noteEncode(post.id)}" class="block">
+            <a href={eventPath(post)} class="block">
               <div class="text-[14px] leading-normal" style="color: var(--color-text-primary);">
                 {#if post.kind === 1068}
                   <PollDisplay event={post} />

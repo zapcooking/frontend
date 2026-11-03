@@ -92,7 +92,7 @@
         <p style="color: var(--color-caption);">{error}</p>
         <button
           class="px-4 py-2 rounded-lg text-sm font-medium"
-          style="background-color: var(--color-primary); color: white;"
+          style="background-color: var(--color-action); color: var(--color-on-action);"
           on:click={loadData}
         >
           Retry

@@ -16,6 +16,9 @@
   
   export let tags: string[][];
   export let enableEnrichment: boolean = true;
+  /** Drop the leading "· " — for placements that supply their own separator
+   *  (e.g. the engagement drawer's icon row). */
+  export let bare = false;
   
   let clientInfo: ClientTagInfo | null = null;
   let displayName: string = '';
@@ -49,8 +52,8 @@
 </script>
 
 {#if clientInfo && displayName}
-  <span class="client-attribution text-gray-400 text-xs" title="Posted via {displayName}">
-    · via {displayName}
+  <span class="client-attribution text-[var(--color-caption)] text-xs" title="Posted via {displayName}">
+    {bare ? '' : '· '}via {displayName}
   </span>
 {/if}
 

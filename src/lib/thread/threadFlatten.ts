@@ -92,7 +92,7 @@ export interface FlattenOptions<E extends ThreadEvent = ThreadEvent> {
 }
 
 /** Total descendants of each node, excluding itself. Cycle-guarded. */
-function computeSubtreeSizes<E extends ThreadEvent>(
+export function computeSubtreeSizes<E extends ThreadEvent>(
   parentToChildren: Map<string, E[]>
 ): Map<string, number> {
   const sizes = new Map<string, number>();

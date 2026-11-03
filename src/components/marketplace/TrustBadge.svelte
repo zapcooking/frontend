@@ -102,18 +102,18 @@
 	}
 
 	.trust-high {
-		color: #16a34a;
+		color: var(--color-success);
 		background-color: rgba(22, 163, 74, 0.12);
 	}
 
 	.trust-medium {
-		color: #d97706;
+		color: var(--color-warning);
 		background-color: rgba(217, 119, 6, 0.12);
 	}
 
 	.trust-low {
-		color: #6b7280;
-		background-color: rgba(107, 114, 128, 0.1);
+		color: var(--color-caption);
+		background-color: color-mix(in srgb, var(--color-caption) 10%, transparent);
 	}
 
 	.trust-label {
@@ -182,7 +182,7 @@
 
 	.learn-more {
 		@apply flex items-center gap-1 text-xs;
-		color: var(--color-accent, #f97316);
+		color: var(--color-primary);
 		font-weight: 500;
 		text-decoration: none;
 	}

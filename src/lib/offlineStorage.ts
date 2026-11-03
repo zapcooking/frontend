@@ -37,6 +37,12 @@ export interface SerializedCookbookData {
   eventPubkey: string;
   eventCreatedAt: number;
   eventId?: string;
+  /**
+   * The event's content (NIP-51 private items, encrypted). Absent on records
+   * written before it was stored — such a copy is incomplete and must never
+   * be the base of an edit (republishing it would erase the private items).
+   */
+  eventContent?: string;
 }
 
 /**
@@ -241,7 +247,8 @@ class OfflineStorageManager {
       eventTags: cookbook.event?.tags ? cookbook.event.tags.map((t: string[]) => [...t]) : [],
       eventPubkey: cookbook.event?.pubkey || '',
       eventCreatedAt: cookbook.event?.created_at || cookbook.createdAt,
-      eventId: cookbook.event?.id
+      eventId: cookbook.event?.id,
+      eventContent: typeof cookbook.event?.content === 'string' ? cookbook.event.content : ''
     };
   }
 

@@ -71,7 +71,22 @@ export interface VaultSyncEntry {
   /** Last observed counter. Stored, never enforced (synced passkeys report 0). */
   signCount: number;
   updatedAt: number;
+  /**
+   * Stored from a registration-authorized first upload (one-prompt signup):
+   * no assertion has verified against credentialPublicKey yet. The first
+   * verified assertion clears it; until then an assertion-backed upload may
+   * replace the entry, and it expires after UNCONFIRMED_TTL_S.
+   */
+  unconfirmed?: true;
 }
 
 /** 12 months + grace (R4 ruling); refreshed on upload and successful fetch. */
 export const ENTRY_TTL_S = 370 * 24 * 60 * 60;
+
+/**
+ * An unconfirmed entry's lifetime. Short: if the passkey never produces a
+ * working assertion (a provider whose get() can't reproduce its PRF), the
+ * client drops its local vault but can't sign a DELETE — the entry just
+ * expires. A confirming assertion rewrites it with ENTRY_TTL_S.
+ */
+export const UNCONFIRMED_TTL_S = 30 * 24 * 60 * 60;

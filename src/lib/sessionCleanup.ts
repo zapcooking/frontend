@@ -18,6 +18,7 @@
  * unlock-gated settings action.
  */
 import { browser } from '$app/environment';
+import { START_SECTION_COOKIE } from '$lib/startSectionConstants';
 
 /** Exact localStorage keys removed on logout. */
 export const ACCOUNT_DATA_KEYS = [
@@ -64,6 +65,21 @@ export function clearAccountLocalStorage(): void {
 }
 
 /**
+ * Drop the start-section cookie so `/` treats this browser as a visitor
+ * again (landing page) instead of a member (start section). Only explicit
+ * logout clears it: a locked passkey vault keeps the cookie, so a returning
+ * member still lands in the app where they can unlock.
+ */
+export function clearStartSectionCookie(): void {
+  if (!browser) return;
+  try {
+    document.cookie = `${START_SECTION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+  } catch {
+    // Cookies disabled — nothing was written to clear.
+  }
+}
+
+/**
  * Clear all account-scoped data for a logout.
  *
  * Every step is independent and best-effort: an IndexedDB failure (locked
@@ -75,6 +91,7 @@ export async function clearAccountData(): Promise<void> {
   if (!browser) return;
 
   clearAccountLocalStorage();
+  clearStartSectionCookie();
 
   // Cached group messages (zapcooking-groups).
   try {

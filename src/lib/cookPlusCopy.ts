@@ -95,3 +95,42 @@ export const COOK_PLUS_PERKS: readonly CookPlusPerk[] = [
     detail: 'Help pick what gets built next.'
   }
 ];
+
+/** The Fresh feed relay members can add to other Nostr apps. */
+export const FRESH_FEED_RELAY = 'wss://feed.zap.cooking';
+
+/** What membership adds to the Fresh feed (and the feed relay). */
+export const FRESH_FEED_PERKS: readonly CookPlusPerk[] = [
+  {
+    key: 'history',
+    label: 'Full history',
+    detail:
+      'The curated food & drink archive back to 2023 — nearly 37,000 posts, not just the last 14 days.'
+  },
+  {
+    key: 'topics',
+    label: 'Topic feeds',
+    detail: '44 topics, including Meat, Soups, Japanese, Garden, Cakes, Cheese and Homestead.'
+  },
+  {
+    key: 'onthisday',
+    label: 'On this day',
+    detail: 'What the community cooked 1–2 years ago today.'
+  },
+  {
+    key: 'timemachine',
+    label: 'Time machine',
+    detail: 'Browse the archive month by month.'
+  },
+  {
+    key: 'apps',
+    label: 'Use it in other Nostr apps',
+    detail: `Add ${FRESH_FEED_RELAY} and log in. Works in apps that support relay login (Amethyst, Coracle, Damus, noStrudel, Nostur); not Primal.`
+  }
+];
+
+export const FRESH_FEED_FREE =
+  'Free for everyone: Fresh with the last 14 days, and every recipe at any age.';
+
+export const FRESH_FEED_PRIVACY =
+  'No tracking — no view counts or reading history. Logging in to the feed only checks membership.';

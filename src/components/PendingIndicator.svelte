@@ -26,7 +26,10 @@
     bottom: calc(var(--bottom-nav-height, 0px) + env(safe-area-inset-bottom, 0px) + 0.75rem);
     left: 50%;
     transform: translateX(-50%);
-    z-index: 9999;
+    /* Above Modal's z-[10000] backdrop — a pending publish outlives whatever
+       modal the reader opened next, and the pill must stay readable through
+       it. Same tier ToastContainer uses to clear modals. */
+    z-index: 10001;
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -61,8 +64,8 @@
   .badge {
     padding: 0 0.375rem;
     border-radius: 9999px;
-    background: var(--color-primary);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.6875rem;
     font-weight: 700;
     line-height: 1.25rem;

@@ -823,8 +823,8 @@
   }
 
   .nr-primary {
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
   }
 
   .nr-primary:disabled {

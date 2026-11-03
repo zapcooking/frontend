@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { userPublickey } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import { nourishRequestHeaders } from '$lib/nourish/nourishAuth';
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
   import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
   import { ingredientStore } from '$lib/nourish/ingredientStore';
@@ -79,7 +80,6 @@
 
     try {
       const body: any = {
-        pubkey: $userPublickey || '',
         text: text || 'Analyze this food image'
       };
 
@@ -87,10 +87,11 @@
         body.imageData = imageData;
       }
 
+      const bodyString = JSON.stringify(body);
       const res = await fetch('/api/nourish/scan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        headers: await nourishRequestHeaders($ndk, '/api/nourish/scan', bodyString),
+        body: bodyString
       });
 
       const data: ScanResponse = await res.json();
@@ -155,7 +156,7 @@
   {#if !hasMembership && !scanResult}
     <!-- Lock state -->
     <div class="lock-card">
-      <LockIcon size={22} weight="fill" class="text-orange-500" />
+      <LockIcon size={22} weight="fill" class="text-primary" />
       <div class="lock-content">
         <p class="lock-title">Members Only</p>
         <p class="lock-desc">Explore what your meals are made of with instant Nourish profiles.</p>
@@ -236,7 +237,7 @@
     gap: 0.125rem;
   }
   .hero-icon {
-    color: #22c55e;
+    color: var(--color-primary);
     margin-bottom: 0.125rem;
   }
   .hero-title {
@@ -259,17 +260,17 @@
   .explore-link {
     font-size: 0.75rem;
     font-weight: 500;
-    color: #22c55e;
+    color: var(--color-primary);
     text-decoration: none;
     margin-top: 0.25rem;
     padding: 0.25rem 0.625rem;
     border-radius: 9999px;
-    border: 1px solid rgba(34, 197, 94, 0.2);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
     transition: background 150ms, border-color 150ms;
   }
   .explore-link:hover {
-    background: rgba(34, 197, 94, 0.08);
-    border-color: rgba(34, 197, 94, 0.35);
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
   }
 
   /* Lock */
@@ -304,7 +305,7 @@
   /* Error */
   .error-text {
     font-size: 0.8125rem;
-    color: #ef4444;
+    color: var(--color-danger);
     text-align: center;
     margin: 0;
   }
@@ -319,8 +320,8 @@
     padding: 0.75rem 1.5rem;
     border-radius: 0.625rem;
     border: none;
-    background: #22c55e;
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.9375rem;
     font-weight: 600;
     font-family: inherit;
@@ -328,7 +329,7 @@
     transition: background 150ms, opacity 150ms;
   }
   .analyze-btn:hover:not(:disabled) {
-    background: #16a34a;
+    background: var(--color-action-hover);
   }
   .analyze-btn:disabled {
     opacity: 0.5;
@@ -342,13 +343,13 @@
     gap: 0.5rem;
     padding: 0.625rem 0.75rem;
     border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
     font-size: 0.75rem;
     color: var(--color-text-secondary);
   }
   .banner-link {
-    color: #22c55e;
+    color: var(--color-primary);
     text-decoration: none;
   }
   .banner-link:hover {
@@ -358,16 +359,16 @@
     margin-left: auto;
     font-size: 0.75rem;
     font-weight: 600;
-    color: #22c55e;
+    color: var(--color-primary);
     text-decoration: none;
     padding: 0.25rem 0.625rem;
     border-radius: 9999px;
-    border: 1px solid rgba(34, 197, 94, 0.3);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
     transition: background 150ms;
     white-space: nowrap;
   }
   .banner-cta:hover {
-    background: rgba(34, 197, 94, 0.1);
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
   }
 
   /* Footer */

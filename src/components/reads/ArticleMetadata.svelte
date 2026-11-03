@@ -500,7 +500,7 @@
 	.cover-upload-area:hover,
 	.cover-upload-area.dragging {
 		border-color: var(--color-primary);
-		background: rgba(236, 71, 0, 0.05);
+		background: color-mix(in srgb, var(--color-primary) 5%, transparent);
 	}
 
 	.cover-upload-area .hint {
@@ -613,8 +613,8 @@
 		align-items: center;
 		gap: 0.25rem;
 		padding: 0.25rem 0.5rem;
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 		font-size: 0.875rem;
 		font-weight: 500;
 		border-radius: 9999px;

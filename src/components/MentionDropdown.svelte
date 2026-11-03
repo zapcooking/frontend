@@ -206,7 +206,7 @@
 
 	.mention-option:hover,
 	.mention-selected {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 	}
 
 	.mention-info {
@@ -246,8 +246,8 @@
 		gap: 0.25rem;
 		padding: 0.1rem 0.45rem;
 		border-radius: 0.5rem;
-		background: rgba(247, 147, 26, 0.2);
-		color: #f7931a;
+		background: color-mix(in srgb, var(--color-primary) 20%, transparent);
+		color: var(--color-primary);
 		font-weight: 600;
 		user-select: all;
 		margin: 0 0.1rem;

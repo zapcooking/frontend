@@ -25,6 +25,24 @@ let nwcWalletPubkey: string | null = null
 let currentConnectionUrl: string | null = null
 let pendingBalanceRequest: Promise<number> | null = null
 
+// Client key material for NIP-47 requests, derived once per connection
+// instead of re-parsing the secret and re-instantiating the signer on
+// every request.
+let nwcClientKeys: { secretHex: string; signer: NDKPrivateKeySigner; pubkey: string } | null = null
+
+function getClientKeys(secretHex: string) {
+	if (!nwcClientKeys || nwcClientKeys.secretHex !== secretHex) {
+		nwcClientKeys = {
+			secretHex,
+			signer: new NDKPrivateKeySigner(secretHex),
+			// nostr-tools >= 2.25 requires bytes — a hex string throws
+			// "expected Uint8Array" from @noble/secp256k1.
+			pubkey: nostrGetPublicKey(hexToBytes(secretHex))
+		}
+	}
+	return nwcClientKeys
+}
+
 // Connection mutex to prevent concurrent connection attempts (Safari iOS fix)
 let connectionInProgress: Promise<boolean> | null = null
 
@@ -146,17 +164,6 @@ function normalizeSecretKey(secret: string): string {
 }
 
 /**
- * Get public key from secret key
- */
-function getPublicKey(secret: string): string {
-	const secretHex = normalizeSecretKey(secret)
-	// nostr-tools >= 2.25 requires bytes — a hex string throws
-	// "expected Uint8Array" from @noble/secp256k1 and killed every NIP-47
-	// request (balance, history, invoices).
-	return nostrGetPublicKey(hexToBytes(secretHex))
-}
-
-/**
  * Connect to NWC wallet using NDK
  */
 export async function connectNwc(connectionUrl: string): Promise<boolean> {
@@ -216,6 +223,7 @@ export async function connectNwc(connectionUrl: string): Promise<boolean> {
 			nwcSecret = null
 			nwcWalletPubkey = null
 			currentConnectionUrl = null
+			nwcClientKeys = null
 			throw e
 		} finally {
 			connectionInProgress = null
@@ -276,6 +284,7 @@ export async function disconnectNwc(): Promise<void> {
 	nwcSecret = null
 	nwcWalletPubkey = null
 	currentConnectionUrl = null
+	nwcClientKeys = null
 }
 
 /**
@@ -296,14 +305,19 @@ export function isNwcConnectedTo(connectionUrl: string): boolean {
 /**
  * Execute a NIP-47 request
  */
-async function executeNip47Request(method: string, params: Record<string, any> = {}): Promise<any> {
+async function executeNip47Request(
+	method: string,
+	params: Record<string, any> = {},
+	timeoutMs = 10000
+): Promise<any> {
 	if (!nwcSecret || !nwcWalletPubkey || !nwcRelay) {
 		throw new Error('NWC not connected')
 	}
 
 	const ndkInstance = getNdk()
 	const secretHex = normalizeSecretKey(nwcSecret)
-	const clientPubkey = getPublicKey(nwcSecret)
+	const clientKeys = getClientKeys(secretHex)
+	const clientPubkey = clientKeys.pubkey
 
 	// Create the request content
 	const content = JSON.stringify({
@@ -320,10 +334,9 @@ async function executeNip47Request(method: string, params: Record<string, any> =
 	event.content = encryptedContent
 	event.tags = [['p', nwcWalletPubkey]]
 
-	// Sign with the secret key
-	const signer = new NDKPrivateKeySigner(secretHex)
+	// Sign with the cached signer
 	event.pubkey = clientPubkey
-	await event.sign(signer)
+	await event.sign(clientKeys.signer)
 
 	// Create a relay set using the existing connected relay
 	const { NDKRelaySet } = await import('@nostr-dev-kit/ndk')
@@ -353,11 +366,12 @@ async function executeNip47Request(method: string, params: Record<string, any> =
 	)
 
 	const responsePromise = new Promise<any>((resolve, reject) => {
-		// 10 second timeout (reduced from 30s for better UX)
+		// 10 s by default; pay_invoice waits longer (a Lightning payment can
+		// take that long). A timeout doesn't mean the payment failed.
 		const timeout = setTimeout(() => {
 			sub.stop()
 			reject(new Error('NWC request timeout'))
-		}, 10000)
+		}, timeoutMs)
 
 		sub.on('event', async (responseEvent: NDKEvent) => {
 			try {
@@ -386,7 +400,25 @@ async function executeNip47Request(method: string, params: Record<string, any> =
 		})
 	})
 
-	await new Promise((r) => setTimeout(r, 100))
+	// The response subscription must be live on the relay before the
+	// request event arrives. Waiting for the subscription's EOSE proves
+	// the REQ is registered (and, since a response cannot exist before
+	// the request is published, none were missed) — near-instant on a
+	// warm socket. The 100ms cap keeps distant relays no slower than the
+	// fixed sleep this replaces.
+	await new Promise<void>((resolve) => {
+		let settled = false
+		const finish = () => {
+			if (settled) return
+			settled = true
+			clearTimeout(cap)
+			sub.off('eose', onEose)
+			resolve()
+		}
+		const cap = setTimeout(finish, 100)
+		const onEose = () => finish()
+		sub.on('eose', onEose)
+	})
 	await event.publish(relaySet)
 	return responsePromise
 }
@@ -417,10 +449,13 @@ export async function getNwcBalance(retries = 3): Promise<number> {
 	}
 }
 
+/** How long to wait for a pay_invoice answer before reporting the payment as pending. */
+export const NWC_PAY_TIMEOUT_MS = 30000
+
 export async function payNwcInvoice(invoice: string): Promise<{ preimage: string }> {
 	if (!isNwcConnected()) throw new Error('NWC not connected')
-	const result = await executeNip47Request('pay_invoice', { invoice })
-	return { preimage: result.preimage }
+	const result = await executeNip47Request('pay_invoice', { invoice }, NWC_PAY_TIMEOUT_MS)
+	return { preimage: result?.preimage }
 }
 
 export async function createNwcInvoice(

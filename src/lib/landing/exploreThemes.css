@@ -1,0 +1,395 @@
+/*
+ Explore-only display typography, shapes and decoration. The shared colors are defined in $lib/themes/palettes.css and inherited from the document root. These presentation rules do not restyle the rest of the application.
+ */
+html .landing {
+  --font-editorial: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --explore-heading-weight: 500;
+  --explore-heading-spacing: -0.035em;
+  --explore-image-radius: 10px;
+}
+
+/*
+ * Include the real container hierarchy in shared overrides. Svelte's scoped
+ * component rules can repeat their scope class, so two-class selectors lose
+ * even when the edition stylesheet is loaded later.
+ */
+html .landing .landing-body .magazine :is(h1, h2, h3, h4) {
+  font-family: var(--font-editorial);
+  font-weight: var(--explore-heading-weight);
+  letter-spacing: var(--explore-heading-spacing);
+}
+
+html .landing .landing-body .magazine .landing-img {
+  border-radius: var(--explore-image-radius);
+}
+
+html .landing .magazine .masthead {
+  position: relative;
+  isolation: isolate;
+}
+
+html .landing .magazine .masthead h1 {
+  color: var(--explore-masthead-ink);
+}
+
+html .landing .magazine .masthead .intro {
+  color: var(--explore-masthead-muted);
+}
+
+html .landing .magazine .masthead .tagline {
+  color: var(--explore-accent-text);
+  font-size: var(--explore-meta);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+html .landing .magazine .import-invitation {
+  background: var(--color-explore-peach);
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+}
+
+html .landing .magazine .packs-section {
+  margin: 16px 0 32px;
+  padding: 28px;
+  background: var(--color-explore-sage);
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+}
+
+html .landing .magazine .import-fields input {
+  background: var(--color-input-bg);
+}
+
+html .landing .magazine .import-fields button {
+  background: var(--explore-action-bg);
+  color: var(--explore-action-ink);
+}
+
+html .landing .magazine :is(.membership-button, .cheffy-invitation a) {
+  color: var(--explore-accent-text);
+}
+
+/* After Hours: a small supper-club poster, geometric lettering and curved photos. */
+html[data-explore-theme='after-hours'] .landing {
+  --font-editorial: 'Arial Black', 'Avenir Next', 'Trebuchet MS', sans-serif;
+  --explore-heading-weight: 800;
+  --explore-heading-spacing: -0.045em;
+  --explore-image-radius: 22px 6px 22px 6px;
+}
+
+html[data-explore-theme='after-hours'] .landing .masthead {
+  max-width: none;
+  margin: 24px 0;
+  padding: 30px;
+  border-radius: 28px 6px 28px 6px;
+  background: var(--explore-masthead-bg);
+  border-bottom: 6px solid var(--explore-action-bg);
+}
+
+html[data-explore-theme='after-hours'] .landing .masthead::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background-image: repeating-linear-gradient(
+    -35deg,
+    transparent 0 24px,
+    #ffffff07 24px 26px,
+    transparent 26px 48px
+  );
+  pointer-events: none;
+}
+
+html[data-explore-theme='after-hours'] .landing .masthead h1 {
+  font-style: italic;
+  max-width: 24ch;
+}
+
+html[data-explore-theme='after-hours'] .landing .masthead .tagline {
+  color: #ffbd8d;
+  letter-spacing: 0.14em;
+}
+
+html[data-explore-theme='after-hours'] .landing :is(.cover-top, .section) {
+  border-top-width: 2px;
+}
+
+html[data-explore-theme='after-hours'] .landing :is(.import-invitation, .packs-section) {
+  border-radius: 22px 6px 22px 6px;
+}
+
+/* Recipe Club: a neighborhood food zine, ink rules and a small paper-label accent. */
+html[data-explore-theme='recipe-club'] .landing {
+  --font-editorial: 'Trebuchet MS', 'Arial Black', sans-serif;
+  --explore-heading-weight: 800;
+  --explore-heading-spacing: -0.045em;
+  --explore-image-radius: 2px;
+}
+
+html[data-explore-theme='recipe-club'] .landing .masthead {
+  background-image: radial-gradient(var(--explore-pattern) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+html[data-explore-theme='recipe-club'] .landing .masthead h1 {
+  max-width: 25ch;
+  letter-spacing: -0.055em;
+}
+
+html[data-explore-theme='recipe-club'] .landing .masthead .tagline {
+  display: inline-block;
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--explore-label-ink);
+  box-shadow: 3px 3px 0 var(--explore-label-ink);
+  background: var(--explore-label-bg);
+  color: var(--explore-label-ink);
+  letter-spacing: 0.08em;
+}
+
+html[data-explore-theme='recipe-club'] .landing :is(.cover-top, .section) {
+  border-top: 3px solid var(--color-text-primary);
+}
+
+html[data-explore-theme='recipe-club'] .landing .magazine .landing-img {
+  outline: 1px solid var(--color-input-border);
+  outline-offset: -1px;
+}
+
+html[data-explore-theme='recipe-club'] .landing :is(.import-invitation, .packs-section) {
+  border: 2px solid var(--color-text-primary);
+  border-radius: 2px;
+}
+
+/* Recipe Box: flour-colored paper, herb-green rules and a little gingham. */
+html[data-explore-theme='recipe-box'] .landing {
+  --font-editorial: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+  --explore-heading-weight: 600;
+  --explore-heading-spacing: -0.025em;
+  --explore-image-radius: 4px;
+}
+
+html[data-explore-theme='recipe-box'] .landing .masthead {
+  border-top: 8px solid transparent;
+  border-image: repeating-linear-gradient(
+      90deg,
+      var(--explore-accent-text) 0 12px,
+      transparent 12px 24px
+    )
+    8;
+  margin-top: 24px;
+}
+
+html[data-explore-theme='recipe-box'] .landing .masthead .tagline {
+  font-family: 'Courier New', ui-monospace, monospace;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+html[data-explore-theme='recipe-box'] .landing :is(.cover-top, .section) {
+  border-top-style: dashed;
+  border-top-color: var(--color-input-border);
+}
+
+html[data-explore-theme='recipe-box'] .landing .import-invitation {
+  border-style: dashed;
+  border-radius: 4px;
+}
+
+html[data-explore-theme='recipe-box'] .landing .packs-section {
+  border-radius: 4px;
+  background-image:
+    repeating-linear-gradient(0deg, var(--explore-pattern) 0 12px, transparent 12px 24px),
+    repeating-linear-gradient(90deg, var(--explore-pattern) 0 12px, transparent 12px 24px);
+}
+
+/* Corner Diner: a vanilla-and-turquoise menu with tomato ink and a checker trim. */
+html[data-explore-theme='corner-diner'] .landing {
+  --font-editorial: Impact, 'Arial Narrow', 'Franklin Gothic Medium', sans-serif;
+  --explore-heading-weight: 700;
+  --explore-heading-spacing: 0.005em;
+  --explore-image-radius: 18px;
+  --explore-control-radius: 999px;
+}
+
+html[data-explore-theme='corner-diner'] .landing .masthead {
+  margin: 24px 0;
+  padding: 32px 28px 28px;
+  background: var(--explore-masthead-bg);
+  border: 1px solid var(--color-input-border);
+  border-radius: 24px;
+}
+
+html[data-explore-theme='corner-diner'] .landing .masthead::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 28px;
+  left: 28px;
+  height: 12px;
+  background: conic-gradient(
+      var(--explore-pattern) 25%,
+      transparent 0 50%,
+      var(--explore-pattern) 0 75%,
+      transparent 0
+    )
+    0 0 / 12px 12px;
+  pointer-events: none;
+}
+
+html[data-explore-theme='corner-diner'] .landing .masthead h1 {
+  max-width: 24ch;
+  text-transform: uppercase;
+  font-stretch: condensed;
+}
+
+html[data-explore-theme='corner-diner'] .landing .masthead .tagline {
+  padding: 4px 0;
+  border-block: 1px solid currentColor;
+  letter-spacing: 0.12em;
+}
+
+html[data-explore-theme='corner-diner'] .landing :is(.cover-top, .section) {
+  border-top: 3px double var(--explore-accent-text);
+}
+
+html[data-explore-theme='corner-diner'] .landing :is(.import-invitation, .packs-section) {
+  border-radius: 20px;
+}
+
+/* Sunday Market: rounded produce-label type, citrus paper and colorful stall trim. */
+html[data-explore-theme='sunday-market'] .landing {
+  --font-editorial: 'Cooper Black', 'Bookman Old Style', Georgia, serif;
+  --explore-heading-weight: 700;
+  --explore-heading-spacing: -0.025em;
+  --explore-image-radius: 12px;
+}
+
+html[data-explore-theme='sunday-market'] .landing .masthead {
+  margin-bottom: 12px;
+  padding-bottom: 32px;
+}
+
+html[data-explore-theme='sunday-market'] .landing .masthead::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--explore-citrus) 0 42px,
+    transparent 42px 48px,
+    var(--explore-leaf) 48px 90px,
+    transparent 90px 96px,
+    var(--explore-berry) 96px 138px,
+    transparent 138px 144px
+  );
+  pointer-events: none;
+}
+
+html[data-explore-theme='sunday-market'] .landing .masthead h1 {
+  max-width: 25ch;
+}
+
+html[data-explore-theme='sunday-market'] .landing .masthead .tagline {
+  padding: 7px 15px;
+  background: var(--explore-label-bg);
+  border: 1px solid var(--explore-label-ink);
+  border-radius: 999px;
+  color: var(--explore-label-ink);
+  letter-spacing: 0.06em;
+}
+
+html[data-explore-theme='sunday-market'] .landing :is(.cover-top, .section) {
+  border-top: 2px solid var(--explore-leaf);
+}
+
+html[data-explore-theme='sunday-market'] .landing .import-invitation {
+  border-color: var(--explore-berry);
+  border-radius: 12px;
+}
+
+html[data-explore-theme='sunday-market'] .landing .packs-section {
+  border-color: var(--explore-leaf);
+  border-top: 6px solid var(--explore-citrus);
+  border-radius: 12px;
+}
+
+@media (max-width: 767px) {
+  html .landing .magazine .packs-section {
+    padding: 20px 16px;
+  }
+
+  html[data-explore-theme='after-hours'] .landing .masthead {
+    margin: 20px 0;
+    padding: 22px 18px;
+    border-radius: 20px 4px 20px 4px;
+  }
+
+  html[data-explore-theme='recipe-box'] .landing .masthead {
+    margin-top: 20px;
+  }
+
+  html[data-explore-theme='corner-diner'] .landing .masthead {
+    margin: 20px 0;
+    padding: 28px 18px 22px;
+    border-radius: 20px;
+  }
+
+  html[data-explore-theme='corner-diner'] .landing .masthead h1 {
+    font-size: clamp(28px, 9vw, 36px);
+  }
+}
+
+/* Edition decoration never animates. Printing uses plain, readable recipe paper. */
+@media print {
+  html .landing,
+  html.dark .landing,
+  html[data-explore-theme] .landing,
+  html.dark[data-explore-theme] .landing {
+    --color-text-primary: #111111;
+    --color-text-secondary: #333333;
+    --color-caption: #444444;
+    --color-bg-primary: #ffffff;
+    --color-bg-secondary: #ffffff;
+    --color-input-bg: #ffffff;
+    --color-input-border: #777777;
+    --color-explore-peach: #ffffff;
+    --color-explore-sage: #ffffff;
+    --explore-accent-text: #222222;
+    --explore-citrus: #777777;
+    --explore-leaf: #777777;
+    --explore-berry: #777777;
+    --explore-masthead-bg: #ffffff;
+    --explore-masthead-ink: #111111;
+    --explore-masthead-muted: #333333;
+    --explore-label-bg: #ffffff;
+    --explore-label-ink: #111111;
+    --explore-pattern: transparent;
+    --font-editorial: Georgia, serif;
+  }
+
+  html[data-explore-theme] .landing .masthead,
+  html[data-explore-theme] .landing .masthead .tagline,
+  html[data-explore-theme] .landing .packs-section {
+    color: #111111;
+    background: #ffffff;
+    box-shadow: none;
+    border-image: none;
+  }
+
+  html[data-explore-theme] .landing .masthead :is(h1, .intro) {
+    color: #111111;
+  }
+
+  html[data-explore-theme] .landing .masthead::before {
+    display: none;
+  }
+}

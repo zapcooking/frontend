@@ -971,12 +971,12 @@
   }
 
   .tab-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 
   .tab-btn.active {
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
   }
 
   .timer-badge {
@@ -988,7 +988,7 @@
   }
 
   .tab-btn:not(.active) .timer-badge {
-    background: var(--color-input-border);
+    background: var(--color-input-bg);
     color: var(--color-text-primary);
   }
 
@@ -1015,7 +1015,7 @@
   }
 
   .action-btn-header:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
   .action-btn-header.sound-on {
     color: #f59e0b;
@@ -1106,9 +1106,9 @@
   .add-btn {
     padding: 8px;
     border-radius: 6px;
-    background: var(--color-primary);
+    background: var(--color-action);
     border: none;
-    color: white;
+    color: var(--color-on-action);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1238,7 +1238,7 @@
   }
 
   .action-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
   .action-btn.delete:hover {
     background: rgba(239, 68, 68, 0.1);
@@ -1279,7 +1279,7 @@
   }
 
   .time-preset-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 
   .presets-section {
@@ -1318,7 +1318,7 @@
   }
 
   .preset-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
     transform: scale(1.02);
   }
   .preset-emoji {
@@ -1405,7 +1405,7 @@
   }
 
   .swap-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 
   .result-section {
@@ -1456,7 +1456,7 @@
   }
 
   .converter-preset-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 
   /* Mobile styles - uses --bottom-nav-height set by BottomNav component */

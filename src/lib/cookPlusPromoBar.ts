@@ -15,7 +15,7 @@
  * Rules:
  *   1. Membership is enabled for this deployment (PUBLIC_MEMBERSHIP_ENABLED).
  *   2. Signed in AND the membership lookup has resolved inactive.
- *   3. The URL is the main feed (/community, not its Groups tab) or a
+ *   3. The URL is the main feed (/feed, not its Groups tab) or a
  *      recipe detail page.
  *   4. No other overlay is open. An overlay only hides the bar; it comes
  *      back when the overlay closes.
@@ -87,7 +87,7 @@ export interface UrlParts {
  */
 export function promoBarSurfaceFor(url: UrlParts): PromoBarSurface | null {
   const path = url.pathname.replace(/\/+$/, '') || '/';
-  if (path === '/community') {
+  if (path === '/feed') {
     const tab = new URLSearchParams(url.search).get('tab');
     return tab === 'members' ? null : 'feed';
   }

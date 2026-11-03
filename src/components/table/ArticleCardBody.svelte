@@ -4,19 +4,28 @@
   import { formatDistanceToNow } from 'date-fns';
   import type { ArticleData } from '$lib/articleUtils';
   import { getPlaceholderImage } from '$lib/placeholderImages';
+  import { readsImage } from '$lib/reads/readsImage';
 
   export let article: ArticleData;
   export let size: 'hero' | 'secondary' | 'tertiary';
 
-  let imageError = false;
+  // 0 = routed rendition, 1 = original URL, 2 = placeholder ($lib/reads/readsImage).
+  let attempt = 0;
   let imageLoaded = false;
+  let shownId = article.id;
+  $: if (article.id !== shownId) {
+    shownId = article.id;
+    attempt = 0;
+    imageLoaded = false;
+  }
 
-  $: displayImageUrl = imageError
-    ? getPlaceholderImage(article.id)
-    : article.imageUrl || getPlaceholderImage(article.id);
+  $: img = readsImage(article.imageUrl, size, attempt, getPlaceholderImage(article.id));
 
   function handleImageError() {
-    imageError = true;
+    if (attempt < 2) {
+      attempt += 1;
+      imageLoaded = false;
+    }
   }
 
   function handleImageLoad() {
@@ -47,9 +56,9 @@
         'w-full h-full object-cover transition-transform duration-300 group-hover:scale-110'
     },
     skeleton: {
-      hero: 'absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700',
-      secondary: 'absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700',
-      tertiary: 'absolute inset-0 animate-pulse bg-gray-200 dark:bg-gray-700 rounded-lg'
+      hero: 'absolute inset-0 animate-pulse bg-[var(--color-input-bg)] dark:bg-[var(--color-bg-secondary)]',
+      secondary: 'absolute inset-0 animate-pulse bg-[var(--color-input-bg)] dark:bg-[var(--color-bg-secondary)]',
+      tertiary: 'absolute inset-0 animate-pulse bg-[var(--color-input-bg)] dark:bg-[var(--color-bg-secondary)] rounded-lg'
     },
     contentWrapper: {
       hero: 'lg:w-2/5 p-6 lg:p-8 flex flex-col justify-center',
@@ -84,6 +93,8 @@
   $: avatarSize = ({ hero: 44, secondary: 28, tertiary: 20 } as const)[size];
   $: tagsToShow = size === 'hero' ? 4 : 2;
   $: imgLoading = (size === 'hero' ? 'eager' : 'lazy') as 'eager' | 'lazy';
+  // The cover hero is the page's LCP candidate.
+  $: imgPriority = (size === 'hero' ? 'high' : 'auto') as 'high' | 'auto';
 </script>
 
 <!-- Image Section -->
@@ -91,10 +102,14 @@
   {#if classes.aspectWrapper[size]}
     <div class={classes.aspectWrapper[size]}>
       <img
-        src={displayImageUrl}
+        src={img.src}
+        srcset={img.srcset}
+        sizes={img.srcset ? img.sizes : undefined}
         alt={article.title}
         class="{classes.img[size]} {imageLoaded ? 'opacity-100' : 'opacity-0'}"
         loading={imgLoading}
+        fetchpriority={imgPriority}
+        decoding="async"
         on:error={handleImageError}
         on:load={handleImageLoad}
       />
@@ -106,7 +121,7 @@
         <!-- Featured Badge -->
         <div class="absolute top-4 left-4">
           <span
-            class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm"
+            class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-[var(--color-bg-primary)]/90 dark:bg-[var(--color-bg-secondary)]/90 backdrop-blur-sm"
             style="color: var(--color-primary);"
           >
             Featured
@@ -116,10 +131,13 @@
     </div>
   {:else}
     <img
-      src={displayImageUrl}
+      src={img.src}
+      srcset={img.srcset}
+      sizes={img.srcset ? img.sizes : undefined}
       alt={article.title}
       class="{classes.img[size]} {imageLoaded ? 'opacity-100' : 'opacity-0'}"
       loading={imgLoading}
+      decoding="async"
       on:error={handleImageError}
       on:load={handleImageLoad}
     />
@@ -179,7 +197,7 @@
         {#each article.tags.slice(0, tagsToShow) as tag}
           <span
             class={classes.tagPill[size]}
-            style="background-color: rgba(255, 107, 53, 0.1); color: #ff6b35;"
+            style="background-color: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary);"
           >
             #{tag}
           </span>
@@ -217,7 +235,7 @@
           {#each article.tags.slice(0, tagsToShow) as tag}
             <span
               class={classes.tagPill[size]}
-              style="background-color: rgba(255, 107, 53, 0.1); color: #ff6b35;"
+              style="background-color: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary);"
             >
               #{tag}
             </span>
@@ -233,7 +251,7 @@
         {#each article.tags.slice(0, tagsToShow) as tag}
           <span
             class={classes.tagPill[size]}
-            style="background-color: rgba(255, 107, 53, 0.1); color: #ff6b35;"
+            style="background-color: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary);"
           >
             #{tag}
           </span>
@@ -244,6 +262,10 @@
 </div>
 
 <style>
+  :global(html:not(.dark)) div[class~='bg-[var(--color-input-bg)]'] {
+    background-color: var(--color-skeleton-base);
+  }
+
   .article-card-body :global(.line-clamp-1) {
     display: -webkit-box;
     -webkit-line-clamp: 1;

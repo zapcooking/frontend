@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { fetchOwnMembership } from '$lib/membership/ownStatus';
 	import { goto } from '$app/navigation';
 	import { ndk, userPublickey } from '$lib/nostr';
 	import { fetchKitchenByPubkey, publishKitchen } from '$lib/marketplace/kitchens';
@@ -14,6 +15,8 @@
 
 	let checkingMembership = true;
 	let hasActiveMembership = false;
+	/** 'unknown' = the check itself failed; never shown as the membership pitch. */
+	let membershipState: 'active' | 'inactive' | 'unknown' | null = null;
 	let needsAcknowledgment = false;
 	let loadingKitchen = true;
 	let existingKitchen: Kitchen | null = null;
@@ -41,16 +44,9 @@
 	async function checkMembership() {
 		checkingMembership = true;
 		try {
-			const res = await fetch('/api/membership/check-status', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ pubkey: $userPublickey })
-			});
-
-			if (res.ok) {
-				const data = await res.json();
-				hasActiveMembership = data.isActive === true;
-			}
+			const own = await fetchOwnMembership($userPublickey);
+			membershipState = own.state;
+			hasActiveMembership = own.state === 'active';
 		} catch (e) {
 			console.error('[Kitchen] Failed to check membership:', e);
 		} finally {
@@ -135,9 +131,14 @@
 		<div class="flex justify-center py-12">
 			<PanLoader size="md" />
 		</div>
+	{:else if membershipState === 'unknown'}
+		<section class="rounded-xl shadow-sm p-5 md:p-6 text-center" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
+			<p class="mb-4" style="color: var(--color-text-secondary)">We couldn't check your membership right now.</p>
+			<button type="button" on:click={checkMembership} class="px-5 py-2 rounded-lg font-medium" style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)">Try again</button>
+		</section>
 	{:else if !hasActiveMembership}
 		<div class="membership-gate text-center py-12 px-6 rounded-2xl" style="background-color: var(--color-bg-secondary);">
-			<LockIcon size={64} weight="duotone" class="mx-auto mb-4 text-orange-500" />
+			<LockIcon size={64} weight="duotone" class="mx-auto mb-4 text-primary" />
 			<h2 class="text-xl font-bold mb-2" style="color: var(--color-text-primary)">
 				Membership Required
 			</h2>
@@ -147,7 +148,7 @@
 			<a
 				href="/membership"
 				class="inline-block px-6 py-3 rounded-xl font-semibold"
-				style="background: linear-gradient(135deg, #f97316, #fb923c); color: white;"
+				style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 			>
 				View Membership Plans
 			</a>
@@ -162,7 +163,7 @@
 	{:else}
 		{#if error}
 			<div class="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30">
-				<p class="text-red-500 text-sm">{error}</p>
+				<p class="text-[var(--color-danger)] text-sm">{error}</p>
 			</div>
 		{/if}
 

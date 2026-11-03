@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isImageUrl, extractImageUrls, filterImageUrls } from './imageUrls';
+import { isImageUrl, isVideoUrl, extractImageUrls, filterImageUrls } from './imageUrls';
 
 describe('isImageUrl', () => {
   it('accepts extension-bearing image URLs', () => {
@@ -105,5 +105,19 @@ describe('filterImageUrls', () => {
     expect(allImageUrls[allImageUrls.indexOf(B) - 1]).toBe(A);
     // The counter shows the distinct-image count, not occurrence count.
     expect(allImageUrls).toHaveLength(2);
+  });
+});
+
+describe('isVideoUrl', () => {
+  it('accepts the extensions NoteContent plays, query strings included', () => {
+    for (const u of ['https://a/v.mp4', 'https://a/v.WEBM', 'https://a/v.mov?x=1', 'https://a/v.avi', 'https://a/v.mkv']) {
+      expect(isVideoUrl(u)).toBe(true);
+    }
+  });
+
+  it('rejects .m4v, pages, an extension outside the path, and junk', () => {
+    for (const u of ['https://a/v.m4v', 'https://youtube.com/watch?v=x', 'https://a/page?f=v.mp4', 'not a url']) {
+      expect(isVideoUrl(u)).toBe(false);
+    }
   });
 });

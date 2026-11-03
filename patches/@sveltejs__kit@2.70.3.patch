@@ -1,0 +1,24 @@
+diff --git a/src/runtime/client/state.svelte.js b/src/runtime/client/state.svelte.js
+index 9f621d97d80beaf57ba2f9b9c27ad4582c62fec0..750b9fdf902ad940b634073f7bb6ed51c3686ca8 100644
+--- a/src/runtime/client/state.svelte.js
++++ b/src/runtime/client/state.svelte.js
+@@ -10,9 +10,16 @@ export let navigating;
+ /** @type {{ current: boolean }} */
+ export let updated;
+ 
+-// this is a bootleg way to tell if we're in old svelte or new svelte
+-const is_legacy =
+-	onMount.toString().includes('$$') || /function \w+\(\) \{\}/.test(onMount.toString());
++// zap.cooking runs Svelte 4, so the legacy (plain-object) branch is always
++// the correct one. Kit's runtime sniff below misfires on the server: Svelte
++// 4's SSR onMount stub is an empty function formatted across two lines, so
++// neither `includes('$$')` nor the `function \w+\(\) \{\}` regex matches, and
++// the Svelte 5 branch then evaluates raw `$state` under a Svelte 4 runtime —
++// `ReferenceError: $state is not defined` at module init, a 500 on every
++// server-rendered page (whether that branch survives bundling depends on
++// treeshake variance we don't control). Force the Svelte 4 branch.
++// REMOVE THIS PATCH when the app upgrades to Svelte 5.
++const is_legacy = true;
+ 
+ const placeholder_url = 'a:';
+ 

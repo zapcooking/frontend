@@ -340,7 +340,7 @@ function writeCache(pubkey: string, now: Date, groups: MemoryGroup[]): void {
 
 /**
  * In-flight fetches keyed by pubkey+day. Rapid mount/unmount cycles (e.g.
- * bouncing between /community and /memories before the first fetch
+ * bouncing between /feed and /memories before the first fetch
  * finishes) share one fetch instead of opening 3 new subscriptions per
  * mount. Entries are removed when the fetch settles, so each subscription
  * still self-terminates on eose or its 10s timeout — nothing outlives that.

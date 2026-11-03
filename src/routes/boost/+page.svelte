@@ -345,7 +345,7 @@
           </button>
         </div>
         {#if fetchError}
-          <p class="text-xs mt-2" style="color: #ef4444;">{fetchError}</p>
+          <p class="text-xs mt-2" style="color: var(--color-danger);">{fetchError}</p>
         {/if}
       {/if}
     </section>
@@ -409,7 +409,7 @@
         </button>
 
         {#if error}
-          <p class="text-xs mt-2" style="color: #ef4444;">{error}</p>
+          <p class="text-xs mt-2" style="color: var(--color-danger);">{error}</p>
         {/if}
       </section>
     {/if}
@@ -483,9 +483,9 @@
   }
 
   .boost-btn--pay {
-    background-color: var(--color-primary);
-    border-color: var(--color-primary);
-    color: white;
+    background-color: var(--color-action);
+    border-color: var(--color-action);
+    color: var(--color-on-action);
   }
 
   .boost-btn--pay:hover:not(:disabled) {
@@ -512,11 +512,11 @@
 
   .duration-card--selected {
     border-color: var(--color-primary);
-    background: rgba(236, 71, 0, 0.06);
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
   }
 
   :global(html.dark) .duration-card--selected {
-    background: rgba(236, 71, 0, 0.12);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   }
 
   .success-card {

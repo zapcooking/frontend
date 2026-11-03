@@ -87,7 +87,7 @@
   }
 </script>
 
-<div class="flex items-center gap-1 {sizeClasses[size]}" class:text-yellow-500={zapTotal > 0} class:text-black={zapTotal === 0}>
+<div class="flex items-center gap-1 {sizeClasses[size]}" class:text-[var(--color-warning)]={zapTotal > 0} class:text-primary-color={zapTotal === 0}>
   {#if loading}
     <div class="animate-pulse">...</div>
   {:else}

@@ -32,7 +32,19 @@ import {
 import { getPublicKey } from 'nostr-tools';
 
 export const VAULT_STORAGE_KEY = 'nostrcooking_vault_v1';
+/** The retired floating enroll card's dismissal; accountNudge still honors its 'never'. */
 export const VAULT_PROMPT_DISMISSED_KEY = 'nostrcooking_vault_prompt_dismissed';
+/**
+ * Set while the vault was built from create()-time PRF (one-prompt
+ * enrollment) and no unlock has decrypted it yet: { credentialId,
+ * cancelledUnlocks }. Until then AuthManager keeps the plaintext key as a
+ * silent fallback, so a provider whose get() can't reproduce the create()
+ * PRF never locks anyone out. Written BEFORE the
+ * record (enrollPasskey): an unmarked unconfirmed record would be adopted
+ * as confirmed and the plaintext key deleted. Kept outside the frozen v1
+ * record shape (and so out of sync blobs).
+ */
+export const VAULT_UNCONFIRMED_KEY = 'nostrcooking_vault_unconfirmed';
 
 /**
  * All credentials bind to the production rp id — never the current origin.
@@ -139,41 +151,112 @@ export function saveVaultRecord(record: VaultRecord): void {
 export function deleteVaultRecord(): void {
   if (!browser) return;
   localStorage.removeItem(VAULT_STORAGE_KEY);
+  localStorage.removeItem(VAULT_UNCONFIRMED_KEY);
 }
+
+interface UnconfirmedState {
+  credentialId: string;
+  /** Unlocks of this vault that ended in a cancel-shaped error, across visits. */
+  cancelledUnlocks: number;
+}
+
+function readUnconfirmed(): UnconfirmedState | null {
+  if (!browser) return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(VAULT_UNCONFIRMED_KEY) || 'null');
+    if (typeof parsed?.credentialId !== 'string') return null;
+    return { credentialId: parsed.credentialId, cancelledUnlocks: Number(parsed.cancelledUnlocks) || 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** The record's entry is still unconfirmed (one-prompt enrollment, no unlock yet). */
+export function isVaultUnconfirmed(record: VaultRecord | null = getVaultRecord()): boolean {
+  const state = readUnconfirmed();
+  return !!record && !!state && record.keys.some((k) => k.credentialId === state.credentialId);
+}
+
+export function markVaultUnconfirmed(credentialId: string): void {
+  const state: UnconfirmedState = { credentialId, cancelledUnlocks: 0 };
+  localStorage.setItem(VAULT_UNCONFIRMED_KEY, JSON.stringify(state));
+}
+
+export function clearVaultUnconfirmed(): void {
+  if (browser) localStorage.removeItem(VAULT_UNCONFIRMED_KEY);
+}
+
+/** Count a cancel-shaped failed unlock of the unconfirmed vault; returns the total. */
+export function countCancelledUnlock(): number {
+  const state = readUnconfirmed();
+  if (!state) return 0;
+  state.cancelledUnlocks += 1;
+  localStorage.setItem(VAULT_UNCONFIRMED_KEY, JSON.stringify(state));
+  return state.cancelledUnlocks;
+}
+
 
 // ── Feature detection ───────────────────────────────────────────
 
 export type VaultSupport = 'full' | 'no-prf' | 'none';
 
 /**
+ * Why support is not 'full'. One value per gate in detectSupportDetail(),
+ * in check order; null when support is 'full'. Consumed by Settings so a
+ * hidden vault card can explain itself instead of rendering nothing.
+ */
+export type VaultSupportReason =
+  | 'native'
+  | 'unsupported-origin'
+  | 'insecure-context'
+  | 'no-webauthn'
+  | 'no-prf'
+  | null;
+
+export interface VaultSupportDetail {
+  support: VaultSupport;
+  reason: VaultSupportReason;
+}
+
+/**
  * 'none'   — no WebAuthn surface at all (native app, insecure context, old browser)
  * 'no-prf' — WebAuthn present but the platform reports no PRF support
  * 'full'   — PRF believed available. Still provisional: only the enrollment
  *            ceremony's verify-on-get proves it for the actual provider.
+ *
+ * The gates run in this exact order and the first failing one names the
+ * reason: native → unsupported-origin → insecure-context → no-webauthn →
+ * no-prf. (SSR counts as 'native' for the reason: it is "not the web app
+ * runtime", and no component reads the reason before mount anyway.)
  */
-export async function detectSupport(): Promise<VaultSupport> {
-  if (!browser || isNative()) return 'none';
-  if (!isSupportedOrigin()) return 'none';
-  if (!window.isSecureContext) return 'none';
+export async function detectSupportDetail(): Promise<VaultSupportDetail> {
+  if (!browser || isNative()) return { support: 'none', reason: 'native' };
+  if (!isSupportedOrigin()) return { support: 'none', reason: 'unsupported-origin' };
+  if (!window.isSecureContext) return { support: 'none', reason: 'insecure-context' };
   const pkc = (window as any).PublicKeyCredential;
-  if (!pkc || !navigator.credentials?.create) return 'none';
+  if (!pkc || !navigator.credentials?.create) return { support: 'none', reason: 'no-webauthn' };
   try {
     if (typeof pkc.getClientCapabilities === 'function') {
       const caps = await pkc.getClientCapabilities();
       const prf = caps?.['extension:prf'];
-      if (prf === false) return 'no-prf';
+      if (prf === false) return { support: 'no-prf', reason: 'no-prf' };
       // true → full; ABSENT → provisional 'full'. Safari omits extension
       // keys from getClientCapabilities entirely, and per the WebAuthn spec
       // an absent capability means "unknown", not "unsupported" — only an
       // explicit false may hide the feature. The enrollment ceremony
       // (prf.enabled on create + PRF output verified on get) remains the
       // authoritative check either way.
-      return 'full';
+      return { support: 'full', reason: null };
     }
   } catch {
     /* capability probe failed — fall through to provisional */
   }
-  return 'full';
+  return { support: 'full', reason: null };
+}
+
+/** Thin wrapper over detectSupportDetail() — existing callers keep the bare VaultSupport. */
+export async function detectSupport(): Promise<VaultSupport> {
+  return (await detectSupportDetail()).support;
 }
 
 /**
@@ -196,25 +279,6 @@ export async function detectHybridTransport(): Promise<boolean> {
     /* fall through to false */
   }
   return false;
-}
-
-/** Pure predicate for the migration prompt (unit-tested). */
-export function shouldOfferEnrollment(ctx: {
-  authMethod: string | null;
-  isAuthenticated: boolean;
-  hasPlaintextKey: boolean;
-  hasVault: boolean;
-  support: VaultSupport;
-  dismissed: boolean;
-}): boolean {
-  return (
-    ctx.isAuthenticated &&
-    ctx.authMethod === 'privateKey' &&
-    ctx.hasPlaintextKey &&
-    !ctx.hasVault &&
-    ctx.support === 'full' &&
-    !ctx.dismissed
-  );
 }
 
 // ── Ceremonies ──────────────────────────────────────────────────
@@ -263,6 +327,17 @@ export interface AssertionWire {
   clientDataJSON: string;
 }
 
+/**
+ * Wire form of a create() response (base64url) that authorizes a FIRST
+ * vault-sync upload, stored unconfirmed (see the PUT route). Only
+ * meaningful when the create() signed over a server-issued challenge.
+ */
+export interface RegistrationWire {
+  credentialId: string;
+  clientDataJSON: string;
+  authenticatorData: string;
+}
+
 export interface CeremonyOptions {
   /**
    * Server-issued challenge (base64url, from POST /api/vault-sync/challenge).
@@ -282,6 +357,17 @@ function wireAssertion(cred: PublicKeyCredential): AssertionWire | null {
     signature: bytesToB64url(new Uint8Array(res.signature)),
     authenticatorData: bytesToB64url(new Uint8Array(res.authenticatorData)),
     clientDataJSON: bytesToB64url(new Uint8Array(res.clientDataJSON))
+  };
+}
+
+function wireRegistration(cred: PublicKeyCredential): RegistrationWire | null {
+  const res = cred.response as AuthenticatorAttestationResponse | undefined;
+  const authData = res?.getAuthenticatorData?.();
+  if (!authData || !res?.clientDataJSON) return null;
+  return {
+    credentialId: cred.id,
+    clientDataJSON: bytesToB64url(new Uint8Array(res.clientDataJSON)),
+    authenticatorData: bytesToB64url(new Uint8Array(authData))
   };
 }
 
@@ -319,17 +405,33 @@ async function assertWithPrf(
  * Full enrollment ceremony. Creates a passkey, then IMMEDIATELY does a get()
  * and verifies the PRF output round-trips a wrap/unwrap + nsec encrypt/decrypt
  * before anything is persisted — several providers only return PRF results on
- * get(), so create()-time signals are never trusted alone. On any failure the
- * vault storage is left untouched (an orphan passkey may remain in the user's
- * provider; we cannot delete authenticator-side credentials).
+ * get(). With opts.allowCreatePrf a create()-time PRF result is used instead
+ * (one prompt), but only provisionally: the record is `confirmed: false` and
+ * the caller keeps the plaintext key until a real unlock decrypts it, because
+ * some providers return a create() PRF that get() can't reproduce. On any
+ * failure the vault storage is left untouched (an orphan passkey may remain
+ * in the user's provider; we cannot delete authenticator-side credentials).
  */
 export interface EnrollResult {
   record: VaultRecord;
   /**
    * The verify-get assertion. When opts.serverChallenge was provided this is
    * redeemable as the vault-sync TOFU PUT assertion (two-prompt budget).
+   * Null for a one-prompt enrollment (no get() ran).
    */
   assertion: AssertionWire | null;
+  /**
+   * False when the vault was built from create()-time PRF (opts.allowCreatePrf,
+   * one prompt): no get() has proven the provider reproduces that PRF, so the
+   * caller must keep the plaintext key until an unlock decrypts the vault.
+   */
+  confirmed: boolean;
+  /**
+   * One-prompt enrollment over opts.serverChallenge: the create() response,
+   * redeemable as a registration-authorized (unconfirmed) first upload.
+   * Null otherwise, or when the browser lacks getAuthenticatorData().
+   */
+  registration: RegistrationWire | null;
 }
 
 export interface EnrollOptions extends CeremonyOptions {
@@ -339,6 +441,13 @@ export interface EnrollOptions extends CeremonyOptions {
    * the provider, and excludeCredentials would make the provider refuse.
    */
   excludeExisting?: boolean;
+  /**
+   * One-prompt enrollment: ask create() for the PRF output too, and when it
+   * returns one, build the vault from it and skip the verify-get. The result
+   * is then `confirmed: false`. Without a create()-time PRF result this is
+   * today's create + get, unchanged.
+   */
+  allowCreatePrf?: boolean;
 }
 
 export async function enrollPasskey(
@@ -362,9 +471,14 @@ export async function enrollPasskey(
           id: b64urlToBytes(k.credentialId) as BufferSource
         }));
 
+  // With a server challenge the create() signs over it too, so a one-prompt
+  // enrollment's registration response can authorize the first upload. (The
+  // fallback get() reuses it; the server redeems a challenge only once.)
   const created = (await navigator.credentials.create({
     publicKey: {
-      challenge: randomChallenge() as BufferSource,
+      challenge: (opts?.serverChallenge
+        ? b64urlToBytes(opts.serverChallenge)
+        : randomChallenge()) as BufferSource,
       rp: { id: RP_ID, name: 'Zap Cooking' },
       user: {
         id: hexToBytes(pubkey) as BufferSource,
@@ -381,7 +495,7 @@ export async function enrollPasskey(
         userVerification: 'required'
       },
       excludeCredentials,
-      extensions: { prf: {} } as any
+      extensions: (opts?.allowCreatePrf ? prfExtensionEval() : { prf: {} }) as any
     }
   })) as PublicKeyCredential | null;
   if (!created) throw new PasskeyVaultError('Passkey creation returned no credential');
@@ -415,12 +529,18 @@ export async function enrollPasskey(
     /* provider without getPublicKey — sync unavailable, vault still fine */
   }
 
-  // Verify-on-get: derive the KEK from a real assertion, never from create().
-  // With opts.serverChallenge this same prompt also produces the TOFU PUT
-  // assertion — enrollment must never grow a third ceremony.
-  const { credentialId, prfOutput, assertion } = await assertWithPrf([created.id], opts).catch(
-    tagOrphan
-  );
+  // One prompt when allowed and create() returned the PRF output: build the
+  // vault from it, unconfirmed until an unlock decrypts it. Otherwise
+  // verify-on-get: derive the KEK from a real assertion. With
+  // opts.serverChallenge that prompt also produces the TOFU PUT assertion —
+  // enrollment must never grow a third ceremony.
+  const createPrf = opts?.allowCreatePrf ? getPrfResult(created) : null;
+  const confirmed = !createPrf;
+  const registration =
+    !confirmed && opts?.serverChallenge ? wireRegistration(created) : null;
+  const { credentialId, prfOutput, assertion } = createPrf
+    ? { credentialId: created.id, prfOutput: createPrf, assertion: null }
+    : await assertWithPrf([created.id], opts).catch(tagOrphan);
 
   const kek = deriveKek(prfOutput);
   const dek = generateDek();
@@ -451,8 +571,11 @@ export async function enrollPasskey(
         }
       ]
     };
+    // Marker first: if it can't be written, nothing is saved. (A marker left
+    // by a failed record write matches no record, so it is inert.)
+    if (!confirmed) markVaultUnconfirmed(credentialId);
     saveVaultRecord(record);
-    return { record, assertion };
+    return { record, assertion, confirmed, registration };
   } catch (e) {
     if (e instanceof PasskeyVaultError) tagOrphan(e);
     tagOrphan(
@@ -489,6 +612,20 @@ export async function unlockPasskey(
     record.keys.map((k) => k.credentialId),
     opts
   );
+  const privkeyHex = await openVaultWithPrf(record, credentialId, prfOutput);
+  return { privkeyHex, credentialId, assertion };
+}
+
+/**
+ * Decrypt the vault with a ceremony's PRF output for one of its credentials
+ * (unlockPasskey, or a passkey picked from the OS list). Fails closed on any
+ * mismatch; never mutates storage. Zeroizes prfOutput.
+ */
+export async function openVaultWithPrf(
+  record: VaultRecord,
+  credentialId: string,
+  prfOutput: Uint8Array
+): Promise<string> {
   const entry = record.keys.find((k) => k.credentialId === credentialId);
   if (!entry) {
     zeroize(prfOutput);
@@ -503,7 +640,7 @@ export async function unlockPasskey(
     if (getPublicKey(hexToBytes(privkeyHex)) !== record.pubkey) {
       throw new UnlockFailedError('Decrypted key does not match the vault pubkey');
     }
-    return { privkeyHex, credentialId, assertion };
+    return privkeyHex;
   } catch (e) {
     if (e instanceof PasskeyVaultError) throw e;
     throw new UnlockFailedError(

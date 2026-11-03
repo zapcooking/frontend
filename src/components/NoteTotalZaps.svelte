@@ -7,6 +7,8 @@
   import { getEngagementStore, fetchEngagement } from '$lib/engagementCache';
   import ZappersListModal from './ZappersListModal.svelte';
   import { canOneTapZap, sendOneTapZap, getOneTapAmount } from '$lib/oneTapZap';
+  import { showToast } from '$lib/toast';
+  import { PENDING_MESSAGE } from '$lib/wallet/paymentOutcome';
   import CustomAvatar from './CustomAvatar.svelte';
 
   export let event: NDKEvent;
@@ -44,8 +46,23 @@
     const current = $store.zaps.lastSelfZapAt;
     if (current && current !== prevLastSelfZapAt) {
       triggerSparkleBurst();
+      triggerBoltShimmer();
     }
     prevLastSelfZapAt = current;
+  }
+
+  // Shimmer: two quick brightness glints across the bolt when your own zap
+  // lands, so the icon answers the send instantly — before any engagement
+  // refetch can confirm it. Runs alongside the sparkle burst.
+  let boltShimmer = false;
+  let shimmerTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function triggerBoltShimmer() {
+    boltShimmer = true;
+    if (shimmerTimer) clearTimeout(shimmerTimer);
+    shimmerTimer = setTimeout(() => {
+      boltShimmer = false;
+    }, 1200);
   }
 
   // Long press handling
@@ -67,6 +84,9 @@
     }
     if (sparkleTimer) {
       clearTimeout(sparkleTimer);
+    }
+    if (shimmerTimer) {
+      clearTimeout(shimmerTimer);
     }
   });
 
@@ -219,12 +239,18 @@
           navigator.vibrate(200); // Longer single vibration for error
         }
         console.log('[NoteTotalZaps] One-tap zap failed:', result.error);
-        // If zap failed, we need to revert the optimistic update
-        // Refresh to get accurate counts (this will revert the optimistic update)
+        // The optimistic update was reverted inside sendOneTapZap; refresh
+        // to get accurate counts.
         fetchEngagement($ndk, event, $userPublickey);
 
-        if (onZapClick) {
-          // Fall back to modal if one-tap fails
+        if (result.status === 'pending') {
+          // May still go through: never offer another way to pay.
+          showToast('info', `${PENDING_MESSAGE}.`, 8000);
+        } else if (result.status === 'unavailable' || result.status === 'failed') {
+          showToast('error', result.error || 'Zap failed', 8000);
+        } else if (onZapClick) {
+          // Failed before any payment (no Lightning address, LNURL down):
+          // the modal explains it and offers a retry.
           onZapClick();
         }
       }
@@ -258,7 +284,7 @@
     style="color: var(--color-text-primary)"
   >
     <button
-      class="hover:bg-input rounded p-1 select-none touch-none"
+      class="rounded p-1 select-none touch-none"
       style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
       on:mousedown={handlePressStart}
       on:mouseup={handlePressEnd}
@@ -275,7 +301,7 @@
         ? `Zap ${getOneTapAmount()} sats (hold for custom amount)`
         : 'Send a zap'}
     >
-      <LightningIcon size={24} class="text-caption" weight="regular" />
+      <LightningIcon size={20} class="text-caption" weight="regular" />
     </button>
     <span class="text-caption opacity-0">0</span>
   </div>
@@ -294,7 +320,7 @@
         title="{zapper.amount} sats"
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
-        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        <LightningIcon size={12} class="text-[var(--color-warning)] flex-shrink-0" weight="fill" />
         <span class="text-xs text-caption font-semibold">{formatAmount(zapper.amount)}</span>
       </button>
     {/each}
@@ -304,7 +330,7 @@
         class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
         title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
       >
-        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        <LightningIcon size={12} class="text-[var(--color-warning)] flex-shrink-0" weight="fill" />
         +{hiddenCount}
       </button>
     {/if}
@@ -316,7 +342,7 @@
   >
     <!-- Zap Button -->
     <button
-      class="hover:bg-input rounded p-1 transition-colors select-none touch-none flex-shrink-0"
+      class="rounded p-1 transition-colors select-none touch-none flex-shrink-0"
       class:opacity-50={isZapping}
       class:cursor-wait={isZapping}
       style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
@@ -344,9 +370,9 @@
       <span class="bolt-sparkle-wrap">
         <LightningIcon
           size={18}
-          class="{isZapping || totalSats > 0 ? 'text-yellow-500' : 'text-caption'} {isZapping
+          class="{isZapping || totalSats > 0 ? 'text-[var(--color-warning)]' : 'text-caption'} {isZapping
             ? 'animate-pulse'
-            : ''}"
+            : ''} {boltShimmer ? 'bolt-shimmer' : ''}"
           weight={isZapping || $store.zaps.userZapped ? 'fill' : 'regular'}
         />
         {#if sparkleBurstCount > 0}
@@ -373,7 +399,7 @@
         title="{zapper.amount} sats"
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full flex-shrink-0" />
-        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        <LightningIcon size={12} class="text-[var(--color-warning)] flex-shrink-0" weight="fill" />
         <span class="text-xs text-caption font-semibold">{formatAmount(zapper.amount)}</span>
       </button>
     {/each}
@@ -385,7 +411,7 @@
         class="zap-pill flex items-center gap-1 h-6 pl-1.5 pr-2 rounded-full text-caption text-xs font-semibold cursor-pointer transition-colors flex-shrink-0"
         title="{hiddenCount} more zappers ({formatAmount(totalSats)} sats total)"
       >
-        <LightningIcon size={12} class="text-yellow-500 flex-shrink-0" weight="fill" />
+        <LightningIcon size={12} class="text-[var(--color-warning)] flex-shrink-0" weight="fill" />
         +{hiddenCount}
       </button>
     {/if}
@@ -398,7 +424,7 @@
   >
     <!-- Zap Icon Button -->
     <button
-      class="hover:bg-input rounded p-1 transition-colors select-none touch-none"
+      class="rounded p-1 transition-colors select-none touch-none"
       class:opacity-50={isZapping}
       class:cursor-wait={isZapping}
       style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
@@ -423,8 +449,10 @@
         <LightningIcon
           size={24}
           class="{isZapping || $store.zaps.totalAmount > 0
-            ? 'text-yellow-500'
-            : 'text-caption'} {isZapping ? 'animate-pulse' : ''}"
+            ? 'text-[var(--color-warning)]'
+            : 'text-caption'} {isZapping ? 'animate-pulse' : ''} {boltShimmer
+            ? 'bolt-shimmer'
+            : ''}"
           weight={isZapping || $store.zaps.userZapped ? 'fill' : 'regular'}
         />
         {#if sparkleBurstCount > 0}
@@ -493,6 +521,31 @@
     line-height: 0;
     overflow: visible;
   }
+
+  /* Two quick brightness glints when your own zap lands — the bolt answers
+     the send instantly, before any engagement refetch confirms it. The
+     class is applied via a string interpolation, so it needs :global under
+     the scoped wrap for Svelte to keep the rule. */
+  .bolt-sparkle-wrap :global(.bolt-shimmer) {
+    animation: bolt-shimmer 1.1s ease-in-out;
+  }
+
+  @keyframes bolt-shimmer {
+    0%,
+    100% {
+      filter: brightness(1);
+    }
+    25% {
+      filter: brightness(1.9) drop-shadow(0 0 6px rgba(250, 204, 21, 0.85));
+    }
+    50% {
+      filter: brightness(1.05);
+    }
+    75% {
+      filter: brightness(1.7) drop-shadow(0 0 5px rgba(250, 204, 21, 0.65));
+    }
+  }
+
   .sparkle {
     position: absolute;
     top: 50%;

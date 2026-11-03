@@ -14,6 +14,7 @@
  * @see https://github.com/nostr-protocol/nips/blob/master/89.md
  */
 
+import { parseCoordinate } from './coordinate';
 import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 
@@ -71,7 +72,7 @@ export function parseClientTag(tags: string[][]): ClientTagInfo | null {
     if (clientTag.length >= 3 && clientTag[2]) {
       const handlerAddr = clientTag[2].trim();
       // Validate it looks like a handler address: "31990:<pubkey>:<d-tag>"
-      if (handlerAddr.startsWith('31990:') && handlerAddr.split(':').length >= 3) {
+      if (parseCoordinate(handlerAddr)?.kind === 31990) {
         result.handlerAddress = handlerAddr;
       }
     }
@@ -134,24 +135,9 @@ function saveHandlerCache(cache: Map<string, HandlerInfo>): void {
  * Parse the handler address to extract kind, pubkey, and d-tag
  */
 function parseHandlerAddress(address: string): { kind: number; pubkey: string; dTag: string } | null {
-  try {
-    const parts = address.split(':');
-    if (parts.length < 3) return null;
-    
-    const kind = parseInt(parts[0], 10);
-    if (isNaN(kind) || kind !== 31990) return null;
-    
-    const pubkey = parts[1];
-    if (!pubkey || !/^[0-9a-f]{64}$/i.test(pubkey)) return null;
-    
-    // d-tag can contain colons, so join remaining parts
-    const dTag = parts.slice(2).join(':');
-    if (!dTag) return null;
-    
-    return { kind, pubkey, dTag };
-  } catch {
-    return null;
-  }
+  const c = parseCoordinate(address);
+  if (!c || c.kind !== 31990 || !c.identifier) return null;
+  return { kind: c.kind, pubkey: c.pubkey, dTag: c.identifier };
 }
 
 /**

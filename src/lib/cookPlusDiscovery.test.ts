@@ -67,7 +67,7 @@ describe('isDiscoveryRoute', () => {
   it('excludes creating and publishing workflows', () => {
     for (const path of [
       '/create',
-      '/create/gated',
+      '/create/anything',
       '/drafts',
       '/fork/abc',
       '/feed-post',

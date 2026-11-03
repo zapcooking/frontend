@@ -467,7 +467,7 @@
 
   .minimize-btn:hover,
   .close-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 
   .converter-content {
@@ -536,7 +536,7 @@
   }
 
   .swap-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 
   .result-section {
@@ -604,7 +604,7 @@
   }
 
   .preset-btn:hover {
-    background: var(--color-input-border);
+    background: var(--color-hover-bg);
   }
 
   /* Mobile styles */

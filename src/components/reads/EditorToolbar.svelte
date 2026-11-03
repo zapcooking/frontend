@@ -506,13 +506,13 @@
 	}
 
 	.toolbar-btn:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 		color: var(--color-text-primary);
 	}
 
 	.toolbar-btn.active {
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 	}
 
 	.toolbar-btn:disabled {
@@ -575,13 +575,13 @@
 	}
 
 	.dropdown-item:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 		color: var(--color-text-primary);
 	}
 
 	.dropdown-item.active {
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 	}
 
 	.link-input-popover {
@@ -625,8 +625,8 @@
 	}
 
 	.link-btn.save {
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 	}
 
 	.link-btn.save:hover {
@@ -638,7 +638,7 @@
 	}
 
 	.link-btn.cancel:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 	}
 
 	@media (max-width: 640px) {

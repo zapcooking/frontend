@@ -30,11 +30,44 @@ export function getPlaceholderImage(seed?: string): string {
   return PLACEHOLDER_IMAGES[Math.floor(Math.random() * PLACEHOLDER_IMAGES.length)];
 }
 
+// URL patterns that never render real content — pages or error art served in
+// place of the image (some hosts' error pages get captured into an event's
+// image tag by the publishing client).
+export const KNOWN_BROKEN_IMAGE_URL_PATTERNS = [
+  /^https?:\/\/[^/]*\/Ooops/i,
+  /placeholder\.(com|net)/i,
+  /via\.placeholder/i,
+  /placehold\.it/i
+];
+
 /**
- * Check if an image URL is valid (not empty, undefined, or whitespace-only)
+ * nostr.build redirects dead uploads (deleted / purged files) to its CDN's
+ * "404 image not found" artwork with HTTP 200, so an <img> load succeeds and
+ * the error art renders as if it were the photo. Both redirect hops carry CORS
+ * headers, so fetch() can follow them and expose response.url — letting us
+ * detect the substitution.
+ */
+const NOSTR_BUILD_IMAGE_URL_RE = /^https?:\/\/(image|cdn)\.nostr\.build\//i;
+const NOSTR_BUILD_404_ART_URL_RE = /\/\/cdn\.nostr\.build\/404\//i;
+
+export function isNostrBuildImageUrl(url: string): boolean {
+  return NOSTR_BUILD_IMAGE_URL_RE.test(url);
+}
+
+/** True when a fetched nostr.build URL landed on the CDN's 404 error art. */
+export function isNostrBuildDeadUrl(finalUrl: string): boolean {
+  return NOSTR_BUILD_404_ART_URL_RE.test(finalUrl);
+}
+
+/**
+ * Check if an image URL is valid (non-empty and not a known-broken pattern)
  */
 export function isValidImageUrl(url: string | undefined | null): boolean {
-  return Boolean(url && url.trim().length > 0);
+  if (!url || url.trim().length === 0) return false;
+  for (const pattern of KNOWN_BROKEN_IMAGE_URL_PATTERNS) {
+    if (pattern.test(url)) return false;
+  }
+  return true;
 }
 
 /**

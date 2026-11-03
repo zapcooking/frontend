@@ -220,17 +220,17 @@
 		gap: 0.375rem;
 		padding: 0.625rem 1rem;
 		border-radius: 9999px;
-		background: linear-gradient(135deg, #f97316, #f59e0b);
-		color: white;
+		background: linear-gradient(135deg, var(--color-action), var(--color-action));
+		color: var(--color-on-action);
 		font-size: 0.875rem;
 		font-weight: 600;
 		transition: all 0.15s ease;
-		box-shadow: 0 4px 12px rgba(249, 115, 22, 0.25);
+		box-shadow: 0 4px 12px color-mix(in srgb, var(--color-primary) 25%, transparent);
 	}
 
 	.new-draft-btn:hover {
 		transform: translateY(-1px);
-		box-shadow: 0 6px 16px rgba(249, 115, 22, 0.35);
+		box-shadow: 0 6px 16px color-mix(in srgb, var(--color-primary) 35%, transparent);
 	}
 
 	/* Empty State */
@@ -261,8 +261,8 @@
 		gap: 0.5rem;
 		padding: 0.75rem 1.25rem;
 		border-radius: 0.5rem;
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 		font-weight: 500;
 		transition: all 0.15s ease;
 	}
@@ -371,7 +371,7 @@
 
 	.tag {
 		padding: 0.125rem 0.5rem;
-		background: var(--color-accent-gray);
+		background: var(--color-input-bg);
 		color: var(--color-primary);
 		font-size: 0.75rem;
 		font-weight: 500;
@@ -379,7 +379,7 @@
 	}
 
 	.tag.more {
-		background: var(--color-input-border);
+		background: var(--color-input-bg);
 		color: var(--color-text-secondary);
 	}
 
@@ -403,8 +403,8 @@
 	}
 
 	.action-btn.edit {
-		background: var(--color-primary);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 	}
 
 	.action-btn.edit:hover {
@@ -475,7 +475,7 @@
 	}
 
 	.confirm-btn.cancel:hover {
-		background: var(--color-accent-gray);
+		background: var(--color-hover-bg);
 	}
 
 	.confirm-btn.delete {

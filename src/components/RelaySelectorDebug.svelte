@@ -273,7 +273,7 @@
   .section {
     margin-bottom: 1.5rem;
     padding: 1rem;
-    background: var(--color-surface, #f8f9fa);
+    background: var(--color-light-bg-secondary, var(--color-surface, #f8f9fa));
     border-radius: 0.5rem;
   }
   
@@ -282,8 +282,8 @@
     margin-right: 0.5rem;
     border: none;
     border-radius: 0.375rem;
-    background: var(--color-primary, #007bff);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     cursor: pointer;
     font-size: 0.875rem;
   }
@@ -315,7 +315,7 @@
   .comparison-card {
     padding: 1rem;
     border-radius: 0.5rem;
-    background: white;
+    background: var(--color-light-bg-primary, white);
     border: 1px solid var(--color-border, #e5e7eb);
   }
   
@@ -362,7 +362,7 @@
     display: flex;
     justify-content: space-between;
     padding: 0.5rem;
-    background: white;
+    background: var(--color-light-bg-primary, white);
     border-radius: 0.25rem;
     font-size: 0.8125rem;
   }
@@ -389,7 +389,7 @@
     border-radius: 9999px;
     font-size: 0.75rem;
     font-family: monospace;
-    background: var(--color-surface, #e5e7eb);
+    background: var(--color-light-input-border, var(--color-surface, #e5e7eb));
   }
   
   .chip.connected {

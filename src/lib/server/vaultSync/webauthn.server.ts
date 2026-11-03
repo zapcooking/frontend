@@ -212,3 +212,59 @@ export async function verifyAssertion(
 
   return { signCount: authData.signCount };
 }
+
+export interface RegistrationInput {
+  clientDataJSON: Uint8Array;
+  /** authenticatorData from create() (getAuthenticatorData()), with attested credential data. */
+  authenticatorData: Uint8Array;
+  /** The credential id the upload claims (raw bytes). */
+  credentialId: Uint8Array;
+}
+
+/**
+ * Check a registration (create()) response well enough to let it authorize
+ * a FIRST upload: clientDataJSON type/challenge/origin, rpIdHash, UP + UV +
+ * AT flags, and that the attested credential id is the claimed one.
+ *
+ * Passkey providers return "none" attestation, so nothing here is signed by
+ * the new credential: this shows a fresh server challenge went into a
+ * create() on our origin, not that the uploader holds the private key (as
+ * the assertion-backed first upload does). Entries made this way are stored
+ * UNCONFIRMED until a real assertion verifies against their key (PUT route).
+ */
+export async function verifyRegistration(
+  input: RegistrationInput,
+  expectedChallenge: string
+): Promise<VerifiedAssertion> {
+  let clientData: { type?: string; challenge?: string; origin?: string };
+  try {
+    clientData = JSON.parse(new TextDecoder().decode(input.clientDataJSON));
+  } catch {
+    throw new Error('clientDataJSON not JSON');
+  }
+  if (clientData.type !== 'webauthn.create') throw new Error('wrong clientData type');
+  if (typeof clientData.challenge !== 'string' || clientData.challenge !== expectedChallenge) {
+    throw new Error('challenge mismatch');
+  }
+  if (typeof clientData.origin !== 'string' || !isAllowedOrigin(clientData.origin)) {
+    throw new Error('origin not allowed');
+  }
+
+  const authData = parseAuthenticatorData(input.authenticatorData);
+  if (!constantTimeEqual(authData.rpIdHash, await expectedRpIdHash())) {
+    throw new Error('rpIdHash mismatch');
+  }
+  if (!authData.userPresent) throw new Error('UP flag not set');
+  if (!authData.userVerified) throw new Error('UV flag not set');
+  const data = input.authenticatorData;
+  if ((data[32] & 0x40) === 0) throw new Error('AT flag not set');
+
+  // Attested credential data: aaguid(16) | credentialIdLength(2, BE) | credentialId.
+  if (data.length < 55) throw new Error('attested credential data too short');
+  const idLength = (data[53] << 8) | data[54];
+  if (data.length < 55 + idLength) throw new Error('credential id truncated');
+  if (!constantTimeEqual(data.slice(55, 55 + idLength), input.credentialId)) {
+    throw new Error('attested credential id mismatch');
+  }
+  return { signCount: authData.signCount };
+}

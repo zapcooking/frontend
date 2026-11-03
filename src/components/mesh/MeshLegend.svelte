@@ -40,16 +40,16 @@
     border-radius: 10px;
     font-size: 11px;
     z-index: 20;
-    background-color: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    color: rgba(0, 0, 0, 0.6);
+    background-color: color-mix(in srgb, var(--color-light-bg-primary, #ffffff) 70%, transparent);
+    border: 1px solid var(--color-input-border);
+    color: var(--color-text-secondary);
     backdrop-filter: blur(8px);
   }
 
   .mesh-legend.dark {
-    background-color: rgba(20, 15, 12, 0.7);
-    border-color: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.5);
+    background-color: color-mix(in srgb, var(--color-bg-primary) 70%, transparent);
+    border-color: var(--color-input-border);
+    color: var(--color-text-secondary);
   }
 
   .mesh-legend.constellation {

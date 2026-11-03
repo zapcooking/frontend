@@ -1,6 +1,7 @@
 <script lang="ts">
   import { nip19 } from 'nostr-tools';
   import { scanNostrRefs, type ScannedRef } from '$lib/nostrRefScan';
+  import { truncateAtUrlBoundary } from '$lib/noteTruncate';
   import { goto } from '$app/navigation';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
   import { ndk } from '$lib/nostr';
@@ -15,7 +16,11 @@
   import MediaCarousel from './MediaCarousel.svelte';
   import CheffyMediaReview from './CheffyMediaReview.svelte';
   import { processContentWithProfiles } from '$lib/contentProcessor';
-  import { isImageUrl, filterImageUrls } from '$lib/imageUrls';
+  import { isImageUrl, isVideoUrl, filterImageUrls } from '$lib/imageUrls';
+  import { isBlossomUri } from '$lib/blossomUri';
+  import { resolveBlossomUri } from '$lib/blossomUriResolver';
+  import { browser } from '$app/environment';
+  import { imetaAltByUrl, parseImeta } from '$lib/feed/imeta';
   import MediaLightbox from './MediaLightbox.svelte';
   import LightningInvoiceCard from './LightningInvoiceCard.svelte';
   import QuotesIcon from 'phosphor-svelte/lib/Quotes';
@@ -26,7 +31,7 @@
   export let showNostrEmbeds: boolean = true;
   export let embedDepth: number = 0; // Track nesting depth to prevent infinite recursion
   export let collapsible: boolean = true; // Enable collapsible long content
-  export let maxLength: number = 500; // Character limit before collapse
+  export let maxLength: number = 1000; // Character limit before collapse — was 500, then 1500; 1000 keeps long recipes expandable without dominating the feed
   export let event: NDKEvent | undefined = undefined;
 
   let isExpanded: boolean = false;
@@ -53,19 +58,46 @@
   // resolves its pane via allImageUrls.indexOf(url), so both rendered
   // occurrences land on the single pane that shows that image.
   $: allImageUrls = filterImageUrls(
-    finalParsedContent.filter((part: any) => part.type === 'url' && part.url).map((p: any) => p.url)
+    finalParsedContent
+      .filter((part: any) => part.type === 'url' && part.url && !part.bare)
+      .map((p: any) => p.url)
   );
 
-  const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|avi|mkv)(\?.*)?$/i;
+  // NIP-92 imeta alt text, keyed by media URL, for screen readers.
+  $: altByUrl = event ? imetaAltByUrl(event) : new Map();
 
-  function isVideoUrl(url: string): boolean {
-    try {
-      const urlObj = new URL(url);
-      return VIDEO_EXTENSIONS.test(urlObj.pathname);
-    } catch {
-      return false;
+  // BUD-10 `blossom:` URIs name no server — resolve each one to a concrete
+  // https URL before any media tag uses it as src. Everything else stays
+  // keyed by the original URI (alt text, lightbox pane indexing), so only
+  // the src goes through `srcOf`.
+  let resolvedBlossomUrls: Record<string, string> = {};
+  let pendingBlossomResolutions: Record<string, Promise<string | null> | undefined> = {};
+  $: srcOf = (url: string) => resolvedBlossomUrls[url] ?? url;
+  $: blossomMediaUrls = [...new Set(allImageUrls.filter(isBlossomUri))];
+  $: kickBlossomResolution(blossomMediaUrls);
+  function kickBlossomResolution(urls: string[]) {
+    if (!browser) return;
+    for (const url of urls) {
+      if (resolvedBlossomUrls[url] || pendingBlossomResolutions[url]) continue;
+      const task = resolveBlossomUri(url).then((hit) => {
+        delete pendingBlossomResolutions[url];
+        if (hit && resolvedBlossomUrls[url] !== hit) {
+          resolvedBlossomUrls = { ...resolvedBlossomUrls, [url]: hit };
+        }
+        return hit;
+      });
+      pendingBlossomResolutions[url] = task;
     }
   }
+
+  $: blurhashByUrl = event
+    ? new Map(
+        parseImeta(event)
+          .filter((m) => m.blurhash)
+          .map((m) => [m.url, m.blurhash as string])
+      )
+    : new Map();
+
 
   function handleImageError(e: Event) {
     const target = e.target as HTMLImageElement;
@@ -123,9 +155,9 @@
 
   const isYouTube = (url?: string): boolean => !!url && parseYouTube(url) !== null;
 
-  function isMediaPart(part?: { type?: string; url?: string }): boolean {
+  function isMediaPart(part?: { type?: string; url?: string; bare?: boolean }): boolean {
     return Boolean(
-      part?.type === 'url' && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
+      part?.type === 'url' && !part.bare && part.url && (isImageUrl(part.url) || isVideoUrl(part.url))
     );
   }
 
@@ -169,7 +201,7 @@
     return out;
   }
 
-  function isBlockPart(part?: { type?: string; prefix?: string; url?: string }) {
+  function isBlockPart(part?: { type?: string; prefix?: string; url?: string; bare?: boolean }) {
     if (!part?.type) return false;
     if (part.type === 'nostr') {
       // nevent1, note1, and naddr1 are all block-level embedded content
@@ -177,6 +209,9 @@
     }
     if (part.type === 'url') {
       if (!part.url) return false;
+      // Bare domains stay inline links — a fuzzy match is an inference, and
+      // it must never grow into a media gallery or a preview card.
+      if (part.bare) return false;
       return isImageUrl(part.url) || isVideoUrl(part.url) || isYouTube(part.url) || showLinkPreviews;
     }
     return false;
@@ -241,6 +276,7 @@
           type: 'url',
           content: match.content,
           url: match.url,
+          bare: match.bare,
           key: `url-${keyCounter++}`
         });
       } else if (match.type === 'nostr') {
@@ -329,23 +365,8 @@
 
   // Check if content should be collapsed
   $: shouldCollapse = collapsible && content.length > maxLength;
-  // Truncate the preview at a word boundary so we never slice through a word.
-  // If a URL straddles the limit, extend to include the whole URL instead, so
-  // its file extension survives and isImageUrl() classifies it correctly.
-  function truncateAtUrlBoundary(text: string, limit: number): string {
-    const urlRegex = /https?:\/\/[^\s]+/g;
-    let m;
-    while ((m = urlRegex.exec(text)) !== null) {
-      if (m.index < limit && m.index + m[0].length > limit) {
-        return text.substring(0, m.index + m[0].length);
-      }
-    }
-    // Back up to the last whitespace before the limit so the cut lands between
-    // words, not mid-word.
-    const cut = text.substring(0, limit);
-    const boundary = Math.max(cut.lastIndexOf(' '), cut.lastIndexOf('\n'));
-    return (boundary > 0 ? cut.substring(0, boundary) : cut).trimEnd();
-  }
+  // Truncation lives in $lib/noteTruncate so it's unit-testable and shares
+  // the scanner as its source of truth for what counts as a linkable token.
   $: displayContent = shouldCollapse && !isExpanded ? truncateAtUrlBoundary(content, maxLength) : content;
   $: finalParsedContent = splitLightningInvoices(parseContent(displayContent));
   // Whitespace, including zero-width / BOM characters that String.trim() leaves
@@ -433,6 +454,7 @@
      trailing image) on every note. Per-span pre-wrap keeps the author's real
      newlines while letting the container collapse template whitespace. -->
 <div class="break-words note-content {className} w-full">
+  <div class="note-content-body" class:collapsed={shouldCollapse && !isExpanded}>
   {#each renderParts as part, i}
     {#if part.type === 'text'}<span class="whitespace-pre-wrap break-words">{part.content}</span>
     {:else if part.type === 'media-gallery'}
@@ -443,6 +465,8 @@
           <CheffyMediaReview {event}>
             <MediaCarousel
               items={part.urls}
+              {altByUrl}
+              srcOf={srcOf}
               onItemClick={(url) => {
                 const index = allImageUrls.indexOf(url);
                 openImageModal(url, index >= 0 ? index : 0);
@@ -452,6 +476,8 @@
         {:else}
           <MediaCarousel
             items={part.urls}
+            {altByUrl}
+            srcOf={srcOf}
             onItemClick={(url) => {
               const index = allImageUrls.indexOf(url);
               openImageModal(url, index >= 0 ? index : 0);
@@ -467,7 +493,20 @@
         {part.content}
       </button>
     {:else if part.type === 'url'}
-      {#if part.url && isImageUrl(part.url)}
+      {#if part.bare && part.url}
+        <!-- Scheme-less domain the author clearly meant as a link
+             ("see zap.cooking/pow"). Inline only — no preview card, media
+             or embed cascade — so a fuzzy false positive ("oven.to") costs
+             at most a stray underline, never a loaded card. -->
+        <a
+          href={part.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-primary hover:text-[var(--color-text-primary)] hover:underline break-all"
+        >
+          {part.content}
+        </a>
+      {:else if part.url && isImageUrl(part.url)}
         {@const imageUrl = part.url || ''}
         {@const imageIndex = allImageUrls.indexOf(imageUrl)}
         <div class="my-1">
@@ -476,8 +515,8 @@
             on:click={() => openImageModal(imageUrl, imageIndex >= 0 ? imageIndex : 0)}
           >
             <img
-              src={part.url}
-              alt=""
+              src={srcOf(part.url)}
+              alt={altByUrl.get(part.url) || ''}
               class="max-w-full rounded-lg max-h-96 object-contain hover:opacity-95 transition-opacity"
               loading="lazy"
               on:error={handleImageError}
@@ -500,7 +539,7 @@
           href={part.url}
           target="_blank"
           rel="noopener noreferrer"
-          class="text-orange-500 hover:text-orange-600 hover:underline break-all"
+          class="text-primary hover:text-[var(--color-text-primary)] hover:underline break-all"
         >
           {part.content}
         </a>
@@ -509,8 +548,7 @@
       {#if part.prefix === 'nprofile1' || part.prefix === 'npub1'}
         <ProfileLink
           nostrString={part.content}
-          colorClass="text-orange-500 hover:text-orange-600"
-          fallbackToRaw={false}
+          colorClass="text-primary hover:text-[var(--color-text-primary)]"
         />
       {:else if part.prefix === 'nevent1' || part.prefix === 'note1'}
         {#if showNostrEmbeds}
@@ -547,7 +585,7 @@
         <NofferButton noffer={part.content} />
       {:else}
         <button
-          class="text-orange-500 hover:text-orange-600 hover:underline cursor-pointer"
+          class="text-primary hover:text-[var(--color-text-primary)] hover:underline cursor-pointer"
           on:click={() => handleNostrClick(part.content)}
         >
           {part.content}
@@ -557,6 +595,7 @@
       <LightningInvoiceCard invoice={part.invoice} />
     {/if}
   {/each}
+  </div>
 
   {#if shouldCollapse}
     <div class="mt-3 flex justify-center">
@@ -582,13 +621,25 @@
 <!-- Image Modal -->
 {#if imageModalOpen}
   <MediaLightbox
-    images={allImageUrls}
+    images={allImageUrls.map((url) => ({ url: srcOf(url), alt: altByUrl.get(url) || '' }))}
+    blurhashByUrl={blurhashByUrl}
     bind:index={selectedImageIndex}
     onClose={closeImageModal}
   />
 {/if}
 
 <style>
+  /* Collapsed previews fade the last ~2 lines out under the "View more"
+     toggle instead of ending on a hard half-line: the fade tells the
+     reader text continues, and (with the line-complete cut) never hides
+     the start of a sentence, only its tail. */
+  .note-content-body.collapsed {
+    max-height: 30rem;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 5.5rem), transparent);
+    mask-image: linear-gradient(to bottom, black calc(100% - 5.5rem), transparent);
+  }
+
   /* First block element gets more top margin */
   .note-content :global(> div:first-of-type),
   .note-content :global(> a:first-of-type) {
@@ -604,22 +655,22 @@
 
   /* Hashtag pill - light mode (default) */
   .hashtag-pill {
-    background-color: rgb(255 247 237); /* bg-orange-50 */
-    color: rgb(234 88 12); /* text-orange-600 */
+    background-color: var(--color-hashtag-bg);
+    color: var(--color-hashtag-text);
   }
   .hashtag-pill:hover {
-    background-color: rgb(249 115 22); /* bg-orange-500 */
-    color: white;
+    background-color: var(--color-hashtag-hover-bg);
+    color: var(--color-hashtag-hover-text);
   }
 
   /* Hashtag pill - dark mode */
   :global(html.dark) .hashtag-pill {
-    background-color: rgb(55 48 45); /* dark brownish-gray */
-    color: rgb(251 146 60); /* text-orange-400 */
+    background-color: var(--color-hashtag-bg);
+    color: var(--color-hashtag-text);
   }
   :global(html.dark) .hashtag-pill:hover {
-    background-color: rgb(234 88 12); /* bg-orange-600 */
-    color: white;
+    background-color: var(--color-hashtag-hover-bg);
+    color: var(--color-hashtag-hover-text);
   }
 
   /* Stand-in for a quote where the full embed is suppressed — thread

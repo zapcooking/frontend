@@ -1,13 +1,17 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { recipeTags, type recipeTagSimple, RECIPE_TAGS, isHiddenRecipeEvent } from '$lib/consts';
+  import { recipeTags, type recipeTagSimple, RECIPE_TAGS } from '$lib/consts';
   import { ndk, userPublickey } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
   import { NDKRelaySet, type NDKEvent } from '@nostr-dev-kit/ndk';
   import { get } from 'svelte/store';
   import { searchProfiles, getDisplayName, type SearchProfile } from '$lib/profileSearchService';
   import { isHumanReadablePostContent, postSnippet } from '$lib/postContentReadability';
+  import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
+  import { eventIdPath } from '$lib/utils/eventUrl';
   import { feedCacheService } from '$lib/feedCache';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
+  import { recipeSearchFilters, recipeSearchResult } from '$lib/recipeSearch';
 
   export let placeholderString: string;
   export let autofocus = false;
@@ -16,14 +20,17 @@
   // feed. Tag pickers leave it unset and keep picking the first match.
   export let onSubmitQuery: ((query: string) => void) | null = null;
 
+  // The global search bars (Header, MobileSearchOverlay) pass onSubmitQuery;
+  // tag pickers (TagsComboBox in the recipe editors) don't. A tag picker only
+  // ever completes tags: no user/recipe/note rows, no network queries, and
+  // submitting adds a tag — the recipe being edited has unsaved state, so a
+  // pick must never navigate away.
+  $: isTagPicker = !onSubmitQuery;
+
   let tagquery = '';
   let showAutocomplete = false;
   let inputFocused = false;
 
-  // @handle / npub queries are unambiguous user lookups — pin Users to
-  // the top of the dropdown for them (otherwise Users sits below Posts).
-  $: looksLikeUserQuery =
-    /^@[a-z0-9-_.]{1,30}$/i.test(tagquery.trim()) || /^npub1[a-z0-9]+$/i.test(tagquery.trim());
   let inputEl: HTMLInputElement;
 
   // Auto-focus on mount for mobile overlays where HTML autofocus is unreliable
@@ -36,9 +43,8 @@
     tags: recipeTagSimple[];
     recipes: { title: string; naddr: string; author: string }[];
     users: { name: string; npub: string; picture?: string }[];
-    posts: { id: string; content: string; pubkey: string }[];
     note: { id: string; preview?: string } | null;
-  } = { tags: [], recipes: [], users: [], posts: [], note: null };
+  } = { tags: [], recipes: [], users: [], note: null };
   let isSearching = false;
   let searchTimeout: ReturnType<typeof setTimeout>;
 
@@ -52,13 +58,8 @@
   let networkSearchSub: any = null;
   let networkSearchVersion = 0;
   let networkSearchTimeout: ReturnType<typeof setTimeout> | null = null;
-  let postSearchSubs: any[] = [];
-  let postSearchVersion = 0;
-  let postSearchTimeouts: ReturnType<typeof setTimeout>[] = [];
   // Subscriptions still open for the current query — keeps "No results
   // found" from flashing while post results stream in.
-  let postSearchActive = 0;
-  $: postSearchPending = postSearchActive > 0;
 
   // Recipe cache for fast client-side search
   let recipeCache: Array<{ title: string; summary: string; naddr: string; author: string }> = [];
@@ -69,8 +70,12 @@
   function handleInputChange(event: Event) {
     const input = event.target as HTMLInputElement;
     tagquery = input.value;
+    runSearchFor(tagquery.trim());
+  }
 
-    const rawQuery = tagquery.trim();
+  // The search pipeline, callable directly — the Nostr Archives consent
+  // ask re-runs it after a decision without a synthetic input event.
+  function runSearchFor(rawQuery: string) {
     const normalizedQuery = rawQuery.toLowerCase();
 
     // Clear previous timeout
@@ -78,29 +83,57 @@
 
     // If query is empty or only whitespace, reset state
     if (normalizedQuery.length === 0) {
-      searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+      searchResults = { tags: [], recipes: [], users: [], note: null };
       showAutocomplete = false;
       cancelNetworkSearch();
-      cancelPostSearch();
       return;
     }
 
-    // Check for note identifiers (note1 or nevent1)
-    if (normalizedQuery.startsWith('note1') || normalizedQuery.startsWith('nevent1')) {
-      try {
-        // Validate it's a proper nip19 identifier - use rawQuery for decoding
-        const decoded = nip19.decode(rawQuery);
-        if (decoded.type === 'note' || decoded.type === 'nevent') {
-          searchResults.note = { id: rawQuery };
-          searchResults.tags = [];
-          searchResults.recipes = [];
-          searchResults.users = [];
-          showAutocomplete = true;
-          return;
-        }
-      } catch {
-        // Invalid identifier, continue with normal search
+    // A mis-pasted secret key must not become a relay query: NIP-50 sends
+    // the term verbatim, so one keystroke of bad luck would publish it.
+    if (isSecretKeyInput(rawQuery)) {
+      searchResults = { tags: [], recipes: [], users: [], note: null };
+      showAutocomplete = false;
+      cancelNetworkSearch();
+      return;
+    }
+
+    // Tag pickers complete from the static tag list only. Everything past
+    // this point (NIP-19 navigation, recipe cache, user API, NIP-50 relays)
+    // exists for the search bars and must not run per keystroke in a tag
+    // field.
+    if (isTagPicker) {
+      searchResults = {
+        tags: recipeTags
+          .filter((tag) => tag.title.toLowerCase().includes(normalizedQuery))
+          .slice(0, 5),
+        recipes: [],
+        users: [],
+        note: null
+      };
+      showAutocomplete = true;
+      return;
+    }
+
+    // NIP-19 identifiers, with or without NIP-21's `nostr:` scheme — which
+    // is the form every client's copy button produces, so it is what people
+    // actually paste.
+    const target = parseNip19Input(rawQuery);
+    if (target) {
+      searchResults.tags = [];
+      searchResults.recipes = [];
+      searchResults.users = [];
+      if (target.kind === 'note') {
+        searchResults.note = { id: target.id };
+        showAutocomplete = true;
+        return;
       }
+      // Profiles and addresses have no row of their own in this dropdown;
+      // submitting navigates, which `action` below already handles.
+      searchResults.note = null;
+      showAutocomplete = false;
+      cancelNetworkSearch();
+      return;
     }
 
     // Clear note result if not a note identifier
@@ -122,7 +155,6 @@
       try {
         // NIP-50 searches fire and stream results independently
         searchNetworkRecipes(normalizedQuery);
-        searchNetworkPosts(normalizedQuery);
         await searchUsers(normalizedQuery);
       } catch (e) {
         console.debug('Search error:', e);
@@ -151,18 +183,11 @@
       if (cachedEvents && cachedEvents.length > 0) {
         const map = new Map<string, (typeof recipeCache)[0]>();
         for (const event of cachedEvents) {
-          if (isHiddenRecipeEvent(event)) continue;
-          const title = event.tags.find((t) => t[0] === 'title')?.[1] || 'Untitled';
+          if (isBlockedFromReads(event)) continue;
+          const recipe = recipeSearchResult(event);
+          if (!recipe) continue;
           const summary = event.tags.find((t) => t[0] === 'summary')?.[1] || '';
-          const d = event.tags.find((t) => t[0] === 'd')?.[1] || '';
-          const naddr = nip19.naddrEncode({
-            kind: 30023,
-            pubkey: event.pubkey,
-            identifier: d
-          });
-          if (!map.has(naddr)) {
-            map.set(naddr, { title, summary, naddr, author: event.pubkey });
-          }
+          if (!map.has(recipe.naddr)) map.set(recipe.naddr, { ...recipe, summary });
         }
         recipeCache = Array.from(map.values());
 
@@ -187,19 +212,11 @@
       const tempMap = new Map<string, (typeof recipeCache)[0]>();
 
       recipeSubscription.on('event', (event: any) => {
-        if (isHiddenRecipeEvent(event)) return;
-        const title = event.tags.find((t: any) => t[0] === 'title')?.[1] || 'Untitled';
-        const summary = event.tags.find((t: any) => t[0] === 'summary')?.[1] || '';
-        const d = event.tags.find((t: any) => t[0] === 'd')?.[1] || '';
-        const naddr = nip19.naddrEncode({
-          kind: 30023,
-          pubkey: event.pubkey,
-          identifier: d
-        });
-
-        if (!tempMap.has(naddr)) {
-          tempMap.set(naddr, { title, summary, naddr, author: event.pubkey });
-        }
+        if (isBlockedFromReads(event)) return;
+        const recipe = recipeSearchResult(event);
+        if (!recipe) return;
+        const summary = event.tags.find((t: string[]) => t[0] === 'summary')?.[1] || '';
+        if (!tempMap.has(recipe.naddr)) tempMap.set(recipe.naddr, { ...recipe, summary });
 
         // Update cache progressively every 10 recipes
         if (tempMap.size % 10 === 0) {
@@ -267,19 +284,18 @@
   async function searchUsers(query: string) {
     const thisVersion = ++userSearchVersion;
     try {
-      // Use profileSearchService which leverages Primal Cache API
-      const profiles = await searchProfiles(query, 5);
-
-      // If another search started after this one, discard stale results
-      if (thisVersion !== userSearchVersion) return;
-
-      searchResults.users = profiles.map((profile) => ({
-        name: getDisplayName(profile),
-        npub: profile.npub,
-        picture: profile.picture
-      }));
-
-      searchResults = searchResults;
+      // Paint each index (Primal, Nostr Archives) as it answers, then the
+      // final ranked merge; a newer search discards this one's results.
+      const paintUsers = (profiles: SearchProfile[]) => {
+        if (thisVersion !== userSearchVersion) return;
+        searchResults.users = profiles.map((profile) => ({
+          name: getDisplayName(profile),
+          npub: profile.npub,
+          picture: profile.picture
+        }));
+        searchResults = searchResults;
+      };
+      paintUsers(await searchProfiles(query, 5, { onPartial: paintUsers }));
     } catch (e) {
       // If request was superseded, don't overwrite
       if (thisVersion !== userSearchVersion) return;
@@ -305,7 +321,7 @@
   function selectTag(title: string) {
     action(title);
     tagquery = '';
-    searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+    searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
   }
 
@@ -313,7 +329,7 @@
     // Navigate to recipe
     window.location.href = `/recipe/${naddr}`;
     tagquery = '';
-    searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+    searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
   }
 
@@ -321,7 +337,7 @@
     // Navigate to user profile
     window.location.href = `/user/${npub}`;
     tagquery = '';
-    searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+    searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
   }
 
@@ -329,19 +345,24 @@
     // Navigate to note
     window.location.href = `/${noteId}`;
     tagquery = '';
-    searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+    searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
   }
 
   function selectPost(postId: string) {
     // Navigate to the note thread page
-    window.location.href = `/${nip19.noteEncode(postId)}`;
+    try {
+      window.location.href = eventIdPath(postId);
+    } catch {
+      /* not an event id — nothing to navigate to */
+    }
     tagquery = '';
-    searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+    searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
   }
 
   function cancelNetworkSearch() {
+    networkSearchVersion++;
     if (networkSearchSub) {
       try { networkSearchSub.stop(); } catch { /* ignore */ }
       networkSearchSub = null;
@@ -353,8 +374,8 @@
   }
 
   async function searchNetworkRecipes(query: string) {
-    const thisVersion = ++networkSearchVersion;
     cancelNetworkSearch();
+    const thisVersion = networkSearchVersion;
 
     const ndkInstance = get(ndk);
     if (!ndkInstance) return;
@@ -373,7 +394,11 @@
 
     const relaySet = NDKRelaySet.fromRelayUrls(NIP50_SEARCH_RELAYS, ndkInstance, false);
     const sub = ndkInstance.subscribe(
-      { kinds: [30023], search: query, limit: 50 },
+      // #t constrains the search to actual recipes at the source — a bare
+      // kinds:[30023] + search matches ANY longform article (fiction,
+      // spam) containing the query, which is what filled the section with
+      // non-recipes.
+      recipeSearchFilters(query, 50),
       { closeOnEose: true },
       relaySet
     );
@@ -381,21 +406,16 @@
 
     sub.on('event', (event: NDKEvent) => {
       if (thisVersion !== networkSearchVersion) return;
-      const d = event.tags.find((t: string[]) => t[0] === 'd')?.[1];
-      if (!d) return;
-      // Title-less long-form still searches; show the d-tag like the
-      // article pages do.
-      const title = event.tags.find((t: string[]) => t[0] === 'title')?.[1] || d;
-      if (isHiddenRecipeEvent(event)) return;
-
-      const naddr = nip19.naddrEncode({ kind: 30023, pubkey: event.pubkey, identifier: d });
-      if (searchResults.recipes.some((r) => r.naddr === naddr)) return;
-
-      searchResults.recipes = [...searchResults.recipes, { title, naddr, author: event.pubkey }].slice(0, 8);
+      if (isBlockedFromReads(event)) return;
+      const recipe = recipeSearchResult(event);
+      if (!recipe || searchResults.recipes.some((r) => r.naddr === recipe.naddr)) return;
+      searchResults.recipes = [...searchResults.recipes, recipe].slice(0, 8);
       searchResults = searchResults;
     });
 
     const cleanup = () => {
+      if (thisVersion !== networkSearchVersion) return;
+      networkSearchVersion++;
       if (networkSearchTimeout) { clearTimeout(networkSearchTimeout); networkSearchTimeout = null; }
       if (networkSearchSub === sub) networkSearchSub = null;
     };
@@ -409,90 +429,14 @@
     }, 5000);
   }
 
-  /**
-   * NIP-50 full-text search over posts (kind 1 and our kind 1068 feed
-   * posts) — the "posts with the word in it" results other clients show.
-   * Fans a REQ out to every search relay and dedupes by event id as
-   * results stream in; version-guarded against stale keystrokes.
-   */
-  async function searchNetworkPosts(query: string) {
-    const thisVersion = ++postSearchVersion;
-    cancelPostSearch();
-
-    const ndkInstance = get(ndk);
-    if (!ndkInstance) return;
-
-    await Promise.all(
-      NIP50_SEARCH_RELAYS.map(async (url) => {
-        try {
-          const relay = ndkInstance.pool.getRelay(url, true, true);
-          if (relay.connectivity?.status !== 1) await relay.connect();
-        } catch { /* non-fatal */ }
-      })
-    );
-
-    if (thisVersion !== postSearchVersion) return;
-
-    searchResults.posts = [];
-
-    for (const url of NIP50_SEARCH_RELAYS) {
-      const relaySet = NDKRelaySet.fromRelayUrls([url], ndkInstance, false);
-      const sub = ndkInstance.subscribe(
-        { kinds: [1, 1068] as any, search: query, limit: 30 },
-        { closeOnEose: true },
-        relaySet
-      );
-      postSearchSubs.push(sub);
-      postSearchActive++;
-
-      sub.on('event', (event: NDKEvent) => {
-        if (thisVersion !== postSearchVersion) return;
-        if (!event.id) return;
-        if (isHiddenRecipeEvent(event)) return;
-        if (searchResults.posts.some((p) => p.id === event.id)) return;
-
-        // Search relays index machine payloads too (JSON blobs, data
-        // walls, bare identifiers); don't surface those as results.
-        if (!isHumanReadablePostContent(event.content)) return;
-        const snippet = postSnippet(event.content);
-        if (!snippet) return;
-
-        searchResults.posts = [...searchResults.posts, { id: event.id, content: snippet, pubkey: event.pubkey }].slice(0, 8);
-        searchResults = searchResults;
-      });
-
-      const settle = () => {
-        postSearchActive = Math.max(0, postSearchActive - 1);
-        postSearchSubs = postSearchSubs.filter((s) => s !== sub);
-      };
-      const timeout = setTimeout(() => {
-        try { sub.stop(); } catch { /* ignore */ }
-        settle();
-      }, 5000);
-      postSearchTimeouts.push(timeout);
-      sub.on('eose', () => {
-        clearTimeout(timeout);
-        settle();
-      });
-    }
-  }
-
-  function cancelPostSearch() {
-    for (const sub of postSearchSubs) {
-      try { sub.stop(); } catch { /* ignore */ }
-    }
-    postSearchSubs = [];
-    for (const t of postSearchTimeouts) clearTimeout(t);
-    postSearchTimeouts = [];
-    postSearchActive = 0;
-  }
-
   onMount(() => {
     // Initialize empty search results
-    searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+    searchResults = { tags: [], recipes: [], users: [], note: null };
 
-    // Preload recipes in background for fast search
-    preloadRecipes();
+    // Recipe cache preload (and its relay subscription) is only needed by
+    // the search bars; tag pickers complete from the static tag list and
+    // never show recipe rows.
+    if (!isTagPicker) preloadRecipes();
   });
 
   onDestroy(() => {
@@ -502,7 +446,6 @@
       recipeSubscription = null;
     }
     cancelNetworkSearch();
-    cancelPostSearch();
   });
 </script>
 
@@ -511,6 +454,13 @@
     class="flex"
     on:submit|preventDefault={() => {
       if (tagquery.trim()) {
+        // Tag pickers never navigate — the query becomes a tag, preferring
+        // the first suggestion so Enter completes "mexi" to "Mexican".
+        if (isTagPicker) {
+          selectTag(searchResults.tags[0]?.title ?? tagquery.trim());
+          return;
+        }
+
         // If it's a note identifier, navigate directly
         if (searchResults.note) {
           selectNote(searchResults.note.id);
@@ -523,7 +473,7 @@
         if (onSubmitQuery) {
           const q = tagquery.trim();
           tagquery = '';
-          searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+          searchResults = { tags: [], recipes: [], users: [], note: null };
           showAutocomplete = false;
           onSubmitQuery(q);
           return;
@@ -548,7 +498,7 @@
         // Fallback: treat as tag search if no results
         action(tagquery.trim());
         tagquery = '';
-        searchResults = { tags: [], recipes: [], users: [], posts: [], note: null };
+        searchResults = { tags: [], recipes: [], users: [], note: null };
       }
     }}
   >
@@ -566,9 +516,17 @@
     <input type="submit" class="hidden" />
   </form>
 
-  {#if showAutocomplete && (searchResults.note || searchResults.tags.length > 0 || searchResults.recipes.length > 0 || searchResults.posts.length > 0 || searchResults.users.length > 0 || isSearching)}
+  {#if showAutocomplete && (isTagPicker || searchResults.note || searchResults.tags.length > 0 || searchResults.recipes.length > 0 || searchResults.users.length > 0 || isSearching)}
+    <!--
+      Section order: Users and Tags first. Typing a name is a people
+      lookup first; post full-text matches buried the user rows — and on
+      mobile, an iOS Safari bug (backdrop-filter on the header ancestor
+      breaks touch scrolling inside this dropdown) made anything below
+      the fold unreachable. Rows are capped so the priority sections fit
+      without scrolling.
+    -->
     <ul
-      class="max-h-[320px] overflow-y-auto absolute top-full left-0 w-full bg-input border shadow-lg rounded-xl mt-1 z-[60]"
+      class="search-ac-list max-h-[320px] overflow-y-auto absolute top-full left-0 w-full bg-input border shadow-lg rounded-xl mt-1 z-[60]"
       style="border-color: var(--color-input-border); color: var(--color-text-primary);"
     >
       {#if searchResults.note}
@@ -588,6 +546,28 @@
           <span class="text-xs text-caption font-mono">{searchResults.note.id.slice(0, 24)}...</span
           >
         </li>
+      {/if}
+
+      {#if searchResults.users.length > 0}
+        <li
+          class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b"
+          style="border-color: var(--color-input-border)"
+        >
+          👤 Users
+        </li>
+        {#each searchResults.users.slice(0, 5) as user (user.npub)}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+          <li
+            on:click={() => selectUser(user.npub)}
+            class="cursor-pointer px-3 py-2 hover:bg-accent-gray flex items-center gap-2"
+          >
+            {#if user.picture}
+              <img src={user.picture} alt="" class="w-6 h-6 rounded-full object-cover" />
+            {/if}
+            {user.name}
+          </li>
+        {/each}
       {/if}
 
       {#if searchResults.tags.length > 0}
@@ -615,9 +595,9 @@
           class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t"
           style="border-color: var(--color-input-border)"
         >
-          📖 Recipes
+          🍳 Recipes
         </li>
-        {#each searchResults.recipes as recipe (recipe.naddr)}
+        {#each searchResults.recipes.slice(0, 3) as recipe (recipe.naddr)}
           <!-- svelte-ignore a11y-click-events-have-key-events -->
           <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
           <li
@@ -625,72 +605,6 @@
             class="cursor-pointer px-3 py-2 hover:bg-accent-gray"
           >
             {recipe.title}
-          </li>
-        {/each}
-      {/if}
-
-      <!-- Users rank above posts — typing a name is the most common
-           lookup, and post matches buried the user rows before. Explicit
-           @-handles and npubs pin users to the very top. -->
-      {#if searchResults.users.length > 0 && looksLikeUserQuery}
-        <li
-          class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b"
-          style="border-color: var(--color-input-border)"
-        >
-          👤 Users
-        </li>
-        {#each searchResults.users as user (user.npub)}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-          <li
-            on:click={() => selectUser(user.npub)}
-            class="cursor-pointer px-3 py-2 hover:bg-accent-gray flex items-center gap-2"
-          >
-            {#if user.picture}
-              <img src={user.picture} alt="" class="w-6 h-6 rounded-full object-cover" />
-            {/if}
-            {user.name}
-          </li>
-        {/each}
-      {/if}
-
-      {#if searchResults.posts.length > 0}
-        <li
-          class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t"
-          style="border-color: var(--color-input-border)"
-        >
-          💬 Posts
-        </li>
-        {#each searchResults.posts as post (post.id)}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-          <li
-            on:click={() => selectPost(post.id)}
-            class="cursor-pointer px-3 py-2 hover:bg-accent-gray"
-          >
-            <span class="text-sm line-clamp-2">{post.content}</span>
-          </li>
-        {/each}
-      {/if}
-
-      {#if searchResults.users.length > 0 && !looksLikeUserQuery}
-        <li
-          class="px-3 py-1.5 text-xs font-semibold text-caption bg-accent-gray border-b border-t"
-          style="border-color: var(--color-input-border)"
-        >
-          👤 Users
-        </li>
-        {#each searchResults.users as user (user.npub)}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-          <li
-            on:click={() => selectUser(user.npub)}
-            class="cursor-pointer px-3 py-2 hover:bg-accent-gray flex items-center gap-2"
-          >
-            {#if user.picture}
-              <img src={user.picture} alt="" class="w-6 h-6 rounded-full object-cover" />
-            {/if}
-            {user.name}
           </li>
         {/each}
       {/if}
@@ -703,9 +617,11 @@
         <li class="px-3 py-2 text-sm text-caption text-center">Searching...</li>
       {/if}
 
-      {#if !recipeCacheLoading && !isSearching && !postSearchPending && !searchResults.note && searchResults.tags.length === 0 && searchResults.recipes.length === 0 && searchResults.posts.length === 0 && searchResults.users.length === 0 && tagquery.length > 0}
+      {#if !recipeCacheLoading && !isSearching && !searchResults.note && searchResults.tags.length === 0 && searchResults.recipes.length === 0 && searchResults.users.length === 0 && tagquery.length > 0}
         <li class="px-3 py-2 text-sm text-caption text-center">
-          {#if !recipeCacheLoaded}
+          {#if isTagPicker}
+            Press Enter to add "{tagquery}" as a tag
+          {:else if !recipeCacheLoaded}
             ⏳ Loading recipes...
           {:else}
             No results found
@@ -715,3 +631,16 @@
     </ul>
   {/if}
 </div>
+
+<style>
+  /* Touch scrolling inside this dropdown is dead on iOS Safari: the
+     header ancestor carries backdrop-filter, which breaks touch scrolling
+     for positioned descendants. These properties restore the pan gesture;
+     the row caps above keep the priority sections fitting without needing
+     it at all. */
+  .search-ac-list {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+</style>

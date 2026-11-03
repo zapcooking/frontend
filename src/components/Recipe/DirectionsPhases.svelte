@@ -88,7 +88,7 @@
               <span
                 class="flex-shrink-0 w-5 h-5 mt-0.5 rounded border-2 flex items-center justify-center transition-colors"
                 style={checked.has(step.number)
-                  ? 'background: var(--color-primary); border-color: var(--color-primary); color: white;'
+                  ? 'background: var(--color-action); border-color: var(--color-action); color: var(--color-on-action);'
                   : 'border-color: var(--color-input-border);'}
                 aria-hidden="true"
               >

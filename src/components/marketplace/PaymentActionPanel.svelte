@@ -37,7 +37,7 @@
 {#if paymentState === 'success'}
 	<div
 		class="flex flex-col items-center gap-3 py-4 rounded-xl"
-		style="background-color: var(--color-bg-tertiary);"
+		style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));"
 	>
 		<div class="w-12 h-12 rounded-full flex items-center justify-center bg-emerald-500/20">
 			<CheckIcon size={24} weight="bold" class="text-emerald-400" />
@@ -51,8 +51,8 @@
 		class="flex flex-col items-center gap-3 py-4 rounded-xl"
 		style="background-color: rgba(239, 68, 68, 0.1);"
 	>
-		<XIcon size={24} weight="bold" class="text-red-400" />
-		<p class="text-sm text-red-400">{paymentError}</p>
+		<XIcon size={24} weight="bold" class="text-[var(--color-danger)]" />
+		<p class="text-sm text-[var(--color-danger)]">{paymentError}</p>
 		<Button on:click={() => dispatch('retry')}>Try Again</Button>
 	</div>
 {:else if canInstantBuy}

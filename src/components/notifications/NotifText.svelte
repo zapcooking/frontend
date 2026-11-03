@@ -111,7 +111,7 @@
     font-style: italic;
   }
   .notif-link {
-    color: var(--color-link, #f7931a);
+    color: var(--color-primary);
     text-decoration: underline;
     text-decoration-color: transparent;
     transition: text-decoration-color 0.15s;

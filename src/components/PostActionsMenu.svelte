@@ -18,6 +18,15 @@
   import { extractImageUrls } from '$lib/imageUrls';
   import { get } from 'svelte/store';
   import { getEngagementStore } from '$lib/engagementCache';
+  import EyeSlashIcon from 'phosphor-svelte/lib/EyeSlash';
+  import { userPublickey } from '$lib/nostr';
+  import { muteListStore } from '$lib/muteListStore';
+  import { setEventMuted, setPubkeyMuted } from '$lib/muteToggle';
+  import { getReplyParentId, getThreadRootId } from '$lib/thread/replyParent';
+  import { showToast } from '$lib/toast';
+  import { rebroadcastEvent } from '$lib/rebroadcast';
+  import { eventRef } from '$lib/utils/eventUrl';
+  import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
 
   export let event: NDKEvent;
 
@@ -94,11 +103,7 @@
     // — which is how zap.cooking ended up being the authoring client that
     // produced exactly the broken notes issue #637 was about. The `nostr:`
     // prefix is what makes a pasted reference resolve into an embed.
-    const noteUri = `nostr:${nip19.neventEncode({
-      id: event.id,
-      author: event.pubkey,
-      kind: event.kind
-    })}`;
+    const noteUri = `nostr:${eventRef(event)}`;
     try {
       await navigator.clipboard.writeText(noteUri);
       copied = true;
@@ -119,12 +124,7 @@
   /** Production-origin share URL for the share modal / short links —
    *  social platforms and the shortener API both reject localhost. */
   function shareUrl(): string {
-    const noteId = nip19.neventEncode({
-      id: event.id,
-      author: event.pubkey,
-      kind: event.kind
-    });
-    return `https://zap.cooking/${noteId}`;
+    return `https://zap.cooking/${eventRef(event)}`;
   }
 
   function handleShare() {
@@ -134,12 +134,7 @@
 
   async function handleCopyLink() {
     if (!browser) return;
-    const noteId = nip19.neventEncode({
-      id: event.id,
-      author: event.pubkey,
-      kind: event.kind
-    });
-    const url = `${window.location.origin}/${noteId}`;
+    const url = `${window.location.origin}/${eventRef(event)}`;
 
     try {
       await navigator.clipboard.writeText(url);
@@ -225,6 +220,121 @@
     if (!browser || !engagementData) return;
     dispatch('downloadImage', { event, engagementData });
     closeMenu();
+  }
+
+  // ── Rebroadcast ────────────────────────────────────────────────
+  // Re-publishes this already-signed event to relays beyond the ones the
+  // original publish reached (pool ∪ standard relays). Same event id, no
+  // new note: it expands relay coverage, unlike a repost.
+  let rebroadcasting = false;
+
+  async function handleRebroadcast() {
+    if (!$userPublickey || rebroadcasting || !event?.id) return;
+    rebroadcasting = true;
+    try {
+      const result = await rebroadcastEvent(event);
+      if (result.confirmed.length > 0) {
+        // An OK is an acknowledgement, not proof of a new copy: a relay
+        // that already held the note (and we didn't know it) also says OK.
+        showToast(
+          'info',
+          `Rebroadcast: ${result.confirmed.length} relay${result.confirmed.length === 1 ? '' : 's'} accepted the note`
+        );
+      } else {
+        showToast('error', 'No relay accepted the note');
+      }
+    } catch (err: any) {
+      showToast('error', err?.message || "Couldn't rebroadcast, please try again.");
+    } finally {
+      rebroadcasting = false;
+      closeMenu();
+    }
+  }
+
+  // ── Mute section ──────────────────────────────────────────────
+  // Three scopes from one menu: the author (pubkey mute), the whole
+  // conversation (the thread root as an `e` mute), or this note and its
+  // direct replies (the note id as an `e` mute). All land as private
+  // entries on the member's NIP-51 kind-10000 list (self-encrypted — the
+  // list MutABLE and Lazarus read); the store applies the hide before the
+  // relay sync, so the post vanishes the moment one of these runs.
+  // Labels flip Mute/Unmute from the store state.
+
+  let muting = false;
+
+  $: authorPubkey = event?.author?.hexpubkey || event?.pubkey || '';
+  $: isOwnNote = Boolean($userPublickey) && authorPubkey === $userPublickey;
+  $: threadId = event ? getThreadRootId(event) ?? event.id : '';
+  $: userMuted = Boolean(
+    $userPublickey &&
+      $muteListStore.muteList?.pubkeys.some((p) => p.value === authorPubkey)
+  );
+  $: threadMuted = Boolean(
+    threadId && $muteListStore.muteList?.threads.some((t) => t.value === threadId)
+  );
+  $: noteMuted = Boolean(
+    event?.id && $muteListStore.muteList?.threads.some((t) => t.value === event.id)
+  );
+  // "Mute note and replies" only adds information on a mid-thread note —
+  // on a top-level note it would be the thread mute under another name.
+  $: isTopLevelNote = event ? getReplyParentId(event) === null : true;
+
+  async function handleMuteUser() {
+    closeMenu();
+    if (!$userPublickey || muting) return;
+    // Capture the direction before the call: the store updates inside it,
+    // which flips the `*Muted` flags the toasts used to read after awaiting.
+    const next = !userMuted;
+    muting = true;
+    try {
+      await setPubkeyMuted($userPublickey, authorPubkey, next);
+      showToast('info', next ? 'User muted' : 'User unmuted');
+    } catch {
+      // The mute itself applied locally (the content is already hidden);
+      // only the sync to the member's relays failed.
+      showToast(
+        'error',
+        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+      );
+    } finally {
+      muting = false;
+    }
+  }
+
+  async function handleMuteThread() {
+    closeMenu();
+    if (!$userPublickey || muting || !threadId) return;
+    const next = !threadMuted;
+    muting = true;
+    try {
+      await setEventMuted($userPublickey, threadId, next);
+      showToast('info', next ? 'Thread muted' : 'Thread unmuted');
+    } catch {
+      showToast(
+        'error',
+        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+      );
+    } finally {
+      muting = false;
+    }
+  }
+
+  async function handleMuteNote() {
+    closeMenu();
+    if (!$userPublickey || muting || !event?.id) return;
+    const next = !noteMuted;
+    muting = true;
+    try {
+      await setEventMuted($userPublickey, event.id, next);
+      showToast('info', next ? 'Note and replies muted' : 'Note unmuted');
+    } catch {
+      showToast(
+        'error',
+        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+      );
+    } finally {
+      muting = false;
+    }
   }
 </script>
 
@@ -331,6 +441,52 @@
           <span class="whitespace-nowrap">Ask Cheffy about this photo</span>
         </button>
       {/if}
+      {#if $userPublickey}
+        <div class="my-1" style="border-top: 1px solid var(--color-input-border);"></div>
+        <button
+          on:click={handleRebroadcast}
+          disabled={rebroadcasting}
+          class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2 disabled:opacity-50"
+          style="color: var(--color-text-primary);"
+          title="Send this note to more relays so more people can find it"
+        >
+          {#if rebroadcasting}
+            <span class="animate-spin inline-block">◌</span>
+            <span>Rebroadcasting…</span>
+          {:else}
+            <BroadcastIcon size={16} class="text-caption" />
+            <span>Rebroadcast</span>
+          {/if}
+        </button>
+        {#if !isOwnNote}
+          <button
+            on:click={handleMuteUser}
+            class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+            style="color: var(--color-text-primary);"
+          >
+            <EyeSlashIcon size={16} class="text-caption" />
+            <span>{userMuted ? 'Unmute user' : 'Mute user'}</span>
+          </button>
+        {/if}
+        <button
+          on:click={handleMuteThread}
+          class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+          style="color: var(--color-text-primary);"
+        >
+          <EyeSlashIcon size={16} class="text-caption" />
+          <span>{threadMuted ? 'Unmute thread' : 'Mute thread'}</span>
+        </button>
+        {#if !isTopLevelNote}
+          <button
+            on:click={handleMuteNote}
+            class="w-full px-4 py-2 text-left text-sm hover:bg-accent-gray flex items-center gap-2"
+            style="color: var(--color-text-primary);"
+          >
+            <EyeSlashIcon size={16} class="text-caption" />
+            <span>{noteMuted ? 'Unmute note' : 'Mute note and replies'}</span>
+          </button>
+        {/if}
+      {/if}
       {#if engagementData}
         <button
           on:click={handleDownloadImage}
@@ -341,6 +497,9 @@
           <span>Save Image</span>
         </button>
       {/if}
+      <!-- Extra items a feed adds for its own posts (Fresh: bookmark, follow,
+           mute, report). Empty by default, so other feeds' menus are unchanged. -->
+      <slot name="extra" close={closeMenu} />
     </div>
   {/if}
 </div>

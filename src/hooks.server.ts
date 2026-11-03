@@ -13,6 +13,8 @@ import {
   createOgPageTransformer
 } from '$lib/recipeOgHtml.server';
 import type { RecipeOgMeta } from '$lib/recipeOgMeta';
+import { loadReadsModerationLists } from '$lib/reads/moderation.server';
+import { isLandingPath } from '$lib/landing/route';
 
 /**
  * Log the real server-side error (with stack) instead of letting SvelteKit
@@ -122,8 +124,9 @@ async function resolveOgMeta(
 
     const recipe = matchRecipeOgRoute(path);
     if (recipe) {
+      const lists = await loadReadsModerationLists(event.platform?.env?.GATED_CONTENT ?? null);
       return {
-        meta: await resolveRecipeOgMeta(recipe.slug),
+        meta: await resolveRecipeOgMeta(recipe.slug, lists),
         canonicalUrl: `${origin}/${recipe.prefix}/${recipe.slug}`
       };
     }
@@ -138,8 +141,9 @@ async function resolveOgMeta(
 
     const reads = matchReadsOgRoute(path);
     if (reads) {
+      const lists = await loadReadsModerationLists(event.platform?.env?.GATED_CONTENT ?? null);
       return {
-        meta: await resolveReadsOgMeta(reads.slug),
+        meta: await resolveReadsOgMeta(reads.slug, lists),
         canonicalUrl: `${origin}/reads/${reads.slug}`
       };
     }
@@ -200,8 +204,11 @@ export const handle: Handle = async ({ event, resolve }) => {
   const authIntent = hasAuthIntent(event.request);
   const useWildcard = !authIntent || process.env.NODE_ENV === 'development';
 
-  // Apply CORS to API routes and all browser-originating requests.
-  const shouldApplyCors = ENABLE_CORS_ALL || isApiRoute || Boolean(origin);
+  // Apply CORS to API routes and all browser-originating requests. Not to
+  // landing pages: their public content does not vary by visitor or Origin.
+  // Keep that response boundary independent of the app/API CORS policy.
+  const shouldApplyCors =
+    !isLandingPath(event.url.pathname) && (ENABLE_CORS_ALL || isApiRoute || Boolean(origin));
 
   if (event.request.method === 'OPTIONS' && shouldApplyCors) {
     if (authIntent && origin && !trustedOrigin) {

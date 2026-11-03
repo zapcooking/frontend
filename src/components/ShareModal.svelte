@@ -414,11 +414,11 @@
       <button
         on:click={handleGenerateImage}
         disabled={isGeneratingImage}
-        class="w-full py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white disabled:opacity-50"
+        class="w-full py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)] hover:bg-[var(--color-hover-bg)] dark:hover:bg-[var(--color-hover-bg)] text-[var(--color-text-primary)] dark:text-[var(--color-text-primary)] disabled:opacity-50"
         aria-label="Generate share image"
       >
         {#if isGeneratingImage}
-          <div class="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+          <div class="w-4 h-4 border-2 border-[var(--color-input-border)] border-t-transparent rounded-full animate-spin"></div>
           <span>Generating image...</span>
         {:else}
           <ImageIcon size={18} weight="bold" />
@@ -447,7 +447,7 @@
             {#if showNativeShare}
               <button
                 on:click={handleNativeShare}
-                class="flex items-center justify-center w-9 h-9 rounded-lg bg-primary hover:opacity-80 text-white transition"
+                class="flex items-center justify-center w-9 h-9 rounded-lg bg-action hover:bg-action-hover text-on-action transition"
                 title="More apps"
               >
                 <ShareIcon size={18} weight="bold" />
@@ -480,7 +480,7 @@
             <button on:click={() => shareToplatform(pinterestShareUrl)} class="flex items-center justify-center w-9 h-9 rounded-lg bg-[#E60023] hover:opacity-80 text-white transition" title="Pinterest">
               <PinterestLogo size={18} weight="fill" />
             </button>
-            <button on:click={handleDownloadImage} class="flex items-center justify-center w-9 h-9 rounded-lg bg-gray-600 hover:opacity-80 text-white transition" title="Download">
+            <button on:click={handleDownloadImage} class="flex items-center justify-center w-9 h-9 rounded-lg bg-[var(--color-input-bg)] hover:bg-[var(--color-hover-bg)] text-[var(--color-text-primary)] transition" title="Download">
               <DownloadIcon size={18} weight="bold" />
             </button>
           </div>
@@ -502,7 +502,7 @@
         readonly
         value={effectiveShareUrl}
         class="w-full input font-mono text-sm px-3 py-2 rounded-lg"
-        style="background-color: var(--color-input); border: 1px solid var(--color-input-border);"
+        style="background-color: var(--color-light-input-bg, var(--color-input)); border: 1px solid var(--color-input-border);"
         on:focus={handleInputFocus}
         on:click={handleInputClick}
         aria-label="Share URL"
@@ -514,7 +514,7 @@
           <button
             on:click={handleNativeShare}
             disabled={loadingShort}
-            class="flex-1 py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white disabled:opacity-50"
+            class="flex-1 py-2.5 px-4 rounded-lg font-semibold transition duration-200 flex items-center justify-center gap-2 bg-action hover:bg-action-hover text-on-action disabled:opacity-50"
             aria-label="Share"
           >
             <ShareIcon size={18} weight="bold" />
@@ -529,8 +529,8 @@
             {copied
               ? 'bg-green-500 hover:bg-green-600 text-white'
               : showNativeShare 
-                ? 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white'
-                : 'bg-primary hover:bg-primary/90 text-white'}"
+                ? 'bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)] hover:bg-[var(--color-hover-bg)] dark:hover:bg-[var(--color-hover-bg)] text-[var(--color-text-primary)] dark:text-[var(--color-text-primary)]'
+                : 'bg-action hover:bg-action-hover text-on-action'}"
           aria-label={copied ? 'Copied' : 'Copy link'}
         >
           {#if copied}
@@ -596,7 +596,7 @@
               on:click={copyQrImage}
               disabled={qrImageCopying}
               class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm font-medium transition disabled:opacity-50
-                {qrImageCopied ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90'}"
+                {qrImageCopied ? 'bg-green-500 text-white' : 'bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)] text-[var(--color-text-primary)] dark:text-[var(--color-text-primary)] hover:opacity-90'}"
               aria-label={qrImageCopied ? 'Copied' : 'Copy QR image'}
             >
               {#if qrImageCopied}
@@ -613,7 +613,7 @@
               type="button"
               on:click={() => saveQrImage()}
               disabled={qrImageSaving}
-              class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white hover:opacity-90 transition disabled:opacity-50"
+              class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm font-medium bg-[var(--color-input-bg)] dark:bg-[var(--color-input-bg)] text-[var(--color-text-primary)] dark:text-[var(--color-text-primary)] hover:opacity-90 transition disabled:opacity-50"
               aria-label="Save QR image"
             >
               {#if qrImageSaving}

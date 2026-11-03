@@ -66,7 +66,7 @@
 	<!-- Name -->
 	<div class="flex flex-col gap-2">
 		<label for="kitchen-name" class="font-medium" style="color: var(--color-text-primary)">
-			Store Name <span class="text-red-500">*</span>
+			Store Name <span class="text-[var(--color-danger)]">*</span>
 		</label>
 		<input
 			id="kitchen-name"
@@ -76,7 +76,7 @@
 			class="input"
 		/>
 		{#if errors.name}
-			<span class="text-xs text-red-500">{errors.name}</span>
+			<span class="text-xs text-[var(--color-danger)]">{errors.name}</span>
 		{/if}
 	</div>
 
@@ -93,7 +93,7 @@
 			rows="4"
 		/>
 		{#if errors.description}
-			<span class="text-xs text-red-500">{errors.description}</span>
+			<span class="text-xs text-[var(--color-danger)]">{errors.description}</span>
 		{/if}
 	</div>
 
@@ -200,6 +200,6 @@
 
 	.input:focus {
 		outline: none;
-		border-color: var(--color-accent);
+		border-color: var(--color-primary);
 	}
 </style>

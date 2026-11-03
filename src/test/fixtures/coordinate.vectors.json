@@ -1,0 +1,160 @@
+{
+  "description": "Cross-platform NIP-01 a-tag coordinate vectors (web src/lib/coordinate.ts, Android nostr/Coordinate.kt). Only the first two colons separate fields; the identifier keeps every later colon. expected null = rejected.",
+  "parse": [
+    {
+      "id": "simple",
+      "input": "30023:abababababababababababababababababababababababababababababababab:caponata",
+      "expected": {
+        "kind": 30023,
+        "pubkey": "abababababababababababababababababababababababababababababababab",
+        "identifier": "caponata"
+      }
+    },
+    {
+      "id": "url-d-tag",
+      "input": "30023:abababababababababababababababababababababababababababababababab:https://cooking.nytimes.com/recipes/1016445-caponata#recipe",
+      "expected": {
+        "kind": 30023,
+        "pubkey": "abababababababababababababababababababababababababababababababab",
+        "identifier": "https://cooking.nytimes.com/recipes/1016445-caponata#recipe"
+      }
+    },
+    {
+      "id": "title-colon-d-tag",
+      "input": "30023:abababababababababababababababababababababababababababababababab:pasta:-weeknight",
+      "expected": {
+        "kind": 30023,
+        "pubkey": "abababababababababababababababababababababababababababababababab",
+        "identifier": "pasta:-weeknight"
+      }
+    },
+    {
+      "id": "many-colons",
+      "input": "30023:abababababababababababababababababababababababababababababababab:a:b::c:",
+      "expected": {
+        "kind": 30023,
+        "pubkey": "abababababababababababababababababababababababababababababababab",
+        "identifier": "a:b::c:"
+      }
+    },
+    {
+      "id": "empty-identifier",
+      "input": "10002:abababababababababababababababababababababababababababababababab:",
+      "expected": {
+        "kind": 10002,
+        "pubkey": "abababababababababababababababababababababababababababababababab",
+        "identifier": ""
+      }
+    },
+    {
+      "id": "uppercase-pubkey-kept",
+      "input": "30023:ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB:x",
+      "expected": {
+        "kind": 30023,
+        "pubkey": "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB",
+        "identifier": "x"
+      }
+    },
+    {
+      "id": "kind-zero",
+      "input": "0:abababababababababababababababababababababababababababababababab:x",
+      "expected": {
+        "kind": 0,
+        "pubkey": "abababababababababababababababababababababababababababababababab",
+        "identifier": "x"
+      }
+    },
+    {
+      "id": "empty-string",
+      "input": "",
+      "expected": null
+    },
+    {
+      "id": "no-colon",
+      "input": "caponata",
+      "expected": null
+    },
+    {
+      "id": "one-colon",
+      "input": "30023:abababababababababababababababababababababababababababababababab",
+      "expected": null
+    },
+    {
+      "id": "empty-kind",
+      "input": ":abababababababababababababababababababababababababababababababab:x",
+      "expected": null
+    },
+    {
+      "id": "non-numeric-kind",
+      "input": "recipe:abababababababababababababababababababababababababababababababab:x",
+      "expected": null
+    },
+    {
+      "id": "negative-kind",
+      "input": "-1:abababababababababababababababababababababababababababababababab:x",
+      "expected": null
+    },
+    {
+      "id": "kind-with-space",
+      "input": " 30023:abababababababababababababababababababababababababababababababab:x",
+      "expected": null
+    },
+    {
+      "id": "empty-pubkey",
+      "input": "30023::x",
+      "expected": null
+    },
+    {
+      "id": "short-pubkey",
+      "input": "30023:abc:x",
+      "expected": null
+    },
+    {
+      "id": "npub-pubkey",
+      "input": "30023:npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq:x",
+      "expected": null
+    },
+    {
+      "id": "pubkey-too-long",
+      "input": "30023:abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab:x",
+      "expected": null
+    },
+    {
+      "id": "not-a-string",
+      "input": null,
+      "expected": null
+    }
+  ],
+  "newRecipeIdentifier": [
+    {
+      "id": "plain",
+      "title": "Caponata",
+      "expected": "caponata"
+    },
+    {
+      "id": "spaces",
+      "title": "Weeknight Pasta Bake",
+      "expected": "weeknight-pasta-bake"
+    },
+    {
+      "id": "title-colon",
+      "title": "Pasta: Weeknight",
+      "expected": "pasta-weeknight"
+    },
+    {
+      "id": "spaced-colon",
+      "title": "Soup : Hot",
+      "expected": "soup--hot"
+    },
+    {
+      "id": "many-colons",
+      "title": "A:B:C",
+      "expected": "abc"
+    },
+    {
+      "id": "other-punctuation-unchanged",
+      "title": "Mom's Pie",
+      "expected": "mom's-pie"
+    }
+  ]
+}

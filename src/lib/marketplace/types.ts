@@ -11,7 +11,29 @@ import type { CurrencyCode } from '$lib/currencyStore';
 // both $lib/membershipStore.MembershipTier (has 'open', which never
 // makes sense for a seller badge) and $lib/stores/membershipStatus
 // .MembershipTier ('unknown' is filtered out before assignment).
-export type KitchenMemberTier = 'member' | 'cook_plus' | 'pro_kitchen' | 'founders';
+export type KitchenMemberTier = 'member' | 'cook_plus' | 'pro_kitchen' | 'founders' | 'lifetime';
+
+/**
+ * The paid tiers a kitchen shows a member badge for (and the market filters
+ * by). Tiers are backend-managed and passed through ($lib/membership/tier);
+ * one that isn't listed here simply shows no badge.
+ */
+export const KITCHEN_MEMBER_TIERS: readonly KitchenMemberTier[] = [
+	'member',
+	'cook_plus',
+	'pro_kitchen',
+	'founders',
+	'lifetime'
+];
+
+/** Sorting boost per member tier; every KITCHEN_MEMBER_TIERS entry has one. */
+export const MEMBER_TIER_BOOST: Record<KitchenMemberTier, number> = {
+	founders: 50,
+	lifetime: 50,
+	pro_kitchen: 40,
+	cook_plus: 30,
+	member: 25
+};
 
 // Commerce state enum lives here (instead of commerceState.ts) so that the
 // Product / ProductFormData types can reference it without creating a module
@@ -126,6 +148,8 @@ export interface Product {
 	requiresShipping: boolean;
 	location?: string;
 	commerceState?: CommerceState;
+	/** Per-image alt text keyed by URL (NIP-92 imeta), when the seller supplied it */
+	imageAlts?: Record<string, string>;
 	publishedAt: number;
 	createdAt: number;
 	event: NDKEvent;
@@ -143,6 +167,8 @@ export interface ProductFormData {
 	requiresShipping: boolean;
 	location?: string;
 	commerceState?: CommerceState;
+	/** Per-image alt text keyed by URL (NIP-92 imeta) */
+	imageAlts?: Record<string, string>;
 }
 
 // Kitchen / Storefront types (NIP-15 stall)

@@ -115,7 +115,7 @@
               class="px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer"
               class:is-active={scale === preset.value}
               style={scale === preset.value
-                ? 'background: var(--color-primary); color: white;'
+                ? 'background: var(--color-action); color: var(--color-on-action);'
                 : 'color: var(--color-text-primary);'}
               on:click={() => setScale(preset.value)}
               aria-pressed={scale === preset.value}
@@ -153,7 +153,7 @@
             <span
               class="flex-shrink-0 w-5 h-5 mt-0.5 rounded border-2 flex items-center justify-center transition-colors"
               style={checked.has(i)
-                ? 'background: var(--color-primary); border-color: var(--color-primary); color: white;'
+                ? 'background: var(--color-action); border-color: var(--color-action); color: var(--color-on-action);'
                 : 'border-color: var(--color-input-border);'}
               aria-hidden="true"
             >

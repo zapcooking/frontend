@@ -291,7 +291,7 @@
               >
                 <input
                   type="checkbox"
-                  class="w-4 h-4 accent-orange-500 flex-shrink-0"
+                  class="w-4 h-4 accent-action flex-shrink-0"
                   checked={selectedATags.has(recipe.aTag)}
                   disabled={isSubmitting}
                   on:change={(e) =>
@@ -325,7 +325,7 @@
           type="checkbox"
           bind:checked={alsoShareToFeed}
           disabled={isSubmitting}
-          class="mt-0.5 w-4 h-4 accent-orange-500"
+          class="mt-0.5 w-4 h-4 accent-action"
         />
         <span class="flex flex-col gap-0.5">
           <span class="text-sm font-medium" style="color: var(--color-text-primary)">

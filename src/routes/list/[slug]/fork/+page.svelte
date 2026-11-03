@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { parseCoordinate } from '$lib/coordinate';
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -85,18 +87,11 @@
       }
       event.tags.forEach(async (a) => {
         if (a[0] == 'a') {
-          const parts = a[1].split(':');
-          if (parts.length !== 3) {
+          const parsed = parseCoordinate(a[1]);
+          if (!parsed) {
             return;
           }
-          const [kind, pubkey, identifier] = parts;
-          if (
-            typeof kind !== 'string' ||
-            typeof pubkey !== 'string' ||
-            typeof identifier !== 'string'
-          ) {
-            return;
-          }
+          const { kind, pubkey, identifier } = parsed;
           const naddr = nip19.naddrEncode({
             kind: Number(kind),
             identifier: identifier,
@@ -135,7 +130,7 @@
           items: $items
         })
       );
-      await nevent.publish();
+      await nevent.publish(await outboxRelaySet(nevent, 'list'));
       resultMessage = 'Success!';
       let naddr = nip19.naddrEncode({
         identifier: listIdentifier(title),
@@ -221,8 +216,8 @@
 
     <div class="pt-8">
       <div>
-        <h3 class="text-lg leading-6 font-medium text-gray-900">Recipes</h3>
-        <p class="mt-1 text-sm text-gray-500">Recipes in this list</p>
+        <h3 class="text-lg leading-6 font-medium text-[var(--color-text-primary)]">Recipes</h3>
+        <p class="mt-1 text-sm text-[var(--color-caption)]">Recipes in this list</p>
       </div>
 
       <div class="sm:col-span-6">

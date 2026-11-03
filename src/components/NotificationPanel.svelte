@@ -4,7 +4,7 @@
   import { formatContentForPanel } from '$lib/notificationUtils';
   import { formatCompactTime } from '$lib/utils';
   import { goto } from '$app/navigation';
-  import { nip19 } from 'nostr-tools';
+  import { eventIdPath } from '$lib/utils/eventUrl';
   import Avatar from './Avatar.svelte';
   import AvatarStack from './notifications/AvatarStack.svelte';
   import CustomName from './CustomName.svelte';
@@ -96,13 +96,10 @@
   function navigateToNote(eventId: string) {
     const raw = String(eventId).trim();
     if (!raw) return;
-    if (raw.startsWith('note1') || raw.startsWith('nevent1')) {
-      goto(`/${raw}`);
-      return;
-    }
+    // nevent1 always (a note1/nevent1 payload is normalized); the panel has
+    // no fetched event in hand, so this link carries no relay hints.
     try {
-      const noteId = nip19.noteEncode(raw);
-      goto(`/${noteId}`);
+      goto(eventIdPath(raw));
     } catch (e) {
       console.warn('[NotificationPanel] Invalid eventId for navigation:', raw, e);
     }
@@ -194,7 +191,7 @@
           </div>
 
           {#if !isRead(item)}
-            <span class="w-2 h-2 bg-orange-500 rounded-full flex-shrink-0 mt-2"></span>
+            <span class="w-2 h-2 bg-primary rounded-full flex-shrink-0 mt-2"></span>
           {/if}
         </button>
       {/each}
@@ -206,7 +203,7 @@
     <div class="border-t" style="border-color: var(--color-input-border)">
       <button
         on:click={viewAll}
-        class="w-full px-4 py-3 text-sm text-center text-orange-500 hover:bg-accent-gray font-medium cursor-pointer"
+        class="w-full px-4 py-3 text-sm text-center text-primary hover:bg-accent-gray font-medium cursor-pointer"
       >
         See all notifications
       </button>

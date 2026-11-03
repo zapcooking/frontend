@@ -20,11 +20,20 @@
   import RecipeCard from './RecipeCard.svelte';
   import { validateMarkdownTemplate } from '$lib/parser';
   import { isHiddenRecipeEvent } from '$lib/consts';
+  import { muteListStore } from '$lib/muteListStore';
+  import { withoutMuted } from '$lib/muteFilter';
+  import { hideImagelessRecipesSetting, hasRecipeImage } from '$lib/recipeImageFilterSettings';
 
   export let events: NDKEvent[];
   export let hideHide = false;
   export let lists = false;
   export let loaded = false;
+
+  // Empty recipe grids greet with a random kitchen emoji (timers, plates,
+  // pans) instead of a single static icon. Picked once per instance.
+  const RECIPE_EMPTY_EMOJIS = ['⏲️', '🍽️', '🍳', '🥘', '🫕', '🥣', '🧑‍🍳', '🥄'];
+  const recipeEmptyEmoji =
+    RECIPE_EMPTY_EMOJIS[Math.floor(Math.random() * RECIPE_EMPTY_EMOJIS.length)];
 
   // Context for empty state customization
   export let isOwnProfile = false; // true if viewing your own profile
@@ -65,8 +74,19 @@
   }
 
   // Reactive filtering - only re-runs when events array changes
-  // Uses memoized validation so each event is only validated once
-  $: filteredEvents = events.filter(isValidEvent);
+  // Uses memoized validation so each event is only validated once.
+  // The reader's mute list (NIP-51 + local) applies to every recipe grid:
+  // tag, list, explore and profile pages hand their events straight here.
+  //
+  // "Hide recipes without images" (device-local setting) also applies to every
+  // recipe grid. List grids are exempt: list events often have no cover image
+  // and fall back to a placeholder by design.
+  $: filteredEvents = withoutMuted(
+    $muteListStore.muteList,
+    events
+      .filter(isValidEvent)
+      .filter((e) => lists || !$hideImagelessRecipesSetting || hasRecipeImage(e))
+  );
 </script>
 
 {#if filteredEvents.length > 0}
@@ -99,11 +119,11 @@
 {:else}
   <!-- Empty state -->
   <div class="flex flex-col items-center justify-center py-8 px-4">
-    <div class="text-4xl mb-3">
+    <div class="text-6xl mb-3" aria-hidden="true">
       {#if lists}
         📋
       {:else}
-        🍳
+        {recipeEmptyEmoji}
       {/if}
     </div>
 
@@ -137,7 +157,7 @@
       {#if isOwnProfile && !lists}
         <a
           href="/create"
-          class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-medium text-sm rounded-full transition-all"
+          class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action font-medium text-sm rounded-full transition-all"
         >
           <span>✨</span>
           Create a recipe

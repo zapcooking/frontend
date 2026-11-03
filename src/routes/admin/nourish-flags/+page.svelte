@@ -15,6 +15,7 @@
    *  Tabs: Recipes (a-tag targets) vs Scans (scan-hash targets). Each
    *  row expands to show sample reasons + per-source breakdown.
    */
+  import { parseCoordinate } from '$lib/coordinate';
   import { onMount } from 'svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { isAdmin } from '$lib/adminAuth';
@@ -370,13 +371,10 @@
    */
   function parseRecipeTarget(target: string): { recipePubkey: string; recipeDTag: string } | null {
     if (!target.startsWith('a:')) return null;
-    const parts = target.slice(2).split(':');
-    if (parts.length < 3) return null;
     // a-tag = kind:pubkey:dTag. We ignore kind (always 30023 here).
-    const [, recipePubkey, ...rest] = parts;
-    const recipeDTag = rest.join(':');
-    if (!recipePubkey || !recipeDTag) return null;
-    return { recipePubkey, recipeDTag };
+    const c = parseCoordinate(target.slice(2));
+    if (!c?.identifier) return null;
+    return { recipePubkey: c.pubkey, recipeDTag: c.identifier };
   }
 
   /**
@@ -1192,7 +1190,7 @@
   }
 
   .status-error {
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .tabs {
@@ -1251,7 +1249,7 @@
     color: var(--color-text-secondary);
     padding: 0.125rem 0.375rem;
     border-radius: 0.25rem;
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
+    background: var(--color-light-input-bg,var(--color-bg-tertiary, rgba(255, 255, 255, 0.04)));
   }
 
   .tab-badge {
@@ -1262,8 +1260,8 @@
     padding: 0 0.375rem;
     margin-left: 0.375rem;
     border-radius: 9999px;
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.6875rem;
     font-weight: 600;
   }
@@ -1293,8 +1291,8 @@
   .btn-rescore-retry {
     padding: 0.375rem 0.75rem;
     border-radius: 0.4rem;
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.8125rem;
     font-weight: 500;
     border: none;
@@ -1307,7 +1305,7 @@
   }
 
   .btn-rescore-retry {
-    background: var(--color-bg-tertiary);
+    background: var(--color-light-input-bg,var(--color-bg-tertiary));
     color: var(--color-text-primary);
     border: 1px solid var(--color-input-border);
   }
@@ -1328,7 +1326,7 @@
   .rescore-error {
     margin: 0;
     font-size: 0.8125rem;
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .rescore-success {
@@ -1409,14 +1407,14 @@
   }
 
   .btn-cancel {
-    background: var(--color-bg-tertiary);
+    background: var(--color-light-input-bg,var(--color-bg-tertiary));
     color: var(--color-text-primary);
     border: 1px solid var(--color-input-border);
   }
 
   .btn-confirm {
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
   }
 
   /* ── Bulk rescore batch UI ── */
@@ -1448,8 +1446,8 @@
     padding: 0.45rem 0.9rem;
     border-radius: 0.5rem;
     border: none;
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
@@ -1486,13 +1484,13 @@
   }
 
   .batch-fail {
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .btn-batch-abort {
     padding: 0.3rem 0.75rem;
     border-radius: 0.4rem;
-    background: var(--color-bg-tertiary);
+    background: var(--color-light-input-bg,var(--color-bg-tertiary));
     color: var(--color-text-primary);
     border: 1px solid var(--color-input-border);
     font-size: 0.8125rem;
@@ -1507,7 +1505,7 @@
   .batch-progress-track {
     width: 100%;
     height: 6px;
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+    background: var(--color-light-input-border,var(--color-bg-tertiary, rgba(255, 255, 255, 0.06)));
     border-radius: 3px;
     overflow: hidden;
   }
@@ -1541,7 +1539,7 @@
   .btn-batch-close {
     padding: 0.3rem 0.75rem;
     border-radius: 0.4rem;
-    background: var(--color-bg-tertiary);
+    background: var(--color-light-input-bg,var(--color-bg-tertiary));
     color: var(--color-text-primary);
     border: 1px solid var(--color-input-border);
     font-size: 0.8125rem;
@@ -1549,7 +1547,7 @@
   }
 
   .row-header:hover {
-    background: var(--color-bg-tertiary);
+    background: var(--color-light-input-bg,var(--color-bg-tertiary));
   }
 
   .target {
@@ -1574,7 +1572,7 @@
   }
 
   .count.high {
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .count.low {

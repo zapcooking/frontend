@@ -107,7 +107,7 @@
     font-weight: 600;
     letter-spacing: 0.03em;
     text-transform: uppercase;
-    color: var(--color-text-caption, #9ca3af);
+    color: var(--color-caption);
     opacity: 0.78;
   }
   /* Wrap on desktop; on narrow screens become a single horizontally

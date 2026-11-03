@@ -299,7 +299,7 @@
   .spinner {
     width: 60px;
     height: 60px;
-    border: 4px solid rgba(236, 71, 0, 0.2);
+    border: 4px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
     border-top-color: var(--color-primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
@@ -318,7 +318,7 @@
 
   .error-state h1 {
     font-size: 2rem;
-    color: #ef4444;
+    color: var(--color-danger);
     margin-bottom: 1rem;
   }
 
@@ -334,7 +334,12 @@
   .success-state h1 {
     font-size: 2.5rem;
     font-weight: 900;
-    background: linear-gradient(135deg, var(--color-primary) 0%, #ff8c42 50%, #ffb347 100%);
+    background: linear-gradient(
+      135deg,
+      var(--color-primary) 0%,
+      var(--color-primary) 50%,
+      var(--color-primary) 100%
+    );
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -343,12 +348,12 @@
 
   .success-message {
     font-size: 1.2rem;
-    color: #9ca3af;
+    color: var(--color-caption);
     margin-bottom: 2rem;
   }
 
   .subscription-info {
-    background: rgba(236, 71, 0, 0.1);
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
     border-radius: 8px;
     padding: 1rem;
     margin-bottom: 2rem;
@@ -356,14 +361,14 @@
 
   .subscription-date {
     margin: 0;
-    color: #1f2937;
+    color: var(--color-text-primary);
     font-size: 1rem;
     font-weight: 500;
     line-height: 1.5;
   }
 
   :global(html.dark) .subscription-date {
-    color: #f3f4f6;
+    color: var(--color-text-primary);
   }
 
   .subscription-date strong {
@@ -372,7 +377,7 @@
   }
 
   .founder-badge {
-    background: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 100%);
+    background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action-hover) 100%);
     border-radius: 16px;
     padding: 2rem;
     margin: 2rem auto;
@@ -396,7 +401,7 @@
   }
 
   .success-benefits {
-    background: rgba(17, 24, 39, 0.6);
+    background: color-mix(in srgb, var(--color-bg-secondary) 60%, transparent);
     backdrop-filter: blur(12px);
     border-radius: 16px;
     padding: 2rem;
@@ -405,12 +410,12 @@
   }
 
   :global(html.dark) .tier-genesis .success-benefits {
-    background: rgba(31, 41, 55, 0.7);
+    background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
   }
 
   .success-benefits h2 {
     font-size: 1.5rem;
-    color: #f3f4f6;
+    color: var(--color-text-primary);
     margin-bottom: 1rem;
     text-align: center;
   }
@@ -423,7 +428,7 @@
 
   .success-benefits li {
     padding: 0.75rem 0;
-    color: #d1d5db;
+    color: var(--color-text-secondary);
     font-size: 1rem;
     border-bottom: 1px solid rgba(236, 71, 0, 0.1);
   }
@@ -435,22 +440,22 @@
   .continue-button,
   .back-button {
     padding: 1rem 2rem;
-    background: linear-gradient(135deg, var(--color-primary) 0%, #ff6b00 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--color-action) 0%, var(--color-action) 100%);
+    color: var(--color-on-action);
     border: none;
     border-radius: 12px;
     font-size: 1.1rem;
     font-weight: 700;
     cursor: pointer;
     transition: all 0.3s ease;
-    box-shadow: 0 4px 12px rgba(236, 71, 0, 0.3);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--color-primary) 30%, transparent);
     margin-top: 1rem;
   }
 
   .continue-button:hover,
   .back-button:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(236, 71, 0, 0.4);
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--color-primary) 40%, transparent);
   }
 
   /* NIP-05 Badge Section */
@@ -484,7 +489,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
+    color: var(--color-on-action);
     font-weight: bold;
     font-size: 1rem;
   }
@@ -498,7 +503,7 @@
 
   .nip05-badge .badge-label {
     font-size: 0.75rem;
-    color: #22c55e;
+    color: var(--color-success);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -507,7 +512,7 @@
   .nip05-badge .badge-value {
     font-size: 1.1rem;
     font-weight: 700;
-    color: #f3f4f6;
+    color: var(--color-text-primary);
     overflow-wrap: break-word;
     word-break: break-all;
   }
@@ -530,7 +535,7 @@
 
   .nip05-prompt {
     font-size: 0.95rem;
-    color: #d1d5db;
+    color: var(--color-text-secondary);
     margin: 0 0 0.75rem 0;
   }
 
@@ -543,10 +548,10 @@
 
   .add-to-profile-button {
     padding: 0.6rem 1.25rem;
-    background: linear-gradient(135deg, #22c55e, #10b981);
+    background: linear-gradient(135deg, var(--color-action), var(--color-action));
     border: none;
     border-radius: 8px;
-    color: white;
+    color: var(--color-on-action);
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
@@ -562,9 +567,9 @@
   .skip-button {
     padding: 0.6rem 1.25rem;
     background: transparent;
-    border: 1px solid rgba(156, 163, 175, 0.4);
+    border: 1px solid var(--color-input-border);
     border-radius: 8px;
-    color: #9ca3af;
+    color: var(--color-caption);
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
@@ -572,8 +577,8 @@
   }
 
   .skip-button:hover {
-    border-color: rgba(156, 163, 175, 0.6);
-    color: #d1d5db;
+    border-color: var(--color-input-border);
+    color: var(--color-text-secondary);
   }
 
   .nip05-status {
@@ -582,19 +587,19 @@
   }
 
   .nip05-status.updating {
-    color: #fbbf24;
+    color: var(--color-warning);
   }
 
   .nip05-status.success {
-    color: #22c55e;
+    color: var(--color-success);
   }
 
   .nip05-status.skipped {
-    color: #9ca3af;
+    color: var(--color-caption);
   }
 
   .nip05-status.error {
-    color: #ef4444;
+    color: var(--color-danger);
   }
 
   .change-username-button {
@@ -603,7 +608,7 @@
     background: transparent;
     border: 1px solid rgba(34, 197, 94, 0.5);
     border-radius: 8px;
-    color: #22c55e;
+    color: var(--color-success);
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
@@ -612,7 +617,7 @@
 
   .change-username-button:hover {
     background: rgba(34, 197, 94, 0.1);
-    border-color: #22c55e;
+    border-color: var(--color-success);
   }
 
   /* NIP-05 Claim Section */
@@ -628,26 +633,26 @@
   .nip05-claim-title {
     font-size: 1.1rem;
     font-weight: 700;
-    color: #f3f4f6;
+    color: var(--color-text-primary);
     margin: 0 0 0.5rem 0;
   }
 
   .nip05-claim-text {
-    color: #d1d5db;
+    color: var(--color-text-secondary);
     margin: 0 0 1rem 0;
     font-size: 0.95rem;
   }
 
   .nip05-claim-text strong {
-    color: #60a5fa;
+    color: var(--color-info);
   }
 
   .claim-nip05-button {
     padding: 0.75rem 1.5rem;
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    background: linear-gradient(135deg, var(--color-action), var(--color-action));
     border: none;
     border-radius: 10px;
-    color: white;
+    color: var(--color-on-action);
     font-size: 1rem;
     font-weight: 600;
     cursor: pointer;

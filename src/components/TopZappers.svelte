@@ -94,12 +94,12 @@
               <img
                 src={optimizeImageUrl(zapper.profilePicture, { width: 32, height: 32, format: 'webp' })}
                 alt={zapper.displayName}
-                class="w-8 h-8 rounded-full border-2 border-white dark:border-gray-800 object-cover"
+                class="w-8 h-8 rounded-full border-2 border-[var(--color-bg-primary)] dark:border-[var(--color-input-border)] object-cover"
                 loading="lazy"
               />
             {:else}
               <div
-                class="w-8 h-8 rounded-full border-2 border-white dark:border-gray-800 bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xs font-bold"
+                class="w-8 h-8 rounded-full border-2 border-[var(--color-bg-primary)] dark:border-[var(--color-input-border)] bg-gradient-to-br from-action to-action-hover flex items-center justify-center text-white text-xs font-bold"
               >
                 {getInitials(zapper.displayName || 'A')}
               </div>
@@ -148,7 +148,7 @@
                   />
                 {:else}
                   <div
-                    class="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-xs font-bold"
+                    class="w-8 h-8 rounded-full bg-gradient-to-br from-action to-action-hover flex items-center justify-center text-white text-xs font-bold"
                   >
                     {getInitials(zapper.displayName || 'A')}
                   </div>

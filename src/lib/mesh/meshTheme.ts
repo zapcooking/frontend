@@ -58,15 +58,15 @@ export const DEFAULT_COLORS: MeshColorScheme = {
   nodeTagBgHover: 'rgba(249, 115, 22, 0.15)',
   nodeChefGlow: 'rgba(139, 92, 246, 0.3)',
 
-  containerBgDark: 'radial-gradient(ellipse at center, rgba(20,15,12,1) 0%, rgba(10,8,6,1) 100%)',
-  containerBgLight: 'radial-gradient(ellipse at center, rgba(255,252,248,1) 0%, rgba(245,240,235,1) 100%)',
+  containerBgDark: 'radial-gradient(ellipse at center, var(--color-bg-primary) 0%, var(--color-card-sunken) 100%)',
+  containerBgLight: 'radial-gradient(ellipse at center, var(--color-bg-primary) 0%, var(--color-card-sunken) 100%)',
 
-  legendBgDark: 'rgba(20, 15, 12, 0.7)',
-  legendBgLight: 'rgba(255, 255, 255, 0.7)',
-  legendBorderDark: 'rgba(255, 255, 255, 0.08)',
-  legendBorderLight: 'rgba(0, 0, 0, 0.08)',
-  legendTextDark: 'rgba(255, 255, 255, 0.5)',
-  legendTextLight: 'rgba(0, 0, 0, 0.6)'
+  legendBgDark: 'color-mix(in srgb, var(--color-bg-primary) 70%, transparent)',
+  legendBgLight: 'color-mix(in srgb, var(--color-bg-primary) 70%, transparent)',
+  legendBorderDark: 'var(--color-input-border)',
+  legendBorderLight: 'var(--color-input-border)',
+  legendTextDark: 'var(--color-text-secondary)',
+  legendTextLight: 'var(--color-text-secondary)'
 };
 
 export const CONSTELLATION_COLORS: MeshColorScheme = {

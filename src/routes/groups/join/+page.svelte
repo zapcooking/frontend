@@ -86,7 +86,7 @@
 		<a
 			href="/login"
 			class="mt-4 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors"
-			style="background-color: var(--color-primary); color: #ffffff;"
+			style="background-color: var(--color-action); color: var(--color-on-action);"
 		>
 			Sign In
 		</a>
@@ -129,7 +129,7 @@
 			on:click={handleJoin}
 			disabled={joining}
 			class="mt-5 px-6 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer disabled:opacity-40"
-			style="background-color: var(--color-primary); color: #ffffff;"
+			style="background-color: var(--color-action); color: var(--color-on-action);"
 		>
 			{#if joining}
 				Joining...

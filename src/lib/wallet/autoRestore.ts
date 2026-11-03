@@ -24,17 +24,20 @@ import { browser } from '$app/environment';
 import { writable, get } from 'svelte/store';
 import { ndkReady, userPublickey } from '$lib/nostr';
 import { showToast } from '$lib/toast';
-import { wallets, hasPersistedWallets, fingerprintWalletData } from './walletStore';
+import {
+  wallets,
+  hasPersistedWallets,
+  fingerprintWalletData,
+  walletRestoring,
+  walletSetupCheckPending,
+  lastWalletRecordKey
+} from './walletStore';
 import { connectWallet } from './walletManager';
 import { restoreNwcFromNostr } from './nwcBackup';
 import { listSparkBackups, restoreSparkBackup, getSparkWalletId } from '$lib/spark';
 
-/**
- * True while a login auto-restore is in flight. The header mini-wallet
- * renders its restoring pill from this instead of implying the user has
- * no wallet during the fetch/decrypt round-trip.
- */
-export const walletRestoring = writable(false);
+// Lives in walletStore so walletManager can read it without an import cycle.
+export { walletRestoring } from './walletStore';
 
 interface LastWalletRecord {
   kind: 3 | 4;
@@ -43,7 +46,34 @@ interface LastWalletRecord {
 }
 
 function recordKey(pubkey: string): string {
-  return `zapcooking_last_wallet_${pubkey}`;
+  return lastWalletRecordKey(pubkey);
+}
+
+/**
+ * Cheap, synchronous answer to "does this account obviously have a
+ * wallet?" — runs at the login event so the sidebar card never flashes
+ * "Set up a Wallet" while slower checks (the deferred auto-restore,
+ * envelope decryption) are still ahead. True only means the question
+ * can't be answered "no" yet, not that a wallet is connected.
+ */
+export function evaluateWalletSetupState(pubkey: string | null | undefined): void {
+  if (!browser) return;
+  if (!pubkey) {
+    walletSetupCheckPending.set(false);
+    return;
+  }
+  // Wallets already usable → answered.
+  if (get(wallets).length > 0) {
+    walletSetupCheckPending.set(false);
+    return;
+  }
+  // Persisted (possibly encrypted) wallets or a last-used record → the
+  // answer stays pending until those paths settle.
+  if (hasPersistedWallets() || getLastWalletRecord(pubkey)) {
+    walletSetupCheckPending.set(true);
+    return;
+  }
+  walletSetupCheckPending.set(false);
 }
 
 /** Remember the active wallet so the next login can put it back. */
@@ -82,22 +112,69 @@ export function getLastWalletRecord(pubkey: string | null | undefined): LastWall
 // behind the user's back, since each attempt can ask the signer (NIP-07
 // extension, bunker) to decrypt.
 let attemptedPubkey = '';
+// The pubkey whose restore is running right now: its finally settles the
+// setup-check flag, so a duplicate call meanwhile leaves the answer to it.
+let restoringPubkey = '';
 
 /**
  * Restore + connect the remembered wallet from the user's Nostr backups.
  * Call shortly after login. Returns true when a wallet was restored.
  */
 export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined): Promise<boolean> {
-  if (!browser || !pubkey || attemptedPubkey === pubkey) return false;
+  if (!browser || !pubkey || restoringPubkey === pubkey) return false;
+
+  // Whether the flag is currently pending was already decided by
+  // evaluateWalletSetupState at the login event (and its initial value
+  // covers page reloads); this function only HOLDS it through an actual
+  // restore and clears it when the answer is known.
 
   // The device still has wallets (possibly still-encrypted envelopes) —
   // the regular init/decrypt path owns reconnecting them; don't race it.
-  if (get(wallets).length > 0 || hasPersistedWallets()) return false;
+  if (get(wallets).length > 0) {
+    // Already usable — the balance card can take over immediately.
+    walletSetupCheckPending.set(false);
+    return false;
+  }
+  if (hasPersistedWallets()) {
+    // Encrypted envelopes only: loadWallets holds them OUT of the store
+    // until the signer decrypts them (5s poll), so the wallet exists but
+    // isn't visible yet. The answer here is never "no wallet" — keep the
+    // setup CTA hidden until decryption materializes it. Bounded: if the
+    // signer never decrypts (denied, gone), settle anyway so the card
+    // can't shimmer forever; the decrypt poll itself keeps retrying.
+    const pubkeyAtCheck = pubkey;
+    let settled = false;
+    function settleNow() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      unsubscribe();
+      // A different account may have logged in while we watched.
+      if (get(userPublickey) === pubkeyAtCheck) walletSetupCheckPending.set(false);
+    }
+    const unsubscribe = wallets.subscribe((list) => {
+      if (list.length > 0) settleNow();
+    });
+    const timeout = setTimeout(settleNow, 20000);
+    return false;
+  }
 
   const record = getLastWalletRecord(pubkey);
   if (!record) return false;
 
+  if (attemptedPubkey === pubkey) {
+    // Already tried for this account this session (the same account logged
+    // out and back in): no restore will run again, so nothing else would
+    // answer the question — settle it, or the card stays on "Wallet…".
+    walletSetupCheckPending.set(false);
+    return false;
+  }
+
+  // A backup restore is genuinely in the pipe: hold the flag for the
+  // whole ndkReady + relay round-trip.
+  walletSetupCheckPending.set(true);
   attemptedPubkey = pubkey;
+  restoringPubkey = pubkey;
   await ndkReady;
   walletRestoring.set(true);
 
@@ -110,7 +187,7 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
         // connection than the one this device remembers.
         return false;
       }
-      result = await connectWallet(3, connectionString);
+      result = await connectWallet(3, connectionString, 'restore');
     } else {
       const apiKey = import.meta.env.VITE_BREEZ_API_KEY;
       if (!apiKey) return false;
@@ -124,7 +201,7 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
       const mnemonic = await restoreSparkBackup(pubkey, apiKey, chosen);
       if (!mnemonic) return false;
 
-      result = await connectWallet(4, getSparkWalletId(mnemonic));
+      result = await connectWallet(4, getSparkWalletId(mnemonic), 'restore');
     }
 
     if (result.success) {
@@ -137,6 +214,8 @@ export async function autoRestoreWalletAtLogin(pubkey: string | null | undefined
     console.warn('[Wallet] Auto-restore at login failed:', e);
     return false;
   } finally {
+    restoringPubkey = '';
     walletRestoring.set(false);
+    walletSetupCheckPending.set(false);
   }
 }

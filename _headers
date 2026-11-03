@@ -6,3 +6,7 @@
 
 /.well-known/webauthn
   Content-Type: application/json
+
+# The shared appearance controller has a stable URL and must revalidate on deploy.
+/appearance.js
+  Cache-Control: no-cache

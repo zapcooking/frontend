@@ -9,7 +9,13 @@
 # Required: Private key for sending notifications (can be nsec or hex)
 NOTIFICATION_PRIVATE_KEY=nsec1your_nsec_here
 
-# Required: Relay API secret for checking memberships
+# Required: Relay API secret for checking memberships.
+# This is the members-relay ADMIN key. Keep it in `.dev.vars` (gitignored,
+# read by the Cloudflare adapter into platform.env) — never in `.env` that
+# could be committed, never in a component or any file under src/.
+# It was rotated on 2026-10-08 after a copy shipped in a client bundle;
+# a guard test (src/lib/noClientSecrets.test.ts) now fails the build if a
+# credential-shaped literal appears in client-reachable code.
 RELAY_API_SECRET=your_relay_api_secret_here
 
 # Optional: Enable membership notifications
@@ -127,7 +133,7 @@ curl -H "Authorization: Bearer your_cron_secret" \
 
 If you want to test with actual membership data from the production API:
 
-1. Make sure `RELAY_API_SECRET` in your `.env` matches the production secret
+1. Make sure `RELAY_API_SECRET` in your `.dev.vars` matches the production secret (ask the operator; it is never written down in this repo)
 2. The cron endpoint will check for memberships expiring within 7 days
 3. Only active memberships with expiration dates in the window will receive notifications
 

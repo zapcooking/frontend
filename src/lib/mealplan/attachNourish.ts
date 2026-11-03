@@ -2,6 +2,7 @@
  * Attach cached Nourish scores to planner candidates.
  * Local cache only — never computes or fetches a fresh score.
  */
+import { parseCoordinate } from '$lib/coordinate';
 import { getNourishCache } from '$lib/nourish/cache';
 import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
 import type { CandidateNourish } from './planningModes';
@@ -10,11 +11,11 @@ export function attachCachedNourish<T extends { a: string; nourish?: CandidateNo
   candidate: T
 ): T {
   if (candidate.nourish) return candidate;
-  const parts = candidate.a.split(':');
-  if (parts.length !== 3) return candidate;
+  const c = parseCoordinate(candidate.a);
+  if (!c?.identifier) return candidate;
   const entry = getNourishCache({
-    recipePubkey: parts[1],
-    recipeDTag: parts[2],
+    recipePubkey: c.pubkey,
+    recipeDTag: c.identifier,
     promptVersion: NOURISH_PROMPT_VERSION
   });
   if (!entry?.scores) return candidate;

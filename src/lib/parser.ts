@@ -1,9 +1,16 @@
 import MarkdownIt from 'markdown-it';
+import tlds from 'tlds';
 import { get, writable } from 'svelte/store';
 import { nip19 } from 'nostr-tools';
 import { sanitizeHTML } from '$lib/sanitize';
 
 const md = new MarkdownIt({ linkify: true });
+
+// linkify-it only fuzzy-links scheme-less domains on a short built-in TLD
+// list (com, net, org, … plus 2-letter ccTLDs), so `zap.cooking`,
+// `jumble.social` or `wisp.dev` stayed plain text. Extend it with the full
+// IANA list so every real TLD links.
+md.linkify.tlds(tlds, true);
 
 // Override link renderer to open links in new tab
 const defaultRender = md.renderer.rules.link_open || function(tokens, idx, options, env, self) {

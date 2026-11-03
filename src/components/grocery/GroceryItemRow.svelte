@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { parseCoordinate } from '$lib/coordinate';
   import { groceryStore, type GroceryItem } from '$lib/stores/groceryStore';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
@@ -24,13 +25,18 @@
   function uniqueRecipeTitles(current: GroceryItem): string[] {
     const titles = new Map<string, string>();
     for (const source of current.sources || []) {
-      const label = source.recipeTitle || source.recipeId.split(':').slice(2).join(':');
+      const label = source.recipeTitle || recipeIdTitle(source.recipeId);
       if (label && !titles.has(source.recipeId)) titles.set(source.recipeId, label);
     }
     if (titles.size === 0 && current.recipeId) {
-      titles.set(current.recipeId, current.recipeId.split(':').slice(2).join(':'));
+      titles.set(current.recipeId, recipeIdTitle(current.recipeId));
     }
     return [...titles.values()];
+  }
+
+  /** A recipe's d-tag, when the item has no title for it. */
+  function recipeIdTitle(recipeId: string): string {
+    return parseCoordinate(recipeId)?.identifier ?? '';
   }
 
   function toggleItem() {
@@ -77,7 +83,7 @@
     on:click={toggleItem}
     class="mt-0.5 w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all {item.checked
       ? 'bg-green-500 border-green-500'
-      : 'border-gray-400 dark:border-gray-400 hover:border-green-400'}"
+      : 'border-[var(--color-input-border)] dark:border-[var(--color-input-border)] hover:border-green-400'}"
     aria-label={item.checked ? 'Uncheck item' : 'Check item'}
   >
     {#if item.checked}

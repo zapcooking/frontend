@@ -203,7 +203,7 @@
 		</div>
 
 		<!-- ═══ Product summary card ═══ -->
-		<div class="flex gap-3 p-3 rounded-xl" style="background-color: var(--color-bg-tertiary);">
+		<div class="flex gap-3 p-3 rounded-xl" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));">
 			<img
 				src={imageUrl}
 				alt={product?.title}
@@ -235,12 +235,12 @@
 					on:input={() => (userEditedMessage = true)}
 					rows="3"
 					class="w-full p-3 rounded-xl text-sm resize-none"
-					style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid rgba(249, 115, 22, 0.25);"
+					style="background-color: var(--color-bg-secondary); color: var(--color-text-primary); border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);"
 					placeholder="Write a message..."
 				/>
 
 				{#if dmError}
-					<p class="text-xs text-red-400">{dmError}</p>
+					<p class="text-xs text-[var(--color-danger)]">{dmError}</p>
 				{/if}
 
 				<!-- Send button (primary CTA) -->
@@ -297,7 +297,7 @@
 			</div>
 		{:else}
 			<!-- Not logged in / no encryption -->
-			<div class="text-sm p-4 rounded-xl" style="background-color: var(--color-bg-tertiary); color: var(--color-text-secondary);">
+			<div class="text-sm p-4 rounded-xl" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary)); color: var(--color-text-secondary);">
 				{#if !$userPublickey}
 					<p>Log in to message this seller.</p>
 				{:else if !encryptionServiceLoaded}
@@ -307,7 +307,7 @@
 					<button
 						type="button"
 						on:click={recheckEncryption}
-						class="text-xs text-orange-500 hover:text-orange-400 underline"
+						class="text-xs text-primary hover:text-primary underline"
 					>
 						Retry
 					</button>
@@ -348,7 +348,7 @@
 			<div class="flex flex-col gap-4 pt-1">
 				<!-- Full image -->
 				{#if product?.images?.length}
-					<div class="relative aspect-video rounded-xl overflow-hidden" style="background-color: var(--color-bg-tertiary);">
+					<div class="relative aspect-video rounded-xl overflow-hidden" style="background-color: var(--color-light-input-bg, var(--color-bg-tertiary));">
 						<img
 							src={imageUrl}
 							alt={product?.title}

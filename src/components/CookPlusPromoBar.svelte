@@ -254,8 +254,8 @@
     justify-content: center;
     padding: 0.6rem 1.1rem;
     border-radius: 9999px;
-    background: var(--color-primary);
-    color: #fff;
+    background: var(--color-action);
+    color: var(--color-on-action);
     font-weight: 700;
     font-size: 0.9rem;
     line-height: 1.2;
@@ -264,8 +264,8 @@
     transition: background-color 0.15s ease;
   }
   .promo-cta:hover {
-    background: #d63a00;
-    color: #fff;
+    background: var(--color-action-hover);
+    color: var(--color-on-action);
   }
 
   .promo-dismiss {

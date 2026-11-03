@@ -70,11 +70,11 @@
   // Variant classes
   const variantClasses = {
     default:
-      'bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium transition-colors',
+      'bg-action hover:bg-action-hover text-on-action rounded-lg font-medium transition-colors',
     minimal:
-      'text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50 rounded-lg transition-colors',
+      'text-primary hover:text-primary hover:bg-primary/10 rounded-lg transition-colors',
     'icon-only':
-      'text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50 rounded-full p-2 transition-colors'
+      'text-primary hover:text-primary hover:bg-primary/10 rounded-full p-2 transition-colors'
   };
 </script>
 

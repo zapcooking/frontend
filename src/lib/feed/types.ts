@@ -23,6 +23,10 @@ export interface MediaItem {
   /** Blurhash placeholder per NIP-92 `blurhash`. Decoded to a data URL
    * lazily by `blurhash.ts`. */
   blurhash?: string;
+  /** Poster image for video items per NIP-92 `image` / `thumb` — gallery
+   * tiles render it as a plain <img>; the <video> only mounts in the
+   * Lightbox. */
+  poster?: string;
   /** Alt text per NIP-92 `alt`. */
   alt?: string;
   /** Additional URLs (per NIP-92 `fallback`) tried if the primary URL
@@ -99,7 +103,7 @@ export interface FeedNoteVM {
 }
 
 /** The feed tab the user is viewing. URL-bookmarkable via the
- * `?tab=` searchParam on `/community`. */
+ * `?tab=` searchParam on `/feed`. */
 export type FeedTab = 'global' | 'following' | 'replies' | 'members';
 
 /** Pagination cursor passed to `FeedSource.loadMore()`. Matches the

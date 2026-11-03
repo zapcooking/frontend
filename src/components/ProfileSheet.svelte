@@ -12,6 +12,9 @@
    * Self-sufficient on purpose: it resolves profile, follow and mute state
    * from a pubkey, so opening it from a feed costs the caller one prop.
    */
+  import { updateFollows, followErrorMessage } from '$lib/followUpdate';
+  import { requireAuth, isSignedIn } from '$lib/auth/requireAuth';
+  import { showToast } from '$lib/toast';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { get } from 'svelte/store';
@@ -20,6 +23,7 @@
   import { ndk, userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { resolveProfileByPubkey, type ProfileData } from '$lib/profileResolver';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
+  import { setPubkeyMuted } from '$lib/muteToggle';
   import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
   import Modal from './Modal.svelte';
   import Avatar from './Avatar.svelte';
@@ -143,64 +147,62 @@
     }
   }
 
+  // The sheet's Modal (z 10000) sits above the sign-in card (9997), so it
+  // steps aside while sign-in is up — its keyboard trap goes with it — and
+  // comes back on the same profile afterwards. Closing it instead would
+  // clear the subject (ProfilePreviewModal resets the pubkey) and lose the
+  // follow target.
+  let awaitingAuth = false;
+
   async function toggleFollow() {
+    if (followLoading) return;
+    // Resuming after sign-in only ever follows: the account may already
+    // follow this cook, and a toggle would unfollow them.
+    const resuming = !isSignedIn();
+    if (resuming) {
+      awaitingAuth = true;
+      const ok = await requireAuth({ kind: 'follow', reason: 'Sign in to follow' });
+      awaitingAuth = false;
+      if (!ok) return;
+    }
     const me = get(userPublickey);
-    if (!me || !hex || followLoading) return;
+    if (!me || !hex || followLoading || me === hex) return;
 
     followLoading = true;
     try {
-      // Fetch the latest list before modifying — publishing from stale
-      // local state could wipe follows made from another client.
-      const filter: NDKFilter = { authors: [me], kinds: [3], limit: 1 };
-      const contactEvents = await get(ndk).fetchEvents(filter);
-      const existing = Array.from(contactEvents)[0];
-      let tags: string[][] = existing?.tags.filter((t) => t[0] === 'p') ?? [];
-
-      if (isFollowing) {
-        // Safeguard: never publish an empty list when more existed.
-        const next = tags.filter((t) => t[1] !== hex);
-        if (next.length === 0 && tags.length > 1) return;
-        tags = next;
-      } else {
-        tags = [...tags, ['p', hex]];
-      }
-
-      const contactEvent = new NDKEvent(get(ndk));
-      contactEvent.kind = 3;
-      contactEvent.content = existing?.content ?? '';
-      contactEvent.tags = tags;
-      await contactEvent.publish();
-      isFollowing = !isFollowing;
+      // Safe edit ($lib/followUpdate): the latest list from the reader's
+      // relays, or nothing published.
+      const follows = await updateFollows(
+        get(ndk),
+        me,
+        isFollowing && !resuming ? { remove: [hex] } : { add: [hex] }
+      );
+      isFollowing = follows.has(hex);
     } catch (err) {
       console.warn('[ProfileSheet] follow toggle failed:', err);
+      showToast('error', followErrorMessage(err));
     } finally {
       followLoading = false;
     }
   }
 
   async function toggleMute() {
-    if (!get(userPublickey) || !hex || muteLoading) return;
+    const me = get(userPublickey);
+    if (!me || !hex || muteLoading) return;
 
+    const next = !isMuted;
     muteLoading = true;
     try {
-      const current = Array.from(get(mutedPubkeys));
-      const next = isMuted ? current.filter((pk) => pk !== hex) : [...current, hex];
-
-      const muteEvent = new NDKEvent(get(ndk));
-      muteEvent.kind = 10000;
-      muteEvent.content = '';
-      muteEvent.tags = next.map((pk) => ['p', pk]);
-      await muteEvent.publish();
-
-      try {
-        localStorage.setItem('mutedUsers', JSON.stringify(next));
-      } catch {
-        // Private mode or a full quota — the relay copy still stands.
-      }
-      muteListStore.invalidate();
-      await muteListStore.load(true);
+      // Edits the latest relay copy; keeps every other entry (see $lib/muteToggle).
+      // The store updates inside the call, so isMuted flips immediately.
+      await setPubkeyMuted(me, hex, next);
     } catch (err) {
       console.error('[ProfileSheet] mute toggle failed:', err);
+      // The mute applied locally; only the relay sync failed.
+      showToast(
+        'error',
+        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+      );
     } finally {
       muteLoading = false;
     }
@@ -270,7 +272,13 @@
   }
 </script>
 
-<Modal {open} cleanup={close} noHeader autoHeight suspended={avatarLightboxOpen}>
+<Modal
+  open={open && !awaitingAuth}
+  cleanup={close}
+  noHeader
+  autoHeight
+  suspended={avatarLightboxOpen}
+>
   <!-- The banner bleeds to the dialog's edges by undoing its
        px-4/md:px-8/pt-6 padding, so the sheet opens on the same
        banner-and-avatar composition as the profile page rather than a bare
@@ -317,7 +325,7 @@
         {/key}
         {#if resolvedPicture}
           <button
-            class="absolute inset-0 rounded-full cursor-zoom-in transition-colors hover:bg-black/10 focus-visible:ring-2 focus-visible:ring-orange-500"
+            class="absolute inset-0 rounded-full cursor-zoom-in transition-colors hover:bg-black/10 focus-visible:ring-2 focus-visible:ring-primary"
             on:click={() => (avatarLightboxOpen = true)}
             aria-label="View profile picture"
             title="View profile picture"
@@ -382,7 +390,7 @@
       {#if !isSelf}
         {#if lightningAddress && !isMuted}
           <button
-            class="flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-yellow-500 px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-yellow-400 disabled:opacity-50"
+            class="flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-action px-3 py-1.5 text-sm font-medium text-on-action transition-colors hover:bg-action-hover disabled:opacity-50"
             disabled={isZapping}
             on:click={handleZap}
           >
@@ -392,11 +400,12 @@
         {/if}
 
         {#if profile?.noffer && !isMuted}
-          <!-- NofferButton styles its own button, so the slot carries the
-               row's sizing and hands it down. -->
-          <div class="noffer-slot flex flex-1">
-            <NofferButton noffer={profile.noffer} />
-          </div>
+          <!-- No wrapper: the `row` variant is a row peer down to its
+               flex sizing, and a padding-less wrapper as the flex item
+               would leave it 24px narrower than the buttons either
+               side (flex-basis: 0 sizes the content box, so their
+               px-3 rides on top of an equal share and its doesn't). -->
+          <NofferButton noffer={profile.noffer} variant="row" />
         {/if}
 
         {#if $userPublickey && !isMuted}
@@ -411,13 +420,13 @@
           </a>
         {/if}
 
-        {#if $userPublickey && followChecked}
+        {#if followChecked}
           <button
             on:click={toggleFollow}
             disabled={followLoading}
             class="flex-1 flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 {isFollowing
               ? 'bg-input hover:bg-accent-gray'
-              : 'bg-orange-500 text-white hover:bg-orange-600'}"
+              : 'bg-action text-on-action hover:bg-action-hover'}"
             style={isFollowing ? 'color: var(--color-text-primary)' : ''}
           >
             {#if followLoading}
@@ -497,11 +506,3 @@
 {#if zapTarget}
   <ZapModal bind:open={zapModal} event={zapTarget} />
 {/if}
-
-<style>
-  /* NofferButton styles its own button, so the flex-1 slot has to hand
-     the width down for it to fill its share of the row. */
-  .noffer-slot :global(button) {
-    width: 100%;
-  }
-</style>

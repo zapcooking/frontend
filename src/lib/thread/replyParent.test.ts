@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildReplyTree, getReplyParentId, type ParentableEvent } from './replyParent';
+import {
+  buildReplyTree,
+  getReplyParentId,
+  getThreadRootId,
+  isEventRootedComment,
+  isStrayKind1OnComment,
+  type ParentableEvent
+} from './replyParent';
 
 const ev = (id: string, tags: string[][], extra: Partial<ParentableEvent> = {}): ParentableEvent => ({
   id,
@@ -92,6 +99,74 @@ describe('getReplyParentId (NIP-22)', () => {
     const e = ev('c', [['E', 'article'], ['e', 'quoted', '', 'mention']], { kind: 1111 });
     expect(getReplyParentId(e)).toBe('article');
   });
+
+  it('falls back to the root past an empty-valued e tag', () => {
+    // The profile feed's parent embed reads a comment's parent through
+    // this function, so a blank `e` must not blank out the embed.
+    const e = ev('c', [['e', ''], ['E', 'rootnote'], ['K', '1']], { kind: 1111 });
+    expect(getReplyParentId(e)).toBe('rootnote');
+  });
+
+  it('has no event parent for an addressable-root comment with no e/E', () => {
+    const e = ev('c', [['A', '30023:pk:d'], ['a', '30023:pk:d'], ['K', '30023']], { kind: 1111 });
+    expect(getReplyParentId(e)).toBeNull();
+  });
+});
+
+describe('getThreadRootId', () => {
+  it('re-roots a NIP-22 comment at its uppercase E, not its lowercase e parent', () => {
+    // The lowercase parent of a nested comment is another comment
+    // mid-thread — reading it as the root would truncate the fetch.
+    const e = ev(
+      'a',
+      [
+        ['E', 'conversation-root', '', 'root-author'],
+        ['K', '1'],
+        ['P', 'root-author'],
+        ['e', 'immediate-parent', '', 'parent-author']
+      ],
+      { kind: 1111 }
+    );
+    expect(getThreadRootId(e)).toBe('conversation-root');
+    expect(getReplyParentId(e)).toBe('immediate-parent');
+  });
+
+  it('falls back to the e tags when a comment carries no E', () => {
+    const e = ev('a', [['e', 'only-reference']], { kind: 1111 });
+    expect(getThreadRootId(e)).toBe('only-reference');
+  });
+
+  it('uses the marked root tag for kind-1 replies', () => {
+    const e = ev('a', [
+      ['e', 'root', '', 'root'],
+      ['e', 'parent', '', 'reply']
+    ]);
+    expect(getThreadRootId(e)).toBe('root');
+  });
+
+  it('takes the first e tag in the deprecated positional form', () => {
+    // Positional form names the root first, the parent last — the mirror
+    // image of getReplyParentId's last-tag rule.
+    const e = ev('a', [
+      ['e', 'root'],
+      ['e', 'parent']
+    ]);
+    expect(getThreadRootId(e)).toBe('root');
+    expect(getReplyParentId(e)).toBe('parent');
+  });
+
+  it('ignores mentions when resolving the positional root', () => {
+    const e = ev('a', [
+      ['e', 'quoted', '', 'mention'],
+      ['e', 'root'],
+      ['e', 'parent']
+    ]);
+    expect(getThreadRootId(e)).toBe('root');
+  });
+
+  it('returns null when the event opens a thread', () => {
+    expect(getThreadRootId(ev('a', [['p', 'pk']]))).toBeNull();
+  });
 });
 
 describe('buildReplyTree', () => {
@@ -147,5 +222,156 @@ describe('buildReplyTree', () => {
   it('never parents the focused note to itself', () => {
     const tree = buildReplyTree('root', [ev('root', [['e', 'root']]), at('b', 'root', 1)]);
     expect(tree.get('root')?.map((e) => e.id)).toEqual(['b']);
+  });
+});
+
+describe('isStrayKind1OnComment / stray replies in the tree', () => {
+  it('flags a kind-1 whose held parent is a comment', () => {
+    const stray = ev('s1', [['e', 'c1', '', 'reply']]);
+    expect(isStrayKind1OnComment(stray, (id) => (id === 'c1' ? 1111 : undefined))).toBe(true);
+  });
+
+  it('flags via the k tag without any parent cache', () => {
+    const stray = ev('s2', [
+      ['e', 'unknown-parent', '', 'reply'],
+      ['k', '1111']
+    ]);
+    expect(isStrayKind1OnComment(stray, () => undefined)).toBe(true);
+  });
+
+  it('keeps replies to notes, comments, and unresolvable parents', () => {
+    const kindOf = (id: string) => (id === 'root' ? 1 : undefined);
+    expect(isStrayKind1OnComment(ev('r1', [['e', 'root', '', 'reply']]), kindOf)).toBe(false);
+    const comment = ev('r2', [['e', 'c1']], { kind: 1111 });
+    expect(isStrayKind1OnComment(comment, () => 1111)).toBe(false);
+    expect(isStrayKind1OnComment(ev('r3', [['e', 'missing', '', 'reply']]), kindOf)).toBe(false);
+  });
+
+  it('drops a stray from the tree but keeps its comment siblings', () => {
+    const comment = ev('c1', [['E', 'root', '', 'pk'], ['e', 'root', '', 'pk']], {
+      kind: 1111,
+      created_at: 1
+    });
+    const stray = ev('s1', [['e', 'c1', '', 'reply']], { created_at: 2 });
+    const nested = ev(
+      'c2',
+      [
+        ['E', 'root', '', 'pk'],
+        ['e', 'c1', '', 'pk'],
+        ['k', '1111']
+      ],
+      { kind: 1111, created_at: 3 }
+    );
+    const tree = buildReplyTree('root', [comment, stray, nested]);
+    const placed = [...tree.values()].flat().map((e) => e.id).sort();
+    expect(placed).toEqual(['c1', 'c2']);
+  });
+
+  it('drops a kind-1 answering the focused comment itself', () => {
+    const focus = { id: 'top', kind: 1111, created_at: 0, tags: [['E', 'gone-root']] };
+    const stray = ev('s1', [['e', 'top', '', 'reply']]);
+    const tree = buildReplyTree('top', [stray], focus);
+    expect(tree.size).toBe(0);
+  });
+});
+
+describe('buildReplyTree (ancestor exclusion)', () => {
+  const ancestors = new Set(['anc']);
+
+  it('drops a reply that answers an ancestor of the focus', () => {
+    const replyToAncestor = ev('r1', [['e', 'anc', '', 'reply']]);
+    const direct = ev('r2', [['e', 'focus', '', 'reply']], { created_at: 2 });
+    const tree = buildReplyTree('focus', [replyToAncestor, direct], undefined, ancestors);
+    const placed = [...tree.values()].flat().map((e) => e.id);
+    expect(placed).toEqual(['r2']);
+  });
+
+  it('drops a whole descendant chain under an excluded reply', () => {
+    // r1 answers the ancestor; r2 answers r1. Both stay out of the focus's
+    // tree — r2 belongs to the ancestor's branch, not the focus's.
+    const r1 = ev('r1', [['e', 'anc', '', 'reply']], { created_at: 1 });
+    const r2 = ev('r2', [['e', 'r1', '', 'reply']], { created_at: 2 });
+    const direct = ev('r3', [['e', 'focus', '', 'reply']], { created_at: 3 });
+    const tree = buildReplyTree('focus', [r2, r1, direct], undefined, ancestors);
+    const placed = [...tree.values()].flat().map((e) => e.id);
+    expect(placed).toEqual(['r3']);
+  });
+
+  it('resolves regardless of arrival order — child before excluded parent', () => {
+    const r1 = ev('r1', [['e', 'anc', '', 'reply']], { created_at: 1 });
+    const r2 = ev('r2', [['e', 'r1', '', 'reply']], { created_at: 2 });
+    const tree = buildReplyTree('focus', [r2, r1], undefined, ancestors);
+    expect(tree.size).toBe(0);
+  });
+
+  it('keeps a nested reply whose parent is a visible reply of the focus', () => {
+    const direct = ev('r1', [['e', 'focus', '', 'reply']], { created_at: 1 });
+    const nested = ev('r2', [['e', 'r1', '', 'reply']], { created_at: 2 });
+    const tree = buildReplyTree('focus', [direct, nested], undefined, ancestors);
+    expect((tree.get('focus') || []).map((e) => e.id)).toEqual(['r1']);
+    expect((tree.get('r1') || []).map((e) => e.id)).toEqual(['r2']);
+  });
+
+  it('still grafts an orphan whose parent never arrived, excluded set or not', () => {
+    const orphan = ev('r1', [['e', 'missing', '', 'reply']]);
+    const tree = buildReplyTree('focus', [orphan], undefined, ancestors);
+    expect((tree.get('focus') || []).map((e) => e.id)).toEqual(['r1']);
+  });
+
+  it('renders the full tree when no ancestors are passed (root view)', () => {
+    const replyToAncestor = ev('r1', [['e', 'anc', '', 'reply']], { created_at: 1 });
+    const nested = ev('r2', [['e', 'r1', '', 'reply']], { created_at: 2 });
+    const tree = buildReplyTree('focus', [replyToAncestor, nested]);
+    expect((tree.get('focus') || []).map((e) => e.id)).toEqual(['r1']);
+    expect((tree.get('r1') || []).map((e) => e.id)).toEqual(['r2']);
+  });
+});
+
+// Shapes ported from the iOS client's ProfileRepliesTabTests
+// (zapcooking/zapcooking_ios#174): the profile Replies tab classifies a
+// kind-1111 comment by its root scope tag alone.
+describe('isEventRootedComment', () => {
+  const comment = (tags: string[][], extra: Partial<ParentableEvent> = {}) =>
+    isEventRootedComment(ev('c', tags, { kind: 1111, ...extra }));
+
+  it('accepts a mixed-thread comment — E root with a lowercase e parent', () => {
+    // Ditto-style: thread starts kind-1 NIP-10, someone replies with a
+    // comment. Root scope points at the kind-1 anchor, parent scope at it
+    // or at another comment.
+    expect(comment([['E', 'rootnote'], ['e', 'parentcomment'], ['K', '1']])).toBe(true);
+  });
+
+  it('accepts an addressable-root comment', () => {
+    expect(comment([['A', '30023:pk:d'], ['a', '30023:pk:d'], ['K', '30023']])).toBe(true);
+  });
+
+  it('rejects a web-page-rooted comment even though it carries a lowercase e', () => {
+    // The leak case: nested external comments point their parent scope at
+    // the comment above. Case is the discriminator — I/e is external.
+    expect(comment([['I', 'https://example.com'], ['e', 'parentcomment'], ['K', 'web']])).toBe(
+      false
+    );
+  });
+
+  it('rejects an unscoped comment — no root tag, unthreadable', () => {
+    expect(comment([['e', 'parentcomment'], ['k', '1111']])).toBe(false);
+  });
+
+  it('rejects a comment whose only root tag has an empty value', () => {
+    expect(comment([['E', ''], ['e', 'parentcomment']])).toBe(false);
+  });
+
+  it('rejects a lowercase-only root (e is parent scope, never root)', () => {
+    expect(comment([['e', 'parentcomment'], ['k', '1']])).toBe(false);
+  });
+
+  it('rejects kind-1 notes — the predicate is 1111-only', () => {
+    expect(isEventRootedComment(ev('n', [['E', 'rootnote']], { kind: 1 }))).toBe(false);
+  });
+
+  it('is case-sensitive: a lowercase a root does not count', () => {
+    // A lowercase `a` is the parent scope for an addressable parent; the
+    // uppercase `A` is what names the root.
+    expect(comment([['a', '30023:pk:d'], ['K', '30023']])).toBe(false);
   });
 });

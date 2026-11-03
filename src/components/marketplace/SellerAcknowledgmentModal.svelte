@@ -17,7 +17,7 @@
 <div class="modal-overlay" on:click|self={() => {}}>
 	<div class="modal-content">
 		<div class="modal-header">
-			<WarningCircleIcon size={32} weight="duotone" class="text-orange-500" />
+			<WarningCircleIcon size={32} weight="duotone" class="text-[var(--color-warning)]" />
 			<h2 class="text-xl font-bold" style="color: var(--color-text-primary)">Before You List on The Market</h2>
 		</div>
 
@@ -126,7 +126,7 @@
 
 	.checkbox {
 		@apply mt-0.5 flex-shrink-0 w-5 h-5 rounded;
-		accent-color: var(--color-accent, #f97316);
+		accent-color: var(--color-primary);
 	}
 
 	.modal-footer {
@@ -135,7 +135,7 @@
 
 	.accept-btn {
 		@apply w-full py-3 px-4 rounded-xl font-semibold text-white transition-all;
-		background: linear-gradient(135deg, #f97316, #ea580c);
+		background: linear-gradient(135deg, var(--color-action), var(--color-action));
 	}
 
 	.accept-btn:hover:not(:disabled) {

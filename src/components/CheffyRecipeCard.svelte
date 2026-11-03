@@ -251,8 +251,8 @@
     padding: 0 16px;
     border-radius: 999px;
     border: 0;
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.85rem;
     font-weight: 600;
     cursor: pointer;

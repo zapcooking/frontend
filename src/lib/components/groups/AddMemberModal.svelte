@@ -79,7 +79,12 @@
 		searching = true;
 		debounceTimer = setTimeout(async () => {
 			try {
-				results = await searchProfiles(query, 8);
+				const live = () => query === pubkeyInput.trim();
+				results = await searchProfiles(query, 8, {
+					onPartial: (partial) => {
+						if (live()) results = partial;
+					}
+				});
 			} catch {
 				results = [];
 			} finally {
@@ -266,7 +271,7 @@
 			on:click={handleAdd}
 			disabled={!pubkeyInput.trim() || adding}
 			class="w-full py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer disabled:opacity-40"
-			style="background-color: var(--color-primary); color: #ffffff;"
+			style="background-color: var(--color-action); color: var(--color-on-action);"
 		>
 			{#if adding}
 				Adding...

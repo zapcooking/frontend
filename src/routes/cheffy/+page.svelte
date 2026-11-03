@@ -3,6 +3,8 @@
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
+  import { CHEFFY_TRIAL_LIMIT, CHEFFY_TRIAL_PROMPT_CHARS } from '$lib/cheffyTrial';
+  import { loadCheffyTrial } from '$lib/cheffyTrialClient';
   import { signNip98AuthHeader } from '$lib/nip98';
   import {
     askAboutPhoto,
@@ -75,6 +77,26 @@
   $: hasMembership = Boolean(membershipMap[normalizedPk]?.active);
 
   let isLoading = true;
+  let trialRemaining: number | null = null;
+  let trialError = '';
+  let trialAccount = '';
+  async function refreshTrial() {
+    const account = normalizedPk;
+    if (!account) return;
+    trialAccount = account;
+    trialError = '';
+    try {
+      const remaining = await loadCheffyTrial($ndk);
+      if (account === normalizedPk) trialRemaining = remaining;
+    } catch {
+      if (account === normalizedPk)
+        trialError = 'Your free messages could not be checked. Please try again.';
+    }
+  }
+  $: if (browser && !isLoading && normalizedPk && !hasMembership && trialAccount !== normalizedPk) {
+    trialRemaining = null;
+    void refreshTrial();
+  }
 
   // ── Conversation state ───────────────────────────────────────
   type ChatRole = 'user' | 'cheffy';
@@ -112,7 +134,7 @@
   // A photo turn goes to a different endpoint and cannot be replayed as
   // text, so it is its own variant carrying the file rather than a null.
   type LastTurn =
-    | { kind: 'text'; prompt: string; mode: 'chat' | 'hungry' }
+    | { kind: 'text'; prompt: string; mode: 'chat' | 'hungry'; trialRequestId: string }
     | { kind: 'photo'; file: File; question: string };
   let lastTurn: LastTurn | null = null;
   let lastStatusLine = '';
@@ -122,6 +144,16 @@
 
   // ── Composer state ───────────────────────────────────────────
   let input = '';
+  let conversationAccount = '';
+  $: if (normalizedPk !== conversationAccount) {
+    conversationAccount = normalizedPk;
+    thread = [];
+    input = '';
+    lastTurn = null;
+    loading = false;
+    trialRemaining = null;
+    trialAccount = '';
+  }
   let promptEl: HTMLTextAreaElement;
 
   async function autoSizePrompt() {
@@ -196,7 +228,7 @@
 
   onMount(() => {
     if (!$userPublickey) {
-      goto('/login?redirect=/cheffy');
+      isLoading = false;
       return;
     }
 
@@ -274,9 +306,12 @@
     promptForApi: string,
     mode: 'chat' | 'hungry',
     apiHistory: { role: 'user' | 'assistant'; content: string }[],
-    expectRecipe: boolean
+    expectRecipe: boolean,
+    trialRequestId: string
   ) {
     loading = true;
+    const account = normalizedPk;
+    let retryable = true;
     const statusLine = pickLine(expectRecipe ? COOKING_LINES : THINKING_LINES, lastStatusLine);
     lastStatusLine = statusLine;
     const pending: ChatMessage = {
@@ -291,36 +326,47 @@
     await scrollAfterTurn();
 
     try {
-      // NIP-98 instead of a body pubkey. Best-effort: the server treats a
-      // missing header as anonymous, so a signing failure must send no
-      // header rather than a broken one.
+      // Account ownership is required for paid chat and the durable free sample.
       const bodyString = JSON.stringify({
         prompt: promptForApi,
         mode,
-        messages: apiHistory
+        messages: apiHistory,
+        ...(!hasMembership ? { experience: true, trialRequestId } : {})
       });
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if ($userPublickey) {
-        try {
-          headers.Authorization = await signNip98AuthHeader($ndk, {
-            method: 'POST',
-            url: new URL('/api/zappy', window.location.origin).toString(),
-            bodyString
-          });
-        } catch (e) {
-          console.warn('[Cheffy] NIP-98 signing unavailable, continuing unauthenticated:', e);
-        }
-      }
+      if (!$userPublickey) throw new Error('Sign in to use your free Cheffy messages.');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: await signNip98AuthHeader($ndk, {
+          method: 'POST',
+          url: new URL('/api/zappy', window.location.origin).toString(),
+          bodyString
+        })
+      };
 
+      if (account !== normalizedPk) return;
       const resp = await fetch('/api/zappy', {
         method: 'POST',
         headers,
         body: bodyString
       });
       const data = await resp.json();
+      if (account !== normalizedPk) return;
+      if (data?.code === 'CHEFFY_EXPERIENCE_USED') {
+        trialRemaining = 0;
+        thread = thread.filter((m) => m.id !== pending.id);
+        announce = 'Your free messages are used. Join Cook+ to keep cooking with Cheffy.';
+        return;
+      }
+      if (data?.code === 'TRIAL_REQUEST_COMPLETED') {
+        retryable = false;
+        lastTurn = null;
+        input = promptForApi;
+        await refreshTrial();
+      }
       if (!resp.ok || !data.ok) {
         throw new Error(data.error || 'Cheffy could not respond.');
       }
+      if (Number.isInteger(data.trial?.remaining)) trialRemaining = data.trial.remaining;
       const isRecipe = looksLikeStructuredRecipe(data.output);
       thread = thread.map((m) =>
         m.id === pending.id
@@ -334,6 +380,7 @@
       );
       announce = isRecipe ? 'Cheffy shared a recipe.' : 'Cheffy replied.';
     } catch (err) {
+      if (account !== normalizedPk) return;
       const detail = err instanceof Error ? err.message : 'Cheffy could not respond.';
       thread = thread.map((m) =>
         m.id === pending.id
@@ -342,19 +389,20 @@
               kind: 'error',
               content: detail,
               expression: 'concerned',
-              statusLine: pickLine(ERROR_LINES, m.statusLine)
+              statusLine: pickLine(ERROR_LINES, m.statusLine),
+              retryable
             }
           : m
       );
       announce = 'Cheffy hit a snag.';
     } finally {
-      loading = false;
+      if (account === normalizedPk) loading = false;
       await scrollAfterTurn();
     }
   }
 
   async function send(content: string, mode: 'chat' | 'hungry' = 'chat') {
-    if (loading) return;
+    if (loading || !$userPublickey || (!hasMembership && (trialRemaining ?? 0) <= 0)) return;
     let text = content.trim();
     if (mode !== 'hungry' && !text && detectedIngredients.length > 0) {
       text = `I have: ${detectedIngredients.join(', ')}`;
@@ -365,7 +413,12 @@
     const apiHistory = buildHistory();
     const display = mode === 'hungry' ? 'Surprise me 🎲' : text;
     thread = [...thread, { id: nextId(), role: 'user', content: display, kind: 'text' }];
-    lastTurn = { kind: 'text', prompt: mode === 'hungry' ? '' : text, mode };
+    lastTurn = {
+      kind: 'text',
+      prompt: mode === 'hungry' ? '' : text,
+      mode,
+      trialRequestId: crypto.randomUUID()
+    };
 
     if (mode !== 'hungry') {
       input = '';
@@ -377,7 +430,8 @@
       mode === 'hungry' ? '' : text,
       mode,
       apiHistory,
-      mode === 'hungry' || looksLikeRecipeRequest(text)
+      mode === 'hungry' || looksLikeRecipeRequest(text),
+      lastTurn.trialRequestId
     );
   }
 
@@ -399,7 +453,8 @@
       turn.prompt,
       turn.mode,
       apiHistory,
-      turn.mode === 'hungry' || looksLikeRecipeRequest(turn.prompt)
+      turn.mode === 'hungry' || looksLikeRecipeRequest(turn.prompt),
+      turn.trialRequestId
     );
   }
 
@@ -876,7 +931,7 @@
     <div class="flex flex-col min-w-0">
       <div class="flex items-center gap-2 flex-wrap">
         <h1>Cheffy</h1>
-        <span class="pro-chip">Cook+</span>
+        <span class="pro-chip">{hasMembership ? 'Cook+' : 'Free sample'}</span>
       </div>
       <p class="text-caption">Your kitchen companion</p>
     </div>
@@ -887,21 +942,28 @@
       <ArrowsClockwiseIcon size={40} class="animate-spin text-primary" />
       <p class="text-caption">Warming up the kitchen…</p>
     </div>
-  {:else if !hasMembership}
-    <!-- Membership gate -->
-    <div class="flex flex-col items-center justify-center py-16 gap-6">
-      <CheffyAvatar size={84} expression="neutral" variant="character" />
-      <div class="text-center max-w-md">
-        <h2 class="mb-2">Cheffy comes with Cook+</h2>
-        <p class="text-caption mb-6">
-          Cheffy is your kitchen companion — ask cooking questions, use what you have, fix a
-          mistake, or turn an idea into dinner. Unlock him with a Cook+ membership.
-        </p>
-        <Button on:click={() => goto('/membership')}>Unlock Cook+</Button>
-      </div>
+  {:else if !$userPublickey}
+    <div class="flex flex-col items-center justify-center py-12 gap-5 text-center">
+      <CheffyAvatar size={84} expression="happy" variant="character" />
+      <h2>Try {CHEFFY_TRIAL_LIMIT} free messages with Cheffy</h2>
+      <p class="text-caption">
+        Ask a cooking question, use what you have, or get help with dinner. Your free messages stay
+        with your account.
+      </p>
+      <Button on:click={() => goto('/login?redirect=/cheffy')}>Sign in to try Cheffy</Button>
+      <a href="/login?join=1&redirect=/cheffy" class="underline">Create a free account</a>
+    </div>
+  {:else if !hasMembership && trialRemaining === null}
+    <div class="flex flex-col items-center justify-center py-12 gap-5" role="status">
+      {#if trialError}<p>{trialError}</p>
+        <Button on:click={refreshTrial}>Try again</Button>
+      {:else}<p>Checking your free messages…</p>{/if}
     </div>
   {:else}
-    <!-- Member experience -->
+    <!-- Signed-in conversation; account sample is text-only. -->
+    {#if !hasMembership}<p class="text-caption" role="status">
+        {trialRemaining} of {CHEFFY_TRIAL_LIMIT} free messages left. Cook+ keeps the conversation going.
+      </p>{/if}
     <p class="text-caption -mt-2">
       Ask a question, bounce around an idea, or tell Cheffy what you have.
     </p>
@@ -910,7 +972,10 @@
     {#if thread.length === 0}
       <div class="intro-block">
         <p class="intro-line">New here? Tap a starter, or just tell me what you're working with.</p>
-        <CheffyStarterPrompts on:select={onStarter} disabled={loading} />
+        <CheffyStarterPrompts
+          on:select={onStarter}
+          disabled={loading || (!hasMembership && (trialRemaining ?? 0) <= 0)}
+        />
       </div>
     {:else}
       <div class="thread" bind:this={threadEl}>
@@ -1022,223 +1087,238 @@
     {/if}
 
     <!-- Composer -->
-    <div class="composer">
-      <!-- Detected ingredients -->
-      {#if detectedIngredients.length > 0}
-        <div class="flex flex-col gap-3 p-4 rounded-xl bg-teal-500/10 border border-teal-500/20">
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-medium" style="color: var(--color-text-primary)">
-              🥬 Cheffy spotted {detectedIngredients.length}
-              {detectedIngredients.length === 1 ? 'item' : 'items'}
-            </span>
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="text-xs text-teal-600 hover:text-teal-700 font-medium"
-                on:click={triggerScan}
-              >
-                Rescan
-              </button>
-              <button
-                type="button"
-                class="text-xs text-caption hover:text-red-500"
-                on:click={clearIngredients}
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            {#each detectedIngredients as ingredient}
-              <span
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-white/80 dark:bg-gray-800/80 border border-teal-300 dark:border-teal-700"
-                style="color: var(--color-text-primary)"
-              >
-                {ingredient}
+    {#if hasMembership || (trialRemaining ?? 0) > 0}
+      <div class="composer">
+        <!-- Detected ingredients -->
+        {#if detectedIngredients.length > 0}
+          <div class="flex flex-col gap-3 p-4 rounded-xl bg-teal-500/10 border border-teal-500/20">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium" style="color: var(--color-text-primary)">
+                🥬 Cheffy spotted {detectedIngredients.length}
+                {detectedIngredients.length === 1 ? 'item' : 'items'}
+              </span>
+              <div class="flex items-center gap-2">
                 <button
                   type="button"
-                  class="text-gray-400 hover:text-red-500 transition-colors"
-                  aria-label={`Remove ${ingredient}`}
-                  on:click={() => removeIngredient(ingredient)}
+                  class="text-xs text-teal-600 hover:text-teal-700 font-medium"
+                  on:click={triggerScan}
                 >
-                  <XIcon size={14} weight="bold" />
+                  Rescan
                 </button>
-              </span>
-            {/each}
-            {#if showIngredientInput}
-              <form class="inline-flex items-center gap-1" on:submit|preventDefault={addIngredient}>
-                <input
-                  type="text"
-                  bind:value={newIngredient}
-                  placeholder="Add item…"
-                  class="w-24 px-2 py-1 text-sm rounded-full border border-teal-300 dark:border-teal-700 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  on:blur={() => {
-                    if (!newIngredient.trim()) showIngredientInput = false;
-                  }}
-                  on:keydown={(e) => {
-                    if (e.key === 'Escape') {
-                      showIngredientInput = false;
-                      newIngredient = '';
-                    }
-                  }}
-                />
                 <button
-                  type="submit"
-                  class="text-teal-600 hover:text-teal-700"
-                  aria-label="Add ingredient"
+                  type="button"
+                  class="text-xs text-caption hover:text-[var(--color-danger)]"
+                  on:click={clearIngredients}
                 >
-                  <CheckIcon size={16} weight="bold" />
+                  Clear
                 </button>
-              </form>
-            {:else}
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              {#each detectedIngredients as ingredient}
+                <span
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-[color-mix(in_srgb,var(--color-light-bg-primary,#fff)_80%,transparent)] dark:bg-[var(--color-bg-secondary)]/80 border border-[var(--color-input-border)] dark:border-[var(--color-input-border)]"
+                  style="color: var(--color-text-primary)"
+                >
+                  {ingredient}
+                  <button
+                    type="button"
+                    class="text-[var(--color-caption)] hover:text-[var(--color-danger)] transition-colors"
+                    aria-label={`Remove ${ingredient}`}
+                    on:click={() => removeIngredient(ingredient)}
+                  >
+                    <XIcon size={14} weight="bold" />
+                  </button>
+                </span>
+              {/each}
+              {#if showIngredientInput}
+                <form
+                  class="inline-flex items-center gap-1"
+                  on:submit|preventDefault={addIngredient}
+                >
+                  <input
+                    type="text"
+                    bind:value={newIngredient}
+                    placeholder="Add item…"
+                    class="w-24 px-2 py-1 text-sm rounded-full border border-[var(--color-input-border)] dark:border-[var(--color-input-border)] bg-[var(--color-light-bg-primary,#fff)] dark:bg-[var(--color-bg-secondary)] focus:outline-none focus:ring-2 focus:ring-primary"
+                    on:blur={() => {
+                      if (!newIngredient.trim()) showIngredientInput = false;
+                    }}
+                    on:keydown={(e) => {
+                      if (e.key === 'Escape') {
+                        showIngredientInput = false;
+                        newIngredient = '';
+                      }
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    class="text-teal-600 hover:text-teal-700"
+                    aria-label="Add ingredient"
+                  >
+                    <CheckIcon size={16} weight="bold" />
+                  </button>
+                </form>
+              {:else}
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border border-dashed border-teal-400 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors"
+                  on:click={() => (showIngredientInput = true)}
+                >
+                  <PlusIcon size={14} weight="bold" />
+                  Add
+                </button>
+              {/if}
+            </div>
+          </div>
+        {/if}
+
+        {#if scanError}
+          <div class="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+            <WarningIcon size={18} class="text-[var(--color-danger)] flex-shrink-0 mt-0.5" />
+            <p class="text-sm text-[var(--color-danger)]">{scanError}</p>
+          </div>
+        {/if}
+
+        {#if attachedPhoto}
+          <!-- Held photo: the question and the picture travel together on
+             send, so the member gets to say what they're asking. -->
+          <div class="photo-chip">
+            <img class="photo-chip-thumb" src={attachedPhotoUrl} alt="" />
+            <span class="photo-chip-name">{attachedPhoto.name}</span>
+            <button
+              type="button"
+              class="photo-chip-remove"
+              aria-label="Remove photo"
+              on:click={clearAttachedPhoto}
+            >
+              <XIcon size={14} weight="bold" />
+            </button>
+          </div>
+        {/if}
+
+        <!-- Input -->
+        <div class="relative">
+          <label for="cheffy-input" class="sr-only">Message Cheffy</label>
+          <textarea
+            id="cheffy-input"
+            bind:this={promptEl}
+            maxlength={hasMembership ? undefined : CHEFFY_TRIAL_PROMPT_CHARS}
+            bind:value={input}
+            placeholder={attachedPhoto ? 'Ask about this photo…' : currentPlaceholder}
+            rows="2"
+            class="input auto-grow resize-none text-base w-full pb-12"
+            disabled={loading}
+            on:keydown={onComposerKeydown}
+          ></textarea>
+          {#if hasMembership}<div class="composer-pills">
               <button
                 type="button"
-                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border border-dashed border-teal-400 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors"
-                on:click={() => (showIngredientInput = true)}
+                class="scan-pill"
+                on:click={triggerPhotoAttach}
+                disabled={isScanning || loading}
+                title="Ask about a photo"
+                aria-label="Ask about a photo"
               >
-                <PlusIcon size={14} weight="bold" />
-                Add
+                <ImageIcon size={14} weight="fill" />
+                <span>Ask about a photo</span>
               </button>
-            {/if}
-          </div>
-        </div>
-      {/if}
-
-      {#if scanError}
-        <div class="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
-          <WarningIcon size={18} class="text-red-500 flex-shrink-0 mt-0.5" />
-          <p class="text-sm text-red-500">{scanError}</p>
-        </div>
-      {/if}
-
-      {#if attachedPhoto}
-        <!-- Held photo: the question and the picture travel together on
-             send, so the member gets to say what they're asking. -->
-        <div class="photo-chip">
-          <img class="photo-chip-thumb" src={attachedPhotoUrl} alt="" />
-          <span class="photo-chip-name">{attachedPhoto.name}</span>
-          <button
-            type="button"
-            class="photo-chip-remove"
-            aria-label="Remove photo"
-            on:click={clearAttachedPhoto}
-          >
-            <XIcon size={14} weight="bold" />
-          </button>
-        </div>
-      {/if}
-
-      <!-- Input -->
-      <div class="relative">
-        <label for="cheffy-input" class="sr-only">Message Cheffy</label>
-        <textarea
-          id="cheffy-input"
-          bind:this={promptEl}
-          bind:value={input}
-          placeholder={attachedPhoto ? 'Ask about this photo…' : currentPlaceholder}
-          rows="2"
-          class="input auto-grow resize-none text-base w-full pb-12"
-          disabled={loading}
-          on:keydown={onComposerKeydown}
-        ></textarea>
-        <div class="composer-pills">
-          <button
-            type="button"
-            class="scan-pill"
-            on:click={triggerPhotoAttach}
-            disabled={isScanning || loading}
-            title="Ask about a photo"
-            aria-label="Ask about a photo"
-          >
-            <ImageIcon size={14} weight="fill" />
-            <span>Ask about a photo</span>
-          </button>
-          <button
-            type="button"
-            class="scan-pill"
-            on:click={triggerScan}
-            disabled={isScanning || loading}
-            title="Scan a fridge or pantry for ingredients"
-            aria-label="Scan a fridge or pantry for ingredients"
-          >
-            {#if isScanning}
-              <ArrowsClockwiseIcon size={14} class="animate-spin" />
-              <span>Scanning</span>
-            {:else}
-              <CameraIcon size={14} weight="fill" />
-              <!-- The pill is a control, not the choice: the full label
+              <button
+                type="button"
+                class="scan-pill"
+                on:click={triggerScan}
+                disabled={isScanning || loading}
+                title="Scan a fridge or pantry for ingredients"
+                aria-label="Scan a fridge or pantry for ingredients"
+              >
+                {#if isScanning}
+                  <ArrowsClockwiseIcon size={14} class="animate-spin" />
+                  <span>Scanning</span>
+                {:else}
+                  <CameraIcon size={14} weight="fill" />
+                  <!-- The pill is a control, not the choice: the full label
                    lives in title/aria-label, and the sheet in the
                    messenger is where the two photo paths are told apart. -->
-              <span>Scan for ingredients</span>
-            {/if}
-          </button>
+                  <span>Scan for ingredients</span>
+                {/if}
+              </button>
+            </div>{/if}
         </div>
-      </div>
 
-      <!-- `accept` is deliberately WIDE. It is a hint to a picker we do not
+        <!-- `accept` is deliberately WIDE. It is a hint to a picker we do not
            ship, so it cannot gate anything: a narrow value greys out rows in
            someone else's file dialog and still admits whatever arrives by
            another route. The format check that does bind is
            identifyPhotoFile() in the change handlers, which reads the file's
            own bytes. Widening this costs nothing and avoids hiding a
            member's camera roll on a platform we have not tested. -->
-      <input
-        bind:this={fileInput}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        class="hidden"
-        on:change={handleFileSelect}
-      />
-      <input
-        bind:this={photoInput}
-        type="file"
-        accept="image/*"
-        class="hidden"
-        on:change={handlePhotoSelect}
-      />
+        <input
+          bind:this={fileInput}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden"
+          on:change={handleFileSelect}
+        />
+        <input
+          bind:this={photoInput}
+          type="file"
+          accept="image/*"
+          class="hidden"
+          on:change={handlePhotoSelect}
+        />
 
-      <!-- Actions -->
-      <div class="flex flex-col-reverse sm:flex-row gap-3">
-        <Button
-          variant="outline"
-          class="w-full sm:flex-[2] py-3"
-          disabled={loading}
-          on:click={() => send('', 'hungry')}
-        >
-          <ShuffleIcon size={18} weight="fill" />
-          Surprise me
-        </Button>
-        <Button
-          variant="primary"
-          class="w-full sm:flex-[3] py-3"
-          disabled={!canSend}
-          on:click={submitComposer}
-        >
-          {#if loading}
-            <ArrowsClockwiseIcon size={18} class="animate-spin" />
-            Cooking…
+        <!-- Actions -->
+        <div class="flex flex-col-reverse sm:flex-row gap-3">
+          <Button
+            variant="outline"
+            class="w-full sm:flex-[2] py-3"
+            disabled={loading}
+            on:click={() => send('', 'hungry')}
+          >
+            <ShuffleIcon size={18} weight="fill" />
+            Surprise me
+          </Button>
+          <Button
+            variant="primary"
+            class="w-full sm:flex-[3] py-3"
+            disabled={!canSend}
+            on:click={submitComposer}
+          >
+            {#if loading}
+              <ArrowsClockwiseIcon size={18} class="animate-spin" />
+              Cooking…
+            {:else}
+              <PaperPlaneIcon size={18} weight="fill" />
+              Ask Cheffy
+            {/if}
+          </Button>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 min-h-[1.25rem]">
+          {#if thread.length === 0 && !input.trim()}
+            <p class="text-xs text-caption">Ask anything, or try Surprise me.</p>
           {:else}
-            <PaperPlaneIcon size={18} weight="fill" />
-            Ask Cheffy
+            <span></span>
           {/if}
-        </Button>
+          {#if thread.length > 0}
+            <button type="button" class="start-over-btn" on:click={startOver} disabled={loading}>
+              <TrashIcon size={13} />
+              Start over
+            </button>
+          {/if}
+        </div>
       </div>
-
-      <div class="flex items-center justify-between gap-2 min-h-[1.25rem]">
-        {#if thread.length === 0 && !input.trim()}
-          <p class="text-xs text-caption">Ask anything, or try Surprise me.</p>
-        {:else}
-          <span></span>
-        {/if}
-        {#if thread.length > 0}
-          <button type="button" class="start-over-btn" on:click={startOver} disabled={loading}>
-            <TrashIcon size={13} />
-            Start over
-          </button>
-        {/if}
+    {:else}
+      <div class="rounded-xl border border-input p-6 flex flex-col gap-3" role="status">
+        <h2>Keep cooking with Cheffy</h2>
+        <p class="text-caption">
+          You have used your {CHEFFY_TRIAL_LIMIT} free messages. Cook+ includes Cheffy, Sous Chef, and
+          Nourish.
+        </p>
+        <Button on:click={() => goto('/membership')}>See Cook+</Button>
       </div>
-    </div>
+    {/if}
   {/if}
 </div>
 
@@ -1255,7 +1335,7 @@
         <div class="relative">
           <CheffyAvatar size={72} expression="excited" animate variant="character" />
           <div class="absolute -top-2 -right-2 animate-bounce">
-            <HeartIcon size={30} class="text-red-500" weight="fill" />
+            <HeartIcon size={30} class="text-[var(--color-danger)]" weight="fill" />
           </div>
         </div>
         <Checkmark color="#90EE90" weight="fill" class="w-16 h-16" />
@@ -1268,8 +1348,8 @@
       </div>
     {:else if zapStatus === 'error'}
       <div class="flex flex-col items-center justify-center py-4 gap-3">
-        <WarningIcon size={48} class="text-red-500" />
-        <p class="text-center text-red-500">{zapError}</p>
+        <WarningIcon size={48} class="text-[var(--color-danger)]" />
+        <p class="text-center text-[var(--color-danger)]">{zapError}</p>
         <Button on:click={() => (zapStatus = 'idle')}>Try Again</Button>
       </div>
     {:else}
@@ -1284,7 +1364,7 @@
               on:click={() => (zapAmount = option.amount)}
               class="flex flex-col items-center justify-center py-3 px-2 rounded-xl transition-all duration-200 cursor-pointer
                 {zapAmount === option.amount
-                ? 'bg-primary text-white shadow-md scale-105'
+                ? 'bg-action text-on-action shadow-md scale-105'
                 : 'bg-input hover:bg-accent-gray'}"
               style={zapAmount !== option.amount ? 'color: var(--color-text-primary)' : ''}
             >
@@ -1347,7 +1427,7 @@
 {#if showZapSuccess && !zapModalOpen}
   <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 toast-pop">
     <div
-      class="flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-white font-semibold shadow-lg"
+      class="flex items-center gap-2 px-4 py-3 rounded-full bg-action text-on-action font-semibold shadow-lg"
     >
       <CheffyIcon size={20} expression="excited" />
       <span>{zapToastLine}</span>
@@ -1365,7 +1445,7 @@
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.03em;
-    color: var(--color-text-caption, #9ca3af);
+    color: var(--color-caption);
     background-color: color-mix(in srgb, var(--color-primary) 8%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
   }
@@ -1396,8 +1476,8 @@
     max-width: 85%;
     padding: 10px 14px;
     border-radius: 16px 16px 4px 16px;
-    background-color: var(--color-primary);
-    color: #fff;
+    background-color: var(--color-action);
+    color: var(--color-on-action);
     font-size: 0.95rem;
     line-height: 1.4;
     white-space: pre-wrap;
@@ -1452,7 +1532,7 @@
     color: var(--color-text-secondary);
   }
   .photo-chip-remove:hover {
-    background-color: var(--color-hover, rgba(127, 127, 127, 0.12));
+    background-color: var(--color-light-input-bg, var(--color-hover, rgba(127, 127, 127, 0.12)));
   }
   .msg-cheffy {
     gap: 10px;
@@ -1651,7 +1731,7 @@
     border-radius: 999px;
     background: transparent;
     border: 0;
-    color: var(--color-text-caption, #9ca3af);
+    color: var(--color-caption);
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;

@@ -131,8 +131,8 @@
   }
 
   .btn-primary {
-    background: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    color: var(--color-on-action);
   }
 
   .btn-secondary {

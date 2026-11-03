@@ -95,6 +95,18 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         });
       }
 
+      // Genesis Founder invoices share this store but are registered by
+      // /api/genesis/verify-lightning-payment with a genesis_N payment id.
+      // Registering them here as a 12-month Pro membership used to win the
+      // race against that verifier and leave the founder slot unrecorded.
+      if (metadata.product === 'genesis') {
+        console.log('[Strike Webhook] Genesis Founder invoice — left to the genesis verifier:', receiveRequestId);
+        return json({
+          received: true,
+          message: 'Genesis Founder invoice — awaiting client-side verification',
+        });
+      }
+
       // Verify payment is actually completed by fetching receives
       const receives = await getReceiveRequestReceives(receiveRequestId, platform);
       const completedReceive = receives.find(r => r.state === 'COMPLETED');

@@ -312,7 +312,7 @@
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    background: var(--color-input-border);
+    background: var(--color-input-bg);
     color: var(--color-text-primary);
     cursor: pointer;
     font-size: 14px;
@@ -337,9 +337,9 @@
   }
 
   .layer-pill.active {
-    background: var(--color-primary);
-    border-color: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    border-color: var(--color-action);
+    color: var(--color-on-action);
   }
 
   .layer-pill.constellation.active {
@@ -369,9 +369,9 @@
   }
 
   .filter-chip.active {
-    background: var(--color-primary);
-    border-color: var(--color-primary);
-    color: white;
+    background: var(--color-action);
+    border-color: var(--color-action);
+    color: var(--color-on-action);
   }
 
   .filter-chip.constellation.active {

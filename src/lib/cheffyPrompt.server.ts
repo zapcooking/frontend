@@ -212,6 +212,23 @@ ${NOTE_REVIEW_SHARED_RULES}
 export const PHOTO_ASK_DEFAULT_QUESTION = 'What is this, and what can you tell me about it?';
 
 /**
+ * Alt-text mode (purpose: 'alt'). A neutral describer, NOT Cheffy's
+ * persona — the output is published verbatim as the image's alt text,
+ * so it must be plain description with zero personality, and the
+ * food-only gate does not apply (members post non-food images too).
+ */
+export const PHOTO_ALT_TEXT_QUESTION = 'Write alt text for this image.';
+
+export const CHEFFY_ALT_TEXT_INSTRUCTION = `You write alt text for images posted on Zap Cooking. You will be shown one image; output only its alt text.
+
+RULES
+- Output one plain-text description of one to two sentences. No headings, no markdown, no surrounding quotes, no alternatives.
+- Describe what is actually visible: the main subject, its setting, and any notable detail or text in the image. Do not invent details you cannot see.
+- The image may show anything — food, screenshots, people, places. Describe whatever is there.
+- If people appear, refer to them generically ("a person", "two people"); never guess identity, age, or emotion.
+- Keep it under 250 characters when the image allows it.`;
+
+/**
  * The member is asking about a photo THEY chose, in their own words, and
  * the answer lands in their Cheffy thread like any other turn. So this
  * prompt is composed from the chat blocks, not note-review's:

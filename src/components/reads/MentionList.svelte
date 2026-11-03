@@ -103,7 +103,7 @@
 
 	.mention-item:hover,
 	.mention-item.selected {
-		background: var(--color-accent-gray, #f3f4f6);
+		background: var(--color-hover-bg);
 	}
 
 	.mention-item.loading,
@@ -126,8 +126,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: var(--color-primary, #f97316);
-		color: white;
+		background: var(--color-action);
+		color: var(--color-on-action);
 		font-weight: 600;
 		font-size: 0.875rem;
 	}

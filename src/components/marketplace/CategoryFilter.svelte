@@ -152,9 +152,9 @@
 	}
 
 	.chip.active {
-		background-color: rgba(249, 115, 22, 0.15);
-		color: #f97316;
-		border-color: rgba(249, 115, 22, 0.4);
+		background-color: color-mix(in srgb, var(--color-primary) 15%, transparent);
+		color: var(--color-primary);
+		border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
 	}
 
 	.chip-emoji {
@@ -175,11 +175,11 @@
 
 	.chip-count {
 		@apply text-[10px] font-semibold px-1.5 rounded-full;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.2));
+		background-color: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(0, 0, 0, 0.2)));
 		line-height: 1.5;
 	}
 
 	.chip.active .chip-count {
-		background-color: rgba(249, 115, 22, 0.2);
+		background-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
 	}
 </style>

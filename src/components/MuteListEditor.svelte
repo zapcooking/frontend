@@ -306,7 +306,7 @@
       <!-- Default for new items + Publish + Mutable attribution -->
       <div class="flex items-center gap-3 flex-wrap rounded-lg px-3 py-2" style="background: var(--color-bg-secondary)">
         <span class="text-xs" style="color: var(--color-text-secondary)">New mutes:</span>
-        <div class="inline-flex rounded-lg p-0.5" style="background: var(--color-input-border)">
+        <div class="inline-flex rounded-lg p-0.5" style="background: var(--color-input-bg)">
           <button
             on:click={() => (defaultPrivate = true)}
             class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all"
@@ -337,7 +337,7 @@
             disabled={saveState === 'saving' || (!hasChanges && saveState !== 'saved')}
             title="Publishes your mute list to Nostr relays so all your clients stay in sync"
             class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
-            style="background: {hasChanges || saveState === 'saving' ? 'linear-gradient(135deg, #f97316, #f59e0b)' : 'var(--color-input-border)'}; color: {hasChanges || saveState === 'saving' ? 'white' : 'var(--color-text-secondary)'};"
+            style="background: {hasChanges || saveState === 'saving' ? 'linear-gradient(135deg, var(--color-action), var(--color-action-hover))' : 'var(--color-input-bg)'}; color: {hasChanges || saveState === 'saving' ? 'var(--color-on-action)' : 'var(--color-text-secondary)'};"
           >
             {#if saveState === 'saving'}
               <SpinnerGapIcon size={14} class="animate-spin" />Saving…
@@ -357,7 +357,7 @@
           disabled={saveState === 'saving' || (!hasChanges && saveState !== 'saved')}
           title="Publishes your mute list to Nostr relays so all your clients stay in sync"
           class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
-          style="background: {hasChanges || saveState === 'saving' ? 'linear-gradient(135deg, #f97316, #f59e0b)' : 'var(--color-input-border)'}; color: {hasChanges || saveState === 'saving' ? 'white' : 'var(--color-text-secondary)'};"
+          style="background: {hasChanges || saveState === 'saving' ? 'linear-gradient(135deg, var(--color-action), var(--color-action-hover))' : 'var(--color-input-bg)'}; color: {hasChanges || saveState === 'saving' ? 'var(--color-on-action)' : 'var(--color-text-secondary)'};"
         >
           {#if saveState === 'saving'}
             <SpinnerGapIcon size={14} class="animate-spin" />Saving…
@@ -386,12 +386,12 @@
             {tab.label}
             {#if tab.count() > 0}
               <span class="text-xs rounded-full px-1.5 py-0.5 leading-none"
-                style="background: {activeTab === tab.id ? 'var(--color-accent-orange)' : 'var(--color-input-border)'}; color: {activeTab === tab.id ? 'white' : 'var(--color-text-secondary)'};">
+                style="background: {activeTab === tab.id ? 'var(--color-action)' : 'var(--color-input-bg)'}; color: {activeTab === tab.id ? 'var(--color-on-action)' : 'var(--color-text-secondary)'};">
                 {tab.count()}
               </span>
             {/if}
             {#if activeTab === tab.id}
-              <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-orange-500 to-amber-500"></span>
+              <span class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"></span>
             {/if}
           </button>
         {/each}
@@ -424,7 +424,7 @@
                     on:click={() => togglePrivacy(muteList.pubkeys, i)}
                     title={item.private ? 'Private — click to make public' : 'Public — click to make private'}
                     class="p-1 rounded transition-opacity hover:opacity-70 flex-shrink-0"
-                    style="color: {item.private ? 'var(--color-accent-orange)' : 'var(--color-text-secondary)'}"
+                    style="color: {item.private ? 'var(--color-action)' : 'var(--color-text-secondary)'}"
                   >
                     {#if item.private}<LockIcon size={14} weight="fill" />{:else}<LockOpenIcon size={14} />{/if}
                   </button>
@@ -498,7 +498,7 @@
                 {item.value}
                 <button on:click={() => togglePrivacy(muteList.words, i)} title={item.private ? 'Private' : 'Public'}
                   class="transition-opacity hover:opacity-70 ml-0.5"
-                  style="color: {item.private ? 'var(--color-accent-orange)' : 'var(--color-caption)'}">
+                  style="color: {item.private ? 'var(--color-action)' : 'var(--color-caption)'}">
                   {#if item.private}<LockIcon size={11} weight="fill" />{:else}<LockOpenIcon size={11} />{/if}
                 </button>
                 <button on:click={() => removeWord(i)} class="transition-opacity hover:opacity-70" style="color: var(--color-caption)" title="Unmute">
@@ -528,7 +528,7 @@
                 #{item.value}
                 <button on:click={() => togglePrivacy(muteList.tags, i)} title={item.private ? 'Private' : 'Public'}
                   class="transition-opacity hover:opacity-70 ml-0.5"
-                  style="color: {item.private ? 'var(--color-accent-orange)' : 'var(--color-caption)'}">
+                  style="color: {item.private ? 'var(--color-action)' : 'var(--color-caption)'}">
                   {#if item.private}<LockIcon size={11} weight="fill" />{:else}<LockOpenIcon size={11} />{/if}
                 </button>
                 <button on:click={() => removeTag(i)} class="transition-opacity hover:opacity-70" style="color: var(--color-caption)" title="Unmute">
@@ -558,7 +558,7 @@
                 <code class="flex-1 text-xs truncate" style="color: var(--color-text-secondary)">{noteShort(item.value)}</code>
                 <button on:click={() => togglePrivacy(muteList.threads, i)} title={item.private ? 'Private' : 'Public'}
                   class="p-1 rounded transition-opacity hover:opacity-70 flex-shrink-0"
-                  style="color: {item.private ? 'var(--color-accent-orange)' : 'var(--color-text-secondary)'}">
+                  style="color: {item.private ? 'var(--color-action)' : 'var(--color-text-secondary)'}">
                   {#if item.private}<LockIcon size={14} weight="fill" />{:else}<LockOpenIcon size={14} />{/if}
                 </button>
                 <button on:click={() => removeThread(i)} class="p-1 rounded transition-opacity hover:opacity-70 flex-shrink-0"

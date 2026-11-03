@@ -16,3 +16,9 @@ export function openComposerWithQuote(nevent: string, event: NDKEvent) {
 export function clearQuotedNote() {
   quotedNoteStore.set(null);
 }
+
+// A parked note draft: the composer closed with unsent content and the draft
+// is waiting. The DraftDock shows it as a tab; opening the composer from
+// anywhere clears it (the composer itself restores the draft from
+// localStorage on open).
+export const noteDraftDocked = writable<{ preview: string } | null>(null);

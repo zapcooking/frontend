@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { fetchOwnMembership } from '$lib/membership/ownStatus';
   import { browser } from '$app/environment';
   import { userPublickey } from '$lib/nostr';
   import { goto } from '$app/navigation';
 
   let hasActiveMembership = false;
+  /** 'unknown' = the check itself failed; never shown as the membership pitch. */
+  let membershipState: 'active' | 'inactive' | 'unknown' | null = null;
   let checkingMembership = false;
 
   const PANTRY_RELAY = 'wss://pantry.zap.cooking';
@@ -52,18 +55,12 @@
     
     checkingMembership = true;
     try {
-      const res = await fetch('/api/membership/check-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pubkey: $userPublickey })
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        hasActiveMembership = data.isActive === true;
-      }
+      const own = await fetchOwnMembership($userPublickey);
+      membershipState = own.state;
+      hasActiveMembership = own.state === 'active';
     } catch (err) {
       console.error('Failed to check membership:', err);
+      membershipState = 'unknown';
     } finally {
       checkingMembership = false;
     }
@@ -123,7 +120,7 @@
         <div class="flex flex-col sm:flex-row gap-3 justify-center">
           <button
             on:click={() => goto('/login')}
-            class="px-6 py-3 rounded-lg bg-primary text-white font-medium hover:bg-[#d64000] transition-colors"
+            class="px-6 py-3 rounded-lg bg-action text-on-action font-medium hover:bg-action-hover transition-colors"
           >
             Sign In
           </button>
@@ -143,6 +140,11 @@
         <p style="color: var(--color-text-secondary)">Checking membership status...</p>
       </div>
     </section>
+  {:else if membershipState === 'unknown'}
+    <section class="rounded-xl shadow-sm p-5 md:p-6 text-center" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
+      <p class="mb-4" style="color: var(--color-text-secondary)">We couldn't check your membership right now.</p>
+      <button type="button" on:click={checkMembership} class="px-5 py-2 rounded-lg font-medium" style="border: 1px solid var(--color-input-border); color: var(--color-text-primary)">Try again</button>
+    </section>
   {:else if !hasActiveMembership}
     <section class="rounded-xl shadow-sm p-5 md:p-6 transition-all duration-300" style="border: 1px solid var(--color-input-border); background-color: var(--color-bg-secondary)">
       <div class="text-center">
@@ -154,7 +156,7 @@
         </p>
         <button
           on:click={() => goto('/membership')}
-          class="px-6 py-3 rounded-lg bg-primary text-white font-medium hover:bg-[#d64000] transition-colors"
+          class="px-6 py-3 rounded-lg bg-action text-on-action font-medium hover:bg-action-hover transition-colors"
         >
           Become a Member
         </button>
@@ -251,7 +253,7 @@
           href="https://fevela.me/?r=wss%3A%2F%2Fpantry.zap.cooking" 
           target="_blank" 
           rel="noopener noreferrer"
-          class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-[#d64000] transition-colors"
+          class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-action text-on-action font-medium hover:bg-action-hover transition-colors"
         >
           <span>Browse on fevela.me</span>
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -259,7 +261,7 @@
           </svg>
         </a>
         <a
-          href="/community?tab=members"
+          href="/feed?tab=members"
           class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 font-medium transition-colors"
           style="border-color: var(--color-primary); color: var(--color-primary);"
         >

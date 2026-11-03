@@ -6,7 +6,16 @@
  */
 
 import { get, writable } from 'svelte/store';
+import {
+  fromBreez,
+  fromError,
+  fromPreimage,
+  unavailable,
+  type PaymentResult
+} from './paymentOutcome';
+import { hasStoredMnemonic } from '$lib/spark/storage';
 import { ndkReady } from '$lib/nostr';
+import { recordNudgeMoment } from '$lib/accountNudge';
 import {
   type Wallet,
   type WalletKind,
@@ -19,7 +28,8 @@ import {
   removeWallet,
   setActiveWallet,
   getActiveWallet,
-  walletsDecrypted
+  walletsDecrypted,
+  walletRestoring
 } from './walletStore';
 import {
   connectNwc,
@@ -71,7 +81,12 @@ import {
  */
 export async function connectWallet(
   kind: WalletKind,
-  data?: string
+  data?: string,
+  /**
+   * 'setup': the user connected or created it (the account nudge's natural
+   * moment). 'restore': the login-time auto-restore, which doesn't count.
+   */
+  origin: 'setup' | 'restore' = 'setup'
 ): Promise<{ success: boolean; wallet?: Wallet; error?: string }> {
   try {
     walletLoading.set(true);
@@ -138,6 +153,10 @@ export async function connectWallet(
     setActiveWallet(wallet.id);
 
     await refreshBalance();
+    if (origin === 'setup') {
+      const pubkey = get(userPublickey);
+      if (pubkey) recordNudgeMoment(pubkey, 'wallet');
+    }
     return { success: true, wallet };
   } catch (e) {
     const error = e instanceof Error ? e.message : 'Connection failed';
@@ -240,7 +259,20 @@ async function ensureWalletConnected(wallet: Wallet): Promise<boolean> {
  * Get balance from the active wallet
  * @param sync For Spark: if true, sync with network first (slower but gets fresh data). Default false.
  */
-export async function refreshBalance(sync = false): Promise<number | null> {
+export interface RefreshBalanceOptions {
+  /**
+   * Fail fast on a dead NWC wallet: a single get_balance attempt instead
+   * of the retry/backoff loop. Only for user-triggered refreshes —
+   * background paths (post-payment, restore, periodic) want the retries
+   * so a transient relay blip can't blank a balance we already had.
+   */
+  fastFailNwc?: boolean;
+}
+
+export async function refreshBalance(
+  sync = false,
+  opts: RefreshBalanceOptions = {}
+): Promise<number | null> {
   const wallet = getActiveWallet();
 
   if (!wallet) {
@@ -273,7 +305,10 @@ export async function refreshBalance(sync = false): Promise<number | null> {
 
       case 3: // NWC
         try {
-          balance = await getNwcBalance();
+          // Interactive refreshes fail fast (one attempt) so a dead
+          // wallet surfaces in a single timeout instead of holding the
+          // loading state ~30s; background callers keep the retry loop.
+          balance = await getNwcBalance(opts.fastFailNwc ? 1 : 3);
         } catch (e) {
           console.warn('[WalletManager] NWC balance fetch failed (will retry on next refresh):', e);
           // Don't throw - the wallet is still connected, just couldn't fetch balance
@@ -310,15 +345,61 @@ export async function refreshBalance(sync = false): Promise<number | null> {
   }
 }
 
+export type { PaymentResult, PaymentStatus } from './paymentOutcome';
+
 /**
- * Send a payment via the active wallet
+ * Can this site pay right now, without leaving the app?
+ *   - 'ready': connected (WebLN, NWC, or an initialized Breez wallet)
+ *   - 'connectable': set up on this site and able to connect (an NWC
+ *     string, or a Breez wallet whose encrypted seed is stored here)
+ *   - 'none': nothing usable on this site. Wallet setup is per-origin, so
+ *     a preview domain starts here even when zap.cooking has a wallet.
+ */
+export function walletAvailability(): 'ready' | 'connectable' | 'none' {
+  const wallet = getActiveWallet();
+  if (!wallet) return isWeblnConnected() ? 'ready' : 'none';
+  switch (wallet.kind) {
+    case 1:
+      return isWeblnConnected() ? 'ready' : isWeblnAvailable() ? 'connectable' : 'none';
+    case 3:
+      if (!wallet.data) return 'none';
+      return isNwcConnectedTo(wallet.data) ? 'ready' : 'connectable';
+    case 4: {
+      if (get(sparkInitialized)) return 'ready';
+      // Right after login the seed may still be on its way back from the
+      // Nostr backup: connectable, not missing.
+      if (get(walletRestoring)) return 'connectable';
+      const pubkey = get(userPublickey);
+      return pubkey && import.meta.env.VITE_BREEZ_API_KEY && hasStoredMnemonic(pubkey)
+        ? 'connectable'
+        : 'none';
+    }
+    default:
+      return 'none';
+  }
+}
+
+/** Connect the active wallet if needed; false when it can't pay on this site. */
+export async function ensurePaymentWalletReady(): Promise<boolean> {
+  const availability = walletAvailability();
+  if (availability === 'ready') return true;
+  if (availability === 'none') return false;
+  const wallet = getActiveWallet();
+  return wallet ? ensureWalletConnected(wallet) : false;
+}
+
+/**
+ * Send a payment via the active wallet, and report what actually happened
+ * (see $lib/wallet/paymentOutcome): success only when the wallet confirms
+ * the payment completed. 'pending' means it may still complete; callers
+ * must not retry or fall back to another payment method.
  * @param invoice The bolt11 invoice to pay
  * @param metadata Optional metadata for pending transaction display
  */
 export async function sendPayment(
   invoice: string,
   metadata?: { amount?: number; description?: string; comment?: string; pubkey?: string }
-): Promise<{ success: boolean; preimage?: string; error?: string }> {
+): Promise<PaymentResult> {
   const wallet = getActiveWallet();
 
   // WebLN-only state: WebLN wallets aren't stored in $wallets (kind=1 entries
@@ -330,17 +411,19 @@ export async function sendPayment(
       walletLoading.set(true);
       try {
         const { preimage } = await payWeblnInvoice(invoice);
-        return { success: true, preimage };
+        return fromPreimage(preimage);
       } catch (e) {
-        const error = e instanceof Error ? e.message : String(e) || 'WebLN payment failed';
         console.error('[WalletManager] WebLN payment failed:', e);
-        return { success: false, error };
+        return fromError(e);
       } finally {
         walletLoading.set(false);
       }
     }
-    return { success: false, error: 'No wallet connected' };
+    return unavailable();
   }
+
+  // Nothing usable on this site (e.g. a preview domain): say so at once.
+  if (walletAvailability() === 'none') return unavailable();
 
   // Generate a temporary ID for the pending transaction
   const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`;
@@ -362,79 +445,74 @@ export async function sendPayment(
     });
   }
 
+  let result: PaymentResult;
   try {
     walletLoading.set(true);
 
     // Ensure the wallet is connected before trying to pay
     const connected = await ensureWalletConnected(wallet);
     if (!connected) {
-      throw new Error('Wallet not connected. Please try again.');
-    }
+      result = unavailable('Wallet not connected. Please try again.');
+    } else {
+      switch (wallet.kind) {
+        case 1: // WebLN
+          result = fromPreimage((await payWeblnInvoice(invoice)).preimage);
+          break;
 
-    let preimage: string;
-
-    switch (wallet.kind) {
-      case 1: // WebLN
-        const weblnResult = await payWeblnInvoice(invoice);
-        preimage = weblnResult.preimage;
-        break;
-
-      case 3: // NWC
-        // Check if it's a Lightning address
-        if (isLightningAddress(invoice)) {
-          if (!metadata?.amount) {
-            throw new Error('Amount is required for Lightning address payments');
+        case 3: // NWC
+          // Check if it's a Lightning address
+          if (isLightningAddress(invoice)) {
+            if (!metadata?.amount) {
+              throw new Error('Amount is required for Lightning address payments');
+            }
+            const lnAddrResult = await payNwcLightningAddress(
+              invoice,
+              metadata.amount,
+              metadata?.comment
+            );
+            result = fromPreimage(lnAddrResult.preimage);
+          } else {
+            result = fromPreimage((await payNwcInvoice(invoice)).preimage);
           }
-          const lnAddrResult = await payNwcLightningAddress(
-            invoice,
-            metadata.amount,
-            metadata?.comment
-          );
-          preimage = lnAddrResult.preimage;
-        } else {
-          const nwcResult = await payNwcInvoice(invoice);
-          preimage = nwcResult.preimage;
+          break;
+
+        case 4: {
+          // Spark (Breez). Decided by the payment's status, not by the call
+          // returning: a payment still in flight is pending, not sent.
+          const { sendZap } = await import('$lib/spark');
+          const payment = await sendZap(invoice, metadata?.amount || 0, metadata?.comment || '');
+          result = fromBreez(payment);
+          break;
         }
-        break;
 
-      case 4: // Spark
-        // Import dynamically to avoid circular dependency
-        const { sendZap } = await import('$lib/spark');
-        // For Lightning addresses, amount and comment are passed via metadata
-        // For invoices, amount is encoded in the invoice itself
-        const payment = await sendZap(invoice, metadata?.amount || 0, metadata?.comment || '');
-        // Spark may not always return a preimage. Never send payment hash/id as
-        // a preimage because NIP-108 server verification expects the true preimage.
-        preimage = payment?.preimage || payment?.paymentPreimage || '';
-        break;
-
-      default:
-        throw new Error(`Unknown wallet kind: ${wallet.kind}`);
+        default:
+          throw new Error(`Unknown wallet kind: ${wallet.kind}`);
+      }
     }
-
-    // Mark pending transaction as completed (don't remove - let history dedup it)
-    // This keeps it visible until the real transaction appears in history
-    if (metadata?.amount) {
-      updatePendingTransactionStatus(pendingId, 'completed');
-    }
-
-    // Refresh balance after payment
-    await refreshBalance();
-
-    signalTransactionsRefresh();
-    return { success: true, preimage };
   } catch (e) {
-    // Remove pending transaction on failure
-    if (metadata?.amount) {
-      removePendingTransaction(pendingId);
-    }
-
-    const error = e instanceof Error ? e.message : String(e) || 'Payment failed';
     console.error('[WalletManager] Payment failed:', e);
-    return { success: false, error };
+    result = fromError(e);
   } finally {
     walletLoading.set(false);
   }
+
+  // The wallet history row: completed stays (dedups with the real entry),
+  // pending stays visible as pending, anything else is removed.
+  if (metadata?.amount) {
+    if (result.status === 'completed') updatePendingTransactionStatus(pendingId, 'completed');
+    else if (result.status !== 'pending') removePendingTransaction(pendingId);
+  }
+  if (result.status === 'completed' || result.status === 'pending') {
+    // Never let a refresh error escape: the outcome above is what the zap
+    // UI must show (an escaped rejection only reaches the ErrorBoundary log).
+    try {
+      await refreshBalance();
+      signalTransactionsRefresh();
+    } catch (e) {
+      console.warn('[WalletManager] Balance refresh after payment failed:', e);
+    }
+  }
+  return result;
 }
 
 /**
@@ -777,7 +855,9 @@ function mapSparkPayment(p: any): Transaction {
     p.onchain?.txid ||
     p.onchain?.txId ||
     // Breez SDK: deposit/withdraw payment details carry txId here
-    (p.details?.type === 'deposit' || p.details?.type === 'withdraw' ? p.details?.txId : undefined) ||
+    (p.details?.type === 'deposit' || p.details?.type === 'withdraw'
+      ? p.details?.txId
+      : undefined) ||
     p.paymentMethod?.txid ||
     p.paymentMethod?.txId ||
     p.paymentMethod?.transactionId ||

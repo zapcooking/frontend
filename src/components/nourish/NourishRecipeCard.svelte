@@ -118,7 +118,7 @@
     aspect-ratio: 16 / 10;
     overflow: hidden;
     position: relative;
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
+    background: var(--color-light-bg-secondary, var(--color-bg-tertiary, rgba(255, 255, 255, 0.04)));
   }
   .nrc-image {
     position: absolute;
@@ -203,7 +203,7 @@
     flex: 1;
     height: 3px;
     border-radius: 2px;
-    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.06));
+    background: var(--color-light-input-bg, var(--color-bg-tertiary, rgba(255, 255, 255, 0.06)));
     overflow: hidden;
   }
   .nrc-bar-fill {

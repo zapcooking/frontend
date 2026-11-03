@@ -7,15 +7,18 @@
   import { onMount } from 'svelte';
   import Recipe from '../../../components/Recipe/Recipe.svelte';
   import PanLoader from '../../../components/PanLoader.svelte';
+  import ContentUnavailable from '../../../components/reads/ContentUnavailable.svelte';
   import { GATED_RECIPE_KIND, RECIPE_TAGS, isHiddenRecipeCoordinate } from '$lib/consts';
   import { getRecipeOgMeta } from '$lib/recipeOgMeta';
   import ArrowLeftIcon from 'phosphor-svelte/lib/ArrowLeft';
   import { stripTrackingParams } from '$lib/utils/stripTrackingParams';
+  import { isBlockedFromReads, isBlockedReadsPointerClient } from '$lib/reads/moderationClient';
 
   let event: NDKEvent | null = null;
   let naddr: string = '';
   let loading = true;
   let error: string | null = null;
+  let blocked = false;
 
   onMount(() => stripTrackingParams($page.url));
 
@@ -30,6 +33,7 @@
 
     loading = true;
     error = null;
+    blocked = false;
 
     try {
       const slug = $page.params.naddr;
@@ -57,6 +61,19 @@
           kind: recipeKind
         });
 
+        if (
+          isBlockedReadsPointerClient({
+            pubkey: b.pubkey,
+            naddr,
+            identifier: b.identifier
+          })
+        ) {
+          blocked = true;
+          loading = false;
+          event = null;
+          return;
+        }
+
         // Add timeout protection for recipe loading
         const fetchPromise: Promise<NDKEvent | null> = $ndk.fetchEvent({
           '#d': [b.identifier],
@@ -72,6 +89,12 @@
 
         const e = await Promise.race<NDKEvent | null>([fetchPromise, timeoutPromise]);
         if (e) {
+          if (isBlockedFromReads(e)) {
+            blocked = true;
+            loading = false;
+            event = null;
+            return;
+          }
           event = e;
           loading = false;
         } else {
@@ -92,7 +115,7 @@
   // defaults until it loads. No server load — see <svelte:head>. The same
   // derivation runs server-side for crawler UAs in src/hooks.server.ts, so both
   // paths share getRecipeOgMeta() and can't drift.
-  $: ogMeta = getRecipeOgMeta(event);
+  $: ogMeta = blocked ? getRecipeOgMeta(null) : getRecipeOgMeta(event);
 
   // Check if this is a longform article (not a recipe) to show "Back to Reads" link
   $: isLongformArticle =
@@ -149,12 +172,14 @@
   <div class="flex justify-center items-center page-loader">
     <PanLoader />
   </div>
+{:else if blocked}
+  <ContentUnavailable />
 {:else if error}
   <div class="flex flex-col justify-center items-center page-loader gap-4">
-    <h1 class="text-2xl font-bold text-red-600">Recipe Loading Error</h1>
+    <h1 class="text-2xl font-bold text-[var(--color-danger)]">Recipe Loading Error</h1>
     <p class="text-caption">{error}</p>
     <button
-      class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+      class="px-4 py-2 bg-action text-on-action rounded hover:bg-action-hover"
       on:click={() => loadData()}
     >
       Try Again
@@ -164,7 +189,7 @@
   <div class="flex flex-col justify-center items-center page-loader gap-4">
     <h1 class="text-2xl font-bold" style="color: var(--color-text-primary);">Recipe Deleted</h1>
     <p class="text-caption">This recipe has been deleted by its author.</p>
-    <a href="/" class="px-4 py-2 bg-primary text-white rounded-full hover:opacity-80">
+    <a href="/" class="px-4 py-2 bg-action text-on-action rounded-full hover:bg-action-hover">
       Browse Recipes
     </a>
   </div>

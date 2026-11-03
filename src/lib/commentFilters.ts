@@ -1,4 +1,9 @@
-import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import type { NDKEvent, NDKFilter } from '@nostr-dev-kit/ndk';
+
+// NDKFilter's kind list defaults to the NDKKind enum, which predates kind
+// 1111; instantiating the generic keeps comment kinds assignable.
+type ThreadFilter = NDKFilter<number>;
+import { getThreadRootId } from './thread/replyParent';
 
 /**
  * Determine whether an event is an addressable (parameterized-replaceable)
@@ -22,25 +27,36 @@ export function isAddressableRoot(event: NDKEvent): boolean {
   return event.tags.some((tag) => tag[0] === 'd');
 }
 
+/** Cap per filter, matching the iOS thread subscription. */
+const THREAD_FILTER_LIMIT = 500;
+
 /**
- * Creates a subscription filter for fetching comments based on the event kind.
+ * Creates the subscription filters for fetching a note's whole thread.
  *
  * For addressable events with a `d` tag (NIP-01, e.g. kind 30023 long-form):
  * - Uses NIP-22 compliant `#A` filter with the address tag
  * - Subscribes to kind 1111 comments
  *
- * For regular notes (kind 1) and malformed addressable events (no `d` tag):
- * - Uses NIP-10 compliant `#e` filter with the event ID
- * - Subscribes to kind 1 replies
+ * For everything else, returns TWO SIBLING filters that NDK sends as one
+ * REQ (relay-side OR). Within a single filter object conditions are ANDed,
+ * so merging `#e` and `#E` would match nothing beyond top-level comments:
  *
- * @param event - The event to fetch comments for
- * @returns Subscription filter object compatible with NDK.subscribe()
+ * - `#e` targets: NIP-10 tree — kind-1 descendants carry the root in a
+ *   lowercase `e` — plus kind-5 deletions of thread events.
+ * - `#E` targets: NIP-22 tree — a nested comment carries only its
+ *   immediate parent in lowercase `e` and the ROOT in uppercase `E`, so
+ *   the comment-to-comment branches below the first reply are invisible
+ *   to `#e` alone.
+ *
+ * Targets are the conversation root (for a comment focus, its uppercase
+ * `E` — see `getThreadRootId`) AND the focal id. The focal id keeps
+ * comment subtrees that anchor on a mid-thread kind-1 note reachable
+ * without climbing NIP-10 above the anchor, which would drop the branch.
+ *
+ * @param event - The focused event to fetch the thread for
+ * @returns Subscription filters (pass the array to NDK.subscribe as-is)
  */
-export function createCommentFilter(event: NDKEvent): {
-  kinds: number[];
-  '#A'?: string[];
-  '#e'?: string[];
-} {
+export function createCommentFilter(event: NDKEvent): ThreadFilter[] {
   if (isAddressableRoot(event)) {
     const dTag = event.tags.find((t) => t[0] === 'd')![1];
     // Handle different ways pubkey may be accessed on NDKEvent objects:
@@ -48,35 +64,18 @@ export function createCommentFilter(event: NDKEvent): {
     // on how the event was created.
     const pubkey = event.author?.pubkey || event.author?.hexpubkey || event.pubkey;
     const addressTag = `${event.kind}:${pubkey}:${dTag}`;
-    return {
-      kinds: [1111],
-      '#A': [addressTag] // NIP-22: filter by root address
-    };
+    return [
+      {
+        kinds: [1111],
+        '#A': [addressTag] // NIP-22: filter by root address
+      }
+    ];
   }
 
-  // A NIP-22 comment as the focus: its children are kind-1111 comments
-  // whose lowercase `e` names it as parent (the root scope in `E`/`A` is
-  // some other event). Legacy kind-1 replies to a comment exist too.
-  if (event.kind === 1111) {
-    return {
-      kinds: [1, 1111],
-      '#e': [event.id]
-    };
-  }
-
-  // Special case for kind 30023 without a `d` tag: still look for legacy
-  // kind-1 replies alongside kind 1111 for backwards compatibility with
-  // older events that may not have properly structured longform metadata.
-  if (event.kind === 30023) {
-    return {
-      kinds: [1, 1111],
-      '#e': [event.id]
-    };
-  }
-
-  // NIP-10 for kind 1 notes (and anything else non-addressable)
-  return {
-    kinds: [1],
-    '#e': [event.id]
-  };
+  const rootId = getThreadRootId(event) ?? event.id;
+  const targets = rootId !== event.id ? [rootId, event.id] : [event.id];
+  return [
+    { kinds: [1, 5, 1111], '#e': targets, limit: THREAD_FILTER_LIMIT },
+    { kinds: [1111], '#E': targets, limit: THREAD_FILTER_LIMIT }
+  ];
 }

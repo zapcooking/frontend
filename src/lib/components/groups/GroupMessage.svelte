@@ -119,7 +119,7 @@
 					class="inline-flex items-center gap-0.5 rounded-full px-1 py-0.5 transition-colors
 						{hasZaps
 							? 'text-yellow-500'
-							: 'text-gray-400 hover:text-yellow-500 hover:bg-yellow-50'}"
+							: 'text-[var(--color-caption)] hover:text-yellow-500 hover:bg-yellow-50'}"
 					class:opacity-50={isZapping}
 					class:cursor-wait={isZapping}
 					on:click={handleZapClick}

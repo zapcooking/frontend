@@ -12,8 +12,9 @@
  */
 
 import { get } from 'svelte/store';
-import { ndk, userPublickey } from '$lib/nostr';
-import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+import { ndk, userPublickey, getCurrentRelays } from '$lib/nostr';
+import { shouldAutoAuth, ownRelayLists, takeAuthPrompt } from '$lib/relayAuthScope';
+import { NDKEvent, NDKRelaySet, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk';
 import type NDK from '@nostr-dev-kit/ndk';
 
 const PANTRY_RELAY = 'wss://pantry.zap.cooking';
@@ -87,13 +88,17 @@ function initAuthTracking(): void {
 /**
  * Set NIP-42 auto-sign auth policy on the NDK instance (global default).
  *
+ * Scoped: it signs only for relays the reader chose (pantry, the app's
+ * relay list, the reader's own NIP-65 / DM inbox lists; see
+ * $lib/relayAuthScope). Every other relay in the pool gets no login.
+ *
  * We use ndk.relayAuthDefaultPolicy instead of relay.authPolicy because
  * NDKRelaySet.fromRelayUrls() may trigger pool auto-connect, causing the
  * AUTH challenge to arrive before we can set relay.authPolicy on the
  * specific relay instance. The global default is checked as a fallback
  * by NDK for all relays (see NDK source: onAuthRequested).
  */
-function ensureAuthPolicy(ndkInstance: NDK): void {
+export function ensureAuthPolicy(ndkInstance: NDK): void {
 	if (authPolicySet) return;
 	initAuthTracking();
 
@@ -104,10 +109,26 @@ function ensureAuthPolicy(ndkInstance: NDK): void {
 			relay.url === PANTRY_RELAY + '/' ||
 			relay.url?.replace(/\/$/, '') === PANTRY_RELAY;
 
+		if (
+			!isPantry &&
+			!(await shouldAutoAuth(relay.url, getCurrentRelays(), () =>
+				ownRelayLists((f) => ndkInstance.fetchEvents(f), get(userPublickey))
+			))
+		) {
+			return false;
+		}
+
 		if (!ndkInstance.signer) {
 			if (isPantry) console.log('[NIP-29] NIP-42 auth challenge received, skipping (no signer)');
 			if (resolveAuthPromise) resolveAuthPromise();
 			return undefined;
+		}
+
+		// One signer prompt per relay per session (relayAuthScope). A local
+		// key never prompts; anything else (extension, remote signer) may.
+		const signerPrompts = !(ndkInstance.signer instanceof NDKPrivateKeySigner);
+		if (!takeAuthPrompt(relay.url, get(userPublickey) || '', signerPrompts)) {
+			return false;
 		}
 
 		if (isPantry) {
@@ -135,9 +156,8 @@ function ensureAuthPolicy(ndkInstance: NDK): void {
 		}
 	};
 
-	// If there was an existing policy, we've replaced it with ours which
-	// handles all relays. This is fine — auto-signing AUTH is the standard
-	// NDK pattern (NDKRelayAuthPolicies.signIn).
+	// If there was an existing policy, we've replaced it with ours, which
+	// answers every relay's challenge but signs only for the allowed ones.
 
 	authPolicySet = true;
 }
@@ -678,6 +698,24 @@ export async function fetchExtendedMessages(
 // ═══════════════════════════════════════════════════════════════
 
 /**
+ * A live subscription the relay refused (`auth-required:` / `restricted:`,
+ * i.e. not logged in there or not a member) will never deliver: stop it
+ * instead of keeping it for the tab's lifetime. Any other close (a dropped
+ * socket) is left to NDK and the reconnect handler.
+ */
+export function stopWhenRefused(sub: {
+	on: (event: 'closed', cb: (relay: unknown, reason: string) => void) => unknown;
+	stop: () => void;
+}): void {
+	sub.on('closed', (_relay, reason) => {
+		if (/^(auth-required|restricted):/.test(String(reason))) {
+			console.log('[NIP-29] Subscription refused by the relay:', String(reason).slice(0, 60));
+			sub.stop();
+		}
+	});
+}
+
+/**
  * Subscribe to live kind 9 chat messages across all groups on pantry.
  */
 export async function subscribeToGroupMessages(
@@ -718,6 +756,8 @@ export async function subscribeToGroupMessages(
 	sub.on('eose', () => {
 		console.log('[NIP-29] Group message subscription EOSE, seen', seenIds.size, 'events');
 	});
+
+	stopWhenRefused(sub);
 
 	return {
 		stop: () => {

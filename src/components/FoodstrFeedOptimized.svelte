@@ -13,10 +13,15 @@
 </script>
 
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { feedScrollTarget, feedScrollTop, isAtTop } from '$lib/feed/scrollTop';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { get } from 'svelte/store';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
+  import { validateMarkdownTemplate } from '$lib/parser';
+  import { RECIPE_TAGS } from '$lib/consts';
+  import { isBlockedFromReads } from '$lib/reads/moderationClient';
+  import { buildPoolRelaySet } from '$lib/eventFetch';
   import {
     ndk,
     userPublickey,
@@ -29,6 +34,8 @@
   // The one implementation of the hellthread rule — the notification path uses
   // the same export, so the two surfaces cannot drift.
   import { isHellthread as isHellthreadNote } from '$lib/notificationUtils';
+  import { buildNotePreview } from '$lib/notePreview';
+  import { scanNostrRefs } from '$lib/nostrRefScan';
   import { foodFilterSetting } from '$lib/foodFilterSettings';
   import MediaLightbox from './MediaLightbox.svelte';
   import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
@@ -36,11 +43,15 @@
   import Avatar from './Avatar.svelte';
   import type { NDKSubscription } from '@nostr-dev-kit/ndk';
   import { NDKEvent, NDKSubscriptionCacheUsage } from '@nostr-dev-kit/ndk';
+  import { MAX_HASHTAGS, hashtagCount as countHashtags } from '$lib/hashtags';
+  import { passesOnlyFoodStopgap } from '$lib/onlyFoodStopgap';
   import NoteTotalLikes from './NoteTotalLikes.svelte';
   import NoteReactionPills from './NoteReactionPills.svelte';
   import NoteTotalComments from './NoteTotalComments.svelte';
   import NoteTotalZaps from './NoteTotalZaps.svelte';
   import NoteRepost from './NoteRepost.svelte';
+  import NoteBookmark from './NoteBookmark.svelte';
+  import ReplyModal from './comments/ReplyModal.svelte';
   import CheffyMediaReview from './CheffyMediaReview.svelte';
   import PostEngagementDrawer from './PostEngagementDrawer.svelte';
   import PostEngagementToggle from './PostEngagementToggle.svelte';
@@ -53,6 +64,7 @@
   import MediaCarousel from './MediaCarousel.svelte';
   import AuthorName from './AuthorName.svelte';
   import CustomName from './CustomName.svelte';
+  import PowBadge from './PowBadge.svelte';
   import {
     generateNoteImage,
     generateImageFilename,
@@ -63,11 +75,13 @@
   } from '$lib/shareNoteImage';
   import { optimizeImageUrl, getOptimalFormat } from '$lib/imageOptimizer';
   import { stripQuotedNoteReferences } from '$lib/feed/noteContent';
+  import { imetaAltByUrl, parseImeta } from '$lib/feed/imeta';
   import { compressedCacheManager } from '$lib/compressedCache';
   import FeedErrorBoundary from './FeedErrorBoundary.svelte';
   import FeedPostSkeleton from './FeedPostSkeleton.svelte';
   import LoadingState from './LoadingState.svelte';
   import { nip19 } from 'nostr-tools';
+  import { eventPath, eventIdPath, parseEventRef } from '$lib/utils/eventUrl';
   import ClientAttribution from './ClientAttribution.svelte';
 
   let portalTarget: HTMLElement | null = null;
@@ -85,10 +99,17 @@
   import { feedInitialLoadDone } from '$lib/startupState';
 
   // Reply context prefetching for better UX
-  import { prefetchReplyContexts } from '$lib/replyContext';
+  import {
+    prefetchReplyContexts,
+    isReplyForScope,
+    isTopLevelForScope,
+    isThreadReply
+  } from '$lib/replyContext';
+  import { getReplyParentId, isEventRootedComment } from '$lib/thread/replyParent';
 
   // IndexedDB event store for cache rehydration (instant paint)
   import { getEventStore, cacheFeedEvents } from '$lib/eventStore';
+  import { requireAuth } from '$lib/auth/requireAuth';
 
   // Batched engagement fetching for reactions/subscriptions
   import {
@@ -96,6 +117,8 @@
     getEngagementStore,
     fetchEngagement,
     cleanupEngagement,
+    optimisticZapUpdate,
+    markSelfZapCompleted,
     type EngagementData
   } from '$lib/engagementCache';
 
@@ -142,6 +165,33 @@
   // When `authorPubkey` is set, restrict to top-level notes or replies only.
   // 'all' (default) preserves the prior behavior for any other call sites.
   export let authorScope: 'all' | 'top-level' | 'replies' = 'all';
+
+  // Empty feeds greet with a random food emoji instead of a warning icon.
+  // Picked once per component instance.
+  const EMPTY_FEED_FOOD_EMOJIS = [
+    '🍳',
+    '🥕',
+    '🍅',
+    '🥑',
+    '🫑',
+    '🥬',
+    '🧄',
+    '🧅',
+    '🌽',
+    '🍆',
+    '🥔',
+    '🍋',
+    '🍞',
+    '🧀',
+    '🍝',
+    '🍜',
+    '🥘',
+    '🍚',
+    '🥗',
+    '🍯'
+  ];
+  const emptyFoodEmoji =
+    EMPTY_FEED_FOOD_EMOJIS[Math.floor(Math.random() * EMPTY_FEED_FOOD_EMOJIS.length)];
 
   // Exposed refresh function for pull-to-refresh
   export async function refresh(): Promise<void> {
@@ -438,12 +488,12 @@
   // Macro exclusion for economics phrases
   const MACRO_EXCLUDING_FOOD_ENERGY_REGEX = /\b(excluding|exclude)\s+food\s+and\s+energy\b/i;
 
-  const HASHTAG_PATTERN = /(^|\s)#([^\s#]+)/g;
   const URL_REGEX = /(https?:\/\/[^\s]+)/g;
   const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg'];
   const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
 
-  const MAX_HASHTAGS = 5;
+  // MAX_HASHTAGS and the hashtag pattern live in $lib/hashtags, shared with
+  // the composer so its counter and this filter cannot disagree.
   const BATCH_DEBOUNCE_MS = 300;
   const SUBSCRIPTION_TIMEOUT_MS = 4000;
   const PRIVATE_RELAY_TIMEOUT_MS = 15000; // Longer timeout for members relays (15 seconds)
@@ -456,13 +506,8 @@
   // NOTE: All URLs are normalized (no trailing slashes) to prevent duplicate connections
   const RELAY_POOLS = {
     recipes: ['wss://nos.lol', 'wss://relay.nostr.net'], // General relays with recipe content
-    fallback: ['wss://relay.primal.net', 'wss://nostr.wine', 'wss://antiprimal.net'], // Fast general relays for broader discovery
-    discovery: [
-      'wss://nostr.wine',
-      'wss://relay.primal.net',
-      'wss://purplepag.es',
-      'wss://antiprimal.net'
-    ], // Additional relays for discovery
+    fallback: ['wss://relay.primal.net', 'wss://nostr.wine'], // Fast general relays for broader discovery
+    discovery: ['wss://nostr.wine', 'wss://relay.primal.net', 'wss://purplepag.es'], // Additional relays for discovery
     profiles: ['wss://purplepag.es'], // Profile metadata (356ms, specialized for kind:0)
     members: ['wss://pantry.zap.cooking'] // Private member relay (The Pantry)
   };
@@ -534,8 +579,23 @@
   let zapModal = false;
   let selectedEvent: NDKEvent | null = null;
   let imageModalOpen = false;
-  let selectedEventImages: string[] = [];
+  let selectedEventImages: (string | { url: string; alt?: string })[] = [];
+
+  // Blurhash placeholder map for the lightbox, parsed from the selected
+  // event's NIP-92 imeta tags (Svelte 4 templates can't hold TS casts,
+  // so the map is built here in the script).
+  function blurhashMapFor(ev: NDKEvent | null): Map<string, string> {
+    if (!ev) return new Map();
+    return new Map(
+      parseImeta(ev)
+        .filter((m) => m.blurhash)
+        .map((m) => [m.url, m.blurhash as string])
+    );
+  }
   let selectedImageIndex = 0;
+  // The event whose images the modal shows — drives the blurhash map, so
+  // it must be set by openImageModal, not borrowed from zap/share state.
+  let imageModalEvent: NDKEvent | null = null;
 
   // Lazy loading for engagement components
   let visibleNotes = new Set<string>();
@@ -765,28 +825,36 @@
 
     const scrollRoot = document.getElementById('app-scroll') || null;
 
-    loadMoreObserver = new IntersectionObserver(
+    const observer = new IntersectionObserver(
       (entries) => {
-        if (
-          entries[0].isIntersecting &&
-          hasMore &&
-          !loadingMore &&
-          !loading &&
-          !sentinelFiredThisFrame &&
-          Date.now() >= loadMoreCooldownUntil
-        ) {
-          // Fix C: Single-fire per intersection — reset after rAF
-          sentinelFiredThisFrame = true;
-          requestAnimationFrame(() => {
-            if (!isDestroyed) sentinelFiredThisFrame = false;
-          });
-          loadMore();
+        if (!entries[0].isIntersecting) return;
+        if (!hasMore || loadingMore || loading || sentinelFiredThisFrame) return;
+
+        const cooldownRemaining = loadMoreCooldownUntil - Date.now();
+        if (cooldownRemaining > 0) {
+          // The sentinel is already intersecting, so no new intersection
+          // event will arrive when the cooldown expires — re-check then
+          // or pagination strands with hasMore still true.
+          setTimeout(() => {
+            if (!isDestroyed && loadMoreObserver === observer && loadMoreSentinel?.isConnected) {
+              loadMore();
+            }
+          }, cooldownRemaining + 50);
+          return;
         }
+
+        // Fix C: Single-fire per intersection — reset after rAF
+        sentinelFiredThisFrame = true;
+        requestAnimationFrame(() => {
+          if (!isDestroyed) sentinelFiredThisFrame = false;
+        });
+        loadMore();
       },
       { rootMargin: '400px', root: scrollRoot }
     );
 
-    loadMoreObserver.observe(loadMoreSentinel);
+    loadMoreObserver = observer;
+    observer.observe(loadMoreSentinel);
   }
 
   function cleanupInfiniteScroll() {
@@ -796,8 +864,13 @@
     }
   }
 
-  // Setup infinite scroll when sentinel element is available and feed is ready
-  $: if (loadMoreSentinel && hasMore && !loading && events.length > 0) {
+  // Setup infinite scroll when sentinel element is available and feed is ready.
+  // `!loadingMore` matters: observe() fires an initial callback for the
+  // current intersection state, which is what re-triggers pagination after
+  // a page that appended nothing (the sentinel never LEFT view, so no new
+  // intersection event would ever arrive). Without it, an all-filtered-out
+  // page strands the feed with hasMore=true and a dead loader.
+  $: if (loadMoreSentinel && hasMore && !loading && !loadingMore && events.length > 0) {
     // Use setTimeout to ensure DOM is ready
     setTimeout(() => {
       setupInfiniteScroll();
@@ -812,6 +885,109 @@
   // ═══════════════════════════════════════════════════════════════
   // UTILITY FUNCTIONS
   // ═══════════════════════════════════════════════════════════════
+
+  const dispatch = createEventDispatcher<{ 'view-reads': void }>();
+
+  // When an author-profile load finishes empty: does the author publish
+  // longform (kind 30023, the Reads surface)? The feed itself only
+  // queries kinds [1, 6, 1068], so an articles-only cook would other-
+  // wise be told they've "never posted". null = probe pending or failed
+  // (default copy).
+  let authorHasLongform: boolean | null = null;
+
+  // Pagination caps for the longform probe: one page covers nearly all
+  // real cases (most authors' newest 30 kind-30023 events decide the
+  // question); three pages bound the worst case (a prolific recipe-
+  // format longform author) so the empty state never waits on a full
+  // relay-history crawl.
+  const PROBE_PAGE_SIZE = 30;
+  const PROBE_MAX_PAGES = 3;
+
+  // True when an author's top-level feed has resolved to nothing and
+  // nothing is hiding posts (no food filter, not muted). The profile
+  // page binds this to offer recipe/read previews in place of the bare
+  // empty state; ambiguous cases (filter on) stay false.
+  export let authorFeedEmpty = false;
+  $: authorFeedEmpty =
+    !!authorPubkey &&
+    authorScope === 'top-level' &&
+    !loading &&
+    !error &&
+    !foodFilterEnabled &&
+    events.length === 0 &&
+    !$mutedPubkeys.has(authorPubkey);
+
+  // Whether the author has recipes (kind 30023 with recipe tags). The
+  // feed only queries kinds [1, 6, 1068], so without this the empty
+  // state can't tell a notes-only cook from one who shares recipes
+  // instead. The profile page knows from its own recipe fetch.
+  export let authorHasRecipes = false;
+
+  // Hide the built-in "All posts / Only Food" row for hosts that render
+  // their own toggle elsewhere (the profile page puts it in the tab-bar
+  // row so its height never shifts tab content). setFoodFilter stays
+  // callable so the host toggle drives the same reload path.
+  export let hideFoodToggle = false;
+
+  // Empty-state line for a cook with no standard posts, accurate whether
+  // they publish reads only, recipes only, or both.
+  $: authorEmptyCopy = authorHasLongform && authorHasRecipes
+    ? 'This cook shares recipes and longform reads instead.'
+    : authorHasLongform
+      ? 'This cook publishes longform reads instead.'
+      : 'This cook shares recipes instead.';
+
+  async function probeAuthorLongform(pk: string): Promise<void> {
+    authorHasLongform = null;
+    try {
+      // Pool relay set, identical discovery scope to the profile Reads
+      // tab (buildPoolRelaySet: explicit + every pool relay, so an
+      // article the Reads tab can find can't probe false here). A local
+      // four-relay subset would let the probe miss what the destination
+      // tab shows.
+      const relaySet = buildPoolRelaySet($ndk);
+      if (!relaySet) return;
+      // Page past the newest events until a readable longform shows up
+      // or relay history is exhausted: recipe-format and moderation-
+      // blocked events don't count, so a small first page is not proof
+      // of absence (an articles-only cook whose ten newest longforms are
+      // recipe-format would otherwise read as "never posted").
+      let hasRead = false;
+      let until: number | undefined;
+      for (let page = 0; page < PROBE_MAX_PAGES && !hasRead; page++) {
+        const found = await $ndk.fetchEvents(
+          {
+            kinds: [30023],
+            authors: [pk],
+            limit: PROBE_PAGE_SIZE,
+            ...(until ? { until } : {})
+          },
+          { cacheUsage: NDKSubscriptionCacheUsage.ONLY_RELAY },
+          relaySet
+        );
+        for (const ev of found) {
+          const hasRecipeTag = ev.tags.some(
+            (tag) => tag[0] === 't' && RECIPE_TAGS.includes(tag[1]?.toLowerCase() || '')
+          );
+          if (hasRecipeTag) continue;
+          if (typeof validateMarkdownTemplate(ev.content) !== 'string') continue;
+          if (isBlockedFromReads(ev)) continue;
+          hasRead = true;
+          break;
+        }
+        if (hasRead) break;
+        // Oldest event of this page seeds the next page's `until`; a
+        // short page means relay history is exhausted.
+        const oldest = [...found].sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0))[0];
+        if (!oldest?.created_at || found.size < PROBE_PAGE_SIZE) break;
+        until = oldest.created_at - 1;
+      }
+      // Only commit if the author hasn't changed while the probe ran.
+      if (authorPubkey === pk) authorHasLongform = hasRead;
+    } catch {
+      if (authorPubkey === pk) authorHasLongform = null;
+    }
+  }
 
   function sevenDaysAgo(): number {
     return Math.floor(Date.now() / 1000) - SEVEN_DAYS_SECONDS;
@@ -926,9 +1102,9 @@
     return result;
   }
 
-  function getOptimizedImageUrl(url: string): string {
+  function getOptimizedImageUrl(url: string, kind: 'single' | 'tile' = 'single'): string {
     return optimizeImageUrl(url, {
-      width: 640,
+      width: kind === 'single' ? 800 : 640,
       quality: 85,
       format: getOptimalFormat()
     });
@@ -998,15 +1174,29 @@
     return normalizeEventIdHex(s);
   }
 
-  function noteHrefFromEventId(input: string | null | undefined): string | null {
+  function noteHrefFromEventId(
+    input: string | null | undefined,
+    relayHint?: string | null
+  ): string | null {
     if (!input) return null;
     const id = normalizeEventIdHex(input);
     if (!id) return null;
     try {
-      return `/${nip19.noteEncode(id)}`;
+      // nevent1 always; the hint (e.g. an e/q tag's relay) rides along.
+      return eventIdPath(id, relayHint ? [relayHint] : null);
     } catch {
       return null;
     }
+  }
+
+  // The e/q tag whose id matches, and its wss relay hint when it carries one.
+  function eventTagRelayHint(event: NDKEvent, id: string | null | undefined): string | undefined {
+    if (!event || !id) return undefined;
+    const tag = event.tags.find(
+      (t) => Array.isArray(t) && (t[0] === 'e' || t[0] === 'q') && normalizeEventIdHex(String(t[1] || '')) === id
+    );
+    const hint = tag?.[2];
+    return typeof hint === 'string' && hint.startsWith('wss://') ? hint : undefined;
   }
 
   // Click anywhere on a feed card (except on controls, expanded detail
@@ -1019,21 +1209,21 @@
       return;
     }
     if (typeof window !== 'undefined' && window.getSelection()?.toString()) return;
-    const href = noteHrefFromEventId(ev.id);
-    if (href) goto(href);
+    goto(eventPath(ev));
   }
 
   // Extract the first quoted note ID from content (for quote reposts)
-  function getQuotedNoteId(event: NDKEvent): string | null {
+  function getQuotedNote(event: NDKEvent): { id: string; hint?: string } | null {
     try {
       if (!event) return null;
 
-      // First check for q tag (NIP-18 style quote repost)
+      // First check for q tag (NIP-18 style quote repost); its relay hint
+      // rides along so the embed link can carry it.
       if (Array.isArray(event.tags)) {
         const qTag = event.tags.find((tag) => Array.isArray(tag) && tag[0] === 'q');
         const qRef = qTag?.[1] ? String(qTag[1]) : '';
         const qId = qRef ? decodeToEventIdHex(qRef) : null;
-        if (qId) return qId;
+        if (qId) return { id: qId, hint: eventTagRelayHint(event, qId) };
       }
       if (!event.content) return null;
 
@@ -1044,7 +1234,11 @@
       const match = event.content.match(regex);
       if (match && match[1]) {
         const id = decodeToEventIdHex(match[1]);
-        if (id) return id;
+        if (id) {
+          // An nevent's own relay hint rides along, as the q-tag hint does.
+          const hint = parseEventRef(match[1])?.hints[0];
+          return hint ? { id, hint } : { id };
+        }
       }
       return null;
     } catch {
@@ -1057,7 +1251,7 @@
     try {
       // Don't show quote embed if it's already a reply (to avoid double embeds)
       if (isReply(event)) return false;
-      return getQuotedNoteId(event) !== null;
+      return getQuotedNote(event) !== null;
     } catch {
       return false;
     }
@@ -1149,18 +1343,8 @@
     return false;
   }
 
-  function countContentHashtags(content: string): number {
-    if (!content) return 0;
-    const matches = content.match(HASHTAG_PATTERN);
-    return matches ? matches.length : 0;
-  }
-
   function getHashtagCount(event: NDKEvent): number {
-    const contentHashtags = countContentHashtags(event.content || '');
-    const tagHashtags = Array.isArray(event.tags)
-      ? event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 't').length
-      : 0;
-    return Math.max(contentHashtags, tagHashtags);
+    return countHashtags(event.content || '', event.tags);
   }
 
   // Cache muted users to avoid repeated localStorage parsing
@@ -1285,6 +1469,14 @@
    * thread mutes — the full NIP-51 list merged with the legacy localStorage
    * one (see muteListStore). A kind 6 repost is judged by the note it carries.
    */
+  // The mute list arrives after the first posts are on screen (it is
+  // fetched after NDK connects): drop what it hides from the list already
+  // rendered, and again whenever it changes (a mute from a profile sheet).
+  $: if ($muteListStore.muteList && events.length) {
+    const kept = events.filter((e) => !isMuted(e));
+    if (kept.length !== events.length) events = kept;
+  }
+
   function isMuted(event: NDKEvent): boolean {
     if (!$userPublickey) return false;
 
@@ -1301,7 +1493,7 @@
 
     return isEventMutedBy(muteList, {
       id: event.id,
-      pubkey: event.author?.hexpubkey || event.pubkey,
+      pubkey: getAuthorKey(event),
       content: event.content,
       tags: event.tags
     });
@@ -1350,6 +1542,9 @@
 
   /** The one question every feed path asks before showing an event. */
   function passesFeedFilters(event: NDKEvent): boolean {
+    // Temporary stopgap — remove when curated feed replaces OnlyFood.
+    // Global Food only (not Following/Replies/Members/profile).
+    if (filterMode === 'global' && !authorPubkey && !passesOnlyFoodStopgap(event)) return false;
     if (isMuted(event)) return false;
     if (isHellthread(event)) return false;
     if (!foodFilterActive) return true;
@@ -1361,7 +1556,7 @@
    * and by the "Show all posts" button in the empty state, so the control the
    * empty state points at is the control it flips.
    */
-  function setFoodFilter(enabled: boolean) {
+  export function setFoodFilter(enabled: boolean) {
     foodFilterEnabled = enabled;
     foodFilterSetting.setEnabled(enabled);
     seenEventIds.clear();
@@ -1740,6 +1935,18 @@
     return (event as any)._repostCreatedAt || event.created_at || 0;
   }
 
+  // Author pubkey for filters/mute checks. NDKUser.hexpubkey THROWS
+  // ("npub not set") when the user object was built without a pubkey —
+  // reachable through synthetic expanded-repost events — so never read
+  // it bare; fall back to the event's own pubkey field.
+  function getAuthorKey(event: NDKEvent): string {
+    try {
+      return event.author?.hexpubkey || event.pubkey || '';
+    } catch {
+      return event.pubkey || '';
+    }
+  }
+
   function applyRepostMetadata(sourceEvent: NDKEvent, expandedEvent: NDKEvent): NDKEvent {
     (expandedEvent as any)._repostedBy = sourceEvent.pubkey;
     (expandedEvent as any)._repostId = sourceEvent.id;
@@ -1752,6 +1959,11 @@
   function buildExpandedEmbeddedRepostEvent(event: NDKEvent, inner: any): NDKEvent | null {
     if (!inner || typeof inner !== 'object' || !inner.id) return null;
     if (inner.kind !== 1 && inner.kind !== 1068) return null;
+    // Without a real author pubkey the synthetic event's NDKUser throws
+    // "npub not set" on the first .author?.hexpubkey read (e.g. the mute
+    // filter), which killed entire feed loads. Drop unattributable
+    // reposts instead.
+    if (typeof inner.pubkey !== 'string' || !inner.pubkey) return null;
 
     const innerEvent = new NDKEvent($ndk, inner);
     innerEvent.id = inner.id;
@@ -1784,6 +1996,11 @@
 
     const id = eventTag?.[1];
     if (!id) return null;
+    // Same rule as the embedded path: a synthetic event without a real
+    // author pubkey detonates on .author?.hexpubkey reads ("npub not
+    // set") and takes the whole feed load down with it.
+    const innerPubkey = pubkeyTag?.[1];
+    if (!innerPubkey) return null;
     const parsedKind = kindTag ? Number.parseInt(kindTag[1], 10) : NaN;
     // If the wrapper doesn't tell us the inner kind, default to 1 — kind:6
     // is by NIP-18 a "kind:1 repost", and a wrong guess only causes the
@@ -1793,7 +2010,7 @@
 
     const innerEvent = new NDKEvent($ndk);
     innerEvent.id = id;
-    innerEvent.pubkey = pubkeyTag?.[1] || '';
+    innerEvent.pubkey = innerPubkey;
     innerEvent.kind = kind;
     innerEvent.content = '';
     innerEvent.tags = [];
@@ -1940,9 +2157,10 @@
         const eventStore = getEventStore();
         const timeWindow = calculateTimeWindow('initial');
 
-        // Build filter for cache lookup
+        // Build filter for cache lookup. Profile views also rehydrate
+        // cached kind-1111 comments so a fresh Replies tab paints instantly.
         const cacheFilter: any = {
-          kinds: [1, 6, 1068],
+          kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
           since: timeWindow.since,
           limit: 50
         };
@@ -1968,8 +2186,8 @@
           const validCached = cachedEvents.filter((event) => {
             if (filterMode === 'following' && isReply(event)) return false;
             if (authorPubkey) {
-              if (authorScope === 'top-level' && isReply(event)) return false;
-              if (authorScope === 'replies' && !isReply(event)) return false;
+              if (authorScope === 'top-level' && !isTopLevelForScope(event)) return false;
+              if (authorScope === 'replies' && !isReplyForScope(event)) return false;
             }
             return passesFeedFilters(event);
           });
@@ -2395,14 +2613,16 @@
             return false;
           }
 
-          // Check muted users
+          // Check muted users (the device's local mutes at once; the full
+          // NIP-51 list — words, tags, threads, private mutes — once loaded)
           if ($userPublickey) {
             const mutedUsers = getMutedUsers();
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && mutedUsers.includes(authorKey)) {
               console.log('[Feed] Members: Filtered out muted user event:', event.id);
               return false;
             }
+            if (isMuted(event)) return false;
           }
 
           // For members feed, show ALL content (don't apply food filter)
@@ -2444,8 +2664,12 @@
       // ═══════════════════════════════════════════════════════════════
 
       // Build relay pool filter (always needed as backup, starts immediately)
+      // Profile views also ask for kind-1111 comments: the Replies tab
+      // shows this author's event-rooted comments interleaved with their
+      // kind-1 replies (kinds is OR; the scope filter below does the
+      // routing, author-scoped so no sibling-filter trick is needed).
       const hashtagFilter: any = {
-        kinds: [1, 6, 1068],
+        kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
@@ -2502,13 +2726,14 @@
               const foodEvents = primalEvents.filter((event: NDKEvent) => {
                 if ($userPublickey) {
                   const mutedUsers = getMutedUsers();
-                  const authorKey = event.author?.hexpubkey || event.pubkey;
+                  const authorKey = getAuthorKey(event);
                   if (authorKey && mutedUsers.includes(authorKey)) return false;
+                  if (isMuted(event)) return false;
                 }
                 if (isReply(event)) return false;
                 if (!passesFeedFilters(event)) return false;
                 if (followedSet.size > 0) {
-                  const authorKey = event.author?.hexpubkey || event.pubkey;
+                  const authorKey = getAuthorKey(event);
                   if (authorKey && followedSet.has(authorKey)) return false;
                 }
                 return true;
@@ -2595,11 +2820,12 @@
 
       // Filter, dedupe, and sort - exclude followed users from Global feed
       const validEvents = allFetchedEvents.filter((event) => {
-        // Check muted users first
+        // Check muted users first (local mutes at once, the NIP-51 list once loaded)
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
-          const authorKey = event.author?.hexpubkey || event.pubkey;
+          const authorKey = getAuthorKey(event);
           if (authorKey && mutedUsers.includes(authorKey)) return false;
+          if (isMuted(event)) return false;
         }
 
         // Global feed: exclude replies (only show top-level notes)
@@ -2607,10 +2833,15 @@
           return false;
         }
 
-        // Profile view: honor the requested reply scope.
+        // Profile view: honor the requested reply scope. NIP-22
+        // event-rooted comments count as replies (isReplyForScope), so a
+        // Ditto-style comment in a mixed thread lands in Replies — and no
+        // kind-1111 comment ever lands in Posts (isTopLevelForScope), where
+        // its missing lowercase `e` would otherwise pass it off as a
+        // top-level note. External (`I`) and unscoped comments match neither.
         if (authorPubkey) {
-          if (authorScope === 'top-level' && isReply(event)) return false;
-          if (authorScope === 'replies' && !isReply(event)) return false;
+          if (authorScope === 'top-level' && !isTopLevelForScope(event)) return false;
+          if (authorScope === 'replies' && !isReplyForScope(event)) return false;
         }
 
         // Mutes always; food test where it is active for this view
@@ -2619,7 +2850,7 @@
         if (!authorPubkey) {
           // Also exclude posts from followed users
           if (followedSet.size > 0) {
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && followedSet.has(authorKey)) {
               return false; // Exclude - this belongs in Following/Notes & Replies
             }
@@ -2640,6 +2871,18 @@
       // Always set loading to false, even if no events
       loading = false;
       error = false;
+
+      // Author view finished empty: probe for longform so the empty
+      // state can point at the Reads tab instead of "never posted".
+      // Posts (top-level) scope only: for the Replies feed the question
+      // "do they publish longform?" is irrelevant; an author with
+      // articles but no replies must keep the plain empty state, not a
+      // "No standard posts found" mislabel. (Skipped, not returned:
+      // cache-write and the realtime subscription below still run.)
+      if (authorPubkey && authorScope === 'top-level') {
+        if (events.length === 0) probeAuthorLongform(authorPubkey);
+        else authorHasLongform = false;
+      }
 
       if (events.length > 0) {
         lastEventTime = Math.max(...events.map(getEventSortTime));
@@ -2778,7 +3021,7 @@
     // Global mode / Profile view - default subscription
     // Single subscription for content (food-filtered or all posts based on context)
     const hashtagFilter: any = {
-      kinds: [1, 6, 1068],
+      kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
       since
     };
 
@@ -2805,13 +3048,13 @@
 
       // Profile view: respect authorScope (matches initial load filter)
       if (authorPubkey) {
-        if (authorScope === 'top-level' && isReply(event)) return;
-        if (authorScope === 'replies' && !isReply(event)) return;
+        if (authorScope === 'top-level' && !isTopLevelForScope(event)) return;
+        if (authorScope === 'replies' && !isReplyForScope(event)) return;
       }
 
       // For Global feed, exclude posts from followed users
       if (!authorPubkey && followedPubkeysForRealtime.length > 0) {
-        const authorKey = event.author?.hexpubkey || event.pubkey;
+        const authorKey = getAuthorKey(event);
         if (authorKey && followedPubkeysForRealtime.includes(authorKey)) {
           return; // Skip - belongs in Following/Notes & Replies
         }
@@ -2884,7 +3127,7 @@
         if (isReply(e)) return false;
         if (!passesFeedFilters(e)) return false;
         if (followedSet.size > 0) {
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && followedSet.has(authorKey)) return false;
         }
         return true;
@@ -3006,7 +3249,7 @@
       if (isReply(event)) return false;
       if ($userPublickey) {
         const mutedUsers = getMutedUsers();
-        const authorKey = event.author?.hexpubkey || event.pubkey;
+        const authorKey = getAuthorKey(event);
         if (authorKey && mutedUsers.includes(authorKey)) return false;
       }
       return passesFeedFilters(event);
@@ -3018,7 +3261,7 @@
     return rawEvents.filter((event) => {
       if ($userPublickey) {
         const mutedUsers = getMutedUsers();
-        const authorKey = event.author?.hexpubkey || event.pubkey;
+        const authorKey = getAuthorKey(event);
         if (authorKey && mutedUsers.includes(authorKey)) return false;
       }
       return passesFeedFilters(event);
@@ -3082,12 +3325,15 @@
 
   /**
    * Fetch fresh content from Primal in background and merge with displayed events
-   * Called after instant cache paint to get latest content
+   * Called after instant cache paint to get latest content.
+   * Returns 'ok' when fresh data was merged, 'switched' when the user
+   * changed tabs mid-refresh (caller must not react), or 'failed' when
+   * the refresh threw — callers use that to fall back to a full load.
    */
-  async function fetchFreshAndMerge() {
+  async function fetchFreshAndMerge(): Promise<'ok' | 'switched' | 'failed'> {
     // Don't run for members (private relay not in Primal)
     if (filterMode === 'members') {
-      return;
+      return 'switched';
     }
 
     // Capture current mode to detect stale results after async operations
@@ -3098,7 +3344,7 @@
       let freshEvents: NDKEvent[] = [];
 
       if (startMode === 'following' || startMode === 'replies') {
-        if (!$userPublickey) return;
+        if (!$userPublickey) return 'switched';
 
         // Reuse cached follow list — avoid redundant Primal call
         const follows =
@@ -3106,8 +3352,8 @@
             ? followedPubkeysForRealtime
             : await fetchContactListFromPrimal($userPublickey);
 
-        if (filterMode !== startMode) return;
-        if (follows.length === 0) return;
+        if (filterMode !== startMode) return 'switched';
+        if (follows.length === 0) return 'switched';
 
         followedPubkeysForRealtime = follows;
 
@@ -3117,7 +3363,7 @@
           includeReplies: startMode === 'replies'
         });
 
-        if (filterMode !== startMode) return;
+        if (filterMode !== startMode) return 'switched';
 
         const filterFn = startMode === 'following' ? filterFollowingEvents : filterRepliesEvents;
         freshEvents = filterFn(primalEvents);
@@ -3142,7 +3388,7 @@
         }
 
         // Check if user switched tabs
-        if (filterMode !== startMode) return;
+        if (filterMode !== startMode) return 'switched';
 
         const { events: primalEvents } = await fetchGlobalFromPrimal($ndk, {
           limit: 200,
@@ -3150,14 +3396,14 @@
         });
 
         // Check again after async fetch
-        if (filterMode !== startMode) return;
+        if (filterMode !== startMode) return 'switched';
 
         // Apply food filter and exclude followed users
         freshEvents = primalEvents.filter((event) => {
           // Check muted users
           if ($userPublickey) {
             const mutedUsers = getMutedUsers();
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && mutedUsers.includes(authorKey)) return false;
           }
 
@@ -3169,7 +3415,7 @@
 
           // Exclude posts from followed users (they go in Following feed)
           if (followedSet.size > 0) {
-            const authorKey = event.author?.hexpubkey || event.pubkey;
+            const authorKey = getAuthorKey(event);
             if (authorKey && followedSet.has(authorKey)) return false;
           }
 
@@ -3178,7 +3424,7 @@
       }
 
       // Final stale check before applying results
-      if (filterMode !== startMode) return;
+      if (filterMode !== startMode) return 'switched';
 
       console.log(
         `[Feed] Background refresh: ${freshEvents.length} events in ${(performance.now() - startTime).toFixed(0)}ms`
@@ -3227,12 +3473,19 @@
       } catch {
         // Non-critical
       }
+
+      return 'ok';
     } catch (err) {
-      // Only log if it's not a tab-switch scenario
+      // Only log if it's not a tab-switch scenario. Error objects
+      // JSON.stringify to {} — log the message so the failure is
+      // actually diagnosable from the console.
       if (filterMode === startMode) {
-        console.warn('[Feed] Background fetch failed:', err);
+        console.warn(
+          '[Feed] Background fetch failed:',
+          err instanceof Error ? err.message : String(err)
+        );
       }
-      // Silent fail - we already have cached content showing
+      return 'failed';
     }
   }
 
@@ -3257,6 +3510,9 @@
    * Throttled to prevent performance issues
    */
   let scrollThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+  // The element the 'scroll' listener is attached to (the app scroller, or
+  // the window as a fallback), kept so it is removed from the same target.
+  let scrollTarget: EventTarget | null = null;
   function handleFeedScroll() {
     if (typeof window === 'undefined') return;
 
@@ -3266,9 +3522,11 @@
       scrollThrottleTimer = null;
     }, 100);
 
-    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    // The feed scrolls inside #app-scroll, not the window (the window's scroll offset
+    // stayed 0 and this listener never fired, so "at top" was always true).
+    const scrollTop = feedScrollTop(scrollTarget instanceof HTMLElement ? scrollTarget : null);
     const wasAtTop = isScrolledToTop;
-    isScrolledToTop = scrollTop < 100;
+    isScrolledToTop = isAtTop(scrollTop);
 
     // If user scrolled to top and there are pending posts, auto-load them
     if (isScrolledToTop && !wasAtTop && pendingNewEvents.length > 0) {
@@ -3283,7 +3541,7 @@
 
       const timeWindow = calculateTimeWindow('initial');
       const filter: any = {
-        kinds: [1, 6, 1068],
+        kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
         limit: authorPubkey && !foodFilterEnabled ? 100 : 50,
         since: timeWindow.since
       };
@@ -3330,10 +3588,18 @@
           return false;
         }
 
+        // Profile view: honor the requested reply scope (matches the
+        // initial load filter; NIP-22 event-rooted comments count as
+        // replies).
+        if (authorPubkey) {
+          if (authorScope === 'top-level' && !isTopLevelForScope(e)) return false;
+          if (authorScope === 'replies' && !isReplyForScope(e)) return false;
+        }
+
         // Check muted users
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
 
@@ -3342,7 +3608,7 @@
 
         // Exclude followed users from Global feed
         if (followedSet.size > 0) {
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && followedSet.has(authorKey)) {
             return false;
           }
@@ -3367,7 +3633,12 @@
   // ═══════════════════════════════════════════════════════════════
 
   async function loadMore() {
-    if (loadingMore || !hasMore || Date.now() < loadMoreCooldownUntil) return;
+    // `loading` too: the cooldown-retry timer in the intersection
+    // callback fires on a delay and must not run against a feed that a
+    // tab switch or reload has begun resetting (empty events, fresh
+    // hasMore) — a page fetched there could strand the new feed's
+    // pagination.
+    if (loading || loadingMore || !hasMore || Date.now() < loadMoreCooldownUntil) return;
 
     try {
       loadingMore = true;
@@ -3445,8 +3716,9 @@
         );
       } else {
         // Global mode / Profile view - use hashtag filter with timeboxing
+        // Profile views also page in kind-1111 comments for the Replies tab.
         const filter: any = {
-          kinds: [1, 6, 1068],
+          kinds: authorPubkey ? [1, 6, 1068, 1111] : [1, 6, 1068],
           since: paginationWindow.since,
           until: paginationWindow.until,
           limit: authorPubkey && !foodFilterEnabled ? 150 : 100 // Fetch more for profile view when showing all posts
@@ -3495,13 +3767,33 @@
       // Expand kind:6 wrappers into their inner kind:1/1068 notes before
       // the per-mode filter runs. Same reason as fetchFreshData: without
       // this, kind:6 wrappers leak into `events` and break rendering/dedup.
+      // The inner note's id must be checked against seenEventIds AND a
+      // page-local set: two reposts of the same note in one page, or a
+      // repost alongside the direct note, would otherwise both survive
+      // validOlder's seen-filter (it only knows cross-page ids) and append
+      // the same id twice — Svelte's keyed each then throws
+      // "duplicate keys", which kills the whole feed render (the frozen
+      // 2-3-notes-plus-loader state).
       const expandedOlderEvents: NDKEvent[] = [];
+      const expandedIds = new Set<string>();
       for (const raw of olderEvents) {
         if (raw.kind === 6) {
+          // Mark the wrapper seen even when expansion fails — a malformed
+          // repost must not be re-expanded on every page (same policy as
+          // the realtime handler).
           seenEventIds.add(raw.id);
           const inner = expandRepostEvent(raw);
-          if (inner && inner.id) expandedOlderEvents.push(inner);
+          if (!inner || !inner.id || seenEventIds.has(inner.id) || expandedIds.has(inner.id)) {
+            continue;
+          }
+          expandedIds.add(inner.id);
+          expandedOlderEvents.push(inner);
         } else {
+          // Same-page duplicates only here — the cross-page seen check is
+          // validOlder's job, and marking ids seen now would make that
+          // filter drop the whole page.
+          if (!raw.id || expandedIds.has(raw.id)) continue;
+          expandedIds.add(raw.id);
           expandedOlderEvents.push(raw);
         }
       }
@@ -3515,7 +3807,7 @@
         // Check muted users
         if ($userPublickey) {
           const mutedUsers = getMutedUsers();
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && mutedUsers.includes(authorKey)) return false;
         }
 
@@ -3532,12 +3824,20 @@
           return false; // Global mode: exclude replies
         }
 
+        // Profile view: honor the requested reply scope (matches the
+        // initial load filter; NIP-22 event-rooted comments count as
+        // replies).
+        if (authorPubkey) {
+          if (authorScope === 'top-level' && !isTopLevelForScope(e)) return false;
+          if (authorScope === 'replies' && !isReplyForScope(e)) return false;
+        }
+
         // Mutes always; food test where it is active for this view
         if (!passesFeedFilters(e)) return false;
 
         // Exclude followed users from Global feed
         if (!authorPubkey && filterMode === 'global' && followedSet.size > 0) {
-          const authorKey = e.author?.hexpubkey || e.pubkey;
+          const authorKey = getAuthorKey(e);
           if (authorKey && followedSet.has(authorKey)) {
             return false;
           }
@@ -3684,6 +3984,13 @@
   // ═══════════════════════════════════════════════════════════════
 
   function getParentNoteId(event: NDKEvent): string | null {
+    // NIP-22 comments: lowercase `e` parent, else the uppercase `E` root
+    // (a top-level comment may carry only the root).
+    if (event.kind === 1111) {
+      const parentId = getReplyParentId(event);
+      return parentId ? normalizeEventIdHex(parentId) : null;
+    }
+
     // Get all e tags
     const eTags = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'e');
 
@@ -3714,32 +4021,10 @@
     return null;
   }
 
+  // Kind-1/1068 thread reply (mention-only and empty `e` tags don't count);
+  // shared with the profile scope predicates in $lib/replyContext.
   function isReply(event: NDKEvent): boolean {
-    if (event.kind !== 1 && event.kind !== 1068) return false;
-
-    const eTags = event.tags.filter((tag) => Array.isArray(tag) && tag[0] === 'e' && tag[1]);
-
-    if (eTags.length === 0) return false; // No e tags = top-level
-
-    // Check if any e tag indicates a reply (not just a mention)
-    return eTags.some((tag) => {
-      const marker = tag[3]?.toLowerCase();
-
-      // Explicit reply marker
-      if (marker === 'reply') return true;
-
-      // Root marker (indicates thread participation)
-      if (marker === 'root') return true;
-
-      // Old-style: e tag without marker (assumed to be reply)
-      if (!marker) return true;
-
-      // Mention marker - NOT a reply
-      if (marker === 'mention') return false;
-
-      // Unknown marker - treat as reply to be safe
-      return true;
-    });
+    return isThreadReply(event);
   }
 
   // Resolve reply context (parent note author and preview)
@@ -3799,7 +4084,8 @@
       try {
         // Fetch parent note
         const parentNote = await $ndk.fetchEvent({
-          kinds: [1, 1068 as number] as number[],
+          // A comment's parent can be another comment (kind 1111).
+          kinds: [1, 1068, 1111] as number[],
           ids: [eventId]
         });
 
@@ -3843,50 +4129,46 @@
           authorName = npub; // Use full npub, not truncated
         }
 
-        // Get note preview
-        let content = parentNote.content || '';
-
-        // Resolve inline profile mentions (nostr:npub / nprofile) to @name
-        // so the preview keeps the mention instead of dropping it when the
-        // nostr: token is stripped below.
-        const mentionTokens = content.match(/nostr:(?:npub1|nprofile1)[0-9a-z]+/g) || [];
-        for (const token of [...new Set(mentionTokens)]) {
-          try {
-            const decoded = nip19.decode(token.replace(/^nostr:/, ''));
-            const pk =
-              decoded.type === 'npub'
-                ? (decoded.data as string)
-                : decoded.type === 'nprofile'
-                  ? (decoded.data as { pubkey: string }).pubkey
-                  : '';
-            if (!pk) continue;
-            const mentioned = $ndk.getUser({ hexpubkey: pk });
-            await mentioned.fetchProfile();
-            const handle =
-              mentioned.profile?.displayName ||
-              mentioned.profile?.name ||
-              nip19.npubEncode(pk).slice(0, 12) + '…';
-            content = content.split(token).join('@' + handle);
-          } catch {
-            // Leave the token; it'll be stripped below if unresolved.
-          }
-        }
-
-        // Remove URLs and any remaining nostr refs (nevent/note/naddr) for a
-        // clean text preview.
-        const cleanContent = content
-          .replace(/https?:\/\/[^\s]+/g, '') // Remove URLs
-          .replace(/nostr:[^\s]+/g, '') // Remove remaining nostr: links
-          .replace(/\s+/g, ' ')
-          .trim();
-        // Expose a meaningful chunk of the quoted note rather than a
-        // one-line teaser — the CSS line-clamp caps the visible height,
-        // so a generous character budget just lets those lines fill.
-        const previewLength = 280;
-        const notePreview =
-          cleanContent.length > previewLength
-            ? cleanContent.substring(0, previewLength) + '...'
-            : cleanContent;
+        // Get note preview. Profile mentions are resolved to display names
+        // first (so the preview keeps them instead of dropping the nostr:
+        // token), then the text itself is built by the shared $lib/notePreview
+        // builder — the same stripping, paragraph-preserving and truncation
+        // rules the Fresh feed's quote blocks use.
+        const noteContent = parentNote.content || '';
+        const mentionNames = new Map<string, string>();
+        const mentionTokens = [
+          ...new Set(
+            scanNostrRefs(noteContent)
+              .filter(
+                (r) => r.type === 'nostr' && (r.prefix === 'npub1' || r.prefix === 'nprofile1')
+              )
+              .map((r) => r.content)
+          )
+        ];
+        await Promise.all(
+          mentionTokens.map(async (token) => {
+            try {
+              const decoded = nip19.decode(token.replace(/^nostr:/, ''));
+              const pk =
+                decoded.type === 'npub'
+                  ? (decoded.data as string)
+                  : decoded.type === 'nprofile'
+                    ? (decoded.data as { pubkey: string }).pubkey
+                    : '';
+              if (!pk || mentionNames.has(pk)) return;
+              const mentioned = $ndk.getUser({ hexpubkey: pk });
+              await mentioned.fetchProfile();
+              const handle =
+                mentioned.profile?.displayName ||
+                mentioned.profile?.name ||
+                nip19.npubEncode(pk).slice(0, 12) + '…';
+              mentionNames.set(pk, handle);
+            } catch {
+              // Unresolvable mention: the builder drops it.
+            }
+          })
+        );
+        const notePreview = buildNotePreview(noteContent, { mentionNames });
 
         // First image in the quoted note, so the embed can show a media
         // preview rather than only stripped text.
@@ -3956,7 +4238,7 @@
       let authorPicture: string | undefined;
       try {
         const profile = await resolveProfileByPubkey(
-          shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey,
+          getAuthorKey(shareModalEvent),
           $ndk
         );
         if (profile) {
@@ -3980,7 +4262,7 @@
               let refAuthorPicture: string | undefined;
               try {
                 const refProfile = await resolveProfileByPubkey(
-                  refEvent.author?.hexpubkey || refEvent.pubkey,
+                  getAuthorKey(refEvent),
                   $ndk
                 );
                 if (refProfile) {
@@ -3996,7 +4278,7 @@
                 content: refEvent.content,
                 authorName: refAuthorName,
                 authorPicture: refAuthorPicture,
-                authorPubkey: refEvent.author?.hexpubkey || refEvent.pubkey,
+                authorPubkey: getAuthorKey(refEvent),
                 timestamp: refEvent.created_at
               };
             }
@@ -4061,7 +4343,7 @@
 
       try {
         const profile = await resolveProfileByPubkey(
-          noteEvent.author?.hexpubkey || noteEvent.pubkey,
+          getAuthorKey(noteEvent),
           $ndk
         );
         if (profile) {
@@ -4087,7 +4369,7 @@
               let refAuthorPicture: string | undefined;
               try {
                 const refProfile = await resolveProfileByPubkey(
-                  refEvent.author?.hexpubkey || refEvent.pubkey,
+                  getAuthorKey(refEvent),
                   $ndk
                 );
                 if (refProfile) {
@@ -4103,7 +4385,7 @@
                 content: refEvent.content,
                 authorName: refAuthorName,
                 authorPicture: refAuthorPicture,
-                authorPubkey: refEvent.author?.hexpubkey || refEvent.pubkey,
+                authorPubkey: getAuthorKey(refEvent),
                 timestamp: refEvent.created_at
               };
               console.log('[DownloadImage] Referenced note found:', referencedNote);
@@ -4340,7 +4622,14 @@
   let zapAnimatingNotes = new Set<string>();
   let zapAnimationTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
-  function handleZapComplete(eventId: string) {
+  function handleZapComplete(eventId: string, amount?: number) {
+    // Optimistic bolt: the count and userZapped flip immediately (yellow
+    // filled bolt + shimmer) before the engagement refetch confirms it.
+    if ($userPublickey) {
+      optimisticZapUpdate(eventId, (amount ?? 0) * 1000, $userPublickey);
+      markSelfZapCompleted(eventId);
+    }
+
     // Clear any existing timeout for this note
     const existingTimeout = zapAnimationTimeouts.get(eventId);
     if (existingTimeout) {
@@ -4381,10 +4670,33 @@
     }, 0);
   }
 
+  // Reply modal — the card's comment button opens the composer over the
+  // feed (iOS parity) instead of navigating to the thread page.
+  let replyModalOpen = false;
+  let replyModalTarget: NDKEvent | null = null;
+  async function openReplyModal(event: NDKEvent) {
+    // ReplyComposer relies on caller-level auth gating: a signed-out
+    // visitor would compose a reply only to fail at signing. Sign-in opens
+    // in place; the composer follows it.
+    if (!(await requireAuth({ kind: 'reply', reason: 'Sign in to reply' }))) return;
+    replyModalTarget = event;
+    setTimeout(() => {
+      replyModalOpen = true;
+    }, 0);
+  }
+
   // Image modal — navigation, keyboard, and swipe live inside
-  // MediaLightbox.
-  function openImageModal(_imageUrl: string, allImages: string[], index: number) {
-    selectedEventImages = allImages;
+  // MediaLightbox. Imeta alt text (NIP-92) rides along per image for
+  // the lightbox's screen-reader labels.
+  function openImageModal(
+    _imageUrl: string,
+    allImages: string[],
+    index: number,
+    altByUrl?: Map<string, string>,
+    sourceEvent?: NDKEvent
+  ) {
+    selectedEventImages = allImages.map((url) => ({ url, alt: altByUrl?.get(url) || '' }));
+    imageModalEvent = sourceEvent ?? null;
     selectedImageIndex = index;
     imageModalOpen = true;
   }
@@ -4449,29 +4761,44 @@
           renderedNotes = new Set();
           clearRenderZoneState();
 
-          // Try instant cache first
+          // Try instant cache first — but a nearly-empty cache isn't
+          // worth painting as the final state: one stale note plus a
+          // background refresh that can fail leaves the feed stranded
+          // at that note with a dead loader. Fall through to the full
+          // load below instead.
           const cached = loadFromInstantCache(filterMode);
-          if (cached && cached.events.length > 0) {
-            const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
+          const hydratedEvents = cached
+            ? cached.events.map(hydrateFromCache).filter(passesFeedFilters)
+            : [];
 
-            if (hydratedEvents.length > 0) {
-              seenEventIds.clear();
-              paginationFloorTs = null;
-              hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
-              events = hydratedEvents;
-              preseedRenderedNotes(20);
-              loading = false;
-              error = false;
-              hasMore = true;
-              loadingMore = false;
+          if (hydratedEvents.length >= 5) {
+            seenEventIds.clear();
+            paginationFloorTs = null;
+            hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
+            events = hydratedEvents;
+            preseedRenderedNotes(20);
+            loading = false;
+            error = false;
+            hasMore = true;
+            loadingMore = false;
 
-              console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
+            console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
 
-              // Background refresh
-              backgroundLoading = true;
-              fetchFreshAndMerge().finally(() => (backgroundLoading = false));
-              return;
-            }
+            // Background refresh; when it dies (Primal down, fetch
+            // threw), fall back to the full relay load — the painted
+            // cache must not be the last word.
+            backgroundLoading = true;
+            fetchFreshAndMerge()
+              .then((outcome) => {
+                if (outcome === 'failed' && !isDestroyed && filterMode === lastFilterMode) {
+                  return loadFoodstrFeed(false);
+                }
+              })
+              .catch(() => {
+                /* loadFoodstrFeed handles its own errors */
+              })
+              .finally(() => (backgroundLoading = false));
+            return;
           }
 
           // No cache - full load
@@ -4494,29 +4821,44 @@
           renderedNotes = new Set();
           clearRenderZoneState();
 
-          // Try instant cache first
+          // Try instant cache first — but a nearly-empty cache isn't
+          // worth painting as the final state: one stale note plus a
+          // background refresh that can fail leaves the feed stranded
+          // at that note with a dead loader. Fall through to the full
+          // load below instead.
           const cached = loadFromInstantCache(filterMode);
-          if (cached && cached.events.length > 0) {
-            const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
+          const hydratedEvents = cached
+            ? cached.events.map(hydrateFromCache).filter(passesFeedFilters)
+            : [];
 
-            if (hydratedEvents.length > 0) {
-              seenEventIds.clear();
-              paginationFloorTs = null;
-              hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
-              events = hydratedEvents;
-              preseedRenderedNotes(20);
-              loading = false;
-              error = false;
-              hasMore = true;
-              loadingMore = false;
+          if (hydratedEvents.length >= 5) {
+            seenEventIds.clear();
+            paginationFloorTs = null;
+            hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
+            events = hydratedEvents;
+            preseedRenderedNotes(20);
+            loading = false;
+            error = false;
+            hasMore = true;
+            loadingMore = false;
 
-              console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
+            console.log(`[Feed] Tab switch: Rendered ${events.length} cached events instantly`);
 
-              // Background refresh
-              backgroundLoading = true;
-              fetchFreshAndMerge().finally(() => (backgroundLoading = false));
-              return;
-            }
+            // Background refresh; when it dies (Primal down, fetch
+            // threw), fall back to the full relay load — the painted
+            // cache must not be the last word.
+            backgroundLoading = true;
+            fetchFreshAndMerge()
+              .then((outcome) => {
+                if (outcome === 'failed' && !isDestroyed && filterMode === lastFilterMode) {
+                  return loadFoodstrFeed(false);
+                }
+              })
+              .catch(() => {
+                /* loadFoodstrFeed handles its own errors */
+              })
+              .finally(() => (backgroundLoading = false));
+            return;
           }
 
           // No cache for this tab - do full load
@@ -4565,9 +4907,13 @@
       muteListStore.load();
     }
 
-    // Add scroll listener for "new posts" button behavior
+    // Add scroll listener for "new posts" button behavior — on the app
+    // scroller, which is what actually scrolls (see $lib/feed/scrollTop).
     if (typeof window !== 'undefined') {
-      window.addEventListener('scroll', handleFeedScroll, { passive: true });
+      scrollTarget = feedScrollTarget();
+      scrollTarget.addEventListener('scroll', handleFeedScroll, { passive: true });
+      // Start from the real position: a remount while scrolled must not read as "at top".
+      isScrolledToTop = isAtTop(feedScrollTop(scrollTarget instanceof HTMLElement ? scrollTarget : null));
     }
 
     // Register callback to stop subscriptions when relays are switched
@@ -4615,36 +4961,45 @@
     // STALE-WHILE-REVALIDATE: Show cached content instantly, then refresh
     // ═══════════════════════════════════════════════════════════════
 
-    // Step 1: Try to render cached content immediately (0ms perceived load)
+    // Step 1: Try to render cached content immediately (0ms perceived load).
+    // Same threshold as the tab-switch path: a nearly-empty instant cache
+    // isn't worth painting as the final state — one stale note plus a
+    // refresh that can fail leaves the feed stranded at that note with a
+    // dead loader (the reported symptom). Fall through to the full load.
     const cached = loadFromInstantCache(filterMode);
-    if (cached && cached.events.length > 0) {
-      const hydratedEvents = cached.events.map(hydrateFromCache).filter(passesFeedFilters);
+    const hydratedEvents = cached
+      ? cached.events.map(hydrateFromCache).filter(passesFeedFilters)
+      : [];
 
-      if (hydratedEvents.length > 0) {
-        // Add to seen set
-        hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
+    if (hydratedEvents.length >= 5) {
+      // Add to seen set
+      hydratedEvents.forEach((e: any) => seenEventIds.add(e.id));
 
-        events = hydratedEvents;
-        preseedRenderedNotes(20);
-        loading = false; // No loading spinner - we have content!
-        feedInitialLoadDone.set(true);
-        error = false;
-        hasMore = true;
-        loadingMore = false;
-        lastEventTime = Math.max(...events.map(getEventSortTime));
+      events = hydratedEvents;
+      preseedRenderedNotes(20);
+      loading = false; // No loading spinner - we have content!
+      feedInitialLoadDone.set(true);
+      error = false;
+      hasMore = true;
+      loadingMore = false;
+      lastEventTime = Math.max(...events.map(getEventSortTime));
 
-        console.log(`[Feed] Rendered ${events.length} cached events instantly`);
+      console.log(`[Feed] Rendered ${events.length} cached events instantly`);
 
-        // Step 2: Fetch fresh content in background
-        backgroundLoading = true;
-        try {
-          await fetchFreshAndMerge();
-        } finally {
-          backgroundLoading = false;
+      // Step 2: Fetch fresh content in background; if it dies (Primal
+      // down, fetch threw), fall back to the full relay load — the
+      // painted cache must not be the last word.
+      backgroundLoading = true;
+      try {
+        const outcome = await fetchFreshAndMerge();
+        if (outcome === 'failed' && !isDestroyed && filterMode === lastFilterMode) {
+          await loadFoodstrFeed(false);
         }
-
-        return; // Done - we showed cached content and refreshed in background
+      } finally {
+        backgroundLoading = false;
       }
+
+      return; // Done - we showed cached content and refreshed in background
     }
 
     // No usable cache - fall back to normal loading flow
@@ -4676,9 +5031,8 @@
 
   onDestroy(async () => {
     // Remove scroll listener and clear throttle timer
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('scroll', handleFeedScroll);
-    }
+    scrollTarget?.removeEventListener('scroll', handleFeedScroll);
+    scrollTarget = null;
     if (scrollThrottleTimer) {
       clearTimeout(scrollThrottleTimer);
       scrollThrottleTimer = null;
@@ -4840,7 +5194,7 @@
     <!-- Background loading indicator (subtle, centered at top) - only show if no new posts button -->
     {#if backgroundLoading && !showNewPostsButton}
       <div
-        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-card/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg"
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-[var(--color-light-bg-secondary,var(--color-card))]/90 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-lg"
         style="border: 1px solid var(--color-input-border)"
       >
         <div
@@ -4855,7 +5209,7 @@
       <div class="fixed top-4 left-1/2 -translate-x-1/2 z-50">
         <button
           on:click={loadPendingPosts}
-          class="py-2 px-4 bg-primary text-white rounded-full shadow-lg hover:bg-primary/90 transition-all flex items-center gap-2"
+          class="py-2 px-4 bg-action text-on-action rounded-full shadow-lg hover:bg-action-hover transition-all flex items-center gap-2"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -4870,7 +5224,7 @@
       </div>
     {/if}
 
-    {#if foodToggleVisible}
+    {#if foodToggleVisible && !hideFoodToggle}
       <div class="flex items-center justify-end gap-2 px-2 sm:px-0 mb-4">
         {#if foodFilterEnabled}
           <span class="text-sm">
@@ -4885,7 +5239,7 @@
         <button
           on:click={() => setFoodFilter(!foodFilterEnabled)}
           class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors {foodFilterEnabled
-            ? 'bg-primary'
+            ? 'bg-action'
             : 'bg-accent-gray'}"
         >
           <span
@@ -4939,7 +5293,7 @@
           </div>
           <button
             on:click={() => retryWithDelay()}
-            class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
           >
             Retry Connection
           </button>
@@ -4973,7 +5327,7 @@
                   unmuteAuthor(authorPubkey);
                 }
               }}
-              class="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+              class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
             >
               Unmute User
             </button>
@@ -4982,19 +5336,7 @@
                  what is actually true: is a filter hiding posts, or are there
                  none? Copy per OUTBOX/FEED_EMPTY_STATE_COPY_2026_07_30.md. -->
             <div style="color: var(--color-caption)">
-              <svg
-                class="h-12 w-12 mx-auto mb-4 opacity-50"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                ></path>
-              </svg>
+              <div class="text-6xl mx-auto mb-4" aria-hidden="true">{emptyFoodEmoji}</div>
               {#if authorPubkey}
                 <!-- Profile view: one cook, not the follow graph -->
                 {#if foodFilterEnabled}
@@ -5003,6 +5345,20 @@
                     This cook hasn't posted anything tagged as cooking. Turn off Only Food above to
                     see everything they've posted.
                   </p>
+                {:else if authorHasLongform || authorHasRecipes}
+                  <p class="text-lg font-medium">No standard posts found</p>
+                  <p class="text-sm">{authorEmptyCopy}</p>
+                  {#if authorHasLongform}
+                    <button
+                      on:click={() => dispatch('view-reads')}
+                      class="mt-3 px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
+                    >
+                      View their Reads
+                    </button>
+                  {/if}
+                {:else if authorScope === 'replies'}
+                  <p class="text-lg font-medium">No replies yet</p>
+                  <p class="text-sm">This cook hasn't replied to anything yet.</p>
                 {:else}
                   <p class="text-lg font-medium">No posts yet</p>
                   <p class="text-sm">This cook hasn't posted anything yet.</p>
@@ -5044,14 +5400,14 @@
                    as the switch above the feed. -->
               <button
                 on:click={() => setFoodFilter(false)}
-                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
               >
                 Show all posts
               </button>
             {:else if !foodToggleVisible}
               <button
                 on:click={() => retryWithDelay()}
-                class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                class="px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
               >
                 Refresh Feed
               </button>
@@ -5061,7 +5417,7 @@
       </div>
     {:else}
       <div class="space-y-3 w-full">
-        {#each events as event (event.id)}
+        {#each events as event, eventIndex (event.id)}
           <div
             use:renderZoneAction={event.id}
             class="feed-post-wrapper"
@@ -5084,8 +5440,7 @@
                 tabindex="0"
                 on:keydown|self={(e) => {
                   if (e.key === 'Enter') {
-                    const href = noteHrefFromEventId(event.id);
-                    if (href) goto(href);
+                    goto(eventPath(event));
                   }
                 }}
               >
@@ -5111,7 +5466,7 @@
                   renders a <button>. Nesting <button> inside <a> is invalid
                   HTML and breaks keyboard / screen-reader behavior.
                 -->
-                    <CustomName pubkey={reposterPubkey} className="text-xs font-medium" />
+                    <CustomName pubkey={reposterPubkey} className="text-xs font-medium" interactive={false} />
                   </a>
                 {/if}
 
@@ -5120,14 +5475,14 @@
                   <div class="flex items-center space-x-3 flex-1 min-w-0">
                     {#if !hideAvatar}
                       <a
-                        href="/user/{nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}"
+                        href="/user/{nip19.npubEncode(getAuthorKey(event))}"
                         class="flex-shrink-0 cursor-pointer"
                         on:click|stopPropagation={() =>
                           goto(
-                            `/user/${nip19.npubEncode(event.author?.hexpubkey || event.pubkey)}`
+                            `/user/${nip19.npubEncode(getAuthorKey(event))}`
                           )}
                       >
-                        <Avatar pubkey={event.author?.hexpubkey || event.pubkey} size={40} />
+                        <Avatar pubkey={getAuthorKey(event)} size={40} />
                       </a>
                     {/if}
 
@@ -5147,7 +5502,9 @@
                       >
                         {event.created_at ? formatTimeAgo(event.created_at) : 'Unknown time'}
                       </span>
-                      <ClientAttribution tags={event.tags} enableEnrichment={false} />
+                      <!-- Client attribution moved into the engagement drawer
+                           (iOS drawer parity), same as the thread page. -->
+                      <PowBadge id={event.id} tags={event.tags} />
                     </div>
                   </div>
 
@@ -5171,10 +5528,10 @@
                 <!-- Main content area - full width below header -->
                 <div class="px-2 sm:px-0">
                   <!-- Reply context (orange bracket at top for replies) -->
-                  {#if isReply(event)}
+                  {#if isReply(event) || isEventRootedComment(event)}
                     {@const parentNoteId = getParentNoteId(event)}
                     {#if parentNoteId}
-                      {@const parentHref = noteHrefFromEventId(parentNoteId)}
+                      {@const parentHref = noteHrefFromEventId(parentNoteId, eventTagRelayHint(event, parentNoteId))}
                       {#if parentHref}
                         {#await resolveReplyContext(parentNoteId)}
                           <!-- Loading state -->
@@ -5278,11 +5635,11 @@
 
                   <!-- Quoted note embed (appears below user's content) -->
                   {#if hasQuotedNote(event)}
-                    {@const quotedNoteId = getQuotedNoteId(event)}
-                    {#if quotedNoteId}
-                      {@const quotedHref = noteHrefFromEventId(quotedNoteId)}
+                    {@const quoted = getQuotedNote(event)}
+                    {#if quoted}
+                      {@const quotedHref = noteHrefFromEventId(quoted.id, quoted.hint)}
                       {#if quotedHref}
-                        {#await resolveReplyContext(quotedNoteId)}
+                        {#await resolveReplyContext(quoted.id)}
                           <!-- Loading state -->
                           <div class="parent-quote-embed mb-3">
                             <div class="parent-quote-loading">
@@ -5370,10 +5727,18 @@
                         <MediaCarousel
                           items={mediaUrls}
                           optimizeUrl={getOptimizedImageUrl}
+                          priority={eventIndex === 0}
+                          altByUrl={imetaAltByUrl(event)}
                           onItemClick={(url) => {
                             const imageUrls = mediaUrls.filter((u) => isImageUrl(u));
                             const imageIndex = imageUrls.indexOf(url);
-                            openImageModal(url, imageUrls, imageIndex >= 0 ? imageIndex : 0);
+                            openImageModal(
+                              url,
+                              imageUrls,
+                              imageIndex >= 0 ? imageIndex : 0,
+                              imetaAltByUrl(event),
+                              event
+                            );
                           }}
                         />
                       </CheffyMediaReview>
@@ -5404,14 +5769,18 @@
                     class="flex items-center justify-between flex-wrap gap-2 px-2 sm:px-0 py-1"
                     use:lazyLoadAction={event.id}
                   >
-                    <div class="flex items-center space-x-1 flex-shrink-0">
+                    <!-- Order mirrors the iOS bar: reply · heart · repost · zap. -->
+                    <div class="flex items-center gap-9 flex-shrink-0">
                       {#if visibleNotes.has(event.id)}
                         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-                          <NoteTotalLikes {event} />
+                          <NoteTotalComments
+                            {event}
+                            onComment={() => openReplyModal(event)}
+                          />
                         </div>
 
                         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
-                          <NoteTotalComments {event} />
+                          <NoteTotalLikes {event} />
                         </div>
 
                         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
@@ -5435,6 +5804,7 @@
 
                     {#if visibleNotes.has(event.id)}
                       <div class="ml-auto flex items-center gap-0.5">
+                        <NoteBookmark {event} />
                         <PostEngagementToggle
                           expanded={expandedEngagements.has(event.id)}
                           on:toggle={() => toggleEngagementDrawer(event.id)}
@@ -5490,8 +5860,15 @@
   <ZapModal
     bind:open={zapModal}
     event={selectedEvent}
-    on:zap-complete={() => selectedEvent && handleZapComplete(selectedEvent.id)}
+    on:zap-complete={(e) => selectedEvent && handleZapComplete(selectedEvent.id, e.detail?.amount)}
   />
+{/if}
+
+{#if replyModalTarget}
+  <!-- The target outlives a close: the modal hides itself, and a reply
+       finishing in the background miner must not be what unmounts a
+       composer the reader has since opened on another note. -->
+  <ReplyModal bind:open={replyModalOpen} parentEvent={replyModalTarget} />
 {/if}
 
 <ShareModal
@@ -5504,7 +5881,7 @@
   isGeneratingImage={isGeneratingShareImage}
   onGenerateImage={shareModalEvent ? generateShareModalImage : null}
   authorPubkey={shareModalEvent
-    ? shareModalEvent.author?.hexpubkey || shareModalEvent.pubkey
+    ? getAuthorKey(shareModalEvent)
     : ''}
 />
 
@@ -5535,7 +5912,7 @@
       </p>
       <button
         on:click={() => (isGeneratingImage = false)}
-        class="text-xs px-3 py-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white transition"
+        class="text-xs px-3 py-1.5 rounded bg-[var(--color-input-bg)] hover:bg-accent-gray text-[var(--color-text-primary)] transition"
       >
         Cancel
       </button>
@@ -5560,7 +5937,7 @@
       </p>
       <button
         on:click={() => (imageGenerationError = null)}
-        class="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+        class="w-full px-4 py-2 bg-action text-on-action rounded-lg hover:bg-action-hover transition-colors"
       >
         Close
       </button>
@@ -5572,6 +5949,7 @@
   <div use:portal={portalTarget}>
     <MediaLightbox
       images={selectedEventImages}
+      blurhashByUrl={blurhashMapFor(imageModalEvent)}
       bind:index={selectedImageIndex}
       onClose={closeImageModal}
     />
@@ -5598,7 +5976,7 @@
   /* Parent quote embed - always visible */
   .parent-quote-embed {
     padding: 0.5rem 0.75rem;
-    background: var(--color-input);
+    background: var(--color-light-input-bg, var(--color-input));
     border-left: 3px solid var(--color-primary, #f97316);
     border-radius: 0.375rem;
   }
@@ -5624,6 +6002,9 @@
     margin: 0 0 0.375rem 0;
     overflow-wrap: anywhere;
     word-break: break-word;
+    /* The preview keeps the author's paragraph breaks (see $lib/notePreview);
+       the line-clamp below still caps the visible height. */
+    white-space: pre-wrap;
     display: -webkit-box;
     -webkit-line-clamp: 6;
     line-clamp: 6;

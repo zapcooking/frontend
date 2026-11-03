@@ -152,15 +152,15 @@
     background: var(--color-input-border, rgba(255, 255, 255, 0.06));
   }
   .nit-tab.active {
-    background: rgba(34, 197, 94, 0.1);
-    color: #22c55e;
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    color: var(--color-primary);
     font-weight: 600;
   }
   .nit-tab.active::after {
     display: none;
   }
   .nit-tab:hover:not(.active):not(:disabled) {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--color-input-bg);
   }
 
   /* Textarea — auto-grows from 2 lines to max 5, then scrolls */
@@ -186,7 +186,7 @@
   }
   .nit-textarea:focus {
     outline: none;
-    border-color: rgba(34, 197, 94, 0.4);
+    border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
   }
 
   /* Examples */
@@ -207,8 +207,8 @@
     font-size: 0.75rem;
     padding: 0.25rem 0.625rem;
     border-radius: 9999px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--color-input-border);
+    background: var(--color-input-bg);
     color: var(--color-text-secondary);
     cursor: pointer;
     font-family: inherit;
@@ -216,12 +216,12 @@
     white-space: nowrap;
   }
   .nit-example:hover {
-    background: rgba(34, 197, 94, 0.08);
-    border-color: rgba(34, 197, 94, 0.3);
-    color: #22c55e;
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+    color: var(--color-primary);
   }
   .nit-example:active {
     transform: scale(0.97);
-    background: rgba(34, 197, 94, 0.12);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   }
 </style>

@@ -1,8 +1,11 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import { goto } from '$app/navigation';
+  import { goto, afterNavigate } from '$app/navigation';
   import { standardRelays } from '$lib/consts';
   import TrashIcon from 'phosphor-svelte/lib/Trash';
+  import GlobeIcon from 'phosphor-svelte/lib/Globe';
+  import FlameIcon from 'phosphor-svelte/lib/Flame';
+  import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import CopyIcon from 'phosphor-svelte/lib/Copy';
   import CheckIcon from 'phosphor-svelte/lib/Check';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
@@ -16,11 +19,15 @@
   import Button from '../../components/Button.svelte';
   import Modal from '../../components/Modal.svelte';
   import Accordion from '../../components/Accordion.svelte';
-  import NostrBackupSection from '../../components/NostrBackupSection.svelte';
+  import FreshSettings from '../../components/FreshSettings.svelte';
+  import LazarusRecoverySection from '../../components/LazarusRecoverySection.svelte';
   import PasskeyVaultSection from '../../components/PasskeyVaultSection.svelte';
+  import AccountNudgeItem from '../../components/AccountNudgeItem.svelte';
+  import { markBackupSaved } from '$lib/accountNudge';
   import { resolveSecuritySections, resolveDisplayPubkey } from '$lib/securitySections';
   import { nip19 } from 'nostr-tools';
   import { theme, type Theme } from '$lib/themeStore';
+  import LandingThemePicker from '../../components/landing/LandingThemePicker.svelte';
   import { displayCurrency, SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
   import { getAuthManager, type NIP46ConnectionInfo } from '$lib/authManager';
   import { signNip98AuthHeader } from '$lib/nip98';
@@ -48,7 +55,15 @@
     MAX_ZAP_MESSAGE_LENGTH
   } from '$lib/autoZapSettings';
   import { hellthreadThreshold } from '$lib/hellthreadFilterSettings';
+  import { hideImagelessRecipesSetting } from '$lib/recipeImageFilterSettings';
   import { timerSettings, saveTimerSettings, loadTimerSettings } from '$lib/timerSettings';
+  import {
+    startSection,
+    loadStartSectionSettings,
+    saveStartSection,
+    type StartSection
+  } from '$lib/startSectionSettings';
+  import { POW_LEVELS, POW_DEFAULT_BITS, powLevelFor } from '$lib/pow';
   import {
     fetchUserTrustProvider,
     publishTrustProvider,
@@ -57,12 +72,13 @@
   } from '$lib/marketplace/kitchens';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import ClockIcon from 'phosphor-svelte/lib/Clock';
+  import HammerIcon from 'phosphor-svelte/lib/Hammer';
   import { getConnectionManager } from '$lib/connectionManager';
   import SparkLogo from '../../components/icons/SparkLogo.svelte';
   import NwcLogo from '../../components/icons/NwcLogo.svelte';
   import WeblnLogo from '../../components/icons/WeblnLogo.svelte';
   import BitcoinConnectLogo from '../../components/icons/BitcoinConnectLogo.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { get } from 'svelte/store';
   import MembershipBadge from '../../components/MembershipBadge.svelte';
   import type { MembershipTier } from '$lib/membershipStore';
@@ -316,12 +332,27 @@
     }
   }
 
+  // The account nudge (and /settings#security links) open Security in place.
+  let securityOpen = false;
+
+  async function openSecurity() {
+    securityOpen = true;
+    await tick();
+    document.getElementById('security')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Runs on arrival and on same-page hash links (the bell's nudge).
+  afterNavigate(({ to }) => {
+    if (to?.url.hash === '#security') openSecurity();
+  });
+
   onMount(() => {
     updateConnectedRelays();
     fetchNIP65Relays();
     fetchMembershipStatus();
     loadWotProvider();
     loadTimerSettings();
+    loadStartSectionSettings();
     // Update connection status periodically
     const interval = setInterval(updateConnectedRelays, 5000);
     // Keep the key display in sync with auth changes (e.g. a passkey unlock
@@ -403,6 +434,8 @@
 
   // Membership state
   let membershipLoading = false;
+  /** The check itself failed (503/network): show a retry, not the free-tier pitch. */
+  let membershipUnavailable = false;
   let membershipData: {
     found: boolean;
     isActive?: boolean;
@@ -423,6 +456,8 @@
     if (browser) {
       try {
         await navigator.clipboard.writeText(text);
+        // A landed copy of the private key counts as a saved backup.
+        if (keyType === 'private' && pk) markBackupSaved(pk);
         copiedKey = keyType;
         setTimeout(() => {
           copiedKey = '';
@@ -459,9 +494,13 @@
       });
       if (res.ok) {
         membershipData = await res.json();
+        membershipUnavailable = false;
+      } else {
+        membershipUnavailable = true;
       }
     } catch (error) {
       console.error('Failed to fetch membership status:', error);
+      membershipUnavailable = true;
     } finally {
       membershipLoading = false;
     }
@@ -501,14 +540,8 @@
     }
   }
 
-  // Theme state
-  let selectedTheme: Theme = 'system';
-
-  if (browser) {
-    theme.subscribe((value) => {
-      selectedTheme = value;
-    });
-  }
+  // Auto-subscribe so client navigation releases the appearance listener.
+  $: selectedTheme = $theme;
 
   function handleThemeChange(newTheme: Theme) {
     selectedTheme = newTheme;
@@ -631,10 +664,12 @@
   <title>Settings - zap.cooking</title>
 </svelte:head>
 
-<div class="max-w-2xl mx-auto">
+<div class="max-w-2xl">
   <h1 class="mb-6">Settings</h1>
 
   <div class="flex flex-col gap-4">
+    <AccountNudgeItem where="settings" on:act={openSecurity} />
+
     <!-- Appearance Section -->
     <Accordion title="Appearance" open={true}>
       <div class="flex flex-col gap-4">
@@ -643,14 +678,15 @@
           <p class="text-xs text-caption mb-3">Choose how Zap.Cooking looks to you.</p>
         </div>
 
-        <div class="flex gap-2">
+        <div class="flex gap-2" role="group" aria-label="Color mode">
           <button
             type="button"
             class="px-4 py-2 rounded-full text-sm font-medium transition-colors
               {selectedTheme === 'light'
-              ? 'bg-primary text-white'
+              ? 'bg-action text-on-action'
               : 'bg-secondary hover:bg-accent-gray'}"
             style={selectedTheme !== 'light' ? 'color: var(--color-text-primary)' : ''}
+            aria-pressed={selectedTheme === 'light'}
             on:click={() => handleThemeChange('light')}
           >
             Light
@@ -659,9 +695,10 @@
             type="button"
             class="px-4 py-2 rounded-full text-sm font-medium transition-colors
               {selectedTheme === 'dark'
-              ? 'bg-primary text-white'
+              ? 'bg-action text-on-action'
               : 'bg-secondary hover:bg-accent-gray'}"
             style={selectedTheme !== 'dark' ? 'color: var(--color-text-primary)' : ''}
+            aria-pressed={selectedTheme === 'dark'}
             on:click={() => handleThemeChange('dark')}
           >
             Dark
@@ -670,13 +707,72 @@
             type="button"
             class="px-4 py-2 rounded-full text-sm font-medium transition-colors
               {selectedTheme === 'system'
-              ? 'bg-primary text-white'
+              ? 'bg-action text-on-action'
               : 'bg-secondary hover:bg-accent-gray'}"
             style={selectedTheme !== 'system' ? 'color: var(--color-text-primary)' : ''}
+            aria-pressed={selectedTheme === 'system'}
             on:click={() => handleThemeChange('system')}
           >
             System
           </button>
+        </div>
+
+        <LandingThemePicker label="Style" inApp />
+
+        <!-- Start section: where the app opens on sign-in or a cold visit.
+             Saved per account (NIP-78) with local + cookie mirrors, so the
+             `/` redirect and post-login goto() both honor it — see
+             $lib/startSectionSettings.ts. -->
+        <div
+          class="pt-4 flex flex-col gap-3"
+          style="border-top: 1px solid var(--color-input-border);"
+        >
+          <div>
+            <p class="text-sm font-medium mb-3" style="color: var(--color-text-primary)">Start section</p>
+            <p class="text-xs text-caption mb-3">Where the app takes you when you sign in or open zap.cooking.</p>
+          </div>
+
+          <div class="flex flex-wrap gap-2" role="group" aria-label="Start section">
+            <button
+              type="button"
+              aria-pressed={$startSection === 'explore'}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
+                {$startSection === 'explore'
+                ? 'bg-action text-on-action'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={$startSection !== 'explore' ? 'color: var(--color-text-primary)' : ''}
+              on:click={() => saveStartSection('explore')}
+            >
+              <GlobeIcon size={16} />
+              Explore
+            </button>
+            <button
+              type="button"
+              aria-pressed={$startSection === 'feed'}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
+                {$startSection === 'feed'
+                ? 'bg-action text-on-action'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={$startSection !== 'feed' ? 'color: var(--color-text-primary)' : ''}
+              on:click={() => saveStartSection('feed')}
+            >
+              <FlameIcon size={16} />
+              Feed
+            </button>
+            <button
+              type="button"
+              aria-pressed={$startSection === 'recipes'}
+              class="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors
+                {$startSection === 'recipes'
+                ? 'bg-action text-on-action'
+                : 'bg-secondary hover:bg-accent-gray'}"
+              style={$startSection !== 'recipes' ? 'color: var(--color-text-primary)' : ''}
+              on:click={() => saveStartSection('recipes')}
+            >
+              <ForkKnifeIcon size={16} />
+              Recipes
+            </button>
+          </div>
         </div>
       </div>
     </Accordion>
@@ -690,7 +786,7 @@
           <div class="flex items-center justify-between">
             <div class="flex-1">
               <div class="flex items-center gap-2">
-                <ClockIcon size={18} class="text-orange-500" />
+                <ClockIcon size={18} class="text-primary" />
                 <span class="font-medium" style="color: var(--color-text-primary)">Send countdown</span>
               </div>
               <p class="text-sm text-caption mt-1">Shows a timer before posting so you can cancel or send immediately.</p>
@@ -700,10 +796,10 @@
               role="switch"
               aria-checked={$timerSettings.postCountdownEnabled}
               aria-label="Enable send countdown"
-              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownEnabled ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-600'}"
+              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownEnabled ? 'bg-action' : 'bg-[var(--color-input-border)]'}"
               on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownEnabled: !$timerSettings.postCountdownEnabled })}
             >
-              <span class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.postCountdownEnabled ? 'translate-x-5' : ''}"></span>
+              <span class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$timerSettings.postCountdownEnabled ? 'translate-x-5' : ''}"></span>
             </button>
           </div>
 
@@ -715,7 +811,7 @@
                   <button
                     type="button"
                     aria-pressed={$timerSettings.postCountdownSecs === secs}
-                    class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {$timerSettings.postCountdownSecs === secs ? 'bg-orange-500 text-white' : 'bg-secondary hover:bg-accent-gray'}"
+                    class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {$timerSettings.postCountdownSecs === secs ? 'bg-action text-on-action' : 'bg-secondary hover:bg-accent-gray'}"
                     style={$timerSettings.postCountdownSecs !== secs ? 'color: var(--color-text-primary)' : ''}
                     on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownSecs: secs })}
                   >{secs}s</button>
@@ -733,12 +829,85 @@
                   role="switch"
                   aria-checked={$timerSettings.postCountdownIncludesReplies}
                   aria-label="Apply countdown to replies"
-                  class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownIncludesReplies ? 'bg-orange-500' : 'bg-gray-300 dark:bg-gray-600'}"
+                  class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.postCountdownIncludesReplies ? 'bg-action' : 'bg-[var(--color-input-border)]'}"
                   on:click={() => saveTimerSettings({ ...$timerSettings, postCountdownIncludesReplies: !$timerSettings.postCountdownIncludesReplies })}
                 >
-                  <span class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$timerSettings.postCountdownIncludesReplies ? 'translate-x-5' : ''}"></span>
+                  <span class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$timerSettings.postCountdownIncludesReplies ? 'translate-x-5' : ''}"></span>
                 </button>
               </div>
+            </div>
+          {/if}
+        </div>
+
+        <!-- Proof of work. Off by default, because unlike every other setting
+             here this one spends the user's own time before each post rather
+             than costing nothing. -->
+        <div class="p-4 rounded-xl" style="border: 1px solid var(--color-input-border);">
+          <div class="flex items-center justify-between">
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <HammerIcon size={18} class="text-primary" />
+                <span class="font-medium" style="color: var(--color-text-primary)"
+                  >Proof of work</span
+                >
+              </div>
+              <p class="text-sm text-caption mt-1">
+                Mines a NIP-13 nonce into each note before it is signed. Relays and clients
+                that weigh proof of work will rank or accept your notes accordingly.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={$timerSettings.powBits !== null}
+              aria-label="Enable proof of work"
+              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$timerSettings.powBits !==
+              null
+                ? 'bg-action'
+                : 'bg-[var(--color-input-border)]'}"
+              on:click={() =>
+                saveTimerSettings({
+                  ...$timerSettings,
+                  powBits: $timerSettings.powBits === null ? POW_DEFAULT_BITS : null
+                })}
+            >
+              <span
+                class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$timerSettings.powBits !==
+                null
+                  ? 'translate-x-5'
+                  : ''}"
+              ></span>
+            </button>
+          </div>
+
+          {#if $timerSettings.powBits !== null}
+            <div class="mt-4 pt-4 border-t" style="border-color: var(--color-input-border);">
+              <p class="text-sm font-medium mb-2" style="color: var(--color-text-primary)">
+                Difficulty
+              </p>
+              <div class="flex gap-2 flex-wrap">
+                {#each POW_LEVELS as level (level.bits)}
+                  <button
+                    type="button"
+                    aria-pressed={$timerSettings.powBits === level.bits}
+                    class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors {$timerSettings.powBits ===
+                    level.bits
+                      ? 'bg-action text-on-action'
+                      : 'bg-secondary hover:bg-accent-gray'}"
+                    style={$timerSettings.powBits !== level.bits
+                      ? 'color: var(--color-text-primary)'
+                      : ''}
+                    on:click={() => saveTimerSettings({ ...$timerSettings, powBits: level.bits })}
+                  >{level.bits} bits</button>
+                {/each}
+              </div>
+              <!-- Each step is two bits, which is four times the work, so the
+                   line under the chips carries what the rung costs — the half
+                   a number cannot say. -->
+              <p class="text-xs text-caption mt-2">
+                {powLevelFor($timerSettings.powBits).cost} Each step up is four times the work,
+                and the composer can still change it per note.
+              </p>
             </div>
           {/if}
         </div>
@@ -752,9 +921,7 @@
           <div class="text-sm text-caption italic">Loading membership status...</div>
         {:else if membershipData?.found && membershipData.member}
           {@const member = membershipData.member}
-          {@const validTier = ['open', 'cook_plus', 'pro_kitchen', 'founders'].includes(member.tier)
-            ? member.tier
-            : 'cook_plus'}
+          {@const validTier = member.tier || 'open'}
           {@const expiryDate = new Date(member.subscription_end)}
 
           <!-- Current Plan + Details -->
@@ -823,6 +990,11 @@
             </div>
             <Button on:click={() => goto('/membership')}>Renew Membership</Button>
           {/if}
+        {:else if membershipUnavailable}
+          <div class="p-4 rounded-xl text-center" style="border: 1px solid var(--color-input-border);">
+            <p class="text-sm" style="color: var(--color-text-secondary)">We couldn't load your membership right now.</p>
+          </div>
+          <Button on:click={fetchMembershipStatus}>Try again</Button>
         {:else}
           <!-- No membership / Free tier -->
           <div
@@ -881,7 +1053,7 @@
                           weight="fill"
                           class={connectedRelaySet.has(normalizeRelayUrl(relay))
                             ? 'text-green-500'
-                            : 'text-gray-400'}
+                            : 'text-caption'}
                         />
                         <span
                           class="text-xs font-mono truncate"
@@ -906,7 +1078,7 @@
                           weight="fill"
                           class={connectedRelaySet.has(normalizeRelayUrl(relay))
                             ? 'text-green-500'
-                            : 'text-gray-400'}
+                            : 'text-caption'}
                         />
                         <span
                           class="text-xs font-mono truncate"
@@ -931,7 +1103,7 @@
                           weight="fill"
                           class={connectedRelaySet.has(normalizeRelayUrl(relay))
                             ? 'text-green-500'
-                            : 'text-gray-400'}
+                            : 'text-caption'}
                         />
                         <span
                           class="text-xs font-mono truncate"
@@ -966,7 +1138,7 @@
                   weight="fill"
                   class={connectedRelaySet.has(normalizeRelayUrl(relay))
                     ? 'text-green-500'
-                    : 'text-gray-400'}
+                    : 'text-caption'}
                 />
                 <span
                   class="flex-1 text-xs font-mono truncate"
@@ -1087,7 +1259,7 @@
                     >Active</span
                   >
                 {:else if $weblnConnected}
-                  <span class="text-xs px-2 py-1 rounded-full bg-gray-500/20 text-gray-500"
+                  <span class="text-xs px-2 py-1 rounded-full bg-input text-caption"
                     >Paused</span
                   >
                 {/if}
@@ -1127,7 +1299,7 @@
           <div class="flex items-center justify-between">
             <div class="flex-1">
               <div class="font-medium" style="color: var(--color-text-primary)">Wallet Widget</div>
-              <p class="text-sm text-caption mt-1">Show the wallet widget in the top navigation.</p>
+              <p class="text-sm text-caption mt-1">Show the wallet widget in the sidebar.</p>
             </div>
             <button
               role="switch"
@@ -1136,12 +1308,12 @@
               class="relative w-12 h-7 rounded-full transition-colors {hasNavWallet
                 ? 'cursor-pointer'
                 : 'cursor-not-allowed'} {$navBalanceVisible
-                ? 'bg-amber-500'
-                : 'bg-gray-300 dark:bg-gray-600'}"
+                ? 'bg-action'
+                : 'bg-[var(--color-input-border)]'}"
               on:click={() => hasNavWallet && setNavBalanceVisible(!$navBalanceVisible)}
             >
               <span
-                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$navBalanceVisible
+                class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$navBalanceVisible
                   ? 'translate-x-5'
                   : ''}"
               ></span>
@@ -1183,12 +1355,12 @@
               class="relative w-12 h-7 rounded-full transition-colors {hasInAppWallet
                 ? 'cursor-pointer'
                 : 'cursor-not-allowed'} {$oneTapZapEnabled && hasInAppWallet
-                ? 'bg-amber-500'
-                : 'bg-gray-300 dark:bg-gray-600'}"
+                ? 'bg-action'
+                : 'bg-[var(--color-input-border)]'}"
               on:click={() => hasInAppWallet && setOneTapZapEnabled(!$oneTapZapEnabled)}
             >
               <span
-                class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow transition-transform {$oneTapZapEnabled
+                class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$oneTapZapEnabled
                   ? 'translate-x-5'
                   : ''}"
               ></span>
@@ -1283,7 +1455,7 @@
               type="button"
               class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors
                 {selectedCurrency === currency.code
-                ? 'bg-primary text-white'
+                ? 'bg-action text-on-action'
                 : 'bg-secondary hover:bg-accent-gray'}"
               style={selectedCurrency !== currency.code ? 'color: var(--color-text-primary)' : ''}
               on:click={() => handleCurrencyChange(currency.code)}
@@ -1336,7 +1508,46 @@
             <span>Very strict</span>
           </div>
         </div>
+
+        <!-- Hide recipes without images -->
+        <div
+          class="p-4 rounded-xl"
+          style="border: 1px solid var(--color-input-border);"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex-1 pr-4">
+              <span class="font-medium" style="color: var(--color-text-primary)"
+                >Hide recipes without images</span
+              >
+              <p class="text-sm text-caption mt-1">
+                Keep recipe grids to recipes with a working cover photo. Cards whose cover fails
+                to load are removed too.
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={$hideImagelessRecipesSetting}
+              aria-label="Hide recipes without images"
+              class="relative w-12 h-7 rounded-full transition-colors cursor-pointer {$hideImagelessRecipesSetting
+                ? 'bg-action'
+                : 'bg-[var(--color-input-border)]'}"
+              on:click={() =>
+                hideImagelessRecipesSetting.setEnabled(!$hideImagelessRecipesSetting)}
+            >
+              <span
+                class="absolute top-1 left-1 w-5 h-5 bg-on-action rounded-full shadow transition-transform {$hideImagelessRecipesSetting
+                  ? 'translate-x-5'
+                  : ''}"
+              ></span>
+            </button>
+          </div>
+        </div>
       </div>
+    </Accordion>
+
+    <!-- Fresh Section: special-card choices (device-local) -->
+    <Accordion title="Fresh" open={false}>
+      <FreshSettings />
     </Accordion>
 
     <!-- Web of Trust Section -->
@@ -1469,7 +1680,7 @@
             <button
               type="button"
               class="w-full py-2 rounded-lg font-medium text-sm transition-colors"
-              style="background-color: var(--color-accent); color: white;"
+              style="background-color: var(--color-action); color: var(--color-on-action);"
               on:click={saveWotProvider}
               disabled={wotSaving}
             >
@@ -1493,13 +1704,13 @@
       </div>
     </Accordion>
 
-    <!-- Nostr Backup Section -->
-    <Accordion title="Nostr Backup" open={false}>
-      <NostrBackupSection />
+    <!-- Data Recovery (Lazarus): relay-history recovery of clobbered lists -->
+    <Accordion title="Data Recovery" open={false}>
+      <LazarusRecoverySection />
     </Accordion>
 
     <!-- Security Section -->
-    <Accordion title="Security" open={false}>
+    <Accordion id="security" title="Security" bind:open={securityOpen}>
       <div class="flex flex-col gap-5">
         <!-- Public Key -->
         <div>
@@ -1533,7 +1744,9 @@
           {/if}
         </div>
 
-        <!-- Passkey Vault (renders nothing when unsupported/not applicable) -->
+        <!-- Passkey Vault: enroll/enrolled UI for nsec sessions; a one-line explanation when gated
+             (native, off-domain, no WebAuthn/PRF, extension/bunker session, foreign record);
+             nothing only when logged out -->
         <PasskeyVaultSection on:changed={refreshKeyState} />
 
         <!-- Private Key (legacy plaintext OR unlocked passkey session) -->

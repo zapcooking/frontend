@@ -143,7 +143,7 @@
 
 	.bar-track {
 		@apply w-full h-1.5 rounded-full;
-		background-color: var(--color-bg-tertiary, rgba(255, 255, 255, 0.08));
+		background-color: var(--color-light-bg-secondary, var(--color-bg-tertiary, rgba(255, 255, 255, 0.08)));
 	}
 
 	.bar-fill {

@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { ndk, userPublickey } from '$lib/nostr';
-	import { fetchProductsWithStaleCount } from '$lib/marketplace/products';
+	import { fetchMemberProducts } from '$lib/marketplace/memberListings';
 	import { fetchTrustRanks } from '$lib/marketplace/kitchens';
-	import { getMembership } from '$lib/stores/membershipStatus';
 	import { PRODUCT_CATEGORIES, type Product, type ProductCategory } from '$lib/marketplace/types';
 	import ProductCard from '../../../components/marketplace/ProductCard.svelte';
 	import CategoryFilter from '../../../components/marketplace/CategoryFilter.svelte';
@@ -18,8 +17,6 @@
 	let staleListingsHidden = 0;
 	let trustRanks = new Map<string, number>();
 	let trustPersonalized = false;
-	let memberPubkeys = new Set<string>();
-	let membersOnly = false;
 	let loading = true;
 	let error: string | null = null;
 	let sortBy: 'latest' | 'price-low' | 'price-high' = 'latest';
@@ -37,26 +34,21 @@
 		return counts;
 	}
 
-	$: filteredProducts = filterAndSortProducts(allProducts, sortBy, searchQuery, membersOnly, selectedCategory);
+	$: filteredProducts = filterAndSortProducts(allProducts, sortBy, searchQuery, selectedCategory);
 
 	// Count active filters for the badge
-	$: activeFilterCount = (membersOnly ? 1 : 0) + (selectedCategory ? 1 : 0) + (searchQuery.trim() ? 1 : 0) + (sortBy !== 'latest' ? 1 : 0);
+	$: activeFilterCount = (selectedCategory ? 1 : 0) + (searchQuery.trim() ? 1 : 0) + (sortBy !== 'latest' ? 1 : 0);
 
 	function filterAndSortProducts(
 		products: Product[],
 		sort: string,
 		search: string,
-		filterMembers: boolean,
 		category: ProductCategory | null
 	) {
 		let filtered = products;
 
 		if (category) {
 			filtered = filtered.filter((p) => p.category === category);
-		}
-
-		if (filterMembers) {
-			filtered = filtered.filter((p) => memberPubkeys.has(p.pubkey));
 		}
 
 		if (search.trim()) {
@@ -93,7 +85,13 @@
 		error = null;
 
 		try {
-			const result = await fetchProductsWithStaleCount($ndk, { limit: 100, timeoutMs: 15000 });
+			// Members' listings only: the marketplace relays are open, and the
+			// newest listings there are not ours to show ($lib/marketplace/memberSellers).
+			const result = await fetchMemberProducts($ndk);
+			if (result.unavailable) {
+				error = "Couldn't check which sellers are members. Please try again.";
+				return;
+			}
 			allProducts = result.products;
 			staleListingsHidden = result.staleCount;
 
@@ -102,17 +100,6 @@
 			fetchTrustRanks($ndk, sellerPubkeys, $userPublickey || undefined).then(({ ranks, personalized }) => {
 				trustRanks = ranks;
 				trustPersonalized = personalized;
-			});
-
-			getMembership(sellerPubkeys).then((statuses) => {
-				const validTiers = ['member', 'cook_plus', 'pro_kitchen', 'founders'];
-				const members = new Set<string>();
-				for (const [pubkey, status] of Object.entries(statuses)) {
-					if (status.active && validTiers.includes(status.tier)) {
-						members.add(pubkey);
-					}
-				}
-				memberPubkeys = members;
 			});
 		} catch (e) {
 			console.error('[Products Page] Failed to load products:', e);
@@ -128,7 +115,6 @@
 
 	function clearFilters() {
 		selectedCategory = null;
-		membersOnly = false;
 		searchQuery = '';
 		searchOpen = false;
 		sortBy = 'latest';
@@ -145,14 +131,14 @@
 	<!-- ═══ Header ═══ -->
 	<div class="flex items-center justify-between mb-5">
 		<div class="flex items-center gap-2.5">
-			<StorefrontIcon size={28} weight="duotone" class="text-orange-500" />
+			<StorefrontIcon size={28} weight="duotone" class="text-primary" />
 			<h1 class="text-xl font-bold" style="color: var(--color-text-primary)">The Market</h1>
 		</div>
 		{#if $userPublickey}
 			<a
 				href="/my-store/new"
 				class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105"
-				style="background: linear-gradient(135deg, #f97316, #ea580c); color: white;"
+				style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 			>
 				<PlusIcon size={16} weight="bold" />
 				<span class="hidden sm:inline">List</span>
@@ -232,15 +218,6 @@
 			</select>
 		</div>
 
-		<!-- Members only toggle -->
-		<button
-			type="button"
-			class="mod-btn {membersOnly ? 'mod-active' : ''}"
-			on:click={() => (membersOnly = !membersOnly)}
-		>
-			<span class="text-xs">Members</span>
-		</button>
-
 		<!-- Clear all (shown when filters active) -->
 		{#if activeFilterCount > 0}
 			<button
@@ -273,12 +250,12 @@
 		</div>
 	{:else if error}
 		<div class="text-center py-12">
-			<p class="text-red-500 mb-4">{error}</p>
+			<p class="text-[var(--color-danger)] mb-4">{error}</p>
 			<button
 				type="button"
 				on:click={loadProducts}
 				class="px-4 py-2 rounded-lg font-medium transition-colors"
-				style="background-color: var(--color-accent); color: white;"
+				style="background-color: var(--color-action); color: var(--color-on-action);"
 			>
 				Try Again
 			</button>
@@ -288,7 +265,7 @@
 			<div class="empty-icon-wrap mx-auto mb-6">
 				<PackageIcon size={72} weight="thin" class="opacity-60" />
 			</div>
-			{#if staleListingsHidden > 0 && !searchQuery && !membersOnly}
+			{#if staleListingsHidden > 0 && !searchQuery}
 				<h3 class="text-2xl font-semibold mb-2" style="color: var(--color-text-primary)">
 					No recent products
 				</h3>
@@ -303,7 +280,8 @@
 					{#if searchQuery}
 						No products match your search. Try a different term.
 					{:else}
-						Be the first to list! Sell ingredients, tools, courses, and more.
+						The market shows listings from Zap Cooking members. Be the first to list! Sell
+						ingredients, tools, courses, and more.
 					{/if}
 				</p>
 			{/if}
@@ -311,7 +289,7 @@
 				<a
 					href="/my-store/new"
 					class="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-transform hover:scale-105"
-					style="background: linear-gradient(135deg, #f97316, #fb923c); color: white;"
+					style="background: linear-gradient(135deg, var(--color-action), var(--color-action)); color: var(--color-on-action);"
 				>
 					<PlusIcon size={20} weight="bold" />
 					Create Your First Listing
@@ -321,7 +299,7 @@
 	{:else}
 		<div class="flex items-center gap-3 mb-4">
 			<p class="text-sm" style="color: var(--color-text-secondary)">
-				{filteredProducts.length} product{filteredProducts.length === 1 ? '' : 's'}
+				{filteredProducts.length} product{filteredProducts.length === 1 ? '' : 's'} from Zap Cooking members
 			</p>
 			{#if staleListingsHidden > 0}
 				<p class="text-xs" style="color: var(--color-text-secondary); opacity: 0.7;">
@@ -352,13 +330,13 @@
 
 	.nav-tab:hover {
 		color: var(--color-text-primary);
-		border-color: rgba(249, 115, 22, 0.3);
+		border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
 	}
 
 	.nav-tab.active {
-		background-color: rgba(249, 115, 22, 0.12);
-		color: #f97316;
-		border-color: #f97316;
+		background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
+		color: var(--color-primary);
+		border-color: var(--color-primary);
 	}
 
 	/* ── Modifier Row ── */
@@ -381,12 +359,6 @@
 		border-color: rgba(255, 255, 255, 0.1);
 	}
 
-	.mod-active {
-		background-color: rgba(249, 115, 22, 0.15);
-		color: #f97316;
-		border-color: rgba(249, 115, 22, 0.4);
-	}
-
 	.mod-clear {
 		color: var(--color-text-secondary);
 		opacity: 0.7;
@@ -394,7 +366,7 @@
 
 	.mod-clear:hover {
 		opacity: 1;
-		color: #ef4444;
+		color: var(--color-danger);
 	}
 
 	.mod-select {
@@ -408,14 +380,14 @@
 
 	.mod-select:focus {
 		outline: none;
-		border-color: rgba(249, 115, 22, 0.4);
+		border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
 	}
 
 	/* ── Search ── */
 	.search-container {
 		@apply flex items-center gap-2 flex-1 min-w-0 rounded-lg;
 		background-color: var(--color-bg-secondary);
-		border: 1px solid rgba(249, 115, 22, 0.3);
+		border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
 		padding: 5px 10px;
 		animation: expandIn 0.15s ease-out;
 	}
@@ -473,17 +445,17 @@
 
 	.skeleton-image {
 		@apply aspect-square;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.skeleton-line {
 		@apply h-3 rounded;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	.skeleton-button {
 		@apply h-8 rounded-lg mt-2;
-		background-color: var(--color-bg-tertiary, rgba(0, 0, 0, 0.1));
+		background-color: var(--color-light-skeleton-base,var(--color-bg-tertiary, rgba(0, 0, 0, 0.1)));
 	}
 
 	/* ── Animations ── */

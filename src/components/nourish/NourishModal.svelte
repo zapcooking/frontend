@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { NDKEvent } from '@nostr-dev-kit/ndk';
-	import { ndk, userPublickey } from '$lib/nostr';
+	import { ndk } from '$lib/nostr';
 	import Modal from '../Modal.svelte';
 	import Button from '../Button.svelte';
 	import LockIcon from 'phosphor-svelte/lib/Lock';
@@ -14,6 +14,7 @@
 	import { generateSuggestions, mergeImprovements } from '$lib/nourish/suggestions';
 	import { ingredientStore } from '$lib/nourish/ingredientStore';
 	import { computeContentHash, queryNourishEvent } from '$lib/nourish/nourishRelay';
+	import { nourishRequestHeaders } from '$lib/nourish/nourishAuth';
 	import { resolveScore, purgeMemory, type ResolveResult } from '$lib/nourish/scoreResolver';
 	import type { NourishScores, NourishMacros } from '$lib/nourish/types';
 	import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
@@ -223,20 +224,20 @@
 			const contentHash = await computeContentHash(event.content || '');
 			const { recipePubkey, recipeDTag } = getRecipeCoordinates();
 
+			const bodyString = JSON.stringify({
+				eventId: event.id,
+				title,
+				ingredients: info.ingredients,
+				tags,
+				servings,
+				recipePubkey,
+				recipeDTag,
+				contentHash
+			});
 			const res = await fetch('/api/nourish', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					pubkey: $userPublickey || '',
-					eventId: event.id,
-					title,
-					ingredients: info.ingredients,
-					tags,
-					servings,
-					recipePubkey,
-					recipeDTag,
-					contentHash
-				})
+				headers: await nourishRequestHeaders($ndk, '/api/nourish', bodyString),
+				body: bodyString
 			});
 			const data = await res.json();
 			if (!data.success) { error = data.error || 'Failed to analyze recipe.'; return; }
@@ -401,20 +402,20 @@
 			}
 			const contentHash = await computeContentHash(event.content || '');
 
+			const bodyString = JSON.stringify({
+				eventId: event.id,
+				title,
+				ingredients: info.ingredients,
+				tags,
+				servings,
+				recipePubkey,
+				recipeDTag,
+				contentHash
+			});
 			const res = await fetch('/api/nourish', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					pubkey: $userPublickey || '',
-					eventId: event.id,
-					title,
-					ingredients: info.ingredients,
-					tags,
-					servings,
-					recipePubkey,
-					recipeDTag,
-					contentHash
-				})
+				headers: await nourishRequestHeaders($ndk, '/api/nourish', bodyString),
+				body: bodyString
 			});
 			const data = await res.json();
 			if (!data.success) {
@@ -552,7 +553,7 @@
 		     and "not yet scored" miss state wouldn't be actionable. -->
 		<div class="lock-state">
 			<div class="lock-icon-wrap">
-				<LockIcon size={24} weight="fill" class="text-orange-500" />
+				<LockIcon size={24} weight="fill" class="text-primary" />
 			</div>
 			<h3 class="lock-title">Unlock Nourish</h3>
 			<p class="lock-desc">See how this recipe scores for gut health, protein, and real food quality.</p>
@@ -629,7 +630,7 @@
 		opacity: 0.4;
 	}
 	.footer-link {
-		color: var(--color-accent, #f97316);
+		color: var(--color-primary);
 	}
 	.footer-link:hover { text-decoration: underline; }
 </style>

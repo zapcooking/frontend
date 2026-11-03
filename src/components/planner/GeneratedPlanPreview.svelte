@@ -3,6 +3,7 @@
    * Preview of a Cheffy-generated week before it is written to the planner.
    * Meals stay local until the user approves.
    */
+  import { parseCoordinate } from '$lib/coordinate';
   import { createEventDispatcher } from 'svelte';
   import { nip19 } from 'nostr-tools';
   import type { MealPlanDayKey, MealSlotKey } from '$lib/mealplan/schema';
@@ -51,14 +52,10 @@
   })).filter((g) => g.meals.length > 0);
 
   function recipeHref(a: string): string | null {
-    const parts = a.split(':');
-    if (parts.length !== 3) return null;
+    const c = parseCoordinate(a);
+    if (!c) return null;
     try {
-      return `/recipe/${nip19.naddrEncode({
-        kind: Number(parts[0]),
-        pubkey: parts[1],
-        identifier: parts[2]
-      })}`;
+      return `/recipe/${nip19.naddrEncode(c)}`;
     } catch {
       return null;
     }
@@ -190,7 +187,7 @@
     </button>
     <button
       type="button"
-      class="px-4 py-2 rounded-full text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-50"
+      class="px-4 py-2 rounded-full text-sm font-medium text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all disabled:opacity-50"
       disabled={applying || regenerating || meals.length === 0 || !!swappingKey}
       on:click={() => dispatch('apply')}
     >

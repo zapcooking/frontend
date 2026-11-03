@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { outboxRelaySet } from '$lib/outboxPublish';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -21,10 +22,12 @@
   import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
   import PinIcon from 'phosphor-svelte/lib/PushPin';
   import CloudSlashIcon from 'phosphor-svelte/lib/CloudSlash';
-  import { DEFAULT_LIST_ID, DEFAULT_LIST_TITLE, cookbookStore, getCookbookCoverImage, type CookbookList } from '$lib/stores/cookbookStore';
+  import { DEFAULT_LIST_ID, cookbookStore, getCookbookCoverImage, type CookbookList, type SavedListView } from '$lib/stores/cookbookStore';
+  import type { SavedListChange } from '$lib/savedListSafety';
+  import { showListEditRefusal } from '$lib/listEditToast';
+  import { coordinateAsWritten, parseCoordinate } from '$lib/coordinate';
   import PanLoader from '../../../components/PanLoader.svelte';
   import { writable, type Writable, get } from 'svelte/store';
-  import { RECIPE_TAG_PREFIX_NEW } from '$lib/consts';
   import ImageIcon from 'phosphor-svelte/lib/Image';
   import { isOnline } from '$lib/connectionMonitor';
   import { offlineStorage, type CachedRecipe } from '$lib/offlineStorage';
@@ -43,6 +46,15 @@
   let isOwner = false;
   let offlineMode = false; // True when we have cached cookbook but can't load recipes
   let cachedRecipeCount = 0; // Number of recipes in the cached cookbook
+  // The member's own Saved list couldn't be loaded from relays or this
+  // device: say so (with Retry) instead of showing an empty list.
+  let savedLoadFailed = false;
+  // Showing this device's copy of the Saved list because relays didn't
+  // return it this time.
+  let savedFromDevice = false;
+  // Bumped by every loadData(): a superseded run (e.g. the visitor load
+  // still finishing after a passkey unlock) must not write page state.
+  let loadToken = 0;
   
   // Edit modal state
   let editModalOpen = false;
@@ -98,33 +110,51 @@
     sharePackOpen = true;
   }
 
-  $: {
-    if ($page.params.naddr) {
-      loadData();
-    }
-  }
+  // Also reload when the viewer changes: a passkey unlock signs the member
+  // in on this page, and their own lists load differently from a visitor's.
+  $: if ($page.params.naddr) loadData($userPublickey);
 
-  async function loadData() {
+  async function loadData(_viewer?: string) {
+    const token = ++loadToken;
+    const stale = () => token !== loadToken;
     loaded = false;
     events = [];
     event = null;
     coverImage = undefined;
     offlineMode = false;
     cachedRecipeCount = 0;
+    savedLoadFailed = false;
+    savedFromDevice = false;
 
     try {
       if ($page.params.naddr?.startsWith('naddr1')) {
         const decoded = nip19.decode($page.params.naddr).data as nip19.AddressPointer;
-        
-        // Ensure cookbook store is loaded (so list will be available for updates)
-        const storeState = get(cookbookStore);
-        if (!storeState.initialized && $userPublickey) {
-          await cookbookStore.load();
+        const ownList = !!$userPublickey && decoded.pubkey === $userPublickey;
+
+        let localList: CookbookList | undefined;
+        if (ownList && decoded.identifier === DEFAULT_LIST_ID) {
+          // The member's own Saved list: the best copy available (relays,
+          // else this device), never the write quorum's verdict, and never
+          // an empty list unless the relays proved there is none.
+          const view = await cookbookStore
+            .resolveSavedList()
+            .catch((): SavedListView => ({ status: 'unavailable' }));
+          if (stale()) return;
+          if (view.status === 'unavailable') {
+            savedLoadFailed = true;
+            loaded = true;
+            return;
+          }
+          localList = view.list;
+          savedFromDevice = view.status === 'found' && !view.confirmed;
+        } else if (ownList) {
+          // Ensure cookbook store is loaded (so list will be available for updates)
+          if (!get(cookbookStore).initialized) {
+            await cookbookStore.load();
+            if (stale()) return;
+          }
+          localList = get(cookbookStore).lists.find(l => l.id === decoded.identifier);
         }
-        
-        // Check if the list is in the local store
-        const updatedStoreState = get(cookbookStore);
-        const localList = updatedStoreState.lists.find(l => l.id === decoded.identifier);
         
         if (localList && localList.event) {
           // Use the event from the store (which should have the latest cover tag)
@@ -161,6 +191,7 @@
             console.log('[Cookbook] Offline - loading recipes from cache');
             console.log('[Cookbook] Looking for a-tags:', recipeATags);
             const cachedRecipes = await offlineStorage.getRecipes(recipeATags);
+            if (stale()) return;
             console.log('[Cookbook] Found cached recipes:', cachedRecipes.length);
             
             if (cachedRecipes.length > 0) {
@@ -193,10 +224,10 @@
           
           // Online - fetch from Nostr and cache
           for (const tag of recipeTags) {
-            const parts = tag[1].split(':');
-            if (parts.length !== 3) continue;
+            const parsed = parseCoordinate(tag[1]);
+            if (!parsed) continue;
             
-            const [kind, pubkey, identifier] = parts;
+            const { kind, pubkey, identifier } = parsed;
             
             try {
               const recipeEvent = await $ndk.fetchEvent({
@@ -205,6 +236,7 @@
                 authors: [pubkey]
               });
               
+              if (stale()) return;
               if (recipeEvent) {
                 events = [...events, recipeEvent];
                 // Cache the recipe for offline use
@@ -221,6 +253,7 @@
           // If we couldn't load any recipes but expected some, try cache as fallback
           if (events.length === 0 && cachedRecipeCount > 0) {
             const cachedRecipes = await offlineStorage.getRecipes(recipeATags);
+            if (stale()) return;
             if (cachedRecipes.length > 0) {
               events = cachedRecipes.map(cached => {
                 const fakeEvent = new NDKEvent($ndk);
@@ -251,6 +284,7 @@
             authors: [decoded.pubkey],
             kinds: [30001]
           });
+          if (stale()) return;
           
           if (e) {
             event = e;
@@ -305,10 +339,10 @@
             const recipeTags = e.tags.filter(t => t[0] === 'a');
             
             for (const tag of recipeTags) {
-              const parts = tag[1].split(':');
-              if (parts.length !== 3) continue;
+              const parsed = parseCoordinate(tag[1]);
+              if (!parsed) continue;
               
-              const [kind, pubkey, identifier] = parts;
+              const { kind, pubkey, identifier } = parsed;
               
               try {
                 const recipeEvent = await $ndk.fetchEvent({
@@ -317,6 +351,7 @@
                   authors: [pubkey]
                 });
                 
+                if (stale()) return;
                 if (recipeEvent) {
                   events = [...events, recipeEvent];
                   // Cache the recipe for offline use
@@ -333,7 +368,7 @@
       console.error('Error loading list:', error);
     }
 
-    loaded = true;
+    if (!stale()) loaded = true;
   }
 
   function openChangeCoverModal() {
@@ -354,6 +389,7 @@
   }
   
   async function saveCoverRecipe() {
+    if (isSubmitting) return;
     if (!event || !selectedCoverRecipeATag) {
       errorMessage = 'Please select a recipe to use as the cover image.';
       return;
@@ -367,85 +403,13 @@
       if (!dTag) {
         throw new Error('Invalid collection');
       }
-      
-      // Create a new event with updated cover tag (same approach as saveEdits)
-      const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-      const newEvent = new NDKEvent($ndk);
-      newEvent.kind = 30001;
-      
-      // Copy all metadata tags
-      newEvent.tags.push(['d', dTag]);
-      newEvent.tags.push(['title', event.tags.find(t => t[0] === 'title')?.[1] || '']);
-      
-      const summary = event.tags.find(t => t[0] === 'summary')?.[1];
-      if (summary) {
-        newEvent.tags.push(['summary', summary]);
-      }
-      
-      const image = event.tags.find(t => t[0] === 'image')?.[1];
-      if (image) {
-        newEvent.tags.push(['image', image]);
-      }
-      
-      // Keep recipe tag for non-default lists
-      if (!isDefaultList()) {
-        newEvent.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
-      }
-      
-      // Add the new cover tag
-      newEvent.tags.push(['cover', selectedCoverRecipeATag]);
-      
-      // Copy all recipe tags
-      event.tags.filter(t => t[0] === 'a').forEach(t => {
-        newEvent.tags.push(['a', t[1]]);
-      });
 
-      const { addClientTagToEvent } = await import('$lib/nip89');
-      addClientTagToEvent(newEvent);
-
-      // Publish with timeout
-      const publishPromise = newEvent.publish();
-      const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Publish timeout after 10 seconds')), 10000)
-      );
-      
-      try {
-        await Promise.race([publishPromise, timeoutPromise]);
-        console.log('Cover recipe updated successfully');
-      } catch (publishError: any) {
-        if (publishError?.message?.includes('timeout')) {
-          console.warn('Publish timed out, but updating local state');
-        } else {
-          throw publishError;
-        }
+      if (await editThisList({ cover: selectedCoverRecipeATag }, saveCoverRecipe)) {
+        coverImage = undefined;
+        const updatedList = get(cookbookStore).lists.find(l => l.id === dTag);
+        if (updatedList) coverImage = await getCookbookCoverImage(updatedList, $ndk, true);
+        closeChangeCoverModal();
       }
-      
-      // Update local event (same as saveEdits does)
-      event = newEvent;
-      
-      // Update the store with the new event
-      const listId = dTag;
-      cookbookStore.update(s => ({
-        ...s,
-        lists: s.lists.map(l => 
-          l.id === listId 
-            ? { 
-                ...l, 
-                coverRecipeId: selectedCoverRecipeATag ?? undefined,
-                event: newEvent
-              }
-            : l
-        )
-      }));
-      
-      // Clear cover image cache and reload
-      coverImage = undefined;
-      const updatedList = get(cookbookStore).lists.find(l => l.id === listId);
-      if (updatedList) {
-        coverImage = await getCookbookCoverImage(updatedList, $ndk, true);
-      }
-      
-      closeChangeCoverModal();
     } catch (err: any) {
       console.error('Failed to set cover recipe:', err);
       // Provide user-friendly error message
@@ -466,6 +430,28 @@
     return event.tags.find(t => t[0] === 'd')?.[1] === DEFAULT_LIST_ID;
   }
 
+  /**
+   * This list (Saved or a custom collection) is only ever changed through
+   * the cookbook store's guarded edit: a fresh relay read, one event built on
+   * the newest copy with every tag but the recipes kept, never this page's
+   * possibly stale copy. Shows the store's message on refusal; its Retry
+   * runs `again` (the whole save, so its button shows "Saving..." and a
+   * success closes the modal).
+   */
+  async function editThisList(change: SavedListChange, again: () => Promise<void>): Promise<boolean> {
+    const listId = event?.tags.find(t => t[0] === 'd')?.[1];
+    if (!listId) return false;
+    const result = await cookbookStore.editList(listId, change);
+    if (!result.ok) {
+      errorMessage = result.message;
+      showListEditRefusal(result, again);
+      return false;
+    }
+    const updated = get(cookbookStore).lists.find(l => l.id === listId);
+    if (updated?.event) event = updated.event;
+    return true;
+  }
+
   // Edit functionality
   function openEditModal() {
     editTitle = getCollectionTitle(event);
@@ -482,6 +468,7 @@
   }
 
   async function saveEdits() {
+    if (isSubmitting) return;
     if (!event || !editTitle.trim()) {
       errorMessage = 'Please enter a title';
       return;
@@ -491,39 +478,11 @@
     errorMessage = '';
 
     try {
-      const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-      const newEvent = new NDKEvent($ndk);
-      newEvent.kind = 30001;
-      
-      const dTag = event.tags.find(t => t[0] === 'd')?.[1];
-      newEvent.tags.push(['d', dTag || '']);
-      newEvent.tags.push(['title', isDefaultList() ? DEFAULT_LIST_TITLE : editTitle.trim()]);
-      
-      if (editSummary.trim()) {
-        newEvent.tags.push(['summary', editSummary.trim()]);
-      }
-      
       const images = $editImages;
-      if (images[0]) {
-        newEvent.tags.push(['image', images[0]]);
+      const meta = { summary: editSummary.trim(), image: images[0] ?? '' };
+      if (await editThisList({ meta: isDefaultList() ? meta : { ...meta, title: editTitle.trim() } }, saveEdits)) {
+        closeEditModal();
       }
-      
-      // Keep recipe tag for non-default lists
-      if (!isDefaultList()) {
-        newEvent.tags.push(['t', RECIPE_TAG_PREFIX_NEW]);
-      }
-      
-      // Copy all recipe tags
-      event.tags.filter(t => t[0] === 'a').forEach(t => {
-        newEvent.tags.push(['a', t[1]]);
-      });
-
-      const { addClientTagToEvent } = await import('$lib/nip89');
-      addClientTagToEvent(newEvent);
-
-      await newEvent.publish();
-      event = newEvent;
-      closeEditModal();
     } catch (err) {
       errorMessage = `Error: ${err}`;
     } finally {
@@ -532,13 +491,18 @@
   }
 
   // Manage recipes functionality
+  // The `a` values the modal listed: only these can be removed by it.
+  let manageShown: string[] = [];
+
   function openManageModal() {
     const items: RecipeItem[] = [];
+    manageShown = [];
     
     event?.tags.filter(t => t[0] === 'a').forEach(t => {
-      const parts = t[1].split(':');
-      if (parts.length === 3) {
-        const [kind, pubkey, identifier] = parts;
+      const parsed = parseCoordinate(t[1]);
+      if (parsed) {
+        manageShown.push(t[1]);
+        const { kind, pubkey, identifier } = parsed;
         const naddr = nip19.naddrEncode({
           kind: Number(kind),
           identifier,
@@ -561,39 +525,33 @@
   }
 
   async function saveRecipeOrder() {
+    if (isSubmitting) return;
     if (!event) return;
 
     isSubmitting = true;
 
     try {
-      const { NDKEvent } = await import('@nostr-dev-kit/ndk');
-      const newEvent = new NDKEvent($ndk);
-      newEvent.kind = 30001;
-      
-      // Copy metadata tags
-      const metaTags = ['d', 'title', 'summary', 'image', 't'];
-      event.tags.forEach(t => {
-        if (metaTags.includes(t[0])) {
-          newEvent.tags.push([...t]);
-        }
-      });
-      
-      // Add recipes in new order
-      $recipeItems.forEach(item => {
-        const decoded = nip19.decode(item.naddr).data as nip19.AddressPointer;
-        const aTag = `${decoded.kind}:${decoded.pubkey}:${decoded.identifier}`;
-        newEvent.tags.push(['a', aTag]);
-      });
-
-      const { addClientTagToEvent } = await import('$lib/nip89');
-      addClientTagToEvent(newEvent);
-
-      await newEvent.publish();
-      event = newEvent;
-      
-      // Reload to reflect changes
-      await loadData();
-      closeManageModal();
+      // Spelled as the list spells them: an naddr lower-cases the pubkey, and
+      // an entry the member didn't touch must not be rewritten.
+      const order = $recipeItems.map(item =>
+        coordinateAsWritten(nip19.decode(item.naddr).data as nip19.AddressPointer, manageShown)
+      );
+      // Only what the member took out of the modal is removed: anything saved
+      // elsewhere since this page loaded, or not shown in the modal, stays
+      // (the edit reads the list fresh).
+      const removed = manageShown.filter(a => !order.includes(a));
+      // Recipes pasted into the modal's Add field.
+      const added = order.filter(a => !manageShown.includes(a));
+      // Saved as shown: publish nothing. (A real edit reorders by `order`,
+      // which moves entries the modal couldn't show to the end.)
+      if (order.length === manageShown.length && order.every((a, i) => a === manageShown[i])) {
+        closeManageModal();
+        return;
+      }
+      if (await editThisList({ add: added, remove: removed, order }, saveRecipeOrder)) {
+        await loadData();
+        closeManageModal();
+      }
     } catch (err) {
       console.error('Failed to save recipe order:', err);
     } finally {
@@ -624,7 +582,7 @@
         ['a', `30001:${event.pubkey}:${event.tags.find(t => t[0] === 'd')?.[1]}`]
       ];
 
-      await deleteEvent.publish();
+      await deleteEvent.publish(await outboxRelaySet(deleteEvent, 'list'));
       goto('/my-kitchen');
     } catch (err) {
       console.error('Failed to delete list:', err);
@@ -826,7 +784,7 @@
             type="button"
             on:click|stopPropagation={() => selectCoverRecipe(recipeEvent)}
             disabled={isSubmitting}
-            class="relative aspect-square rounded-lg overflow-hidden border-2 transition-all cursor-pointer {isSelected ? 'border-orange-500 ring-2 ring-orange-200' : 'border-transparent hover:border-orange-300'}"
+            class="relative aspect-square rounded-lg overflow-hidden border-2 transition-all cursor-pointer {isSelected ? 'border-primary ring-2 ring-orange-200' : 'border-transparent hover:border-primary'}"
             aria-label="Select {recipeTitle} as cover"
           >
             {#if recipeImage}
@@ -836,13 +794,13 @@
                 class="w-full h-full object-cover pointer-events-none"
               />
             {:else}
-              <div class="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center pointer-events-none">
+              <div class="w-full h-full bg-gradient-to-br from-[var(--color-light-input-border,var(--color-gray-200))] to-[var(--color-light-accent-gray,var(--color-gray-300))] dark:from-gray-700 dark:to-gray-800 flex items-center justify-center pointer-events-none">
                 <span class="text-xs text-caption text-center px-2">{recipeTitle}</span>
               </div>
             {/if}
             
             {#if isSelected}
-              <div class="absolute bottom-2 right-2 bg-orange-500 text-white text-xs px-2 py-1 rounded font-semibold">
+              <div class="absolute bottom-2 right-2 bg-action text-on-action text-xs px-2 py-1 rounded font-semibold">
                 ✓ Selected
               </div>
             {/if}
@@ -882,6 +840,34 @@
 {#if !loaded}
   <div class="flex justify-center items-center page-loader">
     <PanLoader />
+  </div>
+{:else if savedLoadFailed}
+  <div class="flex flex-col items-center justify-center py-16 px-4">
+    <div class="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-4">
+      <CloudSlashIcon size={32} class="text-amber-600 dark:text-amber-400" />
+    </div>
+    <h2 class="text-xl font-semibold mb-2" style="color: var(--color-text-primary)">
+      Couldn't load your Saved list
+    </h2>
+    <p class="text-caption text-center max-w-md mb-4">
+      Your saved recipes are safe, but we couldn't reach them right now. Please try again in a moment.
+    </p>
+    <div class="flex flex-wrap items-center justify-center gap-2">
+      <button
+        on:click={() => loadData()}
+        class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all"
+      >
+        Retry
+      </button>
+      <a
+        href="/my-kitchen"
+        class="flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-colors"
+        style="background-color: var(--color-input-bg); color: var(--color-text-primary); border: 1px solid var(--color-input-border);"
+      >
+        <ArrowLeftIcon size={18} />
+        Back to My Kitchen
+      </a>
+    </div>
   </div>
 {:else if event}
   {@const recipeCountDisplay = offlineMode ? cachedRecipeCount : events.length}
@@ -949,7 +935,7 @@
         <button
           on:click={openSharePackModal}
           disabled={events.length === 0}
-          class="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all shadow-md shadow-orange-500/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+          class="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all shadow-md shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
           title={events.length === 0
             ? 'Add recipes first'
             : 'Publish this collection as a zappable Recipe Pack'}
@@ -1054,6 +1040,12 @@
       {/if}
     {/if}
 
+    {#if savedFromDevice}
+      <p class="text-caption text-sm text-center">
+        Showing the copy saved on this device; we couldn't reach your Saved list just now.
+      </p>
+    {/if}
+
     <!-- Recipes Feed -->
     {#if offlineMode}
       <!-- Offline Mode - Show cached cookbook info but can't load recipes -->
@@ -1077,9 +1069,9 @@
     {:else}
       <div class="flex flex-col items-center justify-center py-12 px-4">
         <div
-          class="w-16 h-16 rounded-full bg-gradient-to-br from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 flex items-center justify-center mb-4"
+          class="w-16 h-16 rounded-full bg-gradient-to-br from-primary/10 to-primary/10 dark:from-primary/30 dark:to-primary/30 flex items-center justify-center mb-4"
         >
-          <BookmarkIcon size={32} weight="regular" class="text-orange-500" />
+          <BookmarkIcon size={32} weight="regular" class="text-primary" />
         </div>
         <h3 class="text-lg font-medium mb-2" style="color: var(--color-text-primary)">
           No recipes in this collection yet.
@@ -1095,7 +1087,7 @@
           {#if isOwner && !offlineMode}
             <button
               on:click={openManageModal}
-              class="flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all"
+              class="flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm text-on-action bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover transition-all"
             >
               <BookmarkIcon size={16} />
               Manage Recipes
@@ -1134,7 +1126,7 @@
     {/if}
     <a
       href="/my-kitchen"
-      class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-full font-medium transition-all"
+      class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-action to-action hover:from-action-hover hover:to-action-hover text-on-action rounded-full font-medium transition-all"
     >
       <ArrowLeftIcon size={18} />
       Back to My Kitchen

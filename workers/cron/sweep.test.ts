@@ -389,26 +389,38 @@ describe('cron trigger routing', () => {
         },
         membership: async () => {
           calls.push('membership');
+        },
+        deletionDigest: async () => {
+          calls.push('deletionDigest');
         }
       }
     };
   }
 
-  it('the minutely trigger runs the sweep and never the membership check', async () => {
+  it('the minutely trigger runs the sweep and never the daily jobs', async () => {
     const { calls, impl } = spies();
     await dispatchScheduled({ cron: MINUTELY_CRON }, {}, impl);
     expect(calls).toEqual(['sweep']);
   });
 
-  it('the daily trigger runs the membership check and never the sweep', async () => {
+  it('the daily trigger runs the membership check and the deletion digest, never the sweep', async () => {
     const { calls, impl } = spies();
     await dispatchScheduled({ cron: DAILY_CRON }, {}, impl);
-    expect(calls).toEqual(['membership']);
+    expect(calls).toEqual(['membership', 'deletionDigest']);
   });
 
-  it('an unknown cron falls through to the membership check (pre-split behavior)', async () => {
+  it('a failing membership check does not stop the deletion digest', async () => {
+    const { calls, impl } = spies();
+    impl.membership = async () => {
+      throw new Error('boom');
+    };
+    await dispatchScheduled({ cron: DAILY_CRON }, {}, impl);
+    expect(calls).toEqual(['deletionDigest']);
+  });
+
+  it('an unknown cron falls through to the daily jobs (pre-split behavior)', async () => {
     const { calls, impl } = spies();
     await dispatchScheduled({ cron: '30 12 * * *' }, {}, impl);
-    expect(calls).toEqual(['membership']);
+    expect(calls).toEqual(['membership', 'deletionDigest']);
   });
 });
