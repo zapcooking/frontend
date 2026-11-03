@@ -3,7 +3,11 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('$app/environment', () => ({ browser: false }));
 vi.mock('$lib/muteListStore', async () => {
   const { writable } = await import('svelte/store');
-  return { mutedPubkeys: writable(new Set()) };
+  return { mutedPubkeys: writable(new Set()), muteListStore: writable({ muteList: null }) };
+});
+vi.mock('$lib/reads/moderationClient', async () => {
+  const { writable } = await import('svelte/store');
+  return { readsModerationVersion: writable(0), isBlockedReadsPointerClient: () => false };
 });
 
 import { loadOwnNoteIds } from './notificationStore';

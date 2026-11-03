@@ -4,6 +4,13 @@ import type NDK from '@nostr-dev-kit/ndk';
 import { NDKKind, NDKRelaySet } from '@nostr-dev-kit/ndk';
 import type { NDKEvent, NDKFilter, NDKSubscription } from '@nostr-dev-kit/ndk';
 import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
+import { isBlockedReadsPointerClient, readsModerationVersion } from '$lib/reads/moderationClient';
+import {
+  isPlatedNotificationHidden,
+  platedNotificationData,
+  platedRecipeLookups,
+  type PlatedNotificationData
+} from '$lib/plated/notification';
 import { isHellthread } from '$lib/notificationUtils';
 import { decode as decodeBolt11 } from '@gandlaf21/bolt11-decode';
 import { extractZapAmountSats } from '$lib/zapAmount';
@@ -17,6 +24,7 @@ export interface Notification {
   content?: string;
   amount?: number; // For zaps, in sats
   emoji?: string; // For reactions
+  plated?: PlatedNotificationData; // A plate of your recipe (still a 'comment')
   createdAt: number;
   read: boolean;
 }
@@ -50,6 +58,26 @@ function saveNotifications(notifications: Notification[]) {
   } catch {}
 }
 
+/**
+ * `stored` with Plated data added to any cached comment that `incoming`
+ * now recognises as a plate. Only adds the `plated` field: the read flag,
+ * timestamp and list position stay. Returns `stored` itself when nothing
+ * changes.
+ */
+function withPlatedUpgrades(stored: Notification[], incoming: Notification[]): Notification[] {
+  const plates = new Map<string, PlatedNotificationData>();
+  for (const n of incoming) if (n.plated) plates.set(n.id, n.plated);
+  if (plates.size === 0) return stored;
+  let changed = false;
+  const next = stored.map((n) => {
+    const plated = plates.get(n.id);
+    if (!plated || n.plated) return n;
+    changed = true;
+    return { ...n, plated };
+  });
+  return changed ? next : stored;
+}
+
 // Create the store
 function createNotificationStore() {
   const { subscribe, set, update } = writable<Notification[]>(loadNotifications());
@@ -59,9 +87,11 @@ function createNotificationStore() {
 
     add: (notification: Notification) => {
       update((notifications) => {
-        // Don't add duplicates
+        // Don't add duplicates (a cached comment may gain its Plated data)
         if (notifications.some((n) => n.id === notification.id)) {
-          return notifications;
+          const upgraded = withPlatedUpgrades(notifications, [notification]);
+          if (upgraded !== notifications) saveNotifications(upgraded);
+          return upgraded;
         }
         // Add and re-sort by createdAt descending (most recent first)
         // No limit on in-memory, only localStorage is limited
@@ -73,7 +103,10 @@ function createNotificationStore() {
 
     addBulk: (newNotifications: Notification[]): number => {
       let addedCount = 0;
-      update((notifications) => {
+      update((current) => {
+        // Already-stored ids aren't re-added, but a cached comment may gain
+        // its Plated data (keeping its read flag, time and place).
+        const notifications = withPlatedUpgrades(current, newNotifications);
         const existingIds = new Set(notifications.map((n) => n.id));
         const toAdd = newNotifications.filter((n) => {
           if (existingIds.has(n.id)) return false;
@@ -81,7 +114,10 @@ function createNotificationStore() {
           return true;
         });
         addedCount = toAdd.length;
-        if (toAdd.length === 0) return notifications;
+        if (toAdd.length === 0) {
+          if (notifications !== current) saveNotifications(notifications);
+          return notifications;
+        }
 
         // No limit on in-memory, only localStorage is limited
         const updated = [...notifications, ...toAdd].sort((a, b) => b.createdAt - a.createdAt);
@@ -129,15 +165,23 @@ export const notifications = createNotificationStore();
 export const notificationsLoading = writable(false);
 
 /**
- * Notifications with muted users excluded.
+ * Notifications with muted users excluded, and plates that the full mute
+ * list or site moderation hides (plates only — $lib/plated/notification).
  * Components should use this for display; raw `notifications` is for persistence/dedup only.
  */
 export const visibleNotifications = derived(
-  [notifications, mutedPubkeys],
-  ([$notifications, $mutedPubkeys]) =>
-    $mutedPubkeys.size === 0
-      ? $notifications
-      : $notifications.filter((n) => !n.fromPubkey || !$mutedPubkeys.has(n.fromPubkey))
+  [notifications, mutedPubkeys, muteListStore, readsModerationVersion, platedRecipeLookups],
+  ([$notifications, $mutedPubkeys, $muteState, _moderationVersion, $lookups]) => {
+    const byAuthor =
+      $mutedPubkeys.size === 0
+        ? $notifications
+        : $notifications.filter((n) => !n.fromPubkey || !$mutedPubkeys.has(n.fromPubkey));
+    if (!byAuthor.some((n) => n.plated)) return byAuthor;
+    return byAuthor.filter(
+      (n) =>
+        !isPlatedNotificationHidden(n, $lookups, $muteState.muteList, isBlockedReadsPointerClient)
+    );
+  }
 );
 
 export const unreadCount = derived(
@@ -818,12 +862,16 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
     case 1111: { // NIP-22 comment on a recipe or reply to a comment
       // lowercase 'e' tag = parent comment id (present when replying to a comment)
       const parentETag = event.tags.find((t) => t[0] === 'e');
+      // A plate of your recipe stays a 'comment' (tabs, counts and the
+      // system notification are unchanged); the row renders it as Plated.
+      const plated = platedNotificationData(event, userPubkey);
       return {
         ...baseNotification,
         type: 'comment',
         eventId: event.id,
         targetEventId: parentETag?.[1],
-        content: cleanContentForPreview(event.content || '')
+        content: cleanContentForPreview(event.content || ''),
+        ...(plated ? { plated } : {})
       };
     }
 

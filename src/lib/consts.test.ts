@@ -3,7 +3,8 @@ import {
   HIDDEN_RECIPE_COORDINATES,
   isHiddenRecipeCoordinate,
   isHiddenRecipeEvent,
-  isHiddenRecipeATag
+  isHiddenRecipeATag,
+  isTaggedRecipe
 } from './consts';
 
 const LISTED = '30023:8b739c62ed2a9b76c2836a18a6bc9a480b6f8d902b8f702083dfae20bf6b15b9:zc-pr11-test-bravo';
@@ -93,5 +94,24 @@ describe('isHiddenRecipeATag', () => {
     expect(isHiddenRecipeATag('')).toBe(false);
     expect(isHiddenRecipeATag(null)).toBe(false);
     expect(isHiddenRecipeATag('not-a-coordinate')).toBe(false);
+  });
+});
+
+describe('isTaggedRecipe', () => {
+  it('accepts kind 30023 with either recipe tag, case-insensitively', () => {
+    expect(isTaggedRecipe({ kind: 30023, tags: [['t', 'zapcooking']] })).toBe(true);
+    expect(isTaggedRecipe({ kind: 30023, tags: [['t', 'nostrcooking']] })).toBe(true);
+    expect(isTaggedRecipe({ kind: 30023, tags: [['t', 'ZapCooking']] })).toBe(true);
+    expect(isTaggedRecipe({ kind: 30023, tags: [['t', 'NOSTRCOOKING']] })).toBe(true);
+  });
+
+  it('rejects articles, other kinds and malformed tags', () => {
+    expect(isTaggedRecipe({ kind: 30023, tags: [['t', 'food']] })).toBe(false);
+    expect(isTaggedRecipe({ kind: 30023, tags: [] })).toBe(false);
+    expect(isTaggedRecipe({ kind: 35000, tags: [['t', 'zapcooking']] })).toBe(false);
+    expect(isTaggedRecipe({ kind: 1, tags: [['t', 'zapcooking']] })).toBe(false);
+    expect(isTaggedRecipe({ kind: 30023, tags: [['l', 'zapcooking']] })).toBe(false);
+    expect(isTaggedRecipe({ kind: 30023, tags: [null, ['t', 5]] })).toBe(false);
+    expect(isTaggedRecipe({ kind: 30023 })).toBe(false);
   });
 });

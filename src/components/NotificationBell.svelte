@@ -38,6 +38,15 @@
   import CustomName from './CustomName.svelte';
   import NotifText from './notifications/NotifText.svelte';
   import AccountNudgeItem from './AccountNudgeItem.svelte';
+  import {
+    effectivePlated,
+    lookupPlatedRecipes,
+    ndkRecipeFetcher,
+    platedNotificationHref,
+    platedRecipeLookups,
+    platedRecipeTitle
+  } from '$lib/plated/notification';
+  import { platedNotificationAction } from '$lib/plated/copy';
   import { activeNudge, nudgeUnread, markNudgeSeen } from '$lib/accountNudge';
 
   type Tab = 'all' | 'replies' | 'zaps' | 'dms';
@@ -150,6 +159,15 @@
     return list.slice(0, MAX_PREVIEW);
   })();
 
+  // Plates' recipe titles: one one-shot lookup per batch of new addresses
+  // (the in-memory cache is shared with the notifications page).
+  $: platedAddresses = rows.flatMap((r) =>
+    r.kind === 'notification' && r.notification.plated ? [r.notification.plated.recipeAddress] : []
+  );
+  $: if (open && $ndk && platedAddresses.length > 0) {
+    void lookupPlatedRecipes(platedAddresses, ndkRecipeFetcher($ndk));
+  }
+
   function toggle() {
     if (open) {
       close();
@@ -198,7 +216,9 @@
     if (open && e.key === 'Escape') close();
   }
 
-  function actionText(n: Notification): string {
+  function actionText(n: Notification, lookups: typeof $platedRecipeLookups): string {
+    const plate = effectivePlated(n, lookups);
+    if (plate) return platedNotificationAction(platedRecipeTitle(plate, lookups));
     switch (n.type) {
       case 'zap':
         return n.amount ? `zapped you ${n.amount.toLocaleString()} sats` : 'zapped you';
@@ -218,6 +238,14 @@
   async function openNotification(n: Notification) {
     notifications.markAsRead(n.id);
     close();
+
+    // A plate opens the recipe at its card (#plated-<id>).
+    const plate = effectivePlated(n, $platedRecipeLookups);
+    const plateHref = plate && platedNotificationHref(n.id, plate, $platedRecipeLookups);
+    if (plateHref) {
+      goto(plateHref);
+      return;
+    }
 
     const eventIdToView =
       n.eventId || (['mention', 'comment'].includes(n.type) ? n.id : null);
@@ -379,8 +407,12 @@
                       >{formatCompactTime(row.notification.createdAt)}</span
                     >
                   </span>
-                  <span class="notif-row-action" class:zap={row.notification.type === 'zap'}>
-                    {actionText(row.notification)}
+                  <span
+                    class="notif-row-action"
+                    class:zap={row.notification.type === 'zap'}
+                    class:plated={!!effectivePlated(row.notification, $platedRecipeLookups)}
+                  >
+                    {actionText(row.notification, $platedRecipeLookups)}
                   </span>
                   {#if row.notification.content}
                     <span class="notif-row-preview"
@@ -611,6 +643,12 @@
   .notif-row-action {
     font-size: 0.76rem;
     color: var(--color-caption);
+  }
+  /* A plate's recipe title can be long: one line, truncated. */
+  .notif-row-action.plated {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .notif-row-action.zap {
     color: #f59e0b;

@@ -6,10 +6,15 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk';
 vi.mock('$app/environment', () => ({ browser: true }));
 vi.mock('$lib/muteListStore', async () => {
   const { writable } = await import('svelte/store');
+  const state = writable({ muteList: null });
   return {
     mutedPubkeys: writable(new Set<string>()),
-    muteListStore: { load: vi.fn().mockResolvedValue(undefined) }
+    muteListStore: { subscribe: state.subscribe, load: vi.fn().mockResolvedValue(undefined) }
   };
+});
+vi.mock('$lib/reads/moderationClient', async () => {
+  const { writable } = await import('svelte/store');
+  return { readsModerationVersion: writable(0), isBlockedReadsPointerClient: () => false };
 });
 vi.mock('$lib/relayListCache', () => ({ getInboxRelays: async () => [] }));
 vi.mock('$lib/hellthreadFilterSettings', async () => {

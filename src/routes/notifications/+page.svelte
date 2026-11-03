@@ -34,7 +34,20 @@
   import AtIcon from 'phosphor-svelte/lib/At';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import VideoIcon from 'phosphor-svelte/lib/Video';
+  import CookingPotIcon from 'phosphor-svelte/lib/CookingPot';
   import AccountNudgeItem from '../../components/AccountNudgeItem.svelte';
+  import { readsModerationReady } from '$lib/reads/moderationClient';
+  import { optimizeImageUrl } from '$lib/imageOptimizer';
+  import {
+    effectivePlated,
+    lookupPlatedRecipes,
+    ndkRecipeFetcher,
+    platedNotificationHref,
+    platedRecipeLookups,
+    platedRecipeTitle,
+    type PlatedNotificationData
+  } from '$lib/plated/notification';
+  import { PLATED_COPY, platedThumbAlt } from '$lib/plated/copy';
   import { activeNudge, markNudgeSeen } from '$lib/accountNudge';
 
   // Pull-to-refresh ref
@@ -167,6 +180,26 @@
 
   // Build display items (grouped reactions / small zaps) from filtered notifications
   $: displayItems = buildDisplayItems(filteredNotifications);
+
+  // Plates: titles load in one one-shot request per batch of new recipe
+  // addresses (shared in-memory cache with the bell); rows never wait.
+  $: platedAddresses = filteredNotifications.flatMap((n) => (n.plated ? [n.plated.recipeAddress] : []));
+  $: if ($ndk && platedAddresses.length > 0) {
+    void lookupPlatedRecipes(platedAddresses, ndkRecipeFetcher($ndk));
+  }
+
+  // Thumbnails whose image failed: the row stays, text only.
+  let brokenPlateThumbs = new Set<string>();
+  function plateThumbFailed(id: string) {
+    brokenPlateThumbs = new Set([...brokenPlateThumbs, id]);
+  }
+
+  function getPlate(
+    item: NotificationDisplayItem,
+    lookups: typeof $platedRecipeLookups
+  ): PlatedNotificationData | null {
+    return item.kind === 'single' ? effectivePlated(item.notification, lookups) : null;
+  }
 
   // Resolve nostr: references in notification content
   $: {
@@ -519,6 +552,14 @@
   async function handleNotificationClick(notification: Notification) {
     notifications.markAsRead(notification.id);
 
+    // A plate opens the recipe at its card (#plated-<id>).
+    const plate = effectivePlated(notification, $platedRecipeLookups);
+    const plateHref = plate && platedNotificationHref(notification.id, plate, $platedRecipeLookups);
+    if (plateHref) {
+      goto(plateHref);
+      return;
+    }
+
     const eventIdToView =
       notification.eventId ||
       (['mention', 'comment'].includes(notification.type) ? notification.id : null);
@@ -795,6 +836,9 @@
             {@const contextId = getContextEventId(item)}
             {@const ctx = contextId ? getContext(contextId) : null}
             {@const content = getNotifContent(item)}
+            {@const plate = getPlate(item, $platedRecipeLookups)}
+            {@const plateTitle = plate ? platedRecipeTitle(plate, $platedRecipeLookups) : null}
+            {@const showPlateThumb = !!plate && $readsModerationReady && !brokenPlateThumbs.has(getDisplayItemKey(item))}
 
             <button
               on:click={() => item.kind === 'single' ? handleNotificationClick(item.notification) : handleGroupedClick(item)}
@@ -805,7 +849,9 @@
               <!-- Left gutter: icon + avatar -->
               <div class="notif-gutter">
                 <div class="notif-icon">
-                  {#if type === 'reaction'}
+                  {#if plate}
+                    <span class="plated-icon"><CookingPotIcon size={16} weight="fill" /></span>
+                  {:else if type === 'reaction'}
                     <HeartIcon size={16} weight="fill" color="#ef4444" />
                   {:else if type === 'comment'}
                     <ChatCircleIcon size={16} weight="fill" color="#3b82f6" />
@@ -828,7 +874,11 @@
               <div class="notif-body">
                 <!-- Action line + timestamp -->
                 <div class="notif-header">
+                  {#if plate}
+                  <p class="notif-action"><strong><CustomName pubkey={leadPubkey} /></strong>{' '}{PLATED_COPY.notificationPrefix} <span class="plated-object"><span class="plated-title" class:has-title={!!plateTitle}>{plateTitle || PLATED_COPY.notificationNoTitle}</span>.</span></p>
+                  {:else}
                   <p class="notif-action"><strong><CustomName pubkey={leadPubkey} /></strong>{#if isGrouped && count === 2}{' '}and <strong><CustomName pubkey={getSecondPubkey(item)} /></strong>{:else if isGrouped && count > 2}{' '}and {count - 1} others{/if}{#if type === 'reaction'}{' '}reacted{getEmoji(item)} to your post{:else if type === 'zap'}{' '}zapped{#if !isGrouped} you{/if} <span class="zap-sats">{getZapAmount(item)} sats</span>{:else if type === 'comment'}{' '}replied to {#if ctx === undefined}…{:else if ctx && ctx.pubkey}<strong><CustomName pubkey={ctx.pubkey} /></strong>{:else}your post{/if}{:else if type === 'repost'}{' '}reposted your note{:else if type === 'mention'}{' '}mentioned you{:else}{' '}interacted with you{/if}</p>
+                  {/if}
                   <div class="notif-time-area">
                     <span class="notif-time">{formatCompactTime(timestamp)}</span>
                     {#if !isRead}
@@ -837,8 +887,28 @@
                   </div>
                 </div>
 
-                <!-- Reply/mention content -->
-                {#if content}
+                <!-- Reply/mention content (a plate's note sits beside its photo) -->
+                {#if plate}
+                  {#if content || showPlateThumb}
+                    <div class="plated-body">
+                      {#if content}
+                        <p class="notif-content"><NotifText text={content} /></p>
+                      {/if}
+                      {#if showPlateThumb}
+                        <img
+                          src={optimizeImageUrl(plate.image, { width: 96 })}
+                          alt={platedThumbAlt(plateTitle ?? '', null)}
+                          width="48"
+                          height="48"
+                          class="plated-thumb"
+                          loading="lazy"
+                          decoding="async"
+                          on:error={() => plateThumbFailed(getDisplayItemKey(item))}
+                        />
+                      {/if}
+                    </div>
+                  {/if}
+                {:else if content}
                   <p class="notif-content"><NotifText text={content} /></p>
                 {/if}
 
@@ -1038,6 +1108,45 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  /* --- Plated: icon, title, note + photo --- */
+  .plated-icon {
+    display: inline-flex;
+    color: var(--color-primary);
+  }
+  /* Title + its period stay on one line; only the title truncates. */
+  .plated-object {
+    display: inline-flex;
+    max-width: 100%;
+    vertical-align: bottom;
+    white-space: nowrap;
+  }
+  .plated-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .plated-title.has-title {
+    font-weight: 600;
+  }
+  .plated-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  .plated-body .notif-content {
+    flex: 1;
+    min-width: 0;
+  }
+  .plated-thumb {
+    width: 48px;
+    height: 48px;
+    margin-top: 0.375rem;
+    margin-left: auto;
+    border-radius: 0.375rem;
+    object-fit: cover;
+    flex-shrink: 0;
+    background-color: var(--color-input-bg);
   }
   .ctx-thumb {
     width: 40px;

@@ -14,6 +14,7 @@
 import { extractImageUrls } from '$lib/imageUrls';
 import { isEventMutedBy, type MuteList } from '$lib/muteFilter';
 import { imetaAltByUrl } from '$lib/feed/imeta';
+import { isTaggedRecipe } from '$lib/consts';
 
 /**
  * Kill switch for the Plated row and the "Plate it" prompt. Flip to false
@@ -181,6 +182,15 @@ export function platedRecipeOf(root: {
 }
 
 /**
+ * The recipe a root offers plating on (the "Plate it" prompt and the
+ * "Plated by" row), or null when it can't be plated: not addressable, or
+ * not a recipe (an article, kind 35000).
+ */
+export function plateableRecipe(root: Parameters<typeof platedRecipeOf>[0]): PlatedRecipe | null {
+  return isTaggedRecipe(root) ? platedRecipeOf(root) : null;
+}
+
+/**
  * The cook's note: `content` minus every occurrence of the featured photo's
  * URL, with the blank lines that leaves behind collapsed. Other media and
  * text stay, so the card shows them under the photo. '' when nothing is left.
@@ -205,10 +215,10 @@ export interface PlatedCard {
  * Should this thread comment render as a Plated card, and with what? Only a
  * post that passes the Plated rule for this thread's recipe; anything else
  * (no marker, a reply, no usable photo, a content warning, another recipe,
- * a non-addressable root) stays a normal comment.
+ * a non-addressable root, a root that isn't a recipe) stays a normal comment.
  */
 export function platedCard(event: PlatedEventLike, root: Parameters<typeof platedRecipeOf>[0]): PlatedCard | null {
-  const recipe = platedRecipeOf(root);
+  const recipe = plateableRecipe(root);
   if (!recipe || !isPlatedPost(event, recipe)) return null;
   const image = platedImage(event)!;
   return {
