@@ -399,16 +399,17 @@
     flex-shrink: 0;
   }
 
+  /* A round plate: the photo inside a thin rim. Same 64px box as before. */
   .plated-thumb-link {
     display: block;
-    padding: 0;
+    padding: 3px;
     cursor: zoom-in;
     width: 100%;
     height: 100%;
-    border-radius: 0.75rem;
-    overflow: hidden;
-    background: var(--color-bg-secondary);
+    border-radius: 9999px;
+    background: var(--color-bg-primary);
     border: 1px solid var(--color-input-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   }
 
   .plated-thumb-link:focus-visible {
@@ -420,13 +421,15 @@
     display: block;
     width: 100%;
     height: 100%;
+    border-radius: 9999px;
     object-fit: cover;
+    background: var(--color-bg-secondary);
   }
 
   .plated-avatar {
     position: absolute;
-    left: -4px;
-    bottom: -4px;
+    left: -3px;
+    bottom: -3px;
     border-radius: 9999px;
     box-shadow: 0 0 0 2px var(--color-bg-primary);
     line-height: 0;
@@ -435,8 +438,8 @@
 
   .plated-report {
     position: absolute;
-    top: 2px;
-    right: 2px;
+    top: -2px;
+    right: -2px;
     width: 24px;
     height: 24px;
     display: flex;

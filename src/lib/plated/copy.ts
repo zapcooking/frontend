@@ -15,6 +15,8 @@ export const PLATED_COPY = {
   composerSubmit: 'Share your plate',
   composerPhotoRequired: 'Add a photo to share your plate.',
   success: 'Plated!',
+  /** The stamp on the cook's photo after publishing (decorative; the toast announces). */
+  stamp: 'PLATED',
 
   explainLabel: 'What is plating?',
   explanation:
