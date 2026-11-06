@@ -22,7 +22,6 @@ const styles = [
   'sakura',
   'provence',
   'spice-route',
-  'tuscan-table',
   'espresso-bar'
 ];
 

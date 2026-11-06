@@ -21,7 +21,6 @@ const MOODS: readonly ExploreStyle[] = [
   { value: 'sakura', label: 'Sakura', modes: ['light', 'dark'] },
   { value: 'provence', label: 'Provence', modes: ['light', 'dark'] },
   { value: 'spice-route', label: 'Spice Route', modes: ['light', 'dark'] },
-  { value: 'tuscan-table', label: 'Tuscan Table', modes: ['light', 'dark'] },
   { value: 'espresso-bar', label: 'Espresso Bar', modes: ['light', 'dark'] }
 ];
 

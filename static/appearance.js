@@ -28,7 +28,6 @@
     sakura: 'Sakura',
     provence: 'Provence',
     'spice-route': 'Spice Route',
-    'tuscan-table': 'Tuscan Table',
     'espresso-bar': 'Espresso Bar'
   };
   /** @param {unknown} value */

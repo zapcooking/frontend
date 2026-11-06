@@ -312,7 +312,7 @@ describe('app navigation and independent color mode', () => {
   it('keeps the style registry, the rendered picker and the prepaint allowlist aligned', () => {
     const registry = readFileSync('src/lib/themeStyles.ts', 'utf8');
     const options = [...registry.matchAll(/value: '([^']+)', label: '([^']+)'/g)];
-    expect(options).toHaveLength(15);
+    expect(options).toHaveLength(14);
     const component = readFileSync('src/components/landing/LandingThemePicker.svelte', 'utf8');
     const options = [...component.matchAll(/<option value="([^"]+)">([^<]+)<\/option>/g)];
     expect(options).toHaveLength(7);

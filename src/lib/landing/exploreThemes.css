@@ -336,7 +336,6 @@ html:is(
     [data-explore-theme='sakura'],
     [data-explore-theme='provence'],
     [data-explore-theme='spice-route'],
-    [data-explore-theme='tuscan-table'],
     [data-explore-theme='espresso-bar']
   )
   .landing
@@ -477,37 +476,6 @@ html[data-explore-theme='spice-route'] .landing :is(.import-invitation, .packs-s
   border-radius: 3px;
 }
 
-/* Tuscan Table: a terracotta roof band over the plate, cypress section rules. */
-html[data-explore-theme='tuscan-table'] .landing {
-  --font-editorial: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
-  --explore-heading-weight: 600;
-  --explore-heading-spacing: -0.02em;
-  --explore-image-radius: 8px;
-}
-html[data-explore-theme='tuscan-table'] .landing .masthead {
-  padding-bottom: 42px;
-  border-radius: 8px;
-}
-html[data-explore-theme='tuscan-table'] .landing .masthead::before {
-  content: '';
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 12px;
-  border-radius: 0 0 8px 8px;
-  background:
-    radial-gradient(circle at 50% 0%, transparent 7px, var(--explore-action-bg) 7.5px) 0 0 / 22px 12px;
-  opacity: 0.75;
-  pointer-events: none;
-}
-html[data-explore-theme='tuscan-table'] .landing :is(.cover-top, .section) {
-  border-top: 2px solid var(--color-primary);
-}
-html[data-explore-theme='tuscan-table'] .landing :is(.import-invitation, .packs-section) {
-  border-radius: 8px;
-}
-
 /* Espresso Bar: a polished marble plate with a crema rule. */
 html[data-explore-theme='espresso-bar'] .landing {
   --font-editorial: 'Didot', 'Bodoni 72', 'Iowan Old Style', Georgia, serif;
@@ -611,14 +579,9 @@ html[data-explore-theme='cast-iron'] .landing .import-fields input {
   html[data-explore-theme='sakura'] .landing .masthead,
   html[data-explore-theme='provence'] .landing .masthead,
   html[data-explore-theme='spice-route'] .landing .masthead,
-  html[data-explore-theme='tuscan-table'] .landing .masthead,
   html[data-explore-theme='espresso-bar'] .landing .masthead {
     margin: 20px 0;
     padding: 22px 18px;
-  }
-
-  html[data-explore-theme='tuscan-table'] .landing .masthead {
-    padding-bottom: 36px;
   }
 
   html[data-explore-theme='izakaya'] .landing .masthead {
