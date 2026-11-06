@@ -774,13 +774,47 @@
      texture (none for flat moods), pinned to the viewport so it lines up exactly
      with the canvas behind the sidebar and content. It covers content scrolling
      beneath it, and a hairline marks its bottom edge. Every theme uses this one
-     treatment; there is no frosted glass, pipe connector or sidebar separator. */
+     treatment; there is no frosted glass, pipe connector or sidebar separator.
+     The texture sits on its own layer and fades out before the bottom edge, so
+     motifs never get sliced in half where the header meets the solid content
+     sheet; its left edge meets the sidebar canvas, which stays continuous. */
   .header-blur {
     background-color: var(--color-bg-primary);
+  }
+  .header-blur::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
     background-image: var(--mood-texture);
     background-size: var(--mood-texture-size);
     background-position: var(--mood-texture-position);
     background-attachment: fixed;
+    -webkit-mask-image: linear-gradient(to bottom, #000 35%, transparent 92%);
+    mask-image: linear-gradient(to bottom, #000 35%, transparent 92%);
+    pointer-events: none;
+  }
+  /* Below desktop the header is packed edge to edge with controls and there is no
+     sidebar canvas to continue, so it stays flat rather than showing motifs
+     half-hidden behind the logo and buttons. */
+  @media (max-width: 1023.98px) {
+    .header-blur::before {
+      display: none;
+    }
+  }
+  /* On desktop, also clear the texture from behind the account controls at the
+     right so no motif peeks out half-hidden under a button or icon. */
+  @media (min-width: 1024px) {
+    .header-blur::before {
+      -webkit-mask-image:
+        linear-gradient(to bottom, #000 35%, transparent 92%),
+        linear-gradient(to left, transparent 300px, #000 380px);
+      -webkit-mask-composite: source-in;
+      mask-image:
+        linear-gradient(to bottom, #000 35%, transparent 92%),
+        linear-gradient(to left, transparent 300px, #000 380px);
+      mask-composite: intersect;
+    }
   }
   .header-blur::after {
     content: '';
