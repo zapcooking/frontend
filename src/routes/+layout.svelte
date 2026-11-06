@@ -625,23 +625,15 @@
       <!-- Fixed sidebar -->
       {#if !kitchenMode}
         <DesktopSideNav />
-        <!-- Header with blur. Fixed to the viewport (not sticky inside the
-           scroll container) so it stays put while the page content scrolls
-           and rubber-band-bounces behind it. -->
+        <!-- Header. Fixed to the viewport (not sticky inside the scroll
+           container) so it stays put while the page content scrolls and
+           rubber-band-bounces behind it. -->
         <div
           class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
           on:click|self={scrollToTop}
         >
           <Header />
-          <!-- Decorative connector (desktop): a vertical line just left of
-             the search box that curves into the header's bottom divider. -->
-          <span class="header-pipe" aria-hidden="true"></span>
         </div>
-        <!-- Soft separator (desktop): the pipe's vertical line continues
-             below the header as a dashed hairline, quieting the divide
-             between the sidebar and the content without introducing a
-             second surface color. -->
-        <span class="sidebar-separator" aria-hidden="true"></span>
       {/if}
       <!-- Full-page scroll container: clip horizontal overflow to prevent Safari horizontal scroll/gap.
            Top padding clears the fixed header via the CSS-deterministic
@@ -650,7 +642,7 @@
       <div
         id="app-scroll"
         class:kitchen-scroll={kitchenMode}
-        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden {kitchenMode
+        class="mood-canvas flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden {kitchenMode
           ? ''
           : 'lg:ml-[calc(14rem_+_5px)] xl:ml-[calc(20rem_+_5px)]'}"
         style="background-color: var(--color-bg-primary); padding-top: {kitchenMode
@@ -658,7 +650,7 @@
           : 'var(--header-h)'};"
       >
         <div
-          class="{kitchenMode
+          class="mood-sheet {kitchenMode
             ? ''
             : 'px-4 pt-3 lg:pl-[26px]'} min-w-0 max-w-full flex flex-col min-h-full {kitchenMode ||
           $page.url.pathname.startsWith('/messages') ||
@@ -778,15 +770,17 @@
     }
   }
 
-  /* Header with frosted glass effect. The bottom divider is drawn by
-     ::after (not border-bottom) so it can be cleanly swapped for the pipe
-     connector at xl without leaving a leftover full-width line behind. */
+  /* The fixed header shows the page canvas: the solid background plus the mood's
+     texture (none for flat moods), pinned to the viewport so it lines up exactly
+     with the canvas behind the sidebar and content. It covers content scrolling
+     beneath it, and a hairline marks its bottom edge. Every theme uses this one
+     treatment; there is no frosted glass, pipe connector or sidebar separator. */
   .header-blur {
-    /* Fallback for browsers that don't support color-mix */
     background-color: var(--color-bg-primary);
-    background-color: color-mix(in srgb, var(--color-bg-primary) 70%, transparent);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background-image: var(--mood-texture);
+    background-size: var(--mood-texture-size);
+    background-position: var(--mood-texture-position);
+    background-attachment: fixed;
   }
   .header-blur::after {
     content: '';
@@ -797,12 +791,6 @@
     height: 1px;
     background: color-mix(in srgb, var(--color-input-border) 60%, transparent);
     pointer-events: none;
-  }
-
-  /* Dark mode uses the selected palette while retaining the existing glass treatment. */
-  :global(.dark) .header-blur {
-    background-color: color-mix(in srgb, var(--color-bg-primary) 78%, transparent);
-    background-image: linear-gradient(to bottom, color-mix(in srgb, var(--color-bg-secondary) 45%, transparent), color-mix(in srgb, var(--color-bg-primary) 65%, transparent));
   }
   :global(.dark) .header-blur::after {
     background: color-mix(in srgb, var(--color-input-border) 30%, transparent);
@@ -817,88 +805,5 @@
      devices with a real notch inset. */
   .header-blur {
     padding-top: max(env(safe-area-inset-top, 0px), 0.75rem);
-  }
-
-  /* Left edge gradient for smooth transition from sidebar (desktop only) */
-  @media (min-width: 1024px) {
-    .header-blur::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 10%;
-      background: linear-gradient(to right, var(--color-bg-primary) 0%, transparent 100%);
-      pointer-events: none;
-    }
-  }
-
-  /* Decorative pipe connector — only on xl, where the logo lives in the
-     sidebar and the search box sits at the content's left edge. ONE element
-     draws the vertical line (from the very top of the header), the rounded
-     elbow, and the full-width horizontal divider, so all three share the
-     same color/weight and meet by construction. The header's own
-     border-bottom (and dark-mode glow) are removed at xl so there's no
-     second, misaligned line. */
-  .header-pipe {
-    display: none;
-  }
-  @media (min-width: 1024px) {
-    /* Swap the full-width divider for the pipe: one element draws the
-       vertical line (from the top), the rounded elbow, and the horizontal
-       divider running right from the elbow — nothing to the left of it. */
-    .header-blur::after {
-      display: none;
-    }
-    .header-pipe {
-      display: block;
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 16px;
-      right: 0;
-      border-left: 1px solid color-mix(in srgb, var(--color-input-border) 60%, transparent);
-      border-bottom: 1px solid color-mix(in srgb, var(--color-input-border) 60%, transparent);
-      border-bottom-left-radius: 16px;
-      pointer-events: none;
-    }
-    :global(.dark) .header-pipe {
-      border-left-color: color-mix(in srgb, var(--color-input-border) 30%, transparent);
-      border-bottom-color: color-mix(in srgb, var(--color-input-border) 30%, transparent);
-    }
-  }
-
-  /* Soft separator between the sidebar and the content: a dotted
-     hairline in the gutter at the sidebar's edge, starting level with
-     the top of the "Feed" nav item so it stays clear of the search box
-     above. Dotted (not solid) so it reads as a quiet divider on the
-     shared canvas rather than a hard pane edge. */
-  .sidebar-separator {
-    display: none;
-  }
-  @media (min-width: 1024px) {
-    .sidebar-separator {
-      display: block;
-      position: fixed;
-      /* Sidebar: p-3 + logo row (--header-row-h) + nav mt-3 + unlabeled
-         Home-group spacer — lands the line at the Feed row's top edge
-         (100px). */
-      top: 100px;
-      bottom: 0;
-      left: calc(14rem + 2px); /* gutter between sidebar and content */
-      /* Dots carry ~half the ink of a solid line, so run the alpha
-         ~2x the pipe's to land at the same perceived weight. */
-      border-left: 1px dotted color-mix(in srgb, var(--color-input-border) 100%, transparent);
-      pointer-events: none;
-      z-index: 20;
-    }
-    :global(.dark) .sidebar-separator {
-      border-left-color: color-mix(in srgb, var(--color-input-border) 60%, transparent);
-    }
-  }
-  @media (min-width: 1280px) {
-    .sidebar-separator {
-      left: calc(20rem + 2px);
-    }
   }
 </style>

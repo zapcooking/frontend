@@ -175,7 +175,7 @@
      menu and logo (issue #426). -->
 <aside class="hidden lg:block lg:w-56 xl:w-80 fixed top-0 left-0 h-screen z-10">
   <div
-    class="h-full overflow-y-auto scrollbar-hide p-3"
+    class="mood-canvas h-full overflow-y-auto scrollbar-hide p-3"
     style="background-color: var(--color-bg-primary);"
   >
     <!-- Logo on the header's center line: the button is exactly the
