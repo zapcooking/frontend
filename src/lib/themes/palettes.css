@@ -338,6 +338,340 @@ html:root.dark[data-explore-theme='sunday-market'] {
   --color-explore-peach: #3d371f;
   --color-explore-sage: #283c28;
 }
+/* Copper Bazaar: turquoise mosaic inlay on hammered copper, after Isfahan
+   ghalamzani and firoozeh-koobi work. Dark mode is a patina-teal room. */
+html:root[data-explore-theme='copper-bazaar'] {
+  --explore-accent-text: #0c6f6e;
+  --explore-pattern: #2ea3a633;
+  --explore-action-bg: #a9552e;
+  --color-primary: #0c6f6e;
+  --color-text-primary: #3a2a1e;
+  --color-text-secondary: #5d4d3c;
+  --color-caption: #6b5a48;
+  --color-bg-primary: #faf4ea;
+  --color-bg-secondary: #f1e6d4;
+  --color-input-bg: #fcf8f0;
+  --color-input-border: #d9c3a5;
+  --color-accent-gray: #d9c3a5;
+  --color-card-sunken: #e7d9c2;
+  --color-explore-peach: #f2e2cb;
+  --color-explore-sage: #ddeae4;
+  --color-success: #6fa39b;
+  --color-warning: #c99a5f;
+  --color-info: #6f93a3;
+  --color-danger: #b0604e;
+}
+html:root.dark[data-explore-theme='copper-bazaar'] {
+  --explore-accent-text: #4cc2bd;
+  --explore-pattern: #4cc2bd14;
+  --explore-action-bg: #c97d4e;
+  --explore-action-ink: #201408;
+  --color-primary: #4cc2bd;
+  --color-on-action: #201408;
+  --color-text-primary: #ead9c4;
+  --color-text-secondary: #cdbda9;
+  --color-caption: #b3a08c;
+  --color-bg-primary: #0f1e1d;
+  --color-bg-secondary: #172c29;
+  --color-input-bg: #122320;
+  --color-input-border: #2f4a45;
+  --color-accent-gray: #2f4a45;
+  --color-card-sunken: #0b1615;
+  --color-explore-peach: #2a2019;
+  --color-explore-sage: #14282a;
+  --color-success: #6fa39b;
+  --color-warning: #c99a5f;
+  --color-info: #6f93a3;
+  --color-danger: #b0604e;
+}
+/* Izakaya: sometsuke cobalt brushwork on crackle-glaze cream with iron-speckle
+   mottling - the tableware of Japanese tavern dining. Dark mode is kiln-warm. */
+html:root[data-explore-theme='izakaya'] {
+  --explore-accent-text: #9a4f28;
+  --explore-pattern: #a35d2e22;
+  --explore-action-bg: #9a4f28;
+  --explore-label-bg: #2f4d9e;
+  --explore-label-ink: #f6f0da;
+  --color-primary: #2f4d9e;
+  --color-text-primary: #2e3a66;
+  --color-text-secondary: #4a5370;
+  --color-caption: #5d6579;
+  --color-bg-primary: #f6f0da;
+  --color-bg-secondary: #ede5cb;
+  --color-input-bg: #faf6e6;
+  --color-input-border: #c9bd9a;
+  --color-accent-gray: #c9bd9a;
+  --color-card-sunken: #e4dcbd;
+  --color-explore-peach: #f2e4cf;
+  --color-explore-sage: #e3e7d2;
+  --color-success: #7fa287;
+  --color-warning: #b57f4e;
+  --color-info: #7d95c4;
+  --color-danger: #a8564a;
+}
+html:root.dark[data-explore-theme='izakaya'] {
+  --explore-accent-text: #93a9e8;
+  --explore-pattern: #d2834f1c;
+  --explore-action-bg: #d2834f;
+  --explore-action-ink: #2a1608;
+  --color-primary: #93a9e8;
+  --color-on-action: #2a1608;
+  --color-text-primary: #f3ecd6;
+  --color-text-secondary: #d9d0ba;
+  --color-caption: #c4bba4;
+  --color-bg-primary: #2a241c;
+  --color-bg-secondary: #363025;
+  --color-input-bg: #2e281e;
+  --color-input-border: #57503f;
+  --color-accent-gray: #57503f;
+  --color-card-sunken: #201b14;
+  --color-explore-peach: #332a1e;
+  --color-explore-sage: #232d22;
+  --color-success: #7fa287;
+  --color-warning: #b57f4e;
+  --color-info: #7d95c4;
+  --color-danger: #a8564a;
+}
+/* Sakura: celadon mist paper with blossom pink, after sakura-iro. Dark mode
+   is a twilight plum with blossom-white text. */
+html:root[data-explore-theme='sakura'] {
+  --explore-accent-text: #9c4259;
+  --explore-pattern: #d98a9c1a;
+  --explore-action-bg: #9c4259;
+  --explore-action-ink: #f7f0e4;
+  --color-primary: #9c4259;
+  --color-on-action: #f7f0e4;
+  --color-text-primary: #2c3b40;
+  --color-text-secondary: #4b5a57;
+  --color-caption: #5c6b66;
+  --color-bg-primary: #e8eeec;
+  --color-bg-secondary: #dbe4e1;
+  --color-input-bg: #f0f4f2;
+  --color-input-border: #b9c8c2;
+  --color-accent-gray: #b9c8c2;
+  --color-card-sunken: #ccd8d3;
+  --color-explore-peach: #f6e3e0;
+  --color-explore-sage: #dfe9e2;
+  --color-success: #6f9a8c;
+  --color-warning: #c48f6a;
+  --color-info: #7d95b8;
+  --color-danger: #b05265;
+}
+html:root.dark[data-explore-theme='sakura'] {
+  --explore-accent-text: #e8a3b5;
+  --explore-pattern: #e8a3b521;
+  --explore-action-bg: #b3506a;
+  --explore-action-ink: #fff5f8;
+  --color-primary: #e8a3b5;
+  --color-on-action: #fff5f8;
+  --color-text-primary: #f2e9ee;
+  --color-text-secondary: #d5c8d3;
+  --color-caption: #c3b6c9;
+  --color-bg-primary: #241f2b;
+  --color-bg-secondary: #312a38;
+  --color-input-bg: #2a2433;
+  --color-input-border: #5d5268;
+  --color-accent-gray: #5d5268;
+  --color-card-sunken: #1b1721;
+  --color-explore-peach: #352a34;
+  --color-explore-sage: #243032;
+  --color-success: #6f9a8c;
+  --color-warning: #c48f6a;
+  --color-info: #7d95b8;
+  --color-danger: #b05265;
+}
+/* Provence: lavender rows over olive groves and honey-colored stone. Dark
+   mode is a dusk plum with lavender ink and honey-stone buttons. */
+html:root[data-explore-theme='provence'] {
+  --explore-accent-text: #5a4c94;
+  --explore-pattern: #7a6ab81c;
+  --explore-action-bg: #5d6a2c;
+  --explore-action-ink: #f7f6ec;
+  --color-primary: #5a4c94;
+  --color-on-action: #f7f6ec;
+  --color-text-primary: #332e4a;
+  --color-text-secondary: #4f4a68;
+  --color-caption: #5e5878;
+  --color-bg-primary: #f4f2fa;
+  --color-bg-secondary: #e9e6f4;
+  --color-input-bg: #f8f7fc;
+  --color-input-border: #c3bdd9;
+  --color-accent-gray: #c3bdd9;
+  --color-card-sunken: #dedbee;
+  --color-explore-peach: #f3e7d2;
+  --color-explore-sage: #e2e6db;
+  --color-success: #7a9a6d;
+  --color-warning: #c49a5a;
+  --color-info: #8b93c4;
+  --color-danger: #a85260;
+}
+html:root.dark[data-explore-theme='provence'] {
+  --explore-accent-text: #b9ace8;
+  --explore-pattern: #b9ace81e;
+  --explore-action-bg: #d09a3f;
+  --explore-action-ink: #241703;
+  --color-primary: #b9ace8;
+  --color-on-action: #241703;
+  --color-text-primary: #efeafb;
+  --color-text-secondary: #cbc5df;
+  --color-caption: #b9b3cf;
+  --color-bg-primary: #1e1b2c;
+  --color-bg-secondary: #2a2640;
+  --color-input-bg: #232038;
+  --color-input-border: #57506e;
+  --color-accent-gray: #57506e;
+  --color-card-sunken: #161325;
+  --color-explore-peach: #2e2a3a;
+  --color-explore-sage: #283037;
+  --color-success: #7a9a6d;
+  --color-warning: #c49a5a;
+  --color-info: #8b93c4;
+  --color-danger: #a85260;
+}
+/* Spice Route: saffron and turmeric over clove browns, after the spice
+   bazaar. Dark mode is spiced cocoa with bright saffron fills. */
+html:root[data-explore-theme='spice-route'] {
+  --explore-accent-text: #8f5a08;
+  --explore-pattern: #e0a83e1c;
+  --explore-action-bg: #6d4a26;
+  --explore-action-ink: #f8f0df;
+  --color-primary: #965e0a;
+  --color-on-action: #f8f0df;
+  --color-text-primary: #3c2e1e;
+  --color-text-secondary: #584834;
+  --color-caption: #6b5b44;
+  --color-bg-primary: #faf3e2;
+  --color-bg-secondary: #f0e6cf;
+  --color-input-bg: #fcf8ec;
+  --color-input-border: #d3b985;
+  --color-accent-gray: #d3b985;
+  --color-card-sunken: #e6dabb;
+  --color-explore-peach: #f4e4c4;
+  --color-explore-sage: #e7e9d4;
+  --color-success: #8a9a5e;
+  --color-warning: #d09a3e;
+  --color-info: #8aa3b8;
+  --color-danger: #b05c3a;
+}
+html:root.dark[data-explore-theme='spice-route'] {
+  --explore-accent-text: #e0a83e;
+  --explore-pattern: #e0a83e1e;
+  --explore-action-bg: #e0a83e;
+  --explore-action-ink: #221a10;
+  --color-primary: #e0a83e;
+  --color-on-action: #221a10;
+  --color-text-primary: #f4ecda;
+  --color-text-secondary: #d9ccb4;
+  --color-caption: #c6b79c;
+  --color-bg-primary: #221a10;
+  --color-bg-secondary: #2f2517;
+  --color-input-bg: #292013;
+  --color-input-border: #6b5a3e;
+  --color-accent-gray: #6b5a3e;
+  --color-card-sunken: #191209;
+  --color-explore-peach: #33281a;
+  --color-explore-sage: #26301e;
+  --color-success: #8a9a5e;
+  --color-warning: #d09a3e;
+  --color-info: #8aa3b8;
+  --color-danger: #b05c3a;
+}
+/* Tuscan Table: golden wheat fields, cypress rows and sangiovese wine, with
+   a candlelit wine-cellar dark mode no other mood uses. */
+html:root[data-explore-theme='tuscan-table'] {
+  --explore-accent-text: #4f6132;
+  --explore-pattern: #4f61321c;
+  --explore-action-bg: #7c3040;
+  --explore-action-ink: #faf2e2;
+  --color-primary: #4f6132;
+  --color-on-action: #faf2e2;
+  --color-text-primary: #3e3220;
+  --color-text-secondary: #584a34;
+  --color-caption: #6f6248;
+  --color-bg-primary: #f8efd6;
+  --color-bg-secondary: #efe4c8;
+  --color-input-bg: #fcf7e8;
+  --color-input-border: #cbb98e;
+  --color-accent-gray: #cbb98e;
+  --color-card-sunken: #e7dabb;
+  --color-explore-peach: #f2e3cd;
+  --color-explore-sage: #e4e7d0;
+  --color-success: #7d9a5e;
+  --color-warning: #c9a25a;
+  --color-info: #8a9ab8;
+  --color-danger: #a85252;
+}
+html:root.dark[data-explore-theme='tuscan-table'] {
+  --explore-accent-text: #e08a5e;
+  --explore-pattern: #e6c26e1a;
+  --explore-action-bg: #e6c26e;
+  --explore-action-ink: #2a1c08;
+  --color-primary: #e08a5e;
+  --color-on-action: #2a1c08;
+  --color-text-primary: #f5ead8;
+  --color-text-secondary: #d9c6b4;
+  --color-caption: #c4ad9e;
+  --color-bg-primary: #26151a;
+  --color-bg-secondary: #332027;
+  --color-input-bg: #2b1b20;
+  --color-input-border: #593641;
+  --color-accent-gray: #593641;
+  --color-card-sunken: #1c0f13;
+  --color-explore-peach: #332326;
+  --color-explore-sage: #262e24;
+  --color-success: #7d9a5e;
+  --color-warning: #c9a25a;
+  --color-info: #8a9ab8;
+  --color-danger: #a85252;
+}
+/* Espresso Bar: crema foam over dark roast with warm caramel. Dark mode is
+   a demitasse brown with caramel fills. */
+html:root[data-explore-theme='espresso-bar'] {
+  --explore-accent-text: #6b4430;
+  --explore-pattern: #b98a5222;
+  --explore-action-bg: #b98a52;
+  --explore-action-ink: #241708;
+  --color-primary: #6b4430;
+  --color-on-action: #241708;
+  --color-text-primary: #33241c;
+  --color-text-secondary: #54443a;
+  --color-caption: #6d5a4c;
+  --color-bg-primary: #f7f0e6;
+  --color-bg-secondary: #ece2d2;
+  --color-input-bg: #faf5ec;
+  --color-input-border: #d6c6b0;
+  --color-accent-gray: #d6c6b0;
+  --color-card-sunken: #e3d6c1;
+  --color-explore-peach: #f0e2cf;
+  --color-explore-sage: #e6e6d6;
+  --color-success: #8fa27a;
+  --color-warning: #c9a06a;
+  --color-info: #8aa0b8;
+  --color-danger: #a85e4c;
+}
+html:root.dark[data-explore-theme='espresso-bar'] {
+  --explore-accent-text: #d6a875;
+  --explore-pattern: #d6a8751e;
+  --explore-action-bg: #d6a875;
+  --explore-action-ink: #1e1613;
+  --color-primary: #d6a875;
+  --color-on-action: #1e1613;
+  --color-text-primary: #f0e6d8;
+  --color-text-secondary: #d3c4b4;
+  --color-caption: #c4b3a2;
+  --color-bg-primary: #1e1613;
+  --color-bg-secondary: #2b211b;
+  --color-input-bg: #241c16;
+  --color-input-border: #5e4c3e;
+  --color-accent-gray: #5e4c3e;
+  --color-card-sunken: #17100d;
+  --color-explore-peach: #2e241d;
+  --color-explore-sage: #242820;
+  --color-success: #8fa27a;
+  --color-warning: #c9a06a;
+  --color-info: #8aa0b8;
+  --color-danger: #a85e4c;
+}
 /* Without JavaScript there is no stored preference to restore. Follow the OS with the Original palette; the prepaint script sets data-color-mode for explicit choices. */
 @media screen and (prefers-color-scheme: dark) {
   html:root:not([data-color-mode]):not(.dark) {

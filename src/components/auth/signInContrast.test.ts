@@ -15,7 +15,15 @@ const styles = [
   'recipe-club',
   'recipe-box',
   'corner-diner',
-  'sunday-market'
+  'sunday-market',
+  'cast-iron',
+  'copper-bazaar',
+  'izakaya',
+  'sakura',
+  'provence',
+  'spice-route',
+  'tuscan-table',
+  'espresso-bar'
 ];
 
 function palette(style: string, dark: boolean): Record<string, string> {

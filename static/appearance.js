@@ -21,7 +21,15 @@
     'recipe-club': 'Recipe Club ’90s',
     'recipe-box': 'Recipe Box',
     'corner-diner': 'Corner Diner',
-    'sunday-market': 'Sunday Market'
+    'sunday-market': 'Sunday Market',
+    'cast-iron': 'Cast Iron',
+    'copper-bazaar': 'Copper Bazaar',
+    izakaya: 'Izakaya',
+    sakura: 'Sakura',
+    provence: 'Provence',
+    'spice-route': 'Spice Route',
+    'tuscan-table': 'Tuscan Table',
+    'espresso-bar': 'Espresso Bar'
   };
   /** @param {unknown} value */
   const normalizeStyle = (value) =>
