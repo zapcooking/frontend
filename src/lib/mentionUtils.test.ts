@@ -72,6 +72,31 @@ describe('htmlToPlainText', () => {
 		).toBe('line 1\n\nline 3');
 	});
 
+	// Regression: a block-wrapped line following inline <br> breaks double-
+	// counted the break and shipped one more blank line than the editor
+	// showed. WebKit's Enter handling leaves exactly this mix around a typed
+	// hashtag, so notes published as "prose\n\n\n#tag" (two blank lines on the
+	// wire) while the editor showed one.
+	it('does not add a block boundary newline after inline <br> breaks', () => {
+		expect(htmlToPlainText(root([txt('prose'), br(), el('DIV', [txt('#coffeechain')])]))).toBe(
+			'prose\n#coffeechain'
+		);
+		expect(
+			htmlToPlainText(root([txt('prose'), br(), br(), el('DIV', [txt('#coffeechain')])]))
+		).toBe('prose\n\n#coffeechain');
+	});
+
+	it('does not add a boundary newline after a block whose content ends with <br>', () => {
+		expect(htmlToPlainText(root([el('DIV', [txt('line 1'), br()]), el('DIV', [txt('line 2')])])))
+			.toBe('line 1\nline 2');
+	});
+
+	it('keeps the blank line an empty block renders even after inline <br> breaks', () => {
+		expect(
+			htmlToPlainText(root([txt('line 1'), br(), el('DIV', [br()]), el('DIV', [txt('line 3')])]))
+		).toBe('line 1\n\nline 3');
+	});
+
 	// Regression: iOS/Capacitor WebViews and pasted rich text use <p> as the
 	// paragraph separator. These were previously concatenated with no break,
 	// producing strings like "🥩🍳#brunchstr".
