@@ -170,6 +170,10 @@ export function htmlToPlainText(element: Node): string {
 	// missing separator on that trailing edge too.
 	let isFirstChild = true;
 	let prevWasBlock = false;
+	// The last emitted node was an empty block (`<div><br></div>`): the single
+	// newline it emitted IS the blank line it renders, so the next block still
+	// adds its own boundary newline even though `text` already ends with one.
+	let lastWasEmptyBlock = false;
 
 	const breakAfterBlock = () => {
 		if (prevWasBlock && text && !text.endsWith('\n')) {
@@ -185,6 +189,7 @@ export function htmlToPlainText(element: Node): string {
 				text += content;
 				isFirstChild = false;
 				prevWasBlock = false;
+				lastWasEmptyBlock = false;
 			}
 		} else if (node.nodeType === Node.ELEMENT_NODE) {
 			const el = node as HTMLElement;
@@ -194,18 +199,32 @@ export function htmlToPlainText(element: Node): string {
 				text += el.dataset.mention;
 				isFirstChild = false;
 				prevWasBlock = false;
+				lastWasEmptyBlock = false;
 			} else if (el.tagName === 'BR') {
 				text += '\n';
 				isFirstChild = false;
 				prevWasBlock = false;
+				lastWasEmptyBlock = false;
 			} else if (BLOCK_TAGS.has(el.tagName)) {
-				if (!isFirstChild) {
+				// A block renders on a fresh line, but when the text already ends
+				// with a newline that break is already on the wire — inline <br>s
+				// immediately before the block, or a block whose content ended
+				// with one. Adding the boundary newline on top double-counted the
+				// break and shipped one more blank line than the editor showed
+				// (the "extra line break before a hashtag" bug: WebKit's Enter
+				// leaves <br>s that iOS then follows with a block-wrapped line).
+				// The exception is the empty block: its newline IS the blank line
+				// it renders, so the next block keeps its own boundary.
+				if (!isFirstChild && (!text.endsWith('\n') || lastWasEmptyBlock)) {
 					text += '\n';
 				}
 
 				const hasOnlyBr = el.childNodes.length === 1 && el.firstChild?.nodeName === 'BR';
 				if (!hasOnlyBr) {
 					text += htmlToPlainText(node);
+					lastWasEmptyBlock = false;
+				} else {
+					lastWasEmptyBlock = true;
 				}
 				isFirstChild = false;
 				prevWasBlock = true;
@@ -216,6 +235,7 @@ export function htmlToPlainText(element: Node): string {
 					text += spanContent;
 					isFirstChild = false;
 					prevWasBlock = false;
+					lastWasEmptyBlock = false;
 				}
 			} else {
 				const childContent = htmlToPlainText(node);
@@ -224,6 +244,7 @@ export function htmlToPlainText(element: Node): string {
 					text += childContent;
 					isFirstChild = false;
 					prevWasBlock = false;
+					lastWasEmptyBlock = false;
 				}
 			}
 		}
