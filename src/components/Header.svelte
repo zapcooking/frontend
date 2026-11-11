@@ -4,7 +4,7 @@
   import { page } from '$app/stores';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
-  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
+  import EggTimerIcon from './icons/EggTimerIcon.svelte';
   import ListIcon from 'phosphor-svelte/lib/List';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
   import CustomAvatar from './CustomAvatar.svelte';
@@ -247,7 +247,7 @@
         : ''}"
       aria-label={$cookingToolsOpen ? 'Hide cooking tools' : 'Show cooking tools'}
     >
-      <MeasuringCupIcon size={18} weight={$cookingToolsOpen || hasActiveTimers ? 'fill' : 'bold'} />
+      <EggTimerIcon size={18} />
       {#if hasActiveTimers}
         <span
           class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-amber-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center"
