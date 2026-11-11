@@ -49,7 +49,7 @@
   import type { LayoutData } from './$types';
   import ErrorBoundary from '../components/ErrorBoundary.svelte';
   import OfflineIndicator from '../components/OfflineIndicator.svelte';
-  import { theme } from '$lib/themeStore';
+  import { theme, exploreStyle } from '$lib/themeStore';
   import {
     initializeWalletManager,
     clearAllWallets,
@@ -356,6 +356,7 @@
 
       // Initialize theme first to prevent FOUC
       theme.initialize();
+      exploreStyle.initialize();
 
       // Public landing visits must not prompt for notification permission.
       // Other app routes keep their existing launch flow; timer notifications

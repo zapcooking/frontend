@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { EXPLORE_STYLES } from '$lib/themeStyles';
 
   export let label = 'Choose your style';
   export let inApp = false;

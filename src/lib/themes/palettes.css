@@ -87,8 +87,10 @@ html:root.dark {
   --color-info: #93c5fd;
   --color-danger: #fca5a5;
 }
-/* Original keeps the site's pre-theme brand orange. Other styles retain their
-   existing accent/action pairs, including Warm Kitchen's inherited colors. */
+/* Original keeps the site's pre-theme brand orange. Most styles keep their
+   existing accent/action pairs (Warm Kitchen inherits its former colors);
+   Club, Diner and Market carry their own, so the filled controls that dominate
+   the app stop reading as one shared rust across moods. */
 html:root:not([data-explore-theme]),
 html:root[data-explore-theme='original'] {
   --color-primary: #ec4700;

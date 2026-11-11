@@ -121,6 +121,8 @@ function fixture(
     system.matches = dark;
     emit('media:change', { matches: dark });
   };
+  const requestStyle = (value: unknown) =>
+    emit('document:zapcooking:set-explore-theme', { detail: value });
   run();
   return {
     attrs,
@@ -136,7 +138,8 @@ function fixture(
     run,
     mountPicker,
     changeMode,
-    systemChange
+    systemChange,
+    requestStyle
   };
 }
 
@@ -330,8 +333,7 @@ describe('app navigation and independent color mode', () => {
     expect(options).toHaveLength(15);
     const free = new Set(EXPLORE_STYLES.filter((s) => s.price === undefined).map((s) => s.value));
     const component = readFileSync('src/components/landing/LandingThemePicker.svelte', 'utf8');
-    const options = [...component.matchAll(/<option value="([^"]+)">([^<]+)<\/option>/g)];
-    expect(options).toHaveLength(7);
+    expect(component).toContain('EXPLORE_STYLES');
     for (const [, value, label] of options) {
       const f = fixture(undefined, { ready: true });
       f.change(value);

@@ -54,8 +54,8 @@ async function fixture(mode = 'dark', denied = false) {
   };
   vi.stubGlobal('document', document);
   runInNewContext(controller, { document, window, CustomEvent });
-  const { theme } = await import('./themeStore');
-  return { theme, attrs, values, storage, listeners, emit, system };
+  const { theme, exploreStyle } = await import('./themeStore');
+  return { theme, exploreStyle, attrs, values, storage, listeners, emit, system };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -120,5 +120,24 @@ describe('reactive color-mode bridge', () => {
     expect(() => f.theme.setTheme('light')).not.toThrow();
     expect(f.theme.getResolvedTheme()).toBe('light');
     expect(f.attrs.get('data-color-mode')).toBe('light');
+  });
+});
+
+describe('reactive style bridge', () => {
+  it('starts with the prepaint style and follows appearance changes', async () => {
+    const f = await fixture();
+    const seen: string[] = [];
+    const unsubscribe = f.exploreStyle.subscribe((value) => seen.push(value));
+    f.theme.initialize();
+    f.exploreStyle.initialize();
+    f.exploreStyle.initialize();
+    expect(seen).toEqual(['recipe-box']);
+    expect(f.listeners.get('document:zapcooking:appearancechange')).toHaveLength(2);
+    f.attrs.set('data-explore-theme', 'cast-iron');
+    f.emit('document:zapcooking:appearancechange', {
+      detail: { style: 'cast-iron', mode: 'dark' }
+    });
+    expect(seen).toEqual(['recipe-box', 'cast-iron']);
+    unsubscribe();
   });
 });
