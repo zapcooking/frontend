@@ -1,3 +1,4 @@
+import { EXPLORE_STYLES } from '$lib/themeStyles';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
@@ -235,18 +236,32 @@ describe('shared appearance preferences without app hydration', () => {
     expect(f.attrs.get('data-explore-theme')).toBe('original');
     expect(f.storage.setItem).toHaveBeenCalledExactlyOnceWith(storageKey, 'original');
   });
+
+  it('applies style changes requested directly by app surfaces like rendered selects', () => {
+    const f = fixture('recipe-box', { ready: true });
+    f.requestStyle('after-hours');
+    expect(f.attrs.get('data-explore-theme')).toBe('after-hours');
+    expect(f.values.get(storageKey)).toBe('after-hours');
+    expect(f.selects.map((select) => select.value)).toEqual(['after-hours', 'after-hours']);
+    expect(f.statuses[0].textContent).toBe('After Hours ’80s selected.');
+    f.requestStyle('unexpected-theme');
+    expect(f.attrs.get('data-explore-theme')).toBe('original');
+    expect(f.values.get(storageKey)).toBe('original');
+    f.requestStyle(undefined);
+    expect(f.attrs.get('data-explore-theme')).toBe('original');
+  });
 });
 
 describe('app navigation and independent color mode', () => {
   it('synchronizes controls mounted after client navigation and handles them exactly once', () => {
-    const f = fixture('sunday-market', { ready: true });
+    const f = fixture('recipe-club', { ready: true });
     f.mountPicker();
     f.mountPicker();
-    expect(f.selects.map((select) => select.value)).toEqual(Array(4).fill('sunday-market'));
+    expect(f.selects.map((select) => select.value)).toEqual(Array(4).fill('recipe-club'));
     expect(f.controls.every((control) => !control.hidden)).toBe(true);
-    f.change('corner-diner', 3);
-    expect(f.selects.map((select) => select.value)).toEqual(Array(4).fill('corner-diner'));
-    expect(f.storage.setItem).toHaveBeenCalledExactlyOnceWith(storageKey, 'corner-diner');
+    f.change('warm-kitchen', 3);
+    expect(f.selects.map((select) => select.value)).toEqual(Array(4).fill('warm-kitchen'));
+    expect(f.storage.setItem).toHaveBeenCalledExactlyOnceWith(storageKey, 'warm-kitchen');
     expect(f.listeners.get('document:change')).toHaveLength(1);
   });
 
@@ -311,17 +326,24 @@ describe('app navigation and independent color mode', () => {
 
   it('keeps the style registry, the rendered picker and the prepaint allowlist aligned', () => {
     const registry = readFileSync('src/lib/themeStyles.ts', 'utf8');
-    const options = [...registry.matchAll(/value: '([^']+)', label: '([^']+)'/g)];
-    expect(options).toHaveLength(14);
+    const options = [...registry.matchAll(/value: '([^']+)',\s*label: '([^']+)'/g)];
+    expect(options).toHaveLength(15);
+    const free = new Set(EXPLORE_STYLES.filter((s) => s.price === undefined).map((s) => s.value));
     const component = readFileSync('src/components/landing/LandingThemePicker.svelte', 'utf8');
     const options = [...component.matchAll(/<option value="([^"]+)">([^<]+)<\/option>/g)];
     expect(options).toHaveLength(7);
     for (const [, value, label] of options) {
       const f = fixture(undefined, { ready: true });
       f.change(value);
-      expect(f.attrs.get('data-explore-theme')).toBe(value);
-      expect(f.values.get(storageKey)).toBe(value);
-      expect(f.statuses[0].textContent).toBe(`${label} selected.`);
+      if (free.has(value)) {
+        expect(f.attrs.get('data-explore-theme')).toBe(value);
+        expect(f.values.get(storageKey)).toBe(value);
+        expect(f.statuses[0].textContent).toBe(`${label} selected.`);
+      } else {
+        // Paid themes need an unlock (see src/lib/themeLocks.test.ts).
+        expect(f.values.get(storageKey)).not.toBe(value);
+        expect(f.statuses[0].textContent).toBe(`${label} is locked. Unlock it in the Theme Gallery.`);
+      }
     }
   });
 });

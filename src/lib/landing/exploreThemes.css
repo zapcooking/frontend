@@ -261,7 +261,7 @@ html[data-explore-theme='corner-diner'] .landing :is(.import-invitation, .packs-
   border-radius: 20px;
 }
 
-/* Sunday Market: rounded produce-label type, citrus paper and colorful stall trim. */
+/* Farmers Market: rounded produce-label type, corn-yellow paper and colorful stall trim. */
 html[data-explore-theme='sunday-market'] .landing {
   --font-editorial: 'Cooper Black', 'Bookman Old Style', Georgia, serif;
   --explore-heading-weight: 700;
@@ -284,12 +284,14 @@ html[data-explore-theme='sunday-market'] .landing .masthead::before {
   border-radius: 3px;
   background: repeating-linear-gradient(
     90deg,
-    var(--explore-citrus) 0 42px,
+    var(--explore-tomato) 0 42px,
     transparent 42px 48px,
-    var(--explore-leaf) 48px 90px,
+    var(--explore-citrus) 48px 90px,
     transparent 90px 96px,
     var(--explore-berry) 96px 138px,
-    transparent 138px 144px
+    transparent 138px 144px,
+    var(--explore-leaf) 144px 186px,
+    transparent 186px 192px
   );
   pointer-events: none;
 }
@@ -308,7 +310,7 @@ html[data-explore-theme='sunday-market'] .landing .masthead .tagline {
 }
 
 html[data-explore-theme='sunday-market'] .landing :is(.cover-top, .section) {
-  border-top: 2px solid var(--explore-leaf);
+  border-top: 2px solid var(--explore-citrus);
 }
 
 html[data-explore-theme='sunday-market'] .landing .import-invitation {
@@ -317,8 +319,8 @@ html[data-explore-theme='sunday-market'] .landing .import-invitation {
 }
 
 html[data-explore-theme='sunday-market'] .landing .packs-section {
-  border-color: var(--explore-leaf);
-  border-top: 6px solid var(--explore-citrus);
+  border-color: var(--explore-citrus);
+  border-top: 6px solid var(--explore-tomato);
   border-radius: 12px;
 }
 

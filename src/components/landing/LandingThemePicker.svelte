@@ -13,15 +13,13 @@
   <label>
     <span>{label}</span>
     <select data-explore-theme-select>
-      <option value="original">Zap Original</option>
-      <option value="warm-kitchen">Warm Kitchen</option>
-      <option value="after-hours">After Hours ’80s</option>
-      <option value="recipe-club">Recipe Club ’90s</option>
-      <option value="recipe-box">Recipe Box</option>
-      <option value="corner-diner">Corner Diner</option>
-      <option value="sunday-market">Sunday Market</option>
+      {#each EXPLORE_STYLES as style (style.value)}
+        <!-- appearance.js drops the lock from themes the visitor has unlocked. -->
+        <option value={style.value}>{style.label}{style.price ? ' 🔒' : ''}</option>
+      {/each}
     </select>
   </label>
+  <a class="gallery-link" href="/themes">Theme Gallery</a>
   <span class="sr-only" data-explore-theme-status role="status" aria-live="polite"></span>
 </div>
 
@@ -31,6 +29,10 @@
   }
   .theme-picker {
     min-width: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
   }
   label {
     display: flex;
@@ -40,6 +42,22 @@
     color: var(--explore-masthead-muted, var(--color-text-secondary));
     font-size: var(--explore-meta, 13px);
     line-height: 1.4;
+  }
+  .gallery-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 10px 14px;
+    border: 1px solid var(--color-input-border);
+    border-radius: var(--explore-control-radius, 8px);
+    color: var(--color-text-primary);
+    font-size: var(--explore-meta, 13px);
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .gallery-link:hover {
+    background: var(--color-hover-bg);
   }
   select {
     min-width: 0;

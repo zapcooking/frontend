@@ -85,6 +85,18 @@ describe('reactive color-mode bridge', () => {
     unsubscribe();
   });
 
+  it('changes the saved style through the shared controller without touching mode', async () => {
+    const f = await fixture();
+    f.theme.setStyle('after-hours');
+    expect(f.attrs.get('data-explore-theme')).toBe('after-hours');
+    expect(f.values.get('zapcooking_explore_theme')).toBe('after-hours');
+    expect(f.values.get('nostrcooking_theme')).toBe('dark');
+    expect(f.storage.setItem).toHaveBeenCalledExactlyOnceWith(
+      'zapcooking_explore_theme',
+      'after-hours'
+    );
+  });
+
   it('receives other-tab updates and resolves subsequent system-mode changes', async () => {
     const f = await fixture();
     const seen: string[] = [];

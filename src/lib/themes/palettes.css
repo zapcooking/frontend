@@ -387,64 +387,66 @@ html:root.dark[data-explore-theme='corner-diner'] {
   --color-info: #8fd0f0;
   --color-danger: #ff9c8f;
 }
-/* Sunday Market: kraft paper bags, leaf-green stamps, citrus and berry trim; dark mode is the chalkboard price list. */
+/* Farmers Market: citron paper and produce stamps, tomato-red price tags, berry actions and leaf trim; dark mode is the market at dusk, mustard-black with corn-yellow light. */
 html:root:not(.dark)[data-explore-theme='sunday-market'] {
-  --explore-accent-text: #2f6236;
-  --explore-pattern: #6b4f2224;
-  --explore-action-bg: #2e6b34;
+  --explore-accent-text: #8a2f4a;
+  --explore-pattern: #7a5a1024;
+  --explore-action-bg: #8a2f4a;
   --explore-action-ink: #ffffff;
-  --color-primary: #2f6236;
+  --color-primary: #8a2f4a;
   --color-on-action: #ffffff;
-  --color-text-primary: #263b2e;
-  --color-text-secondary: #4b5845;
-  --color-caption: #4b5845;
-  --color-bg-primary: #f1e3c0;
-  --color-bg-secondary: #fbf5e3;
-  --color-input-bg: #fffcf2;
-  --color-input-border: #c4ae7e;
-  --color-accent-gray: #c4ae7e;
-  --color-card-sunken: #e8d7ad;
-  --color-explore-peach: #fff1bb;
-  --color-explore-sage: #e3ebcf;
-  --explore-citrus: #f7df72;
-  --explore-leaf: #2f6236;
-  --explore-berry: #99344a;
-  --explore-label-bg: var(--explore-citrus);
-  --explore-label-ink: #2f6236;
-  --explore-masthead-ink: var(--explore-leaf);
-  --color-success: #2f6236;
-  --color-warning: #835600;
+  --color-text-primary: #3a2a12;
+  --color-text-secondary: #6a5530;
+  --color-caption: #6a5530;
+  --color-bg-primary: #f4e594;
+  --color-bg-secondary: #fff8d8;
+  --color-input-bg: #fdffe9;
+  --color-input-border: #c3ad55;
+  --color-accent-gray: #c3ad55;
+  --color-card-sunken: #ecda80;
+  --color-explore-peach: #ffe29a;
+  --color-explore-sage: #e8ebbc;
+  --explore-citrus: #e8b81f;
+  --explore-leaf: #4f7a2a;
+  --explore-berry: #8a2f4a;
+  --explore-tomato: #b83b1c;
+  --explore-label-bg: var(--explore-tomato);
+  --explore-label-ink: #ffffff;
+  --explore-masthead-ink: var(--explore-berry);
+  --color-success: #3f6b22;
+  --color-warning: #7a5000;
   --color-info: #2f5f86;
-  --color-danger: #99344a;
+  --color-danger: #a3261c;
 }
 html:root.dark[data-explore-theme='sunday-market'] {
-  --explore-accent-text: #bddb9d;
+  --explore-accent-text: #f5cf5a;
   --explore-pattern: #ffffff1c;
-  --explore-action-bg: #8fbf7f;
-  --explore-action-ink: #143020;
-  --color-primary: #bddb9d;
-  --color-on-action: #143020;
-  --color-text-primary: #f4f1e4;
-  --color-text-secondary: #d0d6c6;
-  --color-caption: #d0d6c6;
-  --color-bg-primary: #242a28;
-  --color-bg-secondary: #2e3633;
-  --color-input-bg: #1d2220;
-  --color-input-border: #4c5753;
-  --color-accent-gray: #4c5753;
-  --color-card-sunken: #1b201e;
-  --color-explore-peach: #3d371f;
-  --color-explore-sage: #2b3a2c;
-  --explore-citrus: #e6ce68;
-  --explore-leaf: #bddb9d;
-  --explore-berry: #f7b4bf;
-  --explore-label-bg: #e6ce68;
-  --explore-label-ink: #294f2e;
-  --explore-masthead-ink: var(--explore-leaf);
-  --color-success: #bddb9d;
-  --color-warning: #e6ce68;
+  --explore-action-bg: #f2b632;
+  --explore-action-ink: #2a1d05;
+  --color-primary: #f5cf5a;
+  --color-on-action: #2a1d05;
+  --color-text-primary: #fbf3dc;
+  --color-text-secondary: #dccfa8;
+  --color-caption: #dccfa8;
+  --color-bg-primary: #2a2a14;
+  --color-bg-secondary: #35341c;
+  --color-input-bg: #22220f;
+  --color-input-border: #57532e;
+  --color-accent-gray: #57532e;
+  --color-card-sunken: #1f1f0d;
+  --color-explore-peach: #47401a;
+  --color-explore-sage: #33381f;
+  --explore-citrus: #f5cf5a;
+  --explore-leaf: #b5d488;
+  --explore-berry: #f39ab0;
+  --explore-tomato: #ff8a70;
+  --explore-label-bg: var(--explore-tomato);
+  --explore-label-ink: #2a1005;
+  --explore-masthead-ink: var(--explore-citrus);
+  --color-success: #b5d488;
+  --color-warning: #f5cf5a;
   --color-info: #a8cde8;
-  --color-danger: #f7b4bf;
+  --color-danger: #ff9a8a;
 }
 /* Copper Bazaar: hammered copper with turquoise inlay, after Isfahan metalwork; dark mode is golden bronze. Turquoise leads the fills. */
 html:root:not(.dark)[data-explore-theme='copper-bazaar'] {
@@ -649,14 +651,14 @@ html:root:not(.dark)[data-explore-theme='spice-route'] {
   --color-text-primary: #3a2414;
   --color-text-secondary: #56391f;
   --color-caption: #56391f;
-  --color-bg-primary: #f8dc9c;
-  --color-bg-secondary: #fdf0cf;
-  --color-input-bg: #fff8e4;
-  --color-input-border: #c99d4f;
-  --color-accent-gray: #c99d4f;
-  --color-card-sunken: #efcd84;
-  --color-explore-peach: #fbe0b0;
-  --color-explore-sage: #e9e6c0;
+  --color-bg-primary: #f7d189;
+  --color-bg-secondary: #fceccb;
+  --color-input-bg: #fff5da;
+  --color-input-border: #bd8a44;
+  --color-accent-gray: #bd8a44;
+  --color-card-sunken: #efc170;
+  --color-explore-peach: #f8d9a0;
+  --color-explore-sage: #ece2b6;
   --color-success: #4a6a1f;
   --color-warning: #7a4400;
   --color-info: #2f5878;
@@ -830,4 +832,57 @@ html:root.dark[data-explore-theme='cast-iron'] {
     --color-danger: #b91c1c;
     color-scheme: light;
   }
+}
+/* Backyard BBQ: smoke-paper canvas with ember-orange coals, charcoal ink and mustard price tags; dark mode is the night cookout, charcoal with an ember glow. */
+html:root:not(.dark)[data-explore-theme='bbq'] {
+  --explore-accent-text: #9a3f10;
+  --explore-pattern: #6b5d4722;
+  --explore-action-bg: #cf5a15;
+  --explore-action-ink: #ffffff;
+  --color-primary: #9a3f10;
+  --color-on-action: #ffffff;
+  --color-text-primary: #33302a;
+  --color-text-secondary: #5f594c;
+  --color-caption: #5f594c;
+  --color-bg-primary: #e4d6b4;
+  --color-bg-secondary: #efe6cd;
+  --color-input-bg: #f6efdc;
+  --color-input-border: #b9a881;
+  --color-accent-gray: #b9a881;
+  --color-card-sunken: #d5c6a2;
+  --color-explore-peach: #ecd9b8;
+  --color-explore-sage: #e2e3c8;
+  --explore-label-bg: #d9a406;
+  --explore-label-ink: #3a2a12;
+  --explore-masthead-ink: var(--explore-accent-text);
+  --color-success: #5f7030;
+  --color-warning: #9a6a00;
+  --color-info: #3e6382;
+  --color-danger: #b03018;
+}
+html:root.dark[data-explore-theme='bbq'] {
+  --explore-accent-text: #ee9b4a;
+  --explore-pattern: #ffffff1c;
+  --explore-action-bg: #e07a28;
+  --explore-action-ink: #211405;
+  --color-primary: #ee9b4a;
+  --color-on-action: #211405;
+  --color-text-primary: #f2ead8;
+  --color-text-secondary: #cfc4a8;
+  --color-caption: #cfc4a8;
+  --color-bg-primary: #211d15;
+  --color-bg-secondary: #2a2519;
+  --color-input-bg: #191610;
+  --color-input-border: #4a4433;
+  --color-accent-gray: #4a4433;
+  --color-card-sunken: #1b1811;
+  --color-explore-peach: #453c26;
+  --color-explore-sage: #323620;
+  --explore-label-bg: #e07a28;
+  --explore-label-ink: #211405;
+  --explore-masthead-ink: var(--explore-accent-text);
+  --color-success: #b8cf8a;
+  --color-warning: #f0c868;
+  --color-info: #9cc2e0;
+  --color-danger: #ff9a8a;
 }

@@ -2,6 +2,10 @@
   import { tick } from 'svelte';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import CheckIcon from 'phosphor-svelte/lib/Check';
+  import LockSimpleIcon from 'phosphor-svelte/lib/LockSimple';
+  import PaletteIcon from 'phosphor-svelte/lib/Palette';
+  import { goto } from '$app/navigation';
+  import { themeUnlocks, canUseStyle } from '$lib/stores/themeUnlocks';
   import { theme, exploreStyle, type Theme } from '$lib/themeStore';
   import { EXPLORE_STYLES, findExploreStyle, type ExploreStyleMode } from '$lib/themeStyles';
 
@@ -32,6 +36,12 @@
 
   function setMood(value: string) {
     const mood = findExploreStyle(value);
+    // A locked mood opens its card in the Theme Gallery instead.
+    if (!canUseStyle($themeUnlocks, value)) {
+      moodOpen = false;
+      goto(`/themes?unlock=${encodeURIComponent(value)}`);
+      return;
+    }
     theme.setStyle(value);
     // Pin the mode so the control reflects the only way this mood renders.
     if (mood.modes.length === 1 && selectedTheme !== mood.modes[0]) {
@@ -131,12 +141,40 @@
                     {/if}
                   </span>
                 </span>
+                {#if !canUseStyle($themeUnlocks, mood.value)}
+                  <span class="flex flex-none items-center gap-1 text-xs text-caption">
+                    <LockSimpleIcon size={12} weight="bold" />
+                    {mood.price?.toLocaleString('en-US')} sats
+                  </span>
+                {/if}
               </button>
             </li>
           {/each}
+          <li role="presentation" class="gallery-row">
+            <button
+              type="button"
+              class="mood-item w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left font-medium"
+              style="color: var(--color-primary);"
+              on:click={() => {
+                moodOpen = false;
+                goto('/themes');
+              }}
+            >
+              <PaletteIcon size={14} class="flex-none" />
+              <span class="truncate">Theme Gallery</span>
+            </button>
+          </li>
         </ul>
       {/if}
     </div>
+    <a
+      href="/themes"
+      class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors bg-secondary hover:bg-accent-gray"
+      style="color: var(--color-text-primary);"
+    >
+      <PaletteIcon size={16} class="flex-none" />
+      Theme Gallery
+    </a>
   </div>
 </div>
 
@@ -154,5 +192,9 @@
   .mood-item.mood-selected {
     background-color: var(--color-selected-bg);
     font-weight: 500;
+  }
+  .gallery-row {
+    border-top: 1px solid var(--color-input-border);
+    margin-top: 4px;
   }
 </style>

@@ -92,6 +92,7 @@
   import { tabVisibleAfterHide } from '$lib/tabVisibility';
   import { refreshActiveEngagement, clearAllEngagementCaches } from '$lib/engagementCache';
   import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
+  import { loadThemeUnlocks } from '$lib/stores/themeUnlocks';
 
   // ── Lazy-loaded overlays ──────────────────────────────────────────
   // Heavy overlay components load on first open instead of shipping in
@@ -590,6 +591,14 @@
         console.warn('[tab-visible] engagement refresh failed:', err)
       );
     }
+  }
+
+  // Paid themes follow the signed-in account: load its unlocks on sign-in and
+  // drop them on sign-out, which also re-renders a locked theme as Zap Original.
+  let unlocksFor: string | null = null;
+  $: if (browser && ($userPublickey || null) !== unlocksFor) {
+    unlocksFor = $userPublickey || null;
+    loadThemeUnlocks(unlocksFor);
   }
 </script>
 
