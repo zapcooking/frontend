@@ -50,7 +50,7 @@ importers:
     dependencies:
       '@branta-ops/branta':
         specifier: ^4.0.5
-        version: 4.0.5
+        version: 4.2.0
       '@breeztech/breez-sdk-spark':
         specifier: 0.23.1
         version: 0.23.1
@@ -311,8 +311,8 @@ packages:
     resolution: {integrity: sha512-0GEz8qJWokkUVYQYRukmkSHIFNoBH8QTreeHrAFbvz1XFYc3Y+puhMs8PQ5x8GNugiC2l5jvDBXKLbBIByeSBw==}
     hasBin: true
 
-  '@branta-ops/branta@4.0.5':
-    resolution: {integrity: sha512-oD443iG3bQwULQju3hwO806MA+3UJGfXFFImyqb2T8C7DN2rV4GiJlOoFr2wcLMhC7gCQ90PXsrbH8fgx1E/Jw==}
+  '@branta-ops/branta@4.2.0':
+    resolution: {integrity: sha512-behD+sU44o0J/65zxF8xnX+lYAbVOkFnsfvCBKhswZXZJVFMsVP+vybA7pVJ9LOnvA1n7JfU+XtP+i1LezFMAA==}
 
   '@breeztech/breez-sdk-spark@0.23.1':
     resolution: {integrity: sha512-oEORfCAsRVlWFLcyF7pYMQR7AY1rWUVFUWo0YPAOF2gL6XWRlzh5DEtnAnXtKbj2eolJvatIbX42wEU9BzkdbQ==}
@@ -4227,7 +4227,7 @@ snapshots:
       css-tree: 3.2.1
     optional: true
 
-  '@branta-ops/branta@4.0.5': {}
+  '@branta-ops/branta@4.2.0': {}
 
   '@breeztech/breez-sdk-spark@0.23.1':
     optionalDependencies:
