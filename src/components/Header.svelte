@@ -247,7 +247,7 @@
         : ''}"
       aria-label={$cookingToolsOpen ? 'Hide cooking tools' : 'Show cooking tools'}
     >
-      <EggTimerIcon size={18} />
+      <EggTimerIcon size={20} weight={$cookingToolsOpen || hasActiveTimers ? 'fill' : 'bold'} />
       {#if hasActiveTimers}
         <span
           class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-amber-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center"
