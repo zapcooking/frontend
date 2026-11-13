@@ -18,6 +18,11 @@
   import { fetchStreamByNaddr, type ResolvedStream } from '$lib/streams/fetch';
   import { parseStreamAddress } from '$lib/streams/parse';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
+  import {
+    fetchStreamZapTally,
+    scanStreamZapHistory,
+    type StreamZapTally
+  } from '$lib/streams/streamZaps';
 
   const REFRESH_MS = 60000;
 
@@ -28,6 +33,43 @@
   let chatSectionEl: HTMLElement | null = null;
   let pool: SimplePool | null = null;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
+  // Zap tally, owned here so the player (bolt + total) and the chat (top
+  // zappers strip) share one scan.
+  let tally: StreamZapTally | null = null;
+  let tallyLoading = false;
+  let scanAbort: AbortController | null = null;
+
+  $: topZappers = topZapperList(tally);
+
+  function topZapperList(t: StreamZapTally | null): { pubkey: string; sats: number }[] {
+    if (!t) return [];
+    return [...t.satsByZapper]
+      .map(([pubkey, sats]) => ({ pubkey, sats }))
+      .sort((a, b) => b.sats - a.sats)
+      .slice(0, 10);
+  }
+
+  async function tallyLoad(itemKey: string, host: string | null, hostRelays: string[]) {
+    scanAbort?.abort();
+    scanAbort = new AbortController();
+    const signal = scanAbort.signal;
+    tallyLoading = true;
+    tally = await fetchStreamZapTally(itemKey);
+    if (signal.aborted) return;
+    if (!host) return;
+    const scan = await scanStreamZapHistory(itemKey, host, {
+      hostRelays,
+      signal,
+      onPartial: (t) => {
+        if (!signal.aborted) tally = t;
+      }
+    });
+    if (signal.aborted) return;
+    // A verified scan can legitimately read lower than the quick pass only
+    // when the provider rejects receipts; never regress the display.
+    if (scan.tally.zapCount > (tally?.zapCount ?? 0)) tally = scan.tally;
+    tallyLoading = false;
+  }
 
   async function load(first = true) {
     if (!browser) return;
@@ -43,6 +85,9 @@
       if (resolved) {
         stream = resolved;
         notFound = false;
+        if (first) {
+          tallyLoad(resolved.item.key, resolved.item.host, resolved.item.relays || []);
+        }
       } else if (first) {
         notFound = true;
       }
@@ -94,11 +139,18 @@
          (see StreamPlayer's shrink logic) and returns on the way back up. -->
     <div class="flex flex-col gap-6">
       <div class="min-w-0">
-        <StreamPlayer {item} {pool} chatMarker={chatSectionEl} />
+        <StreamPlayer
+          {item}
+          {pool}
+          chatMarker={chatSectionEl}
+          {tally}
+          {tallyLoading}
+          on:zap-complete={() => tallyLoad(item.key, item.host, item.relays || [])}
+        />
       </div>
 
       <section bind:this={chatSectionEl} class="h-[60vh] min-h-80" aria-label="Live chat">
-        <StreamChat {item} {pool} />
+        <StreamChat {item} {pool} {topZappers} />
       </section>
 
       <!-- Permanent NIP-22 comments, tucked under the chat: they are the

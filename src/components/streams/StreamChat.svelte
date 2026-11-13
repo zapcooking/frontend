@@ -18,6 +18,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys } from '$lib/muteListStore';
   import { extractZapAmountSats } from '$lib/zapAmount';
+  import { openProfilePreview } from '$lib/stores/profilePreview';
   import {
     ChatMessages,
     chatReplyParent,
@@ -34,6 +35,11 @@
 
   export let item: StreamItem;
   export let pool: SimplePool;
+  /**
+   * Top senders by verified sats, from the page's tally scan. Rendered as
+   * the strip under the chat header, Sidecar-style.
+   */
+  export let topZappers: { pubkey: string; sats: number }[] = [];
 
   const PAGE_SIZE = 50;
   const HISTORY_CAP = 1000;
@@ -136,6 +142,15 @@
   }
 
   $: signingIn = !$userPublickey;
+
+  // Top-zapper chips show real names: fold them into the batched lookups.
+  $: scheduleProfiles(topZappers.map((z) => z.pubkey));
+
+  function compact(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
+    return String(n);
+  }
 
   function setNotice(text: string, duration = 0) {
     if (noticeTimer) clearTimeout(noticeTimer);
@@ -337,6 +352,40 @@
     <h2 class="text-sm font-semibold">Live chat</h2>
     <span class="text-xs text-zinc-500">{rows.length > 0 ? `${rows.length} messages` : ''}</span>
   </header>
+
+  {#if topZappers.length}
+    <!-- Top zappers strip (Sidecar parity): ranked senders with pfp + sats. -->
+    <div
+      class="flex gap-1.5 overflow-x-auto border-b border-zinc-200 px-3 py-2 dark:border-zinc-800"
+      aria-label="Top zappers"
+    >
+      {#each topZappers as zapper, i (zapper.pubkey)}
+        {@const name = displayName(zapper.pubkey)}
+        <button
+          type="button"
+          class="flex shrink-0 items-center gap-1 rounded-full bg-zinc-100 py-0.5 pl-0.5 pr-2 text-xs dark:bg-zinc-800"
+          title={'#' + (i + 1) + ' ' + name + ' — ' + zapper.sats.toLocaleString() + ' sats'}
+          on:click={() => openProfilePreview(zapper.pubkey)}
+        >
+          <span
+            class="overflow-hidden rounded-full"
+            style="width:20px;height:20px;background:{avatarColor(zapper.pubkey)}"
+          >
+            <Avatar
+              pubkey={zapper.pubkey}
+              src={profiles.get(zapper.pubkey)?.picture || null}
+              size={20}
+              alt={name}
+            />
+          </span>
+          <span class="max-w-24 truncate text-zinc-600 dark:text-zinc-300">{name}</span>
+          <span class="font-semibold tabular-nums text-amber-500">
+            {compact(zapper.sats)}
+          </span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   <div class="px-3 pt-2">
     {#if rows.length >= HISTORY_CAP}
