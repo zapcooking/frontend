@@ -205,6 +205,21 @@ export async function countRecentCreates(
   return row?.c ?? 0;
 }
 
+/**
+ * True only for a violation of live_sessions_one_active_idx, the partial
+ * unique index on host_pubkey. SQLite (and D1) name the violated COLUMN in
+ * the message, not the index: "UNIQUE constraint failed:
+ * live_sessions.host_pubkey". That index is the only uniqueness rule on
+ * host_pubkey, so the column identifies it. A primary-key collision reads
+ * "...: live_sessions.id" and does not match.
+ */
+export function isOneActiveViolation(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    /UNIQUE constraint failed: live_sessions\.host_pubkey(?![\w.])/.test(err.message)
+  );
+}
+
 export type CreateSessionResult =
   | { ok: true; session: LiveSessionRow; hostToken: string }
   | { ok: false; reason: 'already_active' };
@@ -212,7 +227,8 @@ export type CreateSessionResult =
 /**
  * Insert a new session in status 'created'. The partial unique index is
  * what guarantees one active session per host, so two simultaneous creates
- * cannot both succeed; the loser reports `already_active`.
+ * cannot both succeed; the loser reports `already_active`. Every other
+ * failure is rethrown.
  */
 export async function createSession(
   db: LiveDb,
@@ -231,9 +247,9 @@ export async function createSession(
       .bind(id, input.hostPubkey, input.title, input.recipeA, hash, now)
       .run();
   } catch (err) {
-    if (err instanceof Error && /UNIQUE|constraint/i.test(err.message)) {
-      return { ok: false, reason: 'already_active' };
-    }
+    if (isOneActiveViolation(err)) return { ok: false, reason: 'already_active' };
+    // Anything else (an id collision, a NOT NULL failure, a database
+    // error) is not "this host already has a session" and must surface.
     throw err;
   }
   return {

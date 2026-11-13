@@ -28,7 +28,7 @@ vi.mock('$lib/live/config', async () => {
 import { POST as createRoute } from './+server';
 import { GET as readRoute } from './[id]/+server';
 import { POST as endRoute } from './[id]/end/+server';
-import { hashHostToken } from '$lib/live/sessions.server';
+import { createSession, hashHostToken, isOneActiveViolation } from '$lib/live/sessions.server';
 
 const ORIGIN = 'https://zap.cooking';
 const CREATE_URL = `${ORIGIN}/api/live`;
@@ -360,11 +360,114 @@ describe('POST /api/live (create)', () => {
     expect(seventh.data).toEqual({ error: 'rate_limited' });
   });
 
+  it('refuses an oversized body before checking the signature', async () => {
+    const big = JSON.stringify({ title: 'x', pad: 'p'.repeat(5000) });
+    const call = (headers: Record<string, string>, body: string) =>
+      createRoute({
+        request: new Request(CREATE_URL, { method: 'POST', headers, body }),
+        platform: { env: platformEnv }
+      } as any);
+
+    // Declared too large: refused on the header alone, unsigned or signed.
+    const declared = await call({ 'Content-Length': '5000' }, '{}');
+    expect(declared.status).toBe(413);
+    expect(await declared.json()).toEqual({ error: 'too_large' });
+
+    // No usable Content-Length: refused on the byte length. An unsigned
+    // request gets 413, not 401, which shows the cap runs before NIP-98.
+    const unsigned = await call({}, big);
+    expect(unsigned.status).toBe(413);
+    const lying = await call({ 'Content-Length': '2' }, big);
+    expect(lying.status).toBe(413);
+
+    // A correctly signed oversized body is refused all the same.
+    const signed = await call({ Authorization: await nip98({ url: CREATE_URL, body: big }) }, big);
+    expect(signed.status).toBe(413);
+
+    expect(rowCount()).toBe(0);
+    expect(mocks.checkMembership).not.toHaveBeenCalled();
+  });
+
+  it('accepts a body just under the cap', async () => {
+    const pad = 'p'.repeat(4096 - JSON.stringify({ title: 'Edge', pad: '' }).length);
+    const { res } = await create({ title: 'Edge', pad });
+    expect(res.status).toBe(201);
+  });
+
   it('reports not_configured when the database is not bound', async () => {
     platformEnv = { MEMBERSHIP_ENABLED: 'true', RELAY_API_SECRET: 'relay-secret' };
     const { res, data } = await create();
     expect(res.status).toBe(500);
     expect(data).toEqual({ error: 'not_configured' });
+  });
+});
+
+describe('createSession', () => {
+  it('reports already_active only for the one-active-session index', async () => {
+    const first = await createSession(db, { hostPubkey: HOST, title: 'One', recipeA: null });
+    expect(first.ok).toBe(true);
+    const second = await createSession(db, { hostPubkey: HOST, title: 'Two', recipeA: null });
+    expect(second).toEqual({ ok: false, reason: 'already_active' });
+  });
+
+  it('rethrows an id collision instead of calling it already_active', async () => {
+    // Force every random draw to the same bytes, so two hosts get the same id.
+    const spy = vi.spyOn(crypto, 'getRandomValues').mockImplementation((buf: any) => {
+      (buf as Uint8Array).fill(7);
+      return buf;
+    });
+    try {
+      const first = await createSession(db, { hostPubkey: HOST, title: 'One', recipeA: null });
+      expect(first.ok).toBe(true);
+      await expect(
+        createSession(db, { hostPubkey: OTHER, title: 'Two', recipeA: null })
+      ).rejects.toThrow(/UNIQUE constraint failed: live_sessions\.id/);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(rowCount()).toBe(1);
+  });
+
+  it('rethrows any other constraint error', async () => {
+    await expect(
+      createSession(db, { hostPubkey: HOST, title: null as any, recipeA: null })
+    ).rejects.toThrow(/NOT NULL constraint failed: live_sessions\.title/);
+    expect(rowCount()).toBe(0);
+  });
+
+  it('recognises the violation message in SQLite and D1 forms, and nothing else', () => {
+    const yes = [
+      'UNIQUE constraint failed: live_sessions.host_pubkey',
+      'D1_ERROR: UNIQUE constraint failed: live_sessions.host_pubkey: SQLITE_CONSTRAINT'
+    ];
+    const no = [
+      'UNIQUE constraint failed: live_sessions.id',
+      'D1_ERROR: UNIQUE constraint failed: live_sessions.id: SQLITE_CONSTRAINT',
+      'NOT NULL constraint failed: live_sessions.host_pubkey',
+      'UNIQUE constraint failed: live_sessions.host_pubkey_other',
+      'UNIQUE constraint failed: other_table.host_pubkey',
+      'constraint',
+      'UNIQUE'
+    ];
+    for (const m of yes) expect(isOneActiveViolation(new Error(m))).toBe(true);
+    for (const m of no) expect(isOneActiveViolation(new Error(m))).toBe(false);
+    expect(isOneActiveViolation('UNIQUE constraint failed: live_sessions.host_pubkey')).toBe(false);
+  });
+
+  it('turns a rethrown database error into a 500 at the route, not a 409', async () => {
+    const spy = vi.spyOn(crypto, 'getRandomValues').mockImplementation((buf: any) => {
+      (buf as Uint8Array).fill(9);
+      return buf;
+    });
+    try {
+      expect((await create()).res.status).toBe(201);
+      mocks.hosts = [HOST, OTHER];
+      const clash = await create({ title: 'Clash' }, { secretKey: otherSk });
+      expect(clash.res.status).toBe(500);
+      expect(clash.data).toEqual({ error: 'internal' });
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

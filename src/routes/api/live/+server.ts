@@ -16,6 +16,7 @@
  *
  * Checks, in order, fail-fast:
  *   database bound                         → 500 not_configured
+ *   body over 4 KB (before any hashing)    → 413 too_large
  *   NIP-98                                 → 401 auth_failed (coarse; reason logged only)
  *   body shape, title, recipe address      → 400 bad_request | bad_title | bad_recipe
  *   signer is on the host list             → 403 not_allowed
@@ -55,6 +56,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
     }
 
+    // Size cap FIRST, before anything is hashed or parsed. A declared
+    // Content-Length over the cap is refused without reading the body; the
+    // byte length is checked as well, because the header can be absent or
+    // understate the body.
+    const declared = Number(request.headers.get('Content-Length'));
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      return json({ error: 'too_large' }, { status: 413, headers: NO_STORE });
+    }
+
     // Body read ONCE as raw bytes: the same bytes feed the NIP-98
     // payload-hash check and the JSON parse.
     let bodyBytes: Uint8Array;
@@ -62,6 +72,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       bodyBytes = new Uint8Array(await request.arrayBuffer());
     } catch {
       return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
+    }
+    if (bodyBytes.length > MAX_BODY_BYTES) {
+      return json({ error: 'too_large' }, { status: 413, headers: NO_STORE });
     }
 
     const auth = await verifyNip98(request, { bodyBytes });
@@ -71,9 +84,6 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
     const hostPubkey = auth.pubkey.toLowerCase();
 
-    if (bodyBytes.length > MAX_BODY_BYTES) {
-      return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
-    }
     let body: Record<string, unknown>;
     try {
       const parsed = JSON.parse(new TextDecoder().decode(bodyBytes));
