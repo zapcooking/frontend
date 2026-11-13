@@ -4,6 +4,8 @@
  *   "0 9 * * *"  daily membership-expiry check (pre-existing behavior)
  *                plus the account-deletion digest to the admin account
  *   "* * * * *"  scheduled-posts sweep/broadcast (spec §6)
+ *                plus the Go live sweep (ends abandoned and over-long
+ *                live sessions; see src/lib/live/sweep.server.ts)
  *
  * Anything that isn't the minutely cron falls through to the daily
  * jobs, preserving the original worker's behavior for the daily
@@ -77,15 +79,58 @@ async function runSweepTick(env) {
 }
 
 /**
+ * Go live sweep. The work is done by the Pages project, which holds the
+ * Stream token and the session code: this worker only knocks once a
+ * minute. CRON_SECRET must be set on BOTH this worker and the Pages
+ * project (the endpoint refuses without it).
+ */
+async function runLiveSweepTick(env) {
+  if (!env.CRON_SECRET) {
+    console.error('[LiveSweep] CRON_SECRET not configured on the cron worker — skipping tick');
+    return;
+  }
+  const response = await fetch('https://zap.cooking/api/cron/live-sweep', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.CRON_SECRET.trim()}` },
+    signal: AbortSignal.timeout(25_000)
+  });
+  if (!response.ok) {
+    console.error(`[LiveSweep] endpoint answered ${response.status}`);
+    return;
+  }
+  const summary = await response.json();
+  // Quiet when there was nothing to look at; counts only otherwise.
+  const acted =
+    summary.examined > 0 ||
+    summary.retried?.deleted > 0 ||
+    summary.retried?.pending > 0 ||
+    summary.orphans?.candidates > 0 ||
+    summary.rowsDeleted > 0 ||
+    summary.outOfTime;
+  if (acted) console.log('[LiveSweep]', JSON.stringify(summary));
+}
+
+/**
  * Trigger router, exported for tests: the minutely cron must never
  * hit the membership endpoint or send the digest, and the daily cron
- * must never run the sweep. `impl` is injectable so tests can assert
+ * must never run either sweep. `impl` is injectable so tests can assert
  * exactly that. The daily jobs are independent — one failing must not
  * stop the other.
  */
 export async function dispatchScheduled(event, env, impl) {
   if (event.cron === MINUTELY_CRON) {
-    return impl.sweep(env);
+    // Independent jobs: a failure or a slow run in one must not stop the
+    // other. Failures are logged here because allSettled swallows them.
+    const results = await Promise.allSettled([impl.sweep(env), impl.liveSweep(env)]);
+    for (const [i, result] of results.entries()) {
+      if (result.status === 'rejected') {
+        console.error(
+          `[${i === 0 ? 'Sweep' : 'LiveSweep'}] tick failed:`,
+          result.reason?.message ?? result.reason
+        );
+      }
+    }
+    return;
   }
   await Promise.allSettled([impl.membership(env), impl.deletionDigest(env)]);
 }
@@ -94,6 +139,7 @@ export default {
   async scheduled(event, env, ctx) {
     await dispatchScheduled(event, env, {
       sweep: runSweepTick,
+      liveSweep: runLiveSweepTick,
       membership: checkExpiringMemberships,
       deletionDigest
     });

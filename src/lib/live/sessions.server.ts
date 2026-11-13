@@ -532,3 +532,136 @@ export async function countCapRefusal(db: LiveDb, id: string): Promise<void> {
     .bind(id)
     .run();
 }
+
+// ── Sweep, admin and retention ───────────────────────────────────────
+
+/** A session the sweep has to look at. Server-side only. */
+export interface SweepRow {
+  id: string;
+  status: LiveSessionStatus;
+  cf_input_uid: string | null;
+  created_at: number;
+  started_at: number | null;
+  disconnected_streak: number;
+}
+
+/** Sessions that have not ended, oldest first. */
+export async function listOpenSessions(db: LiveDb, limit: number): Promise<SweepRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, status, cf_input_uid, created_at, started_at, disconnected_streak
+         FROM live_sessions WHERE status != 'ended' ORDER BY created_at LIMIT ?1`
+    )
+    .bind(limit)
+    .all<SweepRow>();
+  return results;
+}
+
+/**
+ * Count one more "not broadcasting" reading. Conditional on the streak
+ * the caller saw and on the session not having ended, so two sweeps that
+ * overlap cannot both count the same reading. Returns whether it applied.
+ */
+export async function bumpStreak(db: LiveDb, id: string, seen: number): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE live_sessions SET disconnected_streak = disconnected_streak + 1
+        WHERE id = ?1 AND status != 'ended' AND disconnected_streak = ?2`
+    )
+    .bind(id, seen)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+export async function resetStreak(db: LiveDb, id: string): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE live_sessions SET disconnected_streak = 0 WHERE id = ?1 AND status != 'ended' AND disconnected_streak != 0"
+    )
+    .bind(id)
+    .run();
+}
+
+/** Ended sessions whose Cloudflare input has not been confirmed deleted. */
+export async function listEndedWithInput(
+  db: LiveDb,
+  limit: number
+): Promise<{ id: string; cf_input_uid: string }[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, cf_input_uid FROM live_sessions
+        WHERE status = 'ended' AND cf_input_uid IS NOT NULL ORDER BY ended_at LIMIT ?1`
+    )
+    .bind(limit)
+    .all<{ id: string; cf_input_uid: string }>();
+  return results;
+}
+
+/** Every input id currently recorded on any row. */
+export async function listRecordedInputs(db: LiveDb): Promise<Set<string>> {
+  const { results } = await db
+    .prepare('SELECT cf_input_uid FROM live_sessions WHERE cf_input_uid IS NOT NULL LIMIT ?1')
+    .bind(10_000)
+    .all<{ cf_input_uid: string }>();
+  return new Set(results.map((r) => r.cf_input_uid));
+}
+
+/**
+ * Delete ended rows older than the retention period. A row that still has
+ * an input to delete is kept until that is done.
+ */
+export async function deleteOldEndedRows(db: LiveDb, endedBefore: number): Promise<number> {
+  const result = await db
+    .prepare(
+      "DELETE FROM live_sessions WHERE status = 'ended' AND ended_at < ?1 AND cf_input_uid IS NULL"
+    )
+    .bind(endedBefore)
+    .run();
+  return result.meta?.changes ?? 0;
+}
+
+/** What an admin sees about a session. No input id, token or lock. */
+export interface AdminSessionView {
+  id: string;
+  host_pubkey: string;
+  title: string;
+  status: LiveSessionStatus;
+  created_at: number;
+  started_at: number | null;
+  reconnects: number;
+  guest_joins: number;
+  cap_refusals: number;
+  disconnected_streak: number;
+  input_recorded: boolean;
+}
+
+export async function listSessionsForAdmin(db: LiveDb, limit: number): Promise<AdminSessionView[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, host_pubkey, title, status, created_at, started_at, reconnects, guest_joins,
+              cap_refusals, disconnected_streak, (cf_input_uid IS NOT NULL) AS input_recorded
+         FROM live_sessions WHERE status != 'ended' OR cf_input_uid IS NOT NULL
+        ORDER BY created_at DESC LIMIT ?1`
+    )
+    .bind(limit)
+    .all<Omit<AdminSessionView, 'input_recorded'> & { input_recorded: number }>();
+  return results.map((r) => ({ ...r, input_recorded: !!r.input_recorded }));
+}
+
+/** Ids of one host's sessions that have not ended. */
+export async function listOpenSessionIdsForHost(db: LiveDb, hostPubkey: string): Promise<string[]> {
+  const { results } = await db
+    .prepare("SELECT id FROM live_sessions WHERE host_pubkey = ?1 AND status != 'ended'")
+    .bind(hostPubkey)
+    .all<{ id: string }>();
+  return results.map((r) => r.id);
+}
+
+/** Delete every row of one host. Returns how many were removed. */
+export async function deleteRowsForHost(db: LiveDb, hostPubkey: string): Promise<number> {
+  const result = await db
+    .prepare('DELETE FROM live_sessions WHERE host_pubkey = ?1')
+    .bind(hostPubkey)
+    .run();
+  return result.meta?.changes ?? 0;
+}
