@@ -16,14 +16,14 @@
  *
  * Checks, in order, fail-fast:
  *   database bound                         → 500 not_configured
- *   body over 4 KB (before any hashing)    → 413 too_large
+ *   body over 4 KB (enforced while reading) → 413 too_large
  *   NIP-98                                 → 401 auth_failed (coarse; reason logged only)
  *   body shape, title, recipe address      → 400 bad_request | bad_title | bad_recipe
  *   signer is on the host list             → 403 not_allowed
  *   membership could not be checked        → 503 membership_unavailable
  *   signer is not an active member         → 403 membership_required
  *   host already has a session not ended   → 409 already_active (with its id)
- *   create rate limit                      → 429 rate_limited
+ *   create rate limit (atomic with insert) → 429 rate_limited
  *
  * A membership outage is never reported as "not a member": `unknown`
  * from the tri-state check is a 503, and only a real `inactive` is a 403.
@@ -33,13 +33,12 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
 import { checkMembership } from '$lib/membershipApi.server';
-import { isLiveHost, LIVE_CREATES_PER_HOUR } from '$lib/live/config';
+import { isLiveHost } from '$lib/live/config';
+import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import {
-  countRecentCreates,
   createSession,
   getActiveSessionForHost,
-  nowSeconds,
   parseRecipeAddress,
   parseTitle,
   type LiveDb
@@ -56,25 +55,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
     }
 
-    // Size cap FIRST, before anything is hashed or parsed. A declared
-    // Content-Length over the cap is refused without reading the body; the
-    // byte length is checked as well, because the header can be absent or
-    // understate the body.
-    const declared = Number(request.headers.get('Content-Length'));
-    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    // Size cap FIRST, and enforced while the body is read: nothing over
+    // the cap is ever buffered, hashed or parsed, signed or not. The same
+    // bytes then feed the NIP-98 payload-hash check and the JSON parse.
+    const bodyBytes = await readBodyCapped(request, MAX_BODY_BYTES);
+    if (bodyBytes === 'too_large') {
       return json({ error: 'too_large' }, { status: 413, headers: NO_STORE });
     }
-
-    // Body read ONCE as raw bytes: the same bytes feed the NIP-98
-    // payload-hash check and the JSON parse.
-    let bodyBytes: Uint8Array;
-    try {
-      bodyBytes = new Uint8Array(await request.arrayBuffer());
-    } catch {
+    if (bodyBytes === 'unreadable') {
       return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
-    }
-    if (bodyBytes.length > MAX_BODY_BYTES) {
-      return json({ error: 'too_large' }, { status: 413, headers: NO_STORE });
     }
 
     const auth = await verifyNip98(request, { bodyBytes });
@@ -127,13 +116,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'already_active', id: existing.id }, { status: 409, headers: NO_STORE });
     }
 
-    const now = nowSeconds();
-    if ((await countRecentCreates(db, hostPubkey, now - 3600)) >= LIVE_CREATES_PER_HOUR) {
-      return json({ error: 'rate_limited' }, { status: 429, headers: NO_STORE });
-    }
-
-    const created = await createSession(db, { hostPubkey, title, recipeA, now });
+    const created = await createSession(db, { hostPubkey, title, recipeA });
     if (!created.ok) {
+      if (created.reason === 'rate_limited') {
+        return json({ error: 'rate_limited' }, { status: 429, headers: NO_STORE });
+      }
       // Lost a race with a simultaneous create from the same host.
       const winner = await getActiveSessionForHost(db, hostPubkey);
       return json(

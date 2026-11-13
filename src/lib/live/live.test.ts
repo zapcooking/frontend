@@ -4,6 +4,7 @@ import { ADMIN_PUBKEY } from '$lib/adminAuth';
 import { env } from '../../test/envMock';
 import { isLiveHost, LIVE_HOSTS } from './config';
 import { readLiveEnv } from './env.server';
+import { readBodyCapped } from './body.server';
 import {
   hashHostToken,
   hostTokenMatches,
@@ -85,5 +86,61 @@ describe('ids and host tokens', () => {
       await hostTokenMatches({ host_token_hash: hash, status: 'created' }, newHostToken())
     ).toBe(false);
     expect(await hostTokenMatches({ host_token_hash: hash, status: 'created' }, null)).toBe(false);
+  });
+});
+
+describe('readBodyCapped', () => {
+  const post = (body: BodyInit | null, headers: Record<string, string> = {}) =>
+    new Request('https://zap.cooking/x', { method: 'POST', body, headers, duplex: 'half' } as any);
+
+  it('returns the bytes of a body at or under the cap', async () => {
+    const out = await readBodyCapped(post('hello'), 5);
+    expect(out).toBeInstanceOf(Uint8Array);
+    expect(new TextDecoder().decode(out as Uint8Array)).toBe('hello');
+  });
+
+  it('returns empty bytes when there is no body', async () => {
+    const out = await readBodyCapped(post(null), 10);
+    expect(out).toBeInstanceOf(Uint8Array);
+    expect((out as Uint8Array).length).toBe(0);
+  });
+
+  it('refuses one byte over the cap', async () => {
+    expect(await readBodyCapped(post('hello!'), 5)).toBe('too_large');
+  });
+
+  it('refuses a declared Content-Length over the cap without reading', async () => {
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulled++;
+        c.enqueue(new Uint8Array(1));
+        c.close();
+      }
+    });
+    expect(await readBodyCapped(post(stream, { 'Content-Length': '999' }), 10)).toBe('too_large');
+    expect(pulled).toBeLessThanOrEqual(1);
+  });
+
+  it('joins a body that arrives in several chunks', async () => {
+    const parts = ['ab', 'cd', 'ef'];
+    const stream = new ReadableStream<Uint8Array>({
+      pull(c) {
+        const next = parts.shift();
+        if (next) c.enqueue(new TextEncoder().encode(next));
+        else c.close();
+      }
+    });
+    const out = await readBodyCapped(post(stream), 6);
+    expect(new TextDecoder().decode(out as Uint8Array)).toBe('abcdef');
+  });
+
+  it('reports an unreadable stream', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      pull() {
+        throw new Error('boom');
+      }
+    });
+    expect(await readBodyCapped(post(stream), 10)).toBe('unreadable');
   });
 });

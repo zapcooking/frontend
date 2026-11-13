@@ -28,7 +28,12 @@ vi.mock('$lib/live/config', async () => {
 import { POST as createRoute } from './+server';
 import { GET as readRoute } from './[id]/+server';
 import { POST as endRoute } from './[id]/end/+server';
-import { createSession, hashHostToken, isOneActiveViolation } from '$lib/live/sessions.server';
+import {
+  createSession,
+  endSession,
+  hashHostToken,
+  isOneActiveViolation
+} from '$lib/live/sessions.server';
 
 const ORIGIN = 'https://zap.cooking';
 const CREATE_URL = `${ORIGIN}/api/live`;
@@ -388,6 +393,32 @@ describe('POST /api/live (create)', () => {
     expect(mocks.checkMembership).not.toHaveBeenCalled();
   });
 
+  it('stops reading a chunked body as soon as it passes the cap', async () => {
+    // No Content-Length: 200 chunks of 1 KB offered, the cap is 4 KB.
+    let pulled = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        if (pulled > 200) controller.close();
+        else controller.enqueue(new Uint8Array(1024).fill(120));
+      },
+      cancel() {
+        cancelled = true;
+      }
+    });
+    const res = await createRoute({
+      request: new Request(CREATE_URL, { method: 'POST', body: stream, duplex: 'half' } as any),
+      platform: { env: platformEnv }
+    } as any);
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: 'too_large' });
+    expect(cancelled).toBe(true);
+    // It read just past the cap and stopped, far short of the 200 on offer.
+    expect(pulled).toBeLessThan(10);
+    expect(rowCount()).toBe(0);
+  });
+
   it('accepts a body just under the cap', async () => {
     const pad = 'p'.repeat(4096 - JSON.stringify({ title: 'Edge', pad: '' }).length);
     const { res } = await create({ title: 'Edge', pad });
@@ -433,6 +464,74 @@ describe('createSession', () => {
       createSession(db, { hostPubkey: HOST, title: null as any, recipeA: null })
     ).rejects.toThrow(/NOT NULL constraint failed: live_sessions\.title/);
     expect(rowCount()).toBe(0);
+  });
+
+  it('enforces the hourly limit in the insert itself', async () => {
+    const insert = db.raw.prepare(
+      "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, status, created_at) VALUES (?, ?, 't', '', 'ended', ?)"
+    );
+    const now = nowSec();
+    for (let i = 0; i < 6; i++) insert.run(`${i}`.repeat(32), HOST, now - 60 * (i + 1));
+    expect(
+      await createSession(db, { hostPubkey: HOST, title: 'Seventh', recipeA: null, now })
+    ).toEqual({
+      ok: false,
+      reason: 'rate_limited'
+    });
+    expect(rowCount()).toBe(6);
+    // Another host is unaffected, and the window slides.
+    expect(
+      (await createSession(db, { hostPubkey: OTHER, title: 'Other', recipeA: null, now })).ok
+    ).toBe(true);
+    expect(
+      (
+        await createSession(db, {
+          hostPubkey: HOST,
+          title: 'Later',
+          recipeA: null,
+          now: now + 3600
+        })
+      ).ok
+    ).toBe(true);
+  });
+
+  it('cannot be raced past the hourly limit by a stale count', async () => {
+    // The reviewer's case: five recent ended sessions, then two creates
+    // that would both have read "five". Each insert now counts for itself.
+    const insert = db.raw.prepare(
+      "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, status, created_at) VALUES (?, ?, 't', '', 'ended', ?)"
+    );
+    const now = nowSec();
+    for (let i = 0; i < 5; i++) insert.run(`${i}`.repeat(32), HOST, now - 60 * (i + 1));
+
+    const sixth = await createSession(db, { hostPubkey: HOST, title: 'Sixth', recipeA: null, now });
+    expect(sixth.ok).toBe(true);
+    // The host ends it before the second create's insert runs.
+    if (sixth.ok) await endSession(db, sixth.session.id, 'host', now);
+    const seventh = await createSession(db, {
+      hostPubkey: HOST,
+      title: 'Seventh',
+      recipeA: null,
+      now
+    });
+    expect(seventh).toEqual({ ok: false, reason: 'rate_limited' });
+    expect(rowCount()).toBe(6);
+  });
+
+  it('reports already_active, not rate_limited, when both would apply below the limit', async () => {
+    const first = await createSession(db, {
+      hostPubkey: HOST,
+      title: 'One',
+      recipeA: null,
+      maxPerHour: 2
+    });
+    expect(first.ok).toBe(true);
+    expect(
+      await createSession(db, { hostPubkey: HOST, title: 'Two', recipeA: null, maxPerHour: 2 })
+    ).toEqual({
+      ok: false,
+      reason: 'already_active'
+    });
   });
 
   it('recognises the violation message in SQLite and D1 forms, and nothing else', () => {
@@ -638,6 +737,83 @@ describe('POST /api/live/<id>/end', () => {
       for (const reason of GRANULAR_REASONS) expect(text).not.toContain(reason);
     }
     expect(rowOf(created.data.id).status).toBe('created');
+  });
+
+  it('refuses an oversized body on the NIP-98 path before any signature work', async () => {
+    const created = await create();
+    const url = `${ORIGIN}/api/live/${created.data.id}/end`;
+    const big = 'x'.repeat(5000);
+
+    // Not even a real signature: the reviewer's case.
+    const junk = await end(created.data.id, { auth: 'Nostr invalid', body: big });
+    expect(junk.res.status).toBe(413);
+    expect(junk.data).toEqual({ error: 'too_large' });
+
+    // A correctly signed oversized body is refused the same way.
+    const signed = await end(created.data.id, { auth: await nip98({ url, body: big }), body: big });
+    expect(signed.res.status).toBe(413);
+
+    // Chunked, no Content-Length: reading stops just past the 1 KB cap.
+    let pulled = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        if (pulled > 200) controller.close();
+        else controller.enqueue(new Uint8Array(1024).fill(120));
+      },
+      cancel() {
+        cancelled = true;
+      }
+    });
+    const res = await endRoute({
+      request: new Request(url, {
+        method: 'POST',
+        headers: { Authorization: 'Nostr invalid' },
+        body: stream,
+        duplex: 'half'
+      } as any),
+      params: { id: created.data.id },
+      platform: { env: platformEnv }
+    } as any);
+    expect(res.status).toBe(413);
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThan(10);
+
+    expect(rowOf(created.data.id).status).toBe('created');
+  });
+
+  it('never reads the body on the host-token path', async () => {
+    const created = await create();
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(new Uint8Array(1024));
+        if (pulled > 50) controller.close();
+      }
+    });
+    const res = await endRoute({
+      request: new Request(`${ORIGIN}/api/live/${created.data.id}/end`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${created.data.host_token}` },
+        body: stream,
+        duplex: 'half'
+      } as any),
+      params: { id: created.data.id },
+      platform: { env: platformEnv }
+    } as any);
+    expect(res.status).toBe(200);
+    expect(pulled).toBeLessThanOrEqual(1);
+    expect(rowOf(created.data.id).status).toBe('ended');
+  });
+
+  it('still accepts a small signed body on the NIP-98 path', async () => {
+    const created = await create();
+    const url = `${ORIGIN}/api/live/${created.data.id}/end`;
+    const body = '{}';
+    const { res } = await end(created.data.id, { auth: await nip98({ url, body }), body });
+    expect(res.status).toBe(200);
   });
 
   it('answers 404 for an unknown or malformed id', async () => {

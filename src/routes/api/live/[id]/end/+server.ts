@@ -10,6 +10,7 @@
  *   401: no credential, a wrong or expired token, or a bad signature
  *   403: a valid signature from someone who is not the host
  *   404: unknown or malformed id
+ *   413: a NIP-98 request with a body over 1 KB (End takes no body)
  *
  * Idempotent: ending a session that has already ended returns the same
  * 200 and changes nothing. That reply needs no credential (the status is
@@ -22,6 +23,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
+import { readBodyCapped } from '$lib/live/body.server';
 import {
   endSession,
   getSession,
@@ -31,6 +33,7 @@ import {
 } from '$lib/live/sessions.server';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
+const MAX_BODY_BYTES = 1024;
 const unauthorized = () =>
   json({ error: 'auth_failed', detail: 'token' }, { status: 401, headers: NO_STORE });
 
@@ -51,14 +54,17 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
     const header = request.headers.get('Authorization') ?? '';
 
     if (header.startsWith('Nostr ')) {
-      // The same bytes feed the payload check; an empty body means there
-      // is nothing to bind and no payload tag is required.
-      let bodyBytes: Uint8Array;
-      try {
-        bodyBytes = new Uint8Array(await request.arrayBuffer());
-      } catch {
+      // End takes no body. Whatever is sent is read under a small cap,
+      // enforced while reading, before any signature work.
+      const bodyBytes = await readBodyCapped(request, MAX_BODY_BYTES);
+      if (bodyBytes === 'too_large') {
+        return json({ error: 'too_large' }, { status: 413, headers: NO_STORE });
+      }
+      if (bodyBytes === 'unreadable') {
         return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
       }
+      // The same bytes feed the payload check; an empty body means there
+      // is nothing to bind and no payload tag is required.
       const auth = await verifyNip98(request, bodyBytes.length > 0 ? { bodyBytes } : {});
       if (!auth.ok) {
         console.warn(`[Live] NIP-98 rejected (${auth.reason}) on end`);

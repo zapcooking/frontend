@@ -13,7 +13,12 @@
  *    Authorization header only, and stops working when the session ends
  *    (the hash is cleared in the same statement that ends it).
  */
-import { LIVE_RECIPE_D_MAX, LIVE_RECIPE_KINDS, LIVE_TITLE_MAX } from './config';
+import {
+  LIVE_CREATES_PER_HOUR,
+  LIVE_RECIPE_D_MAX,
+  LIVE_RECIPE_KINDS,
+  LIVE_TITLE_MAX
+} from './config';
 
 export type LiveSessionStatus = 'created' | 'live' | 'ended';
 export type LiveEndReason = 'host' | 'timeout' | 'abandoned' | 'never_started' | 'admin' | 'error';
@@ -192,19 +197,6 @@ export async function getActiveSessionForHost(
     .first<LiveSessionRow>();
 }
 
-/** Sessions this host created since `sinceSeconds`, ended ones included. */
-export async function countRecentCreates(
-  db: LiveDb,
-  hostPubkey: string,
-  sinceSeconds: number
-): Promise<number> {
-  const row = await db
-    .prepare('SELECT COUNT(*) AS c FROM live_sessions WHERE host_pubkey = ?1 AND created_at > ?2')
-    .bind(hostPubkey, sinceSeconds)
-    .first<{ c: number }>();
-  return row?.c ?? 0;
-}
-
 /**
  * True only for a violation of live_sessions_one_active_idx, the partial
  * unique index on host_pubkey. SQLite (and D1) name the violated COLUMN in
@@ -222,36 +214,56 @@ export function isOneActiveViolation(err: unknown): boolean {
 
 export type CreateSessionResult =
   | { ok: true; session: LiveSessionRow; hostToken: string }
-  | { ok: false; reason: 'already_active' };
+  | { ok: false; reason: 'already_active' | 'rate_limited' };
 
 /**
- * Insert a new session in status 'created'. The partial unique index is
- * what guarantees one active session per host, so two simultaneous creates
- * cannot both succeed; the loser reports `already_active`. Every other
- * failure is rethrown.
+ * Insert a new session in status 'created', subject to two rules that are
+ * both enforced by the database in this ONE statement:
+ *
+ *  - Create rate limit. The row is inserted only if the host has created
+ *    fewer than LIVE_CREATES_PER_HOUR sessions in the last hour (ended
+ *    ones included). Counting and inserting in a single statement means
+ *    two simultaneous creates cannot both pass a stale count. No row
+ *    inserted → `rate_limited`.
+ *  - One session that has not ended per host, by the partial unique
+ *    index. A violation → `already_active`.
+ *
+ * Every other failure is rethrown.
  */
 export async function createSession(
   db: LiveDb,
-  input: { hostPubkey: string; title: string; recipeA: string | null; now?: number }
+  input: {
+    hostPubkey: string;
+    title: string;
+    recipeA: string | null;
+    now?: number;
+    maxPerHour?: number;
+  }
 ): Promise<CreateSessionResult> {
   const id = newSessionId();
   const hostToken = newHostToken();
   const hash = await hashHostToken(hostToken);
   const now = input.now ?? nowSeconds();
+  const maxPerHour = input.maxPerHour ?? LIVE_CREATES_PER_HOUR;
+  let inserted: number;
   try {
-    await db
+    const result = await db
       .prepare(
         `INSERT INTO live_sessions (id, host_pubkey, title, recipe_a, host_token_hash, status, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'created', ?6)`
+         SELECT ?1, ?2, ?3, ?4, ?5, 'created', ?6
+          WHERE (SELECT COUNT(*) FROM live_sessions
+                  WHERE host_pubkey = ?2 AND created_at > ?7) < ?8`
       )
-      .bind(id, input.hostPubkey, input.title, input.recipeA, hash, now)
+      .bind(id, input.hostPubkey, input.title, input.recipeA, hash, now, now - 3600, maxPerHour)
       .run();
+    inserted = result.meta?.changes ?? 0;
   } catch (err) {
     if (isOneActiveViolation(err)) return { ok: false, reason: 'already_active' };
     // Anything else (an id collision, a NOT NULL failure, a database
     // error) is not "this host already has a session" and must surface.
     throw err;
   }
+  if (inserted !== 1) return { ok: false, reason: 'rate_limited' };
   return {
     ok: true,
     hostToken,
