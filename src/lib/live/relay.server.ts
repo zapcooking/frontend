@@ -36,7 +36,13 @@ import {
   releasePublishLock,
   type LiveDb
 } from './sessions.server';
-import { createLiveInput, deleteLiveInput, relayOffer, type StreamConfig } from './stream.server';
+import {
+  createLiveInput,
+  deleteLiveInput,
+  inputNameFor,
+  relayOffer,
+  type StreamConfig
+} from './stream.server';
 
 export type PublishResult =
   | { ok: true; answer: ArrayBuffer }
@@ -50,9 +56,6 @@ export type PublishResult =
   | { ok: false; reason: 'unavailable' }
   /** Cloudflare refused this particular offer. Retrying it will not help. */
   | { ok: false; reason: 'offer_rejected' };
-
-/** Operator-facing name of a session's input. Never sent to a client. */
-export const inputNameFor = (sessionId: string) => `zc-live-${sessionId}`;
 
 /**
  * Delete an input that IS recorded on the row. On a confirmed delete the
@@ -94,7 +97,7 @@ async function discardUnrecorded(
   console.error(
     recorded
       ? `[Live] session ${id}: input not deleted after ${step}; recorded for the sweep`
-      : `[Live] session ${id}: ORPHAN input "${inputNameFor(id)}" not deleted after ${step} and not recordable; delete it by name`
+      : `[Live] session ${id}: ORPHAN input "${inputNameFor(cfg, id)}" not deleted after ${step} and not recordable; delete it by name`
   );
 }
 
@@ -132,7 +135,7 @@ export async function publishSession(
     }
 
     // 2. Create a fresh input.
-    const created = await createLiveInput(cfg, inputNameFor(id));
+    const created = await createLiveInput(cfg, inputNameFor(cfg, id));
     if (!created.ok) {
       await releasePublishLock(db, id, nonce);
       return { ok: false, reason: 'unavailable' };

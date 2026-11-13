@@ -16,6 +16,7 @@
  *
  * Checks, in order, fail-fast:
  *   database bound                         → 500 not_configured
+ *   Go live switched off (admin)           → 503 live_off
  *   body over 4 KB (enforced while reading) → 413 too_large
  *   NIP-98                                 → 401 auth_failed (coarse; reason logged only)
  *   body shape, title, recipe address      → 400 bad_request | bad_title | bad_recipe
@@ -36,6 +37,7 @@ import { checkMembership } from '$lib/membershipApi.server';
 import { isLiveHost } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
+import { isLiveOff } from '$lib/live/killSwitch.server';
 import {
   createSession,
   getActiveSessionForHost,
@@ -53,6 +55,11 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     if (!db) {
       console.error('[Live] SCHEDULER_DB not configured');
       return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
+    }
+
+    // Global off switch. Checked before anything is read.
+    if (await isLiveOff(platform)) {
+      return json({ error: 'live_off' }, { status: 503, headers: NO_STORE });
     }
 
     // Size cap FIRST, and enforced while the body is read: nothing over

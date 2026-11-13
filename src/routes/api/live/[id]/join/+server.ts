@@ -38,6 +38,7 @@
  *   415 unsupported_media_type   Content-Type is not application/sdp
  *   422 offer_rejected           Cloudflare refused this offer
  *   503 stream_unavailable *     Cloudflare failed or did not answer
+ *   503 live_off                 Go live is switched off (admin). No retry flag.
  *   500 not_configured           the database is not bound
  * Replies marked * mean "try again": they carry `retry: true` and a
  * Retry-After header.
@@ -49,6 +50,7 @@ import { checkMembership } from '$lib/membershipApi.server';
 import { LIVE_OFFER_MAX_BYTES, LIVE_RETRY_AFTER_SECONDS, parseGuestCap } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
+import { isLiveOff } from '$lib/live/killSwitch.server';
 import {
   countCapRefusal,
   getRelayState,
@@ -95,6 +97,11 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
     if (!db) {
       console.error('[Live] SCHEDULER_DB not configured');
       return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
+    }
+
+    // Global off switch: nobody joins while it is set.
+    if (await isLiveOff(platform)) {
+      return json({ error: 'live_off' }, { status: 503, headers: NO_STORE });
     }
 
     const id = params.id ?? '';

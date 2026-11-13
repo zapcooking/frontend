@@ -29,6 +29,7 @@
  *   422 offer_rejected           Cloudflare refused this offer
  *   429 publish_limit            the session used all its publish attempts
  *   503 stream_unavailable *     Cloudflare failed or is not configured
+ *   503 live_off                 Go live is switched off (admin). No retry flag.
  *   500 not_configured           the database is not bound
  * Replies marked * mean "try again": they carry `retry: true` and a
  * Retry-After header. A Cloudflare failure is never a 500, and the
@@ -38,6 +39,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { isLiveHost, LIVE_OFFER_MAX_BYTES, LIVE_RETRY_AFTER_SECONDS } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
+import { isLiveOff } from '$lib/live/killSwitch.server';
 import { publishSession } from '$lib/live/relay.server';
 import {
   getSession,
@@ -59,6 +61,11 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
     if (!db) {
       console.error('[Live] SCHEDULER_DB not configured');
       return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
+    }
+
+    // Global off switch: nobody goes live while it is set.
+    if (await isLiveOff(platform)) {
+      return json({ error: 'live_off' }, { status: 503, headers: NO_STORE });
     }
 
     const row = await getSession(db, params.id ?? '');
