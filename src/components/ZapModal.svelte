@@ -65,6 +65,15 @@
   export let pollMinSats: number | undefined = undefined;
   export let pollMaxSats: number | undefined = undefined;
   export let pollEventKind: number | undefined = undefined;
+  /** Extra zap request tags, e.g. the theme a Theme Gallery unlock pays for. */
+  export let extraTags: string[][] | undefined = undefined;
+  /** Charge exactly this many sats: hides the presets and the amount field. */
+  export let fixedAmount: number | undefined = undefined;
+  /** Offer the sign-in-free anonymous zap (off when the zap must name the payer). */
+  export let allowAnonymous = true;
+  export let title = 'Zap';
+  /** One line saying what the zap is for, shown above the payment controls. */
+  export let purposeLabel: string | undefined = undefined;
 
   let amount: number = 21;
 
@@ -89,6 +98,7 @@
   }
 
   $: isPollMode = pollOptionId != null;
+  $: if (fixedAmount) amount = fixedAmount;
   $: pollPresets = isPollMode ? getZapPollPresets(pollMinSats || 1, pollMaxSats) : [];
 
   // Set default amount to min sats when entering poll mode
@@ -268,6 +278,16 @@
     zapManager.prefetchZap(event);
   }
 
+  function zapRequestTags(): string[][] | undefined {
+    const tags = [
+      ...(pollOptionId
+        ? [['poll_option', pollOptionId], ...(pollEventKind ? [['k', String(pollEventKind)]] : [])]
+        : []),
+      ...(extraTags ?? [])
+    ];
+    return tags.length ? tags : undefined;
+  }
+
   async function submitZap() {
     // If user has an in-app wallet, use it directly
     if (hasInAppWallet) {
@@ -319,16 +339,14 @@
     isSendingInApp = true;
     sendingOpId = addPendingOp('Sending zap ⚡');
     startPendingTimeout();
-    const extraTags = pollOptionId
-      ? [['poll_option', pollOptionId], ...(pollEventKind ? [['k', String(pollEventKind)]] : [])]
-      : undefined;
+    const requestTags = zapRequestTags();
 
     const outcome = await runInAppZap({
       availability: walletAvailability,
       ensureReady: ensurePaymentWalletReady,
       createInvoice: async () => {
         if (!zapManager) throw new Error('Zap manager not initialized. Please try again.');
-        const zap = await zapManager.createZap(recipientPubkey, amount * 1000, message, eventId, extraTags);
+        const zap = await zapManager.createZap(recipientPubkey, amount * 1000, message, eventId, requestTags);
         return zap.invoice;
       },
       // The user-typed message becomes both `comment` (rendered in italics in
@@ -397,15 +415,13 @@
 
 
       // Get the invoice from zapManager
-      const extraTags = pollOptionId
-        ? [['poll_option', pollOptionId], ...(pollEventKind ? [['k', String(pollEventKind)]] : [])]
-        : undefined;
+      const requestTags = zapRequestTags();
       const zapResult = await zapManager.createZap(
         recipientPubkey,
         amount * 1000,
         message,
         eventId,
-        extraTags,
+        requestTags,
         { anonymous }
       );
 
@@ -459,7 +475,7 @@
 
 {#if !awaitingAuth && !awaitingWallet}
 <Modal bind:open>
-  <h1 slot="title">Zap</h1>
+  <h1 slot="title">{title}</h1>
   <div class="flex flex-col gap-3">
     {#if state == 'pre'}
       <div class="flex flex-col gap-3">
@@ -476,6 +492,10 @@
             </p>
           {/if}
         {/if}
+        {#if purposeLabel}
+          <p class="text-sm" style="color: var(--color-text-secondary)">{purposeLabel}</p>
+        {/if}
+        {#if !fixedAmount}
         <div class="grid grid-cols-4 gap-2">
           {#if isPollMode && pollPresets.length > 0}
             {#each pollPresets as preset}
@@ -508,6 +528,7 @@
           {/if}
         </div>
         <input type="text" class="input" bind:value={amount} />
+        {/if}
         <textarea rows="2" class="input" bind:value={message} placeholder="Message (optional)" />
       </div>
       {#if !$signedIn}
@@ -515,6 +536,7 @@
           <Button class="w-full py-3 text-lg" on:click={signInToZap}>
             Sign in to zap as you
           </Button>
+          {#if allowAnonymous}
           <button
             type="button"
             class="w-full py-2.5 rounded-xl text-sm font-medium bg-input hover:bg-accent-gray transition-colors disabled:opacity-50"
@@ -532,6 +554,7 @@
             Anonymous zaps don't show your name. Pay by scanning a QR code, copying the invoice,
             or with a browser wallet.
           </p>
+          {/if}
         </div>
       {:else}
       <div class="flex flex-col gap-3">
@@ -580,7 +603,7 @@
               Creating Invoice...
             </span>
           {:else}
-            ⚡ {pollOptionId ? 'Zap Vote' : 'Send'} {amount.toLocaleString()} sats
+            ⚡ {pollOptionId ? 'Zap Vote' : fixedAmount ? 'Pay' : 'Send'} {amount.toLocaleString()} sats
           {/if}
         </Button>
       </div>
