@@ -64,6 +64,8 @@ export interface HostProfile {
   name: string | null;
   displayName: string | null;
   picture: string | null;
+  /** Lightning address (NIP-57 zap target), when the profile declares one. */
+  lud16: string | null;
 }
 
 /** Parse a kind:0 payload into the display fields the player shows. */
@@ -78,7 +80,8 @@ export function parseProfileContent(raw: string): HostProfile {
   return {
     name: str(data.name),
     displayName: str(data.display_name),
-    picture: str(data.picture)
+    picture: str(data.picture),
+    lud16: str(data.lud16)
   };
 }
 
