@@ -8,10 +8,12 @@
   export let linked = true;
 
   let unwatch: (() => void) | null = null;
-  $: if (pubkey && !unwatch) unwatch = watchLiveNow(pubkey);
-  $: if (!pubkey && unwatch) {
-    unwatch();
+  let watched: string | null = null;
+  $: if (pubkey !== watched) {
+    unwatch?.();
     unwatch = null;
+    watched = pubkey || null;
+    if (pubkey) unwatch = watchLiveNow(pubkey);
   }
   onDestroy(() => {
     unwatch?.();

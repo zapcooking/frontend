@@ -37,7 +37,7 @@
 
   {#if item.categories.length}
     <p class="mt-2 flex flex-wrap gap-1.5">
-      {#each item.categories as category (category)}
+      {#each [...new Set(item.categories)] as category (category)}
         <span
           class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
         >

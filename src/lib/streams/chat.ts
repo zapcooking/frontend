@@ -167,16 +167,45 @@ export async function fetchChatPage(opts: {
   timeout?: number;
 }): Promise<ChatPage> {
   const { pool, sources, address, signal, until, pageSize = 50, timeout = 6500 } = opts;
-  const filter: Filter = { kinds: [CHAT_KIND], '#a': [address], limit: pageSize };
-  if (until != null) filter.until = until;
+
+  // Per-relay cursors: each relay walks backward with its OWN boundary
+  // (inclusive, deduped by id) until it fills its share or runs dry. A
+  // shared global cursor skips messages whenever one relay's page is older
+  // than another's — small relays would lose their tail forever.
+  const perRelay = Math.ceil(pageSize / Math.max(1, sources.length));
+  const rounds = 4;
   const results = await Promise.all(
-    sources.map((relay) => relayPage<NostrEventLike>(pool, relay, filter, signal, timeout))
+    sources.map(async (relay): Promise<RelayPageResult<NostrEventLike>> => {
+      const collected: NostrEventLike[] = [];
+      const seen = new Set<string>();
+      let cursor = until;
+      let complete = false;
+      for (let round = 0; round < rounds && collected.length < perRelay; round++) {
+        const filter: Filter = { kinds: [CHAT_KIND], '#a': [address], limit: perRelay };
+        if (cursor != null) filter.until = cursor;
+        const page = await relayPage<NostrEventLike>(pool, relay, filter, signal, timeout);
+        const fresh = page.events.filter((e) => {
+          if (seen.has(e.id)) return false;
+          seen.add(e.id);
+          return cursor == null || e.created_at <= cursor;
+        });
+        collected.push(...fresh);
+        if (!fresh.length) {
+          complete = page.complete;
+          break;
+        }
+        complete = page.complete;
+        cursor = Math.min(...fresh.map((e) => e.created_at));
+        if (round === rounds - 1) complete = false;
+      }
+      return { events: collected, complete };
+    })
   );
   const merged = [
     ...new Map(
       results.flatMap((r: RelayPageResult<NostrEventLike>) => r.events).map((e) => [e.id, e])
     ).values()
-  ];
+  ].sort((a, b) => a.created_at - b.created_at);
   return {
     events: merged,
     complete: results.every((r) => r.complete),

@@ -75,7 +75,10 @@ export class ZapManager {
     string,
     { address: string; payRequest: LNURLPayRequest; expiresAt: number }
   >();
-  private static lnurlInflight = new Map<string, Promise<{ address: string; payRequest: LNURLPayRequest }>>();
+  private static lnurlInflight = new Map<
+    string,
+    Promise<{ address: string; payRequest: LNURLPayRequest }>
+  >();
 
   private resolveZapTargetCached(
     pubkey: string,
@@ -148,7 +151,11 @@ export class ZapManager {
       const lnurl = this.getLnurlFromAddress(lightningAddress);
       const payRequest = await this.fetchLnurlPayRequest(lnurl);
 
-      const entry = { address: lightningAddress, payRequest, expiresAt: Date.now() + ZapManager.LNURL_CACHE_TTL_MS };
+      const entry = {
+        address: lightningAddress,
+        payRequest,
+        expiresAt: Date.now() + ZapManager.LNURL_CACHE_TTL_MS
+      };
       if (ZapManager.lnurlCache.size >= ZapManager.LNURL_CACHE_MAX) {
         // Drop the oldest entry (Map iterates in insertion order).
         const oldest = ZapManager.lnurlCache.keys().next().value;
@@ -205,8 +212,15 @@ export class ZapManager {
       // cross-origin browser fetches per visitor (cookie/fingerprint
       // based), which killed the invoice even though the provider worked
       // server-side.
-      const proxied = `/api/lnurl?url=${encodeURIComponent(lnurl)}`;
-      const response = await fetch(proxied);
+      const nativeShell =
+        typeof window !== 'undefined' &&
+        Boolean(
+          (
+            window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }
+          ).Capacitor?.isNativePlatform?.()
+        );
+      const target = nativeShell ? lnurl : `/api/lnurl?url=${encodeURIComponent(lnurl)}`;
+      const response = await fetch(target);
       if (!response.ok) {
         throw new Error(`LNURL request failed: ${response.status} ${response.statusText}`);
       }
@@ -303,7 +317,9 @@ export class ZapManager {
 
     // Validate amount
     if (amount < lnurlPayRequest.minSendable || amount > lnurlPayRequest.maxSendable) {
-      throw new Error(`Amount ${amount} is outside allowed range ${lnurlPayRequest.minSendable}-${lnurlPayRequest.maxSendable}`);
+      throw new Error(
+        `Amount ${amount} is outside allowed range ${lnurlPayRequest.minSendable}-${lnurlPayRequest.maxSendable}`
+      );
     }
 
     // NIP-57 `lnurl` tag: the bech32-encoded LNURL-pay URL (the endpoint
@@ -342,10 +358,9 @@ export class ZapManager {
     // Create callback URL with parameters
     const callbackUrl = new URL(lnurlPayRequest.callback);
     callbackUrl.searchParams.set('amount', amount.toString());
-    
+
     const zapRequestJson = JSON.stringify(zapRequest.rawEvent());
     callbackUrl.searchParams.set('nostr', zapRequestJson);
-
 
     try {
       // Add timeout to prevent hanging (getalby's slow-400 on a broken
@@ -353,20 +368,33 @@ export class ZapManager {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
 
-      const response = await fetch(`/api/lnurl?url=${encodeURIComponent(callbackUrl.toString())}`, {
-        signal: controller.signal
-      });
-      
+      // Packaged builds (Capacitor) have no server — fetch the provider
+      // directly; the web app routes through its same-origin LNURL proxy
+      // (providers' nginx 403 cross-origin browser fetches per visitor).
+      const nativeShell =
+        typeof window !== 'undefined' &&
+        Boolean(
+          (
+            window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }
+          ).Capacitor?.isNativePlatform?.()
+        );
+      const invoiceUrl = nativeShell
+        ? callbackUrl.toString()
+        : `/api/lnurl?url=${encodeURIComponent(callbackUrl.toString())}`;
+      const response = await fetch(invoiceUrl, { signal: controller.signal });
+
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Callback error response:', errorText);
-        throw new Error(`Invoice request failed: ${response.status} ${response.statusText} - ${errorText}`);
+        throw new Error(
+          `Invoice request failed: ${response.status} ${response.statusText} - ${errorText}`
+        );
       }
 
       const data = await response.json();
-      
+
       if (data.status === 'ERROR') {
         throw new Error(`Invoice error: ${data.reason}`);
       }
@@ -374,7 +402,6 @@ export class ZapManager {
       if (!data.pr) {
         throw new Error('No invoice (pr) returned from callback');
       }
-
 
       return {
         pr: data.pr,
@@ -384,11 +411,11 @@ export class ZapManager {
     } catch (error: unknown) {
       console.error('Error in callback request:', error);
       const err = error instanceof Error ? error : new Error(String(error));
-      
+
       if (err.name === 'AbortError') {
         throw new Error('Invoice request timed out after 20 seconds');
       }
-      
+
       throw new Error(`Failed to get invoice: ${err.message}`);
     }
   }
@@ -451,18 +478,25 @@ export class ZapManager {
     // Profile fetch + LNURL resolution, cached per recipient (see
     // resolveZapTargetCached). The modal's prefetch usually has this
     // resolved before the user even clicks an amount.
-    const { payRequest: lnurlPayRequest } = await this.resolveZapTargetCached(pubkey, opts?.knownLud16);
+    const { payRequest: lnurlPayRequest } = await this.resolveZapTargetCached(
+      pubkey,
+      opts?.knownLud16
+    );
 
     // Validate Nostr support
     if (!lnurlPayRequest.allowsNostr || !lnurlPayRequest.nostrPubkey) {
-      throw new Error(`LNURL endpoint does not support Nostr zaps. allowsNostr: ${lnurlPayRequest.allowsNostr}, nostrPubkey: ${lnurlPayRequest.nostrPubkey}`);
+      throw new Error(
+        `LNURL endpoint does not support Nostr zaps. allowsNostr: ${lnurlPayRequest.allowsNostr}, nostrPubkey: ${lnurlPayRequest.nostrPubkey}`
+      );
     }
 
     // NIP-57: The zap request `p` tag MUST be the recipient's pubkey,
     // not the LNURL provider's nostrPubkey. The LNURL nostrPubkey is
     // only used by the provider to sign the zap receipt (kind 9735).
     if (lnurlPayRequest.nostrPubkey !== pubkey) {
-      console.log(`LNURL nostrPubkey (${lnurlPayRequest.nostrPubkey}) differs from recipient (${pubkey}) — using recipient per NIP-57`);
+      console.log(
+        `LNURL nostrPubkey (${lnurlPayRequest.nostrPubkey}) differs from recipient (${pubkey}) — using recipient per NIP-57`
+      );
     }
 
     // Create zap request with the actual recipient's pubkey
@@ -502,8 +536,8 @@ export class ZapManager {
     }
 
     // Check for required tags (NIP-57: bolt11 and description are required, preimage is optional)
-    const bolt11Tags = zapReceipt.tags.filter(tag => tag[0] === 'bolt11');
-    const descriptionTags = zapReceipt.tags.filter(tag => tag[0] === 'description');
+    const bolt11Tags = zapReceipt.tags.filter((tag) => tag[0] === 'bolt11');
+    const descriptionTags = zapReceipt.tags.filter((tag) => tag[0] === 'description');
 
     if (bolt11Tags.length === 0 || descriptionTags.length === 0) {
       return false;
@@ -513,7 +547,7 @@ export class ZapManager {
     if (originalZapRequest) {
       const description = descriptionTags[0][1];
       const originalZapRequestJson = JSON.stringify(originalZapRequest.rawEvent());
-      
+
       if (description !== originalZapRequestJson) {
         return false;
       }
@@ -553,10 +587,10 @@ export class ZapManager {
     }
 
     console.log('Subscribing to zap receipts with filter:', filter);
-    
+
     // Add a small delay before subscribing to avoid receiving the zap request itself
     const subscription = this.ndk.subscribe(filter, { closeOnEose: false });
-    
+
     // Set up timeout
     const timeout = setTimeout(() => {
       console.warn('Zap receipt subscription timed out after', timeoutMs, 'ms');
@@ -566,14 +600,14 @@ export class ZapManager {
         onReceipt(null as any);
       }
     }, timeoutMs);
-    
+
     subscription.on('event', async (receipt: NDKEvent) => {
       // With the 'since' filter, we should only receive recent events
       if (receipt.kind !== 9735) return;
 
       // Check if this receipt has payment-related tags
-      const hasBolt11 = receipt.tags.some(tag => tag[0] === 'bolt11');
-      const hasDescription = receipt.tags.some(tag => tag[0] === 'description');
+      const hasBolt11 = receipt.tags.some((tag) => tag[0] === 'bolt11');
+      const hasDescription = receipt.tags.some((tag) => tag[0] === 'description');
 
       if (hasBolt11 || hasDescription) {
         console.log('Zap receipt received, forwarding to callback for invoice matching');
@@ -604,14 +638,14 @@ export class ZapManager {
     }
 
     console.log('Fetching zap totals with filter:', filter);
-    
+
     try {
       let total = 0;
       let count = 0;
-      
+
       const subscription = this.ndk.subscribe(filter, { closeOnEose: false });
       let resolved = false;
-      
+
       await new Promise<void>((resolve) => {
         subscription.on('event', (receipt: any) => {
           // Bolt11 multipliers (m/u/n/p) and the msats→sats conversion are
@@ -625,7 +659,7 @@ export class ZapManager {
             count++;
           }
         });
-        
+
         subscription.on('eose', () => {
           if (!resolved) {
             resolved = true;
@@ -635,7 +669,7 @@ export class ZapManager {
             resolve();
           }
         });
-        
+
         // Timeout after 5 seconds
         setTimeout(() => {
           if (!resolved) {
@@ -653,5 +687,4 @@ export class ZapManager {
       return { count: 0, total: 0 };
     }
   }
-
 }

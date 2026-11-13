@@ -19,10 +19,14 @@
   export let className: string = '';
 
   let unwatch: (() => void) | null = null;
-  $: if (pubkey && !unwatch) unwatch = watchLiveNow(pubkey);
-  $: if (!pubkey && unwatch) {
-    unwatch();
+  let watched: string | null = null;
+  // Re-subscribe whenever the pubkey changes — including nonempty →
+  // nonempty — so a reused avatar never keeps polling a previous host.
+  $: if (pubkey !== watched) {
+    unwatch?.();
     unwatch = null;
+    watched = pubkey || null;
+    if (pubkey) unwatch = watchLiveNow(pubkey);
   }
   onDestroy(() => {
     unwatch?.();

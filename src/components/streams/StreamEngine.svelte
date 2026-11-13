@@ -31,6 +31,7 @@
   let appliedGeneration = -1;
   let appliedUrl: string | null = null;
   let autoplayRejected = false;
+  let paused = true;
   let inPictureInPicture = false;
 
   const isDirectFile = (url: string) => /\.(mp4|webm|ogv)(?:[?#]|$)/i.test(url);
@@ -197,18 +198,47 @@
     use:bindVideo
     class="h-full w-full"
     playsinline
-    on:playing={() => setStreamStatus('playing')}
+    on:playing={() => {
+      setStreamStatus('playing');
+      paused = false;
+    }}
+    on:pause={() => (paused = true)}
     on:waiting={() => setStreamStatus('buffering')}
     on:error={handleError}
     on:timeupdate={() => {
       const item = $streamPlayer.item;
       if (video && item?.status === 'ended') setStreamPosition(video.currentTime);
     }}
+    on:playing={() => (paused = false)}
+    on:pause={() => (paused = true)}
     on:click={() => {
       if (video?.paused) video.play().catch(() => {});
       else video?.pause();
     }}
   ></video>
+  <!-- Persistent keyboard-accessible play/pause: the video's own click
+       handler stays for pointer users; this labeled button serves
+       keyboard and screen-reader users at all times. -->
+  <button
+    type="button"
+    class="pointer-events-auto absolute bottom-3 left-3 rounded-full bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
+    aria-label={paused ? 'Play stream' : 'Pause stream'}
+    title={paused ? 'Play' : 'Pause'}
+    on:click|stopPropagation={() => {
+      if (video?.paused) video.play().catch(() => {});
+      else video?.pause();
+    }}
+  >
+    {#if paused}
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    {:else}
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+      </svg>
+    {/if}
+  </button>
   {#if $streamPlayer.item}
     <div class="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
       <span

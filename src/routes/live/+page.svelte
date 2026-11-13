@@ -203,7 +203,7 @@
               {item.title}
             </p>
             <p class="mt-1 flex items-center gap-1.5 text-xs" style="color: var(--color-caption);">
-              <Avatar pubkey={item.host} size={16} alt={hostName(item.host)} />
+              <Avatar pubkey={item.host} size={16} alt={hostName(item.host)} interactive={false} />
               <span class="truncate">{hostName(item.host)}</span>
               {#if item.status === 'live' && runtime(item.starts)}
                 · {runtime(item.starts)?.days

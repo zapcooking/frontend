@@ -16,10 +16,14 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import Avatar from '../Avatar.svelte';
   import PaperPlaneTiltIcon from 'phosphor-svelte/lib/PaperPlaneTilt';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { ndk } from '$lib/nostr';
   import { mutedPubkeys } from '$lib/muteListStore';
   import { extractZapAmountSats } from '$lib/zapAmount';
   import { openProfilePreview } from '$lib/stores/profilePreview';
+  import { signedIn } from '$lib/auth/requireAuth';
+  import { requireAuth } from '$lib/auth/requireAuth';
+  import { ZapTotals } from '$lib/streams/zapTotals';
+  import { resolveZapProvider } from '$lib/streams/zapProvider';
   import {
     ChatMessages,
     chatReplyParent,
@@ -66,7 +70,62 @@
   let profileTimer: ReturnType<typeof setTimeout> | null = null;
   /** Kind:9735 receipts targeting the stream, interleaved into the log. */
   let receipts = new Map<string, NostrEventLike>();
+  /** Chronological eviction: bounded live-receipt cache. */
+  const RECEIPT_CACHE_MAX = 500;
   let receiptSub: { close: () => void } | null = null;
+  /** Per-component verified receipt store — forged rows can't get in. */
+  let totals = new ZapTotals();
+  let chatProvider: string | null = null;
+  let chatProviderResolved = false;
+  async function resolveChatProvider() {
+    if (chatProviderResolved) return chatProvider;
+    chatProviderResolved = true;
+    try {
+      chatProvider = (
+        await resolveZapProvider(
+          pool,
+          [...new Set([...sources, ...(item.relays || [])])],
+          item.host,
+          new AbortController().signal
+        )
+      ).nostrPubkey;
+      totals = new ZapTotals();
+    } catch {
+      chatProvider = null;
+    }
+    return chatProvider;
+  }
+
+  /**
+   * A receipt is only accepted when the host's provider signed it and the
+   * embedded request targets this stream — anything else is a forgeable
+   * row and stays out of the timeline.
+   */
+  async function acceptReceipt(event: NostrEventLike): Promise<boolean> {
+    const provider = await resolveChatProvider();
+    if (!provider) return false;
+    const accepted = await totals.accept(event, {
+      address,
+      recipient: item.host,
+      provider,
+      verify: verifyEvent as never,
+      digest: (text) =>
+        crypto.subtle
+          .digest('SHA-256', new TextEncoder().encode(text))
+          .then((bytes) =>
+            [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('')
+          )
+    });
+    if (!accepted) return false;
+    // Bound the cache: drop the oldest receipts once past the cap.
+    if (receipts.size >= RECEIPT_CACHE_MAX) {
+      const oldest = model.rows()[0];
+      void oldest;
+      const keys = [...receipts.keys()].slice(0, receipts.size - RECEIPT_CACHE_MAX + 1);
+      for (const k of keys) receipts.delete(k);
+    }
+    return true;
+  }
   /**
    * Where receipts are listened for. Widened after open with the exact
    * relays a zap from THIS user targets (NIP-65 outbox): the provider
@@ -100,6 +159,8 @@
   }
 
   function receiptRow(event: NostrEventLike): TimelineRow | null {
+    // Amounts were verified at acceptReceipt time via ZapTotals' invoice
+    // parser; the row only needs sender + comment for display.
     const { sats } = extractZapAmountSats(event);
     if (sats <= 0) return null;
     let sender: string | null = null;
@@ -134,7 +195,9 @@
   /** Uniform placeholder circle behind chat avatars (grey glyph inside). */
   const AVATAR_PLACEHOLDER_BG = '#3b82f6';
 
-  $: signingIn = !$userPublickey;
+  // userPublickey can be restored while the passkey vault is locked —
+  // signedIn reflects an actual usable session.
+  $: signingIn = !get(signedIn);
 
   // Top-zapper chips show real names: fold them into the batched lookups.
   $: scheduleProfiles(topZappers.map((z) => z.pubkey));
@@ -181,10 +244,13 @@
     if (profileKeysPending.size && !profileTimer) profileTimer = setTimeout(flushProfiles, 250);
   }
 
-  function repaint() {
+  function repaint(forceScroll = false) {
+    const logEl = log;
+    const wasAtBottom = !logEl || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80;
     rows = timelineFromModel();
     scheduleProfiles([...new Set(rows.map((row) => row.sender || row.event.pubkey))]);
-    scrollToBottom();
+    if (forceScroll || wasAtBottom) scrollToBottom();
+    // When prepending history while reading, keep the reader's place.
   }
 
   /** Recent receipts so the log opens with the zap history, like Sidecar. */
@@ -196,7 +262,7 @@
         { maxWait: 5000 }
       )) as unknown as NostrEventLike[];
       for (const event of events) {
-        if (receiptRow(event)) receipts.set(event.id, event);
+        if (await acceptReceipt(event)) receipts.set(event.id, event);
       }
       repaint();
     } catch {
@@ -216,10 +282,12 @@
       {
         onevent: (event: unknown) => {
           const e = event as NostrEventLike;
-          if (receiptRow(e)) {
-            receipts.set(e.id, e);
-            repaint();
-          }
+          acceptReceipt(e).then((ok) => {
+            if (ok) {
+              receipts.set(e.id, e);
+              repaint();
+            }
+          });
         }
       } as never
     );
@@ -235,6 +303,9 @@
     if (historyBusy) return;
     historyBusy = true;
     loading = loading && latest;
+    // Preserve the reader's position across a prepended history page.
+    const logEl = log;
+    const anchor = logEl ? logEl.scrollHeight - logEl.scrollTop : null;
     const oldest = model.rows()[0];
     try {
       const pageResult = await fetchChatPage({
@@ -247,8 +318,11 @@
       });
       for (const event of pageResult.events) model.accept(event, verifyEvent);
       historyComplete = pageResult.complete && !pageResult.events.length;
-      repaint();
+      await tick();
+      // Keep the reader's place when a page prepends above the viewport.
+      if (logEl && anchor != null && !latest) logEl.scrollTop = logEl.scrollHeight - anchor;
       if (!pageResult.complete) setNotice('Some chat relays are unavailable — retrying…', 7000);
+      repaint();
     } catch {
       setNotice('Could not load chat. Try again.', 7000);
     } finally {
@@ -293,13 +367,17 @@
     const text = draft.trim();
     const ndkInstance = get(ndk);
     if (!text || sending || !ndkInstance) return;
+    const ok = await requireAuth({ kind: 'post', reason: 'post in live chat' });
+    if (!ok) return;
     sending = true;
     setNotice('Sending…');
     try {
+      // Reply to the message the user selected — not that message's own
+      // parent (chatReplyParent would climb the thread).
       const template = chatTemplate(
         address,
         text,
-        replyTo ? chatReplyParent(replyTo) || { id: replyTo.id, pubkey: replyTo.pubkey } : null
+        replyTo ? { id: replyTo.id, pubkey: replyTo.pubkey } : null
       );
       const event = new NDKEvent(ndkInstance, template as never);
       await event.sign();
@@ -312,7 +390,7 @@
       model.accept(event.rawEvent() as unknown as NostrEventLike, verifyEvent);
       draft = '';
       replyTo = null;
-      repaint();
+      repaint(true);
       setNotice('Sent', 2000);
     } catch {
       setNotice('Could not send. Check your connection and try again.', 7000);
@@ -375,6 +453,7 @@
               src={profiles.get(zapper.pubkey)?.picture || null}
               size={20}
               alt={name}
+              interactive={false}
             />
           </span>
           <span class="max-w-24 truncate" style="color: var(--color-text-primary);">{name}</span>

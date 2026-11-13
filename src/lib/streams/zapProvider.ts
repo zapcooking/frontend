@@ -41,16 +41,17 @@ export function declaredReadRelays(event: NostrEventLike | null): string[] {
 }
 
 async function fetchWithTimeout(
-  url: string,
+  _directUrl: string,
   signal: AbortSignal,
-  request: typeof fetch
+  request: typeof fetch,
+  requestUrl?: string
 ): Promise<Response> {
   const fetchAbort = new AbortController();
   const cancel = () => fetchAbort.abort();
   signal.addEventListener('abort', cancel, { once: true });
   const timeout = setTimeout(cancel, PROVIDER_FETCH_TIMEOUT_MS);
   try {
-    return await request(url, {
+    return await request(requestUrl ?? _directUrl, {
       signal: fetchAbort.signal,
       credentials: 'omit',
       referrerPolicy: 'no-referrer'
@@ -107,11 +108,23 @@ export async function resolveZapProvider(
     throw new Error('No zap provider');
   }
 
-  const response = await fetchWithTimeout(
-    `https://${parts[1]}/.well-known/lnurlp/${encodeURIComponent(parts[0])}`,
-    signal,
-    request
-  );
+  const lnurlDocUrl = `https://${parts[1]}/.well-known/lnurlp/${encodeURIComponent(parts[0])}`;
+  // Providers behind strict nginx 403 cross-origin browser fetches
+  // (visitor-dependent WAFs), so use the app's server proxy in the
+  // browser — matching zapManager's invoice routing. Native shells
+  // (Capacitor) have no server, so they fetch directly.
+  const nativeShell =
+    typeof window !== 'undefined' &&
+    Boolean(
+      (
+        window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }
+      ).Capacitor?.isNativePlatform?.()
+    );
+  const requestUrl = nativeShell
+    ? lnurlDocUrl
+    : `/api/lnurl?url=${encodeURIComponent(lnurlDocUrl)}`;
+
+  const response = await fetchWithTimeout(lnurlDocUrl, signal, request, requestUrl);
   if (!response.ok) throw new Error('Provider unavailable');
   const meta = (await response.json()) as Record<string, unknown>;
   if (

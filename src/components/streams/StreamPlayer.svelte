@@ -11,7 +11,7 @@
   import TextAlignLeftIcon from 'phosphor-svelte/lib/TextAlignLeft';
   import LiveAvatar from './LiveAvatar.svelte';
   import { pseudonym } from '$lib/streams/parse';
-  import { selectStream, streamPlayer } from '$lib/stores/streamPlayer';
+  import { selectStream, streamPlayer, updateStreamItem } from '$lib/stores/streamPlayer';
   import { streamSlot } from '$lib/stores/streamSlot';
   import { openProfilePreview } from '$lib/stores/profilePreview';
   import StreamZapTotal from './StreamZapTotal.svelte';
@@ -38,6 +38,9 @@
 
   // Browser-only: the player store is a client singleton; SSR must not touch it.
   if (browser) selectStream(item);
+  // Announcement refreshes (status/viewers/media URL) reach the running
+  // player; updateStreamItem's key guard preserves an explicitly stopped one.
+  $: if (browser && item) updateStreamItem(item);
 
   // The layout-level dock renders the video INTO this slot while it exists —
   // the element itself never remounts, so playback and picture-in-picture
@@ -164,10 +167,10 @@
     if (get(streamSlot) === slotEl) streamSlot.set(null);
   });
 
-  // Plain declarations, not reactive statements: tallyLoad() runs during
-  // init, before `$:` assignments would have fired.
-  let host = item.host;
-  let address = item.key;
+  // Derived from the current item: announcement refreshes can change the
+  // host `p` tag, and the displayed identity + zap recipient must follow.
+  $: host = item.host;
+  $: address = item.key;
 
   // Host identity read straight from relays (newest kind 0 wins). The
   // announcement's author is often a service account, and the app's NDK
@@ -224,7 +227,7 @@
       <StreamZapTotal
         {address}
         hostPubkey={host}
-        hostLud16={hostLud16}
+        {hostLud16}
         sats={tally?.totalSats ?? 0}
         count={tally?.zapCount ?? 0}
         loading={tallyLoading}

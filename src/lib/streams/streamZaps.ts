@@ -18,7 +18,7 @@ import { verifyEvent } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
 import { createStreamPool, relayPage } from './relayPage';
 import { resolveZapProvider } from './zapProvider';
-import { extraZapRelays, relayHints, zapHistory, ZapTotals } from './zapTotals';
+import { embeddedRequestOf, extraZapRelays, relayHints, zapHistory, ZapTotals } from './zapTotals';
 import { DISCOVERY_RELAYS, RECEIPT_RELAYS } from './relays';
 import type { NostrEventLike } from './types';
 
@@ -164,7 +164,8 @@ export async function scanStreamZapHistory(
     if (row.sender) {
       tally.satsByZapper.set(row.sender, (tally.satsByZapper.get(row.sender) || 0) + row.sats);
     }
-    for (const hint of relayHints(event)) hints.set(hint, (hints.get(hint) || 0) + 1);
+    for (const hint of relayHints(embeddedRequestOf(event)))
+      hints.set(hint, (hints.get(hint) || 0) + 1);
     return true;
   };
 
@@ -181,7 +182,8 @@ export async function scanStreamZapHistory(
       .then((ok) => {
         if (!ok) return false;
         seenIds.add(event.id);
-        for (const hint of relayHints(event)) hints.set(hint, (hints.get(hint) || 0) + 1);
+        for (const hint of relayHints(embeddedRequestOf(event)))
+          hints.set(hint, (hints.get(hint) || 0) + 1);
         return true;
       });
 
@@ -206,7 +208,10 @@ export async function scanStreamZapHistory(
     const query = (relay: string, filter: Record<string, unknown>) =>
       relayPage<NostrEventLike>(pool, relay, filter as Filter, signal, SCAN_PAGE_TIMEOUT_MS);
 
-    // Provider first: it decides verified vs accept-all counting.
+    // Provider first: it decides whether receipts are countable at all.
+    // When the provider cannot resolve for a hosted stream, verification is
+    // impossible — returning an empty tally (the page keeps its last
+    // verified result) is safer than accepting receipts from any signer.
     let provider: string | null = null;
     if (host) {
       try {
@@ -220,6 +225,13 @@ export async function scanStreamZapHistory(
         ).nostrPubkey;
       } catch {
         provider = null;
+      }
+      if (!provider) {
+        return {
+          tally: { totalSats: 0, zapCount: 0, satsByZapper: new Map() },
+          verified: false,
+          complete: false
+        };
       }
     }
     verified = !!provider;
@@ -261,6 +273,7 @@ export async function scanStreamZapHistory(
   }
 }
 
+/** The zap request embedded in a receipt's description tag, when valid. */
 /** Sats + sender of a receipt, for the fallback accept-all counter. */
 function receiptRowFor(event: NostrEventLike): { sats: number; sender: string | null } | null {
   const { sats } = extractZapAmountSats(event);

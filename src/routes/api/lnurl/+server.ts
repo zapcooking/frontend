@@ -8,23 +8,12 @@
  * the visitor's browser session entirely; the provider sees a clean
  * request from our origin.
  *
- * SSRF guard: https only, and hostnames that look like loopback, private,
- * or cloud-metadata targets are refused.
+ * SSRF guard: fetchWithSsrfGuard validates the initial URL and every
+ * redirect hop (https enforced at each hop; loopback/private/metadata —
+ * including private IPv6 literals — refused).
  */
 import { json, type RequestHandler } from '@sveltejs/kit';
-
-const PRIVATE_HOST_PATTERNS = [
-  /^localhost$/i,
-  /^127\./,
-  /^10\./,
-  /^192\.168\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^169\.254\./,
-  /^0\./,
-  /^\[?::1\]?$/,
-  /\.internal$/i,
-  /\.local$/i
-];
+import { SsrfGuardError, fetchWithSsrfGuard } from '$lib/urlGuard.server';
 
 const FORWARD_TIMEOUT_MS = 20000;
 
@@ -34,34 +23,24 @@ export const GET: RequestHandler = async ({ url }) => {
     return json({ error: 'Missing url parameter' }, { status: 400 });
   }
 
-  let parsed: URL;
-  try {
-    parsed = new URL(target);
-  } catch {
-    return json({ error: 'Invalid url' }, { status: 400 });
-  }
-
-  if (parsed.protocol !== 'https:') {
-    return json({ error: 'Only https urls are proxied' }, { status: 400 });
-  }
-  if (PRIVATE_HOST_PATTERNS.some((p) => p.test(parsed.hostname))) {
-    return json({ error: 'Refused' }, { status: 403 });
-  }
-
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FORWARD_TIMEOUT_MS);
   try {
-    const upstream = await fetch(parsed.toString(), {
-      headers: { Accept: 'application/json' },
+    const { response: upstream, finalUrl } = await fetchWithSsrfGuard(target, {
+      headers: { Accept: 'application/json', 'User-Agent': 'zap-cooking/1.0' },
       signal: controller.signal,
-      redirect: 'follow'
+      redirect: 'manual'
     });
     const body = await upstream.text();
+    console.log(`[lnurl-proxy] ${upstream.status} ${finalUrl.slice(0, 140)}`);
     return new Response(body, {
       status: upstream.status,
       headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
     });
   } catch (e) {
+    if (e instanceof SsrfGuardError) {
+      return json({ error: `Refused: ${e.message}` }, { status: 403 });
+    }
     const aborted = e instanceof Error && e.name === 'AbortError';
     return json(
       { error: aborted ? 'Upstream timeout' : 'Upstream request failed' },

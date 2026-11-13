@@ -77,9 +77,16 @@ async function flush(): Promise<void> {
 
     let fresh: Map<string, StreamItem> | null = null;
     try {
+      // Service-published announcements put the real host in a `p` tag
+      // rather than the author field, so match both.
       const events = (await getPool().querySync(
         DISCOVERY_RELAYS,
-        { kinds: [30311], authors: batch, limit: Math.max(100, batch.length) } as Filter,
+        {
+          kinds: [30311],
+          authors: batch,
+          '#p': batch,
+          limit: Math.max(100, batch.length * 2)
+        } as Filter,
         { maxWait: LOOKUP_MAX_WAIT_MS }
       )) as unknown as NostrEventLike[];
 
@@ -88,7 +95,10 @@ async function flush(): Promise<void> {
       const directory = new StreamDirectory(batch.length * 4);
       for (const event of events) directory.accept(event, now / 1000);
       fresh = new Map();
-      for (const item of directory.live(now / 1000)) fresh.set(item.host, item);
+      for (const item of directory.live(now / 1000)) {
+        // Only hosts the watcher actually asked about.
+        if (batch.includes(item.host)) fresh.set(item.host, item);
+      }
     } catch {
       // Relay failure: whatever we said before stands for another short TTL.
       for (const key of batch) {

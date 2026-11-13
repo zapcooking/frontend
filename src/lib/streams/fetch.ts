@@ -46,7 +46,14 @@ export async function fetchStreamItem(
   for (const event of events) {
     const item = parseStreamEvent(event);
     if (item?.key !== key) continue;
-    if (!winner || item.updated > winner.item.updated) winner = { item, event };
+    // Same-second replacements pick the smaller event ID, matching the
+    // directory's tie-breaker so player and directory agree.
+    if (
+      !winner ||
+      item.updated > winner.item.updated ||
+      (item.updated === winner.item.updated && String(event.id) < String(winner.event.id))
+    )
+      winner = { item, event };
   }
   return winner;
 }

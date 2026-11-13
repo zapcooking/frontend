@@ -120,7 +120,7 @@ export class ZapTotals {
       }
       const bolt11 = firstValue(receipt, 'bolt11');
       const invoice = bolt11 ? invoiceDetails(bolt11) : null;
-      if (!invoice || this.payments.has(invoice.paymentHash)) return false;
+      if (!invoice) return false;
       const requested = firstValue(request, 'amount');
       if (
         requested != null &&
@@ -139,6 +139,10 @@ export class ZapTotals {
       ) {
         return false;
       }
+      // Dedupe check lives AFTER the awaited digest: zapHistory scans relays
+      // concurrently, and two copies of one receipt can otherwise both pass
+      // the pre-await membership test and double-count.
+      if (this.payments.has(invoice.paymentHash)) return false;
       if (!Number.isSafeInteger(this.msats + invoice.msats)) return false;
       this.payments.add(invoice.paymentHash);
       this.msats += invoice.msats;
@@ -283,7 +287,22 @@ export function zapRelayUrl(value: string): string | null {
 }
 
 /** The relays a receipt's zap request asks to be published to, as clean URLs. */
-export function relayHints(request: NostrEventLike): string[] {
+/** The zap request embedded in a receipt's description tag, when valid. */
+export function embeddedRequestOf(receipt: NostrEventLike | null): NostrEventLike | null {
+  const desc = Array.isArray(receipt?.tags)
+    ? receipt.tags.find((t) => t[0] === 'description')
+    : null;
+  if (!desc?.[1]) return null;
+  try {
+    const request = JSON.parse(desc[1]) as NostrEventLike;
+    return request && typeof request === 'object' && Array.isArray(request.tags) ? request : null;
+  } catch {
+    return null;
+  }
+}
+
+export function relayHints(receiptOrRequest: NostrEventLike | null): string[] {
+  const request = embeddedRequestOf(receiptOrRequest) ?? receiptOrRequest;
   const found: string[] = [];
   for (const tag of Array.isArray(request?.tags) ? request.tags : []) {
     if (!Array.isArray(tag) || tag[0] !== 'relays') continue;

@@ -28,6 +28,7 @@
   } from '$lib/streams/streamZaps';
 
   const REFRESH_MS = 60000;
+  const TALLY_RESCAN_MS = 60000;
 
   let stream: ResolvedStream | null = null;
   let loading = true;
@@ -41,6 +42,7 @@
   let tally: StreamZapTally | null = null;
   let tallyLoading = false;
   let scanAbort: AbortController | null = null;
+  let tallyTimer: ReturnType<typeof setInterval> | null = null;
 
   $: topZappers = topZapperList(tally);
 
@@ -111,9 +113,21 @@
   load();
   if (browser) {
     refreshTimer = setInterval(() => load(false), REFRESH_MS);
+    // Other viewers' verified zaps reach the total + top-zappers strip.
+    tallyTimer = setInterval(() => {
+      if (stream && !tallyLoading && !document.hidden) {
+        tallyLoad(stream.item.key, stream.item.host, stream.item.relays || []);
+      }
+    }, TALLY_RESCAN_MS);
   }
+  // SvelteKit reuses this component when only the naddr changes — reload
+  // reactively so following another stream link swaps content immediately
+  // (with a fresh tally, not first=false's deferred one).
+  $: ($page.params.naddr, load(true));
   onDestroy(() => {
     if (refreshTimer) clearInterval(refreshTimer);
+    if (tallyTimer) clearInterval(tallyTimer);
+    scanAbort?.abort();
     pool?.destroy();
     pool = null;
   });
@@ -154,7 +168,7 @@
           chatMarker={chatSectionEl}
           {tally}
           {tallyLoading}
-          on:zap-complete={() => tallyLoad(item.key, item.host, item.relays || [])}
+          on:zapComplete={() => tallyLoad(item.key, item.host, item.relays || [])}
         />
       </div>
 
