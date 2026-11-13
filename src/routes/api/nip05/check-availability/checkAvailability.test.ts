@@ -26,14 +26,16 @@ beforeEach(() => {
 });
 
 describe('GET /api/nip05/check-availability', () => {
-  it.each(['live', 'watch', 'Live', 'admin'])('reports the reserved name %s as unavailable', async (name) => {
-    const { res, data } = await check(name);
-    expect(res.status).toBe(200);
-    expect(data).toEqual({
-      available: false,
-      username: name.toLowerCase(),
-      error: 'This username is reserved'
+  for (const name of ['live', 'watch', 'Live', 'admin']) {
+    it(`reports the reserved name ${name} as unavailable`, async () => {
+      const { res, data } = await check(name);
+      expect(res.status).toBe(200);
+      expect(data).toEqual({
+        available: false,
+        username: name.toLowerCase(),
+        error: 'This username is reserved'
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
     });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
+  }
 });
