@@ -30,6 +30,9 @@ build/
 # Claude Code
 CLAUDE.md
 
+# Local investigation notes and throwaway spikes (never committed)
+.scratch/
+
 # Local plans
 docs/plans/tanstack-query-migration.md
 
