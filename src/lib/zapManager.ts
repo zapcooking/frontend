@@ -9,6 +9,13 @@ import { extractZapAmountSats } from './zapAmount';
 
 export interface ZapRequest {
   eventId?: string;
+  /**
+   * Addressable-event target (NIP-01 `a` coordinate, e.g. a NIP-53 stream
+   * `30311:<pubkey>:<d>`). Emits the `a` tag plus a `k` tag with the target
+   * kind, and — unlike `eventId` — never an `e` tag, so receipts match the
+   * `#a` filters every NIP-53 client scans.
+   */
+  addressTag?: string;
   pubkey: string;
   amount: number; // in millisatoshis
   comment?: string;
@@ -174,6 +181,17 @@ export class ZapManager {
       zapRequest.tags.push(relayHint ? ['e', request.eventId, relayHint] : ['e', request.eventId]);
     }
 
+    // Addressable target (NIP-53 streams): the `a` coordinate plus the
+    // target kind, never an `e` tag. Receipts then carry `#a`, which is
+    // what zap.stream and every NIP-53 client match on.
+    if (request.addressTag) {
+      zapRequest.tags.push(['a', request.addressTag]);
+      const kind = request.addressTag.split(':')[0];
+      if (/^\d+$/.test(kind)) {
+        zapRequest.tags.push(['k', kind]);
+      }
+    }
+
     // Add relays tag (NIP-57: single tag with all relay URLs as values)
     if (request.relays && request.relays.length > 0) {
       zapRequest.tags.push(['relays', ...request.relays]);
@@ -313,7 +331,8 @@ export class ZapManager {
     amount: number,
     comment?: string,
     eventId?: string,
-    extraTags?: string[][]
+    extraTags?: string[][],
+    addressTag?: string
   ): Promise<{ invoice: string; verify?: string; zapRequest: NDKEvent; zapPubkey: string }> {
     // Check if user is authenticated (required for zap requests)
     if (!this.ndk.signer) {
@@ -343,6 +362,7 @@ export class ZapManager {
     // Create zap request with the actual recipient's pubkey
     const zapRequest = await this.createZapRequest({
       eventId,
+      addressTag,
       pubkey,
       amount,
       comment,

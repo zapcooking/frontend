@@ -57,6 +57,13 @@
   export let pollMinSats: number | undefined = undefined;
   export let pollMaxSats: number | undefined = undefined;
   export let pollEventKind: number | undefined = undefined;
+  /**
+   * Addressable target (e.g. a NIP-53 stream's `30311:<pubkey>:<d>`).
+   * Set instead of the event's id: the zap request carries the `a` (+ `k`)
+   * tag and no `e` tag, so the receipt matches the `#a` filters other
+   * NIP-53 clients scan.
+   */
+  export let addressTag: string | undefined = undefined;
 
   let amount: number = 21;
 
@@ -249,7 +256,7 @@
       eventId = undefined;
     } else if (event && event.author) {
       recipientPubkey = event.author?.hexpubkey || event.pubkey;
-      eventId = event.id;
+      eventId = addressTag ? undefined : event.id;
     } else {
       reportError('Invalid event or user provided to ZapModal');
       return;
@@ -270,7 +277,7 @@
       ensureReady: ensurePaymentWalletReady,
       createInvoice: async () => {
         if (!zapManager) throw new Error('Zap manager not initialized. Please try again.');
-        const zap = await zapManager.createZap(recipientPubkey, amount * 1000, message, eventId, extraTags);
+        const zap = await zapManager.createZap(recipientPubkey, amount * 1000, message, eventId, extraTags, addressTag);
         return zap.invoice;
       },
       // The user-typed message becomes both `comment` (rendered in italics in
@@ -326,7 +333,7 @@
         eventId = undefined;
       } else if (event && event.author) {
         recipientPubkey = event.author?.hexpubkey || event.pubkey;
-        eventId = event.id;
+        eventId = addressTag ? undefined : event.id;
       } else {
         throw new Error('Invalid event or user provided to ZapModal');
       }
@@ -346,7 +353,8 @@
         amount * 1000,
         message,
         eventId,
-        extraTags
+        extraTags,
+        addressTag
       );
 
       isCreatingInvoice = false;

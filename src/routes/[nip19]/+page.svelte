@@ -421,6 +421,12 @@
       // Decode the NIP-19 identifier
       decoded = nip19.decode(nip19Id);
 
+      // Live streams have their own page (player + chat surface).
+      if (decoded.type === 'naddr' && (decoded as nip19.DecodedNaddr).data.kind === 30311) {
+        goto(`/live/${nip19Id}`);
+        return;
+      }
+
       if (decoded.type === 'nevent' || decoded.type === 'note') {
         // Fetch the referenced event
         let eventId = '';

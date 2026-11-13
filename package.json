@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.903",
+  "version": "4.2.904",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -65,6 +65,7 @@
     "dotenv": "^17.2.3",
     "emoji-picker-element": "^1.28.1",
     "google-translate-api-browser": "^4.1.0",
+    "hls.js": "^1.7.4",
     "html2canvas": "^1.4.1",
     "hurdak": "^0.2.5",
     "jspdf": "^4.2.1",

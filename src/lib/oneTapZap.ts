@@ -61,9 +61,15 @@ export interface OneTapZapResult {
  * Send a one-tap zap to an event or user
  *
  * @param target - NDKEvent or NDKUser to zap
+ * @param options - `addressTag` targets an addressable event (a NIP-53
+ *   stream): the zap request carries the `a`/`k` tags instead of `e`, and
+ *   the note-engagement optimistic cache (keyed by event id) is skipped.
  * @returns Result with success status and amount or error
  */
-export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZapResult> {
+export async function sendOneTapZap(
+  target: NDKEvent | NDKUser,
+  options?: { addressTag?: string }
+): Promise<OneTapZapResult> {
   console.log('[OneTapZap] sendOneTapZap called with target:', target);
 
   if (!browser) {
@@ -96,6 +102,7 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
     // Determine recipient pubkey and event ID
     let recipientPubkey: string;
     let eventId: string | undefined;
+    const addressTag = options?.addressTag;
 
     if (target instanceof NDKUser) {
       recipientPubkey = target.pubkey;
@@ -103,7 +110,7 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
       console.log('[OneTapZap] Target is NDKUser, pubkey:', recipientPubkey);
     } else if (target && target.author) {
       recipientPubkey = target.author?.hexpubkey || target.pubkey;
-      eventId = target.id;
+      eventId = addressTag ? undefined : target.id;
       console.log('[OneTapZap] Target is NDKEvent, pubkey:', recipientPubkey, 'eventId:', eventId);
     } else {
       console.log('[OneTapZap] Invalid target');
@@ -136,12 +143,15 @@ export async function sendOneTapZap(target: NDKEvent | NDKUser): Promise<OneTapZ
       recipientPubkey,
       amountMillisats, // Convert to millisats
       message, // User-configurable default zap message (empty string by default)
-      eventId
+      eventId,
+      undefined,
+      addressTag
     );
     console.log('[OneTapZap] Zap invoice created:', zapResult.invoice?.substring(0, 50) + '...');
 
     // LNURL succeeded → recipient is zappable → apply the optimistic
     // update so the UI shows immediate feedback while payment processes.
+    // Addressable targets (streams) have no note-engagement cache to bump.
     if (eventId && currentUserPubkey) {
       optimisticZapUpdate(eventId, amountMillisats, currentUserPubkey, message || undefined);
       optimisticApplied = true;

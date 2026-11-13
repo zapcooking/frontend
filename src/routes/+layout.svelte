@@ -17,6 +17,7 @@
   import PostModal from '../components/PostModal.svelte';
   import WalletModal from '../components/wallet/WalletModal.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
+  import StreamDock from '../components/streams/StreamDock.svelte';
   import PendingIndicator from '../components/PendingIndicator.svelte';
   import MiningIndicator from '../components/MiningIndicator.svelte';
   import LoginOverlay from '../components/LoginOverlay.svelte';
@@ -810,6 +811,7 @@
       <ToastContainer />
       <PendingIndicator />
       <MiningIndicator />
+      <StreamDock />
     </div>
   </div>
 </ErrorBoundary>
