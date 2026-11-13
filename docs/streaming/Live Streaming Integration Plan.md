@@ -233,3 +233,5 @@ Encrypted bookmark backup (NIP-78, reuse Sidecar's encode/merge rules), upcoming
 ## Part 7 — Follow-ups (not urgent, tracked)
 
 - **Details drawer for comments**: the NIP-22 comment sections (stream page drawer, and comment UIs across zap.cooking) lack the details drawer — a per-comment affordance showing timestamp, client, event details, raw JSON, copy links. Sidecar has this on every chat/comment row; add a shared details-drawer component and adopt it in `CommentCard`/`ThreadRow` and the stream page drawer.
+
+- **Relegate Polls in the navigation**: polls are not a primary surface. Move the Polls entry out of the primary nav arrays (`DesktopSideNav.svelte` / `MobileNavDrawer.svelte`, currently between Live and Market) into a secondary section — the drawer's lower group (alongside My Kitchen / Nourish / Membership) or a new "More" group. Placement TBD with Daniel.
