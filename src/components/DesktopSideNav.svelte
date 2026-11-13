@@ -7,9 +7,8 @@
   import SidebarWallet from './SidebarWallet.svelte';
   import { slide } from 'svelte/transition';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
-  import TimerIcon from 'phosphor-svelte/lib/Timer';
   import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
-  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
+  import EggTimerIcon from './icons/EggTimerIcon.svelte';
   import BasketIcon from 'phosphor-svelte/lib/Basket';
   import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
 
@@ -312,7 +311,7 @@
 
           <!-- Gadgets — a tool launcher, not a destination: one click
                opens the cooking-tools widget (same as the header's
-               measuring cup), so no nested expander needed. -->
+               egg timer), so no nested expander needed. -->
           <li>
             <button
               type="button"
@@ -321,7 +320,7 @@
               on:click={() => cookingToolsStore.toggle()}
             >
               <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
-                <MeasuringCupIcon size={20} />
+                <EggTimerIcon size={20} />
               </span>
               <span class="font-medium">Gadgets</span>
             </button>
