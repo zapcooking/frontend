@@ -74,13 +74,20 @@
   "vars": {
     // Class-1 image hosts (see CF_ORIGINS in src/lib/imageOptimizer.ts) go
     // through /cdn-cgi/image/ on the zap.cooking zone.
-    "PUBLIC_IMAGE_RESIZER": "cloudflare"
+    "PUBLIC_IMAGE_RESIZER": "cloudflare",
+    // Go live: the account that owns the Stream live inputs (the org
+    // account, same id as in the header comment). Not a secret. Its
+    // companion secret CF_STREAM_API_TOKEN is set in the dashboard, one
+    // token per environment.
+    "CF_STREAM_ACCOUNT_ID": "2d2f9386809ef6f9cda581aa16dff31c"
   },
   "env": {
     "preview": {
       "vars": {
         // *.pages.dev has no /cdn-cgi/image/ (404), so previews resize via weserv.
-        "PUBLIC_IMAGE_RESIZER": "weserv"
+        "PUBLIC_IMAGE_RESIZER": "weserv",
+        // vars is non-inheritable, like the bindings below: repeat it here.
+        "CF_STREAM_ACCOUNT_ID": "2d2f9386809ef6f9cda581aa16dff31c"
       },
       "kv_namespaces": [
         {

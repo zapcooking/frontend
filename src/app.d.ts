@@ -90,6 +90,14 @@ declare global {
            * at /api/pow/webhook. Distinct values in Production and Preview.
            */
           POW_WEBHOOK_SECRET?: string;
+          /**
+           * Cloudflare Stream API token for Go live (Stream write only, org
+           * account). Secret, one per environment. Read through readLiveEnv,
+           * which trims it.
+           */
+          CF_STREAM_API_TOKEN?: string;
+          /** Account that owns the Stream live inputs. Plain var (wrangler.jsonc). */
+          CF_STREAM_ACCOUNT_ID?: string;
           /** D1 database for scheduled posts (zapcooking-scheduler). */
           SCHEDULER_DB?: {
             prepare(query: string): {
