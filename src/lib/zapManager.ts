@@ -198,7 +198,12 @@ export class ZapManager {
    */
   async fetchLnurlPayRequest(lnurl: string): Promise<LNURLPayRequest> {
     try {
-      const response = await fetch(lnurl);
+      // Through the app proxy: some LNURL providers' nginx 403s
+      // cross-origin browser fetches per visitor (cookie/fingerprint
+      // based), which killed the invoice even though the provider worked
+      // server-side.
+      const proxied = `/api/lnurl?url=${encodeURIComponent(lnurl)}`;
+      const response = await fetch(proxied);
       if (!response.ok) {
         throw new Error(`LNURL request failed: ${response.status} ${response.statusText}`);
       }
@@ -335,7 +340,7 @@ export class ZapManager {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
 
-      const response = await fetch(callbackUrl.toString(), {
+      const response = await fetch(`/api/lnurl?url=${encodeURIComponent(callbackUrl.toString())}`, {
         signal: controller.signal
       });
 
