@@ -7,8 +7,11 @@
   class="flex w-full flex-col overflow-hidden rounded-xl"
   style="border: 1px solid var(--color-input-border);"
 >
-  <!-- Thumbnail -->
-  <Skeleton width="100%" height="0" borderRadius="0" className="aspect-video w-full" />
+  <!-- Thumbnail: wrapper owns the 16:9 height (the Skeleton's inline
+       height would otherwise collapse it). -->
+  <div class="aspect-video w-full">
+    <Skeleton width="100%" height="100%" borderRadius="0" />
+  </div>
   <div class="flex flex-col gap-2 p-3">
     <!-- Title -->
     <Skeleton width="88%" height={16} borderRadius="0.25rem" />

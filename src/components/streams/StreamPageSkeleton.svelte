@@ -4,8 +4,10 @@
 </script>
 
 <div class="flex w-full flex-col gap-4">
-  <!-- Video block -->
-  <Skeleton width="100%" height="0" borderRadius="0.75rem" className="aspect-video w-full" />
+  <!-- Video block: wrapper owns the 16:9 height. -->
+  <div class="aspect-video w-full">
+    <Skeleton width="100%" height="100%" borderRadius="0.75rem" />
+  </div>
   <!-- Host row: avatar + name/kicker lines on the right of the zap pill area -->
   <div class="flex items-center justify-between gap-3">
     <div class="flex min-w-0 items-center gap-2">
