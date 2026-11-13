@@ -39,10 +39,12 @@
   } from '$lib/live/host/hostApi';
   import { ReconnectPolicy, type StopReason } from '$lib/live/host/reconnect';
   import {
+    cameraAttempts,
     classifyMediaError,
     clearStoredSession,
     detectPlatform,
     hasConfirmedAge,
+    isConstraintFailure,
     loadStoredSession,
     mediaHelp,
     readRecipeHandoff,
@@ -56,7 +58,6 @@
 
   const DOCK_OWNER = 'live-host';
   const STATUS_POLL_MS = 5000;
-  const CAMERA = { width: { ideal: 1280 }, height: { ideal: 720 } };
   const DEFAULT_TITLE = 'Live cook-along';
 
   type Phase =
@@ -186,10 +187,18 @@
     if (!navigator.mediaDevices?.getUserMedia) {
       throw Object.assign(new Error('no capture'), { name: 'TypeError' });
     }
-    return navigator.mediaDevices.getUserMedia({
-      video: { facingMode: which, ...CAMERA },
-      audio: withAudio
-    });
+    // Require the camera asked for; only if the device has no such camera,
+    // ask for it as a preference. (A preference alone opened the front
+    // camera first on an iPhone.)
+    const attempts = cameraAttempts(which);
+    for (let i = 0; i < attempts.length; i++) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ video: attempts[i], audio: withAudio });
+      } catch (err) {
+        if (i === attempts.length - 1 || !isConstraintFailure(err)) throw err;
+      }
+    }
+    throw Object.assign(new Error('no camera'), { name: 'NotFoundError' });
   }
 
   async function enterPreview() {

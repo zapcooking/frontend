@@ -50,6 +50,33 @@ export function classifyMediaError(error: unknown): MediaProblem {
   }
 }
 
+/** The size asked of every camera, front or rear, so a flip keeps the same picture. */
+export const CAMERA_SIZE = { width: { ideal: 1280 }, height: { ideal: 720 } } as const;
+
+/**
+ * The video constraints to try, in order, for one camera.
+ *
+ * First the camera is REQUIRED (`exact`): on an iPhone a mere preference
+ * for the rear camera can still open the front one. If the device has no
+ * such camera (a laptop has no rear camera) that request fails, and the
+ * second one asks for it only as a preference, which opens whatever
+ * camera there is.
+ */
+export function cameraAttempts(which: 'environment' | 'user'): MediaTrackConstraints[] {
+  return [
+    { facingMode: { exact: which }, ...CAMERA_SIZE },
+    { facingMode: which, ...CAMERA_SIZE }
+  ];
+}
+
+/** True when a failed camera request is worth repeating with looser constraints. */
+export function isConstraintFailure(error: unknown): boolean {
+  const name = (error as { name?: unknown } | null)?.name;
+  return (
+    name === 'OverconstrainedError' || name === 'NotFoundError' || name === 'DevicesNotFoundError'
+  );
+}
+
 export interface MediaHelp {
   title: string;
   /** What to change, one step per entry. Empty when there is nothing to change. */

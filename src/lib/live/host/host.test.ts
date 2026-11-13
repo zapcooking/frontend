@@ -18,10 +18,12 @@ import {
   type StopReason
 } from './reconnect';
 import {
+  cameraAttempts,
   classifyMediaError,
   clearStoredSession,
   detectPlatform,
   hasConfirmedAge,
+  isConstraintFailure,
   loadStoredSession,
   mediaHelp,
   readRecipeHandoff,
@@ -440,6 +442,30 @@ describe('device helpers', () => {
     expect(classifyMediaError(named('TypeError'))).toBe('unsupported');
     expect(classifyMediaError(named('SomethingNew'))).toBe('other');
     expect(classifyMediaError(null)).toBe('other');
+  });
+
+  it('requires the camera asked for first, and only then merely prefers it', () => {
+    for (const which of ['environment', 'user'] as const) {
+      const [first, second] = cameraAttempts(which);
+      expect(first.facingMode).toEqual({ exact: which });
+      expect(second.facingMode).toBe(which);
+      // The same size on every attempt, so a flip keeps the picture's size.
+      for (const attempt of [first, second]) {
+        expect(attempt.width).toEqual({ ideal: 1280 });
+        expect(attempt.height).toEqual({ ideal: 720 });
+      }
+    }
+    expect(cameraAttempts('environment').length).toBe(2);
+  });
+
+  it('only loosens the request when the camera asked for does not exist', () => {
+    const named = (name: string) => Object.assign(new Error(name), { name });
+    expect(isConstraintFailure(named('OverconstrainedError'))).toBe(true);
+    expect(isConstraintFailure(named('NotFoundError'))).toBe(true);
+    // A refusal must surface as a refusal, not be retried as a looser request.
+    expect(isConstraintFailure(named('NotAllowedError'))).toBe(false);
+    expect(isConstraintFailure(named('NotReadableError'))).toBe(false);
+    expect(isConstraintFailure(null)).toBe(false);
   });
 
   it('says what to change when access is blocked, differently for iPhone and Android', () => {
