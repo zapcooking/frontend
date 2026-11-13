@@ -25,7 +25,7 @@
   import SidebarWallet from './SidebarWallet.svelte';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import BasketIcon from 'phosphor-svelte/lib/Basket';
-  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
+  import EggTimerIcon from './icons/EggTimerIcon.svelte';
   import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
 
   $: pathname = $page.url.pathname;
@@ -233,7 +233,7 @@
 
           <!-- Gadgets — a tool launcher, not a destination: one click
                opens the cooking-tools widget (same as the header's
-               measuring cup). The drawer stacks above the widget, so it
+               egg timer). The drawer stacks above the widget, so it
                closes first. -->
           <li>
             <button
@@ -246,7 +246,7 @@
               }}
             >
               <span class="relative flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
-                <MeasuringCupIcon size={20} />
+                <EggTimerIcon size={20} />
               </span>
               <span class="font-medium">Gadgets</span>
             </button>
