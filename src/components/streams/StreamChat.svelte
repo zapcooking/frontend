@@ -131,16 +131,8 @@
     );
   }
 
-  /**
-   * Muted avatar placeholder color while a pfp loads or fails. A quiet,
-   * hue-tinted zinc (zap.cooking's neutral palette) so the placeholder
-   * person glyph stays readable — vivid hues swallow it.
-   */
-  function avatarColor(pubkey: string): string {
-    let hash = 0;
-    for (const ch of pubkey) hash = (Math.imul(hash ^ ch.charCodeAt(0), 16777619) >>> 0) % 360;
-    return `hsl(${hash}, 14%, 30%)`;
-  }
+  /** Uniform placeholder circle behind chat avatars (grey glyph inside). */
+  const AVATAR_PLACEHOLDER_BG = '#3b82f6';
 
   $: signingIn = !$userPublickey;
 
@@ -376,7 +368,7 @@
         >
           <span
             class="overflow-hidden rounded-full"
-            style="width:20px;height:20px;background:{avatarColor(zapper.pubkey)}"
+            style="width:20px;height:20px;background:{AVATAR_PLACEHOLDER_BG}"
           >
             <Avatar
               pubkey={zapper.pubkey}
@@ -460,7 +452,7 @@
           <div id={`chat-${event.id}`} class="group flex items-start gap-2">
             <span
               class="mt-0.5 shrink-0 overflow-hidden rounded-full"
-              style="width:24px;height:24px;background:{avatarColor(event.pubkey)}"
+              style="width:24px;height:24px;background:{AVATAR_PLACEHOLDER_BG}"
             >
               <Avatar
                 pubkey={event.pubkey}
