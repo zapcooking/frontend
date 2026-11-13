@@ -45,12 +45,6 @@
     }
   ];
 
-  const shots = [
-    { src: '/downloads/shot-android-recipe-trends.png', alt: 'Recipe trends with a visible trend pill' },
-    { src: '/downloads/shot-ios-media.png', alt: 'Composing a note with an attached GIF' },
-    { src: '/downloads/shot-android-food-tags.png', alt: 'Picking food tags for a recipe' },
-    { src: '/downloads/shot-ios-composer.png', alt: 'The composer’s more sheet' }
-  ];
 </script>
 
 <svelte:head>
@@ -105,16 +99,7 @@
     {/each}
   </ul>
 
-  <section class="shots-section" aria-labelledby="shots-heading">
-    <h2 id="shots-heading">See it in action</h2>
-    <ul class="shots" role="list">
-      {#each shots as shot (shot.src)}
-        <li>
-          <img class="shot" src={shot.src} alt={shot.alt} loading="lazy" />
-        </li>
-      {/each}
-    </ul>
-  </section>
+
 </main>
 
 <style>
@@ -230,33 +215,6 @@
   :global(.store-badge) {
     width: auto;
     border-radius: 6px;
-  }
-  .shots-section {
-    margin-top: 40px;
-  }
-  h2 {
-    font-family: var(--font-editorial, Georgia, serif);
-    font-size: var(--dl-title);
-    font-weight: 500;
-    letter-spacing: -0.02em;
-    margin: 0 0 16px;
-  }
-  .shots {
-    margin: 0;
-    padding: 4px 4px 16px;
-    list-style: none;
-    display: flex;
-    gap: 16px;
-    overflow-x: auto;
-    scroll-snap-type: x proximity;
-  }
-  .shot {
-    height: 340px;
-    width: auto;
-    border-radius: 24px;
-    border: 1px solid var(--color-input-border);
-    box-shadow: 0 10px 24px -16px rgba(0, 0, 0, 0.45);
-    scroll-snap-align: start;
   }
   @media (min-width: 768px) {
     .downloads {
