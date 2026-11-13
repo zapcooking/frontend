@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { parsePublicUrl, fetchWithSsrfGuard } from '$lib/urlGuard.server';
+import { decodeEntities } from './decodeEntities';
 
 /**
  * Server-side Open Graph unfurler for inline link previews.
@@ -14,18 +15,6 @@ import { parsePublicUrl, fetchWithSsrfGuard } from '$lib/urlGuard.server';
  * fetches arbitrary user-supplied URLs it goes through the shared SSRF
  * guard in $lib/urlGuard.server, which re-checks every redirect hop.
  */
-
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
-    .replace(/&#x27;/gi, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, ' ');
-}
 
 // Pull a <meta> content value by og:/twitter:/name key, tolerating either
 // attribute order (property before content, or content before property).

@@ -37,7 +37,10 @@ const RESERVED_USERNAMES = [
   'admin', 'api', 'www', 'mail', 'ftp', 'localhost', 'root', 
   'support', 'help', 'about', 'contact', 'info', 'team',
   'zapcooking', 'zap', 'cooking', 'recipes', 'recipe',
-  'moderator', 'mod', 'staff', 'official', 'bot', 'system'
+  'moderator', 'mod', 'staff', 'official', 'bot', 'system',
+  // 'live' and 'watch' are app routes (/live, /live/<id>): a handle with either
+  // name would have its vanity URLs (/<handle>/<slug>) shadowed by them.
+  'live', 'watch'
 ];
 
 export const POST: RequestHandler = async ({ request, platform }) => {
