@@ -18,7 +18,11 @@
   import StreamAbout from './StreamAbout.svelte';
   import { fetchProfile } from '$lib/streams/fetch';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
-  import { fetchStreamZapTally, type StreamZapTally } from '$lib/streams/streamZaps';
+  import {
+    fetchStreamZapTally,
+    scanStreamZapHistory,
+    type StreamZapTally
+  } from '$lib/streams/streamZaps';
   import type { StreamItem } from '$lib/streams/types';
 
   export let item: StreamItem;
@@ -29,6 +33,8 @@
   let hostName: string | null = null;
   let hostPicture: string | null = null;
   let tally: StreamZapTally | null = null;
+  let scanAbort: AbortController | null = null;
+  let loadingTally = false;
 
   // Browser-only: the player store is a client singleton; SSR must not touch it.
   if (browser) selectStream(item);
@@ -186,8 +192,28 @@
   }
 
   tallyLoad();
+  // Quick tally paints immediately; the deep history scan (backward paged,
+  // provider-verified when the host's LNURL resolves) then grows the total
+  // toward what Sidecar shows.
   async function tallyLoad() {
+    scanAbort?.abort();
+    scanAbort = new AbortController();
+    const signal = scanAbort.signal;
     tally = await fetchStreamZapTally(address);
+    if (signal.aborted) return;
+    loadingTally = true;
+    const scan = await scanStreamZapHistory(address, host, {
+      hostRelays: item.relays || [],
+      signal,
+      onPartial: (t) => {
+        if (!signal.aborted) tally = t;
+      }
+    });
+    if (signal.aborted) return;
+    // A verified scan can legitimately read lower than the quick pass only
+    // when the provider rejects receipts; never regress the display.
+    if (scan.tally.zapCount > (tally?.zapCount ?? 0)) tally = scan.tally;
+    loadingTally = false;
   }
 
   function onZapComplete() {
@@ -223,6 +249,7 @@
         hostPubkey={host}
         sats={tally?.totalSats ?? 0}
         count={tally?.zapCount ?? 0}
+        loading={loadingTally}
         on:zapComplete={onZapComplete}
       />
       <button
