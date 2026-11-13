@@ -37,3 +37,19 @@ export const LIVE_CREATES_PER_HOUR = 6;
 
 /** Kinds a session may attach as its recipe: long-form recipes and premium recipes. */
 export const LIVE_RECIPE_KINDS: readonly number[] = [30023, 35000];
+
+/** Longest SDP offer accepted by the relay, in bytes. Real offers are about 6 KB. */
+export const LIVE_OFFER_MAX_BYTES = 32 * 1024;
+
+/** A publish lock older than this is stale and may be taken over. */
+export const LIVE_PUBLISH_LOCK_SECONDS = 30;
+
+/**
+ * Publish attempts allowed per session (the first Go live plus every
+ * reconnect or retry). Each attempt creates a Cloudflare live input, so
+ * this bounds what one session can make the server do.
+ */
+export const LIVE_MAX_PUBLISH_ATTEMPTS = 30;
+
+/** Seconds a client should wait before retrying after a try-again reply. */
+export const LIVE_RETRY_AFTER_SECONDS = 2;

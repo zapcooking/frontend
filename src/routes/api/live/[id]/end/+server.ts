@@ -12,6 +12,12 @@
  *   404: unknown or malformed id
  *   413: a NIP-98 request with a body over 1 KB (End takes no body)
  *
+ * Ending also deletes the session's Cloudflare live input, which is what
+ * stops the broadcast for viewers. The reply is 200 whether or not that
+ * delete could be confirmed: the session IS ended (nobody new can join,
+ * and the host token is dead). An unconfirmed delete leaves the input id
+ * on the row, which is the record the sweep uses to retry.
+ *
  * Idempotent: ending a session that has already ended returns the same
  * 200 and changes nothing. That reply needs no credential (the status is
  * public, and by then the host token no longer exists).
@@ -24,6 +30,8 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
 import { readBodyCapped } from '$lib/live/body.server';
+import { removeInputAfterEnd } from '$lib/live/relay.server';
+import { readStreamConfig } from '$lib/live/stream.server';
 import {
   endSession,
   getSession,
@@ -78,6 +86,10 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
     }
 
     await endSession(db, row.id, 'host');
+    // Deleting the Cloudflare input is what stops the broadcast for
+    // viewers. If it cannot be confirmed the session is still ended, and
+    // the input id stays on the row for the sweep to retry.
+    await removeInputAfterEnd(db, readStreamConfig(platform), row.id);
     return ended();
   } catch (err) {
     console.error('[Live] end failed:', err);
