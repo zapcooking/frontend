@@ -46,9 +46,9 @@
   ];
 
   const shots = [
+    { src: '/downloads/native-start.png', alt: 'The signed-out start screen with recipes from the community' },
     { src: '/downloads/native-feed.png', alt: 'The OnlyFood feed with posts from cooks' },
     { src: '/downloads/native-composer.png', alt: 'Creating a recipe with food tags' },
-    { src: '/downloads/native-composer-bottom.png', alt: 'Recipe details and publish' },
     { src: '/downloads/native-account.png', alt: 'The Zap Cooking account drawer' }
   ];
 
