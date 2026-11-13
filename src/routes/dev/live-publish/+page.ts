@@ -14,14 +14,13 @@
  */
 import { redirect } from '@sveltejs/kit';
 import { browser } from '$app/environment';
+import { isGateHost } from '$lib/live/gateHost';
 import type { PageLoad } from './$types';
 
 export const ssr = false;
 export const prerender = false;
 
-export function isGateHost(hostname: string): boolean {
-  return hostname.endsWith('.pages.dev') || hostname === 'localhost' || hostname === '127.0.0.1';
-}
+export { isGateHost };
 
 export const load: PageLoad = ({ url }) => {
   if (browser && !isGateHost(url.hostname)) {

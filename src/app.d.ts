@@ -98,6 +98,8 @@ declare global {
           CF_STREAM_API_TOKEN?: string;
           /** Account that owns the Stream live inputs. Plain var (wrangler.jsonc). */
           CF_STREAM_ACCOUNT_ID?: string;
+          /** Guests admitted per Go live session; default 200. Plain var (wrangler.jsonc). */
+          LIVE_GUEST_CAP?: string;
           /** D1 database for scheduled posts (zapcooking-scheduler). */
           SCHEDULER_DB?: {
             prepare(query: string): {

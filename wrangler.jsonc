@@ -79,7 +79,10 @@
     // account, same id as in the header comment). Not a secret. Its
     // companion secret CF_STREAM_API_TOKEN is set in the dashboard, one
     // token per environment.
-    "CF_STREAM_ACCOUNT_ID": "2d2f9386809ef6f9cda581aa16dff31c"
+    "CF_STREAM_ACCOUNT_ID": "2d2f9386809ef6f9cda581aa16dff31c",
+    // Go live: guests (viewers who are not confirmed active members)
+    // admitted per session. Members are never counted. Whole number.
+    "LIVE_GUEST_CAP": "200"
   },
   "env": {
     "preview": {
@@ -87,7 +90,8 @@
         // *.pages.dev has no /cdn-cgi/image/ (404), so previews resize via weserv.
         "PUBLIC_IMAGE_RESIZER": "weserv",
         // vars is non-inheritable, like the bindings below: repeat it here.
-        "CF_STREAM_ACCOUNT_ID": "2d2f9386809ef6f9cda581aa16dff31c"
+        "CF_STREAM_ACCOUNT_ID": "2d2f9386809ef6f9cda581aa16dff31c",
+        "LIVE_GUEST_CAP": "200"
       },
       "kv_namespaces": [
         {

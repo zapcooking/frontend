@@ -490,3 +490,45 @@ export async function recordOrphanInput(db: LiveDb, id: string, uid: string): Pr
     .run();
   return (result.meta?.changes ?? 0) === 1;
 }
+
+// ── Guest cap ────────────────────────────────────────────────────────
+//
+// The cap counts guest JOINS per session. It is two plain integers on
+// the session row and nothing else: no row, key, address or handle is
+// kept for any viewer, so a viewer leaving is not (and cannot be)
+// detected. Members are never counted.
+
+/**
+ * Take one guest slot. One conditional statement, so two guests arriving
+ * at the last slot cannot both get it. Only a live session has slots.
+ */
+export async function takeGuestSlot(db: LiveDb, id: string, cap: number): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE live_sessions SET guest_joins = guest_joins + 1
+        WHERE id = ?1 AND status = 'live' AND guest_joins < ?2`
+    )
+    .bind(id, cap)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+/** Give a slot back when the guest did not actually get in (the relay failed). */
+export async function returnGuestSlot(db: LiveDb, id: string): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE live_sessions SET guest_joins = guest_joins - 1 WHERE id = ?1 AND guest_joins > 0'
+    )
+    .bind(id)
+    .run();
+}
+
+/** Count one guest turned away at the cap. An integer, nothing about the guest. */
+export async function countCapRefusal(db: LiveDb, id: string): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE live_sessions SET cap_refusals = cap_refusals + 1 WHERE id = ?1 AND status = 'live'"
+    )
+    .bind(id)
+    .run();
+}
