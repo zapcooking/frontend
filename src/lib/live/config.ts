@@ -53,3 +53,24 @@ export const LIVE_MAX_PUBLISH_ATTEMPTS = 30;
 
 /** Seconds a client should wait before retrying after a try-again reply. */
 export const LIVE_RETRY_AFTER_SECONDS = 2;
+
+/**
+ * Guests (viewers who are not confirmed active members) admitted per
+ * session when LIVE_GUEST_CAP is not set or not a usable number. Members
+ * are never counted.
+ */
+export const LIVE_GUEST_CAP_DEFAULT = 200;
+
+/** Upper bound accepted from LIVE_GUEST_CAP, so a typo cannot remove the cap. */
+export const LIVE_GUEST_CAP_MAX = 10_000;
+
+/**
+ * The guest cap from a configured value. Accepts a whole number from 0
+ * (no guests at all) to LIVE_GUEST_CAP_MAX; anything else falls back to
+ * the default.
+ */
+export function parseGuestCap(value: string | undefined): number {
+  if (value === undefined || !/^\d{1,6}$/.test(value)) return LIVE_GUEST_CAP_DEFAULT;
+  const cap = Number(value);
+  return cap <= LIVE_GUEST_CAP_MAX ? cap : LIVE_GUEST_CAP_DEFAULT;
+}
