@@ -161,10 +161,9 @@ describe('parseStreamAddress', () => {
 });
 
 describe('pseudonym', () => {
-  it('is stable per pubkey and matches Sidecar names', () => {
+  it('is stable per pubkey and follows the anon-chef pool', () => {
     expect(pseudonym(HOST)).toBe(pseudonym(HOST));
-    // Sidecar computes FNV-1a over the hex string: 'aa..' (a repeated 64
-    // times) hashes to a fixed cocktail.
+    // The app's anon-chef names: words joined with spaces or hyphens.
     expect(pseudonym(HOST)).toMatch(/^[A-Za-z-]+ [A-Za-z-]+$/);
     expect(pseudonym('ff'.repeat(32))).not.toBe(pseudonym(HOST));
   });

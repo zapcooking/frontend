@@ -9,6 +9,7 @@
  */
 
 import { nip19 } from 'nostr-tools';
+import { getAnonChefName } from '$lib/anonName';
 import type { NostrEventLike, StreamItem } from './types';
 
 /** Absolute https URL with no credentials, or null. */
@@ -174,76 +175,14 @@ export function naddrEncode(address: StreamAddress): string {
   });
 }
 
-// Same cocktail vocabulary as Sidecar; stable per public key so a participant
-// does not change aliases when history or profile data reloads.
-const COCKTAILS = [
-  'Negroni',
-  'Martini',
-  'Manhattan',
-  'Boulevardier',
-  'Sidecar',
-  'Daiquiri',
-  'Margarita',
-  'Sazerac',
-  'Aviation',
-  'Gimlet',
-  'Cosmopolitan',
-  'Vesper',
-  'Bellini',
-  'Mojito',
-  'Paloma',
-  'Spritz',
-  'Mule',
-  'Sour',
-  'Highball',
-  'Collins',
-  'Julep',
-  'Cobbler',
-  'Americano',
-  'Bramble',
-  'Gibson',
-  'Stinger',
-  'Hurricane',
-  'Gascogne',
-  'Martinez',
-  'Bijou'
-];
-const ADJECTIVES = [
-  'Velvet',
-  'Smoky',
-  'Golden',
-  'Midnight',
-  'Gilded',
-  'Bitter',
-  'Spiced',
-  'Twilight',
-  'Crimson',
-  'Amber',
-  'Dry',
-  'Vintage',
-  'Frosted',
-  'Burnt',
-  'Silken',
-  'Oaked',
-  'Sparkling',
-  'Top-Shelf',
-  'Neat',
-  'Mahogany',
-  'Botanical',
-  'Barrel-Aged',
-  'Hush',
-  'Last-Call'
-];
-
-/** Stable pseudonym for a pubkey — identical to Sidecar's cocktail names. */
+/**
+ * Stable pseudonym for a pubkey, following the app's anon-chef convention
+ * (`$lib/anonName` — "Whisk Wizard", "Sourdough Stranger", …) rather than
+ * Sidecar's cocktails: the same author shows the same food name across
+ * pages and reloads.
+ */
 export function pseudonym(pubkey: string): string {
-  let hash = 2166136261;
-  for (const char of String(pubkey || '')) {
-    hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
-  }
-  return `${ADJECTIVES[hash % ADJECTIVES.length]} ${
-    COCKTAILS[Math.floor(hash / ADJECTIVES.length) % COCKTAILS.length]
-  }`;
+  return getAnonChefName(pubkey);
 }
 
 /** How long a stream marked `starts` has been running, or null if not running. */
