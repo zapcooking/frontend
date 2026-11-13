@@ -124,11 +124,15 @@
     );
   }
 
-  /** Deterministic avatar placeholder color while a pfp loads or fails. */
+  /**
+   * Muted avatar placeholder color while a pfp loads or fails. A quiet,
+   * hue-tinted zinc (zap.cooking's neutral palette) so the placeholder
+   * person glyph stays readable — vivid hues swallow it.
+   */
   function avatarColor(pubkey: string): string {
     let hash = 0;
     for (const ch of pubkey) hash = (Math.imul(hash ^ ch.charCodeAt(0), 16777619) >>> 0) % 360;
-    return `hsl(${hash}, 55%, 42%)`;
+    return `hsl(${hash}, 14%, 30%)`;
   }
 
   $: signingIn = !$userPublickey;
