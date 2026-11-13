@@ -181,10 +181,16 @@ export async function resolveAuthorPubkey(ndk: NDK): Promise<string | undefined>
  * Where a zap receipt should be published (the zap request's NIP-57
  * `relays` tag): the zapper's own write relays, the recipient's read
  * relays, the app's relay list — the same outbox rule as other engagement.
+ *
+ * `max` caps the list for callers that put it in a zap request: LNURL
+ * providers reject a `relays` tag that is too long (Lightning Goats takes
+ * 8, refuses 9+ as an "invalid zap request"). A capped list reserves half
+ * its slots for the zapper's own relays so the recipient's still make it.
  */
 export async function zapReceiptRelayUrls(
   me: string | undefined,
-  recipient: string
+  recipient: string,
+  max?: number
 ): Promise<string[]> {
   const { getCurrentRelays } = await import('$lib/nostr');
   const [own, theirs] = await Promise.all([
@@ -196,7 +202,13 @@ export async function zapReceiptRelayUrls(
         )
       : Promise.resolve([] as string[])
   ]);
-  return outboxRelayUrls({ own, recipients: theirs, app: getCurrentRelays() });
+  if (max === undefined) {
+    return outboxRelayUrls({ own, recipients: theirs, app: getCurrentRelays() });
+  }
+  return outboxRelayUrls(
+    { own: own.slice(0, Math.ceil(max / 2)), recipients: theirs, app: getCurrentRelays() },
+    max
+  );
 }
 
 /**

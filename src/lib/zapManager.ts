@@ -32,6 +32,8 @@ export interface ZapReceipt {
 
 export interface LNURLPayRequest {
   callback: string;
+  /** The LNURL-pay endpoint this was fetched from (the `lnurl` zap tag encodes it). */
+  payUrl?: string;
   maxSendable: number;
   minSendable: number;
   metadata: string;
@@ -216,6 +218,7 @@ export class ZapManager {
 
       return {
         callback: data.callback,
+        payUrl: lnurl,
         maxSendable: data.maxSendable || 1000000000, // 1M sats default
         minSendable: data.minSendable || 1000, // 1 sat default
         metadata: data.metadata,
@@ -299,10 +302,21 @@ export class ZapManager {
       );
     }
 
-    // Update the zap request with the LNURL
+    // NIP-57 `lnurl` tag: the bech32-encoded LNURL-pay URL (the endpoint
+    // the pay request came from — not the callback). Providers that
+    // validate it (Lightning Goats) reject the whole request on a
+    // mismatch, so without a known pay URL the optional tag is dropped.
     const lnurlTag = zapRequest.tags.find((tag) => tag[0] === 'lnurl');
     if (lnurlTag) {
-      lnurlTag[1] = lnurlPayRequest.callback;
+      if (lnurlPayRequest.payUrl) {
+        lnurlTag[1] = bech32.encode(
+          'lnurl',
+          bech32.toWords(new TextEncoder().encode(lnurlPayRequest.payUrl)),
+          2000
+        );
+      } else {
+        zapRequest.tags = zapRequest.tags.filter((tag) => tag[0] !== 'lnurl');
+      }
     }
 
     // Sign the zap request
@@ -381,13 +395,23 @@ export class ZapManager {
     }
   }
 
+  /**
+   * Most relays a zap request's `relays` tag may carry. Providers cap it:
+   * Lightning Goats rejects 9+ with "Invalid or unsupported zap request"
+   * (the invoice never loads). Sidecar sends 6; so do we.
+   */
+  static readonly MAX_RECEIPT_RELAYS = 6;
+
   /** Receipt relays for a zap request (NIP-57 `relays` tag). */
   private async receiptRelays(recipient: string): Promise<string[]> {
     const { zapReceiptRelayUrls, resolveAuthorPubkey } = await import('$lib/nip65Routing');
     const urls = await resolveAuthorPubkey(this.ndk)
-      .then((me) => zapReceiptRelayUrls(me, recipient))
+      .then((me) => zapReceiptRelayUrls(me, recipient, ZapManager.MAX_RECEIPT_RELAYS))
       .catch(() => [] as string[]);
-    return urls.length ? urls : this.ndk.explicitRelayUrls || [];
+    return (urls.length ? urls : this.ndk.explicitRelayUrls || []).slice(
+      0,
+      ZapManager.MAX_RECEIPT_RELAYS
+    );
   }
 
   /**
