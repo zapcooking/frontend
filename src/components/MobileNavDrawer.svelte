@@ -19,6 +19,7 @@
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
+  import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { navBalanceVisible } from '$lib/wallet';
   import { userPublickey } from '$lib/nostr';
@@ -56,6 +57,7 @@
     { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
     { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
     { href: '/pantry', label: 'The Pantry Relay', icon: BasketIcon, match: (p) => p.startsWith('/pantry') },
+    { href: '/downloads', label: 'Get the app', icon: DeviceMobileIcon, match: (p) => p.startsWith('/downloads') },
   ];
 
   // My Kitchen collapses to save vertical space; defaults open when the

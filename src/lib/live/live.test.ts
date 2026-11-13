@@ -144,3 +144,33 @@ describe('readBodyCapped', () => {
     expect(await readBodyCapped(post(stream), 10)).toBe('unreadable');
   });
 });
+
+describe('parseGuestCap', () => {
+  it('accepts whole numbers from 0 to the maximum', async () => {
+    const { parseGuestCap } = await import('./config');
+    expect(parseGuestCap('0')).toBe(0);
+    expect(parseGuestCap('1')).toBe(1);
+    expect(parseGuestCap('200')).toBe(200);
+    expect(parseGuestCap('10000')).toBe(10000);
+  });
+
+  it('falls back to 200 for anything else', async () => {
+    const { parseGuestCap, LIVE_GUEST_CAP_DEFAULT } = await import('./config');
+    expect(LIVE_GUEST_CAP_DEFAULT).toBe(200);
+    for (const v of [
+      undefined,
+      '',
+      ' ',
+      '-1',
+      '1.5',
+      '1e3',
+      'ten',
+      '10001',
+      '9999999',
+      '0x10',
+      '2 00'
+    ]) {
+      expect(parseGuestCap(v)).toBe(200);
+    }
+  });
+});

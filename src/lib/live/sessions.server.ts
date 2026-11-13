@@ -15,6 +15,8 @@
  */
 import {
   LIVE_CREATES_PER_HOUR,
+  LIVE_MAX_PUBLISH_ATTEMPTS,
+  LIVE_PUBLISH_LOCK_SECONDS,
   LIVE_RECIPE_D_MAX,
   LIVE_RECIPE_KINDS,
   LIVE_TITLE_MAX
@@ -286,7 +288,13 @@ export async function createSession(
  * End a session. One conditional statement: it only applies to a session
  * that has not ended, so a second call (or a race with another actor)
  * changes nothing. Ending also clears the host token hash and any publish
- * lock, so the token cannot be used again.
+ * lock, so the token cannot be used again, and the play address, so
+ * nobody new can join.
+ *
+ * It deliberately leaves cf_input_uid in place. A non-null cf_input_uid
+ * always means "a Cloudflare live input exists that we still have to
+ * delete": the caller deletes it and then calls `clearInput`. If that
+ * delete fails, the id stays on the ended row and the sweep retries it.
  *
  * Returns true when THIS call ended the session.
  */
@@ -300,10 +308,360 @@ export async function endSession(
     .prepare(
       `UPDATE live_sessions
           SET status = 'ended', end_reason = ?2, ended_at = ?3,
-              host_token_hash = '', publish_lock = NULL, publish_lock_at = NULL
+              host_token_hash = '', publish_lock = NULL, publish_lock_at = NULL,
+              cf_play_url = NULL
         WHERE id = ?1 AND status != 'ended'`
     )
     .bind(id, reason, now)
     .run();
   return (result.meta?.changes ?? 0) === 1;
+}
+
+// ── Publish relay state ──────────────────────────────────────────────
+//
+// Invariants the publish relay and End both rely on:
+//
+//  1. cf_input_uid IS NOT NULL  ⇔  a Cloudflare live input exists that
+//     this row is responsible for deleting. It is written as soon as the
+//     input is created and cleared only after a confirmed delete.
+//  2. status = 'live'  ⇒  cf_input_uid and cf_play_url are set and the
+//     relay returned an answer for that input. A session whose input has
+//     been deleted for a reconnect drops back to 'created' until the new
+//     publish succeeds, so a session is never reported live when it is not.
+//  3. Each input receives exactly one relayed publish. Under the lock the
+//     server deletes the previous input, creates a new one and uses its
+//     publish URL once. The host never holds a publish URL.
+
+/** Server-only view of the relay columns. Never serialized into a response. */
+export interface LiveRelayState {
+  status: LiveSessionStatus;
+  cf_input_uid: string | null;
+  cf_play_url: string | null;
+  reconnects: number;
+  started_at: number | null;
+}
+
+export async function getRelayState(db: LiveDb, id: string): Promise<LiveRelayState | null> {
+  if (!isLiveSessionId(id)) return null;
+  return db
+    .prepare(
+      'SELECT status, cf_input_uid, cf_play_url, reconnects, started_at FROM live_sessions WHERE id = ?1'
+    )
+    .bind(id)
+    .first<LiveRelayState>();
+}
+
+export type AcquireLockResult =
+  { ok: true; nonce: string } | { ok: false; reason: 'busy_or_ended' | 'attempt_limit' };
+
+/**
+ * Take the per-session publish lock. One conditional statement, so of two
+ * simultaneous publishes exactly one gets it. A lock older than
+ * LIVE_PUBLISH_LOCK_SECONDS is stale and can be taken over, which is what
+ * stops a failed or crashed publish from stranding the host.
+ *
+ * Taking the lock also counts the attempt (`reconnects`), and refuses once
+ * the session has used LIVE_MAX_PUBLISH_ATTEMPTS.
+ */
+export async function acquirePublishLock(
+  db: LiveDb,
+  id: string,
+  now: number = nowSeconds()
+): Promise<AcquireLockResult> {
+  const nonce = crypto.randomUUID();
+  const result = await db
+    .prepare(
+      `UPDATE live_sessions
+          SET publish_lock = ?1, publish_lock_at = ?2, reconnects = reconnects + 1
+        WHERE id = ?3 AND status != 'ended'
+          AND (publish_lock IS NULL OR publish_lock_at < ?4)
+          AND reconnects < ?5`
+    )
+    .bind(nonce, now, id, now - LIVE_PUBLISH_LOCK_SECONDS, LIVE_MAX_PUBLISH_ATTEMPTS)
+    .run();
+  if ((result.meta?.changes ?? 0) === 1) return { ok: true, nonce };
+
+  const row = await getRelayState(db, id);
+  if (row && row.status !== 'ended' && row.reconnects >= LIVE_MAX_PUBLISH_ATTEMPTS) {
+    return { ok: false, reason: 'attempt_limit' };
+  }
+  return { ok: false, reason: 'busy_or_ended' };
+}
+
+/** Release the lock, only if this request still holds it. */
+export async function releasePublishLock(db: LiveDb, id: string, nonce: string): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE live_sessions SET publish_lock = NULL, publish_lock_at = NULL WHERE id = ?1 AND publish_lock = ?2'
+    )
+    .bind(id, nonce)
+    .run();
+}
+
+/**
+ * The previous input has been deleted (under the lock): forget it. A live
+ * session drops back to 'created', because nothing is being broadcast
+ * until the new publish succeeds. Returns false if the lock was lost.
+ */
+export async function clearInputUnderLock(db: LiveDb, id: string, nonce: string): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE live_sessions
+          SET cf_input_uid = NULL, cf_play_url = NULL,
+              status = CASE WHEN status = 'live' THEN 'created' ELSE status END
+        WHERE id = ?1 AND publish_lock = ?2 AND status != 'ended'`
+    )
+    .bind(id, nonce)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+/**
+ * Record a freshly created input (under the lock), BEFORE it is used, so a
+ * failure in any later step leaves a row that says which input to delete.
+ * Returns false if the lock was lost or the session ended meanwhile.
+ */
+export async function recordInputUnderLock(
+  db: LiveDb,
+  id: string,
+  nonce: string,
+  uid: string
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE live_sessions SET cf_input_uid = ?3
+        WHERE id = ?1 AND publish_lock = ?2 AND status != 'ended' AND cf_input_uid IS NULL`
+    )
+    .bind(id, nonce, uid)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+/**
+ * The relay succeeded: the session is live on this input. Releases the
+ * lock in the same statement. Returns false if the lock was lost or the
+ * session ended meanwhile, in which case the caller must delete the input.
+ */
+export async function markLiveUnderLock(
+  db: LiveDb,
+  id: string,
+  nonce: string,
+  uid: string,
+  playUrl: string,
+  now: number = nowSeconds()
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE live_sessions
+          SET status = 'live', cf_play_url = ?4, started_at = COALESCE(started_at, ?5),
+              disconnected_streak = 0, publish_lock = NULL, publish_lock_at = NULL
+        WHERE id = ?1 AND publish_lock = ?2 AND status != 'ended' AND cf_input_uid = ?3`
+    )
+    .bind(id, nonce, uid, playUrl, now)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+/**
+ * Forget an input after a CONFIRMED delete, whoever holds the lock and
+ * whatever the status. Only clears the row if it still points at `uid`.
+ */
+export async function clearInput(db: LiveDb, id: string, uid: string): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE live_sessions
+          SET cf_input_uid = NULL, cf_play_url = NULL,
+              status = CASE WHEN status = 'live' THEN 'created' ELSE status END
+        WHERE id = ?1 AND cf_input_uid = ?2`
+    )
+    .bind(id, uid)
+    .run();
+}
+
+/**
+ * Last resort for an input that could be neither used nor deleted and is
+ * not on the row: write it down if the row has no input recorded, so the
+ * sweep can delete it later. Returns whether it was recorded.
+ */
+export async function recordOrphanInput(db: LiveDb, id: string, uid: string): Promise<boolean> {
+  const result = await db
+    .prepare('UPDATE live_sessions SET cf_input_uid = ?2 WHERE id = ?1 AND cf_input_uid IS NULL')
+    .bind(id, uid)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+// ── Guest cap ────────────────────────────────────────────────────────
+//
+// The cap counts guest JOINS per session. It is two plain integers on
+// the session row and nothing else: no row, key, address or handle is
+// kept for any viewer, so a viewer leaving is not (and cannot be)
+// detected. Members are never counted.
+
+/**
+ * Take one guest slot. One conditional statement, so two guests arriving
+ * at the last slot cannot both get it. Only a live session has slots.
+ */
+export async function takeGuestSlot(db: LiveDb, id: string, cap: number): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE live_sessions SET guest_joins = guest_joins + 1
+        WHERE id = ?1 AND status = 'live' AND guest_joins < ?2`
+    )
+    .bind(id, cap)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+/** Give a slot back when the guest did not actually get in (the relay failed). */
+export async function returnGuestSlot(db: LiveDb, id: string): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE live_sessions SET guest_joins = guest_joins - 1 WHERE id = ?1 AND guest_joins > 0'
+    )
+    .bind(id)
+    .run();
+}
+
+/** Count one guest turned away at the cap. An integer, nothing about the guest. */
+export async function countCapRefusal(db: LiveDb, id: string): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE live_sessions SET cap_refusals = cap_refusals + 1 WHERE id = ?1 AND status = 'live'"
+    )
+    .bind(id)
+    .run();
+}
+
+// ── Sweep, admin and retention ───────────────────────────────────────
+
+/** A session the sweep has to look at. Server-side only. */
+export interface SweepRow {
+  id: string;
+  status: LiveSessionStatus;
+  cf_input_uid: string | null;
+  created_at: number;
+  started_at: number | null;
+  disconnected_streak: number;
+}
+
+/** Sessions that have not ended, oldest first. */
+export async function listOpenSessions(db: LiveDb, limit: number): Promise<SweepRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, status, cf_input_uid, created_at, started_at, disconnected_streak
+         FROM live_sessions WHERE status != 'ended' ORDER BY created_at LIMIT ?1`
+    )
+    .bind(limit)
+    .all<SweepRow>();
+  return results;
+}
+
+/**
+ * Count one more "not broadcasting" reading. Conditional on the streak
+ * the caller saw and on the session not having ended, so two sweeps that
+ * overlap cannot both count the same reading. Returns whether it applied.
+ */
+export async function bumpStreak(db: LiveDb, id: string, seen: number): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE live_sessions SET disconnected_streak = disconnected_streak + 1
+        WHERE id = ?1 AND status != 'ended' AND disconnected_streak = ?2`
+    )
+    .bind(id, seen)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+export async function resetStreak(db: LiveDb, id: string): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE live_sessions SET disconnected_streak = 0 WHERE id = ?1 AND status != 'ended' AND disconnected_streak != 0"
+    )
+    .bind(id)
+    .run();
+}
+
+/** Ended sessions whose Cloudflare input has not been confirmed deleted. */
+export async function listEndedWithInput(
+  db: LiveDb,
+  limit: number
+): Promise<{ id: string; cf_input_uid: string }[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, cf_input_uid FROM live_sessions
+        WHERE status = 'ended' AND cf_input_uid IS NOT NULL ORDER BY ended_at LIMIT ?1`
+    )
+    .bind(limit)
+    .all<{ id: string; cf_input_uid: string }>();
+  return results;
+}
+
+/** Every input id currently recorded on any row. */
+export async function listRecordedInputs(db: LiveDb): Promise<Set<string>> {
+  const { results } = await db
+    .prepare('SELECT cf_input_uid FROM live_sessions WHERE cf_input_uid IS NOT NULL LIMIT ?1')
+    .bind(10_000)
+    .all<{ cf_input_uid: string }>();
+  return new Set(results.map((r) => r.cf_input_uid));
+}
+
+/**
+ * Delete ended rows older than the retention period. A row that still has
+ * an input to delete is kept until that is done.
+ */
+export async function deleteOldEndedRows(db: LiveDb, endedBefore: number): Promise<number> {
+  const result = await db
+    .prepare(
+      "DELETE FROM live_sessions WHERE status = 'ended' AND ended_at < ?1 AND cf_input_uid IS NULL"
+    )
+    .bind(endedBefore)
+    .run();
+  return result.meta?.changes ?? 0;
+}
+
+/** What an admin sees about a session. No input id, token or lock. */
+export interface AdminSessionView {
+  id: string;
+  host_pubkey: string;
+  title: string;
+  status: LiveSessionStatus;
+  created_at: number;
+  started_at: number | null;
+  reconnects: number;
+  guest_joins: number;
+  cap_refusals: number;
+  disconnected_streak: number;
+  input_recorded: boolean;
+}
+
+export async function listSessionsForAdmin(db: LiveDb, limit: number): Promise<AdminSessionView[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, host_pubkey, title, status, created_at, started_at, reconnects, guest_joins,
+              cap_refusals, disconnected_streak, (cf_input_uid IS NOT NULL) AS input_recorded
+         FROM live_sessions WHERE status != 'ended' OR cf_input_uid IS NOT NULL
+        ORDER BY created_at DESC LIMIT ?1`
+    )
+    .bind(limit)
+    .all<Omit<AdminSessionView, 'input_recorded'> & { input_recorded: number }>();
+  return results.map((r) => ({ ...r, input_recorded: !!r.input_recorded }));
+}
+
+/** Ids of one host's sessions that have not ended. */
+export async function listOpenSessionIdsForHost(db: LiveDb, hostPubkey: string): Promise<string[]> {
+  const { results } = await db
+    .prepare("SELECT id FROM live_sessions WHERE host_pubkey = ?1 AND status != 'ended'")
+    .bind(hostPubkey)
+    .all<{ id: string }>();
+  return results.map((r) => r.id);
+}
+
+/** Delete every row of one host. Returns how many were removed. */
+export async function deleteRowsForHost(db: LiveDb, hostPubkey: string): Promise<number> {
+  const result = await db
+    .prepare('DELETE FROM live_sessions WHERE host_pubkey = ?1')
+    .bind(hostPubkey)
+    .run();
+  return result.meta?.changes ?? 0;
 }

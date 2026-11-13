@@ -24,6 +24,7 @@
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
+  import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { loginOverlayOpen, openSignup } from '$lib/stores/loginOverlay';
@@ -131,6 +132,12 @@
       label: 'The Pantry Relay',
       icon: BasketIcon,
       match: (p) => p.startsWith('/pantry')
+    },
+    {
+      href: '/downloads',
+      label: 'Get the app',
+      icon: DeviceMobileIcon,
+      match: (p) => p.startsWith('/downloads')
     }
   ];
 

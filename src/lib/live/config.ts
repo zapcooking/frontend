@@ -37,3 +37,84 @@ export const LIVE_CREATES_PER_HOUR = 6;
 
 /** Kinds a session may attach as its recipe: long-form recipes and premium recipes. */
 export const LIVE_RECIPE_KINDS: readonly number[] = [30023, 35000];
+
+/** Longest SDP offer accepted by the relay, in bytes. Real offers are about 6 KB. */
+export const LIVE_OFFER_MAX_BYTES = 32 * 1024;
+
+/** A publish lock older than this is stale and may be taken over. */
+export const LIVE_PUBLISH_LOCK_SECONDS = 30;
+
+/**
+ * Publish attempts allowed per session (the first Go live plus every
+ * reconnect or retry). Each attempt creates a Cloudflare live input, so
+ * this bounds what one session can make the server do.
+ */
+export const LIVE_MAX_PUBLISH_ATTEMPTS = 30;
+
+/** Seconds a client should wait before retrying after a try-again reply. */
+export const LIVE_RETRY_AFTER_SECONDS = 2;
+
+/**
+ * Guests (viewers who are not confirmed active members) admitted per
+ * session when LIVE_GUEST_CAP is not set or not a usable number. Members
+ * are never counted.
+ */
+export const LIVE_GUEST_CAP_DEFAULT = 200;
+
+/** Upper bound accepted from LIVE_GUEST_CAP, so a typo cannot remove the cap. */
+export const LIVE_GUEST_CAP_MAX = 10_000;
+
+/**
+ * The guest cap from a configured value. Accepts a whole number from 0
+ * (no guests at all) to LIVE_GUEST_CAP_MAX; anything else falls back to
+ * the default.
+ */
+export function parseGuestCap(value: string | undefined): number {
+  if (value === undefined || !/^\d{1,6}$/.test(value)) return LIVE_GUEST_CAP_DEFAULT;
+  const cap = Number(value);
+  return cap <= LIVE_GUEST_CAP_MAX ? cap : LIVE_GUEST_CAP_DEFAULT;
+}
+
+// ── Sweep and kill switch ────────────────────────────────────────────
+
+/** A live session is ended this long after it first went live, whatever its status. */
+export const LIVE_MAX_SECONDS = 90 * 60;
+
+/** A session that was created but never went live is ended after this long. */
+export const LIVE_NEVER_STARTED_SECONDS = 10 * 60;
+
+/** Consecutive "not broadcasting" sweep readings that end a session. */
+export const LIVE_STREAK_TO_END = 2;
+
+/** Ended rows are deleted this long after they ended. */
+export const LIVE_ROW_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+
+/**
+ * The orphan check ignores inputs younger than this. A publish creates its
+ * input a moment before recording it on the row; this margin keeps the
+ * sweep from deleting an input that is still on its way to being recorded.
+ */
+export const LIVE_ORPHAN_MIN_AGE_SECONDS = 10 * 60;
+
+/** Most sessions examined in one sweep, and its time budget. */
+export const LIVE_SWEEP_BATCH = 25;
+export const LIVE_SWEEP_BUDGET_MS = 20_000;
+
+/** KV key (GATED_CONTENT) of the global off flag. Present with value '1' = off. */
+export const LIVE_OFF_KEY = 'live:off';
+
+/**
+ * Prefix of the operator-facing name of every live input this deployment
+ * creates: `<prefix><session id>`. Production and preview share one
+ * Cloudflare account, so each environment has its own prefix (set by
+ * LIVE_INPUT_PREFIX) and the orphan check only ever touches inputs named
+ * with its own.
+ */
+export const LIVE_INPUT_PREFIX_DEFAULT = 'zc-live-';
+
+/** A usable prefix, or the default. Must start with `zc-live-`. */
+export function parseInputPrefix(value: string | undefined): string {
+  return value !== undefined && /^zc-live-([a-z0-9]+-)?$/.test(value)
+    ? value
+    : LIVE_INPUT_PREFIX_DEFAULT;
+}
