@@ -10,6 +10,7 @@
   import FlameIcon from 'phosphor-svelte/lib/Flame';
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
+  import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
   import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
@@ -36,21 +37,78 @@
   };
 
   const homeItems: NavItem[] = [
-    { href: '/feed', label: 'Feed', icon: FlameIcon, match: (p) => p === '/' || p.startsWith('/feed') },
-    { href: '/recipes', label: 'Recipes', icon: ForkKnifeIcon, match: (p) => p.startsWith('/recipes') || p.startsWith('/recent') },
-    { href: '/reads', label: 'Reads', icon: NewspaperIcon, match: (p) => p.startsWith('/reads') || p.startsWith('/r/') },
-    { href: '/polls', label: 'Polls', icon: ChartBarHorizontalIcon, match: (p) => p.startsWith('/polls') },
-    { href: '/market', label: 'Market', icon: StorefrontIcon, match: (p) => p.startsWith('/market') || p.startsWith('/my-store') },
-    { href: '/messages', label: 'Messages', icon: EnvelopeSimpleIcon, match: (p) => p.startsWith('/messages'), badge: 'messages' },
-    { href: '/memories', label: 'Memories', icon: ClockCounterClockwiseIcon, match: (p) => p.startsWith('/memories') },
+    {
+      href: '/feed',
+      label: 'Feed',
+      icon: FlameIcon,
+      match: (p) => p === '/' || p.startsWith('/feed')
+    },
+    {
+      href: '/recipes',
+      label: 'Recipes',
+      icon: ForkKnifeIcon,
+      match: (p) => p.startsWith('/recipes') || p.startsWith('/recent')
+    },
+    {
+      href: '/reads',
+      label: 'Reads',
+      icon: NewspaperIcon,
+      match: (p) => p.startsWith('/reads') || p.startsWith('/r/')
+    },
+    { href: '/live', label: 'Live', icon: BroadcastIcon, match: (p) => p.startsWith('/live') },
+    {
+      href: '/polls',
+      label: 'Polls',
+      icon: ChartBarHorizontalIcon,
+      match: (p) => p.startsWith('/polls')
+    },
+    {
+      href: '/market',
+      label: 'Market',
+      icon: StorefrontIcon,
+      match: (p) => p.startsWith('/market') || p.startsWith('/my-store')
+    },
+    {
+      href: '/messages',
+      label: 'Messages',
+      icon: EnvelopeSimpleIcon,
+      match: (p) => p.startsWith('/messages'),
+      badge: 'messages'
+    },
+    {
+      href: '/memories',
+      label: 'Memories',
+      icon: ClockCounterClockwiseIcon,
+      match: (p) => p.startsWith('/memories')
+    }
   ];
 
   const kitchenItems: NavItem[] = [
-    { href: '/my-kitchen', label: 'My Kitchen', icon: CookbookIcon, match: (p) => p.startsWith('/my-kitchen') },
+    {
+      href: '/my-kitchen',
+      label: 'My Kitchen',
+      icon: CookbookIcon,
+      match: (p) => p.startsWith('/my-kitchen')
+    },
     { href: '/nourish', label: 'Nourish', icon: LeafIcon, match: (p) => p.startsWith('/nourish') },
-    { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
-    { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
-    { href: '/pantry', label: 'The Pantry Relay', icon: BasketIcon, match: (p) => p.startsWith('/pantry') },
+    {
+      href: '/membership',
+      label: 'Membership',
+      icon: CrownSimpleIcon,
+      match: (p) => p.startsWith('/membership')
+    },
+    {
+      href: '/sponsors',
+      label: 'Sponsors',
+      icon: HandshakeIcon,
+      match: (p) => p.startsWith('/sponsors')
+    },
+    {
+      href: '/pantry',
+      label: 'The Pantry Relay',
+      icon: BasketIcon,
+      match: (p) => p.startsWith('/pantry')
+    }
   ];
 
   // My Kitchen collapses to save vertical space; defaults open when the
@@ -112,7 +170,11 @@
   <!-- Drawer -->
   <aside
     class="nav-drawer"
-    transition:fly={{ x: -320, duration: 280, easing: (t) => (t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2) }}
+    transition:fly={{
+      x: -320,
+      duration: 280,
+      easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+    }}
     on:touchstart={handleTouchStart}
     on:touchend={handleTouchEnd}
     role="dialog"
@@ -120,17 +182,24 @@
     aria-label="Navigation"
   >
     <!-- Header -->
-    <div class="flex items-center justify-between px-4 py-3 border-b flex-shrink-0" style="border-color: var(--color-input-border);">
+    <div
+      class="flex items-center justify-between px-4 py-3 border-b flex-shrink-0"
+      style="border-color: var(--color-input-border);"
+    >
       <img src="/zapcooking-text-light.svg" class="w-32 dark:hidden" alt="Zap Cooking" />
       <img src="/zapcooking-text-dark.svg" class="w-32 hidden dark:block" alt="Zap Cooking" />
-      <button on:click={close} class="p-2 rounded-full transition-colors cursor-pointer" style="color: var(--color-text-primary);" aria-label="Close menu">
+      <button
+        on:click={close}
+        class="p-2 rounded-full transition-colors cursor-pointer"
+        style="color: var(--color-text-primary);"
+        aria-label="Close menu"
+      >
         <XIcon size={22} weight="bold" />
       </button>
     </div>
 
     <!-- Nav -->
     <nav class="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
-
       <!-- HOME -->
       <div>
         <!-- Unlabeled group: spacer keeps the items at the position the
@@ -145,10 +214,19 @@
                 class="nav-row w-full {active ? 'nav-row-active' : ''}"
                 style="color: var(--color-text-primary);"
               >
-                <span class="relative flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
-                  <svelte:component this={item.icon} size={20} weight={item.badge === 'messages' && $totalUnreadCount > 0 ? 'fill' : 'regular'} />
+                <span
+                  class="relative flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0"
+                >
+                  <svelte:component
+                    this={item.icon}
+                    size={20}
+                    weight={item.badge === 'messages' && $totalUnreadCount > 0 ? 'fill' : 'regular'}
+                  />
                   {#if item.badge === 'messages' && $totalUnreadCount > 0}
-                    <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" aria-hidden="true"></span>
+                    <span
+                      class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500"
+                      aria-hidden="true"
+                    ></span>
                   {/if}
                 </span>
                 <span class="font-medium">{item.label}</span>
@@ -177,23 +255,27 @@
           />
         </button>
         {#if kitchenExpanded}
-        <ul id="kitchen-nav-mobile" class="flex flex-col gap-0.5" transition:slide={{ duration: 200 }}>
-          {#each kitchenItems as item}
-            {@const active = item.match(pathname)}
-            <li>
-              <button
-                on:click={() => navigate(item.href)}
-                class="nav-row w-full {active ? 'nav-row-active' : ''}"
-                style="color: var(--color-text-primary);"
-              >
-                <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
-                  <svelte:component this={item.icon} size={20} />
-                </span>
-                <span class="font-medium">{item.label}</span>
-              </button>
-            </li>
-          {/each}
-        </ul>
+          <ul
+            id="kitchen-nav-mobile"
+            class="flex flex-col gap-0.5"
+            transition:slide={{ duration: 200 }}
+          >
+            {#each kitchenItems as item}
+              {@const active = item.match(pathname)}
+              <li>
+                <button
+                  on:click={() => navigate(item.href)}
+                  class="nav-row w-full {active ? 'nav-row-active' : ''}"
+                  style="color: var(--color-text-primary);"
+                >
+                  <span class="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
+                    <svelte:component this={item.icon} size={20} />
+                  </span>
+                  <span class="font-medium">{item.label}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
         {/if}
       </div>
 
@@ -204,11 +286,15 @@
            users and when the wallet widget is switched off in settings. -->
       {#if $userPublickey && $navBalanceVisible}
         <div>
-          <h3 class="px-3 pb-2 font-semibold uppercase tracking-wider" style="color: var(--color-caption); font-size: 11px;">Wallet</h3>
+          <h3
+            class="px-3 pb-2 font-semibold uppercase tracking-wider"
+            style="color: var(--color-caption); font-size: 11px;"
+          >
+            Wallet
+          </h3>
           <SidebarWallet onBeforeOpen={close} />
         </div>
       {/if}
-
     </nav>
   </aside>
 {/if}

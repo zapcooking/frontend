@@ -20,6 +20,7 @@
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
 
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
+  import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
@@ -40,7 +41,6 @@
     badge?: 'members' | 'messagesDot';
     external?: boolean;
   };
-
 
   const primary: NavItem[] = [
     {
@@ -63,6 +63,12 @@
       label: 'Reads',
       icon: NewspaperIcon,
       match: (p) => p.startsWith('/reads') || p.startsWith('/r/')
+    },
+    {
+      href: '/live',
+      label: 'Live',
+      icon: BroadcastIcon,
+      match: (p) => p.startsWith('/live')
     },
     {
       href: '/polls',
@@ -222,9 +228,7 @@
                   <svelte:component
                     this={item.icon}
                     size={20}
-                    weight={item.href === '/messages' && $totalUnreadCount > 0
-                      ? 'fill'
-                      : 'regular'}
+                    weight={item.href === '/messages' && $totalUnreadCount > 0 ? 'fill' : 'regular'}
                   />
                   {#if item.badge === 'messagesDot' && $totalUnreadCount > 0}
                     <span
@@ -279,45 +283,52 @@
           />
         </button>
         {#if kitchenExpanded}
-          <ul id="kitchen-nav-desktop" class="flex flex-col gap-1" transition:slide={{ duration: 200 }}>
+          <ul
+            id="kitchen-nav-desktop"
+            class="flex flex-col gap-1"
+            transition:slide={{ duration: 200 }}
+          >
             {#each kitchen as item (item.href)}
-            {@const active = item.match ? item.match(pathname) : pathname === item.href}
-            <li>
-              <a
-                href={item.href}
-                class={linkClasses(active)}
-                style="color: var(--color-text-primary);"
-                aria-current={active ? 'page' : undefined}
-              >
-                <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
-                  <svelte:component this={item.icon} size={20} />
-                </span>
-                <span class="font-medium">{item.label}</span>
-                {#if item.badge === 'members'}
-                  <span class="ml-auto">
-                    <span class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Members</span>
+              {@const active = item.match ? item.match(pathname) : pathname === item.href}
+              <li>
+                <a
+                  href={item.href}
+                  class={linkClasses(active)}
+                  style="color: var(--color-text-primary);"
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
+                    <svelte:component this={item.icon} size={20} />
                   </span>
-                {/if}
-              </a>
-            </li>
-          {/each}
+                  <span class="font-medium">{item.label}</span>
+                  {#if item.badge === 'members'}
+                    <span class="ml-auto">
+                      <span
+                        class="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                        >Members</span
+                      >
+                    </span>
+                  {/if}
+                </a>
+              </li>
+            {/each}
 
-          <!-- Gadgets — a tool launcher, not a destination: one click
+            <!-- Gadgets — a tool launcher, not a destination: one click
                opens the cooking-tools widget (same as the header's
                measuring cup), so no nested expander needed. -->
-          <li>
-            <button
-              type="button"
-              class="w-full flex items-center gap-3 px-3 py-1.5 rounded-xl transition-colors cursor-pointer nav-hover"
-              style="color: var(--color-text-primary);"
-              on:click={() => cookingToolsStore.toggle()}
-            >
-              <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
-                <MeasuringCupIcon size={20} />
-              </span>
-              <span class="font-medium">Gadgets</span>
-            </button>
-          </li>
+            <li>
+              <button
+                type="button"
+                class="w-full flex items-center gap-3 px-3 py-1.5 rounded-xl transition-colors cursor-pointer nav-hover"
+                style="color: var(--color-text-primary);"
+                on:click={() => cookingToolsStore.toggle()}
+              >
+                <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
+                  <MeasuringCupIcon size={20} />
+                </span>
+                <span class="font-medium">Gadgets</span>
+              </button>
+            </li>
           </ul>
         {/if}
       </div>
