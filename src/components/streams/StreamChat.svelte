@@ -15,6 +15,7 @@
   import { verifyEvent } from 'nostr-tools/pure';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import Avatar from '../Avatar.svelte';
+  import PaperPlaneTiltIcon from 'phosphor-svelte/lib/PaperPlaneTilt';
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys } from '$lib/muteListStore';
   import { extractZapAmountSats } from '$lib/zapAmount';
@@ -344,26 +345,32 @@
 </script>
 
 <section
-  class="flex h-full min-h-0 flex-col rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+  class="flex h-full min-h-0 flex-col rounded-xl"
+  style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
 >
   <header
-    class="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800"
+    class="flex items-center justify-between border-b px-3 py-2"
+    style="border-color: var(--color-input-border); background-color: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);"
   >
-    <h2 class="text-sm font-semibold">Live chat</h2>
-    <span class="text-xs text-zinc-500">{rows.length > 0 ? `${rows.length} messages` : ''}</span>
+    <h2 class="text-sm font-semibold" style="color: var(--color-text-primary);">Live chat</h2>
+    <span class="text-xs" style="color: var(--color-caption);">
+      {rows.length > 0 ? `${rows.length} messages` : ''}
+    </span>
   </header>
 
   {#if topZappers.length}
     <!-- Top zappers strip (Sidecar parity): ranked senders with pfp + sats. -->
     <div
-      class="flex gap-1.5 overflow-x-auto border-b border-zinc-200 px-3 py-2 dark:border-zinc-800"
+      class="flex gap-1.5 overflow-x-auto border-b px-3 py-2"
+      style="border-color: var(--color-input-border);"
       aria-label="Top zappers"
     >
       {#each topZappers as zapper, i (zapper.pubkey)}
         {@const name = displayName(zapper.pubkey)}
         <button
           type="button"
-          class="flex shrink-0 items-center gap-1 rounded-full bg-zinc-100 py-0.5 pl-0.5 pr-2 text-xs dark:bg-zinc-800"
+          class="flex shrink-0 items-center gap-1 rounded-full py-0.5 pl-0.5 pr-2 text-xs transition-colors hover:bg-accent-gray cursor-pointer"
+          style="background-color: var(--color-bg-secondary);"
           title={'#' + (i + 1) + ' ' + name + ' — ' + zapper.sats.toLocaleString() + ' sats'}
           on:click={() => openProfilePreview(zapper.pubkey)}
         >
@@ -378,7 +385,7 @@
               alt={name}
             />
           </span>
-          <span class="max-w-24 truncate text-zinc-600 dark:text-zinc-300">{name}</span>
+          <span class="max-w-24 truncate" style="color: var(--color-text-primary);">{name}</span>
           <span class="font-semibold tabular-nums text-amber-500">
             {compact(zapper.sats)}
           </span>
@@ -389,13 +396,14 @@
 
   <div class="px-3 pt-2">
     {#if rows.length >= HISTORY_CAP}
-      <p class="mb-2 text-center text-xs text-zinc-500">
+      <p class="mb-2 text-center text-xs" style="color: var(--color-caption);">
         This chat has too many messages to load further history.
       </p>
     {:else if !historyComplete}
       <button
         type="button"
-        class="mb-2 w-full rounded-lg border border-zinc-200 py-1 text-xs text-zinc-600 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        class="mb-2 w-full rounded-lg py-1 text-xs transition-colors hover:bg-accent-gray disabled:opacity-50 cursor-pointer"
+        style="border: 1px solid var(--color-input-border); color: var(--color-caption);"
         disabled={historyBusy || loading}
         on:click={() => load(false)}
       >
@@ -406,9 +414,13 @@
 
   <div bind:this={log} class="flex-1 overflow-y-auto px-3 pb-2" aria-label="Stream chat">
     {#if loading}
-      <p class="py-6 text-center text-xs text-zinc-500">Looking for messages…</p>
+      <p class="py-6 text-center text-xs" style="color: var(--color-caption);">
+        Looking for messages…
+      </p>
     {:else if rows.length === 0}
-      <p class="py-6 text-center text-xs text-zinc-500">No messages yet. Say something!</p>
+      <p class="py-6 text-center text-xs" style="color: var(--color-caption);">
+        No messages yet. Say something!
+      </p>
     {/if}
     {#each rows as row (row.event.id)}
       {@const event = row.event}
@@ -420,7 +432,7 @@
             <span class="font-semibold" title={row.sender ? displayName(row.sender) : undefined}>
               {row.sender ? displayName(row.sender) : 'Someone'}
             </span>
-            <span class="text-zinc-500">zapped</span>
+            <span style="color: var(--color-caption);">zapped</span>
             <span class="font-semibold text-amber-500">
               ⚡ {(row.sats || 0).toLocaleString()} sats
             </span>
@@ -435,7 +447,8 @@
           {#if parent}
             <button
               type="button"
-              class="text-left text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+              class="text-left text-[11px] hover:opacity-80"
+              style="color: var(--color-caption);"
               on:click={() => {
                 const el = document.getElementById(`chat-${parent.event.id}`);
                 el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -458,10 +471,12 @@
             </span>
             <div class="min-w-0 flex-1">
               <p class="text-xs leading-snug break-words">
-                <span class="font-semibold" title={displayName(event.pubkey)}
-                  >{displayName(event.pubkey)}</span
+                <span
+                  class="font-semibold"
+                  style="color: var(--color-text-primary);"
+                  title={displayName(event.pubkey)}>{displayName(event.pubkey)}</span
                 >
-                <span class="text-zinc-400">
+                <span style="color: var(--color-caption);">
                   {new Date(event.created_at * 1000).toLocaleTimeString([], {
                     hour: 'numeric',
                     minute: '2-digit'
@@ -472,7 +487,8 @@
             </div>
             <button
               type="button"
-              class="shrink-0 self-center rounded p-1 text-zinc-400 opacity-0 hover:bg-zinc-100 hover:text-zinc-600 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-zinc-800"
+              class="shrink-0 self-center rounded p-1 opacity-0 hover:bg-accent-gray focus:opacity-100 group-hover:opacity-100"
+              style="color: var(--color-caption);"
               aria-label="Reply to {displayName(event.pubkey)}"
               title="Reply"
               on:click={() => {
@@ -498,9 +514,9 @@
     {/each}
   </div>
 
-  <footer class="border-t border-zinc-200 px-3 py-2 dark:border-zinc-800">
+  <footer class="border-t px-3 py-2" style="border-color: var(--color-input-border);">
     {#if signingIn}
-      <p class="text-xs text-zinc-500">
+      <p class="text-xs" style="color: var(--color-caption);">
         <a
           class="underline hover:opacity-80"
           href={`/login?redirect=${encodeURIComponent($page.url.pathname)}`}>Sign in</a
@@ -509,25 +525,33 @@
     {:else}
       {#if replyTo}
         <div
-          class="mb-1 flex items-center justify-between gap-2 rounded bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800"
+          class="mb-1 flex items-center justify-between gap-2 rounded px-2 py-1 text-xs"
+          style="background-color: var(--color-bg-secondary);"
         >
-          <span class="truncate">Replying to {displayName(replyTo.pubkey)}</span>
+          <span class="truncate" style="color: var(--color-caption);">
+            Replying to {displayName(replyTo.pubkey)}
+          </span>
           <button
             type="button"
             aria-label="Cancel reply"
-            class="text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            class="hover:opacity-80"
+            style="color: var(--color-caption);"
             on:click={() => (replyTo = null)}>✕</button
           >
         </div>
       {/if}
-      <div class="flex items-end gap-2">
+      <div class="flex items-end">
+        <!-- Composer per the Messages-panel pattern: attached orange send
+             button, NIP-57-style focus ring on the shared accent. -->
         <textarea
           bind:value={draft}
           rows="2"
           maxlength="4000"
-          placeholder="Write a message"
+          placeholder="Type a message..."
           aria-label="Write a message"
-          class="min-w-0 flex-1 resize-none rounded-lg border border-zinc-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+          class="chat-input input min-w-0 flex-1 resize-none text-sm min-h-[42px] max-h-32 transition-colors duration-200"
+          style="background-color: var(--color-input-bg); border-radius: 0.75rem 0 0 0.75rem; border: 1px solid rgba(249, 115, 22, 0.35); border-right: none;"
+          disabled={sending}
           on:keydown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
@@ -537,16 +561,33 @@
         ></textarea>
         <button
           type="button"
-          class="shrink-0 rounded-lg bg-zinc-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900"
+          class="self-stretch rounded-l-none rounded-r-xl p-2.5 transition-colors cursor-pointer disabled:opacity-40"
+          style="background-color: var(--color-primary); color: #ffffff;"
           disabled={sending || !draft.trim()}
+          aria-label="Send message"
           on:click={send}
         >
-          Send
+          {#if sending}
+            <div
+              class="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
+            ></div>
+          {:else}
+            <PaperPlaneTiltIcon size={20} weight="fill" />
+          {/if}
         </button>
       </div>
     {/if}
     {#if notice}
-      <p class="mt-1 text-xs text-zinc-500" role="status">{notice}</p>
+      <p class="mt-1 text-xs" style="color: var(--color-caption);" role="status">{notice}</p>
     {/if}
   </footer>
 </section>
+
+<style>
+  .chat-input:focus {
+    --tw-ring-shadow: none !important;
+    border-color: rgba(249, 115, 22, 0.8) !important;
+    box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.8) !important;
+    outline: none !important;
+  }
+</style>
