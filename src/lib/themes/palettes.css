@@ -1,3 +1,4 @@
+@import './surfaces.css';
 /* Shared palettes reuse the original app neutrals and existing Explore colors. Display typography and decoration remain local to Explore. Brand accents, filled actions, and small sign-in text have separate color roles. */
 html:root {
   --explore-action-bg: #bd3c0b;
@@ -86,8 +87,10 @@ html:root.dark {
   --color-info: #93c5fd;
   --color-danger: #fca5a5;
 }
-/* Original keeps the site's pre-theme brand orange. Other styles retain their
-   existing accent/action pairs, including Warm Kitchen's inherited colors. */
+/* Original keeps the site's pre-theme brand orange. Most styles keep their
+   existing accent/action pairs (Warm Kitchen inherits its former colors);
+   Club, Diner and Market carry their own, so the filled controls that dominate
+   the app stop reading as one shared rust across moods. */
 html:root:not([data-explore-theme]),
 html:root[data-explore-theme='original'] {
   --color-primary: #ec4700;
@@ -133,210 +136,654 @@ html:root.dark[data-explore-theme='original'] {
   --color-hashtag-text: #fb923c;
   --color-hashtag-hover-bg: #ea580c;
 }
-/* Warm Kitchen retains the former off-white and brown palettes as an opt-in style. */
+/* Warm Kitchen: the home kitchen — a linen towel, butter and a rust-red pot. */
 html:root:not(.dark)[data-explore-theme='warm-kitchen'] {
-  --color-text-primary: #28231f;
-  --color-text-secondary: #60554b;
-  --color-caption: #6b5d51;
-  --color-bg-primary: #fff9f2;
-  --color-bg-secondary: #f4e9dd;
+  --explore-accent-text: #a73108;
+  --explore-pattern: #7a5a3a1a;
+  --explore-action-bg: #bd3c0b;
+  --explore-action-ink: #ffffff;
+  --color-primary: #a73108;
+  --color-on-action: #ffffff;
+  --color-text-primary: #2b2420;
+  --color-text-secondary: #5e5248;
+  --color-caption: #5e5248;
+  --color-bg-primary: #fbf4ea;
+  --color-bg-secondary: #fffaf3;
   --color-input-bg: #fffdf9;
-  --color-input-border: #c7b7a7;
-  --color-accent-gray: #c7b7a7;
-  --color-card-sunken: #eee2d4;
+  --color-input-border: #d9c8b6;
+  --color-accent-gray: #d9c8b6;
+  --color-card-sunken: #f1e5d6;
+  --color-explore-peach: #fbe6d4;
+  --color-explore-sage: #edf0e2;
+  --color-success: #3f6b2f;
+  --color-warning: #8a5300;
+  --color-info: #2f5d8a;
+  --color-danger: #a8321c;
 }
 html:root.dark[data-explore-theme='warm-kitchen'] {
   --explore-accent-text: #ffb18b;
-  --explore-pattern: #d9ad8526;
+  --explore-pattern: #ffe2c41f;
+  --explore-action-bg: #e8794a;
+  --explore-action-ink: #24140a;
+  --color-primary: #ffb18b;
+  --color-on-action: #24140a;
   --color-text-primary: #fff5e9;
   --color-text-secondary: #dfcdbd;
-  --color-caption: #c9b4a2;
-  --color-bg-primary: #201c19;
-  --color-bg-secondary: #302721;
-  --color-input-bg: #261f1a;
-  --color-input-border: #716152;
-  --color-accent-gray: #716152;
-  --color-card-sunken: #191512;
+  --color-caption: #dfcdbd;
+  --color-bg-primary: #272019;
+  --color-bg-secondary: #332a21;
+  --color-input-bg: #1f1914;
+  --color-input-border: #5e5043;
+  --color-accent-gray: #5e5043;
+  --color-card-sunken: #1d1712;
   --color-explore-peach: #3e2a21;
   --color-explore-sage: #2b3328;
+  --color-success: #a8d18f;
+  --color-warning: #f2c46b;
+  --color-info: #a9c8e8;
+  --color-danger: #ffa58a;
 }
-html:root[data-explore-theme='after-hours'] {
-  --explore-accent-text: #9b2d25;
-  --explore-pattern: #336b661f;
-  --explore-masthead-bg: #35213f;
-  --explore-masthead-ink: #fff7e6;
-  --explore-masthead-muted: #efdfde;
+/* After Hours '80s: a neon supper club — sunset apricot, fuchsia ink and teal, with an aubergine synth-night dark mode. */
+html:root:not(.dark)[data-explore-theme='after-hours'] {
+  --explore-accent-text: #8e1f5c;
+  --explore-pattern: #8e1f5c26;
+  --explore-action-bg: #0e6d6b;
+  --explore-action-ink: #ffffff;
+  --color-primary: #8e1f5c;
+  --color-on-action: #ffffff;
+  --color-text-primary: #34203f;
+  --color-text-secondary: #5c4263;
+  --color-caption: #5c4263;
+  --color-bg-primary: #fde2d2;
+  --color-bg-secondary: #fff3ea;
+  --color-input-bg: #fff8f2;
+  --color-input-border: #e2b2a0;
+  --color-accent-gray: #e2b2a0;
+  --color-card-sunken: #f6d3c1;
+  --color-explore-peach: #ffd9c4;
+  --color-explore-sage: #d7efe9;
+  --explore-masthead-bg: #3a1f4a;
+  --explore-masthead-ink: #fff3ea;
+  --explore-masthead-muted: #f0d9e6;
   --explore-picker-focus: var(--explore-masthead-ink);
-  --color-text-primary: #322238;
-  --color-text-secondary: #625063;
-  --color-caption: #6f5968;
-  --color-bg-primary: #fff7e8;
-  --color-bg-secondary: #f4e6da;
-  --color-input-bg: #fffdf7;
-  --color-input-border: #bcaaad;
-  --color-accent-gray: #bcaaad;
-  --color-card-sunken: #eee1db;
-  --color-explore-peach: #ffe0ca;
-  --color-explore-sage: #e5eee5;
+  --color-success: #0e6d4f;
+  --color-warning: #8a4f00;
+  --color-info: #2e4fa8;
+  --color-danger: #b0233f;
 }
 html:root.dark[data-explore-theme='after-hours'] {
-  --explore-accent-text: #ffb38b;
-  --explore-pattern: #9be0cd21;
-  --explore-masthead-bg: #392646;
-  --explore-masthead-ink: #fff7e6;
-  --explore-masthead-muted: #efdfde;
-  --color-text-primary: #fff1e5;
-  --color-text-secondary: #e2cedd;
-  --color-caption: #cfb8cd;
-  --color-bg-primary: #211829;
-  --color-bg-secondary: #302236;
-  --color-input-bg: #291d31;
-  --color-input-border: #80687e;
-  --color-accent-gray: #80687e;
-  --color-card-sunken: #19111f;
-  --color-explore-peach: #432735;
-  --color-explore-sage: #213b36;
+  --explore-accent-text: #ff8fcf;
+  --explore-pattern: #ff8fcf2e;
+  --explore-action-bg: #3fd3c6;
+  --explore-action-ink: #0c1f22;
+  --color-primary: #ff8fcf;
+  --color-on-action: #0c1f22;
+  --color-text-primary: #fbeefe;
+  --color-text-secondary: #dcc8e6;
+  --color-caption: #dcc8e6;
+  --color-bg-primary: #160c2a;
+  --color-bg-secondary: #22153c;
+  --color-input-bg: #120922;
+  --color-input-border: #4a3466;
+  --color-accent-gray: #4a3466;
+  --color-card-sunken: #10081f;
+  --color-explore-peach: #3a1a3a;
+  --color-explore-sage: #13303a;
+  --explore-masthead-bg: #26173f;
+  --explore-masthead-ink: #fbeefe;
+  --explore-masthead-muted: #dcc8e6;
+  --color-success: #5fe0b0;
+  --color-warning: #ffcf5c;
+  --color-info: #8fc4ff;
+  --color-danger: #ff8fa8;
 }
-html:root[data-explore-theme='recipe-club'] {
+/* Recipe Club '90s: a photocopied zine — blue ink on periwinkle paper, highlighter labels; dark mode is cobalt. */
+html:root:not(.dark)[data-explore-theme='recipe-club'] {
   --explore-accent-text: #234398;
-  --explore-pattern: #25499c12;
-  --explore-label-bg: #fff0a1;
-  --explore-label-ink: #24386b;
+  --explore-pattern: #23439821;
+  --explore-action-bg: #234398;
+  --explore-action-ink: #ffffff;
+  --color-primary: #234398;
+  --color-on-action: #ffffff;
   --color-text-primary: #172449;
-  --color-text-secondary: #4c5265;
-  --color-caption: #5b6073;
-  --color-bg-primary: #fffdf4;
-  --color-bg-secondary: #eeeee6;
-  --color-input-bg: #fffffc;
-  --color-input-border: #9da6bd;
-  --color-accent-gray: #9da6bd;
-  --color-card-sunken: #e8e7df;
-  --color-explore-peach: #ffe6d4;
-  --color-explore-sage: #ecedff;
+  --color-text-secondary: #454c63;
+  --color-caption: #454c63;
+  --color-bg-primary: #e5eefb;
+  --color-bg-secondary: #f8faff;
+  --color-input-bg: #ffffff;
+  --color-input-border: #8e9bc0;
+  --color-accent-gray: #8e9bc0;
+  --color-card-sunken: #d8e3f6;
+  --color-explore-peach: #fff3c4;
+  --color-explore-sage: #dde6fb;
+  --explore-label-bg: #fff0a1;
+  --explore-label-ink: #1a2150;
+  --color-success: #1d6b44;
+  --color-warning: #7f5600;
+  --color-info: #234398;
+  --color-danger: #b0262c;
 }
 html:root.dark[data-explore-theme='recipe-club'] {
-  --explore-accent-text: #b3c5ff;
-  --explore-pattern: #a4b9ff17;
-  --explore-label-bg: #efe49b;
-  --explore-label-ink: #263564;
-  --color-text-primary: #f6f2e4;
-  --color-text-secondary: #d1d4e6;
-  --color-caption: #b7bed9;
-  --color-bg-primary: #181d2d;
-  --color-bg-secondary: #242b3f;
-  --color-input-bg: #1e2537;
-  --color-input-border: #6d7898;
-  --color-accent-gray: #6d7898;
-  --color-card-sunken: #101624;
-  --color-explore-peach: #3b2b29;
-  --color-explore-sage: #282b44;
+  --explore-accent-text: #c2d0ff;
+  --explore-pattern: #c2d0ff21;
+  --explore-action-bg: #ffe36e;
+  --explore-action-ink: #1a2150;
+  --color-primary: #c2d0ff;
+  --color-on-action: #1a2150;
+  --color-text-primary: #eef0fa;
+  --color-text-secondary: #cfd6f2;
+  --color-caption: #cfd6f2;
+  --color-bg-primary: #18245c;
+  --color-bg-secondary: #22307a;
+  --color-input-bg: #121c4c;
+  --color-input-border: #5b6bb0;
+  --color-accent-gray: #5b6bb0;
+  --color-card-sunken: #111a4a;
+  --color-explore-peach: #2e2f62;
+  --color-explore-sage: #1d2c6a;
+  --explore-label-bg: #ffe36e;
+  --explore-label-ink: #1a2150;
+  --color-success: #8fe0b2;
+  --color-warning: #ffe36e;
+  --color-info: #c2d0ff;
+  --color-danger: #ffa3a8;
 }
-html:root[data-explore-theme='recipe-box'] {
+/* Recipe Box: a sage recipe tin of ruled index cards, herb-green ink and tomato fills; dark mode is a forest-green tin. */
+html:root:not(.dark)[data-explore-theme='recipe-box'] {
   --explore-accent-text: #3e5d42;
-  --explore-pattern: #526f4a12;
+  --explore-pattern: #4a78b021;
   --explore-action-bg: #ac390e;
-  --color-text-primary: #30382b;
-  --color-text-secondary: #56604c;
-  --color-caption: #60694f;
-  --color-bg-primary: #fffdf3;
-  --color-bg-secondary: #eeefdf;
-  --color-input-bg: #fffffa;
-  --color-input-border: #abb59a;
-  --color-accent-gray: #abb59a;
-  --color-card-sunken: #e8e8d8;
-  --color-explore-peach: #f6e5d3;
-  --color-explore-sage: #e9efdc;
+  --explore-action-ink: #ffffff;
+  --color-primary: #3e5d42;
+  --color-on-action: #ffffff;
+  --color-text-primary: #2c3426;
+  --color-text-secondary: #4f5945;
+  --color-caption: #4f5945;
+  --color-bg-primary: #eaf0db;
+  --color-bg-secondary: #fffdf5;
+  --color-input-bg: #fffef9;
+  --color-input-border: #bcc4a6;
+  --color-accent-gray: #bcc4a6;
+  --color-card-sunken: #dfe7cc;
+  --color-explore-peach: #f8e6d4;
+  --color-explore-sage: #e1ead0;
+  --color-success: #3e5d42;
+  --color-warning: #855a00;
+  --color-info: #3a6aa0;
+  --color-danger: #ac390e;
 }
 html:root.dark[data-explore-theme='recipe-box'] {
   --explore-accent-text: #bed7aa;
-  --explore-pattern: #9ab78116;
-  --color-text-primary: #f4f3e3;
-  --color-text-secondary: #d1d6bf;
-  --color-caption: #b8c3a3;
-  --color-bg-primary: #1c231b;
-  --color-bg-secondary: #283025;
-  --color-input-bg: #222a1f;
-  --color-input-border: #6e7c5e;
-  --color-accent-gray: #6e7c5e;
-  --color-card-sunken: #141b13;
-  --color-explore-peach: #3b3023;
-  --color-explore-sage: #2b3626;
+  --explore-pattern: #9fc3e81c;
+  --explore-action-bg: #e0764f;
+  --explore-action-ink: #2a0f05;
+  --color-primary: #bed7aa;
+  --color-on-action: #2a0f05;
+  --color-text-primary: #f1f3e3;
+  --color-text-secondary: #c9d2b8;
+  --color-caption: #c9d2b8;
+  --color-bg-primary: #122019;
+  --color-bg-secondary: #1d2e24;
+  --color-input-bg: #0d1812;
+  --color-input-border: #3d5244;
+  --color-accent-gray: #3d5244;
+  --color-card-sunken: #0c1711;
+  --color-explore-peach: #33291e;
+  --color-explore-sage: #1f3326;
+  --color-success: #bed7aa;
+  --color-warning: #f0c870;
+  --color-info: #9fc3e8;
+  --color-danger: #f0977a;
 }
-html:root[data-explore-theme='corner-diner'] {
-  --explore-accent-text: #9c3423;
-  --explore-pattern: #9c342326;
-  --explore-masthead-bg: #cce9e3;
-  --explore-masthead-ink: #943222;
-  --explore-masthead-muted: #4c5a55;
+/* Corner Diner: seafoam walls, a checker floor, vanilla menus edged in chrome and cherry-red fills; dark mode is a teal booth under neon. */
+html:root:not(.dark)[data-explore-theme='corner-diner'] {
+  --explore-accent-text: #a3242a;
+  --explore-pattern: #1f5a4c1f;
+  --explore-action-bg: #c03530;
+  --explore-action-ink: #ffffff;
+  --color-primary: #a3242a;
+  --color-on-action: #ffffff;
+  --color-text-primary: #22302c;
+  --color-text-secondary: #45534e;
+  --color-caption: #45534e;
+  --color-bg-primary: #d8efe7;
+  --color-bg-secondary: #fffaec;
+  --color-input-bg: #ffffff;
+  --color-input-border: #93bcae;
+  --color-accent-gray: #93bcae;
+  --color-card-sunken: #c9e6dc;
+  --color-explore-peach: #ffe8dc;
+  --color-explore-sage: #c4e6da;
+  --explore-masthead-bg: #fffaec;
+  --explore-masthead-ink: #a3242a;
+  --explore-masthead-muted: #45534e;
   --explore-picker-focus: var(--explore-masthead-ink);
-  --color-text-primary: #2c3431;
-  --color-text-secondary: #4c5a55;
-  --color-caption: #58645c;
-  --color-bg-primary: #fff9e9;
-  --color-bg-secondary: #f1eddd;
-  --color-input-bg: #fffdf6;
-  --color-input-border: #99afa4;
-  --color-accent-gray: #99afa4;
-  --color-card-sunken: #e9e4d5;
-  --color-explore-peach: #f9e5d9;
-  --color-explore-sage: #dcece5;
+  --color-success: #1d6b52;
+  --color-warning: #875400;
+  --color-info: #245e8a;
+  --color-danger: #a3242a;
 }
 html:root.dark[data-explore-theme='corner-diner'] {
-  --explore-accent-text: #ffb5a0;
-  --explore-pattern: #f8c4a52e;
-  --explore-masthead-bg: #233f3a;
-  --explore-masthead-ink: #ffb5a0;
-  --explore-masthead-muted: #dfd6c4;
+  --explore-accent-text: #ff9c8f;
+  --explore-pattern: #bfeee01f;
+  --explore-action-bg: #d63c32;
+  --explore-action-ink: #ffffff;
+  --color-primary: #ff9c8f;
+  --color-on-action: #ffffff;
   --color-text-primary: #fff5e5;
-  --color-text-secondary: #dfd6c4;
-  --color-caption: #c2cbbd;
-  --color-bg-primary: #1d2522;
-  --color-bg-secondary: #2b3631;
-  --color-input-bg: #232d28;
-  --color-input-border: #718d80;
-  --color-accent-gray: #718d80;
-  --color-card-sunken: #141c18;
-  --color-explore-peach: #3b2c25;
-  --color-explore-sage: #283b35;
+  --color-text-secondary: #d0ddd6;
+  --color-caption: #d0ddd6;
+  --color-bg-primary: #0b2627;
+  --color-bg-secondary: #143638;
+  --color-input-bg: #082021;
+  --color-input-border: #2f5b57;
+  --color-accent-gray: #2f5b57;
+  --color-card-sunken: #071d1e;
+  --color-explore-peach: #3a2a26;
+  --color-explore-sage: #123f3b;
+  --explore-masthead-bg: #143638;
+  --explore-masthead-ink: #ff9c8f;
+  --explore-masthead-muted: #d0ddd6;
+  --color-success: #7fe0c0;
+  --color-warning: #ffd27a;
+  --color-info: #8fd0f0;
+  --color-danger: #ff9c8f;
 }
-html:root[data-explore-theme='sunday-market'] {
-  --explore-accent-text: #306337;
-  --explore-citrus: #f7df72;
-  --explore-leaf: #306337;
-  --explore-berry: #99344a;
-  --explore-label-bg: var(--explore-citrus);
-  --explore-label-ink: #306337;
-  --explore-masthead-ink: var(--explore-leaf);
-  --color-text-primary: #263b2e;
-  --color-text-secondary: #53604e;
-  --color-caption: #5b654b;
-  --color-bg-primary: #fffcf4;
-  --color-bg-secondary: #f0efdf;
-  --color-input-bg: #fffffb;
-  --color-input-border: #a4b293;
-  --color-accent-gray: #a4b293;
-  --color-card-sunken: #e9e9d8;
-  --color-explore-peach: #fff1bb;
-  --color-explore-sage: #e8efdc;
+/* Farmers Market: citron paper and produce stamps, tomato-red price tags, berry actions and leaf trim; dark mode is the market at dusk, mustard-black with corn-yellow light. */
+html:root:not(.dark)[data-explore-theme='sunday-market'] {
+  --explore-accent-text: #8a2f4a;
+  --explore-pattern: #7a5a1024;
+  --explore-action-bg: #8a2f4a;
+  --explore-action-ink: #ffffff;
+  --color-primary: #8a2f4a;
+  --color-on-action: #ffffff;
+  --color-text-primary: #3a2a12;
+  --color-text-secondary: #6a5530;
+  --color-caption: #6a5530;
+  --color-bg-primary: #f4e594;
+  --color-bg-secondary: #fff8d8;
+  --color-input-bg: #fdffe9;
+  --color-input-border: #c3ad55;
+  --color-accent-gray: #c3ad55;
+  --color-card-sunken: #ecda80;
+  --color-explore-peach: #ffe29a;
+  --color-explore-sage: #e8ebbc;
+  --explore-citrus: #e8b81f;
+  --explore-leaf: #4f7a2a;
+  --explore-berry: #8a2f4a;
+  --explore-tomato: #b83b1c;
+  --explore-label-bg: var(--explore-tomato);
+  --explore-label-ink: #ffffff;
+  --explore-masthead-ink: var(--explore-berry);
+  --color-success: #3f6b22;
+  --color-warning: #7a5000;
+  --color-info: #2f5f86;
+  --color-danger: #a3261c;
 }
 html:root.dark[data-explore-theme='sunday-market'] {
-  --explore-accent-text: #bddb9d;
-  --explore-citrus: #e6ce68;
-  --explore-leaf: #bddb9d;
-  --explore-berry: #f7b4bf;
-  --explore-label-bg: #e6ce68;
-  --explore-label-ink: #294f2e;
-  --color-text-primary: #f6f3de;
-  --color-text-secondary: #d6dcc5;
-  --color-caption: #c0caaa;
-  --color-bg-primary: #1d251c;
-  --color-bg-secondary: #2b3526;
-  --color-input-bg: #242e20;
-  --color-input-border: #758562;
-  --color-accent-gray: #758562;
-  --color-card-sunken: #151c13;
-  --color-explore-peach: #3d371f;
-  --color-explore-sage: #283c28;
+  --explore-accent-text: #f5cf5a;
+  --explore-pattern: #ffffff1c;
+  --explore-action-bg: #f2b632;
+  --explore-action-ink: #2a1d05;
+  --color-primary: #f5cf5a;
+  --color-on-action: #2a1d05;
+  --color-text-primary: #fbf3dc;
+  --color-text-secondary: #dccfa8;
+  --color-caption: #dccfa8;
+  --color-bg-primary: #2a2a14;
+  --color-bg-secondary: #35341c;
+  --color-input-bg: #22220f;
+  --color-input-border: #57532e;
+  --color-accent-gray: #57532e;
+  --color-card-sunken: #1f1f0d;
+  --color-explore-peach: #47401a;
+  --color-explore-sage: #33381f;
+  --explore-citrus: #f5cf5a;
+  --explore-leaf: #b5d488;
+  --explore-berry: #f39ab0;
+  --explore-tomato: #ff8a70;
+  --explore-label-bg: var(--explore-tomato);
+  --explore-label-ink: #2a1005;
+  --explore-masthead-ink: var(--explore-citrus);
+  --color-success: #b5d488;
+  --color-warning: #f5cf5a;
+  --color-info: #a8cde8;
+  --color-danger: #ff9a8a;
+}
+/* Copper Bazaar: hammered copper with turquoise inlay, after Isfahan metalwork; dark mode is golden bronze. Turquoise leads the fills. */
+html:root:not(.dark)[data-explore-theme='copper-bazaar'] {
+  --explore-accent-text: #0b5652;
+  --explore-pattern: #0b56522e;
+  --explore-action-bg: #0a5f5b;
+  --explore-action-ink: #ffffff;
+  --color-primary: #0b5652;
+  --color-on-action: #ffffff;
+  --color-text-primary: #33200f;
+  --color-text-secondary: #553a23;
+  --color-caption: #553a23;
+  --color-bg-primary: #e6c6a8;
+  --color-bg-secondary: #f3dcc4;
+  --color-input-bg: #f8e8d6;
+  --color-input-border: #b98d66;
+  --color-accent-gray: #b98d66;
+  --color-card-sunken: #dbb895;
+  --color-explore-peach: #f0d2b4;
+  --color-explore-sage: #cfe0d6;
+  --color-success: #0b5652;
+  --color-warning: #7a4800;
+  --color-info: #1f5577;
+  --color-danger: #9a2f1a;
+}
+html:root.dark[data-explore-theme='copper-bazaar'] {
+  --explore-accent-text: #4fc9c1;
+  --explore-pattern: #4fc9c124;
+  --explore-action-bg: #4fc9c1;
+  --explore-action-ink: #0b1f1d;
+  --color-primary: #4fc9c1;
+  --color-on-action: #0b1f1d;
+  --color-text-primary: #f2dcc8;
+  --color-text-secondary: #d6bba3;
+  --color-caption: #d6bba3;
+  --color-bg-primary: #2b1a0a;
+  --color-bg-secondary: #3a2414;
+  --color-input-bg: #1f1306;
+  --color-input-border: #5e4430;
+  --color-accent-gray: #5e4430;
+  --color-card-sunken: #1d1205;
+  --color-explore-peach: #45301a;
+  --color-explore-sage: #123a36;
+  --color-success: #4fc9c1;
+  --color-warning: #f0b860;
+  --color-info: #8fc4e0;
+  --color-danger: #ff9a7a;
+}
+/* Izakaya: red paper lanterns over rice-straw, sumi ink and vermilion waves; dark mode is red lacquer under lantern gold. */
+html:root:not(.dark)[data-explore-theme='izakaya'] {
+  --explore-accent-text: #ad2a14;
+  --explore-pattern: #ad2a1424;
+  --explore-action-bg: #c0301a;
+  --explore-action-ink: #ffffff;
+  --color-primary: #ad2a14;
+  --color-on-action: #ffffff;
+  --color-text-primary: #2a1c18;
+  --color-text-secondary: #574239;
+  --color-caption: #574239;
+  --color-bg-primary: #ece4d0;
+  --color-bg-secondary: #f8f4ea;
+  --color-input-bg: #fbf8ef;
+  --color-input-border: #c2b393;
+  --color-accent-gray: #c2b393;
+  --color-card-sunken: #e2d8bf;
+  --color-explore-peach: #f6dccd;
+  --color-explore-sage: #e3e4d2;
+  --explore-label-bg: #24408f;
+  --explore-label-ink: #f8f4ea;
+  --color-success: #2f6b4a;
+  --color-warning: #865300;
+  --color-info: #24408f;
+  --color-danger: #ad2a14;
+}
+html:root.dark[data-explore-theme='izakaya'] {
+  --explore-accent-text: #ff8a6e;
+  --explore-pattern: #e8b8601f;
+  --explore-action-bg: #ff6f52;
+  --explore-action-ink: #2a0a08;
+  --color-primary: #ff8a6e;
+  --color-on-action: #2a0a08;
+  --color-text-primary: #fbefe2;
+  --color-text-secondary: #e8c9bc;
+  --color-caption: #e8c9bc;
+  --color-bg-primary: #2a0c0c;
+  --color-bg-secondary: #3b1414;
+  --color-input-bg: #1e0808;
+  --color-input-border: #6a2f2a;
+  --color-accent-gray: #6a2f2a;
+  --color-card-sunken: #1c0707;
+  --color-explore-peach: #4a1c18;
+  --color-explore-sage: #2c2a1c;
+  --explore-label-bg: #e8b860;
+  --explore-label-ink: #2a0a08;
+  --color-success: #9fd8a8;
+  --color-warning: #f2c46b;
+  --color-info: #a9c4f0;
+  --color-danger: #ff9a85;
+}
+/* Sakura: blossoming boughs on blossom-pink paper with a deep rose accent; dark mode is yozakura, night blossoms on rose-plum. */
+html:root:not(.dark)[data-explore-theme='sakura'] {
+  --explore-accent-text: #a8284f;
+  --explore-pattern: #c2406a33;
+  --explore-action-bg: #b3305a;
+  --explore-action-ink: #ffffff;
+  --color-primary: #a8284f;
+  --color-on-action: #ffffff;
+  --color-text-primary: #3a2430;
+  --color-text-secondary: #5c4a55;
+  --color-caption: #5c4a55;
+  --color-bg-primary: #fbe4ea;
+  --color-bg-secondary: #fff6f8;
+  --color-input-bg: #fffafb;
+  --color-input-border: #e8b4c4;
+  --color-accent-gray: #e8b4c4;
+  --color-card-sunken: #f4d4de;
+  --color-explore-peach: #ffe0e6;
+  --color-explore-sage: #e3efe6;
+  --color-success: #3d6b55;
+  --color-warning: #8a5300;
+  --color-info: #3f5d9a;
+  --color-danger: #a8243f;
+}
+html:root.dark[data-explore-theme='sakura'] {
+  --explore-accent-text: #ff9ec0;
+  --explore-pattern: #ff9ec029;
+  --explore-action-bg: #f07aa0;
+  --explore-action-ink: #2a0a18;
+  --color-primary: #ff9ec0;
+  --color-on-action: #2a0a18;
+  --color-text-primary: #fff0f5;
+  --color-text-secondary: #ecc8d8;
+  --color-caption: #ecc8d8;
+  --color-bg-primary: #3d1c33;
+  --color-bg-secondary: #4b2440;
+  --color-input-bg: #2f1427;
+  --color-input-border: #74405f;
+  --color-accent-gray: #74405f;
+  --color-card-sunken: #2c1225;
+  --color-explore-peach: #55253f;
+  --color-explore-sage: #2c3a3a;
+  --color-success: #9fd8bf;
+  --color-warning: #f2c88a;
+  --color-info: #b5c8f2;
+  --color-danger: #ff9fb3;
+}
+/* Provence: lavender sprigs and olive leaves printed on lilac cotton, olive fills; dark mode is a deep violet dusk with honey fills. */
+html:root:not(.dark)[data-explore-theme='provence'] {
+  --explore-accent-text: #563c9c;
+  --explore-pattern: #7a5ab826;
+  --explore-action-bg: #5d6a2c;
+  --explore-action-ink: #ffffff;
+  --color-primary: #563c9c;
+  --color-on-action: #ffffff;
+  --color-text-primary: #2f2848;
+  --color-text-secondary: #514b6b;
+  --color-caption: #514b6b;
+  --color-bg-primary: #f0e8f8;
+  --color-bg-secondary: #fbf8fe;
+  --color-input-bg: #ffffff;
+  --color-input-border: #c8bce0;
+  --color-accent-gray: #c8bce0;
+  --color-card-sunken: #e6dbf2;
+  --color-explore-peach: #f8edcc;
+  --color-explore-sage: #e3e8d6;
+  --color-success: #4d6a2c;
+  --color-warning: #855a00;
+  --color-info: #4a5ca0;
+  --color-danger: #a8324a;
+}
+html:root.dark[data-explore-theme='provence'] {
+  --explore-accent-text: #c9b8ff;
+  --explore-pattern: #c9b8ff24;
+  --explore-action-bg: #e0b050;
+  --explore-action-ink: #241703;
+  --color-primary: #c9b8ff;
+  --color-on-action: #241703;
+  --color-text-primary: #f1ecff;
+  --color-text-secondary: #d0c8ec;
+  --color-caption: #d0c8ec;
+  --color-bg-primary: #221a40;
+  --color-bg-secondary: #2e2554;
+  --color-input-bg: #1a1434;
+  --color-input-border: #4e4486;
+  --color-accent-gray: #4e4486;
+  --color-card-sunken: #18122f;
+  --color-explore-peach: #3a3046;
+  --color-explore-sage: #2a3340;
+  --color-success: #b8d68f;
+  --color-warning: #e0b050;
+  --color-info: #a9b8f0;
+  --color-danger: #f2a0b0;
+}
+/* Spice Route: a saffron canvas speckled with paprika, pepper and turmeric, paprika fills and engraved brass; dark mode is roasted paprika. */
+html:root:not(.dark)[data-explore-theme='spice-route'] {
+  --explore-accent-text: #713e08;
+  --explore-pattern: #b8401c33;
+  --explore-action-bg: #a8341c;
+  --explore-action-ink: #ffffff;
+  --color-primary: #713e08;
+  --color-on-action: #ffffff;
+  --color-text-primary: #3a2414;
+  --color-text-secondary: #56391f;
+  --color-caption: #56391f;
+  --color-bg-primary: #f7d189;
+  --color-bg-secondary: #fceccb;
+  --color-input-bg: #fff5da;
+  --color-input-border: #bd8a44;
+  --color-accent-gray: #bd8a44;
+  --color-card-sunken: #efc170;
+  --color-explore-peach: #f8d9a0;
+  --color-explore-sage: #ece2b6;
+  --color-success: #4a6a1f;
+  --color-warning: #7a4400;
+  --color-info: #2f5878;
+  --color-danger: #a8341c;
+}
+html:root.dark[data-explore-theme='spice-route'] {
+  --explore-accent-text: #f0b84a;
+  --explore-pattern: #f0b84a24;
+  --explore-action-bg: #f0b84a;
+  --explore-action-ink: #2a1404;
+  --color-primary: #f0b84a;
+  --color-on-action: #2a1404;
+  --color-text-primary: #fbead2;
+  --color-text-secondary: #e2c8a6;
+  --color-caption: #e2c8a6;
+  --color-bg-primary: #38190a;
+  --color-bg-secondary: #4a2312;
+  --color-input-bg: #2a1207;
+  --color-input-border: #7a4426;
+  --color-accent-gray: #7a4426;
+  --color-card-sunken: #2a1106;
+  --color-explore-peach: #55301a;
+  --color-explore-sage: #3a3218;
+  --color-success: #c2d68f;
+  --color-warning: #f0b84a;
+  --color-info: #9fc4e0;
+  --color-danger: #ff9a7a;
+}
+/* Espresso Bar: a white-marble counter, espresso-black fills and crema ink; dark mode is the demitasse itself, flecked with crema. */
+html:root:not(.dark)[data-explore-theme='espresso-bar'] {
+  --explore-accent-text: #7a4a24;
+  --explore-pattern: #3a3a3a1a;
+  --explore-action-bg: #2e1c14;
+  --explore-action-ink: #f6efe6;
+  --color-primary: #7a4a24;
+  --color-on-action: #f6efe6;
+  --color-text-primary: #2a1b14;
+  --color-text-secondary: #4f423b;
+  --color-caption: #4f423b;
+  --color-bg-primary: #f2f2f1;
+  --color-bg-secondary: #ffffff;
+  --color-input-bg: #fbfbfa;
+  --color-input-border: #cfcbc6;
+  --color-accent-gray: #cfcbc6;
+  --color-card-sunken: #e8e7e5;
+  --color-explore-peach: #f3e8dc;
+  --color-explore-sage: #e8eae4;
+  --color-success: #3f6b3a;
+  --color-warning: #875200;
+  --color-info: #3a5a85;
+  --color-danger: #a8321c;
+}
+html:root.dark[data-explore-theme='espresso-bar'] {
+  --explore-accent-text: #d6a875;
+  --explore-pattern: #d6a87521;
+  --explore-action-bg: #d6a875;
+  --explore-action-ink: #1e1613;
+  --color-primary: #d6a875;
+  --color-on-action: #1e1613;
+  --color-text-primary: #f2e7da;
+  --color-text-secondary: #d6c4b2;
+  --color-caption: #d6c4b2;
+  --color-bg-primary: #140c09;
+  --color-bg-secondary: #21160f;
+  --color-input-bg: #0d0806;
+  --color-input-border: #4a3628;
+  --color-accent-gray: #4a3628;
+  --color-card-sunken: #0d0806;
+  --color-explore-peach: #2e2118;
+  --color-explore-sage: #20231a;
+  --color-success: #a8cf98;
+  --color-warning: #e8c27a;
+  --color-info: #a8c4e0;
+  --color-danger: #f0a088;
+}
+/* Cast Iron: jet-black cast metal seen in a dark room. Ink is the warm gray of iron
+   under a glint and every accent is steel. Like its Sidecar origin it is a dark plate
+   in either color mode, so both blocks carry the same forged values. */
+html:root[data-explore-theme='cast-iron'] {
+  --explore-accent-text: #b9b19f;
+  --explore-pattern: #d8d1c410;
+  --explore-action-bg: #b9b19f;
+  --explore-action-ink: #12100e;
+  --color-primary: #b9b19f;
+  --color-text-primary: #a59d8b;
+  --color-text-secondary: #938b7a;
+  --color-caption: #857d6c;
+  --color-bg-primary: #050404;
+  --color-bg-secondary: #0e0c0b;
+  --color-input-bg: #12100e;
+  --color-input-border: #d8d1c424;
+  --color-accent-gray: #d8d1c438;
+  --color-card-sunken: #0a0908;
+  --color-explore-peach: #171310;
+  --color-explore-sage: #131110;
+  color-scheme: dark;
+  --color-success: #7f9a88;
+  --color-warning: #a98f6f;
+  --color-info: #8fa5b0;
+  --color-danger: #a86652;
+}
+html:root.dark[data-explore-theme='cast-iron'] {
+  --explore-accent-text: #b9b19f;
+  --explore-pattern: #d8d1c410;
+  --explore-action-bg: #b9b19f;
+  --explore-action-ink: #12100e;
+  --color-primary: #b9b19f;
+  --color-text-primary: #a59d8b;
+  --color-text-secondary: #938b7a;
+  --color-caption: #857d6c;
+  --color-bg-primary: #050404;
+  --color-bg-secondary: #0e0c0b;
+  --color-input-bg: #12100e;
+  --color-input-border: #d8d1c424;
+  --color-accent-gray: #d8d1c438;
+  --color-card-sunken: #0a0908;
+  --color-explore-peach: #171310;
+  --color-explore-sage: #131110;
+  color-scheme: dark;
+  --color-success: #7f9a88;
+  --color-warning: #a98f6f;
+  --color-info: #8fa5b0;
+  --color-danger: #a86652;
 }
 /* Without JavaScript there is no stored preference to restore. Follow the OS with the Original palette; the prepaint script sets data-color-mode for explicit choices. */
 @media screen and (prefers-color-scheme: dark) {
@@ -387,4 +834,57 @@ html:root.dark[data-explore-theme='sunday-market'] {
     --color-danger: #b91c1c;
     color-scheme: light;
   }
+}
+/* Backyard BBQ: smoke-paper canvas with ember-orange coals, charcoal ink and mustard price tags; dark mode is the night cookout, charcoal with an ember glow. */
+html:root:not(.dark)[data-explore-theme='bbq'] {
+  --explore-accent-text: #9a3f10;
+  --explore-pattern: #6b5d4722;
+  --explore-action-bg: #cf5a15;
+  --explore-action-ink: #ffffff;
+  --color-primary: #9a3f10;
+  --color-on-action: #ffffff;
+  --color-text-primary: #33302a;
+  --color-text-secondary: #5f594c;
+  --color-caption: #5f594c;
+  --color-bg-primary: #e4d6b4;
+  --color-bg-secondary: #efe6cd;
+  --color-input-bg: #f6efdc;
+  --color-input-border: #b9a881;
+  --color-accent-gray: #b9a881;
+  --color-card-sunken: #d5c6a2;
+  --color-explore-peach: #ecd9b8;
+  --color-explore-sage: #e2e3c8;
+  --explore-label-bg: #d9a406;
+  --explore-label-ink: #3a2a12;
+  --explore-masthead-ink: var(--explore-accent-text);
+  --color-success: #5f7030;
+  --color-warning: #9a6a00;
+  --color-info: #3e6382;
+  --color-danger: #b03018;
+}
+html:root.dark[data-explore-theme='bbq'] {
+  --explore-accent-text: #ee9b4a;
+  --explore-pattern: #ffffff1c;
+  --explore-action-bg: #e07a28;
+  --explore-action-ink: #211405;
+  --color-primary: #ee9b4a;
+  --color-on-action: #211405;
+  --color-text-primary: #f2ead8;
+  --color-text-secondary: #cfc4a8;
+  --color-caption: #cfc4a8;
+  --color-bg-primary: #211d15;
+  --color-bg-secondary: #2a2519;
+  --color-input-bg: #191610;
+  --color-input-border: #4a4433;
+  --color-accent-gray: #4a4433;
+  --color-card-sunken: #1b1811;
+  --color-explore-peach: #453c26;
+  --color-explore-sage: #323620;
+  --explore-label-bg: #e07a28;
+  --explore-label-ink: #211405;
+  --explore-masthead-ink: var(--explore-accent-text);
+  --color-success: #b8cf8a;
+  --color-warning: #f0c868;
+  --color-info: #9cc2e0;
+  --color-danger: #ff9a8a;
 }
