@@ -34,6 +34,7 @@
   let showAbout = false;
   let hostName: string | null = null;
   let hostPicture: string | null = null;
+  let hostLud16: string | null = null;
 
   // Browser-only: the player store is a client singleton; SSR must not touch it.
   if (browser) selectStream(item);
@@ -184,6 +185,7 @@
       if (profile) {
         hostName = profile.displayName || profile.name || null;
         hostPicture = profile.picture || null;
+        hostLud16 = profile.lud16 || null;
       }
     } catch {
       // A profile miss just leaves the pseudonym.
@@ -222,6 +224,7 @@
       <StreamZapTotal
         {address}
         hostPubkey={host}
+        hostLud16={hostLud16}
         sats={tally?.totalSats ?? 0}
         count={tally?.zapCount ?? 0}
         loading={tallyLoading}

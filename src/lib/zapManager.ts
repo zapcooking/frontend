@@ -58,6 +58,8 @@ export class ZapManager {
   // common — several posts from one author) and the modal-open prefetch
   // both hit this cache instead. Short TTL: pay limits can change.
   private static readonly LNURL_CACHE_TTL_MS = 5 * 60 * 1000;
+  /** Max wait on the NDK profile resolver before the relay fallback answers. */
+  private static readonly PROFILE_RESOLVE_TIMEOUT_MS = 5000;
   private static readonly LNURL_CACHE_MAX = 64;
   private static lnurlCache = new Map<
     string,
@@ -69,7 +71,8 @@ export class ZapManager {
   >();
 
   private resolveZapTargetCached(
-    pubkey: string
+    pubkey: string,
+    knownLud16?: string
   ): Promise<{ address: string; payRequest: LNURLPayRequest }> {
     const hit = ZapManager.lnurlCache.get(pubkey);
     if (hit && Date.now() <= hit.expiresAt) return Promise.resolve(hit);
@@ -78,7 +81,35 @@ export class ZapManager {
     if (inflight) return inflight;
 
     const fetchIt = (async () => {
-      const profileData = await resolveProfileByPubkey(pubkey, this.ndk).catch(() => null);
+      // Fast path: the caller (stream zap) already resolved the host's
+      // Lightning address off the relays — skip the NDK resolver entirely.
+      // It is slow on degraded relay sets and has missed stream hosts.
+      if (knownLud16) {
+        const lnurl = this.getLnurlFromAddress(knownLud16);
+        const payRequest = await this.fetchLnurlPayRequest(lnurl);
+        const entry = {
+          address: knownLud16,
+          payRequest,
+          expiresAt: Date.now() + ZapManager.LNURL_CACHE_TTL_MS
+        };
+        if (ZapManager.lnurlCache.size >= ZapManager.LNURL_CACHE_MAX) {
+          const oldest = ZapManager.lnurlCache.keys().next().value;
+          if (oldest !== undefined) ZapManager.lnurlCache.delete(oldest);
+        }
+        ZapManager.lnurlCache.set(pubkey, entry);
+        return entry;
+      }
+
+      // The NDK resolver's batch flush can hang forever on a degraded relay
+      // set (observed live: stuck before the LNURL fetch). Race it — after
+      // the timeout the relay-pool fallback below answers from
+      // purplepag.es + discovery relays, which stay reachable.
+      const profileData = await Promise.race([
+        resolveProfileByPubkey(pubkey, this.ndk).catch(() => null),
+        new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), ZapManager.PROFILE_RESOLVE_TIMEOUT_MS)
+        )
+      ]);
       let lightningAddress = profileData?.lud16 || null;
 
       // The NDK resolver misses stream hosts (it has returned null and even
@@ -363,7 +394,9 @@ export class ZapManager {
     comment?: string,
     eventId?: string,
     extraTags?: string[][],
-    addressTag?: string
+    addressTag?: string,
+    /** Caller-resolved Lightning address — skips the profile resolver. */
+    knownLud16?: string
   ): Promise<{ invoice: string; verify?: string; zapRequest: NDKEvent; zapPubkey: string }> {
     // Check if user is authenticated (required for zap requests)
     if (!this.ndk.signer) {
@@ -376,7 +409,7 @@ export class ZapManager {
     // Profile fetch + LNURL resolution, cached per recipient (see
     // resolveZapTargetCached). The modal's prefetch usually has this
     // resolved before the user even clicks an amount.
-    const { payRequest: lnurlPayRequest } = await this.resolveZapTargetCached(pubkey);
+    const { payRequest: lnurlPayRequest } = await this.resolveZapTargetCached(pubkey, knownLud16);
 
     // Validate Nostr support
     if (!lnurlPayRequest.allowsNostr || !lnurlPayRequest.nostrPubkey) {

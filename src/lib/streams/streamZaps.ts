@@ -43,12 +43,19 @@ export function streamReceiptRelayUrls(): string[] {
  * Sum the kind:9735 receipts targeting a stream address. Never throws —
  * returns whatever arrived before the timeout.
  */
-export async function fetchStreamZapTally(address: string): Promise<StreamZapTally> {
+export async function fetchStreamZapTally(
+  address: string,
+  extraRelays: string[] = []
+): Promise<StreamZapTally> {
   const tally: StreamZapTally = { totalSats: 0, zapCount: 0, satsByZapper: new Map() };
   const pool = createStreamPool();
+  // The zap request's own relay set (NIP-65 outbox) is where the provider
+  // publishes the receipt for THIS zapper's zap — the aggregator set alone
+  // can miss fresh receipts until they propagate.
+  const relays = [...new Set([...streamReceiptRelayUrls(), ...extraRelays])];
   try {
     const events = (await pool.querySync(
-      streamReceiptRelayUrls(),
+      relays,
       { kinds: [9735], '#a': [address], limit: 500 },
       { maxWait: TALLY_MAX_WAIT_MS }
     )) as unknown as { id: string; tags: string[][] }[];
@@ -115,11 +122,18 @@ export async function scanStreamZapHistory(
   host: string | null,
   opts: {
     hostRelays?: string[];
+    /** The zap request's own relay set — where fresh receipts land first. */
+    extraRelays?: string[];
     signal?: AbortSignal;
     onPartial?: (tally: StreamZapTally) => void;
   } = {}
 ): Promise<StreamZapScanResult> {
-  const { hostRelays = [], signal = new AbortController().signal, onPartial } = opts;
+  const {
+    hostRelays = [],
+    extraRelays = [],
+    signal = new AbortController().signal,
+    onPartial
+  } = opts;
   const pool = createStreamPool();
   const tally: StreamZapTally = { totalSats: 0, zapCount: 0, satsByZapper: new Map() };
   const seenIds = new Set<string>();
@@ -187,7 +201,7 @@ export async function scanStreamZapHistory(
   };
 
   try {
-    const relays = streamReceiptRelayUrls();
+    const relays = [...new Set([...streamReceiptRelayUrls(), ...extraRelays])];
     const baseFilter = { kinds: [9735], '#a': [address] };
     const query = (relay: string, filter: Record<string, unknown>) =>
       relayPage<NostrEventLike>(pool, relay, filter as Filter, signal, SCAN_PAGE_TIMEOUT_MS);

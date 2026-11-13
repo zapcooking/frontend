@@ -13,7 +13,9 @@
   import CommentThread from '../../../components/comments/CommentThread.svelte';
   import StreamPlayer from '../../../components/streams/StreamPlayer.svelte';
   import StreamChat from '../../../components/streams/StreamChat.svelte';
-  import { ndk } from '$lib/nostr';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import { get } from 'svelte/store';
+  import { zapReceiptRelayUrls } from '$lib/nip65Routing';
   import { createStreamPool } from '$lib/streams/relayPage';
   import { fetchStreamByNaddr, type ResolvedStream } from '$lib/streams/fetch';
   import { parseStreamAddress } from '$lib/streams/parse';
@@ -54,11 +56,18 @@
     scanAbort = new AbortController();
     const signal = scanAbort.signal;
     tallyLoading = true;
-    tally = await fetchStreamZapTally(itemKey);
+    // The provider publishes a receipt to the zap request's `relays` tag
+    // (the zapper's NIP-65 outbox) — fresh receipts for OUR zaps land
+    // there first, so the scan must include that set.
+    const extraRelays = host
+      ? await zapReceiptRelayUrls(get(userPublickey) || undefined, host).catch(() => [])
+      : [];
+    tally = await fetchStreamZapTally(itemKey, extraRelays);
     if (signal.aborted) return;
     if (!host) return;
     const scan = await scanStreamZapHistory(itemKey, host, {
       hostRelays,
+      extraRelays,
       signal,
       onPartial: (t) => {
         if (!signal.aborted) tally = t;

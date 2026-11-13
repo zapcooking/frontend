@@ -15,6 +15,8 @@
 
   export let address: string;
   export let hostPubkey: string;
+  /** Host's lud16 resolved by the player — skips the profile resolver. */
+  export let hostLud16: string | null = null;
   export let sats = 0;
   export let count = 0;
   export let loading = false;
