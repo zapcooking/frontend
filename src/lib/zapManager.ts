@@ -7,9 +7,17 @@ import { generateSecretKey } from 'nostr-tools';
 import { ensureClientTag } from './nip89';
 import { extractZapAmountSats } from './zapAmount';
 import { standardRelays } from './consts';
+import { parseCoordinate } from './coordinate';
 
 export interface ZapRequest {
   eventId?: string;
+  /**
+   * Addressable-event target (NIP-01 `a` coordinate, e.g. a NIP-53 stream
+   * `30311:<pubkey>:<d>`). Emits the `a` tag plus a `k` tag with the target
+   * kind, and — unlike `eventId` — never an `e` tag, so receipts match the
+   * `#a` filters every NIP-53 client scans.
+   */
+  addressTag?: string;
   pubkey: string;
   amount: number; // in millisatoshis
   comment?: string;
@@ -32,6 +40,8 @@ export interface ZapReceipt {
 
 export interface LNURLPayRequest {
   callback: string;
+  /** The LNURL-pay endpoint this was fetched from (the `lnurl` zap tag encodes it). */
+  payUrl?: string;
   maxSendable: number;
   minSendable: number;
   metadata: string;
@@ -58,6 +68,8 @@ export class ZapManager {
   // common — several posts from one author) and the modal-open prefetch
   // both hit this cache instead. Short TTL: pay limits can change.
   private static readonly LNURL_CACHE_TTL_MS = 5 * 60 * 1000;
+  /** Max wait on the NDK profile resolver before the relay fallback answers. */
+  private static readonly PROFILE_RESOLVE_TIMEOUT_MS = 5000;
   private static readonly LNURL_CACHE_MAX = 64;
   private static lnurlCache = new Map<
     string,
@@ -65,7 +77,10 @@ export class ZapManager {
   >();
   private static lnurlInflight = new Map<string, Promise<{ address: string; payRequest: LNURLPayRequest }>>();
 
-  private resolveZapTargetCached(pubkey: string): Promise<{ address: string; payRequest: LNURLPayRequest }> {
+  private resolveZapTargetCached(
+    pubkey: string,
+    knownLud16?: string
+  ): Promise<{ address: string; payRequest: LNURLPayRequest }> {
     const hit = ZapManager.lnurlCache.get(pubkey);
     if (hit && Date.now() <= hit.expiresAt) return Promise.resolve(hit);
 
@@ -73,14 +88,61 @@ export class ZapManager {
     if (inflight) return inflight;
 
     const fetchIt = (async () => {
-      const profileData = await resolveProfileByPubkey(pubkey, this.ndk);
-      if (!profileData) {
-        throw new Error('Could not fetch user profile - profile resolver returned null');
+      // Fast path: the caller (stream zap) already resolved the host's
+      // Lightning address off the relays — skip the NDK resolver entirely.
+      // It is slow on degraded relay sets and has missed stream hosts.
+      if (knownLud16) {
+        const lnurl = this.getLnurlFromAddress(knownLud16);
+        const payRequest = await this.fetchLnurlPayRequest(lnurl);
+        const entry = {
+          address: knownLud16,
+          payRequest,
+          expiresAt: Date.now() + ZapManager.LNURL_CACHE_TTL_MS
+        };
+        if (ZapManager.lnurlCache.size >= ZapManager.LNURL_CACHE_MAX) {
+          const oldest = ZapManager.lnurlCache.keys().next().value;
+          if (oldest !== undefined) ZapManager.lnurlCache.delete(oldest);
+        }
+        ZapManager.lnurlCache.set(pubkey, entry);
+        return entry;
       }
 
-      const lightningAddress = profileData.lud16;
+      // The NDK resolver's batch flush can hang forever on a degraded relay
+      // set (observed live: stuck before the LNURL fetch). Race it — after
+      // the timeout the relay-pool fallback below answers from
+      // purplepag.es + discovery relays, which stay reachable.
+      const profileData = await Promise.race([
+        resolveProfileByPubkey(pubkey, this.ndk).catch(() => null),
+        new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), ZapManager.PROFILE_RESOLVE_TIMEOUT_MS)
+        )
+      ]);
+      let lightningAddress = profileData?.lud16 || null;
+
+      // The NDK resolver misses stream hosts (it has returned null and even
+      // unrelated profiles here). Read the newest kind:0 straight off the
+      // relays before giving up — same source the host row uses.
       if (!lightningAddress) {
-        throw new Error(`User has no lightning address configured. Profile lud16: ${profileData.lud16}. User may need to set up a Lightning address in their profile.`);
+        const { createStreamPool } = await import('./streams/relayPage');
+        const { fetchProfile } = await import('./streams/fetch');
+        const { DISCOVERY_RELAYS } = await import('./streams/relays');
+        const pool = createStreamPool();
+        try {
+          const profile = await fetchProfile(
+            pool,
+            ['wss://purplepag.es', ...DISCOVERY_RELAYS],
+            pubkey
+          );
+          lightningAddress = profile?.lud16 || null;
+        } finally {
+          pool.destroy();
+        }
+      }
+
+      if (!lightningAddress) {
+        throw new Error(
+          `User has no lightning address configured. Profile lud16: ${profileData?.lud16 ?? 'none'}. User may need to set up a Lightning address in their profile.`
+        );
       }
 
       const lnurl = this.getLnurlFromAddress(lightningAddress);
@@ -139,7 +201,12 @@ export class ZapManager {
    */
   async fetchLnurlPayRequest(lnurl: string): Promise<LNURLPayRequest> {
     try {
-      const response = await fetch(lnurl);
+      // Through the app proxy: some LNURL providers' nginx 403s
+      // cross-origin browser fetches per visitor (cookie/fingerprint
+      // based), which killed the invoice even though the provider worked
+      // server-side.
+      const proxied = `/api/lnurl?url=${encodeURIComponent(lnurl)}`;
+      const response = await fetch(proxied);
       if (!response.ok) {
         throw new Error(`LNURL request failed: ${response.status} ${response.statusText}`);
       }
@@ -152,6 +219,7 @@ export class ZapManager {
 
       return {
         callback: data.callback,
+        payUrl: lnurl,
         maxSendable: data.maxSendable || 1000000000, // 1M sats default
         minSendable: data.minSendable || 1000, // 1 sat default
         metadata: data.metadata,
@@ -179,6 +247,17 @@ export class ZapManager {
     // Add e tag for event being zapped (with relay hint)
     if (request.eventId) {
       zapRequest.tags.push(relayHint ? ['e', request.eventId, relayHint] : ['e', request.eventId]);
+    }
+
+    // Addressable target (NIP-53 streams): the `a` coordinate plus the
+    // target kind, never an `e` tag. Receipts then carry `#a`, which is
+    // what zap.stream and every NIP-53 client match on.
+    if (request.addressTag) {
+      zapRequest.tags.push(['a', request.addressTag]);
+      const coordinate = parseCoordinate(request.addressTag);
+      if (coordinate) {
+        zapRequest.tags.push(['k', String(coordinate.kind)]);
+      }
     }
 
     // Add relays tag (NIP-57: single tag with all relay URLs as values)
@@ -227,10 +306,21 @@ export class ZapManager {
       throw new Error(`Amount ${amount} is outside allowed range ${lnurlPayRequest.minSendable}-${lnurlPayRequest.maxSendable}`);
     }
 
-    // Update the zap request with the LNURL
-    const lnurlTag = zapRequest.tags.find(tag => tag[0] === 'lnurl');
+    // NIP-57 `lnurl` tag: the bech32-encoded LNURL-pay URL (the endpoint
+    // the pay request came from — not the callback). Providers that
+    // validate it (Lightning Goats) reject the whole request on a
+    // mismatch, so without a known pay URL the optional tag is dropped.
+    const lnurlTag = zapRequest.tags.find((tag) => tag[0] === 'lnurl');
     if (lnurlTag) {
-      lnurlTag[1] = lnurlPayRequest.callback;
+      if (lnurlPayRequest.payUrl) {
+        lnurlTag[1] = bech32.encode(
+          'lnurl',
+          bech32.toWords(new TextEncoder().encode(lnurlPayRequest.payUrl)),
+          2000
+        );
+      } else {
+        zapRequest.tags = zapRequest.tags.filter((tag) => tag[0] !== 'lnurl');
+      }
     }
 
     // Sign the zap request. Anonymous zaps (an explicit choice, tagged
@@ -258,11 +348,12 @@ export class ZapManager {
 
 
     try {
-      // Add timeout to prevent hanging
+      // Add timeout to prevent hanging (getalby's slow-400 on a broken
+      // recipient wallet lands at ~16s; 20s lets its real error through).
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-      
-      const response = await fetch(callbackUrl.toString(), {
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+
+      const response = await fetch(`/api/lnurl?url=${encodeURIComponent(callbackUrl.toString())}`, {
         signal: controller.signal
       });
       
@@ -295,12 +386,19 @@ export class ZapManager {
       const err = error instanceof Error ? error : new Error(String(error));
       
       if (err.name === 'AbortError') {
-        throw new Error('Invoice request timed out after 15 seconds');
+        throw new Error('Invoice request timed out after 20 seconds');
       }
       
       throw new Error(`Failed to get invoice: ${err.message}`);
     }
   }
+
+  /**
+   * Most relays a zap request's `relays` tag may carry. Providers cap it:
+   * Lightning Goats rejects 9+ with "Invalid or unsupported zap request"
+   * (the invoice never loads). Sidecar sends 6; so do we.
+   */
+  static readonly MAX_RECEIPT_RELAYS = 6;
 
   /**
    * Receipt relays for a zap request (NIP-57 `relays` tag). An anonymous zap
@@ -313,12 +411,15 @@ export class ZapManager {
       await import('$lib/nip65Routing');
     if (anonymous) {
       const urls = await anonymousZapReceiptRelayUrls(recipient).catch(() => [] as string[]);
-      return urls.length ? urls : [...standardRelays];
+      return (urls.length ? urls : [...standardRelays]).slice(0, ZapManager.MAX_RECEIPT_RELAYS);
     }
     const urls = await resolveAuthorPubkey(this.ndk)
-      .then((me) => zapReceiptRelayUrls(me, recipient))
+      .then((me) => zapReceiptRelayUrls(me, recipient, ZapManager.MAX_RECEIPT_RELAYS))
       .catch(() => [] as string[]);
-    return urls.length ? urls : this.ndk.explicitRelayUrls || [];
+    return (urls.length ? urls : this.ndk.explicitRelayUrls || []).slice(
+      0,
+      ZapManager.MAX_RECEIPT_RELAYS
+    );
   }
 
   /**
@@ -330,7 +431,13 @@ export class ZapManager {
     comment?: string,
     eventId?: string,
     extraTags?: string[][],
-    opts?: { anonymous?: boolean }
+    opts?: {
+      anonymous?: boolean;
+      /** Addressable target (NIP-53 stream `30311:<pubkey>:<d>`): `a`+`k` tags, no `e`. */
+      addressTag?: string;
+      /** Caller-resolved Lightning address — skips the profile resolver. */
+      knownLud16?: string;
+    }
   ): Promise<{ invoice: string; verify?: string; zapRequest: NDKEvent; zapPubkey: string }> {
     const anonymous = opts?.anonymous === true;
     // A member's zap needs their signer; an anonymous one signs ephemerally.
@@ -344,8 +451,8 @@ export class ZapManager {
     // Profile fetch + LNURL resolution, cached per recipient (see
     // resolveZapTargetCached). The modal's prefetch usually has this
     // resolved before the user even clicks an amount.
-    const { payRequest: lnurlPayRequest } = await this.resolveZapTargetCached(pubkey);
-    
+    const { payRequest: lnurlPayRequest } = await this.resolveZapTargetCached(pubkey, opts?.knownLud16);
+
     // Validate Nostr support
     if (!lnurlPayRequest.allowsNostr || !lnurlPayRequest.nostrPubkey) {
       throw new Error(`LNURL endpoint does not support Nostr zaps. allowsNostr: ${lnurlPayRequest.allowsNostr}, nostrPubkey: ${lnurlPayRequest.nostrPubkey}`);
@@ -361,6 +468,7 @@ export class ZapManager {
     // Create zap request with the actual recipient's pubkey
     const zapRequest = await this.createZapRequest({
       eventId,
+      addressTag: opts?.addressTag,
       pubkey,
       amount,
       comment,

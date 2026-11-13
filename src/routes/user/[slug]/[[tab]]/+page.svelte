@@ -14,6 +14,8 @@
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
   import Avatar from '../../../../components/Avatar.svelte';
+  import LiveAvatar from '../../../../components/streams/LiveAvatar.svelte';
+  import LiveBadge from '../../../../components/streams/LiveBadge.svelte';
   import CustomName from '../../../../components/CustomName.svelte';
   import Button from '../../../../components/Button.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
@@ -1581,11 +1583,12 @@
         title="View profile details"
       >
         {#key `${hexpubkey}-${avatarRefreshKey}`}
-          <Avatar
+          <LiveAvatar
             className="cursor-pointer"
             pubkey={hexpubkey || ''}
             size={80}
             src={$userPublickey === hexpubkey ? $userProfilePictureOverride : null}
+            linked={false}
           />
         {/key}
       </button>
@@ -1617,6 +1620,9 @@
                 ><CustomName pubkey={hexpubkey || ''} interactive={false} /></span
               >
               <MembershipBeltBadge pubkey={hexpubkey || ''} size={20} />
+              {#if hexpubkey}
+                <LiveBadge pubkey={hexpubkey} />
+              {/if}
             </h1>
           </button>
           {#if user?.npub && hexpubkey === $userPublickey}
