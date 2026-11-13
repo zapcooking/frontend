@@ -13,6 +13,7 @@
   import CommentThread from '../../../components/comments/CommentThread.svelte';
   import StreamPlayer from '../../../components/streams/StreamPlayer.svelte';
   import StreamChat from '../../../components/streams/StreamChat.svelte';
+  import StreamPageSkeleton from '../../../components/streams/StreamPageSkeleton.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { get } from 'svelte/store';
   import { zapReceiptRelayUrls } from '$lib/nip65Routing';
@@ -132,9 +133,8 @@
 
 <div class="mx-auto w-full max-w-3xl px-4 py-6">
   {#if loading}
-    <div class="flex h-64 items-center justify-center">
-      <p class="text-sm text-zinc-500">Looking for this stream…</p>
-    </div>
+    <!-- Skeleton mirrors the player + host row while the announcement resolves. -->
+    <StreamPageSkeleton />
   {:else if notFound || !item || !ndkEvent || !pool}
     <div class="flex h-64 flex-col items-center justify-center gap-2 text-center">
       <p class="text-sm text-zinc-500">

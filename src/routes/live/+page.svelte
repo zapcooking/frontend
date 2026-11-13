@@ -12,6 +12,7 @@
   import type { SimplePool } from 'nostr-tools/pool';
   import type { Filter } from 'nostr-tools/filter';
   import Avatar from '../../components/Avatar.svelte';
+  import StreamCardSkeleton from '../../components/streams/StreamCardSkeleton.svelte';
   import { StreamDirectory } from '$lib/streams/directory';
   import { streamAddress, naddrEncode, pseudonym, runtime } from '$lib/streams/parse';
   import { createStreamPool } from '$lib/streams/relayPage';
@@ -140,8 +141,11 @@
   </div>
 
   {#if loading}
-    <div class="flex h-64 items-center justify-center">
-      <p class="text-sm text-zinc-500">Looking for live streams…</p>
+    <!-- Skeleton grid mirrors the card layout while discovery fills. -->
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {#each [0, 1, 2, 3, 4, 5] as i (i)}
+        <StreamCardSkeleton />
+      {/each}
     </div>
   {:else if items.length === 0}
     <div class="flex h-64 flex-col items-center justify-center gap-2 text-center">
