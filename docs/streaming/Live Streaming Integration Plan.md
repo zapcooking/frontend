@@ -229,3 +229,7 @@ Encrypted bookmark backup (NIP-78, reuse Sidecar's encode/merge rules), upcoming
 3. **Bookmarks**: ship localStorage-only in Phase 3 and defer NIP-78 sync, or skip saved streams for v1.
 4. **Anon participation**: chat requires sign-in (existing `requireAuth`), zaps work via wallets — confirm no change wanted.
 5. **Naming**: `/live` vs `/streams` route.
+
+## Part 7 — Follow-ups (not urgent, tracked)
+
+- **Details drawer for comments**: the NIP-22 comment sections (stream page drawer, and comment UIs across zap.cooking) lack the details drawer — a per-comment affordance showing timestamp, client, event details, raw JSON, copy links. Sidecar has this on every chat/comment row; add a shared details-drawer component and adopt it in `CommentCard`/`ThreadRow` and the stream page drawer.
