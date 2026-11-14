@@ -26,7 +26,7 @@
       platform: 'Android',
       name: 'Google Play',
       description: 'Zap Cooking for Android phones and tablets, from Google Play.',
-      badge: '/downloads/google-play-badge.png',
+      badge: '/downloads/google-play-badge-v2.png',
       badgeAlt: 'Get it on Google Play',
       badgeHeight: 48,
       cta: 'Get it on Google Play',
@@ -69,8 +69,8 @@
     <p class="tagline">Food. Friends. Freedom.</p>
     <h1 id="downloads-heading">Download Zap Cooking</h1>
     <p class="lede">
-      Take your recipes, your reads, and your kitchen with you. Pick your store below and start
-      cooking.
+      <span class="lede-sentence">Take your recipes, your reads, and your kitchen with you.</span>
+      <span class="lede-sentence">Pick your store below and start cooking.</span>
     </p>
   </header>
 
@@ -158,6 +158,12 @@
     color: var(--color-caption);
     font-size: var(--dl-meta);
     line-height: 1.5;
+  }
+  /* Wrap between sentences, not inside one: otherwise "Pick your store" is
+     stranded at the end of the first line and the rest of its sentence drops
+     to the next. A sentence longer than the line still wraps normally. */
+  .lede-sentence {
+    display: inline-block;
   }
   .lede {
     margin: 0;

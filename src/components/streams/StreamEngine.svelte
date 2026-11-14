@@ -23,8 +23,20 @@
   import SpeakerXIcon from 'phosphor-svelte/lib/SpeakerX';
   import PictureInPictureIcon from 'phosphor-svelte/lib/PictureInPicture';
   import ArrowsOutIcon from 'phosphor-svelte/lib/ArrowsOut';
+  import { showToast } from '$lib/toast';
 
   export let surface: 'page' | 'dock' | 'popout' = 'page';
+
+  /**
+   * Round overlay buttons. 32px in the small corner dock; 40px on touch
+   * screens once the player is wide enough (page embed on a phone). The bar
+   * they sit in is pointer-events-none, so a tap that lands between small
+   * buttons falls through to the video and toggles pause — bigger targets
+   * and a wider gap are what make mute / picture-in-picture / full screen
+   * reliable under a thumb.
+   */
+  const ctrlBtn =
+    'inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 @min-[340px]:pointer-coarse:h-10 @min-[340px]:pointer-coarse:w-10';
 
   let video: HTMLVideoElement | null = null;
   let container: HTMLElement | null = null;
@@ -171,16 +183,88 @@
     }
   }
 
-  async function togglePictureInPicture() {
-    if (!video) return;
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      } else {
-        await video.requestPictureInPicture();
+  // iPhone Safari has no standard PiP API on the video element; WebKit's own
+  // presentation mode is how it enters picture-in-picture there.
+  type WebkitVideo = HTMLVideoElement & {
+    webkitSetPresentationMode?: (mode: 'inline' | 'picture-in-picture' | 'fullscreen') => void;
+    webkitPresentationMode?: string;
+    webkitSupportsPresentationMode?: (mode: string) => boolean;
+  };
+
+  /**
+   * Whether to offer the button: either API exists. Deliberately NOT gated on
+   * `pictureInPictureEnabled` or `webkitSupportsPresentationMode`: the latter
+   * is false until media has loaded (so a check at render time would hide a
+   * working button for good), and both can be false in cases where the tap
+   * should still try. A failed attempt says so instead (see below).
+   */
+  function pipSupported(el: HTMLVideoElement | null): boolean {
+    if (!el) return false;
+    return (
+      typeof el.requestPictureInPicture === 'function' ||
+      typeof (el as WebkitVideo).webkitSetPresentationMode === 'function'
+    );
+  }
+
+  const pipUnavailable = () =>
+    showToast('error', 'Picture in picture isn’t available for this stream right now.');
+
+  /** One attempt to enter PiP: the standard API, then WebKit's presentation mode. */
+  async function enterPictureInPicture(el: WebkitVideo): Promise<boolean> {
+    if (typeof el.requestPictureInPicture === 'function') {
+      try {
+        await el.requestPictureInPicture();
+        return true;
+      } catch {
+        // Fall through: iPhone Safari may refuse the standard call but take
+        // its own presentation mode.
       }
+    }
+    if (
+      typeof el.webkitSetPresentationMode === 'function' &&
+      el.webkitSupportsPresentationMode?.('picture-in-picture') !== false
+    ) {
+      el.webkitSetPresentationMode('picture-in-picture');
+      return true;
+    }
+    return false;
+  }
+
+  async function togglePictureInPicture() {
+    const el = video as WebkitVideo | null;
+    if (!el) return;
+    try {
+      // Leaving PiP.
+      if (document.pictureInPictureElement === el) {
+        await document.exitPictureInPicture();
+        return;
+      }
+      if (el.webkitPresentationMode === 'picture-in-picture') {
+        el.webkitSetPresentationMode?.('inline');
+        return;
+      }
+      // Entering — straight from the tap: Safari only honors PiP requests
+      // made inside the user gesture, so nothing is awaited before this.
+      if (await enterPictureInPicture(el)) return;
+
+      // Tapped before the stream's metadata arrived: wait for it once and
+      // retry (still inside the gesture window in Chrome).
+      if (el.readyState < 1) {
+        const ready = await new Promise<boolean>((resolve) => {
+          const done = (ok: boolean) => {
+            el.removeEventListener('loadedmetadata', onMeta);
+            clearTimeout(timer);
+            resolve(ok);
+          };
+          const onMeta = () => done(true);
+          const timer = setTimeout(() => done(false), 4000);
+          el.addEventListener('loadedmetadata', onMeta, { once: true });
+        });
+        if (ready && (await enterPictureInPicture(el))) return;
+      }
+      pipUnavailable();
     } catch {
-      // PiP unsupported (Firefox) or refused — the button simply does nothing.
+      pipUnavailable();
     }
   }
 
@@ -192,14 +276,20 @@
   function onLeavePip() {
     inPictureInPicture = false;
   }
+  function onWebkitPresentationMode() {
+    inPictureInPicture =
+      (video as WebkitVideo | null)?.webkitPresentationMode === 'picture-in-picture';
+  }
   function bindVideo(el: HTMLVideoElement) {
     video = el;
     el.addEventListener('enterpictureinpicture', onEnterPip);
     el.addEventListener('leavepictureinpicture', onLeavePip);
+    el.addEventListener('webkitpresentationmodechanged', onWebkitPresentationMode);
     return {
       destroy() {
         el.removeEventListener('enterpictureinpicture', onEnterPip);
         el.removeEventListener('leavepictureinpicture', onLeavePip);
+        el.removeEventListener('webkitpresentationmodechanged', onWebkitPresentationMode);
       }
     };
   }
@@ -211,7 +301,7 @@
 
 <div
   bind:this={container}
-  class="relative w-full overflow-hidden rounded-xl bg-black aspect-video group"
+  class="@container relative w-full overflow-hidden rounded-xl bg-black aspect-video group"
 >
   <!-- Live relay video has no caption track; the a11y rule targets media
        with meaningful content that can carry one. -->
@@ -243,7 +333,7 @@
        keyboard and screen-reader users at all times. -->
   <button
     type="button"
-    class="pointer-events-auto absolute bottom-3 left-3 rounded-full bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
+    class="{ctrlBtn} pointer-events-auto absolute bottom-3 left-3 transition-colors"
     aria-label={paused ? 'Play stream' : 'Pause stream'}
     title={paused ? 'Play' : 'Pause'}
     on:click|stopPropagation={() => {
@@ -302,11 +392,11 @@
           {/if}
         </p>
       </div>
-      <div class="pointer-events-auto flex shrink-0 items-center gap-1">
+      <div class="pointer-events-auto flex shrink-0 items-center gap-1 @min-[340px]:pointer-coarse:gap-2">
         <button
           type="button"
           on:click={toggleMute}
-          class="rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
+          class={ctrlBtn}
           aria-label={$streamPlayer.muted ? 'Unmute' : 'Mute'}
           title={$streamPlayer.muted ? 'Unmute' : 'Mute'}
         >
@@ -316,13 +406,11 @@
             <SpeakerHighIcon class="h-4 w-4" />
           {/if}
         </button>
-        {#if video && typeof video.requestPictureInPicture === 'function'}
+        {#if pipSupported(video)}
           <button
             type="button"
             on:click={togglePictureInPicture}
-            class="rounded-full bg-black/60 p-2 text-white hover:bg-black/80 {inPictureInPicture
-              ? 'ring-1 ring-white/70'
-              : ''}"
+            class="{ctrlBtn} {inPictureInPicture ? 'ring-1 ring-white/70' : ''}"
             aria-label="Picture in picture"
             title="Picture in picture"
           >
@@ -332,7 +420,7 @@
         <button
           type="button"
           on:click={toggleFullscreen}
-          class="rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
+          class={ctrlBtn}
           aria-label="Full screen"
           title="Full screen"
         >
