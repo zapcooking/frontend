@@ -3,6 +3,7 @@
  * which platform this is, what a camera error means, the one-time 18+
  * confirmation, and the session kept across a reload.
  */
+import { LIVE_DEFAULT_TITLE } from '../streamName';
 import type { HostSession } from './hostApi';
 
 export type HostPlatform = 'ios' | 'android' | 'other';
@@ -263,5 +264,5 @@ export function readRecipeHandoff(
   const a = params.get('a') ?? '';
   if (!/^(30023|35000):[0-9a-f]{64}:.{1,200}$/.test(a)) return null;
   const title = (params.get('title') ?? '').trim().slice(0, 120);
-  return { recipeA: a, title: title || 'Live cook-along' };
+  return { recipeA: a, title: title || LIVE_DEFAULT_TITLE };
 }

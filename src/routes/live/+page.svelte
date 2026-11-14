@@ -69,8 +69,24 @@
 
   function goLiveItems(): StreamItem[] {
     return goLiveSessions.map((s) =>
-      sessionToStreamItem(s, s.recipe_a ? recipeCards.get(s.recipe_a) : null)
+      sessionToStreamItem(
+        s,
+        s.recipe_a ? recipeCards.get(s.recipe_a) : null,
+        realName(s.host_pubkey)
+      )
     );
+  }
+
+  /** The host's own display name, or null (never a pseudonym). */
+  function realName(pubkey: string): string | null {
+    return profiles.get(pubkey)?.displayName || profiles.get(pubkey)?.name || null;
+  }
+
+  /** Re-derive Go live card names once host names arrive ("<host> is cooking …"). */
+  function renameGoLive() {
+    if (!items.some(isGoLiveItem)) return;
+    const named = new Map(goLiveItems().map((i) => [i.key, i]));
+    items = items.map((i) => named.get(i.key) ?? i);
   }
 
   async function fillGoLive() {
@@ -120,6 +136,7 @@
       fetchChatProfiles({ pool: pool as SimplePool, sources: DISCOVERY_RELAYS, keys })
         .then((found) => {
           profiles = new Map([...profiles, ...found]);
+          renameGoLive();
         })
         .catch(() => {});
     }
@@ -236,9 +253,8 @@
                 on:error={() => markThumbFailed(thumb.url)}
               />
             {:else if isGoLiveItem(item)}
-              <!-- No recipe photo (or it failed to load): the branded picture,
-                   with the host in the corner. -->
-              <LiveFallbackArt host={item.host} hostName={hostName(item.host)} />
+              <!-- No recipe photo (or it failed to load): the branded picture. -->
+              <LiveFallbackArt />
             {:else if thumb.broken}
               <!-- Every image the announcement named failed to load. -->
               <div

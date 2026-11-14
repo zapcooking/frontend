@@ -1,16 +1,12 @@
 <script lang="ts">
   /**
    * The picture for a Go live stream that has no recipe photo: the Zap
-   * Cooking logo on the brand background, "Live from Zap Cooking", and the
-   * host's avatar small in the corner. Deliberately the same in light and
-   * dark mode (it is a brand tile, like the share image it matches:
-   * static/live-share.png). Fills its parent; the parent sets the shape.
+   * Cooking logo on the brand background and "Live from Zap Cooking".
+   * Deliberately the same in light and dark mode (a brand tile, like the
+   * share image it matches: static/live-share.png). The host is named in
+   * the card's byline, as on Nostr stream cards, so not repeated here.
+   * Fills its parent; the parent sets the shape.
    */
-  import Avatar from '../Avatar.svelte';
-
-  /** Host pubkey for the corner avatar; omitted, no avatar. */
-  export let host: string | null = null;
-  export let hostName = '';
 </script>
 
 <div class="live-art @container absolute inset-0 flex flex-col items-center justify-center">
@@ -24,11 +20,6 @@
     <span class="live-art-dot inline-block rounded-full" aria-hidden="true"></span>
     Live from Zap Cooking
   </p>
-  {#if host}
-    <span class="absolute bottom-2 left-2 rounded-full ring-2 ring-white/80" title={hostName}>
-      <Avatar pubkey={host} size={28} alt={hostName} interactive={false} />
-    </span>
-  {/if}
 </div>
 
 <style>

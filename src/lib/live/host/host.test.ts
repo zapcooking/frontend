@@ -580,7 +580,7 @@ describe('device helpers', () => {
     expect(ok).toEqual({ recipeA: `30023:${PUBKEY}:sunday-loaf`, title: 'Sunday loaf' });
     expect(readRecipeHandoff(new URLSearchParams({ a: `35000:${PUBKEY}:premium` }))).toEqual({
       recipeA: `35000:${PUBKEY}:premium`,
-      title: 'Live cook-along'
+      title: 'Live from Zap Cooking'
     });
     expect(
       readRecipeHandoff(new URLSearchParams({ a: `1:${PUBKEY}:note`, title: 'x' }))

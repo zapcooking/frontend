@@ -19,6 +19,8 @@
   import { fetchSession, sessionToStreamItem, type GoLiveSession } from '$lib/streams/goLive';
   import { fetchRecipeEventWithRetry, recipeCardOf } from '$lib/streams/recipeCard';
   import type { StreamItem } from '$lib/streams/types';
+  import { fetchProfile } from '$lib/streams/fetch';
+  import { DISCOVERY_RELAYS } from '$lib/streams/relays';
 
   const POLL_MS = 5000;
 
@@ -31,10 +33,26 @@
   let pool: SimplePool | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let currentId: string | null = null;
+  /** The host's real name, for "<host> is cooking <recipe>". */
+  let hostName: string | null = null;
+  let hostNameFor: string | null = null;
 
   function rebuild() {
     if (!session) return;
-    item = sessionToStreamItem(session, recipeCardOf(recipe));
+    item = sessionToStreamItem(session, recipeCardOf(recipe), hostName);
+  }
+
+  async function loadHostName(pubkey: string) {
+    if (hostNameFor === pubkey || !pool) return;
+    hostNameFor = pubkey;
+    try {
+      const profile = await fetchProfile(pool, DISCOVERY_RELAYS, pubkey);
+      if (hostNameFor !== pubkey) return;
+      hostName = profile?.displayName || profile?.name || null;
+      rebuild();
+    } catch {
+      /* the name is optional: "Cooking <recipe>" until it is known */
+    }
   }
 
   async function loadRecipe(a: string | null) {
@@ -70,6 +88,7 @@
     const recipeChanged = next.recipe_a !== session?.recipe_a;
     session = next;
     rebuild();
+    void loadHostName(next.host_pubkey);
     if (recipeChanged) void loadRecipe(next.recipe_a);
     if (next.status === 'ended') stopPolling();
   }
@@ -85,6 +104,8 @@
     session = null;
     item = null;
     recipe = null;
+    hostName = null;
+    hostNameFor = null;
     notFound = false;
     loading = true;
     if (!pool) pool = createStreamPool();
@@ -119,7 +140,7 @@
   <title>{item ? `${item.title} — zap.cooking Live` : 'Live — zap.cooking'}</title>
 </svelte:head>
 
-<div class="mx-auto w-full max-w-3xl px-4 py-6">
+<div class="mx-auto w-full max-w-3xl py-4 sm:px-4 sm:py-6">
   {#if loading}
     <StreamPageSkeleton />
   {:else if notFound || !item || !pool}

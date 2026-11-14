@@ -97,31 +97,40 @@ describe('recipeAddressToNaddr', () => {
 });
 
 describe('liveOgMeta', () => {
-  it('live: title, "Live from Zap Cooking", the host, the recipe photo', () => {
-    const m = liveOgMeta({ title: 'Pasta night', status: 'live' }, 'Seth', {
-      title: 'Creamy pancetta and pea pasta',
-      image: PHOTO
-    });
-    expect(m.ogTitle).toBe('Pasta night');
-    expect(m.description).toBe(
-      'Live from Zap Cooking with Seth. Cooking: Creamy pancetta and pea pasta.'
+  const recipe = { title: 'Refried Beans', image: PHOTO };
+  it('live with a recipe: "<host> is cooking <recipe>", the brand line, the recipe photo', () => {
+    const m = liveOgMeta(
+      { title: 'Refried Beans', status: 'live', recipe_a: RECIPE_A },
+      'Seth',
+      recipe
     );
-    expect(m.image).toBe(PHOTO);
-  });
-  it('no recipe: the branded picture', () => {
-    const m = liveOgMeta({ title: 'Morning live test', status: 'live' }, 'Seth', null);
-    expect(m.image).toBe(LIVE_SHARE_IMAGE);
+    expect(m.ogTitle).toBe('Seth is cooking Refried Beans');
     expect(m.description).toBe('Live from Zap Cooking with Seth.');
+    expect(m.image).toBe(PHOTO);
+    expect(m.pageTitle).toBe('Seth is cooking Refried Beans - Live on zap.cooking');
   });
-  it('ended: says so, keeps the recipe', () => {
-    const m = liveOgMeta({ title: 'Pasta night', status: 'ended' }, null, {
-      title: 'Creamy pancetta and pea pasta',
-      image: PHOTO
-    });
-    expect(m.ogTitle).toBe('Pasta night (ended)');
-    expect(m.description).toBe(
-      'This live stream has ended. Live from Zap Cooking. Cooking: Creamy pancetta and pea pasta.'
+  it('no recipe, default title: "Live from Zap Cooking" and the branded picture', () => {
+    const m = liveOgMeta(
+      { title: 'Live cook-along', status: 'live', recipe_a: null },
+      'Seth',
+      null
     );
+    expect(m.ogTitle).toBe('Live from Zap Cooking');
+    expect(m.description).toBe('Live from Zap Cooking with Seth.');
+    expect(m.image).toBe(LIVE_SHARE_IMAGE);
+  });
+  it('no recipe, a typed title: that title', () => {
+    const m = liveOgMeta({ title: 'Taco Tuesday', status: 'live', recipe_a: null }, 'Seth', null);
+    expect(m.ogTitle).toBe('Taco Tuesday');
+  });
+  it('ended: "(ended)" and "This live stream has ended", recipe kept', () => {
+    const m = liveOgMeta(
+      { title: 'Refried Beans', status: 'ended', recipe_a: RECIPE_A },
+      null,
+      recipe
+    );
+    expect(m.ogTitle).toBe('Cooking Refried Beans (ended)');
+    expect(m.description).toBe('This live stream has ended. Live from Zap Cooking.');
     expect(m.image).toBe(PHOTO);
   });
 });
@@ -136,9 +145,8 @@ describe('resolveLiveOgMeta', () => {
     insert({ recipe_a: RECIPE_A, title: 'Pasta night' });
     const before = snapshot();
     const m = await resolveLiveOgMeta(db, ID, deps);
-    expect(m.ogTitle).toBe('Pasta night');
-    expect(m.description).toContain('with Seth');
-    expect(m.description).toContain('Creamy pancetta and pea pasta');
+    expect(m.ogTitle).toBe('Seth is cooking Creamy pancetta and pea pasta');
+    expect(m.description).toBe('Live from Zap Cooking with Seth.');
     expect(m.image).toBe(PHOTO);
     expect(snapshot()).toBe(before);
   });
@@ -182,7 +190,8 @@ describe('resolveLiveOgMeta', () => {
         throw new Error('relays down');
       }
     });
-    expect(m.ogTitle).toBe('Pasta night');
+    // Recipe not fetched: the stored title (the recipe's) names it.
+    expect(m.ogTitle).toBe('Cooking Pasta night');
     expect(m.description).toBe('Live from Zap Cooking.');
     expect(m.image).toBe(LIVE_SHARE_IMAGE);
   });
@@ -210,12 +219,17 @@ describe('resolveLiveOgMeta', () => {
     expect(fetched).toBe(false);
     expect(m.image).toBe(LIVE_SHARE_IMAGE);
     expect(m.description).not.toContain('pancetta');
+    expect(m.ogTitle).not.toMatch(/is cooking|^Cooking/);
   });
 });
 
 describe('server-rendered tags', () => {
   it('replaces the page placeholders with the live card, branded image with its size', async () => {
-    const meta = liveOgMeta({ title: 'Morning <live> test', status: 'live' }, 'Seth', null);
+    const meta = liveOgMeta(
+      { title: 'Morning <live> test', status: 'live', recipe_a: null },
+      'Seth',
+      null
+    );
     const block = await buildOgTagBlock(meta, `https://zap.cooking/live/s/${ID}`);
     const page =
       '<html><head><title>Live - zap.cooking</title><meta property="og:title" content="Zap Cooking" /></head><body></body></html>';

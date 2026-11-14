@@ -30,7 +30,7 @@ describe('sessionToStreamItem', () => {
       key: `zc:${'a'.repeat(32)}`,
       source: 'zapcooking',
       sessionId: 'a'.repeat(32),
-      title: 'Sunday sourdough',
+      title: 'Cooking Sourdough',
       url: null,
       recording: null,
       status: 'live',
@@ -41,6 +41,24 @@ describe('sessionToStreamItem', () => {
       viewers: null,
       recipeA: `30023:${'b'.repeat(64)}:sourdough`
     });
+  });
+
+  it('names the stream: host is cooking recipe, a typed title, or Live from Zap Cooking', () => {
+    const recipe = { title: 'Refried Beans', image: null };
+    expect(sessionToStreamItem(session(), recipe, 'Seth').title).toBe(
+      'Seth is cooking Refried Beans'
+    );
+    // Recipe not fetched yet: the stored title is the recipe's.
+    expect(sessionToStreamItem(session({ title: 'Refried Beans' }), null, 'Seth').title).toBe(
+      'Seth is cooking Refried Beans'
+    );
+    const titleOnly = session({ recipe_a: null });
+    expect(sessionToStreamItem({ ...titleOnly, title: 'Taco Tuesday' }, null, 'Seth').title).toBe(
+      'Taco Tuesday'
+    );
+    expect(
+      sessionToStreamItem({ ...titleOnly, title: 'Live cook-along' }, null, 'Seth').title
+    ).toBe('Live from Zap Cooking');
   });
 
   it('reads a not-yet-started session as live and an ended one as ended', () => {

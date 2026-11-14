@@ -9,6 +9,7 @@
  */
 import { naddrEncode, streamAddress } from './parse';
 import type { StreamItem } from './types';
+import { liveStreamName } from '$lib/live/streamName';
 
 /** The public shape of a session, as GET /api/live and /api/live/<id> return it. */
 export interface GoLiveSession {
@@ -47,10 +48,15 @@ export function isGoLiveItem(item: Pick<StreamItem, 'source'> | null | undefined
   return item?.source === 'zapcooking';
 }
 
-/** The `StreamItem` for a session, with its recipe's title and photo when known. */
+/**
+ * The `StreamItem` for a session, with its recipe's title and photo when
+ * known. Its title is the stream's name (see $lib/live/streamName): pass the
+ * host's real name, when known, for "<host> is cooking <recipe>".
+ */
 export function sessionToStreamItem(
   session: GoLiveSession,
-  recipe?: RecipeCard | null
+  recipe?: RecipeCard | null,
+  hostName?: string | null
 ): StreamItem {
   // A session the host has created but not yet published to reads as live:
   // the player waits ("Connecting…") until the broadcast starts.
@@ -59,7 +65,12 @@ export function sessionToStreamItem(
     key: `zc:${session.id}`,
     id: session.id,
     updated: session.ended_at ?? session.started_at ?? session.created_at,
-    title: session.title,
+    title: liveStreamName({
+      title: session.title,
+      hasRecipe: !!session.recipe_a,
+      recipeTitle: recipe?.title,
+      hostName
+    }),
     url: null,
     recording: null,
     status,

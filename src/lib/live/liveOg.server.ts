@@ -23,6 +23,7 @@ import { raceRelays } from '../recipePackOg.server';
 import { fetchRecipeEventForOg } from '../recipeOg.server';
 import { capRecipeDescription, getRecipeOgMeta, type RecipeOgMeta } from '../recipeOgMeta';
 import { getSession, type LiveDb, type LiveSessionRow } from './sessions.server';
+import { liveStreamName } from './streamName';
 
 /** The branded picture for a stream without a recipe photo (1200×630). */
 export const LIVE_SHARE_IMAGE = 'https://zap.cooking/live-share.png';
@@ -100,22 +101,28 @@ export interface LiveOgDeps {
   recipeEvent?: (naddr: string) => Promise<Parameters<typeof getRecipeOgMeta>[0] | null>;
 }
 
-/** Pure: the card from what was found. Exported for tests. */
+/**
+ * Pure: the card from what was found. Exported for tests. The title is the
+ * stream's name (see ./streamName), with "(ended)" once it is over.
+ */
 export function liveOgMeta(
-  row: Pick<LiveSessionRow, 'title' | 'status'>,
+  row: Pick<LiveSessionRow, 'title' | 'status' | 'recipe_a'>,
   hostName: string | null,
   recipe: { title: string; image: string } | null,
   shareImage: string = LIVE_SHARE_IMAGE
 ): RecipeOgMeta {
   const ended = row.status === 'ended';
+  const name = liveStreamName({
+    title: row.title,
+    hasRecipe: !!row.recipe_a,
+    recipeTitle: recipe?.title,
+    hostName
+  });
   const by = hostName ? ` with ${hostName}` : '';
-  const recipeLine = recipe ? ` Cooking: ${recipe.title}.` : '';
-  const description = ended
-    ? `${LIVE_ENDED_TEXT}. ${BRAND_LINE}${by}.${recipeLine}`
-    : `${BRAND_LINE}${by}.${recipeLine}`;
+  const description = ended ? `${LIVE_ENDED_TEXT}. ${BRAND_LINE}${by}.` : `${BRAND_LINE}${by}.`;
   return {
-    pageTitle: `${row.title} - Live on zap.cooking`,
-    ogTitle: ended ? `${row.title} (ended)` : row.title,
+    pageTitle: `${name} - Live on zap.cooking`,
+    ogTitle: ended ? `${name} (ended)` : name,
     description: capRecipeDescription(description),
     image: recipe?.image || shareImage,
     publishedAt: null,
@@ -154,7 +161,9 @@ export async function resolveLiveOgMeta(
       const image = meta.image && meta.image !== SITE_FALLBACK_IMAGE ? meta.image : '';
       recipe = { title: meta.ogTitle, image };
     }
-    return liveOgMeta(row, hostName, recipe, deps.shareImage);
+    // A hidden or moderated recipe is not named: the card reads as title-only.
+    const shown = naddr && hidden(recipeEvent) ? { ...row, recipe_a: null } : row;
+    return liveOgMeta(shown, hostName, recipe, deps.shareImage);
   } catch {
     return fallback;
   }
