@@ -7,6 +7,7 @@
  * membership lookup and the host list are stubbed.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools';
 import { normalizeUrl, sha256Hex } from '$lib/nip98';
@@ -67,6 +68,7 @@ const PRIVATE_FIELDS = [
   'publish_lock_at',
   'guest_joins',
   'cap_refusals',
+  'pass_rejoins',
   'disconnected_streak',
   'end_reason'
 ];
@@ -159,6 +161,33 @@ describe('migration 0004', () => {
     for (const name of names) expect(name.startsWith('live_')).toBe(true);
     const targets = [...sql.matchAll(/\bON\s+(\w+)\s*\(/gi)].map((m) => m[1]);
     expect(new Set(targets)).toEqual(new Set(['live_sessions']));
+  });
+});
+
+describe('migration 0005', () => {
+  const sql = readFileSync('migrations/scheduler/0005_add_live_pass_rejoins.sql', 'utf8')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .trim();
+
+  it('only adds pass_rejoins to live_sessions, with a default of 0', () => {
+    expect(sql).toBe(
+      'ALTER TABLE live_sessions ADD COLUMN pass_rejoins INTEGER NOT NULL DEFAULT 0;'
+    );
+  });
+
+  it('gives a row created before it 0', () => {
+    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
+    const old = new DatabaseSync(':memory:');
+    old.exec(readFileSync('migrations/scheduler/0004_create_live_sessions.sql', 'utf8'));
+    old
+      .prepare(
+        "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, created_at) VALUES ('a', 'b', 't', 'h', 1)"
+      )
+      .run();
+    old.exec(readFileSync('migrations/scheduler/0005_add_live_pass_rejoins.sql', 'utf8'));
+    expect(old.prepare('SELECT pass_rejoins FROM live_sessions').get().pass_rejoins).toBe(0);
   });
 });
 

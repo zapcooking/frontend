@@ -715,3 +715,102 @@ describe('rejoin pass', () => {
     expect(mocks.checkMembership).not.toHaveBeenCalled();
   });
 });
+
+describe('pass rejoin ceiling (3x the guest cap)', () => {
+  it('counts each pass rejoin in one integer, and nothing else changes', async () => {
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    const before = rowOf(s.id);
+    const tablesBefore = db.raw
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+      .all();
+
+    expect((await join(s.id, { pass })).res.status).toBe(201);
+
+    const after = rowOf(s.id);
+    const changed = Object.keys(after).filter((k) => after[k] !== before[k]);
+    expect(changed).toEqual(['pass_rejoins']);
+    expect(after.pass_rejoins).toBe(1);
+    expect(
+      db.raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all()
+    ).toEqual(tablesBefore);
+  });
+
+  it('honours passes up to the ceiling, then treats the holder as a new guest', async () => {
+    platformEnv.LIVE_GUEST_CAP = '1'; // ceiling 3
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    for (let i = 0; i < 3; i++) {
+      expect((await join(s.id, { pass })).res.status).toBe(201);
+    }
+    expect(rowOf(s.id).pass_rejoins).toBe(3);
+    expect(rowOf(s.id).guest_joins).toBe(1);
+
+    // Past the ceiling: a new guest, and the guest cap is full.
+    const past = await join(s.id, { pass });
+    expect(past.res.status).toBe(403);
+    expect(past.data.error).toBe('full');
+    const row = rowOf(s.id);
+    expect(row.pass_rejoins).toBe(3);
+    expect(row.guest_joins).toBe(1);
+    expect(row.cap_refusals).toBe(1);
+  });
+
+  it('past the ceiling, a pass holder takes a guest slot while one is free', async () => {
+    platformEnv.LIVE_GUEST_CAP = '2'; // ceiling 6
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    db.raw.prepare('UPDATE live_sessions SET pass_rejoins = 6 WHERE id = ?').run(s.id);
+
+    const res = await join(s.id, { pass });
+    expect(res.res.status).toBe(201);
+    expect(res.res.headers.get('live-pass')).toMatch(/^\d{10}\./);
+    expect(rowOf(s.id).guest_joins).toBe(2);
+    expect(rowOf(s.id).pass_rejoins).toBe(6);
+  });
+
+  it('past the ceiling, a member who signs is still admitted as a member', async () => {
+    platformEnv.LIVE_GUEST_CAP = '1';
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    db.raw.prepare('UPDATE live_sessions SET pass_rejoins = 3 WHERE id = ?').run(s.id);
+
+    const res = await join(s.id, { pass, auth: await memberAuth(s.id) });
+    expect(res.res.status).toBe(201);
+    expect(mocks.checkMembership).toHaveBeenCalled();
+    expect(rowOf(s.id).guest_joins).toBe(1);
+    expect(rowOf(s.id).pass_rejoins).toBe(3);
+  });
+
+  it('uses the configured cap for the ceiling (cap 0: no pass rejoins at all)', async () => {
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    platformEnv.LIVE_GUEST_CAP = '0';
+    expect((await join(s.id, { pass })).res.status).toBe(403);
+    expect(rowOf(s.id).pass_rejoins).toBe(0);
+  });
+
+  it('gives the pass rejoin back when the relay fails', async () => {
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    cf.playThrows = true;
+    expect((await join(s.id, { pass })).res.status).toBe(503);
+    expect(rowOf(s.id).pass_rejoins).toBe(0);
+  });
+
+  it('does not count an invalid pass', async () => {
+    const s = await liveSession();
+    await join(s.id);
+    expect((await join(s.id, { pass: 'not-a-pass' })).res.status).toBe(201);
+    expect(rowOf(s.id).pass_rejoins).toBe(0);
+    expect(rowOf(s.id).guest_joins).toBe(2);
+  });
+
+  it('does not count a pass into a session that is not live', async () => {
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    await endSession(s);
+    expect((await join(s.id, { pass })).res.status).toBe(410);
+    expect(rowOf(s.id).pass_rejoins).toBe(0);
+  });
+});

@@ -2,15 +2,23 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import type { LiveDb } from '../lib/live/sessions.server';
 
+/** The Go live migrations, in order. */
+export const LIVE_MIGRATIONS = [
+  '0004_create_live_sessions.sql',
+  '0005_add_live_pass_rejoins.sql'
+] as const;
+
 /**
- * Real SQLite running migration 0004, so the tests exercise the same SQL
+ * Real SQLite running the Go live migrations (0004, 0005), so the tests exercise the same SQL
  * (including the partial unique index) that D1 runs. Node 22 is pinned.
  * `raw` gives tests direct access for arranging and inspecting rows.
  */
 export function createLiveDatabase(): LiveDb & { raw: any } {
   const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
   const sqlite = new DatabaseSync(':memory:');
-  sqlite.exec(readFileSync('migrations/scheduler/0004_create_live_sessions.sql', 'utf8'));
+  for (const file of LIVE_MIGRATIONS) {
+    sqlite.exec(readFileSync(`migrations/scheduler/${file}`, 'utf8'));
+  }
   return {
     raw: sqlite,
     prepare(sql: string) {
