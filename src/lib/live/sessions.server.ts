@@ -48,6 +48,8 @@ export interface LiveSessionRow {
   created_at: number;
   started_at: number | null;
   ended_at: number | null;
+  /** The "Live now" note's event id, or null (no note: no comments). */
+  note_id: string | null;
 }
 
 /** What anyone may see about a session. */
@@ -60,10 +62,12 @@ export interface PublicLiveSession {
   created_at: number;
   started_at: number | null;
   ended_at: number | null;
+  /** The "Live now" note's event id; null when the host posted none. */
+  note_id: string | null;
 }
 
 const SESSION_COLUMNS =
-  'id, host_pubkey, title, recipe_a, host_token_hash, status, end_reason, created_at, started_at, ended_at';
+  'id, host_pubkey, title, recipe_a, host_token_hash, status, end_reason, created_at, started_at, ended_at, note_id';
 
 const SESSION_ID_RE = /^[0-9a-f]{32}$/;
 const HOST_TOKEN_RE = /^[0-9a-f]{64}$/;
@@ -173,7 +177,8 @@ export function toPublicSession(row: LiveSessionRow): PublicLiveSession {
     host_pubkey: row.host_pubkey,
     created_at: row.created_at,
     started_at: row.started_at,
-    ended_at: row.ended_at
+    ended_at: row.ended_at,
+    note_id: row.note_id ?? null
   };
 }
 
@@ -279,7 +284,8 @@ export async function createSession(
       end_reason: null,
       created_at: now,
       started_at: null,
-      ended_at: null
+      ended_at: null,
+      note_id: null
     }
   };
 }
@@ -704,4 +710,27 @@ export async function listLiveSessions(db: LiveDb, limit = 50): Promise<PublicLi
     .bind(limit)
     .all<LiveSessionRow>();
   return results.map(toPublicSession);
+}
+
+// ── "Live now" note ──────────────────────────────────────────────────
+
+const NOTE_ID_RE = /^[0-9a-f]{64}$/;
+
+export function isNoteId(value: unknown): value is string {
+  return typeof value === 'string' && NOTE_ID_RE.test(value);
+}
+
+/**
+ * Record the session's "Live now" note. Set once, and only while the
+ * session has not ended. Returns whether it was recorded.
+ */
+export async function setSessionNote(db: LiveDb, id: string, noteId: string): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE live_sessions SET note_id = ?2
+        WHERE id = ?1 AND note_id IS NULL AND status != 'ended'`
+    )
+    .bind(id, noteId)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
 }

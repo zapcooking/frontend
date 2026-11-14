@@ -29,6 +29,7 @@ vi.mock('$lib/live/config', async () => {
 import { POST as createRoute, GET as listRoute } from './+server';
 import { GET as readRoute } from './[id]/+server';
 import { POST as endRoute } from './[id]/end/+server';
+import { POST as noteRoute } from './[id]/note/+server';
 import {
   createSession,
   endSession,
@@ -621,6 +622,7 @@ describe('GET /api/live/<id> (read)', () => {
         'ended_at',
         'host_pubkey',
         'id',
+        'note_id',
         'recipe_a',
         'started_at',
         'status',
@@ -662,6 +664,77 @@ describe('GET /api/live/<id> (read)', () => {
       expect(res.status).toBe(404);
       expect(data).toEqual({ error: 'not_found' });
     }
+  });
+});
+
+const NOTE = 'e'.repeat(64);
+async function setNote(id: string, token: string | null, body: unknown = { note_id: NOTE }) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const res = await noteRoute({
+    request: new Request(`${ORIGIN}/api/live/${id}/note`, {
+      method: 'POST',
+      headers,
+      body: typeof body === 'string' ? body : JSON.stringify(body)
+    }),
+    params: { id },
+    platform: { env: platformEnv }
+  } as any);
+  return { res, data: await res.json() };
+}
+
+describe('migration 0006', () => {
+  it('only adds a nullable note_id to live_sessions', () => {
+    const sql = readFileSync('migrations/scheduler/0006_add_live_note_id.sql', 'utf8')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('--'))
+      .join('\n')
+      .trim();
+    expect(sql).toBe('ALTER TABLE live_sessions ADD COLUMN note_id TEXT;');
+  });
+});
+
+describe('POST /api/live/<id>/note', () => {
+  it('records the note once with the host token, and the session shows it', async () => {
+    const created = await create();
+    expect((await read(created.data.id)).data.note_id).toBeNull();
+    const { res, data } = await setNote(created.data.id, created.data.host_token);
+    expect(res.status).toBe(200);
+    expect(data).toEqual({ id: created.data.id, note_id: NOTE });
+    expect((await read(created.data.id)).data.note_id).toBe(NOTE);
+    // The same id again is fine; a different one is refused.
+    expect((await setNote(created.data.id, created.data.host_token)).res.status).toBe(200);
+    const other = await setNote(created.data.id, created.data.host_token, {
+      note_id: 'f'.repeat(64)
+    });
+    expect(other.res.status).toBe(409);
+    expect(other.data.error).toBe('note_already_set');
+    expect(rowOf(created.data.id).note_id).toBe(NOTE);
+  });
+
+  it('refuses without the host token, or with the wrong one', async () => {
+    const created = await create();
+    expect((await setNote(created.data.id, null)).res.status).toBe(401);
+    expect((await setNote(created.data.id, 'a'.repeat(64))).res.status).toBe(401);
+    expect(rowOf(created.data.id).note_id).toBeNull();
+  });
+
+  it('refuses a malformed note id or body', async () => {
+    const created = await create();
+    const token = created.data.host_token;
+    for (const body of [{ note_id: 'abc' }, { note_id: 'E'.repeat(64) }, {}, 'not json']) {
+      expect((await setNote(created.data.id, token, body)).res.status).toBe(400);
+    }
+    expect((await setNote(created.data.id, token, 'x'.repeat(2000))).res.status).toBe(413);
+  });
+
+  it('refuses once the session has ended, and for an unknown session', async () => {
+    const created = await create();
+    await end(created.data.id, { auth: `Bearer ${created.data.host_token}` });
+    const late = await setNote(created.data.id, created.data.host_token);
+    expect(late.res.status).toBe(409);
+    expect(late.data.error).toBe('ended');
+    expect((await setNote('0'.repeat(32), created.data.host_token)).res.status).toBe(404);
   });
 });
 
@@ -886,6 +959,7 @@ describe('GET /api/live (list)', () => {
         'ended_at',
         'host_pubkey',
         'id',
+        'note_id',
         'recipe_a',
         'started_at',
         'status',

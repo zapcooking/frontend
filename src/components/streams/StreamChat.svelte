@@ -1,6 +1,13 @@
 <script lang="ts">
   /**
-   * NIP-53 live chat (kind 1311) for one stream. History pages backward
+   * Live chat for one stream. For a NIP-53 stream it is NIP-53 live chat
+   * (kind 1311 on the announcement address); for a Go live session it is
+   * the replies to the host's "Live now" note (`target` = the note id; see
+   * $lib/streams/chat). Go live adds: comments from accounts the host has
+   * hidden are left out for everyone ($lib/live/chatHidden), the host gets
+   * a Hide action on each comment, any signed-in viewer can report one
+   * (the existing report path), and once the stream has ended the chat is
+   * read-only. History pages backward
    * with an "Older messages" button, a live subscription appends new
    * messages, and posting signs through the app's NDK signer into the
    * stream's relays. Chat profiles read straight from relays (newest
@@ -34,6 +41,14 @@
     type ChatProfile
   } from '$lib/streams/chat';
   import { pseudonym } from '$lib/streams/parse';
+  import { targetFilter, isEventTarget } from '$lib/streams/target';
+  import { userPublickey } from '$lib/nostr';
+  import { fetchHiddenAuthors } from '$lib/live/chatHidden';
+  import { hideFromLiveChat } from '$lib/live/chatModeration';
+  import { showToast } from '$lib/toast';
+  import EyeSlashIcon from 'phosphor-svelte/lib/EyeSlash';
+  import FlagIcon from 'phosphor-svelte/lib/Flag';
+  import LiveReport from './LiveReport.svelte';
   import { mentionedPubkeys, tokenizeChatText, type ChatSegment } from '$lib/streams/chatText';
   import { dayDividerLabel, formatChatTime, isBeforeToday } from '$lib/streams/chatTime';
   import { DISCOVERY_RELAYS, RECEIPT_RELAYS } from '$lib/streams/relays';
@@ -47,13 +62,20 @@
    * the strip under the chat header, Sidecar-style.
    */
   export let topZappers: { pubkey: string; sats: number }[] = [];
+  /**
+   * What the chat hangs off: the stream's address (default) or, for a Go
+   * live session, its "Live now" note id.
+   */
+  export let target: string | null = null;
+  /** The stream has ended: the chat is shown read-only. */
+  export let closed = false;
 
   const PAGE_SIZE = 50;
   const HISTORY_CAP = 1000;
 
   // Plain declarations: openChat() runs during component init, before any
   // `$:` reactive statement would have fired.
-  let address = item.key;
+  let address = target || item.key;
   let sources = [...new Set([...(item.relays || []), ...DISCOVERY_RELAYS])];
   let model = new ChatMessages(item.key);
   let rows: TimelineRow[] = [];
@@ -182,11 +204,54 @@
     return { event, sats, sender, comment };
   }
 
+  /** Go live: accounts the host has hidden from the chat (public list). */
+  let hiddenAuthors = new Set<string>();
+  $: noteChat = isEventTarget(address);
+  $: isHost = noteChat && !!$userPublickey && $userPublickey === item.host;
+
+  async function loadHidden() {
+    if (!isEventTarget(address)) return;
+    const found = await fetchHiddenAuthors(pool, sources, item.host);
+    if (found.size) {
+      hiddenAuthors = new Set([...hiddenAuthors, ...found]);
+      repaint();
+    }
+  }
+
+  // A host's hide reaches viewers who are already watching within a minute.
+  const hiddenTimer = setInterval(() => {
+    if (typeof document === 'undefined' || !document.hidden) void loadHidden();
+  }, 60_000);
+
+  let hiding = new Set<string>();
+  async function hide(pubkey: string) {
+    if (hiding.has(pubkey)) return;
+    hiding = new Set([...hiding, pubkey]);
+    try {
+      await hideFromLiveChat({ host: item.host, pubkey, pool, relays: sources });
+      hiddenAuthors = new Set([...hiddenAuthors, pubkey]);
+      repaint();
+      showToast('success', `${displayName(pubkey)} is hidden from your live chat.`);
+    } catch {
+      showToast('error', 'Could not hide them right now. Check your connection and try again.');
+    } finally {
+      hiding.delete(pubkey);
+      hiding = hiding;
+    }
+  }
+
+  let reportOpen = false;
+  let reportComment: { id: string; pubkey: string } | null = null;
+  function report(event: NostrEventLike) {
+    reportComment = { id: event.id, pubkey: event.pubkey };
+    reportOpen = true;
+  }
+
   function timelineFromModel(): TimelineRow[] {
     const muted = get(mutedPubkeys);
     const messages = model
       .rows()
-      .filter((e) => !muted.has(e.pubkey))
+      .filter((e) => !muted.has(e.pubkey) && !hiddenAuthors.has(e.pubkey))
       .map((event) => ({ event }));
     const zaps = [...receipts.values()].map(receiptRow).filter((row): row is TimelineRow => !!row);
     return [...messages, ...zaps].sort(
@@ -277,7 +342,7 @@
     try {
       const events = (await pool.querySync(
         receiptSources,
-        { kinds: [9735], '#a': [address], limit: 200 } as Filter,
+        { kinds: [9735], ...targetFilter(address), limit: 200 } as Filter,
         { maxWait: 5000 }
       )) as unknown as NostrEventLike[];
       for (const event of events) {
@@ -295,7 +360,7 @@
       receiptSources,
       {
         kinds: [9735],
-        '#a': [address],
+        ...targetFilter(address),
         since: Math.floor(Date.now() / 1000) - 10
       } as Filter,
       {
@@ -355,8 +420,9 @@
     sub = null;
     receiptSub?.close();
     receiptSub = null;
-    address = item.key;
+    address = target || item.key;
     model = new ChatMessages(address);
+    hiddenAuthors = new Set();
     rows = [];
     receipts = new Map();
     loading = true;
@@ -364,6 +430,7 @@
     replyTo = null;
     load(true);
     loadReceipts();
+    void loadHidden();
     widenReceiptSources();
     sub = subscribeChat({
       pool,
@@ -396,7 +463,9 @@
       const template = chatTemplate(
         address,
         text,
-        replyTo ? { id: replyTo.id, pubkey: replyTo.pubkey } : null
+        replyTo ? { id: replyTo.id, pubkey: replyTo.pubkey } : null,
+        undefined,
+        item.host
       );
       const event = new NDKEvent(ndkInstance, template as never);
       await event.sign();
@@ -419,7 +488,7 @@
   }
 
   function replyKey(event: NostrEventLike): string {
-    const parent = chatReplyParent(event);
+    const parent = chatReplyParent(event, address);
     return parent?.id || '';
   }
 
@@ -430,6 +499,7 @@
     receiptSub = null;
     if (noticeTimer) clearTimeout(noticeTimer);
     if (profileTimer) clearTimeout(profileTimer);
+    clearInterval(hiddenTimer);
   });
 </script>
 
@@ -614,6 +684,31 @@
                 <path d="m10 5-7 6 7 6M3 11h10a8 8 0 0 1 8 8" />
               </svg>
             </button>
+            {#if noteChat && event.pubkey !== $userPublickey}
+              <button
+                type="button"
+                class="shrink-0 self-center rounded p-1 opacity-0 hover:bg-accent-gray focus:opacity-100 group-hover:opacity-100"
+                style="color: var(--color-caption);"
+                aria-label="Report {displayName(event.pubkey)}'s comment"
+                title="Report"
+                on:click={() => report(event)}
+              >
+                <FlagIcon size={14} />
+              </button>
+            {/if}
+            {#if isHost && event.pubkey !== item.host}
+              <button
+                type="button"
+                class="shrink-0 self-center rounded p-1 opacity-0 hover:bg-accent-gray focus:opacity-100 group-hover:opacity-100 disabled:opacity-40"
+                style="color: var(--color-caption);"
+                aria-label="Hide {displayName(event.pubkey)} from your live chat"
+                title="Hide from your live chat"
+                disabled={hiding.has(event.pubkey)}
+                on:click={() => hide(event.pubkey)}
+              >
+                <EyeSlashIcon size={14} />
+              </button>
+            {/if}
           </div>
         </article>
       {/if}
@@ -621,7 +716,11 @@
   </div>
 
   <footer class="border-t px-3 py-2" style="border-color: var(--color-input-border);">
-    {#if signingIn}
+    {#if closed}
+      <p class="text-xs" style="color: var(--color-caption);">
+        This live stream has ended. The chat is closed.
+      </p>
+    {:else if signingIn}
       <p class="text-xs" style="color: var(--color-caption);">
         <a
           class="underline hover:opacity-80"
@@ -688,6 +787,17 @@
     {/if}
   </footer>
 </section>
+
+{#if noteChat && item.sessionId}
+  <LiveReport
+    sessionId={item.sessionId}
+    hostPubkey={item.host}
+    title={item.title}
+    comment={reportComment}
+    trigger={false}
+    bind:open={reportOpen}
+  />
+{/if}
 
 <style>
   /* Placeholder avatars: a blue-grey tile from the active theme's own

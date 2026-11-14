@@ -61,6 +61,12 @@ describe('sessionToStreamItem', () => {
     ).toBe('Live from Zap Cooking');
   });
 
+  it('carries the Live now note id, and only a well-formed one', () => {
+    expect(sessionToStreamItem(session()).noteId).toBeNull();
+    expect(sessionToStreamItem(session({ note_id: 'e'.repeat(64) })).noteId).toBe('e'.repeat(64));
+    expect(sessionToStreamItem(session({ note_id: 'bad' })).noteId).toBeNull();
+  });
+
   it('reads a not-yet-started session as live and an ended one as ended', () => {
     expect(sessionToStreamItem(session({ status: 'created', started_at: null })).status).toBe(
       'live'

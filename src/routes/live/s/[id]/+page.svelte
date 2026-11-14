@@ -21,8 +21,17 @@
   import type { StreamItem } from '$lib/streams/types';
   import { fetchProfile } from '$lib/streams/fetch';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
+  import {
+    fetchStreamZapTally,
+    scanStreamZapHistory,
+    type StreamZapTally
+  } from '$lib/streams/streamZaps';
+  import { keepHigherTally } from '$lib/streams/tallyDisplay';
+  import { zapReceiptRelayUrls } from '$lib/nip65Routing';
+  import { userPublickey } from '$lib/nostr';
 
   const POLL_MS = 5000;
+  const TALLY_RESCAN_MS = 60000;
 
   let session: GoLiveSession | null = null;
   let item: StreamItem | null = null;
@@ -33,6 +42,45 @@
   let pool: SimplePool | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let currentId: string | null = null;
+  // Zap total from the "Live now" note's receipts (same rules as a NIP-53
+  // stream's: provider-signed receipts only; the total never moves down).
+  let tally: StreamZapTally | null = null;
+  let tallyLoading = false;
+  let tallyKey: string | null = null;
+  let scanAbort: AbortController | null = null;
+  let tallyTimer: ReturnType<typeof setInterval> | null = null;
+  $: topZappers = tally
+    ? [...tally.satsByZapper]
+        .map(([pubkey, sats]) => ({ pubkey, sats }))
+        .sort((a, b) => b.sats - a.sats)
+        .slice(0, 10)
+    : [];
+
+  async function tallyLoad(noteId: string, host: string) {
+    scanAbort?.abort();
+    scanAbort = new AbortController();
+    const signal = scanAbort.signal;
+    tallyLoading = true;
+    // Fresh receipts for our own zaps land on the zap request's relays.
+    const extraRelays = await zapReceiptRelayUrls(get(userPublickey) || undefined, host).catch(
+      () => []
+    );
+    if (tallyKey !== noteId) tally = null;
+    tallyKey = noteId;
+    tally = keepHigherTally(tally, await fetchStreamZapTally(noteId, extraRelays));
+    if (signal.aborted) return;
+    const scan = await scanStreamZapHistory(noteId, host, {
+      extraRelays,
+      signal,
+      onPartial: (t) => {
+        if (!signal.aborted) tally = keepHigherTally(tally, t);
+      }
+    });
+    if (signal.aborted) return;
+    tally = keepHigherTally(tally, scan.tally);
+    tallyLoading = false;
+  }
+
   /** The host's real name, for "<host> is cooking <recipe>". */
   let hostName: string | null = null;
   let hostNameFor: string | null = null;
@@ -94,6 +142,7 @@
     loading = false;
     rebuild();
     void loadHostName(next.host_pubkey);
+    if (next.note_id && tallyKey !== next.note_id) void tallyLoad(next.note_id, next.host_pubkey);
     if (recipeChanged) void loadRecipe(next.recipe_a);
     if (next.status === 'ended') stopPolling();
   }
@@ -111,6 +160,10 @@
     recipe = null;
     hostName = null;
     hostNameFor = null;
+    scanAbort?.abort();
+    tally = null;
+    tallyKey = null;
+    tallyLoading = false;
     notFound = false;
     loading = true;
     if (!pool) pool = createStreamPool();
@@ -135,11 +188,22 @@
   }
   if (browser) document.addEventListener('visibilitychange', onVisible);
 
+  // Other viewers' zaps reach the total and the top-zappers strip.
+  if (browser) {
+    tallyTimer = setInterval(() => {
+      if (session?.note_id && !tallyLoading && !document.hidden) {
+        void tallyLoad(session.note_id, session.host_pubkey);
+      }
+    }, TALLY_RESCAN_MS);
+  }
+
   onDestroy(() => {
     // Invalidate any read still in flight, so its continuation cannot start
     // a poll after this page is gone.
     currentId = null;
     stopPolling();
+    if (tallyTimer) clearInterval(tallyTimer);
+    scanAbort?.abort();
     if (browser) document.removeEventListener('visibilitychange', onVisible);
     pool?.destroy();
     pool = null;
@@ -165,6 +229,15 @@
       </a>
     </div>
   {:else}
-    <StreamView {item} {pool} {recipe} {recipeLoading} />
+    <StreamView
+      {item}
+      {pool}
+      {recipe}
+      {recipeLoading}
+      {tally}
+      {tallyLoading}
+      {topZappers}
+      on:zapComplete={() => session?.note_id && tallyLoad(session.note_id, session.host_pubkey)}
+    />
   {/if}
 </div>

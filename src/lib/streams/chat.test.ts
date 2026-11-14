@@ -111,3 +111,62 @@ describe('chatReplyParent', () => {
     expect(chatReplyParent(chatEvent())).toBeNull();
   });
 });
+
+describe('note chat (Go live "Live now" note)', () => {
+  const NOTE = '9'.repeat(64);
+  const reply = (overrides: Partial<NostrEventLike> = {}, tags: string[][] = []) =>
+    chatEvent({ kind: 1, tags: [['e', NOTE, '', 'root'], ['p', HOST], ...tags], ...overrides }, []);
+
+  it('builds a NIP-10 reply to the note, tagging its author', () => {
+    const tpl = chatTemplate(NOTE, 'looks great', null, undefined, HOST);
+    expect(tpl.kind).toBe(1);
+    expect(tpl.tags).toEqual([
+      ['e', NOTE, '', 'root'],
+      ['p', HOST]
+    ]);
+    expect(tpl.tags.some((t) => t[0] === 'a')).toBe(false);
+  });
+
+  it('marks a reply to a message as "reply" and tags its author once', () => {
+    const tpl = chatTemplate(
+      NOTE,
+      'agreed',
+      { id: '2'.repeat(64), pubkey: STREAMER },
+      undefined,
+      HOST
+    );
+    expect(tpl.tags).toEqual([
+      ['e', NOTE, '', 'root'],
+      ['p', HOST],
+      ['e', '2'.repeat(64), '', 'reply'],
+      ['p', STREAMER]
+    ]);
+  });
+
+  it('refuses a note target without its author', () => {
+    expect(() => chatTemplate(NOTE, 'hi')).toThrow('Invalid chat message');
+  });
+
+  it('accepts kind 1 replies to the note, not the note itself, kind 1311, or other notes', () => {
+    const model = new ChatMessages(NOTE);
+    expect(model.accept(reply(), verify)).toBe(true);
+    expect(model.accept(reply({ id: NOTE, pubkey: HOST }), verify)).toBe(false);
+    expect(model.accept(reply({ id: '3'.repeat(64), kind: 1311 }), verify)).toBe(false);
+    expect(
+      model.accept(
+        chatEvent({ id: '4'.repeat(64), kind: 1, tags: [['e', '8'.repeat(64)]] }),
+        verify
+      )
+    ).toBe(false);
+    expect(model.size).toBe(1);
+  });
+
+  it('does not take the root e tag for a parent', () => {
+    expect(chatReplyParent(reply(), NOTE)).toBeNull();
+    const nested = reply({}, [
+      ['e', '2'.repeat(64), '', 'reply'],
+      ['p', STREAMER]
+    ]);
+    expect(chatReplyParent(nested, NOTE)).toEqual({ id: '2'.repeat(64), pubkey: STREAMER });
+  });
+});

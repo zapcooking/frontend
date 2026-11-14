@@ -21,6 +21,8 @@ export interface GoLiveSession {
   created_at: number;
   started_at: number | null;
   ended_at: number | null;
+  /** The "Live now" note's event id; null (or absent) when there is none. */
+  note_id?: string | null;
 }
 
 /** What the directory and the recipe panel show about an attached recipe. */
@@ -87,7 +89,8 @@ export function sessionToStreamItem(
     host: session.host_pubkey,
     source: 'zapcooking',
     sessionId: session.id,
-    recipeA: session.recipe_a
+    recipeA: session.recipe_a,
+    noteId: session.note_id && /^[0-9a-f]{64}$/.test(session.note_id) ? session.note_id : null
   };
 }
 

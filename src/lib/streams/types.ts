@@ -68,6 +68,8 @@ export interface StreamItem {
   sessionId?: string;
   /** Attached recipe address `<kind>:<pubkey>:<d>` (source `'zapcooking'` only). */
   recipeA?: string | null;
+  /** Go live only: the "Live now" note's event id (comments and zaps hang off it). */
+  noteId?: string | null;
 }
 
 /** Where the player currently renders. One surface owns the video at a time. */

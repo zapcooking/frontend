@@ -195,9 +195,11 @@
   // Derived from the current item: announcement refreshes can change the
   // host `p` tag, and the displayed identity + zap recipient must follow.
   $: host = item.host;
-  // A Go live session has no NIP-53 address: its zap goes to the host's
-  // profile, with no running total (until the "Live now" note exists).
+  // A Go live session has no NIP-53 address: its zap targets the "Live
+  // now" note when there is one (with a running total), otherwise the
+  // host's profile.
   $: address = isGoLiveItem(item) ? null : item.key;
+  $: noteId = isGoLiveItem(item) ? (item.noteId ?? null) : null;
 
   // Host identity read straight from relays (newest kind 0 wins). The
   // announcement's author is often a service account, and the app's NDK
@@ -253,6 +255,7 @@
     <div class="flex items-center gap-3">
       <StreamZapTotal
         {address}
+        {noteId}
         hostPubkey={host}
         {hostLud16}
         sats={tally?.totalSats ?? 0}

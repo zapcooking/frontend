@@ -67,10 +67,31 @@
   </div>
 
   {#if goLive}
-    {#if hasRecipe}
-      <section bind:this={panelEl} aria-label="Recipe">
-        <RecipePanel {recipe} loading={recipeLoading} />
+    {#if item.noteId}
+      <!-- Comments: replies to the host's "Live now" note, in #954's chat
+           layout. Read-only once the stream has ended. -->
+      <section bind:this={panelEl} class="h-[60vh] min-h-80" aria-label="Live chat">
+        {#key item.noteId}
+          <StreamChat
+            {item}
+            {pool}
+            {topZappers}
+            target={item.noteId}
+            closed={item.status === 'ended'}
+          />
+        {/key}
       </section>
+    {/if}
+    {#if hasRecipe}
+      {#if item.noteId}
+        <section aria-label="Recipe">
+          <RecipePanel {recipe} loading={recipeLoading} />
+        </section>
+      {:else}
+        <section bind:this={panelEl} aria-label="Recipe">
+          <RecipePanel {recipe} loading={recipeLoading} />
+        </section>
+      {/if}
     {/if}
     {#if item.sessionId}
       <LiveReport sessionId={item.sessionId} hostPubkey={item.host} title={item.title} />
