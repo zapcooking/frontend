@@ -17,6 +17,32 @@ export type Nip19Target =
   | { kind: 'address'; id: string; path: string };
 
 /**
+ * Where an addressable event (`naddr`) is shown, by its kind.
+ *
+ * An naddr is only a pointer: the kind says what the thing is, and each kind
+ * has its own page. Sending every naddr to the recipe page (as search once
+ * did) works for recipes and fails for everything else, because that page
+ * queries for a recipe kind only.
+ *
+ * Kinds with their own page get it. Everything else — including 30023,
+ * which is a recipe OR an article and can only be told apart by reading the
+ * event — goes to the recipe page, which hands an article on to `/r/` once it
+ * has loaded it (see `routeForLoadedAddress` in `$lib/addressRoute`).
+ */
+export function addressPath(kind: number, naddr: string): string {
+  switch (kind) {
+    case 30311: // NIP-53 live stream
+      return `/live/${naddr}`;
+    case 30004: // curation set / recipe pack
+      return `/pack/${naddr}`;
+    case 30001: // categorized bookmark list / cookbook
+      return `/my-kitchen/${naddr}`;
+    default:
+      return `/recipe/${naddr}`;
+  }
+}
+
+/**
  * Strip NIP-21's URI scheme, in either spelling.
  *
  * `web+nostr:` is the registered-handler form some clients write, and both
@@ -70,9 +96,7 @@ export function parseNip19Input(input: string): Nip19Target | null {
       case 'nprofile':
         return { kind: 'profile', id: value, path: `/user/${value}` };
       case 'naddr':
-        // Addressable events route through the recipe page, which is what
-        // the search bars have always done with an naddr.
-        return { kind: 'address', id: value, path: `/recipe/${value}` };
+        return { kind: 'address', id: value, path: addressPath(decoded.data.kind, value) };
       default:
         return null;
     }
