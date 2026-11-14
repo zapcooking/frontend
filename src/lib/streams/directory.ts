@@ -10,6 +10,7 @@
  */
 
 import { parseStreamEvent } from './parse';
+import { isPastNoise, isTestStream } from './noise';
 import type { NostrEventLike, StreamItem } from './types';
 
 export class StreamDirectory {
@@ -64,12 +65,15 @@ export class StreamDirectory {
   upcoming(now = Date.now() / 1000): StreamItem[] {
     return [...this.events.values()]
       .filter((e) => e.status === 'planned' && (!e.starts || e.starts >= now))
+      .filter((e) => !isTestStream(e))
       .sort((a, b) => (a.starts || Infinity) - (b.starts || Infinity) || b.updated - a.updated);
   }
 
   past(): StreamItem[] {
     return [...this.events.values()]
       .filter((e) => e.status === 'ended')
+      // Test runs and empty shells would otherwise bury the real replays.
+      .filter((e) => !isPastNoise(e))
       .sort((a, b) => (b.ends || b.updated) - (a.ends || a.updated));
   }
 }
