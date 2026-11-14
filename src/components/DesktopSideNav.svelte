@@ -7,9 +7,8 @@
   import SidebarWallet from './SidebarWallet.svelte';
   import { slide } from 'svelte/transition';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
-  import TimerIcon from 'phosphor-svelte/lib/Timer';
   import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
-  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
+  import EggTimerIcon from './icons/EggTimerIcon.svelte';
   import BasketIcon from 'phosphor-svelte/lib/Basket';
   import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
 
@@ -24,6 +23,7 @@
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
+  import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { loginOverlayOpen, openSignup } from '$lib/stores/loginOverlay';
@@ -125,6 +125,12 @@
       label: 'The Pantry Relay',
       icon: BasketIcon,
       match: (p) => p.startsWith('/pantry')
+    },
+    {
+      href: '/downloads',
+      label: 'Get the app',
+      icon: DeviceMobileIcon,
+      match: (p) => p.startsWith('/downloads')
     }
   ];
 
@@ -175,7 +181,7 @@
      menu and logo (issue #426). -->
 <aside class="hidden lg:block lg:w-56 xl:w-80 fixed top-0 left-0 h-screen z-10">
   <div
-    class="h-full overflow-y-auto scrollbar-hide p-3"
+    class="mood-canvas h-full overflow-y-auto scrollbar-hide p-3"
     style="background-color: var(--color-bg-primary);"
   >
     <!-- Logo on the header's center line: the button is exactly the
@@ -312,7 +318,7 @@
 
           <!-- Gadgets — a tool launcher, not a destination: one click
                opens the cooking-tools widget (same as the header's
-               measuring cup), so no nested expander needed. -->
+               egg timer), so no nested expander needed. -->
           <li>
             <button
               type="button"
@@ -321,7 +327,7 @@
               on:click={() => cookingToolsStore.toggle()}
             >
               <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
-                <MeasuringCupIcon size={20} />
+                <EggTimerIcon size={20} />
               </span>
               <span class="font-medium">Gadgets</span>
             </button>

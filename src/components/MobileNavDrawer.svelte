@@ -18,6 +18,7 @@
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
+  import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { navBalanceVisible } from '$lib/wallet';
   import { userPublickey } from '$lib/nostr';
@@ -25,7 +26,7 @@
   import SidebarWallet from './SidebarWallet.svelte';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import BasketIcon from 'phosphor-svelte/lib/Basket';
-  import MeasuringCupIcon from './icons/MeasuringCupIcon.svelte';
+  import EggTimerIcon from './icons/EggTimerIcon.svelte';
   import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
 
   $: pathname = $page.url.pathname;
@@ -54,6 +55,7 @@
     { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
     { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
     { href: '/pantry', label: 'The Pantry Relay', icon: BasketIcon, match: (p) => p.startsWith('/pantry') },
+    { href: '/downloads', label: 'Get the app', icon: DeviceMobileIcon, match: (p) => p.startsWith('/downloads') },
   ];
 
   // My Kitchen collapses to save vertical space; defaults open when the
@@ -233,7 +235,7 @@
 
           <!-- Gadgets — a tool launcher, not a destination: one click
                opens the cooking-tools widget (same as the header's
-               measuring cup). The drawer stacks above the widget, so it
+               egg timer). The drawer stacks above the widget, so it
                closes first. -->
           <li>
             <button
@@ -246,7 +248,7 @@
               }}
             >
               <span class="relative flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
-                <MeasuringCupIcon size={20} />
+                <EggTimerIcon size={20} />
               </span>
               <span class="font-medium">Gadgets</span>
             </button>

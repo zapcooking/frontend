@@ -133,6 +133,15 @@ describe('POST /api/nip05/claim', () => {
     expect(JSON.parse(pantryClaimCall()![1].body as string).tier).toBe('founders');
   });
 
+  for (const name of ['live', 'watch', 'LIVE']) {
+    it(`refuses the reserved name ${name}, and never reaches Pantry`, async () => {
+      const { res, data } = await claim(claimBody(PUBKEY, name));
+      expect(res.status).toBe(200);
+      expect(data).toEqual({ success: false, error: 'This username is reserved' });
+      expect(pantryClaimCall()).toBeUndefined();
+    });
+  }
+
   it('stays closed when membership is disabled', async () => {
     env.MEMBERSHIP_ENABLED = 'false';
     const { res } = await claim(claimBody(PUBKEY));

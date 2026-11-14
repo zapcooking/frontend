@@ -261,7 +261,7 @@ html[data-explore-theme='corner-diner'] .landing :is(.import-invitation, .packs-
   border-radius: 20px;
 }
 
-/* Sunday Market: rounded produce-label type, citrus paper and colorful stall trim. */
+/* Farmers Market: rounded produce-label type, corn-yellow paper and colorful stall trim. */
 html[data-explore-theme='sunday-market'] .landing {
   --font-editorial: 'Cooper Black', 'Bookman Old Style', Georgia, serif;
   --explore-heading-weight: 700;
@@ -284,12 +284,14 @@ html[data-explore-theme='sunday-market'] .landing .masthead::before {
   border-radius: 3px;
   background: repeating-linear-gradient(
     90deg,
-    var(--explore-citrus) 0 42px,
+    var(--explore-tomato) 0 42px,
     transparent 42px 48px,
-    var(--explore-leaf) 48px 90px,
+    var(--explore-citrus) 48px 90px,
     transparent 90px 96px,
     var(--explore-berry) 96px 138px,
-    transparent 138px 144px
+    transparent 138px 144px,
+    var(--explore-leaf) 144px 186px,
+    transparent 186px 192px
   );
   pointer-events: none;
 }
@@ -308,7 +310,7 @@ html[data-explore-theme='sunday-market'] .landing .masthead .tagline {
 }
 
 html[data-explore-theme='sunday-market'] .landing :is(.cover-top, .section) {
-  border-top: 2px solid var(--explore-leaf);
+  border-top: 2px solid var(--explore-citrus);
 }
 
 html[data-explore-theme='sunday-market'] .landing .import-invitation {
@@ -317,9 +319,231 @@ html[data-explore-theme='sunday-market'] .landing .import-invitation {
 }
 
 html[data-explore-theme='sunday-market'] .landing .packs-section {
-  border-color: var(--explore-leaf);
-  border-top: 6px solid var(--explore-citrus);
+  border-color: var(--explore-citrus);
+  border-top: 6px solid var(--explore-tomato);
   border-radius: 12px;
+}
+
+/* Every textured mood lifts Explore's panels with its own depth model. Cast Iron
+   (below) and Zap Original keep their own treatment. */
+html[data-explore-theme] .landing :is(.import-invitation, .packs-section) {
+  box-shadow: var(--mood-surface-shadow);
+}
+
+/* The newer moods share one masthead build: a raised plate in the surface color
+   carrying the mood's depth, with a trim that is all tokens so dark mode follows. */
+html:is(
+    [data-explore-theme='copper-bazaar'],
+    [data-explore-theme='izakaya'],
+    [data-explore-theme='sakura'],
+    [data-explore-theme='provence'],
+    [data-explore-theme='spice-route'],
+    [data-explore-theme='espresso-bar']
+  )
+  .landing
+  .masthead {
+  margin: 24px 0;
+  padding: 30px 28px;
+  background-color: var(--color-bg-secondary);
+  background-image: var(--mood-surface-sheen);
+  box-shadow: var(--mood-surface-shadow);
+}
+
+/* Copper Bazaar: an engraved copper plate with a turquoise inlay band. */
+html[data-explore-theme='copper-bazaar'] .landing {
+  --font-editorial: 'Baskerville', 'Palatino Linotype', Georgia, serif;
+  --explore-heading-weight: 600;
+  --explore-heading-spacing: -0.015em;
+  --explore-image-radius: 4px;
+}
+html[data-explore-theme='copper-bazaar'] .landing .masthead {
+  border-radius: 6px;
+  border-bottom: 6px solid transparent;
+  border-image: repeating-linear-gradient(
+      90deg,
+      var(--color-primary) 0 10px,
+      var(--color-input-border) 10px 14px,
+      var(--color-primary) 14px 24px,
+      transparent 24px 28px
+    )
+    6;
+}
+html[data-explore-theme='copper-bazaar'] .landing .masthead .tagline {
+  letter-spacing: 0.14em;
+}
+html[data-explore-theme='copper-bazaar'] .landing :is(.cover-top, .section) {
+  border-top: 2px solid var(--color-input-border);
+}
+html[data-explore-theme='copper-bazaar'] .landing :is(.import-invitation, .packs-section) {
+  border-radius: 4px;
+}
+
+/* Izakaya: a lacquer plate under an indigo noren band, with a lantern-red label. */
+html[data-explore-theme='izakaya'] .landing {
+  --font-editorial: 'Avenir Next', 'Trebuchet MS', 'Hiragino Sans', sans-serif;
+  --explore-heading-weight: 700;
+  --explore-heading-spacing: -0.03em;
+  --explore-image-radius: 3px;
+}
+html[data-explore-theme='izakaya'] .landing .masthead {
+  padding-top: 44px;
+  border-radius: 4px;
+}
+html[data-explore-theme='izakaya'] .landing .masthead::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 14px;
+  border-radius: 4px 4px 0 0;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--color-primary) 0 calc(20% - 3px),
+    transparent calc(20% - 3px) 20%
+  );
+  pointer-events: none;
+}
+html[data-explore-theme='izakaya'] .landing .masthead .tagline {
+  display: inline-block;
+  max-width: 100%;
+  padding: 4px 10px;
+  background: var(--explore-label-bg);
+  color: var(--explore-label-ink);
+  letter-spacing: 0.1em;
+}
+html[data-explore-theme='izakaya'] .landing :is(.cover-top, .section) {
+  border-top: 1px solid var(--color-input-border);
+}
+html[data-explore-theme='izakaya'] .landing :is(.import-invitation, .packs-section) {
+  border-radius: 3px;
+}
+
+/* Sakura: soft blossom plate with rounded imagery and a petal-pink rule. */
+html[data-explore-theme='sakura'] .landing {
+  --font-editorial:
+    'Hiragino Maru Gothic ProN', 'Hiragino Sans', 'Yu Gothic', 'Trebuchet MS', sans-serif;
+  --explore-heading-weight: 600;
+  --explore-heading-spacing: -0.01em;
+  --explore-image-radius: 14px;
+}
+html[data-explore-theme='sakura'] .landing .masthead {
+  border-radius: 18px;
+}
+html[data-explore-theme='sakura'] .landing .masthead .tagline {
+  letter-spacing: 0.12em;
+}
+html[data-explore-theme='sakura'] .landing :is(.cover-top, .section) {
+  border-top: 1px solid var(--color-input-border);
+}
+html[data-explore-theme='sakura'] .landing :is(.import-invitation, .packs-section) {
+  border-radius: 16px;
+}
+
+/* Provence: sun-bleached stone with a lavender double rule and olive section rules. */
+html[data-explore-theme='provence'] .landing {
+  --font-editorial: 'Book Antiqua', 'Palatino Linotype', Georgia, serif;
+  --explore-heading-weight: 600;
+  --explore-heading-spacing: -0.02em;
+  --explore-image-radius: 10px;
+}
+html[data-explore-theme='provence'] .landing .masthead {
+  border-bottom: 4px double var(--color-primary);
+  border-radius: 10px;
+}
+html[data-explore-theme='provence'] .landing :is(.cover-top, .section) {
+  border-top: 2px solid var(--explore-action-bg);
+}
+html[data-explore-theme='provence'] .landing :is(.import-invitation, .packs-section) {
+  border-radius: 10px;
+}
+
+/* Spice Route: an engraved brass tray with dashed caravan rules. */
+html[data-explore-theme='spice-route'] .landing {
+  --font-editorial: 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+  --explore-heading-weight: 600;
+  --explore-heading-spacing: -0.015em;
+  --explore-image-radius: 3px;
+}
+html[data-explore-theme='spice-route'] .landing .masthead {
+  border-radius: 4px;
+}
+html[data-explore-theme='spice-route'] .landing .masthead .tagline {
+  letter-spacing: 0.14em;
+}
+html[data-explore-theme='spice-route'] .landing :is(.cover-top, .section) {
+  border-top: 3px dashed var(--color-input-border);
+}
+html[data-explore-theme='spice-route'] .landing :is(.import-invitation, .packs-section) {
+  border-radius: 3px;
+}
+
+/* Espresso Bar: a polished marble plate with a crema rule. */
+html[data-explore-theme='espresso-bar'] .landing {
+  --font-editorial: 'Didot', 'Bodoni 72', 'Iowan Old Style', Georgia, serif;
+  --explore-heading-weight: 600;
+  --explore-heading-spacing: -0.02em;
+  --explore-image-radius: 6px;
+}
+html[data-explore-theme='espresso-bar'] .landing .masthead {
+  border-top: 3px solid var(--color-primary);
+  border-radius: 6px;
+}
+html[data-explore-theme='espresso-bar'] .landing .masthead .tagline {
+  letter-spacing: 0.16em;
+}
+html[data-explore-theme='espresso-bar'] .landing :is(.cover-top, .section) {
+  border-top: 1px solid var(--color-input-border);
+}
+html[data-explore-theme='espresso-bar'] .landing :is(.import-invitation, .packs-section) {
+  border-radius: 6px;
+}
+
+/* Cast Iron: a struck plate. Nothing is face-lit; boxes announce themselves by edge
+   lighting — a lip of light caught on top, shade pooled beneath — and type reads as
+   the impression a stamp leaves. Every accent is steel, never gold. */
+html[data-explore-theme='cast-iron'] .landing {
+  --font-editorial: 'Century Gothic', 'Avenir Next', Futura, 'Trebuchet MS', sans-serif;
+  --explore-heading-weight: 700;
+  --explore-heading-spacing: 0.01em;
+  --explore-image-radius: 3px;
+}
+
+html[data-explore-theme='cast-iron'] .landing .masthead {
+  margin: 24px 0;
+  padding: 30px 28px;
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(216, 209, 196, 0.05), rgba(216, 209, 196, 0) 45%),
+    var(--color-bg-secondary);
+  box-shadow:
+    inset 0 1px 0 rgba(216, 209, 196, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.75),
+    0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+html[data-explore-theme='cast-iron'] .landing .masthead h1 {
+  text-shadow:
+    0 -1px 1px rgba(216, 209, 196, 0.12),
+    0 1px 1px rgba(0, 0, 0, 0.8);
+}
+
+/* Inputs and invitation cards are punches in the plate with reversed light: dark
+   toward the ceiling, faint light pooling along the floor. */
+html[data-explore-theme='cast-iron'] .landing :is(.import-invitation, .packs-section) {
+  border-radius: 4px;
+  background: linear-gradient(180deg, #020202 0%, #0b0a08 62%, #171310 100%);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.9),
+    inset 0 -1px 0 rgba(216, 209, 196, 0.1),
+    0 1px 0 rgba(216, 209, 196, 0.05);
+}
+
+html[data-explore-theme='cast-iron'] .landing .import-fields input {
+  background: linear-gradient(180deg, #020202 0%, #0b0a08 62%, #171310 100%);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.9),
+    inset 0 -1px 0 rgba(216, 209, 196, 0.1);
 }
 
 @media (max-width: 767px) {
@@ -345,6 +569,25 @@ html[data-explore-theme='sunday-market'] .landing .packs-section {
 
   html[data-explore-theme='corner-diner'] .landing .masthead h1 {
     font-size: clamp(28px, 9vw, 36px);
+  }
+
+  html[data-explore-theme='cast-iron'] .landing .masthead {
+    margin: 20px 0;
+    padding: 22px 18px;
+  }
+
+  html[data-explore-theme='copper-bazaar'] .landing .masthead,
+  html[data-explore-theme='izakaya'] .landing .masthead,
+  html[data-explore-theme='sakura'] .landing .masthead,
+  html[data-explore-theme='provence'] .landing .masthead,
+  html[data-explore-theme='spice-route'] .landing .masthead,
+  html[data-explore-theme='espresso-bar'] .landing .masthead {
+    margin: 20px 0;
+    padding: 22px 18px;
+  }
+
+  html[data-explore-theme='izakaya'] .landing .masthead {
+    padding-top: 36px;
   }
 }
 
