@@ -59,6 +59,12 @@
   let appliedGeneration = -1;
   let appliedUrl: string | null = null;
   let autoplayRejected = false;
+  /** A portrait picture (a phone held upright): the page player grows taller for it. */
+  let portrait = false;
+  function measure(e: Event) {
+    const v = e.currentTarget as HTMLVideoElement;
+    portrait = v.videoHeight > v.videoWidth && v.videoWidth > 0;
+  }
   let paused = true;
   let inPictureInPicture = false;
 
@@ -548,7 +554,8 @@
 
 <div
   bind:this={container}
-  class="@container relative w-full overflow-hidden rounded-xl bg-black aspect-video group"
+  class="engine-box @container relative w-full overflow-hidden rounded-xl bg-black aspect-video group"
+  class:portrait
 >
   <!-- Live relay video has no caption track; the a11y rule targets media
        with meaningful content that can carry one. -->
@@ -570,7 +577,11 @@
       if (video && item?.status === 'ended') setStreamPosition(video.currentTime);
     }}
     on:durationchange={syncTime}
-    on:loadedmetadata={syncTime}
+    on:loadedmetadata={(e) => {
+      syncTime();
+      measure(e);
+    }}
+    on:resize={measure}
     on:seeked={syncTime}
     on:playing={() => (paused = false)}
     on:pause={() => (paused = true)}
@@ -628,86 +639,86 @@
         </div>
       {/if}
       <div class="flex items-end gap-2">
-      <!-- Persistent keyboard-accessible play/pause: the video's own click
+        <!-- Persistent keyboard-accessible play/pause: the video's own click
            handler stays for pointer users; this labeled button serves
            keyboard and screen-reader users at all times. -->
-      <button
-        type="button"
-        class="{ctrlBtn} pointer-events-auto shrink-0 transition-colors"
-        aria-label={paused ? 'Play stream' : 'Pause stream'}
-        title={paused ? 'Play' : 'Pause'}
-        on:click|stopPropagation={() => {
-          if (video?.paused) video.play().catch(() => {});
-          else video?.pause();
-        }}
-      >
-        {#if paused}
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        {:else}
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
-          </svg>
-        {/if}
-      </button>
-      <div class="min-w-0 flex-1">
-        <p
-          class="truncate text-sm font-medium text-white"
-          dir="auto"
-          title={$streamPlayer.item.title}
-        >
-          {$streamPlayer.item.title}
-        </p>
-        <p class="text-xs text-zinc-300">
-          {#if $streamPlayer.status === 'connecting'}
-            Connecting…
-          {:else if $streamPlayer.status === 'buffering'}
-            Buffering…
-          {:else if $streamPlayer.status === 'unavailable'}
-            Stream unavailable — try another stream or come back later.
-          {:else if $streamPlayer.item.starts && $streamPlayer.item.status !== 'ended'}
-            Live for {runtime($streamPlayer.item.starts)?.minutes ?? 0} min
-          {/if}
-        </p>
-      </div>
-      <div
-        class="pointer-events-auto flex shrink-0 items-center gap-1 @min-[340px]:pointer-coarse:gap-2"
-      >
         <button
           type="button"
-          on:click={toggleMute}
-          class={ctrlBtn}
-          aria-label={$streamPlayer.muted ? 'Unmute' : 'Mute'}
-          title={$streamPlayer.muted ? 'Unmute' : 'Mute'}
+          class="{ctrlBtn} pointer-events-auto shrink-0 transition-colors"
+          aria-label={paused ? 'Play stream' : 'Pause stream'}
+          title={paused ? 'Play' : 'Pause'}
+          on:click|stopPropagation={() => {
+            if (video?.paused) video.play().catch(() => {});
+            else video?.pause();
+          }}
         >
-          {#if $streamPlayer.muted}
-            <SpeakerXIcon class="h-4 w-4" />
+          {#if paused}
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5v14l11-7z" />
+            </svg>
           {:else}
-            <SpeakerHighIcon class="h-4 w-4" />
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+            </svg>
           {/if}
         </button>
-        {#if pipSupported(video)}
+        <div class="min-w-0 flex-1">
+          <p
+            class="truncate text-sm font-medium text-white"
+            dir="auto"
+            title={$streamPlayer.item.title}
+          >
+            {$streamPlayer.item.title}
+          </p>
+          <p class="text-xs text-zinc-300">
+            {#if $streamPlayer.status === 'connecting'}
+              Connecting…
+            {:else if $streamPlayer.status === 'buffering'}
+              Buffering…
+            {:else if $streamPlayer.status === 'unavailable'}
+              Stream unavailable — try another stream or come back later.
+            {:else if $streamPlayer.item.starts && $streamPlayer.item.status !== 'ended'}
+              Live for {runtime($streamPlayer.item.starts)?.minutes ?? 0} min
+            {/if}
+          </p>
+        </div>
+        <div
+          class="pointer-events-auto flex shrink-0 items-center gap-1 @min-[340px]:pointer-coarse:gap-2"
+        >
           <button
             type="button"
-            on:click={togglePictureInPicture}
-            class="{ctrlBtn} {inPictureInPicture ? 'ring-1 ring-white/70' : ''}"
-            aria-label="Picture in picture"
-            title="Picture in picture"
+            on:click={toggleMute}
+            class={ctrlBtn}
+            aria-label={$streamPlayer.muted ? 'Unmute' : 'Mute'}
+            title={$streamPlayer.muted ? 'Unmute' : 'Mute'}
           >
-            <PictureInPictureIcon class="h-4 w-4" />
+            {#if $streamPlayer.muted}
+              <SpeakerXIcon class="h-4 w-4" />
+            {:else}
+              <SpeakerHighIcon class="h-4 w-4" />
+            {/if}
           </button>
-        {/if}
-        <button
-          type="button"
-          on:click={toggleFullscreen}
-          class={ctrlBtn}
-          aria-label="Full screen"
-          title="Full screen"
-        >
-          <ArrowsOutIcon class="h-4 w-4" />
-        </button>
-      </div>
+          {#if pipSupported(video)}
+            <button
+              type="button"
+              on:click={togglePictureInPicture}
+              class="{ctrlBtn} {inPictureInPicture ? 'ring-1 ring-white/70' : ''}"
+              aria-label="Picture in picture"
+              title="Picture in picture"
+            >
+              <PictureInPictureIcon class="h-4 w-4" />
+            </button>
+          {/if}
+          <button
+            type="button"
+            on:click={toggleFullscreen}
+            class={ctrlBtn}
+            aria-label="Full screen"
+            title="Full screen"
+          >
+            <ArrowsOutIcon class="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -833,6 +844,25 @@
     .scrub::-moz-range-thumb {
       width: 16px;
       height: 16px;
+    }
+  }
+  /* In the stream page's slot (not the corner dock): a portrait broadcast
+     gets a tall frame instead of a narrow strip inside 16:9, as tall as
+     the window allows under the header with room for the host row. */
+  :global(.stream-slot) .engine-box.portrait {
+    aspect-ratio: auto;
+    height: min(calc(100dvh - var(--header-h, 4rem) - 8rem), 177vw, 56rem);
+    min-height: 16rem;
+  }
+  @media (max-width: 640px) {
+    :global(.stream-slot) .engine-box {
+      border-radius: 0;
+    }
+    /* Leave the host row and the bottom nav in view under the video. */
+    :global(.stream-slot) .engine-box.portrait {
+      height: calc(
+        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 6.5rem
+      );
     }
   }
 </style>

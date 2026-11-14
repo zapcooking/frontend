@@ -14,7 +14,8 @@
    */
   import type { SimplePool } from 'nostr-tools/pool';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+  import { setBottomDockClaim } from '$lib/stores/bottomDock';
   import CommentThread from '../comments/CommentThread.svelte';
   import StreamPlayer from './StreamPlayer.svelte';
   import StreamChat from './StreamChat.svelte';
@@ -39,6 +40,12 @@
 
   let panelEl: HTMLElement | null = null;
   let commentsOpen = false;
+
+  // The floating create and scroll-to-top buttons would sit on the player's
+  // controls and the Zap button; the stream page keeps that corner clear.
+  const DOCK_OWNER = 'stream-page';
+  onMount(() => setBottomDockClaim(DOCK_OWNER, true));
+  onDestroy(() => setBottomDockClaim(DOCK_OWNER, false));
 
   $: goLive = isGoLiveItem(item);
   $: hasRecipe = goLive && !!item.recipeA;

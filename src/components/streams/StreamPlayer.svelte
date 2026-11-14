@@ -231,7 +231,7 @@
 <div class="flex flex-col gap-4">
   <!-- The layout-level dock moves its (persistent) video container into this
        slot while the page is mounted. -->
-  <div bind:this={slotEl} class="w-full scroll-mt-20"></div>
+  <div bind:this={slotEl} class="stream-slot w-full scroll-mt-20"></div>
 
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex min-w-0 items-center gap-2">
@@ -277,3 +277,14 @@
     <StreamAbout {item} />
   {/if}
 </div>
+
+<style>
+  /* Phones: the page player runs edge to edge (the layout pads the page
+     by 1rem on each side). */
+  @media (max-width: 640px) {
+    .stream-slot {
+      width: calc(100% + 2rem);
+      margin-inline: -1rem;
+    }
+  }
+</style>
