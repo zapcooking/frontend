@@ -14,6 +14,7 @@
  * its page limit, and nothing once the history is proven complete.
  */
 
+import { targetTag } from './target';
 import { decode as decodeBolt11 } from '@gandlaf21/bolt11-decode';
 import type { NostrEventLike, EventVerifier } from './types';
 import { ZAP_ARCHIVE_RELAYS } from './relays';
@@ -77,7 +78,10 @@ const firstValue = (event: NostrEventLike, key: string): string | null => {
 };
 
 export interface ZapTotalsAccept {
-  /** Address tag the receipt must target, `30311:<host>:<d>`. */
+  /**
+   * What the receipt must target: a stream address (`30311:<host>:<d>`,
+   * matched on the `a` tag) or a note id (64 hex, matched on `e`).
+   */
   address: string;
   /** Recipient pubkey the receipt must target. */
   recipient: string;
@@ -102,7 +106,7 @@ export class ZapTotals {
         return false;
       }
       if (
-        firstValue(receipt, 'a') !== opts.address ||
+        firstValue(receipt, targetTag(opts.address)) !== opts.address ||
         firstValue(receipt, 'p') !== opts.recipient
       ) {
         return false;
@@ -113,7 +117,7 @@ export class ZapTotals {
         !request ||
         request.kind !== 9734 ||
         !opts.verify(request) ||
-        firstValue(request, 'a') !== opts.address ||
+        firstValue(request, targetTag(opts.address)) !== opts.address ||
         firstValue(request, 'p') !== opts.recipient
       ) {
         return false;

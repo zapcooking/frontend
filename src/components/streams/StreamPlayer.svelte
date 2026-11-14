@@ -195,9 +195,12 @@
   // Derived from the current item: announcement refreshes can change the
   // host `p` tag, and the displayed identity + zap recipient must follow.
   $: host = item.host;
-  // A Go live session has no NIP-53 address: its zap goes to the host's
-  // profile, with no running total (until the "Live now" note exists).
+  // A Go live session has no NIP-53 address: its zap targets the "Live
+  // now" note when there is one (with a running total), otherwise the
+  // host's profile.
   $: address = isGoLiveItem(item) ? null : item.key;
+  $: noteId = isGoLiveItem(item) ? (item.noteId ?? null) : null;
+  $: notePending = isGoLiveItem(item) && !noteId && !!item.notePending;
 
   // Host identity read straight from relays (newest kind 0 wins). The
   // announcement's author is often a service account, and the app's NDK
@@ -253,6 +256,9 @@
     <div class="flex items-center gap-3">
       <StreamZapTotal
         {address}
+        {noteId}
+        {notePending}
+        goLive={isGoLiveItem(item)}
         hostPubkey={host}
         {hostLud16}
         sats={tally?.totalSats ?? 0}
@@ -260,15 +266,17 @@
         loading={tallyLoading}
         on:zapComplete={onZapComplete}
       />
+      <!-- Labelled: an icon alone read as "open chat". It shows the
+           stream's details (title, summary, tags). -->
       <button
         type="button"
-        class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        class="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
         aria-expanded={showAbout}
-        aria-label="About this stream"
         title="About this stream"
         on:click={() => (showAbout = !showAbout)}
       >
-        <TextAlignLeftIcon class="h-5 w-5" />
+        <TextAlignLeftIcon class="h-4 w-4" />
+        About
       </button>
     </div>
   </div>

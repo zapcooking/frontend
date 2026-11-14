@@ -21,6 +21,8 @@ export interface GoLiveSession {
   created_at: number;
   started_at: number | null;
   ended_at: number | null;
+  /** The "Live now" note's event id; null (or absent) when there is none. */
+  note_id?: string | null;
 }
 
 /** What the directory and the recipe panel show about an attached recipe. */
@@ -53,11 +55,16 @@ export function isGoLiveItem(item: Pick<StreamItem, 'source'> | null | undefined
  * known. Its title is the stream's name (see $lib/live/streamName): pass the
  * host's real name, when known, for "<host> is cooking <recipe>".
  */
+/** How long after going live a missing note is still "expected" (the host posts it on connect). */
+export const NOTE_GRACE_SECONDS = 90;
+
 export function sessionToStreamItem(
   session: GoLiveSession,
   recipe?: RecipeCard | null,
-  hostName?: string | null
+  hostName?: string | null,
+  now: number = Date.now()
 ): StreamItem {
+  const noteId = session.note_id && /^[0-9a-f]{64}$/.test(session.note_id) ? session.note_id : null;
   // A session the host has created but not yet published to reads as live:
   // the player waits ("Connecting…") until the broadcast starts.
   const status = session.status === 'ended' ? 'ended' : 'live';
@@ -87,7 +94,12 @@ export function sessionToStreamItem(
     host: session.host_pubkey,
     source: 'zapcooking',
     sessionId: session.id,
-    recipeA: session.recipe_a
+    recipeA: session.recipe_a,
+    noteId,
+    notePending:
+      !noteId &&
+      session.status !== 'ended' &&
+      (session.started_at == null || now / 1000 - session.started_at < NOTE_GRACE_SECONDS)
   };
 }
 

@@ -883,10 +883,10 @@
     :global(.stream-slot) .engine-box {
       border-radius: 0;
     }
-    /* Leave the host row and the bottom nav in view under the video. */
+    /* Leave the host row, the Chat | Recipe tabs and the bottom nav in view under the video. */
     :global(.stream-slot) .engine-box.portrait {
       height: calc(
-        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 6.5rem
+        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 10.5rem
       );
     }
   }

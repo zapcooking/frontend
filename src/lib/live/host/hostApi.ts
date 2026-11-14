@@ -182,6 +182,27 @@ export async function endLiveSession(
   }
 }
 
+/**
+ * Record the session's "Live now" note so viewers can find its comments
+ * and zaps. True when the server has it (now or already).
+ */
+export async function recordLiveNote(
+  session: HostSession,
+  noteId: string,
+  fetchFn: typeof fetch = fetch
+): Promise<boolean> {
+  try {
+    const res = await fetchFn(`/api/live/${session.id}/note`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note_id: noteId })
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
 /** End a session we hold no token for (opened in another tab or device), by signature. */
 export async function endLiveSessionSigned(
   id: string,

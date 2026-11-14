@@ -12,6 +12,7 @@
  * state (the NDK path returned empty when the pool was still warming up).
  */
 
+import { targetFilter } from './target';
 import { extractZapAmountSats } from '$lib/zapAmount';
 import { ZAP_AGGREGATOR_RELAYS } from '$lib/recipeZaps';
 import { verifyEvent } from 'nostr-tools/pure';
@@ -56,7 +57,7 @@ export async function fetchStreamZapTally(
   try {
     const events = (await pool.querySync(
       relays,
-      { kinds: [9735], '#a': [address], limit: 500 },
+      { kinds: [9735], ...targetFilter(address), limit: 500 },
       { maxWait: TALLY_MAX_WAIT_MS }
     )) as unknown as { id: string; tags: string[][] }[];
 
@@ -204,7 +205,7 @@ export async function scanStreamZapHistory(
 
   try {
     const relays = [...new Set([...streamReceiptRelayUrls(), ...extraRelays])];
-    const baseFilter = { kinds: [9735], '#a': [address] };
+    const baseFilter = { kinds: [9735], ...targetFilter(address) };
     const query = (relay: string, filter: Record<string, unknown>) =>
       relayPage<NostrEventLike>(pool, relay, filter as Filter, signal, SCAN_PAGE_TIMEOUT_MS);
 

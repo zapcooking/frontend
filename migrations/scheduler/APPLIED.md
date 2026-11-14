@@ -13,6 +13,7 @@ again.
 | `0003_create_cheffy_trial_turns.sql` | **not applied** — required before enabling account samples | **not applied** — required before enabling account samples |
 | `0004_create_live_sessions.sql` | 2026-11-13 (#952) | 2026-11-13 (#952) |
 | `0005_add_live_pass_rejoins.sql` | 2026-11-14 (#967) | 2026-11-14 (#967) |
+| `0006_add_live_note_id.sql` | 2026-11-14 (#974) | 2026-11-14 (#974) |
 
 ## Applying a new migration
 
@@ -46,4 +47,4 @@ diff /tmp/zapcooking-scheduler-preview.json /tmp/zapcooking-scheduler.json
 ```
 
 Any difference means a migration reached one database and not the other.
-Last checked 2026-11-14, after 0005: no drift (11 objects in each).
+Last checked 2026-11-14, after 0006: no drift (12 objects in each).
