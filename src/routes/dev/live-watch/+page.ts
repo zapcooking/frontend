@@ -2,7 +2,7 @@
  * Viewer gate tool for the Go live play relay (PR 1.3). TEMPORARY: the
  * watch page in PR 3 replaces it, and that PR deletes this route.
  *
- * Same terms as /dev/live-publish: it holds no secret, it only works on
+ * It holds no secret, it only works on
  * preview deployments (*.pages.dev) and local dev, and on any other
  * hostname, production included, it redirects to the home page.
  */
