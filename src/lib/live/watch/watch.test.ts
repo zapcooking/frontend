@@ -5,6 +5,7 @@ import {
   STALL_MS,
   MAX_ATTEMPTS,
   retryDelayMs,
+  decodedVideoFrames,
   type WatchStop
 } from './watchPolicy';
 import { classifyJoinReply, joinLiveSession, loadPass, savePass } from './joinClient';
@@ -178,6 +179,40 @@ describe('WatchPolicy', () => {
 });
 
 // ── joinClient ──────────────────────────────────────────────────────
+describe('decodedVideoFrames', () => {
+  const report = (stats: object[]) => ({ forEach: (fn: (s: any) => void) => stats.forEach(fn) });
+
+  it('reads framesDecoded from the inbound video entry', () => {
+    expect(
+      decodedVideoFrames(
+        report([
+          { type: 'inbound-rtp', kind: 'audio' },
+          { type: 'inbound-rtp', kind: 'video', framesDecoded: 412 },
+          { type: 'candidate-pair' }
+        ])
+      )
+    ).toBe(412);
+  });
+
+  it('counts a report with no inbound video entry (no packet yet) as 0 frames', () => {
+    expect(decodedVideoFrames(report([]))).toBe(0);
+    expect(decodedVideoFrames(report([{ type: 'inbound-rtp', kind: 'audio' }]))).toBe(0);
+  });
+
+  it('so an answered join that never delivers media still rejoins after 8 s', () => {
+    // The black dock on the preview (2026-11-14): one join, never a rejoin,
+    // because a report without an inbound video entry was not judged at all.
+    const p = makePolicy();
+    joined(p);
+    for (let t = 0; t <= NO_PICTURE_MS; t += 1000) {
+      advance(1000);
+      p.frames(decodedVideoFrames(report([{ type: 'transport' }])));
+    }
+    advance(0);
+    expect(rejoins).toEqual(['no_picture']);
+  });
+});
+
 describe('classifyJoinReply', () => {
   it('maps every server reply to what the player does', () => {
     expect(classifyJoinReply(410, 'ended')).toBe('ended');

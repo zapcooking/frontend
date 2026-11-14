@@ -164,3 +164,22 @@ export class WatchPolicy {
     this.deps.stop(reason);
   }
 }
+
+/**
+ * Decoded video frames from an RTCPeerConnection stats report. A report
+ * with no inbound video entry counts as 0: browsers add that entry only
+ * once the first video packet arrives, so a connection that was answered
+ * but never delivered media has none. Treating that as "no frames" (not
+ * "nothing to judge") is what lets the no-picture rule fire and rejoin;
+ * otherwise the player stays black after a single join.
+ */
+export function decodedVideoFrames(report: {
+  forEach: (fn: (stat: { type?: string; kind?: string; framesDecoded?: number }) => void) => void;
+}): number {
+  let frames = 0;
+  report.forEach((s) => {
+    if (s.type === 'inbound-rtp' && s.kind === 'video')
+      frames = Math.max(frames, s.framesDecoded ?? 0);
+  });
+  return frames;
+}

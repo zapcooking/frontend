@@ -29,7 +29,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { signNip98AuthHeader } from '$lib/nip98';
   import { joinLiveSession, loadPass, savePass } from '$lib/live/watch/joinClient';
-  import { WatchPolicy, type WatchStop } from '$lib/live/watch/watchPolicy';
+  import { decodedVideoFrames, WatchPolicy, type WatchStop } from '$lib/live/watch/watchPolicy';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import SpeakerHighIcon from 'phosphor-svelte/lib/SpeakerHigh';
   import SpeakerXIcon from 'phosphor-svelte/lib/SpeakerX';
@@ -201,12 +201,11 @@
   async function pollFrames() {
     if (!pc || !policy) return;
     try {
+      // No inbound video entry yet counts as 0 frames (see decodedVideoFrames):
+      // an answered join that never delivers media must still trip the
+      // no-picture rule and rejoin, not stay black.
       const report = await pc.getStats();
-      let frames: number | null = null;
-      report.forEach((s: { type?: string; kind?: string; framesDecoded?: number }) => {
-        if (s.type === 'inbound-rtp' && s.kind === 'video') frames = s.framesDecoded ?? 0;
-      });
-      if (frames !== null) policy.frames(frames);
+      policy?.frames(decodedVideoFrames(report));
     } catch {
       /* stats unavailable this tick */
     }
@@ -588,7 +587,9 @@
           {/if}
         </p>
       </div>
-      <div class="pointer-events-auto flex shrink-0 items-center gap-1 @min-[340px]:pointer-coarse:gap-2">
+      <div
+        class="pointer-events-auto flex shrink-0 items-center gap-1 @min-[340px]:pointer-coarse:gap-2"
+      >
         <button
           type="button"
           on:click={toggleMute}
