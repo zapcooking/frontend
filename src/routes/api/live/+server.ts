@@ -43,6 +43,7 @@ import { isLiveHost } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { isLiveOff } from '$lib/live/killSwitch.server';
+import { isLiveSafetyHostSuspended } from '$lib/live/safety.server';
 import {
   createSession,
   getActiveSessionForHost,
@@ -85,6 +86,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return authFailedResponse(auth.reason);
     }
     const hostPubkey = auth.pubkey.toLowerCase();
+    if (await isLiveSafetyHostSuspended(db, hostPubkey)) {
+      return json({error:'hosting_temporarily_suspended'},{status:403,headers:NO_STORE});
+    }
 
     let body: Record<string, unknown>;
     try {
