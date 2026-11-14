@@ -134,6 +134,7 @@
     }
 
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onPageHide);
     window.addEventListener('online', onOnline);
 
     // A session left open by a reload of this tab?
@@ -162,6 +163,7 @@
   onDestroy(() => {
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('online', onOnline);
     }
     setBottomDockClaim(DOCK_OWNER, false);
@@ -214,7 +216,31 @@
     }
   }
 
+  /**
+   * When the system pauses the camera (a locked iPhone does this), the
+   * video track is marked muted and viewers get a black picture. The
+   * microphone is NOT paused with it, so tie the two together here: no
+   * picture, no sound. This does not depend on the page being told it is
+   * hidden, which a locked phone that is capturing may not be.
+   */
+  const followed = new WeakSet<MediaStreamTrack>();
+  function followCamera() {
+    const track = stream?.getVideoTracks()[0];
+    if (!track || followed.has(track)) return;
+    followed.add(track);
+    track.addEventListener('mute', () => {
+      if (stream?.getVideoTracks()[0] === track) setMicrophoneEnabled(stream, false);
+    });
+    track.addEventListener('unmute', () => {
+      if (stream?.getVideoTracks()[0] === track && document.visibilityState === 'visible') {
+        setMicrophoneEnabled(stream, true);
+      }
+    });
+  }
+
+  /** Called every time the page adopts a camera: first open, flip, revive, resume. */
   function attachPreview() {
+    followCamera();
     if (videoEl && stream) {
       videoEl.srcObject = stream;
       videoEl.play().catch(() => undefined);
@@ -270,6 +296,8 @@
       const sender = pc?.getSenders().find((s) => s.track?.kind === 'video' || s.track === null);
       await sender?.replaceTrack(fresh);
       attachPreview();
+      // The camera is back and the host is looking at the page.
+      setMicrophoneEnabled(stream, true);
     } catch {
       /* Stay as we are; the next visibility change tries again. */
     }
@@ -475,6 +503,10 @@
     await reviveCamera();
     if (pc && pc.connectionState !== 'connected' && pc.connectionState !== 'connecting')
       policy?.failed();
+  }
+
+  function onPageHide() {
+    setMicrophoneEnabled(stream, false);
   }
 
   function onOnline() {
