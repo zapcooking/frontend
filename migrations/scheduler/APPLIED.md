@@ -14,6 +14,7 @@ again.
 | `0004_create_live_sessions.sql` | 2026-11-13 (#952) | 2026-11-13 (#952) |
 | `0005_add_live_pass_rejoins.sql` | 2026-11-14 (#967) | 2026-11-14 (#967) |
 | `0006_add_live_note_id.sql` | 2026-11-14 (#974) | 2026-11-14 (#974) |
+| `0007_live_safety_incidents.sql` | **not applied** — required before enabling safety reporting | **not applied** — required before enabling safety reporting |
 
 ## Applying a new migration
 
