@@ -13,7 +13,6 @@ import { createKvFake } from '../../../../test/liveStreamStub';
 
 const mocks = vi.hoisted(() => ({
   checkMembership: vi.fn(),
-  hosts: [] as string[],
   admin: ''
 }));
 vi.mock('$lib/adminAuth', () => ({
@@ -23,13 +22,6 @@ vi.mock('$lib/adminAuth', () => ({
   isAdmin: (pubkey: string | null | undefined) => !!pubkey && pubkey === mocks.admin
 }));
 vi.mock('$lib/membershipApi.server', () => ({ checkMembership: mocks.checkMembership }));
-vi.mock('$lib/live/config', async () => {
-  const actual = (await vi.importActual('$lib/live/config')) as typeof import('$lib/live/config');
-  return {
-    ...actual,
-    isLiveHost: (pubkey: string | null | undefined) => actual.isLiveHost(pubkey, mocks.hosts)
-  };
-});
 
 import { POST as createRoute } from '../../live/+server';
 import { POST as publishRoute } from '../../live/[id]/publish/+server';
@@ -199,7 +191,6 @@ beforeEach(() => {
     CF_STREAM_ACCOUNT_ID: ACCOUNT,
     CF_STREAM_API_TOKEN: 'stream-token'
   };
-  mocks.hosts = [...HOSTS];
   mocks.checkMembership.mockReset().mockResolvedValue({ state: 'active', found: true });
   installCloudflare();
   for (const level of ['log', 'warn', 'error'] as const)
@@ -426,5 +417,84 @@ describe('global off flag', () => {
       kv.data.set('live:off', value);
       expect((await join(s.id)).status).toBe(201);
     }
+  });
+});
+
+describe('host block', () => {
+  it('blocks a host: ends its live session, deletes the input, and refuses new creates', async () => {
+    const s = await createLive(0);
+    const other = await createLive(1);
+    const { res, data } = await admin({ action: 'block', pubkey: HOSTS[0].toUpperCase() });
+    expect(res.status).toBe(200);
+    expect(data).toEqual({ pubkey: HOSTS[0], blocked: true, ended: 1, inputs_pending: 0 });
+    expect(rowOf(s.id).status).toBe('ended');
+    expect(rowOf(s.id).end_reason).toBe('admin');
+    expect(rowOf(s.id).cf_input_uid).toBeNull();
+    // Only the blocked host's session ended.
+    expect(rowOf(other.id).status).toBe('live');
+    expect(cf.inputs.size).toBe(1);
+
+    const url = `${ORIGIN}/api/live`;
+    const body = JSON.stringify({ title: 'Again' });
+    const again = await createRoute({
+      request: new Request(url, {
+        method: 'POST',
+        headers: { Authorization: await nip98(url, 'POST', body, hostSks[0]) },
+        body
+      }),
+      platform: { env }
+    } as any);
+    expect(again.status).toBe(403);
+    expect(await again.json()).toEqual({ error: 'blocked' });
+
+    const list = await adminList();
+    expect(list.data.blocked.map((b: { pubkey: string }) => b.pubkey)).toEqual([HOSTS[0]]);
+  });
+
+  it('blocks an account with no session, and is idempotent', async () => {
+    expect((await admin({ action: 'block', pubkey: HOSTS[2] })).data.ended).toBe(0);
+    expect((await admin({ action: 'block', pubkey: HOSTS[2] })).res.status).toBe(200);
+    expect((await adminList()).data.blocked).toHaveLength(1);
+  });
+
+  it('unblocks: the host can go live again, and nothing is restarted', async () => {
+    const s = await createLive(0);
+    await admin({ action: 'block', pubkey: HOSTS[0] });
+    const { res, data } = await admin({ action: 'unblock', pubkey: HOSTS[0] });
+    expect(res.status).toBe(200);
+    expect(data).toEqual({ pubkey: HOSTS[0], blocked: false });
+    expect(rowOf(s.id).status).toBe('ended');
+    expect((await adminList()).data.blocked).toEqual([]);
+    await createLive(0);
+  });
+
+  it('rejects a malformed pubkey, and a non-admin', async () => {
+    for (const pubkey of [undefined, '', 'npub1abc', 'zz'.repeat(32), 'ab'.repeat(31)]) {
+      expect((await admin({ action: 'block', pubkey })).res.status).toBe(400);
+    }
+    expect((await admin({ action: 'block', pubkey: HOSTS[1] }, { sk: hostSks[0] })).res.status).toBe(
+      403
+    );
+    expect((await adminList()).data.blocked).toEqual([]);
+  });
+});
+
+describe('report hold', () => {
+  it('lists a held ended session, and release clears the hold', async () => {
+    const s = await createLive(0);
+    await admin({ action: 'end', id: s.id });
+    expect((await adminList()).data.sessions).toEqual([]);
+
+    db.raw.prepare('UPDATE live_sessions SET report_hold_at = 123 WHERE id = ?').run(s.id);
+    const held = (await adminList()).data.sessions;
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({ id: s.id, status: 'ended', end_reason: 'admin', report_hold_at: 123 });
+
+    const { res, data } = await admin({ action: 'release', id: s.id });
+    expect(res.status).toBe(200);
+    expect(data).toEqual({ id: s.id, released: true });
+    expect(rowOf(s.id).report_hold_at).toBeNull();
+    expect((await admin({ action: 'release', id: s.id })).data.released).toBe(false);
+    expect((await admin({ action: 'release', id: 'nope' })).res.status).toBe(400);
   });
 });

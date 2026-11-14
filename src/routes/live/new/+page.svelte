@@ -3,9 +3,11 @@
    * Go live — the host page.
    *
    * Reached from "Go live" in the create menu (pick a recipe or just a
-   * title) or on a recipe page (that recipe attached). Shown only to
-   * allowlisted hosts; the server enforces the list, this page only
-   * decides what to show.
+   * title) or on a recipe page (that recipe attached). Hosting is for
+   * active members (Cook+) who are not blocked; the server decides. This
+   * page shows the membership page link to a CONFIRMED non-member before
+   * the camera opens. An unknown membership answer goes ahead and lets the
+   * server decide (an outage is "try again", never "not a member").
    *
    * The page never holds a Cloudflare URL. It posts an SDP offer to
    * /api/live/<id>/publish and gets an SDP answer back.
@@ -29,7 +31,8 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { signNip98AuthHeader } from '$lib/nip98';
   import { requireAuth } from '$lib/auth/requireAuth';
-  import { isLiveHost } from '$lib/live/config';
+  import { goLiveAccess, LIVE_MEMBERSHIP_PATH } from '$lib/live/config';
+  import { getMembership } from '$lib/stores/membershipStatus';
   import { setBottomDockClaim } from '$lib/stores/bottomDock';
   import {
     createLiveSession,
@@ -89,7 +92,8 @@
   type Phase =
     | 'loading' // working out who this is
     | 'signed_out'
-    | 'not_allowed'
+    | 'membership_required' // a confirmed non-member: link to the membership page
+    | 'blocked' // blocked from hosting by the admin
     | 'confirm_age'
     | 'preview' // camera on, not live yet
     | 'starting' // creating the session and publishing
@@ -330,8 +334,14 @@
       phase = 'signed_out';
       return;
     }
-    if (!isLiveHost($userPublickey)) {
-      phase = 'not_allowed';
+    // Only a confirmed "not a member" stops here. Unknown goes ahead: the
+    // server decides at create, and an outage there says "try again".
+    const pk = $userPublickey.toLowerCase();
+    const membership = await getMembership([pk]).catch(
+      () => ({}) as Awaited<ReturnType<typeof getMembership>>
+    );
+    if (goLiveAccess(membership[pk]) === 'non_member') {
+      phase = 'membership_required';
       return;
     }
     readLockHint();
@@ -521,8 +531,10 @@
 
   const createMessages: Record<Exclude<CreateOutcome, { ok: true }>['reason'], string> = {
     already_active: 'You already have a live stream open.',
-    not_allowed: 'Go live is not available for this account yet.',
+    blocked: 'This account cannot go live.',
     membership_required: 'Go live is for Cook+ members.',
+    live_full:
+      'Too many cooks are live right now. Please try again in a few minutes.',
     membership_unavailable:
       "We couldn't check your membership just now. Please try again in a moment.",
     live_off: 'Go live is switched off right now. Please try again later.',
@@ -557,6 +569,12 @@
       return;
     }
     if (!outcome.ok) {
+      if (outcome.reason === 'blocked' || outcome.reason === 'membership_required') {
+        // Nothing this account can do from here: close the camera and say so.
+        teardown(true);
+        phase = outcome.reason;
+        return;
+      }
       phase = 'preview';
       notice = createMessages[outcome.reason];
       return;
@@ -872,9 +890,13 @@
   {:else if phase === 'signed_out'}
     <h1>Go live</h1>
     <p class="muted">Sign in to go live.</p>
-  {:else if phase === 'not_allowed'}
+  {:else if phase === 'membership_required'}
     <h1>Go live</h1>
-    <p class="muted">Go live is not available for this account yet.</p>
+    <p class="muted">Going live is part of Cook+. Become a member to cook live with the community.</p>
+    <a class="btn primary member-link" href={LIVE_MEMBERSHIP_PATH}>See Cook+</a>
+  {:else if phase === 'blocked'}
+    <h1>Go live</h1>
+    <p class="muted">This account cannot go live.</p>
   {:else if phase === 'ended'}
     <div class="ended" role="status">
       <h1>{endedMessage}</h1>
@@ -1478,6 +1500,12 @@
     border: 0;
     background: #dc2626;
     color: #fff;
+  }
+  .member-link {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    text-decoration: none;
   }
   .link {
     align-self: flex-start;

@@ -13,7 +13,8 @@
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
   import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
   import { userPublickey } from '$lib/nostr';
-  import { isLiveHost } from '$lib/live/config';
+  import { goLiveAccess, LIVE_MEMBERSHIP_PATH } from '$lib/live/config';
+  import { membershipStatusMap, queueMembershipLookup } from '$lib/stores/membershipStatus';
 
   export let variant: 'floating' | 'header' = 'header';
   export let showLabel = true;
@@ -37,9 +38,12 @@
   // The floating indicator is already on screen saying what the wait is.
   $: isMining = $miningOp !== null;
 
-  // Go live is shown only to allowlisted hosts. This decides what to SHOW;
-  // the server enforces the list.
-  $: canGoLive = isLiveHost($userPublickey);
+  // Go live is shown to everyone. A confirmed non-member sees a Cook+
+  // label and is taken to the membership page; anyone else goes to the
+  // host page, and the server decides who may host.
+  $: livePk = $userPublickey ? $userPublickey.toLowerCase() : '';
+  $: if (livePk) queueMembershipLookup(livePk);
+  $: liveAccess = goLiveAccess(livePk ? $membershipStatusMap[livePk] : undefined);
 
   $: if (isMining) closeMenu();
 
@@ -71,7 +75,7 @@
   async function openLive() {
     closeMenu();
     if (!(await requireAuth({ kind: 'post', reason: 'Sign in to go live' }))) return;
-    goto('/live/new');
+    goto(liveAccess === 'non_member' ? LIVE_MEMBERSHIP_PATH : '/live/new');
   }
 
   function clearLongPress() {
@@ -236,7 +240,7 @@
 <div
   class={`create-menu ${variant === 'floating' ? 'create-menu-floating' : 'create-menu-header'} ${className}`}
   class:create-menu-open={showMenu && !isCancelMode}
-  class:create-menu-four={canGoLive}
+  class:create-menu-four={true}
   role="presentation"
   on:mouseenter={handleMouseEnter}
   on:mouseleave={handleMouseLeave}
@@ -322,17 +326,16 @@
       <span class="create-menu-item-icon"><NewspaperIcon size={20} /></span>
       <span>New read</span>
     </button>
-    {#if canGoLive}
-      <button
-        type="button"
-        class="create-menu-item"
-        tabindex={showMenu && !isCancelMode ? 0 : -1}
-        on:click={openLive}
-      >
-        <span class="create-menu-item-icon"><BroadcastIcon size={20} /></span>
-        <span>Go live</span>
-      </button>
-    {/if}
+    <button
+      type="button"
+      class="create-menu-item"
+      tabindex={showMenu && !isCancelMode ? 0 : -1}
+      on:click={openLive}
+    >
+      <span class="create-menu-item-icon"><BroadcastIcon size={20} /></span>
+      <span>Go live</span>
+      {#if liveAccess === 'non_member'}<span class="create-menu-cookplus">Cook+</span>{/if}
+    </button>
   </div>
 </div>
 
@@ -369,6 +372,16 @@
   /* A fourth item (Go live, allowlisted hosts only) needs one more row. */
   .create-menu-floating.create-menu-four {
     height: 296px;
+  }
+  /* Go live for a confirmed non-member: it leads to the membership page. */
+  .create-menu-cookplus {
+    margin-left: auto;
+    padding: 0.05rem 0.45rem;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    color: var(--color-on-action);
+    background: var(--color-action);
   }
 
   .create-menu-floating::before {

@@ -403,6 +403,18 @@ describe('retention', () => {
     await sweep(NOW + MIN);
     expect(get(oldWithInput)).toBeUndefined();
   });
+
+  it('keeps a row under a report hold until it is released', async () => {
+    const held = row({ status: 'ended', uid: null, ended: NOW - 60 * DAY });
+    db.raw.prepare('UPDATE live_sessions SET report_hold_at = ? WHERE id = ?').run(NOW - 59 * DAY, held);
+
+    expect((await sweep()).rowsDeleted).toBe(0);
+    expect(get(held)).toBeDefined();
+
+    db.raw.prepare('UPDATE live_sessions SET report_hold_at = NULL WHERE id = ?').run(held);
+    expect((await sweep(NOW + MIN)).rowsDeleted).toBe(1);
+    expect(get(held)).toBeUndefined();
+  });
 });
 
 describe('when Stream is not configured', () => {
@@ -473,5 +485,16 @@ describe('purgeLiveSessions (account deletion)', () => {
   it('does nothing for a member with no sessions', async () => {
     expect(await purgeLiveSessions(db, cfg, HOST)).toBe(0);
     expect(cf.calls).toEqual([]);
+  });
+
+  it('keeps rows under a report hold, and keeps a hosting block', async () => {
+    const held = row({ status: 'ended', host: HOST, uid: null });
+    row({ status: 'ended', host: HOST, uid: null });
+    db.raw.prepare('UPDATE live_sessions SET report_hold_at = ? WHERE id = ?').run(NOW, held);
+    db.raw.prepare('INSERT INTO live_blocked_hosts (pubkey, created_at) VALUES (?, ?)').run(HOST, NOW);
+
+    expect(await purgeLiveSessions(db, cfg, HOST)).toBe(1);
+    expect(get(held)).toBeDefined();
+    expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_blocked_hosts').get().c).toBe(1);
   });
 });

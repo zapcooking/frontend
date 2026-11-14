@@ -96,7 +96,8 @@
   import ReportArticleModal from '../reads/ReportArticleModal.svelte';
   import { extractIngredientItems, withoutIngredientsSection } from '$lib/recipe/sections';
   import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
-  import { isLiveHost } from '$lib/live/config';
+  import { goLiveAccess, LIVE_MEMBERSHIP_PATH } from '$lib/live/config';
+  import { requireAuth } from '$lib/auth/requireAuth';
 
   export let event: NDKEvent;
   export let naddr: string = '';
@@ -207,12 +208,18 @@
   // plated posts stay normal comments — CommentCard's platedCard checks too).
   $: plateable = PLATED_ENABLED && !!plateableRecipe(event);
 
-  // Go live with this recipe attached. Shown only to allowlisted hosts;
-  // the server enforces the list. Any recipe may be cooked live, the
-  // host's own or another cook's.
-  $: canGoLive = isLiveHost($userPublickey);
-  function goLiveWithRecipe() {
+  // Go live with this recipe attached. Shown to everyone: a confirmed
+  // non-member sees a Cook+ label and is taken to the membership page;
+  // anyone else goes to the host page, where the server decides. Any
+  // recipe may be cooked live, the host's own or another cook's.
+  $: liveAccess = goLiveAccess(normalizedPk ? membershipMap[normalizedPk] : undefined);
+  async function goLiveWithRecipe() {
     if (!platedRecipe) return;
+    if (!(await requireAuth({ kind: 'post', reason: 'Sign in to go live' }))) return;
+    if (liveAccess === 'non_member') {
+      goto(LIVE_MEMBERSHIP_PATH);
+      return;
+    }
     const params = new URLSearchParams({ a: platedRecipe.address, title: recipeTitle });
     goto(`/live/new?${params.toString()}`);
   }
@@ -826,17 +833,20 @@
           <!-- Left: Author Profile -->
           <AuthorProfile pubkey={event.author.pubkey} timestamp={event.created_at} />
 
-          <!-- Right: Go live (allowlisted hosts only) and Save -->
+          <!-- Right: Go live and Save -->
           <div class="flex gap-2 items-center">
-            {#if canGoLive && isActualRecipe && platedRecipe}
+            {#if isActualRecipe && platedRecipe}
               <button
                 type="button"
                 class="go-live-button print:hidden"
                 on:click={goLiveWithRecipe}
-                aria-label="Go live with this recipe"
+                aria-label={liveAccess === 'non_member'
+                  ? 'Go live with this recipe (Cook+)'
+                  : 'Go live with this recipe'}
               >
                 <BroadcastIcon size={18} weight="bold" />
                 <span>Go live</span>
+                {#if liveAccess === 'non_member'}<span class="go-live-cookplus">Cook+</span>{/if}
               </button>
             {/if}
             <SaveButton {event} size="md" variant="primary" />
@@ -1612,16 +1622,21 @@
   .go-live-button:hover {
     background: var(--color-hover-bg);
   }
-  /* On a phone the label would squeeze the author's name onto several
-     lines. Icon only there; the button keeps its aria-label. */
+  .go-live-cookplus {
+    padding: 0.05rem 0.4rem;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    color: var(--color-on-action);
+    background: var(--color-action);
+  }
+  /* On a phone the label stays (an icon alone did not read as Go live);
+     the button is tightened instead so the author's name keeps room. */
   @media (max-width: 480px) {
     .go-live-button {
-      width: 2.5rem;
-      padding: 0;
-      justify-content: center;
-    }
-    .go-live-button span {
-      display: none;
+      gap: 0.25rem;
+      padding: 0 0.6rem;
+      font-size: 0.8125rem;
     }
   }
 </style>

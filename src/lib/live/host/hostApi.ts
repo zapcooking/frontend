@@ -29,10 +29,11 @@ export type CreateOutcome =
   | {
       ok: false;
       reason:
-        | 'not_allowed' // not on the host list
+        | 'blocked' // blocked from hosting by the admin
         | 'membership_required' // confirmed non-member
         | 'membership_unavailable' // could not be checked: NOT "not a member"
         | 'live_off' // switched off by an admin
+        | 'live_full' // the open-session cap (all hosts) is reached
         | 'rate_limited'
         | 'sign_failed' // the signer refused or is unavailable
         | 'auth_failed'
@@ -92,10 +93,11 @@ export async function createLiveSession(
         reason: 'already_active',
         id: typeof body.id === 'string' ? body.id : null
       };
-    case 'not_allowed':
+    case 'blocked':
     case 'membership_required':
     case 'membership_unavailable':
     case 'live_off':
+    case 'live_full':
     case 'rate_limited':
     case 'auth_failed':
       return { ok: false, reason: body.error };

@@ -85,10 +85,11 @@ describe('createLiveSession', () => {
 
   it('maps every refusal to its own reason', async () => {
     const cases: [number, unknown, string][] = [
-      [403, { error: 'not_allowed' }, 'not_allowed'],
+      [403, { error: 'blocked' }, 'blocked'],
       [403, { error: 'membership_required' }, 'membership_required'],
       [503, { error: 'membership_unavailable' }, 'membership_unavailable'],
       [503, { error: 'live_off' }, 'live_off'],
+      [503, { error: 'live_full' }, 'live_full'],
       [429, { error: 'rate_limited' }, 'rate_limited'],
       [401, { error: 'auth_failed', detail: 'event' }, 'auth_failed'],
       [400, { error: 'bad_title' }, 'bad_request'],
@@ -153,7 +154,7 @@ describe('publishOffer', () => {
     expect(classifyPublishReply(503, 'live_off')).toBe('off');
     expect(classifyPublishReply(429, 'publish_limit')).toBe('limit');
     expect(classifyPublishReply(401, 'auth_failed')).toBe('auth');
-    expect(classifyPublishReply(403, 'not_allowed')).toBe('auth');
+    expect(classifyPublishReply(403, 'blocked')).toBe('auth');
     expect(classifyPublishReply(422, 'offer_rejected')).toBe('rejected');
     expect(classifyPublishReply(400, 'bad_offer')).toBe('rejected');
   });

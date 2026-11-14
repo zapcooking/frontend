@@ -1,8 +1,11 @@
 /** Unit tests for the Go live helpers that have no route of their own. */
 import { describe, it, expect } from 'vitest';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
 import { env } from '../../test/envMock';
-import { isLiveHost, LIVE_HOSTS } from './config';
+import {
+  goLiveAccess,
+  LIVE_MAX_OPEN_SESSIONS_DEFAULT,
+  parseMaxOpenSessions
+} from './config';
 import { readLiveEnv } from './env.server';
 import { readBodyCapped } from './body.server';
 import {
@@ -14,24 +17,31 @@ import {
   readHostToken
 } from './sessions.server';
 
-describe('host list', () => {
-  it('holds only well-formed hex pubkeys', () => {
-    for (const pk of LIVE_HOSTS) expect(pk).toMatch(/^[0-9a-f]{64}$/);
-    expect(new Set(LIVE_HOSTS).size).toBe(LIVE_HOSTS.length);
+describe('goLiveAccess (how the Go live controls look)', () => {
+  it('shows the Cook+ path only for a confirmed non-member', () => {
+    expect(goLiveAccess({ active: true, tier: 'cook_plus', state: 'active' })).toBe('member');
+    expect(goLiveAccess({ active: false, tier: 'unknown', state: 'inactive' })).toBe('non_member');
   });
 
-  it('for v1 contains exactly one host', () => {
-    expect(LIVE_HOSTS).toEqual([ADMIN_PUBKEY]);
+  it('treats an unknown or missing answer as unknown, never as a non-member', () => {
+    expect(goLiveAccess({ active: false, tier: 'unknown', state: 'unknown', unresolved: true })).toBe(
+      'unknown'
+    );
+    expect(goLiveAccess({ active: false, tier: 'unknown' })).toBe('unknown');
+    expect(goLiveAccess(undefined)).toBe('unknown');
+    expect(goLiveAccess(null)).toBe('unknown');
   });
+});
 
-  it('matches case-insensitively and refuses everything else', () => {
-    const list = ['ab'.repeat(32)];
-    expect(isLiveHost('ab'.repeat(32), list)).toBe(true);
-    expect(isLiveHost('AB'.repeat(32), list)).toBe(true);
-    expect(isLiveHost('cd'.repeat(32), list)).toBe(false);
-    expect(isLiveHost('', list)).toBe(false);
-    expect(isLiveHost(null, list)).toBe(false);
-    expect(isLiveHost('ab'.repeat(32), [])).toBe(false);
+describe('parseMaxOpenSessions', () => {
+  it('accepts 1 to 1000 and falls back to the default otherwise', () => {
+    expect(parseMaxOpenSessions('1')).toBe(1);
+    expect(parseMaxOpenSessions('20')).toBe(20);
+    expect(parseMaxOpenSessions('1000')).toBe(1000);
+    for (const bad of [undefined, '', '0', '1001', '-5', '2.5', 'lots', ' 20', '99999']) {
+      expect(parseMaxOpenSessions(bad)).toBe(LIVE_MAX_OPEN_SESSIONS_DEFAULT);
+    }
+    expect(LIVE_MAX_OPEN_SESSIONS_DEFAULT).toBe(20);
   });
 });
 

@@ -15,6 +15,7 @@
  */
 import {
   LIVE_CREATES_PER_HOUR,
+  LIVE_MAX_OPEN_SESSIONS_DEFAULT,
   LIVE_MAX_PUBLISH_ATTEMPTS,
   LIVE_PUBLISH_LOCK_SECONDS,
   LIVE_RECIPE_D_MAX,
@@ -221,21 +222,25 @@ export function isOneActiveViolation(err: unknown): boolean {
 
 export type CreateSessionResult =
   | { ok: true; session: LiveSessionRow; hostToken: string }
-  | { ok: false; reason: 'already_active' | 'rate_limited' };
+  | { ok: false; reason: 'already_active' | 'rate_limited' | 'blocked' | 'live_full' };
 
 /**
- * Insert a new session in status 'created', subject to two rules that are
- * both enforced by the database in this ONE statement:
+ * Insert a new session in status 'created', subject to rules that are all
+ * enforced by the database in this ONE statement, so two simultaneous
+ * creates cannot both pass a stale answer:
  *
- *  - Create rate limit. The row is inserted only if the host has created
- *    fewer than LIVE_CREATES_PER_HOUR sessions in the last hour (ended
- *    ones included). Counting and inserting in a single statement means
- *    two simultaneous creates cannot both pass a stale count. No row
- *    inserted → `rate_limited`.
+ *  - Host block. Nothing is inserted for a host in live_blocked_hosts
+ *    → `blocked`.
+ *  - Create rate limit. The host must have created fewer than
+ *    LIVE_CREATES_PER_HOUR sessions in the last hour (ended ones
+ *    included) → otherwise `rate_limited`.
+ *  - Open-session cap. Fewer than `maxOpen` sessions (all hosts) may be
+ *    open → otherwise `live_full`.
  *  - One session that has not ended per host, by the partial unique
  *    index. A violation → `already_active`.
  *
- * Every other failure is rethrown.
+ * When nothing was inserted, the reason is worked out afterwards in that
+ * order (blocked first). Every other failure is rethrown.
  */
 export async function createSession(
   db: LiveDb,
@@ -245,6 +250,7 @@ export async function createSession(
     recipeA: string | null;
     now?: number;
     maxPerHour?: number;
+    maxOpen?: number;
   }
 ): Promise<CreateSessionResult> {
   const id = newSessionId();
@@ -252,16 +258,30 @@ export async function createSession(
   const hash = await hashHostToken(hostToken);
   const now = input.now ?? nowSeconds();
   const maxPerHour = input.maxPerHour ?? LIVE_CREATES_PER_HOUR;
+  const maxOpen = input.maxOpen ?? LIVE_MAX_OPEN_SESSIONS_DEFAULT;
   let inserted: number;
   try {
     const result = await db
       .prepare(
         `INSERT INTO live_sessions (id, host_pubkey, title, recipe_a, host_token_hash, status, created_at)
          SELECT ?1, ?2, ?3, ?4, ?5, 'created', ?6
-          WHERE (SELECT COUNT(*) FROM live_sessions
-                  WHERE host_pubkey = ?2 AND created_at > ?7) < ?8`
+          WHERE NOT EXISTS (SELECT 1 FROM live_blocked_hosts WHERE pubkey = ?2)
+            AND (SELECT COUNT(*) FROM live_sessions
+                  WHERE host_pubkey = ?2 AND created_at > ?7) < ?8
+            AND (SELECT COUNT(*) FROM live_sessions
+                  WHERE status IN ('created', 'live')) < ?9`
       )
-      .bind(id, input.hostPubkey, input.title, input.recipeA, hash, now, now - 3600, maxPerHour)
+      .bind(
+        id,
+        input.hostPubkey,
+        input.title,
+        input.recipeA,
+        hash,
+        now,
+        now - 3600,
+        maxPerHour,
+        maxOpen
+      )
       .run();
     inserted = result.meta?.changes ?? 0;
   } catch (err) {
@@ -270,7 +290,15 @@ export async function createSession(
     // error) is not "this host already has a session" and must surface.
     throw err;
   }
-  if (inserted !== 1) return { ok: false, reason: 'rate_limited' };
+  if (inserted !== 1) {
+    if (await isHostBlocked(db, input.hostPubkey)) return { ok: false, reason: 'blocked' };
+    const recent = await db
+      .prepare('SELECT COUNT(*) AS n FROM live_sessions WHERE host_pubkey = ?1 AND created_at > ?2')
+      .bind(input.hostPubkey, now - 3600)
+      .first<{ n: number }>();
+    if ((recent?.n ?? 0) >= maxPerHour) return { ok: false, reason: 'rate_limited' };
+    return { ok: false, reason: 'live_full' };
+  }
   return {
     ok: true,
     hostToken,
@@ -639,13 +667,16 @@ export async function listRecordedInputs(db: LiveDb): Promise<Set<string>> {
 }
 
 /**
- * Delete ended rows older than the retention period. A row that still has
- * an input to delete is kept until that is done.
+ * Delete ended rows older than the retention period. Kept regardless of
+ * age: a row that still has an input to delete (until that is done), and
+ * a row under a report hold (until the admin releases it).
  */
 export async function deleteOldEndedRows(db: LiveDb, endedBefore: number): Promise<number> {
   const result = await db
     .prepare(
-      "DELETE FROM live_sessions WHERE status = 'ended' AND ended_at < ?1 AND cf_input_uid IS NULL"
+      `DELETE FROM live_sessions
+        WHERE status = 'ended' AND ended_at < ?1 AND cf_input_uid IS NULL
+          AND report_hold_at IS NULL`
     )
     .bind(endedBefore)
     .run();
@@ -658,28 +689,109 @@ export interface AdminSessionView {
   host_pubkey: string;
   title: string;
   status: LiveSessionStatus;
+  end_reason: LiveEndReason | null;
   created_at: number;
   started_at: number | null;
+  ended_at: number | null;
   reconnects: number;
   guest_joins: number;
   cap_refusals: number;
   pass_rejoins: number;
   disconnected_streak: number;
   input_recorded: boolean;
+  /** When the first report put the session on hold; null when not held. */
+  report_hold_at: number | null;
 }
 
+/**
+ * Sessions an admin has to see: open ones, ended ones whose input is not
+ * confirmed deleted yet, and every session under a report hold.
+ */
 export async function listSessionsForAdmin(db: LiveDb, limit: number): Promise<AdminSessionView[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, host_pubkey, title, status, created_at, started_at, reconnects, guest_joins,
-              cap_refusals, pass_rejoins, disconnected_streak,
-              (cf_input_uid IS NOT NULL) AS input_recorded
-         FROM live_sessions WHERE status != 'ended' OR cf_input_uid IS NOT NULL
+      `SELECT id, host_pubkey, title, status, end_reason, created_at, started_at, ended_at,
+              reconnects, guest_joins, cap_refusals, pass_rejoins, disconnected_streak,
+              (cf_input_uid IS NOT NULL) AS input_recorded, report_hold_at
+         FROM live_sessions
+        WHERE status != 'ended' OR cf_input_uid IS NOT NULL OR report_hold_at IS NOT NULL
         ORDER BY created_at DESC LIMIT ?1`
     )
     .bind(limit)
     .all<Omit<AdminSessionView, 'input_recorded'> & { input_recorded: number }>();
   return results.map((r) => ({ ...r, input_recorded: !!r.input_recorded }));
+}
+
+// ── Report hold ──────────────────────────────────────────────────────
+//
+// A report on a session (the stream or one of its comments) puts it on
+// hold: the row is then kept past the 30-day retention, and through an
+// account-deletion purge, until the admin releases it.
+
+/**
+ * Put a session on hold. The first report's time is kept. Returns whether
+ * the session exists (a report for an unknown id does nothing).
+ */
+export async function setReportHold(
+  db: LiveDb,
+  id: string,
+  now: number = nowSeconds()
+): Promise<boolean> {
+  if (!isLiveSessionId(id)) return false;
+  const result = await db
+    .prepare(
+      'UPDATE live_sessions SET report_hold_at = COALESCE(report_hold_at, ?2) WHERE id = ?1'
+    )
+    .bind(id, now)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+/** Release a session's hold. Returns whether it was held. */
+export async function releaseReportHold(db: LiveDb, id: string): Promise<boolean> {
+  if (!isLiveSessionId(id)) return false;
+  const result = await db
+    .prepare(
+      'UPDATE live_sessions SET report_hold_at = NULL WHERE id = ?1 AND report_hold_at IS NOT NULL'
+    )
+    .bind(id)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+// ── Host blocks ──────────────────────────────────────────────────────
+
+/** True when the admin has blocked this account from hosting. */
+export async function isHostBlocked(db: LiveDb, pubkey: string): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT 1 AS x FROM live_blocked_hosts WHERE pubkey = ?1')
+    .bind(pubkey.toLowerCase())
+    .first<{ x: number }>();
+  return !!row;
+}
+
+/** Block or unblock one account. Idempotent either way. */
+export async function setHostBlocked(db: LiveDb, pubkey: string, blocked: boolean): Promise<void> {
+  const pk = pubkey.toLowerCase();
+  if (blocked) {
+    await db
+      .prepare('INSERT OR IGNORE INTO live_blocked_hosts (pubkey, created_at) VALUES (?1, ?2)')
+      .bind(pk, nowSeconds())
+      .run();
+  } else {
+    await db.prepare('DELETE FROM live_blocked_hosts WHERE pubkey = ?1').bind(pk).run();
+  }
+}
+
+export async function listBlockedHosts(
+  db: LiveDb,
+  limit = 500
+): Promise<{ pubkey: string; created_at: number }[]> {
+  const { results } = await db
+    .prepare('SELECT pubkey, created_at FROM live_blocked_hosts ORDER BY created_at DESC LIMIT ?1')
+    .bind(limit)
+    .all<{ pubkey: string; created_at: number }>();
+  return results;
 }
 
 /** Ids of one host's sessions that have not ended. */
@@ -691,10 +803,14 @@ export async function listOpenSessionIdsForHost(db: LiveDb, hostPubkey: string):
   return results.map((r) => r.id);
 }
 
-/** Delete every row of one host. Returns how many were removed. */
+/**
+ * Delete every row of one host, except rows under a report hold (a
+ * deletion must not destroy a record a report is about). Returns how many
+ * were removed.
+ */
 export async function deleteRowsForHost(db: LiveDb, hostPubkey: string): Promise<number> {
   const result = await db
-    .prepare('DELETE FROM live_sessions WHERE host_pubkey = ?1')
+    .prepare('DELETE FROM live_sessions WHERE host_pubkey = ?1 AND report_hold_at IS NULL')
     .bind(hostPubkey)
     .run();
   return result.meta?.changes ?? 0;

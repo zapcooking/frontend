@@ -14,17 +14,9 @@ import { normalizeUrl, sha256Hex } from '$lib/nip98';
 import { createLiveDatabase } from '../../../test/liveDatabase';
 
 const mocks = vi.hoisted(() => ({
-  checkMembership: vi.fn(),
-  hosts: [] as string[]
+  checkMembership: vi.fn()
 }));
 vi.mock('$lib/membershipApi.server', () => ({ checkMembership: mocks.checkMembership }));
-vi.mock('$lib/live/config', async () => {
-  const actual = (await vi.importActual('$lib/live/config')) as typeof import('$lib/live/config');
-  return {
-    ...actual,
-    isLiveHost: (pubkey: string | null | undefined) => actual.isLiveHost(pubkey, mocks.hosts)
-  };
-});
 
 import { POST as createRoute, GET as listRoute } from './+server';
 import { GET as readRoute } from './[id]/+server';
@@ -140,7 +132,6 @@ const rowCount = () => db.raw.prepare('SELECT COUNT(*) AS c FROM live_sessions')
 beforeEach(() => {
   db = createLiveDatabase();
   platformEnv = { SCHEDULER_DB: db, MEMBERSHIP_ENABLED: 'true', RELAY_API_SECRET: 'relay-secret' };
-  mocks.hosts = [HOST];
   mocks.checkMembership.mockReset().mockResolvedValue({ state: 'active', found: true });
 });
 
@@ -192,8 +183,45 @@ describe('migration 0005', () => {
   });
 });
 
+describe('migration 0007', () => {
+  const sql = readFileSync('migrations/scheduler/0007_add_live_host_blocks_and_holds.sql', 'utf8')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+
+  it('only creates live_blocked_hosts and adds a nullable report_hold_at', () => {
+    expect(sql).not.toMatch(/\b(DROP|DELETE|UPDATE|INSERT|REPLACE)\b/i);
+    expect([...sql.matchAll(/CREATE\s+TABLE\s+(\w+)/gi)].map((m) => m[1])).toEqual([
+      'live_blocked_hosts'
+    ]);
+    expect([...sql.matchAll(/ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\s+(\w+)/gi)].map((m) =>
+      m.slice(1).join(' ')
+    )).toEqual(['live_sessions report_hold_at INTEGER']);
+    expect(sql).not.toMatch(/NOT NULL DEFAULT|report_hold_at INTEGER NOT NULL/i);
+  });
+
+  it('leaves rows created before it unheld', () => {
+    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
+    const old = new DatabaseSync(':memory:');
+    for (const f of [
+      '0004_create_live_sessions.sql',
+      '0005_add_live_pass_rejoins.sql',
+      '0006_add_live_note_id.sql'
+    ]) {
+      old.exec(readFileSync(`migrations/scheduler/${f}`, 'utf8'));
+    }
+    old
+      .prepare(
+        "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, created_at) VALUES ('a', 'b', 't', 'h', 1)"
+      )
+      .run();
+    old.exec(readFileSync('migrations/scheduler/0007_add_live_host_blocks_and_holds.sql', 'utf8'));
+    expect(old.prepare('SELECT report_hold_at FROM live_sessions').get().report_hold_at).toBeNull();
+  });
+});
+
 describe('POST /api/live (create)', () => {
-  it('creates a session for an allowed, active-member host', async () => {
+  it('creates a session for an active-member host', async () => {
     const { res, data } = await create({ title: '  Sunday sourdough  ' });
     expect(res.status).toBe(201);
     expect(Object.keys(data).sort()).toEqual(['host_token', 'id', 'status']);
@@ -238,18 +266,68 @@ describe('POST /api/live (create)', () => {
     expect(mocks.checkMembership).not.toHaveBeenCalled();
   });
 
-  it('refuses a signer who is not on the host list', async () => {
-    const { res, data } = await create(undefined, { secretKey: otherSk });
-    expect(res.status).toBe(403);
-    expect(data).toEqual({ error: 'not_allowed' });
-    expect(rowCount()).toBe(0);
-    expect(mocks.checkMembership).not.toHaveBeenCalled();
+  it('lets any active member host: there is no host list', async () => {
+    const { res, data } = await create({ title: 'Theirs' }, { secretKey: otherSk });
+    expect(res.status).toBe(201);
+    expect(rowOf(data.id).host_pubkey).toBe(OTHER);
+    expect(mocks.checkMembership).toHaveBeenCalledWith(OTHER, 'relay-secret');
   });
 
-  it('refuses everyone when the host list is empty (the feature is dark)', async () => {
-    mocks.hosts = [];
-    expect((await create()).res.status).toBe(403);
+  it('refuses a blocked host with 403 blocked and inserts nothing', async () => {
+    db.raw.prepare('INSERT INTO live_blocked_hosts (pubkey, created_at) VALUES (?, 1)').run(HOST);
+    const { res, data } = await create();
+    expect(res.status).toBe(403);
+    expect(data).toEqual({ error: 'blocked' });
     expect(rowCount()).toBe(0);
+    // Another member is not affected by HOST's block.
+    expect((await create({ title: 'Theirs' }, { secretKey: otherSk })).res.status).toBe(201);
+  });
+
+  it('refuses with 503 live_full at the open-session cap, counting every host', async () => {
+    platformEnv.LIVE_MAX_OPEN_SESSIONS = '1';
+    expect((await create()).res.status).toBe(201);
+    const full = await create({ title: 'Theirs' }, { secretKey: otherSk });
+    expect(full.res.status).toBe(503);
+    expect(full.data).toEqual({ error: 'live_full' });
+    expect(rowCount()).toBe(1);
+  });
+
+  it('frees a place under the cap when a session ends', async () => {
+    platformEnv.LIVE_MAX_OPEN_SESSIONS = '1';
+    const first = await create();
+    expect((await end(first.data.id, { auth: `Bearer ${first.data.host_token}` })).res.status).toBe(
+      200
+    );
+    expect((await create({ title: 'Theirs' }, { secretKey: otherSk })).res.status).toBe(201);
+  });
+
+  it('defaults the cap to 20 and ignores an unusable value', async () => {
+    platformEnv.LIVE_MAX_OPEN_SESSIONS = 'lots';
+    for (let i = 0; i < 20; i++) {
+      db.raw
+        .prepare(
+          "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, status, created_at) VALUES (?, ?, 't', 'h', 'live', 1)"
+        )
+        .run(i.toString(16).padStart(32, '0'), 'f'.repeat(62) + i.toString(16).padStart(2, '0'));
+    }
+    const { res, data } = await create();
+    expect(res.status).toBe(503);
+    expect(data).toEqual({ error: 'live_full' });
+  });
+
+  it('reports rate_limited, not live_full, when both apply', async () => {
+    platformEnv.LIVE_MAX_OPEN_SESSIONS = '1';
+    for (let i = 0; i < 6; i++) {
+      db.raw
+        .prepare(
+          "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, status, created_at, ended_at) VALUES (?, ?, 't', '', 'ended', ?, ?)"
+        )
+        .run(i.toString(16).padStart(32, '0'), HOST, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000));
+    }
+    expect((await create({ title: 'Theirs' }, { secretKey: otherSk })).res.status).toBe(201);
+    const { res, data } = await create();
+    expect(res.status).toBe(429);
+    expect(data).toEqual({ error: 'rate_limited' });
   });
 
   it('answers 503, not "not a member", when membership cannot be checked', async () => {
@@ -590,7 +668,6 @@ describe('createSession', () => {
     });
     try {
       expect((await create()).res.status).toBe(201);
-      mocks.hosts = [HOST, OTHER];
       const clash = await create({ title: 'Clash' }, { secretKey: otherSk });
       expect(clash.res.status).toBe(500);
       expect(clash.data).toEqual({ error: 'internal' });
@@ -802,7 +879,6 @@ describe('POST /api/live/<id>/end', () => {
 
   it("refuses another session's token", async () => {
     const mine = await create();
-    mocks.hosts = [HOST, OTHER];
     const theirs = await create({ title: 'Theirs' }, { secretKey: otherSk });
     const { res } = await end(mine.data.id, { auth: `Bearer ${theirs.data.host_token}` });
     expect(res.status).toBe(401);
@@ -939,7 +1015,6 @@ describe('GET /api/live (list)', () => {
 
   it('lists live sessions only, newest first, in the public shape', async () => {
     const thirdHostSk = generateSecretKey();
-    mocks.hosts = [HOST, OTHER, getPublicKey(thirdHostSk)];
     const a = await create({ title: 'Older' });
     const b = await create({ title: 'Newer' }, { secretKey: otherSk });
     const c = await create({ title: 'Not started' }, { secretKey: thirdHostSk });

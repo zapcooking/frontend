@@ -13,17 +13,9 @@ import { normalizeUrl, sha256Hex } from '$lib/nip98';
 import { createLiveDatabase } from '../../../../../test/liveDatabase';
 
 const mocks = vi.hoisted(() => ({
-  checkMembership: vi.fn(),
-  hosts: [] as string[]
+  checkMembership: vi.fn()
 }));
 vi.mock('$lib/membershipApi.server', () => ({ checkMembership: mocks.checkMembership }));
-vi.mock('$lib/live/config', async () => {
-  const actual = (await vi.importActual('$lib/live/config')) as typeof import('$lib/live/config');
-  return {
-    ...actual,
-    isLiveHost: (pubkey: string | null | undefined) => actual.isLiveHost(pubkey, mocks.hosts)
-  };
-});
 
 import { POST as createRoute } from '../../+server';
 import { POST as endRoute } from '../end/+server';
@@ -256,7 +248,6 @@ beforeEach(() => {
     CF_STREAM_API_TOKEN: 'stream-token',
     LIVE_PASS_SECRET: 'pass-secret-for-tests'
   };
-  mocks.hosts = [HOST];
   // The host and MEMBER are active members; everyone else is not.
   mocks.checkMembership
     .mockReset()

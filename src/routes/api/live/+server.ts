@@ -25,21 +25,24 @@
  *   body over 4 KB (enforced while reading) → 413 too_large
  *   NIP-98                                 → 401 auth_failed (coarse; reason logged only)
  *   body shape, title, recipe address      → 400 bad_request | bad_title | bad_recipe
- *   signer is on the host list             → 403 not_allowed
  *   membership could not be checked        → 503 membership_unavailable
  *   signer is not an active member         → 403 membership_required
  *   host already has a session not ended   → 409 already_active (with its id)
- *   create rate limit (atomic with insert) → 429 rate_limited
+ *   then, atomic with the insert:
+ *     signer is blocked from hosting       → 403 blocked
+ *     create rate limit                    → 429 rate_limited
+ *     open sessions at the global cap      → 503 live_full
  *
- * A membership outage is never reported as "not a member": `unknown`
- * from the tri-state check is a 503, and only a real `inactive` is a 403.
+ * Any active member may host (there is no host list). A membership outage
+ * is never reported as "not a member": `unknown` from the tri-state check
+ * is a 503, and only a real `inactive` is a 403.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
 import { checkMembership } from '$lib/membershipApi.server';
-import { isLiveHost } from '$lib/live/config';
+import { parseMaxOpenSessions } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { isLiveOff } from '$lib/live/killSwitch.server';
@@ -103,10 +106,6 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'bad_recipe' }, { status: 400, headers: NO_STORE });
     }
 
-    if (!isLiveHost(hostPubkey)) {
-      return json({ error: 'not_allowed' }, { status: 403, headers: NO_STORE });
-    }
-
     // Tri-state membership. The boolean helper reads an outage as "not a
     // member"; this route must not.
     const membershipEnabled = readLiveEnv(platform, 'MEMBERSHIP_ENABLED')?.toLowerCase() === 'true';
@@ -129,10 +128,23 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'already_active', id: existing.id }, { status: 409, headers: NO_STORE });
     }
 
-    const created = await createSession(db, { hostPubkey, title, recipeA });
+    const created = await createSession(db, {
+      hostPubkey,
+      title,
+      recipeA,
+      maxOpen: parseMaxOpenSessions(readLiveEnv(platform, 'LIVE_MAX_OPEN_SESSIONS'))
+    });
     if (!created.ok) {
+      if (created.reason === 'blocked') {
+        console.warn('[Live] create refused: host blocked');
+        return json({ error: 'blocked' }, { status: 403, headers: NO_STORE });
+      }
       if (created.reason === 'rate_limited') {
         return json({ error: 'rate_limited' }, { status: 429, headers: NO_STORE });
+      }
+      if (created.reason === 'live_full') {
+        console.warn('[Live] create refused: open-session cap reached');
+        return json({ error: 'live_full' }, { status: 503, headers: NO_STORE });
       }
       // Lost a race with a simultaneous create from the same host.
       const winner = await getActiveSessionForHost(db, hostPubkey);

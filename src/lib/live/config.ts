@@ -1,30 +1,59 @@
 /**
  * Go live (live cook-alongs) — configuration shared by client and server.
  *
- * LIVE_HOSTS is the v1 host allowlist: the hex pubkeys allowed to start a
- * live session. An empty list means nobody can, which is how the feature
- * stays dark. On the client this list only decides whether to SHOW the
- * Go live controls; the server enforces it after NIP-98 (the same split
- * as ADMIN_PUBKEY / isAdmin in $lib/adminAuth). Membership is checked as
- * well, so opening hosting to all Cook+ members later means removing the
- * list check, not adding a membership one.
+ * Who may host: any active member (Cook+) who is not blocked from
+ * hosting by the admin. The server decides, after NIP-98, with the
+ * tri-state membership check (an outage is "try again", never "not a
+ * member") and the live_blocked_hosts table. On the client,
+ * `goLiveAccess` only decides how the Go live controls LOOK.
  */
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import type { MembershipStatus } from '$lib/stores/membershipStatus';
 
-export const LIVE_HOSTS: readonly string[] = [
-  // Seth (the `seth` zap.cooking handle; same key as ADMIN_PUBKEY).
-  ADMIN_PUBKEY
-];
+/**
+ * How the Go live controls look for the signed-in account:
+ *   member      the normal Go live button
+ *   non_member  confirmed not a member: Go live with a Cook+ label,
+ *               leading to the membership page
+ *   unknown     not signed in, not looked up yet, or the lookup failed:
+ *               the normal button, and the server decides
+ * Only a confirmed `inactive` answer counts as non_member, so a
+ * membership outage never shows a member the upgrade path.
+ */
+export type GoLiveAccess = 'member' | 'non_member' | 'unknown';
 
-/** True when this pubkey may host. Case-insensitive on the hex. */
-export function isLiveHost(
-  pubkey: string | null | undefined,
-  hosts: readonly string[] = LIVE_HOSTS
-): boolean {
-  if (!pubkey) return false;
-  const pk = pubkey.toLowerCase();
-  return hosts.some((h) => h.toLowerCase() === pk);
+export function goLiveAccess(status: MembershipStatus | undefined | null): GoLiveAccess {
+  if (status?.state === 'active') return 'member';
+  if (status?.state === 'inactive') return 'non_member';
+  return 'unknown';
 }
+
+/** Where the Cook+ label on Go live leads a non-member. */
+export const LIVE_MEMBERSHIP_PATH = '/membership';
+
+/**
+ * Sessions that may be open (created or live) at once, across all hosts,
+ * when LIVE_MAX_OPEN_SESSIONS is not set or not a usable number. Past it a
+ * create is refused with `live_full`, so the service reaches a limit we
+ * chose before any limit of Cloudflare's that we do not know.
+ */
+export const LIVE_MAX_OPEN_SESSIONS_DEFAULT = 20;
+
+/** Upper bound accepted from LIVE_MAX_OPEN_SESSIONS, so a typo cannot remove the cap. */
+export const LIVE_MAX_OPEN_SESSIONS_MAX = 1000;
+
+/** The open-session cap from a configured value: 1 to the maximum, else the default. */
+export function parseMaxOpenSessions(value: string | undefined): number {
+  if (value === undefined || !/^\d{1,4}$/.test(value)) return LIVE_MAX_OPEN_SESSIONS_DEFAULT;
+  const cap = Number(value);
+  return cap >= 1 && cap <= LIVE_MAX_OPEN_SESSIONS_MAX ? cap : LIVE_MAX_OPEN_SESSIONS_DEFAULT;
+}
+
+/**
+ * The admin is DM'd about a reported session at most once in this many
+ * seconds, so a burst of reports is one message. A child-safety report is
+ * never held back by it.
+ */
+export const LIVE_REPORT_ALERT_THROTTLE_SECONDS = 10 * 60;
 
 /** Longest session title, in characters, after trimming. */
 export const LIVE_TITLE_MAX = 120;

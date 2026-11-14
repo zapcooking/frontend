@@ -20,7 +20,10 @@
  *   201                          live; body is the SDP answer
  *   400 bad_offer                empty body, or not SDP
  *   401 auth_failed              missing, wrong or expired host token
- *   403 not_allowed              the host is no longer on the host list
+ *   403 blocked                  the host has been blocked from hosting.
+ *                                Membership is NOT re-checked here: it is
+ *                                checked at create, and a membership outage
+ *                                must not stop a stream that is running.
  *   404 not_found                unknown or malformed id
  *   409 ended                    the session has ended
  *   409 publish_in_progress *    another publish holds the lock
@@ -37,13 +40,14 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { isLiveHost, LIVE_OFFER_MAX_BYTES, LIVE_RETRY_AFTER_SECONDS } from '$lib/live/config';
+import { LIVE_OFFER_MAX_BYTES, LIVE_RETRY_AFTER_SECONDS } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { isLiveOff } from '$lib/live/killSwitch.server';
 import { publishSession } from '$lib/live/relay.server';
 import {
   getSession,
   hostTokenMatches,
+  isHostBlocked,
   readHostToken,
   type LiveDb
 } from '$lib/live/sessions.server';
@@ -79,9 +83,10 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
       return json({ error: 'auth_failed', detail: 'token' }, { status: 401, headers: NO_STORE });
     }
 
-    // Dark launch: the session's host must still be on the list.
-    if (!isLiveHost(row.host_pubkey)) {
-      return json({ error: 'not_allowed' }, { status: 403, headers: NO_STORE });
+    // A blocked host cannot publish, including a reconnect of a session
+    // created just before the block (the block also ends open sessions).
+    if (await isHostBlocked(db, row.host_pubkey)) {
+      return json({ error: 'blocked' }, { status: 403, headers: NO_STORE });
     }
 
     const contentType = (request.headers.get('Content-Type') ?? '')

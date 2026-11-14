@@ -105,6 +105,8 @@ declare global {
            * production, `zc-live-preview-` on previews). Plain var (wrangler.jsonc).
            */
           LIVE_INPUT_PREFIX?: string;
+          /** Go live sessions open at once, all hosts; default 20. Plain var (optional). */
+          LIVE_MAX_OPEN_SESSIONS?: string;
           /** HMAC key for Go live rejoin passes. Secret, one per environment. */
           LIVE_PASS_SECRET?: string;
           /** D1 database for scheduled posts (zapcooking-scheduler). */

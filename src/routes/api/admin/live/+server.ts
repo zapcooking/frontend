@@ -6,9 +6,27 @@
  * accepted: not a host token, not another member's signature.
  *
  * GET /api/admin/live
- *   200: { off: boolean, sessions: [...] }
- *     Sessions that have not ended, plus ended ones that still have an
- *     input waiting to be deleted. No input id, token or lock is included.
+ *   200: { off: boolean, sessions: [...], blocked: [{ pubkey, created_at }] }
+ *     Sessions that have not ended, ended ones that still have an input
+ *     waiting to be deleted, and every session under a report hold
+ *     (`report_hold_at` set). No input id, token or lock is included.
+ *     `blocked` lists the accounts blocked from hosting.
+ *
+ * POST /api/admin/live   { "action": "block", "pubkey": "<64 hex>" }
+ *   Blocks the account from hosting (create and publish refuse it), then
+ *   ends its open session and deletes the input. The block is written
+ *   before the end, so nothing can start in between.
+ *   200: { pubkey, blocked: true, ended, inputs_pending }
+ *
+ * POST /api/admin/live   { "action": "unblock", "pubkey": "<64 hex>" }
+ *   200: { pubkey, blocked: false }. Nothing is restarted.
+ *
+ * POST /api/admin/live   { "action": "release", "id": "<session id>" }
+ *   Releases a session's report hold (the report is resolved, or the
+ *   hold is no longer needed). The 30-day retention then applies again,
+ *   counted from when the session ended, so a session that ended more
+ *   than 30 days ago is deleted by the next sweep.
+ *   200: { id, released: boolean }   released false: it was not held.
  *
  * POST /api/admin/live   { "action": "end", "id": "<session id>" }
  *   Ends that session and deletes its Cloudflare input.
@@ -29,15 +47,25 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
 import { verifyNip98 } from '$lib/nip98.server';
-import { endAllOpen, endAndRemove } from '$lib/live/admin.server';
+import { blockHost, endAllOpen, endAndRemove } from '$lib/live/admin.server';
 import { readBodyCapped } from '$lib/live/body.server';
 import { isLiveOff, setLiveOff } from '$lib/live/killSwitch.server';
 import {
   getSession,
   isLiveSessionId,
+  listBlockedHosts,
   listSessionsForAdmin,
+  releaseReportHold,
+  setHostBlocked,
   type LiveDb
 } from '$lib/live/sessions.server';
+
+const HEX64_RE = /^[0-9a-f]{64}$/;
+const readPubkey = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const pk = value.trim().toLowerCase();
+  return HEX64_RE.test(pk) ? pk : null;
+};
 import { readStreamConfig } from '$lib/live/stream.server';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -54,7 +82,11 @@ export const GET: RequestHandler = async ({ request, platform }) => {
   if (!db) return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
   try {
     return json(
-      { off: await isLiveOff(platform), sessions: await listSessionsForAdmin(db, 100) },
+      {
+        off: await isLiveOff(platform),
+        sessions: await listSessionsForAdmin(db, 100),
+        blocked: await listBlockedHosts(db)
+      },
       { headers: NO_STORE }
     );
   } catch (err) {
@@ -122,6 +154,33 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         { off: body.on, flag_written: flagWritten, ended, inputs_pending: inputsPending },
         { headers: NO_STORE }
       );
+    }
+
+    if (body.action === 'block' || body.action === 'unblock') {
+      const pubkey = readPubkey(body.pubkey);
+      if (!pubkey) return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
+      if (body.action === 'unblock') {
+        await setHostBlocked(db, pubkey, false);
+        console.log(`[Live admin] unblock host=${pubkey}`);
+        return json({ pubkey, blocked: false }, { headers: NO_STORE });
+      }
+      const { ended, inputsPending } = await blockHost(db, cfg, pubkey);
+      console.log(
+        `[Live admin] block host=${pubkey} ended=${ended} inputs_pending=${inputsPending}`
+      );
+      return json(
+        { pubkey, blocked: true, ended, inputs_pending: inputsPending },
+        { headers: NO_STORE }
+      );
+    }
+
+    if (body.action === 'release') {
+      if (!isLiveSessionId(body.id)) {
+        return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
+      }
+      const released = await releaseReportHold(db, body.id);
+      console.log(`[Live admin] release session=${body.id} released=${released}`);
+      return json({ id: body.id, released }, { headers: NO_STORE });
     }
 
     return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });

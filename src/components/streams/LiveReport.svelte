@@ -2,9 +2,11 @@
   /**
    * Report a Go live stream, or one comment in its chat. The report goes
    * into the admin review queue (/admin/reads-moderation) with the
-   * session's link, so the admin can open the stream and end it from
-   * /api/admin/live. No picture is captured. A comment report carries the
-   * comment's event id and author.
+   * session's link, DMs the admin at once, and puts the session on a
+   * report hold (its record is kept until the admin releases it). The
+   * admin ends the stream or blocks the host from /admin/live. No picture
+   * is captured. A comment report carries the comment's event id and
+   * author.
    */
   import Modal from '../Modal.svelte';
   import FlagIcon from 'phosphor-svelte/lib/Flag';
@@ -20,8 +22,9 @@
   export let trigger = true;
   export let open = false;
 
-  type Reason = 'nsfw' | 'spam' | 'other';
+  type Reason = 'nsfw' | 'spam' | 'other' | 'child_safety';
   const REASONS: { id: Reason; label: string }[] = [
+    { id: 'child_safety', label: 'A child is at risk or being exploited' },
     { id: 'nsfw', label: 'Nudity or sexual content' },
     { id: 'spam', label: 'Spam or a scam' },
     { id: 'other', label: 'Something else' }
@@ -43,8 +46,14 @@
     sending = true;
     const result = await submitReadsReport(
       comment
-        ? { eventId: comment.id, pubkey: comment.pubkey, reason, details: details() }
-        : { pubkey: hostPubkey, reason, details: details() }
+        ? {
+            eventId: comment.id,
+            pubkey: comment.pubkey,
+            liveSession: sessionId,
+            reason,
+            details: details()
+          }
+        : { pubkey: hostPubkey, liveSession: sessionId, reason, details: details() }
     );
     sending = false;
     if (result.ok) {
