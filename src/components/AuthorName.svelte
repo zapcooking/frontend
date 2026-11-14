@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { nip19 } from 'nostr-tools';
   import { profileFor, authorLabel } from '$lib/profileStore';
   import NameLabel from './NameLabel.svelte';
@@ -26,7 +27,7 @@
   function handleClick() {
     if (pubkey) {
       const npub = nip19.npubEncode(pubkey);
-      window.location.href = `/user/${npub}`;
+      goto(`/user/${npub}`);
     }
   }
 </script>
