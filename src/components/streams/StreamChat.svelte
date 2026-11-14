@@ -34,6 +34,7 @@
     type ChatProfile
   } from '$lib/streams/chat';
   import { pseudonym } from '$lib/streams/parse';
+  import { mentionedPubkeys, tokenizeChatText, type ChatSegment } from '$lib/streams/chatText';
   import { DISCOVERY_RELAYS, RECEIPT_RELAYS } from '$lib/streams/relays';
   import { resolveAuthorPubkey, zapReceiptRelayUrls } from '$lib/nip65Routing';
   import type { NostrEventLike, StreamItem } from '$lib/streams/types';
@@ -215,6 +216,18 @@
     if (duration) noticeTimer = setTimeout(() => (notice = ''), duration);
   }
 
+  /** Parsed message bodies, so a repaint does not re-scan every row's text. */
+  const segmentCache = new Map<string, ChatSegment[]>();
+  function segmentsOf(text: string): ChatSegment[] {
+    let segments = segmentCache.get(text);
+    if (!segments) {
+      if (segmentCache.size > 2000) segmentCache.clear();
+      segments = tokenizeChatText(text);
+      segmentCache.set(text, segments);
+    }
+    return segments;
+  }
+
   function displayName(pubkey: string): string {
     const p = profiles.get(pubkey);
     return p?.displayName || p?.name || pseudonym(pubkey);
@@ -248,7 +261,15 @@
     const logEl = log;
     const wasAtBottom = !logEl || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80;
     rows = timelineFromModel();
-    scheduleProfiles([...new Set(rows.map((row) => row.sender || row.event.pubkey))]);
+    scheduleProfiles([
+      ...new Set([
+        ...rows.map((row) => row.sender || row.event.pubkey),
+        // Names for `nostr:npub…` mentions in message bodies and zap comments.
+        ...rows.flatMap((row) =>
+          mentionedPubkeys(row.event.kind === 9735 ? row.comment || '' : row.event.content)
+        )
+      ])
+    ]);
     if (forceScroll || wasAtBottom) scrollToBottom();
     // When prepending history while reading, keep the reader's place.
   }
@@ -509,7 +530,7 @@
             </span>
           </p>
           {#if row.comment}
-            <p class="mt-0.5 text-sm leading-snug break-words" dir="auto">{row.comment}</p>
+            <p class="mt-0.5 text-sm leading-snug break-words" dir="auto">{#each segmentsOf(row.comment) as segment}{#if segment.type === 'mention'}<button type="button" class="chat-mention" title={displayName(segment.pubkey)} on:click={() => openProfilePreview(segment.pubkey)}>@{displayName(segment.pubkey)}</button>{:else if segment.type === 'link'}<a class="chat-link" href={segment.href} target="_blank" rel="noopener noreferrer nofollow ugc">{segment.text}</a>{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}>{segment.text}</a>{:else}{segment.text}{/if}{/each}</p>
           {/if}
         </article>
       {:else}
@@ -554,7 +575,7 @@
                   })}
                 </span>
               </p>
-              <p class="text-sm leading-snug break-words" dir="auto">{event.content}</p>
+              <p class="text-sm leading-snug break-words" dir="auto">{#each segmentsOf(event.content) as segment}{#if segment.type === 'mention'}<button type="button" class="chat-mention" title={displayName(segment.pubkey)} on:click={() => openProfilePreview(segment.pubkey)}>@{displayName(segment.pubkey)}</button>{:else if segment.type === 'link'}<a class="chat-link" href={segment.href} target="_blank" rel="noopener noreferrer nofollow ugc">{segment.text}</a>{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}>{segment.text}</a>{:else}{segment.text}{/if}{/each}</p>
             </div>
             <button
               type="button"
@@ -660,5 +681,26 @@
     border-color: rgba(249, 115, 22, 0.8) !important;
     box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.8) !important;
     outline: none !important;
+  }
+
+  .chat-mention {
+    display: inline;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-weight: 600;
+    color: var(--color-primary);
+    cursor: pointer;
+  }
+  .chat-mention:hover,
+  .chat-link:hover {
+    text-decoration: underline;
+  }
+  .chat-link {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    word-break: break-word;
   }
 </style>
