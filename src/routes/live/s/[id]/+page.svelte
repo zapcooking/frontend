@@ -123,10 +123,15 @@
   {#if loading}
     <StreamPageSkeleton />
   {:else if notFound || !item || !pool}
-    <div class="flex h-64 flex-col items-center justify-center gap-2 text-center">
-      <p class="text-sm text-zinc-500">
-        This stream could not be found. It may have ended and been removed, or the link is wrong.
+    <!-- Not on record: ended sessions are removed after 30 days. A shared
+         link says the stream has ended rather than showing an error. -->
+    <div class="flex h-64 flex-col items-center justify-center gap-3 text-center">
+      <p class="text-base font-semibold" style="color: var(--color-text-primary);">
+        This live stream has ended
       </p>
+      <a href="/live" class="text-sm font-medium underline" style="color: var(--color-primary);">
+        See who's live now
+      </a>
     </div>
   {:else}
     <StreamView {item} {pool} {recipe} {recipeLoading} />
