@@ -20,14 +20,16 @@
   export let trigger = true;
   export let open = false;
 
-  type Reason = 'nsfw' | 'spam' | 'other';
+  type Reason = 'child_safety' | 'nudity' | 'violence' | 'spam' | 'other';
   const REASONS: { id: Reason; label: string }[] = [
-    { id: 'nsfw', label: 'Nudity or sexual content' },
+    { id: 'child_safety', label: 'Child safety or exploitation' },
+    { id: 'nudity', label: 'Nudity or sexual content' },
+    { id: 'violence', label: 'Violence or immediate danger' },
     { id: 'spam', label: 'Spam or a scam' },
     { id: 'other', label: 'Something else' }
   ];
 
-  let reason: Reason = 'nsfw';
+  let reason: Reason = 'other';
   let note = '';
   let sending = false;
 
@@ -41,11 +43,25 @@
   async function submit() {
     if (sending) return;
     sending = true;
-    const result = await submitReadsReport(
-      comment
-        ? { eventId: comment.id, pubkey: comment.pubkey, reason, details: details() }
-        : { pubkey: hostPubkey, reason, details: details() }
-    );
+    const result = comment
+      ? await submitReadsReport({
+          eventId: comment.id,
+          pubkey: comment.pubkey,
+          reason: reason === 'nudity' || reason === 'child_safety' ? 'nsfw' : reason === 'spam' ? 'spam' : 'other',
+          details: details()
+        })
+      : await (async () => {
+          try {
+            const response = await fetch(`/api/live/${sessionId}/report`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reason, details: note.trim() })
+            });
+            return { ok: response.ok, error: response.status === 429 ? 'rate_limited' : 'network' };
+          } catch {
+            return { ok: false, error: 'network' };
+          }
+        })();
     sending = false;
     if (result.ok) {
       open = false;
