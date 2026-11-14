@@ -8,6 +8,7 @@ import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { fetchEventWithRelayHints } from '$lib/eventFetch';
 import type { RecipeCard } from './goLive';
+import { isHiddenRecipeCoordinate, isHiddenRecipeEvent } from '$lib/consts';
 
 const RECIPE_ADDRESS = /^(30023|35000):([0-9a-f]{64}):(.{1,200})$/;
 const TIMEOUT_MS = 8000;
@@ -21,10 +22,15 @@ export function parseRecipeAddress(
   return m ? { kind: Number(m[1]), pubkey: m[2], d: m[3] } : null;
 }
 
-/** The recipe event for an address, or null. Never throws. */
+/**
+ * The recipe event for an address, or null. Never throws. A hidden recipe
+ * (the app's permanent hidden list, as on the recipe page) is never fetched
+ * or returned, cached or not.
+ */
 export function fetchRecipeEvent(ndk: NDK, a: string | null | undefined): Promise<NDKEvent | null> {
   const parsed = parseRecipeAddress(a);
   if (!parsed) return Promise.resolve(null);
+  if (isHiddenRecipeCoordinate(parsed.kind, parsed.pubkey, parsed.d)) return Promise.resolve(null);
   const key = `${parsed.kind}:${parsed.pubkey}:${parsed.d}`;
   let pending = cache.get(key);
   if (!pending) {
@@ -33,7 +39,7 @@ export function fetchRecipeEvent(ndk: NDK, a: string | null | undefined): Promis
       { kinds: [parsed.kind], authors: [parsed.pubkey], '#d': [parsed.d] },
       { timeoutMs: TIMEOUT_MS }
     )
-      .then((e) => e ?? null)
+      .then((e) => (e && !isHiddenRecipeEvent(e) ? e : null))
       .catch(() => null);
     cache.set(key, pending);
     // A miss is not remembered: the next look tries again.

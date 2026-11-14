@@ -72,7 +72,9 @@
   async function refresh(id: string) {
     const next = await fetchSession(id);
     if (id !== currentId) return;
-    if (next === undefined) return; // could not tell: keep what is shown
+    // Could not tell: keep what is shown. Before the first answer that is
+    // the loading state, and the poll below keeps asking.
+    if (next === undefined) return;
     if (next === null) {
       // Gone. Ended sessions are kept for 30 days, so this is an unknown id,
       // or one the admin removed with the host's account.
@@ -82,11 +84,14 @@
         stopPolling();
       } else {
         notFound = true;
+        loading = false;
+        stopPolling();
       }
       return;
     }
     const recipeChanged = next.recipe_a !== session?.recipe_a;
     session = next;
+    loading = false;
     rebuild();
     void loadHostName(next.host_pubkey);
     if (recipeChanged) void loadRecipe(next.recipe_a);
@@ -110,11 +115,13 @@
     loading = true;
     if (!pool) pool = createStreamPool();
     await refresh(id);
+    // Left the page, or moved to another stream, while that was pending.
     if (id !== currentId) return;
-    loading = false;
-    // `refresh` set it; TypeScript cannot see that across the await.
+    // `refresh` set these; TypeScript cannot see that across the await.
     const loaded = session as GoLiveSession | null;
-    if (loaded && loaded.status !== 'ended') {
+    // Poll while live, and also while the first read has not been answered
+    // (the page stays on its loading state rather than saying "ended").
+    if (!notFound && (!loaded || loaded.status !== 'ended')) {
       timer = setInterval(() => {
         if (!document.hidden) void refresh(id);
       }, POLL_MS);
@@ -129,6 +136,9 @@
   if (browser) document.addEventListener('visibilitychange', onVisible);
 
   onDestroy(() => {
+    // Invalidate any read still in flight, so its continuation cannot start
+    // a poll after this page is gone.
+    currentId = null;
     stopPolling();
     if (browser) document.removeEventListener('visibilitychange', onVisible);
     pool?.destroy();

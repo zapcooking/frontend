@@ -165,3 +165,35 @@ describe('recipe fetch retry', () => {
     expect(await fetchRecipeEventWithRetry(() => ndk as never, 'not-an-address')).toBeNull();
   });
 });
+
+describe('recipe fetch and the hidden-recipe list', () => {
+  const HIDDEN_PUBKEY = 'a22a71c97b536902adb2b15f3e56014d2a2a2adc0c2d99f3996081455cc4ea92';
+
+  it('never fetches a hidden recipe', async () => {
+    const { fetchRecipeEvent } = await import('./recipeCard');
+    let calls = 0;
+    const ndk = {
+      fetchEvent: async () => {
+        calls++;
+        return { kind: 30023, pubkey: HIDDEN_PUBKEY, tags: [['d', 'pr11-ghost-recipe']] };
+      }
+    };
+    expect(
+      await fetchRecipeEvent(ndk as never, `30023:${HIDDEN_PUBKEY}:pr11-ghost-recipe`)
+    ).toBeNull();
+    expect(calls).toBe(0);
+  });
+
+  it('drops a returned event that is on the hidden list', async () => {
+    const { fetchRecipeEvent } = await import('./recipeCard');
+    const ndk = {
+      // The relay answers with a hidden event for an address that is not itself listed.
+      fetchEvent: async () => ({
+        kind: 30023,
+        pubkey: HIDDEN_PUBKEY,
+        tags: [['d', 'pr11-ghost-recipe']]
+      })
+    };
+    expect(await fetchRecipeEvent(ndk as never, `30023:${'c'.repeat(64)}:other-recipe`)).toBeNull();
+  });
+});

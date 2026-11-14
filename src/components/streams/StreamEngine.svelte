@@ -134,7 +134,15 @@
   let policy: WatchPolicy | null = null;
   let statsTimer: ReturnType<typeof setInterval> | null = null;
 
-  const passStorage = () => (typeof sessionStorage !== 'undefined' ? sessionStorage : undefined);
+  /** Session storage for the rejoin pass, or undefined where storage is blocked
+   *  (reading the property itself can throw SecurityError): join without a pass. */
+  function passStorage(): Storage | undefined {
+    try {
+      return typeof sessionStorage !== 'undefined' ? sessionStorage : undefined;
+    } catch {
+      return undefined;
+    }
+  }
 
   function stopRtc() {
     policy?.shutdown();
@@ -187,11 +195,16 @@
   }
 
   async function rtcJoin(sessionId: string, generation: number, signed = false) {
-    if (generation !== appliedGeneration || !policy) return;
-    policy.joinStarted();
+    const owner = policy;
+    if (generation !== appliedGeneration || !owner) return;
+    owner.joinStarted();
     pc?.close();
     const conn = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
     pc = conn;
+    // Still this player's join? The viewer can stop or switch streams during
+    // any await below; a stale join must neither be sent (it would take a
+    // guest slot or a pass rejoin) nor report to the current policy.
+    const current = () => pc === conn && generation === appliedGeneration && policy === owner;
     conn.addTransceiver('video', { direction: 'recvonly' });
     conn.addTransceiver('audio', { direction: 'recvonly' });
     const media = new MediaStream();
@@ -217,10 +230,12 @@
         });
       }
     } catch {
-      if (pc === conn) {
-        conn.close();
-        policy?.joinFailed(signed ? 'full' : 'retry');
-      }
+      conn.close();
+      if (current()) owner.joinFailed(signed ? 'full' : 'retry');
+      return;
+    }
+    if (!current()) {
+      conn.close();
       return;
     }
 
@@ -228,31 +243,41 @@
       pass: loadPass(passStorage(), sessionId),
       authorization
     });
-    if (pc !== conn || generation !== appliedGeneration || !policy) {
+    if (!current()) {
       conn.close();
       return;
     }
     if (!out.ok) {
       conn.close();
       // Full for guests: a signed-in member gets in uncounted. Ask the
-      // signer only now, so a member is not prompted on every join.
+      // signer only now, so a member is not prompted on every join, and
+      // never from a hidden tab: there the policy holds a retry until the
+      // tab is visible, and that guest join (full again) asks then.
       if (out.failure === 'full' && !signed && canSignAsMember()) {
+        if (typeof document !== 'undefined' && document.hidden) {
+          owner.joinFailed('retry');
+          return;
+        }
         void rtcJoin(sessionId, generation, true);
         return;
       }
       if (out.failure === 'not_live' || out.failure === 'retry' || out.failure === 'rejected') {
         setStreamStatus(out.failure === 'not_live' ? 'connecting' : 'buffering');
       }
-      policy.joinFailed(out.failure);
+      owner.joinFailed(out.failure);
       return;
     }
     savePass(passStorage(), sessionId, out.pass);
     try {
       await conn.setRemoteDescription({ type: 'answer', sdp: out.answerSdp });
-      policy.joinSucceeded();
+      if (!current()) {
+        conn.close();
+        return;
+      }
+      owner.joinSucceeded();
     } catch {
       conn.close();
-      policy.joinFailed('retry');
+      if (current()) owner.joinFailed('retry');
     }
   }
 
