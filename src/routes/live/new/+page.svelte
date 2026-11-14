@@ -104,6 +104,8 @@
   let endedMessage = '';
   let ageDialogOpen = false;
   let ending = false;
+  /** Publish attempts made before the first success, for the badge. */
+  let startAttempts = 0;
 
   const storage = () => (typeof sessionStorage !== 'undefined' ? sessionStorage : undefined);
   const durable = () => (typeof localStorage !== 'undefined' ? localStorage : undefined);
@@ -341,6 +343,12 @@
         outcome = await createLiveSession({ title: title.trim(), recipeA }, sign);
       }
     }
+    if (phase !== 'starting') {
+      // The host tapped End while the session was being created. Close the
+      // one that was just made so nothing is left open on the server.
+      if (outcome.ok) await endLiveSession(outcome.session);
+      return;
+    }
     if (!outcome.ok) {
       phase = 'preview';
       notice = createMessages[outcome.reason];
@@ -348,6 +356,7 @@
     }
 
     session = outcome.session;
+    startAttempts = 0;
     policy = makePolicy();
     remember();
     notice = '';
@@ -404,6 +413,7 @@
   async function publish() {
     if (!session || !stream || !policy || phase === 'ended') return;
     policy.publishStarted();
+    if (phase === 'starting') startAttempts++;
     remember();
     if (phase !== 'starting') phase = 'reconnecting';
 
@@ -639,7 +649,9 @@
           {/if}
         </div>
       {:else if phase === 'starting'}
-        <div class="badge" role="status" aria-live="polite">Starting…</div>
+        <div class="badge" role="status" aria-live="polite">
+          {startAttempts > 1 ? 'Still connecting…' : 'Starting…'}
+        </div>
       {/if}
     </div>
 
@@ -711,9 +723,9 @@
             disabled={!stream || flipping}
             aria-label="Flip camera">Flip</button
           >
-          <button class="btn danger" on:click={end} disabled={ending || phase === 'starting'}
-            >End</button
-          >
+          <!-- Never disabled while starting: if the first publish cannot get
+               through, End is the only way out short of closing the tab. -->
+          <button class="btn danger" on:click={end} disabled={ending}>End</button>
         </div>
       </div>
     {/if}
