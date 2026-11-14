@@ -34,6 +34,9 @@ import {
   purgeScheduledPosts,
   upsertDeletionRequest
 } from '$lib/accountDeletion.server';
+import { purgeLiveSessions } from '$lib/live/admin.server';
+import type { LiveDb } from '$lib/live/sessions.server';
+import { readStreamConfig } from '$lib/live/stream.server';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
   const db = platform?.env?.SCHEDULER_DB;
@@ -73,6 +76,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const stripeKey = platform?.env?.STRIPE_SECRET_KEY || env.STRIPE_SECRET_KEY;
     const billing = await cancelStripeRenewal(pubkey, stripeKey);
     const scheduledPostsRemoved = await purgeScheduledPosts(db, pubkey);
+    // Go live: end the member's open sessions and remove their session
+    // rows. Kept apart from the request itself: a failure here is logged
+    // and must never stop the deletion request from being recorded.
+    try {
+      const liveRows = await purgeLiveSessions(db as LiveDb, readStreamConfig(platform), pubkey);
+      if (liveRows > 0) console.log(`[Account Deletion] live session rows removed=${liveRows}`);
+    } catch (liveError) {
+      console.error(
+        `[Account Deletion] live session purge failed: ${(liveError as Error)?.name ?? 'error'}`
+      );
+    }
     const now = Math.floor(Date.now() / 1000);
     await upsertDeletionRequest(
       db,
