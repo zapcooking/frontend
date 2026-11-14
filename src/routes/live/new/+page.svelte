@@ -49,6 +49,7 @@
     mediaHelp,
     readRecipeHandoff,
     rememberAgeConfirmed,
+    setMicrophoneEnabled,
     storeSession,
     type HostPlatform,
     type MediaHelp
@@ -459,7 +460,16 @@
   }
 
   async function onVisibility() {
-    if (document.visibilityState !== 'visible' || !isLive) return;
+    if (!isLive && phase !== 'starting') return;
+    if (document.visibilityState !== 'visible') {
+      // Screen locked, or another app in front. iOS stops the camera but
+      // not the microphone, so viewers would see black and still hear the
+      // host. Send silence until the host is back.
+      setMicrophoneEnabled(stream, false);
+      return;
+    }
+    setMicrophoneEnabled(stream, true);
+    if (!isLive) return;
     // The lock is released whenever the page is hidden.
     await holdWakeLock();
     await reviveCamera();
@@ -658,6 +668,9 @@
     {:else}
       <div class="panel">
         <p class="live-title">{title}</p>
+        <p class="muted small">
+          Locking your phone or leaving this page pauses the picture and mutes your microphone.
+        </p>
         {#if notice}<p class="notice" role="status">{notice}</p>{/if}
         <div class="actions">
           <button

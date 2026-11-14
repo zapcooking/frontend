@@ -28,6 +28,7 @@ import {
   mediaHelp,
   readRecipeHandoff,
   rememberAgeConfirmed,
+  setMicrophoneEnabled,
   storeSession
 } from './hostDevice';
 import { LIVE_MAX_PUBLISH_ATTEMPTS } from '../config';
@@ -442,6 +443,20 @@ describe('device helpers', () => {
     expect(classifyMediaError(named('TypeError'))).toBe('unsupported');
     expect(classifyMediaError(named('SomethingNew'))).toBe('other');
     expect(classifyMediaError(null)).toBe('other');
+  });
+
+  it('mutes and unmutes the microphone without touching the camera', () => {
+    const audio = [{ enabled: true }, { enabled: true }];
+    const video = [{ enabled: true }];
+    const stream = { getAudioTracks: () => audio, getVideoTracks: () => video };
+    expect(setMicrophoneEnabled(stream, false)).toBe(2);
+    expect(audio.map((t) => t.enabled)).toEqual([false, false]);
+    expect(video[0].enabled).toBe(true);
+    // Already muted: nothing to change.
+    expect(setMicrophoneEnabled(stream, false)).toBe(0);
+    expect(setMicrophoneEnabled(stream, true)).toBe(2);
+    expect(audio.map((t) => t.enabled)).toEqual([true, true]);
+    expect(setMicrophoneEnabled(null, false)).toBe(0);
   });
 
   it('requires the camera asked for first, and only then merely prefers it', () => {

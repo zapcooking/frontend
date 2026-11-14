@@ -77,6 +77,30 @@ export function isConstraintFailure(error: unknown): boolean {
   );
 }
 
+/**
+ * Turn the microphone on or off without stopping it. A disabled audio
+ * track keeps the connection up and sends silence.
+ *
+ * Used when the host page is hidden. A locked iPhone stops the camera but
+ * leaves the microphone running, so viewers saw black and could still
+ * hear the host. A host who locks their phone expects to be off air.
+ * Returns how many audio tracks were changed.
+ */
+export function setMicrophoneEnabled(
+  stream: { getAudioTracks(): { enabled: boolean }[] } | null,
+  enabled: boolean
+): number {
+  if (!stream) return 0;
+  let changed = 0;
+  for (const track of stream.getAudioTracks()) {
+    if (track.enabled !== enabled) {
+      track.enabled = enabled;
+      changed++;
+    }
+  }
+  return changed;
+}
+
 export interface MediaHelp {
   title: string;
   /** What to change, one step per entry. Empty when there is nothing to change. */
