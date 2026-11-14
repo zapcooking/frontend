@@ -39,8 +39,15 @@ const PAY_REQUEST = {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
+// Callbacks go through the same-origin LNURL proxy (`/api/lnurl?url=…`);
+// unwrap it to the callback URL the provider actually receives.
+function callbackUrl(call: unknown): URL {
+  const proxied = new URL(call as string, 'http://localhost');
+  return new URL(proxied.searchParams.get('url')!);
+}
+
 function sentZapRequest(): { pubkey: string; tags: string[][]; sig: string } {
-  const url = new URL(fetchMock.mock.calls[0][0] as string);
+  const url = callbackUrl(fetchMock.mock.calls[0][0]);
   return JSON.parse(url.searchParams.get('nostr')!);
 }
 
@@ -98,8 +105,8 @@ describe('createZap — anonymous', () => {
     const zm = manager(new NDK());
     await zm.createZap(RECIPIENT, 21000, '', undefined, undefined, { anonymous: true });
     await zm.createZap(RECIPIENT, 21000, '', undefined, undefined, { anonymous: true });
-    const a = JSON.parse(new URL(fetchMock.mock.calls[0][0]).searchParams.get('nostr')!);
-    const b = JSON.parse(new URL(fetchMock.mock.calls[1][0]).searchParams.get('nostr')!);
+    const a = JSON.parse(callbackUrl(fetchMock.mock.calls[0][0]).searchParams.get('nostr')!);
+    const b = JSON.parse(callbackUrl(fetchMock.mock.calls[1][0]).searchParams.get('nostr')!);
     expect(a.pubkey).not.toBe(b.pubkey);
   });
 

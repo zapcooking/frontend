@@ -14,6 +14,8 @@
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
   import Avatar from '../../../../components/Avatar.svelte';
+  import LiveAvatar from '../../../../components/streams/LiveAvatar.svelte';
+  import LiveBadge from '../../../../components/streams/LiveBadge.svelte';
   import CustomName from '../../../../components/CustomName.svelte';
   import Button from '../../../../components/Button.svelte';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
@@ -42,7 +44,8 @@
   import { RECIPE_TAGS, isHiddenRecipeEvent } from '$lib/consts';
   import { foodFilterSetting } from '$lib/foodFilterSettings';
   import RecipeCard from '../../../../components/RecipeCard.svelte';
-  import { withoutMuted } from '$lib/muteFilter';  import ArticleFeed from '../../../../components/ArticleFeed.svelte';
+  import { withoutMuted } from '$lib/muteFilter';
+  import ArticleFeed from '../../../../components/ArticleFeed.svelte';
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
   import MembershipBeltBadge from '../../../../components/MembershipBeltBadge.svelte';
   import { fetchUserStatsFromPrimal, getPrimalCache, type PrimalUserStats } from '$lib/primalCache';
@@ -93,7 +96,11 @@
 
   function setTab(tab: ProfileTab) {
     activeTab = tab;
-    goto(`/user/${$page.params.slug}/${tab}`, { replaceState: true, noScroll: true, keepFocus: true });
+    goto(`/user/${$page.params.slug}/${tab}`, {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true
+    });
   }
 
   // The "All posts / Only Food" toggle lives in the tab-bar row so its
@@ -487,7 +494,9 @@
       // The mute applied locally; only the relay sync failed.
       showToast(
         'error',
-        next ? 'Muted here — syncing to your relays failed.' : 'Unmuted here — syncing to your relays failed.'
+        next
+          ? 'Muted here — syncing to your relays failed.'
+          : 'Unmuted here — syncing to your relays failed.'
       );
     } finally {
       muteLoading = false;
@@ -1581,11 +1590,12 @@
         title="View profile details"
       >
         {#key `${hexpubkey}-${avatarRefreshKey}`}
-          <Avatar
+          <LiveAvatar
             className="cursor-pointer"
             pubkey={hexpubkey || ''}
             size={80}
             src={$userPublickey === hexpubkey ? $userProfilePictureOverride : null}
+            linked={false}
           />
         {/key}
       </button>
@@ -1619,6 +1629,14 @@
               <MembershipBeltBadge pubkey={hexpubkey || ''} size={20} />
             </h1>
           </button>
+          {#if hexpubkey}
+            <!-- The linked LIVE badge stays OUTSIDE the QR button: nested
+                 interactive controls made clicking LIVE also fire the
+                 parent's QR handler. -->
+            <div class="flex items-center">
+              <LiveBadge pubkey={hexpubkey} />
+            </div>
+          {/if}
           {#if user?.npub && hexpubkey === $userPublickey}
             <button
               on:click={copyNpub}
@@ -1673,22 +1691,22 @@
             {/if}
 
             <button
-                on:click={toggleFollow}
-                disabled={followLoading}
-                class="h-9 w-9 p-2 rounded-full transition-colors disabled:opacity-50 flex items-center justify-center {isFollowing
-                  ? 'bg-input hover:bg-accent-gray'
-                  : 'bg-action hover:bg-action-hover text-on-action'}"
-                style={isFollowing ? 'color: var(--color-text-primary)' : ''}
-                aria-label={isFollowing ? 'Unfollow' : 'Follow'}
-              >
-                {#if followLoading}
-                  <SpinnerIcon size={20} class="animate-spin" />
-                {:else if isFollowing}
-                  <CheckIcon size={20} weight="bold" />
-                {:else}
-                  <UserPlusIcon size={20} weight="bold" class="text-white" />
-                {/if}
-              </button>
+              on:click={toggleFollow}
+              disabled={followLoading}
+              class="h-9 w-9 p-2 rounded-full transition-colors disabled:opacity-50 flex items-center justify-center {isFollowing
+                ? 'bg-input hover:bg-accent-gray'
+                : 'bg-action hover:bg-action-hover text-on-action'}"
+              style={isFollowing ? 'color: var(--color-text-primary)' : ''}
+              aria-label={isFollowing ? 'Unfollow' : 'Follow'}
+            >
+              {#if followLoading}
+                <SpinnerIcon size={20} class="animate-spin" />
+              {:else if isFollowing}
+                <CheckIcon size={20} weight="bold" />
+              {:else}
+                <UserPlusIcon size={20} weight="bold" class="text-white" />
+              {/if}
+            </button>
 
             {#if $userPublickey}
               {#if hexpubkey && $mutedPubkeys.has(hexpubkey)}
@@ -1787,122 +1805,122 @@
     <div class="flex items-center justify-between gap-2">
       <div class="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
         <div class="flex gap-1 min-w-max">
-      <button
-        on:click={() => setTab('recipes')}
-        class="px-4 py-2 text-sm font-medium transition-colors relative"
-        style="color: {activeTab === 'recipes'
-          ? 'var(--color-text-primary)'
-          : 'var(--color-text-secondary)'}"
-      >
-        Recipes
-        {#if activeTab === 'recipes'}
-          <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
-          ></span>
-        {/if}
-      </button>
-      <button
-        on:click={() => setTab('posts')}
-        class="px-4 py-2 text-sm font-medium transition-colors relative"
-        style="color: {activeTab === 'posts'
-          ? 'var(--color-text-primary)'
-          : 'var(--color-text-secondary)'}"
-      >
-        Posts
-        {#if activeTab === 'posts'}
-          <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
-          ></span>
-        {/if}
-      </button>
-      <button
-        on:click={() => setTab('replies')}
-        class="px-4 py-2 text-sm font-medium transition-colors relative"
-        style="color: {activeTab === 'replies'
-          ? 'var(--color-text-primary)'
-          : 'var(--color-text-secondary)'}"
-      >
-        Replies
-        {#if activeTab === 'replies'}
-          <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
-          ></span>
-        {/if}
-      </button>
-      <button
-        on:click={() => setTab('media')}
-        class="px-4 py-2 text-sm font-medium transition-colors relative"
-        style="color: {activeTab === 'media'
-          ? 'var(--color-text-primary)'
-          : 'var(--color-text-secondary)'}"
-      >
-        Media
-        {#if activeTab === 'media'}
-          <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
-          ></span>
-        {/if}
-      </button>
-      <button
-        on:click={() => setTab('reads')}
-        class="px-4 py-2 text-sm font-medium transition-colors relative"
-        style="color: {activeTab === 'reads'
-          ? 'var(--color-text-primary)'
-          : 'var(--color-text-secondary)'}"
-      >
-        Reads
-        {#if activeTab === 'reads'}
-          <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
-          ></span>
-        {/if}
-      </button>
-      <button
-        on:click={() => setTab('following')}
-        class="px-4 py-2 text-sm font-medium transition-colors relative"
-        style="color: {activeTab === 'following'
-          ? 'var(--color-text-primary)'
-          : 'var(--color-text-secondary)'}"
-      >
-        Following
-        {#if activeTab === 'following'}
-          <span
-            class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
-          ></span>
-        {/if}
-      </button>
-      {#if $userPublickey && $userPublickey === hexpubkey}
-        <button
-          on:click={() => setTab('muted')}
-          class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
-          style="color: {activeTab === 'muted'
-            ? 'var(--color-text-primary)'
-            : 'var(--color-text-secondary)'}"
-        >
-          <SpeakerSimpleSlashIcon size={16} />
-          Muted
-          {#if activeTab === 'muted'}
-            <span
-              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
-            ></span>
+          <button
+            on:click={() => setTab('recipes')}
+            class="px-4 py-2 text-sm font-medium transition-colors relative"
+            style="color: {activeTab === 'recipes'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            Recipes
+            {#if activeTab === 'recipes'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
+              ></span>
+            {/if}
+          </button>
+          <button
+            on:click={() => setTab('posts')}
+            class="px-4 py-2 text-sm font-medium transition-colors relative"
+            style="color: {activeTab === 'posts'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            Posts
+            {#if activeTab === 'posts'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
+              ></span>
+            {/if}
+          </button>
+          <button
+            on:click={() => setTab('replies')}
+            class="px-4 py-2 text-sm font-medium transition-colors relative"
+            style="color: {activeTab === 'replies'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            Replies
+            {#if activeTab === 'replies'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
+              ></span>
+            {/if}
+          </button>
+          <button
+            on:click={() => setTab('media')}
+            class="px-4 py-2 text-sm font-medium transition-colors relative"
+            style="color: {activeTab === 'media'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            Media
+            {#if activeTab === 'media'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
+              ></span>
+            {/if}
+          </button>
+          <button
+            on:click={() => setTab('reads')}
+            class="px-4 py-2 text-sm font-medium transition-colors relative"
+            style="color: {activeTab === 'reads'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            Reads
+            {#if activeTab === 'reads'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
+              ></span>
+            {/if}
+          </button>
+          <button
+            on:click={() => setTab('following')}
+            class="px-4 py-2 text-sm font-medium transition-colors relative"
+            style="color: {activeTab === 'following'
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-secondary)'}"
+          >
+            Following
+            {#if activeTab === 'following'}
+              <span
+                class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
+              ></span>
+            {/if}
+          </button>
+          {#if $userPublickey && $userPublickey === hexpubkey}
+            <button
+              on:click={() => setTab('muted')}
+              class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
+              style="color: {activeTab === 'muted'
+                ? 'var(--color-text-primary)'
+                : 'var(--color-text-secondary)'}"
+            >
+              <SpeakerSimpleSlashIcon size={16} />
+              Muted
+              {#if activeTab === 'muted'}
+                <span
+                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
+                ></span>
+              {/if}
+            </button>
+            <button
+              on:click={() => setTab('drafts')}
+              class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
+              style="color: {activeTab === 'drafts'
+                ? 'var(--color-text-primary)'
+                : 'var(--color-text-secondary)'}"
+            >
+              <FloppyDiskIcon size={16} />
+              Drafts
+              {#if activeTab === 'drafts'}
+                <span
+                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
+                ></span>
+              {/if}
+            </button>
           {/if}
-        </button>
-        <button
-          on:click={() => setTab('drafts')}
-          class="px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-1"
-          style="color: {activeTab === 'drafts'
-            ? 'var(--color-text-primary)'
-            : 'var(--color-text-secondary)'}"
-        >
-          <FloppyDiskIcon size={16} />
-          Drafts
-          {#if activeTab === 'drafts'}
-            <span
-              class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-primary"
-            ></span>
-          {/if}
-        </button>
-      {/if}
         </div>
       </div>
       {#if activeTab === 'posts' || activeTab === 'replies'}
@@ -2019,7 +2037,9 @@
               View all
             </button>
           </div>
-          <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-6 justify-items-center items-start">
+          <div
+            class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-6 justify-items-center items-start"
+          >
             {#each previewRecipes as event (event.id)}
               <RecipeCard {event} />
             {/each}
@@ -2044,7 +2064,9 @@
             </button>
           </div>
           <div class="reads-feed-vertical">
-            <ArticleFeed articles={formatReadsArticles(readsEvents.slice(0, READS_PREVIEW_COUNT))} />
+            <ArticleFeed
+              articles={formatReadsArticles(readsEvents.slice(0, READS_PREVIEW_COUNT))}
+            />
           </div>
         </section>
       {/if}
@@ -2151,15 +2173,27 @@
             class="article-card-skeleton rounded-lg overflow-hidden animate-pulse"
             style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-input-border);"
           >
-            <div class="w-full h-48 bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"></div>
+            <div
+              class="w-full h-48 bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"
+            ></div>
             <div class="p-5">
-              <div class="h-6 w-3/4 rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))] mb-3"></div>
+              <div
+                class="h-6 w-3/4 rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))] mb-3"
+              ></div>
               <div class="flex items-center gap-2 mb-3">
-                <div class="w-8 h-8 rounded-full bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"></div>
-                <div class="h-4 w-24 rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"></div>
+                <div
+                  class="w-8 h-8 rounded-full bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"
+                ></div>
+                <div
+                  class="h-4 w-24 rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"
+                ></div>
               </div>
-              <div class="h-4 w-full rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))] mb-2"></div>
-              <div class="h-4 w-5/6 rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"></div>
+              <div
+                class="h-4 w-full rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))] mb-2"
+              ></div>
+              <div
+                class="h-4 w-5/6 rounded bg-[var(--color-light-skeleton-base,var(--color-gray-200))]"
+              ></div>
             </div>
           </div>
         {/each}

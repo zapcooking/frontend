@@ -420,6 +420,13 @@ import { eventPath } from '$lib/utils/eventUrl';
       // Decode the NIP-19 identifier
       decoded = isHexEventId ? null : nip19.decode(nip19Id);
 
+      // Live streams have their own page (player + chat surface). `decoded`
+      // is null for a bare hex event id, so guard it.
+      if (decoded?.type === 'naddr' && (decoded as nip19.DecodedNaddr).data.kind === 30311) {
+        goto(`/live/${nip19Id}`);
+        return;
+      }
+
       if (decoded?.type === 'nevent' || decoded?.type === 'note' || isHexEventId) {
         // Fetch the referenced event
         let eventId = '';
