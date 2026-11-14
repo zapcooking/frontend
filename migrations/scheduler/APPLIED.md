@@ -13,7 +13,7 @@ again.
 | `0003_create_cheffy_trial_turns.sql` | **not applied** — required before enabling account samples | **not applied** — required before enabling account samples |
 | `0004_create_live_sessions.sql` | 2026-11-13 (#952) | 2026-11-13 (#952) |
 | `0005_add_live_pass_rejoins.sql` | 2026-11-14 (#967) | 2026-11-14 (#967) |
-| `0006_add_live_note_id.sql` | **not applied yet** (PR 4) | **not applied** — required before PR 4 merges |
+| `0006_add_live_note_id.sql` | 2026-11-14 (#974) | **not applied** — required before PR 4 merges |
 
 ## Applying a new migration
 
