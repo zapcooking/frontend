@@ -18,7 +18,14 @@ CREATE TABLE IF NOT EXISTS live_safety_holds (
   opened_at INTEGER NOT NULL,
   reason TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','released')),
-  released_at INTEGER
+  released_at INTEGER,
+  snapshot_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS live_safety_host_suspensions (
+  host_pubkey TEXT PRIMARY KEY,
+  suspended_until INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  session_id TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS live_safety_actions (
   id TEXT PRIMARY KEY,
