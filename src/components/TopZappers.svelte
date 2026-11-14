@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { ndk } from '$lib/nostr';
   import type { NDKUser } from '@nostr-dev-kit/ndk';
@@ -70,7 +71,7 @@
   }
 
   function navigateToProfile(pubkey: string) {
-    window.location.href = `/user/${pubkey}`;
+    goto(`/user/${pubkey}`);
   }
 </script>
 

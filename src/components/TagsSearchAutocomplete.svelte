@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { mobileSearchOpen } from '$lib/stores/mobileSearch';
   import { recipeTags, type recipeTagSimple, RECIPE_TAGS } from '$lib/consts';
   import { ndk, userPublickey } from '$lib/nostr';
   import { nip19 } from 'nostr-tools';
@@ -325,9 +327,20 @@
     showAutocomplete = false;
   }
 
+  /**
+   * Client-side navigation. A full page load (`window.location.href`) throws
+   * away everything in memory — including a stream that is playing in the
+   * persistent player — so picking a result must go through the router.
+   * The mobile overlay used to be closed by that reload; close it here.
+   */
+  function navigate(path: string) {
+    mobileSearchOpen.set(false);
+    goto(path);
+  }
+
   function selectRecipe(naddr: string) {
     // Navigate to recipe
-    window.location.href = `/recipe/${naddr}`;
+    navigate(`/recipe/${naddr}`);
     tagquery = '';
     searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
@@ -335,7 +348,7 @@
 
   function selectUser(npub: string) {
     // Navigate to user profile
-    window.location.href = `/user/${npub}`;
+    navigate(`/user/${npub}`);
     tagquery = '';
     searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
@@ -343,7 +356,7 @@
 
   function selectNote(noteId: string) {
     // Navigate to note
-    window.location.href = `/${noteId}`;
+    navigate(`/${noteId}`);
     tagquery = '';
     searchResults = { tags: [], recipes: [], users: [], note: null };
     showAutocomplete = false;
@@ -352,7 +365,7 @@
   function selectPost(postId: string) {
     // Navigate to the note thread page
     try {
-      window.location.href = eventIdPath(postId);
+      navigate(eventIdPath(postId));
     } catch {
       /* not an event id — nothing to navigate to */
     }
