@@ -218,7 +218,7 @@
   <title>{item ? `${item.title} — zap.cooking Live` : 'Live — zap.cooking'}</title>
 </svelte:head>
 
-<div class="mx-auto w-full max-w-3xl py-4 sm:px-4 sm:py-6">
+<div class="mx-auto w-full max-w-3xl py-4 sm:px-4 sm:py-6 min-[1200px]:max-w-[90rem]">
   {#if loading}
     <StreamPageSkeleton />
   {:else if notFound || !item || !pool}
@@ -242,6 +242,15 @@
       {tallyLoading}
       {topZappers}
       on:zapComplete={() => session?.note_id && tallyLoad(session.note_id, session.host_pubkey)}
+      on:zaps={(e) => {
+        // Zaps the chat verified live (incl. ones arriving now) raise the
+        // total at once; the minute-by-minute scan stays the base.
+        tally = keepHigherTally(tally, {
+          totalSats: e.detail.sats,
+          zapCount: e.detail.count,
+          satsByZapper: tally?.satsByZapper ?? new Map()
+        });
+      }}
     />
   {/if}
 </div>

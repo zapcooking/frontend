@@ -23,6 +23,13 @@
   export let address: string | null;
   /** Go live: the "Live now" note's id, zapped instead of the profile. */
   export let noteId: string | null = null;
+  /**
+   * Go live: the note is expected but its id is not known yet. The button
+   * waits ("Loading…") rather than silently zapping the profile.
+   */
+  export let notePending = false;
+  /** Go live: a session with no note at all (switch off). Says so on the button. */
+  export let goLive = false;
   export let hostPubkey: string;
   /** Host's lud16 resolved by the player — skips the profile resolver. */
   export let hostLud16: string | null = null;
@@ -63,19 +70,36 @@
   {#if hostUser}
     <button
       type="button"
-      class="flex items-center gap-1 rounded-full bg-amber-500/15 px-3 py-1.5 text-sm font-semibold text-amber-500 hover:bg-amber-500/25"
+      class="flex items-center gap-1 rounded-full bg-amber-500/15 px-3 py-1.5 text-sm font-semibold text-amber-500 hover:bg-amber-500/25 disabled:cursor-wait disabled:opacity-60"
       on:click={() => (zapOpen = true)}
-      aria-label="Zap this stream"
-      title="Zap this stream"
+      disabled={notePending && !noteId}
+      aria-label={notePending && !noteId
+        ? 'Zap: loading'
+        : goLive && !noteId
+          ? 'Zap the host (this stream has no Live now note)'
+          : 'Zap this stream'}
+      title={notePending && !noteId
+        ? 'Waiting for the Live now note'
+        : goLive && !noteId
+          ? 'Zap the host (no Live now note, so no total)'
+          : 'Zap this stream'}
     >
       <LightningIcon class="h-4 w-4" weight="fill" />
-      Zap
+      {#if notePending && !noteId}
+        Loading…
+      {:else if goLive && !noteId}
+        Zap host
+      {:else}
+        Zap
+      {/if}
     </button>
 
     {#if count > 0}
       <button
         type="button"
-        class="text-sm font-semibold text-amber-500 tabular-nums {loading ? 'opacity-60' : ''}"
+        class="text-sm font-semibold text-amber-500 tabular-nums whitespace-nowrap {loading
+          ? 'opacity-60'
+          : ''}"
         on:click={() => (zapOpen = true)}
         title={'⚡ ' +
           sats.toLocaleString() +
@@ -83,7 +107,8 @@
           count.toLocaleString() +
           (count === 1 ? ' zap' : ' zaps')}
       >
-        ⚡ {compact(sats)}
+        ⚡ {compact(sats)} sats · {count.toLocaleString()}
+        {count === 1 ? 'zap' : 'zaps'}
       </button>
     {/if}
   {/if}

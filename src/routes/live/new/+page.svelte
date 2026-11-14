@@ -71,6 +71,8 @@
   import type { SimplePool } from 'nostr-tools/pool';
   import type { StreamItem } from '$lib/streams/types';
   import StreamChat from '../../../components/streams/StreamChat.svelte';
+  import RecipePanel from '../../../components/streams/RecipePanel.svelte';
+  import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
   import CameraRotateIcon from 'phosphor-svelte/lib/CameraRotate';
   import LinkSimpleIcon from 'phosphor-svelte/lib/LinkSimple';
   import CheckIcon from 'phosphor-svelte/lib/Check';
@@ -152,6 +154,12 @@
   let notePosting = false;
   /** The recipe's photo for the note, fetched when a recipe is attached. */
   let recipeImage: string | null = null;
+  /** The attached recipe, for the host's own recipe panel while live. */
+  let recipeEvent: NDKEventType | null = null;
+  /** Phones: which panel shows under the video while live. */
+  let hostTab: 'chat' | 'recipe' = 'chat';
+  let hostWide = false;
+  const HOST_WIDE_QUERY = '(min-width: 1100px)';
   let recipeImageFor: string | null = null;
   let chatPool: SimplePool | null = null;
   /** Verified zaps on the note, as the chat counts them. */
@@ -163,8 +171,12 @@
   async function loadRecipeImage(a: string) {
     recipeImageFor = a;
     recipeImage = null;
+    recipeEvent = null;
     const event = await fetchRecipeEvent($ndk, a);
-    if (recipeImageFor === a) recipeImage = recipeCardOf(event)?.image ?? null;
+    if (recipeImageFor === a) {
+      recipeImage = recipeCardOf(event)?.image ?? null;
+      recipeEvent = event;
+    }
   }
 
   $: chatItem =
@@ -258,6 +270,14 @@
       /* "Cooking <recipe>" without it */
     }
   }
+
+  onMount(() => {
+    const mq = window.matchMedia(HOST_WIDE_QUERY);
+    const onChange = () => (hostWide = mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  });
 
   onMount(async () => {
     platform = detectPlatform(navigator.userAgent, navigator.maxTouchPoints);
@@ -534,7 +554,14 @@
     // never post a second one.
     postNote = false;
     void fetchSession(session.id).then((read) => {
-      if (read?.note_id && session?.id === read.id) noteId = read.note_id;
+      if (!read || session?.id !== read.id) return;
+      if (read.note_id) noteId = read.note_id;
+      // The recipe is not kept across a reload on this page: take it back
+      // from the session, for the name and the host's recipe panel.
+      if (read.recipe_a && !recipeA) {
+        recipeA = read.recipe_a;
+        recipeTitle = read.title;
+      }
     });
     await publish();
     startPolling();
@@ -968,7 +995,30 @@
           <p class="muted small" role="status">Posting your Live now note…</p>
         {/if}
       </div>
-      {#if chatItem && chatPool && noteId}
+      {#if !hostWide && chatItem && chatPool && noteId && recipeA}
+        <div class="tabs" role="tablist" aria-label="Live panels">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={hostTab === 'chat'}
+            class:active={hostTab === 'chat'}
+            on:click={() => (hostTab = 'chat')}>Chat</button
+          >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={hostTab === 'recipe'}
+            class:active={hostTab === 'recipe'}
+            on:click={() => (hostTab = 'recipe')}>Recipe</button
+          >
+        </div>
+      {/if}
+      {#if recipeA && (phase === 'live' || phase === 'reconnecting') && (hostWide || !(chatItem && noteId) || hostTab === 'recipe')}
+        <section class="host-recipe" aria-label="Recipe">
+          <RecipePanel recipe={recipeEvent} loading={!recipeEvent} />
+        </section>
+      {/if}
+      {#if chatItem && chatPool && noteId && (hostWide || !recipeA || hostTab === 'chat')}
         <!-- The stream's comments: replies to the Live now note. -->
         <section class="host-chat" aria-label="Live chat">
           {#key noteId}
@@ -1229,6 +1279,32 @@
     height: 26rem;
     min-height: 18rem;
   }
+  .tabs {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 9999px;
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+    align-self: flex-start;
+    margin: 0 1rem;
+  }
+  .tabs button {
+    padding: 0.35rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-caption);
+  }
+  .tabs button.active {
+    background: var(--color-text-primary);
+    color: var(--color-bg-primary);
+  }
+  @media (max-width: 640px) {
+    .host-recipe {
+      padding: 0 0.75rem;
+    }
+  }
   @media (max-width: 640px) {
     .host-chat {
       padding: 0 0.75rem;
@@ -1248,7 +1324,7 @@
     }
     .live-host.with-chat .host-chat {
       grid-column: 2;
-      grid-row: 1 / span 3;
+      grid-row: 1 / span 4;
       height: min(calc(100dvh - var(--header-h, 4rem) - 6rem), 48rem);
     }
   }

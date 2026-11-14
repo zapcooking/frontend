@@ -281,6 +281,12 @@
     }
   }
 
+  /** The comment whose author menu is open. */
+  let menuFor: string | null = null;
+  function toggleMenu(id: string) {
+    menuFor = menuFor === id ? null : id;
+  }
+
   let reportOpen = false;
   let reportComment: { id: string; pubkey: string } | null = null;
   function report(event: NostrEventLike) {
@@ -723,24 +729,36 @@
               ↳ {displayName(parent.event.pubkey)}
             </button>
           {/if}
-          <div id={`chat-${event.id}`} class="group flex items-start gap-2">
-            <span
+          <div id={`chat-${event.id}`} class="group relative flex items-start gap-2">
+            <!-- Name and avatar open the commenter menu (profile, report, hide). -->
+            <button
+              type="button"
               class="chat-avatar-placeholder mt-0.5 shrink-0 overflow-hidden rounded-full"
               style="width:24px;height:24px"
+              aria-haspopup="menu"
+              aria-expanded={menuFor === event.id}
+              aria-label="Options for {displayName(event.pubkey)}"
+              on:click|stopPropagation={() => toggleMenu(event.id)}
             >
               <Avatar
                 pubkey={event.pubkey}
                 src={profiles.get(event.pubkey)?.picture || null}
                 size={24}
                 alt={displayName(event.pubkey)}
+                interactive={false}
               />
-            </span>
+            </button>
             <div class="min-w-0 flex-1">
               <p class="text-xs leading-snug break-words">
-                <span
-                  class="font-semibold"
+                <button
+                  type="button"
+                  class="font-semibold hover:underline"
                   style="color: var(--color-text-primary);"
-                  title={displayName(event.pubkey)}>{displayName(event.pubkey)}</span
+                  title={displayName(event.pubkey)}
+                  aria-haspopup="menu"
+                  aria-expanded={menuFor === event.id}
+                  on:click|stopPropagation={() => toggleMenu(event.id)}
+                  >{displayName(event.pubkey)}</button
                 >
                 <span style="color: var(--color-caption);">
                   {formatChatTime(event.created_at)}
@@ -771,45 +789,51 @@
                 <path d="m10 5-7 6 7 6M3 11h10a8 8 0 0 1 8 8" />
               </svg>
             </button>
-            {#if noteChat && event.pubkey !== $userPublickey}
-              <button
-                type="button"
-                class="shrink-0 self-center rounded p-1 opacity-0 hover:bg-accent-gray focus:opacity-100 group-hover:opacity-100"
-                style="color: var(--color-caption);"
-                aria-label="Report {displayName(event.pubkey)}'s comment"
-                title="Report"
-                on:click={() => report(event)}
-              >
-                <FlagIcon size={14} />
-              </button>
-            {/if}
-            {#if canModerate && event.pubkey !== item.host}
-              <button
-                type="button"
-                class="shrink-0 self-center rounded p-1 opacity-0 hover:bg-accent-gray focus:opacity-100 group-hover:opacity-100 disabled:opacity-40"
-                style="color: var(--color-caption);"
-                aria-label="Hide {displayName(event.pubkey)} from {isHost
-                  ? 'your'
-                  : 'this host’s'} live chats"
-                title={isHost ? 'Hide from your live chats' : 'Hide from this host’s live chats'}
-                disabled={hiding.has(`host:${event.pubkey}`)}
-                on:click={() => setHidden(event.pubkey, true, 'host')}
-              >
-                <EyeSlashIcon size={14} />
-              </button>
-            {/if}
-            {#if isAdminViewer && event.pubkey !== item.host}
-              <button
-                type="button"
-                class="shrink-0 self-center rounded p-1 opacity-0 hover:bg-accent-gray focus:opacity-100 group-hover:opacity-100 disabled:opacity-40"
-                style="color: var(--color-caption);"
-                aria-label="Hide {displayName(event.pubkey)} from every Go live chat"
-                title="Hide everywhere (admin)"
-                disabled={hiding.has(`global:${event.pubkey}`)}
-                on:click={() => setHidden(event.pubkey, true, 'global')}
-              >
-                <ProhibitIcon size={14} />
-              </button>
+            {#if menuFor === event.id}
+              <div class="chat-menu" role="menu" aria-label="Options for {displayName(event.pubkey)}">
+                <button
+                  type="button"
+                  role="menuitem"
+                  on:click={() => {
+                    menuFor = null;
+                    openProfilePreview(event.pubkey);
+                  }}>View profile</button
+                >
+                {#if noteChat && event.pubkey !== $userPublickey}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    on:click={() => {
+                      menuFor = null;
+                      report(event);
+                    }}><FlagIcon size={14} /> Report</button
+                  >
+                {/if}
+                {#if canModerate && event.pubkey !== item.host}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={hiding.has(`host:${event.pubkey}`)}
+                    on:click={() => {
+                      menuFor = null;
+                      setHidden(event.pubkey, true, 'host');
+                    }}
+                    ><EyeSlashIcon size={14} />
+                    {isHost ? 'Hide from my live chats' : 'Hide from this host’s chats'}</button
+                  >
+                {/if}
+                {#if isAdminViewer && event.pubkey !== item.host}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={hiding.has(`global:${event.pubkey}`)}
+                    on:click={() => {
+                      menuFor = null;
+                      setHidden(event.pubkey, true, 'global');
+                    }}><ProhibitIcon size={14} /> Hide everywhere</button
+                  >
+                {/if}
+              </div>
             {/if}
           </div>
         </article>
@@ -890,6 +914,13 @@
   </footer>
 </section>
 
+<svelte:window
+  on:click={() => (menuFor = null)}
+  on:keydown={(e) => {
+    if (e.key === 'Escape') menuFor = null;
+  }}
+/>
+
 {#if noteChat && item.sessionId}
   <LiveReport
     sessionId={item.sessionId}
@@ -916,6 +947,37 @@
   }
   :global(html.dark) .chat-avatar-placeholder :global(svg path) {
     fill: color-mix(in srgb, #94a3b8 85%, var(--color-bg-secondary));
+  }
+
+  .chat-menu {
+    position: absolute;
+    left: 1.75rem;
+    top: 1.25rem;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    min-width: 12rem;
+    padding: 0.25rem;
+    border-radius: 0.6rem;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-input-border);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+  .chat-menu button {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.4rem;
+    font-size: 0.8125rem;
+    text-align: left;
+    color: var(--color-text-primary);
+  }
+  .chat-menu button:hover {
+    background: var(--color-input-bg);
+  }
+  .chat-menu button:disabled {
+    opacity: 0.5;
   }
 
   .chat-input:focus {

@@ -67,6 +67,22 @@ describe('sessionToStreamItem', () => {
     expect(sessionToStreamItem(session({ note_id: 'bad' })).noteId).toBeNull();
   });
 
+  it('expects the note while starting or just live, and says so (no silent profile zap)', () => {
+    const t = 1_000_000;
+    const at = (startedAgo: number | null, over: Partial<GoLiveSession> = {}) =>
+      sessionToStreamItem(
+        session({ started_at: startedAgo == null ? null : t - startedAgo, ...over }),
+        null,
+        null,
+        t * 1000
+      );
+    expect(at(null).notePending).toBe(true);
+    expect(at(10).notePending).toBe(true);
+    expect(at(300).notePending).toBe(false); // live for 5 min with no note: switch was off
+    expect(at(10, { note_id: 'e'.repeat(64) }).notePending).toBe(false);
+    expect(at(10, { status: 'ended' }).notePending).toBe(false);
+  });
+
   it('reads a not-yet-started session as live and an ended one as ended', () => {
     expect(sessionToStreamItem(session({ status: 'created', started_at: null })).status).toBe(
       'live'

@@ -70,6 +70,11 @@ export interface StreamItem {
   recipeA?: string | null;
   /** Go live only: the "Live now" note's event id (comments and zaps hang off it). */
   noteId?: string | null;
+  /**
+   * Go live only: no note yet, but one is expected any moment (the session
+   * is starting or just went live). Zap waits instead of zapping the profile.
+   */
+  notePending?: boolean;
 }
 
 /** Where the player currently renders. One surface owns the video at a time. */
