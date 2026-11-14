@@ -154,6 +154,9 @@
   let recipeImage: string | null = null;
   let recipeImageFor: string | null = null;
   let chatPool: SimplePool | null = null;
+  /** Verified zaps on the note, as the chat counts them. */
+  let zapSats = 0;
+  let zapCount = 0;
   let chatItem: StreamItem | null = null;
 
   $: if (recipeA && recipeA !== recipeImageFor) void loadRecipeImage(recipeA);
@@ -752,6 +755,8 @@
       clearStoredSession(storage());
       session = null;
       noteId = null;
+      zapSats = 0;
+      zapCount = 0;
     }
   }
 
@@ -952,6 +957,12 @@
     {:else}
       <div class="panel live-panel">
         <p class="live-title" title={streamName}>{streamName}</p>
+        {#if zapCount > 0}
+          <p class="zaps" title={`${zapSats.toLocaleString()} sats across ${zapCount} zaps`}>
+            ⚡ {zapSats.toLocaleString()} sats · {zapCount}
+            {zapCount === 1 ? 'zap' : 'zaps'}
+          </p>
+        {/if}
         {#if notice}<p class="notice" role="status">{notice}</p>{/if}
         {#if !noteId && notePosting}
           <p class="muted small" role="status">Posting your Live now note…</p>
@@ -961,7 +972,15 @@
         <!-- The stream's comments: replies to the Live now note. -->
         <section class="host-chat" aria-label="Live chat">
           {#key noteId}
-            <StreamChat item={chatItem} pool={chatPool} target={noteId} />
+            <StreamChat
+              item={chatItem}
+              pool={chatPool}
+              target={noteId}
+              on:zaps={(e) => {
+                zapSats = Math.max(zapSats, e.detail.sats);
+                zapCount = Math.max(zapCount, e.detail.count);
+              }}
+            />
           {/key}
         </section>
       {/if}
@@ -1175,6 +1194,11 @@
   }
   .live-panel {
     gap: 0.5rem;
+  }
+  .zaps {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #f59e0b;
   }
   .switch-row {
     display: flex;

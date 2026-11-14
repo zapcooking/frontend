@@ -15,7 +15,7 @@
    * stream's relays. Chat profiles read straight from relays (newest
    * kind 0 wins), with Sidecar-style stable pseudonyms as the fallback.
    */
-  import { onDestroy, tick } from 'svelte';
+  import { createEventDispatcher, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { page } from '$app/stores';
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
@@ -78,6 +78,12 @@
   export let target: string | null = null;
   /** The stream has ended: the chat is shown read-only. */
   export let closed = false;
+
+  /** Verified zaps seen by the chat so far (the Go live host page shows them). */
+  const dispatch = createEventDispatcher<{ zaps: { sats: number; count: number } }>();
+  function reportZaps() {
+    dispatch('zaps', { sats: Math.floor(totals.msats / 1000), count: totals.count });
+  }
 
   const PAGE_SIZE = 50;
   const HISTORY_CAP = 1000;
@@ -297,7 +303,10 @@
 
   // userPublickey can be restored while the passkey vault is locked —
   // signedIn reflects an actual usable session.
-  $: signingIn = !get(signedIn);
+  // Subscribed, not read once: the chat can mount before a saved session
+  // is restored (the Go live page loads fast), and must then show the
+  // composer as soon as the viewer is signed in.
+  $: signingIn = !$signedIn;
 
   // Top-zapper chips show real names: fold them into the batched lookups.
   $: scheduleProfiles(topZappers.map((z) => z.pubkey));
@@ -383,6 +392,7 @@
       )) as unknown as NostrEventLike[];
       for (const event of events) {
         if (await acceptReceipt(event)) receipts.set(event.id, event);
+        reportZaps();
       }
       repaint();
     } catch {
@@ -404,6 +414,7 @@
           const e = event as NostrEventLike;
           acceptReceipt(e).then((ok) => {
             if (ok) {
+              reportZaps();
               receipts.set(e.id, e);
               repaint();
             }

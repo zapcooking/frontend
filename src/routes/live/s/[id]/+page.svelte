@@ -61,12 +61,16 @@
     scanAbort = new AbortController();
     const signal = scanAbort.signal;
     tallyLoading = true;
+    // Claimed before any await: the 5 s session poll checks it, and a key
+    // set only after the relay lookup let every poll restart the scan, so
+    // the total never finished.
+    if (tallyKey !== noteId) tally = null;
+    tallyKey = noteId;
     // Fresh receipts for our own zaps land on the zap request's relays.
     const extraRelays = await zapReceiptRelayUrls(get(userPublickey) || undefined, host).catch(
       () => []
     );
-    if (tallyKey !== noteId) tally = null;
-    tallyKey = noteId;
+    if (signal.aborted) return;
     tally = keepHigherTally(tally, await fetchStreamZapTally(noteId, extraRelays));
     if (signal.aborted) return;
     const scan = await scanStreamZapHistory(noteId, host, {
