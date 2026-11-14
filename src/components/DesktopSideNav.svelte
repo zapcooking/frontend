@@ -18,6 +18,7 @@
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
 
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
+  import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
   import CookbookIcon from 'phosphor-svelte/lib/BookOpen';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
@@ -63,6 +64,12 @@
       label: 'Reads',
       icon: NewspaperIcon,
       match: (p) => p.startsWith('/reads') || p.startsWith('/r/')
+    },
+    {
+      href: '/live',
+      label: 'Live',
+      icon: BroadcastIcon,
+      match: (p) => p.startsWith('/live')
     },
     {
       href: '/polls',

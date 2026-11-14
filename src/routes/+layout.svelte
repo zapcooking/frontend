@@ -20,6 +20,7 @@
   import DraftDock from '../components/comments/DraftDock.svelte';
   import WalletModal from '../components/wallet/WalletModal.svelte';
   import ToastContainer from '../components/ToastContainer.svelte';
+  import StreamDock from '../components/streams/StreamDock.svelte';
   import PendingIndicator from '../components/PendingIndicator.svelte';
   import MiningIndicator from '../components/MiningIndicator.svelte';
   import LoginOverlay from '../components/LoginOverlay.svelte';
@@ -302,7 +303,8 @@
     $page.url.pathname.startsWith('/r/') ||
     $page.url.pathname.startsWith('/pack/') ||
     pathSegment.startsWith('note1') ||
-    pathSegment.startsWith('nevent1');
+    pathSegment.startsWith('nevent1') ||
+    /^[0-9a-f]{64}$/.test(pathSegment);
 
   let authManager: any = null;
   // Instance-scoped snapshots let landing invitations distinguish session
@@ -734,6 +736,7 @@
       <ToastContainer />
       <PendingIndicator />
       <MiningIndicator />
+      <StreamDock />
     </div>
   </div>
 </ErrorBoundary>

@@ -20,6 +20,7 @@
   import CustomAvatar from '../CustomAvatar.svelte';
   import { profileFor } from '$lib/profileStore';
   import { continueName, lockedVaultPubkey } from '$lib/auth/lockedVault';
+  import { classifyPrivateKeyInput, decryptNcryptsec } from '$lib/auth/privateKeyInput';
   import { userPublickey } from '$lib/nostr';
   import {
     passkeyMethodLabel,
@@ -59,9 +60,15 @@
   // Form + sheet states
   let nsecInput = '';
   let nsecError = '';
+  // NIP-49: an ncryptsec paste unlocks with the password it was exported with.
+  let nsecPassword = '';
+  let nsecDecrypting = false;
   let nsecModal = false;
   let bunkerModal = false;
   let nip46UniversalModal = false;
+  // An ncryptsec paste (NIP-49) reveals the password field; nsec and hex
+  // keys sign in directly.
+  $: isNcryptsec = classifyPrivateKeyInput(nsecInput) === 'ncryptsec';
 
   // Bunker form states
   let bunkerConnectionString = '';
@@ -318,23 +325,56 @@
     }
   }
 
-  async function loginWithPrivateKey() {
-    if (!authManager) return;
+  // Decrypts an ncryptsec paste with the entered password, or returns null
+  // after showing why it failed. nip49.decrypt is synchronous scrypt (a
+  // second or more at default cost), so the busy state paints before it
+  // blocks the main thread — the same dance the Google backup restore does
+  // around PBKDF2.
+  async function decryptPastedNcryptsec(key: string): Promise<string | null> {
+    nsecDecrypting = true;
     try {
-      nsecError = '';
-      if (!nsecInput.trim()) { nsecError = 'Please enter a private key'; return; }
-      const nsec = nsecInput.trim();
-      await authManager.authenticateWithPrivateKey(nsec);
+      await tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return decryptNcryptsec(key, nsecPassword);
+    } catch (error) {
+      console.error('ncryptsec decrypt failed:', error);
+      nsecError = 'Incorrect password or unreadable key. Check the password and try again.';
+      return null;
+    } finally {
+      nsecDecrypting = false;
+    }
+  }
+
+  async function loginWithPrivateKey(replaceVault = false) {
+    if (!authManager) return;
+    nsecError = '';
+    const key = nsecInput.trim();
+    if (!key) { nsecError = 'Please enter a private key'; return; }
+
+    let privateKey = key;
+    if (classifyPrivateKeyInput(key) === 'ncryptsec') {
+      if (!nsecPassword) {
+        nsecError = 'Enter the password this key is encrypted with.';
+        return;
+      }
+      const hex = await decryptPastedNcryptsec(key);
+      if (!hex) return;
+      privateKey = hex;
+    }
+
+    try {
+      await authManager.authenticateWithPrivateKey(
+        privateKey,
+        replaceVault ? { replaceVault: true } : undefined
+      );
       nsecModal = false;
       nsecInput = '';
+      nsecPassword = '';
     } catch (error) {
       if (error instanceof VaultConflictError) {
-        const nsec = nsecInput.trim();
-        raise(error.message, async () => {
-          await authManager.authenticateWithPrivateKey(nsec, { replaceVault: true });
-          nsecModal = false;
-          nsecInput = '';
-        });
+        // The retry re-runs the whole flow, decrypting again — the decrypted
+        // hex is never kept around past the call that needed it.
+        raise(error.message, () => loginWithPrivateKey(true));
         return;
       }
       nsecError = authState.error || 'Invalid private key';
@@ -513,6 +553,8 @@
     googleBusy = false;
     nsecInput = '';
     nsecError = '';
+    nsecPassword = '';
+    nsecDecrypting = false;
     bunkerConnectionString = '';
     bunkerError = '';
     bunkerConnecting = false;
@@ -540,20 +582,45 @@
           nsec; if you lose it, you lose access to your account.
         </p>
       </div>
-      <div class="text-sm text-caption">Enter your private key (nsec1...) or hex format</div>
+      <div class="text-sm text-caption">Enter your private key (nsec1..., ncryptsec1...) or hex format</div>
       <input
         bind:value={nsecInput}
-        placeholder="nsec1..."
+        placeholder="nsec1... or ncryptsec1..."
         class="input block w-full sm:text-sm p-3"
-        disabled={authState.isLoading}
+        disabled={authState.isLoading || nsecDecrypting}
         data-nsec-field
       />
+      {#if isNcryptsec}
+        <div>
+          <label
+            for="ncryptsec-password"
+            class="block text-sm font-medium mb-1.5"
+            style="color: var(--color-text-primary)"
+          >
+            Key password
+          </label>
+          <input
+            id="ncryptsec-password"
+            bind:value={nsecPassword}
+            type="password"
+            autocomplete="current-password"
+            placeholder="Password used to encrypt this key"
+            class="input block w-full sm:text-sm p-3"
+            disabled={authState.isLoading || nsecDecrypting}
+            data-ncryptsec-password-field
+          />
+          <p class="text-xs text-caption mt-1.5">
+            This key is password-encrypted (NIP-49), like the ncryptsec exports from the Zap
+            Cooking mobile apps.
+          </p>
+        </div>
+      {/if}
       {#if nsecError}
         <div class="text-sm" style="color: var(--color-danger, #ef4444)">{nsecError}</div>
       {/if}
       <div class="flex gap-2">
-        <Button on:click={loginWithPrivateKey} primary={true} disabled={authState.isLoading}>
-          {authState.isLoading ? 'Connecting...' : 'Login'}
+        <Button on:click={() => loginWithPrivateKey()} primary={true} disabled={authState.isLoading || nsecDecrypting}>
+          {authState.isLoading || nsecDecrypting ? 'Connecting...' : 'Login'}
         </Button>
       </div>
     </div>

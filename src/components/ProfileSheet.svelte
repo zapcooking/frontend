@@ -27,6 +27,7 @@
   import { canOneTapZap, sendOneTapZap } from '$lib/oneTapZap';
   import Modal from './Modal.svelte';
   import Avatar from './Avatar.svelte';
+  import LiveAvatar from './streams/LiveAvatar.svelte';
   import CustomName from './CustomName.svelte';
   import MembershipBeltBadge from './MembershipBeltBadge.svelte';
   import MediaLightbox from './MediaLightbox.svelte';
@@ -313,12 +314,13 @@
         style="--tw-ring-color: var(--color-bg-secondary)"
       >
         {#key `${hex}-${refreshKey}`}
-          <Avatar
+          <LiveAvatar
             pubkey={hex}
             size={72}
             src={picture || null}
             alt="Profile picture"
             interactive={false}
+            linked={false}
             on:load={(e) => (resolvedPicture = e.detail.fullSrc)}
             on:fallback={() => (resolvedPicture = null)}
           />

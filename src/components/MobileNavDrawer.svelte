@@ -10,6 +10,7 @@
   import FlameIcon from 'phosphor-svelte/lib/Flame';
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
+  import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
   import ChartBarHorizontalIcon from 'phosphor-svelte/lib/ChartBarHorizontal';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
@@ -43,6 +44,7 @@
     { href: '/feed', label: 'Feed', icon: FlameIcon, match: (p) => p === '/' || p.startsWith('/feed') },
     { href: '/recipes', label: 'Recipes', icon: ForkKnifeIcon, match: (p) => p.startsWith('/recipes') || p.startsWith('/recent') },
     { href: '/reads', label: 'Reads', icon: NewspaperIcon, match: (p) => p.startsWith('/reads') || p.startsWith('/r/') },
+    { href: '/live', label: 'Live', icon: BroadcastIcon, match: (p) => p.startsWith('/live') },
     { href: '/polls', label: 'Polls', icon: ChartBarHorizontalIcon, match: (p) => p.startsWith('/polls') },
     { href: '/market', label: 'Market', icon: StorefrontIcon, match: (p) => p.startsWith('/market') || p.startsWith('/my-store') },
     { href: '/messages', label: 'Messages', icon: EnvelopeSimpleIcon, match: (p) => p.startsWith('/messages'), badge: 'messages' },
