@@ -28,6 +28,7 @@
   import Modal from './Modal.svelte';
   import Avatar from './Avatar.svelte';
   import LiveAvatar from './streams/LiveAvatar.svelte';
+  import LiveBadge from './streams/LiveBadge.svelte';
   import CustomName from './CustomName.svelte';
   import MembershipBeltBadge from './MembershipBeltBadge.svelte';
   import MediaLightbox from './MediaLightbox.svelte';
@@ -321,6 +322,7 @@
             alt="Profile picture"
             interactive={false}
             linked={false}
+            dot={false}
             on:load={(e) => (resolvedPicture = e.detail.fullSrc)}
             on:fallback={() => (resolvedPicture = null)}
           />
@@ -333,6 +335,10 @@
             title="View profile picture"
           ></button>
         {/if}
+        <!-- Tappable LIVE pill on the avatar; a sibling of the zoom button. -->
+        <div class="absolute -bottom-3 left-1/2 z-10 -translate-x-1/2">
+          <LiveBadge pubkey={hex} size="lg" />
+        </div>
       </div>
     </div>
   </div>

@@ -6,6 +6,12 @@
 
   export let pubkey: string;
   export let linked = true;
+  /** `lg` is a touch-sized target (used on avatars); `sm` sits beside a name. */
+  export let size: 'sm' | 'lg' = 'sm';
+  $: sizeClass =
+    size === 'lg'
+      ? 'relative px-3 py-1 text-xs shadow-md before:absolute before:-inset-2 before:content-[\'\']'
+      : 'px-2 py-0.5 text-[10px]';
 
   let unwatch: (() => void) | null = null;
   let watched: string | null = null;
@@ -37,7 +43,7 @@
   {#if linked && naddr}
     <a
       href="/live/{naddr}"
-      class="inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white hover:bg-red-500"
+      class="inline-flex items-center gap-1 rounded-full bg-red-600 {sizeClass} font-bold uppercase tracking-wide text-white hover:bg-red-500"
       title="Live now — watch"
       aria-label="Live now — watch stream"
     >
@@ -46,7 +52,7 @@
     </a>
   {:else}
     <span
-      class="inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
+      class="inline-flex items-center gap-1 rounded-full bg-red-600 {sizeClass} font-bold uppercase tracking-wide text-white"
       title="Live now"
     >
       <span class="h-1.5 w-1.5 rounded-full bg-white animate-pulse" aria-hidden="true"></span>

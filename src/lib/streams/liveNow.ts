@@ -18,7 +18,7 @@ import { writable, type Readable } from 'svelte/store';
 import { browser } from '$app/environment';
 import type { SimplePool } from 'nostr-tools/pool';
 import type { Filter } from 'nostr-tools/filter';
-import { StreamDirectory } from './directory';
+import { LIVE_ANNOUNCEMENT_MAX_AGE_S, StreamDirectory } from './directory';
 import { createStreamPool } from './relayPage';
 import { DISCOVERY_RELAYS } from './relays';
 import type { NostrEventLike, StreamItem } from './types';
@@ -49,6 +49,37 @@ const MISS_TTL_MS = 2 * 60_000;
 const ERROR_TTL_MS = 30_000;
 const LOOKUP_MAX_WAIT_MS = 4000;
 
+/**
+ * The relay requests that find who is live among `hosts`.
+ *
+ * TWO filters, never one: the fields of a single Nostr filter are ANDed, so
+ * `{ authors, '#p' }` only matches an announcement authored by a watched
+ * host that ALSO tags one. That drops every stream published by a service
+ * account (zap.stream puts the real host only in a `p` tag, with the service
+ * as author) and any self-published stream that doesn't tag its host.
+ * `since` keeps each answer to announcements still fresh enough to be live,
+ * so a host with a long back catalogue can't push the live one out of the
+ * result limit.
+ */
+export function liveLookupFilters(hosts: string[], nowSec: number): Filter[] {
+  const base = {
+    kinds: [30311],
+    since: Math.floor(nowSec - LIVE_ANNOUNCEMENT_MAX_AGE_S),
+    limit: Math.max(100, hosts.length * 2)
+  };
+  return [
+    { ...base, authors: hosts },
+    { ...base, '#p': hosts }
+  ];
+}
+
+/** Events from several requests as one list, each event once. */
+export function mergeEventLists<T extends { id: string }>(lists: T[][]): T[] {
+  const byId = new Map<string, T>();
+  for (const list of lists) for (const event of list) byId.set(event.id, event);
+  return [...byId.values()];
+}
+
 function getPool(): SimplePool {
   if (!pool) pool = createStreamPool();
   return pool;
@@ -78,17 +109,18 @@ async function flush(): Promise<void> {
     let fresh: Map<string, StreamItem> | null = null;
     try {
       // Service-published announcements put the real host in a `p` tag
-      // rather than the author field, so match both.
-      const events = (await getPool().querySync(
-        DISCOVERY_RELAYS,
-        {
-          kinds: [30311],
-          authors: batch,
-          '#p': batch,
-          limit: Math.max(100, batch.length * 2)
-        } as Filter,
-        { maxWait: LOOKUP_MAX_WAIT_MS }
-      )) as unknown as NostrEventLike[];
+      // rather than the author field, so ask both ways (see liveLookupFilters).
+      // All-or-nothing: if either request fails we keep what we knew, rather
+      // than caching "not live" off half an answer.
+      const results = await Promise.all(
+        liveLookupFilters(batch, now / 1000).map(
+          (filter) =>
+            getPool().querySync(DISCOVERY_RELAYS, filter, {
+              maxWait: LOOKUP_MAX_WAIT_MS
+            }) as unknown as Promise<NostrEventLike[]>
+        )
+      );
+      const events = mergeEventLists(results);
 
       // Newest announcement per address wins; then the directory's live
       // view (freshness + URL dedupe across re-announcements).
