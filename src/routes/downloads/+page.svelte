@@ -17,7 +17,7 @@
       description: 'Zap Cooking for iPhone and iPad, from Apple’s App Store.',
       badge: '/downloads/apple-app-store.svg',
       badgeAlt: 'Download on the App Store',
-      badgeHeight: 44,
+      badgeHeight: 48,
       cta: 'Download on the App Store',
       href: 'https://apps.apple.com/us/app/zap-cooking/id6757363819'
     },
@@ -28,7 +28,7 @@
       description: 'Zap Cooking for Android phones and tablets, from Google Play.',
       badge: '/downloads/google-play-badge.png',
       badgeAlt: 'Get it on Google Play',
-      badgeHeight: 56,
+      badgeHeight: 48,
       cta: 'Get it on Google Play',
       href: 'https://play.google.com/store/apps/details?id=cooking.zap.app&hl=en_US'
     },
@@ -37,12 +37,19 @@
       platform: 'Android',
       name: 'Zapstore',
       description: 'The Nostr-native app store, for the open, permissionless route.',
-      badge: undefined,
-      badgeAlt: '',
-      badgeHeight: 0,
+      badge: '/downloads/zapstore-badge.svg',
+      badgeAlt: 'Get it on Zapstore',
+      badgeHeight: 48,
       cta: 'Get it on Zapstore',
       href: 'https://zapstore.dev/apps/cooking.zap.app'
     }
+  ];
+
+  const shots = [
+    { src: '/downloads/native-start.png', alt: 'The signed-out start screen with recipes from the community' },
+    { src: '/downloads/native-feed.png', alt: 'The OnlyFood feed with posts from cooks' },
+    { src: '/downloads/native-composer.png', alt: 'Creating a recipe with food tags' },
+    { src: '/downloads/native-account.png', alt: 'The Zap Cooking account drawer' }
   ];
 
 </script>
@@ -99,7 +106,18 @@
     {/each}
   </ul>
 
-
+  <section class="shots-section" aria-labelledby="shots-heading">
+    <h2 id="shots-heading">See it in action</h2>
+    <ul class="shots" role="list">
+      {#each shots as shot (shot.src)}
+        <li>
+          <div class="phone">
+            <img class="shot" src={shot.src} alt={shot.alt} loading="lazy" />
+          </div>
+        </li>
+      {/each}
+    </ul>
+  </section>
 </main>
 
 <style>
@@ -213,10 +231,44 @@
     flex-shrink: 0;
   }
   :global(.store-badge) {
+    height: 48px;
     width: auto;
     border-radius: 6px;
   }
-  @media (min-width: 768px) {
+  .shots-section {
+    margin-top: 40px;
+  }
+  h2 {
+    font-family: var(--font-editorial, Georgia, serif);
+    font-size: var(--dl-title);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    margin: 0 0 16px;
+  }
+  .shots {
+    margin: 0;
+    padding: 4px 4px 16px;
+    list-style: none;
+    display: flex;
+    gap: 18px;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+  .phone {
+    flex: none;
+    border: 1px solid var(--color-input-border);
+    border-radius: 30px;
+    overflow: hidden;
+    background: var(--color-bg-secondary);
+    box-shadow: 0 12px 28px -18px rgba(0, 0, 0, 0.5);
+    scroll-snap-align: start;
+  }
+  .shot {
+    display: block;
+    height: 400px;
+    width: auto;
+  }
+    @media (min-width: 768px) {
     .downloads {
       padding: 36px 0 48px;
     }
