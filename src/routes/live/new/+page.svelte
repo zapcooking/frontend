@@ -204,31 +204,68 @@
    * the broadcast first connects, so a start that never gets through
    * leaves no note behind. A failure never stops the stream.
    */
+  /**
+   * The note signed for a session, kept until its id is recorded. A retry
+   * (the next connect after a failure) re-publishes and re-records THIS
+   * event, never a new one: a lost reply after the server stored the id
+   * would otherwise leave duplicate Live now posts.
+   */
+  let signedNote: { sessionId: string; event: NDKEvent } | null = null;
+  const NOTE_RETRY_MS = 15000;
+  const NOTE_MAX_TRIES = 5;
+  let noteTries = 0;
+  let noteRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
   async function postLiveNote() {
     if (!postNote || noteId || notePosting || !session) return;
     notePosting = true;
+    noteTries++;
     const forSession = session;
     try {
-      const template = liveNoteTemplate({
-        name: streamName,
-        watchUrl: `${location.origin}/live/s/${forSession.id}`,
-        image: recipeImage,
-        recipeA
-      });
-      const event = new NDKEvent($ndk, template as never);
-      addClientTagToEvent(event);
-      await event.sign();
+      let event = signedNote?.sessionId === forSession.id ? signedNote.event : null;
+      if (!event) {
+        const template = liveNoteTemplate({
+          name: streamName,
+          watchUrl: `${location.origin}/live/s/${forSession.id}`,
+          image: recipeImage,
+          recipeA
+        });
+        event = new NDKEvent($ndk, template as never);
+        addClientTagToEvent(event);
+        await event.sign();
+        signedNote = { sessionId: forSession.id, event };
+      }
       const urls = [...new Set([...$ndk.pool.relays.keys(), ...DISCOVERY_RELAYS])];
       await Promise.race([
         event.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true)),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
       ]);
       if (session?.id !== forSession.id) return;
-      if (!(await recordLiveNote(forSession, event.id))) throw new Error('not recorded');
-      noteId = event.id;
+      if (await recordLiveNote(forSession, event.id)) {
+        noteId = event.id;
+      } else {
+        // Not confirmed: the server may still hold an id (a lost reply, or
+        // one recorded earlier). Take what the session says.
+        const read = await fetchSession(forSession.id);
+        if (session?.id !== forSession.id) return;
+        if (!read?.note_id) throw new Error('not recorded');
+        noteId = read.note_id;
+      }
+      signedNote = null;
+      if (notice.startsWith('The Live now note')) notice = '';
     } catch {
       if (session?.id === forSession.id) {
-        notice = "The Live now note wasn't posted, so this stream has no comments.";
+        if (noteTries < NOTE_MAX_TRIES) {
+          // Same signed note, a little later (and again on reconnect).
+          notice = 'Posting your Live now note again shortly…';
+          if (noteRetryTimer) clearTimeout(noteRetryTimer);
+          noteRetryTimer = setTimeout(() => {
+            noteRetryTimer = null;
+            if (isLive) void postLiveNote();
+          }, NOTE_RETRY_MS);
+        } else {
+          notice = "The Live now note wasn't posted, so this stream has no comments.";
+        }
       }
     } finally {
       notePosting = false;
@@ -766,6 +803,8 @@
 
   /** Stop everything local: timers, connection, camera, wake lock. */
   function teardown(forget: boolean) {
+    if (noteRetryTimer) clearTimeout(noteRetryTimer);
+    noteRetryTimer = null;
     policy?.shutdown();
     policy = null;
     stopPolling();
@@ -782,6 +821,8 @@
       clearStoredSession(storage());
       session = null;
       noteId = null;
+      signedNote = null;
+      noteTries = 0;
       zapSats = 0;
       zapCount = 0;
     }

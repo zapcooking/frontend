@@ -24,6 +24,7 @@ import type { SimplePool } from 'nostr-tools/pool';
 import type { Filter } from 'nostr-tools/filter';
 import { relayPage, type RelayPageResult } from './relayPage';
 import { isEventTarget, targetFilter } from './target';
+import { getThreadRootId } from '$lib/thread/replyParent';
 import type { EventVerifier, NostrEventLike } from './types';
 
 export const CHAT_KIND = 1311;
@@ -151,7 +152,12 @@ export class ChatMessages {
       event.kind !== this.kind ||
       event.id === this.address ||
       !Array.isArray(event.tags) ||
-      !event.tags.some((t) => Array.isArray(t) && t[0] === this.tag && t[1] === this.address) ||
+      // A note's comments are its thread: the NIP-10 root (marked, or the
+      // first positional `e`) must be the note. A post that only mentions
+      // the note, or belongs to another thread, is not a comment.
+      (this.tag === 'e'
+        ? getThreadRootId(event) !== this.address
+        : !event.tags.some((t) => Array.isArray(t) && t[0] === 'a' && t[1] === this.address)) ||
       typeof event.content !== 'string' ||
       event.content.length > CHAT_MAX_LEN ||
       !Number.isSafeInteger(event.created_at) ||

@@ -289,7 +289,9 @@
 
   let reportOpen = false;
   let reportComment: { id: string; pubkey: string } | null = null;
-  function report(event: NostrEventLike) {
+  async function report(event: NostrEventLike) {
+    // Reporting a comment needs a signed-in viewer (as commenting does).
+    if (!(await requireAuth({ kind: 'post', reason: 'Sign in to report a comment' }))) return;
     reportComment = { id: event.id, pubkey: event.pubkey };
     reportOpen = true;
   }
@@ -505,9 +507,12 @@
   async function send() {
     const text = draft.trim();
     const ndkInstance = get(ndk);
-    if (!text || sending || !ndkInstance) return;
+    // `closed` is rechecked after every wait: the stream can end while a
+    // sign-in or an external signer is pending, and a reply must not go out
+    // after the chat says it is closed.
+    if (!text || sending || !ndkInstance || closed) return;
     const ok = await requireAuth({ kind: 'post', reason: 'post in live chat' });
-    if (!ok) return;
+    if (!ok || closed) return;
     sending = true;
     setNotice('Sending…');
     try {
@@ -522,6 +527,10 @@
       );
       const event = new NDKEvent(ndkInstance, template as never);
       await event.sign();
+      if (closed) {
+        setNotice('This live stream has ended. The chat is closed.', 7000);
+        return;
+      }
       await Promise.race([
         event.publish(NDKRelaySet.fromRelayUrls(sources, ndkInstance, true)),
         new Promise<never>((_, reject) =>

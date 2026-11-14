@@ -161,6 +161,37 @@ describe('note chat (Go live "Live now" note)', () => {
     expect(model.size).toBe(1);
   });
 
+  it("takes only the note's thread: not mentions, not another thread's posts", () => {
+    const model = new ChatMessages(NOTE);
+    const other = '8'.repeat(64);
+    // Positional (unmarked) root, as older clients write it: a comment.
+    expect(
+      model.accept(chatEvent({ id: '5'.repeat(64), kind: 1, tags: [['e', NOTE]] }), verify)
+    ).toBe(true);
+    // Only mentions the note.
+    expect(
+      model.accept(
+        chatEvent({ id: '6'.repeat(64), kind: 1, tags: [['e', NOTE, '', 'mention']] }),
+        verify
+      )
+    ).toBe(false);
+    // Belongs to another thread, citing the note along the way.
+    expect(
+      model.accept(
+        chatEvent({
+          id: '7'.repeat(64),
+          kind: 1,
+          tags: [
+            ['e', other, '', 'root'],
+            ['e', NOTE, '', 'reply']
+          ]
+        }),
+        verify
+      )
+    ).toBe(false);
+    expect(model.size).toBe(1);
+  });
+
   it('does not take the root e tag for a parent', () => {
     expect(chatReplyParent(reply(), NOTE)).toBeNull();
     const nested = reply({}, [

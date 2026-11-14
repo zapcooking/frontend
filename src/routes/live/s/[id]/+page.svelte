@@ -21,11 +21,7 @@
   import type { StreamItem } from '$lib/streams/types';
   import { fetchProfile } from '$lib/streams/fetch';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
-  import {
-    fetchStreamZapTally,
-    scanStreamZapHistory,
-    type StreamZapTally
-  } from '$lib/streams/streamZaps';
+  import { scanStreamZapHistory, type StreamZapTally } from '$lib/streams/streamZaps';
   import { keepHigherTally } from '$lib/streams/tallyDisplay';
   import { zapReceiptRelayUrls } from '$lib/nip65Routing';
   import { userPublickey } from '$lib/nostr';
@@ -47,6 +43,8 @@
   let tally: StreamZapTally | null = null;
   let tallyLoading = false;
   let tallyKey: string | null = null;
+  /** The note a scan is running (or ran) for, claimed before any await. */
+  let tallyFor: string | null = null;
   let scanAbort: AbortController | null = null;
   let tallyTimer: ReturnType<typeof setInterval> | null = null;
   $: topZappers = tally
@@ -61,18 +59,19 @@
     scanAbort = new AbortController();
     const signal = scanAbort.signal;
     tallyLoading = true;
-    // Claimed before any await: the 5 s session poll checks it, and a key
-    // set only after the relay lookup let every poll restart the scan, so
-    // the total never finished.
-    if (tallyKey !== noteId) tally = null;
-    tallyKey = noteId;
+    // Claimed before any await: the 5 s session poll checks it, so it does
+    // not restart the scan on every poll.
+    tallyFor = noteId;
     // Fresh receipts for our own zaps land on the zap request's relays.
     const extraRelays = await zapReceiptRelayUrls(get(userPublickey) || undefined, host).catch(
       () => []
     );
+    // Superseded (another session, or a newer scan): touch nothing shared.
     if (signal.aborted) return;
-    tally = keepHigherTally(tally, await fetchStreamZapTally(noteId, extraRelays));
-    if (signal.aborted) return;
+    if (tallyKey !== noteId) tally = null;
+    tallyKey = noteId;
+    // Verified scan only (provider-signed receipts): an unverified quick
+    // pass could inflate the total, and the display never moves down.
     const scan = await scanStreamZapHistory(noteId, host, {
       extraRelays,
       signal,
@@ -146,7 +145,7 @@
     loading = false;
     rebuild();
     void loadHostName(next.host_pubkey);
-    if (next.note_id && tallyKey !== next.note_id) void tallyLoad(next.note_id, next.host_pubkey);
+    if (next.note_id && tallyFor !== next.note_id) void tallyLoad(next.note_id, next.host_pubkey);
     if (recipeChanged) void loadRecipe(next.recipe_a);
     if (next.status === 'ended') stopPolling();
   }
@@ -167,6 +166,7 @@
     scanAbort?.abort();
     tally = null;
     tallyKey = null;
+    tallyFor = null;
     tallyLoading = false;
     notFound = false;
     loading = true;
