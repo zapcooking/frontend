@@ -174,6 +174,8 @@ describe('StreamDirectory views', () => {
           created_at: NOW - 30,
           tags: [
             ['d', 'older-end'],
+            ['title', 'Dinner service'],
+            ['recording', 'https://cdn.example.com/older-end.m3u8'],
             ['status', 'ended'],
             ['ends', String(NOW - 600)]
           ]
@@ -188,6 +190,8 @@ describe('StreamDirectory views', () => {
           created_at: NOW - 40,
           tags: [
             ['d', 'newer-end'],
+            ['title', 'Dinner service'],
+            ['recording', 'https://cdn.example.com/newer-end.m3u8'],
             ['status', 'ended'],
             ['ends', String(NOW - 100)]
           ]
@@ -199,5 +203,20 @@ describe('StreamDirectory views', () => {
     const past = directory.past();
     expect(past.length).toBe(2);
     expect(past[0].ends).toBe(NOW - 100);
+  });
+
+  it('leaves test runs and empty shells out of past', () => {
+    const directory = new StreamDirectory();
+    const ended = (d: string, extra: string[][]) =>
+      announcement(
+        { created_at: NOW - 30, tags: [['d', d], ['status', 'ended'], ...extra] },
+        []
+      );
+    directory.accept(ended('real', [['title', 'Sunday roast'], ['recording', 'https://cdn.example.com/r.m3u8']]), NOW);
+    directory.accept(ended('test-a', [['title', 'Test A']]), NOW);
+    directory.accept(ended('canary', [['title', 'Canary stage (automated test)'], ['recording', 'https://cdn.example.com/c.m3u8']]), NOW);
+    directory.accept(ended('shell', [['title', 'Pasta night']]), NOW);
+    directory.accept(ended('untitled', [['image', 'https://cdn.example.com/i.png']]), NOW);
+    expect(directory.past().map((e) => e.title)).toEqual(['Sunday roast']);
   });
 });

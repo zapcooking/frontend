@@ -23,6 +23,8 @@
   import { createStreamPool } from '$lib/streams/relayPage';
   import { fetchChatProfiles, type ChatProfile } from '$lib/streams/chat';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
+  import { pickThumb } from '$lib/streams/thumb';
+  import ImageBrokenIcon from 'phosphor-svelte/lib/ImageBroken';
   import type { NostrEventLike, StreamItem } from '$lib/streams/types';
   import { get } from 'svelte/store';
   import { ndk } from '$lib/nostr';
@@ -90,6 +92,14 @@
         })
         .catch(() => {});
     }
+  }
+
+  // Image URLs that failed to load. Reassigned (not mutated) so the cards
+  // re-render and move on to the next candidate or the placeholder tile.
+  let failedThumbs = new Set<string>();
+  function markThumbFailed(url: string | null) {
+    if (!url || failedThumbs.has(url)) return;
+    failedThumbs = new Set(failedThumbs).add(url);
   }
 
   function hostName(pubkey: string): string {
@@ -210,23 +220,36 @@
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {#each items as item (item.key)}
         {@const href = link(item)}
-        {@const thumb = item.thumb || item.image}
+        {@const thumb = pickThumb(item, failedThumbs)}
         <a
           href={href || '#'}
           class="group overflow-hidden rounded-xl border transition-colors"
           style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
         >
           <div class="relative aspect-video w-full overflow-hidden bg-zinc-200 dark:bg-zinc-800">
-            {#if thumb}
+            {#if thumb.url}
               <img
-                src={thumb}
-                alt={item.title}
+                src={thumb.url}
+                alt=""
                 loading="lazy"
                 class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                on:error={() => markThumbFailed(thumb.url)}
               />
             {:else if isGoLiveItem(item)}
-              <!-- No recipe photo: the branded picture, with the host in the corner. -->
+              <!-- No recipe photo (or it failed to load): the branded picture,
+                   with the host in the corner. -->
               <LiveFallbackArt host={item.host} hostName={hostName(item.host)} />
+            {:else if thumb.broken}
+              <!-- Every image the announcement named failed to load. -->
+              <div
+                class="flex h-full w-full flex-col items-center justify-center gap-1.5"
+                style="color: var(--color-caption);"
+                role="img"
+                aria-label="Image unavailable"
+              >
+                <ImageBrokenIcon size={28} />
+                <span class="text-xs">Image unavailable</span>
+              </div>
             {/if}
             <span
               class="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide
