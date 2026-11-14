@@ -45,6 +45,7 @@
     detectPlatform,
     hasConfirmedAge,
     isConstraintFailure,
+    liveDurationLine,
     loadStoredSession,
     mediaHelp,
     readRecipeHandoff,
@@ -55,6 +56,7 @@
     type MediaHelp
   } from '$lib/live/host/hostDevice';
   import { LIVE_DEFAULT_TITLE, liveStreamName } from '$lib/live/streamName';
+  import { fetchSession } from '$lib/streams/goLive';
   import CameraRotateIcon from 'phosphor-svelte/lib/CameraRotate';
   import LinkSimpleIcon from 'phosphor-svelte/lib/LinkSimple';
   import CheckIcon from 'phosphor-svelte/lib/Check';
@@ -104,6 +106,10 @@
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let wakeLock: { release(): Promise<void> } | null = null;
   let startedAt = 0;
+  /** Whether this page ever had a connected broadcast (for the ended screen). */
+  let everLive = false;
+  /** "You were live for …" on the ended screen. */
+  let liveLine: string | null = null;
   let elapsed = '0:00';
   let clockTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -472,6 +478,7 @@
     conn.addEventListener('connectionstatechange', () => {
       if (pc !== conn || !policy) return; // an older connection
       if (conn.connectionState === 'connected') {
+        everLive = true;
         policy.connected();
         phase = 'live';
       } else if (conn.connectionState === 'disconnected') {
@@ -614,8 +621,18 @@
     phase = 'ended';
     endedMessage = message;
     const closing = session;
+    // This page's own clock first; the server's start time (which also
+    // covers a stream resumed after a reload) replaces it when it arrives.
+    liveLine = everLive && startedAt ? liveDurationLine((Date.now() - startedAt) / 1000) : null;
     teardown(true);
     if (tellServer && closing) await endLiveSession(closing);
+    if (closing) {
+      const read = await fetchSession(closing.id);
+      if (read?.started_at) {
+        const end = read.ended_at ?? Math.floor(Date.now() / 1000);
+        liveLine = liveDurationLine(end - read.started_at);
+      }
+    }
   }
 
   /** Stop everything local: timers, connection, camera, wake lock. */
@@ -688,7 +705,8 @@
   {:else if phase === 'ended'}
     <div class="ended" role="status">
       <h1>{endedMessage}</h1>
-      <button class="btn" on:click={leave}>Done</button>
+      {#if liveLine}<p class="muted">{liveLine}</p>{/if}
+      <button class="btn done" on:click={leave}>Done</button>
     </div>
   {:else}
     <!-- Kept in the page (the video element must exist when the camera
@@ -1075,9 +1093,17 @@
     gap: 0.4rem;
     font-size: 0.9375rem;
   }
-  .ended {
-    align-items: flex-start;
-    padding: 2rem 0;
+  /* Centered, with ordinary page padding on every width. Declared with the
+     padding here (not in the phone rule above) so nothing overrides it. */
+  .live-host .ended {
+    align-items: center;
+    text-align: center;
+    gap: 0.5rem;
+    padding: 3rem 1rem;
+  }
+  .ended .done {
+    margin-top: 1rem;
+    min-width: 9rem;
   }
   .field {
     display: flex;

@@ -266,3 +266,20 @@ export function readRecipeHandoff(
   const title = (params.get('title') ?? '').trim().slice(0, 120);
   return { recipeA: a, title: title || LIVE_DEFAULT_TITLE };
 }
+
+/**
+ * "You were live for …" on the host's ended screen. Whole minutes, with
+ * hours once past an hour. Null when there is nothing sensible to say
+ * (never went live, or a clock problem).
+ */
+export function liveDurationLine(seconds: number | null): string | null {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return null;
+  if (seconds < 60) return 'You were live for less than a minute';
+  const total = Math.floor(seconds / 60);
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  const m = (n: number) => `${n} minute${n === 1 ? '' : 's'}`;
+  const h = (n: number) => `${n} hour${n === 1 ? '' : 's'}`;
+  if (hours === 0) return `You were live for ${m(minutes)}`;
+  return `You were live for ${h(hours)}${minutes ? ` ${m(minutes)}` : ''}`;
+}
