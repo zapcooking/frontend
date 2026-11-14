@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { addressPath } from '$lib/nip19Input';
+  import { routeForLoadedAddress } from '$lib/addressRoute';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { ndk } from '$lib/nostr';
@@ -76,6 +78,16 @@
         }
         const b = a.data;
 
+        // An naddr of some other kind (a live stream, a pack…) belongs on its
+        // own page; this one only ever asks relays for recipe kinds, so it
+        // could only report "not found". Replace the history entry so Back
+        // does not land on a redirect.
+        const elsewhere = addressPath(b.kind, slug);
+        if (!elsewhere.startsWith('/recipe/')) {
+          goto(elsewhere, { replaceState: true });
+          return;
+        }
+
         // Support both regular recipes (30023) and premium recipes (35000)
         const recipeKind = b.kind === GATED_RECIPE_KIND ? GATED_RECIPE_KIND : 30023;
 
@@ -106,6 +118,13 @@
         );
         if ($page.params.slug !== slug) return;
         if (e) {
+          // Kind 30023 is a recipe or an article. An article opened here (a
+          // pasted link, a search hit) moves to the reader page.
+          const moved = routeForLoadedAddress(e);
+          if (moved) {
+            goto(moved, { replaceState: true });
+            return;
+          }
           event = e;
           loading = false;
         } else {

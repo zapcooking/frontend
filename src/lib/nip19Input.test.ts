@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { nip19 } from 'nostr-tools';
 import { isSecretKeyInput, parseNip19Input, stripNostrPrefix } from './nip19Input';
 
 // Real identifiers: a kind-1 nevent, its author's npub, and an naddr.
@@ -71,5 +72,33 @@ describe('parseNip19Input', () => {
     expect(isSecretKeyInput(nsec.slice(0, 20))).toBe(true);
     // Hex is intentionally not treated as a secret.
     expect(isSecretKeyInput('a'.repeat(64))).toBe(false);
+  });
+});
+
+describe('addressPath / naddr routing by kind', () => {
+  const PUBKEY = '85df822a86599ffbe8143db1e1e1bf2d162fa60fc685c65515963e67cfd7499f';
+  const naddr = (kind: number) =>
+    nip19.naddrEncode({ kind, pubkey: PUBKEY, identifier: 'c7f91f12', relays: ['wss://relay.damus.io/'] });
+
+  it('sends a live stream to /live', () => {
+    const id = naddr(30311);
+    expect(parseNip19Input(id)).toEqual({ kind: 'address', id, path: `/live/${id}` });
+    expect(parseNip19Input(`nostr:${id}`)?.path).toBe(`/live/${id}`);
+  });
+
+  it('sends the pasted live-stream naddr from the bug report to /live', () => {
+    const id =
+      'naddr1qqjxxdmx8yckvvfj95exxd3c956xzdtr943xzenx95unqve5vvergc35vgen2qg4waehxw309aex2mrp0yhxgctdw4eju6t09upzppwlsg4gvkvll05pg0d3u8sm7tgk97nql359ce23t937vl8awjvlqvzqqqrkvu5tdvle';
+    expect(parseNip19Input(id)?.path).toBe(`/live/${id}`);
+  });
+
+  it('sends packs and cookbooks to their own pages', () => {
+    expect(parseNip19Input(naddr(30004))?.path).toBe(`/pack/${naddr(30004)}`);
+    expect(parseNip19Input(naddr(30001))?.path).toBe(`/my-kitchen/${naddr(30001)}`);
+  });
+
+  it('keeps recipes (and 30023, which the recipe page sorts out) on /recipe', () => {
+    expect(parseNip19Input(naddr(30023))?.path).toBe(`/recipe/${naddr(30023)}`);
+    expect(parseNip19Input(naddr(35000))?.path).toBe(`/recipe/${naddr(35000)}`);
   });
 });

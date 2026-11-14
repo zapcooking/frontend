@@ -10,7 +10,7 @@
    * playing. Moving a node within the document does not interrupt playback
    * or close picture-in-picture — which is exactly the point.
    */
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
@@ -29,6 +29,132 @@
   let container: HTMLElement | null = null;
   let dockWrapper: HTMLElement | null = null;
   let miniSlot: HTMLElement | null = null;
+
+  // ── Drag to reposition ────────────────────────────────────────────────
+  // The mini player starts in a CSS corner. Dragging it (by anything that is
+  // not a button) pins it to a viewport position instead, clamped on screen
+  // and remembered. A small movement threshold keeps taps on the video
+  // working as play/pause.
+  const POS_KEY = 'zc.streamDock.pos';
+  const DRAG_THRESHOLD_PX = 8;
+  const EDGE_PX = 8;
+  let pos: { x: number; y: number } | null = null;
+  let dragging = false;
+  let drag: {
+    id: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null = null;
+  let swallowClick = false;
+
+  const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), Math.max(lo, hi));
+
+  function clampToViewport(x: number, y: number) {
+    const rect = dockWrapper?.getBoundingClientRect();
+    const w = rect?.width ?? 0;
+    const h = rect?.height ?? 0;
+    return {
+      x: clamp(x, EDGE_PX, window.innerWidth - w - EDGE_PX),
+      y: clamp(y, EDGE_PX, window.innerHeight - h - EDGE_PX)
+    };
+  }
+
+  function onDragStart(event: PointerEvent) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    // Buttons keep their own behavior (expand, stop, mute, PiP, full screen…)
+    // — except the title, which fills the header bar and is where a drag
+    // naturally starts. A drag from it never counts as its click.
+    const control = (event.target as HTMLElement | null)?.closest('button, a, input, textarea');
+    if (control && !control.hasAttribute('data-drag-handle')) return;
+    const rect = dockWrapper?.getBoundingClientRect();
+    if (!rect) return;
+    drag = {
+      id: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: rect.left,
+      originY: rect.top,
+      moved: false
+    };
+    // Move/up are listened for on the window for the length of the drag: a
+    // quick mouse drag outruns the dock, so its first pointermove would
+    // otherwise land on whatever is beside it and never arrive. (Capturing
+    // the pointer instead would retarget clicks away from the buttons
+    // inside the dock.)
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragEnd);
+    window.addEventListener('pointercancel', onDragEnd);
+  }
+
+  function onDragMove(event: PointerEvent) {
+    if (!drag || event.pointerId !== drag.id) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.moved) {
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+      dragging = true;
+    }
+    pos = clampToViewport(drag.originX + dx, drag.originY + dy);
+  }
+
+  function stopDragListening() {
+    window.removeEventListener('pointermove', onDragMove);
+    window.removeEventListener('pointerup', onDragEnd);
+    window.removeEventListener('pointercancel', onDragEnd);
+  }
+
+  function onDragEnd(event: PointerEvent) {
+    if (!drag || event.pointerId !== drag.id) return;
+    stopDragListening();
+    if (drag.moved) {
+      swallowClick = true; // the click that ends a drag is not a tap
+      setTimeout(() => (swallowClick = false), 0);
+      try {
+        localStorage.setItem(POS_KEY, JSON.stringify(pos));
+      } catch {
+        // Private mode / full storage: the position just is not remembered.
+      }
+    }
+    drag = null;
+    dragging = false;
+  }
+
+  function onClickCapture(event: MouseEvent) {
+    if (!swallowClick) return;
+    event.stopPropagation();
+    event.preventDefault();
+    swallowClick = false;
+  }
+
+  /** Keep a pinned position on screen across resize / rotation / dock size changes. */
+  function reclamp() {
+    if (!pos || !dockWrapper) return;
+    const next = clampToViewport(pos.x, pos.y);
+    if (next.x !== pos.x || next.y !== pos.y) pos = next;
+  }
+
+  onMount(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) pos = saved;
+    } catch {
+      // Unreadable value: keep the default corner.
+    }
+    window.addEventListener('resize', reclamp);
+    return () => {
+      window.removeEventListener('resize', reclamp);
+      stopDragListening();
+    };
+  });
+
+  // The wrapper is hidden until a stream plays; clamp once it has a size.
+  $: if (browser && pos && dockWrapper && $streamPlayer.item && !slotted && playing) {
+    tick().then(reclamp);
+  }
 
   $: playing = browser && !!$streamPlayer.item && $streamPlayer.surface === 'dock';
   // Slotted while the stream page's slot exists; floating corner otherwise.
@@ -130,19 +256,30 @@
 {#if browser}
   <!-- Floating corner the container returns to when no page slot holds it.
        Wide screens dock it bottom-left, away from the page's right-side rail. -->
+  <!-- Pointer drag + a capture-phase click guard; every control inside stays a real button. -->
+  <!-- svelte-ignore a11y-no-static-element-interactions a11y-click-events-have-key-events -->
   <div
     bind:this={dockWrapper}
     class="fixed bottom-20 right-3 z-40 w-72 sm:bottom-6 sm:right-6 sm:w-80 xl:bottom-6 xl:left-6 xl:right-auto {$streamPlayer.item &&
     !slotted &&
     playing
       ? 'block'
-      : 'hidden'}"
+      : 'hidden'} {dragging ? 'cursor-grabbing select-none' : ''}"
+    style="touch-action: none;{pos
+      ? ` left:${pos.x}px; top:${pos.y}px; right:auto; bottom:auto;`
+      : ''}"
+    on:pointerdown={onDragStart}
+    on:click|capture={onClickCapture}
   >
     {#if $streamPlayer.item && !slotted && playing}
-      <div class="flex items-center justify-between gap-2 rounded-t-xl bg-black/90 px-2 py-1.5">
+      <div
+        class="flex cursor-grab items-center justify-between gap-2 rounded-t-xl bg-black/90 px-2 py-1.5 active:cursor-grabbing"
+        title="Drag to move"
+      >
         <button
           type="button"
           class="min-w-0 flex-1 truncate text-left text-xs font-medium text-white hover:underline"
+          data-drag-handle
           on:click={openStreamPage}
           title={$streamPlayer.item.title}
         >

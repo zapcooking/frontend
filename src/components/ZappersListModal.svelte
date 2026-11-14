@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { ndk } from '$lib/nostr';
   import type { NDKUser } from '@nostr-dev-kit/ndk';
   import type { Zapper } from '$lib/engagementCache';
@@ -103,7 +104,7 @@
 
   function handleZapperClick(pubkey: string) {
     // Navigate to user profile
-    window.location.href = `/user/${pubkey}`;
+    goto(`/user/${pubkey}`);
   }
 
   // Format timestamp safely - convert from seconds to milliseconds
