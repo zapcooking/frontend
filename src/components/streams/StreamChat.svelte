@@ -35,6 +35,7 @@
   } from '$lib/streams/chat';
   import { pseudonym } from '$lib/streams/parse';
   import { mentionedPubkeys, tokenizeChatText, type ChatSegment } from '$lib/streams/chatText';
+  import { dayDividerLabel, formatChatTime, isBeforeToday } from '$lib/streams/chatTime';
   import { DISCOVERY_RELAYS, RECEIPT_RELAYS } from '$lib/streams/relays';
   import { resolveAuthorPubkey, zapReceiptRelayUrls } from '$lib/nip65Routing';
   import type { NostrEventLike, StreamItem } from '$lib/streams/types';
@@ -511,8 +512,24 @@
         No messages yet. Say something!
       </p>
     {/if}
-    {#each rows as row (row.event.id)}
+    {#each rows as row, index (row.event.id)}
       {@const event = row.event}
+      {@const divider = dayDividerLabel(
+        index === 0 ? null : rows[index - 1].event.created_at,
+        event.created_at
+      )}
+      {#if divider}
+        <div
+          class="my-2 flex items-center gap-2 text-[11px]"
+          style="color: var(--color-caption);"
+          role="separator"
+          aria-label={divider}
+        >
+          <span class="h-px flex-1" style="background-color: var(--color-input-border);"></span>
+          <span>{divider}</span>
+          <span class="h-px flex-1" style="background-color: var(--color-input-border);"></span>
+        </div>
+      {/if}
       {#if event.kind === 9735}
         <!-- Inline zap receipt, the way Sidecar interleaves them. -->
         <article class="my-1 rounded-lg bg-amber-500/10 px-2 py-1.5">
@@ -525,6 +542,9 @@
             <span class="font-semibold text-amber-500">
               ⚡ {(row.sats || 0).toLocaleString()} sats
             </span>
+            {#if isBeforeToday(event.created_at)}
+              <span style="color: var(--color-caption);">{formatChatTime(event.created_at)}</span>
+            {/if}
           </p>
           {#if row.comment}
             <p class="mt-0.5 text-sm leading-snug break-words" dir="auto">{#each segmentsOf(row.comment) as segment}{#if segment.type === 'mention'}<button type="button" class="chat-mention" title={displayName(segment.pubkey)} on:click={() => openProfilePreview(segment.pubkey)}>@{displayName(segment.pubkey)}</button>{:else if segment.type === 'link'}<a class="chat-link" href={segment.href} target="_blank" rel="noopener noreferrer nofollow ugc">{segment.text}</a>{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}>{segment.text}</a>{:else}{segment.text}{/if}{/each}</p>
@@ -566,10 +586,7 @@
                   title={displayName(event.pubkey)}>{displayName(event.pubkey)}</span
                 >
                 <span style="color: var(--color-caption);">
-                  {new Date(event.created_at * 1000).toLocaleTimeString([], {
-                    hour: 'numeric',
-                    minute: '2-digit'
-                  })}
+                  {formatChatTime(event.created_at)}
                 </span>
               </p>
               <p class="text-sm leading-snug break-words" dir="auto">{#each segmentsOf(event.content) as segment}{#if segment.type === 'mention'}<button type="button" class="chat-mention" title={displayName(segment.pubkey)} on:click={() => openProfilePreview(segment.pubkey)}>@{displayName(segment.pubkey)}</button>{:else if segment.type === 'link'}<a class="chat-link" href={segment.href} target="_blank" rel="noopener noreferrer nofollow ugc">{segment.text}</a>{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}>{segment.text}</a>{:else}{segment.text}{/if}{/each}</p>
