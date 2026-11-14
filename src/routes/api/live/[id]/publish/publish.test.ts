@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools';
 import { normalizeUrl, sha256Hex } from '$lib/nip98';
-import { createLiveDatabase } from '../../../../../test/liveDatabase';
+import { approveHosts, createLiveDatabase } from '../../../../../test/liveDatabase';
 
 const mocks = vi.hoisted(() => ({
   checkMembership: vi.fn()
@@ -232,6 +232,7 @@ function expectNoLeak(res: Response, text: string) {
 
 beforeEach(() => {
   db = createLiveDatabase();
+  approveHosts(db, HOST);
   platformEnv = {
     SCHEDULER_DB: db,
     MEMBERSHIP_ENABLED: 'true',

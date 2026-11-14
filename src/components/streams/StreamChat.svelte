@@ -933,8 +933,6 @@
 {#if noteChat && item.sessionId}
   <LiveReport
     sessionId={item.sessionId}
-    hostPubkey={item.host}
-    title={item.title}
     comment={reportComment}
     trigger={false}
     bind:open={reportOpen}

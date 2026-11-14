@@ -1,10 +1,15 @@
 /**
  * Go live (live cook-alongs) — configuration shared by client and server.
  *
- * Who may host: any active member (Cook+) who is not blocked from
- * hosting by the admin. The server decides, after NIP-98, with the
- * tri-state membership check (an outage is "try again", never "not a
- * member") and the live_blocked_hosts table. On the client,
+ * Who may host, decided by the server after NIP-98:
+ *  - an active member (Cook+; the tri-state check, where an outage is
+ *    "try again", never "not a member"),
+ *  - not blocked by the admin (live_blocked_hosts), not under a
+ *    temporary safety suspension (live_host_suspensions),
+ *  - and, while the hosting mode is "approved" (the default), on the
+ *    approved-hosts list (live_approved_hosts). In "members" mode the
+ *    list is not consulted.
+ * The mode is switched from /admin/live, with no deploy. On the client,
  * `goLiveAccess` only decides how the Go live controls LOOK.
  */
 import type { MembershipStatus } from '$lib/stores/membershipStatus';
@@ -48,12 +53,66 @@ export function parseMaxOpenSessions(value: string | undefined): number {
   return cap >= 1 && cap <= LIVE_MAX_OPEN_SESSIONS_MAX ? cap : LIVE_MAX_OPEN_SESSIONS_DEFAULT;
 }
 
+// ── Staged rollout ───────────────────────────────────────────────────
+
+/**
+ * Who may host:
+ *   approved  only accounts on the approved-hosts list (the default)
+ *   members   any active member
+ */
+export type LiveHostingMode = 'approved' | 'members';
+
+/** KV key (GATED_CONTENT) of the hosting mode. Anything but 'members' reads as 'approved'. */
+export const LIVE_HOSTING_MODE_KEY = 'live:hosting_mode';
+
+export function parseHostingMode(value: unknown): LiveHostingMode {
+  return value === 'members' ? 'members' : 'approved';
+}
+
+/** One "Request access" DM per account in this many seconds. */
+export const LIVE_ACCESS_REQUEST_THROTTLE_SECONDS = 24 * 60 * 60;
+
+// ── Reports and safety ───────────────────────────────────────────────
+
+/** Reasons a stream or a comment can be reported for. */
+export const LIVE_REPORT_REASONS = [
+  'child_safety',
+  'nudity',
+  'violence',
+  'spam',
+  'other'
+] as const;
+export type LiveReportReason = (typeof LIVE_REPORT_REASONS)[number];
+
+export function isLiveReportReason(value: unknown): value is LiveReportReason {
+  return typeof value === 'string' && (LIVE_REPORT_REASONS as readonly string[]).includes(value);
+}
+
+/** Reasons that alert the admin every time, never throttled. */
+export const LIVE_URGENT_REASONS: readonly LiveReportReason[] = ['child_safety', 'violence'];
+
+/** Longest note a reporter may add. */
+export const LIVE_REPORT_DETAILS_MAX = 300;
+
 /**
  * The admin is DM'd about a reported session at most once in this many
- * seconds, so a burst of reports is one message. A child-safety report is
- * never held back by it.
+ * seconds, so a burst of reports is one message. An urgent report
+ * (child safety, violence) is never held back by it.
  */
 export const LIVE_REPORT_ALERT_THROTTLE_SECONDS = 10 * 60;
+
+/**
+ * Automatic stream end (only when LIVE_SAFETY_AUTO_END is 'true'): this
+ * many distinct reporters of the STREAM (not of comments) end it and
+ * suspend the host for LIVE_AUTO_END_SUSPENSION_SECONDS. A reporter is a
+ * daily-salted IP hash, not a verified person, so this stays off until
+ * it has been proven.
+ */
+export const LIVE_AUTO_END_THRESHOLD = 3;
+export const LIVE_AUTO_END_SUSPENSION_SECONDS = 60 * 60;
+
+/** Reports (and released holds) are deleted this long after the report, unless a hold is open. */
+export const LIVE_REPORT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 
 /** Longest session title, in characters, after trimming. */
 export const LIVE_TITLE_MAX = 120;

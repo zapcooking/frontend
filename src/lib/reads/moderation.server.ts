@@ -54,8 +54,6 @@ export interface ReadsReviewLog {
 	eventId: string;
 	pubkey: string;
 	naddr: string;
-	/** Go live session id (32 hex) when the report is about a live stream or its comment. */
-	liveSession?: string;
 	matchedTerm?: string;
 	field?: string;
 	reason?: string;
@@ -238,13 +236,11 @@ function sanitizeLog(input: Partial<ReadsReviewLog>, ipHash: string): ReadsRevie
 	if (naddr && !isNaddr(naddr)) return null;
 
 	const kind: ReadsReviewKind = input.kind === 'report' ? 'report' : 'keyword';
-	const liveSession = (input.liveSession || '').trim().toLowerCase();
 	return {
 		kind,
 		eventId,
 		pubkey,
 		naddr,
-		...(/^[0-9a-f]{32}$/.test(liveSession) ? { liveSession } : {}),
 		matchedTerm: typeof input.matchedTerm === 'string' ? input.matchedTerm.slice(0, 64) : undefined,
 		field: typeof input.field === 'string' ? input.field.slice(0, 32) : undefined,
 		reason: typeof input.reason === 'string' ? input.reason.slice(0, 32) : undefined,
@@ -262,10 +258,7 @@ export async function recordReadsReview(
 	const log = sanitizeLog(input, ipHash);
 	if (!log) return { recorded: false };
 
-	// A stream report names no event, so the live session id keeps two
-	// streams by the same host from collapsing into one report.
-	const target = log.eventId || log.naddr || (log.liveSession ? `live:${log.liveSession}` : log.pubkey);
-	const dedupKey = `${log.kind}:${target}:${log.matchedTerm || log.reason || ''}`;
+	const dedupKey = `${log.kind}:${log.eventId || log.naddr || log.pubkey}:${log.matchedTerm || log.reason || ''}`;
 
 	if (kv) {
 		try {

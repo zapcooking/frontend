@@ -152,4 +152,17 @@ describe('hidden commenters', () => {
       404
     );
   });
+
+  it("logs the admin's hides and unhides, and not a host's own", async () => {
+    await post({ pubkey: TROLL, hidden: true }, hostSk);
+    await post({ pubkey: SPAMMER, hidden: true, scope: 'global' }, adminSk);
+    await post({ pubkey: TROLL, hidden: false }, adminSk);
+    const log = db.raw
+      .prepare('SELECT actor, action, session_id, target_pubkey, detail FROM live_actions ORDER BY rowid')
+      .all();
+    expect(log).toEqual([
+      { actor: keys.admin, action: 'hide', session_id: ID, target_pubkey: SPAMMER, detail: 'every Go live chat' },
+      { actor: keys.admin, action: 'unhide', session_id: ID, target_pubkey: TROLL, detail: "this host's chats" }
+    ]);
+  });
 });

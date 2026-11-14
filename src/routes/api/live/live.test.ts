@@ -11,7 +11,9 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools';
 import { normalizeUrl, sha256Hex } from '$lib/nip98';
-import { createLiveDatabase } from '../../../test/liveDatabase';
+import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { approveHosts, createLiveDatabase } from '../../../test/liveDatabase';
+import { createKvFake } from '../../../test/liveStreamStub';
 
 const mocks = vi.hoisted(() => ({
   checkMembership: vi.fn()
@@ -131,6 +133,7 @@ const rowCount = () => db.raw.prepare('SELECT COUNT(*) AS c FROM live_sessions')
 
 beforeEach(() => {
   db = createLiveDatabase();
+  approveHosts(db, HOST, OTHER);
   platformEnv = { SCHEDULER_DB: db, MEMBERSHIP_ENABLED: 'true', RELAY_API_SECRET: 'relay-secret' };
   mocks.checkMembership.mockReset().mockResolvedValue({ state: 'active', found: true });
 });
@@ -184,39 +187,64 @@ describe('migration 0005', () => {
 });
 
 describe('migration 0007', () => {
-  const sql = readFileSync('migrations/scheduler/0007_add_live_host_blocks_and_holds.sql', 'utf8')
+  const sql = readFileSync('migrations/scheduler/0007_live_rollout_and_safety.sql', 'utf8')
     .split('\n')
     .filter((line) => !line.trim().startsWith('--'))
     .join('\n');
 
-  it('only creates live_blocked_hosts and adds a nullable report_hold_at', () => {
-    expect(sql).not.toMatch(/\b(DROP|DELETE|UPDATE|INSERT|REPLACE)\b/i);
-    expect([...sql.matchAll(/CREATE\s+TABLE\s+(\w+)/gi)].map((m) => m[1])).toEqual([
-      'live_blocked_hosts'
+  it('only creates live_ tables and indexes, plus the one seed row', () => {
+    expect(sql).not.toMatch(/\b(ALTER|DROP|DELETE|UPDATE|REPLACE)\b/i);
+    expect(sql).not.toMatch(/\bREFERENCES\b/i);
+    const tables = [...sql.matchAll(/CREATE\s+TABLE\s+(\w+)/gi)].map((m) => m[1]);
+    expect(tables.sort()).toEqual(
+      [
+        'live_actions',
+        'live_approved_hosts',
+        'live_blocked_hosts',
+        'live_holds',
+        'live_host_suspensions',
+        'live_reports'
+      ].sort()
+    );
+    const indexes = [...sql.matchAll(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(\w+)/gi)].map((m) => m[1]);
+    for (const name of indexes) expect(name.startsWith('live_')).toBe(true);
+    expect([...sql.matchAll(/INSERT\s+INTO\s+(\w+)/gi)].map((m) => m[1])).toEqual([
+      'live_approved_hosts'
     ]);
-    expect([...sql.matchAll(/ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\s+(\w+)/gi)].map((m) =>
-      m.slice(1).join(' ')
-    )).toEqual(['live_sessions report_hold_at INTEGER']);
-    expect(sql).not.toMatch(/NOT NULL DEFAULT|report_hold_at INTEGER NOT NULL/i);
   });
 
-  it('leaves rows created before it unheld', () => {
-    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
-    const old = new DatabaseSync(':memory:');
-    for (const f of [
-      '0004_create_live_sessions.sql',
-      '0005_add_live_pass_rejoins.sql',
-      '0006_add_live_note_id.sql'
-    ]) {
-      old.exec(readFileSync(`migrations/scheduler/${f}`, 'utf8'));
-    }
-    old
-      .prepare(
-        "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, created_at) VALUES ('a', 'b', 't', 'h', 1)"
-      )
-      .run();
-    old.exec(readFileSync('migrations/scheduler/0007_add_live_host_blocks_and_holds.sql', 'utf8'));
-    expect(old.prepare('SELECT report_hold_at FROM live_sessions').get().report_hold_at).toBeNull();
+  it('seeds the approved list with the admin key only', () => {
+    const rows = db.raw.prepare('SELECT pubkey, added_by FROM live_approved_hosts').all();
+    expect(rows).toContainEqual({ pubkey: ADMIN_PUBKEY, added_by: 'migration' });
+    // (beforeEach approves this file's test hosts on top of the seed)
+    const fresh = createLiveDatabase();
+    expect(fresh.raw.prepare('SELECT pubkey FROM live_approved_hosts').all()).toEqual([
+      { pubkey: ADMIN_PUBKEY }
+    ]);
+  });
+
+  it('allows one report per reporter per target (the stream, or each comment)', () => {
+    const ins = (comment: string | null) =>
+      db.raw
+        .prepare(
+          "INSERT OR IGNORE INTO live_reports (id, session_id, reporter_hash, reason, comment_id, created_at) VALUES (?, 's', 'h', 'spam', ?, 1)"
+        )
+        .run(crypto.randomUUID(), comment).changes;
+    expect(ins(null)).toBe(1);
+    expect(ins(null)).toBe(0);
+    expect(ins('c1')).toBe(1);
+    expect(ins('c1')).toBe(0);
+    expect(ins('c2')).toBe(1);
+  });
+
+  it('refuses an unknown report reason', () => {
+    expect(() =>
+      db.raw
+        .prepare(
+          "INSERT INTO live_reports (id, session_id, reporter_hash, reason, created_at) VALUES ('x', 's', 'h', 'nsfw', 1)"
+        )
+        .run()
+    ).toThrow(/CHECK/);
   });
 });
 
@@ -266,11 +294,56 @@ describe('POST /api/live (create)', () => {
     expect(mocks.checkMembership).not.toHaveBeenCalled();
   });
 
-  it('lets any active member host: there is no host list', async () => {
+  it("'approved' mode (the default): refuses an active member who is not on the list", async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(OTHER);
+    const { res, data } = await create({ title: 'Theirs' }, { secretKey: otherSk });
+    expect(res.status).toBe(403);
+    expect(data).toEqual({ error: 'not_approved' });
+    expect(rowCount()).toBe(0);
+    // An approved member still hosts.
+    expect((await create()).res.status).toBe(201);
+  });
+
+  it("'approved' mode still requires an active membership", async () => {
+    mocks.checkMembership.mockResolvedValue({ state: 'inactive', found: true });
+    expect((await create()).data).toEqual({ error: 'membership_required' });
+  });
+
+  it("'members' mode: any active member hosts, on the list or not", async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(OTHER);
+    const kv = createKvFake();
+    kv.data.set('live:hosting_mode', 'members');
+    platformEnv.GATED_CONTENT = kv;
     const { res, data } = await create({ title: 'Theirs' }, { secretKey: otherSk });
     expect(res.status).toBe(201);
     expect(rowOf(data.id).host_pubkey).toBe(OTHER);
-    expect(mocks.checkMembership).toHaveBeenCalledWith(OTHER, 'relay-secret');
+  });
+
+  it('reads an unknown or unreadable mode as approved', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(OTHER);
+    const kv = createKvFake();
+    kv.data.set('live:hosting_mode', 'everyone');
+    platformEnv.GATED_CONTENT = kv;
+    expect((await create({ title: 'x' }, { secretKey: otherSk })).data).toEqual({
+      error: 'not_approved'
+    });
+    kv.data.set('live:hosting_mode', 'members');
+    kv.failReads = true;
+    expect((await create({ title: 'x' }, { secretKey: otherSk })).data).toEqual({
+      error: 'not_approved'
+    });
+  });
+
+  it('refuses a host under a running safety suspension, and not after it expires', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    db.raw
+      .prepare(
+        "INSERT INTO live_host_suspensions (host_pubkey, suspended_until, reason, session_id) VALUES (?, ?, 'report_threshold', 's')"
+      )
+      .run(HOST, now + 600);
+    expect((await create()).data).toEqual({ error: 'suspended' });
+    db.raw.prepare('UPDATE live_host_suspensions SET suspended_until = ?').run(now - 1);
+    expect((await create()).res.status).toBe(201);
   });
 
   it('refuses a blocked host with 403 blocked and inserts nothing', async () => {
@@ -543,9 +616,9 @@ describe('POST /api/live (create)', () => {
 
 describe('createSession', () => {
   it('reports already_active only for the one-active-session index', async () => {
-    const first = await createSession(db, { hostPubkey: HOST, title: 'One', recipeA: null });
+    const first = await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'One', recipeA: null });
     expect(first.ok).toBe(true);
-    const second = await createSession(db, { hostPubkey: HOST, title: 'Two', recipeA: null });
+    const second = await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'Two', recipeA: null });
     expect(second).toEqual({ ok: false, reason: 'already_active' });
   });
 
@@ -556,10 +629,10 @@ describe('createSession', () => {
       return buf;
     });
     try {
-      const first = await createSession(db, { hostPubkey: HOST, title: 'One', recipeA: null });
+      const first = await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'One', recipeA: null });
       expect(first.ok).toBe(true);
       await expect(
-        createSession(db, { hostPubkey: OTHER, title: 'Two', recipeA: null })
+        createSession(db, { mode: 'members', hostPubkey: OTHER, title: 'Two', recipeA: null })
       ).rejects.toThrow(/UNIQUE constraint failed: live_sessions\.id/);
     } finally {
       spy.mockRestore();
@@ -569,7 +642,7 @@ describe('createSession', () => {
 
   it('rethrows any other constraint error', async () => {
     await expect(
-      createSession(db, { hostPubkey: HOST, title: null as any, recipeA: null })
+      createSession(db, { mode: 'members', hostPubkey: HOST, title: null as any, recipeA: null })
     ).rejects.toThrow(/NOT NULL constraint failed: live_sessions\.title/);
     expect(rowCount()).toBe(0);
   });
@@ -581,7 +654,7 @@ describe('createSession', () => {
     const now = nowSec();
     for (let i = 0; i < 6; i++) insert.run(`${i}`.repeat(32), HOST, now - 60 * (i + 1));
     expect(
-      await createSession(db, { hostPubkey: HOST, title: 'Seventh', recipeA: null, now })
+      await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'Seventh', recipeA: null, now })
     ).toEqual({
       ok: false,
       reason: 'rate_limited'
@@ -589,11 +662,11 @@ describe('createSession', () => {
     expect(rowCount()).toBe(6);
     // Another host is unaffected, and the window slides.
     expect(
-      (await createSession(db, { hostPubkey: OTHER, title: 'Other', recipeA: null, now })).ok
+      (await createSession(db, { mode: 'members', hostPubkey: OTHER, title: 'Other', recipeA: null, now })).ok
     ).toBe(true);
     expect(
       (
-        await createSession(db, {
+        await createSession(db, { mode: 'members',
           hostPubkey: HOST,
           title: 'Later',
           recipeA: null,
@@ -612,11 +685,11 @@ describe('createSession', () => {
     const now = nowSec();
     for (let i = 0; i < 5; i++) insert.run(`${i}`.repeat(32), HOST, now - 60 * (i + 1));
 
-    const sixth = await createSession(db, { hostPubkey: HOST, title: 'Sixth', recipeA: null, now });
+    const sixth = await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'Sixth', recipeA: null, now });
     expect(sixth.ok).toBe(true);
     // The host ends it before the second create's insert runs.
     if (sixth.ok) await endSession(db, sixth.session.id, 'host', now);
-    const seventh = await createSession(db, {
+    const seventh = await createSession(db, { mode: 'members',
       hostPubkey: HOST,
       title: 'Seventh',
       recipeA: null,
@@ -627,7 +700,7 @@ describe('createSession', () => {
   });
 
   it('reports already_active, not rate_limited, when both would apply below the limit', async () => {
-    const first = await createSession(db, {
+    const first = await createSession(db, { mode: 'members',
       hostPubkey: HOST,
       title: 'One',
       recipeA: null,
@@ -635,7 +708,7 @@ describe('createSession', () => {
     });
     expect(first.ok).toBe(true);
     expect(
-      await createSession(db, { hostPubkey: HOST, title: 'Two', recipeA: null, maxPerHour: 2 })
+      await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'Two', recipeA: null, maxPerHour: 2 })
     ).toEqual({
       ok: false,
       reason: 'already_active'
@@ -1015,6 +1088,7 @@ describe('GET /api/live (list)', () => {
 
   it('lists live sessions only, newest first, in the public shape', async () => {
     const thirdHostSk = generateSecretKey();
+    approveHosts(db, getPublicKey(thirdHostSk));
     const a = await create({ title: 'Older' });
     const b = await create({ title: 'Newer' }, { secretKey: otherSk });
     const c = await create({ title: 'Not started' }, { secretKey: thirdHostSk });

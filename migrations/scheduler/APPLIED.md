@@ -14,7 +14,7 @@ again.
 | `0004_create_live_sessions.sql` | 2026-11-13 (#952) | 2026-11-13 (#952) |
 | `0005_add_live_pass_rejoins.sql` | 2026-11-14 (#967) | 2026-11-14 (#967) |
 | `0006_add_live_note_id.sql` | 2026-11-14 (#974) | 2026-11-14 (#974) |
-| `0007_add_live_host_blocks_and_holds.sql` | **not applied** — required before this branch's preview is gated | **not applied** — required before the open-hosting PR deploys |
+| `0007_live_rollout_and_safety.sql` | **not applied** — required before this branch's preview is gated | **not applied** — required before the open-hosting PR deploys |
 
 ## Applying a new migration
 

@@ -47,7 +47,7 @@
       <li>
         <a href="/admin/live">
           <span class="title">Go live</span>
-          <span class="desc">End streams, block or unblock hosts, release report holds.</span>
+          <span class="desc">Hosting rollout, approved hosts, reports and holds, blocks, action log.</span>
         </a>
       </li>
       <li>

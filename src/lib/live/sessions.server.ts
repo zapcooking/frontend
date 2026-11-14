@@ -20,7 +20,8 @@ import {
   LIVE_PUBLISH_LOCK_SECONDS,
   LIVE_RECIPE_D_MAX,
   LIVE_RECIPE_KINDS,
-  LIVE_TITLE_MAX
+  LIVE_TITLE_MAX,
+  type LiveHostingMode
 } from './config';
 
 export type LiveSessionStatus = 'created' | 'live' | 'ended';
@@ -222,15 +223,28 @@ export function isOneActiveViolation(err: unknown): boolean {
 
 export type CreateSessionResult =
   | { ok: true; session: LiveSessionRow; hostToken: string }
-  | { ok: false; reason: 'already_active' | 'rate_limited' | 'blocked' | 'live_full' };
+  | {
+      ok: false;
+      reason:
+        | 'already_active'
+        | 'rate_limited'
+        | 'blocked'
+        | 'not_approved'
+        | 'suspended'
+        | 'live_full';
+    };
 
 /**
  * Insert a new session in status 'created', subject to rules that are all
  * enforced by the database in this ONE statement, so two simultaneous
- * creates cannot both pass a stale answer:
+ * creates (or a create racing an admin change) cannot pass a stale answer:
  *
  *  - Host block. Nothing is inserted for a host in live_blocked_hosts
  *    → `blocked`.
+ *  - Approval. In 'approved' mode the host must be in live_approved_hosts
+ *    → otherwise `not_approved`. In 'members' mode this is skipped.
+ *  - Temporary suspension (an automatic safety end) still running
+ *    → `suspended`.
  *  - Create rate limit. The host must have created fewer than
  *    LIVE_CREATES_PER_HOUR sessions in the last hour (ended ones
  *    included) → otherwise `rate_limited`.
@@ -248,6 +262,7 @@ export async function createSession(
     hostPubkey: string;
     title: string;
     recipeA: string | null;
+    mode: LiveHostingMode;
     now?: number;
     maxPerHour?: number;
     maxOpen?: number;
@@ -266,6 +281,9 @@ export async function createSession(
         `INSERT INTO live_sessions (id, host_pubkey, title, recipe_a, host_token_hash, status, created_at)
          SELECT ?1, ?2, ?3, ?4, ?5, 'created', ?6
           WHERE NOT EXISTS (SELECT 1 FROM live_blocked_hosts WHERE pubkey = ?2)
+            AND (?10 = 'members' OR EXISTS (SELECT 1 FROM live_approved_hosts WHERE pubkey = ?2))
+            AND NOT EXISTS (SELECT 1 FROM live_host_suspensions
+                             WHERE host_pubkey = ?2 AND suspended_until > ?6)
             AND (SELECT COUNT(*) FROM live_sessions
                   WHERE host_pubkey = ?2 AND created_at > ?7) < ?8
             AND (SELECT COUNT(*) FROM live_sessions
@@ -280,7 +298,8 @@ export async function createSession(
         now,
         now - 3600,
         maxPerHour,
-        maxOpen
+        maxOpen,
+        input.mode
       )
       .run();
     inserted = result.meta?.changes ?? 0;
@@ -292,6 +311,16 @@ export async function createSession(
   }
   if (inserted !== 1) {
     if (await isHostBlocked(db, input.hostPubkey)) return { ok: false, reason: 'blocked' };
+    if (input.mode === 'approved' && !(await isHostApproved(db, input.hostPubkey))) {
+      return { ok: false, reason: 'not_approved' };
+    }
+    const suspended = await db
+      .prepare(
+        'SELECT 1 AS x FROM live_host_suspensions WHERE host_pubkey = ?1 AND suspended_until > ?2'
+      )
+      .bind(input.hostPubkey, now)
+      .first<{ x: number }>();
+    if (suspended) return { ok: false, reason: 'suspended' };
     const recent = await db
       .prepare('SELECT COUNT(*) AS n FROM live_sessions WHERE host_pubkey = ?1 AND created_at > ?2')
       .bind(input.hostPubkey, now - 3600)
@@ -669,14 +698,17 @@ export async function listRecordedInputs(db: LiveDb): Promise<Set<string>> {
 /**
  * Delete ended rows older than the retention period. Kept regardless of
  * age: a row that still has an input to delete (until that is done), and
- * a row under a report hold (until the admin releases it).
+ * a reported row: while its hold is open, and after release until its
+ * reports have aged out (the report retention, 90 days), so a report
+ * never outlives the session it is about.
  */
 export async function deleteOldEndedRows(db: LiveDb, endedBefore: number): Promise<number> {
   const result = await db
     .prepare(
       `DELETE FROM live_sessions
         WHERE status = 'ended' AND ended_at < ?1 AND cf_input_uid IS NULL
-          AND report_hold_at IS NULL`
+          AND NOT EXISTS (SELECT 1 FROM live_holds h WHERE h.session_id = live_sessions.id)
+          AND NOT EXISTS (SELECT 1 FROM live_reports r WHERE r.session_id = live_sessions.id)`
     )
     .bind(endedBefore)
     .run();
@@ -699,64 +731,77 @@ export interface AdminSessionView {
   pass_rejoins: number;
   disconnected_streak: number;
   input_recorded: boolean;
-  /** When the first report put the session on hold; null when not held. */
-  report_hold_at: number | null;
+  /** The report hold: 'open', 'released', or null when never reported. */
+  hold_status: 'open' | 'released' | null;
+  hold_opened_at: number | null;
 }
 
 /**
  * Sessions an admin has to see: open ones, ended ones whose input is not
- * confirmed deleted yet, and every session under a report hold.
+ * confirmed deleted yet, and every session under an open report hold.
  */
 export async function listSessionsForAdmin(db: LiveDb, limit: number): Promise<AdminSessionView[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, host_pubkey, title, status, end_reason, created_at, started_at, ended_at,
-              reconnects, guest_joins, cap_refusals, pass_rejoins, disconnected_streak,
-              (cf_input_uid IS NOT NULL) AS input_recorded, report_hold_at
-         FROM live_sessions
-        WHERE status != 'ended' OR cf_input_uid IS NOT NULL OR report_hold_at IS NOT NULL
-        ORDER BY created_at DESC LIMIT ?1`
+      `SELECT s.id, s.host_pubkey, s.title, s.status, s.end_reason, s.created_at, s.started_at,
+              s.ended_at, s.reconnects, s.guest_joins, s.cap_refusals, s.pass_rejoins,
+              s.disconnected_streak, (s.cf_input_uid IS NOT NULL) AS input_recorded,
+              h.status AS hold_status, h.opened_at AS hold_opened_at
+         FROM live_sessions s LEFT JOIN live_holds h ON h.session_id = s.id
+        WHERE s.status != 'ended' OR s.cf_input_uid IS NOT NULL OR h.status = 'open'
+        ORDER BY s.created_at DESC LIMIT ?1`
     )
     .bind(limit)
     .all<Omit<AdminSessionView, 'input_recorded'> & { input_recorded: number }>();
-  return results.map((r) => ({ ...r, input_recorded: !!r.input_recorded }));
+  return results.map((r) => ({
+    ...r,
+    input_recorded: !!r.input_recorded,
+    hold_status: r.hold_status ?? null,
+    hold_opened_at: r.hold_opened_at ?? null
+  }));
 }
 
-// ── Report hold ──────────────────────────────────────────────────────
-//
-// A report on a session (the stream or one of its comments) puts it on
-// hold: the row is then kept past the 30-day retention, and through an
-// account-deletion purge, until the admin releases it.
+// ── Approved hosts (staged rollout) ──────────────────────────────────
 
-/**
- * Put a session on hold. The first report's time is kept. Returns whether
- * the session exists (a report for an unknown id does nothing).
- */
-export async function setReportHold(
+/** True when this account is on the approved-hosts list. */
+export async function isHostApproved(db: LiveDb, pubkey: string): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT 1 AS x FROM live_approved_hosts WHERE pubkey = ?1')
+    .bind(pubkey.toLowerCase())
+    .first<{ x: number }>();
+  return !!row;
+}
+
+/** Add to or remove from the approved list. Returns whether anything changed. */
+export async function setHostApproved(
   db: LiveDb,
-  id: string,
-  now: number = nowSeconds()
+  pubkey: string,
+  approved: boolean,
+  addedBy: string
 ): Promise<boolean> {
-  if (!isLiveSessionId(id)) return false;
-  const result = await db
-    .prepare(
-      'UPDATE live_sessions SET report_hold_at = COALESCE(report_hold_at, ?2) WHERE id = ?1'
-    )
-    .bind(id, now)
-    .run();
+  const pk = pubkey.toLowerCase();
+  const result = approved
+    ? await db
+        .prepare(
+          'INSERT OR IGNORE INTO live_approved_hosts (pubkey, created_at, added_by) VALUES (?1, ?2, ?3)'
+        )
+        .bind(pk, nowSeconds(), addedBy)
+        .run()
+    : await db.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?1').bind(pk).run();
   return (result.meta?.changes ?? 0) === 1;
 }
 
-/** Release a session's hold. Returns whether it was held. */
-export async function releaseReportHold(db: LiveDb, id: string): Promise<boolean> {
-  if (!isLiveSessionId(id)) return false;
-  const result = await db
+export async function listApprovedHosts(
+  db: LiveDb,
+  limit = 1000
+): Promise<{ pubkey: string; created_at: number; added_by: string }[]> {
+  const { results } = await db
     .prepare(
-      'UPDATE live_sessions SET report_hold_at = NULL WHERE id = ?1 AND report_hold_at IS NOT NULL'
+      'SELECT pubkey, created_at, added_by FROM live_approved_hosts ORDER BY created_at DESC LIMIT ?1'
     )
-    .bind(id)
-    .run();
-  return (result.meta?.changes ?? 0) === 1;
+    .bind(limit)
+    .all<{ pubkey: string; created_at: number; added_by: string }>();
+  return results;
 }
 
 // ── Host blocks ──────────────────────────────────────────────────────
@@ -810,7 +855,11 @@ export async function listOpenSessionIdsForHost(db: LiveDb, hostPubkey: string):
  */
 export async function deleteRowsForHost(db: LiveDb, hostPubkey: string): Promise<number> {
   const result = await db
-    .prepare('DELETE FROM live_sessions WHERE host_pubkey = ?1 AND report_hold_at IS NULL')
+    .prepare(
+      `DELETE FROM live_sessions WHERE host_pubkey = ?1
+          AND NOT EXISTS (SELECT 1 FROM live_holds h
+                           WHERE h.session_id = live_sessions.id AND h.status = 'open')`
+    )
     .bind(hostPubkey)
     .run();
   return result.meta?.changes ?? 0;

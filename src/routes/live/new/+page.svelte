@@ -38,9 +38,12 @@
     createLiveSession,
     endLiveSession,
     endLiveSessionSigned,
+    fetchHostingStatus,
     publishOffer,
     readLiveStatus,
     recordLiveNote,
+    requestHostingAccess,
+    type AccessRequestOutcome,
     type CreateOutcome,
     type HostSession,
     type SignRequest
@@ -94,6 +97,7 @@
     | 'signed_out'
     | 'membership_required' // a confirmed non-member: link to the membership page
     | 'blocked' // blocked from hosting by the admin
+    | 'rollout' // a member, not on the approved list yet: "Request access"
     | 'confirm_age'
     | 'preview' // camera on, not live yet
     | 'starting' // creating the session and publishing
@@ -307,10 +311,31 @@
       const profile = await $ndk.getUser({ pubkey }).fetchProfile();
       const name = (profile?.displayName || profile?.name || '').toString().trim();
       ownName = name || null;
+      ownNip05 = (profile?.nip05 || '').toString().trim();
     } catch {
       /* "Cooking <recipe>" without it */
     }
   }
+
+  // ── Staged rollout: "Request access" ──
+  let ownNip05 = '';
+  let accessState: 'idle' | 'sending' | AccessRequestOutcome = 'idle';
+  async function requestAccess() {
+    if (accessState === 'sending') return;
+    accessState = 'sending';
+    accessState = await requestHostingAccess({ name: ownName ?? '', nip05: ownNip05 }, sign);
+    if (accessState === 'approved') {
+      // Approved meanwhile: start over as a host.
+      location.reload();
+    }
+  }
+  const accessMessages: Partial<Record<AccessRequestOutcome, string>> = {
+    sent: "Request sent. We'll be in touch when Go live is ready for you.",
+    already_requested: "You've already asked. We'll be in touch.",
+    membership_required: 'Go live is for Cook+ members.',
+    sign_failed: 'The request was not signed. Approve it in your signer and try again.',
+    unavailable: "The request couldn't be sent. Please try again in a moment."
+  };
 
   onMount(() => {
     const mq = window.matchMedia(HOST_WIDE_QUERY);
@@ -342,6 +367,13 @@
     );
     if (goLiveAccess(membership[pk]) === 'non_member') {
       phase = 'membership_required';
+      return;
+    }
+    // Staged rollout: a member who is not approved yet can ask for access.
+    // 'unknown' goes ahead; the create route decides.
+    if ((await fetchHostingStatus(pk)) === 'not_approved') {
+      phase = 'rollout';
+      void loadOwnName($userPublickey);
       return;
     }
     readLockHint();
@@ -532,6 +564,9 @@
   const createMessages: Record<Exclude<CreateOutcome, { ok: true }>['reason'], string> = {
     already_active: 'You already have a live stream open.',
     blocked: 'This account cannot go live.',
+    not_approved: 'Live hosting is rolling out.',
+    suspended:
+      'Going live is paused for this account for a while after reports. Please try again later.',
     membership_required: 'Go live is for Cook+ members.',
     live_full:
       'Too many cooks are live right now. Please try again in a few minutes.',
@@ -569,10 +604,14 @@
       return;
     }
     if (!outcome.ok) {
-      if (outcome.reason === 'blocked' || outcome.reason === 'membership_required') {
+      if (
+        outcome.reason === 'blocked' ||
+        outcome.reason === 'membership_required' ||
+        outcome.reason === 'not_approved'
+      ) {
         // Nothing this account can do from here: close the camera and say so.
         teardown(true);
-        phase = outcome.reason;
+        phase = outcome.reason === 'not_approved' ? 'rollout' : outcome.reason;
         return;
       }
       phase = 'preview';
@@ -894,6 +933,26 @@
     <h1>Go live</h1>
     <p class="muted">Going live is part of Cook+. Become a member to cook live with the community.</p>
     <a class="btn primary member-link" href={LIVE_MEMBERSHIP_PATH}>See Cook+</a>
+  {:else if phase === 'rollout'}
+    <h1>Live hosting is rolling out</h1>
+    <p class="muted">
+      We're opening Go live to Cook+ members a few cooks at a time. Ask for access and we'll let you
+      know when it's ready for you.
+    </p>
+    {#if accessState === 'idle' || accessState === 'sending'}
+      <button
+        class="btn primary member-link"
+        on:click={requestAccess}
+        disabled={accessState === 'sending'}
+      >
+        {accessState === 'sending' ? 'Sending…' : 'Request access'}
+      </button>
+    {:else}
+      <p class="muted" role="status">{accessMessages[accessState] ?? ''}</p>
+      {#if accessState === 'sign_failed' || accessState === 'unavailable'}
+        <button class="btn member-link" on:click={requestAccess}>Try again</button>
+      {/if}
+    {/if}
   {:else if phase === 'blocked'}
     <h1>Go live</h1>
     <p class="muted">This account cannot go live.</p>

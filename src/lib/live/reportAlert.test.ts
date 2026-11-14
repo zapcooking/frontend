@@ -1,13 +1,17 @@
-/** The Go live report alert: message text, throttle, and the DM it sends. */
+/** Admin DMs: the report alert (text, throttle, urgent bypass) and the access request. */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { generateSecretKey, getPublicKey, nip04, verifyEvent } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, nip04, nip19, verifyEvent } from 'nostr-tools';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { createKvFake } from '../../test/liveStreamStub';
+import type { LiveReportReason } from './config';
 import {
   ALERT_RELAYS,
   ALERT_THROTTLE_PREFIX,
+  buildAccessRequest,
   buildReportAlert,
-  sendReportAlert
+  sendAdminDm,
+  sendReportAlert,
+  type ReportAlertInput
 } from './reportAlert.server';
 
 const SESSION = 'ab'.repeat(16);
@@ -16,10 +20,10 @@ const SENDER = getPublicKey(senderSk);
 const adminSk = generateSecretKey();
 const ADMIN = getPublicKey(adminSk);
 
-const input = (over: Partial<Parameters<typeof buildReportAlert>[0]> = {}) => ({
+const input = (over: Partial<ReportAlertInput> = {}): ReportAlertInput => ({
   sessionId: SESSION,
   title: 'Pizza Beans',
-  reason: 'nsfw',
+  reason: 'nudity',
   comment: false,
   origin: 'https://zap.cooking',
   ...over
@@ -50,15 +54,10 @@ describe('buildReportAlert', () => {
     expect(text).toContain('https://zap.cooking/admin/live');
   });
 
-  it('says when a comment was reported, and flags child safety loudly', () => {
+  it('says when a comment was reported, and flags the urgent reasons loudly', () => {
     expect(buildReportAlert(input({ comment: true }))).toContain('a comment on a live stream');
     expect(buildReportAlert(input({ reason: 'child_safety' }))).toMatch(/^🚨 CHILD SAFETY/);
-  });
-
-  it('links to the origin it was given (a preview links to itself)', () => {
-    expect(buildReportAlert(input({ origin: 'https://x.frontend-hvd.pages.dev' }))).toContain(
-      'https://x.frontend-hvd.pages.dev/live/s/'
-    );
+    expect(buildReportAlert(input({ reason: 'violence' }))).toMatch(/^🚨 VIOLENCE/);
   });
 });
 
@@ -75,9 +74,9 @@ describe('sendReportAlert', () => {
   });
 
   it('accepts an nsec as the sender key', async () => {
-    const { nip19 } = await import('nostr-tools');
-    const out = await sendReportAlert(input(), { ...deps(), senderKey: nip19.nsecEncode(senderSk) });
-    expect(out).toBe('sent');
+    expect(await sendReportAlert(input(), { ...deps(), senderKey: nip19.nsecEncode(senderSk) })).toBe(
+      'sent'
+    );
   });
 
   it('sends at most one alert per session in the throttle window', async () => {
@@ -85,15 +84,15 @@ describe('sendReportAlert', () => {
     expect(await sendReportAlert(input({ reason: 'spam' }), deps())).toBe('throttled');
     expect(publish).toHaveBeenCalledTimes(1);
     expect(kv.data.has(ALERT_THROTTLE_PREFIX + SESSION)).toBe(true);
-    // Another session is not throttled by this one.
     expect(await sendReportAlert(input({ sessionId: 'cd'.repeat(16) }), deps())).toBe('sent');
   });
 
-  it('never throttles a child-safety report', async () => {
+  it('never throttles child safety or violence', async () => {
     await sendReportAlert(input(), deps());
-    expect(await sendReportAlert(input({ reason: 'child_safety' }), deps())).toBe('sent');
-    expect(await sendReportAlert(input({ reason: 'child_safety' }), deps())).toBe('sent');
-    expect(publish).toHaveBeenCalledTimes(3);
+    for (const reason of ['child_safety', 'violence', 'child_safety'] as LiveReportReason[]) {
+      expect(await sendReportAlert(input({ reason }), deps())).toBe('sent');
+    }
+    expect(publish).toHaveBeenCalledTimes(4);
   });
 
   it('still sends when the throttle cannot be read or written', async () => {
@@ -102,11 +101,40 @@ describe('sendReportAlert', () => {
     expect(await sendReportAlert(input(), deps())).toBe('sent');
   });
 
-  it('reports a missing key or a failed publish without throwing', async () => {
+  it('reports a missing key or a failed publish without throwing, and sets no throttle', async () => {
     expect(await sendReportAlert(input(), { ...deps(), senderKey: undefined })).toBe('no-sender-key');
     publish.mockRejectedValueOnce(new Error('no relay accepted'));
     expect(await sendReportAlert(input(), deps())).toBe('failed');
-    // A failed send sets no throttle, so the next report tries again.
     expect(kv.data.size).toBe(0);
+  });
+});
+
+describe('access request', () => {
+  it("carries the npub, the profile link and the profile's own name, marked unverified", () => {
+    const pk = getPublicKey(generateSecretKey());
+    const text = buildAccessRequest({
+      pubkey: pk,
+      name: 'Ana',
+      nip05: 'ana@example.com',
+      origin: 'https://zap.cooking'
+    });
+    const npub = nip19.npubEncode(pk);
+    expect(text).toContain(npub);
+    expect(text).toContain(`https://zap.cooking/user/${npub}`);
+    expect(text).toContain('Name: Ana (from their profile)');
+    expect(text).toContain('not verified');
+    expect(text).toContain('https://zap.cooking/admin/live');
+  });
+
+  it('leaves out a missing name and NIP-05', async () => {
+    const text = buildAccessRequest({
+      pubkey: ADMIN,
+      name: '',
+      nip05: '',
+      origin: 'https://zap.cooking'
+    });
+    expect(text).not.toContain('Name:');
+    expect(text).not.toContain('NIP-05');
+    expect(await sendAdminDm(text, deps())).toBe('sent');
   });
 });

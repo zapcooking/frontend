@@ -7,8 +7,23 @@ export const LIVE_MIGRATIONS = [
   '0004_create_live_sessions.sql',
   '0005_add_live_pass_rejoins.sql',
   '0006_add_live_note_id.sql',
-  '0007_add_live_host_blocks_and_holds.sql'
+  '0007_live_rollout_and_safety.sql'
 ] as const;
+
+/**
+ * Put hosts on the approved-hosts list. Hosting defaults to 'approved'
+ * mode (no KV in tests reads as 'approved'), so a route test that creates
+ * sessions approves its hosts first.
+ */
+export function approveHosts(db: { raw: any }, ...pubkeys: string[]): void {
+  for (const pk of pubkeys) {
+    db.raw
+      .prepare(
+        "INSERT OR IGNORE INTO live_approved_hosts (pubkey, created_at, added_by) VALUES (?, 1, 'test')"
+      )
+      .run(pk);
+  }
+}
 
 /**
  * Real SQLite running the Go live migrations (0004–0007), so the tests exercise the same SQL

@@ -30,12 +30,16 @@
  *   host already has a session not ended   → 409 already_active (with its id)
  *   then, atomic with the insert:
  *     signer is blocked from hosting       → 403 blocked
+ *     'approved' mode, signer not approved → 403 not_approved
+ *     temporary safety suspension running  → 403 suspended
  *     create rate limit                    → 429 rate_limited
  *     open sessions at the global cap      → 503 live_full
  *
- * Any active member may host (there is no host list). A membership outage
- * is never reported as "not a member": `unknown` from the tri-state check
- * is a 503, and only a real `inactive` is a 403.
+ * Who may host depends on the hosting mode (switched from /admin/live):
+ * 'approved' (the default) = active members on the approved-hosts list;
+ * 'members' = any active member. A membership outage is never reported
+ * as "not a member": `unknown` from the tri-state check is a 503, and
+ * only a real `inactive` is a 403.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
@@ -46,6 +50,7 @@ import { parseMaxOpenSessions } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { isLiveOff } from '$lib/live/killSwitch.server';
+import { getHostingMode } from '$lib/live/safety.server';
 import {
   createSession,
   getActiveSessionForHost,
@@ -132,12 +137,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       hostPubkey,
       title,
       recipeA,
+      mode: await getHostingMode(platform),
       maxOpen: parseMaxOpenSessions(readLiveEnv(platform, 'LIVE_MAX_OPEN_SESSIONS'))
     });
     if (!created.ok) {
-      if (created.reason === 'blocked') {
-        console.warn('[Live] create refused: host blocked');
-        return json({ error: 'blocked' }, { status: 403, headers: NO_STORE });
+      if (
+        created.reason === 'blocked' ||
+        created.reason === 'not_approved' ||
+        created.reason === 'suspended'
+      ) {
+        console.warn(`[Live] create refused: ${created.reason}`);
+        return json({ error: created.reason }, { status: 403, headers: NO_STORE });
       }
       if (created.reason === 'rate_limited') {
         return json({ error: 'rate_limited' }, { status: 429, headers: NO_STORE });

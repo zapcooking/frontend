@@ -34,6 +34,7 @@ import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
 import { readBodyCapped } from '$lib/live/body.server';
+import { logAction } from '$lib/live/safety.server';
 import {
   getSession,
   HIDDEN_GLOBAL_SCOPE,
@@ -109,6 +110,18 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
     const key = scope === 'global' ? HIDDEN_GLOBAL_SCOPE : row.host_pubkey;
     if ((await setHiddenAuthor(db, key, pubkey, input.hidden)) === 'full') {
       return json({ error: 'full' }, { status: 409, headers: NO_STORE });
+    }
+    // The admin's moderation goes in the action log. A host hiding a
+    // commenter in their own chat is the host's choice, not an admin
+    // action, and is not logged.
+    if (isAdmin) {
+      await logAction(db, {
+        actor: signer,
+        action: input.hidden ? 'hide' : 'unhide',
+        sessionId: row.id,
+        targetPubkey: pubkey,
+        detail: scope === 'global' ? 'every Go live chat' : "this host's chats"
+      });
     }
     return json({ pubkey, hidden: input.hidden, scope }, { headers: NO_STORE });
   } catch (err) {

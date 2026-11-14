@@ -1,25 +1,26 @@
 /**
- * Go live — real-time report alert to the admin.
+ * Go live — DMs to the admin: real-time report alerts and hosting access
+ * requests.
  *
- * A report on a Go live stream (or on one of its comments) DMs the admin
- * account at once, so a stream can be ended while it is still live. The
- * channel is the one the deletion digest and the membership notices
+ * The channel is the one the deletion digest and the membership notices
  * already use: a NIP-04 DM from the notification account
  * (NOTIFICATION_PRIVATE_KEY) to ADMIN_PUBKEY, published with the
  * workerd-safe raw publisher (nostr-tools' pool drops frames in the
  * Workers runtime).
  *
- * The message carries the reason, the stream's title and links. Nothing
- * about the reporter: no IP, no key, not even the free text they wrote
- * (it is in the review queue).
- *
- * Throttle: at most one DM per session every
- * LIVE_REPORT_ALERT_THROTTLE_SECONDS, by a KV key. A child-safety report
- * is never throttled.
+ * A report alert carries the reason, the stream's title and links.
+ * Nothing about the reporter: no IP, no key, not even the note they wrote
+ * (it is on /admin/live). Throttle: at most one alert per session every
+ * LIVE_REPORT_ALERT_THROTTLE_SECONDS, by a KV key; an urgent report
+ * (child safety, violence) is never throttled.
  */
 import { finalizeEvent, nip04, nip19 } from 'nostr-tools';
 import { hexToBytes } from '@noble/hashes/utils.js';
-import { LIVE_REPORT_ALERT_THROTTLE_SECONDS } from './config';
+import {
+  LIVE_REPORT_ALERT_THROTTLE_SECONDS,
+  LIVE_URGENT_REASONS,
+  type LiveReportReason
+} from './config';
 
 /** Same relays as the deletion digest, which the admin already reads DMs from. */
 export const ALERT_RELAYS = [
@@ -31,11 +32,10 @@ export const ALERT_RELAYS = [
 
 export const ALERT_THROTTLE_PREFIX = 'live:alert:';
 
-export const CHILD_SAFETY_REASON = 'child_safety';
-
-const REASON_LABELS: Record<string, string> = {
+const REASON_LABELS: Record<LiveReportReason, string> = {
   child_safety: 'Child safety',
-  nsfw: 'Nudity or sexual content',
+  nudity: 'Nudity or sexual content',
+  violence: 'Violence or immediate danger',
   spam: 'Spam or a scam',
   other: 'Something else'
 };
@@ -43,43 +43,55 @@ const REASON_LABELS: Record<string, string> = {
 export interface ReportAlertInput {
   sessionId: string;
   title: string;
-  reason: string;
+  reason: LiveReportReason;
   /** True when a comment was reported rather than the stream itself. */
   comment: boolean;
   /** Site origin for the links, e.g. https://zap.cooking (previews link to themselves). */
   origin: string;
 }
 
-/** The DM text. Pure, for tests. */
+/** The report alert text. Pure, for tests. */
 export function buildReportAlert(input: ReportAlertInput): string {
-  const label = REASON_LABELS[input.reason] ?? input.reason;
-  const urgent = input.reason === CHILD_SAFETY_REASON;
   const what = input.comment ? 'a comment on a live stream' : 'a live stream';
-  return [
-    urgent
+  const first =
+    input.reason === 'child_safety'
       ? `🚨 CHILD SAFETY report on ${what}. Review now.`
-      : `🚩 Report on ${what}: ${label}.`,
+      : input.reason === 'violence'
+        ? `🚨 VIOLENCE / IMMEDIATE DANGER report on ${what}. Review now.`
+        : `🚩 Report on ${what}: ${REASON_LABELS[input.reason]}.`;
+  return [
+    first,
     `"${input.title}"`,
     `Watch: ${input.origin}/live/s/${input.sessionId}`,
-    `End or block the host: ${input.origin}/admin/live`
+    `Review, end or block: ${input.origin}/admin/live`
   ].join('\n');
 }
 
-interface AlertKV {
-  get(key: string, type?: 'text'): Promise<string | unknown | null>;
-  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+export interface AccessRequestInput {
+  pubkey: string;
+  /** Display name and NIP-05 as the requester's own client read them from their profile. */
+  name: string;
+  nip05: string;
+  origin: string;
 }
 
-export interface ReportAlertDeps {
-  kv: AlertKV | null | undefined;
+/** The access request text. Pure, for tests. */
+export function buildAccessRequest(input: AccessRequestInput): string {
+  const npub = nip19.npubEncode(input.pubkey);
+  const lines = ['🎥 Go live access request'];
+  if (input.name) lines.push(`Name: ${input.name} (from their profile)`);
+  if (input.nip05) lines.push(`NIP-05: ${input.nip05} (from their profile, not verified)`);
+  lines.push(npub, `Profile: ${input.origin}/user/${npub}`, `Approve: ${input.origin}/admin/live`);
+  return lines.join('\n');
+}
+
+export interface AdminDmDeps {
   /** Hex or nsec. The notification service account's key. */
   senderKey: string | undefined;
   recipientPubkey: string;
   publish: (event: any, relays: string[]) => Promise<number>;
   now?: number;
 }
-
-export type ReportAlertResult = 'sent' | 'throttled' | 'no-sender-key' | 'failed';
 
 function senderKeyBytes(key: string): Uint8Array {
   if (key.startsWith('nsec1')) {
@@ -91,47 +103,58 @@ function senderKeyBytes(key: string): Uint8Array {
   return hexToBytes(key);
 }
 
-/** Send the alert, unless throttled. Never throws. */
-export async function sendReportAlert(
-  input: ReportAlertInput,
-  deps: ReportAlertDeps
-): Promise<ReportAlertResult> {
+export type AdminDmResult = 'sent' | 'no-sender-key' | 'failed';
+
+/** Encrypt and publish one DM to the admin. Never throws. */
+export async function sendAdminDm(text: string, deps: AdminDmDeps): Promise<AdminDmResult> {
   try {
     if (!deps.senderKey) {
-      console.error('[Live] report alert not sent: NOTIFICATION_PRIVATE_KEY is not set');
+      console.error('[Live] admin DM not sent: NOTIFICATION_PRIVATE_KEY is not set');
       return 'no-sender-key';
     }
-    const throttleKey = ALERT_THROTTLE_PREFIX + input.sessionId;
-    const urgent = input.reason === CHILD_SAFETY_REASON;
-    if (!urgent && deps.kv) {
-      try {
-        if (await deps.kv.get(throttleKey, 'text')) return 'throttled';
-      } catch {
-        // A KV read failure must not swallow the alert: send it.
-      }
-    }
-
     const now = deps.now ?? Math.floor(Date.now() / 1000);
     const sk = senderKeyBytes(deps.senderKey);
-    const content = nip04.encrypt(sk, deps.recipientPubkey, buildReportAlert(input));
+    const content = nip04.encrypt(sk, deps.recipientPubkey, text);
     const event = finalizeEvent(
       { kind: 4, created_at: now, tags: [['p', deps.recipientPubkey]], content },
       sk
     );
     await deps.publish(event, ALERT_RELAYS);
-
-    if (deps.kv) {
-      try {
-        await deps.kv.put(throttleKey, '1', {
-          expirationTtl: LIVE_REPORT_ALERT_THROTTLE_SECONDS
-        });
-      } catch {
-        // Worst case a burst sends a few more DMs; never fail the alert for it.
-      }
-    }
     return 'sent';
   } catch (err) {
-    console.error(`[Live] report alert failed: ${(err as Error)?.message ?? 'error'}`);
+    console.error(`[Live] admin DM failed: ${(err as Error)?.message ?? 'error'}`);
     return 'failed';
   }
+}
+
+interface AlertKV {
+  get(key: string, type?: 'text'): Promise<string | unknown | null>;
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+}
+
+export type ReportAlertResult = AdminDmResult | 'throttled';
+
+/** Send the report alert, unless throttled. Never throws. */
+export async function sendReportAlert(
+  input: ReportAlertInput,
+  deps: AdminDmDeps & { kv: AlertKV | null | undefined }
+): Promise<ReportAlertResult> {
+  const throttleKey = ALERT_THROTTLE_PREFIX + input.sessionId;
+  const urgent = LIVE_URGENT_REASONS.includes(input.reason);
+  if (!urgent && deps.kv) {
+    try {
+      if (await deps.kv.get(throttleKey, 'text')) return 'throttled';
+    } catch {
+      // A KV read failure must not swallow the alert: send it.
+    }
+  }
+  const result = await sendAdminDm(buildReportAlert(input), deps);
+  if (result === 'sent' && deps.kv) {
+    try {
+      await deps.kv.put(throttleKey, '1', { expirationTtl: LIVE_REPORT_ALERT_THROTTLE_SECONDS });
+    } catch {
+      // Worst case a burst sends a few more DMs; never fail the alert for it.
+    }
+  }
+  return result;
 }

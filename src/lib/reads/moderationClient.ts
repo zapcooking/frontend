@@ -196,9 +196,7 @@ export async function submitReadsReport(input: {
 	eventId?: string;
 	pubkey?: string;
 	naddr?: string;
-	/** Go live session id: the report is about this stream or one of its comments. */
-	liveSession?: string;
-	reason: 'nsfw' | 'spam' | 'other' | 'child_safety';
+	reason: 'nsfw' | 'spam' | 'other';
 	details?: string;
 }): Promise<{ ok: boolean; error?: string }> {
 	try {

@@ -9,6 +9,65 @@
 
 export type LiveStatus = 'created' | 'live' | 'ended';
 
+/**
+ * Can this account host right now (staged rollout)? 'unknown' when the
+ * question could not be answered: the page then goes ahead and the
+ * create route decides.
+ */
+export async function fetchHostingStatus(
+  pubkey: string,
+  fetchFn: typeof fetch = fetch
+): Promise<'approved' | 'not_approved' | 'unknown'> {
+  try {
+    const res = await fetchFn(`${origin()}/api/live/hosting?pubkey=${encodeURIComponent(pubkey)}`);
+    if (!res.ok) return 'unknown';
+    const data = (await res.json()) as { approved?: unknown };
+    if (data.approved === true) return 'approved';
+    if (data.approved === false) return 'not_approved';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+export type AccessRequestOutcome =
+  | 'sent'
+  | 'approved' // already on the list: nothing to ask
+  | 'already_requested'
+  | 'membership_required'
+  | 'sign_failed'
+  | 'unavailable';
+
+/** "Request access": the signed request DMs the admin (no queue is kept). */
+export async function requestHostingAccess(
+  profile: { name: string; nip05: string },
+  sign: SignRequest,
+  fetchFn: typeof fetch = fetch
+): Promise<AccessRequestOutcome> {
+  const url = `${origin()}/api/live/hosting`;
+  const bodyString = JSON.stringify(profile);
+  let authorization: string;
+  try {
+    authorization = await sign({ method: 'POST', url, bodyString });
+  } catch {
+    return 'sign_failed';
+  }
+  try {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authorization },
+      body: bodyString
+    });
+    const data = await readError(res);
+    if (res.ok) return (data as { approved?: boolean }).approved ? 'approved' : 'sent';
+    if (data.error === 'already_requested') return 'already_requested';
+    if (data.error === 'membership_required') return 'membership_required';
+    return 'unavailable';
+  } catch {
+    return 'unavailable';
+  }
+}
+
 /** Signs a NIP-98 Authorization header for one request. */
 export type SignRequest = (opts: {
   method: string;
@@ -30,6 +89,8 @@ export type CreateOutcome =
       ok: false;
       reason:
         | 'blocked' // blocked from hosting by the admin
+        | 'not_approved' // 'approved' rollout mode and not on the list
+        | 'suspended' // temporary safety suspension after an automatic end
         | 'membership_required' // confirmed non-member
         | 'membership_unavailable' // could not be checked: NOT "not a member"
         | 'live_off' // switched off by an admin
@@ -94,6 +155,8 @@ export async function createLiveSession(
         id: typeof body.id === 'string' ? body.id : null
       };
     case 'blocked':
+    case 'not_approved':
+    case 'suspended':
     case 'membership_required':
     case 'membership_unavailable':
     case 'live_off':
