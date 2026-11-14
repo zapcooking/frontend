@@ -87,3 +87,18 @@ export async function releaseLiveSafetyHold(db: LiveDb, sessionId: string, now =
   ).bind(sessionId,now).run();
   return (result.meta?.changes ?? 0) === 1;
 }
+
+/** Ordinary retention for released cases only. Open holds prevent all purge. */
+export async function cleanupReleasedSafetyRecords(db: LiveDb, now=Math.floor(Date.now()/1000)): Promise<void> {
+  const cutoff = now - 90*24*60*60;
+  await db.prepare(
+    "DELETE FROM live_safety_reports WHERE created_at < ?1 AND NOT EXISTS (SELECT 1 FROM live_safety_holds h WHERE h.session_id=live_safety_reports.session_id AND h.status='open')"
+  ).bind(cutoff).run();
+  await db.prepare(
+    "DELETE FROM live_safety_actions WHERE occurred_at < ?1 AND NOT EXISTS (SELECT 1 FROM live_safety_holds h WHERE h.session_id=live_safety_actions.session_id AND h.status='open')"
+  ).bind(cutoff).run();
+  await db.prepare(
+    "DELETE FROM live_safety_holds WHERE status='released' AND NOT EXISTS (SELECT 1 FROM live_safety_reports r WHERE r.session_id=live_safety_holds.session_id)"
+  ).bind().run();
+  await db.prepare('DELETE FROM live_safety_host_suspensions WHERE suspended_until < ?1').bind(now-90*24*60*60).run();
+}
