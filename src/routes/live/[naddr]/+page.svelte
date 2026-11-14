@@ -26,6 +26,7 @@
     scanStreamZapHistory,
     type StreamZapTally
   } from '$lib/streams/streamZaps';
+import { keepHigherTally } from '$lib/streams/tallyDisplay';
 
   const REFRESH_MS = 60000;
   const TALLY_RESCAN_MS = 60000;
@@ -41,6 +42,8 @@
   // zappers strip) share one scan.
   let tally: StreamZapTally | null = null;
   let tallyLoading = false;
+  /** The stream the shown tally belongs to. */
+  let tallyKey: string | null = null;
   let scanAbort: AbortController | null = null;
   let tallyTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -65,7 +68,11 @@
     const extraRelays = host
       ? await zapReceiptRelayUrls(get(userPublickey) || undefined, host).catch(() => [])
       : [];
-    tally = await fetchStreamZapTally(itemKey, extraRelays);
+    // A different stream starts from nothing; the same stream's total only
+    // moves up across re-scans (see keepHigherTally).
+    if (tallyKey !== itemKey) tally = null;
+    tallyKey = itemKey;
+    tally = keepHigherTally(tally, await fetchStreamZapTally(itemKey, extraRelays));
     if (signal.aborted) return;
     if (!host) return;
     const scan = await scanStreamZapHistory(itemKey, host, {
@@ -73,13 +80,13 @@
       extraRelays,
       signal,
       onPartial: (t) => {
-        if (!signal.aborted) tally = t;
+        if (!signal.aborted) tally = keepHigherTally(tally, t);
       }
     });
     if (signal.aborted) return;
-    // A verified scan can legitimately read lower than the quick pass only
-    // when the provider rejects receipts; never regress the display.
-    if (scan.tally.zapCount > (tally?.zapCount ?? 0)) tally = scan.tally;
+    // Never regress the display: a scan that read lower than what is shown
+    // (a slow relay, a partial pass) does not replace it.
+    tally = keepHigherTally(tally, scan.tally);
     tallyLoading = false;
   }
 
