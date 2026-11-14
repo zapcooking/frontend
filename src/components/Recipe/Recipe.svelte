@@ -94,6 +94,7 @@
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
   import { resolveVanityShareUrl } from '$lib/vanityUrl';
   import ReportArticleModal from '../reads/ReportArticleModal.svelte';
+  import { extractIngredientItems, withoutIngredientsSection } from '$lib/recipe/sections';
   import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
   import { isLiveHost } from '$lib/live/config';
 
@@ -711,19 +712,11 @@
     // Extract the Ingredients list so it can render as a checkbox component
     // outside the prose markdown. Strip the section from the prose-rendered
     // chunk so we don't get a duplicate bullet list.
-    const ingredientsSectionRegex = /## Ingredients\s*\n([\s\S]*?)(?=\n## |$)/i;
-    const ingredientsMatch = beforeDirections.match(ingredientsSectionRegex);
-    if (ingredientsMatch) {
-      const items: string[] = [];
-      const lines = ingredientsMatch[1].split('\n');
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('- ')) items.push(trimmed.substring(2).trim());
-        else if (trimmed.startsWith('* ')) items.push(trimmed.substring(2).trim());
-        else if (trimmed && !trimmed.startsWith('#')) items.push(trimmed);
-      }
+    // Shared with the Go live recipe panel ($lib/recipe/sections).
+    const items = extractIngredientItems(beforeDirections);
+    if (items.length > 0 || /## Ingredients\s*\n/i.test(beforeDirections)) {
       ingredientItems = items;
-      markdownBeforeDirections = beforeDirections.replace(ingredientsSectionRegex, '').trim();
+      markdownBeforeDirections = withoutIngredientsSection(beforeDirections);
     } else {
       ingredientItems = [];
       markdownBeforeDirections = beforeDirections;

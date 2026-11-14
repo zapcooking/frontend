@@ -14,6 +14,11 @@
  * This route makes no Cloudflare Stream call: the live input is created
  * when the host publishes.
  *
+ * GET /api/live
+ *   No auth. The sessions that are live right now, newest first, in the
+ *   public shape (the same fields as GET /api/live/<id>). Used by the /live
+ *   directory. Empty while Go live is switched off.
+ *
  * Checks, in order, fail-fast:
  *   database bound                         → 500 not_configured
  *   Go live switched off (admin)           → 503 live_off
@@ -41,6 +46,7 @@ import { isLiveOff } from '$lib/live/killSwitch.server';
 import {
   createSession,
   getActiveSessionForHost,
+  listLiveSessions,
   parseRecipeAddress,
   parseTitle,
   type LiveDb
@@ -142,6 +148,24 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     );
   } catch (err) {
     console.error('[Live] create failed:', err);
+    return json({ error: 'internal' }, { status: 500, headers: NO_STORE });
+  }
+};
+
+export const GET: RequestHandler = async ({ platform }) => {
+  try {
+    const db = platform?.env?.SCHEDULER_DB as LiveDb | undefined;
+    if (!db) {
+      console.error('[Live] SCHEDULER_DB not configured');
+      return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
+    }
+    // A short shared cache: the directory polls this, and every viewer sees
+    // the same answer. Status changes reach it within seconds.
+    const headers = { 'Cache-Control': 'public, max-age=10' };
+    if (await isLiveOff(platform)) return json({ sessions: [] }, { headers });
+    return json({ sessions: await listLiveSessions(db) }, { headers });
+  } catch (err) {
+    console.error(`[Live] list failed: ${(err as Error)?.name ?? 'error'}`);
     return json({ error: 'internal' }, { status: 500, headers: NO_STORE });
   }
 };

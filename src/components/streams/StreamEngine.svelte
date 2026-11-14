@@ -8,6 +8,12 @@
    * run it, because zap.stream's LL-HLS playlists freeze AVPlayer — see
    * $lib/streams/hlsEngine. Native HLS is the fallback. Status flows into the
    * `streamPlayer` store, where the playing surface's UI reads it.
+   *
+   * Go live sessions (`item.source === 'zapcooking'`) have no URL. They play
+   * over a receive-only WebRTC connection set up through Zap Cooking's play
+   * relay (/api/live/<id>/join), with the rejoin rules in WatchPolicy and
+   * the rejoin pass from the server. A member is asked to sign only if the
+   * session turns out to be full for guests.
    */
   import { onDestroy, onMount } from 'svelte';
   import {
@@ -19,6 +25,12 @@
   import { runtime } from '$lib/streams/parse';
   import { clampSeek, formatClock, isSeekableDuration, percentOf } from '$lib/streams/scrub';
   import { hlsJsConfig, pickHlsEngine } from '$lib/streams/hlsEngine';
+  import { get } from 'svelte/store';
+  import { isGoLiveItem } from '$lib/streams/goLive';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import { signNip98AuthHeader } from '$lib/nip98';
+  import { joinLiveSession, loadPass, savePass } from '$lib/live/watch/joinClient';
+  import { decodedVideoFrames, WatchPolicy, type WatchStop } from '$lib/live/watch/watchPolicy';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import SpeakerHighIcon from 'phosphor-svelte/lib/SpeakerHigh';
   import SpeakerXIcon from 'phosphor-svelte/lib/SpeakerX';
@@ -47,6 +59,12 @@
   let appliedGeneration = -1;
   let appliedUrl: string | null = null;
   let autoplayRejected = false;
+  /** A portrait picture (a phone held upright): the page player grows taller for it. */
+  let portrait = false;
+  function measure(e: Event) {
+    const v = e.currentTarget as HTMLVideoElement;
+    portrait = v.videoHeight > v.videoWidth && v.videoWidth > 0;
+  }
   let paused = true;
   let inPictureInPicture = false;
 
@@ -111,7 +129,186 @@
     return hlsPromise;
   }
 
+  // ── Go live (WebRTC through our play relay) ──────────────────────
+  let pc: RTCPeerConnection | null = null;
+  let policy: WatchPolicy | null = null;
+  let statsTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Session storage for the rejoin pass, or undefined where storage is blocked
+   *  (reading the property itself can throw SecurityError): join without a pass. */
+  function passStorage(): Storage | undefined {
+    try {
+      return typeof sessionStorage !== 'undefined' ? sessionStorage : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function stopRtc() {
+    policy?.shutdown();
+    policy = null;
+    if (statsTimer) clearInterval(statsTimer);
+    statsTimer = null;
+    pc?.close();
+    pc = null;
+    if (video) video.srcObject = null;
+  }
+
+  function playVideo() {
+    video?.play().then(
+      () => {},
+      () => {
+        // Autoplay with sound can be refused; the play overlay takes over.
+        autoplayRejected = true;
+      }
+    );
+  }
+
+  function gathered(conn: RTCPeerConnection): Promise<void> {
+    if (conn.iceGatheringState === 'complete') return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        conn.removeEventListener('icegatheringstatechange', check);
+        resolve();
+      };
+      const check = () => conn.iceGatheringState === 'complete' && done();
+      conn.addEventListener('icegatheringstatechange', check);
+      setTimeout(done, 2000);
+    });
+  }
+
+  /** A signed-in viewer with a signer can be counted as a member. */
+  function canSignAsMember(): boolean {
+    return !!get(userPublickey) && !!get(ndk)?.signer;
+  }
+
+  function startRtc(sessionId: string, generation: number) {
+    policy = new WatchPolicy({
+      rejoin: () => void rtcJoin(sessionId, generation),
+      stop: (reason) => rtcStopped(reason, generation),
+      setTimer: (fn, ms) => setTimeout(fn, ms),
+      clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>)
+    });
+    policy.setHidden(typeof document !== 'undefined' && document.hidden);
+    statsTimer = setInterval(pollFrames, 1000);
+    void rtcJoin(sessionId, generation);
+  }
+
+  async function rtcJoin(sessionId: string, generation: number, signed = false) {
+    const owner = policy;
+    if (generation !== appliedGeneration || !owner) return;
+    owner.joinStarted();
+    pc?.close();
+    const conn = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
+    pc = conn;
+    // Still this player's join? The viewer can stop or switch streams during
+    // any await below; a stale join must neither be sent (it would take a
+    // guest slot or a pass rejoin) nor report to the current policy.
+    const current = () => pc === conn && generation === appliedGeneration && policy === owner;
+    conn.addTransceiver('video', { direction: 'recvonly' });
+    conn.addTransceiver('audio', { direction: 'recvonly' });
+    const media = new MediaStream();
+    conn.ontrack = (e) => {
+      media.addTrack(e.track);
+      if (video && video.srcObject !== media) {
+        video.srcObject = media;
+        playVideo();
+      }
+    };
+
+    let offerSdp: string;
+    let authorization: string | null = null;
+    try {
+      await conn.setLocalDescription(await conn.createOffer());
+      await gathered(conn);
+      offerSdp = conn.localDescription?.sdp ?? '';
+      if (signed) {
+        authorization = await signNip98AuthHeader(get(ndk), {
+          method: 'POST',
+          url: `${location.origin}/api/live/${sessionId}/join`,
+          bodyString: offerSdp
+        });
+      }
+    } catch {
+      conn.close();
+      if (current()) owner.joinFailed(signed ? 'full' : 'retry');
+      return;
+    }
+    if (!current()) {
+      conn.close();
+      return;
+    }
+
+    const out = await joinLiveSession(sessionId, offerSdp, {
+      pass: loadPass(passStorage(), sessionId),
+      authorization
+    });
+    if (!current()) {
+      conn.close();
+      return;
+    }
+    if (!out.ok) {
+      conn.close();
+      // Full for guests: a signed-in member gets in uncounted. Ask the
+      // signer only now, so a member is not prompted on every join, and
+      // never from a hidden tab: there the policy holds a retry until the
+      // tab is visible, and that guest join (full again) asks then.
+      if (out.failure === 'full' && !signed && canSignAsMember()) {
+        if (typeof document !== 'undefined' && document.hidden) {
+          owner.joinFailed('retry');
+          return;
+        }
+        void rtcJoin(sessionId, generation, true);
+        return;
+      }
+      if (out.failure === 'not_live' || out.failure === 'retry' || out.failure === 'rejected') {
+        setStreamStatus(out.failure === 'not_live' ? 'connecting' : 'buffering');
+      }
+      owner.joinFailed(out.failure);
+      return;
+    }
+    savePass(passStorage(), sessionId, out.pass);
+    try {
+      await conn.setRemoteDescription({ type: 'answer', sdp: out.answerSdp });
+      if (!current()) {
+        conn.close();
+        return;
+      }
+      owner.joinSucceeded();
+    } catch {
+      conn.close();
+      if (current()) owner.joinFailed('retry');
+    }
+  }
+
+  async function pollFrames() {
+    if (!pc || !policy) return;
+    try {
+      // No inbound video entry yet counts as 0 frames (see decodedVideoFrames):
+      // an answered join that never delivers media must still trip the
+      // no-picture rule and rejoin, not stay black.
+      const report = await pc.getStats();
+      policy?.frames(decodedVideoFrames(report));
+    } catch {
+      /* stats unavailable this tick */
+    }
+  }
+
+  function rtcStopped(reason: WatchStop, generation: number) {
+    if (generation !== appliedGeneration) return;
+    if (statsTimer) clearInterval(statsTimer);
+    statsTimer = null;
+    pc?.close();
+    pc = null;
+    setStreamStatus(reason === 'full' ? 'full' : reason === 'gave_up' ? 'unavailable' : 'ended');
+  }
+
+  function onVisibility() {
+    policy?.setHidden(document.hidden);
+  }
+
   function teardownMedia() {
+    stopRtc();
     if (hls) {
       hls.destroy();
       hls = null;
@@ -136,10 +333,31 @@
 
   async function wire(state: typeof $streamPlayer) {
     if (!video) return;
-    if (!state.item || !state.mediaUrl || state.surface !== surface) {
+    const goLive = isGoLiveItem(state.item);
+    if (!state.item || state.surface !== surface || (!goLive && !state.mediaUrl)) {
       if (appliedGeneration !== -1) teardownMedia();
       return;
     }
+    if (goLive) {
+      const sessionId = state.item.sessionId;
+      if (!sessionId || state.item.status === 'ended') {
+        if (appliedGeneration !== -1) teardownMedia();
+        // Guarded: setting the status re-runs this function through the store.
+        if (state.status !== 'ended') setStreamStatus('ended');
+        return;
+      }
+      const target = `rtc:${sessionId}`;
+      if (state.generation === appliedGeneration && target === appliedUrl) return;
+      teardownMedia();
+      appliedGeneration = state.generation;
+      appliedUrl = target;
+      autoplayRejected = false;
+      setStreamStatus('connecting');
+      video.muted = state.muted;
+      startRtc(sessionId, state.generation);
+      return;
+    }
+    if (!state.mediaUrl) return;
     if (state.generation === appliedGeneration && state.mediaUrl === appliedUrl) return;
 
     teardownMedia();
@@ -208,6 +426,7 @@
   // Reactive statements run before bind:this lands, so wire once more after mount.
   onMount(() => {
     wire($streamPlayer);
+    document.addEventListener('visibilitychange', onVisibility);
   });
 
   $: if ($streamPlayer.muted && video) {
@@ -351,13 +570,17 @@
   }
 
   onDestroy(() => {
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibility);
+    }
     teardownMedia();
   });
 </script>
 
 <div
   bind:this={container}
-  class="@container relative w-full overflow-hidden rounded-xl bg-black aspect-video group"
+  class="engine-box @container relative w-full overflow-hidden rounded-xl bg-black aspect-video group"
+  class:portrait
 >
   <!-- Live relay video has no caption track; the a11y rule targets media
        with meaningful content that can carry one. -->
@@ -379,7 +602,11 @@
       if (video && item?.status === 'ended') setStreamPosition(video.currentTime);
     }}
     on:durationchange={syncTime}
-    on:loadedmetadata={syncTime}
+    on:loadedmetadata={(e) => {
+      syncTime();
+      measure(e);
+    }}
+    on:resize={measure}
     on:seeked={syncTime}
     on:playing={() => (paused = false)}
     on:pause={() => (paused = true)}
@@ -396,7 +623,11 @@
           ? 'bg-zinc-700 text-zinc-200'
           : 'bg-red-600 text-white animate-pulse'}"
       >
-        {$streamPlayer.item.status === 'ended' ? 'Replay' : 'Live'}
+        {$streamPlayer.item.status === 'ended'
+          ? isGoLiveItem($streamPlayer.item)
+            ? 'Ended'
+            : 'Replay'
+          : 'Live'}
       </span>
       {#if $streamPlayer.item.viewers != null && $streamPlayer.item.status !== 'ended'}
         <span class="rounded-full bg-black/60 px-2 py-0.5 text-xs text-zinc-200">
@@ -433,84 +664,86 @@
         </div>
       {/if}
       <div class="flex items-end gap-2">
-      <!-- Persistent keyboard-accessible play/pause: the video's own click
+        <!-- Persistent keyboard-accessible play/pause: the video's own click
            handler stays for pointer users; this labeled button serves
            keyboard and screen-reader users at all times. -->
-      <button
-        type="button"
-        class="{ctrlBtn} pointer-events-auto shrink-0 transition-colors"
-        aria-label={paused ? 'Play stream' : 'Pause stream'}
-        title={paused ? 'Play' : 'Pause'}
-        on:click|stopPropagation={() => {
-          if (video?.paused) video.play().catch(() => {});
-          else video?.pause();
-        }}
-      >
-        {#if paused}
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        {:else}
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
-          </svg>
-        {/if}
-      </button>
-      <div class="min-w-0 flex-1">
-        <p
-          class="truncate text-sm font-medium text-white"
-          dir="auto"
-          title={$streamPlayer.item.title}
-        >
-          {$streamPlayer.item.title}
-        </p>
-        <p class="text-xs text-zinc-300">
-          {#if $streamPlayer.status === 'connecting'}
-            Connecting…
-          {:else if $streamPlayer.status === 'buffering'}
-            Buffering…
-          {:else if $streamPlayer.status === 'unavailable'}
-            Stream unavailable — try another stream or come back later.
-          {:else if $streamPlayer.item.starts && $streamPlayer.item.status !== 'ended'}
-            Live for {runtime($streamPlayer.item.starts)?.minutes ?? 0} min
-          {/if}
-        </p>
-      </div>
-      <div class="pointer-events-auto flex shrink-0 items-center gap-1 @min-[340px]:pointer-coarse:gap-2">
         <button
           type="button"
-          on:click={toggleMute}
-          class={ctrlBtn}
-          aria-label={$streamPlayer.muted ? 'Unmute' : 'Mute'}
-          title={$streamPlayer.muted ? 'Unmute' : 'Mute'}
+          class="{ctrlBtn} pointer-events-auto shrink-0 transition-colors"
+          aria-label={paused ? 'Play stream' : 'Pause stream'}
+          title={paused ? 'Play' : 'Pause'}
+          on:click|stopPropagation={() => {
+            if (video?.paused) video.play().catch(() => {});
+            else video?.pause();
+          }}
         >
-          {#if $streamPlayer.muted}
-            <SpeakerXIcon class="h-4 w-4" />
+          {#if paused}
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5v14l11-7z" />
+            </svg>
           {:else}
-            <SpeakerHighIcon class="h-4 w-4" />
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+            </svg>
           {/if}
         </button>
-        {#if pipSupported(video)}
+        <div class="min-w-0 flex-1">
+          <p
+            class="truncate text-sm font-medium text-white"
+            dir="auto"
+            title={$streamPlayer.item.title}
+          >
+            {$streamPlayer.item.title}
+          </p>
+          <p class="text-xs text-zinc-300">
+            {#if $streamPlayer.status === 'connecting'}
+              Connecting…
+            {:else if $streamPlayer.status === 'buffering'}
+              Buffering…
+            {:else if $streamPlayer.status === 'unavailable'}
+              Stream unavailable — try another stream or come back later.
+            {:else if $streamPlayer.item.starts && $streamPlayer.item.status !== 'ended'}
+              Live for {runtime($streamPlayer.item.starts)?.minutes ?? 0} min
+            {/if}
+          </p>
+        </div>
+        <div
+          class="pointer-events-auto flex shrink-0 items-center gap-1 @min-[340px]:pointer-coarse:gap-2"
+        >
           <button
             type="button"
-            on:click={togglePictureInPicture}
-            class="{ctrlBtn} {inPictureInPicture ? 'ring-1 ring-white/70' : ''}"
-            aria-label="Picture in picture"
-            title="Picture in picture"
+            on:click={toggleMute}
+            class={ctrlBtn}
+            aria-label={$streamPlayer.muted ? 'Unmute' : 'Mute'}
+            title={$streamPlayer.muted ? 'Unmute' : 'Mute'}
           >
-            <PictureInPictureIcon class="h-4 w-4" />
+            {#if $streamPlayer.muted}
+              <SpeakerXIcon class="h-4 w-4" />
+            {:else}
+              <SpeakerHighIcon class="h-4 w-4" />
+            {/if}
           </button>
-        {/if}
-        <button
-          type="button"
-          on:click={toggleFullscreen}
-          class={ctrlBtn}
-          aria-label="Full screen"
-          title="Full screen"
-        >
-          <ArrowsOutIcon class="h-4 w-4" />
-        </button>
-      </div>
+          {#if pipSupported(video)}
+            <button
+              type="button"
+              on:click={togglePictureInPicture}
+              class="{ctrlBtn} {inPictureInPicture ? 'ring-1 ring-white/70' : ''}"
+              aria-label="Picture in picture"
+              title="Picture in picture"
+            >
+              <PictureInPictureIcon class="h-4 w-4" />
+            </button>
+          {/if}
+          <button
+            type="button"
+            on:click={toggleFullscreen}
+            class={ctrlBtn}
+            aria-label="Full screen"
+            title="Full screen"
+          >
+            <ArrowsOutIcon class="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -530,7 +763,25 @@
     {/if}
   {/if}
 
-  {#if $streamPlayer.status === 'unavailable'}
+  {#if $streamPlayer.status === 'ended' && isGoLiveItem($streamPlayer.item)}
+    <div class="absolute inset-0 flex items-center justify-center bg-black/75 p-4 text-center">
+      <p class="text-sm font-medium text-zinc-100">This live stream has ended</p>
+    </div>
+  {:else if $streamPlayer.status === 'full'}
+    <div
+      class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 p-4 text-center"
+    >
+      <p class="text-sm font-medium text-zinc-100">
+        This live stream is full for guests. Cook+ members always get in.
+      </p>
+      <a
+        href="/membership"
+        class="rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-zinc-200"
+      >
+        Become a member
+      </a>
+    </div>
+  {:else if $streamPlayer.status === 'unavailable'}
     <div class="absolute inset-0 flex items-center justify-center bg-black/70 p-4 text-center">
       <p class="text-sm text-zinc-300">
         This stream is not reachable right now.
@@ -618,6 +869,25 @@
     .scrub::-moz-range-thumb {
       width: 16px;
       height: 16px;
+    }
+  }
+  /* In the stream page's slot (not the corner dock): a portrait broadcast
+     gets a tall frame instead of a narrow strip inside 16:9, as tall as
+     the window allows under the header with room for the host row. */
+  :global(.stream-slot) .engine-box.portrait {
+    aspect-ratio: auto;
+    height: min(calc(100dvh - var(--header-h, 4rem) - 8rem), 177vw, 56rem);
+    min-height: 16rem;
+  }
+  @media (max-width: 640px) {
+    :global(.stream-slot) .engine-box {
+      border-radius: 0;
+    }
+    /* Leave the host row and the bottom nav in view under the video. */
+    :global(.stream-slot) .engine-box.portrait {
+      height: calc(
+        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 6.5rem
+      );
     }
   }
 </style>

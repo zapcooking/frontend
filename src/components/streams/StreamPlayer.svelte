@@ -1,8 +1,8 @@
 <script lang="ts">
   /**
-   * The embedded player surface for /live/[naddr]: video engine, host row,
-   * zap bolt + total, and the About panel. Comments (NIP-22) live on the
-   * page, not in the player.
+   * The embedded player surface for /live/[naddr] and /live/s/[id]: video
+   * engine, host row, zap bolt + total, and the About panel. Comments
+   * (NIP-22) live on the page, not in the player.
    */
   import { onMount, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
@@ -11,6 +11,7 @@
   import TextAlignLeftIcon from 'phosphor-svelte/lib/TextAlignLeft';
   import LiveAvatar from './LiveAvatar.svelte';
   import { pseudonym } from '$lib/streams/parse';
+  import { isGoLiveItem } from '$lib/streams/goLive';
   import { selectStream, streamPlayer, updateStreamItem } from '$lib/stores/streamPlayer';
   import { streamSlot } from '$lib/stores/streamSlot';
   import { openProfilePreview } from '$lib/stores/profilePreview';
@@ -194,7 +195,9 @@
   // Derived from the current item: announcement refreshes can change the
   // host `p` tag, and the displayed identity + zap recipient must follow.
   $: host = item.host;
-  $: address = item.key;
+  // A Go live session has no NIP-53 address: its zap goes to the host's
+  // profile, with no running total (until the "Live now" note exists).
+  $: address = isGoLiveItem(item) ? null : item.key;
 
   // Host identity read straight from relays (newest kind 0 wins). The
   // announcement's author is often a service account, and the app's NDK
@@ -228,7 +231,7 @@
 <div class="flex flex-col gap-4">
   <!-- The layout-level dock moves its (persistent) video container into this
        slot while the page is mounted. -->
-  <div bind:this={slotEl} class="w-full scroll-mt-20"></div>
+  <div bind:this={slotEl} class="stream-slot w-full scroll-mt-20"></div>
 
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex min-w-0 items-center gap-2">
@@ -274,3 +277,14 @@
     <StreamAbout {item} />
   {/if}
 </div>
+
+<style>
+  /* Phones: the page player runs edge to edge (the layout pads the page
+     by 1rem on each side). */
+  @media (max-width: 640px) {
+    .stream-slot {
+      width: calc(100% + 2rem);
+      margin-inline: -1rem;
+    }
+  }
+</style>

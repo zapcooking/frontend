@@ -533,6 +533,32 @@ export async function countCapRefusal(db: LiveDb, id: string): Promise<void> {
     .run();
 }
 
+/**
+ * Count one join admitted on a rejoin pass, if the session is live and
+ * still under the ceiling. One conditional statement, like a guest slot.
+ * False means the pass is not honoured: the viewer is a new guest.
+ */
+export async function takePassRejoin(db: LiveDb, id: string, ceiling: number): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE live_sessions SET pass_rejoins = pass_rejoins + 1
+        WHERE id = ?1 AND status = 'live' AND pass_rejoins < ?2`
+    )
+    .bind(id, ceiling)
+    .run();
+  return (result.meta?.changes ?? 0) === 1;
+}
+
+/** Give a pass rejoin back when the viewer did not actually get in. */
+export async function returnPassRejoin(db: LiveDb, id: string): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE live_sessions SET pass_rejoins = pass_rejoins - 1 WHERE id = ?1 AND pass_rejoins > 0'
+    )
+    .bind(id)
+    .run();
+}
+
 // ── Sweep, admin and retention ───────────────────────────────────────
 
 /** A session the sweep has to look at. Server-side only. */
@@ -631,6 +657,7 @@ export interface AdminSessionView {
   reconnects: number;
   guest_joins: number;
   cap_refusals: number;
+  pass_rejoins: number;
   disconnected_streak: number;
   input_recorded: boolean;
 }
@@ -639,7 +666,8 @@ export async function listSessionsForAdmin(db: LiveDb, limit: number): Promise<A
   const { results } = await db
     .prepare(
       `SELECT id, host_pubkey, title, status, created_at, started_at, reconnects, guest_joins,
-              cap_refusals, disconnected_streak, (cf_input_uid IS NOT NULL) AS input_recorded
+              cap_refusals, pass_rejoins, disconnected_streak,
+              (cf_input_uid IS NOT NULL) AS input_recorded
          FROM live_sessions WHERE status != 'ended' OR cf_input_uid IS NOT NULL
         ORDER BY created_at DESC LIMIT ?1`
     )
@@ -664,4 +692,16 @@ export async function deleteRowsForHost(db: LiveDb, hostPubkey: string): Promise
     .bind(hostPubkey)
     .run();
   return result.meta?.changes ?? 0;
+}
+
+/** Sessions that are live right now, newest first, in the public shape. */
+export async function listLiveSessions(db: LiveDb, limit = 50): Promise<PublicLiveSession[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${SESSION_COLUMNS} FROM live_sessions
+        WHERE status = 'live' ORDER BY started_at DESC LIMIT ?1`
+    )
+    .bind(limit)
+    .all<LiveSessionRow>();
+  return results.map(toPublicSession);
 }

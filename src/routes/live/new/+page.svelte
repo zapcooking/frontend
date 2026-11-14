@@ -19,7 +19,7 @@
    *    shows "Reconnecting…", never an error that needs a tap.
    *  - It keeps the screen awake while live.
    */
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -45,6 +45,7 @@
     detectPlatform,
     hasConfirmedAge,
     isConstraintFailure,
+    liveDurationLine,
     loadStoredSession,
     mediaHelp,
     readRecipeHandoff,
@@ -54,12 +55,20 @@
     type HostPlatform,
     type MediaHelp
   } from '$lib/live/host/hostDevice';
+  import { LIVE_DEFAULT_TITLE, liveStreamName } from '$lib/live/streamName';
+  import { fetchSession } from '$lib/streams/goLive';
+  import CameraRotateIcon from 'phosphor-svelte/lib/CameraRotate';
+  import LinkSimpleIcon from 'phosphor-svelte/lib/LinkSimple';
+  import CheckIcon from 'phosphor-svelte/lib/Check';
+  import XIcon from 'phosphor-svelte/lib/X';
   import RecipePickerModal from '../../../components/RecipePickerModal.svelte';
   import Modal from '../../../components/Modal.svelte';
 
   const DOCK_OWNER = 'live-host';
   const STATUS_POLL_MS = 5000;
-  const DEFAULT_TITLE = 'Live cook-along';
+  const DEFAULT_TITLE = LIVE_DEFAULT_TITLE;
+  /** The "locking your phone" hint is shown until dismissed, once per device. */
+  const LOCK_HINT_KEY = 'zc.live.lockHintDismissed';
 
   type Phase =
     | 'loading' // working out who this is
@@ -76,6 +85,7 @@
   let phase: Phase = 'loading';
   let platform: HostPlatform = 'other';
   let videoEl: HTMLVideoElement;
+  let stageEl: HTMLElement;
 
   // What is being broadcast.
   let title = DEFAULT_TITLE;
@@ -96,6 +106,10 @@
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let wakeLock: { release(): Promise<void> } | null = null;
   let startedAt = 0;
+  /** Whether this page ever had a connected broadcast (for the ended screen). */
+  let everLive = false;
+  /** "You were live for …" on the ended screen. */
+  let liveLine: string | null = null;
   let elapsed = '0:00';
   let clockTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -116,6 +130,42 @@
   $: isLive = phase === 'live' || phase === 'reconnecting';
   $: canStart = phase === 'preview' && !!stream && title.trim().length > 0;
 
+  /** The host's own name, for "<name> is cooking <recipe>". */
+  let ownName: string | null = null;
+  $: streamName = liveStreamName({
+    title,
+    hasRecipe: !!recipeA,
+    recipeTitle,
+    hostName: ownName
+  });
+
+  let lockHintDismissed = true;
+  function readLockHint() {
+    try {
+      lockHintDismissed = localStorage.getItem(LOCK_HINT_KEY) === '1';
+    } catch {
+      lockHintDismissed = false;
+    }
+  }
+  function dismissLockHint() {
+    lockHintDismissed = true;
+    try {
+      localStorage.setItem(LOCK_HINT_KEY, '1');
+    } catch {
+      /* not remembered: it stays hidden for this visit */
+    }
+  }
+
+  async function loadOwnName(pubkey: string) {
+    try {
+      const profile = await $ndk.getUser({ pubkey }).fetchProfile();
+      const name = (profile?.displayName || profile?.name || '').toString().trim();
+      ownName = name || null;
+    } catch {
+      /* "Cooking <recipe>" without it */
+    }
+  }
+
   onMount(async () => {
     platform = detectPlatform(navigator.userAgent, navigator.maxTouchPoints);
 
@@ -134,6 +184,8 @@
       phase = 'not_allowed';
       return;
     }
+    readLockHint();
+    void loadOwnName($userPublickey);
 
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', onPageHide);
@@ -333,6 +385,9 @@
     if (!canStart || !stream) return;
     phase = 'starting';
     notice = '';
+    // The Go live button sits below the video; bring the video (and the
+    // End button on it) fully back into view now that the form is gone.
+    void tick().then(() => stageEl?.scrollIntoView({ block: 'start' }));
 
     let outcome = await createLiveSession({ title: title.trim(), recipeA }, sign);
     if (!outcome.ok && outcome.reason === 'already_active' && outcome.id) {
@@ -423,6 +478,7 @@
     conn.addEventListener('connectionstatechange', () => {
       if (pc !== conn || !policy) return; // an older connection
       if (conn.connectionState === 'connected') {
+        everLive = true;
         policy.connected();
         phase = 'live';
       } else if (conn.connectionState === 'disconnected') {
@@ -515,6 +571,21 @@
       policy?.failed();
   }
 
+  let linkCopied = false;
+  /** The public watch page for this session, for the host to share. */
+  async function copyWatchLink() {
+    if (!session) return;
+    const url = `${location.origin}/live/s/${session.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      linkCopied = true;
+      setTimeout(() => (linkCopied = false), 2500);
+    } catch {
+      // No clipboard access (some in-app browsers): show the link instead.
+      notice = url;
+    }
+  }
+
   function onPageHide() {
     setMicrophoneEnabled(stream, false);
   }
@@ -550,8 +621,18 @@
     phase = 'ended';
     endedMessage = message;
     const closing = session;
+    // This page's own clock first; the server's start time (which also
+    // covers a stream resumed after a reload) replaces it when it arrives.
+    liveLine = everLive && startedAt ? liveDurationLine((Date.now() - startedAt) / 1000) : null;
     teardown(true);
     if (tellServer && closing) await endLiveSession(closing);
+    if (closing) {
+      const read = await fetchSession(closing.id);
+      if (read?.started_at) {
+        const end = read.ended_at ?? Math.floor(Date.now() / 1000);
+        liveLine = liveDurationLine(end - read.started_at);
+      }
+    }
   }
 
   /** Stop everything local: timers, connection, camera, wake lock. */
@@ -624,13 +705,19 @@
   {:else if phase === 'ended'}
     <div class="ended" role="status">
       <h1>{endedMessage}</h1>
-      <button class="btn" on:click={leave}>Done</button>
+      {#if liveLine}<p class="muted">{liveLine}</p>{/if}
+      <button class="btn done" on:click={leave}>Done</button>
     </div>
   {:else}
     <!-- Kept in the page (the video element must exist when the camera
          arrives) but collapsed while there is no picture to show, so the
          instructions are not pushed below an empty black box. -->
-    <div class="stage" class:collapsed={!!mediaProblem && !stream}>
+    <div
+      bind:this={stageEl}
+      class="stage"
+      class:collapsed={!!mediaProblem && !stream}
+      class:on-air={isLive || phase === 'starting'}
+    >
       <!-- svelte-ignore a11y-media-has-caption -->
       <video bind:this={videoEl} autoplay muted playsinline class:mirrored={facing === 'user'}
       ></video>
@@ -653,6 +740,52 @@
           {startAttempts > 1 ? 'Still connecting…' : 'Starting…'}
         </div>
       {/if}
+
+      {#if stream && phase !== 'resume'}
+        <!-- Controls sit on the video, on a translucent bar along the bottom. -->
+        <div class="overlay-bar">
+          <button
+            class="icon-btn"
+            on:click={flip}
+            disabled={!stream || flipping}
+            aria-label="Flip camera"
+            title="Flip camera"
+          >
+            <CameraRotateIcon size={20} weight="bold" />
+          </button>
+          {#if isLive || phase === 'starting'}
+            <button
+              class="icon-btn"
+              on:click={copyWatchLink}
+              disabled={!session}
+              aria-label={linkCopied ? 'Watch link copied' : 'Copy watch link'}
+              title={linkCopied ? 'Copied' : 'Copy watch link'}
+            >
+              {#if linkCopied}
+                <CheckIcon size={20} weight="bold" />
+              {:else}
+                <LinkSimpleIcon size={20} weight="bold" />
+              {/if}
+            </button>
+            <span class="spacer"></span>
+            <!-- Never disabled while starting: if the first publish cannot get
+                 through, End is the only way out short of closing the tab. -->
+            <button class="end-btn" on:click={end} disabled={ending}>End</button>
+          {/if}
+        </div>
+      {/if}
+      {#if linkCopied}
+        <div class="copied" role="status">Watch link copied</div>
+      {/if}
+      {#if isLive && !lockHintDismissed}
+        <!-- Shown until dismissed, once per device. -->
+        <p class="hint">
+          <span>Locking your phone or leaving this page pauses your picture and sound.</span>
+          <button class="hint-close" on:click={dismissLockHint} aria-label="Dismiss tip">
+            <XIcon size={12} weight="bold" />
+          </button>
+        </p>
+      {/if}
     </div>
 
     {#if mediaProblem}
@@ -674,7 +807,7 @@
     {#if phase === 'resume'}
       <div class="panel">
         <h1>You have a live stream open</h1>
-        <p class="muted">{title}</p>
+        <p class="muted">{streamName}</p>
         <div class="actions">
           <button class="btn primary" on:click={resume}>Resume</button>
           <button class="btn" on:click={endStored}>End</button>
@@ -698,35 +831,13 @@
 
         {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
-        <div class="actions">
-          <button
-            class="btn"
-            on:click={flip}
-            disabled={!stream || flipping}
-            aria-label="Flip camera">Flip</button
-          >
-          <button class="btn primary" on:click={goLive} disabled={!canStart}>Go live</button>
-        </div>
+        <button class="btn primary" on:click={goLive} disabled={!canStart}>Go live</button>
         <p class="muted small">Live streams end by themselves after 90 minutes.</p>
       </div>
     {:else}
-      <div class="panel">
-        <p class="live-title">{title}</p>
-        <p class="muted small">
-          Locking your phone or leaving this page pauses the picture and mutes your microphone.
-        </p>
+      <div class="panel live-panel">
+        <p class="live-title" title={streamName}>{streamName}</p>
         {#if notice}<p class="notice" role="status">{notice}</p>{/if}
-        <div class="actions">
-          <button
-            class="btn"
-            on:click={flip}
-            disabled={!stream || flipping}
-            aria-label="Flip camera">Flip</button
-          >
-          <!-- Never disabled while starting: if the first publish cannot get
-               through, End is the only way out short of closing the tab. -->
-          <button class="btn danger" on:click={end} disabled={ending}>End</button>
-        </div>
       </div>
     {/if}
   {/if}
@@ -752,7 +863,8 @@
 
 <style>
   .live-host {
-    max-width: 40rem;
+    width: 100%;
+    max-width: 56rem;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
@@ -774,18 +886,73 @@
   .small {
     font-size: 0.8125rem;
   }
+  /*
+   * The stage. Its width is always the full column (width: 100%), and its
+   * height is set explicitly rather than derived from an aspect ratio: an
+   * aspect ratio capped by max-height made Safari shrink the WIDTH to keep
+   * the ratio, which left the video left-aligned with a gap on the right.
+   * The video inside is `contain`, so the host sees exactly the frame
+   * viewers get, on black.
+   */
   .stage {
     position: relative;
+    width: 100%;
+    scroll-margin-top: var(--header-h, 4rem);
     background: #000;
     border-radius: 0.75rem;
     overflow: hidden;
-    aspect-ratio: 16 / 9;
+    /* Desktop: as tall as the window allows, leaving room for the panel. */
+    height: min(calc(100dvh - var(--header-h, 4rem) - 13rem), 42rem);
+    min-height: 16rem;
   }
-  @media (orientation: portrait) and (max-width: 640px) {
+  .stage.on-air {
+    height: min(calc(100dvh - var(--header-h, 4rem) - 6rem), 48rem);
+  }
+  @media (max-width: 640px) {
+    /* Phones: edge to edge (cancel the page's 1rem side padding) and most
+       of the height. The bottom nav (4rem plus the home bar) stays below. */
+    .live-host {
+      width: calc(100% + 2rem);
+      max-width: none;
+      margin: -0.75rem -1rem 0;
+      gap: 0.75rem;
+    }
     .stage {
-      aspect-ratio: 3 / 4;
-      /* Leave room for the title, the buttons and the bottom nav. */
-      max-height: 50vh;
+      border-radius: 0;
+      height: calc(
+        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 15rem
+      );
+      min-height: 14rem;
+    }
+    .stage.on-air {
+      height: calc(
+        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 3.5rem
+      );
+    }
+    .panel,
+    .help,
+    .ended {
+      padding: 0 1rem;
+    }
+  }
+  @media (orientation: landscape) and (max-height: 500px) {
+    /* A phone on its side: edge to edge, the full height between the
+       header and the bottom nav; the title scrolls below it. */
+    .live-host {
+      width: calc(100% + 2rem);
+      max-width: none;
+      margin: -0.75rem -1rem 0;
+    }
+    .stage,
+    .stage.on-air {
+      height: calc(100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px));
+      min-height: 11rem;
+      border-radius: 0;
+    }
+    .panel,
+    .help,
+    .ended {
+      padding: 0 max(1rem, env(safe-area-inset-left, 0px));
     }
   }
   .stage.collapsed {
@@ -794,7 +961,7 @@
   video {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     display: block;
   }
   video.mirrored {
@@ -803,7 +970,7 @@
   .badge {
     position: absolute;
     top: 0.75rem;
-    left: 0.75rem;
+    left: max(0.75rem, env(safe-area-inset-left, 0px));
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
@@ -822,6 +989,88 @@
     height: 0.5rem;
     border-radius: 9999px;
     background: #ef4444;
+  }
+  .overlay-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1.5rem max(0.75rem, env(safe-area-inset-right, 0px)) 0.75rem
+      max(0.75rem, env(safe-area-inset-left, 0px));
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
+  }
+  .spacer {
+    flex: 1;
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 9999px;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .icon-btn:disabled {
+    opacity: 0.5;
+  }
+  .end-btn {
+    min-height: 2.75rem;
+    padding: 0 1.4rem;
+    border-radius: 9999px;
+    background: #dc2626;
+    color: #fff;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  }
+  .end-btn:disabled {
+    opacity: 0.6;
+  }
+  .copied {
+    position: absolute;
+    left: 50%;
+    bottom: 4.25rem;
+    transform: translateX(-50%);
+    padding: 0.3rem 0.7rem;
+    border-radius: 9999px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .live-panel {
+    gap: 0.5rem;
+  }
+  .hint {
+    position: absolute;
+    top: 3.1rem;
+    left: max(0.75rem, env(safe-area-inset-left, 0px));
+    right: max(0.75rem, env(safe-area-inset-right, 0px));
+    max-width: 22rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    padding: 0.35rem 0.4rem 0.35rem 0.65rem;
+    border-radius: 0.6rem;
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 0.6875rem;
+    line-height: 1.35;
+  }
+  .hint-close {
+    flex-shrink: 0;
+    padding: 0.2rem;
+    border-radius: 9999px;
+    color: #fff;
   }
   .panel,
   .help,
@@ -844,9 +1093,17 @@
     gap: 0.4rem;
     font-size: 0.9375rem;
   }
-  .ended {
-    align-items: flex-start;
-    padding: 2rem 0;
+  /* Centered, with ordinary page padding on every width. Declared with the
+     padding here (not in the phone rule above) so nothing overrides it. */
+  .live-host .ended {
+    align-items: center;
+    text-align: center;
+    gap: 0.5rem;
+    padding: 3rem 1rem;
+  }
+  .ended .done {
+    margin-top: 1rem;
+    min-width: 9rem;
   }
   .field {
     display: flex;
@@ -870,6 +1127,9 @@
   }
   .live-title {
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .notice {
     font-size: 0.9375rem;
@@ -896,16 +1156,9 @@
     cursor: not-allowed;
   }
   .btn.primary {
-    flex: 1;
     border: 0;
     background: #dc2626;
     color: #fff;
-  }
-  .btn.danger {
-    flex: 1;
-    border: 0;
-    background: var(--color-text-primary);
-    color: var(--color-bg-primary);
   }
   .link {
     align-self: flex-start;

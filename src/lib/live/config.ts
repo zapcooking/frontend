@@ -75,6 +75,18 @@ export function parseGuestCap(value: string | undefined): number {
   return cap <= LIVE_GUEST_CAP_MAX ? cap : LIVE_GUEST_CAP_DEFAULT;
 }
 
+/**
+ * Joins admitted on a rejoin pass, per session, as a multiple of the
+ * guest cap. Past it a pass is not honoured and the viewer is treated as
+ * a new guest, so a copied pass cannot admit viewers without limit.
+ */
+export const LIVE_PASS_REJOINS_PER_GUEST = 3;
+
+/** The per-session ceiling on pass rejoins for a given guest cap. */
+export function passRejoinCeiling(guestCap: number): number {
+  return guestCap * LIVE_PASS_REJOINS_PER_GUEST;
+}
+
 // ── Sweep and kill switch ────────────────────────────────────────────
 
 /** A live session is ended this long after it first went live, whatever its status. */

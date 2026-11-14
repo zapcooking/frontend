@@ -74,7 +74,7 @@ export function matchProfileOgRoute(pathname: string): { slug: string } | null {
   return { slug: m[1] };
 }
 
-function shouldHideOg(
+export function shouldHideOg(
   slug: string,
   event: { tags: string[][]; content: string; pubkey?: string; kind?: number; id?: string } | null,
   lists: ReadsModerationLists
@@ -116,8 +116,27 @@ function escapeAttr(value: string): string {
 // (verified via `sips`) rather than fetching it on every fallback render.
 const STATIC_FALLBACK_DIMENSIONS: Record<string, { width: number; height: number; mime: string }> =
   {
-    'https://zap.cooking/social-share.png': { width: 1200, height: 675, mime: 'image/png' }
+    'https://zap.cooking/social-share.png': { width: 1200, height: 675, mime: 'image/png' },
+    'https://zap.cooking/live-share.png': { width: 1200, height: 630, mime: 'image/png' }
   };
+
+/**
+ * Known size of one of our own static share images. The Go live image is
+ * matched by path on any origin, because a preview deployment's card
+ * points at that deployment's copy.
+ */
+function staticDimensions(image: string): { width: number; height: number; mime: string } | null {
+  const exact = STATIC_FALLBACK_DIMENSIONS[image];
+  if (exact) return exact;
+  try {
+    if (new URL(image).pathname === '/live-share.png') {
+      return STATIC_FALLBACK_DIMENSIONS['https://zap.cooking/live-share.png'];
+    }
+  } catch {
+    /* not a URL: probe as before */
+  }
+  return null;
+}
 
 /**
  * Build the head tags for a card: `<title>`, description, canonical, and the
@@ -152,7 +171,7 @@ export async function buildOgTagBlock(meta: RecipeOgMeta, canonicalUrl: string):
   // valid and reachable — see docs/plans/og-missing-images-fix.md. Best
   // effort: a fetch/parse failure just omits these tags (today's behavior),
   // never blocks the rest of the card.
-  const dims = STATIC_FALLBACK_DIMENSIONS[meta.image] ?? (await probeImageDimensions(meta.image));
+  const dims = staticDimensions(meta.image) ?? (await probeImageDimensions(meta.image));
   if (dims) {
     lines.push(
       `<meta property="og:image:width" content="${dims.width}" />`,

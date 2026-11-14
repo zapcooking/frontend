@@ -24,6 +24,7 @@ import {
   detectPlatform,
   hasConfirmedAge,
   isConstraintFailure,
+  liveDurationLine,
   loadStoredSession,
   mediaHelp,
   readRecipeHandoff,
@@ -580,7 +581,7 @@ describe('device helpers', () => {
     expect(ok).toEqual({ recipeA: `30023:${PUBKEY}:sunday-loaf`, title: 'Sunday loaf' });
     expect(readRecipeHandoff(new URLSearchParams({ a: `35000:${PUBKEY}:premium` }))).toEqual({
       recipeA: `35000:${PUBKEY}:premium`,
-      title: 'Live cook-along'
+      title: 'Live from Zap Cooking'
     });
     expect(
       readRecipeHandoff(new URLSearchParams({ a: `1:${PUBKEY}:note`, title: 'x' }))
@@ -591,5 +592,21 @@ describe('device helpers', () => {
       readRecipeHandoff(new URLSearchParams({ a: `30023:${PUBKEY}:x`, title: 'y'.repeat(300) }))!
         .title.length
     ).toBe(120);
+  });
+});
+
+describe('liveDurationLine', () => {
+  it('says how long the host was live', () => {
+    expect(liveDurationLine(12)).toBe('You were live for less than a minute');
+    expect(liveDurationLine(60)).toBe('You were live for 1 minute');
+    expect(liveDurationLine(12 * 60 + 40)).toBe('You were live for 12 minutes');
+    expect(liveDurationLine(3600)).toBe('You were live for 1 hour');
+    expect(liveDurationLine(3600 + 5 * 60)).toBe('You were live for 1 hour 5 minutes');
+    expect(liveDurationLine(2 * 3600 + 60)).toBe('You were live for 2 hours 1 minute');
+  });
+  it('says nothing when there is nothing sensible to say', () => {
+    expect(liveDurationLine(null)).toBeNull();
+    expect(liveDurationLine(-5)).toBeNull();
+    expect(liveDurationLine(Number.NaN)).toBeNull();
   });
 });

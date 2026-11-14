@@ -6,6 +6,10 @@
    * a `live` announcement under an hour old with a media URL — so the
    * grid stays cheap; the player probes playlists before you commit to
    * one. Click-through goes to /live/[naddr].
+   *
+   * Zap Cooking's own Go live sessions are read from /api/live (they are
+   * not on relays) and lead the Live now tab, with the recipe's photo.
+   * They open on /live/s/[id].
    */
   import { onDestroy, onMount } from 'svelte';
   import { browser } from '$app/environment';
@@ -13,14 +17,27 @@
   import type { Filter } from 'nostr-tools/filter';
   import Avatar from '../../components/Avatar.svelte';
   import StreamCardSkeleton from '../../components/streams/StreamCardSkeleton.svelte';
+  import LiveFallbackArt from '../../components/streams/LiveFallbackArt.svelte';
   import { StreamDirectory } from '$lib/streams/directory';
-  import { streamAddress, naddrEncode, pseudonym, runtime } from '$lib/streams/parse';
+  import { pseudonym, runtime } from '$lib/streams/parse';
   import { createStreamPool } from '$lib/streams/relayPage';
   import { fetchChatProfiles, type ChatProfile } from '$lib/streams/chat';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
   import { pickThumb } from '$lib/streams/thumb';
   import ImageBrokenIcon from 'phosphor-svelte/lib/ImageBroken';
   import type { NostrEventLike, StreamItem } from '$lib/streams/types';
+  import { get } from 'svelte/store';
+  import { ndk } from '$lib/nostr';
+  import {
+    fetchLiveSessions,
+    isGoLiveItem,
+    mergeLiveItems,
+    sessionToStreamItem,
+    streamPath,
+    type GoLiveSession,
+    type RecipeCard
+  } from '$lib/streams/goLive';
+  import { fetchRecipeEventWithRetry, recipeCardOf } from '$lib/streams/recipeCard';
 
   type Tab = 'live' | 'upcoming' | 'past';
   const TABS: { id: Tab; label: string }[] = [
@@ -38,13 +55,58 @@
   let sub: { close: () => void } | null = null;
   let fillTimer: ReturnType<typeof setInterval> | null = null;
   let viewTimer: ReturnType<typeof setInterval> | null = null;
+  let goLiveTimer: ReturnType<typeof setInterval> | null = null;
+  let goLiveSessions: GoLiveSession[] = [];
+  let goLiveLoaded = false;
+  /** Recipe title and photo per recipe address, filled as they resolve. */
+  let recipeCards = new Map<string, RecipeCard | null>();
+
+  const GO_LIVE_REFRESH_MS = 20000;
 
   function link(item: StreamItem): string | null {
-    const address = streamAddress(item);
-    try {
-      return address ? `/live/${naddrEncode(address)}` : null;
-    } catch {
-      return null;
+    return streamPath(item);
+  }
+
+  function goLiveItems(): StreamItem[] {
+    return goLiveSessions.map((s) =>
+      sessionToStreamItem(
+        s,
+        s.recipe_a ? recipeCards.get(s.recipe_a) : null,
+        realName(s.host_pubkey)
+      )
+    );
+  }
+
+  /** The host's own display name, or null (never a pseudonym). */
+  function realName(pubkey: string): string | null {
+    return profiles.get(pubkey)?.displayName || profiles.get(pubkey)?.name || null;
+  }
+
+  /** Re-derive Go live card names once host names arrive ("<host> is cooking …"). */
+  function renameGoLive() {
+    if (!items.some(isGoLiveItem)) return;
+    const named = new Map(goLiveItems().map((i) => [i.key, i]));
+    items = items.map((i) => named.get(i.key) ?? i);
+  }
+
+  async function fillGoLive() {
+    if (document.hidden && goLiveLoaded) return;
+    goLiveSessions = await fetchLiveSessions();
+    goLiveLoaded = true;
+    // Show what we have now; recipe photos fill in as they resolve.
+    if (goLiveSessions.length) loading = false;
+    repaint();
+    const missing = [
+      ...new Set(goLiveSessions.map((s) => s.recipe_a).filter((a): a is string => !!a))
+    ].filter((a) => !recipeCards.has(a));
+    for (const a of missing) {
+      recipeCards.set(a, null);
+      fetchRecipeEventWithRetry(() => get(ndk), a)
+        .then((event) => {
+          recipeCards = new Map(recipeCards).set(a, recipeCardOf(event));
+          repaint();
+        })
+        .catch(() => {});
     }
   }
 
@@ -64,7 +126,7 @@
     const now = Date.now() / 1000;
     items =
       tab === 'live'
-        ? directory.live(now)
+        ? mergeLiveItems(goLiveItems(), directory.live(now))
         : tab === 'upcoming'
           ? directory.upcoming(now)
           : directory.past();
@@ -74,6 +136,7 @@
       fetchChatProfiles({ pool: pool as SimplePool, sources: DISCOVERY_RELAYS, keys })
         .then((found) => {
           profiles = new Map([...profiles, ...found]);
+          renameGoLive();
         })
         .catch(() => {});
     }
@@ -100,7 +163,9 @@
     if (!browser) return;
     pool = createStreamPool();
     fill();
+    fillGoLive();
     fillTimer = setInterval(fill, 60000);
+    goLiveTimer = setInterval(fillGoLive, GO_LIVE_REFRESH_MS);
     viewTimer = setInterval(repaint, 30000);
     const since = Math.floor(Date.now() / 1000) - 120;
     sub = pool.subscribeMany(
@@ -124,6 +189,7 @@
     sub = null;
     if (fillTimer) clearInterval(fillTimer);
     if (viewTimer) clearInterval(viewTimer);
+    if (goLiveTimer) clearInterval(goLiveTimer);
     pool?.destroy();
     pool = null;
   });
@@ -186,6 +252,9 @@
                 class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
                 on:error={() => markThumbFailed(thumb.url)}
               />
+            {:else if isGoLiveItem(item)}
+              <!-- No recipe photo (or it failed to load): the branded picture. -->
+              <LiveFallbackArt />
             {:else if thumb.broken}
               <!-- Every image the announcement named failed to load. -->
               <div
