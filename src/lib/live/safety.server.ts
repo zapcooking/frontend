@@ -39,9 +39,12 @@ export async function submitLiveSafetyReport(
     'INSERT OR IGNORE INTO live_safety_reports (id, session_id, reporter_hash, reason, details, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)'
   ).bind(id, params.sessionId, reporterHash, params.reason, params.details.slice(0,300), now).run();
   const recorded = (record.meta?.changes ?? 0) === 1;
+  const snapshot = await db.prepare(
+    'SELECT id,host_pubkey,title,recipe_a,created_at,started_at,ended_at,guest_joins,cap_refusals,note_id,cf_input_uid FROM live_sessions WHERE id = ?1'
+  ).bind(params.sessionId).first<Record<string,unknown>>();
   await db.prepare(
-    "INSERT OR IGNORE INTO live_safety_holds (session_id, opened_at, reason, status) VALUES (?1, ?2, ?3, 'open')"
-  ).bind(params.sessionId, now, 'moderation_review').run();
+    "INSERT OR IGNORE INTO live_safety_holds (session_id, opened_at, reason, status, snapshot_json) VALUES (?1, ?2, ?3, 'open', ?4)"
+  ).bind(params.sessionId, now, 'moderation_review', JSON.stringify(snapshot ?? {})).run();
 
   // D1 is authoritative for the tally. Only reports with a stable
   // pseudonymous identifier count. Daily salt rotation can allow re-votes;
@@ -52,7 +55,11 @@ export async function submitLiveSafetyReport(
   const count = Number(countRow?.count ?? 0);
   const threshold = Math.max(DEFAULT_AUTO_THRESHOLD, Math.min(10, params.threshold ?? DEFAULT_AUTO_THRESHOLD));
   let ended = false;
-  if (recorded && trustedHash && params.autoShutdown && count >= threshold && session.status !== 'ended') {
+  if (recorded && trustedHash && params.autoShutdown && cfg && count >= threshold && session.status !== 'ended') {
+    // A temporary host suspension prevents an immediate new stream.
+    await db.prepare(
+      'INSERT INTO live_safety_host_suspensions (host_pubkey, suspended_until, reason, session_id) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(host_pubkey) DO UPDATE SET suspended_until = MAX(suspended_until, excluded.suspended_until), reason=excluded.reason,session_id=excluded.session_id'
+    ).bind(session.host_pubkey, now + 3600, 'report_threshold', params.sessionId).run();
     // Idempotent DB end. Failed Cloudflare input deletion is retried by sweep.
     // This is temporary stream termination, not a permanent membership ban.
     const outcome = await endAndRemove(db, cfg, params.sessionId, 'admin');
@@ -63,4 +70,20 @@ export async function submitLiveSafetyReport(
     }
   }
   return { recorded, duplicate: !recorded, count, ended, urgent };
+}
+
+/** Temporary suspension created by an automatic stream termination. */
+export async function isLiveSafetyHostSuspended(db: LiveDb, pubkey: string, now = Math.floor(Date.now()/1000)): Promise<boolean> {
+  const row = await db.prepare(
+    'SELECT suspended_until FROM live_safety_host_suspensions WHERE host_pubkey = ?1'
+  ).bind(pubkey).first<{suspended_until:number}>();
+  return !!row && row.suspended_until > now;
+}
+
+/** Explicit authorized release only; this is not an automatic hold expiry. */
+export async function releaseLiveSafetyHold(db: LiveDb, sessionId: string, now = Math.floor(Date.now()/1000)): Promise<boolean> {
+  const result = await db.prepare(
+    "UPDATE live_safety_holds SET status='released', released_at=?2 WHERE session_id=?1 AND status='open'"
+  ).bind(sessionId,now).run();
+  return (result.meta?.changes ?? 0) === 1;
 }
