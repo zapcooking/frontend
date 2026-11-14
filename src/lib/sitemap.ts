@@ -19,6 +19,7 @@ export const SITEMAP_PATHS: readonly string[] = [
 	'/packs',
 	'/community',
 	'/membership',
+	'/downloads',
 	'/about',
 	'/founders',
 	'/sponsors',

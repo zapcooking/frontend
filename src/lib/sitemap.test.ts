@@ -12,6 +12,7 @@ describe('sitemap.xml', () => {
 		expect(locs.every((l) => l.startsWith('https://zap.cooking/'))).toBe(true);
 		expect(new Set(locs).size).toBe(locs.length);
 		expect(locs).toContain('https://zap.cooking/explore');
+		expect(locs).toContain('https://zap.cooking/downloads');
 		expect(buildSitemapXml('https://x.test', ['/a?b=1&c=2'])).toContain('<loc>https://x.test/a?b=1&amp;c=2</loc>');
 	});
 
