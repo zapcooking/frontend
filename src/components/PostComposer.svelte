@@ -44,12 +44,14 @@
     stripAttachmentUrlLines,
     type MediaAttachment
   } from '$lib/composerMedia';
+  import { findTrackedUrls, type TrackedUrlHit } from '$lib/trackingParams';
   import { isVideoUrl } from '$lib/feed/imeta';
   import AltTextEditorModal from './AltTextEditorModal.svelte';
   import MediaDrawer from './MediaDrawer.svelte';
   import CaretLeftIcon from 'phosphor-svelte/lib/CaretLeft';
   import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
+  import EyeSlashIcon from 'phosphor-svelte/lib/EyeSlash';
   import { clickOutside } from '$lib/clickOutside';
   import { showToast } from '$lib/toast';
   import { addPendingOp, removePendingOp } from '$lib/stores/pendingOps';
@@ -227,6 +229,61 @@
     // pasting it twice in the text era did. imeta stays one tag per
     // picture ($lib/composerMedia dedupes by URL at publish).
     media = [...media, { url, isVideo: isVideoUrl(url) }];
+    scheduleDraftSave();
+  }
+
+  // ── Tracking-tail offers ──────────────────────────────────────
+  // A pasted link that arrives with a tracking tail is offered a cleanup,
+  // never rewritten on its way in — the button is the decision. Like the
+  // attach offers, the refusal expires when the links do: a deliberate no
+  // is not a forever no.
+  let dismissedTrackedUrls = new Set<string>();
+
+  function pruneDismissedTracking(hits: TrackedUrlHit[]) {
+    const live = new Set(hits.map((hit) => hit.raw));
+    let changed = false;
+    for (const url of dismissedTrackedUrls) {
+      if (!live.has(url)) {
+        dismissedTrackedUrls.delete(url);
+        changed = true;
+      }
+    }
+    if (changed) dismissedTrackedUrls = dismissedTrackedUrls;
+  }
+
+  $: trackedHits = findTrackedUrls(content);
+  $: pruneDismissedTracking(trackedHits);
+  $: trackingOffers = trackedHits.filter((hit) => !dismissedTrackedUrls.has(hit.raw));
+
+  function dismissTrackingOffers() {
+    const next = new Set(dismissedTrackedUrls);
+    for (const hit of trackingOffers) next.add(hit.raw);
+    dismissedTrackedUrls = next;
+  }
+
+  function acceptTrackingClean() {
+    // Read the live DOM first: the last keystroke may not have flowed into
+    // `content` yet, and a fast double-tap can outpace the reactive update.
+    const current = composerEl ? mentionCtrl.extractText() : content;
+    let next = current;
+    for (const hit of trackingOffers) next = next.split(hit.raw).join(hit.clean);
+    if (next === current) return; // nothing left to clean — stale offer
+    content = next;
+    if (composerEl) {
+      mentionCtrl.syncContent(content);
+      lastRenderedContent = content;
+      // The rewrite replaced the editor's text, and focus alone would leave
+      // the caret nowhere sensible — one tap, nothing to put right afterwards.
+      composerEl.focus();
+      const sel = window.getSelection();
+      if (sel) {
+        const end = document.createRange();
+        end.selectNodeContents(composerEl);
+        end.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(end);
+      }
+    }
     scheduleDraftSave();
   }
 
@@ -1104,6 +1161,47 @@
                       </button>
                     </div>
                   {/each}
+                </div>
+              {/if}
+
+              {#if !showPreview && trackingOffers.length > 0}
+                <!-- The offer to take a tracking tail off a pasted link, in
+                     the same band as the attach offers. One button cleans
+                     every link in the draft at once; the ✕ is the quiet
+                     refusal and expires when the links do. -->
+                <div class="attach-offers" data-testid="tracking-offers" role="group" aria-label="Remove tracking tags">
+                  <div class="attach-offer-row">
+                    <button
+                      type="button"
+                      class="attach-offer"
+                      on:click={acceptTrackingClean}
+                      disabled={posting}
+                    >
+                      <EyeSlashIcon size={14} weight="bold" />
+                      <span>
+                        {trackingOffers.length === 1
+                          ? 'Remove tracking tags'
+                          : `Remove tracking tags from ${trackingOffers.length} links`}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="attach-x"
+                      title="Leave the links as they are"
+                      aria-label="Leave the links as they are"
+                      on:click={dismissTrackingOffers}
+                      disabled={posting}
+                    >
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               {/if}
 
