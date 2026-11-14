@@ -193,9 +193,6 @@
     );
   }
 
-  /** Uniform placeholder circle behind chat avatars (grey glyph inside). */
-  const AVATAR_PLACEHOLDER_BG = '#3b82f6';
-
   // userPublickey can be restored while the passkey vault is locked —
   // signedIn reflects an actual usable session.
   $: signingIn = !get(signedIn);
@@ -466,8 +463,8 @@
           on:click={() => openProfilePreview(zapper.pubkey)}
         >
           <span
-            class="overflow-hidden rounded-full"
-            style="width:20px;height:20px;background:{AVATAR_PLACEHOLDER_BG}"
+            class="chat-avatar-placeholder overflow-hidden rounded-full"
+            style="width:20px;height:20px"
           >
             <Avatar
               pubkey={zapper.pubkey}
@@ -551,8 +548,8 @@
           {/if}
           <div id={`chat-${event.id}`} class="group flex items-start gap-2">
             <span
-              class="mt-0.5 shrink-0 overflow-hidden rounded-full"
-              style="width:24px;height:24px;background:{AVATAR_PLACEHOLDER_BG}"
+              class="chat-avatar-placeholder mt-0.5 shrink-0 overflow-hidden rounded-full"
+              style="width:24px;height:24px"
             >
               <Avatar
                 pubkey={event.pubkey}
@@ -676,6 +673,22 @@
 </section>
 
 <style>
+  /* Placeholder avatars: a blue-grey tile from the active theme's own
+     surfaces, with the glyph tinted to match, so it reads as part of the
+     brand in light and dark (and in every mood) instead of a stock blue. */
+  .chat-avatar-placeholder {
+    background: color-mix(in srgb, #64748b 38%, var(--color-bg-secondary));
+  }
+  .chat-avatar-placeholder :global(svg path) {
+    fill: color-mix(in srgb, #64748b 78%, var(--color-text-primary));
+  }
+  :global(html.dark) .chat-avatar-placeholder {
+    background: color-mix(in srgb, #64748b 40%, var(--color-bg-secondary));
+  }
+  :global(html.dark) .chat-avatar-placeholder :global(svg path) {
+    fill: color-mix(in srgb, #94a3b8 85%, var(--color-bg-secondary));
+  }
+
   .chat-input:focus {
     --tw-ring-shadow: none !important;
     border-color: rgba(249, 115, 22, 0.8) !important;
