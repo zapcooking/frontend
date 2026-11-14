@@ -645,7 +645,7 @@ export async function listRecordedInputs(db: LiveDb): Promise<Set<string>> {
 export async function deleteOldEndedRows(db: LiveDb, endedBefore: number): Promise<number> {
   const result = await db
     .prepare(
-      "DELETE FROM live_sessions WHERE status = 'ended' AND ended_at < ?1 AND cf_input_uid IS NULL"
+      "DELETE FROM live_sessions WHERE status = 'ended' AND ended_at < ?1 AND cf_input_uid IS NULL AND NOT EXISTS (SELECT 1 FROM live_safety_holds h WHERE h.session_id=live_sessions.id AND h.status='open') AND NOT EXISTS (SELECT 1 FROM live_safety_reports r WHERE r.session_id=live_sessions.id) AND NOT EXISTS (SELECT 1 FROM live_safety_holds h WHERE h.session_id=live_sessions.id)"
     )
     .bind(endedBefore)
     .run();
