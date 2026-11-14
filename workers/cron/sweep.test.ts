@@ -11,7 +11,7 @@
  * Crypto runs for real (rows are encrypted with the shared helper);
  * relays never do — the publisher is injected and keeps a call log.
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import {
   sweepDueEvents,
   relaysFor,
@@ -387,6 +387,9 @@ describe('cron trigger routing', () => {
         sweep: async () => {
           calls.push('sweep');
         },
+        liveSweep: async () => {
+          calls.push('liveSweep');
+        },
         membership: async () => {
           calls.push('membership');
         },
@@ -397,13 +400,32 @@ describe('cron trigger routing', () => {
     };
   }
 
-  it('the minutely trigger runs the sweep and never the daily jobs', async () => {
+  it('the minutely trigger runs both sweeps and never the daily jobs', async () => {
     const { calls, impl } = spies();
     await dispatchScheduled({ cron: MINUTELY_CRON }, {}, impl);
-    expect(calls).toEqual(['sweep']);
+    expect(calls).toEqual(['sweep', 'liveSweep']);
   });
 
-  it('the daily trigger runs the membership check and the deletion digest, never the sweep', async () => {
+  it('a failing scheduled-posts sweep does not stop the live sweep, and the reverse', async () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const a = spies();
+    a.impl.sweep = async () => {
+      throw new Error('boom');
+    };
+    await expect(dispatchScheduled({ cron: MINUTELY_CRON }, {}, a.impl)).resolves.toBeUndefined();
+    expect(a.calls).toEqual(['liveSweep']);
+
+    const b = spies();
+    b.impl.liveSweep = async () => {
+      throw new Error('boom');
+    };
+    await expect(dispatchScheduled({ cron: MINUTELY_CRON }, {}, b.impl)).resolves.toBeUndefined();
+    expect(b.calls).toEqual(['sweep']);
+    expect(quiet).toHaveBeenCalledTimes(2);
+    quiet.mockRestore();
+  });
+
+  it('the daily trigger runs the membership check and the deletion digest, never a sweep', async () => {
     const { calls, impl } = spies();
     await dispatchScheduled({ cron: DAILY_CRON }, {}, impl);
     expect(calls).toEqual(['membership', 'deletionDigest']);

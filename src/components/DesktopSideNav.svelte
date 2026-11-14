@@ -23,6 +23,7 @@
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
+  import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { loginOverlayOpen, openSignup } from '$lib/stores/loginOverlay';
@@ -124,6 +125,12 @@
       label: 'The Pantry Relay',
       icon: BasketIcon,
       match: (p) => p.startsWith('/pantry')
+    },
+    {
+      href: '/downloads',
+      label: 'Get the app',
+      icon: DeviceMobileIcon,
+      match: (p) => p.startsWith('/downloads')
     }
   ];
 
@@ -174,7 +181,7 @@
      menu and logo (issue #426). -->
 <aside class="hidden lg:block lg:w-56 xl:w-80 fixed top-0 left-0 h-screen z-10">
   <div
-    class="h-full overflow-y-auto scrollbar-hide p-3"
+    class="mood-canvas h-full overflow-y-auto scrollbar-hide p-3"
     style="background-color: var(--color-bg-primary);"
   >
     <!-- Logo on the header's center line: the button is exactly the

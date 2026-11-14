@@ -30,6 +30,9 @@ build/
 # Claude Code
 CLAUDE.md
 
+# Local investigation notes and throwaway spikes (never committed)
+.scratch/
+
 # Local plans
 docs/plans/tanstack-query-migration.md
 
@@ -42,3 +45,7 @@ nip98-matrix.mjs
 # Dev stores left behind by the retired NIP-108 experiment (contained secrets)
 .gated-content-store.json
 .nip108-dev-store.json
+
+# Local scratch: screenshots, headless-browser scripts, session artifacts.
+tmp/
+.zcode/

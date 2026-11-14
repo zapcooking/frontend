@@ -195,7 +195,9 @@ export function validateUsername(username: string): { valid: boolean; error?: st
   }
   
   // Reserved usernames
-  const reserved = ['admin', 'api', 'www', 'mail', 'ftp', 'localhost', 'root', 'support', 'help', 'about', 'contact'];
+  // Client-side hint only; the server lists in /api/nip05/claim and
+  // /api/nip05/check-availability are authoritative.
+  const reserved = ['admin', 'api', 'www', 'mail', 'ftp', 'localhost', 'root', 'support', 'help', 'about', 'contact', 'live', 'watch'];
   if (reserved.includes(trimmed)) {
     return { valid: false, error: 'This username is reserved' };
   }

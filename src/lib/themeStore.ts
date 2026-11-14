@@ -9,6 +9,11 @@ function readMode(): Theme {
   return value === 'light' || value === 'dark' ? value : 'system';
 }
 
+function readStyle(): string {
+  if (!browser) return 'original';
+  return document.documentElement.getAttribute('data-explore-theme') ?? 'original';
+}
+
 /**
  * Reactive bridge to the shared, prepaint appearance controller. The controller
  * also runs on Explore without app hydration, so it alone owns persistence,
@@ -17,6 +22,7 @@ function readMode(): Theme {
 function createThemeStore(): Readable<Theme> & {
   initialize: () => void;
   setTheme: (theme: Theme) => void;
+  setStyle: (value: string) => void;
   getResolvedTheme: () => 'light' | 'dark';
 } {
   const { subscribe, set } = writable<Theme>(readMode());
@@ -39,6 +45,11 @@ function createThemeStore(): Readable<Theme> & {
       initialize();
       document.dispatchEvent(new CustomEvent('zapcooking:set-color-mode', { detail: value }));
     },
+    setStyle(value: string) {
+      if (!browser) return;
+      initialize();
+      document.dispatchEvent(new CustomEvent('zapcooking:set-explore-theme', { detail: value }));
+    },
     getResolvedTheme() {
       return browser && document.documentElement.classList.contains('dark') ? 'dark' : 'light';
     }
@@ -46,3 +57,22 @@ function createThemeStore(): Readable<Theme> & {
 }
 
 export const theme = createThemeStore();
+
+/** Reactive bridge to the saved style; the same controller event carries both. */
+function createStyleStore(): Readable<string> & { initialize: () => void } {
+  const { subscribe, set } = writable<string>(readStyle());
+  let listening = false;
+
+  const initialize = () => {
+    if (!browser) return;
+    if (!listening) {
+      document.addEventListener('zapcooking:appearancechange', () => set(readStyle()));
+      listening = true;
+    }
+    set(readStyle());
+  };
+
+  return { subscribe, initialize };
+}
+
+export const exploreStyle = createStyleStore();
