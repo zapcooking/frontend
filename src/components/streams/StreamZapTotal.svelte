@@ -7,13 +7,16 @@
    * service account. The zap request carries the `a` coordinate instead of
    * an event id, so receipts land with the `#a` tag every NIP-53 client
    * (zap.stream included) scans.
+   *
+   * Without an address (a Go live session, which has no announcement), it
+   * is a plain zap to the host's profile, with no running total.
    */
   import { createEventDispatcher } from 'svelte';
   import { NDKUser } from '@nostr-dev-kit/ndk';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import ZapModal from '../ZapModal.svelte';
 
-  export let address: string;
+  export let address: string | null;
   export let hostPubkey: string;
   /** Host's lud16 resolved by the player — skips the profile resolver. */
   export let hostLud16: string | null = null;
@@ -72,7 +75,7 @@
   <ZapModal
     bind:open={zapOpen}
     event={hostUser}
-    addressTag={address}
+    addressTag={address ?? undefined}
     on:zap-complete={onComplete}
   />
 {/if}

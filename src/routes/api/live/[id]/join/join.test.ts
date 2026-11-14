@@ -201,10 +201,11 @@ async function endSession(s: { id: string; token: string }) {
 
 async function join(
   id: string,
-  opts: { auth?: string; body?: string | null; contentType?: string | null } = {}
+  opts: { auth?: string; body?: string | null; contentType?: string | null; pass?: string } = {}
 ) {
   const headers = new Headers();
   if (opts.auth) headers.set('Authorization', opts.auth);
+  if (opts.pass) headers.set('Live-Pass', opts.pass);
   if (opts.contentType !== null) headers.set('Content-Type', opts.contentType ?? 'application/sdp');
   const res = await joinRoute({
     request: new Request(`${ORIGIN}/api/live/${id}/join`, {
@@ -252,7 +253,8 @@ beforeEach(() => {
     MEMBERSHIP_ENABLED: 'true',
     RELAY_API_SECRET: 'relay-secret',
     CF_STREAM_ACCOUNT_ID: ACCOUNT,
-    CF_STREAM_API_TOKEN: 'stream-token'
+    CF_STREAM_API_TOKEN: 'stream-token',
+    LIVE_PASS_SECRET: 'pass-secret-for-tests'
   };
   mocks.hosts = [HOST];
   // The host and MEMBER are active members; everyone else is not.
@@ -304,7 +306,7 @@ describe('POST /api/live/<id>/join', () => {
 
     expect(res.status).toBe(201);
     expect(text).toBe(PLAY_ANSWER);
-    expect([...res.headers.keys()].sort()).toEqual(['cache-control', 'content-type']);
+    expect([...res.headers.keys()].sort()).toEqual(['cache-control', 'content-type', 'live-pass']);
     expect(res.headers.get('Content-Type')).toBe('application/sdp');
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     expectNoLeak(res, text);
@@ -631,5 +633,85 @@ describe('when the relay does not succeed', () => {
     const { res, data } = await join(s.id);
     expect(res.status).toBe(503);
     expect(data).toEqual({ error: 'stream_unavailable', retry: true });
+  });
+});
+
+describe('rejoin pass', () => {
+  it('gives every admitted viewer a pass, and no Cloudflare detail in it', async () => {
+    const s = await liveSession();
+    const guest = await join(s.id);
+    expect(guest.res.status).toBe(201);
+    const pass = guest.res.headers.get('live-pass');
+    expect(pass).toMatch(/^\d{10}\.[A-Za-z0-9_-]+$/);
+    expectNoLeak(guest.res, guest.text);
+
+    const member = await join(s.id, { auth: await memberAuth(s.id) });
+    expect(member.res.headers.get('live-pass')).toMatch(/^\d{10}\./);
+  });
+
+  it('lets a guest with a pass back in at a full cap without taking a slot', async () => {
+    platformEnv.LIVE_GUEST_CAP = '1';
+    const s = await liveSession();
+    const first = await join(s.id);
+    const pass = first.res.headers.get('live-pass')!;
+    expect(rowOf(s.id).guest_joins).toBe(1);
+
+    // Full for anyone new.
+    expect((await join(s.id)).res.status).toBe(403);
+    // The admitted guest gets back in, uncounted, and gets a fresh pass.
+    const again = await join(s.id, { pass });
+    expect(again.res.status).toBe(201);
+    expect(again.text).toContain('PLAY-ANSWER-MARKER');
+    expect(again.res.headers.get('live-pass')).toMatch(/^\d{10}\./);
+    expect(rowOf(s.id).guest_joins).toBe(1);
+  });
+
+  it('still admits a pass holder after the host reconnects to a new input', async () => {
+    platformEnv.LIVE_GUEST_CAP = '1';
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    await goLive(s);
+    expect((await join(s.id, { pass })).res.status).toBe(201);
+    expect(rowOf(s.id).guest_joins).toBe(1);
+  });
+
+  it('does not accept a pass for another session, or a tampered one', async () => {
+    platformEnv.LIVE_GUEST_CAP = '1';
+    const a = await liveSession();
+    const passA = (await join(a.id)).res.headers.get('live-pass')!;
+    await endSession(a);
+    const b = await liveSession();
+    await join(b.id); // b is now full
+
+    expect((await join(b.id, { pass: passA })).res.status).toBe(403);
+    const [expiry, sig] = passA.split('.');
+    const flipped = sig.slice(0, -1) + (sig.endsWith('A') ? 'B' : 'A');
+    expect((await join(b.id, { pass: `${expiry}.${flipped}` })).res.status).toBe(403);
+    expect((await join(b.id, { pass: 'not-a-pass' })).res.status).toBe(403);
+  });
+
+  it('does not let a pass into an ended session', async () => {
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    await endSession(s);
+    expect((await join(s.id, { pass })).res.status).toBe(410);
+  });
+
+  it('works without passes when the secret is not configured', async () => {
+    delete platformEnv.LIVE_PASS_SECRET;
+    platformEnv.LIVE_GUEST_CAP = '1';
+    const s = await liveSession();
+    const first = await join(s.id);
+    expect(first.res.status).toBe(201);
+    expect(first.res.headers.get('live-pass')).toBeNull();
+    expect((await join(s.id, { pass: '1999999999.abcdefghijklmnopqrstuv' })).res.status).toBe(403);
+  });
+
+  it('does not ask the membership service when a valid pass settles the join', async () => {
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    mocks.checkMembership.mockClear();
+    await join(s.id, { pass, auth: await memberAuth(s.id) });
+    expect(mocks.checkMembership).not.toHaveBeenCalled();
   });
 });

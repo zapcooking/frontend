@@ -10,9 +10,7 @@
   import { browser } from '$app/environment';
   import type { SimplePool } from 'nostr-tools/pool';
   import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import CommentThread from '../../../components/comments/CommentThread.svelte';
-  import StreamPlayer from '../../../components/streams/StreamPlayer.svelte';
-  import StreamChat from '../../../components/streams/StreamChat.svelte';
+  import StreamView from '../../../components/streams/StreamView.svelte';
   import StreamPageSkeleton from '../../../components/streams/StreamPageSkeleton.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { get } from 'svelte/store';
@@ -26,7 +24,7 @@
     scanStreamZapHistory,
     type StreamZapTally
   } from '$lib/streams/streamZaps';
-import { keepHigherTally } from '$lib/streams/tallyDisplay';
+  import { keepHigherTally } from '$lib/streams/tallyDisplay';
 
   const REFRESH_MS = 60000;
   const TALLY_RESCAN_MS = 60000;
@@ -34,8 +32,6 @@ import { keepHigherTally } from '$lib/streams/tallyDisplay';
   let stream: ResolvedStream | null = null;
   let loading = true;
   let notFound = false;
-  let commentsOpen = false;
-  let chatSectionEl: HTMLElement | null = null;
   let pool: SimplePool | null = null;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
   // Zap tally, owned here so the player (bolt + total) and the chat (top
@@ -163,60 +159,14 @@ import { keepHigherTally } from '$lib/streams/tallyDisplay';
       </p>
     </div>
   {:else}
-    <!-- Single column: the video takes the full content width, chat sits
-         under it, comments in the drawer under that. Once the chat reaches
-         the upper viewport while scrolling, the video docks to a corner
-         (see StreamPlayer's shrink logic) and returns on the way back up. -->
-    <div class="flex flex-col gap-6">
-      <div class="min-w-0">
-        <StreamPlayer
-          {item}
-          {pool}
-          chatMarker={chatSectionEl}
-          {tally}
-          {tallyLoading}
-          on:zapComplete={() => tallyLoad(item.key, item.host, item.relays || [])}
-        />
-      </div>
-
-      <section bind:this={chatSectionEl} class="h-[60vh] min-h-80" aria-label="Live chat">
-        <StreamChat {item} {pool} {topZappers} />
-      </section>
-
-      <!-- Permanent NIP-22 comments, tucked under the chat: they are the
-           slow-moving discussion on the announcement itself, not the
-           live conversation, so they stay out of the way until asked for. -->
-      <div class="rounded-xl border border-zinc-200 dark:border-zinc-800">
-        <button
-          type="button"
-          class="flex w-full items-center justify-between px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
-          aria-expanded={commentsOpen}
-          aria-controls="stream-comments-drawer"
-          on:click={() => (commentsOpen = !commentsOpen)}
-        >
-          Comments
-          <svg
-            class="h-4 w-4 transition-transform {commentsOpen ? 'rotate-180' : ''}"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        </button>
-        {#if commentsOpen}
-          <div
-            id="stream-comments-drawer"
-            class="max-h-[60vh] overflow-y-auto border-t border-zinc-200 px-3 py-3 dark:border-zinc-800"
-          >
-            <CommentThread variant="recipe" event={ndkEvent} />
-          </div>
-        {/if}
-      </div>
-    </div>
+    <StreamView
+      {item}
+      {pool}
+      {ndkEvent}
+      {tally}
+      {tallyLoading}
+      {topZappers}
+      on:zapComplete={() => item && tallyLoad(item.key, item.host, item.relays || [])}
+    />
   {/if}
 </div>

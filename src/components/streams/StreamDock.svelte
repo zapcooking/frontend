@@ -3,7 +3,7 @@
    * The persistent player host, mounted once in the root layout.
    *
    * The `<video>` engine in `container` is created once per page load and
-   * never destroyed by navigation: while `/live/[naddr]` is open its slot
+   * never destroyed by navigation: while a stream page is open its slot
    * is registered in the `streamSlot` store and the container moves into
    * it (full-width page player); on navigation away the slot is cleared and
    * the container moves back into the floating corner mini player, still
@@ -17,7 +17,7 @@
   import { prefersReducedMotion } from '$lib/motion';
   import { streamPlayer, stopStream } from '$lib/stores/streamPlayer';
   import { streamSlot } from '$lib/stores/streamSlot';
-  import { streamAddress, naddrEncode } from '$lib/streams/parse';
+  import { streamPath } from '$lib/streams/goLive';
   import StreamEngine from './StreamEngine.svelte';
   import XIcon from 'phosphor-svelte/lib/X';
 
@@ -111,10 +111,9 @@
   function openStreamPage() {
     const item = $streamPlayer.item;
     if (!item) return;
-    const address = streamAddress(item);
-    if (!address) return;
+    const path = streamPath(item);
+    if (!path) return;
     try {
-      const path = `/live/${naddrEncode(address)}`;
       if ($page.url.pathname === path) {
         // Already on the stream page: the inline player was docked by
         // scroll, so ask the page to take the video back.
@@ -123,7 +122,7 @@
       }
       goto(path);
     } catch {
-      // An address that cannot encode as an naddr just stays in the corner.
+      // A failed navigation just leaves the player in the corner.
     }
   }
 </script>

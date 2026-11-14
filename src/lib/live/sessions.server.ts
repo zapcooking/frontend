@@ -665,3 +665,15 @@ export async function deleteRowsForHost(db: LiveDb, hostPubkey: string): Promise
     .run();
   return result.meta?.changes ?? 0;
 }
+
+/** Sessions that are live right now, newest first, in the public shape. */
+export async function listLiveSessions(db: LiveDb, limit = 50): Promise<PublicLiveSession[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${SESSION_COLUMNS} FROM live_sessions
+        WHERE status = 'live' ORDER BY started_at DESC LIMIT ?1`
+    )
+    .bind(limit)
+    .all<LiveSessionRow>();
+  return results.map(toPublicSession);
+}

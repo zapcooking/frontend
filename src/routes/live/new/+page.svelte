@@ -515,6 +515,21 @@
       policy?.failed();
   }
 
+  let linkCopied = false;
+  /** The public watch page for this session, for the host to share. */
+  async function copyWatchLink() {
+    if (!session) return;
+    const url = `${location.origin}/live/s/${session.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      linkCopied = true;
+      setTimeout(() => (linkCopied = false), 2500);
+    } catch {
+      // No clipboard access (some in-app browsers): show the link instead.
+      notice = url;
+    }
+  }
+
   function onPageHide() {
     setMicrophoneEnabled(stream, false);
   }
@@ -722,6 +737,9 @@
             on:click={flip}
             disabled={!stream || flipping}
             aria-label="Flip camera">Flip</button
+          >
+          <button class="btn" on:click={copyWatchLink} disabled={!session}
+            >{linkCopied ? 'Link copied' : 'Copy watch link'}</button
           >
           <!-- Never disabled while starting: if the first publish cannot get
                through, End is the only way out short of closing the tab. -->

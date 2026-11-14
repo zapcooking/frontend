@@ -56,10 +56,31 @@ export interface StreamItem {
   relays: string[];
   /** The `p` tag marked `host`, falling back to the announcement author. */
   host: string;
+  /**
+   * Where the stream comes from. Absent or `'nostr'`: a NIP-53 kind 30311
+   * announcement with a media URL. `'zapcooking'`: a Go live session on Zap
+   * Cooking's own server, played over WebRTC through /api/live/<id>/join.
+   * It has no announcement and no URL (`url` is null, `key` is
+   * `zc:<session id>`).
+   */
+  source?: 'nostr' | 'zapcooking';
+  /** Go live session id (source `'zapcooking'` only). */
+  sessionId?: string;
+  /** Attached recipe address `<kind>:<pubkey>:<d>` (source `'zapcooking'` only). */
+  recipeA?: string | null;
 }
 
 /** Where the player currently renders. One surface owns the video at a time. */
 export type PlayerSurface = 'page' | 'dock' | 'popout' | null;
 
 /** Playback engine status surfaced to whichever surface is playing. */
-export type StreamPlayStatus = 'idle' | 'connecting' | 'buffering' | 'playing' | 'unavailable';
+export type StreamPlayStatus =
+  | 'idle'
+  | 'connecting'
+  | 'buffering'
+  | 'playing'
+  | 'unavailable'
+  /** The broadcast is over (Go live: the session ended). */
+  | 'ended'
+  /** Go live: the guest cap is reached for this session. */
+  | 'full';

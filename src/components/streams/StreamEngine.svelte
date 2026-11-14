@@ -8,6 +8,12 @@
    * run it, because zap.stream's LL-HLS playlists freeze AVPlayer — see
    * $lib/streams/hlsEngine. Native HLS is the fallback. Status flows into the
    * `streamPlayer` store, where the playing surface's UI reads it.
+   *
+   * Go live sessions (`item.source === 'zapcooking'`) have no URL. They play
+   * over a receive-only WebRTC connection set up through Zap Cooking's play
+   * relay (/api/live/<id>/join), with the rejoin rules in WatchPolicy and
+   * the rejoin pass from the server. A member is asked to sign only if the
+   * session turns out to be full for guests.
    */
   import { onDestroy, onMount } from 'svelte';
   import {
@@ -18,6 +24,12 @@
   } from '$lib/stores/streamPlayer';
   import { runtime } from '$lib/streams/parse';
   import { hlsJsConfig, pickHlsEngine } from '$lib/streams/hlsEngine';
+  import { get } from 'svelte/store';
+  import { isGoLiveItem } from '$lib/streams/goLive';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import { signNip98AuthHeader } from '$lib/nip98';
+  import { joinLiveSession, loadPass, savePass } from '$lib/live/watch/joinClient';
+  import { WatchPolicy, type WatchStop } from '$lib/live/watch/watchPolicy';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import SpeakerHighIcon from 'phosphor-svelte/lib/SpeakerHigh';
   import SpeakerXIcon from 'phosphor-svelte/lib/SpeakerX';
@@ -47,7 +59,162 @@
     return hlsPromise;
   }
 
+  // ── Go live (WebRTC through our play relay) ──────────────────────
+  let pc: RTCPeerConnection | null = null;
+  let policy: WatchPolicy | null = null;
+  let statsTimer: ReturnType<typeof setInterval> | null = null;
+
+  const passStorage = () => (typeof sessionStorage !== 'undefined' ? sessionStorage : undefined);
+
+  function stopRtc() {
+    policy?.shutdown();
+    policy = null;
+    if (statsTimer) clearInterval(statsTimer);
+    statsTimer = null;
+    pc?.close();
+    pc = null;
+    if (video) video.srcObject = null;
+  }
+
+  function playVideo() {
+    video?.play().then(
+      () => {},
+      () => {
+        // Autoplay with sound can be refused; the play overlay takes over.
+        autoplayRejected = true;
+      }
+    );
+  }
+
+  function gathered(conn: RTCPeerConnection): Promise<void> {
+    if (conn.iceGatheringState === 'complete') return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        conn.removeEventListener('icegatheringstatechange', check);
+        resolve();
+      };
+      const check = () => conn.iceGatheringState === 'complete' && done();
+      conn.addEventListener('icegatheringstatechange', check);
+      setTimeout(done, 2000);
+    });
+  }
+
+  /** A signed-in viewer with a signer can be counted as a member. */
+  function canSignAsMember(): boolean {
+    return !!get(userPublickey) && !!get(ndk)?.signer;
+  }
+
+  function startRtc(sessionId: string, generation: number) {
+    policy = new WatchPolicy({
+      rejoin: () => void rtcJoin(sessionId, generation),
+      stop: (reason) => rtcStopped(reason, generation),
+      setTimer: (fn, ms) => setTimeout(fn, ms),
+      clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>)
+    });
+    policy.setHidden(typeof document !== 'undefined' && document.hidden);
+    statsTimer = setInterval(pollFrames, 1000);
+    void rtcJoin(sessionId, generation);
+  }
+
+  async function rtcJoin(sessionId: string, generation: number, signed = false) {
+    if (generation !== appliedGeneration || !policy) return;
+    policy.joinStarted();
+    pc?.close();
+    const conn = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
+    pc = conn;
+    conn.addTransceiver('video', { direction: 'recvonly' });
+    conn.addTransceiver('audio', { direction: 'recvonly' });
+    const media = new MediaStream();
+    conn.ontrack = (e) => {
+      media.addTrack(e.track);
+      if (video && video.srcObject !== media) {
+        video.srcObject = media;
+        playVideo();
+      }
+    };
+
+    let offerSdp: string;
+    let authorization: string | null = null;
+    try {
+      await conn.setLocalDescription(await conn.createOffer());
+      await gathered(conn);
+      offerSdp = conn.localDescription?.sdp ?? '';
+      if (signed) {
+        authorization = await signNip98AuthHeader(get(ndk), {
+          method: 'POST',
+          url: `${location.origin}/api/live/${sessionId}/join`,
+          bodyString: offerSdp
+        });
+      }
+    } catch {
+      if (pc === conn) {
+        conn.close();
+        policy?.joinFailed(signed ? 'full' : 'retry');
+      }
+      return;
+    }
+
+    const out = await joinLiveSession(sessionId, offerSdp, {
+      pass: loadPass(passStorage(), sessionId),
+      authorization
+    });
+    if (pc !== conn || generation !== appliedGeneration || !policy) {
+      conn.close();
+      return;
+    }
+    if (!out.ok) {
+      conn.close();
+      // Full for guests: a signed-in member gets in uncounted. Ask the
+      // signer only now, so a member is not prompted on every join.
+      if (out.failure === 'full' && !signed && canSignAsMember()) {
+        void rtcJoin(sessionId, generation, true);
+        return;
+      }
+      if (out.failure === 'not_live' || out.failure === 'retry' || out.failure === 'rejected') {
+        setStreamStatus(out.failure === 'not_live' ? 'connecting' : 'buffering');
+      }
+      policy.joinFailed(out.failure);
+      return;
+    }
+    savePass(passStorage(), sessionId, out.pass);
+    try {
+      await conn.setRemoteDescription({ type: 'answer', sdp: out.answerSdp });
+      policy.joinSucceeded();
+    } catch {
+      conn.close();
+      policy.joinFailed('retry');
+    }
+  }
+
+  async function pollFrames() {
+    if (!pc || !policy) return;
+    try {
+      const report = await pc.getStats();
+      let frames: number | null = null;
+      report.forEach((s: { type?: string; kind?: string; framesDecoded?: number }) => {
+        if (s.type === 'inbound-rtp' && s.kind === 'video') frames = s.framesDecoded ?? 0;
+      });
+      if (frames !== null) policy.frames(frames);
+    } catch {
+      /* stats unavailable this tick */
+    }
+  }
+
+  function rtcStopped(reason: WatchStop, generation: number) {
+    if (generation !== appliedGeneration) return;
+    if (statsTimer) clearInterval(statsTimer);
+    statsTimer = null;
+    pc?.close();
+    pc = null;
+    setStreamStatus(reason === 'full' ? 'full' : reason === 'gave_up' ? 'unavailable' : 'ended');
+  }
+
+  function onVisibility() {
+    policy?.setHidden(document.hidden);
+  }
+
   function teardownMedia() {
+    stopRtc();
     if (hls) {
       hls.destroy();
       hls = null;
@@ -68,10 +235,31 @@
 
   async function wire(state: typeof $streamPlayer) {
     if (!video) return;
-    if (!state.item || !state.mediaUrl || state.surface !== surface) {
+    const goLive = isGoLiveItem(state.item);
+    if (!state.item || state.surface !== surface || (!goLive && !state.mediaUrl)) {
       if (appliedGeneration !== -1) teardownMedia();
       return;
     }
+    if (goLive) {
+      const sessionId = state.item.sessionId;
+      if (!sessionId || state.item.status === 'ended') {
+        if (appliedGeneration !== -1) teardownMedia();
+        // Guarded: setting the status re-runs this function through the store.
+        if (state.status !== 'ended') setStreamStatus('ended');
+        return;
+      }
+      const target = `rtc:${sessionId}`;
+      if (state.generation === appliedGeneration && target === appliedUrl) return;
+      teardownMedia();
+      appliedGeneration = state.generation;
+      appliedUrl = target;
+      autoplayRejected = false;
+      setStreamStatus('connecting');
+      video.muted = state.muted;
+      startRtc(sessionId, state.generation);
+      return;
+    }
+    if (!state.mediaUrl) return;
     if (state.generation === appliedGeneration && state.mediaUrl === appliedUrl) return;
 
     teardownMedia();
@@ -140,6 +328,7 @@
   // Reactive statements run before bind:this lands, so wire once more after mount.
   onMount(() => {
     wire($streamPlayer);
+    document.addEventListener('visibilitychange', onVisibility);
   });
 
   $: if ($streamPlayer.muted && video) {
@@ -205,6 +394,9 @@
   }
 
   onDestroy(() => {
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibility);
+    }
     teardownMedia();
   });
 </script>
@@ -269,7 +461,11 @@
           ? 'bg-zinc-700 text-zinc-200'
           : 'bg-red-600 text-white animate-pulse'}"
       >
-        {$streamPlayer.item.status === 'ended' ? 'Replay' : 'Live'}
+        {$streamPlayer.item.status === 'ended'
+          ? isGoLiveItem($streamPlayer.item)
+            ? 'Ended'
+            : 'Replay'
+          : 'Live'}
       </span>
       {#if $streamPlayer.item.viewers != null && $streamPlayer.item.status !== 'ended'}
         <span class="rounded-full bg-black/60 px-2 py-0.5 text-xs text-zinc-200">
@@ -357,7 +553,25 @@
     {/if}
   {/if}
 
-  {#if $streamPlayer.status === 'unavailable'}
+  {#if $streamPlayer.status === 'ended' && isGoLiveItem($streamPlayer.item)}
+    <div class="absolute inset-0 flex items-center justify-center bg-black/75 p-4 text-center">
+      <p class="text-sm font-medium text-zinc-100">This live stream has ended</p>
+    </div>
+  {:else if $streamPlayer.status === 'full'}
+    <div
+      class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 p-4 text-center"
+    >
+      <p class="text-sm font-medium text-zinc-100">
+        This live stream is full for guests. Cook+ members always get in.
+      </p>
+      <a
+        href="/membership"
+        class="rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-zinc-200"
+      >
+        Become a member
+      </a>
+    </div>
+  {:else if $streamPlayer.status === 'unavailable'}
     <div class="absolute inset-0 flex items-center justify-center bg-black/70 p-4 text-center">
       <p class="text-sm text-zinc-300">
         This stream is not reachable right now.

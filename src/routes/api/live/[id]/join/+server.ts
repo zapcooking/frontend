@@ -22,6 +22,12 @@
  * per session with one conditional update. A guest turned away gets 403
  * `full` and is counted in a per-session refusal total.
  *
+ * Rejoin pass. Every viewer admitted gets a short-lived pass in the
+ * `Live-Pass` response header (when LIVE_PASS_SECRET is set). Presenting
+ * it on a later join for the same session admits them without taking a
+ * new guest slot, so a guest can get back in after the host reconnects
+ * even at a full cap. See $lib/live/pass.server.
+ *
  * NOTHING about a viewer is stored: no address, no key, no session
  * handle. The cap is two integers on the session row. A viewer leaving
  * is therefore not detected, and a guest who reloads uses another slot.
@@ -50,6 +56,7 @@ import { checkMembership } from '$lib/membershipApi.server';
 import { LIVE_OFFER_MAX_BYTES, LIVE_RETRY_AFTER_SECONDS, parseGuestCap } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
+import { issuePass, LIVE_PASS_HEADER, verifyPass } from '$lib/live/pass.server';
 import { isLiveOff } from '$lib/live/killSwitch.server';
 import {
   countCapRefusal,
@@ -134,8 +141,17 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
 
     // Member or guest. The answer is used for this decision only and is
     // not stored anywhere.
-    const member = await isConfirmedMember(request, offer, platform);
-    if (!member) {
+    const passSecret = readLiveEnv(platform, 'LIVE_PASS_SECRET');
+    // A viewer who was admitted before (and is rejoining after the host
+    // reconnected, or after a dropped connection) carries a pass. A valid
+    // pass for this session admits them without another guest slot.
+    const passHolder =
+      !!passSecret && (await verifyPass(passSecret, id, request.headers.get(LIVE_PASS_HEADER)));
+    // Only ask about membership when the pass does not already settle it:
+    // a signed member join is checked against the membership service.
+    const member = !passHolder && (await isConfirmedMember(request, offer, platform));
+    let slotTaken = false;
+    if (!member && !passHolder) {
       const cap = parseGuestCap(readLiveEnv(platform, 'LIVE_GUEST_CAP'));
       if (!(await takeGuestSlot(db, id, cap))) {
         // No slot: either the cap is reached, or the session stopped
@@ -149,19 +165,20 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
         await countCapRefusal(db, id);
         return json({ error: 'full' }, { status: 403, headers: NO_STORE });
       }
+      slotTaken = true;
     }
 
     const relayed = await relayOffer(state.cf_play_url, offer, 'play');
     if (relayed.ok) {
-      // Status and SDP only. No header from Cloudflare is copied.
-      return new Response(relayed.answer, {
-        status: 201,
-        headers: { 'Content-Type': 'application/sdp', ...NO_STORE }
-      });
+      // Status and SDP only. No header from Cloudflare is copied. Our own
+      // rejoin pass goes along when the pass secret is configured.
+      const headers: Record<string, string> = { 'Content-Type': 'application/sdp', ...NO_STORE };
+      if (passSecret) headers[LIVE_PASS_HEADER] = await issuePass(passSecret, id);
+      return new Response(relayed.answer, { status: 201, headers });
     }
 
     // The guest did not get in: the slot goes back.
-    if (!member) await returnGuestSlot(db, id);
+    if (slotTaken) await returnGuestSlot(db, id);
 
     // Cloudflare answers 409 while a broadcast has not started (or its
     // input was just replaced by a reconnect) and 404 once the input is
