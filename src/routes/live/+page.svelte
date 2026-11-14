@@ -17,6 +17,7 @@
   import type { Filter } from 'nostr-tools/filter';
   import Avatar from '../../components/Avatar.svelte';
   import StreamCardSkeleton from '../../components/streams/StreamCardSkeleton.svelte';
+  import LiveFallbackArt from '../../components/streams/LiveFallbackArt.svelte';
   import { StreamDirectory } from '$lib/streams/directory';
   import { pseudonym, runtime } from '$lib/streams/parse';
   import { createStreamPool } from '$lib/streams/relayPage';
@@ -27,6 +28,7 @@
   import { ndk } from '$lib/nostr';
   import {
     fetchLiveSessions,
+    isGoLiveItem,
     mergeLiveItems,
     sessionToStreamItem,
     streamPath,
@@ -222,6 +224,9 @@
                 loading="lazy"
                 class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
               />
+            {:else if isGoLiveItem(item)}
+              <!-- No recipe photo: the branded picture, with the host in the corner. -->
+              <LiveFallbackArt host={item.host} hostName={hostName(item.host)} />
             {/if}
             <span
               class="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide
