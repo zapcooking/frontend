@@ -12,6 +12,14 @@
 import { parseStreamEvent } from './parse';
 import type { NostrEventLike, StreamItem } from './types';
 
+/**
+ * How old a `live` announcement may be and still count as live (seconds).
+ * Streamers re-publish while broadcasting, so an older one is a stream that
+ * ended without saying so. Shared with the avatar lookup, which uses it to
+ * bound what it asks relays for.
+ */
+export const LIVE_ANNOUNCEMENT_MAX_AGE_S = 3600;
+
 export class StreamDirectory {
   readonly events = new Map<string, StreamItem>();
   /**
@@ -44,7 +52,7 @@ export class StreamDirectory {
     return (
       item?.status === 'live' &&
       !!item.url &&
-      (now - item.updated < 3600 ||
+      (now - item.updated < LIVE_ANNOUNCEMENT_MAX_AGE_S ||
         (this.verified.has(item.url) && now - (this.verified.get(item.url) as number) < 180))
     );
   }

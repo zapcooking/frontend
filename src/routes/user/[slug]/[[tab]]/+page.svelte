@@ -1596,9 +1596,18 @@
             size={80}
             src={$userPublickey === hexpubkey ? $userProfilePictureOverride : null}
             linked={false}
+            dot={false}
           />
         {/key}
       </button>
+      {#if hexpubkey}
+        <!-- The way into the stream: a tappable LIVE pill on the avatar. It is
+             a sibling of the QR button, not inside it — nested interactive
+             controls made one tap fire both. -->
+        <div class="absolute -bottom-3 left-1/2 z-10 -translate-x-1/2">
+          <LiveBadge pubkey={hexpubkey} size="lg" />
+        </div>
+      {/if}
     </div>
   </div>
 

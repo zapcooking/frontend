@@ -3,7 +3,8 @@
    * Avatar with a live indicator: a red ring and a pulsing dot when the
    * pubkey is live right now (NIP-53). With `linked`, the dot opens the
    * stream; indicator-only when a parent control owns clicks (a lightbox
-   * or a QR modal under the avatar).
+   * or a QR modal under the avatar). `dot={false}` keeps just the ring, for
+   * a page that puts a bigger, tappable LiveBadge pill beside the avatar.
    */
   import Avatar from '../Avatar.svelte';
   import { watchLiveNow, liveNowStore } from '$lib/streams/liveNow';
@@ -15,6 +16,7 @@
   export let alt: string = 'Avatar';
   export let size: number = 40;
   export let linked = true;
+  export let dot = true;
   export let interactive = true;
   export let className: string = '';
 
@@ -53,7 +55,9 @@
       class="pointer-events-none absolute inset-0 rounded-full ring-2 ring-red-500"
       aria-hidden="true"
     ></span>
-    {#if linked && naddr}
+    {#if !dot}
+      <!-- ring only -->
+    {:else if linked && naddr}
       <a
         href="/live/{naddr}"
         class="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 ring-2 ring-white dark:ring-zinc-900 transition-transform hover:scale-110"
