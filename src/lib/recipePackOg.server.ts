@@ -9,15 +9,46 @@
  */
 
 import { parseCoordinate } from './coordinate';
-import { isHiddenRecipeATag } from './consts';
+import { isHiddenRecipeATag, standardRelays } from './consts';
 import { isExploreCurationDTag } from './landing/curation';
 
-const RELAYS = [
-	'wss://relay.primal.net',
-	'wss://nos.lol'
-];
+// The full standard pool, not a hand-picked subset: authors publish to
+// different relays, and cards for recipes that only live on nostr.wine went
+// generic for months because the race never asked there (the browser pool
+// found the same recipes fine, which is what kept making this look
+// intermittent). Same list the client NDK pool connects to.
+const RELAYS = standardRelays;
 
 const FETCH_TIMEOUT_MS = 3500;
+
+/**
+ * Last-good cache for resolved events, keyed by filter. Crawler bursts hit
+ * the same URL many times in quick succession; without this every hit paid
+ * the relay race again (and a relay flapping mid-burst flipped live cards
+ * back to the generic fallback). Positives only — misses are never cached,
+ * so a transient outage retries on the next request.
+ */
+const EVENT_CACHE_TTL_MS = 10 * 60 * 1000;
+const EVENT_CACHE_MAX_ENTRIES = 200;
+const eventCache = new Map<string, { event: any; expiresAt: number }>();
+
+function eventCacheKey(filter: RelayFilter): string {
+	// Only the identity fields — limit/other keys are set by callers, never
+	// vary between calls for the same event.
+	return JSON.stringify([filter.kinds, filter.authors, filter.ids, filter['#d']]);
+}
+
+function cacheEvent(key: string, event: any): void {
+	eventCache.set(key, { event, expiresAt: Date.now() + EVENT_CACHE_TTL_MS });
+	while (eventCache.size > EVENT_CACHE_MAX_ENTRIES) {
+		const oldest = eventCache.keys().next().value;
+		if (oldest === undefined) break;
+		eventCache.delete(oldest);
+	}
+}
+
+/** Per-relay end state, for the miss log. */
+type RelayOutcome = 'event' | 'eose' | 'timeout' | 'error' | 'aborted';
 
 export interface PackMetadata {
 	title: string;
@@ -44,8 +75,9 @@ export interface RelayFilter {
 
 /**
  * One-shot raw-WebSocket fetch for an event matching `filter` from a
- * single relay. Returns the matching event JSON or null on timeout /
- * EOSE-without-event / failure.
+ * single relay. Resolves the matching event JSON, or null with the
+ * relay's end state (timeout / EOSE-without-event / failure) so total
+ * misses can be logged with a per-relay breakdown.
  *
  * Accepts an AbortSignal so a parent race can cancel pending fetches
  * once a winner has resolved — without that, every relay fetch would
@@ -55,9 +87,9 @@ function fetchEventFromRelay(
 	relayUrl: string,
 	filter: RelayFilter,
 	signal?: AbortSignal
-): Promise<any | null> {
-	if (typeof WebSocket === 'undefined') return Promise.resolve(null);
-	if (signal?.aborted) return Promise.resolve(null);
+): Promise<{ event: any | null; outcome: RelayOutcome }> {
+	if (typeof WebSocket === 'undefined') return Promise.resolve({ event: null, outcome: 'error' });
+	if (signal?.aborted) return Promise.resolve({ event: null, outcome: 'aborted' });
 
 	return new Promise((resolve) => {
 		let ws: WebSocket | null = null;
@@ -72,24 +104,24 @@ function fetchEventFromRelay(
 				}
 			}
 		};
-		const safeResolve = (value: any | null) => {
+		const safeResolve = (event: any | null, outcome: RelayOutcome) => {
 			if (resolved) return;
 			resolved = true;
 			cleanup();
 			signal?.removeEventListener('abort', onAbort);
-			resolve(value);
+			resolve({ event, outcome });
 		};
 
-		const onAbort = () => safeResolve(null);
+		const onAbort = () => safeResolve(null, 'aborted');
 		signal?.addEventListener('abort', onAbort, { once: true });
 
-		const timeout = setTimeout(() => safeResolve(null), FETCH_TIMEOUT_MS);
+		const timeout = setTimeout(() => safeResolve(null, 'timeout'), FETCH_TIMEOUT_MS);
 
 		try {
 			ws = new WebSocket(relayUrl);
 		} catch {
 			clearTimeout(timeout);
-			safeResolve(null);
+			safeResolve(null, 'error');
 			return;
 		}
 
@@ -101,7 +133,7 @@ function fetchEventFromRelay(
 				ws.send(JSON.stringify(['REQ', subId, { ...filter, limit: 1 }]));
 			} catch {
 				clearTimeout(timeout);
-				safeResolve(null);
+				safeResolve(null, 'error');
 			}
 		};
 
@@ -111,10 +143,10 @@ function fetchEventFromRelay(
 				const msg = JSON.parse((msgEvent as MessageEvent).data);
 				if (msg[0] === 'EVENT' && msg[1] === subId && msg[2]) {
 					clearTimeout(timeout);
-					safeResolve(msg[2]);
+					safeResolve(msg[2], 'event');
 				} else if (msg[0] === 'EOSE' && msg[1] === subId) {
 					clearTimeout(timeout);
-					safeResolve(null);
+					safeResolve(null, 'eose');
 				}
 			} catch {
 				/* parse error — wait for next */
@@ -123,13 +155,22 @@ function fetchEventFromRelay(
 
 		ws.onerror = () => {
 			clearTimeout(timeout);
-			safeResolve(null);
+			safeResolve(null, 'error');
 		};
 		ws.onclose = () => {
 			clearTimeout(timeout);
-			if (!resolved) safeResolve(null);
+			if (!resolved) safeResolve(null, 'error');
 		};
 	});
+}
+
+function describeFilter(filter: RelayFilter): string {
+	const parts: string[] = [];
+	if (filter.kinds) parts.push(`kinds=${filter.kinds.join('|')}`);
+	if (filter.authors) parts.push(`authors=${filter.authors.join('|').slice(0, 16)}…`);
+	if (filter.ids) parts.push(`ids=${filter.ids.join('|').slice(0, 16)}…`);
+	if (filter['#d']) parts.push(`d=${filter['#d'].join('|')}`);
+	return parts.join(' ');
 }
 
 /**
@@ -139,36 +180,60 @@ function fetchEventFromRelay(
  *
  * Uses a single AbortController so winning settles all pending fetches
  * immediately — no zombie sockets waiting on FETCH_TIMEOUT_MS.
+ *
+ * Served from the last-good cache on repeat lookups; total misses are
+ * logged with per-relay outcomes so a future "why is this card generic"
+ * investigation is one grep away from the answer.
  */
 export async function raceRelays(filter: RelayFilter): Promise<any | null> {
 	if (typeof WebSocket === 'undefined') return null;
+
+	const cacheKey = eventCacheKey(filter);
+	const cached = eventCache.get(cacheKey);
+	if (cached) {
+		if (cached.expiresAt > Date.now()) return cached.event;
+		eventCache.delete(cacheKey);
+	}
+
 	const controller = new AbortController();
-	return new Promise((resolve) => {
+	const result = await new Promise<any | null>((resolve) => {
 		let pending = RELAYS.length;
 		let settled = false;
+		const outcomes = new Map<string, RelayOutcome>();
 
 		const finish = (value: any | null) => {
 			if (settled) return;
 			settled = true;
 			controller.abort();
+			if (value === null) {
+				const breakdown = RELAYS.map(
+					(url) => `${url}=${outcomes.get(url) ?? 'aborted'}`
+				).join(' ');
+				console.warn(`[og] relay miss ${describeFilter(filter)} — ${breakdown}`);
+			}
 			resolve(value);
 		};
 
 		for (const url of RELAYS) {
 			fetchEventFromRelay(url, filter, controller.signal).then(
-				(result) => {
-					if (result !== null) {
-						finish(result);
+				({ event, outcome }) => {
+					outcomes.set(url, outcome);
+					if (event !== null) {
+						finish(event);
 					} else if (--pending === 0) {
 						finish(null);
 					}
 				},
 				() => {
+					outcomes.set(url, 'error');
 					if (--pending === 0) finish(null);
 				}
 			);
 		}
 	});
+
+	if (result !== null) cacheEvent(cacheKey, result);
+	return result;
 }
 
 /**
