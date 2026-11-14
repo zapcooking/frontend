@@ -1,6 +1,6 @@
 /**
- * Hostnames on which the temporary Go live gate pages (/dev/live-publish,
- * /dev/live-watch) are allowed to work: preview deployments and local dev.
+ * Hostnames on which the temporary Go live gate page (/dev/live-watch) is
+ * allowed to work: preview deployments and local dev.
  * Production, and every other hostname, is refused.
  *
  * The other pages under /dev gate on import.meta.env.PROD, which is also

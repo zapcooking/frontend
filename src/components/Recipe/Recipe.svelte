@@ -94,6 +94,8 @@
   import { membershipStatusMap, queueMembershipLookup, type MembershipStatus } from '$lib/stores/membershipStatus';
   import { resolveVanityShareUrl } from '$lib/vanityUrl';
   import ReportArticleModal from '../reads/ReportArticleModal.svelte';
+  import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
+  import { isLiveHost } from '$lib/live/config';
 
   export let event: NDKEvent;
   export let naddr: string = '';
@@ -203,6 +205,16 @@
   // Only recipes can be plated: an article gets no prompt and no row (its
   // plated posts stay normal comments — CommentCard's platedCard checks too).
   $: plateable = PLATED_ENABLED && !!plateableRecipe(event);
+
+  // Go live with this recipe attached. Shown only to allowlisted hosts;
+  // the server enforces the list. Any recipe may be cooked live, the
+  // host's own or another cook's.
+  $: canGoLive = isLiveHost($userPublickey);
+  function goLiveWithRecipe() {
+    if (!platedRecipe) return;
+    const params = new URLSearchParams({ a: platedRecipe.address, title: recipeTitle });
+    goto(`/live/new?${params.toString()}`);
+  }
   $: if ($ndk) {
     const root = event;
     commentSub = commentSlot.retarget(platedRecipe?.address ?? root.id, () =>
@@ -821,8 +833,19 @@
           <!-- Left: Author Profile -->
           <AuthorProfile pubkey={event.author.pubkey} timestamp={event.created_at} />
 
-          <!-- Right: Save button -->
-          <div class="flex gap-2">
+          <!-- Right: Go live (allowlisted hosts only) and Save -->
+          <div class="flex gap-2 items-center">
+            {#if canGoLive && isActualRecipe && platedRecipe}
+              <button
+                type="button"
+                class="go-live-button print:hidden"
+                on:click={goLiveWithRecipe}
+                aria-label="Go live with this recipe"
+              >
+                <BroadcastIcon size={18} weight="bold" />
+                <span>Go live</span>
+              </button>
+            {/if}
             <SaveButton {event} size="md" variant="primary" />
           </div>
         </div>
@@ -1577,5 +1600,35 @@
   .recipe-carousel-slide {
     scroll-snap-align: start;
     scroll-snap-stop: always;
+  }
+
+  .go-live-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 2.5rem;
+    padding: 0 0.9rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--color-text-primary);
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+  }
+  .go-live-button:hover {
+    background: var(--color-hover-bg);
+  }
+  /* On a phone the label would squeeze the author's name onto several
+     lines. Icon only there; the button keeps its aria-label. */
+  @media (max-width: 480px) {
+    .go-live-button {
+      width: 2.5rem;
+      padding: 0;
+      justify-content: center;
+    }
+    .go-live-button span {
+      display: none;
+    }
   }
 </style>

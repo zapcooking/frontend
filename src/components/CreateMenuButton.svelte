@@ -11,6 +11,9 @@
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
   import NewspaperIcon from 'phosphor-svelte/lib/Newspaper';
+  import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
+  import { userPublickey } from '$lib/nostr';
+  import { isLiveHost } from '$lib/live/config';
 
   export let variant: 'floating' | 'header' = 'header';
   export let showLabel = true;
@@ -33,6 +36,10 @@
   // started underneath it would sit unread behind the first and look hung.
   // The floating indicator is already on screen saying what the wait is.
   $: isMining = $miningOp !== null;
+
+  // Go live is shown only to allowlisted hosts. This decides what to SHOW;
+  // the server enforces the list.
+  $: canGoLive = isLiveHost($userPublickey);
 
   $: if (isMining) closeMenu();
 
@@ -59,6 +66,12 @@
     closeMenu();
     if (!(await requireAuth({ kind: 'post', reason: 'Sign in to write an article' }))) return;
     openNewDraft();
+  }
+
+  async function openLive() {
+    closeMenu();
+    if (!(await requireAuth({ kind: 'post', reason: 'Sign in to go live' }))) return;
+    goto('/live/new');
   }
 
   function clearLongPress() {
@@ -223,6 +236,7 @@
 <div
   class={`create-menu ${variant === 'floating' ? 'create-menu-floating' : 'create-menu-header'} ${className}`}
   class:create-menu-open={showMenu && !isCancelMode}
+  class:create-menu-four={canGoLive}
   role="presentation"
   on:mouseenter={handleMouseEnter}
   on:mouseleave={handleMouseLeave}
@@ -308,6 +322,17 @@
       <span class="create-menu-item-icon"><NewspaperIcon size={20} /></span>
       <span>New read</span>
     </button>
+    {#if canGoLive}
+      <button
+        type="button"
+        class="create-menu-item"
+        tabindex={showMenu && !isCancelMode ? 0 : -1}
+        on:click={openLive}
+      >
+        <span class="create-menu-item-icon"><BroadcastIcon size={20} /></span>
+        <span>Go live</span>
+      </button>
+    {/if}
   </div>
 </div>
 
@@ -339,6 +364,11 @@
     bottom: calc(var(--bottom-nav-height, 56px) + 1rem + var(--timer-widget-offset, 0px));
     z-index: 40;
     pointer-events: none;
+  }
+
+  /* A fourth item (Go live, allowlisted hosts only) needs one more row. */
+  .create-menu-floating.create-menu-four {
+    height: 296px;
   }
 
   .create-menu-floating::before {
@@ -571,6 +601,10 @@
 
   .create-menu-open .create-menu-panel-floating .create-menu-item:nth-child(3) {
     transition-delay: 110ms;
+  }
+
+  .create-menu-open .create-menu-panel-floating .create-menu-item:nth-child(4) {
+    transition-delay: 135ms;
   }
 
   .create-surface-label {

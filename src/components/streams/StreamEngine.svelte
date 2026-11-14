@@ -3,8 +3,10 @@
    * The one HLS/video owner for its surface (page, dock, pop-out).
    *
    * hls.js is a 1.7 MB dependency, so it is loaded on the first HLS play
-   * through a dynamic import (a separate chunk); Safari plays native HLS and
-   * plain mp4/webm files use a direct src. Status flows into the
+   * through a dynamic import (a separate chunk); plain mp4/webm files use a
+   * direct src. Safari also gets hls.js (low-latency mode off) when it can
+   * run it, because zap.stream's LL-HLS playlists freeze AVPlayer — see
+   * $lib/streams/hlsEngine. Native HLS is the fallback. Status flows into the
    * `streamPlayer` store, where the playing surface's UI reads it.
    */
   import { onDestroy, onMount } from 'svelte';
@@ -15,6 +17,7 @@
     setStreamPosition
   } from '$lib/stores/streamPlayer';
   import { runtime } from '$lib/streams/parse';
+  import { hlsJsConfig, pickHlsEngine } from '$lib/streams/hlsEngine';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import SpeakerHighIcon from 'phosphor-svelte/lib/SpeakerHigh';
   import SpeakerXIcon from 'phosphor-svelte/lib/SpeakerX';
@@ -104,20 +107,39 @@
       begin();
       return;
     }
-    if (supportsNativeHls(video)) {
-      video.src = state.mediaUrl;
-      begin();
-      return;
-    }
+    const nativeHls = supportsNativeHls(video);
     const Hls = await loadHls();
-    if (!Hls || !Hls.isSupported()) {
-      if (appliedGeneration === state.generation) setStreamStatus('unavailable');
+    if (appliedGeneration !== state.generation || appliedUrl !== state.mediaUrl) return;
+
+    const playNative = () => {
+      if (!video) return;
+      video.src = state.mediaUrl!;
+      begin();
+    };
+    const engine = pickHlsEngine({
+      nativeHls,
+      hlsJsSupported: !!Hls && Hls.isSupported()
+    });
+    if (engine === 'native') {
+      playNative();
       return;
     }
-    if (appliedGeneration !== state.generation || appliedUrl !== state.mediaUrl) return;
-    hls = new Hls({ enableWorker: false, backBufferLength: 15, maxBufferLength: 20 });
+    if (engine === 'none' || !Hls) {
+      setStreamStatus('unavailable');
+      return;
+    }
+    hls = new Hls(hlsJsConfig(nativeHls));
     hls.on(Hls.Events.ERROR, (_: unknown, data: { fatal: boolean }) => {
-      if (data.fatal && appliedGeneration === state.generation) setStreamStatus('unavailable');
+      if (!data.fatal || appliedGeneration !== state.generation) return;
+      // hls.js gave up. Where the browser has its own HLS player, hand the
+      // stream to it rather than showing "unavailable".
+      if (nativeHls) {
+        hls?.destroy();
+        hls = null;
+        playNative();
+        return;
+      }
+      setStreamStatus('unavailable');
     });
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       if (appliedGeneration === state.generation) begin();
