@@ -734,3 +734,68 @@ export async function setSessionNote(db: LiveDb, id: string, noteId: string): Pr
     .run();
   return (result.meta?.changes ?? 0) === 1;
 }
+
+// ── Hidden commenters ────────────────────────────────────────────────
+//
+// Commenters left out of Go live chats by moderation: per host (the host
+// hid them, in all their streams) or global (the admin hid them
+// everywhere). Keys are commenters' public keys, never viewers'.
+
+export const HIDDEN_GLOBAL_SCOPE = 'global';
+/** Upper bound per scope, so a runaway client cannot grow a list without end. */
+export const HIDDEN_MAX_PER_SCOPE = 5000;
+
+export interface HiddenAuthor {
+  pubkey: string;
+  /** 'host': hidden by this session's host; 'global': hidden by the admin everywhere. */
+  scope: 'host' | 'global';
+}
+
+/** Everyone hidden from this host's chats: the host's own list plus the global one. */
+export async function listHiddenForHost(db: LiveDb, host: string): Promise<HiddenAuthor[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT pubkey, scope FROM live_hidden_authors
+        WHERE scope = ?1 OR scope = ?2 ORDER BY created_at, pubkey LIMIT ?3`
+    )
+    .bind(host, HIDDEN_GLOBAL_SCOPE, HIDDEN_MAX_PER_SCOPE * 2)
+    .all<{ pubkey: string; scope: string }>();
+  return results.map((r) => ({
+    pubkey: r.pubkey,
+    scope: r.scope === HIDDEN_GLOBAL_SCOPE ? 'global' : 'host'
+  }));
+}
+
+/**
+ * Hide or unhide one commenter in one scope (a host pubkey or 'global').
+ * Returns 'ok', or 'full' when the scope already holds the maximum.
+ */
+export async function setHiddenAuthor(
+  db: LiveDb,
+  scope: string,
+  pubkey: string,
+  hidden: boolean
+): Promise<'ok' | 'full'> {
+  if (!hidden) {
+    await db
+      .prepare('DELETE FROM live_hidden_authors WHERE scope = ?1 AND pubkey = ?2')
+      .bind(scope, pubkey)
+      .run();
+    return 'ok';
+  }
+  // One conditional insert: only while the scope is under its cap.
+  const result = await db
+    .prepare(
+      `INSERT OR IGNORE INTO live_hidden_authors (scope, pubkey, created_at)
+       SELECT ?1, ?2, ?3
+        WHERE (SELECT COUNT(*) FROM live_hidden_authors WHERE scope = ?1) < ?4`
+    )
+    .bind(scope, pubkey, nowSeconds(), HIDDEN_MAX_PER_SCOPE)
+    .run();
+  if ((result.meta?.changes ?? 0) === 1) return 'ok';
+  const exists = await db
+    .prepare('SELECT 1 AS x FROM live_hidden_authors WHERE scope = ?1 AND pubkey = ?2')
+    .bind(scope, pubkey)
+    .first<{ x: number }>();
+  return exists ? 'ok' : 'full';
+}

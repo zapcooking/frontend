@@ -684,13 +684,17 @@ async function setNote(id: string, token: string | null, body: unknown = { note_
 }
 
 describe('migration 0006', () => {
-  it('only adds a nullable note_id to live_sessions', () => {
-    const sql = readFileSync('migrations/scheduler/0006_add_live_note_id.sql', 'utf8')
-      .split('\n')
-      .filter((line) => !line.trim().startsWith('--'))
-      .join('\n')
-      .trim();
-    expect(sql).toBe('ALTER TABLE live_sessions ADD COLUMN note_id TEXT;');
+  const sql = readFileSync('migrations/scheduler/0006_add_live_note_id.sql', 'utf8')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+
+  it('is additive: one nullable column and one live_ table, nothing dropped or changed', () => {
+    expect(sql).toContain('ALTER TABLE live_sessions ADD COLUMN note_id TEXT;');
+    expect(sql).not.toMatch(/\b(DROP|DELETE|UPDATE|INSERT|REPLACE|RENAME)\b/i);
+    const created = [...sql.matchAll(/CREATE\s+TABLE\s+(\w+)/gi)].map((m) => m[1]);
+    expect(created).toEqual(['live_hidden_authors']);
+    expect((sql.match(/ALTER TABLE/gi) ?? []).length).toBe(1);
   });
 });
 
