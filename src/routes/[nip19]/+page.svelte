@@ -405,8 +405,12 @@ import { eventPath } from '$lib/utils/eventUrl';
       }
     }
 
+    // Bare 64-char hex event ids (some clients share raw-hex links) load
+    // directly — nip19.decode() only reads bech32 and would throw on hex.
+    const isHexEventId = /^[0-9a-f]{64}$/i.test(nip19Id);
+
     // Validate NIP-19 identifier format
-    if (nip19Id.length < 8 || !nip19Id.match(/^[a-z0-9]+$/)) {
+    if (!isHexEventId && (nip19Id.length < 8 || !nip19Id.match(/^[a-z0-9]+$/))) {
       error = true;
       loading = false;
       return;
@@ -414,22 +418,26 @@ import { eventPath } from '$lib/utils/eventUrl';
 
     try {
       // Decode the NIP-19 identifier
-      decoded = nip19.decode(nip19Id);
+      decoded = isHexEventId ? null : nip19.decode(nip19Id);
 
-      if (decoded.type === 'nevent' || decoded.type === 'note') {
+      if (decoded?.type === 'nevent' || decoded?.type === 'note' || isHexEventId) {
         // Fetch the referenced event
         let eventId = '';
         let neventRelays: string[] = [];
-        switch (decoded.type) {
-          case 'nevent':
-            eventId = (decoded as nip19.DecodedNevent).data.id;
-            neventRelays = ((decoded as nip19.DecodedNevent).data.relays ?? [])
-              .filter((r) => r.startsWith('wss://'))
-              .slice(0, 3);
-            break;
-          case 'note':
-            eventId = (decoded as nip19.DecodedNote).data;
-            break;
+        if (isHexEventId) {
+          eventId = nip19Id.toLowerCase();
+        } else {
+          switch (decoded.type) {
+            case 'nevent':
+              eventId = (decoded as nip19.DecodedNevent).data.id;
+              neventRelays = ((decoded as nip19.DecodedNevent).data.relays ?? [])
+                .filter((r) => r.startsWith('wss://'))
+                .slice(0, 3);
+              break;
+            case 'note':
+              eventId = (decoded as nip19.DecodedNote).data;
+              break;
+          }
         }
         const filter = {
           ids: [eventId]
