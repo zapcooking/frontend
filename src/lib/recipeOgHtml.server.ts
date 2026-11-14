@@ -46,8 +46,8 @@ export function matchRecipeOgRoute(pathname: string): { prefix: string; slug: st
   return { prefix: m[1], slug: m[2] };
 }
 
-/** Top-level note routes (`/note1…`, `/nevent1…`) get OG injection too. */
-const NOTE_ROUTE_RE = /^\/((?:note1|nevent1)[0-9a-z]+)\/?$/i;
+/** Top-level note routes (`/note1…`, `/nevent1…`, bare hex ids) get OG injection too. */
+const NOTE_ROUTE_RE = /^\/((?:note1|nevent1)[0-9a-z]+|[0-9a-f]{64})\/?$/i;
 
 export function matchNoteOgRoute(pathname: string): { slug: string } | null {
   const m = pathname.match(NOTE_ROUTE_RE);
