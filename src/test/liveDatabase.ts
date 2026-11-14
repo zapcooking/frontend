@@ -6,7 +6,8 @@ import type { LiveDb } from '../lib/live/sessions.server';
 export const LIVE_MIGRATIONS = [
   '0004_create_live_sessions.sql',
   '0005_add_live_pass_rejoins.sql',
-  '0006_add_live_note_id.sql'
+  '0006_add_live_note_id.sql',
+  '0007_live_safety_incidents.sql'
 ] as const;
 
 /**
