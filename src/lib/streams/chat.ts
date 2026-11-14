@@ -1,5 +1,14 @@
 /**
- * NIP-53 live chat (kind 1311).
+ * Live chat for a stream: NIP-53 live chat (kind 1311) for a NIP-53
+ * stream, or kind 1 replies to the "Live now" note for a Go live session.
+ * The target string decides which (see ./target): an address `30311:…`
+ * or a note id.
+ *
+ * For a note, a message is a NIP-10 reply: `e` <note> "root" and `p` the
+ * note's author; replying to a message adds `e` <message> "reply" and its
+ * author's `p`. Other Nostr apps show them as replies to the note.
+ *
+ * NIP-53 live chat (kind 1311):
  *
  * Ported from Sidecar's stream-chat model: a chat message targets the
  * stream announcement with an `a` tag (never an `e` root), replies add the
@@ -14,9 +23,17 @@ import { nip19 } from 'nostr-tools';
 import type { SimplePool } from 'nostr-tools/pool';
 import type { Filter } from 'nostr-tools/filter';
 import { relayPage, type RelayPageResult } from './relayPage';
+import { isEventTarget, targetFilter } from './target';
 import type { EventVerifier, NostrEventLike } from './types';
 
 export const CHAT_KIND = 1311;
+/** Replies to a "Live now" note. */
+export const NOTE_REPLY_KIND = 1;
+
+/** The chat event kind for a target: 1311 for a stream address, 1 for a note. */
+export function chatKindFor(target: string): number {
+  return isEventTarget(target) ? NOTE_REPLY_KIND : CHAT_KIND;
+}
 export const CHAT_MAX_LEN = 4000;
 export const CHAT_MAX_EVENTS = 1000;
 
@@ -63,41 +80,66 @@ export interface ChatTemplate {
 
 /**
  * Build a chat message event template. Throws `Invalid chat message` on a
- * bad address, empty or oversized content — callers show that as a normal
- * input error.
+ * bad target, empty or oversized content, or a note target without its
+ * author — callers show that as a normal input error.
+ *
+ * `rootAuthor` is the note's author (the host), required for a note target.
  */
 export function chatTemplate(
   address: string,
   content: string,
   reply?: { id: string; pubkey: string } | null,
-  decode?: (encoded: string) => { type: string; data: Record<string, unknown> }
+  decode?: (encoded: string) => { type: string; data: Record<string, unknown> },
+  rootAuthor?: string | null
 ): ChatTemplate {
   const text = typeof content === 'string' ? content.trim() : '';
-  if (!ADDRESS_RE.test(address || '') || !text || text.length > CHAT_MAX_LEN) {
+  const note = isEventTarget(address);
+  if (
+    !(note ? ID_RE.test(rootAuthor || '') : ADDRESS_RE.test(address || '')) ||
+    !text ||
+    text.length > CHAT_MAX_LEN
+  ) {
     throw new Error('Invalid chat message');
   }
-  const tags: string[][] = [['a', address]];
+  const tags: string[][] = note
+    ? [
+        ['e', address, '', 'root'],
+        ['p', rootAuthor as string]
+      ]
+    : [['a', address]];
   if (
     reply &&
     ID_RE.test(reply.id) &&
     ID_RE.test(reply.pubkey) &&
     !tags.some((t) => t[0] === 'e' && t[1] === reply.id)
   ) {
-    tags.push(['e', reply.id], ['p', reply.pubkey]);
+    if (note) tags.push(['e', reply.id, '', 'reply']);
+    else tags.push(['e', reply.id]);
+    if (!tags.some((t) => t[0] === 'p' && t[1] === reply.pubkey)) tags.push(['p', reply.pubkey]);
   }
   for (const pubkey of mentionPubkeys(text, decode)) {
     if (!tags.some((t) => t[0] === 'p' && t[1] === pubkey)) tags.push(['p', pubkey]);
   }
-  return { kind: CHAT_KIND, created_at: Math.floor(Date.now() / 1000), content: text, tags };
+  return {
+    kind: chatKindFor(address),
+    created_at: Math.floor(Date.now() / 1000),
+    content: text,
+    tags
+  };
 }
 
 // ── Model ──────────────────────────────────────────────────────────────
 
-/** Verified, deduped chat messages for one stream address. */
+/** Verified, deduped chat messages for one stream target (address or note id). */
 export class ChatMessages {
   readonly events = new Map<string, NostrEventLike>();
+  private readonly kind: number;
+  private readonly tag: 'a' | 'e';
 
-  constructor(readonly address: string) {}
+  constructor(readonly address: string) {
+    this.kind = chatKindFor(address);
+    this.tag = isEventTarget(address) ? 'e' : 'a';
+  }
 
   get size(): number {
     return this.events.size;
@@ -106,9 +148,10 @@ export class ChatMessages {
   accept(event: NostrEventLike, verify: EventVerifier): boolean {
     if (
       !event ||
-      event.kind !== CHAT_KIND ||
+      event.kind !== this.kind ||
+      event.id === this.address ||
       !Array.isArray(event.tags) ||
-      !event.tags.some((t) => Array.isArray(t) && t[0] === 'a' && t[1] === this.address) ||
+      !event.tags.some((t) => Array.isArray(t) && t[0] === this.tag && t[1] === this.address) ||
       typeof event.content !== 'string' ||
       event.content.length > CHAT_MAX_LEN ||
       !Number.isSafeInteger(event.created_at) ||
@@ -134,10 +177,19 @@ export class ChatMessages {
   }
 }
 
-/** The `e`-tag parent of a chat reply, when present. */
-export function chatReplyParent(event: NostrEventLike): { id: string; pubkey: string } | null {
-  const id = event.tags.filter((t) => Array.isArray(t) && t[0] === 'e').at(-1)?.[1];
-  const pubkey = event.tags.filter((t) => Array.isArray(t) && t[0] === 'p').at(-1)?.[1];
+/**
+ * The `e`-tag parent of a chat reply, when present. For note chat pass the
+ * note id as `root`: the root `e` tag every message carries is not a
+ * parent, and a NIP-10 "reply" marker wins over position.
+ */
+export function chatReplyParent(
+  event: NostrEventLike,
+  root?: string | null
+): { id: string; pubkey: string } | null {
+  const eTags = event.tags.filter((t) => Array.isArray(t) && t[0] === 'e' && t[1] !== root);
+  const id = (eTags.find((t) => t[3] === 'reply') ?? eTags.at(-1))?.[1];
+  const pTags = event.tags.filter((t) => Array.isArray(t) && t[0] === 'p');
+  const pubkey = pTags.at(-1)?.[1];
   if (!id || !ID_RE.test(id)) return null;
   return { id, pubkey: pubkey && ID_RE.test(pubkey) ? pubkey : '' };
 }
@@ -181,7 +233,11 @@ export async function fetchChatPage(opts: {
       let cursor = until;
       let complete = false;
       for (let round = 0; round < rounds && collected.length < perRelay; round++) {
-        const filter: Filter = { kinds: [CHAT_KIND], '#a': [address], limit: perRelay };
+        const filter: Filter = {
+          kinds: [chatKindFor(address)],
+          ...targetFilter(address),
+          limit: perRelay
+        } as Filter;
         if (cursor != null) filter.until = cursor;
         const page = await relayPage<NostrEventLike>(pool, relay, filter, signal, timeout);
         const fresh = page.events.filter((e) => {
@@ -225,7 +281,7 @@ export function subscribeChat(opts: {
   const since = Math.floor(Date.now() / 1000) - 10;
   const closer = pool.subscribeMany(
     sources,
-    { kinds: [CHAT_KIND], '#a': [address], since } as Filter,
+    { kinds: [chatKindFor(address)], ...targetFilter(address), since } as Filter,
     {
       onevent: (event: unknown) => onEvent(event as NostrEventLike)
     } as never

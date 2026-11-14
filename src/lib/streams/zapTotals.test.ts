@@ -471,3 +471,37 @@ describe('topZappers', () => {
     ]);
   });
 });
+
+// ── Note targets (Go live "Live now" note) ─────────────────────────────
+
+describe('ZapTotals.accept with a note target', () => {
+  const NOTE = '9'.repeat(64);
+  const noteTags = (tags: string[][]) => tags.map((t) => (t[0] === 'a' ? ['e', NOTE] : t));
+
+  async function noteReceipt() {
+    const request = zapRequest();
+    request.tags = noteTags(request.tags);
+    const description = JSON.stringify(request);
+    const invoice = encodeInvoice(
+      1000,
+      new Uint8Array(32).fill(7),
+      Uint8Array.from((await sha256Hex(description)).match(/../g)!.map((h) => parseInt(h, 16)))
+    );
+    const r = receipt(request, invoice);
+    r.tags = noteTags(r.tags);
+    return r;
+  }
+
+  it('counts a receipt whose request and receipt carry the note e tag', async () => {
+    const totals = new ZapTotals();
+    expect(await totals.accept(await noteReceipt(), acceptOpts({ address: NOTE }))).toBe(true);
+    expect(totals.count).toBe(1);
+    expect(totals.msats).toBe(1000);
+  });
+
+  it('does not count a stream-address receipt for a note, or a note receipt for an address', async () => {
+    const r = await noteReceipt();
+    expect(await new ZapTotals().accept(r, acceptOpts({ address: ADDRESS }))).toBe(false);
+    expect(await new ZapTotals().accept(r, acceptOpts({ address: '8'.repeat(64) }))).toBe(false);
+  });
+});

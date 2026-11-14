@@ -5,11 +5,12 @@ import type { LiveDb } from '../lib/live/sessions.server';
 /** The Go live migrations, in order. */
 export const LIVE_MIGRATIONS = [
   '0004_create_live_sessions.sql',
-  '0005_add_live_pass_rejoins.sql'
+  '0005_add_live_pass_rejoins.sql',
+  '0006_add_live_note_id.sql'
 ] as const;
 
 /**
- * Real SQLite running the Go live migrations (0004, 0005), so the tests exercise the same SQL
+ * Real SQLite running the Go live migrations (0004–0006), so the tests exercise the same SQL
  * (including the partial unique index) that D1 runs. Node 22 is pinned.
  * `raw` gives tests direct access for arranging and inspecting rows.
  */

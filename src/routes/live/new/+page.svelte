@@ -18,6 +18,10 @@
    *    by itself. ReconnectPolicy republishes with backoff and the page
    *    shows "Reconnecting…", never an error that needs a tap.
    *  - It keeps the screen awake while live.
+   *  - With the "Live now" note switch on (the default), it posts a kind 1
+   *    note from the host when the broadcast first connects, records the
+   *    note's id on the session, and shows the comments (replies to the
+   *    note). Off: no note, no comments, no zap total.
    */
   import { onDestroy, onMount, tick } from 'svelte';
   import { page } from '$app/stores';
@@ -33,6 +37,7 @@
     endLiveSessionSigned,
     publishOffer,
     readLiveStatus,
+    recordLiveNote,
     type CreateOutcome,
     type HostSession,
     type SignRequest
@@ -56,7 +61,16 @@
     type MediaHelp
   } from '$lib/live/host/hostDevice';
   import { LIVE_DEFAULT_TITLE, liveStreamName } from '$lib/live/streamName';
-  import { fetchSession } from '$lib/streams/goLive';
+  import { fetchSession, sessionToStreamItem } from '$lib/streams/goLive';
+  import { fetchRecipeEvent, recipeCardOf } from '$lib/streams/recipeCard';
+  import { createStreamPool } from '$lib/streams/relayPage';
+  import { DISCOVERY_RELAYS } from '$lib/streams/relays';
+  import { liveNoteTemplate } from '$lib/live/liveNote';
+  import { addClientTagToEvent } from '$lib/nip89';
+  import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+  import type { SimplePool } from 'nostr-tools/pool';
+  import type { StreamItem } from '$lib/streams/types';
+  import StreamChat from '../../../components/streams/StreamChat.svelte';
   import CameraRotateIcon from 'phosphor-svelte/lib/CameraRotate';
   import LinkSimpleIcon from 'phosphor-svelte/lib/LinkSimple';
   import CheckIcon from 'phosphor-svelte/lib/Check';
@@ -129,6 +143,85 @@
   $: setBottomDockClaim(DOCK_OWNER, phase !== 'loading');
   $: isLive = phase === 'live' || phase === 'reconnecting';
   $: canStart = phase === 'preview' && !!stream && title.trim().length > 0;
+
+  // ── "Live now" note and comments ───────────────────────────────────
+  /** The switch on the preview screen. Off: no note, so no comments. */
+  let postNote = true;
+  /** The posted note's id, once it exists (also read back on resume). */
+  let noteId: string | null = null;
+  let notePosting = false;
+  /** The recipe's photo for the note, fetched when a recipe is attached. */
+  let recipeImage: string | null = null;
+  let recipeImageFor: string | null = null;
+  let chatPool: SimplePool | null = null;
+  /** Verified zaps on the note, as the chat counts them. */
+  let zapSats = 0;
+  let zapCount = 0;
+  let chatItem: StreamItem | null = null;
+
+  $: if (recipeA && recipeA !== recipeImageFor) void loadRecipeImage(recipeA);
+  async function loadRecipeImage(a: string) {
+    recipeImageFor = a;
+    recipeImage = null;
+    const event = await fetchRecipeEvent($ndk, a);
+    if (recipeImageFor === a) recipeImage = recipeCardOf(event)?.image ?? null;
+  }
+
+  $: chatItem =
+    session && noteId
+      ? sessionToStreamItem(
+          {
+            id: session.id,
+            status: phase === 'ended' ? 'ended' : 'live',
+            title,
+            recipe_a: recipeA,
+            host_pubkey: $userPublickey,
+            created_at: Math.floor(startedAt / 1000),
+            started_at: Math.floor(startedAt / 1000),
+            ended_at: null,
+            note_id: noteId
+          },
+          recipeTitle ? { title: recipeTitle, image: recipeImage } : null,
+          ownName
+        )
+      : null;
+  $: if (chatItem && !chatPool) chatPool = createStreamPool();
+
+  /**
+   * Post the "Live now" note and record it on the session. Runs once, when
+   * the broadcast first connects, so a start that never gets through
+   * leaves no note behind. A failure never stops the stream.
+   */
+  async function postLiveNote() {
+    if (!postNote || noteId || notePosting || !session) return;
+    notePosting = true;
+    const forSession = session;
+    try {
+      const template = liveNoteTemplate({
+        name: streamName,
+        watchUrl: `${location.origin}/live/s/${forSession.id}`,
+        image: recipeImage,
+        recipeA
+      });
+      const event = new NDKEvent($ndk, template as never);
+      addClientTagToEvent(event);
+      await event.sign();
+      const urls = [...new Set([...$ndk.pool.relays.keys(), ...DISCOVERY_RELAYS])];
+      await Promise.race([
+        event.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true)),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+      ]);
+      if (session?.id !== forSession.id) return;
+      if (!(await recordLiveNote(forSession, event.id))) throw new Error('not recorded');
+      noteId = event.id;
+    } catch {
+      if (session?.id === forSession.id) {
+        notice = "The Live now note wasn't posted, so this stream has no comments.";
+      }
+    } finally {
+      notePosting = false;
+    }
+  }
 
   /** The host's own name, for "<name> is cooking <recipe>". */
   let ownName: string | null = null;
@@ -222,6 +315,8 @@
     }
     setBottomDockClaim(DOCK_OWNER, false);
     teardown(false);
+    chatPool?.destroy();
+    chatPool = null;
   });
 
   // ── 18+ confirmation ───────────────────────────────────────────────
@@ -435,6 +530,12 @@
       return;
     }
     startedAt = Date.now();
+    // The note (if any) was posted before the reload: show its comments,
+    // never post a second one.
+    postNote = false;
+    void fetchSession(session.id).then((read) => {
+      if (read?.note_id && session?.id === read.id) noteId = read.note_id;
+    });
     await publish();
     startPolling();
     startClock();
@@ -481,6 +582,7 @@
         everLive = true;
         policy.connected();
         phase = 'live';
+        void postLiveNote();
       } else if (conn.connectionState === 'disconnected') {
         policy.disconnected();
         phase = 'reconnecting';
@@ -652,6 +754,9 @@
     if (forget) {
       clearStoredSession(storage());
       session = null;
+      noteId = null;
+      zapSats = 0;
+      zapCount = 0;
     }
   }
 
@@ -693,7 +798,7 @@
   <meta name="robots" content="noindex" />
 </svelte:head>
 
-<div class="live-host">
+<div class="live-host" class:with-chat={!!chatItem && phase !== 'ended'}>
   {#if phase === 'loading'}
     <p class="muted">Getting ready…</p>
   {:else if phase === 'signed_out'}
@@ -829,6 +934,21 @@
           <button class="link" on:click={() => (pickerOpen = true)}>Pick one of my recipes</button>
         {/if}
 
+        <label class="switch-row">
+          <input type="checkbox" role="switch" bind:checked={postNote} />
+          <span class="switch-text">
+            <strong>Post a “Live now” note</strong>
+            <span class="muted small">
+              {#if postNote}
+                Posts “{streamName}” from your account with the watch link. Viewers comment by
+                replying to it.
+              {:else}
+                No note: this stream will have no comments and no zap total.
+              {/if}
+            </span>
+          </span>
+        </label>
+
         {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
         <button class="btn primary" on:click={goLive} disabled={!canStart}>Go live</button>
@@ -837,8 +957,33 @@
     {:else}
       <div class="panel live-panel">
         <p class="live-title" title={streamName}>{streamName}</p>
+        {#if zapCount > 0}
+          <p class="zaps" title={`${zapSats.toLocaleString()} sats across ${zapCount} zaps`}>
+            ⚡ {zapSats.toLocaleString()} sats · {zapCount}
+            {zapCount === 1 ? 'zap' : 'zaps'}
+          </p>
+        {/if}
         {#if notice}<p class="notice" role="status">{notice}</p>{/if}
+        {#if !noteId && notePosting}
+          <p class="muted small" role="status">Posting your Live now note…</p>
+        {/if}
       </div>
+      {#if chatItem && chatPool && noteId}
+        <!-- The stream's comments: replies to the Live now note. -->
+        <section class="host-chat" aria-label="Live chat">
+          {#key noteId}
+            <StreamChat
+              item={chatItem}
+              pool={chatPool}
+              target={noteId}
+              on:zaps={(e) => {
+                zapSats = Math.max(zapSats, e.detail.sats);
+                zapCount = Math.max(zapCount, e.detail.count);
+              }}
+            />
+          {/key}
+        </section>
+      {/if}
     {/if}
   {/if}
 </div>
@@ -920,7 +1065,7 @@
     .stage {
       border-radius: 0;
       height: calc(
-        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 15rem
+        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 22rem
       );
       min-height: 14rem;
     }
@@ -1049,6 +1194,63 @@
   }
   .live-panel {
     gap: 0.5rem;
+  }
+  .zaps {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #f59e0b;
+  }
+  .switch-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.75rem;
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+    cursor: pointer;
+  }
+  .switch-row input {
+    margin-top: 0.2rem;
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: #dc2626;
+    /* The forms plugin paints a checked box with currentColor. */
+    color: #dc2626;
+    flex-shrink: 0;
+  }
+  .switch-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-size: 0.9375rem;
+  }
+  .host-chat {
+    height: 26rem;
+    min-height: 18rem;
+  }
+  @media (max-width: 640px) {
+    .host-chat {
+      padding: 0 0.75rem;
+    }
+  }
+  /* Wide screens: the comments sit beside the video, as tall as the stage. */
+  @media (min-width: 1100px) {
+    .live-host.with-chat {
+      max-width: 90rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 23rem;
+      column-gap: 1rem;
+      align-items: start;
+    }
+    .live-host.with-chat > :not(.host-chat) {
+      grid-column: 1;
+    }
+    .live-host.with-chat .host-chat {
+      grid-column: 2;
+      grid-row: 1 / span 3;
+      height: min(calc(100dvh - var(--header-h, 4rem) - 6rem), 48rem);
+    }
   }
   .hint {
     position: absolute;

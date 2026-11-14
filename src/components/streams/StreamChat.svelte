@@ -1,12 +1,21 @@
 <script lang="ts">
   /**
-   * NIP-53 live chat (kind 1311) for one stream. History pages backward
+   * Live chat for one stream. For a NIP-53 stream it is NIP-53 live chat
+   * (kind 1311 on the announcement address); for a Go live session it is
+   * the replies to the host's "Live now" note (`target` = the note id; see
+   * $lib/streams/chat). Go live adds: comments from commenters the host
+   * (or the admin, everywhere) has hidden are left out for everyone, read
+   * from our server ($lib/live/hiddenClient); the host gets Hide on each
+   * comment and the admin also "Hide everywhere", both with an Unhide list;
+   * any signed-in viewer can report a comment (the existing report path);
+   * and once the stream has ended the chat is read-only. The viewer's own
+   * (private) mute list keeps applying on top. History pages backward
    * with an "Older messages" button, a live subscription appends new
    * messages, and posting signs through the app's NDK signer into the
    * stream's relays. Chat profiles read straight from relays (newest
    * kind 0 wins), with Sidecar-style stable pseudonyms as the fallback.
    */
-  import { onDestroy, tick } from 'svelte';
+  import { createEventDispatcher, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { page } from '$app/stores';
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
@@ -34,6 +43,21 @@
     type ChatProfile
   } from '$lib/streams/chat';
   import { pseudonym } from '$lib/streams/parse';
+  import { targetFilter, isEventTarget } from '$lib/streams/target';
+  import { userPublickey } from '$lib/nostr';
+  import {
+    fetchHiddenAuthors,
+    setHiddenAuthor,
+    type HiddenAuthor,
+    type HiddenScope
+  } from '$lib/live/hiddenClient';
+  import { isAdmin } from '$lib/adminAuth';
+  import { signNip98AuthHeader } from '$lib/nip98';
+  import { showToast } from '$lib/toast';
+  import EyeSlashIcon from 'phosphor-svelte/lib/EyeSlash';
+  import ProhibitIcon from 'phosphor-svelte/lib/Prohibit';
+  import FlagIcon from 'phosphor-svelte/lib/Flag';
+  import LiveReport from './LiveReport.svelte';
   import { mentionedPubkeys, tokenizeChatText, type ChatSegment } from '$lib/streams/chatText';
   import { dayDividerLabel, formatChatTime, isBeforeToday } from '$lib/streams/chatTime';
   import { DISCOVERY_RELAYS, RECEIPT_RELAYS } from '$lib/streams/relays';
@@ -47,13 +71,26 @@
    * the strip under the chat header, Sidecar-style.
    */
   export let topZappers: { pubkey: string; sats: number }[] = [];
+  /**
+   * What the chat hangs off: the stream's address (default) or, for a Go
+   * live session, its "Live now" note id.
+   */
+  export let target: string | null = null;
+  /** The stream has ended: the chat is shown read-only. */
+  export let closed = false;
+
+  /** Verified zaps seen by the chat so far (the Go live host page shows them). */
+  const dispatch = createEventDispatcher<{ zaps: { sats: number; count: number } }>();
+  function reportZaps() {
+    dispatch('zaps', { sats: Math.floor(totals.msats / 1000), count: totals.count });
+  }
 
   const PAGE_SIZE = 50;
   const HISTORY_CAP = 1000;
 
   // Plain declarations: openChat() runs during component init, before any
   // `$:` reactive statement would have fired.
-  let address = item.key;
+  let address = target || item.key;
   let sources = [...new Set([...(item.relays || []), ...DISCOVERY_RELAYS])];
   let model = new ChatMessages(item.key);
   let rows: TimelineRow[] = [];
@@ -182,11 +219,81 @@
     return { event, sats, sender, comment };
   }
 
+  /** Go live: commenters hidden by the host or the admin (our server). */
+  let hiddenList: HiddenAuthor[] = [];
+  $: noteChat = isEventTarget(address);
+  $: isHost = noteChat && !!$userPublickey && $userPublickey === item.host;
+  $: isAdminViewer = noteChat && isAdmin($userPublickey);
+  $: canModerate = isHost || isAdminViewer;
+  let hiddenOpen = false;
+
+  async function loadHidden() {
+    if (!isEventTarget(address) || !item.sessionId) return;
+    const found = await fetchHiddenAuthors(item.sessionId);
+    if (!found) return; // could not tell: keep what is applied
+    hiddenList = found;
+    scheduleProfiles(found.map((h) => h.pubkey));
+    repaint();
+  }
+
+  // A hide reaches viewers who are already watching within half a minute.
+  const hiddenTimer = setInterval(() => {
+    if (typeof document === 'undefined' || !document.hidden) void loadHidden();
+  }, 30_000);
+
+  let hiding = new Set<string>();
+  async function setHidden(pubkey: string, hidden: boolean, scope: HiddenScope) {
+    const key = `${scope}:${pubkey}`;
+    if (hiding.has(key) || !item.sessionId) return;
+    hiding = new Set([...hiding, key]);
+    const outcome = await setHiddenAuthor({
+      sessionId: item.sessionId,
+      pubkey,
+      hidden,
+      scope,
+      sign: (req) => signNip98AuthHeader(get(ndk), req)
+    });
+    hiding.delete(key);
+    hiding = hiding;
+    if (outcome === 'ok') {
+      const others = hiddenList.filter((h) => !(h.pubkey === pubkey && h.scope === scope));
+      hiddenList = hidden ? [...others, { pubkey, scope }] : others;
+      repaint();
+      showToast(
+        'success',
+        hidden
+          ? scope === 'global'
+            ? `${displayName(pubkey)} is hidden from every Go live chat.`
+            : `${displayName(pubkey)} is hidden from your live chats.`
+          : `${displayName(pubkey)} is no longer hidden.`
+      );
+    } else {
+      showToast(
+        'error',
+        outcome === 'sign_failed'
+          ? 'The request was not signed. Approve it in your signer and try again.'
+          : outcome === 'forbidden'
+            ? 'Only the host or an admin can do that.'
+            : outcome === 'full'
+              ? 'The hidden list is full.'
+              : 'That did not go through. Check your connection and try again.'
+      );
+    }
+  }
+
+  let reportOpen = false;
+  let reportComment: { id: string; pubkey: string } | null = null;
+  function report(event: NostrEventLike) {
+    reportComment = { id: event.id, pubkey: event.pubkey };
+    reportOpen = true;
+  }
+
   function timelineFromModel(): TimelineRow[] {
     const muted = get(mutedPubkeys);
+    const hiddenAuthors = new Set(hiddenList.map((h) => h.pubkey));
     const messages = model
       .rows()
-      .filter((e) => !muted.has(e.pubkey))
+      .filter((e) => !muted.has(e.pubkey) && !hiddenAuthors.has(e.pubkey))
       .map((event) => ({ event }));
     const zaps = [...receipts.values()].map(receiptRow).filter((row): row is TimelineRow => !!row);
     return [...messages, ...zaps].sort(
@@ -196,7 +303,10 @@
 
   // userPublickey can be restored while the passkey vault is locked —
   // signedIn reflects an actual usable session.
-  $: signingIn = !get(signedIn);
+  // Subscribed, not read once: the chat can mount before a saved session
+  // is restored (the Go live page loads fast), and must then show the
+  // composer as soon as the viewer is signed in.
+  $: signingIn = !$signedIn;
 
   // Top-zapper chips show real names: fold them into the batched lookups.
   $: scheduleProfiles(topZappers.map((z) => z.pubkey));
@@ -277,11 +387,12 @@
     try {
       const events = (await pool.querySync(
         receiptSources,
-        { kinds: [9735], '#a': [address], limit: 200 } as Filter,
+        { kinds: [9735], ...targetFilter(address), limit: 200 } as Filter,
         { maxWait: 5000 }
       )) as unknown as NostrEventLike[];
       for (const event of events) {
         if (await acceptReceipt(event)) receipts.set(event.id, event);
+        reportZaps();
       }
       repaint();
     } catch {
@@ -295,7 +406,7 @@
       receiptSources,
       {
         kinds: [9735],
-        '#a': [address],
+        ...targetFilter(address),
         since: Math.floor(Date.now() / 1000) - 10
       } as Filter,
       {
@@ -303,6 +414,7 @@
           const e = event as NostrEventLike;
           acceptReceipt(e).then((ok) => {
             if (ok) {
+              reportZaps();
               receipts.set(e.id, e);
               repaint();
             }
@@ -355,8 +467,9 @@
     sub = null;
     receiptSub?.close();
     receiptSub = null;
-    address = item.key;
+    address = target || item.key;
     model = new ChatMessages(address);
+    hiddenList = [];
     rows = [];
     receipts = new Map();
     loading = true;
@@ -364,6 +477,7 @@
     replyTo = null;
     load(true);
     loadReceipts();
+    void loadHidden();
     widenReceiptSources();
     sub = subscribeChat({
       pool,
@@ -396,7 +510,9 @@
       const template = chatTemplate(
         address,
         text,
-        replyTo ? { id: replyTo.id, pubkey: replyTo.pubkey } : null
+        replyTo ? { id: replyTo.id, pubkey: replyTo.pubkey } : null,
+        undefined,
+        item.host
       );
       const event = new NDKEvent(ndkInstance, template as never);
       await event.sign();
@@ -419,7 +535,7 @@
   }
 
   function replyKey(event: NostrEventLike): string {
-    const parent = chatReplyParent(event);
+    const parent = chatReplyParent(event, address);
     return parent?.id || '';
   }
 
@@ -430,6 +546,7 @@
     receiptSub = null;
     if (noticeTimer) clearTimeout(noticeTimer);
     if (profileTimer) clearTimeout(profileTimer);
+    clearInterval(hiddenTimer);
   });
 </script>
 
@@ -442,10 +559,50 @@
     style="border-color: var(--color-input-border); background-color: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);"
   >
     <h2 class="text-sm font-semibold" style="color: var(--color-text-primary);">Live chat</h2>
-    <span class="text-xs" style="color: var(--color-caption);">
+    <span class="flex items-center gap-2 text-xs" style="color: var(--color-caption);">
       {rows.length > 0 ? `${rows.length} messages` : ''}
+      {#if canModerate && hiddenList.length}
+        <button
+          type="button"
+          class="rounded px-1.5 py-0.5 underline hover:opacity-80"
+          aria-expanded={hiddenOpen}
+          on:click={() => (hiddenOpen = !hiddenOpen)}
+        >
+          Hidden ({hiddenList.length})
+        </button>
+      {/if}
     </span>
   </header>
+
+  {#if canModerate && hiddenOpen && hiddenList.length}
+    <!-- Who is hidden, with Unhide. The host can unhide their own list;
+         the admin can unhide anyone. -->
+    <ul
+      class="max-h-40 overflow-y-auto border-b px-3 py-2 text-xs"
+      style="border-color: var(--color-input-border);"
+      aria-label="Hidden from the chat"
+    >
+      {#each hiddenList as h (h.scope + h.pubkey)}
+        <li class="flex items-center justify-between gap-2 py-1">
+          <span class="min-w-0 truncate" style="color: var(--color-text-primary);">
+            {displayName(h.pubkey)}
+            <span style="color: var(--color-caption);">
+              · {h.scope === 'global' ? 'everywhere' : isHost ? 'your chats' : 'this host'}
+            </span>
+          </span>
+          {#if h.scope === 'host' || isAdminViewer}
+            <button
+              type="button"
+              class="shrink-0 rounded-full px-2 py-0.5 hover:bg-accent-gray disabled:opacity-40"
+              style="color: var(--color-primary);"
+              disabled={hiding.has(`${h.scope}:${h.pubkey}`)}
+              on:click={() => setHidden(h.pubkey, false, h.scope)}>Unhide</button
+            >
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  {/if}
 
   {#if topZappers.length}
     <!-- Top zappers strip (Sidecar parity): ranked senders with pfp + sats. -->
@@ -614,6 +771,46 @@
                 <path d="m10 5-7 6 7 6M3 11h10a8 8 0 0 1 8 8" />
               </svg>
             </button>
+            {#if noteChat && event.pubkey !== $userPublickey}
+              <button
+                type="button"
+                class="shrink-0 self-center rounded p-1 opacity-0 hover:bg-accent-gray focus:opacity-100 group-hover:opacity-100"
+                style="color: var(--color-caption);"
+                aria-label="Report {displayName(event.pubkey)}'s comment"
+                title="Report"
+                on:click={() => report(event)}
+              >
+                <FlagIcon size={14} />
+              </button>
+            {/if}
+            {#if canModerate && event.pubkey !== item.host}
+              <button
+                type="button"
+                class="shrink-0 self-center rounded p-1 opacity-0 hover:bg-accent-gray focus:opacity-100 group-hover:opacity-100 disabled:opacity-40"
+                style="color: var(--color-caption);"
+                aria-label="Hide {displayName(event.pubkey)} from {isHost
+                  ? 'your'
+                  : 'this host’s'} live chats"
+                title={isHost ? 'Hide from your live chats' : 'Hide from this host’s live chats'}
+                disabled={hiding.has(`host:${event.pubkey}`)}
+                on:click={() => setHidden(event.pubkey, true, 'host')}
+              >
+                <EyeSlashIcon size={14} />
+              </button>
+            {/if}
+            {#if isAdminViewer && event.pubkey !== item.host}
+              <button
+                type="button"
+                class="shrink-0 self-center rounded p-1 opacity-0 hover:bg-accent-gray focus:opacity-100 group-hover:opacity-100 disabled:opacity-40"
+                style="color: var(--color-caption);"
+                aria-label="Hide {displayName(event.pubkey)} from every Go live chat"
+                title="Hide everywhere (admin)"
+                disabled={hiding.has(`global:${event.pubkey}`)}
+                on:click={() => setHidden(event.pubkey, true, 'global')}
+              >
+                <ProhibitIcon size={14} />
+              </button>
+            {/if}
           </div>
         </article>
       {/if}
@@ -621,7 +818,11 @@
   </div>
 
   <footer class="border-t px-3 py-2" style="border-color: var(--color-input-border);">
-    {#if signingIn}
+    {#if closed}
+      <p class="text-xs" style="color: var(--color-caption);">
+        This live stream has ended. The chat is closed.
+      </p>
+    {:else if signingIn}
       <p class="text-xs" style="color: var(--color-caption);">
         <a
           class="underline hover:opacity-80"
@@ -688,6 +889,17 @@
     {/if}
   </footer>
 </section>
+
+{#if noteChat && item.sessionId}
+  <LiveReport
+    sessionId={item.sessionId}
+    hostPubkey={item.host}
+    title={item.title}
+    comment={reportComment}
+    trigger={false}
+    bind:open={reportOpen}
+  />
+{/if}
 
 <style>
   /* Placeholder avatars: a blue-grey tile from the active theme's own
