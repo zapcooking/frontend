@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatChatTime, isBeforeToday } from './chatTime';
+import { dayDividerLabel, formatChatTime, isBeforeToday } from './chatTime';
 
 // Built from local-time parts so the tests hold in any time zone.
 const at = (y: number, mo: number, d: number, h: number, mi = 0) =>
@@ -36,5 +36,29 @@ describe('isBeforeToday', () => {
     expect(isBeforeToday(at(2026, 11, 13, 14, 0), NOW)).toBe(false);
     expect(isBeforeToday(at(2026, 11, 12, 23, 59), NOW)).toBe(true);
     expect(isBeforeToday(NaN, NOW)).toBe(false);
+  });
+});
+
+describe('dayDividerLabel', () => {
+  it('adds nothing between messages on the same day', () => {
+    expect(dayDividerLabel(at(2026, 11, 13, 9), at(2026, 11, 13, 14), NOW, 'en-US')).toBeNull();
+    expect(dayDividerLabel(at(2026, 11, 3, 13), at(2026, 11, 3, 23), NOW, 'en-US')).toBeNull();
+  });
+
+  it('labels the day a run of messages starts on', () => {
+    expect(dayDividerLabel(at(2026, 11, 2, 22), at(2026, 11, 3, 1), NOW, 'en-US')).toBe('Nov 3');
+    expect(dayDividerLabel(at(2026, 11, 11, 22), at(2026, 11, 12, 1), NOW, 'en-US')).toBe('Yesterday');
+    expect(dayDividerLabel(at(2026, 11, 12, 22), at(2026, 11, 13, 1), NOW, 'en-US')).toBe('Today');
+    expect(dayDividerLabel(at(2025, 12, 30, 22), at(2025, 12, 31, 1), NOW, 'en-US')).toBe('Dec 31, 2025');
+  });
+
+  it('opens the list with a divider only when it starts on an earlier day', () => {
+    expect(dayDividerLabel(null, at(2026, 11, 3, 13), NOW, 'en-US')).toBe('Nov 3');
+    expect(dayDividerLabel(null, at(2026, 11, 13, 9), NOW, 'en-US')).toBeNull();
+  });
+
+  it('ignores bad timestamps', () => {
+    expect(dayDividerLabel(null, NaN, NOW, 'en-US')).toBeNull();
+    expect(dayDividerLabel(NaN, at(2026, 11, 13, 9), NOW, 'en-US')).toBeNull();
   });
 });

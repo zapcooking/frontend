@@ -36,3 +36,42 @@ export function isBeforeToday(createdAt: number, now: Date = new Date()): boolea
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return when.getTime() < startOfToday.getTime();
 }
+
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const dayNumber = (d: Date) => Math.round(startOfDay(d).getTime() / 86_400_000);
+
+/**
+ * The label for a day divider, or null when none belongs before `current`.
+ *
+ * A divider marks a change of local calendar day between two consecutive
+ * messages. Before the very first message (`previous` is null) it only
+ * appears when that message is from an earlier day, since a lone "Today" at
+ * the top of an ordinary live chat is noise.
+ */
+export function dayDividerLabel(
+  previous: number | null,
+  current: number,
+  now: Date = new Date(),
+  locale: string | string[] = []
+): string | null {
+  if (!Number.isFinite(current)) return null;
+  const when = new Date(current * 1000);
+  if (Number.isNaN(when.getTime())) return null;
+
+  if (previous === null) {
+    if (!isBeforeToday(current, now)) return null;
+  } else {
+    if (!Number.isFinite(previous)) return null;
+    const before = new Date(previous * 1000);
+    if (startOfDay(before).getTime() === startOfDay(when).getTime()) return null;
+  }
+
+  const daysAgo = dayNumber(now) - dayNumber(when);
+  if (daysAgo === 0) return 'Today';
+  if (daysAgo === 1) return 'Yesterday';
+  return when.toLocaleDateString(locale, {
+    month: 'short',
+    day: 'numeric',
+    ...(when.getFullYear() !== now.getFullYear() ? { year: 'numeric' as const } : {})
+  });
+}
