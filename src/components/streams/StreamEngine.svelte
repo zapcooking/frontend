@@ -17,6 +17,7 @@
     setStreamPosition
   } from '$lib/stores/streamPlayer';
   import { runtime } from '$lib/streams/parse';
+  import { clampSeek, formatClock, isSeekableDuration, percentOf } from '$lib/streams/scrub';
   import { hlsJsConfig, pickHlsEngine } from '$lib/streams/hlsEngine';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import SpeakerHighIcon from 'phosphor-svelte/lib/SpeakerHigh';
@@ -49,6 +50,57 @@
   let paused = true;
   let inPictureInPicture = false;
 
+  // ── Replay playhead ───────────────────────────────────────────────────
+  // A live HLS playlist reports an infinite duration, so the bar only shows
+  // for media with a known length (a replay). While the thumb is held, the
+  // displayed time follows the thumb and the seek happens once, on release —
+  // seeking on every pixel would fire a segment fetch per move.
+  let currentTime = 0;
+  let duration = NaN;
+  let scrubbing = false;
+  let scrubTime = 0;
+  $: scrubbable = isSeekableDuration(duration);
+  $: shownTime = scrubbing ? scrubTime : currentTime;
+  $: progress = percentOf(shownTime, duration);
+
+  function syncTime() {
+    if (!video) return;
+    duration = video.duration;
+    if (!scrubbing) currentTime = video.currentTime;
+  }
+
+  function seekTo(target: number) {
+    if (!video) return;
+    const next = clampSeek(target, video.duration);
+    video.currentTime = next;
+    currentTime = next;
+    scrubTime = next;
+    if ($streamPlayer.item?.status === 'ended') setStreamPosition(next);
+  }
+
+  function onScrubInput(event: Event) {
+    scrubbing = true;
+    scrubTime = Number((event.currentTarget as HTMLInputElement).value);
+  }
+
+  function onScrubChange(event: Event) {
+    seekTo(Number((event.currentTarget as HTMLInputElement).value));
+    scrubbing = false;
+  }
+
+  /** Arrow keys skip 5 s (the native range step would crawl 1 s on a long replay). */
+  function onScrubKey(event: KeyboardEvent) {
+    const skip =
+      event.key === 'ArrowRight' || event.key === 'ArrowUp'
+        ? 5
+        : event.key === 'ArrowLeft' || event.key === 'ArrowDown'
+          ? -5
+          : 0;
+    if (!skip || !video) return;
+    event.preventDefault();
+    seekTo(video.currentTime + skip);
+  }
+
   const isDirectFile = (url: string) => /\.(mp4|webm|ogv)(?:[?#]|$)/i.test(url);
   const supportsNativeHls = (el: HTMLVideoElement) =>
     !!el.canPlayType('application/vnd.apple.mpegurl');
@@ -72,6 +124,10 @@
     appliedGeneration = -1;
     appliedUrl = null;
     autoplayRejected = false;
+    currentTime = 0;
+    scrubTime = 0;
+    scrubbing = false;
+    duration = NaN;
   }
 
   function handleError() {
@@ -318,9 +374,13 @@
     on:waiting={() => setStreamStatus('buffering')}
     on:error={handleError}
     on:timeupdate={() => {
+      syncTime();
       const item = $streamPlayer.item;
       if (video && item?.status === 'ended') setStreamPosition(video.currentTime);
     }}
+    on:durationchange={syncTime}
+    on:loadedmetadata={syncTime}
+    on:seeked={syncTime}
     on:playing={() => (paused = false)}
     on:pause={() => (paused = true)}
     on:click={() => {
@@ -328,29 +388,6 @@
       else video?.pause();
     }}
   ></video>
-  <!-- Persistent keyboard-accessible play/pause: the video's own click
-       handler stays for pointer users; this labeled button serves
-       keyboard and screen-reader users at all times. -->
-  <button
-    type="button"
-    class="{ctrlBtn} pointer-events-auto absolute bottom-3 left-3 transition-colors"
-    aria-label={paused ? 'Play stream' : 'Pause stream'}
-    title={paused ? 'Play' : 'Pause'}
-    on:click|stopPropagation={() => {
-      if (video?.paused) video.play().catch(() => {});
-      else video?.pause();
-    }}
-  >
-    {#if paused}
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M8 5v14l11-7z" />
-      </svg>
-    {:else}
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
-      </svg>
-    {/if}
-  </button>
   {#if $streamPlayer.item}
     <div class="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
       <span
@@ -369,10 +406,57 @@
     </div>
 
     <div
-      class="pointer-events-none absolute bottom-0 left-0 right-0 flex items-end justify-between gap-2 p-3
+      class="pointer-events-none absolute bottom-0 left-0 right-0 flex flex-col gap-1 p-3
       bg-gradient-to-t from-black/70 to-transparent"
     >
-      <div class="min-w-0">
+      {#if scrubbable}
+        <!-- Replay playhead. A native range gives pointer, touch and keyboard
+             dragging for free, and the dock's drag-to-move already skips inputs. -->
+        <div class="pointer-events-auto flex items-center gap-2">
+          <input
+            type="range"
+            class="scrub min-w-0 flex-1"
+            min="0"
+            max={duration}
+            step="any"
+            value={shownTime}
+            style="--progress: {progress}%"
+            aria-label="Seek"
+            aria-valuetext="{formatClock(shownTime)} of {formatClock(duration)}"
+            on:input={onScrubInput}
+            on:change={onScrubChange}
+            on:keydown={onScrubKey}
+          />
+          <span class="shrink-0 text-xs tabular-nums text-zinc-200">
+            {formatClock(shownTime)} / {formatClock(duration)}
+          </span>
+        </div>
+      {/if}
+      <div class="flex items-end gap-2">
+      <!-- Persistent keyboard-accessible play/pause: the video's own click
+           handler stays for pointer users; this labeled button serves
+           keyboard and screen-reader users at all times. -->
+      <button
+        type="button"
+        class="{ctrlBtn} pointer-events-auto shrink-0 transition-colors"
+        aria-label={paused ? 'Play stream' : 'Pause stream'}
+        title={paused ? 'Play' : 'Pause'}
+        on:click|stopPropagation={() => {
+          if (video?.paused) video.play().catch(() => {});
+          else video?.pause();
+        }}
+      >
+        {#if paused}
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        {:else}
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+          </svg>
+        {/if}
+      </button>
+      <div class="min-w-0 flex-1">
         <p
           class="truncate text-sm font-medium text-white"
           dir="auto"
@@ -427,6 +511,7 @@
           <ArrowsOutIcon class="h-4 w-4" />
         </button>
       </div>
+      </div>
     </div>
 
     {#if autoplayRejected && video?.paused && $streamPlayer.status !== 'unavailable'}
@@ -454,3 +539,85 @@
     </div>
   {/if}
 </div>
+
+<style>
+  /* The filled part of the track follows --progress; the thumb grows while
+     the bar is hovered, focused or held. */
+  .scrub {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 20px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+    touch-action: none;
+  }
+  .scrub::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(
+      to right,
+      var(--color-primary, #ec4700) var(--progress),
+      rgba(255, 255, 255, 0.3) var(--progress)
+    );
+  }
+  .scrub::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.3);
+  }
+  .scrub::-moz-range-progress {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--color-primary, #ec4700);
+  }
+  .scrub::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -4px;
+    border: 0;
+    border-radius: 9999px;
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+    transition: transform 120ms ease;
+  }
+  .scrub::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: 0;
+    border-radius: 9999px;
+    background: #fff;
+    transition: transform 120ms ease;
+  }
+  .scrub:hover::-webkit-slider-thumb,
+  .scrub:focus-visible::-webkit-slider-thumb,
+  .scrub:active::-webkit-slider-thumb {
+    transform: scale(1.25);
+  }
+  .scrub:hover::-moz-range-thumb,
+  .scrub:focus-visible::-moz-range-thumb,
+  .scrub:active::-moz-range-thumb {
+    transform: scale(1.25);
+  }
+  .scrub:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.7);
+    outline-offset: 2px;
+    border-radius: 9999px;
+  }
+  @media (pointer: coarse) {
+    .scrub {
+      height: 28px;
+    }
+    .scrub::-webkit-slider-thumb {
+      width: 16px;
+      height: 16px;
+      margin-top: -6px;
+    }
+    .scrub::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+    }
+  }
+</style>
