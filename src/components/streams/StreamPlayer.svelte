@@ -4,7 +4,7 @@
    * zap bolt + total, and the About panel. Comments (NIP-22) live on the
    * page, not in the player.
    */
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { browser } from '$app/environment';
   import type { SimplePool } from 'nostr-tools/pool';
@@ -66,10 +66,20 @@
   let scrollTick = false;
   let wheelUpAccum = 0;
   let touchStartY: number | null = null;
+  /**
+   * After the video returns inline it only lands in the slot a tick later.
+   * A scroll/resize event in that gap still sees the page as it was while
+   * docked — chat near the top — and would dock the video again at once,
+   * which reads as a restore (Expand, or a swipe down) doing nothing. So
+   * docking is ignored for a moment after every restore.
+   */
+  const RESTORE_GRACE_MS = 900;
+  let restoredAt = -Infinity;
 
   function restoreInline() {
     if (!shrunk || !slotEl) return;
     shrunk = false;
+    restoredAt = performance.now();
     streamSlot.set(slotEl);
   }
 
@@ -77,6 +87,7 @@
     if (!chatMarker || !browser) return;
     if (!get(streamPlayer).item) return;
     if (!userScrolled) return;
+    if (performance.now() - restoredAt < RESTORE_GRACE_MS) return;
     const top = chatMarker.getBoundingClientRect().top;
     const vh = window.innerHeight;
     if (!shrunk && top < vh * 0.25) {
@@ -151,11 +162,24 @@
   // The chat marker binds after mount; re-check once it exists.
   $: (chatMarker, updateShrink());
 
-  /** Expand-click while already on this page: take the video back inline. */
-  function onRestoreRequest() {
+  /**
+   * Expand-click while already on this page: take the video back inline.
+   * The reader is usually scrolled down at the chat when they tap it, so
+   * the video also has to be scrolled into view — otherwise it lands above
+   * the fold and the same scroll position docks it again at once, which
+   * looks like the button did nothing.
+   */
+  async function onRestoreRequest() {
     if (!slotEl) return;
     shrunk = false;
+    userScrolled = false; // no re-dock until the reader scrolls again
+    restoredAt = performance.now();
     streamSlot.set(slotEl);
+    await tick();
+    slotEl?.scrollIntoView({
+      block: 'start',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+    });
   }
   onDestroy(() => {
     document.removeEventListener('scroll', onScrollShrink, { capture: true } as never);
@@ -204,7 +228,7 @@
 <div class="flex flex-col gap-4">
   <!-- The layout-level dock moves its (persistent) video container into this
        slot while the page is mounted. -->
-  <div bind:this={slotEl} class="w-full"></div>
+  <div bind:this={slotEl} class="w-full scroll-mt-20"></div>
 
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex min-w-0 items-center gap-2">

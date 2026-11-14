@@ -34,6 +34,7 @@
     type ChatProfile
   } from '$lib/streams/chat';
   import { pseudonym } from '$lib/streams/parse';
+  import { mentionedPubkeys, tokenizeChatText, type ChatSegment } from '$lib/streams/chatText';
   import { DISCOVERY_RELAYS, RECEIPT_RELAYS } from '$lib/streams/relays';
   import { resolveAuthorPubkey, zapReceiptRelayUrls } from '$lib/nip65Routing';
   import type { NostrEventLike, StreamItem } from '$lib/streams/types';
@@ -192,9 +193,6 @@
     );
   }
 
-  /** Uniform placeholder circle behind chat avatars (grey glyph inside). */
-  const AVATAR_PLACEHOLDER_BG = '#3b82f6';
-
   // userPublickey can be restored while the passkey vault is locked —
   // signedIn reflects an actual usable session.
   $: signingIn = !get(signedIn);
@@ -213,6 +211,18 @@
     noticeTimer = null;
     notice = text;
     if (duration) noticeTimer = setTimeout(() => (notice = ''), duration);
+  }
+
+  /** Parsed message bodies, so a repaint does not re-scan every row's text. */
+  const segmentCache = new Map<string, ChatSegment[]>();
+  function segmentsOf(text: string): ChatSegment[] {
+    let segments = segmentCache.get(text);
+    if (!segments) {
+      if (segmentCache.size > 2000) segmentCache.clear();
+      segments = tokenizeChatText(text);
+      segmentCache.set(text, segments);
+    }
+    return segments;
   }
 
   function displayName(pubkey: string): string {
@@ -248,7 +258,15 @@
     const logEl = log;
     const wasAtBottom = !logEl || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80;
     rows = timelineFromModel();
-    scheduleProfiles([...new Set(rows.map((row) => row.sender || row.event.pubkey))]);
+    scheduleProfiles([
+      ...new Set([
+        ...rows.map((row) => row.sender || row.event.pubkey),
+        // Names for `nostr:npub…` mentions in message bodies and zap comments.
+        ...rows.flatMap((row) =>
+          mentionedPubkeys(row.event.kind === 9735 ? row.comment || '' : row.event.content)
+        )
+      ])
+    ]);
     if (forceScroll || wasAtBottom) scrollToBottom();
     // When prepending history while reading, keep the reader's place.
   }
@@ -445,8 +463,8 @@
           on:click={() => openProfilePreview(zapper.pubkey)}
         >
           <span
-            class="overflow-hidden rounded-full"
-            style="width:20px;height:20px;background:{AVATAR_PLACEHOLDER_BG}"
+            class="chat-avatar-placeholder overflow-hidden rounded-full"
+            style="width:20px;height:20px"
           >
             <Avatar
               pubkey={zapper.pubkey}
@@ -509,7 +527,7 @@
             </span>
           </p>
           {#if row.comment}
-            <p class="mt-0.5 text-sm leading-snug break-words" dir="auto">{row.comment}</p>
+            <p class="mt-0.5 text-sm leading-snug break-words" dir="auto">{#each segmentsOf(row.comment) as segment}{#if segment.type === 'mention'}<button type="button" class="chat-mention" title={displayName(segment.pubkey)} on:click={() => openProfilePreview(segment.pubkey)}>@{displayName(segment.pubkey)}</button>{:else if segment.type === 'link'}<a class="chat-link" href={segment.href} target="_blank" rel="noopener noreferrer nofollow ugc">{segment.text}</a>{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}>{segment.text}</a>{:else}{segment.text}{/if}{/each}</p>
           {/if}
         </article>
       {:else}
@@ -530,8 +548,8 @@
           {/if}
           <div id={`chat-${event.id}`} class="group flex items-start gap-2">
             <span
-              class="mt-0.5 shrink-0 overflow-hidden rounded-full"
-              style="width:24px;height:24px;background:{AVATAR_PLACEHOLDER_BG}"
+              class="chat-avatar-placeholder mt-0.5 shrink-0 overflow-hidden rounded-full"
+              style="width:24px;height:24px"
             >
               <Avatar
                 pubkey={event.pubkey}
@@ -554,7 +572,7 @@
                   })}
                 </span>
               </p>
-              <p class="text-sm leading-snug break-words" dir="auto">{event.content}</p>
+              <p class="text-sm leading-snug break-words" dir="auto">{#each segmentsOf(event.content) as segment}{#if segment.type === 'mention'}<button type="button" class="chat-mention" title={displayName(segment.pubkey)} on:click={() => openProfilePreview(segment.pubkey)}>@{displayName(segment.pubkey)}</button>{:else if segment.type === 'link'}<a class="chat-link" href={segment.href} target="_blank" rel="noopener noreferrer nofollow ugc">{segment.text}</a>{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}>{segment.text}</a>{:else}{segment.text}{/if}{/each}</p>
             </div>
             <button
               type="button"
@@ -655,10 +673,47 @@
 </section>
 
 <style>
+  /* Placeholder avatars: a blue-grey tile from the active theme's own
+     surfaces, with the glyph tinted to match, so it reads as part of the
+     brand in light and dark (and in every mood) instead of a stock blue. */
+  .chat-avatar-placeholder {
+    background: color-mix(in srgb, #64748b 38%, var(--color-bg-secondary));
+  }
+  .chat-avatar-placeholder :global(svg path) {
+    fill: color-mix(in srgb, #64748b 78%, var(--color-text-primary));
+  }
+  :global(html.dark) .chat-avatar-placeholder {
+    background: color-mix(in srgb, #64748b 40%, var(--color-bg-secondary));
+  }
+  :global(html.dark) .chat-avatar-placeholder :global(svg path) {
+    fill: color-mix(in srgb, #94a3b8 85%, var(--color-bg-secondary));
+  }
+
   .chat-input:focus {
     --tw-ring-shadow: none !important;
     border-color: rgba(249, 115, 22, 0.8) !important;
     box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.8) !important;
     outline: none !important;
+  }
+
+  .chat-mention {
+    display: inline;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-weight: 600;
+    color: var(--color-primary);
+    cursor: pointer;
+  }
+  .chat-mention:hover,
+  .chat-link:hover {
+    text-decoration: underline;
+  }
+  .chat-link {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    word-break: break-word;
   }
 </style>

@@ -184,6 +184,14 @@
           if (framesTimer) clearInterval(framesTimer);
           framesTimer = null;
           scheduleRetry('stalled');
+        } else if (!sawFrame && want && now - startedAt > 8000) {
+          // Joined, but no picture ever arrived: the join landed on an input
+          // the host was just replacing. Found in the PR 2 airplane-mode gate,
+          // where the viewer had to tap Watch again after the host republished.
+          log('no video 8 s after joining; rejoining');
+          if (framesTimer) clearInterval(framesTimer);
+          framesTimer = null;
+          scheduleRetry('no first frame');
         }
         lastFrames = frames;
         const codec = s.codecId ? (report.get(s.codecId) as any)?.mimeType : '?';
