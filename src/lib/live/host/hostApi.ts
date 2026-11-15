@@ -16,8 +16,22 @@ export interface OwnAccessRequest {
   retry_at: number | null;
 }
 
+/** The hosting agreement, as the server reports it for the signer. */
+export interface TermsState {
+  /** The current LIVE_TERMS_VERSION. */
+  version: string;
+  /** Whether the signer has agreed to that version. */
+  accepted: boolean;
+}
+
 export type HostingStatus =
-  | { known: true; approved: boolean; request: OwnAccessRequest }
+  | {
+      known: true;
+      approved: boolean;
+      request: OwnAccessRequest;
+      /** Null when the server did not say (the create route still decides). */
+      terms: TermsState | null;
+    }
   /** Could not be answered: the page goes ahead and the create route decides. */
   | { known: false };
 
@@ -42,9 +56,16 @@ export async function fetchHostingStatus(
     const data = (await res.json()) as {
       approved?: unknown;
       request?: { status?: unknown; retry_at?: unknown };
+      terms?: { version?: unknown; accepted?: unknown };
     };
     if (typeof data.approved !== 'boolean') return { known: false };
     const status = data.request?.status;
+    const terms =
+      typeof data.terms?.version === 'string' &&
+      data.terms.version &&
+      typeof data.terms.accepted === 'boolean'
+        ? { version: data.terms.version, accepted: data.terms.accepted }
+        : null;
     return {
       known: true,
       approved: data.approved,
@@ -52,7 +73,8 @@ export async function fetchHostingStatus(
         status:
           status === 'pending' || status === 'approved' || status === 'declined' ? status : 'none',
         retry_at: typeof data.request?.retry_at === 'number' ? data.request.retry_at : null
-      }
+      },
+      terms
     };
   } catch {
     return { known: false };
@@ -104,6 +126,46 @@ export async function requestHostingAccess(
   }
 }
 
+export type AcceptTermsOutcome =
+  | { kind: 'accepted' }
+  /** The terms moved on since the dialog opened: show them again with this version. */
+  | { kind: 'changed'; version: string }
+  | { kind: 'membership_required' }
+  | { kind: 'sign_failed' }
+  | { kind: 'unavailable' };
+
+/** "I'm 18+, agree and go live": records the agreement to `version` on the server. */
+export async function acceptLiveTerms(
+  version: string,
+  sign: SignRequest,
+  fetchFn: typeof fetch = fetch
+): Promise<AcceptTermsOutcome> {
+  const url = `${origin()}/api/live/terms`;
+  const bodyString = JSON.stringify({ version });
+  let authorization: string;
+  try {
+    authorization = await sign({ method: 'POST', url, bodyString });
+  } catch {
+    return { kind: 'sign_failed' };
+  }
+  try {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authorization },
+      body: bodyString
+    });
+    const data = (await readError(res)) as { error?: string; version?: unknown };
+    if (res.ok) return { kind: 'accepted' };
+    if (data.error === 'terms_changed' && typeof data.version === 'string' && data.version) {
+      return { kind: 'changed', version: data.version };
+    }
+    if (data.error === 'membership_required') return { kind: 'membership_required' };
+    return { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
 /** Signs a NIP-98 Authorization header for one request. */
 export type SignRequest = (opts: {
   method: string;
@@ -121,6 +183,8 @@ export type CreateOutcome =
   | { ok: true; session: HostSession }
   /** The host already has a session open (another tab or device). */
   | { ok: false; reason: 'already_active'; id: string | null }
+  /** The host has not agreed to the current hosting terms: show the dialog. */
+  | { ok: false; reason: 'terms_required'; version: string | null }
   | {
       ok: false;
       reason:
@@ -189,6 +253,14 @@ export async function createLiveSession(
         reason: 'already_active',
         id: typeof body.id === 'string' ? body.id : null
       };
+    case 'terms_required': {
+      const version = (body as { version?: unknown }).version;
+      return {
+        ok: false,
+        reason: 'terms_required',
+        version: typeof version === 'string' && version ? version : null
+      };
+    }
     case 'blocked':
     case 'not_approved':
     case 'membership_required':

@@ -169,13 +169,11 @@ export function mediaHelp(problem: MediaProblem, platform: HostPlatform): MediaH
   return { title: 'The camera could not be started', steps: ['Reload this page and try again.'] };
 }
 
-// ── One-time 18+ confirmation ───────────────────────────────────────
+// ── Storage helpers ─────────────────────────────────────────────────
 //
-// Hosts must be 18 or older (Terms). The host confirms once, the first
-// time they go live on a device; the confirmation is remembered on that
-// device, per account. It is a statement by the host, not age verification.
-
-const AGE_KEY_PREFIX = 'zc_live_host_18_confirmed:';
+// (The 18+ confirmation used to be remembered here, per device. It is now
+// the hosting agreement, recorded on the server per account and terms
+// version: $lib/live/terms.server and POST /api/live/terms.)
 
 type KeyValue = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -185,24 +183,6 @@ function safely<T>(fn: () => T, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-export function hasConfirmedAge(pubkey: string, storage: KeyValue | undefined): boolean {
-  if (!pubkey || !storage) return false;
-  return safely(() => storage.getItem(AGE_KEY_PREFIX + pubkey) !== null, false);
-}
-
-/** Remember the confirmation. Returns false when it could not be stored. */
-export function rememberAgeConfirmed(
-  pubkey: string,
-  storage: KeyValue | undefined,
-  now = Date.now()
-): boolean {
-  if (!pubkey || !storage) return false;
-  return safely(() => {
-    storage.setItem(AGE_KEY_PREFIX + pubkey, new Date(now).toISOString());
-    return true;
-  }, false);
 }
 
 // ── The session, kept across a reload ───────────────────────────────

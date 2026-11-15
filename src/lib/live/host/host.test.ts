@@ -1,8 +1,10 @@
 /** Tests for the Go live host page's logic: API outcomes, reconnect policy, device helpers. */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
+  acceptLiveTerms,
   classifyPublishReply,
   createLiveSession,
+  fetchHostingStatus,
   endLiveSession,
   endLiveSessionSigned,
   publishOffer,
@@ -22,13 +24,11 @@ import {
   classifyMediaError,
   clearStoredSession,
   detectPlatform,
-  hasConfirmedAge,
   isConstraintFailure,
   liveDurationLine,
   loadStoredSession,
   mediaHelp,
   readRecipeHandoff,
-  rememberAgeConfirmed,
   setMicrophoneEnabled,
   storeSession
 } from './hostDevice';
@@ -116,6 +116,15 @@ describe('createLiveSession', () => {
     expect(out).toEqual({ ok: false, reason: 'already_active', id: ID });
   });
 
+  it('reports terms_required with the version to ask about', async () => {
+    const out = await createLiveSession({ title: 't', recipeA: null }, sign, (async () =>
+      reply(403, { error: 'terms_required', version: '2026-11-15' })) as any);
+    expect(out).toEqual({ ok: false, reason: 'terms_required', version: '2026-11-15' });
+    const bare = await createLiveSession({ title: 't', recipeA: null }, sign, (async () =>
+      reply(403, { error: 'terms_required' })) as any);
+    expect(bare).toEqual({ ok: false, reason: 'terms_required', version: null });
+  });
+
   it('reports a refused signature and a network failure without throwing', async () => {
     const refused = await createLiveSession({ title: 't', recipeA: null }, async () => {
       throw new Error('user rejected');
@@ -125,6 +134,55 @@ describe('createLiveSession', () => {
       throw new TypeError('Failed to fetch');
     }) as any);
     expect(offline).toEqual({ ok: false, reason: 'unavailable' });
+  });
+});
+
+describe('acceptLiveTerms', () => {
+  beforeEach(() => sign.mockClear());
+
+  it('signs and sends exactly { version } to /api/live/terms', async () => {
+    const fetchFn = vi.fn(async () => reply(200, { ok: true, version: '2026-11-15' }));
+    expect(await acceptLiveTerms('2026-11-15', sign, fetchFn as any)).toEqual({ kind: 'accepted' });
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url.endsWith('/api/live/terms')).toBe(true);
+    expect(init.body).toBe(JSON.stringify({ version: '2026-11-15' }));
+    const signed = (sign.mock.calls[0] as unknown as [{ method: string; bodyString?: string }])[0];
+    expect(signed).toMatchObject({ method: 'POST', bodyString: init.body });
+  });
+
+  it('maps each refusal, and never throws', async () => {
+    const at = (status: number, body: unknown) =>
+      acceptLiveTerms('v1', sign, (async () => reply(status, body)) as any);
+    expect(await at(409, { error: 'terms_changed', version: 'v2' })).toEqual({
+      kind: 'changed',
+      version: 'v2'
+    });
+    expect(await at(409, { error: 'terms_changed' })).toEqual({ kind: 'unavailable' });
+    expect(await at(403, { error: 'membership_required' })).toEqual({ kind: 'membership_required' });
+    expect(await at(503, { error: 'membership_unavailable' })).toEqual({ kind: 'unavailable' });
+    expect(await at(500, 'not json')).toEqual({ kind: 'unavailable' });
+    const refused = await acceptLiveTerms('v1', async () => {
+      throw new Error('user rejected');
+    });
+    expect(refused).toEqual({ kind: 'sign_failed' });
+    const offline = await acceptLiveTerms('v1', sign, (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as any);
+    expect(offline).toEqual({ kind: 'unavailable' });
+  });
+});
+
+describe('fetchHostingStatus terms', () => {
+  it('reads the terms state, and null when the server does not give it', async () => {
+    const base = { approved: true, request: { status: 'none', retry_at: null } };
+    const withTerms = await fetchHostingStatus(sign, (async () =>
+      reply(200, { ...base, terms: { version: 'v1', accepted: false } })) as any);
+    expect(withTerms).toMatchObject({ known: true, terms: { version: 'v1', accepted: false } });
+    const without = await fetchHostingStatus(sign, (async () => reply(200, base)) as any);
+    expect(without).toMatchObject({ known: true, terms: null });
+    const odd = await fetchHostingStatus(sign, (async () =>
+      reply(200, { ...base, terms: { version: '', accepted: 'yes' } })) as any);
+    expect(odd).toMatchObject({ known: true, terms: null });
   });
 });
 
@@ -516,17 +574,7 @@ describe('device helpers', () => {
     }
   });
 
-  it('remembers the 18+ confirmation per account, on this device', () => {
-    const storage = memoryStorage();
-    expect(hasConfirmedAge(PUBKEY, storage)).toBe(false);
-    expect(rememberAgeConfirmed(PUBKEY, storage)).toBe(true);
-    expect(hasConfirmedAge(PUBKEY, storage)).toBe(true);
-    expect(hasConfirmedAge('d'.repeat(64), storage)).toBe(false);
-    expect(hasConfirmedAge('', storage)).toBe(false);
-    expect(hasConfirmedAge(PUBKEY, undefined)).toBe(false);
-  });
-
-  it('asks again, and does not throw, when storage is unavailable', () => {
+  it('does not throw when storage is unavailable', () => {
     const broken = {
       getItem: () => {
         throw new Error('denied');
@@ -538,8 +586,6 @@ describe('device helpers', () => {
         throw new Error('denied');
       }
     };
-    expect(hasConfirmedAge(PUBKEY, broken)).toBe(false);
-    expect(rememberAgeConfirmed(PUBKEY, broken)).toBe(false);
     expect(loadStoredSession(broken, PUBKEY)).toBeNull();
     expect(() =>
       storeSession(broken, { id: ID, token: TOKEN, pubkey: PUBKEY, title: 't', attempts: 1 })

@@ -70,7 +70,7 @@
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
     <p class="text-sm opacity-75">
       <strong>Zap Cooking</strong> — operated by Zap Cooking LLC<br />
-      Last updated: 22 September 2026
+      Last updated: 15 November 2026
     </p>
 
     <hr style="border-color: var(--color-input-border)" />
@@ -160,6 +160,8 @@
       <li><strong>Your membership and subscription records</strong> — Cook+ status, tier, and renewal state held against your public key</li>
       <li><strong>Your AI credit balance and usage records</strong> — Cheffy and Sous Chef</li>
       <li><strong>Your scheduled posts</strong> — the encrypted copies we hold until their publish time</li>
+      <li><strong>Your live stream records</strong> — any stream you are hosting is ended, and the records of streams you hosted are deleted, except a stream under review because of a report or records we must preserve by law (see "What we keep" below)</li>
+      <li><strong>Your hosting agreement record</strong> — the record that you confirmed you are 18 or older and agreed to the Terms before going live, unless one of your streams is under review, your account is blocked from hosting, or the record must be preserved by law</li>
       <li><strong>Your content stored on Pantry</strong>, the Nostr relay we operate at pantry.zap.cooking — recipes, posts, comments, reactions, and group messages held there</li>
       <li><strong>Any support correspondence</strong> associated with your account</li>
     </ul>
@@ -202,7 +204,10 @@
     <ul class="list-disc pl-6 space-y-2">
       <li><strong>Payment and transaction records</strong> — retained for 7 years as required by tax and accounting law. These records are keyed to your public key and a payment reference. They contain no name, card number, or billing address, because we never collect those.</li>
       <li><strong>A record of your deletion request</strong> — your public key and when you asked, so we can show that we completed it.</li>
-      <li><strong>Records related to child safety, abuse, or law-enforcement matters</strong> — retained as required by law, including preservation obligations that follow a report to the National Center for Missing &amp; Exploited Children. See our <a href="/child-safety" class="text-primary hover:underline">Child Safety Standards</a>.</li>
+      <li><strong>Records related to child safety, abuse, or law-enforcement matters</strong> — retained as required by law, including preservation obligations that follow a report to the National Center for Missing &amp; Exploited Children (generally one year from the report). Deleting your account does not end a legal preservation obligation, and neither does closing our own review. See our <a href="/child-safety" class="text-primary hover:underline">Child Safety Standards</a>.</li>
+      <li><strong>Live streams under review</strong> — if a stream you hosted has been reported, its record, the reports about it, and our moderation log entries about it are kept until a moderator closes the review, even after your account is deleted. They are then deleted on the normal schedule in our <a href="/privacy" class="text-primary hover:underline">Privacy Policy</a>.</li>
+      <li><strong>A block from hosting live streams</strong> — if we have blocked your account from hosting, the block stays in place, and so does your hosting agreement record. Deleting your account does not lift the block.</li>
+      <li><strong>Other Go live records</strong> — a request you made to host is kept until we decide it and then for 90 days; entries about your account in our Go live moderation log are kept for 2 years; and if we or a host hid you from Go live comments, the hide stays until it is undone.</li>
       <li><strong>Aggregate, non-identifying statistics</strong> — retained indefinitely. These cannot be linked back to you.</li>
     </ul>
 

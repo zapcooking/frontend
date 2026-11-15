@@ -544,4 +544,20 @@ describe('purgeLiveSessions (account deletion)', () => {
       .map((r: { pubkey: string }) => r.pubkey);
     expect(approved).toEqual([OTHER_HOST]);
   });
+
+  it('removes the approved-hosts row and the hosting agreement together; a block keeps only the agreement', async () => {
+    approveHosts(db, HOST, OTHER_HOST); // also records each one's agreement
+    db.raw.prepare('INSERT INTO live_blocked_hosts (pubkey, created_at) VALUES (?, ?)').run(OTHER_HOST, NOW);
+    await purgeLiveSessions(db, cfg, HOST);
+    await purgeLiveSessions(db, cfg, OTHER_HOST);
+    const left = (table: string) =>
+      db.raw
+        .prepare(`SELECT pubkey FROM ${table} WHERE pubkey IN (?, ?) ORDER BY pubkey`)
+        .all(HOST, OTHER_HOST)
+        .map((r: { pubkey: string }) => r.pubkey);
+    expect(left('live_approved_hosts')).toEqual([]);
+    // The blocked account's agreement is kept (Seth's ruling); the other is gone.
+    expect(left('live_terms_acceptance')).toEqual([OTHER_HOST]);
+    expect(left('live_blocked_hosts')).toEqual([OTHER_HOST]);
+  });
 });

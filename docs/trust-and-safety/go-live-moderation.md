@@ -62,8 +62,11 @@ In both modes, an account that is blocked cannot host.
 
 ## 2. Reports
 
-Anyone watching can report a stream. The chat asks for sign-in before it
-offers to report a comment. The reasons are: child safety, violence or
+Anyone watching can report a stream, with no account. The chat asks for
+sign-in before it offers to report a comment, and (from #987, Seth's
+ruling) the server requires a NIP-98 signature on every comment report
+(401 `auth_required` without one). The signature is checked, never stored
+or sent: the reporter is still only the keyed IP hash. The reasons are: child safety, violence or
 immediate danger, nudity or sexual content, spam, and other.
 
 Each report:
@@ -81,8 +84,9 @@ Each report:
      address: HMAC-SHA256 with a server-side secret
      (`LIVE_REPORTER_HASH_SECRET`, different per environment), over the
      rate limiter's daily-salted hash. The address itself is never
-     stored. Without the secret, nobody can work back from a stored id
-     to an address, even with the database and KV together.
+     stored. The id is pseudonymous: without the secret, linking it to an
+     address is impractical; with the secret and that day's salt (kept 3
+     days), someone could test whether a given address reported.
    - If the secret is missing, **nothing is stored**: an unkeyed hash is
      never written. The admin is still DMed for every report, never
      throttled and marked "NOT STORED" (reason and stream link only). The
@@ -97,7 +101,10 @@ Each report:
    - At most one alert per stream every 10 minutes, except **child safety
      and violence, which always alert**.
 
-Streams are **not recorded**. Evidence means the session record, the
+Streams are **not recorded** (inputs are created with recording off).
+Reports never end a stream automatically, however many there are (the
+sweep's 90-minute and disconnect rules are unrelated to reports).
+Evidence means the session record, the
 snapshot, the reports, the "Live now" note and its public comments on
 Nostr, and the action log.
 
@@ -106,30 +113,61 @@ Nostr, and the action log.
 1. Open the alert's link. If the stream is still live, watch it.
 2. If the report is credible: **End** the stream and, if warranted,
    **Block** the host. Blocking also ends the host's open session at once.
-3. Child safety: follow the Child Safety Standards (/child-safety), and
-   report to NCMEC where required. **Do not release the hold**, and seek
-   legal advice before deleting anything.
-4. When the case is closed and nothing must be kept for legal reasons,
+3. Child safety: follow the Child Safety Standards (/child-safety). A
+   CyberTipline report is a legal duty under 18 U.S.C. § 2258A when the
+   facts give actual knowledge of an apparent violation; it does not wait
+   for certainty, and it is separate from the moderation decision (End,
+   Block). Report as soon as reasonably possible (see
+   cybertipline-reporting.md).
+4. **Legal preservation** (a CyberTipline report, legal process, or advice
+   from counsel): **do not release the hold.** Note the reason and the end
+   date (after a CyberTipline report, generally one year from submission)
+   in the private runbook, and export anything the hold does not cover
+   before it expires: Reads/Nourish reports in KV, the access request,
+   hidden-commenter rows, and the public comments from relays. The code
+   has no separate legal-hold lock yet (data-retention.md, "Review holds
+   vs legal preservation").
+5. When the case is closed and nothing must be kept for legal reasons,
    **Release hold**. The release is logged (`release_hold`).
-5. Admin hides and unhides of commenters are logged (`hide`, `unhide`).
+6. Admin hides and unhides of commenters are logged (`hide`, `unhide`).
+
+### Tested admin response and preservation procedure
+
+The approved-host pilot has already exercised the admin reporting flow in Preview (PR #977). **The review hold is an implemented control, not just a written policy.** This procedure is for operators and must be repeated after material changes.
+
+1. **Receive alert.** A viewer reports the live stream (or comment). The service stores the report in `live_reports`, opens/reopens the `live_holds` review hold, and captures a snapshot of the session's public facts. It sends the primary and backup administrators encrypted Nostr DMs; urgent child-safety/violence reports bypass ordinary throttling. If the hash secret is missing, the report **cannot be stored** and the notification is marked **NOT STORED**: escalate immediately and do not assume preservation occurred.
+2. **Confirm preservation.** Sign in to `/admin/live` with an authorized administrator key, locate the reported session, and verify the report and **open** hold are displayed. Record the incident reference, verification time, owner and escalation status in a **restricted incident register outside GitHub**. The stream snapshot deliberately excludes Cloudflare's input UID; video is not recorded.
+3. **Intervene when warranted.** Review the report promptly. Use **End** to terminate the active stream; use **Block** when hosting must be restricted (Block ends an ongoing stream). Verify playback ends and the host cannot restart while blocked. A report by itself does **not** automatically end the stream.
+4. **Keep evidence protected.** As long as the review hold remains **open**, `live_sessions` metadata, `live_reports`, associated action-log records and the session snapshot are exempt from ordinary cleanup and the host account-deletion purge. Test this explicitly following significant modifications to the sweep or account deletion code.
+5. **Assess legal preservation separately.** Where child safety, a CyberTipline report, legal process, or counsel requires longer preservation, **do not press Release hold**. Record the preservation basis, authorized owner, relevant dates (including the CyberTipline submission date), applicable deadline and covered records in the restricted register; preserve relevant out-of-scope records before their own TTLs expire. Closing moderator review is **not** authorization to discard legally required evidence. The current app has no separate code-enforced legal lock.
+6. **Release only after authorization.** A designated administrator confirms in the restricted register that review is complete and **no legal preservation obligation remains**. Only then use **Release hold** and verify the `release_hold` action appears in the log. Releasing resumes normal retention; it must not be used simply because a stream has ended.
+
+**Existing test evidence (PR #977):** branch-preview checks covered viewer stream reports, urgent child-safety reporting/DM throttling bypass, comment reporting, keyed reporter identifiers, hold opening and release, admin actions and logging, stream ending and host blocking. These tests do not establish that a separate legal hold exists; that remains an operational preservation procedure.
 
 ## 4. What is kept, and for how long
 
 | Record | Kept |
 |---|---|
 | Session row (no report) | 30 days after the stream ends |
-| Session row with an open hold | Until the hold is released |
+| Session row with an open hold | Until the hold is released (never while legal preservation applies) |
 | Reports | 90 days after the report; while a hold is open, until it is released |
 | Session row after a released hold | Until its reports age out, then the 30-day rule |
 | Hold | While open; a released hold is removed once its reports are gone |
 | Access requests | Pending: until decided. Approved or declined: 90 days after the decision |
 | Approved and blocked lists | Until changed by the admin (a block survives account deletion) |
+| Hosting agreement (18+ and the Terms, per terms version) | Until the account is deleted; kept while one of its sessions is under an open hold or the account is blocked from hosting |
 | Action log | 2 years; entries about a session under an open hold are kept until it is released |
 
 Account deletion removes the host's sessions **except those under an open
-hold**.
+hold**, and the host's hosting agreement on the same terms.
 
-**For the policy PR:**
+Hosts agree before going live ("I'm 18+, agree and go live"), once per
+account per `LIVE_TERMS_VERSION` (`src/lib/live/config.ts`). Bump the
+version when Terms §2.4 or the Live Stream Conduct rules change: every host
+is asked again on their next stream, and the create route refuses with
+`terms_required` until they agree.
+
+**For the policy PR** (done in #985: Privacy §1.7 and §9, Child Safety §6–§7, /delete-account):
 
 - Privacy must state the 2-year action log, which holds account keys.
 - It must state the access-request queue: the key, the note, and the
