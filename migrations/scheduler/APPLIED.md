@@ -14,7 +14,7 @@ again.
 | `0004_create_live_sessions.sql` | 2026-11-13 (#952) | 2026-11-13 (#952) |
 | `0005_add_live_pass_rejoins.sql` | 2026-11-14 (#967) | 2026-11-14 (#967) |
 | `0006_add_live_note_id.sql` | 2026-11-14 (#974) | 2026-11-14 (#974) |
-| `0007_live_rollout_and_safety.sql` | 2026-11-14 (#977) | **not applied** — required before #977 deploys to production |
+| `0007_live_rollout_and_safety.sql` | 2026-11-14 (#977) | 2026-11-15 (#977) |
 
 ## Applying a new migration
 
@@ -48,7 +48,5 @@ diff /tmp/zapcooking-scheduler-preview.json /tmp/zapcooking-scheduler.json
 ```
 
 Any difference means a migration reached one database and not the other.
-Last checked 2026-11-14, after 0006: no drift (12 objects in each).
-After 0007 reached preview only (2026-11-14), preview has 22 objects (the
-12 above, plus 6 live_ tables and 4 indexes) and production 12. This
-difference is expected until 0007 is applied to production.
+Last checked 2026-11-15, after 0007 reached both: no drift (22 objects in
+each: the 12 from 0006, plus 6 live_ tables and 4 indexes).
