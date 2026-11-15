@@ -9,7 +9,7 @@ vi.mock('$lib/muteListStore', async () => {
   const state = writable({ muteList: null });
   return {
     mutedPubkeys: writable(new Set<string>()),
-    muteListStore: { subscribe: state.subscribe, load: vi.fn().mockResolvedValue(undefined) }
+    muteListStore: { subscribe: state.subscribe, set: state.set, load: vi.fn().mockResolvedValue(undefined) }
   };
 });
 vi.mock('$lib/reads/moderationClient', async () => {
@@ -67,6 +67,7 @@ beforeEach(async () => {
   vi.mocked(checkNotificationPermissions).mockReset().mockResolvedValue('granted');
   vi.mocked(sendImmediateNotification).mockClear();
   mutedPubkeys.set(new Set());
+  (muteListStore as unknown as { set: (v: unknown) => void }).set({ muteList: null });
   notifications.clear();
   handlers = new Map();
   const subscription = {
@@ -86,6 +87,57 @@ afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe('muted threads', () => {
+  const ROOT = 'd'.repeat(64);
+  const MID = 'e'.repeat(64);
+  const emptyList = { pubkeys: [], words: [], tags: [], threads: [] };
+  const muteThread = (id: string) =>
+    (muteListStore as unknown as { set: (v: unknown) => void }).set({
+      muteList: { ...emptyList, threads: [{ type: 'thread', value: id, private: true }] }
+    });
+
+  // Reply deep in a thread: root ROOT, replying to MID.
+  const replyTags = [
+    ['e', ROOT, '', 'root'],
+    ['e', MID, '', 'reply'],
+    ['p', ME]
+  ];
+
+  it('hides replies in a muted thread and suppresses their alerts', async () => {
+    muteThread(ROOT);
+    emitEvent(1, SENDER, replyTags);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(get(visibleNotifications)).toEqual([]);
+    expect(get(unreadCount)).toBe(0);
+    expect(sendImmediateNotification).not.toHaveBeenCalled();
+  });
+
+  it('hides NIP-22 comments in a muted thread', async () => {
+    muteThread(ROOT);
+    emitEvent(1111, SENDER, [['E', ROOT], ['e', MID], ['p', ME]]);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(get(visibleNotifications)).toEqual([]);
+  });
+
+  it('hides a reaction to a muted note', async () => {
+    muteThread(MID);
+    emitEvent(7, SENDER, [['e', MID], ['p', ME]]);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(get(visibleNotifications)).toEqual([]);
+  });
+
+  it('keeps notifications from other threads', async () => {
+    muteThread('f'.repeat(64));
+    emitEvent(1, SENDER, replyTags);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(get(visibleNotifications)).toHaveLength(1);
+  });
 });
 
 describe('muted notification senders', () => {
