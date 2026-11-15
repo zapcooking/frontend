@@ -11,7 +11,7 @@
 
 <div class="live-art @container absolute inset-0 flex flex-col items-center justify-center">
   <img
-    src="/zap_cooking_logo_white.svg"
+    src="/zapcooking-text-dark.svg"
     alt="Zap Cooking"
     class="live-art-logo h-auto select-none"
     draggable="false"
