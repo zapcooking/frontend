@@ -114,6 +114,30 @@ export function watchingCount(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 ? value : null;
 }
 
+/**
+ * Keep each session's last known count through a read that came back
+ * unknown (null or absent: the presence object was slow or unreachable),
+ * so the "N watching" chip does not blink off between refreshes. A real
+ * number, 0 included, always replaces it. `last` is updated in place;
+ * sessions no longer listed are dropped from it.
+ */
+export function holdWatching(
+  sessions: GoLiveSession[],
+  last: Map<string, number>
+): GoLiveSession[] {
+  const out = sessions.map((s) => {
+    if (typeof s.watching === 'number') {
+      last.set(s.id, s.watching);
+      return s;
+    }
+    const held = last.get(s.id);
+    return held === undefined ? s : { ...s, watching: held };
+  });
+  const listed = new Set(sessions.map((s) => s.id));
+  for (const id of [...last.keys()]) if (!listed.has(id)) last.delete(id);
+  return out;
+}
+
 /** "1 watching", "12 watching". */
 export function watchingLabel(count: number): string {
   return `${count.toLocaleString()} watching`;

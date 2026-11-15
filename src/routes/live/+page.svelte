@@ -32,6 +32,7 @@
   import { ndk } from '$lib/nostr';
   import {
     fetchLiveSessions,
+    holdWatching,
     isGoLiveItem,
     mergeLiveItems,
     sessionToStreamItem,
@@ -66,6 +67,8 @@
   let recipeCards = new Map<string, RecipeCard | null>();
 
   const GO_LIVE_REFRESH_MS = 20000;
+  /** Last known "watching" per session, held through a failed count read. */
+  const lastWatching = new Map<string, number>();
 
   function link(item: StreamItem): string | null {
     return streamPath(item);
@@ -95,7 +98,7 @@
 
   async function fillGoLive() {
     if (document.hidden && goLiveLoaded) return;
-    goLiveSessions = await fetchLiveSessions();
+    goLiveSessions = holdWatching(await fetchLiveSessions(), lastWatching);
     goLiveLoaded = true;
     // Show what we have now; recipe photos fill in as they resolve.
     if (goLiveSessions.length) loading = false;

@@ -202,3 +202,21 @@ function goLiveSession() {
     ended_at: null
   };
 }
+
+describe('holdWatching', () => {
+  it('keeps the last count through an unknown read, and forgets ended sessions', async () => {
+    const { holdWatching } = await import('$lib/streams/goLive');
+    const last = new Map<string, number>();
+    const s = (watching: number | null | undefined, id = SID) => ({
+      ...goLiveSession(),
+      id,
+      watching
+    });
+    expect(holdWatching([s(3)], last)[0].watching).toBe(3);
+    expect(holdWatching([s(null)], last)[0].watching).toBe(3);
+    expect(holdWatching([s(undefined)], last)[0].watching).toBe(3);
+    expect(holdWatching([s(0)], last)[0].watching).toBe(0);
+    holdWatching([], last);
+    expect(last.size).toBe(0);
+  });
+});

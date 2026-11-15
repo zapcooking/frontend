@@ -793,7 +793,8 @@
       const id = session?.id;
       if (!id) return;
       const n = await readWatchingNow(id);
-      if (session?.id === id && phase !== 'ended') watching = watchingCount(n);
+      // A failed read (null) keeps the last count: no blinking chip.
+      if (n !== null && session?.id === id && phase !== 'ended') watching = watchingCount(n);
     };
     void readCount();
     watchingTimer = setInterval(() => {
@@ -806,7 +807,6 @@
     pollTimer = null;
     if (watchingTimer) clearInterval(watchingTimer);
     watchingTimer = null;
-    watching = null;
   }
 
   function startClock() {
@@ -917,6 +917,7 @@
     policy?.shutdown();
     policy = null;
     stopPolling();
+    watching = null;
     if (clockTimer) clearInterval(clockTimer);
     clockTimer = null;
     pc?.close();

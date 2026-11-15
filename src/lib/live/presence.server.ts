@@ -48,11 +48,15 @@ async function call(
   const s = stub(platform, sessionId);
   if (!s) return null;
   try {
-    return await Promise.race([
+    const res = await Promise.race([
       s.fetch(`https://presence${path}`, init),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), TIMEOUT_MS))
     ]);
-  } catch {
+    if (!res) console.warn(`[Live] presence ${path} timed out`);
+    else if (!res.ok && res.status !== 429) console.warn(`[Live] presence ${path} ${res.status}`);
+    return res;
+  } catch (err) {
+    console.warn(`[Live] presence ${path} failed: ${(err as Error)?.name ?? 'error'}`);
     return null;
   }
 }
