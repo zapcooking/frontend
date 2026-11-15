@@ -9,48 +9,78 @@
 
 export type LiveStatus = 'created' | 'live' | 'ended';
 
+/** The signed-in account's latest access request, as the server reports it. */
+export interface OwnAccessRequest {
+  status: 'none' | 'pending' | 'approved' | 'declined';
+  /** When a declined account may ask again (unix seconds); null = it may ask now. */
+  retry_at: number | null;
+}
+
+export type HostingStatus =
+  | { known: true; approved: boolean; request: OwnAccessRequest }
+  /** Could not be answered: the page goes ahead and the create route decides. */
+  | { known: false };
+
 /**
- * Can this account host right now (staged rollout)? 'unknown' when the
- * question could not be answered: the page then goes ahead and the
- * create route decides.
+ * Can the signed-in account host right now (staged rollout)? Signed
+ * (NIP-98): the server only answers about the signer.
  */
 export async function fetchHostingStatus(
-  pubkey: string,
+  sign: SignRequest,
   fetchFn: typeof fetch = fetch
-): Promise<'approved' | 'not_approved' | 'unknown'> {
+): Promise<HostingStatus> {
+  const url = `${origin()}/api/live/hosting`;
+  let authorization: string;
   try {
-    const res = await fetchFn(`${origin()}/api/live/hosting?pubkey=${encodeURIComponent(pubkey)}`);
-    if (!res.ok) return 'unknown';
-    const data = (await res.json()) as { approved?: unknown };
-    if (data.approved === true) return 'approved';
-    if (data.approved === false) return 'not_approved';
-    return 'unknown';
+    authorization = await sign({ method: 'GET', url });
   } catch {
-    return 'unknown';
+    return { known: false };
+  }
+  try {
+    const res = await fetchFn(url, { headers: { Authorization: authorization } });
+    if (!res.ok) return { known: false };
+    const data = (await res.json()) as {
+      approved?: unknown;
+      request?: { status?: unknown; retry_at?: unknown };
+    };
+    if (typeof data.approved !== 'boolean') return { known: false };
+    const status = data.request?.status;
+    return {
+      known: true,
+      approved: data.approved,
+      request: {
+        status:
+          status === 'pending' || status === 'approved' || status === 'declined' ? status : 'none',
+        retry_at: typeof data.request?.retry_at === 'number' ? data.request.retry_at : null
+      }
+    };
+  } catch {
+    return { known: false };
   }
 }
 
 export type AccessRequestOutcome =
-  | 'sent'
-  | 'approved' // already on the list: nothing to ask
-  | 'already_requested'
-  | 'membership_required'
-  | 'sign_failed'
-  | 'unavailable';
+  | { kind: 'sent' }
+  | { kind: 'approved' } // already on the list: nothing to ask
+  | { kind: 'already_pending' }
+  | { kind: 'declined_recently'; retryAt: number | null }
+  | { kind: 'membership_required' }
+  | { kind: 'sign_failed' }
+  | { kind: 'unavailable' };
 
-/** "Request access": the signed request DMs the admin (no queue is kept). */
+/** "Request access": saves a request in the admin's queue, with an optional note. */
 export async function requestHostingAccess(
-  profile: { name: string; nip05: string },
+  note: string,
   sign: SignRequest,
   fetchFn: typeof fetch = fetch
 ): Promise<AccessRequestOutcome> {
   const url = `${origin()}/api/live/hosting`;
-  const bodyString = JSON.stringify(profile);
+  const bodyString = JSON.stringify({ note });
   let authorization: string;
   try {
     authorization = await sign({ method: 'POST', url, bodyString });
   } catch {
-    return 'sign_failed';
+    return { kind: 'sign_failed' };
   }
   try {
     const res = await fetchFn(url, {
@@ -58,13 +88,19 @@ export async function requestHostingAccess(
       headers: { 'Content-Type': 'application/json', Authorization: authorization },
       body: bodyString
     });
-    const data = await readError(res);
-    if (res.ok) return (data as { approved?: boolean }).approved ? 'approved' : 'sent';
-    if (data.error === 'already_requested') return 'already_requested';
-    if (data.error === 'membership_required') return 'membership_required';
-    return 'unavailable';
+    const data = (await readError(res)) as { error?: string; approved?: boolean; retry_at?: unknown };
+    if (res.ok) return data.approved ? { kind: 'approved' } : { kind: 'sent' };
+    if (data.error === 'already_pending') return { kind: 'already_pending' };
+    if (data.error === 'declined_recently') {
+      return {
+        kind: 'declined_recently',
+        retryAt: typeof data.retry_at === 'number' ? data.retry_at : null
+      };
+    }
+    if (data.error === 'membership_required') return { kind: 'membership_required' };
+    return { kind: 'unavailable' };
   } catch {
-    return 'unavailable';
+    return { kind: 'unavailable' };
   }
 }
 
@@ -90,7 +126,6 @@ export type CreateOutcome =
       reason:
         | 'blocked' // blocked from hosting by the admin
         | 'not_approved' // 'approved' rollout mode and not on the list
-        | 'suspended' // temporary safety suspension after an automatic end
         | 'membership_required' // confirmed non-member
         | 'membership_unavailable' // could not be checked: NOT "not a member"
         | 'live_off' // switched off by an admin
@@ -156,7 +191,6 @@ export async function createLiveSession(
       };
     case 'blocked':
     case 'not_approved':
-    case 'suspended':
     case 'membership_required':
     case 'membership_unavailable':
     case 'live_off':

@@ -1,12 +1,12 @@
 /**
- * POST /api/live/<id>/report: stored, held, alerted (DM publisher stubbed),
- * and the automatic end only behind its switch.
+ * POST /api/live/<id>/report: stored, held and alerted (DM publisher
+ * stubbed). Nothing is ended automatically.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { generateSecretKey } from 'nostr-tools';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { createLiveDatabase } from '../../../../../test/liveDatabase';
-import { createKvFake, createStreamStub, STUB_ACCOUNT } from '../../../../../test/liveStreamStub';
+import { createKvFake } from '../../../../../test/liveStreamStub';
 
 const mocks = vi.hoisted(() => ({ publish: vi.fn() }));
 vi.mock('$lib/rawPublish', () => ({ publishEventRaw: mocks.publish }));
@@ -133,38 +133,9 @@ describe('POST /api/live/<id>/report', () => {
     expect(last).toBe(429);
   });
 
-  describe('automatic end', () => {
-    let cf: ReturnType<typeof createStreamStub>;
-    beforeEach(() => {
-      cf = createStreamStub();
-      cf.install();
-      env.CF_STREAM_ACCOUNT_ID = STUB_ACCOUNT;
-      env.CF_STREAM_API_TOKEN = 'token';
-    });
-
-    it('is off by default: three reporters do not end the stream', async () => {
-      for (let i = 0; i < 3; i++) await post({ reason: 'nudity' });
-      expect(statusOf()).toBe('live');
-      expect(count('live_host_suspensions')).toBe(0);
-    });
-
-    it("with LIVE_SAFETY_AUTO_END = 'true', three stream reporters end it and suspend the host", async () => {
-      env.LIVE_SAFETY_AUTO_END = 'true';
-      await post({ reason: 'nudity' });
-      await post({ reason: 'nudity' });
-      expect(statusOf()).toBe('live');
-      await post({ reason: 'nudity' });
-      expect(statusOf()).toBe('ended');
-      expect(count('live_host_suspensions')).toBe(1);
-      expect(db.raw.prepare('SELECT action, actor FROM live_actions').all()).toEqual([
-        { action: 'auto_end', actor: 'system' }
-      ]);
-    });
-
-    it('any value other than exactly "true" leaves it off', async () => {
-      env.LIVE_SAFETY_AUTO_END = 'yes';
-      for (let i = 0; i < 3; i++) await post({ reason: 'nudity' });
-      expect(statusOf()).toBe('live');
-    });
+  it('never ends a stream by itself, however many report it', async () => {
+    for (let i = 0; i < 5; i++) await post({ reason: 'nudity' });
+    expect(statusOf()).toBe('live');
+    expect(count('live_actions')).toBe(0);
   });
 });

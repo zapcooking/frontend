@@ -110,31 +110,25 @@ describe('sendReportAlert', () => {
 });
 
 describe('access request', () => {
-  it("carries the npub, the profile link and the profile's own name, marked unverified", () => {
+  it('carries the pending count, npub, profile link and the note', () => {
     const pk = getPublicKey(generateSecretKey());
     const text = buildAccessRequest({
       pubkey: pk,
-      name: 'Ana',
-      nip05: 'ana@example.com',
+      note: 'Weeknight pasta, every Tuesday',
+      pending: 3,
       origin: 'https://zap.cooking'
     });
     const npub = nip19.npubEncode(pk);
+    expect(text).toMatch(/^🎥 New Go live access request \(3 pending\)/);
     expect(text).toContain(npub);
     expect(text).toContain(`https://zap.cooking/user/${npub}`);
-    expect(text).toContain('Name: Ana (from their profile)');
-    expect(text).toContain('not verified');
+    expect(text).toContain('Note: "Weeknight pasta, every Tuesday"');
     expect(text).toContain('https://zap.cooking/admin/live');
   });
 
-  it('leaves out a missing name and NIP-05', async () => {
-    const text = buildAccessRequest({
-      pubkey: ADMIN,
-      name: '',
-      nip05: '',
-      origin: 'https://zap.cooking'
-    });
-    expect(text).not.toContain('Name:');
-    expect(text).not.toContain('NIP-05');
+  it('leaves out an empty note', async () => {
+    const text = buildAccessRequest({ pubkey: ADMIN, note: '', pending: 1, origin: 'https://zap.cooking' });
+    expect(text).not.toContain('Note:');
     expect(await sendAdminDm(text, deps())).toBe('sent');
   });
 });

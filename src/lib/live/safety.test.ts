@@ -1,17 +1,14 @@
-/** Reports, holds, the automatic end and safety retention (adapted from draft PR #976). */
+/** Reports, holds, the action log and safety retention (adapted from draft PR #976). */
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { approveHosts, createLiveDatabase } from '../../test/liveDatabase';
-import { createStreamStub, STUB_ACCOUNT } from '../../test/liveStreamStub';
 import { createSession, deleteOldEndedRows, endSession } from './sessions.server';
 import {
   cleanupSafetyRecords,
   listIncidents,
   logAction,
-  maybeAutoEnd,
   recordReport,
   releaseHold
 } from './safety.server';
-import type { StreamConfig } from './stream.server';
 
 const HOST = 'a'.repeat(64);
 const HASH = (n: number) => String(n).repeat(64).slice(0, 64);
@@ -118,54 +115,6 @@ describe('listIncidents', () => {
   });
 });
 
-describe('maybeAutoEnd', () => {
-  let cf: ReturnType<typeof createStreamStub>;
-  let cfg: StreamConfig;
-  beforeEach(() => {
-    cf = createStreamStub();
-    cfg = { accountId: STUB_ACCOUNT, token: 'token', inputPrefix: 'zc-live-' };
-    cf.install();
-  });
-
-  it('ends at three distinct verified stream reporters, suspends the host and logs it', async () => {
-    db.raw.prepare("UPDATE live_sessions SET status = 'live' WHERE id = ?").run(id);
-    await report(HASH(1));
-    await report(HASH(2));
-    expect(await maybeAutoEnd(db, cfg, id, NOW)).toBe(false);
-    await report(HASH(3));
-    expect(await maybeAutoEnd(db, cfg, id, NOW)).toBe(true);
-    expect(db.raw.prepare('SELECT status, end_reason FROM live_sessions WHERE id = ?').get(id)).toEqual(
-      { status: 'ended', end_reason: 'admin' }
-    );
-    expect(
-      db.raw.prepare('SELECT suspended_until FROM live_host_suspensions WHERE host_pubkey = ?').get(HOST)
-        .suspended_until
-    ).toBe(NOW + 3600);
-    expect(db.raw.prepare('SELECT actor, action, session_id FROM live_actions').all()).toEqual([
-      { actor: 'system', action: 'auto_end', session_id: id }
-    ]);
-    // Ending twice does nothing more.
-    expect(await maybeAutoEnd(db, cfg, id, NOW)).toBe(false);
-  });
-
-  it('counts neither comment reports nor reports without a usable hash', async () => {
-    db.raw.prepare("UPDATE live_sessions SET status = 'live' WHERE id = ?").run(id);
-    const c = { id: 'c'.repeat(64), pubkey: 'd'.repeat(64) };
-    await report(HASH(1), { comment: c });
-    await report(HASH(2), { comment: c });
-    await report('');
-    await report('no-kv');
-    await report(HASH(3));
-    expect(await maybeAutoEnd(db, cfg, id, NOW)).toBe(false);
-  });
-
-  it('does nothing without a Cloudflare config', async () => {
-    for (const n of [1, 2, 3]) await report(HASH(n));
-    expect(await maybeAutoEnd(db, null, id, NOW)).toBe(false);
-    expect(count('live_host_suspensions')).toBe(0);
-  });
-});
-
 describe('retention', () => {
   it('keeps a reported session past 30 days while its hold is open', async () => {
     await report(HASH(1), { reason: 'child_safety' });
@@ -189,16 +138,22 @@ describe('retention', () => {
     expect(await deleteOldEndedRows(db, NOW + 60 * DAY)).toBe(1);
   });
 
-  it('removes expired suspensions and never the action log', async () => {
-    db.raw
-      .prepare(
-        "INSERT INTO live_host_suspensions (host_pubkey, suspended_until, reason, session_id) VALUES (?, ?, 'x', ?)"
-      )
-      .run(HOST, NOW - 1, id);
-    await logAction(db, { actor: 'system', action: 'auto_end', now: 1 });
-    await cleanupSafetyRecords(db, NOW + 1000 * DAY);
-    expect(count('live_host_suspensions')).toBe(0);
-    expect(count('live_actions')).toBe(1);
+  it('deletes action log entries after 2 years, except those about a session with an open hold', async () => {
+    const YEAR = 365 * DAY;
+    await logAction(db, { actor: 'admin', action: 'mode', now: NOW - 3 * YEAR }); // old, no session
+    await logAction(db, { actor: 'admin', action: 'end', sessionId: id, now: NOW - 3 * YEAR }); // old, held
+    await logAction(db, { actor: 'admin', action: 'block', now: NOW - YEAR }); // recent
+    await report(HASH(1)); // opens the hold on `id`
+    await cleanupSafetyRecords(db, NOW);
+    expect(db.raw.prepare('SELECT action FROM live_actions ORDER BY rowid').all()).toEqual([
+      { action: 'end' },
+      { action: 'block' }
+    ]);
+
+    // Once the hold is released, the held entry ages out too.
+    await releaseHold(db, id, 'admin', NOW);
+    await cleanupSafetyRecords(db, NOW);
+    expect(db.raw.prepare('SELECT action FROM live_actions').all()).toEqual([{ action: 'block' }]);
   });
 });
 

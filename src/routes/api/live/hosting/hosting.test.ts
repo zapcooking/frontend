@@ -1,10 +1,16 @@
 /**
- * Staged rollout: GET /api/live/hosting (can this account host) and
- * POST /api/live/hosting (Request access → admin DM). NIP-98 is real; the
- * membership lookup and the DM publisher are stubbed.
+ * Staged rollout: GET /api/live/hosting (signed: about the signer only)
+ * and POST /api/live/hosting (Request access: saved queue + admin DM).
+ * NIP-98 is real; the membership lookup and the DM publisher are stubbed.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { finalizeEvent, generateSecretKey, getPublicKey, nip04, type EventTemplate } from 'nostr-tools';
+import {
+  finalizeEvent,
+  generateSecretKey,
+  getPublicKey,
+  nip04,
+  type EventTemplate
+} from 'nostr-tools';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { normalizeUrl, sha256Hex } from '$lib/nip98';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
@@ -20,42 +26,53 @@ import { GET, POST } from './+server';
 const URL_ = 'https://zap.cooking/api/live/hosting';
 const memberSk = generateSecretKey();
 const MEMBER = getPublicKey(memberSk);
+const otherSk = generateSecretKey();
 const senderSk = generateSecretKey();
+const DAY = 86400;
 
 let db: ReturnType<typeof createLiveDatabase>;
 let kv: ReturnType<typeof createKvFake>;
 let env: Record<string, unknown>;
 
-async function nip98(body: string, sk = memberSk) {
+async function nip98(method: 'GET' | 'POST', body: string | undefined, sk = memberSk, url = URL_) {
+  const tags = [
+    ['u', normalizeUrl(url)],
+    ['method', method]
+  ];
+  if (body !== undefined) tags.push(['payload', await sha256Hex(new TextEncoder().encode(body))]);
   const template: EventTemplate = {
     kind: 27235,
     created_at: Math.floor(Date.now() / 1000),
-    tags: [
-      ['u', normalizeUrl(URL_)],
-      ['method', 'POST'],
-      ['payload', await sha256Hex(new TextEncoder().encode(body))]
-    ],
+    tags,
     content: ''
   };
   return `Nostr ${btoa(JSON.stringify(finalizeEvent(template, sk)))}`;
 }
 
-async function status(pubkey: string) {
-  const res = await GET({ url: new URL(`${URL_}?pubkey=${pubkey}`), platform: { env } } as any);
+async function status(sk: Uint8Array | null = memberSk, url = URL_) {
+  const headers: Record<string, string> = {};
+  if (sk) headers.Authorization = await nip98('GET', undefined, sk, URL_);
+  const res = await GET({ request: new Request(url, { headers }), platform: { env } } as any);
   return { res, data: await res.json() };
 }
 
-async function ask(profile: unknown = { name: 'Ana', nip05: 'ana@example.com' }, auth?: string | null) {
+async function ask(profile: unknown = { note: 'Weeknight pasta, Tuesdays' }, sk = memberSk) {
   const body = JSON.stringify(profile);
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const a = auth === undefined ? await nip98(body) : auth;
-  if (a) headers.Authorization = a;
   const res = await POST({
-    request: new Request(URL_, { method: 'POST', headers, body }),
+    request: new Request(URL_, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: await nip98('POST', body, sk) },
+      body
+    }),
     platform: { env }
   } as any);
   return { res, data: await res.json() };
 }
+
+const requests = () =>
+  db.raw.prepare('SELECT pubkey, note, status, decided_at FROM live_access_requests ORDER BY rowid').all();
+const dmText = (call = 0) =>
+  nip04.decrypt(senderSk, ADMIN_PUBKEY, (mocks.publish.mock.calls[call] as [any])[0].content);
 
 beforeEach(() => {
   db = createLiveDatabase();
@@ -74,65 +91,109 @@ beforeEach(() => {
 });
 
 describe('GET /api/live/hosting', () => {
-  it("in 'approved' mode answers by the list", async () => {
-    expect((await status(MEMBER)).data).toEqual({ mode: 'approved', approved: false });
+  it('answers only about the signer', async () => {
+    expect((await status()).data).toEqual({
+      mode: 'approved',
+      approved: false,
+      request: { status: 'none', created_at: null, decided_at: null, retry_at: null }
+    });
     approveHosts(db, MEMBER);
-    expect((await status(MEMBER)).data).toEqual({ mode: 'approved', approved: true });
-    expect((await status(ADMIN_PUBKEY)).data.approved).toBe(true); // the seed
+    expect((await status()).data.approved).toBe(true);
+    // No way to ask about another account: a ?pubkey= is ignored and the
+    // answer is about the signer (not approved).
+    const other = await status(otherSk, `${URL_}?pubkey=${MEMBER}`);
+    expect(other.res.status).toBe(200);
+    expect(other.data.approved).toBe(false);
+  });
+
+  it('needs a signature', async () => {
+    expect((await status(null)).res.status).toBe(401);
   });
 
   it("in 'members' mode everyone is approved (membership is checked at create)", async () => {
     kv.data.set('live:hosting_mode', 'members');
-    expect((await status(MEMBER)).data).toEqual({ mode: 'members', approved: true });
+    expect((await status()).data).toMatchObject({ mode: 'members', approved: true });
+  });
+
+  it('shows the own pending request, and a decline with when to ask again', async () => {
+    await ask();
+    expect((await status()).data.request).toMatchObject({ status: 'pending', retry_at: null });
+    const decidedAt = Math.floor(Date.now() / 1000);
+    db.raw
+      .prepare("UPDATE live_access_requests SET status = 'declined', decided_at = ?")
+      .run(decidedAt);
+    expect((await status()).data.request).toMatchObject({
+      status: 'declined',
+      retry_at: decidedAt + 30 * DAY
+    });
   });
 
   it('never discloses a block', async () => {
     approveHosts(db, MEMBER);
     db.raw.prepare('INSERT INTO live_blocked_hosts (pubkey, created_at) VALUES (?, 1)').run(MEMBER);
-    expect((await status(MEMBER)).data).toEqual({ mode: 'approved', approved: true });
-  });
-
-  it('refuses a malformed key', async () => {
-    expect((await status('nope')).res.status).toBe(400);
+    expect((await status()).data).toMatchObject({ approved: true });
+    expect(JSON.stringify((await status()).data)).not.toContain('block');
   });
 });
 
 describe('POST /api/live/hosting (Request access)', () => {
-  it('DMs the admin the npub, profile link and self-reported name', async () => {
+  it('saves a pending request with the note and DMs the admin', async () => {
     const { res, data } = await ask();
     expect(res.status).toBe(200);
-    expect(data).toEqual({ ok: true });
-    const [event] = mocks.publish.mock.calls[0] as [any];
-    expect(event.tags).toEqual([['p', ADMIN_PUBKEY]]);
-    expect(event.pubkey).toBe(getPublicKey(senderSk));
-    // The admin key is not ours in tests; check the plaintext through the sender's side.
-    const text = nip04.decrypt(senderSk, ADMIN_PUBKEY, event.content);
-    expect(text).toContain('Go live access request');
-    expect(text).toContain('Name: Ana (from their profile)');
+    expect(data).toEqual({ ok: true, status: 'pending' });
+    expect(requests()).toEqual([
+      { pubkey: MEMBER, note: 'Weeknight pasta, Tuesdays', status: 'pending', decided_at: null }
+    ]);
+    const text = dmText();
+    expect(text).toContain('New Go live access request (1 pending)');
+    expect(text).toContain('Note: "Weeknight pasta, Tuesdays"');
     expect(text).toContain('/admin/live');
   });
 
-  it('strips control characters and caps the profile text', async () => {
-    await ask({ name: 'A\nB\u0007' + 'x'.repeat(200), nip05: 7 });
-    const [event] = mocks.publish.mock.calls[0] as [any];
-    const text = nip04.decrypt(senderSk, ADMIN_PUBKEY, event.content);
-    const nameLine = text.split('\n').find((l: string) => l.startsWith('Name:'))!;
-    expect(nameLine).not.toMatch(/[\u0000-\u001f]/);
-    expect(nameLine.length).toBeLessThan(120);
-    expect(text).not.toContain('NIP-05');
+  it('allows one open request per account', async () => {
+    await ask();
+    const again = await ask({ note: 'again' });
+    expect(again.res.status).toBe(409);
+    expect(again.data).toEqual({ error: 'already_pending' });
+    expect(requests()).toHaveLength(1);
   });
 
-  it('sends one request per account per day', async () => {
-    expect((await ask()).res.status).toBe(200);
-    const again = await ask();
-    expect(again.res.status).toBe(409);
-    expect(again.data).toEqual({ error: 'already_requested' });
+  it('throttles the admin DM, but saves every request', async () => {
+    await ask();
+    await ask({ note: 'me too' }, otherSk);
+    expect(requests()).toHaveLength(2);
     expect(mocks.publish).toHaveBeenCalledTimes(1);
   });
 
-  it('sends nothing for an account already approved', async () => {
+  it('accepts no note, strips control characters and refuses a note over 280', async () => {
+    expect((await ask({})).res.status).toBe(200);
+    expect(requests()[0].note).toBe('');
+    db.raw.exec('DELETE FROM live_access_requests');
+    await ask({ note: 'Line one\nline two\u0007' });
+    expect(requests()[0].note).toBe('Line one\nline two');
+    db.raw.exec('DELETE FROM live_access_requests');
+    expect((await ask({ note: 'x'.repeat(281) })).res.status).toBe(400);
+    expect((await ask({ note: 5 })).res.status).toBe(400);
+  });
+
+  it('a declined account may ask again only 30 days after the decision', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    db.raw
+      .prepare(
+        "INSERT INTO live_access_requests (id, pubkey, status, created_at, decided_at) VALUES ('r', ?, 'declined', ?, ?)"
+      )
+      .run(MEMBER, now - 10 * DAY, now - 10 * DAY);
+    const early = await ask();
+    expect(early.res.status).toBe(409);
+    expect(early.data).toEqual({ error: 'declined_recently', retry_at: now - 10 * DAY + 30 * DAY });
+    db.raw.prepare('UPDATE live_access_requests SET decided_at = ?').run(now - 31 * DAY);
+    expect((await ask()).res.status).toBe(200);
+  });
+
+  it('saves nothing for an account already approved', async () => {
     approveHosts(db, MEMBER);
     expect((await ask()).data).toEqual({ ok: true, approved: true });
+    expect(requests()).toEqual([]);
     expect(mocks.publish).not.toHaveBeenCalled();
   });
 
@@ -141,17 +202,15 @@ describe('POST /api/live/hosting (Request access)', () => {
     expect((await ask()).data).toEqual({ error: 'membership_required' });
     mocks.checkMembership.mockResolvedValueOnce({ state: 'unknown', reason: 'timeout' });
     expect((await ask()).res.status).toBe(503);
-    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(requests()).toEqual([]);
   });
 
-  it('needs a valid signature over this request', async () => {
-    expect((await ask(undefined, null)).res.status).toBe(401);
-    expect((await ask({ name: 'x' }, await nip98('{"name":"other"}'))).res.status).toBe(401);
-  });
-
-  it('says so, and sets no throttle, when the DM cannot be sent', async () => {
+  it('keeps the request when the DM cannot be sent, and the next one alerts', async () => {
     mocks.publish.mockRejectedValueOnce(new Error('no relay'));
-    expect((await ask()).res.status).toBe(503);
     expect((await ask()).res.status).toBe(200);
+    expect(requests()).toHaveLength(1);
+    await ask({}, otherSk);
+    expect(mocks.publish).toHaveBeenCalledTimes(2);
+    expect(dmText(1)).toContain('(2 pending)');
   });
 });

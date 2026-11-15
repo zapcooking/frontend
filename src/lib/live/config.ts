@@ -4,8 +4,7 @@
  * Who may host, decided by the server after NIP-98:
  *  - an active member (Cook+; the tri-state check, where an outage is
  *    "try again", never "not a member"),
- *  - not blocked by the admin (live_blocked_hosts), not under a
- *    temporary safety suspension (live_host_suspensions),
+ *  - not blocked by the admin (live_blocked_hosts),
  *  - and, while the hosting mode is "approved" (the default), on the
  *    approved-hosts list (live_approved_hosts). In "members" mode the
  *    list is not consulted.
@@ -69,8 +68,18 @@ export function parseHostingMode(value: unknown): LiveHostingMode {
   return value === 'members' ? 'members' : 'approved';
 }
 
-/** One "Request access" DM per account in this many seconds. */
-export const LIVE_ACCESS_REQUEST_THROTTLE_SECONDS = 24 * 60 * 60;
+/** Longest note on an access request ("what you'd cook, how often"). */
+export const LIVE_ACCESS_NOTE_MAX = 280;
+
+/** A declined account may ask again this long after the decision. */
+export const LIVE_ACCESS_DECLINE_COOLDOWN_SECONDS = 30 * 24 * 60 * 60;
+
+/**
+ * The admin is DM'd about new access requests at most once in this many
+ * seconds; the DM says how many are pending. Every request is saved in
+ * the queue either way.
+ */
+export const LIVE_ACCESS_ALERT_THROTTLE_SECONDS = 10 * 60;
 
 // ── Reports and safety ───────────────────────────────────────────────
 
@@ -101,18 +110,14 @@ export const LIVE_REPORT_DETAILS_MAX = 300;
  */
 export const LIVE_REPORT_ALERT_THROTTLE_SECONDS = 10 * 60;
 
-/**
- * Automatic stream end (only when LIVE_SAFETY_AUTO_END is 'true'): this
- * many distinct reporters of the STREAM (not of comments) end it and
- * suspend the host for LIVE_AUTO_END_SUSPENSION_SECONDS. A reporter is a
- * daily-salted IP hash, not a verified person, so this stays off until
- * it has been proven.
- */
-export const LIVE_AUTO_END_THRESHOLD = 3;
-export const LIVE_AUTO_END_SUSPENSION_SECONDS = 60 * 60;
-
 /** Reports (and released holds) are deleted this long after the report, unless a hold is open. */
 export const LIVE_REPORT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
+
+/**
+ * Action log entries are deleted this long after the action, except
+ * entries about a session whose report hold is open.
+ */
+export const LIVE_ACTION_LOG_RETENTION_SECONDS = 2 * 365 * 24 * 60 * 60;
 
 /** Longest session title, in characters, after trimming. */
 export const LIVE_TITLE_MAX = 120;

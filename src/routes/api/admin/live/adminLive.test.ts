@@ -625,3 +625,76 @@ describe('report hold', () => {
     expect((await admin({ action: 'release', id: 'nope' })).res.status).toBe(400);
   });
 });
+
+describe('access requests', () => {
+  const insertRequest = (id: string, pubkey: string, note = '') =>
+    db.raw
+      .prepare(
+        "INSERT INTO live_access_requests (id, pubkey, note, status, created_at) VALUES (?, ?, ?, 'pending', 10)"
+      )
+      .run(id, pubkey, note);
+  const ID1 = '11111111-1111-4111-8111-111111111111';
+  const ID2 = '22222222-2222-4222-8222-222222222222';
+  const requestRow = (id: string) =>
+    db.raw.prepare('SELECT status, decided_at FROM live_access_requests WHERE id = ?').get(id);
+
+  it('lists pending requests with note and membership', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    insertRequest(ID1, HOSTS[1], 'Sunday roasts');
+    mocks.checkMembership.mockResolvedValue({ state: 'inactive', found: true });
+    const { data } = await adminList();
+    expect(data.requests).toEqual([
+      {
+        id: ID1,
+        pubkey: HOSTS[1],
+        note: 'Sunday roasts',
+        status: 'pending',
+        created_at: 10,
+        decided_at: null,
+        membership: 'inactive'
+      }
+    ]);
+  });
+
+  it('approve adds the account to the approved list, and is logged', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    insertRequest(ID1, HOSTS[1]);
+    const { data } = await admin({ action: 'approve_request', id: ID1 });
+    expect(data).toEqual({ id: ID1, pubkey: HOSTS[1], status: 'approved' });
+    expect(requestRow(ID1).status).toBe('approved');
+    expect(rowOfApproved(HOSTS[1]).added_by).toBe(mocks.admin);
+    const list = await adminList();
+    expect(list.data.requests).toEqual([]);
+    expect(list.data.actions[0]).toMatchObject({
+      action: 'approve',
+      actor: mocks.admin,
+      target_pubkey: HOSTS[1],
+      detail: 'access request'
+    });
+    expect((await admin({ action: 'approve_request', id: ID1 })).res.status).toBe(409);
+  });
+
+  it('decline leaves the approved list alone, and is logged', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    insertRequest(ID2, HOSTS[1]);
+    const { data } = await admin({ action: 'decline_request', id: ID2 });
+    expect(data).toEqual({ id: ID2, pubkey: HOSTS[1], status: 'declined' });
+    expect(typeof requestRow(ID2).decided_at).toBe('number');
+    expect(rowOfApproved(HOSTS[1])).toBeUndefined();
+    expect((await adminList()).data.actions[0]).toMatchObject({ action: 'decline', target_pubkey: HOSTS[1] });
+  });
+
+  it('a direct approve also closes the pending request', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    insertRequest(ID1, HOSTS[1]);
+    await admin({ action: 'approve', pubkey: HOSTS[1] });
+    expect(requestRow(ID1).status).toBe('approved');
+  });
+
+  it('refuses a malformed id and a non-admin', async () => {
+    insertRequest(ID1, HOSTS[1]);
+    expect((await admin({ action: 'approve_request', id: 'nope' })).res.status).toBe(400);
+    expect((await admin({ action: 'approve_request', id: ID1 }, { sk: hostSks[1] })).res.status).toBe(403);
+    expect(requestRow(ID1).status).toBe('pending');
+  });
+});

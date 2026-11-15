@@ -1,26 +1,24 @@
 /**
  * Go live — safety and the staged rollout: the action log, the hosting
- * mode, stream reports, report holds and the optional automatic end.
- * (Folds in the design of draft PR #976.)
+ * mode, stream reports and report holds. (Folds in the report and hold
+ * design of draft PR #976; its automatic stream end is not included.)
  *
- * Tables (migration 0007): live_actions, live_reports, live_holds,
- * live_host_suspensions. The hosting mode is one KV key.
+ * Tables (migration 0007): live_actions, live_reports, live_holds. The
+ * hosting mode is one KV key.
  *
  * Rules every caller relies on:
- *  - Every admin action, and every automatic one, is written to the
- *    action log with its time and actor (`logAction`). The log is never
- *    deleted by a retention rule.
+ *  - Every admin action is written to the action log with its time and
+ *    actor (`logAction`). Entries are kept 2 years, and longer while they
+ *    are about a session under an open hold.
  *  - The first report on a session opens its hold, with a snapshot of the
  *    session's public facts (never the Cloudflare input id). Only the
- *    admin releases a hold. While it is open, the session row and its
- *    reports survive every retention rule and the account-deletion purge.
- *  - A reporter is a daily-salted IP hash, never an address, and counts
- *    toward the automatic end only when that hash is present.
+ *    admin releases a hold. While it is open, the session row, its reports
+ *    and its log entries survive every retention rule and the
+ *    account-deletion purge.
+ *  - A reporter is a daily-salted IP hash, never an address.
  */
-import { endAndRemove } from './admin.server';
 import {
-  LIVE_AUTO_END_SUSPENSION_SECONDS,
-  LIVE_AUTO_END_THRESHOLD,
+  LIVE_ACTION_LOG_RETENTION_SECONDS,
   LIVE_HOSTING_MODE_KEY,
   LIVE_REPORT_DETAILS_MAX,
   LIVE_REPORT_RETENTION_SECONDS,
@@ -30,13 +28,13 @@ import {
   type LiveReportReason
 } from './config';
 import { getSession, nowSeconds, type LiveDb } from './sessions.server';
-import type { StreamConfig } from './stream.server';
 
 // ── Action log ───────────────────────────────────────────────────────
 
 export type LiveActionKind =
   | 'approve'
   | 'unapprove'
+  | 'decline'
   | 'mode'
   | 'end'
   | 'off'
@@ -44,10 +42,7 @@ export type LiveActionKind =
   | 'unblock'
   | 'hide'
   | 'unhide'
-  | 'release_hold'
-  | 'auto_end';
-
-export const SYSTEM_ACTOR = 'system';
+  | 'release_hold';
 
 export interface LiveAction {
   id: string;
@@ -185,8 +180,8 @@ const HEX64_RE = /^[0-9a-f]{64}$/;
 
 /**
  * Record a report and open the session's hold. The report and the hold
- * are written before anything else happens (an alert, an automatic end),
- * so the record exists whatever fails afterwards.
+ * are written before anything else happens (the alert), so the record
+ * exists whatever fails afterwards.
  */
 export async function recordReport(db: LiveDb, input: ReportInput): Promise<ReportResult> {
   const session = await getSession(db, input.sessionId);
@@ -340,76 +335,25 @@ export async function listIncidents(db: LiveDb, limit = 50): Promise<Incident[]>
   });
 }
 
-// ── Automatic end (off unless LIVE_SAFETY_AUTO_END is 'true') ────────
-
-/**
- * End a stream once LIVE_AUTO_END_THRESHOLD distinct verified reporters
- * have reported the STREAM (comment reports do not count), and suspend
- * the host from going live for LIVE_AUTO_END_SUSPENSION_SECONDS. The
- * suspension is written before the end, so the host cannot start again in
- * between. Logged as 'auto_end' by 'system'. Returns whether it ended it.
- */
-export async function maybeAutoEnd(
-  db: LiveDb,
-  cfg: StreamConfig | null,
-  sessionId: string,
-  now: number = nowSeconds()
-): Promise<boolean> {
-  const session = await getSession(db, sessionId);
-  if (!session || session.status === 'ended' || !cfg) return false;
-  const row = await db
-    .prepare(
-      `SELECT COUNT(DISTINCT reporter_hash) AS n FROM live_reports
-        WHERE session_id = ?1 AND comment_id IS NULL AND reporter_hash NOT LIKE 'unverified:%'`
-    )
-    .bind(sessionId)
-    .first<{ n: number }>();
-  const reporters = Number(row?.n ?? 0);
-  if (reporters < LIVE_AUTO_END_THRESHOLD) return false;
-
-  await db
-    .prepare(
-      `INSERT INTO live_host_suspensions (host_pubkey, suspended_until, reason, session_id)
-       VALUES (?1, ?2, 'report_threshold', ?3)
-       ON CONFLICT(host_pubkey) DO UPDATE SET
-         suspended_until = MAX(suspended_until, excluded.suspended_until),
-         reason = excluded.reason, session_id = excluded.session_id`
-    )
-    .bind(session.host_pubkey, now + LIVE_AUTO_END_SUSPENSION_SECONDS, sessionId)
-    .run();
-  const outcome = await endAndRemove(db, cfg, sessionId, 'admin');
-  if (outcome.ended) {
-    await logAction(db, {
-      actor: SYSTEM_ACTOR,
-      action: 'auto_end',
-      sessionId,
-      targetPubkey: session.host_pubkey,
-      detail: `${reporters} reporters; suspended ${LIVE_AUTO_END_SUSPENSION_SECONDS / 60} min`,
-      now
-    });
-  }
-  return outcome.ended;
-}
-
 // ── Retention ────────────────────────────────────────────────────────
 
 /**
  * Delete reports older than the report retention unless their session's
- * hold is open, then released holds with no reports left, then expired
- * suspensions. The action log is never deleted here.
+ * hold is open, then released holds with no reports left, then action log
+ * entries older than the log retention unless they are about a session
+ * whose hold is open.
  */
 export async function cleanupSafetyRecords(
   db: LiveDb,
   now: number = nowSeconds()
 ): Promise<void> {
-  const cutoff = now - LIVE_REPORT_RETENTION_SECONDS;
   await db
     .prepare(
       `DELETE FROM live_reports WHERE created_at < ?1
           AND NOT EXISTS (SELECT 1 FROM live_holds h
                            WHERE h.session_id = live_reports.session_id AND h.status = 'open')`
     )
-    .bind(cutoff)
+    .bind(now - LIVE_REPORT_RETENTION_SECONDS)
     .run();
   await db
     .prepare(
@@ -419,7 +363,12 @@ export async function cleanupSafetyRecords(
     .bind()
     .run();
   await db
-    .prepare('DELETE FROM live_host_suspensions WHERE suspended_until < ?1')
-    .bind(now)
+    .prepare(
+      `DELETE FROM live_actions WHERE occurred_at < ?1
+          AND (session_id IS NULL
+               OR NOT EXISTS (SELECT 1 FROM live_holds h
+                               WHERE h.session_id = live_actions.session_id AND h.status = 'open'))`
+    )
+    .bind(now - LIVE_ACTION_LOG_RETENTION_SECONDS)
     .run();
 }

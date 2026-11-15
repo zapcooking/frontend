@@ -69,19 +69,23 @@ export function buildReportAlert(input: ReportAlertInput): string {
 
 export interface AccessRequestInput {
   pubkey: string;
-  /** Display name and NIP-05 as the requester's own client read them from their profile. */
-  name: string;
-  nip05: string;
+  /** The requester's note ("what you'd cook, how often"), may be empty. */
+  note: string;
+  /** Requests pending in the queue, this one included. */
+  pending: number;
   origin: string;
 }
 
 /** The access request text. Pure, for tests. */
 export function buildAccessRequest(input: AccessRequestInput): string {
   const npub = nip19.npubEncode(input.pubkey);
-  const lines = ['🎥 Go live access request'];
-  if (input.name) lines.push(`Name: ${input.name} (from their profile)`);
-  if (input.nip05) lines.push(`NIP-05: ${input.nip05} (from their profile, not verified)`);
-  lines.push(npub, `Profile: ${input.origin}/user/${npub}`, `Approve: ${input.origin}/admin/live`);
+  const lines = [
+    `🎥 New Go live access request (${input.pending} pending)`,
+    npub,
+    `Profile: ${input.origin}/user/${npub}`
+  ];
+  if (input.note) lines.push(`Note: "${input.note}"`);
+  lines.push(`Review: ${input.origin}/admin/live`);
   return lines.join('\n');
 }
 

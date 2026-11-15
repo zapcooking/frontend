@@ -4,13 +4,16 @@
    *
    *  - Hosting mode: "approved" (only accounts on the approved list may go
    *    live; the default) or "members" (any active member).
+   *  - Access requests: pending "Request access" asks with the
+   *    requester's profile, note and membership. Approve (adds to the
+   *    approved list) or Decline; both logged.
    *  - Approved hosts: add, remove, list.
    *  - Streams: open ones, ones whose input is still being deleted, and
    *    ones under an open report hold. End, block the host.
    *  - Reports: each report hold with its reports. Release the hold once
    *    the report is resolved.
    *  - Blocked hosts: block by key, unblock.
-   *  - Action log: every admin and automatic action, with time and actor.
+   *  - Action log: every admin action, with time and actor.
    *
    * Every call is NIP-98 signed by the admin account (/api/admin/live),
    * and every action is written to the action log by the server.
@@ -53,6 +56,13 @@
       created_at: number;
     }[];
   }
+  interface AccessRequest {
+    id: string;
+    pubkey: string;
+    note: string;
+    created_at: number;
+    membership: 'active' | 'inactive' | 'unknown';
+  }
   interface Action {
     id: string;
     occurred_at: number;
@@ -76,6 +86,9 @@
   let loaded = false;
   let sessions: Session[] = [];
   let approved: Listed[] = [];
+  let requests: AccessRequest[] = [];
+  /** Display names for requesters, from their Nostr profiles (best effort). */
+  let names: Record<string, string> = {};
   let blocked: Listed[] = [];
   let incidents: Incident[] = [];
   let actions: Action[] = [];
@@ -107,6 +120,8 @@
       const data = await res.json();
       sessions = data.sessions ?? [];
       approved = data.approved ?? [];
+      requests = data.requests ?? [];
+      void loadNames(requests.map((r) => r.pubkey));
       blocked = data.blocked ?? [];
       incidents = data.incidents ?? [];
       actions = data.actions ?? [];
@@ -137,6 +152,19 @@
       return false;
     } finally {
       busy = false;
+    }
+  }
+
+  async function loadNames(pubkeys: string[]) {
+    for (const pk of pubkeys) {
+      if (names[pk] !== undefined) continue;
+      try {
+        const profile = await $ndk.getUser({ pubkey: pk }).fetchProfile();
+        const name = (profile?.displayName || profile?.name || '').toString().trim();
+        names = { ...names, [pk]: name };
+      } catch {
+        names = { ...names, [pk]: '' };
+      }
     }
   }
 
@@ -179,7 +207,8 @@
 
   const blockConfirm = 'Block this account from going live? Its open stream (if any) ends now.';
   const npub = (hex: string) => nip19.npubEncode(hex);
-  const short = (hex: string) => (hex === 'system' ? 'system' : `${npub(hex).slice(0, 14)}…`);
+  const short = (hex: string) => `${npub(hex).slice(0, 14)}…`;
+  const MEMBERSHIP_LABELS = { active: 'Active member', inactive: 'Not a member', unknown: 'Membership unknown' };
   const when = (s: number | null) =>
     s ? new Date(s * 1000).toISOString().slice(0, 16).replace('T', ' ') : '—';
   $: isBlocked = (pk: string) => blocked.some((b) => b.pubkey === pk);
@@ -218,6 +247,50 @@
         DMs this account. Blocked accounts can't host in either mode.
       </p>
     </div>
+
+    <h2>Access requests ({requests.length})</h2>
+    {#if requests.length === 0}
+      <div class="status">No pending requests.</div>
+    {:else}
+      <ul class="list">
+        {#each requests as r (r.id)}
+          <li class="card">
+            <div class="row">
+              <a href={`/user/${npub(r.pubkey)}`} target="_blank" rel="noopener"
+                >{names[r.pubkey] || short(r.pubkey)}</a
+              >
+              <span class="pill" class:member-ok={r.membership === 'active'}
+                >{MEMBERSHIP_LABELS[r.membership]}</span
+              >
+              <span class="meta">asked {when(r.created_at)}</span>
+            </div>
+            <code class="npub">{npub(r.pubkey)}</code>
+            {#if r.note}<p class="note">"{r.note}"</p>{:else}<p class="meta">No note.</p>{/if}
+            <div class="actions">
+              <button
+                disabled={busy}
+                on:click={() =>
+                  act(
+                    { action: 'approve_request', id: r.id },
+                    r.membership === 'active'
+                      ? undefined
+                      : 'This account is not confirmed as an active member. Approve anyway? (It still cannot go live without a membership.)'
+                  )}>Approve</button
+              >
+              <button
+                class="danger"
+                disabled={busy}
+                on:click={() =>
+                  act(
+                    { action: 'decline_request', id: r.id },
+                    'Decline this request? They can ask again in 30 days.'
+                  )}>Decline</button
+              >
+            </div>
+          </li>
+        {/each}
+      </ul>
+    {/if}
 
     <h2>Approved hosts ({approved.length})</h2>
     <form class="row add-form" on:submit|preventDefault={() => addTyped('approve')}>
@@ -453,6 +526,16 @@
     border-radius: 999px;
     border: 1px solid var(--color-input-border);
     font-size: 0.75rem;
+  }
+  .pill.member-ok {
+    border-color: #16a34a;
+    color: #16a34a;
+  }
+  .note {
+    margin: 0;
+    font-size: 0.875rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .pill.live {
     background: #dc2626;

@@ -431,7 +431,7 @@ describe('retention', () => {
     expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_holds').get().c).toBe(0);
   });
 
-  it('keeps a released case whose report is recent, and the action log always', async () => {
+  it('keeps a released case whose report is recent, and a recent action log entry', async () => {
     const s = row({ status: 'ended', uid: null, ended: NOW - 40 * DAY });
     db.raw
       .prepare(
@@ -443,9 +443,9 @@ describe('retention', () => {
       .run(s, NOW - 10 * DAY);
     db.raw
       .prepare(
-        "INSERT INTO live_actions (id, occurred_at, actor, action) VALUES ('a', 1, 'system', 'auto_end')"
+        "INSERT INTO live_actions (id, occurred_at, actor, action) VALUES ('a', ?, 'admin', 'end')"
       )
-      .run();
+      .run(NOW - 10 * DAY);
     expect((await sweep()).rowsDeleted).toBe(0);
     expect(get(s)).toBeDefined();
     expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_actions').get().c).toBe(1);

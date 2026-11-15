@@ -10,11 +10,13 @@
  * write failed (the action itself has happened).
  *
  * GET /api/admin/live
- *   200: { off, mode, sessions, approved, blocked, incidents, actions }
+ *   200: { off, mode, sessions, approved, requests, blocked, incidents, actions }
  *     sessions   open ones, ended ones whose input is not confirmed
  *                deleted, and every one under an open report hold (no
  *                input id, token or lock)
  *     approved   the approved-hosts list   blocked   the blocked list
+ *     requests   pending access requests, oldest first, each with the
+ *                requester's membership: 'active' | 'inactive' | 'unknown'
  *     incidents  report holds with their reports (never a reporter hash)
  *     actions    the latest 100 entries of the action log
  *
@@ -25,6 +27,11 @@
  *   mode     { mode }     'approved' (approved list only) | 'members'
  *                         (any active member). KV, ~1 min to apply.
  *   approve  { pubkey }   add to the approved-hosts list
+ *              (also closes the account's pending request as approved)
+ *   approve_request { id }  approve a pending access request: the account
+ *                         is added to the approved list (logged 'approve')
+ *   decline_request { id }  decline it (logged 'decline'); the account may
+ *                         ask again 30 days later
  *   unapprove{ pubkey }   remove from it. A running stream is not ended
  *                         (use block for that); the next create is refused.
  *   block    { pubkey }   block from hosting in every mode, then end the
@@ -39,7 +46,14 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
 import { verifyNip98 } from '$lib/nip98.server';
 import { blockHost, endAllOpen, endAndRemove } from '$lib/live/admin.server';
+import { checkMembership } from '$lib/membershipApi.server';
+import {
+  decideRequest,
+  listPendingRequests,
+  resolvePendingAsApproved
+} from '$lib/live/access.server';
 import { readBodyCapped } from '$lib/live/body.server';
+import { readLiveEnv } from '$lib/live/env.server';
 import { isLiveOff, setLiveOff } from '$lib/live/killSwitch.server';
 import {
   getHostingMode,
@@ -64,6 +78,7 @@ import { readStreamConfig } from '$lib/live/stream.server';
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const MAX_BODY_BYTES = 1024;
 const HEX64_RE = /^[0-9a-f]{64}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const forbidden = () => json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
 const bad = () => json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
 
@@ -72,6 +87,26 @@ const readPubkey = (value: unknown): string | null => {
   const pk = value.trim().toLowerCase();
   return HEX64_RE.test(pk) ? pk : null;
 };
+
+/** Pending requests with each requester's membership (tri-state; 'unknown' on any failure). */
+async function pendingWithMembership(platform: Readonly<App.Platform> | undefined, db: LiveDb) {
+  const rows = await listPendingRequests(db, 100);
+  const apiSecret = readLiveEnv(platform, 'RELAY_API_SECRET');
+  const enabled = readLiveEnv(platform, 'MEMBERSHIP_ENABLED')?.toLowerCase() === 'true';
+  return Promise.all(
+    rows.map(async (r) => {
+      let membership: 'active' | 'inactive' | 'unknown' = 'unknown';
+      if (enabled && apiSecret) {
+        try {
+          membership = (await checkMembership(r.pubkey, apiSecret)).state;
+        } catch {
+          /* stays unknown */
+        }
+      }
+      return { ...r, membership };
+    })
+  );
+}
 
 export const GET: RequestHandler = async ({ request, platform }) => {
   const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY });
@@ -88,6 +123,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
         mode: await getHostingMode(platform),
         sessions: await listSessionsForAdmin(db, 100),
         approved: await listApprovedHosts(db),
+        requests: await pendingWithMembership(platform, db),
         blocked: await listBlockedHosts(db),
         incidents: await listIncidents(db),
         actions: await listActions(db, 100)
@@ -190,6 +226,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         if (!pubkey) return bad();
         const approve = body.action === 'approve';
         const changed = await setHostApproved(db, pubkey, approve, actor);
+        if (approve) await resolvePendingAsApproved(db, pubkey);
         console.log(`[Live admin] ${body.action} host=${pubkey} changed=${changed}`);
         const logged = await logAction(db, {
           actor,
@@ -198,6 +235,22 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           detail: changed ? '' : approve ? 'already approved' : 'was not approved'
         });
         return reply({ pubkey, approved: approve, changed }, logged);
+      }
+
+      case 'approve_request':
+      case 'decline_request': {
+        if (typeof body.id !== 'string' || !UUID_RE.test(body.id)) return bad();
+        const approve = body.action === 'approve_request';
+        const row = await decideRequest(db, body.id, approve ? 'approved' : 'declined', actor);
+        if (!row) return json({ error: 'not_pending' }, { status: 409, headers: NO_STORE });
+        console.log(`[Live admin] ${body.action} host=${row.pubkey}`);
+        const logged = await logAction(db, {
+          actor,
+          action: approve ? 'approve' : 'decline',
+          targetPubkey: row.pubkey,
+          detail: 'access request'
+        });
+        return reply({ id: body.id, pubkey: row.pubkey, status: row.status }, logged);
       }
 
       case 'block':

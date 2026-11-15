@@ -1,30 +1,42 @@
 /**
- * Go live — staged rollout: can this account host, and asking for access.
+ * Go live — staged rollout, for the signed-in account about itself only.
  *
- * GET /api/live/hosting?pubkey=<64 hex>
- *   No auth. { mode: 'approved' | 'members', approved: boolean }
- *   `approved` is true in 'members' mode, and in 'approved' mode when the
- *   account is on the approved-hosts list. It decides what the host page
- *   SHOWS ("Live hosting is rolling out"); the create route enforces the
- *   same rule. Blocks and suspensions are not disclosed here.
+ * GET /api/live/hosting
+ *   Auth: NIP-98; the answer is about the signer and nobody else.
+ *   200: { mode, approved, request }
+ *     mode      'approved' | 'members'
+ *     approved  true in 'members' mode, or when the signer is on the
+ *               approved-hosts list. Decides what the host page SHOWS;
+ *               the create route enforces the same rule. Blocks are not
+ *               disclosed.
+ *     request   the signer's latest access request:
+ *               { status: 'none'|'pending'|'approved'|'declined',
+ *                 created_at, decided_at, retry_at }
+ *               retry_at: when a declined account may ask again (null = now)
  *
  * POST /api/live/hosting   (Request access)
  *   Auth: NIP-98 over this exact request; the signer is the requester.
- *   Body: { name?: string, nip05?: string }  as the requester's client read
- *     them from their own profile; shown to the admin as such, unverified.
- *   DMs the admin the request with the account's npub and profile link.
- *   No queue is kept. One request per account per day.
- *   200: { ok: true }   sent, or the account is already approved
- *        ({ ok: true, approved: true }, nothing sent)
- *   401 auth_failed, 403 membership_required, 409 already_requested,
- *   413 too_large, 400 bad_request, 503 membership_unavailable.
+ *   Body: { note?: string }   at most 280 characters
+ *   Saves a pending request in the queue (/admin/live) and DMs the admin
+ *   (at most one DM per 10 minutes; it says how many are pending).
+ *   200: { ok: true, status: 'pending' }
+ *        { ok: true, approved: true }   already approved: nothing saved
+ *   400 bad_request (note too long), 401 auth_failed,
+ *   403 membership_required, 409 already_pending,
+ *   409 declined_recently { retry_at }, 413 too_large,
+ *   503 membership_unavailable.
  */
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
 import { checkMembership } from '$lib/membershipApi.server';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
-import { LIVE_ACCESS_REQUEST_THROTTLE_SECONDS } from '$lib/live/config';
+import { LIVE_ACCESS_ALERT_THROTTLE_SECONDS, LIVE_ACCESS_NOTE_MAX } from '$lib/live/config';
+import {
+  countPendingRequests,
+  createAccessRequest,
+  ownRequestState
+} from '$lib/live/access.server';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { buildAccessRequest, sendAdminDm } from '$lib/live/reportAlert.server';
@@ -33,31 +45,35 @@ import { isHostApproved, type LiveDb } from '$lib/live/sessions.server';
 import { publishEventRaw } from '$lib/rawPublish';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
-const HEX64 = /^[0-9a-f]{64}$/;
-const MAX_BODY_BYTES = 1024;
-const ACCESS_REQUEST_PREFIX = 'live:access:';
+const MAX_BODY_BYTES = 2048;
+const ALERT_KEY = 'live:access-alert';
 
-/** Printable text only, trimmed and capped: it ends up in a DM. */
-function clean(value: unknown, max: number): string {
-  if (typeof value !== 'string') return '';
+/** Printable text, newlines allowed, trimmed. Null when over the limit. */
+function cleanNote(value: unknown): string | null {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') return null;
   let out = '';
   for (const ch of value.trim()) {
     const code = ch.codePointAt(0) ?? 0;
-    if (code < 0x20 || code === 0x7f) continue;
+    if ((code < 0x20 && ch !== '\n') || code === 0x7f) continue;
     out += ch;
   }
-  return out.slice(0, max);
+  return [...out].length > LIVE_ACCESS_NOTE_MAX ? null : out;
 }
 
-export const GET: RequestHandler = async ({ url, platform }) => {
-  const pubkey = (url.searchParams.get('pubkey') ?? '').toLowerCase();
-  if (!HEX64.test(pubkey)) return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
+export const GET: RequestHandler = async ({ request, platform }) => {
   const db = platform?.env?.SCHEDULER_DB as LiveDb | undefined;
   if (!db) return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
+  const auth = await verifyNip98(request, {});
+  if (!auth.ok) return authFailedResponse(auth.reason);
+  const pubkey = auth.pubkey.toLowerCase();
   try {
     const mode = await getHostingMode(platform);
     const approved = mode === 'members' || (await isHostApproved(db, pubkey));
-    return json({ mode, approved }, { headers: NO_STORE });
+    return json(
+      { mode, approved, request: await ownRequestState(db, pubkey) },
+      { headers: NO_STORE }
+    );
   } catch (err) {
     console.error(`[Live] hosting status failed: ${(err as Error)?.name ?? 'error'}`);
     return json({ error: 'internal' }, { status: 500, headers: NO_STORE });
@@ -77,11 +93,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     let body: Record<string, unknown> = {};
     try {
-      const parsed = JSON.parse(new TextDecoder().decode(bytes));
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed;
+      const text = new TextDecoder().decode(bytes);
+      const parsed = text.trim() ? JSON.parse(text) : {};
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('shape');
+      body = parsed;
     } catch {
       return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
     }
+    const note = cleanNote(body.note);
+    if (note === null) return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
 
     if (await isHostApproved(db, pubkey)) {
       return json({ ok: true, approved: true }, { headers: NO_STORE });
@@ -101,39 +121,52 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'membership_required' }, { status: 403, headers: NO_STORE });
     }
 
-    const kv = platform?.env?.GATED_CONTENT;
-    const throttleKey = ACCESS_REQUEST_PREFIX + pubkey;
-    try {
-      if (kv && (await kv.get(throttleKey, 'text'))) {
-        return json({ error: 'already_requested' }, { status: 409, headers: NO_STORE });
-      }
-    } catch {
-      /* a KV failure must not block the request */
+    const saved = await createAccessRequest(db, { pubkey, note });
+    if (!saved.ok) {
+      return json(
+        saved.reason === 'declined_recently'
+          ? { error: saved.reason, retry_at: saved.retry_at }
+          : { error: saved.reason },
+        { status: 409, headers: NO_STORE }
+      );
     }
+    console.info('[Live] access request saved');
 
-    const sent = await sendAdminDm(
-      buildAccessRequest({
-        pubkey,
-        name: clean(body.name, 80),
-        nip05: clean(body.nip05, 120),
-        origin: new URL(request.url).origin
-      }),
-      {
-        senderKey: readLiveEnv(platform, 'NOTIFICATION_PRIVATE_KEY'),
-        recipientPubkey: ADMIN_PUBKEY,
-        publish: publishEventRaw
-      }
-    );
-    if (sent !== 'sent') {
-      return json({ error: 'unavailable' }, { status: 503, headers: NO_STORE });
-    }
+    // DM the admin, at most once per throttle window; the queue has every request.
+    const kv = platform?.env?.GATED_CONTENT;
+    let throttled = false;
     try {
-      await kv?.put(throttleKey, '1', { expirationTtl: LIVE_ACCESS_REQUEST_THROTTLE_SECONDS });
+      throttled = !!(kv && (await kv.get(ALERT_KEY, 'text')));
     } catch {
-      /* worst case a second request goes through */
+      /* a KV failure must not swallow the alert */
     }
-    console.info('[Live] access request sent');
-    return json({ ok: true }, { headers: NO_STORE });
+    if (!throttled) {
+      const alert = (async () => {
+        const sent = await sendAdminDm(
+          buildAccessRequest({
+            pubkey,
+            note,
+            pending: await countPendingRequests(db),
+            origin: new URL(request.url).origin
+          }),
+          {
+            senderKey: readLiveEnv(platform, 'NOTIFICATION_PRIVATE_KEY'),
+            recipientPubkey: ADMIN_PUBKEY,
+            publish: publishEventRaw
+          }
+        );
+        if (sent === 'sent') {
+          try {
+            await kv?.put(ALERT_KEY, '1', { expirationTtl: LIVE_ACCESS_ALERT_THROTTLE_SECONDS });
+          } catch {
+            /* worst case another DM goes out */
+          }
+        }
+      })();
+      if (platform?.ctx) platform.ctx.waitUntil(alert);
+      else await alert;
+    }
+    return json({ ok: true, status: 'pending' }, { headers: NO_STORE });
   } catch (err) {
     console.error(`[Live] access request failed: ${(err as Error)?.name ?? 'error'}`);
     return json({ error: 'internal' }, { status: 500, headers: NO_STORE });

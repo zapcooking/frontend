@@ -230,7 +230,6 @@ export type CreateSessionResult =
         | 'rate_limited'
         | 'blocked'
         | 'not_approved'
-        | 'suspended'
         | 'live_full';
     };
 
@@ -243,8 +242,6 @@ export type CreateSessionResult =
  *    → `blocked`.
  *  - Approval. In 'approved' mode the host must be in live_approved_hosts
  *    → otherwise `not_approved`. In 'members' mode this is skipped.
- *  - Temporary suspension (an automatic safety end) still running
- *    → `suspended`.
  *  - Create rate limit. The host must have created fewer than
  *    LIVE_CREATES_PER_HOUR sessions in the last hour (ended ones
  *    included) → otherwise `rate_limited`.
@@ -282,8 +279,6 @@ export async function createSession(
          SELECT ?1, ?2, ?3, ?4, ?5, 'created', ?6
           WHERE NOT EXISTS (SELECT 1 FROM live_blocked_hosts WHERE pubkey = ?2)
             AND (?10 = 'members' OR EXISTS (SELECT 1 FROM live_approved_hosts WHERE pubkey = ?2))
-            AND NOT EXISTS (SELECT 1 FROM live_host_suspensions
-                             WHERE host_pubkey = ?2 AND suspended_until > ?6)
             AND (SELECT COUNT(*) FROM live_sessions
                   WHERE host_pubkey = ?2 AND created_at > ?7) < ?8
             AND (SELECT COUNT(*) FROM live_sessions
@@ -314,13 +309,6 @@ export async function createSession(
     if (input.mode === 'approved' && !(await isHostApproved(db, input.hostPubkey))) {
       return { ok: false, reason: 'not_approved' };
     }
-    const suspended = await db
-      .prepare(
-        'SELECT 1 AS x FROM live_host_suspensions WHERE host_pubkey = ?1 AND suspended_until > ?2'
-      )
-      .bind(input.hostPubkey, now)
-      .first<{ x: number }>();
-    if (suspended) return { ok: false, reason: 'suspended' };
     const recent = await db
       .prepare('SELECT COUNT(*) AS n FROM live_sessions WHERE host_pubkey = ?1 AND created_at > ?2')
       .bind(input.hostPubkey, now - 3600)

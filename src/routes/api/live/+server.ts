@@ -31,7 +31,6 @@
  *   then, atomic with the insert:
  *     signer is blocked from hosting       → 403 blocked
  *     'approved' mode, signer not approved → 403 not_approved
- *     temporary safety suspension running  → 403 suspended
  *     create rate limit                    → 429 rate_limited
  *     open sessions at the global cap      → 503 live_full
  *
@@ -141,11 +140,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       maxOpen: parseMaxOpenSessions(readLiveEnv(platform, 'LIVE_MAX_OPEN_SESSIONS'))
     });
     if (!created.ok) {
-      if (
-        created.reason === 'blocked' ||
-        created.reason === 'not_approved' ||
-        created.reason === 'suspended'
-      ) {
+      if (created.reason === 'blocked' || created.reason === 'not_approved') {
         console.warn(`[Live] create refused: ${created.reason}`);
         return json({ error: created.reason }, { status: 403, headers: NO_STORE });
       }

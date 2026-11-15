@@ -1,10 +1,11 @@
 # Go live: rollout and moderation process
 
 This page describes how hosting is opened, how reports are handled and
-what is recorded. It covers PR #977, which folds in the design of draft
-PR #976. Every admin control is on **/admin/live**, signed with the admin
-account (NIP-98). Every admin action, and every automatic one, is written
-to the **action log** with its time and actor.
+what is recorded. It covers PR #977, which folds in the report and hold
+design of draft PR #976. Every admin control is on **/admin/live**, signed
+with the admin account (NIP-98). Every admin action is written to the
+**action log** with its time and actor. Nothing is ever ended or blocked
+automatically: a person decides.
 
 ## 1. Staged rollout
 
@@ -13,8 +14,7 @@ to the **action log** with its time and actor.
 | `approved` (default) | Active Cook+ members on the **approved hosts** list |
 | `members` | Any active Cook+ member |
 
-In both modes, an account that is blocked or temporarily suspended cannot
-host.
+In both modes, an account that is blocked cannot host.
 
 - The mode is changed on /admin/live, with no deploy. The change is logged
   (`mode`, with old and new value). It is stored in KV and can take about a
@@ -23,17 +23,30 @@ host.
 - Approving and removing hosts is logged (`approve`, `unapprove`).
   Removing a host does not end a stream already running; to stop one, use
   **End** or **Block**.
-- A member who is not on the list sees "Live hosting is rolling out" and a
-  **Request access** button.
-  - The request is signed by the member and sent to the admin account as a
-    DM. It contains the member's npub, a profile link, and the name and
-    NIP-05 from their own profile (unverified).
-  - No queue is kept, and each account can send one request a day.
-  - Approve the account on /admin/live.
 - Non-members see Go live with a **Cook+** label, which leads to the
   membership page.
 - Recommended order: approve a few hosts, watch the reports and the action
   log, widen the list, and only then switch to `members`.
+
+### Access requests
+
+- A member who is not on the list sees "Live hosting is rolling out".
+  They can **request access** with an optional note, up to 280
+  characters: "what would you cook, and how often?".
+- The request is saved in a queue, with one open request per account, and
+  the member then sees "Request sent".
+- The admin is DMed about new requests, at most one DM every 10 minutes.
+  The DM says how many are pending.
+- /admin/live lists pending requests with the requester's profile, note and
+  membership status.
+  - **Approve** adds the account to the approved list. It is logged as
+    `approve`.
+  - **Decline** is logged as `decline`. A declined account can ask again
+    30 days after the decision.
+  - Approving an account directly also closes its pending request.
+- The status the host page reads (`GET /api/live/hosting`) is signed, and
+  answers only about the signed-in account. It never answers about another
+  account, and never shows a block.
 
 ## 2. Reports
 
@@ -55,12 +68,6 @@ Each report:
    the title and links. Nothing about the reporter is included.
    - At most one alert per stream every 10 minutes, except **child safety
      and violence, which always alert**.
-4. **Automatic end: off unless `LIVE_SAFETY_AUTO_END` is `true`.** When
-   on, 3 different reporters of the stream (comment reports don't count)
-   end it and suspend the host from going live for 1 hour. This is logged
-   as `auto_end` by `system`.
-   - Reporters are IP hashes, not verified people, so keep this off until
-     it has been tested against abuse.
 
 Streams are **not recorded**. Evidence means the session record, the
 snapshot, the reports, the "Live now" note and its public comments on
@@ -87,19 +94,25 @@ Nostr, and the action log.
 | Reports | 90 days after the report; while a hold is open, until it is released |
 | Session row after a released hold | Until its reports age out, then the 30-day rule |
 | Hold | While open; a released hold is removed once its reports are gone |
-| Temporary suspension | Until it expires |
+| Access requests | Kept (pending, approved, declined) |
 | Approved and blocked lists | Until changed by the admin (a block survives account deletion) |
-| Action log | Kept; no automatic deletion |
+| Action log | 2 years; entries about a session under an open hold are kept until it is released |
 
 Account deletion removes the host's sessions **except those under an open
 hold**.
+
+**For the policy PR:**
+
+- Privacy must state the 2-year action log, which holds account keys.
+- It must state the access-request queue: the key, the note, and the
+  decision.
+- It must state the reporter IP hash and the 90-day report retention.
 
 ## 5. Before production
 
 - Apply migration `0007_live_rollout_and_safety.sql` to preview, then
   production (see `migrations/scheduler/APPLIED.md`).
 - Set `NOTIFICATION_PRIVATE_KEY` on every environment that should send
-  alerts and access requests.
-- Leave `LIVE_SAFETY_AUTO_END` unset.
+  report alerts and access-request DMs.
 - Have counsel review the policy text (Terms, Privacy, Child Safety) for
   the behaviour described here.

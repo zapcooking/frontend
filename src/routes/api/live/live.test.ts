@@ -198,11 +198,11 @@ describe('migration 0007', () => {
     const tables = [...sql.matchAll(/CREATE\s+TABLE\s+(\w+)/gi)].map((m) => m[1]);
     expect(tables.sort()).toEqual(
       [
+        'live_access_requests',
         'live_actions',
         'live_approved_hosts',
         'live_blocked_hosts',
         'live_holds',
-        'live_host_suspensions',
         'live_reports'
       ].sort()
     );
@@ -235,6 +235,20 @@ describe('migration 0007', () => {
     expect(ins('c1')).toBe(1);
     expect(ins('c1')).toBe(0);
     expect(ins('c2')).toBe(1);
+  });
+
+  it('allows one pending access request per account, and more once decided', () => {
+    const ins = (status: string) =>
+      db.raw
+        .prepare(
+          "INSERT INTO live_access_requests (id, pubkey, status, created_at) VALUES (?, 'p', ?, 1)"
+        )
+        .run(crypto.randomUUID(), status);
+    ins('pending');
+    expect(() => ins('pending')).toThrow(/UNIQUE/);
+    ins('declined');
+    ins('approved');
+    expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_access_requests').get().c).toBe(3);
   });
 
   it('refuses an unknown report reason', () => {
@@ -332,18 +346,6 @@ describe('POST /api/live (create)', () => {
     expect((await create({ title: 'x' }, { secretKey: otherSk })).data).toEqual({
       error: 'not_approved'
     });
-  });
-
-  it('refuses a host under a running safety suspension, and not after it expires', async () => {
-    const now = Math.floor(Date.now() / 1000);
-    db.raw
-      .prepare(
-        "INSERT INTO live_host_suspensions (host_pubkey, suspended_until, reason, session_id) VALUES (?, ?, 'report_threshold', 's')"
-      )
-      .run(HOST, now + 600);
-    expect((await create()).data).toEqual({ error: 'suspended' });
-    db.raw.prepare('UPDATE live_host_suspensions SET suspended_until = ?').run(now - 1);
-    expect((await create()).res.status).toBe(201);
   });
 
   it('refuses a blocked host with 403 blocked and inserts nothing', async () => {

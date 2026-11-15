@@ -17,8 +17,7 @@
  *     record is kept until the admin releases it.
  *  3. The admin is DM'd (throttled per session, except child safety and
  *     violence). A repeat from the same reporter sends nothing.
- *  4. Only with LIVE_SAFETY_AUTO_END = 'true': enough distinct reporters
- *     of the stream end it and suspend the host for an hour.
+ * Nothing is ended automatically: the admin decides.
  *
  * Replies: 400 bad_request, 404 not_found, 413 too_large, 429 (rate
  * limit), 500 not_configured / internal.
@@ -30,9 +29,8 @@ import { LIVE_REPORT_DETAILS_MAX, isLiveReportReason } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { sendReportAlert } from '$lib/live/reportAlert.server';
-import { maybeAutoEnd, recordReport } from '$lib/live/safety.server';
+import { recordReport } from '$lib/live/safety.server';
 import { isLiveSessionId, type LiveDb } from '$lib/live/sessions.server';
-import { readStreamConfig } from '$lib/live/stream.server';
 import { publishEventRaw } from '$lib/rawPublish';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -74,9 +72,9 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
       comment = { id, pubkey };
     }
 
-    // Per-IP limit; its daily-salted hash is the reporter's identity. No
-    // usable address: the report is still taken, but never counts toward
-    // the automatic end.
+    // Per-IP limit; its daily-salted hash is the reporter's identity (one
+    // report per reporter per target). No usable address: the report is
+    // still taken.
     let ip = '';
     try {
       ip = getClientAddress();
@@ -103,32 +101,23 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
     );
 
     if (result.recorded) {
-      const followUp = (async () => {
-        await sendReportAlert(
-          {
-            sessionId,
-            title: result.title,
-            reason,
-            comment: !!comment,
-            origin: new URL(request.url).origin
-          },
-          {
-            kv: platform?.env?.GATED_CONTENT,
-            senderKey: readLiveEnv(platform, 'NOTIFICATION_PRIVATE_KEY'),
-            recipientPubkey: ADMIN_PUBKEY,
-            publish: publishEventRaw
-          }
-        );
-        if (!comment && readLiveEnv(platform, 'LIVE_SAFETY_AUTO_END') === 'true') {
-          try {
-            await maybeAutoEnd(db, readStreamConfig(platform), sessionId);
-          } catch (err) {
-            console.error(`[Live] auto end failed: ${(err as Error)?.name ?? 'error'}`);
-          }
+      const alert = sendReportAlert(
+        {
+          sessionId,
+          title: result.title,
+          reason,
+          comment: !!comment,
+          origin: new URL(request.url).origin
+        },
+        {
+          kv: platform?.env?.GATED_CONTENT,
+          senderKey: readLiveEnv(platform, 'NOTIFICATION_PRIVATE_KEY'),
+          recipientPubkey: ADMIN_PUBKEY,
+          publish: publishEventRaw
         }
-      })();
-      if (platform?.ctx) platform.ctx.waitUntil(followUp);
-      else await followUp;
+      );
+      if (platform?.ctx) platform.ctx.waitUntil(alert);
+      else await alert;
     }
 
     return json({ ok: true, duplicate: !result.recorded }, { headers: NO_STORE });
