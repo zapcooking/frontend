@@ -80,8 +80,8 @@
   import RecipePanel from '../../../components/streams/RecipePanel.svelte';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
   import CameraRotateIcon from 'phosphor-svelte/lib/CameraRotate';
-  import LinkSimpleIcon from 'phosphor-svelte/lib/LinkSimple';
-  import CheckIcon from 'phosphor-svelte/lib/Check';
+  import LiveShareButton from '../../../components/streams/LiveShareButton.svelte';
+  import { getSiteOrigin } from '$lib/utils/share';
   import XIcon from 'phosphor-svelte/lib/X';
   import RecipePickerModal from '../../../components/RecipePickerModal.svelte';
   import Modal from '../../../components/Modal.svelte';
@@ -822,20 +822,8 @@
       policy?.failed();
   }
 
-  let linkCopied = false;
   /** The public watch page for this session, for the host to share. */
-  async function copyWatchLink() {
-    if (!session) return;
-    const url = `${location.origin}/live/s/${session.id}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      linkCopied = true;
-      setTimeout(() => (linkCopied = false), 2500);
-    } catch {
-      // No clipboard access (some in-app browsers): show the link instead.
-      notice = url;
-    }
-  }
+  $: watchUrl = session ? `${getSiteOrigin()}/live/s/${session.id}` : '';
 
   function onPageHide() {
     setMicrophoneEnabled(stream, false);
@@ -1045,28 +1033,16 @@
             <CameraRotateIcon size={20} weight="bold" />
           </button>
           {#if isLive || phase === 'starting'}
-            <button
-              class="icon-btn"
-              on:click={copyWatchLink}
-              disabled={!session}
-              aria-label={linkCopied ? 'Watch link copied' : 'Copy watch link'}
-              title={linkCopied ? 'Copied' : 'Copy watch link'}
-            >
-              {#if linkCopied}
-                <CheckIcon size={20} weight="bold" />
-              {:else}
-                <LinkSimpleIcon size={20} weight="bold" />
-              {/if}
-            </button>
+            {#if session}
+              <!-- Phones: the share sheet. Desktop: Copy link / Share on Nostr. -->
+              <LiveShareButton url={watchUrl} title={title} variant="icon" tone="glass" up />
+            {/if}
             <span class="spacer"></span>
             <!-- Never disabled while starting: if the first publish cannot get
                  through, End is the only way out short of closing the tab. -->
             <button class="end-btn" on:click={end} disabled={ending}>End</button>
           {/if}
         </div>
-      {/if}
-      {#if linkCopied}
-        <div class="copied" role="status">Watch link copied</div>
       {/if}
       {#if isLive && !lockHintDismissed}
         <!-- Shown until dismissed, once per device. -->
@@ -1387,19 +1363,6 @@
   }
   .end-btn:disabled {
     opacity: 0.6;
-  }
-  .copied {
-    position: absolute;
-    left: 50%;
-    bottom: 4.25rem;
-    transform: translateX(-50%);
-    padding: 0.3rem 0.7rem;
-    border-radius: 9999px;
-    background: rgba(0, 0, 0, 0.75);
-    color: #fff;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    white-space: nowrap;
   }
   .live-panel {
     gap: 0.5rem;

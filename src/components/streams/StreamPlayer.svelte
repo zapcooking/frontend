@@ -11,7 +11,9 @@
   import TextAlignLeftIcon from 'phosphor-svelte/lib/TextAlignLeft';
   import LiveAvatar from './LiveAvatar.svelte';
   import { pseudonym } from '$lib/streams/parse';
-  import { isGoLiveItem } from '$lib/streams/goLive';
+  import { isGoLiveItem, streamPath } from '$lib/streams/goLive';
+  import { getSiteOrigin } from '$lib/utils/share';
+  import LiveShareButton from './LiveShareButton.svelte';
   import { selectStream, streamPlayer, updateStreamItem } from '$lib/stores/streamPlayer';
   import { streamSlot } from '$lib/stores/streamSlot';
   import { openProfilePreview } from '$lib/stores/profilePreview';
@@ -225,6 +227,9 @@
     }
   }
 
+  /** The stream's own page (Go live: /live/s/<id>; Nostr: /live/<naddr>). */
+  $: sharePath = streamPath(item);
+
   function onZapComplete() {
     // The page owns the tally scan; ask it to re-run after a paid zap.
     dispatch('zapComplete');
@@ -266,6 +271,9 @@
         loading={tallyLoading}
         on:zapComplete={onZapComplete}
       />
+      {#if sharePath}
+        <LiveShareButton url={getSiteOrigin() + sharePath} title={item.title} />
+      {/if}
       <!-- Labelled: an icon alone read as "open chat". It shows the
            stream's details (title, summary, tags). -->
       <button
