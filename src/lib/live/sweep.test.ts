@@ -3,7 +3,7 @@
  * (migration 0004); Cloudflare is the stub in src/test/liveStreamStub.ts.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createLiveDatabase } from '../../test/liveDatabase';
+import { approveHosts, createLiveDatabase } from '../../test/liveDatabase';
 import { createStreamStub, STUB_ACCOUNT } from '../../test/liveStreamStub';
 import { purgeLiveSessions } from './admin.server';
 import { runLiveSweep } from './sweep.server';
@@ -533,5 +533,15 @@ describe('purgeLiveSessions (account deletion)', () => {
     expect(await purgeLiveSessions(db, cfg, HOST)).toBe(1);
     expect(get(held)).toBeDefined();
     expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_blocked_hosts').get().c).toBe(1);
+  });
+
+  it('removes the account from the approved-hosts list, and only that account', async () => {
+    approveHosts(db, HOST, OTHER_HOST);
+    await purgeLiveSessions(db, cfg, HOST);
+    const approved = db.raw
+      .prepare('SELECT pubkey FROM live_approved_hosts WHERE pubkey IN (?, ?)')
+      .all(HOST, OTHER_HOST)
+      .map((r: { pubkey: string }) => r.pubkey);
+    expect(approved).toEqual([OTHER_HOST]);
   });
 });

@@ -3,7 +3,14 @@
  * stubbed). Nothing is ended automatically.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { generateSecretKey, nip04 } from 'nostr-tools';
+import {
+  finalizeEvent,
+  generateSecretKey,
+  getPublicKey,
+  nip04,
+  type EventTemplate
+} from 'nostr-tools';
+import { normalizeUrl, sha256Hex } from '$lib/nip98';
 import { ADMIN_PUBKEY, ADMIN_PUBKEYS, BACKUP_ADMIN_PUBKEY } from '$lib/adminAuth';
 // One DM per admin (primary and backup) for every alert.
 const DMS = ADMIN_PUBKEYS.length;
@@ -32,17 +39,43 @@ let env: Record<string, unknown>;
 let ip = 0;
 let waited: Promise<unknown>[];
 
-function post(body: unknown, opts: { id?: string; ip?: string; ctx?: boolean } = {}) {
+const reporterSk = generateSecretKey();
+
+/** NIP-98 over this exact request, as the chat signs a comment report. */
+async function nip98(url: string, body: string, sk = reporterSk) {
+  const template: EventTemplate = {
+    kind: 27235,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ['u', normalizeUrl(url)],
+      ['method', 'POST'],
+      ['payload', await sha256Hex(new TextEncoder().encode(body))]
+    ],
+    content: ''
+  };
+  return `Nostr ${btoa(JSON.stringify(finalizeEvent(template, sk)))}`;
+}
+
+/**
+ * POST a report. A comment report is signed unless `auth` says otherwise
+ * (null = no Authorization header; a string = that header).
+ */
+async function post(
+  body: unknown,
+  opts: { id?: string; ip?: string; ctx?: boolean; auth?: string | null } = {}
+) {
   const platform: any = { env };
   if (opts.ctx) platform.ctx = { waitUntil: (p: Promise<unknown>) => waited.push(p) };
   const id = opts.id ?? SESSION;
   const address = opts.ip ?? `10.0.0.${++ip}`;
+  const url = `https://zap.cooking/api/live/${id}/report`;
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const isComment = typeof body === 'object' && body !== null && 'comment' in body;
+  const auth = opts.auth !== undefined ? opts.auth : isComment ? await nip98(url, text) : null;
+  if (auth) headers.Authorization = auth;
   return report({
-    request: new Request(`https://zap.cooking/api/live/${id}/report`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: typeof body === 'string' ? body : JSON.stringify(body)
-    }),
+    request: new Request(url, { method: 'POST', headers, body: text }),
     params: { id },
     platform,
     getClientAddress: () => address
@@ -179,6 +212,40 @@ describe('POST /api/live/<id>/report', () => {
       comment_id: COMMENT.id,
       comment_pubkey: COMMENT.pubkey
     });
+  });
+
+  it('refuses a comment report without a valid signature, and stores nothing', async () => {
+    const body = { reason: 'spam', comment: COMMENT };
+    const unsigned = await post(body, { auth: null });
+    expect(unsigned.status).toBe(401);
+    expect(await unsigned.json()).toEqual({ error: 'auth_required' });
+    const url = `https://zap.cooking/api/live/${SESSION}/report`;
+    // Signed for another body (a different comment): refused.
+    const other = JSON.stringify({ reason: 'spam', comment: { ...COMMENT, id: '2'.repeat(64) } });
+    expect((await post(body, { auth: await nip98(url, other) })).status).toBe(401);
+    // Signed for another session's URL: refused.
+    const elsewhere = `https://zap.cooking/api/live/${'cd'.repeat(16)}/report`;
+    expect((await post(body, { auth: await nip98(elsewhere, JSON.stringify(body)) })).status).toBe(
+      401
+    );
+    expect((await post(body, { auth: 'Nostr garbage' })).status).toBe(401);
+    expect(count('live_reports')).toBe(0);
+    expect(count('live_holds')).toBe(0);
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('keeps stream reports open: no signature needed, and a bad one is ignored', async () => {
+    expect((await post({ reason: 'nudity' }, { auth: null })).status).toBe(200);
+    expect((await post({ reason: 'spam' }, { auth: 'Nostr garbage' })).status).toBe(200);
+    expect(count('live_reports')).toBe(2);
+  });
+
+  it('stores and sends nothing about the comment reporter but the keyed IP hash', async () => {
+    await post({ reason: 'spam', comment: COMMENT });
+    const signer = getPublicKey(reporterSk);
+    expect(JSON.stringify(db.raw.prepare('SELECT * FROM live_reports').get())).not.toContain(signer);
+    const sent = mocks.publish.mock.calls.map((c: any) => JSON.stringify(c[0])).join('');
+    expect(sent).not.toContain(signer);
   });
 
   it('sends the DM in the background when the runtime offers waitUntil', async () => {

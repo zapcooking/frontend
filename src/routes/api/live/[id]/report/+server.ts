@@ -2,8 +2,12 @@
  * Go live — report a stream, or one comment in its chat.
  *
  * POST /api/live/<id>/report
- *   No auth (anyone watching may report the stream; the chat asks for
- *   sign-in before it offers to report a comment). Rate limited per IP.
+ *   A stream report needs no auth: anyone watching may report the stream.
+ *   A COMMENT report needs NIP-98 over this exact request (401
+ *   auth_required otherwise): only signed-in users report comments (Privacy
+ *   §1.7). The signature is checked and nothing about the signer is
+ *   stored or sent: the reporter is still only the keyed IP hash.
+ *   Rate limited per IP.
  *   Body: { reason, details?, comment?: { id, pubkey } }
  *     reason   child_safety | nudity | violence | spam | other
  *     details  the reporter's note, at most 300 characters
@@ -25,7 +29,8 @@
  *     reporter's report of another reason is stored too.
  * Nothing is ended automatically: the admin decides.
  *
- * Replies: 400 bad_request, 404 not_found, 413 too_large, 429 (rate
+ * Replies: 400 bad_request, 401 auth_required (a comment report without a
+ * valid signature), 404 not_found, 413 too_large, 429 (rate
  * limit), 500 not_configured / internal, 503 not_stored (the reporter
  * hash secret is not set; the admin was DM'd).
  */
@@ -43,6 +48,7 @@ import { alertThrottleName, sendReportAlert } from '$lib/live/reportAlert.server
 import { keyedReporterHash, recordReport } from '$lib/live/safety.server';
 import { getSession, isLiveSessionId, type LiveDb } from '$lib/live/sessions.server';
 import { publishEventRaw } from '$lib/rawPublish';
+import { verifyNip98 } from '$lib/nip98.server';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const MAX_BODY_BYTES = 2048;
@@ -81,6 +87,16 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
       const pubkey = typeof c?.pubkey === 'string' ? c.pubkey.toLowerCase() : '';
       if (!HEX64.test(id) || !HEX64.test(pubkey)) return bad();
       comment = { id, pubkey };
+    }
+
+    // Comment reports are for signed-in users: the server enforces what the
+    // chat shows. Checked, never stored (the signer's key is not used).
+    if (comment) {
+      const auth = await verifyNip98(request, { bodyBytes: bytes });
+      if (!auth.ok) {
+        console.warn(`[Live] comment report refused: NIP-98 ${auth.reason}`);
+        return json({ error: 'auth_required' }, { status: 401, headers: NO_STORE });
+      }
     }
 
     // Per-IP limit. Its daily-salted hash, keyed with the secret, is the
