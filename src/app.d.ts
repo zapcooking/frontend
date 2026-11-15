@@ -111,6 +111,14 @@ declare global {
           LIVE_REPORTER_HASH_SECRET?: string;
           /** HMAC key for Go live rejoin passes. Secret, one per environment. */
           LIVE_PASS_SECRET?: string;
+          /**
+           * Go live "watching now" count: Durable Object namespace from the
+           * zap-cooking-live-presence worker (see $lib/live/presence.server).
+           */
+          LIVE_PRESENCE?: {
+            idFromName(name: string): unknown;
+            get(id: unknown): { fetch(input: string, init?: RequestInit): Promise<Response> };
+          };
           /** D1 database for scheduled posts (zapcooking-scheduler). */
           SCHEDULER_DB?: {
             prepare(query: string): {

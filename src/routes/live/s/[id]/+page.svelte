@@ -25,6 +25,9 @@
   import { keepHigherTally } from '$lib/streams/tallyDisplay';
   import { zapReceiptRelayUrls } from '$lib/nip65Routing';
   import { userPublickey } from '$lib/nostr';
+  import { liveWatching } from '$lib/live/watch/heartbeat';
+  import { readWatchingNow } from '$lib/live/host/hostApi';
+  import { LIVE_WATCHING_POLL_MS } from '$lib/live/config';
 
   const POLL_MS = 5000;
   const TALLY_RESCAN_MS = 60000;
@@ -90,7 +93,38 @@
 
   function rebuild() {
     if (!session) return;
-    item = sessionToStreamItem(session, recipeCardOf(recipe), hostName);
+    // "N watching" comes from this page's own heartbeat replies (the
+    // layout-level player sends them; see $lib/live/watch/heartbeat).
+    const heard = $liveWatching?.sessionId === session.id ? $liveWatching.watching : null;
+    item = sessionToStreamItem({ ...session, watching: heard }, recipeCardOf(recipe), hostName);
+  }
+  // A new count rebuilds the item, which reaches the player's overlay.
+  $: if ($liveWatching) rebuild();
+
+  // The host watching their own stream sends no heartbeat (they are not
+  // counted), so they would never hear a count back: read it instead.
+  $: viewingAsHost =
+    !!session &&
+    session.status !== 'ended' &&
+    !!$userPublickey &&
+    $userPublickey.toLowerCase() === session.host_pubkey.toLowerCase();
+  $: if (browser) syncHostCount(viewingAsHost && session ? session.id : null);
+  let hostCountFor: string | null = null;
+  let hostCountTimer: ReturnType<typeof setInterval> | null = null;
+  function syncHostCount(id: string | null) {
+    if (id === hostCountFor) return;
+    if (hostCountTimer) clearInterval(hostCountTimer);
+    hostCountTimer = null;
+    hostCountFor = id;
+    if (!id) return;
+    const read = async () => {
+      if (document.hidden) return;
+      const n = await readWatchingNow(id);
+      // A failed read (null) keeps the last count.
+      if (n !== null && hostCountFor === id) liveWatching.set({ sessionId: id, watching: n });
+    };
+    void read();
+    hostCountTimer = setInterval(read, LIVE_WATCHING_POLL_MS);
   }
 
   async function loadHostName(pubkey: string) {
@@ -207,6 +241,8 @@
     currentId = null;
     stopPolling();
     if (tallyTimer) clearInterval(tallyTimer);
+    if (hostCountTimer) clearInterval(hostCountTimer);
+    hostCountFor = null;
     scanAbort?.abort();
     if (browser) document.removeEventListener('visibilitychange', onVisible);
     pool?.destroy();

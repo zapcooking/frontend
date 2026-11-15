@@ -307,7 +307,7 @@ describe('POST /api/live/<id>/join', () => {
     expect(cf.plays).toEqual([{ uid: before.cf_input_uid, body: VIEWER_OFFER, auth: null }]);
   });
 
-  it('stores nothing about the viewer: one integer changes and that is all', async () => {
+  it('stores nothing about the viewer: two integers change and that is all', async () => {
     const s = await liveSession();
     const before = rowOf(s.id);
     const tables = () =>
@@ -319,8 +319,10 @@ describe('POST /api/live/<id>/join', () => {
 
     const after = rowOf(s.id);
     const changed = Object.keys(after).filter((k) => after[k] !== before[k]);
-    expect(changed).toEqual(['guest_joins']);
+    expect(changed.sort()).toEqual(['guest_joins', 'joins']);
     expect(after.guest_joins).toBe(2);
+    // Every admitted viewer counts as a join (the host's after-stream number).
+    expect(after.joins).toBe(2);
     expect(tables()).toEqual(tablesBefore);
     expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_sessions').get().c).toBe(1);
     expect(JSON.stringify(after)).not.toContain(STRANGER);
@@ -804,5 +806,47 @@ describe('pass rejoin ceiling (3x the guest cap)', () => {
     await endSession(s);
     expect((await join(s.id, { pass })).res.status).toBe(410);
     expect(rowOf(s.id).pass_rejoins).toBe(0);
+  });
+});
+
+describe('joins (the host’s after-the-stream count)', () => {
+  it('counts guests and members alike', async () => {
+    const s = await liveSession();
+    await join(s.id);
+    await join(s.id, { auth: await memberAuth(s.id) });
+    expect(rowOf(s.id).joins).toBe(2);
+  });
+
+  it('does not count a rejoin on a pass', async () => {
+    const s = await liveSession();
+    const pass = (await join(s.id)).res.headers.get('live-pass')!;
+    expect((await join(s.id, { pass })).res.status).toBe(201);
+    expect(rowOf(s.id).joins).toBe(1);
+  });
+
+  it('does not count the host watching their own stream', async () => {
+    const s = await liveSession();
+    expect((await join(s.id, { auth: await memberAuth(s.id, hostSk) })).res.status).toBe(201);
+    expect(rowOf(s.id).joins).toBe(0);
+  });
+
+  it('does not count a viewer who did not get in', async () => {
+    platformEnv.LIVE_GUEST_CAP = '1';
+    const s = await liveSession();
+    await join(s.id);
+    expect((await join(s.id)).res.status).toBe(403);
+    cf.playThrows = true;
+    expect((await join(s.id, { auth: await memberAuth(s.id) })).res.status).toBe(503);
+    expect(rowOf(s.id).joins).toBe(1);
+  });
+});
+
+describe('joins on a database without migration 0008', () => {
+  it('still admits the viewer', async () => {
+    const s = await liveSession();
+    db.raw.exec('ALTER TABLE live_sessions DROP COLUMN joins');
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await join(s.id)).res.status).toBe(201);
+    errors.mockRestore();
   });
 });

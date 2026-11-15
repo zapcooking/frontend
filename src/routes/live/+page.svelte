@@ -32,10 +32,13 @@
   import { ndk } from '$lib/nostr';
   import {
     fetchLiveSessions,
+    holdWatching,
     isGoLiveItem,
     mergeLiveItems,
     sessionToStreamItem,
     streamPath,
+    watchingCount,
+    watchingLabel,
     type GoLiveSession,
     type RecipeCard
   } from '$lib/streams/goLive';
@@ -64,6 +67,8 @@
   let recipeCards = new Map<string, RecipeCard | null>();
 
   const GO_LIVE_REFRESH_MS = 20000;
+  /** Last known "watching" per session, held through a failed count read. */
+  const lastWatching = new Map<string, number>();
 
   function link(item: StreamItem): string | null {
     return streamPath(item);
@@ -93,7 +98,7 @@
 
   async function fillGoLive() {
     if (document.hidden && goLiveLoaded) return;
-    goLiveSessions = await fetchLiveSessions();
+    goLiveSessions = holdWatching(await fetchLiveSessions(), lastWatching);
     goLiveLoaded = true;
     // Show what we have now; recipe photos fill in as they resolve.
     if (goLiveSessions.length) loading = false;
@@ -282,11 +287,12 @@
             >
               {item.status === 'ended' ? 'Replay' : item.status === 'planned' ? 'Soon' : 'Live'}
             </span>
-            {#if item.viewers != null && item.status === 'live'}
+            <!-- "N watching" on every live card, Go live and Nostr alike, from 1 up. -->
+            {#if watchingCount(item.viewers) != null && item.status === 'live'}
               <span
                 class="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white"
               >
-                {item.viewers.toLocaleString()}
+                {watchingLabel(item.viewers ?? 0)}
               </span>
             {/if}
           </div>

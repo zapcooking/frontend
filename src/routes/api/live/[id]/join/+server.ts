@@ -33,6 +33,10 @@
  * (pass_rejoins). Past it a pass is not honoured and the viewer is
  * treated as a new guest (a member who signed is still a member).
  *
+ * Joins. Each viewer admitted, member or guest, adds one to the session's
+ * `joins` integer, shown to the host after the stream. A rejoin on a pass
+ * does not (it is the same viewer coming back), nor does the host.
+ *
  * NOTHING about a viewer is stored: no address, no key, no session
  * handle. The cap and the pass ceiling are integers on the session row. A viewer leaving
  * is therefore not detected, and a guest who reloads uses another slot.
@@ -70,6 +74,7 @@ import { issuePass, LIVE_PASS_HEADER, verifyPass } from '$lib/live/pass.server';
 import { isLiveOff } from '$lib/live/killSwitch.server';
 import {
   countCapRefusal,
+  countJoin,
   getRelayState,
   returnGuestSlot,
   returnPassRejoin,
@@ -86,27 +91,33 @@ const tryAgain = (error: string, status: number) =>
   json({ error, retry: true }, { status, headers: RETRY });
 
 /**
- * True only for a request that carries a valid NIP-98 signature over
- * these exact bytes, from a pubkey the membership service confirms as
- * active right now. Every other outcome, including "could not check",
- * is false: the viewer is then a guest. Never throws.
+ * `member` is true only for a request that carries a valid NIP-98
+ * signature over these exact bytes, from a pubkey the membership service
+ * confirms as active right now. Every other outcome, including "could not
+ * check", is false: the viewer is then a guest. `signer` is the verified
+ * signer, if any (used only to leave the host out of the joins count; it
+ * is not stored). Never throws.
  */
-async function isConfirmedMember(
+async function checkSigner(
   request: Request,
   bodyBytes: Uint8Array,
   platform: Readonly<App.Platform> | undefined
-): Promise<boolean> {
-  if (!(request.headers.get('Authorization') ?? '').startsWith('Nostr ')) return false;
+): Promise<{ member: boolean; signer: string | null }> {
+  if (!(request.headers.get('Authorization') ?? '').startsWith('Nostr ')) {
+    return { member: false, signer: null };
+  }
+  let signer: string | null = null;
   try {
     const auth = await verifyNip98(request, { bodyBytes });
-    if (!auth.ok) return false;
+    if (!auth.ok) return { member: false, signer: null };
+    signer = auth.pubkey.toLowerCase();
     const enabled = readLiveEnv(platform, 'MEMBERSHIP_ENABLED')?.toLowerCase() === 'true';
     const apiSecret = readLiveEnv(platform, 'RELAY_API_SECRET');
-    if (!enabled || !apiSecret) return false;
-    const membership = await checkMembership(auth.pubkey.toLowerCase(), apiSecret);
-    return membership.state === 'active';
+    if (!enabled || !apiSecret) return { member: false, signer };
+    const membership = await checkMembership(signer, apiSecret);
+    return { member: membership.state === 'active', signer };
   } catch {
-    return false;
+    return { member: false, signer };
   }
 }
 
@@ -166,7 +177,10 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
     const passHolder = passValid && (await takePassRejoin(db, id, passRejoinCeiling(cap)));
     // Only ask about membership when the pass does not already settle it:
     // a signed member join is checked against the membership service.
-    const member = !passHolder && (await isConfirmedMember(request, offer, platform));
+    const signed = passHolder
+      ? { member: false, signer: null }
+      : await checkSigner(request, offer, platform);
+    const member = signed.member;
     let slotTaken = false;
     if (!member && !passHolder) {
       if (!(await takeGuestSlot(db, id, cap))) {
@@ -190,6 +204,9 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
       // rejoin pass goes along when the pass secret is configured.
       const headers: Record<string, string> = { 'Content-Type': 'application/sdp', ...NO_STORE };
       if (passSecret) headers[LIVE_PASS_HEADER] = await issuePass(passSecret, id);
+      // One more join for the host's after-the-stream count: members and
+      // guests alike, but not a rejoin on a pass and not the host.
+      if (!passHolder && signed.signer !== state.host_pubkey) await countJoin(db, id);
       return new Response(relayed.answer, { status: 201, headers });
     }
 

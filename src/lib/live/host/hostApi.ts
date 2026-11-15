@@ -265,20 +265,118 @@ export async function publishOffer(
   return { ok: false, failure: classifyPublishReply(res.status, body.error) };
 }
 
-/** End with the host token. True when the server says the session is ended. */
-export async function endLiveSession(
+/** The host's after-the-stream counts (see /api/live/<id>/stats). */
+export interface LiveStats {
+  peakWatching: number;
+  joins: number;
+}
+
+function readStats(data: unknown): LiveStats | null {
+  const d = data as { peak_watching?: unknown; joins?: unknown } | null;
+  return d &&
+    Number.isSafeInteger(d.peak_watching) &&
+    Number.isSafeInteger(d.joins) &&
+    (d.peak_watching as number) >= 0 &&
+    (d.joins as number) >= 0
+    ? { peakWatching: d.peak_watching as number, joins: d.joins as number }
+    : null;
+}
+
+/**
+ * End with the host token. `ended` is true when the server says the
+ * session is ended; `stats` carries the after-the-stream counts when this
+ * call ended it (null otherwise, or when they could not be read).
+ */
+export async function endLiveSessionWithStats(
   session: HostSession,
   fetchFn: typeof fetch = fetch
-): Promise<boolean> {
+): Promise<{ ended: boolean; stats: LiveStats | null }> {
   try {
     const res = await fetchFn(`/api/live/${session.id}/end`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${session.token}` }
     });
-    return res.status === 200;
+    if (res.status !== 200) return { ended: false, stats: null };
+    let stats: LiveStats | null = null;
+    try {
+      stats = readStats(await res.json());
+    } catch {
+      /* ended; the counts are optional */
+    }
+    return { ended: true, stats };
   } catch {
-    return false;
+    return { ended: false, stats: null };
   }
+}
+
+/** End with the host token. True when the server says the session is ended. */
+export async function endLiveSession(
+  session: HostSession,
+  fetchFn: typeof fetch = fetch
+): Promise<boolean> {
+  return (await endLiveSessionWithStats(session, fetchFn)).ended;
+}
+
+/**
+ * The after-the-stream counts, signed by the host (for a stream that was
+ * ended elsewhere: time limit, admin, another device). Null on any failure.
+ */
+export async function fetchLiveStats(
+  id: string,
+  sign: SignRequest,
+  fetchFn: typeof fetch = fetch
+): Promise<LiveStats | null> {
+  const url = `${origin()}/api/live/${id}/stats`;
+  try {
+    const authorization = await sign({ method: 'GET', url });
+    const res = await fetchFn(url, { headers: { Authorization: authorization } });
+    if (!res.ok) return null;
+    return readStats(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+/** How many are watching now, or null when it cannot be read. */
+export async function readWatchingNow(
+  id: string,
+  fetchFn: typeof fetch = fetch
+): Promise<number | null> {
+  try {
+    const res = await fetchFn(`/api/live/${id}/watching`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { watching?: unknown };
+    return typeof data.watching === 'number' && Number.isSafeInteger(data.watching)
+      ? data.watching
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The ended screen's summary, in plain words:
+ *   "30 people joined, with up to 12 watching at once. You got 2,100 sats in zaps."
+ * The "at once" number never exceeds the people who joined (a reload can
+ * briefly count one person twice). Sats are left out when there are none.
+ */
+export function endedStatsLine(stats: LiveStats, sats: number): string {
+  const joins = stats.joins;
+  const peak = joins > 0 ? Math.min(stats.peakWatching, joins) : stats.peakWatching;
+  let line: string;
+  if (joins === 0) {
+    line = 'Nobody tuned in this time.';
+  } else {
+    line = `${joins.toLocaleString()} ${joins === 1 ? 'person' : 'people'} joined`;
+    if (joins > 1 && peak > 1) line += `, with up to ${peak.toLocaleString()} watching at once.`;
+    else if (joins > 1 && peak <= 1) line += ', one at a time.';
+    else line += '.';
+  }
+  if (Number.isFinite(sats) && sats >= 1) {
+    const n = Math.floor(sats);
+    line += ` You got ${n.toLocaleString()} ${n === 1 ? 'sat' : 'sats'} in zaps.`;
+  }
+  return line;
 }
 
 /**

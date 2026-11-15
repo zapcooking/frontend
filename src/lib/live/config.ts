@@ -155,6 +155,16 @@ export const LIVE_MAX_PUBLISH_ATTEMPTS = 30;
 export const LIVE_RETRY_AFTER_SECONDS = 2;
 
 /**
+ * How often a watch page sends its anonymous "watching now" heartbeat
+ * while its tab is visible. The presence object counts codes heard in the
+ * last 60 s (see $lib/live/presenceCounter), so one missed beat is fine.
+ */
+export const LIVE_HEARTBEAT_MS = 30_000;
+
+/** How often the host page reads its "watching now" count. */
+export const LIVE_WATCHING_POLL_MS = 15_000;
+
+/**
  * Guests (viewers who are not confirmed active members) admitted per
  * session when LIVE_GUEST_CAP is not set or not a usable number. Members
  * are never counted.

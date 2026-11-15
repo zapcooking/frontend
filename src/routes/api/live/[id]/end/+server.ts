@@ -6,7 +6,8 @@
  *     Authorization: Bearer <host_token>   the token returned at create
  *     Authorization: Nostr <NIP-98>        signed by the session's host
  *                                          (ends it from another device)
- *   200: { id, status: 'ended' }
+ *   200: { id, status: 'ended' }, plus { peak_watching, joins } when this
+ *        call ended it (the host's after-the-stream counts; see ../stats)
  *   401: no credential, a wrong or expired token, or a bad signature
  *   403: a valid signature from someone who is not the host
  *   404: unknown or malformed id
@@ -35,6 +36,7 @@ import { readStreamConfig } from '$lib/live/stream.server';
 import {
   endSession,
   getSession,
+  getSessionStats,
   hostTokenMatches,
   readHostToken,
   type LiveDb
@@ -90,7 +92,17 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
     // viewers. If it cannot be confirmed the session is still ended, and
     // the input id stays on the row for the sweep to retry.
     await removeInputAfterEnd(db, readStreamConfig(platform), row.id);
-    return ended();
+    // The host's after-the-stream counts go with THIS reply only (it is the
+    // authenticated one). The idempotent reply above carries none.
+    const stats = await getSessionStats(db, row.id).catch(() => null);
+    return json(
+      {
+        id: row.id,
+        status: 'ended',
+        ...(stats ? { peak_watching: stats.peak_watching, joins: stats.joins } : {})
+      },
+      { headers: NO_STORE }
+    );
   } catch (err) {
     console.error('[Live] end failed:', err);
     return json({ error: 'internal' }, { status: 500, headers: NO_STORE });
