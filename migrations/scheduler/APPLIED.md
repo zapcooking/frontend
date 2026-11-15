@@ -15,7 +15,7 @@ again.
 | `0005_add_live_pass_rejoins.sql` | 2026-11-14 (#967) | 2026-11-14 (#967) |
 | `0006_add_live_note_id.sql` | 2026-11-14 (#974) | 2026-11-14 (#974) |
 | `0007_live_rollout_and_safety.sql` | 2026-11-14 (#977) | 2026-11-15 (#977) |
-| `0008_add_live_watching_counts.sql` | 2026-11-15 (#984) | **not applied** — waits for Seth's go |
+| `0008_add_live_watching_counts.sql` | 2026-11-15 (#984) | 2026-11-15 (#984) |
 
 ## Applying a new migration
 
@@ -49,5 +49,9 @@ diff /tmp/zapcooking-scheduler-preview.json /tmp/zapcooking-scheduler.json
 ```
 
 Any difference means a migration reached one database and not the other.
-Last checked 2026-11-15, after 0007 reached both: no drift (22 objects in
-each: the 12 from 0006, plus 6 live_ tables and 4 indexes).
+Last checked 2026-11-15, after 0008 reached both: no drift (22 objects in
+each; 0008 adds columns only, no objects).
+
+Trap: `wrangler d1 execute --file` combined with `--json` returned without
+applying anything (2026-11-15, 0008 on production). Apply without `--json`,
+then verify with `pragma_table_info`.
