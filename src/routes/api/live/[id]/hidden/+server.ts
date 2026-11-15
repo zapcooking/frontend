@@ -6,6 +6,10 @@
  *   { hidden: [{ pubkey, scope: 'host' | 'global' }] }
  *   'host' = hidden by this session's host (in all their streams);
  *   'global' = hidden by the admin in every Go live chat.
+ *   An admin key is never listed: POST refuses to hide one, and an entry
+ *   written before that key became an admin (e.g. a host hid the backup
+ *   admin earlier) is filtered out here, so it cannot silence an admin.
+ *   The stored row is left alone; unhiding it still works.
  *
  * POST /api/live/<id>/hidden
  *   Auth: NIP-98 over this exact request (URL, method and body).
@@ -57,7 +61,10 @@ export const GET: RequestHandler = async ({ params, platform }) => {
     if (!db) return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
     const row = await getSession(db, params.id ?? '');
     if (!row) return json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
-    return json({ hidden: await listHiddenForHost(db, row.host_pubkey) }, { headers: NO_STORE });
+    const hidden = (await listHiddenForHost(db, row.host_pubkey)).filter(
+      (h) => !ADMIN_PUBKEYS.includes(h.pubkey)
+    );
+    return json({ hidden }, { headers: NO_STORE });
   } catch (err) {
     console.error(`[Live] hidden read failed: ${(err as Error)?.name ?? 'error'}`);
     return json({ error: 'internal' }, { status: 500, headers: NO_STORE });

@@ -183,6 +183,20 @@ describe('hidden commenters', () => {
     ]);
   });
 
+  it('never lists an admin hidden before they became one (host or global entry), and unhide still clears it', async () => {
+    // Rows written directly: the route refuses to create them today.
+    for (const scope of [HOST, 'global'])
+      db.raw
+        .prepare('INSERT INTO live_hidden_authors (scope, pubkey, created_at) VALUES (?, ?, 1)')
+        .run(scope, keys.backup);
+    await post({ pubkey: TROLL, hidden: true }, hostSk);
+    expect((await get()).data.hidden).toEqual([{ pubkey: TROLL, scope: 'host' }]);
+    expect((await post({ pubkey: keys.backup, hidden: false }, hostSk)).res.status).toBe(200);
+    expect(
+      db.raw.prepare('SELECT scope FROM live_hidden_authors WHERE pubkey = ?').all(keys.backup)
+    ).toEqual([{ scope: 'global' }]);
+  });
+
   it("says logged: false when the admin's log entry could not be written (the hide still happens)", async () => {
     db.raw.exec('DROP TABLE live_actions');
     const r = await post({ pubkey: SPAMMER, hidden: true, scope: 'global' }, adminSk);
