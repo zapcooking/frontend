@@ -70,7 +70,7 @@
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
     <p class="text-sm opacity-75">
       <strong>Zap Cooking</strong> — operated by Zap Cooking LLC<br />
-      Last updated: 22 September 2026
+      Last updated: 15 November 2026
     </p>
 
     <hr style="border-color: var(--color-input-border)" />

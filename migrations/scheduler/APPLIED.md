@@ -16,7 +16,7 @@ again.
 | `0006_add_live_note_id.sql` | 2026-11-14 (#974) | 2026-11-14 (#974) |
 | `0007_live_rollout_and_safety.sql` | 2026-11-14 (#977) | 2026-11-15 (#977) |
 | `0008_add_live_watching_counts.sql` | 2026-11-15 (#984) | 2026-11-15 (#984) |
-| `0009_live_terms_acceptance.sql` | 2026-11-15 (#986) | **not applied** — waits until #985 is live (Seth); required before #986 deploys to production (create reads it) |
+| `0009_live_terms_acceptance.sql` | 2026-11-15 (#986) | 2026-11-15 (#986), after #985 was live |
 
 ## Applying a new migration
 
@@ -51,9 +51,8 @@ diff /tmp/zapcooking-scheduler-preview.json /tmp/zapcooking-scheduler.json
 
 Any difference means a migration reached one database and not the other.
 Last checked 2026-11-15, after 0008 reached both: no drift (22 objects in
-each; 0008 adds columns only, no objects). After 0009 reached preview only
-(2026-11-15): preview 23 objects, production 22 — expected drift until 0009
-is applied to production.
+each; 0008 adds columns only, no objects). After 0009 reached both
+(2026-11-15): no drift (23 objects in each; schemas identical).
 
 Trap: `wrangler d1 execute --file` combined with `--json` returned without
 applying anything (2026-11-15, 0008 on production). Apply without `--json`,
