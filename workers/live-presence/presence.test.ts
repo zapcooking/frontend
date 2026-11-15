@@ -113,4 +113,15 @@ describe('LivePresence across a restart', () => {
     expect(state.data.size).toBe(0);
     expect(state.alarmAt()).toBeNull();
   });
+
+  it('schedules cleanup before storing, and re-arms leftovers after a restart', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const state = fakeState();
+    // A code left in storage with no alarm (a restart between the two writes).
+    await state.storage.put(`c:${code(9)}`, 990_000);
+    const b = new LivePresence(state);
+    await state.ready();
+    expect(state.alarmAt()).toBe(1_001_000);
+    expect(await watching(b)).toEqual({ watching: 1 });
+  });
 });

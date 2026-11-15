@@ -19,6 +19,8 @@ export interface StreamPlayerState {
   expanded: boolean;
   muted: boolean;
   status: StreamPlayStatus;
+  /** The video is paused by the viewer (or not yet started by them). */
+  paused: boolean;
   /** Playback position for replays (seconds), so a reload can restore. */
   position: number | null;
   /** Bump on every selection change; stale async continuations check it. */
@@ -32,6 +34,7 @@ const initial: StreamPlayerState = {
   expanded: false,
   muted: false,
   status: 'idle',
+  paused: false,
   position: null,
   generation: 0
 };
@@ -60,6 +63,7 @@ export function selectStream(item: StreamItem, surface: PlayerSurface = 'dock'):
     expanded: sameStream ? current.expanded : false,
     muted: current.muted,
     status: sameStream ? current.status : 'idle',
+    paused: sameStream ? current.paused : false,
     position: sameStream ? current.position : null,
     generation: current.generation + (sameStream ? 0 : 1)
   });
@@ -68,6 +72,10 @@ export function selectStream(item: StreamItem, surface: PlayerSurface = 'dock'):
 /** Hand playback between surfaces (page ⇄ dock) without a media reload. */
 export function setSurface(surface: PlayerSurface): void {
   streamPlayer.update((s) => (s.surface === surface ? s : { ...s, surface }));
+}
+
+export function setStreamPaused(paused: boolean): void {
+  streamPlayer.update((s) => (s.paused === paused ? s : { ...s, paused }));
 }
 
 export function setStreamStatus(status: StreamPlayStatus): void {

@@ -73,15 +73,15 @@ export class PresenceCounter {
   private codes = new Map<string, number>();
   /** source → counters for its current window. */
   private buckets = new Map<string, Bucket>();
-  private lastPrune = -Infinity;
   private peakSeen = 0;
 
   constructor(private readonly limits: PresenceLimits = DEFAULT_PRESENCE_LIMITS) {}
 
-  /** Drop codes and buckets older than one window (at most once a second). */
+  /**
+   * Drop codes and buckets older than one window. Runs on every call, so
+   * an expired code never counts toward `watching`, the peak or maxCodes.
+   */
   private prune(now: number): void {
-    if (now - this.lastPrune < 1000) return;
-    this.lastPrune = now;
     const cutoff = now - this.limits.windowMs;
     for (const [code, seen] of this.codes) if (seen <= cutoff) this.codes.delete(code);
     for (const [source, b] of this.buckets) if (b.start <= cutoff) this.buckets.delete(source);

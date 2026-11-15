@@ -82,6 +82,15 @@ describe('POST /api/live/<id>/heartbeat', () => {
     expect(row(LIVE).peak_watching).toBe(2);
   });
 
+  it('catches up a peak whose earlier write was missed', async () => {
+    await beat(LIVE, { code: code(1) });
+    await beat(LIVE, { code: code(2) }, '198.51.100.1');
+    // Simulate the earlier D1 write having failed.
+    db.raw.prepare('UPDATE live_sessions SET peak_watching = 0 WHERE id = ?').run(LIVE);
+    await beat(LIVE, { code: code(1) });
+    expect(row(LIVE).peak_watching).toBe(2);
+  });
+
   it('names the object by environment prefix and session', async () => {
     await beat(LIVE, { code: code(1) });
     expect([...objects.keys()]).toEqual([presenceName('zc-live-preview-', LIVE)]);

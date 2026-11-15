@@ -73,22 +73,28 @@ export async function sendHeartbeat(
 export interface HeartbeatInput {
   item: StreamItem | null;
   status: StreamPlayStatus;
+  /** Paused by the viewer: not watching, so not counted. */
+  paused?: boolean;
 }
 
 /**
  * The session to send heartbeats for right now, or null. Only a Go live
- * stream that is live and actually playing (or briefly buffering), in a
- * visible tab, from someone who is not its host.
+ * stream that is live and playing (not paused), in a visible tab, from
+ * someone who is not its host. Buffering counts only once the stream has
+ * actually played (`hasPlayed`): a failed first join also reads as
+ * buffering, and that viewer has not seen anything yet.
  */
 export function heartbeatTarget(
   state: HeartbeatInput,
   viewer: string | null | undefined,
-  hidden: boolean
+  hidden: boolean,
+  hasPlayed = true
 ): string | null {
   const item = state.item;
   if (!item || item.source !== 'zapcooking' || !item.sessionId) return null;
   if (item.status === 'ended') return null;
-  if (state.status !== 'playing' && state.status !== 'buffering') return null;
+  if (state.paused) return null;
+  if (state.status !== 'playing' && !(state.status === 'buffering' && hasPlayed)) return null;
   if (hidden) return null;
   if (viewer && viewer.toLowerCase() === item.host.toLowerCase()) return null;
   return item.sessionId;
@@ -126,8 +132,19 @@ export function startHeartbeat(deps: HeartbeatDeps): () => void {
     if (out.kind === 'counted' && target === sessionId) deps.onCount(sessionId, out.watching);
   };
 
+  /** Sessions that have actually played in this page (buffering counts after that). */
+  const played = new Set<string>();
+
   function evaluate() {
-    const next = heartbeatTarget(get(deps.player), get(deps.viewer), deps.isHidden());
+    const state = get(deps.player);
+    const sid = state.item?.sessionId;
+    if (sid && state.status === 'playing') played.add(sid);
+    const next = heartbeatTarget(
+      state,
+      get(deps.viewer),
+      deps.isHidden(),
+      !!sid && played.has(sid)
+    );
     const want = next && !stopped.has(next) ? next : null;
     if (want === target) return;
     if (timer !== null) clearTimer(timer);

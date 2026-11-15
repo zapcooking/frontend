@@ -73,3 +73,25 @@ describe('PresenceCounter', () => {
     expect(isHeartbeatCode(42)).toBe(false);
   });
 });
+
+describe('PresenceCounter expiry boundary (review)', () => {
+  it('never counts an expired code, even right after a read', () => {
+    const c = new PresenceCounter(LIMITS);
+    c.beat(code(1), 'a', 0);
+    expect(c.watching(59_999)).toBe(1);
+    // code(1) expires at 60 000: a different code arriving then is alone.
+    expect(c.beat(code(2), 'b', 60_000)).toEqual({
+      ok: true,
+      watching: 1,
+      peak: 1,
+      newPeak: false
+    });
+  });
+
+  it('does not let expired codes block new ones at maxCodes', () => {
+    const c = new PresenceCounter({ ...LIMITS, maxCodes: 1 });
+    c.beat(code(1), 'a', 0);
+    c.beat(code(2), 'b', 60_000);
+    expect(c.has(code(2))).toBe(true);
+  });
+});

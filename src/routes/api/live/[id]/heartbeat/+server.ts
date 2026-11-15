@@ -24,8 +24,8 @@
  * also covers this path and ../watching.
  *
  * Heartbeats do not touch the guest cap, the pass ceiling or the joins
- * count. When the count passes the session's stored peak, the peak is
- * raised (one conditional update): that and `joins` are the only numbers
+ * count. Each beat raises the session's stored peak to the object's peak
+ * if it is higher (one conditional update, so a missed write catches up): that and `joins` are the only numbers
  * kept after the stream.
  *
  * Replies:
@@ -99,7 +99,9 @@ export const POST: RequestHandler = async ({ request, params, platform, getClien
       }
       return json({ error: 'unavailable' }, { status: 503, headers: NO_STORE });
     }
-    if (beat.newPeak) await raisePeakWatching(db, id, beat.peak);
+    // Every beat carries the object's peak, and the update only ever raises
+    // the stored one: a failed or timed-out write catches up on the next beat.
+    await raisePeakWatching(db, id, beat.peak);
     return json({ watching: beat.watching }, { headers: NO_STORE });
   } catch (err) {
     // Name only: nothing about the request is logged.

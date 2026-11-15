@@ -19,6 +19,7 @@
   import {
     streamPlayer,
     setStreamStatus,
+    setStreamPaused,
     setStreamMuted,
     setStreamPosition
   } from '$lib/stores/streamPlayer';
@@ -592,8 +593,12 @@
     on:playing={() => {
       setStreamStatus('playing');
       paused = false;
+      setStreamPaused(false);
     }}
-    on:pause={() => (paused = true)}
+    on:pause={() => {
+      paused = true;
+      setStreamPaused(true);
+    }}
     on:waiting={() => setStreamStatus('buffering')}
     on:error={handleError}
     on:timeupdate={() => {

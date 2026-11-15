@@ -80,6 +80,11 @@ export class LivePresence {
       this.counter.restore(key.slice(CODE_PREFIX.length), seen, now);
     }
     this.counter.restorePeak((await this.state.storage.get<number>(PEAK_KEY)) ?? 0);
+    // Anything stored with no alarm (e.g. one lost in a restart) gets one,
+    // so leftovers are always cleaned up.
+    if (stored.size > 0 && (await this.state.storage.getAlarm()) === null) {
+      await this.state.storage.setAlarm(now + ALARM_SLACK_MS);
+    }
   }
 
   private async source(ip: string): Promise<string> {
@@ -133,11 +138,13 @@ export class LivePresence {
       // Not added (session full): nothing to keep.
       if (this.state && this.counter.has(code)) {
         const storage = this.state.storage;
-        await storage.put(CODE_PREFIX + code, now);
-        if (result.newPeak) await storage.put(PEAK_KEY, result.peak);
+        // Cleanup is scheduled BEFORE the code is stored, so a code is never
+        // in storage without an alarm that will delete it.
         if ((await storage.getAlarm()) === null) {
           await storage.setAlarm(now + this.counter.windowMs + ALARM_SLACK_MS);
         }
+        await storage.put(CODE_PREFIX + code, now);
+        if (result.newPeak) await storage.put(PEAK_KEY, result.peak);
       }
       return json({ watching: result.watching, peak: result.peak, newPeak: result.newPeak });
     }

@@ -49,6 +49,14 @@ describe('heartbeatTarget', () => {
     expect(heartbeatTarget(playing(goLiveItem(), 'buffering'), 'e'.repeat(64), false)).toBe(SID);
   });
 
+  it('does not beat while paused, or while buffering before anything played', () => {
+    expect(
+      heartbeatTarget({ item: goLiveItem(), status: 'playing', paused: true }, null, false)
+    ).toBeNull();
+    expect(heartbeatTarget(playing(goLiveItem(), 'buffering'), null, false, false)).toBeNull();
+    expect(heartbeatTarget(playing(goLiveItem(), 'buffering'), null, false, true)).toBe(SID);
+  });
+
   it('does not beat when hidden, not playing, ended, Nostr, or for the host', () => {
     expect(heartbeatTarget(playing(goLiveItem()), null, true)).toBeNull();
     expect(heartbeatTarget(playing(goLiveItem(), 'connecting'), null, false)).toBeNull();
@@ -150,6 +158,25 @@ describe('startHeartbeat', () => {
     expect(h.sent).toEqual([SID]);
     h.setHidden(false);
     expect(h.sent).toEqual([SID, SID]);
+  });
+
+  it('stops on pause and resumes on play', async () => {
+    const h = harness();
+    h.player.set({ item: goLiveItem(), status: 'playing' });
+    h.player.set({ item: goLiveItem(), status: 'playing', paused: true });
+    h.timers[0]();
+    expect(h.sent).toEqual([SID]);
+    h.player.set({ item: goLiveItem(), status: 'playing', paused: false });
+    expect(h.sent).toEqual([SID, SID]);
+  });
+
+  it('counts buffering only after the stream has played', () => {
+    const h = harness();
+    h.player.set({ item: goLiveItem(), status: 'buffering' });
+    expect(h.sent).toEqual([]);
+    h.player.set({ item: goLiveItem(), status: 'playing' });
+    h.player.set({ item: goLiveItem(), status: 'buffering' });
+    expect(h.sent).toEqual([SID]);
   });
 
   it('never beats for the host', () => {
