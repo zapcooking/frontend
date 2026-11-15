@@ -10,7 +10,7 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Terms of Service</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: September 26, 2026</p>
+    <p class="text-sm opacity-75">Last updated: November 15, 2026</p>
 
     <p>Welcome to zap.cooking. These Terms of Service ("Terms") are a legally binding agreement between you and Zap Cooking LLC ("Zap Cooking," "we," "our," or "us") governing your access to and use of our website, mobile applications, interfaces, and related services we make available (collectively, the "Service").</p>
 

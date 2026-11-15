@@ -12,7 +12,8 @@ import { readFileSync } from 'node:fs';
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools';
 import { normalizeUrl, sha256Hex } from '$lib/nip98';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
-import { approveHosts, createLiveDatabase } from '../../../test/liveDatabase';
+import { acceptTerms, approveHosts, createLiveDatabase } from '../../../test/liveDatabase';
+import { LIVE_TERMS_VERSION } from '$lib/live/config';
 import { createKvFake } from '../../../test/liveStreamStub';
 
 const mocks = vi.hoisted(() => ({
@@ -356,6 +357,23 @@ describe('POST /api/live (create)', () => {
     expect(rowCount()).toBe(0);
     // Another member is not affected by HOST's block.
     expect((await create({ title: 'Theirs' }, { secretKey: otherSk })).res.status).toBe(201);
+  });
+
+  it('refuses with 403 terms_required until the host agrees to the current terms', async () => {
+    db.raw.prepare('DELETE FROM live_terms_acceptance WHERE pubkey = ?').run(HOST);
+    const { res, data } = await create();
+    expect(res.status).toBe(403);
+    expect(data).toEqual({ error: 'terms_required', version: LIVE_TERMS_VERSION });
+    expect(rowCount()).toBe(0);
+    // An agreement to an earlier version does not count: a bump asks again.
+    db.raw
+      .prepare(
+        "INSERT INTO live_terms_acceptance (pubkey, terms_version, accepted_at) VALUES (?, '2000-01-01', 1)"
+      )
+      .run(HOST);
+    expect((await create()).data.error).toBe('terms_required');
+    acceptTerms(db, HOST);
+    expect((await create()).res.status).toBe(201);
   });
 
   it('refuses with 503 live_full at the open-session cap, counting every host', async () => {

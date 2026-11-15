@@ -13,6 +13,9 @@
  *               { status: 'none'|'pending'|'approved'|'declined',
  *                 created_at, decided_at, retry_at }
  *               retry_at: when a declined account may ask again (null = now)
+ *     terms     { version, accepted }: the current LIVE_TERMS_VERSION and
+ *               whether the signer has agreed to it ("I'm 18+, agree and
+ *               go live"; recorded by POST /api/live/terms)
  *
  * POST /api/live/hosting   (Request access)
  *   Auth: NIP-98 over this exact request; the signer is the requester.
@@ -31,7 +34,11 @@ import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { checkMembership } from '$lib/membershipApi.server';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
-import { LIVE_ACCESS_ALERT_THROTTLE_SECONDS, LIVE_ACCESS_NOTE_MAX } from '$lib/live/config';
+import {
+  LIVE_ACCESS_ALERT_THROTTLE_SECONDS,
+  LIVE_ACCESS_NOTE_MAX,
+  LIVE_TERMS_VERSION
+} from '$lib/live/config';
 import {
   countPendingRequests,
   createAccessRequest,
@@ -42,6 +49,7 @@ import { liveKv, readLiveEnv } from '$lib/live/env.server';
 import { buildAccessRequest, sendAdminDms } from '$lib/live/reportAlert.server';
 import { getHostingMode } from '$lib/live/safety.server';
 import { isHostApproved, type LiveDb } from '$lib/live/sessions.server';
+import { hasAcceptedTerms } from '$lib/live/terms.server';
 import { publishEventRaw } from '$lib/rawPublish';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -71,8 +79,12 @@ export const GET: RequestHandler = async ({ request, platform }) => {
   try {
     const mode = await getHostingMode(platform);
     const approved = mode === 'members' || (await isHostApproved(db, pubkey));
+    const terms = {
+      version: LIVE_TERMS_VERSION,
+      accepted: await hasAcceptedTerms(db, pubkey, LIVE_TERMS_VERSION)
+    };
     return json(
-      { mode, approved, request: await ownRequestState(db, pubkey) },
+      { mode, approved, request: await ownRequestState(db, pubkey), terms },
       { headers: NO_STORE }
     );
   } catch (err) {

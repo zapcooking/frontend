@@ -28,8 +28,8 @@
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
     <p class="text-sm opacity-75">
       <strong>Zap Cooking LLC</strong><br />
-      Last updated: 25 July 2026<br />
-      Next scheduled review: 25 January 2027
+      Last updated: 15 November 2026<br />
+      Next scheduled review: 15 May 2027
     </p>
 
     <hr style="border-color: var(--color-input-border)" />

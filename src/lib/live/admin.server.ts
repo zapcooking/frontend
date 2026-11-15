@@ -15,6 +15,7 @@ import {
   type LiveEndReason
 } from './sessions.server';
 import type { StreamConfig } from './stream.server';
+import { deleteTermsAcceptancesFor } from './terms.server';
 
 export type EndOutcome = {
   /** False when the session had already ended. */
@@ -85,7 +86,10 @@ export async function blockHost(
  * inputs) and remove the rows they host, except rows under a report hold.
  * If an input could not be deleted its row is removed all the same; the
  * sweep's orphan check finds the input by name and deletes it. A hosting
- * block is NOT removed: deleting an account must not lift it.
+ * block is NOT removed: deleting an account must not lift it. The hosting
+ * agreement is removed too, unless one of the rows is under a hold or the
+ * account is blocked from hosting (the sweep removes it once neither is
+ * true: cleanupTermsAcceptances).
  */
 export async function purgeLiveSessions(
   db: LiveDb,
@@ -95,5 +99,7 @@ export async function purgeLiveSessions(
   for (const id of await listOpenSessionIdsForHost(db, pubkey)) {
     await endAndRemove(db, cfg, id, 'admin');
   }
-  return deleteRowsForHost(db, pubkey);
+  const removed = await deleteRowsForHost(db, pubkey);
+  await deleteTermsAcceptancesFor(db, pubkey);
+  return removed;
 }

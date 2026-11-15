@@ -40,6 +40,7 @@
     endLiveSession,
     endLiveSessionSigned,
     endLiveSessionWithStats,
+    acceptLiveTerms,
     fetchHostingStatus,
     fetchLiveStats,
     publishOffer,
@@ -61,13 +62,11 @@
     classifyMediaError,
     clearStoredSession,
     detectPlatform,
-    hasConfirmedAge,
     isConstraintFailure,
     liveDurationLine,
     loadStoredSession,
     mediaHelp,
     readRecipeHandoff,
-    rememberAgeConfirmed,
     setMicrophoneEnabled,
     storeSession,
     type HostPlatform,
@@ -105,7 +104,6 @@
     | 'membership_required' // a confirmed non-member: link to the membership page
     | 'blocked' // blocked from hosting by the admin
     | 'rollout' // a member, not on the approved list yet: "Request access"
-    | 'confirm_age'
     | 'preview' // camera on, not live yet
     | 'starting' // creating the session and publishing
     | 'live'
@@ -152,13 +150,20 @@
   // Messages. `notice` is a soft, non-blocking line; `endedMessage` is final.
   let notice = '';
   let endedMessage = '';
-  let ageDialogOpen = false;
+  // The hosting agreement ("I'm 18+, agree and go live"), recorded on the
+  // server per account and terms version. Asked when the host taps Go live.
+  let termsDialogOpen = false;
+  /** Agreed to the current version: true / false, or null = not known (create decides). */
+  let termsAccepted: boolean | null = null;
+  /** The version the dialog asks about (from hosting status or a terms_required reply). */
+  let termsVersion: string | null = null;
+  let termsBusy = false;
+  let termsError = '';
   let ending = false;
   /** Publish attempts made before the first success, for the badge. */
   let startAttempts = 0;
 
   const storage = () => (typeof sessionStorage !== 'undefined' ? sessionStorage : undefined);
-  const durable = () => (typeof localStorage !== 'undefined' ? localStorage : undefined);
 
   const sign: SignRequest = (opts) => signNip98AuthHeader($ndk, opts);
 
@@ -438,13 +443,11 @@
       phase = 'rollout';
       return;
     }
-    startHosting();
-
-    if (!hasConfirmedAge($userPublickey, durable())) {
-      phase = 'confirm_age';
-      ageDialogOpen = true;
-      return;
+    if (hosting.known && hosting.terms) {
+      termsAccepted = hosting.terms.accepted;
+      termsVersion = hosting.terms.version;
     }
+    startHosting();
     await enterPreview();
   });
 
@@ -460,16 +463,53 @@
     chatPool = null;
   });
 
-  // ── 18+ confirmation ───────────────────────────────────────────────
-  async function confirmAge() {
-    rememberAgeConfirmed($userPublickey, durable());
-    ageDialogOpen = false;
-    await enterPreview();
+  // ── Hosting agreement (18+ and the Terms) ─────────────────────────
+  function askForTerms() {
+    termsError = '';
+    termsDialogOpen = true;
   }
 
-  function declineAge() {
-    ageDialogOpen = false;
-    leave();
+  /** "I'm 18+, agree and go live": record it, then go live. */
+  async function agreeToTerms() {
+    if (termsBusy) return;
+    if (!termsVersion) {
+      // Not known yet: let the create route say which version it wants.
+      termsDialogOpen = false;
+      termsAccepted = null;
+      await goLive();
+      return;
+    }
+    termsBusy = true;
+    termsError = '';
+    const outcome = await acceptLiveTerms(termsVersion, sign);
+    termsBusy = false;
+    if (outcome.kind === 'accepted') {
+      termsAccepted = true;
+      termsDialogOpen = false;
+      await goLive();
+      return;
+    }
+    if (outcome.kind === 'changed') {
+      termsVersion = outcome.version;
+      termsError = 'The Terms were just updated. Please review them, then try again.';
+      return;
+    }
+    if (outcome.kind === 'membership_required') {
+      termsDialogOpen = false;
+      teardown(true);
+      phase = 'membership_required';
+      return;
+    }
+    termsError =
+      outcome.kind === 'sign_failed'
+        ? 'The request was not signed. Approve it in your signer and try again.'
+        : "We couldn't save that just now. Check your connection and try again.";
+  }
+
+  /** "Not now": close the dialog and stay on the preview. */
+  function notNow() {
+    termsDialogOpen = false;
+    termsError = '';
   }
 
   // ── Camera ─────────────────────────────────────────────────────────
@@ -607,6 +647,7 @@
     already_active: 'You already have a live stream open.',
     blocked: 'This account cannot go live.',
     not_approved: 'Live hosting is rolling out.',
+    terms_required: 'Please agree to the Terms of Service to go live.',
     membership_required: 'Go live is for Cook+ members.',
     live_full:
       'Too many cooks are live right now. Please try again in a few minutes.',
@@ -622,6 +663,10 @@
 
   async function goLive() {
     if (!canStart || !stream) return;
+    if (termsAccepted === false) {
+      askForTerms();
+      return;
+    }
     phase = 'starting';
     notice = '';
     // The Go live button sits below the video; bring the video (and the
@@ -644,6 +689,14 @@
       return;
     }
     if (!outcome.ok) {
+      if (outcome.reason === 'terms_required') {
+        // Not agreed to the current terms (or they changed): ask, then retry.
+        phase = 'preview';
+        termsAccepted = false;
+        if (outcome.version) termsVersion = outcome.version;
+        askForTerms();
+        return;
+      }
       if (
         outcome.reason === 'blocked' ||
         outcome.reason === 'membership_required' ||
@@ -944,11 +997,6 @@
     clearStoredSession(storage());
     session = null;
     policy = null;
-    if (!hasConfirmedAge($userPublickey, durable())) {
-      phase = 'confirm_age';
-      ageDialogOpen = true;
-      return;
-    }
     await enterPreview();
   }
 
@@ -1118,7 +1166,7 @@
           <button class="btn" on:click={endStored}>End</button>
         </div>
       </div>
-    {:else if phase === 'preview' || phase === 'confirm_age'}
+    {:else if phase === 'preview'}
       <div class="panel">
         {#if recipeA}
           <p class="recipe">
@@ -1214,14 +1262,22 @@
   {/if}
 </div>
 
-<Modal bind:open={ageDialogOpen} locked noHeader compact autoHeight>
+<Modal bind:open={termsDialogOpen} locked noHeader compact autoHeight>
   <div class="age">
     <h2>Before you go live</h2>
-    <p>Hosts must be 18 or older. By continuing you confirm that you are 18 or older.</p>
-    <p class="muted small">You will only be asked this once on this device.</p>
+    <p>
+      You must be 18 or older to host. Live streams follow our
+      <a href="/terms" target="_blank" rel="noopener noreferrer" class="link">Terms of Service</a>,
+      including the Live Stream Conduct rules.
+    </p>
+    {#if termsError}
+      <p class="small" role="alert">{termsError}</p>
+    {/if}
     <div class="actions">
-      <button class="btn" on:click={declineAge}>Cancel</button>
-      <button class="btn primary" on:click={confirmAge}>I'm 18 or older</button>
+      <button class="btn" on:click={notNow} disabled={termsBusy}>Not now</button>
+      <button class="btn primary" on:click={agreeToTerms} disabled={termsBusy}>
+        {termsBusy ? 'Saving…' : "I'm 18+, agree and go live"}
+      </button>
     </div>
   </div>
 </Modal>
