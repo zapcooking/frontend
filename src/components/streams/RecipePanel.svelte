@@ -4,6 +4,10 @@
    * the recipe's author (who may not be the host), and the same ingredient
    * checklist and step list as the recipe page, with the same per-recipe
    * check marks. Parsing is shared with the recipe page ($lib/recipe/sections).
+   *
+   * The host page passes `checkScope` (one per stream), so the host's checks
+   * start fresh each stream and leave the recipe page's own checks alone,
+   * and `size="host"` for larger text read from across the kitchen.
    */
   import { nip19 } from 'nostr-tools';
   import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -15,10 +19,14 @@
 
   export let recipe: NDKEvent | null;
   export let loading = false;
+  /** Prefix for the check-mark storage key; null uses the recipe's own. */
+  export let checkScope: string | null = null;
+  export let size: 'default' | 'host' = 'default';
 
   $: card = recipeCardOf(recipe);
   $: sections = recipe ? recipeSections(recipe.content) : { ingredients: [], directions: [] };
   $: href = recipe ? recipeHref(recipe) : null;
+  $: checkId = recipe ? (checkScope ? `${checkScope}:${recipe.id}` : recipe.id) : '';
 
   function recipeHref(e: NDKEvent): string | null {
     try {
@@ -30,7 +38,8 @@
 </script>
 
 <section
-  class="flex flex-col gap-4 rounded-xl border p-4"
+  class="recipe-panel flex flex-col gap-4 rounded-xl border p-4"
+  class:host={size === 'host'}
   style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
   aria-label="Recipe"
 >
@@ -79,10 +88,14 @@
     </header>
 
     {#if sections.ingredients.length > 0}
-      <Ingredients items={sections.ingredients} recipeId={recipe.id} />
+      {#key checkId}
+        <Ingredients items={sections.ingredients} recipeId={checkId} />
+      {/key}
     {/if}
     {#if sections.directions.length > 0}
-      <DirectionsPhases phases={sections.directions} recipeId={recipe.id} />
+      {#key checkId}
+        <DirectionsPhases phases={sections.directions} recipeId={checkId} />
+      {/key}
     {/if}
     {#if sections.ingredients.length === 0 && sections.directions.length === 0 && href}
       <a
@@ -99,3 +112,20 @@
     </p>
   {/if}
 </section>
+
+<style>
+  /* Host: read at arm's length while cooking, tapped with wet fingers. */
+  .recipe-panel.host {
+    font-size: 1.125rem;
+    line-height: 1.6;
+  }
+  .recipe-panel.host :global(li > button) {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  .recipe-panel.host :global(li > button > span:first-child) {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-top: 0.15rem;
+  }
+</style>
