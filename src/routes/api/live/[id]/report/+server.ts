@@ -20,7 +20,9 @@
  *  2. The session's hold is opened (first report) with a snapshot, so the
  *     record is kept until the admin releases it.
  *  3. The admin is DM'd (throttled per session, except child safety and
- *     violence). A repeat from the same reporter sends nothing.
+ *     violence). A repeat from the same reporter sends nothing, except an
+ *     urgent report, which always alerts. An urgent report after the same
+ *     reporter's report of another reason is stored too.
  * Nothing is ended automatically: the admin decides.
  *
  * Replies: 400 bad_request, 404 not_found, 413 too_large, 429 (rate
@@ -136,7 +138,10 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
       `[Live] report session=${sessionId} reason=${reason} comment=${!!comment} new=${result.recorded}`
     );
 
-    if (result.recorded) {
+    // Alert on every new report, and on EVERY urgent one (child safety,
+    // violence), even an identical repeat: an urgent report is never lost
+    // silently. The per-IP limit bounds how often that can happen.
+    if (result.recorded || result.urgent) {
       const alert = sendReportAlert(
         { sessionId, title: result.title, reason, comment: !!comment, origin },
         alertDeps

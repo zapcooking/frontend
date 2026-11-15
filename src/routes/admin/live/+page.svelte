@@ -8,11 +8,11 @@
    *    requester's profile, note and membership. Approve (adds to the
    *    approved list) or Decline; both logged.
    *  - Approved hosts: add, remove, list.
+   *  - Blocked hosts: block by key, unblock (right after Approved hosts).
    *  - Streams: open ones, ones whose input is still being deleted, and
    *    ones under an open report hold. End, block the host.
    *  - Reports: each report hold with its reports. Release the hold once
    *    the report is resolved.
-   *  - Blocked hosts: block by key, unblock.
    *  - Action log: every admin action, with time and actor.
    *
    * Every call is NIP-98 signed by the admin account (/api/admin/live),
@@ -348,6 +348,29 @@
       {/each}
     </ul>
 
+    <h2>Blocked from going live</h2>
+    <form class="row add-form" on:submit|preventDefault={() => addTyped('block')}>
+      <input class="input" placeholder="npub or hex key" bind:value={blockInput} />
+      <button class="danger" type="submit" disabled={busy}>Block</button>
+    </form>
+    {#if blocked.length === 0}
+      <div class="status">Nobody is blocked.</div>
+    {:else}
+      <ul class="list">
+        {#each blocked as b (b.pubkey)}
+          <li class="card row">
+            <code class="npub">{npub(b.pubkey)}</code>
+            <span class="meta">since {when(b.created_at)}</span>
+            <button
+              disabled={busy}
+              on:click={() => act({ action: 'unblock', pubkey: b.pubkey }, 'Unblock this account?')}
+              >Unblock</button
+            >
+          </li>
+        {/each}
+      </ul>
+    {/if}
+
     <h2>Streams</h2>
     {#if sessions.length === 0}
       <div class="status">Nothing open or held.</div>
@@ -430,29 +453,6 @@
                 >
               </div>
             {/if}
-          </li>
-        {/each}
-      </ul>
-    {/if}
-
-    <h2>Blocked from going live</h2>
-    <form class="row add-form" on:submit|preventDefault={() => addTyped('block')}>
-      <input class="input" placeholder="npub or hex key" bind:value={blockInput} />
-      <button class="danger" type="submit" disabled={busy}>Block</button>
-    </form>
-    {#if blocked.length === 0}
-      <div class="status">Nobody is blocked.</div>
-    {:else}
-      <ul class="list">
-        {#each blocked as b (b.pubkey)}
-          <li class="card row">
-            <code class="npub">{npub(b.pubkey)}</code>
-            <span class="meta">since {when(b.created_at)}</span>
-            <button
-              disabled={busy}
-              on:click={() => act({ action: 'unblock', pubkey: b.pubkey }, 'Unblock this account?')}
-              >Unblock</button
-            >
           </li>
         {/each}
       </ul>

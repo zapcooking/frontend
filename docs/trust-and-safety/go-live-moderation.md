@@ -68,6 +68,13 @@ Each report:
 
 1. **Is stored with the session** (`live_reports`). Each reporter can file
    one report per target (the stream, or one comment).
+   - Exception: a **child safety** or **violence** report is always
+     stored, even when the same reporter already reported that target
+     for another reason. It is kept under the reporter's id with the
+     reason added, so the same reporter can be recognised.
+   - Each urgent reason is stored once per reporter per target, and
+     **every** urgent submission alerts the admin, even an identical
+     repeat.
    - A reporter is identified only by a **keyed hash** of their IP
      address: HMAC-SHA256 with a server-side secret
      (`LIVE_REPORTER_HASH_SECRET`, different per environment), over the

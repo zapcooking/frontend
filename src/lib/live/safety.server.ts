@@ -228,8 +228,16 @@ export async function recordReport(db: LiveDb, input: ReportInput): Promise<Repo
   const session = await getSession(db, input.sessionId);
   if (!session) return { ok: false, reason: 'not_found' };
   const now = input.now ?? nowSeconds();
+  const urgent = LIVE_URGENT_REASONS.includes(input.reason);
+  // One report per reporter per target, except that an urgent report
+  // (child safety, violence) is never swallowed by an earlier report of
+  // another reason: it is stored under the reporter's id plus the reason
+  // ('<hash>#child_safety'), so the same reporter is still recognisable,
+  // and each urgent reason is still stored once per reporter per target.
   const reporter = HEX64_RE.test(input.reporterHash)
-    ? input.reporterHash
+    ? urgent
+      ? `${input.reporterHash}#${input.reason}`
+      : input.reporterHash
     : `unverified:${crypto.randomUUID()}`;
 
   const inserted = await db
@@ -282,7 +290,7 @@ export async function recordReport(db: LiveDb, input: ReportInput): Promise<Repo
   return {
     ok: true,
     recorded: (inserted.meta?.changes ?? 0) === 1,
-    urgent: LIVE_URGENT_REASONS.includes(input.reason),
+    urgent,
     title: session.title,
     hostPubkey: session.host_pubkey,
     status: session.status

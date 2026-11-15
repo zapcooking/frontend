@@ -185,6 +185,41 @@ describe('POST /api/live/<id>/report', () => {
     expect(mocks.publish).toHaveBeenCalledTimes(1);
   });
 
+  it('stores and alerts an urgent report even after the same reporter reported another reason', async () => {
+    await post({ reason: 'nudity' }, { ip: '10.5.5.5' });
+    const cs = await post({ reason: 'child_safety', details: 'second look' }, { ip: '10.5.5.5' });
+    expect(await cs.json()).toEqual({ ok: true, duplicate: false });
+    const rows = db.raw
+      .prepare('SELECT reason, reporter_hash FROM live_reports ORDER BY created_at, rowid')
+      .all();
+    expect(rows.map((r: any) => r.reason)).toEqual(['nudity', 'child_safety']);
+    // Same reporter, recognisably: the urgent id is the same hash plus the reason.
+    expect(rows[1].reporter_hash).toBe(`${rows[0].reporter_hash}#child_safety`);
+    // Violence after both: stored too.
+    await post({ reason: 'violence' }, { ip: '10.5.5.5' });
+    expect(count('live_reports')).toBe(3);
+    // Every urgent submission alerts (nudity once + child safety + violence).
+    expect(mocks.publish).toHaveBeenCalledTimes(3);
+  });
+
+  it('an identical urgent repeat is stored once but alerts every time', async () => {
+    await post({ reason: 'child_safety' }, { ip: '10.6.6.6' });
+    const again = await post({ reason: 'child_safety' }, { ip: '10.6.6.6' });
+    expect(await again.json()).toEqual({ ok: true, duplicate: true });
+    expect(count('live_reports')).toBe(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("after an urgent report, the reporter's first other-reason report is stored and later ones are duplicates", async () => {
+    await post({ reason: 'child_safety' }, { ip: '10.4.4.4' });
+    await post({ reason: 'spam' }, { ip: '10.4.4.4' });
+    await post({ reason: 'nudity' }, { ip: '10.4.4.4' });
+    expect(db.raw.prepare('SELECT reason FROM live_reports ORDER BY rowid').all()).toEqual([
+      { reason: 'child_safety' },
+      { reason: 'spam' }
+    ]);
+  });
+
   it('throttles alerts per session, except child safety and violence', async () => {
     await post({ reason: 'nudity' });
     await post({ reason: 'spam' });
