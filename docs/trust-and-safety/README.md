@@ -23,6 +23,8 @@ Implementation status at the time of writing:
 | Report intake for streams (no account) and comments (signed in) | Built (PR #977) |
 | Real-time alert to a moderator | Built as an encrypted Nostr DM to the admin account (PR #977). One recipient only; no backup yet |
 | Legal hold that survives 30/90-day deletion and account deletion | Built (PR #977): opened automatically by the first report, released only by a logged admin action |
+| Keyed pseudonymous reporter identifier | Built for Go live reports (PR #977): HMAC with a server-side secret per environment. The shared limiter used elsewhere is still unkeyed (#978) |
+| Preview cannot change Production's Go live controls | Built (PR #977): Go live KV keys are named per environment |
 | Audit trail of moderation actions | Built (PR #977): action log, kept 2 years or longer under an open hold |
 | Staged rollout | Built (PR #977): approved hosts only by default; "all members" is an explicit admin switch |
 | Automatic stream termination | Deliberately not built. A person decides every enforcement action |
