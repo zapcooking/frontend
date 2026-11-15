@@ -10,20 +10,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools';
 import { normalizeUrl, sha256Hex } from '$lib/nip98';
-import { createLiveDatabase } from '../../../../../test/liveDatabase';
+import { approveHosts, createLiveDatabase } from '../../../../../test/liveDatabase';
 
 const mocks = vi.hoisted(() => ({
-  checkMembership: vi.fn(),
-  hosts: [] as string[]
+  checkMembership: vi.fn()
 }));
 vi.mock('$lib/membershipApi.server', () => ({ checkMembership: mocks.checkMembership }));
-vi.mock('$lib/live/config', async () => {
-  const actual = (await vi.importActual('$lib/live/config')) as typeof import('$lib/live/config');
-  return {
-    ...actual,
-    isLiveHost: (pubkey: string | null | undefined) => actual.isLiveHost(pubkey, mocks.hosts)
-  };
-});
 
 import { POST as createRoute } from '../../+server';
 import { GET as readRoute } from '../+server';
@@ -240,6 +232,7 @@ function expectNoLeak(res: Response, text: string) {
 
 beforeEach(() => {
   db = createLiveDatabase();
+  approveHosts(db, HOST);
   platformEnv = {
     SCHEDULER_DB: db,
     MEMBERSHIP_ENABLED: 'true',
@@ -247,7 +240,6 @@ beforeEach(() => {
     CF_STREAM_ACCOUNT_ID: ACCOUNT,
     CF_STREAM_API_TOKEN: 'stream-token'
   };
-  mocks.hosts = [HOST];
   mocks.checkMembership.mockReset().mockResolvedValue({ state: 'active', found: true });
   installCloudflare();
   logged = [];
@@ -367,13 +359,21 @@ describe('POST /api/live/<id>/publish', () => {
     expect(cf.calls).toEqual([]);
   });
 
-  it('refuses a host who is no longer on the host list', async () => {
+  it('refuses a host blocked after the session was created', async () => {
     const s = await createSession();
-    mocks.hosts = [];
+    db.raw.prepare('INSERT INTO live_blocked_hosts (pubkey, created_at) VALUES (?, 1)').run(HOST);
     const { res, data } = await publish(s.id, { token: s.token });
     expect(res.status).toBe(403);
-    expect(data).toEqual({ error: 'not_allowed' });
+    expect(data).toEqual({ error: 'blocked' });
     expect(cf.calls).toEqual([]);
+  });
+
+  it('does not re-check membership on publish (an outage must not stop a stream)', async () => {
+    const s = await createSession();
+    mocks.checkMembership.mockReset().mockResolvedValue({ state: 'unknown', reason: 'outage' });
+    const { res } = await publish(s.id, { token: s.token });
+    expect(res.status).toBe(201);
+    expect(mocks.checkMembership).not.toHaveBeenCalled();
   });
 
   it('validates the offer before calling Cloudflare', async () => {

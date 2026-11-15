@@ -9,6 +9,101 @@
 
 export type LiveStatus = 'created' | 'live' | 'ended';
 
+/** The signed-in account's latest access request, as the server reports it. */
+export interface OwnAccessRequest {
+  status: 'none' | 'pending' | 'approved' | 'declined';
+  /** When a declined account may ask again (unix seconds); null = it may ask now. */
+  retry_at: number | null;
+}
+
+export type HostingStatus =
+  | { known: true; approved: boolean; request: OwnAccessRequest }
+  /** Could not be answered: the page goes ahead and the create route decides. */
+  | { known: false };
+
+/**
+ * Can the signed-in account host right now (staged rollout)? Signed
+ * (NIP-98): the server only answers about the signer.
+ */
+export async function fetchHostingStatus(
+  sign: SignRequest,
+  fetchFn: typeof fetch = fetch
+): Promise<HostingStatus> {
+  const url = `${origin()}/api/live/hosting`;
+  let authorization: string;
+  try {
+    authorization = await sign({ method: 'GET', url });
+  } catch {
+    return { known: false };
+  }
+  try {
+    const res = await fetchFn(url, { headers: { Authorization: authorization } });
+    if (!res.ok) return { known: false };
+    const data = (await res.json()) as {
+      approved?: unknown;
+      request?: { status?: unknown; retry_at?: unknown };
+    };
+    if (typeof data.approved !== 'boolean') return { known: false };
+    const status = data.request?.status;
+    return {
+      known: true,
+      approved: data.approved,
+      request: {
+        status:
+          status === 'pending' || status === 'approved' || status === 'declined' ? status : 'none',
+        retry_at: typeof data.request?.retry_at === 'number' ? data.request.retry_at : null
+      }
+    };
+  } catch {
+    return { known: false };
+  }
+}
+
+export type AccessRequestOutcome =
+  | { kind: 'sent' }
+  | { kind: 'approved' } // already on the list: nothing to ask
+  | { kind: 'already_pending' }
+  | { kind: 'declined_recently'; retryAt: number | null }
+  | { kind: 'membership_required' }
+  | { kind: 'sign_failed' }
+  | { kind: 'unavailable' };
+
+/** "Request access": saves a request in the admin's queue, with an optional note. */
+export async function requestHostingAccess(
+  note: string,
+  sign: SignRequest,
+  fetchFn: typeof fetch = fetch
+): Promise<AccessRequestOutcome> {
+  const url = `${origin()}/api/live/hosting`;
+  const bodyString = JSON.stringify({ note });
+  let authorization: string;
+  try {
+    authorization = await sign({ method: 'POST', url, bodyString });
+  } catch {
+    return { kind: 'sign_failed' };
+  }
+  try {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authorization },
+      body: bodyString
+    });
+    const data = (await readError(res)) as { error?: string; approved?: boolean; retry_at?: unknown };
+    if (res.ok) return data.approved ? { kind: 'approved' } : { kind: 'sent' };
+    if (data.error === 'already_pending') return { kind: 'already_pending' };
+    if (data.error === 'declined_recently') {
+      return {
+        kind: 'declined_recently',
+        retryAt: typeof data.retry_at === 'number' ? data.retry_at : null
+      };
+    }
+    if (data.error === 'membership_required') return { kind: 'membership_required' };
+    return { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
 /** Signs a NIP-98 Authorization header for one request. */
 export type SignRequest = (opts: {
   method: string;
@@ -29,10 +124,12 @@ export type CreateOutcome =
   | {
       ok: false;
       reason:
-        | 'not_allowed' // not on the host list
+        | 'blocked' // blocked from hosting by the admin
+        | 'not_approved' // 'approved' rollout mode and not on the list
         | 'membership_required' // confirmed non-member
         | 'membership_unavailable' // could not be checked: NOT "not a member"
         | 'live_off' // switched off by an admin
+        | 'live_full' // the open-session cap (all hosts) is reached
         | 'rate_limited'
         | 'sign_failed' // the signer refused or is unavailable
         | 'auth_failed'
@@ -92,10 +189,12 @@ export async function createLiveSession(
         reason: 'already_active',
         id: typeof body.id === 'string' ? body.id : null
       };
-    case 'not_allowed':
+    case 'blocked':
+    case 'not_approved':
     case 'membership_required':
     case 'membership_unavailable':
     case 'live_off':
+    case 'live_full':
     case 'rate_limited':
     case 'auth_failed':
       return { ok: false, reason: body.error };

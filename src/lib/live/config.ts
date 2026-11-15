@@ -1,30 +1,130 @@
 /**
  * Go live (live cook-alongs) — configuration shared by client and server.
  *
- * LIVE_HOSTS is the v1 host allowlist: the hex pubkeys allowed to start a
- * live session. An empty list means nobody can, which is how the feature
- * stays dark. On the client this list only decides whether to SHOW the
- * Go live controls; the server enforces it after NIP-98 (the same split
- * as ADMIN_PUBKEY / isAdmin in $lib/adminAuth). Membership is checked as
- * well, so opening hosting to all Cook+ members later means removing the
- * list check, not adding a membership one.
+ * Who may host, decided by the server after NIP-98:
+ *  - an active member (Cook+; the tri-state check, where an outage is
+ *    "try again", never "not a member"),
+ *  - not blocked by the admin (live_blocked_hosts),
+ *  - and, while the hosting mode is "approved" (the default), on the
+ *    approved-hosts list (live_approved_hosts). In "members" mode the
+ *    list is not consulted.
+ * The mode is switched from /admin/live, with no deploy. On the client,
+ * `goLiveAccess` only decides how the Go live controls LOOK.
  */
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import type { MembershipStatus } from '$lib/stores/membershipStatus';
 
-export const LIVE_HOSTS: readonly string[] = [
-  // Seth (the `seth` zap.cooking handle; same key as ADMIN_PUBKEY).
-  ADMIN_PUBKEY
-];
+/**
+ * How the Go live controls look for the signed-in account:
+ *   member      the normal Go live button
+ *   non_member  confirmed not a member: Go live with a Cook+ label,
+ *               leading to the membership page
+ *   unknown     not signed in, not looked up yet, or the lookup failed:
+ *               the normal button, and the server decides
+ * Only a confirmed `inactive` answer counts as non_member, so a
+ * membership outage never shows a member the upgrade path.
+ */
+export type GoLiveAccess = 'member' | 'non_member' | 'unknown';
 
-/** True when this pubkey may host. Case-insensitive on the hex. */
-export function isLiveHost(
-  pubkey: string | null | undefined,
-  hosts: readonly string[] = LIVE_HOSTS
-): boolean {
-  if (!pubkey) return false;
-  const pk = pubkey.toLowerCase();
-  return hosts.some((h) => h.toLowerCase() === pk);
+export function goLiveAccess(status: MembershipStatus | undefined | null): GoLiveAccess {
+  if (status?.state === 'active') return 'member';
+  if (status?.state === 'inactive') return 'non_member';
+  return 'unknown';
 }
+
+/** Where the Cook+ label on Go live leads a non-member. */
+export const LIVE_MEMBERSHIP_PATH = '/membership';
+
+/**
+ * Sessions that may be open (created or live) at once, across all hosts,
+ * when LIVE_MAX_OPEN_SESSIONS is not set or not a usable number. Past it a
+ * create is refused with `live_full`, so the service reaches a limit we
+ * chose before any limit of Cloudflare's that we do not know.
+ */
+export const LIVE_MAX_OPEN_SESSIONS_DEFAULT = 20;
+
+/** Upper bound accepted from LIVE_MAX_OPEN_SESSIONS, so a typo cannot remove the cap. */
+export const LIVE_MAX_OPEN_SESSIONS_MAX = 1000;
+
+/** The open-session cap from a configured value: 1 to the maximum, else the default. */
+export function parseMaxOpenSessions(value: string | undefined): number {
+  if (value === undefined || !/^\d{1,4}$/.test(value)) return LIVE_MAX_OPEN_SESSIONS_DEFAULT;
+  const cap = Number(value);
+  return cap >= 1 && cap <= LIVE_MAX_OPEN_SESSIONS_MAX ? cap : LIVE_MAX_OPEN_SESSIONS_DEFAULT;
+}
+
+// ── Staged rollout ───────────────────────────────────────────────────
+
+/**
+ * Who may host:
+ *   approved  only accounts on the approved-hosts list (the default)
+ *   members   any active member
+ */
+export type LiveHostingMode = 'approved' | 'members';
+
+/**
+ * KV name (GATED_CONTENT) of the hosting mode; the key is
+ * liveKvKey(prefix, LIVE_HOSTING_MODE_NAME). Anything but 'members'
+ * reads as 'approved'.
+ */
+export const LIVE_HOSTING_MODE_NAME = 'hosting_mode';
+
+export function parseHostingMode(value: unknown): LiveHostingMode {
+  return value === 'members' ? 'members' : 'approved';
+}
+
+/** Longest note on an access request ("what you'd cook, how often"). */
+export const LIVE_ACCESS_NOTE_MAX = 280;
+
+/** A declined account may ask again this long after the decision. */
+export const LIVE_ACCESS_DECLINE_COOLDOWN_SECONDS = 30 * 24 * 60 * 60;
+
+/**
+ * The admin is DM'd about new access requests at most once in this many
+ * seconds; the DM says how many are pending. Every request is saved in
+ * the queue either way.
+ */
+export const LIVE_ACCESS_ALERT_THROTTLE_SECONDS = 10 * 60;
+
+/** A decided (approved or declined) access request is deleted this long after the decision. Pending ones are kept. */
+export const LIVE_ACCESS_REQUEST_RETENTION_SECONDS = 90 * 24 * 60 * 60;
+
+// ── Reports and safety ───────────────────────────────────────────────
+
+/** Reasons a stream or a comment can be reported for. */
+export const LIVE_REPORT_REASONS = [
+  'child_safety',
+  'nudity',
+  'violence',
+  'spam',
+  'other'
+] as const;
+export type LiveReportReason = (typeof LIVE_REPORT_REASONS)[number];
+
+export function isLiveReportReason(value: unknown): value is LiveReportReason {
+  return typeof value === 'string' && (LIVE_REPORT_REASONS as readonly string[]).includes(value);
+}
+
+/** Reasons that alert the admin every time, never throttled. */
+export const LIVE_URGENT_REASONS: readonly LiveReportReason[] = ['child_safety', 'violence'];
+
+/** Longest note a reporter may add. */
+export const LIVE_REPORT_DETAILS_MAX = 300;
+
+/**
+ * The admin is DM'd about a reported session at most once in this many
+ * seconds, so a burst of reports is one message. An urgent report
+ * (child safety, violence) is never held back by it.
+ */
+export const LIVE_REPORT_ALERT_THROTTLE_SECONDS = 10 * 60;
+
+/** Reports (and released holds) are deleted this long after the report, unless a hold is open. */
+export const LIVE_REPORT_RETENTION_SECONDS = 90 * 24 * 60 * 60;
+
+/**
+ * Action log entries are deleted this long after the action, except
+ * entries about a session whose report hold is open.
+ */
+export const LIVE_ACTION_LOG_RETENTION_SECONDS = 2 * 365 * 24 * 60 * 60;
 
 /** Longest session title, in characters, after trimming. */
 export const LIVE_TITLE_MAX = 120;
@@ -112,8 +212,8 @@ export const LIVE_ORPHAN_MIN_AGE_SECONDS = 10 * 60;
 export const LIVE_SWEEP_BATCH = 25;
 export const LIVE_SWEEP_BUDGET_MS = 20_000;
 
-/** KV key (GATED_CONTENT) of the global off flag. Present with value '1' = off. */
-export const LIVE_OFF_KEY = 'live:off';
+/** KV name (GATED_CONTENT) of the global off flag. Present with value '1' = off. */
+export const LIVE_OFF_NAME = 'off';
 
 /**
  * Prefix of the operator-facing name of every live input this deployment
@@ -129,4 +229,38 @@ export function parseInputPrefix(value: string | undefined): string {
   return value !== undefined && /^zc-live-([a-z0-9]+-)?$/.test(value)
     ? value
     : LIVE_INPUT_PREFIX_DEFAULT;
+}
+
+// ── KV keys per environment ──────────────────────────────────────────
+
+/**
+ * The environment named by a live input prefix: '' for production
+ * ('zc-live-', also the default), 'preview' for 'zc-live-preview-'.
+ */
+export function liveEnvSegment(inputPrefix: string | undefined): string {
+  return parseInputPrefix(inputPrefix).slice(LIVE_INPUT_PREFIX_DEFAULT.length).replace(/-$/, '');
+}
+
+/**
+ * The KV key of one Go live value in this environment. Production and
+ * preview share one GATED_CONTENT namespace, so every Go live key carries
+ * the environment from LIVE_INPUT_PREFIX:
+ *   production  live:<name>            (unchanged names: live:off, ...)
+ *   preview     live:preview:<name>
+ * A switch, mode or throttle set on preview can then never reach
+ * production, and the reverse.
+ */
+export function liveKvKey(inputPrefix: string | undefined, name: string): string {
+  const env = liveEnvSegment(inputPrefix);
+  return env ? `live:${env}:${name}` : `live:${name}`;
+}
+
+/**
+ * The per-IP rate-limit scope for Go live reports in this environment
+ * (the limiter's counters live in the same shared namespace):
+ * 'live-report' on production, 'live-preview-report' on preview.
+ */
+export function liveReportRateScope(inputPrefix: string | undefined): string {
+  const env = liveEnvSegment(inputPrefix);
+  return env ? `live-${env}-report` : 'live-report';
 }

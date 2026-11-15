@@ -10,6 +10,7 @@ import {
   endSession,
   listOpenSessionIdsForHost,
   listOpenSessions,
+  setHostBlocked,
   type LiveDb,
   type LiveEndReason
 } from './sessions.server';
@@ -57,10 +58,34 @@ export async function endAllOpen(
 }
 
 /**
+ * Block an account from hosting, then end its open session (deleting the
+ * input). The block is written FIRST: a create or publish racing with
+ * this call is refused by the block, so nothing new can start after the
+ * end. Returns how many sessions it ended and how many inputs are pending.
+ */
+export async function blockHost(
+  db: LiveDb,
+  cfg: StreamConfig | null,
+  pubkey: string
+): Promise<{ ended: number; inputsPending: number }> {
+  const pk = pubkey.toLowerCase();
+  await setHostBlocked(db, pk, true);
+  let ended = 0;
+  let inputsPending = 0;
+  for (const id of await listOpenSessionIdsForHost(db, pk)) {
+    const outcome = await endAndRemove(db, cfg, id, 'admin');
+    if (outcome.ended) ended++;
+    if (outcome.input === 'pending') inputsPending++;
+  }
+  return { ended, inputsPending };
+}
+
+/**
  * Account deletion: end the member's open sessions (deleting their
- * inputs) and remove every row they host. If an input could not be
- * deleted its row is removed all the same; the sweep's orphan check finds
- * the input by name and deletes it.
+ * inputs) and remove the rows they host, except rows under a report hold.
+ * If an input could not be deleted its row is removed all the same; the
+ * sweep's orphan check finds the input by name and deletes it. A hosting
+ * block is NOT removed: deleting an account must not lift it.
  */
 export async function purgeLiveSessions(
   db: LiveDb,

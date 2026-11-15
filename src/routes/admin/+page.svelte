@@ -45,6 +45,12 @@
         </a>
       </li>
       <li>
+        <a href="/admin/live">
+          <span class="title">Go live</span>
+          <span class="desc">Hosting rollout, approved hosts, reports and holds, blocks, action log.</span>
+        </a>
+      </li>
+      <li>
         <a href="/admin/reads-moderation">
           <span class="title">Reads moderation</span>
           <span class="desc">Block NSFW/spam articles, edit the keyword denylist, review reports.</span>

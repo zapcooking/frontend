@@ -100,7 +100,7 @@
     {/if}
 
     {#if goLive && item.sessionId && twoCol}
-      <LiveReport sessionId={item.sessionId} hostPubkey={item.host} title={item.title} />
+      <LiveReport sessionId={item.sessionId} />
     {/if}
   </div>
 
@@ -156,7 +156,7 @@
     {/if}
 
     {#if goLive && item.sessionId && !twoCol}
-      <LiveReport sessionId={item.sessionId} hostPubkey={item.host} title={item.title} />
+      <LiveReport sessionId={item.sessionId} />
     {/if}
   </div>
 

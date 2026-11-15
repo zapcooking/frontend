@@ -1,51 +1,59 @@
 <script lang="ts">
   /**
-   * Report a Go live stream, or one comment in its chat. The report goes
-   * into the admin review queue (/admin/reads-moderation) with the
-   * session's link, so the admin can open the stream and end it from
-   * /api/admin/live. No picture is captured. A comment report carries the
-   * comment's event id and author.
+   * Report a Go live stream, or one comment in its chat
+   * (POST /api/live/<id>/report). The report is stored with the session,
+   * opens a report hold (the record is kept until the admin releases it)
+   * and DMs the admin. The admin reviews it, ends the stream or blocks the
+   * host from /admin/live. No picture is captured. A comment report
+   * carries the comment's event id and author.
    */
   import Modal from '../Modal.svelte';
   import FlagIcon from 'phosphor-svelte/lib/Flag';
   import { showToast } from '$lib/toast';
-  import { submitReadsReport } from '$lib/reads/moderationClient';
+  import { LIVE_REPORT_DETAILS_MAX, type LiveReportReason } from '$lib/live/config';
 
   export let sessionId: string;
-  export let hostPubkey: string;
-  export let title: string;
   /** Report this comment instead of the stream. */
   export let comment: { id: string; pubkey: string } | null = null;
   /** Show the "Report this stream" button (off when opened by the chat). */
   export let trigger = true;
   export let open = false;
 
-  type Reason = 'nsfw' | 'spam' | 'other';
-  const REASONS: { id: Reason; label: string }[] = [
-    { id: 'nsfw', label: 'Nudity or sexual content' },
+  const REASONS: { id: LiveReportReason; label: string }[] = [
+    { id: 'child_safety', label: 'A child is at risk or being exploited' },
+    { id: 'violence', label: 'Violence or someone in immediate danger' },
+    { id: 'nudity', label: 'Nudity or sexual content' },
     { id: 'spam', label: 'Spam or a scam' },
     { id: 'other', label: 'Something else' }
   ];
 
-  let reason: Reason = 'nsfw';
+  let reason: LiveReportReason = 'other';
   let note = '';
   let sending = false;
 
-  function details(): string {
-    const link = `${location.origin}/live/s/${sessionId}`;
-    const what = comment ? `Comment on live stream ${link}` : `Live stream ${link}`;
-    const text = [what, `"${title}"`, note.trim()].filter(Boolean).join(' — ');
-    return text.slice(0, 500);
+  async function send(): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch(`/api/live/${sessionId}/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason,
+          details: note.trim().slice(0, LIVE_REPORT_DETAILS_MAX),
+          ...(comment ? { comment: { id: comment.id, pubkey: comment.pubkey } } : {})
+        })
+      });
+      if (res.status === 429) return { ok: false, error: 'rate_limited' };
+      if (res.status === 503) return { ok: false, error: 'not_stored' };
+      return res.ok ? { ok: true } : { ok: false, error: 'network' };
+    } catch {
+      return { ok: false, error: 'network' };
+    }
   }
 
   async function submit() {
     if (sending) return;
     sending = true;
-    const result = await submitReadsReport(
-      comment
-        ? { eventId: comment.id, pubkey: comment.pubkey, reason, details: details() }
-        : { pubkey: hostPubkey, reason, details: details() }
-    );
+    const result = await send();
     sending = false;
     if (result.ok) {
       open = false;
@@ -56,7 +64,9 @@
         'error',
         result.error === 'rate_limited'
           ? 'Too many reports from here. Please try again in a few minutes.'
-          : 'The report could not be sent. Check your connection and try again.'
+          : result.error === 'not_stored'
+            ? 'Something went wrong. Please email support@zap.cooking.'
+            : 'The report could not be sent. Check your connection and try again.'
       );
     }
   }

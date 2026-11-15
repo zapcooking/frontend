@@ -403,6 +403,53 @@ describe('retention', () => {
     await sweep(NOW + MIN);
     expect(get(oldWithInput)).toBeUndefined();
   });
+
+  it('keeps a reported row while its hold is open, and until its reports age out after release', async () => {
+    const held = row({ status: 'ended', uid: null, ended: NOW - 200 * DAY });
+    const report = (at: number) =>
+      db.raw
+        .prepare(
+          "INSERT INTO live_reports (id, session_id, reporter_hash, reason, created_at) VALUES (?, ?, 'h', 'nudity', ?)"
+        )
+        .run(crypto.randomUUID(), held, at);
+    report(NOW - 150 * DAY);
+    db.raw
+      .prepare("INSERT INTO live_holds (session_id, opened_at, status) VALUES (?, ?, 'open')")
+      .run(held, NOW - 150 * DAY);
+
+    // Open hold: kept, reports and all, however old.
+    expect((await sweep()).rowsDeleted).toBe(0);
+    expect(get(held)).toBeDefined();
+    expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_reports').get().c).toBe(1);
+
+    // Released: the 150-day-old report goes (past 90 days), then the hold,
+    // then the session row under the 30-day rule.
+    db.raw.prepare("UPDATE live_holds SET status = 'released' WHERE session_id = ?").run(held);
+    expect((await sweep(NOW + MIN)).rowsDeleted).toBe(1);
+    expect(get(held)).toBeUndefined();
+    expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_reports').get().c).toBe(0);
+    expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_holds').get().c).toBe(0);
+  });
+
+  it('keeps a released case whose report is recent, and a recent action log entry', async () => {
+    const s = row({ status: 'ended', uid: null, ended: NOW - 40 * DAY });
+    db.raw
+      .prepare(
+        "INSERT INTO live_reports (id, session_id, reporter_hash, reason, created_at) VALUES ('r', ?, 'h', 'spam', ?)"
+      )
+      .run(s, NOW - 10 * DAY);
+    db.raw
+      .prepare("INSERT INTO live_holds (session_id, opened_at, status) VALUES (?, ?, 'released')")
+      .run(s, NOW - 10 * DAY);
+    db.raw
+      .prepare(
+        "INSERT INTO live_actions (id, occurred_at, actor, action) VALUES ('a', ?, 'admin', 'end')"
+      )
+      .run(NOW - 10 * DAY);
+    expect((await sweep()).rowsDeleted).toBe(0);
+    expect(get(s)).toBeDefined();
+    expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_actions').get().c).toBe(1);
+  });
 });
 
 describe('when Stream is not configured', () => {
@@ -473,5 +520,18 @@ describe('purgeLiveSessions (account deletion)', () => {
   it('does nothing for a member with no sessions', async () => {
     expect(await purgeLiveSessions(db, cfg, HOST)).toBe(0);
     expect(cf.calls).toEqual([]);
+  });
+
+  it('keeps rows under an open report hold, and keeps a hosting block', async () => {
+    const held = row({ status: 'ended', host: HOST, uid: null });
+    row({ status: 'ended', host: HOST, uid: null });
+    db.raw
+      .prepare("INSERT INTO live_holds (session_id, opened_at, status) VALUES (?, ?, 'open')")
+      .run(held, NOW);
+    db.raw.prepare('INSERT INTO live_blocked_hosts (pubkey, created_at) VALUES (?, ?)').run(HOST, NOW);
+
+    expect(await purgeLiveSessions(db, cfg, HOST)).toBe(1);
+    expect(get(held)).toBeDefined();
+    expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_blocked_hosts').get().c).toBe(1);
   });
 });

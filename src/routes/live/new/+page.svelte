@@ -3,9 +3,11 @@
    * Go live — the host page.
    *
    * Reached from "Go live" in the create menu (pick a recipe or just a
-   * title) or on a recipe page (that recipe attached). Shown only to
-   * allowlisted hosts; the server enforces the list, this page only
-   * decides what to show.
+   * title) or on a recipe page (that recipe attached). Hosting is for
+   * active members (Cook+) who are not blocked; the server decides. This
+   * page shows the membership page link to a CONFIRMED non-member before
+   * the camera opens. An unknown membership answer goes ahead and lets the
+   * server decide (an outage is "try again", never "not a member").
    *
    * The page never holds a Cloudflare URL. It posts an SDP offer to
    * /api/live/<id>/publish and gets an SDP answer back.
@@ -29,15 +31,19 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { signNip98AuthHeader } from '$lib/nip98';
   import { requireAuth } from '$lib/auth/requireAuth';
-  import { isLiveHost } from '$lib/live/config';
+  import { goLiveAccess, LIVE_ACCESS_NOTE_MAX, LIVE_MEMBERSHIP_PATH } from '$lib/live/config';
+  import { getMembership } from '$lib/stores/membershipStatus';
   import { setBottomDockClaim } from '$lib/stores/bottomDock';
   import {
     createLiveSession,
     endLiveSession,
     endLiveSessionSigned,
+    fetchHostingStatus,
     publishOffer,
     readLiveStatus,
     recordLiveNote,
+    requestHostingAccess,
+    type OwnAccessRequest,
     type CreateOutcome,
     type HostSession,
     type SignRequest
@@ -89,7 +95,9 @@
   type Phase =
     | 'loading' // working out who this is
     | 'signed_out'
-    | 'not_allowed'
+    | 'membership_required' // a confirmed non-member: link to the membership page
+    | 'blocked' // blocked from hosting by the admin
+    | 'rollout' // a member, not on the approved list yet: "Request access"
     | 'confirm_age'
     | 'preview' // camera on, not live yet
     | 'starting' // creating the session and publishing
@@ -308,6 +316,48 @@
     }
   }
 
+  // ── Staged rollout: "Request access" ──
+  // form: may ask (optional note) · sent: a request is pending ·
+  // declined: asked before and declined, may ask again from `retryAt`.
+  let accessView: 'form' | 'sent' | 'declined' = 'form';
+  let accessNote = '';
+  let accessRetryAt: number | null = null;
+  let accessSending = false;
+  let accessError = '';
+
+  function showOwnRequest(request: OwnAccessRequest) {
+    if (request.status === 'pending') accessView = 'sent';
+    else if (request.status === 'declined' && request.retry_at !== null) {
+      accessView = 'declined';
+      accessRetryAt = request.retry_at;
+    } else accessView = 'form';
+  }
+
+  async function requestAccess() {
+    if (accessSending) return;
+    accessSending = true;
+    accessError = '';
+    const outcome = await requestHostingAccess(accessNote.trim(), sign);
+    accessSending = false;
+    if (outcome.kind === 'approved') {
+      location.reload(); // approved meanwhile: start over as a host
+    } else if (outcome.kind === 'sent' || outcome.kind === 'already_pending') {
+      accessView = 'sent';
+    } else if (outcome.kind === 'declined_recently') {
+      accessView = 'declined';
+      accessRetryAt = outcome.retryAt;
+    } else if (outcome.kind === 'membership_required') {
+      phase = 'membership_required';
+    } else {
+      accessError =
+        outcome.kind === 'sign_failed'
+          ? 'The request was not signed. Approve it in your signer and try again.'
+          : "The request couldn't be sent. Please try again in a moment.";
+    }
+  }
+  const retryDate = (s: number | null) =>
+    s ? new Date(s * 1000).toLocaleDateString(undefined, { dateStyle: 'long' }) : 'soon';
+
   onMount(() => {
     const mq = window.matchMedia(HOST_WIDE_QUERY);
     const onChange = () => (hostWide = mq.matches);
@@ -330,22 +380,25 @@
       phase = 'signed_out';
       return;
     }
-    if (!isLiveHost($userPublickey)) {
-      phase = 'not_allowed';
-      return;
-    }
-    readLockHint();
-    void loadOwnName($userPublickey);
+    const pk = $userPublickey.toLowerCase();
+    const startHosting = () => {
+      readLockHint();
+      void loadOwnName($userPublickey);
+      document.addEventListener('visibilitychange', onVisibility);
+      window.addEventListener('pagehide', onPageHide);
+      window.addEventListener('online', onOnline);
+    };
 
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('pagehide', onPageHide);
-    window.addEventListener('online', onOnline);
-
-    // A session left open by a reload of this tab?
+    // A session left open by a reload of this tab? Recover it BEFORE the
+    // membership and approval checks below, which are for starting a NEW
+    // stream: a host whose approval was removed, or whose membership
+    // lapsed, while a session was open must still get Resume and End.
+    // (Publish still refuses a blocked host.)
     const stored = loadStoredSession(storage(), $userPublickey);
     if (stored) {
       const status = await readLiveStatus(stored.id);
       if (status === 'created' || status === 'live') {
+        startHosting();
         session = { id: stored.id, token: stored.token };
         title = stored.title || title;
         policy = makePolicy();
@@ -355,6 +408,25 @@
       }
       clearStoredSession(storage());
     }
+
+    // Only a confirmed "not a member" stops here. Unknown goes ahead: the
+    // server decides at create, and an outage there says "try again".
+    const membership = await getMembership([pk]).catch(
+      () => ({}) as Awaited<ReturnType<typeof getMembership>>
+    );
+    if (goLiveAccess(membership[pk]) === 'non_member') {
+      phase = 'membership_required';
+      return;
+    }
+    // Staged rollout: a member who is not approved yet can ask for access.
+    // Unanswered goes ahead; the create route decides.
+    const hosting = await fetchHostingStatus(sign);
+    if (hosting.known && !hosting.approved) {
+      showOwnRequest(hosting.request);
+      phase = 'rollout';
+      return;
+    }
+    startHosting();
 
     if (!hasConfirmedAge($userPublickey, durable())) {
       phase = 'confirm_age';
@@ -521,8 +593,11 @@
 
   const createMessages: Record<Exclude<CreateOutcome, { ok: true }>['reason'], string> = {
     already_active: 'You already have a live stream open.',
-    not_allowed: 'Go live is not available for this account yet.',
+    blocked: 'This account cannot go live.',
+    not_approved: 'Live hosting is rolling out.',
     membership_required: 'Go live is for Cook+ members.',
+    live_full:
+      'Too many cooks are live right now. Please try again in a few minutes.',
     membership_unavailable:
       "We couldn't check your membership just now. Please try again in a moment.",
     live_off: 'Go live is switched off right now. Please try again later.',
@@ -557,6 +632,16 @@
       return;
     }
     if (!outcome.ok) {
+      if (
+        outcome.reason === 'blocked' ||
+        outcome.reason === 'membership_required' ||
+        outcome.reason === 'not_approved'
+      ) {
+        // Nothing this account can do from here: close the camera and say so.
+        teardown(true);
+        phase = outcome.reason === 'not_approved' ? 'rollout' : outcome.reason;
+        return;
+      }
       phase = 'preview';
       notice = createMessages[outcome.reason];
       return;
@@ -872,9 +957,42 @@
   {:else if phase === 'signed_out'}
     <h1>Go live</h1>
     <p class="muted">Sign in to go live.</p>
-  {:else if phase === 'not_allowed'}
+  {:else if phase === 'membership_required'}
     <h1>Go live</h1>
-    <p class="muted">Go live is not available for this account yet.</p>
+    <p class="muted">Going live is part of Cook+. Become a member to cook live with the community.</p>
+    <a class="btn primary member-link" href={LIVE_MEMBERSHIP_PATH}>See Cook+</a>
+  {:else if phase === 'rollout'}
+    <h1>Live hosting is rolling out</h1>
+    {#if accessView === 'sent'}
+      <p class="muted" role="status">
+        Request sent. We'll let you know when Go live is ready for you.
+      </p>
+    {:else if accessView === 'declined'}
+      <p class="muted" role="status">
+        Your last request wasn't approved. You can ask again from {retryDate(accessRetryAt)}.
+      </p>
+    {:else}
+      <p class="muted">
+        We're opening Go live to Cook+ members a few cooks at a time. Ask for access and we'll let
+        you know when it's ready for you.
+      </p>
+      <label class="access-note">
+        <span class="muted">What would you cook, and how often? (optional)</span>
+        <textarea bind:value={accessNote} rows="3" maxlength={LIVE_ACCESS_NOTE_MAX} class="input"
+        ></textarea>
+      </label>
+      <button
+        class="btn primary member-link"
+        on:click={requestAccess}
+        disabled={accessSending}
+      >
+        {accessSending ? 'Sending…' : 'Request access'}
+      </button>
+      {#if accessError}<p class="muted" role="alert">{accessError}</p>{/if}
+    {/if}
+  {:else if phase === 'blocked'}
+    <h1>Go live</h1>
+    <p class="muted">This account cannot go live.</p>
   {:else if phase === 'ended'}
     <div class="ended" role="status">
       <h1>{endedMessage}</h1>
@@ -1478,6 +1596,18 @@
     border: 0;
     background: #dc2626;
     color: #fff;
+  }
+  .access-note {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    max-width: 32rem;
+  }
+  .member-link {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    text-decoration: none;
   }
   .link {
     align-self: flex-start;

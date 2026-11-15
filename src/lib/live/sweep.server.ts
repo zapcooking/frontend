@@ -51,6 +51,7 @@ import {
   LIVE_SWEEP_BUDGET_MS
 } from './config';
 import { removeInputAfterEnd } from './relay.server';
+import { cleanupSafetyRecords } from './safety.server';
 import {
   bumpStreak,
   clearInput,
@@ -270,6 +271,9 @@ export async function runLiveSweep(
 
   // ── 4. Retention ───────────────────────────────────────────────────
   if (!outOfTime()) {
+    // Reports first (90 days unless a hold is open), so a session whose
+    // reports have aged out can then go with the 30-day rule.
+    await cleanupSafetyRecords(db, now);
     summary.rowsDeleted = await deleteOldEndedRows(db, now - LIVE_ROW_RETENTION_SECONDS);
     if (summary.rowsDeleted > 0) console.log(`[LiveSweep] rows_deleted=${summary.rowsDeleted}`);
   }
