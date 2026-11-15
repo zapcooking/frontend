@@ -132,6 +132,19 @@ Nostr, and the action log.
    **Release hold**. The release is logged (`release_hold`).
 6. Admin hides and unhides of commenters are logged (`hide`, `unhide`).
 
+### Tested admin response and preservation procedure
+
+The approved-host pilot has already exercised the admin reporting flow in Preview (PR #977). **The review hold is an implemented control, not just a written policy.** This procedure is for operators and must be repeated after material changes.
+
+1. **Receive alert.** A viewer reports the live stream (or comment). The service stores the report in `live_reports`, opens/reopens the `live_holds` review hold, and captures a snapshot of the session's public facts. It sends the primary and backup administrators encrypted Nostr DMs; urgent child-safety/violence reports bypass ordinary throttling. If the hash secret is missing, the report **cannot be stored** and the notification is marked **NOT STORED**: escalate immediately and do not assume preservation occurred.
+2. **Confirm preservation.** Sign in to `/admin/live` with an authorized administrator key, locate the reported session, and verify the report and **open** hold are displayed. Record the incident reference, verification time, owner and escalation status in a **restricted incident register outside GitHub**. The stream snapshot deliberately excludes Cloudflare's input UID; video is not recorded.
+3. **Intervene when warranted.** Review the report promptly. Use **End** to terminate the active stream; use **Block** when hosting must be restricted (Block ends an ongoing stream). Verify playback ends and the host cannot restart while blocked. A report by itself does **not** automatically end the stream.
+4. **Keep evidence protected.** As long as the review hold remains **open**, `live_sessions` metadata, `live_reports`, associated action-log records and the session snapshot are exempt from ordinary cleanup and the host account-deletion purge. Test this explicitly following significant modifications to the sweep or account deletion code.
+5. **Assess legal preservation separately.** Where child safety, a CyberTipline report, legal process, or counsel requires longer preservation, **do not press Release hold**. Record the preservation basis, authorized owner, relevant dates (including the CyberTipline submission date), applicable deadline and covered records in the restricted register; preserve relevant out-of-scope records before their own TTLs expire. Closing moderator review is **not** authorization to discard legally required evidence. The current app has no separate code-enforced legal lock.
+6. **Release only after authorization.** A designated administrator confirms in the restricted register that review is complete and **no legal preservation obligation remains**. Only then use **Release hold** and verify the `release_hold` action appears in the log. Releasing resumes normal retention; it must not be used simply because a stream has ended.
+
+**Existing test evidence (PR #977):** branch-preview checks covered viewer stream reports, urgent child-safety reporting/DM throttling bypass, comment reporting, keyed reporter identifiers, hold opening and release, admin actions and logging, stream ending and host blocking. These tests do not establish that a separate legal hold exists; that remains an operational preservation procedure.
+
 ## 4. What is kept, and for how long
 
 | Record | Kept |
