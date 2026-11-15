@@ -296,6 +296,7 @@
 <div class="page">
   <a href="/admin" class="back">← Admin</a>
   <h1>Go live</h1>
+  <a href="/admin/live/metrics" class="back">Live metrics →</a>
 
   {#if !authed}
     <div class="status">Sign in with the admin account to use this page.</div>

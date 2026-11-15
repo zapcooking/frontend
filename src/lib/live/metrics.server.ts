@@ -279,3 +279,77 @@ export async function deleteMonthlyForHost(db: LiveDb, hostPubkey: string): Prom
     .bind(hostPubkey.toLowerCase())
     .run();
 }
+
+// ── Admin read (/admin/live/metrics) ─────────────────────────────────
+
+export interface MonthlyRow {
+  host_pubkey: string;
+  month: string;
+  streams: number;
+  stream_seconds: number;
+  longest_seconds: number;
+  viewer_seconds: number;
+  peak_watching: number;
+  zap_sats: number;
+}
+
+export interface MetricsStreamRow {
+  id: string;
+  host_pubkey: string;
+  title: string;
+  status: 'created' | 'live' | 'ended';
+  end_reason: string | null;
+  started_at: number;
+  ended_at: number | null;
+  peak_watching: number;
+  joins: number;
+  viewer_seconds: number | null;
+  zap_sats: number | null;
+  metrics_at: number | null;
+}
+
+/** Monthly rows for the given months. */
+export async function listMonthly(db: LiveDb, months: string[]): Promise<MonthlyRow[]> {
+  if (months.length === 0) return [];
+  const marks = months.map((_, i) => `?${i + 1}`).join(', ');
+  const { results } = await db
+    .prepare(
+      `SELECT host_pubkey, month, streams, stream_seconds, longest_seconds, viewer_seconds,
+              peak_watching, zap_sats
+         FROM live_host_monthly WHERE month IN (${marks}) ORDER BY month, host_pubkey`
+    )
+    .bind(...months)
+    .all<MonthlyRow>();
+  return results;
+}
+
+/** Streams that went live at or after `since`, newest first (the 30-day table). */
+export async function listMetricsStreams(
+  db: LiveDb,
+  since: number,
+  limit = 2000
+): Promise<MetricsStreamRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, host_pubkey, title, status, end_reason, started_at, ended_at, peak_watching,
+              joins, viewer_seconds, zap_sats, metrics_at
+         FROM live_sessions
+        WHERE started_at IS NOT NULL AND started_at >= ?1
+        ORDER BY started_at DESC LIMIT ?2`
+    )
+    .bind(since, limit)
+    .all<MetricsStreamRow>();
+  return results;
+}
+
+/** Ended streams that went live but are not folded into their month yet. */
+export async function countUnrecorded(db: LiveDb): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM live_sessions
+        WHERE status = 'ended' AND metrics_at IS NULL AND started_at IS NOT NULL`
+    )
+    .bind()
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
