@@ -255,7 +255,7 @@
     });
     hiding.delete(key);
     hiding = hiding;
-    if (outcome === 'ok') {
+    if (outcome === 'ok' || outcome === 'ok_unlogged') {
       const others = hiddenList.filter((h) => !(h.pubkey === pubkey && h.scope === scope));
       hiddenList = hidden ? [...others, { pubkey, scope }] : others;
       repaint();
@@ -267,6 +267,9 @@
             : `${displayName(pubkey)} is hidden from your live chats.`
           : `${displayName(pubkey)} is no longer hidden.`
       );
+      if (outcome === 'ok_unlogged') {
+        showToast('error', 'Done, but the action log entry could not be written.');
+      }
     } else {
       showToast(
         'error',

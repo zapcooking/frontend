@@ -380,9 +380,37 @@
       phase = 'signed_out';
       return;
     }
+    const pk = $userPublickey.toLowerCase();
+    const startHosting = () => {
+      readLockHint();
+      void loadOwnName($userPublickey);
+      document.addEventListener('visibilitychange', onVisibility);
+      window.addEventListener('pagehide', onPageHide);
+      window.addEventListener('online', onOnline);
+    };
+
+    // A session left open by a reload of this tab? Recover it BEFORE the
+    // membership and approval checks below, which are for starting a NEW
+    // stream: a host whose approval was removed, or whose membership
+    // lapsed, while a session was open must still get Resume and End.
+    // (Publish still refuses a blocked host.)
+    const stored = loadStoredSession(storage(), $userPublickey);
+    if (stored) {
+      const status = await readLiveStatus(stored.id);
+      if (status === 'created' || status === 'live') {
+        startHosting();
+        session = { id: stored.id, token: stored.token };
+        title = stored.title || title;
+        policy = makePolicy();
+        policy.seedAttempts(stored.attempts);
+        phase = 'resume';
+        return;
+      }
+      clearStoredSession(storage());
+    }
+
     // Only a confirmed "not a member" stops here. Unknown goes ahead: the
     // server decides at create, and an outage there says "try again".
-    const pk = $userPublickey.toLowerCase();
     const membership = await getMembership([pk]).catch(
       () => ({}) as Awaited<ReturnType<typeof getMembership>>
     );
@@ -398,27 +426,7 @@
       phase = 'rollout';
       return;
     }
-    readLockHint();
-    void loadOwnName($userPublickey);
-
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('pagehide', onPageHide);
-    window.addEventListener('online', onOnline);
-
-    // A session left open by a reload of this tab?
-    const stored = loadStoredSession(storage(), $userPublickey);
-    if (stored) {
-      const status = await readLiveStatus(stored.id);
-      if (status === 'created' || status === 'live') {
-        session = { id: stored.id, token: stored.token };
-        title = stored.title || title;
-        policy = makePolicy();
-        policy.seedAttempts(stored.attempts);
-        phase = 'resume';
-        return;
-      }
-      clearStoredSession(storage());
-    }
+    startHosting();
 
     if (!hasConfirmedAge($userPublickey, durable())) {
       phase = 'confirm_age';

@@ -44,6 +44,7 @@
     added_by?: string;
   }
   interface Incident {
+    report_count: number;
     session_id: string;
     status: 'open' | 'released';
     opened_at: number;
@@ -184,6 +185,17 @@
         offSet = data.off;
       }
       await load();
+      // The log is how the page knows the last switch. If the switch worked
+      // but its log entry failed, the reload above read the PREVIOUS switch
+      // from the log: keep the state the server just confirmed instead.
+      if (data.logged === false) {
+        if (body.action === 'mode' && (data.mode === 'members' || data.mode === 'approved')) {
+          modeSet = data.mode;
+        }
+        if (body.action === 'off' && data.flag_written === true && typeof data.off === 'boolean') {
+          offSet = data.off;
+        }
+      }
       if (body.action === 'off' && data.flag_written === false) {
         fail(
           'The off switch could not be saved (KV). ' +
@@ -196,6 +208,25 @@
       return true;
     } finally {
       busy = false;
+    }
+  }
+
+  /** Every report of one incident, when it has more than the list shows. */
+  let allReports: Record<string, Incident['reports']> = {};
+  async function showAllReports(sessionId: string) {
+    try {
+      const url = new URL('/api/admin/live', window.location.origin);
+      url.searchParams.set('incident', sessionId);
+      const auth = await signNip98AuthHeader($ndk, { method: 'GET', url: url.toString() });
+      const res = await fetch(url, { headers: { Authorization: auth } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        fail(adminActionError({ status: res.status, error: data?.error }));
+        return;
+      }
+      allReports = { ...allReports, [sessionId]: data.reports ?? [] };
+    } catch {
+      fail(adminActionError('network'));
     }
   }
 
@@ -471,7 +502,7 @@
             </div>
             {#if i.host_pubkey}<code class="npub">Host {npub(i.host_pubkey)}</code>{/if}
             <ul class="reports">
-              {#each i.reports as r}
+              {#each allReports[i.session_id] ?? i.reports as r}
                 <li class:urgent={r.reason === 'child_safety' || r.reason === 'violence'}>
                   <strong>{REASON_LABELS[r.reason] ?? r.reason}</strong>
                   · {when(r.created_at)}
@@ -480,6 +511,12 @@
                 </li>
               {/each}
             </ul>
+            {#if !allReports[i.session_id] && i.report_count > i.reports.length}
+              <p class="meta">
+                Showing {i.reports.length} of {i.report_count} reports (urgent first, then newest).
+                <button on:click={() => showAllReports(i.session_id)}>Show all {i.report_count}</button>
+              </p>
+            {/if}
             {#if i.status === 'open'}
               <div class="actions">
                 <button

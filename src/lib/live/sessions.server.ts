@@ -27,15 +27,23 @@ import {
 export type LiveSessionStatus = 'created' | 'live' | 'ended';
 export type LiveEndReason = 'host' | 'timeout' | 'abandoned' | 'never_started' | 'admin' | 'error';
 
+/** A bound D1 statement. */
+export interface LiveStatement {
+  first<T = unknown>(): Promise<T | null>;
+  all<T = unknown>(): Promise<{ results: T[] }>;
+  run(): Promise<{ meta: { changes: number } }>;
+}
+
 /** The D1 surface this module needs (matches App.Platform's SCHEDULER_DB). */
 export interface LiveDb {
   prepare(query: string): {
-    bind(...values: unknown[]): {
-      first<T = unknown>(): Promise<T | null>;
-      all<T = unknown>(): Promise<{ results: T[] }>;
-      run(): Promise<{ meta: { changes: number } }>;
-    };
+    bind(...values: unknown[]): LiveStatement;
   };
+  /**
+   * D1 batch: the statements run in order in ONE transaction. If any of
+   * them fails, none is applied. Used where two writes must not be split.
+   */
+  batch(statements: LiveStatement[]): Promise<{ meta: { changes: number } }[]>;
 }
 
 /** Columns the session routes read. Deliberately not `SELECT *`. */

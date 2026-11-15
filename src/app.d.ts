@@ -120,6 +120,8 @@ declare global {
                 run(): Promise<{ meta: { changes: number } }>;
               };
             };
+            /** D1: run bound statements in one transaction (all or none). */
+            batch(statements: unknown[]): Promise<{ meta: { changes: number } }[]>;
           };
         };
       }

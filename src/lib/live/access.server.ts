@@ -9,7 +9,7 @@
  * LIVE_ACCESS_DECLINE_COOLDOWN_SECONDS after the decision.
  */
 import { LIVE_ACCESS_DECLINE_COOLDOWN_SECONDS } from './config';
-import { nowSeconds, setHostApproved, type LiveDb } from './sessions.server';
+import { nowSeconds, type LiveDb } from './sessions.server';
 
 export type AccessRequestStatus = 'pending' | 'approved' | 'declined';
 
@@ -122,8 +122,11 @@ export async function countPendingRequests(db: LiveDb): Promise<number> {
 
 /**
  * Decide a pending request. Approving also adds the account to the
- * approved-hosts list. Returns the request, or null when it was not
- * pending (already decided, or unknown).
+ * approved-hosts list, in the SAME transaction: either the request is
+ * approved and the account is on the list, or nothing changed and the
+ * request is still pending (so Approve can simply be tried again).
+ * Returns the request, or null when it was not pending (already decided,
+ * or unknown).
  */
 export async function decideRequest(
   db: LiveDb,
@@ -132,20 +135,30 @@ export async function decideRequest(
   actor: string,
   now: number = nowSeconds()
 ): Promise<AccessRequestRow | null> {
-  const result = await db
+  const decide = db
     .prepare(
       `UPDATE live_access_requests SET status = ?2, decided_at = ?3
         WHERE id = ?1 AND status = 'pending'`
     )
-    .bind(id, decision, now)
-    .run();
+    .bind(id, decision, now);
+  const [result] =
+    decision === 'approved'
+      ? await db.batch([
+          decide,
+          db
+            .prepare(
+              `INSERT OR IGNORE INTO live_approved_hosts (pubkey, created_at, added_by)
+               SELECT pubkey, ?2, ?3 FROM live_access_requests
+                WHERE id = ?1 AND status = 'approved' AND decided_at = ?2`
+            )
+            .bind(id, now, actor)
+        ])
+      : [await decide.run()];
   if ((result.meta?.changes ?? 0) !== 1) return null;
-  const row = await db
+  return db
     .prepare(`SELECT ${COLUMNS} FROM live_access_requests WHERE id = ?1`)
     .bind(id)
     .first<AccessRequestRow>();
-  if (row && decision === 'approved') await setHostApproved(db, row.pubkey, true, actor);
-  return row;
 }
 
 /**

@@ -114,8 +114,9 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
     // The admin's moderation goes in the action log. A host hiding a
     // commenter in their own chat is the host's choice, not an admin
     // action, and is not logged.
+    let logged = true;
     if (isAdmin) {
-      await logAction(db, {
+      logged = await logAction(db, {
         actor: signer,
         action: input.hidden ? 'hide' : 'unhide',
         sessionId: row.id,
@@ -123,7 +124,12 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
         detail: scope === 'global' ? 'every Go live chat' : "this host's chats"
       });
     }
-    return json({ pubkey, hidden: input.hidden, scope }, { headers: NO_STORE });
+    // The hide itself has happened; `logged: false` tells the admin that its
+    // action-log entry could not be written (as /api/admin/live does).
+    return json(
+      logged ? { pubkey, hidden: input.hidden, scope } : { pubkey, hidden: input.hidden, scope, logged: false },
+      { headers: NO_STORE }
+    );
   } catch (err) {
     console.error(`[Live] hidden write failed: ${(err as Error)?.name ?? 'error'}`);
     return json({ error: 'internal' }, { status: 500, headers: NO_STORE });

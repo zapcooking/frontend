@@ -38,6 +38,19 @@ export function createLiveDatabase(): LiveDb & { raw: any } {
   }
   return {
     raw: sqlite,
+    /** Like D1's batch: one transaction, all or none. */
+    async batch(statements: any[]) {
+      sqlite.exec('BEGIN');
+      try {
+        const results = [];
+        for (const s of statements) results.push(await s.run());
+        sqlite.exec('COMMIT');
+        return results;
+      } catch (err) {
+        sqlite.exec('ROLLBACK');
+        throw err;
+      }
+    },
     prepare(sql: string) {
       return {
         bind(...values: unknown[]) {

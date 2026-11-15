@@ -260,24 +260,6 @@ export async function recordReport(db: LiveDb, input: ReportInput): Promise<Repo
       : input.reporterHash
     : `unverified:${crypto.randomUUID()}`;
 
-  const inserted = await db
-    .prepare(
-      `INSERT OR IGNORE INTO live_reports
-         (id, session_id, reporter_hash, reason, details, comment_id, comment_pubkey, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
-    )
-    .bind(
-      crypto.randomUUID(),
-      input.sessionId,
-      reporter,
-      input.reason,
-      input.details.slice(0, LIVE_REPORT_DETAILS_MAX),
-      input.comment?.id ?? null,
-      input.comment?.pubkey ?? null,
-      now
-    )
-    .run();
-
   // The snapshot is the session's public facts at the first report. Never
   // the Cloudflare input id: that id alone is enough to play the stream.
   const snapshot = {
@@ -291,25 +273,58 @@ export async function recordReport(db: LiveDb, input: ReportInput): Promise<Repo
     ended_at: session.ended_at,
     note_id: session.note_id
   };
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO live_holds (session_id, opened_at, status, snapshot_json)
-       VALUES (?1, ?2, 'open', ?3)`
-    )
-    .bind(input.sessionId, now, JSON.stringify(snapshot))
-    .run();
-  // A new report on a released case reopens it: a fresh report is under review again.
-  await db
-    .prepare(
-      `UPDATE live_holds SET status = 'open', released_at = NULL, released_by = NULL
-        WHERE session_id = ?1 AND status = 'released'`
-    )
-    .bind(input.sessionId)
-    .run();
+
+  // ONE transaction, so the report is never stored without its hold (and
+  // the reverse). Every write is conditional on the session still
+  // existing: a concurrent account purge either runs first (nothing is
+  // written; the reply is not_found) or after (the open hold protects the
+  // session from it). A hold is opened, or a released one reopened, only
+  // for a newly stored report or an urgent submission (which alerts): a
+  // duplicate non-urgent report changes nothing.
+  const reportId = crypto.randomUUID();
+  const counts = urgent ? 1 : 0;
+  const [inserted] = await db.batch([
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO live_reports
+           (id, session_id, reporter_hash, reason, details, comment_id, comment_pubkey, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+          WHERE EXISTS (SELECT 1 FROM live_sessions WHERE id = ?2)`
+      )
+      .bind(
+        reportId,
+        input.sessionId,
+        reporter,
+        input.reason,
+        input.details.slice(0, LIVE_REPORT_DETAILS_MAX),
+        input.comment?.id ?? null,
+        input.comment?.pubkey ?? null,
+        now
+      ),
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO live_holds (session_id, opened_at, status, snapshot_json)
+         SELECT ?1, ?2, 'open', ?3
+          WHERE EXISTS (SELECT 1 FROM live_sessions WHERE id = ?1)
+            AND (?5 = 1 OR EXISTS (SELECT 1 FROM live_reports WHERE id = ?4))`
+      )
+      .bind(input.sessionId, now, JSON.stringify(snapshot), reportId, counts),
+    db
+      .prepare(
+        `UPDATE live_holds SET status = 'open', released_at = NULL, released_by = NULL
+          WHERE session_id = ?1 AND status = 'released'
+            AND (?3 = 1 OR EXISTS (SELECT 1 FROM live_reports WHERE id = ?2))`
+      )
+      .bind(input.sessionId, reportId, counts)
+  ]);
+  const recorded = (inserted.meta?.changes ?? 0) === 1;
+  if (!recorded && !(await getSession(db, input.sessionId))) {
+    return { ok: false, reason: 'not_found' }; // purged meanwhile
+  }
 
   return {
     ok: true,
-    recorded: (inserted.meta?.changes ?? 0) === 1,
+    recorded,
     urgent,
     title: session.title,
     hostPubkey: session.host_pubkey,
@@ -350,18 +365,37 @@ export interface Incident {
   released_by: string | null;
   title: string;
   host_pubkey: string;
+  /** Up to INCIDENT_REPORTS_SHOWN reports: urgent ones first, then the newest. */
   reports: IncidentReport[];
+  /** How many reports the incident has in all (more than `reports.length` = some not shown). */
+  report_count: number;
 }
 
-/** Holds with their reports, open ones first. Reporter hashes are never returned. */
-export async function listIncidents(db: LiveDb, limit = 50): Promise<Incident[]> {
+/** Released holds listed besides every open one. */
+export const RELEASED_INCIDENTS_SHOWN = 25;
+/** Reports listed per incident; the rest are counted and loadable with listIncidentReports. */
+export const INCIDENT_REPORTS_SHOWN = 50;
+
+const URGENT_FIRST = `CASE WHEN reason IN ('child_safety', 'violence') THEN 0 ELSE 1 END`;
+
+/**
+ * EVERY open hold (none is ever hidden by a limit), then the most recent
+ * released ones, each with its reports. Reporter hashes are never returned.
+ */
+export async function listIncidents(db: LiveDb): Promise<Incident[]> {
   const { results: holds } = await db
     .prepare(
-      `SELECT session_id, status, opened_at, released_at, released_by, snapshot_json
-         FROM live_holds
-        ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, opened_at DESC LIMIT ?1`
+      `SELECT * FROM (
+         SELECT session_id, status, opened_at, released_at, released_by, snapshot_json
+           FROM live_holds WHERE status = 'open'
+         UNION ALL
+         SELECT * FROM (
+           SELECT session_id, status, opened_at, released_at, released_by, snapshot_json
+             FROM live_holds WHERE status = 'released'
+            ORDER BY released_at DESC LIMIT ?1))
+        ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, opened_at DESC`
     )
-    .bind(limit)
+    .bind(RELEASED_INCIDENTS_SHOWN)
     .all<{
       session_id: string;
       status: 'open' | 'released';
@@ -371,17 +405,27 @@ export async function listIncidents(db: LiveDb, limit = 50): Promise<Incident[]>
       snapshot_json: string;
     }>();
   if (holds.length === 0) return [];
+
+  // Per incident: the first INCIDENT_REPORTS_SHOWN reports, urgent first,
+  // then newest, plus the incident's total. No report is cut across
+  // incidents; an incident with more shows its count.
+  const ids = holds.map((h) => h.session_id);
+  const placeholders = ids.map((_, i) => `?${i + 2}`).join(', ');
   const { results: reports } = await db
     .prepare(
-      `SELECT session_id, reason, details, comment_id, comment_pubkey, created_at
-         FROM live_reports
-        WHERE session_id IN (SELECT session_id FROM live_holds
-                              ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, opened_at DESC
-                              LIMIT ?1)
-        ORDER BY created_at LIMIT 2000`
+      `SELECT session_id, reason, details, comment_id, comment_pubkey, created_at, total
+         FROM (SELECT session_id, reason, details, comment_id, comment_pubkey, created_at,
+                      rowid AS rid,
+                      ROW_NUMBER() OVER (PARTITION BY session_id
+                                         ORDER BY ${URGENT_FIRST}, created_at DESC, rowid DESC) AS rn,
+                      COUNT(*) OVER (PARTITION BY session_id) AS total
+                 FROM live_reports WHERE session_id IN (${placeholders}))
+        WHERE rn <= ?1
+        ORDER BY session_id, created_at, rid`
     )
-    .bind(limit)
-    .all<IncidentReport & { session_id: string }>();
+    .bind(INCIDENT_REPORTS_SHOWN, ...ids)
+    .all<IncidentReport & { session_id: string; total: number }>();
+
   return holds.map((h) => {
     let snap: { title?: string; host_pubkey?: string } = {};
     try {
@@ -389,6 +433,7 @@ export async function listIncidents(db: LiveDb, limit = 50): Promise<Incident[]>
     } catch {
       /* an unreadable snapshot still lists the hold */
     }
+    const mine = reports.filter((r) => r.session_id === h.session_id);
     return {
       session_id: h.session_id,
       status: h.status,
@@ -397,11 +442,26 @@ export async function listIncidents(db: LiveDb, limit = 50): Promise<Incident[]>
       released_by: h.released_by,
       title: snap.title ?? '',
       host_pubkey: snap.host_pubkey ?? '',
-      reports: reports
-        .filter((r) => r.session_id === h.session_id)
-        .map(({ session_id: _s, ...r }) => r)
+      reports: mine.map(({ session_id: _s, total: _t, ...r }) => r),
+      report_count: Number(mine[0]?.total ?? 0)
     };
   });
+}
+
+/** Every report of one incident, oldest first (bounded, for the admin's "Show all"). */
+export async function listIncidentReports(
+  db: LiveDb,
+  sessionId: string,
+  limit = 5000
+): Promise<IncidentReport[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT reason, details, comment_id, comment_pubkey, created_at
+         FROM live_reports WHERE session_id = ?1 ORDER BY created_at, rowid LIMIT ?2`
+    )
+    .bind(sessionId, limit)
+    .all<IncidentReport>();
+  return results;
 }
 
 // ── Retention ────────────────────────────────────────────────────────

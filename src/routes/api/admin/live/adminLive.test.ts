@@ -610,7 +610,8 @@ describe('report hold', () => {
         host_pubkey: HOSTS[0],
         reports: [
           { reason: 'nudity', details: 'saw it', comment_id: null, comment_pubkey: null, created_at: 5 }
-        ]
+        ],
+        report_count: 1
       }
     ]);
     // Reporter hashes never leave the server.
@@ -689,6 +690,35 @@ describe('access requests', () => {
     insertRequest(ID1, HOSTS[1]);
     await admin({ action: 'approve', pubkey: HOSTS[1] });
     expect(requestRow(ID1).status).toBe('approved');
+  });
+
+  it('approval is one transaction: if adding the host fails, the request stays pending (review #977)', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    insertRequest(ID1, HOSTS[1]);
+    db.raw.exec('DROP TABLE live_approved_hosts');
+    const { res } = await admin({ action: 'approve_request', id: ID1 });
+    expect(res.status).toBe(500);
+    expect(requestRow(ID1).status).toBe('pending');
+  });
+
+  it('GET ?incident= returns every report of one incident', async () => {
+    const s0 = await createLive(0);
+    for (let i = 0; i < 3; i++) {
+      db.raw
+        .prepare(
+          "INSERT INTO live_reports (id, session_id, reporter_hash, reason, created_at) VALUES (?, ?, ?, 'spam', ?)"
+        )
+        .run(`r${i}`, s0.id, String(i).repeat(64), i);
+    }
+    const res = await GET({
+      request: new Request(`${ADMIN_URL}?incident=${s0.id}`, {
+        headers: { Authorization: await nip98(`${ADMIN_URL}?incident=${s0.id}`, 'GET', undefined, adminSk) }
+      }),
+      platform: { env }
+    } as any);
+    const data = await res.json();
+    expect(data.reports).toHaveLength(3);
+    expect(JSON.stringify(data)).not.toContain('0'.repeat(64));
   });
 
   it('refuses a malformed id and a non-admin', async () => {

@@ -165,4 +165,12 @@ describe('hidden commenters', () => {
       { actor: keys.admin, action: 'unhide', session_id: ID, target_pubkey: TROLL, detail: "this host's chats" }
     ]);
   });
+
+  it("says logged: false when the admin's log entry could not be written (the hide still happens)", async () => {
+    db.raw.exec('DROP TABLE live_actions');
+    const r = await post({ pubkey: SPAMMER, hidden: true, scope: 'global' }, adminSk);
+    expect(r.res.status).toBe(200);
+    expect(r.data).toEqual({ pubkey: SPAMMER, hidden: true, scope: 'global', logged: false });
+    expect((await get()).data.hidden).toContainEqual({ pubkey: SPAMMER, scope: 'global' });
+  });
 });

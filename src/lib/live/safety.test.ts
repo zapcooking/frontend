@@ -4,6 +4,8 @@ import { approveHosts, createLiveDatabase } from '../../test/liveDatabase';
 import { createSession, deleteOldEndedRows, endSession } from './sessions.server';
 import {
   cleanupSafetyRecords,
+  INCIDENT_REPORTS_SHOWN,
+  listIncidentReports,
   listIncidents,
   logAction,
   recordReport,
@@ -93,6 +95,96 @@ describe('recordReport', () => {
     expect(hold().status).toBe('released');
     await report(HASH(2));
     expect(hold()).toMatchObject({ status: 'open', released_at: null, released_by: null });
+  });
+});
+
+describe('recordReport is one transaction (review #977)', () => {
+  it('a failed hold write stores no report either', async () => {
+    db.raw.exec('DROP TABLE live_holds');
+    await expect(report(HASH(1))).rejects.toThrow();
+    expect(count('live_reports')).toBe(0);
+  });
+
+  it('a session purged between the read and the write: not_found, nothing written', async () => {
+    const racing = {
+      ...db,
+      prepare: db.prepare.bind(db),
+      batch: async (statements: any[]) => {
+        db.raw.prepare('DELETE FROM live_sessions WHERE id = ?').run(id); // the purge wins the race
+        return db.batch(statements);
+      }
+    };
+    const result = await recordReport(racing as any, {
+      sessionId: id,
+      reporterHash: HASH(1),
+      reason: 'child_safety',
+      details: '',
+      comment: null,
+      now: NOW
+    });
+    expect(result).toEqual({ ok: false, reason: 'not_found' });
+    expect(count('live_reports')).toBe(0);
+    expect(count('live_holds')).toBe(0);
+  });
+
+  it('a duplicate non-urgent report does not reopen a released hold', async () => {
+    await report(HASH(1));
+    await releaseHold(db, id, 'admin', NOW + 1);
+    expect(await report(HASH(1), { reason: 'spam' })).toMatchObject({ recorded: false });
+    expect(hold().status).toBe('released');
+  });
+
+  it('an urgent repeat (which alerts) does reopen it', async () => {
+    await report(HASH(1), { reason: 'child_safety' });
+    await releaseHold(db, id, 'admin', NOW + 1);
+    expect(await report(HASH(1), { reason: 'child_safety' })).toMatchObject({
+      recorded: false,
+      urgent: true
+    });
+    expect(hold().status).toBe('open');
+  });
+});
+
+describe('listIncidents limits (review #977)', () => {
+  async function newSession(i: number) {
+    const host = (i + 10).toString(16).padStart(64, 'e');
+    approveHosts(db, host);
+    const c = await createSession(db, { hostPubkey: host, title: `S${i}`, recipeA: null, mode: 'approved', now: NOW, maxOpen: 1000 });
+    if (!c.ok) throw new Error('fixture');
+    return c.session.id;
+  }
+
+  it('lists EVERY open hold, and only the latest released ones', async () => {
+    for (let i = 0; i < 60; i++) {
+      const sid = await newSession(i);
+      await recordReport(db, { sessionId: sid, reporterHash: HASH(1), reason: 'other', details: '', comment: null, now: NOW + i });
+    }
+    const released: string[] = [];
+    for (let i = 60; i < 90; i++) {
+      const sid = await newSession(i);
+      await recordReport(db, { sessionId: sid, reporterHash: HASH(1), reason: 'other', details: '', comment: null, now: NOW });
+      await releaseHold(db, sid, 'admin', NOW + i);
+      released.push(sid);
+    }
+    const list = await listIncidents(db);
+    expect(list.filter((x) => x.status === 'open')).toHaveLength(60);
+    const rel = list.filter((x) => x.status === 'released');
+    expect(rel).toHaveLength(25);
+    // The most recently released ones.
+    expect(new Set(rel.map((x) => x.session_id))).toEqual(new Set(released.slice(5)));
+  });
+
+  it('shows up to 50 reports per incident, urgent first, with the full count', async () => {
+    for (let i = 0; i < 70; i++) {
+      await recordReport(db, { sessionId: id, reporterHash: HASH(1).slice(0, 60) + i.toString(16).padStart(4, '0'), reason: 'spam', details: '', comment: null, now: NOW + 100 + i });
+    }
+    // An OLD urgent report must not be cut by newer non-urgent ones.
+    await recordReport(db, { sessionId: id, reporterHash: HASH(2), reason: 'child_safety', details: 'old but urgent', comment: null, now: NOW });
+    const [incident] = await listIncidents(db);
+    expect(incident.report_count).toBe(71);
+    expect(incident.reports).toHaveLength(INCIDENT_REPORTS_SHOWN);
+    expect(incident.reports.some((r) => r.details === 'old but urgent')).toBe(true);
+    expect(await listIncidentReports(db, id)).toHaveLength(71);
   });
 });
 

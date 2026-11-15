@@ -40,7 +40,8 @@ export async function fetchHiddenAuthors(
   }
 }
 
-export type SetHiddenOutcome = 'ok' | 'forbidden' | 'full' | 'sign_failed' | 'error';
+/** 'ok_unlogged': done, but the admin action log entry could not be written. */
+export type SetHiddenOutcome = 'ok' | 'ok_unlogged' | 'forbidden' | 'full' | 'sign_failed' | 'error';
 
 /** Hide or unhide a commenter. `sign` makes the NIP-98 header for this exact request. */
 export async function setHiddenAuthor(
@@ -72,7 +73,10 @@ export async function setHiddenAuthor(
       headers: { 'Content-Type': 'application/json', Authorization: authorization },
       body: bodyString
     });
-    if (res.status === 200) return 'ok';
+    if (res.status === 200) {
+      const data = (await res.json().catch(() => ({}))) as { logged?: boolean };
+      return data.logged === false ? 'ok_unlogged' : 'ok';
+    }
     if (res.status === 403) return 'forbidden';
     if (res.status === 409) return 'full';
     return 'error';

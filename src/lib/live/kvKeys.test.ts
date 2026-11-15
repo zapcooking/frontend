@@ -37,7 +37,9 @@ describe('admin page helpers', () => {
     );
     expect(adminActionError({ status: 502 })).toBe('The action failed. (HTTP 502)');
     expect(adminActionError({ status: 418, error: 'weird' })).toBe('The action failed. (HTTP 418, weird)');
-    expect(adminActionError('network')).toMatch(/Couldn't reach the server/);
+    // No reply never claims nothing happened.
+    expect(adminActionError('network')).toMatch(/unconfirmed/);
+    expect(adminActionError('network')).not.toMatch(/Nothing was changed/);
   });
 
   it('shows the mode last switched to, even while the KV read lags', () => {

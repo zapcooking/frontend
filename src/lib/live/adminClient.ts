@@ -21,7 +21,11 @@ const ERROR_TEXT: Record<string, string> = {
 export function adminActionError(
   outcome: { status: number; error?: string } | 'network'
 ): string {
-  if (outcome === 'network') return "Couldn't reach the server. Nothing was changed. Try again.";
+  // No reply does not mean nothing happened: the server may have applied
+  // the action before the reply was lost. Never claim it was not.
+  if (outcome === 'network') {
+    return 'No reply from the server, so the result is unconfirmed. Reload the page and check before trying again.';
+  }
   const known = outcome.error ? ERROR_TEXT[outcome.error] : undefined;
   return `${known ?? 'The action failed.'} (HTTP ${outcome.status}${
     outcome.error ? `, ${outcome.error}` : ''

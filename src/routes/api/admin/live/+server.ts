@@ -20,7 +20,12 @@
  *     approved   the approved-hosts list   blocked   the blocked list
  *     requests   pending access requests, oldest first, each with the
  *                requester's membership: 'active' | 'inactive' | 'unknown'
- *     incidents  report holds with their reports (never a reporter hash)
+ *     incidents  EVERY open report hold plus the 25 latest released ones, each
+ *                with up to 50 reports (urgent first) and its report_count
+ *                (never a reporter hash)
+ *
+ * GET /api/admin/live?incident=<session id>
+ *   200: { reports: [...] }   every report of that incident, oldest first
  *     actions    the latest 100 entries of the action log
  *
  * POST /api/admin/live — body { action, ... }:
@@ -63,6 +68,7 @@ import {
   lastModeSet,
   lastOffSet,
   listActions,
+  listIncidentReports,
   listIncidents,
   logAction,
   releaseHold,
@@ -122,6 +128,11 @@ export const GET: RequestHandler = async ({ request, platform }) => {
   const db = platform?.env?.SCHEDULER_DB as LiveDb | undefined;
   if (!db) return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
   try {
+    const incident = new URL(request.url).searchParams.get('incident');
+    if (incident !== null) {
+      if (!isLiveSessionId(incident)) return bad();
+      return json({ reports: await listIncidentReports(db, incident) }, { headers: NO_STORE });
+    }
     return json(
       {
         off: await isLiveOff(platform),
