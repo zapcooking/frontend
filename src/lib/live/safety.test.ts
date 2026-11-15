@@ -220,6 +220,8 @@ describe('retention', () => {
     await report(HASH(1));
     await releaseHold(db, id, 'admin', NOW + 1);
     await endSession(db, id, 'admin', NOW);
+    // Recorded by the metrics close-out (migration 0010), so retention may delete it.
+    db.raw.prepare('UPDATE live_sessions SET metrics_at = ? WHERE id = ?').run(NOW, id);
     await cleanupSafetyRecords(db, NOW + 60 * DAY);
     expect(count('live_reports')).toBe(1);
     expect(await deleteOldEndedRows(db, NOW + 30 * DAY)).toBe(0);

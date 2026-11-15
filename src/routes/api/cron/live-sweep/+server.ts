@@ -58,7 +58,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       metrics: {
         readTotals: (id) => readPresenceTotals(platform, id),
         finish: (id) => finishPresence(platform, id),
-        zapSats: (noteId) => fetchNoteZapSats(noteId)
+        zapSats: (noteId, host) => fetchNoteZapSats(noteId, host)
       }
     });
     return json(summary, { headers: NO_STORE });
