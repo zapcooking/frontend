@@ -19,12 +19,15 @@ These are product proposals, **not** an instruction to delete records subject to
 
 **CyberTipline preservation:** after a qualifying report, apply applicable federal preservation requirements (generally one year from submission under 18 U.S.C. § 2258A(h)); other processes may require different periods. Avoid a single automatic 90-day hold expiry.
 
-## Current implementation (PR #977)
+## Current implementation and tested admin process (PR #977)
 - The first report on a stream or one of its comments opens a hold automatically, with a snapshot of the session's public facts. The snapshot never contains the Cloudflare input identifier.
 - A held session, its reports and related action-log entries survive the 30/90-day purge and the host's account deletion.
 - Release is a manual admin action on /admin/live and is logged; a new report reopens the hold.
+- Preview admin tests included stream and comment reporting, urgent child-safety alert delivery, hold opening/release, stream ending, blocking and action-log checks. These are confirmed operational tests, not merely a proposed policy.
+- During a report review, the moderator must verify the hold is shown as **open** before relying on it, and should record the incident reference in a restricted register outside GitHub. A missing reporter-hash secret means the report was not stored and the hold may not be present.
 - A child-safety or violence report is never lost as a duplicate. It is stored even when the same reporter already reported that stream or comment for another reason, and every urgent submission alerts the admin.
-- Gap against step 2 above: the hold records no lawful basis, owner or review date. Record those in the restricted incident system for any hold that goes beyond routine moderation, until the admin tool supports them.
+- **Legal-preservation distinction:** tested review holds protect the covered stream records, but the application does not separately lock a legal hold against admin release. For a legally preserved incident, do not use **Release hold** until an authorized reviewer confirms the legal duty has ended. Record the lawful basis, responsible person, dates, affected records and review date in the restricted incident register, and preserve records outside the stream hold before their ordinary deletion.
+- Gap against step 2 above: the hold itself records no legal basis, owner or review date. The restricted incident register supplies this documentation until the admin tool supports those fields.
 
 ## Data minimization
 Preserve what exists and is reasonably accessible: stream metadata, relevant report text, Nostr event IDs, moderation events, timestamps, and other covered records. Do not create unsolicited copies of suspected illegal video or solicit illegal material. No incident data in GitHub.
