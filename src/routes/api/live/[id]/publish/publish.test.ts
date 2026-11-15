@@ -675,7 +675,7 @@ describe('POST /api/live/<id>/end with a live input', () => {
 
     const { res, data } = await end(s.id, s.token);
     expect(res.status).toBe(200);
-    expect(data).toEqual({ id: s.id, status: 'ended' });
+    expect(data).toEqual({ id: s.id, status: 'ended', peak_watching: 0, joins: 0 });
     expect(cf.inputs.size).toBe(0);
     const row = rowOf(s.id);
     expect(row.status).toBe('ended');
@@ -691,7 +691,7 @@ describe('POST /api/live/<id>/end with a live input', () => {
 
     const { res, data } = await end(s.id, s.token);
     expect(res.status).toBe(200);
-    expect(data).toEqual({ id: s.id, status: 'ended' });
+    expect(data).toEqual({ id: s.id, status: 'ended', peak_watching: 0, joins: 0 });
 
     const row = rowOf(s.id);
     expect(row.status).toBe('ended');

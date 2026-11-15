@@ -899,7 +899,8 @@ describe('POST /api/live/<id>/end', () => {
     const created = await create();
     const { res, data } = await end(created.data.id, { auth: `Bearer ${created.data.host_token}` });
     expect(res.status).toBe(200);
-    expect(data).toEqual({ id: created.data.id, status: 'ended' });
+    // The ending call carries the host's after-the-stream counts.
+    expect(data).toEqual({ id: created.data.id, status: 'ended', peak_watching: 0, joins: 0 });
 
     const row = rowOf(created.data.id);
     expect(row.status).toBe('ended');
@@ -1118,10 +1119,15 @@ describe('GET /api/live (list)', () => {
         'recipe_a',
         'started_at',
         'status',
-        'title'
+        'title',
+        'watching'
       ].sort()
     );
-    expect(text).not.toMatch(/INPUTUIDSECRET|cloudflarestream|guest_joins|host_token/);
+    // No presence binding in tests: the count reads as unknown.
+    expect(data.sessions[0].watching).toBeNull();
+    expect(text).not.toMatch(
+      /INPUTUIDSECRET|cloudflarestream|guest_joins|host_token|peak_watching|"joins"/
+    );
   });
 
   it('omits ended sessions', async () => {

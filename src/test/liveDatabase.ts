@@ -7,7 +7,8 @@ export const LIVE_MIGRATIONS = [
   '0004_create_live_sessions.sql',
   '0005_add_live_pass_rejoins.sql',
   '0006_add_live_note_id.sql',
-  '0007_live_rollout_and_safety.sql'
+  '0007_live_rollout_and_safety.sql',
+  '0008_add_live_watching_counts.sql'
 ] as const;
 
 /**
@@ -26,7 +27,7 @@ export function approveHosts(db: { raw: any }, ...pubkeys: string[]): void {
 }
 
 /**
- * Real SQLite running the Go live migrations (0004–0007), so the tests exercise the same SQL
+ * Real SQLite running the Go live migrations (0004–0008), so the tests exercise the same SQL
  * (including the partial unique index) that D1 runs. Node 22 is pinned.
  * `raw` gives tests direct access for arranging and inspecting rows.
  */

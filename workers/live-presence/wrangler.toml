@@ -1,0 +1,25 @@
+name = "zap-cooking-live-presence"
+main = "index.ts"
+# Zap Cooking ORG account, pinned (see workers/cron/wrangler.toml: Seth's
+# OAuth token spans two accounts and wrangler silently defaults to the
+# personal one in non-interactive runs). The Pages project binds this
+# worker's Durable Object by script name, which only resolves in the
+# same account.
+account_id = "2d2f9386809ef6f9cda581aa16dff31c"
+compatibility_date = "2025-01-01"
+# No HTTP surface: reachable only through the Pages LIVE_PRESENCE binding.
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = true
+
+# One object per Go live session. In memory only: the class never uses
+# Durable Object storage (SQLite-backed so it runs on any plan).
+[[durable_objects.bindings]]
+name = "LIVE_PRESENCE"
+class_name = "LivePresence"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LivePresence"]

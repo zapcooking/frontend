@@ -398,13 +398,15 @@ export interface LiveRelayState {
   cf_play_url: string | null;
   reconnects: number;
   started_at: number | null;
+  /** The host's key; the join route leaves the host out of the joins count. */
+  host_pubkey: string;
 }
 
 export async function getRelayState(db: LiveDb, id: string): Promise<LiveRelayState | null> {
   if (!isLiveSessionId(id)) return null;
   return db
     .prepare(
-      'SELECT status, cf_input_uid, cf_play_url, reconnects, started_at FROM live_sessions WHERE id = ?1'
+      'SELECT status, cf_input_uid, cf_play_url, reconnects, started_at, host_pubkey FROM live_sessions WHERE id = ?1'
     )
     .bind(id)
     .first<LiveRelayState>();
@@ -871,6 +873,66 @@ export async function listLiveSessions(db: LiveDb, limit = 50): Promise<PublicLi
     .bind(limit)
     .all<LiveSessionRow>();
   return results.map(toPublicSession);
+}
+
+// ── Watching now: peak and joins ─────────────────────────────────────
+//
+// Two plain integers per session (migration 0008). The live count itself
+// is never stored: it is held in the session's presence Durable Object.
+
+/** The session's status, or null when there is no such session. */
+export async function getSessionStatus(
+  db: LiveDb,
+  id: string
+): Promise<{ status: LiveSessionStatus; host_pubkey: string } | null> {
+  if (!isLiveSessionId(id)) return null;
+  return db
+    .prepare('SELECT status, host_pubkey FROM live_sessions WHERE id = ?1')
+    .bind(id)
+    .first<{ status: LiveSessionStatus; host_pubkey: string }>();
+}
+
+// Both counters fail soft: they are the host's after-the-stream numbers,
+// and must never cost a viewer their join or their count (for example
+// on a database that does not have migration 0008 yet).
+
+/** Raise the stored peak to `watching` if it is higher. Never lowers it. */
+export async function raisePeakWatching(db: LiveDb, id: string, watching: number): Promise<void> {
+  if (!Number.isSafeInteger(watching) || watching <= 0) return;
+  try {
+    await db
+      .prepare(
+        `UPDATE live_sessions SET peak_watching = ?2
+          WHERE id = ?1 AND status = 'live' AND peak_watching < ?2`
+      )
+      .bind(id, watching)
+      .run();
+  } catch (err) {
+    console.error(`[Live] peak not recorded: ${(err as Error)?.name ?? 'error'}`);
+  }
+}
+
+/** One more viewer admitted by the play relay (not a pass rejoin, not the host). */
+export async function countJoin(db: LiveDb, id: string): Promise<void> {
+  try {
+    await db.prepare('UPDATE live_sessions SET joins = joins + 1 WHERE id = ?1').bind(id).run();
+  } catch (err) {
+    console.error(`[Live] join not counted: ${(err as Error)?.name ?? 'error'}`);
+  }
+}
+
+/** What the host sees after the stream. */
+export interface LiveSessionStats {
+  peak_watching: number;
+  joins: number;
+}
+
+export async function getSessionStats(db: LiveDb, id: string): Promise<LiveSessionStats | null> {
+  if (!isLiveSessionId(id)) return null;
+  return db
+    .prepare('SELECT peak_watching, joins FROM live_sessions WHERE id = ?1')
+    .bind(id)
+    .first<LiveSessionStats>();
 }
 
 // ── "Live now" note ──────────────────────────────────────────────────

@@ -25,6 +25,7 @@
   import { keepHigherTally } from '$lib/streams/tallyDisplay';
   import { zapReceiptRelayUrls } from '$lib/nip65Routing';
   import { userPublickey } from '$lib/nostr';
+  import { liveWatching } from '$lib/live/watch/heartbeat';
 
   const POLL_MS = 5000;
   const TALLY_RESCAN_MS = 60000;
@@ -90,8 +91,13 @@
 
   function rebuild() {
     if (!session) return;
-    item = sessionToStreamItem(session, recipeCardOf(recipe), hostName);
+    // "N watching" comes from this page's own heartbeat replies (the
+    // layout-level player sends them; see $lib/live/watch/heartbeat).
+    const heard = $liveWatching?.sessionId === session.id ? $liveWatching.watching : null;
+    item = sessionToStreamItem({ ...session, watching: heard }, recipeCardOf(recipe), hostName);
   }
+  // A new count rebuilds the item, which reaches the player's overlay.
+  $: if ($liveWatching) rebuild();
 
   async function loadHostName(pubkey: string) {
     if (hostNameFor === pubkey || !pool) return;

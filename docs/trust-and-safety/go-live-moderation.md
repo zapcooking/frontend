@@ -136,6 +136,16 @@ hold**.
   decision, kept until decided and then 90 days.
 - It must state that a reporter is stored as a keyed hash of their IP
   address (never the address), with the 90-day report retention.
+- It must describe the anonymous "watching now" heartbeat, and the peak
+  and joins counts kept after the stream. Proposed line:
+  "While you watch a live stream, your browser sends a signal about every
+  30 seconds with a random code that is new each time you open the page,
+  so we can show how many people are watching. The code is not linked to
+  your account, key, IP address or device, is not saved in your browser,
+  and is forgotten about a minute after the last signal. After the stream
+  we keep two numbers for the host: the most people watching at once and
+  the total number of joins. Your IP address is used briefly to limit
+  abuse of this signal and is not stored."
 
 ## 5. Before production
 

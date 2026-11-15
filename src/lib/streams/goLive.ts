@@ -23,6 +23,11 @@ export interface GoLiveSession {
   ended_at: number | null;
   /** The "Live now" note's event id; null (or absent) when there is none. */
   note_id?: string | null;
+  /**
+   * How many are watching now (anonymous heartbeat count). Sent by the
+   * directory list; the watch page fills it from its own heartbeat replies.
+   */
+  watching?: number | null;
 }
 
 /** What the directory and the recipe panel show about an attached recipe. */
@@ -88,8 +93,9 @@ export function sessionToStreamItem(
     ends: session.ended_at,
     categories: [],
     live: status === 'live',
-    // No viewer counts for Go live: nothing about viewers is kept.
-    viewers: null,
+    // "N watching", from 1 up: the anonymous heartbeat count. Nothing
+    // about any viewer is kept; 0 or unknown shows nothing.
+    viewers: watchingCount(session.watching),
     relays: [],
     host: session.host_pubkey,
     source: 'zapcooking',
@@ -101,6 +107,16 @@ export function sessionToStreamItem(
       session.status !== 'ended' &&
       (session.started_at == null || now / 1000 - session.started_at < NOTE_GRACE_SECONDS)
   };
+}
+
+/** A count to show: a whole number from 1 up, else null (show nothing). */
+export function watchingCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 ? value : null;
+}
+
+/** "1 watching", "12 watching". */
+export function watchingLabel(count: number): string {
+  return `${count.toLocaleString()} watching`;
 }
 
 /** The page a stream opens on: `/live/s/<id>` for Go live, `/live/<naddr>` for NIP-53. */

@@ -71,6 +71,20 @@
   // present, Pages only lets the dashboard manage Secrets. `$env/dynamic/public`
   // reads these from platform.env at request time and SvelteKit ships the
   // PUBLIC_* ones to the browser.
+  // Go live "watching now" count: one Durable Object per session, defined
+  // in the separate worker workers/live-presence (Pages cannot define a
+  // Durable Object class itself; it binds one by script name, same
+  // account). That worker must be deployed before a build that carries
+  // this binding. The routes treat a missing binding as "no count".
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LIVE_PRESENCE",
+        "class_name": "LivePresence",
+        "script_name": "zap-cooking-live-presence"
+      }
+    ]
+  },
   "vars": {
     // Class-1 image hosts (see CF_ORIGINS in src/lib/imageOptimizer.ts) go
     // through /cdn-cgi/image/ on the zap.cooking zone.
@@ -121,6 +135,18 @@
           "id": "b0ba98a4d5434473a79ab6136e71fb88"
         }
       ],
+      // Non-inheritable too: repeated. Same worker as production; the
+      // object names carry LIVE_INPUT_PREFIX, so preview and production
+      // sessions never share an object.
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "LIVE_PRESENCE",
+            "class_name": "LivePresence",
+            "script_name": "zap-cooking-live-presence"
+          }
+        ]
+      },
       // Like kv_namespaces, d1_databases is non-inheritable — repeat it
       // here or previews lose the binding. Previews bind an ISOLATED
       // scheduler DB (VAULT_SYNC posture): scheduled events are

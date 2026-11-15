@@ -36,6 +36,7 @@
     mergeLiveItems,
     sessionToStreamItem,
     streamPath,
+    watchingLabel,
     type GoLiveSession,
     type RecipeCard
   } from '$lib/streams/goLive';
@@ -286,7 +287,7 @@
               <span
                 class="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white"
               >
-                {item.viewers.toLocaleString()}
+                {isGoLiveItem(item) ? watchingLabel(item.viewers) : item.viewers.toLocaleString()}
               </span>
             {/if}
           </div>

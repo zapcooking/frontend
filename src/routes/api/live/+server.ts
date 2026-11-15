@@ -17,7 +17,9 @@
  * GET /api/live
  *   No auth. The sessions that are live right now, newest first, in the
  *   public shape (the same fields as GET /api/live/<id>). Used by the /live
- *   directory. Empty while Go live is switched off.
+ *   directory. Empty while Go live is switched off. Each session also has
+ *   `watching`: how many are watching now (anonymous heartbeat count), or
+ *   null when it cannot be read.
  *
  * Checks, in order, fail-fast:
  *   database bound                         → 500 not_configured
@@ -49,6 +51,7 @@ import { parseMaxOpenSessions } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { isLiveOff } from '$lib/live/killSwitch.server';
+import { readWatching } from '$lib/live/presence.server';
 import { getHostingMode } from '$lib/live/safety.server';
 import {
   createSession,
@@ -180,7 +183,12 @@ export const GET: RequestHandler = async ({ platform }) => {
     // the same answer. Status changes reach it within seconds.
     const headers = { 'Cache-Control': 'public, max-age=10' };
     if (await isLiveOff(platform)) return json({ sessions: [] }, { headers });
-    return json({ sessions: await listLiveSessions(db) }, { headers });
+    // Each live session carries its "watching now" count (null when the
+    // presence object cannot be read right now). Anonymous: see
+    // $lib/live/presenceCounter.
+    const sessions = await listLiveSessions(db);
+    const counts = await Promise.all(sessions.map((s) => readWatching(platform, s.id)));
+    return json({ sessions: sessions.map((s, i) => ({ ...s, watching: counts[i] })) }, { headers });
   } catch (err) {
     console.error(`[Live] list failed: ${(err as Error)?.name ?? 'error'}`);
     return json({ error: 'internal' }, { status: 500, headers: NO_STORE });

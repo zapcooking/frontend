@@ -4,7 +4,8 @@
 
 | Category | Proposed normal retention | Exceptions / verification |
 | --- | --- | --- |
-| Stream metadata (host pubkey, title, recipe, start/end, end reason, guest counts, announcement note ID) | 30 days | Preservation/legal hold |
+| Stream metadata (host pubkey, title, recipe, start/end, end reason, guest counts, peak watching and total joins, announcement note ID) | 30 days | Preservation/legal hold |
+| "Watching now" heartbeat codes | About 60 seconds, in memory only | Never written to a database, browser storage or logs (see below) |
 | Reports, report text and IP-derived anti-abuse identifier | 90 days | Preservation/legal hold. The Go live identifier is a keyed hash (see below, settled in #977) |
 | Host restrictions (blocks) and hidden-commenter state | Until removed | Periodic necessity review; a block is not lifted by account deletion |
 | Approved-hosts list | Until the host is removed | Periodic necessity review |
@@ -15,6 +16,13 @@
 | Live video | Intended not to be recorded | Confirm Cloudflare Stream recording setting, buffering, caching and logs |
 
 No *application-level per-viewer records* are proposed. Do not claim 'no viewer data' if delivery/security providers receive IP addresses or other connection data. Confirm whether browser membership checks, signed passes, web analytics, rate limiting or server/proxy logs collect identifiable information.
+
+**Go live "watching now" count (#984):** live streams show how many people are watching, from 1 up. This relaxes the earlier "no view counts" rule for live streams only.
+- The watch page sends a heartbeat about every 30 s while the stream plays in a visible tab. It carries one random code made fresh on every page load and kept only in the page's memory: never in browser storage, and never sent with an account, a key or a signature. The host is not counted.
+- A Durable Object per session counts the distinct codes heard in the last ~60 s, in memory only. Codes drop out by themselves; nothing about a heartbeat is written to D1, KV or Durable Object storage, or logged.
+- Rate limit: the sender's IP address goes to that object for the limit only, where it is hashed with a random salt that exists only in the object's memory, and kept for one minute with two counters (heartbeats and new codes). It is never linked to a code.
+- After the stream, two integers stay on the session row: the peak watching count and total joins (viewers the play relay admitted, members and guests together, not counting rejoins on a pass or the host). They are shown only to the host, and are deleted with the row (30 days, or later under a hold).
+- Heartbeats do not touch the guest cap or the pass ceiling.
 
 A one-way hash of an IP address can remain personal data; use limited-purpose, keyed pseudonymization where practicable and explain the purpose and retention.
 

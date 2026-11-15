@@ -18,6 +18,8 @@
   import { streamPlayer, stopStream } from '$lib/stores/streamPlayer';
   import { streamSlot } from '$lib/stores/streamSlot';
   import { streamPath } from '$lib/streams/goLive';
+  import { userPublickey } from '$lib/nostr';
+  import { liveWatching, startHeartbeat } from '$lib/live/watch/heartbeat';
   import StreamEngine from './StreamEngine.svelte';
   import XIcon from 'phosphor-svelte/lib/X';
 
@@ -145,7 +147,28 @@
       // Unreadable value: keep the default corner.
     }
     window.addEventListener('resize', reclamp);
+    // Go live "watching now": the dock owns playback on every surface, so
+    // the anonymous heartbeat runs from here (see $lib/live/watch/heartbeat).
+    const stopHeartbeat = startHeartbeat({
+      player: streamPlayer,
+      viewer: userPublickey,
+      isHidden: () => document.hidden,
+      onVisibility: (fn) => {
+        document.addEventListener('visibilitychange', fn);
+        return () => document.removeEventListener('visibilitychange', fn);
+      },
+      onCount: (sessionId, watching) => {
+        liveWatching.set({ sessionId, watching });
+        // The player overlay reads the count from the playing item.
+        streamPlayer.update((s) =>
+          s.item?.sessionId === sessionId
+            ? { ...s, item: { ...s.item, viewers: watching > 0 ? watching : null } }
+            : s
+        );
+      }
+    });
     return () => {
+      stopHeartbeat();
       window.removeEventListener('resize', reclamp);
       stopDragListening();
     };

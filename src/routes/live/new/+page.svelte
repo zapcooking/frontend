@@ -36,18 +36,25 @@
   import { setBottomDockClaim } from '$lib/stores/bottomDock';
   import {
     createLiveSession,
+    endedStatsLine,
     endLiveSession,
     endLiveSessionSigned,
+    endLiveSessionWithStats,
     fetchHostingStatus,
+    fetchLiveStats,
     publishOffer,
     readLiveStatus,
+    readWatchingNow,
     recordLiveNote,
     requestHostingAccess,
     type OwnAccessRequest,
     type CreateOutcome,
     type HostSession,
+    type LiveStats,
     type SignRequest
   } from '$lib/live/host/hostApi';
+  import { LIVE_WATCHING_POLL_MS } from '$lib/live/config';
+  import { watchingCount, watchingLabel } from '$lib/streams/goLive';
   import { ReconnectPolicy, type StopReason } from '$lib/live/host/reconnect';
   import {
     cameraAttempts,
@@ -134,6 +141,11 @@
   let everLive = false;
   /** "You were live for …" on the ended screen. */
   let liveLine: string | null = null;
+  /** "Peak N watching · N joins · N sats" on the ended screen. */
+  let statsLine: string | null = null;
+  /** "N watching" while live (anonymous heartbeat count; 0 or unknown shows nothing). */
+  let watching: number | null = null;
+  let watchingTimer: ReturnType<typeof setInterval> | null = null;
   let elapsed = '0:00';
   let clockTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -776,11 +788,25 @@
       if (status === 'ended' || status === 'gone')
         await finish('This live stream has ended', false);
     }, STATUS_POLL_MS);
+    // "N watching": the same number the Live cards show.
+    const readCount = async () => {
+      const id = session?.id;
+      if (!id) return;
+      const n = await readWatchingNow(id);
+      if (session?.id === id && phase !== 'ended') watching = watchingCount(n);
+    };
+    void readCount();
+    watchingTimer = setInterval(() => {
+      if (!document.hidden) void readCount();
+    }, LIVE_WATCHING_POLL_MS);
   }
 
   function stopPolling() {
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = null;
+    if (watchingTimer) clearInterval(watchingTimer);
+    watchingTimer = null;
+    watching = null;
   }
 
   function startClock() {
@@ -860,11 +886,21 @@
     phase = 'ended';
     endedMessage = message;
     const closing = session;
+    // Captured before teardown clears them: the ended screen's sats are
+    // the note's zap total as the chat counted it.
+    const sats = noteId ? zapSats : 0;
+    const wasLive = everLive;
+    statsLine = null;
     // This page's own clock first; the server's start time (which also
     // covers a stream resumed after a reload) replaces it when it arrives.
     liveLine = everLive && startedAt ? liveDurationLine((Date.now() - startedAt) / 1000) : null;
     teardown(true);
-    if (tellServer && closing) await endLiveSession(closing);
+    let stats: LiveStats | null = null;
+    if (tellServer && closing) stats = (await endLiveSessionWithStats(closing)).stats;
+    // Ended elsewhere (time limit, admin, another device): the host token
+    // is dead by now, so the counts are asked for with a signature.
+    if (!stats && closing && wasLive) stats = await fetchLiveStats(closing.id, sign);
+    if (stats && wasLive) statsLine = endedStatsLine(stats, sats);
     if (closing) {
       const read = await fetchSession(closing.id);
       if (read?.started_at) {
@@ -985,6 +1021,7 @@
     <div class="ended" role="status">
       <h1>{endedMessage}</h1>
       {#if liveLine}<p class="muted">{liveLine}</p>{/if}
+      {#if statsLine}<p class="muted stats">{statsLine}</p>{/if}
       <button class="btn done" on:click={leave}>Done</button>
     </div>
   {:else}
@@ -1119,6 +1156,9 @@
     {:else}
       <div class="panel live-panel">
         <p class="live-title" title={streamName}>{streamName}</p>
+        {#if watching}
+          <p class="watching" role="status">{watchingLabel(watching)}</p>
+        {/if}
         {#if zapCount > 0}
           <p class="zaps" title={`${zapSats.toLocaleString()} sats across ${zapCount} zaps`}>
             ⚡ {zapSats.toLocaleString()} sats · {zapCount}
@@ -1366,6 +1406,10 @@
   }
   .live-panel {
     gap: 0.5rem;
+  }
+  .watching {
+    font-size: 0.875rem;
+    font-weight: 600;
   }
   .zaps {
     font-size: 0.875rem;
