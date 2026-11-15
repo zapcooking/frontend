@@ -18,6 +18,8 @@
   import Avatar from '../../components/Avatar.svelte';
   import StreamCardSkeleton from '../../components/streams/StreamCardSkeleton.svelte';
   import LiveFallbackArt from '../../components/streams/LiveFallbackArt.svelte';
+  import LiveShareButton from '../../components/streams/LiveShareButton.svelte';
+  import { getSiteOrigin } from '$lib/utils/share';
   import { StreamDirectory } from '$lib/streams/directory';
   import { pseudonym, runtime } from '$lib/streams/parse';
   import { createStreamPool } from '$lib/streams/relayPage';
@@ -238,9 +240,12 @@
       {#each items as item (item.key)}
         {@const href = link(item)}
         {@const thumb = pickThumb(item, failedThumbs)}
+        <!-- The share button sits over the card, beside (not inside) its link:
+             a button inside a link is not valid and would follow the link. -->
+        <div class="relative">
         <a
           href={href || '#'}
-          class="group overflow-hidden rounded-xl border transition-colors"
+          class="group block overflow-hidden rounded-xl border transition-colors"
           style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
         >
           <div class="relative aspect-video w-full overflow-hidden bg-zinc-200 dark:bg-zinc-800">
@@ -285,7 +290,7 @@
               </span>
             {/if}
           </div>
-          <div class="p-3">
+          <div class="p-3 {href ? 'pr-12' : ''}">
             <p
               class="truncate text-sm font-semibold"
               style="color: var(--color-text-primary);"
@@ -306,6 +311,12 @@
             </p>
           </div>
         </a>
+        {#if href}
+          <div class="absolute bottom-2.5 right-2.5">
+            <LiveShareButton url={getSiteOrigin() + href} title={item.title} variant="icon" up />
+          </div>
+        {/if}
+        </div>
       {/each}
     </div>
   {/if}

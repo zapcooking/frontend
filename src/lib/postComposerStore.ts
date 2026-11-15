@@ -17,6 +17,18 @@ export function clearQuotedNote() {
   quotedNoteStore.set(null);
 }
 
+/**
+ * Text the composer starts with the next time it opens (e.g. "Share on
+ * Nostr" for a live stream). The composer takes it once on open and
+ * clears it; an unsent draft keeps its text and gets this after it.
+ */
+export const composerPrefillText = writable<string | null>(null);
+
+export function openComposerWithText(text: string) {
+  composerPrefillText.set(text);
+  postComposerOpen.set(true);
+}
+
 // A parked note draft: the composer closed with unsent content and the draft
 // is waiting. The DraftDock shows it as a tab; opening the composer from
 // anywhere clears it (the composer itself restores the draft from
