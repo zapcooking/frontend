@@ -55,6 +55,8 @@ export async function verifyNip98(
   opts: {
     /** When set, the signing pubkey must match (admin / check-status). Omitted → return event pubkey. */
     expectedPubkey?: string;
+    /** When set, the signing pubkey must be one of these (admin routes: ADMIN_PUBKEYS). */
+    expectedPubkeys?: readonly string[];
     bodyBytes?: Uint8Array;
     maxSkewSeconds?: number;
   }
@@ -121,9 +123,14 @@ export async function verifyNip98(
     }
   }
 
-  // Identity gate — when callers supply expectedPubkey (admin routes,
-  // check-status owner lookup), only that pubkey is authorized.
+  // Identity gate — when callers supply expectedPubkey (check-status
+  // owner lookup) only that pubkey is authorized; when they supply
+  // expectedPubkeys (admin routes) only a pubkey in the list is. Both
+  // given → both must hold. An empty list authorizes nobody.
   if (opts.expectedPubkey !== undefined && event.pubkey !== opts.expectedPubkey) {
+    return { ok: false, reason: 'pubkey-mismatch' };
+  }
+  if (opts.expectedPubkeys !== undefined && !opts.expectedPubkeys.includes(event.pubkey)) {
     return { ok: false, reason: 'pubkey-mismatch' };
   }
 

@@ -9,6 +9,7 @@ import {
   buildAccessRequest,
   buildReportAlert,
   sendAdminDm,
+  sendAdminDms,
   sendReportAlert,
   type ReportAlertInput
 } from './reportAlert.server';
@@ -18,6 +19,8 @@ const senderSk = generateSecretKey();
 const SENDER = getPublicKey(senderSk);
 const adminSk = generateSecretKey();
 const ADMIN = getPublicKey(adminSk);
+const backupSk = generateSecretKey();
+const BACKUP = getPublicKey(backupSk);
 
 const input = (over: Partial<ReportAlertInput> = {}): ReportAlertInput => ({
   sessionId: SESSION,
@@ -30,13 +33,19 @@ const input = (over: Partial<ReportAlertInput> = {}): ReportAlertInput => ({
 
 let kv: ReturnType<typeof createKvFake>;
 let publish: ReturnType<typeof vi.fn>;
-const deps = () => ({
-  kv,
-  throttleKey: `live:alert:${SESSION}`,
+const base = () => ({
   senderKey: bytesToHex(senderSk),
-  recipientPubkey: ADMIN,
   publish: publish as unknown as (event: any, relays: string[]) => Promise<number>,
   now: 1_800_000_000
+});
+/** sendAdminDm: one recipient. */
+const oneDeps = () => ({ ...base(), recipientPubkey: ADMIN });
+/** sendReportAlert: one admin, so the throttle tests count one DM per alert. */
+const deps = () => ({
+  ...base(),
+  kv,
+  throttleKey: `live:alert:${SESSION}`,
+  recipientPubkeys: [ADMIN] as readonly string[]
 });
 
 beforeEach(() => {
@@ -71,6 +80,18 @@ describe('sendReportAlert', () => {
     expect(event.tags).toEqual([['p', ADMIN]]);
     expect(verifyEvent(event)).toBe(true);
     expect(nip04.decrypt(adminSk, SENDER, event.content)).toBe(buildReportAlert(input()));
+  });
+
+  it('DMs every admin, each its own event, and throttles once for all', async () => {
+    const both = { ...deps(), recipientPubkeys: [ADMIN, BACKUP] };
+    expect(await sendReportAlert(input(), both)).toBe('sent');
+    expect(publish).toHaveBeenCalledTimes(2);
+    const events = publish.mock.calls.map((c: any) => c[0] as any);
+    expect(events.map((e: any) => e.tags)).toEqual([[['p', ADMIN]], [['p', BACKUP]]]);
+    expect(nip04.decrypt(adminSk, SENDER, events[0].content)).toBe(buildReportAlert(input()));
+    expect(nip04.decrypt(backupSk, SENDER, events[1].content)).toBe(buildReportAlert(input()));
+    expect(await sendReportAlert(input({ reason: 'spam' }), both)).toBe('throttled');
+    expect(publish).toHaveBeenCalledTimes(2);
   });
 
   it('accepts an nsec as the sender key', async () => {
@@ -132,6 +153,36 @@ describe('access request', () => {
   it('leaves out an empty note', async () => {
     const text = buildAccessRequest({ pubkey: ADMIN, note: '', pending: 1, origin: 'https://zap.cooking' });
     expect(text).not.toContain('Note:');
-    expect(await sendAdminDm(text, deps())).toBe('sent');
+    expect(await sendAdminDm(text, oneDeps())).toBe('sent');
+  });
+});
+
+describe('sendAdminDms', () => {
+  it('sends one DM per admin', async () => {
+    expect(await sendAdminDms('hi', { ...base(), recipientPubkeys: [ADMIN, BACKUP] })).toBe('sent');
+    const events = publish.mock.calls.map((c: any) => c[0] as any);
+    expect(events.map((e: any) => e.tags[0][1]).sort()).toEqual([ADMIN, BACKUP].sort());
+    expect(nip04.decrypt(backupSk, SENDER, events.find((e: any) => e.tags[0][1] === BACKUP).content)).toBe('hi');
+  });
+
+  it("one admin's failed publish does not stop the other's DM", async () => {
+    publish.mockRejectedValueOnce(new Error('no relay accepted'));
+    expect(await sendAdminDms('hi', { ...base(), recipientPubkeys: [ADMIN, BACKUP] })).toBe('sent');
+    expect(publish).toHaveBeenCalledTimes(2);
+  });
+
+  it('is failed when every publish fails, and no-sender-key without a key', async () => {
+    publish.mockRejectedValue(new Error('no relay accepted'));
+    expect(await sendAdminDms('hi', { ...base(), recipientPubkeys: [ADMIN, BACKUP] })).toBe('failed');
+    expect(
+      await sendAdminDms('hi', { ...base(), senderKey: undefined, recipientPubkeys: [ADMIN, BACKUP] })
+    ).toBe('no-sender-key');
+  });
+
+  it('sends a key listed twice only once, and nothing for an empty list', async () => {
+    await sendAdminDms('hi', { ...base(), recipientPubkeys: [ADMIN, ADMIN] });
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(await sendAdminDms('hi', { ...base(), recipientPubkeys: [] })).toBe('failed');
+    expect(publish).toHaveBeenCalledTimes(1);
   });
 });

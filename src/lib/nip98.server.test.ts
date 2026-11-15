@@ -224,4 +224,42 @@ describe('verifyNip98', () => {
     const result = await verifyNip98(request, { bodyBytes, expectedPubkey: pubkey });
     expect(result).toEqual({ ok: true, pubkey });
   });
+
+  it('expectedPubkeys accepts a signer anywhere in the list (primary or backup admin)', async () => {
+    const backupSk = generateSecretKey();
+    const backup = getPublicKey(backupSk);
+    const body = '{}';
+    const bodyBytes = new TextEncoder().encode(body);
+    for (const [sk, pk] of [
+      [undefined, pubkey],
+      [backupSk, backup]
+    ] as const) {
+      const event = await buildSignedAuthEvent({ bodyBytes, secretKey: sk });
+      const request = makeRequest({ body, authorization: encodeAuthHeader(event) });
+      expect(await verifyNip98(request, { bodyBytes, expectedPubkeys: [pubkey, backup] })).toEqual({
+        ok: true,
+        pubkey: pk
+      });
+    }
+  });
+
+  it('expectedPubkeys refuses a signer not in the list, and an empty list refuses everyone', async () => {
+    const strangerSk = generateSecretKey();
+    const body = '{}';
+    const bodyBytes = new TextEncoder().encode(body);
+    const stranger = await buildSignedAuthEvent({ bodyBytes, secretKey: strangerSk });
+    expect(
+      await verifyNip98(makeRequest({ body, authorization: encodeAuthHeader(stranger) }), {
+        bodyBytes,
+        expectedPubkeys: [pubkey, getPublicKey(generateSecretKey())]
+      })
+    ).toEqual({ ok: false, reason: 'pubkey-mismatch' });
+    const own = await buildSignedAuthEvent({ bodyBytes });
+    expect(
+      await verifyNip98(makeRequest({ body, authorization: encodeAuthHeader(own) }), {
+        bodyBytes,
+        expectedPubkeys: []
+      })
+    ).toEqual({ ok: false, reason: 'pubkey-mismatch' });
+  });
 });

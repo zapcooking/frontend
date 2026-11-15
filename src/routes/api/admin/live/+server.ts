@@ -1,7 +1,7 @@
 /**
  * Go live — admin controls (/admin/live).
  *
- * Auth for every call: NIP-98 signed by ADMIN_PUBKEY (the same gate as
+ * Auth for every call: NIP-98 signed by a key in ADMIN_PUBKEYS (the same gate as
  * /api/admin/promos and /api/admin/deletion-requests). Nothing else is
  * accepted: not a host token, not another member's signature.
  *
@@ -51,7 +51,7 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { verifyNip98 } from '$lib/nip98.server';
 import { blockHost, endAllOpen, endAndRemove } from '$lib/live/admin.server';
 import { checkMembership } from '$lib/membershipApi.server';
@@ -120,7 +120,7 @@ async function pendingWithMembership(platform: Readonly<App.Platform> | undefine
 }
 
 export const GET: RequestHandler = async ({ request, platform }) => {
-  const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY });
+  const auth = await verifyNip98(request, { expectedPubkeys: ADMIN_PUBKEYS });
   if (!auth.ok) {
     console.warn(`[Live admin] NIP-98 rejected (${auth.reason}) on GET`);
     return forbidden();
@@ -161,7 +161,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     return json({ error: 'too_large' }, { status: 413, headers: NO_STORE });
   }
   if (bodyBytes === 'unreadable') return bad();
-  const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY, bodyBytes });
+  const auth = await verifyNip98(request, { expectedPubkeys: ADMIN_PUBKEYS, bodyBytes });
   if (!auth.ok) {
     console.warn(`[Live admin] NIP-98 rejected (${auth.reason}) on POST`);
     return forbidden();

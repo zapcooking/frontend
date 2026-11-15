@@ -14,7 +14,7 @@
  * kind-27235 event bound to this URL, the request method, and (for
  * POST) the exact request body bytes. Server checks signature, ±60s
  * timestamp skew, URL/method match, body hash, and that the signing
- * pubkey === ADMIN_PUBKEY. Header-only auth would be too weak here:
+ * pubkey is in ADMIN_PUBKEYS. Header-only auth would be too weak here:
  * the admin pubkey is public, so a forged x-admin-pubkey header would
  * be enough to read or rewrite live promo config.
  *
@@ -26,7 +26,7 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { verifyNip98 } from '$lib/nip98.server';
 import {
 	DEFAULT_PROMO_CONFIG,
@@ -44,7 +44,7 @@ const CODE_RE = /^[A-Z0-9_-]{2,32}$/;
 const VALID_SCOPES: PromoScope[] = ['cookbook', 'membership', 'sponsor', 'genesis', 'all'];
 
 export const GET: RequestHandler = async ({ request, platform }) => {
-	const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY });
+	const auth = await verifyNip98(request, { expectedPubkeys: ADMIN_PUBKEYS });
 	if (!auth.ok) {
 		console.warn('[admin.promos.auth-failed]', { method: 'GET', reason: auth.reason });
 		return json({ error: 'forbidden' }, { status: 403 });
@@ -81,7 +81,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	// on when a single read is enough.
 	const bodyBytes = new Uint8Array(await request.arrayBuffer());
 	const auth = await verifyNip98(request, {
-		expectedPubkey: ADMIN_PUBKEY,
+		expectedPubkeys: ADMIN_PUBKEYS,
 		bodyBytes
 	});
 	if (!auth.ok) {

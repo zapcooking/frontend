@@ -13,7 +13,9 @@ import {
 } from 'nostr-tools';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { normalizeUrl, sha256Hex } from '$lib/nip98';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEY, ADMIN_PUBKEYS, BACKUP_ADMIN_PUBKEY } from '$lib/adminAuth';
+// One DM per admin (primary and backup) for every alert.
+const DMS = ADMIN_PUBKEYS.length;
 import { approveHosts, createLiveDatabase } from '../../../../test/liveDatabase';
 import { createKvFake } from '../../../../test/liveStreamStub';
 
@@ -71,8 +73,13 @@ async function ask(profile: unknown = { note: 'Weeknight pasta, Tuesdays' }, sk 
 
 const requests = () =>
   db.raw.prepare('SELECT pubkey, note, status, decided_at FROM live_access_requests ORDER BY rowid').all();
-const dmText = (call = 0) =>
-  nip04.decrypt(senderSk, ADMIN_PUBKEY, (mocks.publish.mock.calls[call] as [any])[0].content);
+/** The DM text of the nth alert, as the primary admin reads it. */
+const dmText = (alert = 0) => {
+  const toPrimary = mocks.publish.mock.calls
+    .map((c: any) => (c as [any])[0])
+    .filter((e: any) => e.tags[0][1] === ADMIN_PUBKEY);
+  return nip04.decrypt(senderSk, ADMIN_PUBKEY, toPrimary[alert].content);
+};
 
 beforeEach(() => {
   db = createLiveDatabase();
@@ -150,6 +157,15 @@ describe('POST /api/live/hosting (Request access)', () => {
     expect(text).toContain('/admin/live');
   });
 
+  it('DMs every admin, the backup included, the same text', async () => {
+    await ask();
+    const events = mocks.publish.mock.calls.map((c: any) => (c as [any])[0]);
+    expect(events.map((e: any) => e.tags)).toEqual(ADMIN_PUBKEYS.map((pk) => [['p', pk]]));
+    expect(ADMIN_PUBKEYS).toContain(BACKUP_ADMIN_PUBKEY);
+    const backupCopy = events.find((e: any) => e.tags[0][1] === BACKUP_ADMIN_PUBKEY);
+    expect(nip04.decrypt(senderSk, BACKUP_ADMIN_PUBKEY, backupCopy.content)).toBe(dmText());
+  });
+
   it('allows one open request per account', async () => {
     await ask();
     const again = await ask({ note: 'again' });
@@ -162,7 +178,7 @@ describe('POST /api/live/hosting (Request access)', () => {
     await ask();
     await ask({ note: 'me too' }, otherSk);
     expect(requests()).toHaveLength(2);
-    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
   });
 
   it('accepts no note, strips control characters and refuses a note over 280', async () => {
@@ -209,7 +225,7 @@ describe('POST /api/live/hosting (Request access)', () => {
     env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
     kv.data.set('live:access-alert', '1'); // a production throttle
     await ask();
-    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
     expect(kv.data.has('live:preview:access-alert')).toBe(true);
   });
 
@@ -222,11 +238,12 @@ describe('POST /api/live/hosting (Request access)', () => {
   });
 
   it('keeps the request when the DM cannot be sent, and the next one alerts', async () => {
-    mocks.publish.mockRejectedValueOnce(new Error('no relay'));
+    // Every admin's copy fails (one copy reaching anyone counts as sent).
+    for (let i = 0; i < DMS; i++) mocks.publish.mockRejectedValueOnce(new Error('no relay'));
     expect((await ask()).res.status).toBe(200);
     expect(requests()).toHaveLength(1);
     await ask({}, otherSk);
-    expect(mocks.publish).toHaveBeenCalledTimes(2);
+    expect(mocks.publish).toHaveBeenCalledTimes(2 * DMS);
     expect(dmText(1)).toContain('(2 pending)');
   });
 });

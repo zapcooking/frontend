@@ -27,7 +27,7 @@
  *   503 membership_unavailable.
  */
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { checkMembership } from '$lib/membershipApi.server';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
@@ -39,7 +39,7 @@ import {
 } from '$lib/live/access.server';
 import { readBodyCapped } from '$lib/live/body.server';
 import { liveKv, readLiveEnv } from '$lib/live/env.server';
-import { buildAccessRequest, sendAdminDm } from '$lib/live/reportAlert.server';
+import { buildAccessRequest, sendAdminDms } from '$lib/live/reportAlert.server';
 import { getHostingMode } from '$lib/live/safety.server';
 import { isHostApproved, type LiveDb } from '$lib/live/sessions.server';
 import { publishEventRaw } from '$lib/rawPublish';
@@ -133,7 +133,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
     console.info('[Live] access request saved');
 
-    // DM the admin, at most once per throttle window; the queue has every request.
+    // DM every admin, at most once per throttle window; the queue has every request.
     const kv = platform?.env?.GATED_CONTENT;
     let throttled = false;
     try {
@@ -143,7 +143,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     }
     if (!throttled) {
       const alert = (async () => {
-        const sent = await sendAdminDm(
+        const sent = await sendAdminDms(
           buildAccessRequest({
             pubkey,
             note,
@@ -152,7 +152,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
           }),
           {
             senderKey: readLiveEnv(platform, 'NOTIFICATION_PRIVATE_KEY'),
-            recipientPubkey: ADMIN_PUBKEY,
+            recipientPubkeys: ADMIN_PUBKEYS,
             publish: publishEventRaw
           }
         );

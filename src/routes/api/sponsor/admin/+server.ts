@@ -6,7 +6,7 @@
  *
  * Gated by NIP-98 HTTP Auth — the caller signs a kind-27235 event
  * bound to this URL, method, and the exact body bytes; the signing
- * pubkey must equal ADMIN_PUBKEY (same gate as /api/admin/promos).
+ * pubkey must be in ADMIN_PUBKEYS (same gate as /api/admin/promos).
  * The previous body-supplied `adminPubkey` check was spoofable: the
  * admin pubkey is public, so anyone could pass it in the body.
  *
@@ -15,7 +15,7 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { verifyNip98 } from '$lib/nip98.server';
 import { getSponsor, hideSponsor, unhideSponsor } from '$lib/sponsorStore.server';
 
@@ -26,7 +26,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     // Workers; same pattern as /api/admin/promos).
     const bodyBytes = new Uint8Array(await request.arrayBuffer());
     const auth = await verifyNip98(request, {
-      expectedPubkey: ADMIN_PUBKEY,
+      expectedPubkeys: ADMIN_PUBKEYS,
       bodyBytes
     });
     if (!auth.ok) {

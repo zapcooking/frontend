@@ -24,7 +24,7 @@ const adminKeys = vi.hoisted(() => ({ sk: new Uint8Array(32).fill(7), pubkey: ''
 vi.mock('$lib/adminAuth', async () => {
   const { getPublicKey } = await import('nostr-tools');
   adminKeys.pubkey = getPublicKey(adminKeys.sk);
-  return { ADMIN_PUBKEY: adminKeys.pubkey };
+  return { ADMIN_PUBKEY: adminKeys.pubkey, ADMIN_PUBKEYS: [adminKeys.pubkey] };
 });
 vi.mock('stripe', () => ({
   default: class {

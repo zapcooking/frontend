@@ -1,8 +1,8 @@
 /**
  * Tests for the Go live admin kill switch and the global off flag.
  *
- * NIP-98 is real. ADMIN_PUBKEY is replaced by a test key, because nobody
- * can sign as the real admin in a test. Sessions go live through the real
+ * NIP-98 is real. The admin keys (primary and backup) are replaced by test
+ * keys, because nobody can sign as the real admins in a test. Sessions go live through the real
  * create and publish routes against a Cloudflare stub.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -13,13 +13,18 @@ import { createKvFake } from '../../../../test/liveStreamStub';
 
 const mocks = vi.hoisted(() => ({
   checkMembership: vi.fn(),
-  admin: ''
+  admin: '',
+  backup: ''
 }));
 vi.mock('$lib/adminAuth', () => ({
   get ADMIN_PUBKEY() {
     return mocks.admin;
   },
-  isAdmin: (pubkey: string | null | undefined) => !!pubkey && pubkey === mocks.admin
+  get ADMIN_PUBKEYS() {
+    return [mocks.admin, mocks.backup];
+  },
+  isAdmin: (pubkey: string | null | undefined) =>
+    !!pubkey && (pubkey === mocks.admin || pubkey === mocks.backup)
 }));
 vi.mock('$lib/membershipApi.server', () => ({ checkMembership: mocks.checkMembership }));
 
@@ -36,6 +41,8 @@ const SDP = 'v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n';
 
 const adminSk = generateSecretKey();
 mocks.admin = getPublicKey(adminSk);
+const backupSk = generateSecretKey();
+mocks.backup = getPublicKey(backupSk);
 const hostSks = [generateSecretKey(), generateSecretKey(), generateSecretKey()];
 const HOSTS = hostSks.map((sk) => getPublicKey(sk));
 const strangerSk = generateSecretKey();
@@ -226,6 +233,27 @@ describe('admin only', () => {
     expect(rowOf(s.id).status).toBe('live');
     expect(cf.inputs.size).toBe(1);
     expect(kv.data.size).toBe(0);
+  });
+
+  it('accepts the backup admin on GET and POST, like the primary', async () => {
+    const s = await createLive(0);
+    const list = await adminList(backupSk);
+    expect(list.res.status).toBe(200);
+    expect(list.data.sessions.map((x: any) => x.id)).toContain(s.id);
+    const { res, data } = await admin({ action: 'end', id: s.id }, { sk: backupSk });
+    expect(res.status).toBe(200);
+    expect(data.logged).toBeUndefined();
+    expect(rowOf(s.id).status).toBe('ended');
+  });
+
+  it("refuses the backup admin's signature for another body, like the primary's", async () => {
+    const s = await createLive(0);
+    const { res } = await admin(
+      { action: 'end', id: s.id },
+      { auth: await nip98(ADMIN_URL, 'POST', '{"action":"off","on":false}', backupSk) }
+    );
+    expect(res.status).toBe(403);
+    expect(rowOf(s.id).status).toBe('live');
   });
 
   it('refuses an oversized body before any signature work', async () => {
@@ -571,6 +599,23 @@ describe('action log', () => {
     expect(res.status).toBe(200);
     expect(data.logged).toBe(false);
     expect(rowOf(s.id).status).toBe('ended');
+  });
+
+  it("records the backup admin's own key as actor, not the primary's", async () => {
+    const s = await createLive(0);
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[2]);
+    await admin({ action: 'end', id: s.id }, { sk: backupSk });
+    await admin({ action: 'block', pubkey: HOSTS[1] }, { sk: backupSk });
+    await admin({ action: 'approve', pubkey: HOSTS[2] }, { sk: backupSk });
+    await admin({ action: 'unblock', pubkey: HOSTS[1] });
+    const log = (await adminList(backupSk)).data.actions;
+    expect(log.map((a: any) => [a.action, a.actor])).toEqual([
+      ['unblock', mocks.admin],
+      ['approve', mocks.backup],
+      ['block', mocks.backup],
+      ['end', mocks.backup]
+    ]);
+    expect(rowOfApproved(HOSTS[2]).added_by).toBe(mocks.backup);
   });
 
   it('logs nothing for a refused (non-admin) call', async () => {

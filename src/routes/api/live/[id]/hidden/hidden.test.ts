@@ -8,10 +8,13 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } fr
 import { normalizeUrl, sha256Hex } from '$lib/nip98';
 import { createLiveDatabase } from '../../../../../test/liveDatabase';
 
-const keys = vi.hoisted(() => ({ admin: '' }));
+const keys = vi.hoisted(() => ({ admin: '', backup: '' }));
 vi.mock('$lib/adminAuth', () => ({
   get ADMIN_PUBKEY() {
     return keys.admin;
+  },
+  get ADMIN_PUBKEYS() {
+    return [keys.admin, keys.backup];
   }
 }));
 
@@ -23,6 +26,8 @@ const hostSk = generateSecretKey();
 const HOST = getPublicKey(hostSk);
 const adminSk = generateSecretKey();
 keys.admin = getPublicKey(adminSk);
+const backupSk = generateSecretKey();
+keys.backup = getPublicKey(backupSk);
 const otherHostSk = generateSecretKey();
 const OTHER_HOST = getPublicKey(otherHostSk);
 const strangerSk = generateSecretKey();
@@ -132,14 +137,16 @@ describe('hidden commenters', () => {
     expect((await get()).data.hidden).toEqual([]);
   });
 
-  it('refuses bad input, and hiding the host or the admin', async () => {
+  it('refuses bad input, and hiding the host or either admin', async () => {
     for (const body of [
       { pubkey: 'nope', hidden: true },
       { pubkey: TROLL },
       { pubkey: TROLL, hidden: 'yes' },
       { pubkey: TROLL, hidden: true, scope: 'site' },
       { pubkey: HOST, hidden: true },
-      { pubkey: keys.admin, hidden: true, scope: 'global' }
+      { pubkey: keys.admin, hidden: true, scope: 'global' },
+      { pubkey: keys.backup, hidden: true, scope: 'global' },
+      { pubkey: keys.backup, hidden: true }
     ]) {
       expect((await post(body, adminSk)).res.status).toBe(400);
     }
@@ -164,6 +171,30 @@ describe('hidden commenters', () => {
       { actor: keys.admin, action: 'hide', session_id: ID, target_pubkey: SPAMMER, detail: 'every Go live chat' },
       { actor: keys.admin, action: 'unhide', session_id: ID, target_pubkey: TROLL, detail: "this host's chats" }
     ]);
+  });
+
+  it('the backup admin hides everywhere too, logged under their own key', async () => {
+    const r = await post({ pubkey: SPAMMER, hidden: true, scope: 'global' }, backupSk);
+    expect(r.res.status).toBe(200);
+    expect(r.data).toEqual({ pubkey: SPAMMER, hidden: true, scope: 'global' });
+    expect((await get()).data.hidden).toEqual([{ pubkey: SPAMMER, scope: 'global' }]);
+    expect(db.raw.prepare('SELECT actor, action FROM live_actions').all()).toEqual([
+      { actor: keys.backup, action: 'hide' }
+    ]);
+  });
+
+  it('never lists an admin hidden before they became one (host or global entry), and unhide still clears it', async () => {
+    // Rows written directly: the route refuses to create them today.
+    for (const scope of [HOST, 'global'])
+      db.raw
+        .prepare('INSERT INTO live_hidden_authors (scope, pubkey, created_at) VALUES (?, ?, 1)')
+        .run(scope, keys.backup);
+    await post({ pubkey: TROLL, hidden: true }, hostSk);
+    expect((await get()).data.hidden).toEqual([{ pubkey: TROLL, scope: 'host' }]);
+    expect((await post({ pubkey: keys.backup, hidden: false }, hostSk)).res.status).toBe(200);
+    expect(
+      db.raw.prepare('SELECT scope FROM live_hidden_authors WHERE pubkey = ?').all(keys.backup)
+    ).toEqual([{ scope: 'global' }]);
   });
 
   it("says logged: false when the admin's log entry could not be written (the hide still happens)", async () => {

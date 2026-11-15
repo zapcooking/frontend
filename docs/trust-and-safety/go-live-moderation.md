@@ -5,8 +5,10 @@
 This page describes how hosting is opened, how reports are handled and
 what is recorded. It covers PR #977, which folds in the report and hold
 design of draft PR #976. Every admin control is on **/admin/live**, signed
-with the admin account (NIP-98). Every admin action is written to the
-**action log** with its time and actor. Nothing is ever ended or blocked
+with an admin account (NIP-98): the primary or the backup admin, both
+listed in `ADMIN_PUBKEYS` and with the same powers. Every admin action is
+written to the **action log** with its time and actor (the key that
+signed it, so the backup's actions show the backup's key). Nothing is ever ended or blocked
 automatically: a person decides.
 
 ## 1. Staged rollout
@@ -45,7 +47,7 @@ In both modes, an account that is blocked cannot host.
   characters: "what would you cook, and how often?".
 - The request is saved in a queue, with one open request per account, and
   the member then sees "Request sent".
-- The admin is DMed about new requests, at most one DM every 10 minutes.
+- Both admins are DMed about new requests, at most one DM each every 10 minutes.
   The DM says how many are pending.
 - /admin/live lists pending requests with the requester's profile, note and
   membership status.
@@ -90,7 +92,7 @@ Each report:
    session's public facts at the first report. The Cloudflare input id is
    never part of the snapshot.
    - A new report on a released case reopens it.
-3. **Alerts the admin** by encrypted DM within seconds, with the reason,
+3. **Alerts both admins** (primary and backup, one DM each) by encrypted DM within seconds, with the reason,
    the title and links. Nothing about the reporter is included.
    - At most one alert per stream every 10 minutes, except **child safety
      and violence, which always alert**.
@@ -143,6 +145,6 @@ hold**.
   report alerts and access-request DMs.
 - Set `LIVE_REPORTER_HASH_SECRET` on every environment, with a different
   value in each. Without it, reports are not stored; they only reach the
-  admin by DM.
+  admins by DM.
 - Have counsel review the policy text (Terms, Privacy, Child Safety) for
   the behaviour described here.

@@ -6,6 +6,10 @@
  *   { hidden: [{ pubkey, scope: 'host' | 'global' }] }
  *   'host' = hidden by this session's host (in all their streams);
  *   'global' = hidden by the admin in every Go live chat.
+ *   An admin key is never listed: POST refuses to hide one, and an entry
+ *   written before that key became an admin (e.g. a host hid the backup
+ *   admin earlier) is filtered out here, so it cannot silence an admin.
+ *   The stored row is left alone; unhiding it still works.
  *
  * POST /api/live/<id>/hidden
  *   Auth: NIP-98 over this exact request (URL, method and body).
@@ -32,7 +36,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { readBodyCapped } from '$lib/live/body.server';
 import { logAction } from '$lib/live/safety.server';
 import {
@@ -57,7 +61,10 @@ export const GET: RequestHandler = async ({ params, platform }) => {
     if (!db) return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
     const row = await getSession(db, params.id ?? '');
     if (!row) return json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
-    return json({ hidden: await listHiddenForHost(db, row.host_pubkey) }, { headers: NO_STORE });
+    const hidden = (await listHiddenForHost(db, row.host_pubkey)).filter(
+      (h) => !ADMIN_PUBKEYS.includes(h.pubkey)
+    );
+    return json({ hidden }, { headers: NO_STORE });
   } catch (err) {
     console.error(`[Live] hidden read failed: ${(err as Error)?.name ?? 'error'}`);
     return json({ error: 'internal' }, { status: 500, headers: NO_STORE });
@@ -97,12 +104,12 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
       !HEX64.test(pubkey) ||
       typeof input.hidden !== 'boolean' ||
       (scope !== 'host' && scope !== 'global') ||
-      (input.hidden && (pubkey === row.host_pubkey || pubkey === ADMIN_PUBKEY))
+      (input.hidden && (pubkey === row.host_pubkey || ADMIN_PUBKEYS.includes(pubkey)))
     ) {
       return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
     }
 
-    const isAdmin = signer === ADMIN_PUBKEY;
+    const isAdmin = ADMIN_PUBKEYS.includes(signer);
     if (scope === 'global' ? !isAdmin : !(isAdmin || signer === row.host_pubkey)) {
       return json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
     }

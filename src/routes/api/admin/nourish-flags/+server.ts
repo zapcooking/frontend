@@ -7,7 +7,7 @@
  * admin page — this endpoint covers only the anon-via-Worker path.
  *
  * Auth: NIP-98 HTTP Auth — the caller signs a kind-27235 event bound
- * to this URL and method; the signing pubkey must equal ADMIN_PUBKEY
+ * to this URL and method; the signing pubkey must be in ADMIN_PUBKEYS
  * from $lib/adminAuth (same gate as /api/admin/promos). Header-only
  * auth was too weak here: the admin pubkey is public, so a forged
  * x-admin-pubkey header was enough to dump every flag record,
@@ -30,7 +30,7 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { verifyNip98 } from '$lib/nip98.server';
 
 const LIST_PAGE_LIMIT = 1000; // KV list per-call cap.
@@ -45,7 +45,7 @@ interface KvListResult {
 }
 
 export const GET: RequestHandler = async ({ request, platform }) => {
-  const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY });
+  const auth = await verifyNip98(request, { expectedPubkeys: ADMIN_PUBKEYS });
   if (!auth.ok) {
     console.warn('[admin.nourish-flags.auth-failed]', { reason: auth.reason });
     return json({ error: 'forbidden' }, { status: 403 });
