@@ -67,7 +67,7 @@
     loadStoredSession,
     mediaHelp,
     readRecipeHandoff,
-    setMicrophoneEnabled,
+    audioSwitches,
     storeSession,
     type HostPlatform,
     type MediaHelp
@@ -87,6 +87,8 @@
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
   import CameraRotateIcon from 'phosphor-svelte/lib/CameraRotate';
   import MonitorArrowUpIcon from 'phosphor-svelte/lib/MonitorArrowUp';
+  import MicrophoneIcon from 'phosphor-svelte/lib/Microphone';
+  import MicrophoneSlashIcon from 'phosphor-svelte/lib/MicrophoneSlash';
   import {
     canShareScreen,
     classifyShareError,
@@ -154,6 +156,35 @@
   let shareLine = '';
   /** The camera did not come back after sharing: offer to try again. */
   let cameraLost = false;
+
+  // Sound. Two separate switches:
+  //  - micMuted: the host's own Mute button. Kept across camera and screen
+  //    switches and reconnects; only the host changes it.
+  //  - soundOn: the page's automatic rule (off while a phone is locked or
+  //    the page is hidden in camera mode, and when leaving the page).
+  // A muted microphone still sends silent audio packets, so viewers stay
+  // connected (their stall rule counts audio packets).
+  let micMuted = false;
+  let soundOn = true;
+
+  /** Apply both switches to the tracks. While sharing with tab audio, Mute silences only the microphone. */
+  function applyAudio() {
+    if (!stream) return;
+    const sent = stream.getAudioTracks()[0];
+    const on = audioSwitches({ mixing: !!micTrack, micMuted, soundOn });
+    if (micTrack) micTrack.enabled = on.mic;
+    if (sent) sent.enabled = on.sent;
+  }
+
+  function setSound(on: boolean) {
+    soundOn = on;
+    applyAudio();
+  }
+
+  function toggleMute() {
+    micMuted = !micMuted;
+    applyAudio();
+  }
 
   // Session and connection.
   let session: HostSession | null = null;
@@ -593,11 +624,11 @@
     if (!track || track === screenTrack || followed.has(track)) return;
     followed.add(track);
     track.addEventListener('mute', () => {
-      if (stream?.getVideoTracks()[0] === track) setMicrophoneEnabled(stream, false);
+      if (stream?.getVideoTracks()[0] === track) setSound(false);
     });
     track.addEventListener('unmute', () => {
       if (stream?.getVideoTracks()[0] === track && document.visibilityState === 'visible') {
-        setMicrophoneEnabled(stream, true);
+        setSound(true);
       }
     });
   }
@@ -605,6 +636,7 @@
   /** Called every time the page adopts a camera: first open, flip, revive, resume. */
   function attachPreview() {
     followCamera();
+    applyAudio();
     if (videoEl && stream) {
       videoEl.srcObject = stream;
       videoEl.play().catch(() => undefined);
@@ -667,7 +699,7 @@
       cameraLost = false;
       attachPreview();
       // The camera is back and the host is looking at the page.
-      setMicrophoneEnabled(stream, true);
+      setSound(true);
     } catch {
       /* Stay as we are; the next visibility change tries again. */
     }
@@ -740,7 +772,6 @@
     if (tabAudio && mic) {
       const mix = mixAudio([mic, tabAudio]);
       if (mix) {
-        mic.enabled = true;
         micTrack = mic;
         screenAudio = tabAudio;
         audioMix = mix;
@@ -760,7 +791,7 @@
     });
     // The host is expected to be on another tab or window now: keep the
     // microphone on (see onVisibility).
-    setMicrophoneEnabled(stream, true);
+    setSound(true);
     attachPreview();
     shareBusy = false;
   }
@@ -801,7 +832,7 @@
     if (stream) {
       attachPreview();
       // The camera rule again: a hidden page sends no sound.
-      setMicrophoneEnabled(stream, document.visibilityState === 'visible');
+      setSound(document.visibilityState === 'visible');
     }
     shareBusy = false;
   }
@@ -1082,10 +1113,10 @@
       // host. Send silence until the host is back.
       // Not while sharing the screen: then the host is EXPECTED to be on
       // another tab or window, talking over it.
-      if (!sharing) setMicrophoneEnabled(stream, false);
+      if (!sharing) setSound(false);
       return;
     }
-    setMicrophoneEnabled(stream, true);
+    setSound(true);
     if (!isLive) return;
     void readCount(); // back from the shared tab: a fresh count now
 
@@ -1100,7 +1131,7 @@
   $: watchUrl = session ? `${getSiteOrigin()}/live/s/${session.id}` : '';
 
   function onPageHide() {
-    setMicrophoneEnabled(stream, false);
+    setSound(false);
   }
 
   function onOnline() {
@@ -1173,6 +1204,8 @@
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
     releaseShare();
+    micMuted = false;
+    soundOn = true;
     if (videoEl) videoEl.srcObject = null;
     void wakeLock?.release().catch(() => undefined);
     wakeLock = null;
@@ -1311,6 +1344,9 @@
           {:else}
             <span class="dot" aria-hidden="true"></span> Live · {elapsed}
           {/if}
+          {#if micMuted}
+            <span class="mic-off">· Mic off</span>
+          {/if}
         </div>
       {:else if phase === 'starting'}
         <div class="badge" role="status" aria-live="polite">
@@ -1332,6 +1368,20 @@
               <CameraRotateIcon size={20} weight="bold" />
             </button>
           {/if}
+          <button
+            class="icon-btn"
+            class:muted-mic={micMuted}
+            on:click={toggleMute}
+            aria-pressed={micMuted}
+            aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+            title={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+          >
+            {#if micMuted}
+              <MicrophoneSlashIcon size={20} weight="bold" />
+            {:else}
+              <MicrophoneIcon size={20} weight="bold" />
+            {/if}
+          </button>
           {#if shareSupported}
             <!-- Desktop only. Swaps the picture on the same connection:
                  viewers stay connected. -->
@@ -1688,6 +1738,15 @@
   }
   .icon-btn:disabled {
     opacity: 0.5;
+  }
+  /* Muted: hard to miss. */
+  .icon-btn.muted-mic {
+    background: #fff;
+    color: #dc2626;
+    border-color: #fff;
+  }
+  .mic-off {
+    color: #fca5a5;
   }
   .share-btn {
     display: inline-flex;

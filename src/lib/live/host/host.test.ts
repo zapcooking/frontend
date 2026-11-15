@@ -20,6 +20,7 @@ import {
   type StopReason
 } from './reconnect';
 import {
+  audioSwitches,
   cameraAttempts,
   classifyMediaError,
   clearStoredSession,
@@ -718,5 +719,27 @@ describe('screen share helpers', () => {
     expect(shareHint('window')).toBe('Share one window or tab, not your whole screen.');
     expect(shareHint(undefined)).toBe('Share one window or tab, not your whole screen.');
     expect(shareHint('monitor')).toMatch(/whole screen, including notifications/);
+  });
+});
+
+describe('audioSwitches (Mute button)', () => {
+  it('camera, or sharing without tab audio: one track, on only when both allow', () => {
+    const f = (micMuted: boolean, soundOn: boolean) =>
+      audioSwitches({ mixing: false, micMuted, soundOn });
+    expect(f(false, true)).toEqual({ mic: true, sent: true });
+    expect(f(true, true)).toEqual({ mic: false, sent: false });
+    expect(f(false, false)).toEqual({ mic: false, sent: false });
+    expect(f(true, false)).toEqual({ mic: false, sent: false });
+  });
+
+  it('sharing with tab audio: Mute silences only the microphone, the page rule silences all', () => {
+    expect(audioSwitches({ mixing: true, micMuted: true, soundOn: true })).toEqual({
+      mic: false,
+      sent: true
+    });
+    expect(audioSwitches({ mixing: true, micMuted: false, soundOn: false })).toEqual({
+      mic: true,
+      sent: false
+    });
   });
 });
