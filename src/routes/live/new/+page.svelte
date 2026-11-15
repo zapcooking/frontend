@@ -86,6 +86,16 @@
   import RecipePanel from '../../../components/streams/RecipePanel.svelte';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
   import CameraRotateIcon from 'phosphor-svelte/lib/CameraRotate';
+  import MonitorArrowUpIcon from 'phosphor-svelte/lib/MonitorArrowUp';
+  import {
+    canShareScreen,
+    classifyShareError,
+    displayMediaAttempts,
+    mixAudio,
+    shareHint,
+    shareProblemMessage,
+    type AudioMix
+  } from '$lib/live/host/screenShare';
   import LiveShareButton from '../../../components/streams/LiveShareButton.svelte';
   import { getSiteOrigin } from '$lib/utils/share';
   import XIcon from 'phosphor-svelte/lib/X';
@@ -127,6 +137,23 @@
   let facing: 'environment' | 'user' = 'environment';
   let mediaProblem: MediaHelp | null = null;
   let flipping = false;
+
+  // Screen sharing (desktop). While sharing, `stream` holds the screen's
+  // video track and the audio that is sent (the microphone, or the
+  // microphone mixed with the tab's audio); the camera is closed.
+  let shareSupported = false;
+  let sharing = false;
+  let shareBusy = false;
+  let screenTrack: MediaStreamTrack | null = null;
+  /** The shared tab's or system's audio, when the browser gave it. */
+  let screenAudio: MediaStreamTrack | null = null;
+  /** The microphone, held here while `stream` carries the mix instead. */
+  let micTrack: MediaStreamTrack | null = null;
+  let audioMix: AudioMix | null = null;
+  /** "Share one window or tab…", or the stronger whole-screen line. */
+  let shareLine = '';
+  /** The camera did not come back after sharing: offer to try again. */
+  let cameraLost = false;
 
   // Session and connection.
   let session: HostSession | null = null;
@@ -385,6 +412,11 @@
 
   onMount(async () => {
     platform = detectPlatform(navigator.userAgent, navigator.maxTouchPoints);
+    shareSupported = canShareScreen({
+      platform,
+      hasGetDisplayMedia: typeof navigator.mediaDevices?.getDisplayMedia === 'function',
+      finePointer: window.matchMedia('(any-pointer: fine)').matches
+    });
 
     const handoff = readRecipeHandoff($page.url.searchParams);
     if (handoff) {
@@ -556,7 +588,9 @@
   const followed = new WeakSet<MediaStreamTrack>();
   function followCamera() {
     const track = stream?.getVideoTracks()[0];
-    if (!track || followed.has(track)) return;
+    // A shared screen is not a camera: a still window can read as muted,
+    // and that must not silence the host.
+    if (!track || track === screenTrack || followed.has(track)) return;
     followed.add(track);
     track.addEventListener('mute', () => {
       if (stream?.getVideoTracks()[0] === track) setMicrophoneEnabled(stream, false);
@@ -578,7 +612,7 @@
   }
 
   async function flip() {
-    if (!stream || flipping) return;
+    if (!stream || flipping || sharing) return;
     flipping = true;
     const next = facing === 'environment' ? 'user' : 'environment';
     const old = stream.getVideoTracks()[0];
@@ -613,11 +647,16 @@
 
   /** After the tab was hidden or the phone locked, the camera may be dead. Bring it back. */
   async function reviveCamera() {
-    if (!stream) return;
+    // While sharing, the video track is the screen, not a camera.
+    if (!stream || sharing) return;
     const video = stream.getVideoTracks()[0];
     if (video && video.readyState === 'live' && !video.muted) return;
     try {
       const fresh = (await openCamera(facing, false)).getVideoTracks()[0];
+      if (!stream) {
+        fresh.stop();
+        return;
+      }
       if (video) {
         video.stop();
         stream.removeTrack(video);
@@ -625,12 +664,163 @@
       stream.addTrack(fresh);
       const sender = pc?.getSenders().find((s) => s.track?.kind === 'video' || s.track === null);
       await sender?.replaceTrack(fresh);
+      cameraLost = false;
       attachPreview();
       // The camera is back and the host is looking at the page.
       setMicrophoneEnabled(stream, true);
     } catch {
       /* Stay as we are; the next visibility change tries again. */
     }
+  }
+
+  // ── Sharing the screen ─────────────────────────────────────────────
+  /** The sender for one kind of track. A sendonly transceiver's receiver still has that kind. */
+  function senderFor(kind: 'audio' | 'video'): RTCRtpSender | undefined {
+    return pc?.getTransceivers().find((t) => t.receiver.track?.kind === kind)?.sender;
+  }
+
+  /**
+   * Put `next` in place of the stream's track of that kind: in `stream`
+   * (what a republish sends) and on the live connection (replaceTrack, no
+   * renegotiation). Returns the track it replaced, still running.
+   */
+  async function swapTrack(
+    kind: 'audio' | 'video',
+    next: MediaStreamTrack
+  ): Promise<MediaStreamTrack | null> {
+    if (!stream) return null;
+    const old = (kind === 'video' ? stream.getVideoTracks() : stream.getAudioTracks())[0] ?? null;
+    if (old) stream.removeTrack(old);
+    stream.addTrack(next);
+    await senderFor(kind)?.replaceTrack(next);
+    return old;
+  }
+
+  let shareError = '';
+
+  async function startShare() {
+    if (!stream || sharing || shareBusy) return;
+    shareBusy = true;
+    shareError = '';
+    // The first getDisplayMedia call must happen inside the click itself
+    // (Safari refuses one made after an await), so nothing is awaited first.
+    let display: MediaStream | null = null;
+    const attempts = displayMediaAttempts();
+    for (let i = 0; i < attempts.length && !display; i++) {
+      try {
+        display = await navigator.mediaDevices.getDisplayMedia(attempts[i]);
+      } catch (err) {
+        const problem = classifyShareError(err);
+        if (problem === 'retry' && i < attempts.length - 1) continue;
+        shareError = shareProblemMessage(problem) ?? '';
+        shareBusy = false;
+        return;
+      }
+    }
+    const video = display?.getVideoTracks()[0];
+    if (!display || !video || !stream || phase === 'ended') {
+      display?.getTracks().forEach((t) => t.stop());
+      shareBusy = false;
+      return;
+    }
+    // Keep text sharp: a screen is mostly recipes and pages, not motion.
+    try {
+      video.contentHint = 'detail';
+    } catch {
+      /* not supported */
+    }
+    screenTrack = video;
+    const camera = await swapTrack('video', video);
+    camera?.stop(); // camera light off while the screen is on air
+
+    // Tab or system audio, when the browser offered it and the host
+    // ticked it: mixed with the microphone into the one audio track.
+    const tabAudio = display.getAudioTracks()[0] ?? null;
+    const mic = stream.getAudioTracks()[0] ?? null;
+    if (tabAudio && mic) {
+      const mix = mixAudio([mic, tabAudio]);
+      if (mix) {
+        mic.enabled = true;
+        micTrack = mic;
+        screenAudio = tabAudio;
+        audioMix = mix;
+        await swapTrack('audio', mix.track);
+      } else {
+        tabAudio.stop();
+      }
+    } else {
+      tabAudio?.stop();
+    }
+
+    sharing = true;
+    shareLine = shareHint(video.getSettings().displaySurface);
+    // Stopped from the browser's own "Stop sharing" control: back to the camera.
+    video.addEventListener('ended', () => {
+      if (screenTrack === video) void stopShare();
+    });
+    // The host is expected to be on another tab or window now: keep the
+    // microphone on (see onVisibility).
+    setMicrophoneEnabled(stream, true);
+    attachPreview();
+    shareBusy = false;
+  }
+
+  /** Back to the camera, from the button or the browser's own control. */
+  async function stopShare() {
+    if (!sharing || !stream) return;
+    shareBusy = true;
+    sharing = false;
+    const screen = screenTrack;
+
+    // Sound: the microphone alone again.
+    if (audioMix && micTrack) {
+      await swapTrack('audio', micTrack);
+      audioMix.close();
+    }
+    audioMix = null;
+    micTrack = null;
+    screenAudio?.stop();
+    screenAudio = null;
+
+    // Picture: open the camera first, then drop the screen, so viewers
+    // never see a gap.
+    try {
+      const cam = (await openCamera(facing, false)).getVideoTracks()[0];
+      if (!stream) {
+        cam.stop();
+      } else {
+        await swapTrack('video', cam);
+        cameraLost = false;
+      }
+    } catch {
+      cameraLost = true;
+    }
+    screen?.stop();
+    screenTrack = null;
+    shareLine = '';
+    if (stream) {
+      attachPreview();
+      // The camera rule again: a hidden page sends no sound.
+      setMicrophoneEnabled(stream, document.visibilityState === 'visible');
+    }
+    shareBusy = false;
+  }
+
+  /** Release whatever sharing holds (the screen itself is in `stream`). */
+  function releaseShare() {
+    audioMix?.close();
+    audioMix = null;
+    micTrack?.stop();
+    micTrack = null;
+    screenAudio?.stop();
+    screenAudio = null;
+    screenTrack?.stop();
+    screenTrack = null;
+    sharing = false;
+    shareBusy = false;
+    shareLine = '';
+    shareError = '';
+    cameraLost = false;
   }
 
   // ── Going live ─────────────────────────────────────────────────────
@@ -841,18 +1031,19 @@
       if (status === 'ended' || status === 'gone')
         await finish('This live stream has ended', false);
     }, STATUS_POLL_MS);
-    // "N watching": the same number the Live cards show.
-    const readCount = async () => {
-      const id = session?.id;
-      if (!id) return;
-      const n = await readWatchingNow(id);
-      // A failed read (null) keeps the last count: no blinking chip.
-      if (n !== null && session?.id === id && phase !== 'ended') watching = watchingCount(n);
-    };
     void readCount();
     watchingTimer = setInterval(() => {
       if (!document.hidden) void readCount();
     }, LIVE_WATCHING_POLL_MS);
+  }
+
+  /** "N watching": the same number the Live cards show. */
+  async function readCount() {
+    const id = session?.id;
+    if (!id) return;
+    const n = await readWatchingNow(id);
+    // A failed read (null) keeps the last count: no blinking chip.
+    if (n !== null && session?.id === id && phase !== 'ended') watching = watchingCount(n);
   }
 
   function stopPolling() {
@@ -889,11 +1080,15 @@
       // Screen locked, or another app in front. iOS stops the camera but
       // not the microphone, so viewers would see black and still hear the
       // host. Send silence until the host is back.
-      setMicrophoneEnabled(stream, false);
+      // Not while sharing the screen: then the host is EXPECTED to be on
+      // another tab or window, talking over it.
+      if (!sharing) setMicrophoneEnabled(stream, false);
       return;
     }
     setMicrophoneEnabled(stream, true);
     if (!isLive) return;
+    void readCount(); // back from the shared tab: a fresh count now
+
     // The lock is released whenever the page is hidden.
     await holdWakeLock();
     await reviveCamera();
@@ -977,6 +1172,7 @@
     pc = null;
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
+    releaseShare();
     if (videoEl) videoEl.srcObject = null;
     void wakeLock?.release().catch(() => undefined);
     wakeLock = null;
@@ -1082,10 +1278,26 @@
       class="stage"
       class:collapsed={!!mediaProblem && !stream}
       class:on-air={isLive || phase === 'starting'}
+      class:sharing
     >
       <!-- svelte-ignore a11y-media-has-caption -->
-      <video bind:this={videoEl} autoplay muted playsinline class:mirrored={facing === 'user'}
+      <video
+        bind:this={videoEl}
+        autoplay
+        muted
+        playsinline
+        class:mirrored={facing === 'user' && !sharing}
       ></video>
+
+      {#if sharing}
+        <div class="share-banner" role="status">
+          <MonitorArrowUpIcon size={18} weight="bold" />
+          <span class="share-text">
+            <strong>You're sharing your screen</strong>
+            <span>{shareLine}</span>
+          </span>
+        </div>
+      {/if}
 
       {#if isLive}
         <div
@@ -1109,15 +1321,34 @@
       {#if stream && phase !== 'resume'}
         <!-- Controls sit on the video, on a translucent bar along the bottom. -->
         <div class="overlay-bar">
-          <button
-            class="icon-btn"
-            on:click={flip}
-            disabled={!stream || flipping}
-            aria-label="Flip camera"
-            title="Flip camera"
-          >
-            <CameraRotateIcon size={20} weight="bold" />
-          </button>
+          {#if !sharing}
+            <button
+              class="icon-btn"
+              on:click={flip}
+              disabled={!stream || flipping}
+              aria-label="Flip camera"
+              title="Flip camera"
+            >
+              <CameraRotateIcon size={20} weight="bold" />
+            </button>
+          {/if}
+          {#if shareSupported}
+            <!-- Desktop only. Swaps the picture on the same connection:
+                 viewers stay connected. -->
+            <button
+              class="share-btn"
+              class:active={sharing}
+              on:click={sharing ? stopShare : startShare}
+              disabled={shareBusy}
+              aria-pressed={sharing}
+              title={sharing
+                ? 'Go back to your camera'
+                : 'Share one window or tab, not your whole screen'}
+            >
+              <MonitorArrowUpIcon size={18} weight="bold" />
+              {sharing ? 'Stop sharing' : 'Share screen'}
+            </button>
+          {/if}
           {#if isLive || phase === 'starting'}
             {#if session}
               <!-- Phones: the share sheet. Desktop: Copy link / Share on Nostr. -->
@@ -1130,7 +1361,7 @@
           {/if}
         </div>
       {/if}
-      {#if isLive && !lockHintDismissed}
+      {#if isLive && !lockHintDismissed && !sharing}
         <!-- Shown until dismissed, once per device. -->
         <p class="hint">
           <span>Locking your phone or leaving this page pauses your picture and sound.</span>
@@ -1140,6 +1371,16 @@
         </p>
       {/if}
     </div>
+
+    {#if shareError}
+      <p class="notice" role="alert">{shareError}</p>
+    {/if}
+    {#if cameraLost && !sharing}
+      <div class="notice camera-lost" role="alert">
+        <span>Your camera didn't come back after sharing. Viewers can still hear you.</span>
+        <button class="btn" on:click={reviveCamera}>Turn the camera back on</button>
+      </div>
+    {/if}
 
     {#if mediaProblem}
       <div class="help" role="alert">
@@ -1447,6 +1688,62 @@
   }
   .icon-btn:disabled {
     opacity: 0.5;
+  }
+  .share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 2.75rem;
+    padding: 0 1rem;
+    border-radius: 9999px;
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.875rem;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .share-btn.active {
+    background: #fff;
+    color: #111;
+    border-color: #fff;
+  }
+  .share-btn:disabled {
+    opacity: 0.6;
+  }
+  /* "You're sharing your screen": across the top of the picture, the
+     Live badge moves down under it. */
+  .share-banner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 0.9rem;
+    background: #1d4ed8;
+    color: #fff;
+    font-size: 0.8125rem;
+    line-height: 1.3;
+  }
+  .share-text {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 0.6rem;
+  }
+  .share-text span {
+    opacity: 0.9;
+  }
+  .stage.sharing .badge {
+    top: 3.25rem;
+  }
+  .camera-lost {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
   }
   .end-btn {
     min-height: 2.75rem;
