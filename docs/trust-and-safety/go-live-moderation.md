@@ -124,10 +124,17 @@ Nostr, and the action log.
 | Hold | While open; a released hold is removed once its reports are gone |
 | Access requests | Pending: until decided. Approved or declined: 90 days after the decision |
 | Approved and blocked lists | Until changed by the admin (a block survives account deletion) |
+| Hosting agreement (18+ and the Terms, per terms version) | Until the account is deleted; kept while one of its sessions is under an open hold |
 | Action log | 2 years; entries about a session under an open hold are kept until it is released |
 
 Account deletion removes the host's sessions **except those under an open
-hold**.
+hold**, and the host's hosting agreement on the same terms.
+
+Hosts agree before going live ("I'm 18+, agree and go live"), once per
+account per `LIVE_TERMS_VERSION` (`src/lib/live/config.ts`). Bump the
+version when Terms §2.4 or the Live Stream Conduct rules change: every host
+is asked again on their next stream, and the create route refuses with
+`terms_required` until they agree.
 
 **For the policy PR:**
 

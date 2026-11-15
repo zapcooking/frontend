@@ -4,7 +4,7 @@
 
 ## Principles
 - Prioritize safety; do not wait for conclusive proof before stopping a credibly dangerous stream.
-- Host minimum age is 18 under proposed terms; self-attestation alone is not proof of age.
+- Host minimum age is 18 (Terms §2.4). Each host's agreement (pubkey, terms version, time) is in `live_terms_acceptance` and is kept while a hold on their session is open; it is self-attestation, not proof of age.
 - Where permitted, a minor may appear with appropriate parent/guardian authorization, but authorization does not negate applicable privacy and child-protection obligations.
 - Never request, create, redistribute, download to an ordinary workstation or commit suspected child sexual abuse material to GitHub.
 

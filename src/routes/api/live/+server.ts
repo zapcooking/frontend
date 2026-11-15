@@ -30,6 +30,8 @@
  *   membership could not be checked        → 503 membership_unavailable
  *   signer is not an active member         → 403 membership_required
  *   host already has a session not ended   → 409 already_active (with its id)
+ *   host has not agreed to the current     → 403 terms_required { version }
+ *     hosting terms (LIVE_TERMS_VERSION; POST /api/live/terms)
  *   then, atomic with the insert:
  *     signer is blocked from hosting       → 403 blocked
  *     'approved' mode, signer not approved → 403 not_approved
@@ -47,12 +49,13 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
 import { checkMembership } from '$lib/membershipApi.server';
-import { parseMaxOpenSessions } from '$lib/live/config';
+import { LIVE_TERMS_VERSION, parseMaxOpenSessions } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { isLiveOff } from '$lib/live/killSwitch.server';
 import { readWatching } from '$lib/live/presence.server';
 import { getHostingMode } from '$lib/live/safety.server';
+import { hasAcceptedTerms } from '$lib/live/terms.server';
 import {
   createSession,
   getActiveSessionForHost,
@@ -133,6 +136,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const existing = await getActiveSessionForHost(db, hostPubkey);
     if (existing) {
       return json({ error: 'already_active', id: existing.id }, { status: 409, headers: NO_STORE });
+    }
+
+    // The hosting agreement (18+ and the Terms, incl. Live Stream Conduct),
+    // once per account per terms version. The host page shows the dialog.
+    if (!(await hasAcceptedTerms(db, hostPubkey, LIVE_TERMS_VERSION))) {
+      return json(
+        { error: 'terms_required', version: LIVE_TERMS_VERSION },
+        { status: 403, headers: NO_STORE }
+      );
     }
 
     const created = await createSession(db, {

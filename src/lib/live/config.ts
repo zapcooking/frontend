@@ -85,6 +85,15 @@ export const LIVE_ACCESS_DECLINE_COOLDOWN_SECONDS = 30 * 24 * 60 * 60;
  */
 export const LIVE_ACCESS_ALERT_THROTTLE_SECONDS = 10 * 60;
 
+/**
+ * The live-hosting terms a host must agree to before going live: the
+ * "Last updated" date of the Terms of Service whose §2.4 Live Hosting and
+ * Live Stream Conduct rules apply. Bump it when those terms change, and
+ * every host is asked again ("I'm 18+, agree and go live") on their next
+ * stream. Agreements are kept per version in live_terms_acceptance.
+ */
+export const LIVE_TERMS_VERSION = '2026-11-15';
+
 /** A decided (approved or declined) access request is deleted this long after the decision. Pending ones are kept. */
 export const LIVE_ACCESS_REQUEST_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 

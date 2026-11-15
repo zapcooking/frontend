@@ -10,6 +10,7 @@
 | Host restrictions (blocks) and hidden-commenter state | Until removed | Periodic necessity review; a block is not lifted by account deletion |
 | Approved-hosts list | Until the host is removed | Periodic necessity review |
 | Hosting access requests (pubkey, optional note, decision) | Pending: until decided. Approved or declined: 90 days after the decision | Set in #977 and deleted by the sweep. Must be disclosed in the Privacy text (policy PR) |
+| Hosting agreement (`live_terms_acceptance`: pubkey, terms version, time; migration 0009) | Until the account is deleted; one row per terms version agreed to | Deleted at the account-deletion request, unless one of the host's sessions is under an open hold; the sweep then deletes it after the release (`cleanupTermsAcceptances`). An agreement made after the deletion request is kept. A statement by the host, not age verification. Disclosed in Privacy §9 ("Hosting agreement") and on /delete-account |
 | Moderation action log (actor, action, target pubkey, time) | 2 years | Longer while a related hold is open |
 | Report holds and session snapshots | Until released | Released only by a logged admin action; the related reports then follow their 90-day schedule |
 | Public replies and zap receipts on Nostr | Network-dependent | Zap Cooking cannot promise deletion across independent relays |

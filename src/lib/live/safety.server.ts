@@ -31,6 +31,7 @@ import {
 } from './config';
 import { liveKv } from './env.server';
 import { getSession, nowSeconds, type LiveDb } from './sessions.server';
+import { cleanupTermsAcceptances } from './terms.server';
 
 // ── Action log ───────────────────────────────────────────────────────
 
@@ -471,7 +472,8 @@ export async function listIncidentReports(
  * hold is open, then released holds with no reports left, then action log
  * entries older than the log retention unless they are about a session
  * whose hold is open, then access requests decided more than the request
- * retention ago (pending requests are kept until decided).
+ * retention ago (pending requests are kept until decided), then hosting
+ * agreements of deleted accounts that no open hold keeps.
  */
 export async function cleanupSafetyRecords(
   db: LiveDb,
@@ -508,4 +510,11 @@ export async function cleanupSafetyRecords(
     )
     .bind(now - LIVE_ACCESS_REQUEST_RETENTION_SECONDS)
     .run();
+  // Last, and contained: a failure here must not stop the sweep's other
+  // retention rules (the 30-day session rule runs after this function).
+  try {
+    await cleanupTermsAcceptances(db);
+  } catch (err) {
+    console.error(`[Live] terms cleanup failed: ${(err as Error)?.name ?? 'error'}`);
+  }
 }

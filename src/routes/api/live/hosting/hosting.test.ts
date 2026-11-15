@@ -17,6 +17,7 @@ import { ADMIN_PUBKEY, ADMIN_PUBKEYS, BACKUP_ADMIN_PUBKEY } from '$lib/adminAuth
 // One DM per admin (primary and backup) for every alert.
 const DMS = ADMIN_PUBKEYS.length;
 import { approveHosts, createLiveDatabase } from '../../../../test/liveDatabase';
+import { LIVE_TERMS_VERSION } from '$lib/live/config';
 import { createKvFake } from '../../../../test/liveStreamStub';
 
 const mocks = vi.hoisted(() => ({ publish: vi.fn(), checkMembership: vi.fn() }));
@@ -102,15 +103,27 @@ describe('GET /api/live/hosting', () => {
     expect((await status()).data).toEqual({
       mode: 'approved',
       approved: false,
-      request: { status: 'none', created_at: null, decided_at: null, retry_at: null }
+      request: { status: 'none', created_at: null, decided_at: null, retry_at: null },
+      terms: { version: LIVE_TERMS_VERSION, accepted: false }
     });
     approveHosts(db, MEMBER);
     expect((await status()).data.approved).toBe(true);
+    expect((await status()).data.terms).toEqual({ version: LIVE_TERMS_VERSION, accepted: true });
     // No way to ask about another account: a ?pubkey= is ignored and the
     // answer is about the signer (not approved).
     const other = await status(otherSk, `${URL_}?pubkey=${MEMBER}`);
     expect(other.res.status).toBe(200);
     expect(other.data.approved).toBe(false);
+    expect(other.data.terms.accepted).toBe(false);
+  });
+
+  it('reports an agreement to an earlier terms version as not accepted', async () => {
+    db.raw
+      .prepare(
+        "INSERT INTO live_terms_acceptance (pubkey, terms_version, accepted_at) VALUES (?, '2000-01-01', 1)"
+      )
+      .run(MEMBER);
+    expect((await status()).data.terms).toEqual({ version: LIVE_TERMS_VERSION, accepted: false });
   });
 
   it('needs a signature', async () => {

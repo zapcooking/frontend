@@ -5,7 +5,7 @@
 Scope: member-hosted live video, public Nostr comments and safety reports on Zap Cooking. This is a proposed **process**, not a representation that controls have been deployed or audited.
 
 ## Operating assumptions to verify
-- Members hosting Go Live are 18+ (currently self-attested); viewers can join without accounts.
+- Members hosting Go Live are 18+ (self-attested): before going live, each host agrees once per terms version ("I'm 18+, agree and go live"), recorded server-side with pubkey, terms version and time (`live_terms_acceptance`); create refuses without it. Viewers can join without accounts.
 - Live video is delivered by Cloudflare Stream; recording is intended to be disabled. Confirm actual configuration and vendor retention before promising no recordings.
 - Stream metadata is normally deleted after 30 days and reports after 90 days, **unless subject to a hold**.
 - Hosting opens in stages: approved hosts first, then all active members only by an explicit admin decision.

@@ -16,6 +16,7 @@ again.
 | `0006_add_live_note_id.sql` | 2026-11-14 (#974) | 2026-11-14 (#974) |
 | `0007_live_rollout_and_safety.sql` | 2026-11-14 (#977) | 2026-11-15 (#977) |
 | `0008_add_live_watching_counts.sql` | 2026-11-15 (#984) | 2026-11-15 (#984) |
+| `0009_live_terms_acceptance.sql` | **not applied** — required before this code deploys (create reads it) | **not applied** — required before this code deploys (create reads it) |
 
 ## Applying a new migration
 
