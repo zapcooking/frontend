@@ -28,8 +28,8 @@
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
     <p class="text-sm opacity-75">
       <strong>Zap Cooking LLC</strong><br />
-      Last updated: 15 November 2026<br />
-      Next scheduled review: 15 May 2027
+      Last updated: 25 July 2026<br />
+      Next scheduled review: 25 January 2027
     </p>
 
     <hr style="border-color: var(--color-input-border)" />
@@ -107,14 +107,14 @@
       <li><strong>AI safeguards:</strong> our AI features are prohibited from generating sexualized content involving minors and are subject to the same enforcement as user-generated content.</li>
     </ul>
 
-    <p><strong>Current limitation, stated openly:</strong> we do not presently operate automated perceptual-hash matching against known-CSAM databases. Our detection relies on user reports, operator review, and the moderation controls described above. We are evaluating hash-matching options appropriate to our scale and will update this document when that changes.</p>
+    <p><strong>Current limitation, stated openly:</strong> we do not presently operate automated perceptual-hash matching against known-CSAM databases. Our detection relies on user reports, operator review, and the moderation controls described above. Go live streams are not recorded, and we do not monitor or automatically scan every broadcast; we learn of problems in a live stream through reports and moderator review. We are evaluating hash-matching options appropriate to our scale and will update this document when that changes.</p>
 
     <!-- Section 6 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">6. How to report</h2>
 
     <p><strong>By email</strong> — {@html SUPPORT_EMAIL}. This inbox is monitored, and child safety reports are prioritized above all other correspondence. Use it from any surface where an in-app control is not yet available.</p>
 
-    <p><strong>On a live stream</strong> — every Go live stream has a "Report this stream" control, which needs no account or email address. Signed-in users can also report a comment in a stream's chat. Live reports alert our moderators immediately, and we can end the stream and block the account from hosting while it is still live. A report also keeps the stream's records from being deleted until we have reviewed it, even if the host deletes their account. Streams are not recorded, so please describe what you saw and roughly when.</p>
+    <p><strong>On a live stream</strong> — every Go live stream has a "Report this stream" control, which needs no account or email address. In a stream's chat, signed-in users can also report a comment. A child safety report alerts our moderators every time it is made, and a moderator can end the stream and block the account from hosting while it is still live. A report also keeps the stream's records from being deleted until a moderator has reviewed it, even if the host deletes their account. Streams are not recorded, so please describe what you saw and roughly when.</p>
 
     <p><strong>In the Android application</strong> — reporting controls are available in group chats today, including a dedicated child safety category, and are being extended across posts, recipes, comments, and profiles. Reports route directly to designated moderation accounts and require no email address or account.</p>
 
@@ -129,10 +129,10 @@
 
     <ul class="list-disc pl-6 space-y-2">
       <li><strong>Acknowledgement and triage within 24 hours of receipt.</strong> CSAE reports take priority over every other category of report we receive.</li>
-      <li><strong>On confirmation:</strong> immediate removal from all surfaces we control, permanent block of the responsible key from Pantry and our clients, and deletion requests issued to third-party relays where the content appears.</li>
-      <li><strong>Live streams:</strong> on a credible report of child sexual abuse or exploitation, we end the stream immediately and block the account from hosting, pending review. Deleting the account does not lift the block.</li>
-      <li><strong>Preservation:</strong> we preserve relevant records as required by law and do not delete evidence prior to reporting.</li>
-      <li><strong>Reporting:</strong> confirmed CSAM is reported to the National Center for Missing &amp; Exploited Children (NCMEC), and to law enforcement where circumstances warrant.</li>
+      <li><strong>When we find a violation:</strong> immediate removal from all surfaces we control, permanent block of the responsible key from Pantry and our clients, and deletion requests issued to third-party relays where the content appears.</li>
+      <li><strong>Live streams:</strong> reports do not end a stream automatically. A moderator reviews each report, and on a credible report of child sexual abuse or exploitation ends the stream and blocks the account from hosting as soon as possible, without waiting for the review to finish. Deleting the account does not lift the block.</li>
+      <li><strong>Reporting to NCMEC:</strong> when we have actual knowledge of facts or circumstances indicating an apparent violation involving child sexual exploitation, as described in 18 U.S.C. § 2258A, we report it to the National Center for Missing &amp; Exploited Children's CyberTipline as soon as reasonably possible. A report does not wait for a final determination that a crime occurred. We also contact law enforcement where circumstances warrant. Reporting to NCMEC is a legal obligation, separate from our ordinary moderation decisions such as removing content or blocking an account.</li>
+      <li><strong>Preservation:</strong> a report about a live stream opens an internal review hold that keeps the stream's records until a moderator closes the review. Separately, when the law requires us to preserve records, including after a CyberTipline report (generally one year under 18 U.S.C. § 2258A(h)), we keep the relevant records we hold for as long as required. Closing our own review or deleting the account does not end that obligation, and we do not delete evidence before reporting.</li>
       <li><strong>No appeal</strong> for CSAM determinations. Other enforcement decisions may be appealed to the contact below.</li>
     </ul>
 

@@ -25,7 +25,7 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Privacy Policy</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: November 15, 2026</p>
+    <p class="text-sm opacity-75">Last updated: October 24, 2026</p>
 
     <p>Zap Cooking LLC ("Zap Cooking," "we," "our," or "us") respects your privacy and is committed to transparency about how information is handled when you use our website, mobile applications, and related services (collectively, the "Service").</p>
 
@@ -101,13 +101,15 @@
       <li>If you have asked for access to host live streams: your request and our decision</li>
     </ul>
 
-    <p>These contain no name, email address, phone number, card number, or billing address, because we do not collect those. You can request deletion of them at any time — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page. A few live-streaming records are kept after an account is deleted: records under review because of a report, and a block from hosting. "Live video" below explains when.</p>
+    <p>These contain no name, email address, phone number, card number, or billing address, because we do not collect those. You can request deletion of them at any time — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page. A few live-streaming records are kept after an account is deleted: records under review because of a report, records we must preserve by law, and a block from hosting. "Live video" below explains when.</p>
 
     <h3 class="text-xl font-semibold mt-6 mb-3" style="color: var(--color-text-primary)">1.7 Reports you send us</h3>
 
-    <p>If you report a live stream, a comment, an article, or other content, or flag a Nourish score, we keep what you send (the link, the reason, and anything you write) for 90 days, together with a one-way hash of your IP address that we use to prevent report abuse. The hash is made with a value that changes every day. For live stream reports, it is also keyed with a secret held only on our servers, so the stored value cannot be traced back to an IP address without that secret. Reports about a live stream can be kept longer while a review is open (see "Live video" below).</p>
+    <p>If you report a live stream, a comment, an article, or other content, or flag a Nourish score, we keep what you send (the link, the reason, and anything you write) for 90 days. Reports about a live stream can be kept longer while a review is open or when the law requires it (see "Live video" below).</p>
 
-    <p>You do not need an account to report a live stream. To report a comment in a stream's chat, you need to be signed in. For live streams, we send our moderators a summary of each report, without anything about you, as an encrypted Nostr direct message so they can act while the stream is live.</p>
+    <p>To limit abuse of reporting, we store a pseudonymous identifier derived from your IP address, not the address itself. It is made with a value that changes every day, and for live stream reports it is also computed with a secret key held only on our servers. This makes the identifier hard to link back to an IP address, but we still treat it as personal data. We use it only to recognize repeated or abusive reports, and it is deleted with the report.</p>
+
+    <p>You do not need an account to report a live stream. In a stream's chat, the option to report a comment is offered to signed-in users. For each live stream report, our moderators receive an encrypted Nostr direct message with the reason and a link to the stream, and nothing about you. Child safety and violence reports alert them every time; other reports about the same stream are grouped, with at most one alert per stream every 10 minutes. A report does not end a stream on its own: a moderator reviews it and decides what to do, and can act right away, before a review is complete.</p>
 
     <!-- Section 2 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">2. How We Use Information</h2>
@@ -231,13 +233,18 @@
 
     <p><strong>How a stream travels.</strong> When you go live, your camera and microphone are sent from your browser to Cloudflare Stream, which delivers them to viewers in real time. Our servers set up each connection but do not receive or store the video.</p>
 
-    <p><strong>No recording.</strong> We do not record live streams, and Cloudflare does not record this kind of stream. When a stream ends, its video is gone from our systems and from Cloudflare's. Anyone watching can still capture the screen with their own tools.</p>
+    <p><strong>No recording.</strong> We set up every stream on Cloudflare Stream with recording turned off, and we do not create or keep recordings of broadcasts. Cloudflare processes the audio and video as needed to deliver them to viewers in real time; any temporary processing or storage that involves is handled by Cloudflare under its own infrastructure practices and its terms with us. Anyone watching can still record or capture the stream with their own tools.</p>
 
     <p><strong>What we keep about a stream.</strong> For each stream we keep the host's public key, its title, any attached recipe, when it started and ended, why it ended, how many viewers joined, the most viewers watching at once, the number of guest viewers admitted and turned away, and the ID of the host's "Live now" note. These records are deleted 30 days after the stream ends, unless a report about it is under review (see "Reports and reviews" below) or the law requires us to keep them longer.</p>
 
-    <p><strong>What we keep about viewers.</strong> Nothing. We store no viewer IP address, public key, or per-viewer record. If you are signed in, your browser may sign a request so we can check whether you are a member, which means you do not count toward the guest limit. The answer is used for that one decision and is not stored.</p>
+    <p><strong>Viewers.</strong> We do not keep a viewing history or a record of who watched a stream, and we do not store viewers' IP addresses or public keys with a stream. Watching does involve some limited, short-lived processing:</p>
 
-    <p><strong>Watching count.</strong> While a stream plays, your browser sends a small anonymous signal about every 30 seconds so we can show how many people are watching. Each signal carries only a random code that your browser makes up each time the page loads. It is not linked to your account or your key, and it is discarded about a minute after the signals stop. Your IP address is used briefly, in memory only, to limit how often signals can be sent; it is never stored and never linked to the code. From these signals we keep two numbers per stream: the most people watching at once and the total number of joins. Only the host can see them, and they are deleted with the stream's record.</p>
+    <ul class="list-disc pl-6 space-y-2">
+      <li><strong>Membership check.</strong> If you are signed in, your browser may sign a request so we can check whether you are a member, which means you do not count toward the guest limit. The answer is used for that one decision and is not stored.</li>
+      <li><strong>Watching count.</strong> While a stream plays, your browser sends a small signal about every 30 seconds so we can show how many people are watching. Each signal carries a temporary random code that your browser makes up each time the page loads. It is not linked to your account or key, and it is discarded about a minute after the signals stop.</li>
+      <li><strong>Connection information.</strong> Your IP address is used briefly, in memory, to limit how often watching signals can be sent, and is not linked to the code. Cloudflare processes connection information, including your IP address, to deliver the stream and protect it from abuse (see section 1.4).</li>
+      <li><strong>Totals.</strong> With each stream's record we keep totals about the audience as a whole: how many viewers joined, the most watching at once, and how many guest viewers were admitted and turned away. They say nothing about any individual viewer, and in the app only the host can see them.</li>
+    </ul>
 
     <p><strong>Join pass.</strong> A guest viewer's browser receives a short-lived pass, valid for up to two hours, that lets it rejoin the same stream without taking another viewer place. The pass is a signed expiry time for that stream. It contains nothing about you, and we do not store it.</p>
 
@@ -245,15 +252,17 @@
 
     <p><strong>Hidden commenters.</strong> A host can hide a commenter from their streams' comments, and we can hide a commenter from all Go live comments. We keep the hidden account's public key, the scope of the hide, and when it was made, until it is undone. Hiding does not delete anything from Nostr.</p>
 
-    <p><strong>Hosting agreement.</strong> Before you host for the first time, we ask you to confirm that you are 18 or older and to agree to the Terms of Service. We record your public key, the version of the terms you agreed to, and when. We ask again when those terms change. This record is deleted when you delete your account, unless one of your streams is under review.</p>
+    <p><strong>Hosting agreement.</strong> Before you host for the first time, we ask you to confirm that you are 18 or older and to agree to the Terms of Service. We record your public key, the version of the terms you agreed to, and when. We ask again when those terms change. This record is deleted when you delete your account, unless one of your streams is under review or the record must be preserved by law.</p>
 
     <p><strong>Hosting access requests.</strong> If you ask for access to host, we keep your public key, any note you add, and our decision. A request is kept until we decide it, and then for 90 days.</p>
 
     <p><strong>Hosting blocks.</strong> If we block an account from hosting, we keep its public key and when the block was made until we remove the block. Deleting the account does not lift a block.</p>
 
-    <p><strong>Reports and reviews.</strong> The first report about a stream opens a review of it, and we keep a snapshot of the stream's public details as they were at that time. While the review is open, the stream's record, its reports, and our moderation log entries about it are kept past their normal deletion dates, including if the host deletes their account. When we close the review, those records return to their normal schedule.</p>
+    <p><strong>Review holds.</strong> The first report about a stream opens a review of it, and we keep a snapshot of the stream's public details as they were at that time. While the review is open, the stream's record, its reports, and our moderation log entries about it are kept past their normal deletion dates, including if the host deletes their account. A review stays open until an authorized moderator closes it; those records then return to their normal schedule, unless they must be preserved by law.</p>
 
-    <p><strong>Moderation log.</strong> We log every moderation action we take on Go live (which moderator acted, what they did, the stream or account affected, and when). Entries are kept for 2 years, and longer while a review of the stream they are about is open.</p>
+    <p><strong>Legal preservation.</strong> Separately from our own reviews, when the law, legal process, or a preservation obligation requires us to keep records, we keep the relevant records we hold for as long as required. This includes the preservation that generally follows a report to NCMEC's CyberTipline, which under 18 U.S.C. § 2258A(h) is generally one year from the report. A legal preservation duty overrides our normal 30-day and 90-day deletion schedules, does not end when we close our own review, and is not ended by deleting the account. Streams are not recorded, so what we can preserve is limited to the records described in this section; public comments and zaps live on Nostr relays, which we do not control.</p>
+
+    <p><strong>Moderation log.</strong> We log every moderation action we take on Go live (which moderator acted, what they did, the stream or account affected, and when). Entries are kept for 2 years, and longer while a review of the stream they are about is open or the law requires.</p>
 
     <!-- Section 10 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">10. Crash reports</h2>
@@ -284,7 +293,7 @@
 
     <p>Support communications are retained for as long as reasonably necessary to resolve the inquiry and for our records.</p>
 
-    <p>Live stream records are deleted 30 days after the stream ends. Reports, including reports about streams, are deleted after 90 days. Hosting access requests are kept until decided and then for 90 days. The Go live moderation log is kept for 2 years. While a review of a reported stream is open, that stream's record, its reports, and the log entries about it are kept until the review is closed, or longer if the law requires. Hidden-commenter and hosting-block records are kept until they are removed, and deleting the account does not remove a hosting block. The hosting agreement record is kept until the account is deleted, unless one of its streams is under review.</p>
+    <p>Live stream records are deleted 30 days after the stream ends. Reports, including reports about streams, are deleted after 90 days. Hosting access requests are kept until decided and then for 90 days. The Go live moderation log is kept for 2 years. While a review of a reported stream is open, that stream's record, its reports, and the log entries about it are kept until the review is closed. Hidden-commenter and hosting-block records are kept until they are removed, and deleting the account does not remove a hosting block. The hosting agreement record is kept until the account is deleted, unless one of its streams is under review. Any of these may be kept longer when the law requires us to preserve them (see "Legal preservation" under "Live video").</p>
 
     <!-- Section 13 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">13. Children's Privacy</h2>

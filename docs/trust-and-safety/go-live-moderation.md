@@ -63,7 +63,11 @@ In both modes, an account that is blocked cannot host.
 ## 2. Reports
 
 Anyone watching can report a stream. The chat asks for sign-in before it
-offers to report a comment. The reasons are: child safety, violence or
+offers to report a comment. **That is a UI rule only:** `POST
+/api/live/<id>/report` accepts a comment report without a signature. The
+public text says the option "is offered to signed-in users", which is true.
+To make it a server rule: require NIP-98 when `comment` is present, and
+have the chat sign the report request. The reasons are: child safety, violence or
 immediate danger, nudity or sexual content, spam, and other.
 
 Each report:
@@ -81,8 +85,9 @@ Each report:
      address: HMAC-SHA256 with a server-side secret
      (`LIVE_REPORTER_HASH_SECRET`, different per environment), over the
      rate limiter's daily-salted hash. The address itself is never
-     stored. Without the secret, nobody can work back from a stored id
-     to an address, even with the database and KV together.
+     stored. The id is pseudonymous: without the secret, linking it to an
+     address is impractical; with the secret and that day's salt (kept 3
+     days), someone could test whether a given address reported.
    - If the secret is missing, **nothing is stored**: an unkeyed hash is
      never written. The admin is still DMed for every report, never
      throttled and marked "NOT STORED" (reason and stream link only). The
@@ -97,7 +102,10 @@ Each report:
    - At most one alert per stream every 10 minutes, except **child safety
      and violence, which always alert**.
 
-Streams are **not recorded**. Evidence means the session record, the
+Streams are **not recorded** (inputs are created with recording off).
+Reports never end a stream automatically, however many there are (the
+sweep's 90-minute and disconnect rules are unrelated to reports).
+Evidence means the session record, the
 snapshot, the reports, the "Live now" note and its public comments on
 Nostr, and the action log.
 
@@ -106,19 +114,30 @@ Nostr, and the action log.
 1. Open the alert's link. If the stream is still live, watch it.
 2. If the report is credible: **End** the stream and, if warranted,
    **Block** the host. Blocking also ends the host's open session at once.
-3. Child safety: follow the Child Safety Standards (/child-safety), and
-   report to NCMEC where required. **Do not release the hold**, and seek
-   legal advice before deleting anything.
-4. When the case is closed and nothing must be kept for legal reasons,
+3. Child safety: follow the Child Safety Standards (/child-safety). A
+   CyberTipline report is a legal duty under 18 U.S.C. § 2258A when the
+   facts give actual knowledge of an apparent violation; it does not wait
+   for certainty, and it is separate from the moderation decision (End,
+   Block). Report as soon as reasonably possible (see
+   cybertipline-reporting.md).
+4. **Legal preservation** (a CyberTipline report, legal process, or advice
+   from counsel): **do not release the hold.** Note the reason and the end
+   date (after a CyberTipline report, generally one year from submission)
+   in the private runbook, and export anything the hold does not cover
+   before it expires: Reads/Nourish reports in KV, the access request,
+   hidden-commenter rows, and the public comments from relays. The code
+   has no separate legal-hold lock yet (data-retention.md, "Review holds
+   vs legal preservation").
+5. When the case is closed and nothing must be kept for legal reasons,
    **Release hold**. The release is logged (`release_hold`).
-5. Admin hides and unhides of commenters are logged (`hide`, `unhide`).
+6. Admin hides and unhides of commenters are logged (`hide`, `unhide`).
 
 ## 4. What is kept, and for how long
 
 | Record | Kept |
 |---|---|
 | Session row (no report) | 30 days after the stream ends |
-| Session row with an open hold | Until the hold is released |
+| Session row with an open hold | Until the hold is released (never while legal preservation applies) |
 | Reports | 90 days after the report; while a hold is open, until it is released |
 | Session row after a released hold | Until its reports age out, then the 30-day rule |
 | Hold | While open; a released hold is removed once its reports are gone |
@@ -129,7 +148,7 @@ Nostr, and the action log.
 Account deletion removes the host's sessions **except those under an open
 hold**.
 
-**For the policy PR:**
+**For the policy PR** (done in #985: Privacy §1.7 and §9, Child Safety §6–§7, /delete-account):
 
 - Privacy must state the 2-year action log, which holds account keys.
 - It must state the access-request queue: the key, the note, and the
