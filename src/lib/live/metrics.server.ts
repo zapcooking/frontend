@@ -29,9 +29,11 @@ import {
   LIVE_METRICS_GIVE_UP_SECONDS,
   LIVE_MONTHLY_RETENTION_MONTHS
 } from './config';
-import { unionKeyed } from '$lib/relayCollect';
+import { verifyEvent } from 'nostr-tools/pure';
+import { collect, type NostrEvent } from '$lib/relayCollect';
 import { RECEIPT_RELAYS } from '$lib/streams/relays';
-import { extractZapAmountSats } from '$lib/zapAmount';
+import { ZapTotals, zapHistory, type PageResult } from '$lib/streams/zapTotals';
+import type { EventVerifier, NostrEventLike } from '$lib/streams/types';
 import type { PresenceTotals } from './presence.server';
 import type { LiveDb } from './sessions.server';
 
@@ -41,8 +43,12 @@ export interface MetricsDeps {
   readTotals(sessionId: string): Promise<PresenceTotals | null>;
   /** Wipe the presence object. Best effort. */
   finish(sessionId: string): Promise<void>;
-  /** Sats zapped to a note, or null when no relay answered. */
-  zapSats(noteId: string): Promise<number | null>;
+  /**
+   * Verified sats zapped to the host's note, or null when it cannot be
+   * read right now (no relay answered, or the host's provider is
+   * unreachable).
+   */
+  zapSats(noteId: string, hostPubkey: string): Promise<number | null>;
 }
 
 export interface PendingMetricsRow {
@@ -81,7 +87,8 @@ export interface SessionMetrics {
 /**
  * Fold one ended session into live_host_monthly and record its metrics.
  * One transaction; both statements apply only while metrics_at is NULL.
- * A session that never went live is recorded but not folded. Returns
+ * A session that never went live, or whose host asked to delete their
+ * account after it was created, is recorded but not folded. Returns
  * whether THIS call recorded it.
  */
 export async function recordSessionMetrics(
@@ -107,6 +114,14 @@ export async function recordSessionMetrics(
            FROM live_sessions
           WHERE id = ?1 AND metrics_at IS NULL AND status = 'ended'
             AND started_at IS NOT NULL AND ended_at IS NOT NULL
+            -- Never for an account that asked to be deleted after this
+            -- stream was created (a row kept under a hold, including one
+            -- from before migration 0010). A returning key's later streams
+            -- still count.
+            AND NOT EXISTS (
+              SELECT 1 FROM account_deletion_requests d
+               WHERE d.pubkey = live_sessions.host_pubkey
+                 AND d.requested_at >= live_sessions.created_at)
          ON CONFLICT (host_pubkey, month) DO UPDATE SET
            streams         = streams + 1,
            stream_seconds  = stream_seconds + excluded.stream_seconds,
@@ -166,7 +181,7 @@ export async function closeOutEndedSessions(
 
       const [totals, sats] = await Promise.all([
         deps.readTotals(row.id),
-        row.note_id ? deps.zapSats(row.note_id) : Promise.resolve(0)
+        row.note_id ? deps.zapSats(row.note_id, row.host_pubkey) : Promise.resolve(0)
       ]);
       if ((totals === null || sats === null) && !giveUp) {
         summary.waiting++;
@@ -205,7 +220,13 @@ export async function closeOutEndedSessions(
 
 // ── Zaps ─────────────────────────────────────────────────────────────
 
-const ZAP_READ_TIMEOUT_MS = 5000;
+/** One relay page (a REQ until EOSE or this timeout). */
+const ZAP_PAGE_TIMEOUT_MS = 5000;
+/** The whole zap read for one session: profile, provider and receipts. */
+const ZAP_BUDGET_MS = 9000;
+const PROVIDER_TIMEOUT_MS = 4000;
+const ZAP_PAGE_SIZE = 250;
+const ZAP_MAX_PAGES = 20;
 
 /**
  * The receipt relays plus the zap aggregators. A copy of
@@ -219,31 +240,130 @@ const ZAP_AGGREGATORS = [
   'wss://offchain.pub',
   'wss://relay.snort.social'
 ];
+const ZAP_RELAYS = [...new Set([...RECEIPT_RELAYS, ...ZAP_AGGREGATORS])];
+/** Where the host's profile (kind 0, for the lightning address) is read. */
+const PROFILE_RELAYS = [...new Set(['wss://purplepag.es', ...ZAP_RELAYS])];
+
+export interface ZapReadDeps {
+  collect?: typeof collect;
+  fetch?: typeof fetch;
+  verify?: EventVerifier;
+}
+
+type Provider = { pubkey: string } | 'none' | 'unreachable';
 
 /**
- * Sats in the zap receipts (kind 9735) on one note, merged across the
- * receipt relays and de-duplicated by receipt id. The same unverified rule
- * as the host's ended screen (any receipt counts, amount from its invoice).
- * Null when no relay finished answering.
+ * The host's zap provider: the nostrPubkey of the LNURL document behind
+ * the lud16 in their newest profile. The same rule as resolveZapProvider
+ * (src/lib/streams/zapProvider.ts), read with raw sockets because
+ * nostr-tools' pool does not run in workerd. 'none' when the host has no
+ * zappable address (so no receipt can be verified); 'unreachable' when
+ * no relay answered or the LNURL document could not be fetched.
+ */
+async function resolveProvider(host: string, deps: ZapReadDeps): Promise<Provider> {
+  const read = deps.collect ?? collect;
+  const results = await Promise.all(
+    PROFILE_RELAYS.map((url) =>
+      read(
+        url,
+        { p: { kinds: [0], authors: [host], limit: 1 } },
+        { timeoutMs: PROVIDER_TIMEOUT_MS }
+      )
+    )
+  );
+  if (!results.some((r) => r.done.p && !r.closed.p)) return 'unreachable';
+  let profile: NostrEvent | null = null;
+  for (const r of results) {
+    for (const e of r.events.p) {
+      if (e.kind !== 0 || e.pubkey !== host) continue;
+      if (!(deps.verify ?? (verifyEvent as unknown as EventVerifier))(e)) continue;
+      if (!profile || e.created_at > profile.created_at) profile = e;
+    }
+  }
+  let content: Record<string, unknown> = {};
+  try {
+    content = JSON.parse(profile?.content || '{}');
+  } catch {
+    content = {};
+  }
+  const parts = typeof content.lud16 === 'string' ? content.lud16.trim().split('@') : [];
+  if (parts.length !== 2 || !parts[0] || !/^[a-z0-9.-]+$/i.test(parts[1])) return 'none';
+  const url = `https://${parts[1]}/.well-known/lnurlp/${encodeURIComponent(parts[0])}`;
+  try {
+    const res = await (deps.fetch ?? fetch)(url, {
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+      headers: { Accept: 'application/json' }
+    });
+    if (!res.ok) return 'unreachable';
+    const meta = (await res.json()) as Record<string, unknown>;
+    if (!meta.allowsNostr || typeof meta.nostrPubkey !== 'string') return 'none';
+    const pubkey = meta.nostrPubkey.toLowerCase();
+    return /^[0-9a-f]{64}$/.test(pubkey) ? { pubkey } : 'none';
+  } catch {
+    return 'unreachable';
+  }
+}
+
+const sha256Hex = async (text: string) =>
+  [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+/**
+ * Verified sats zapped to the host's "Live now" note. Only receipts signed
+ * by the host's own zap provider count, with a signed zap request for this
+ * note and host and an invoice that matches it, each payment once: the
+ * same rule as the stream chat's zap total (ZapTotals.accept). Receipt
+ * history is walked backward page by page on every relay (zapHistory).
+ *
+ * Null (try again later) when the provider is unreachable or no relay
+ * finished a clean pass; a relay that answers CLOSED (auth-required,
+ * rate-limited) is not a clean pass. 0 when the host has no zappable
+ * address. A history longer than the scan walks is logged and the
+ * verified sum so far is returned.
  */
 export async function fetchNoteZapSats(
   noteId: string,
-  read: typeof unionKeyed = unionKeyed
+  host: string,
+  deps: ZapReadDeps = {}
 ): Promise<number | null> {
-  const relays = [...new Set([...RECEIPT_RELAYS, ...ZAP_AGGREGATORS])];
-  const { events, anyDone } = await read(
-    relays,
-    { z: { kinds: [9735], '#e': [noteId], limit: 500 } },
-    { timeoutMs: ZAP_READ_TIMEOUT_MS }
-  );
-  if (!anyDone.z && events.z.length === 0) return null;
-  let sats = 0;
-  for (const receipt of events.z) {
-    if (!receipt.tags.some((t) => t[0] === 'e' && t[1] === noteId)) continue;
-    const n = extractZapAmountSats(receipt).sats;
-    if (Number.isSafeInteger(n) && n > 0) sats += n;
+  const signal = AbortSignal.timeout(ZAP_BUDGET_MS);
+  const provider = await resolveProvider(host, deps);
+  if (provider === 'unreachable') return null;
+  if (provider === 'none') return 0;
+  const read = deps.collect ?? collect;
+  const verify = deps.verify ?? (verifyEvent as unknown as EventVerifier);
+  const totals = new ZapTotals();
+  const result = await zapHistory({
+    sources: ZAP_RELAYS,
+    query: async (relay, filter): Promise<PageResult> => {
+      const r = await read(relay, { z: filter }, { timeoutMs: ZAP_PAGE_TIMEOUT_MS, signal });
+      return {
+        events: r.events.z as NostrEventLike[],
+        complete: r.done.z && !r.closed.z
+      };
+    },
+    accept: async (event) => {
+      await totals.accept(event, {
+        address: noteId,
+        recipient: host,
+        provider: provider.pubkey,
+        verify,
+        digest: sha256Hex
+      });
+    },
+    filter: { kinds: [9735], '#e': [noteId] },
+    signal,
+    pageSize: ZAP_PAGE_SIZE,
+    maxPages: ZAP_MAX_PAGES
+  });
+  if (result.answered === 0 && !result.truncated) return null;
+  if (result.truncated) {
+    console.warn(
+      `[LiveSweep] note=${noteId} zaps=truncated sats_so_far=${Math.floor(totals.msats / 1000)}`
+    );
   }
-  return sats;
+  return Math.floor(totals.msats / 1000);
 }
 
 // ── Retention ────────────────────────────────────────────────────────

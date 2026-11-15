@@ -309,34 +309,182 @@ describe('retention', () => {
   });
 });
 
-describe('fetchNoteZapSats', () => {
-  const receipt = (id: string, sats: number, e = NOTE) => ({
-    id,
-    pubkey: 'z'.repeat(64),
-    created_at: 1,
-    kind: 9735,
-    content: '',
-    sig: '',
-    tags: [
-      ['e', e],
-      ['description', JSON.stringify({ tags: [['amount', String(sats * 1000)]] })]
-    ]
+describe('accounts that asked to be deleted', () => {
+  it('never folds a stream created before the request (e.g. a held row from before 0010), but folds a later one', async () => {
+    const before = ended({ host: HOST, started: NOW - 120 * MIN, ended: NOW - 100 * MIN });
+    db.raw
+      .prepare(
+        `INSERT INTO account_deletion_requests (pubkey, status, source, billing, requested_at, updated_at)
+         VALUES (?, 'completed', 'web', 'none', ?, ?)`
+      )
+      .run(HOST, NOW - 90 * MIN, NOW - 90 * MIN);
+    const after = ended({ host: HOST, started: NOW - 60 * MIN, ended: NOW - 30 * MIN });
+    await closeOutEndedSessions(db, deps(), NOW, never);
+    expect(sessionRow(before).metrics_at).toBe(NOW); // recorded, so it is not retried
+    expect(sessionRow(after).metrics_at).toBe(NOW);
+    expect(monthly()).toHaveLength(1);
+    expect(monthly()[0]).toMatchObject({ streams: 1, stream_seconds: 30 * MIN });
+  });
+});
+
+describe('fetchNoteZapSats (verified)', () => {
+  const PROVIDER = 'd'.repeat(64);
+  const VIEWER = 'b'.repeat(64);
+  // Real invoice (zapAmount fixtures): 2000 sats, plaintext description.
+  const INVOICE =
+    'lnbc20u1p3y0x3hpp5743k2g0fsqqxj7n8qzuhns5gmkk4djeejk3wkp64ppevgekvc0jsdqcve5kzar2v9nr5gpqd4hkuetesp5ez2g297jduwc20t6lmqlsg3man0vf2jfd8ar9fh8fhn2g8yttfkqxqy9gcqcqzys9qrsgqrzjqtx3k77yrrav9hye7zar2rtqlfkytl094dsp0ms5majzth6gt7ca6uhdkxl983uywgqqqqlgqqqvx5qqjqrzjqd98kxkpyw0l9tyy8r8q57k7zpy9zjmh6sez752wj6gcumqnj3yxzhdsmg6qq56utgqqqqqqqqqqqeqqjq7jd56882gtxhrjm03c93aacyfy306m4fq0tskf83c0nmet8zc2lxyyg3saz8x6vwcp26xnrlagf9semau3qm2glysp7sv95693fphvsp54l567';
+  const profile = {
+    id: '0'.repeat(64),
+    pubkey: HOST,
+    created_at: 100,
+    kind: 0,
+    tags: [],
+    content: JSON.stringify({ lud16: 'chef@example.com' }),
+    sig: 's'
+  };
+  const receipt = (over: { id?: string; pubkey?: string; e?: string; amount?: string } = {}) => {
+    const request = {
+      id: 'r'.repeat(64),
+      pubkey: VIEWER,
+      created_at: 50,
+      kind: 9734,
+      tags: [
+        ['e', over.e ?? NOTE],
+        ['p', HOST],
+        ['amount', over.amount ?? '2000000']
+      ],
+      content: '',
+      sig: 's'
+    };
+    return {
+      id: over.id ?? '1'.repeat(64),
+      pubkey: over.pubkey ?? PROVIDER,
+      created_at: 60,
+      kind: 9735,
+      tags: [
+        ['e', over.e ?? NOTE],
+        ['p', HOST],
+        ['bolt11', INVOICE],
+        ['description', JSON.stringify(request)]
+      ],
+      content: '',
+      sig: 's'
+    };
+  };
+  type Page = { events: unknown[]; done?: boolean; closed?: string };
+  /** A collect() fake: kind-0 reads get the profile; receipt reads get `pages(relay)`. */
+  function relays(receipts: (relay: string) => Page) {
+    return vi.fn(async (url: string, subs: Record<string, Record<string, unknown>>) => {
+      const key = Object.keys(subs)[0];
+      const page: Page = key === 'p' ? { events: [profile] } : receipts(url);
+      const f = subs[key];
+      // Honour the time window, as a relay does.
+      const events = (page.events as { created_at: number }[]).filter(
+        (e) =>
+          (f.until === undefined || e.created_at <= (f.until as number)) &&
+          (f.since === undefined || e.created_at >= (f.since as number))
+      );
+      return {
+        events: { [key]: events },
+        done: { [key]: page.done ?? true },
+        closed: page.closed ? { [key]: page.closed } : {}
+      };
+    });
+  }
+  const lnurl = (meta: unknown = { allowsNostr: true, nostrPubkey: PROVIDER }, ok = true) =>
+    vi.fn(async () => new Response(JSON.stringify(meta), { status: ok ? 200 : 503 }));
+  const verify = () => true;
+
+  it('counts a provider-signed receipt once, however many relays carry it', async () => {
+    const collect = relays(() => ({ events: [receipt()] }));
+    const fetch = lnurl();
+    expect(await fetchNoteZapSats(NOTE, HOST, { collect: collect as never, fetch, verify })).toBe(
+      2000
+    );
+    expect((fetch.mock.calls[0] as unknown[])[0]).toBe(
+      'https://example.com/.well-known/lnurlp/chef'
+    );
   });
 
-  it('sums receipts on the note, and only on it', async () => {
-    const read = vi.fn(async () => ({
-      events: { z: [receipt('1', 21), receipt('2', 1000), receipt('3', 5, 'e'.repeat(64))] },
-      anyDone: { z: true }
+  it('ignores forged receipts: wrong signer, another note, or a mismatched amount', async () => {
+    const collect = relays(() => ({
+      events: [
+        receipt({ id: '2'.repeat(64), pubkey: 'f'.repeat(64) }),
+        receipt({ id: '3'.repeat(64), e: 'e'.repeat(64) }),
+        receipt({ id: '4'.repeat(64), amount: '999000' })
+      ]
     }));
-    expect(await fetchNoteZapSats(NOTE, read as never)).toBe(1021);
-    const [, subs] = read.mock.calls[0] as unknown as [string[], Record<string, unknown>];
-    expect(subs).toEqual({ z: { kinds: [9735], '#e': [NOTE], limit: 500 } });
+    expect(
+      await fetchNoteZapSats(NOTE, HOST, { collect: collect as never, fetch: lnurl(), verify })
+    ).toBe(0);
+    // A receipt whose signature does not verify is not counted.
+    const one = relays(() => ({ events: [receipt()] }));
+    const receiptsFail = (e: { kind: number }) => e.kind !== 9735;
+    expect(
+      await fetchNoteZapSats(NOTE, HOST, {
+        collect: one as never,
+        fetch: lnurl(),
+        verify: receiptsFail as never
+      })
+    ).toBe(0);
+    // A profile that does not verify gives no provider: nothing can be verified.
+    expect(
+      await fetchNoteZapSats(NOTE, HOST, {
+        collect: one as never,
+        fetch: lnurl(),
+        verify: () => false
+      })
+    ).toBe(0);
   });
 
-  it('is null when no relay answered, 0 when they answered with nothing', async () => {
-    const none = async () => ({ events: { z: [] }, anyDone: { z: false } });
-    const empty = async () => ({ events: { z: [] }, anyDone: { z: true } });
-    expect(await fetchNoteZapSats(NOTE, none as never)).toBeNull();
-    expect(await fetchNoteZapSats(NOTE, empty as never)).toBe(0);
+  it('is null when every relay answers CLOSED or times out (retried), 0 after a clean empty pass', async () => {
+    const closed = relays(() => ({ events: [], done: true, closed: 'auth-required: sign in' }));
+    expect(
+      await fetchNoteZapSats(NOTE, HOST, { collect: closed as never, fetch: lnurl(), verify })
+    ).toBeNull();
+    const timedOut = relays(() => ({ events: [], done: false }));
+    expect(
+      await fetchNoteZapSats(NOTE, HOST, { collect: timedOut as never, fetch: lnurl(), verify })
+    ).toBeNull();
+    const empty = relays(() => ({ events: [] }));
+    expect(
+      await fetchNoteZapSats(NOTE, HOST, { collect: empty as never, fetch: lnurl(), verify })
+    ).toBe(0);
+  });
+
+  it('is null when the provider is unreachable, 0 when the host has no zappable address', async () => {
+    const collect = relays(() => ({ events: [receipt()] }));
+    expect(
+      await fetchNoteZapSats(NOTE, HOST, {
+        collect: collect as never,
+        fetch: lnurl({}, false),
+        verify
+      })
+    ).toBeNull();
+    expect(
+      await fetchNoteZapSats(NOTE, HOST, {
+        collect: collect as never,
+        fetch: lnurl({ allowsNostr: false }),
+        verify
+      })
+    ).toBe(0);
+  });
+
+  it('walks history backward past the first page', async () => {
+    const calls: Record<string, unknown>[] = [];
+    const collect = vi.fn(async (_url: string, subs: Record<string, Record<string, unknown>>) => {
+      const key = Object.keys(subs)[0];
+      if (key === 'p') return { events: { p: [profile] }, done: { p: true }, closed: {} };
+      const f = subs.z;
+      calls.push(f);
+      // First page: one receipt at t=60 (a full page of 1). Boundary and older pages: empty.
+      const events = f.until === undefined || (f.until as number) > 60 ? [receipt()] : [];
+      return { events: { z: f.since === 60 ? [] : events }, done: { z: true }, closed: {} };
+    });
+    expect(
+      await fetchNoteZapSats(NOTE, HOST, { collect: collect as never, fetch: lnurl(), verify })
+    ).toBe(2000);
+    // Each relay asked again below the oldest receipt seen.
+    expect(calls.some((f) => f.until === 59)).toBe(true);
   });
 });
