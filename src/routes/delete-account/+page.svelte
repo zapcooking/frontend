@@ -161,6 +161,7 @@
       <li><strong>Your AI credit balance and usage records</strong> — Cheffy and Sous Chef</li>
       <li><strong>Your scheduled posts</strong> — the encrypted copies we hold until their publish time</li>
       <li><strong>Your live stream records</strong> — any stream you are hosting is ended, and the records of streams you hosted are deleted, except a stream under review because of a report or records we must preserve by law (see "What we keep" below)</li>
+      <li><strong>Your monthly hosting summaries</strong> — the monthly totals of the streams you hosted (how many, how long, viewing time, the most viewers at once, and sats zapped)</li>
       <li><strong>Your hosting agreement record</strong> — the record that you confirmed you are 18 or older and agreed to the Terms before going live, unless one of your streams is under review, your account is blocked from hosting, or the record must be preserved by law</li>
       <li><strong>Your content stored on Pantry</strong>, the Nostr relay we operate at pantry.zap.cooking — recipes, posts, comments, reactions, and group messages held there</li>
       <li><strong>Any support correspondence</strong> associated with your account</li>
