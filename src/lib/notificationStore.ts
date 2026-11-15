@@ -11,6 +11,8 @@ import {
   platedRecipeLookups,
   type PlatedNotificationData
 } from '$lib/plated/notification';
+import type { MuteList } from '$lib/muteFilter';
+import { getReplyParentId, getThreadRootId } from '$lib/thread/replyParent';
 import { isHellthread } from '$lib/notificationUtils';
 import { decode as decodeBolt11 } from '@gandlaf21/bolt11-decode';
 import { extractZapAmountSats } from '$lib/zapAmount';
@@ -21,6 +23,7 @@ export interface Notification {
   fromPubkey: string;
   eventId?: string; // The event to navigate to when clicked
   targetEventId?: string; // The original event being reacted to/replied to (your post)
+  threadIds?: string[]; // Thread root + immediate parent of a reply, so a muted thread hides it
   content?: string;
   amount?: number; // For zaps, in sats
   emoji?: string; // For reactions
@@ -159,6 +162,19 @@ function createNotificationStore() {
 export const notifications = createNotificationStore();
 
 /**
+ * Does a muted `e` entry (thread, or note and replies) cover this
+ * notification? Mirrors isEventMutedBy's conversation check: the note the
+ * notification points at, the note it replies to, or the thread root. Rows
+ * cached before `threadIds` existed still match on the first two.
+ */
+function isNotificationInMutedThread(muteList: MuteList | null, n: Notification): boolean {
+  if (!muteList || muteList.threads.length === 0) return false;
+  const muted = new Set<string>();
+  for (const t of muteList.threads) if (t.value) muted.add(t.value);
+  return [n.eventId, n.targetEventId, ...(n.threadIds ?? [])].some((id) => !!id && muted.has(id));
+}
+
+/**
  * True while the initial subscription is fetching (pre-EOSE / pre-timeout).
  * Components should show a spinner instead of "Nothing here yet" while this is true.
  */
@@ -172,10 +188,11 @@ export const notificationsLoading = writable(false);
 export const visibleNotifications = derived(
   [notifications, mutedPubkeys, muteListStore, readsModerationVersion, platedRecipeLookups],
   ([$notifications, $mutedPubkeys, $muteState, _moderationVersion, $lookups]) => {
-    const byAuthor =
-      $mutedPubkeys.size === 0
-        ? $notifications
-        : $notifications.filter((n) => !n.fromPubkey || !$mutedPubkeys.has(n.fromPubkey));
+    const byAuthor = $notifications.filter(
+      (n) =>
+        (!n.fromPubkey || !$mutedPubkeys.has(n.fromPubkey)) &&
+        !isNotificationInMutedThread($muteState.muteList, n)
+    );
     if (!byAuthor.some((n) => n.plated)) return byAuthor;
     return byAuthor.filter(
       (n) =>
@@ -757,6 +774,13 @@ function cleanContentForPreview(content: string): string {
   return cleaned.slice(0, 300);
 }
 
+/** Thread root and immediate parent of a reply, for mute matching. */
+function threadIdsOf(event: NDKEvent): string[] | undefined {
+  const ref = { id: event.id, kind: event.kind, tags: event.tags ?? [] };
+  const ids = [getThreadRootId(ref), getReplyParentId(ref)].filter((id): id is string => !!id);
+  return ids.length > 0 ? [...new Set(ids)] : undefined;
+}
+
 function parseNotification(event: NDKEvent, userPubkey: string): Notification | null {
   const baseNotification = {
     id: event.id,
@@ -855,6 +879,7 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
         type: isReply ? 'comment' : 'mention',
         eventId: event.id,
         targetEventId: replyToEvent,
+        threadIds: threadIdsOf(event),
         content: cleanContentForPreview(event.content || '')
       };
     }
@@ -870,6 +895,7 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
         type: 'comment',
         eventId: event.id,
         targetEventId: parentETag?.[1],
+        threadIds: threadIdsOf(event),
         content: cleanContentForPreview(event.content || ''),
         ...(plated ? { plated } : {})
       };
@@ -890,6 +916,13 @@ function parseNotification(event: NDKEvent, userPubkey: string): Notification | 
   }
 }
 
+function isNotificationMuted(n: Notification): boolean {
+  return (
+    get(mutedPubkeys).has(n.fromPubkey) ||
+    isNotificationInMutedThread(get(muteListStore).muteList, n)
+  );
+}
+
 /**
  * Send a local notification for a Nostr event (zap, reply, etc.)
  * Only sends if app is backgrounded and permissions are granted
@@ -905,14 +938,14 @@ async function sendLocalNotificationForNostrEvent(notification: Notification): P
   // Check permissions
   try {
     await muteListStore.load();
-    if (get(mutedPubkeys).has(notification.fromPubkey)) return;
+    if (isNotificationMuted(notification)) return;
 
     const { checkNotificationPermissions, sendImmediateNotification } = await import(
       '$lib/native/notifications'
     );
     const permission = await checkNotificationPermissions();
 
-    if (permission !== 'granted' || get(mutedPubkeys).has(notification.fromPubkey)) {
+    if (permission !== 'granted' || isNotificationMuted(notification)) {
       return;
     }
 
