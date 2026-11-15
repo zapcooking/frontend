@@ -43,6 +43,7 @@
         })
       });
       if (res.status === 429) return { ok: false, error: 'rate_limited' };
+      if (res.status === 503) return { ok: false, error: 'not_stored' };
       return res.ok ? { ok: true } : { ok: false, error: 'network' };
     } catch {
       return { ok: false, error: 'network' };
@@ -63,7 +64,9 @@
         'error',
         result.error === 'rate_limited'
           ? 'Too many reports from here. Please try again in a few minutes.'
-          : 'The report could not be sent. Check your connection and try again.'
+          : result.error === 'not_stored'
+            ? 'Something went wrong. Please email support@zap.cooking.'
+            : 'The report could not be sent. Check your connection and try again.'
       );
     }
   }

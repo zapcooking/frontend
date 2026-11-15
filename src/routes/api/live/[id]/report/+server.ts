@@ -14,8 +14,9 @@
  *  1. It is stored (live_reports), one per reporter per target. A
  *     reporter is a KEYED hash: HMAC-SHA256(LIVE_REPORTER_HASH_SECRET,
  *     the rate limiter's daily-salted IP hash). Never the IP, and never an
- *     unkeyed hash: without the secret the route refuses (503) and stores
- *     nothing.
+ *     unkeyed hash: without the secret NOTHING is stored, the admin is
+ *     still DM'd (unthrottled, marked "not stored"), and the reply is
+ *     503 not_stored (the page asks the reporter to email support).
  *  2. The session's hold is opened (first report) with a snapshot, so the
  *     record is kept until the admin releases it.
  *  3. The admin is DM'd (throttled per session, except child safety and
@@ -23,8 +24,8 @@
  * Nothing is ended automatically: the admin decides.
  *
  * Replies: 400 bad_request, 404 not_found, 413 too_large, 429 (rate
- * limit), 500 not_configured / internal, 503 unavailable (the reporter
- * hash secret is not set).
+ * limit), 500 not_configured / internal, 503 not_stored (the reporter
+ * hash secret is not set; the admin was DM'd).
  */
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
@@ -34,7 +35,7 @@ import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { sendReportAlert } from '$lib/live/reportAlert.server';
 import { keyedReporterHash, recordReport } from '$lib/live/safety.server';
-import { isLiveSessionId, type LiveDb } from '$lib/live/sessions.server';
+import { getSession, isLiveSessionId, type LiveDb } from '$lib/live/sessions.server';
 import { publishEventRaw } from '$lib/rawPublish';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -49,13 +50,6 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
     if (!db) return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
     const sessionId = params.id ?? '';
     if (!isLiveSessionId(sessionId)) return bad();
-
-    // Fail closed: no secret, no report. An unkeyed IP hash is never stored.
-    const hashSecret = readLiveEnv(platform, 'LIVE_REPORTER_HASH_SECRET');
-    if (!hashSecret) {
-      console.error('[Live] report refused: LIVE_REPORTER_HASH_SECRET is not set');
-      return json({ error: 'unavailable' }, { status: 503, headers: NO_STORE });
-    }
 
     const bytes = await readBodyCapped(request, MAX_BODY_BYTES);
     if (bytes === 'too_large') return json({ error: 'too_large' }, { status: 413, headers: NO_STORE });
@@ -103,8 +97,33 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
         perDay: 20
       });
       if (limited.limited) return json(limited.body, { status: 429, headers: NO_STORE });
-      reporterHash = await keyedReporterHash(hashSecret, limited.ipHash);
+      reporterHash = limited.ipHash;
     }
+
+    const alertDeps = {
+      kv: platform?.env?.GATED_CONTENT,
+      senderKey: readLiveEnv(platform, 'NOTIFICATION_PRIVATE_KEY'),
+      recipientPubkey: ADMIN_PUBKEY,
+      publish: publishEventRaw
+    };
+    const origin = new URL(request.url).origin;
+
+    // Fail closed on storage: without the secret no report is stored (an
+    // unkeyed IP hash is never written). The admin is still DM'd, never
+    // throttled, so no report (above all a child-safety one) is lost
+    // silently; the reporter is asked to email support.
+    const hashSecret = readLiveEnv(platform, 'LIVE_REPORTER_HASH_SECRET');
+    if (!hashSecret) {
+      console.error('[Live] report NOT stored: LIVE_REPORTER_HASH_SECRET is not set');
+      const session = await getSession(db, sessionId);
+      if (!session) return json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
+      await sendReportAlert(
+        { sessionId, title: session.title, reason, comment: !!comment, origin, notStored: true },
+        alertDeps
+      );
+      return json({ error: 'not_stored' }, { status: 503, headers: NO_STORE });
+    }
+    reporterHash = reporterHash ? await keyedReporterHash(hashSecret, reporterHash) : '';
 
     const result = await recordReport(db, { sessionId, reporterHash, reason, details, comment });
     if (!result.ok) return json({ error: 'not_found' }, { status: 404, headers: NO_STORE });
@@ -114,19 +133,8 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
 
     if (result.recorded) {
       const alert = sendReportAlert(
-        {
-          sessionId,
-          title: result.title,
-          reason,
-          comment: !!comment,
-          origin: new URL(request.url).origin
-        },
-        {
-          kv: platform?.env?.GATED_CONTENT,
-          senderKey: readLiveEnv(platform, 'NOTIFICATION_PRIVATE_KEY'),
-          recipientPubkey: ADMIN_PUBKEY,
-          publish: publishEventRaw
-        }
+        { sessionId, title: result.title, reason, comment: !!comment, origin },
+        alertDeps
       );
       if (platform?.ctx) platform.ctx.waitUntil(alert);
       else await alert;

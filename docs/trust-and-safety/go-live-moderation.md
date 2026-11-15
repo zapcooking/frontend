@@ -66,8 +66,11 @@ Each report:
      rate limiter's daily-salted hash. The address itself is never
      stored. Without the secret, nobody can work back from a stored id
      to an address, even with the database and KV together.
-   - If the secret is missing, reports are refused and logged. An
-     unkeyed hash is never stored.
+   - If the secret is missing, **nothing is stored**: an unkeyed hash is
+     never written. The admin is still DMed for every report, never
+     throttled and marked "NOT STORED" (reason and stream link only). The
+     reporter is asked to email support@zap.cooking, and the error is
+     logged. No report, above all a child-safety one, is lost silently.
 2. **Opens a hold** on the session (`live_holds`), with a snapshot of the
    session's public facts at the first report. The Cloudflare input id is
    never part of the snapshot.
@@ -124,6 +127,7 @@ hold**.
 - Set `NOTIFICATION_PRIVATE_KEY` on every environment that should send
   report alerts and access-request DMs.
 - Set `LIVE_REPORTER_HASH_SECRET` on every environment, with a different
-  value in each. Reports are refused without it.
+  value in each. Without it, reports are not stored; they only reach the
+  admin by DM.
 - Have counsel review the policy text (Terms, Privacy, Child Safety) for
   the behaviour described here.

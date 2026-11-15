@@ -3,7 +3,8 @@
  * stubbed). Nothing is ended automatically.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { generateSecretKey } from 'nostr-tools';
+import { generateSecretKey, nip04 } from 'nostr-tools';
+import { ADMIN_PUBKEY } from '$lib/adminAuth';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { createLiveDatabase } from '../../../../../test/liveDatabase';
 import { createKvFake } from '../../../../../test/liveStreamStub';
@@ -95,19 +96,44 @@ describe('POST /api/live/<id>/report', () => {
     expect(await keyedReporterHash('other-secret', limiterHash)).not.toBe(stored);
   });
 
-  it('fails closed without the secret: refuses, stores nothing, logs it', async () => {
-    for (const value of [undefined, '', '   ']) {
-      env.LIVE_REPORTER_HASH_SECRET = value;
-      const res = await post({ reason: 'child_safety' });
-      expect(res.status).toBe(503);
-      expect(await res.json()).toEqual({ error: 'unavailable' });
-    }
+  it('without the secret: stores nothing, still DMs the admin (unthrottled), logs it, asks to email support', async () => {
+    env.LIVE_REPORTER_HASH_SECRET = undefined;
+    // NIP-04 is symmetric: the sender's key and the admin's pubkey read the DM.
+    const senderSk = generateSecretKey();
+    env.NOTIFICATION_PRIVATE_KEY = bytesToHex(senderSk);
+
+    const res = await post({ reason: 'child_safety', details: 'reporter note' });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'not_stored' });
     expect(count('live_reports')).toBe(0);
     expect(count('live_holds')).toBe(0);
-    expect(mocks.publish).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledWith(
-      '[Live] report refused: LIVE_REPORTER_HASH_SECRET is not set'
+      '[Live] report NOT stored: LIVE_REPORTER_HASH_SECRET is not set'
     );
+
+    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    const event = mocks.publish.mock.calls[0][0];
+    const text = nip04.decrypt(senderSk, ADMIN_PUBKEY, event.content);
+    expect(text).toMatch(/^⚠️ NOT STORED/);
+    expect(text).toContain('CHILD SAFETY');
+    expect(text).toContain(`/live/s/${SESSION}`);
+    // Nothing about the reporter: not their note, not an address.
+    expect(text).not.toContain('reporter note');
+    expect(text).not.toMatch(/10\.0\.0\./);
+
+    // Never throttled: every report still reaches the admin, urgent or not.
+    for (const value of ['', '   ']) {
+      env.LIVE_REPORTER_HASH_SECRET = value;
+      expect((await post({ reason: 'spam' })).status).toBe(503);
+    }
+    expect(mocks.publish).toHaveBeenCalledTimes(3);
+    expect(count('live_reports')).toBe(0);
+  });
+
+  it('without the secret, an unknown session is still 404 and sends nothing', async () => {
+    env.LIVE_REPORTER_HASH_SECRET = undefined;
+    expect((await post({ reason: 'child_safety' }, { id: 'f'.repeat(32) })).status).toBe(404);
+    expect(mocks.publish).not.toHaveBeenCalled();
   });
 
   it('without KV (no limiter hash) stores a one-off unverified id, never a guessable one', async () => {

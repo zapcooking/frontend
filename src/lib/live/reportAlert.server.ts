@@ -48,6 +48,11 @@ export interface ReportAlertInput {
   comment: boolean;
   /** Site origin for the links, e.g. https://zap.cooking (previews link to themselves). */
   origin: string;
+  /**
+   * The report could not be stored (LIVE_REPORTER_HASH_SECRET missing):
+   * this DM is its only record. Never throttled.
+   */
+  notStored?: boolean;
 }
 
 /** The report alert text. Pure, for tests. */
@@ -60,6 +65,9 @@ export function buildReportAlert(input: ReportAlertInput): string {
         ? `🚨 VIOLENCE / IMMEDIATE DANGER report on ${what}. Review now.`
         : `🚩 Report on ${what}: ${REASON_LABELS[input.reason]}.`;
   return [
+    ...(input.notStored
+      ? ['⚠️ NOT STORED: LIVE_REPORTER_HASH_SECRET is missing. This DM is the only record.']
+      : []),
     first,
     `"${input.title}"`,
     `Watch: ${input.origin}/live/s/${input.sessionId}`,
@@ -144,7 +152,7 @@ export async function sendReportAlert(
   deps: AdminDmDeps & { kv: AlertKV | null | undefined }
 ): Promise<ReportAlertResult> {
   const throttleKey = ALERT_THROTTLE_PREFIX + input.sessionId;
-  const urgent = LIVE_URGENT_REASONS.includes(input.reason);
+  const urgent = LIVE_URGENT_REASONS.includes(input.reason) || input.notStored === true;
   if (!urgent && deps.kv) {
     try {
       if (await deps.kv.get(throttleKey, 'text')) return 'throttled';
