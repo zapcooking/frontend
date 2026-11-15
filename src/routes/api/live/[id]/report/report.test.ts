@@ -12,6 +12,12 @@ const mocks = vi.hoisted(() => ({ publish: vi.fn() }));
 vi.mock('$lib/rawPublish', () => ({ publishEventRaw: mocks.publish }));
 
 import { POST as report } from './+server';
+import { keyedReporterHash } from '$lib/live/safety.server';
+
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 const HOST = 'a'.repeat(64);
 const SESSION = 'ab'.repeat(16);
@@ -51,7 +57,8 @@ beforeEach(() => {
   env = {
     SCHEDULER_DB: db,
     GATED_CONTENT: kv,
-    NOTIFICATION_PRIVATE_KEY: bytesToHex(generateSecretKey())
+    NOTIFICATION_PRIVATE_KEY: bytesToHex(generateSecretKey()),
+    LIVE_REPORTER_HASH_SECRET: 'reporter-secret-for-tests'
   };
   mocks.publish.mockReset().mockResolvedValue(2);
   db.raw
@@ -74,6 +81,42 @@ describe('POST /api/live/<id>/report', () => {
     expect(JSON.stringify(row)).not.toContain('10.0.0.');
     expect(count('live_holds')).toBe(1);
     expect(mocks.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('stores HMAC(secret, limiter hash), never the limiter hash itself', async () => {
+    await post({ reason: 'nudity' }, { ip: '10.7.7.7' });
+    const stored = db.raw.prepare('SELECT reporter_hash FROM live_reports').get().reporter_hash;
+    const day = new Date().toISOString().slice(0, 10);
+    const salt = kv.data.get(`config:ip-salt-v2:${day}`)!;
+    const limiterHash = await sha256(`10.7.7.7:${salt}`);
+    expect(stored).not.toBe(limiterHash);
+    expect(stored).toBe(await keyedReporterHash('reporter-secret-for-tests', limiterHash));
+    // Another secret gives another id.
+    expect(await keyedReporterHash('other-secret', limiterHash)).not.toBe(stored);
+  });
+
+  it('fails closed without the secret: refuses, stores nothing, logs it', async () => {
+    for (const value of [undefined, '', '   ']) {
+      env.LIVE_REPORTER_HASH_SECRET = value;
+      const res = await post({ reason: 'child_safety' });
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: 'unavailable' });
+    }
+    expect(count('live_reports')).toBe(0);
+    expect(count('live_holds')).toBe(0);
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      '[Live] report refused: LIVE_REPORTER_HASH_SECRET is not set'
+    );
+  });
+
+  it('without KV (no limiter hash) stores a one-off unverified id, never a guessable one', async () => {
+    env.GATED_CONTENT = undefined;
+    await post({ reason: 'spam' }, { ip: '10.8.8.8' });
+    await post({ reason: 'spam' }, { ip: '10.8.8.8' });
+    const ids = db.raw.prepare('SELECT reporter_hash FROM live_reports').all();
+    expect(ids).toHaveLength(2);
+    for (const r of ids) expect(r.reporter_hash).toMatch(/^unverified:/);
   });
 
   it('stores a comment report against that comment', async () => {

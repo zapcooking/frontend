@@ -12,7 +12,10 @@
  *
  * What a report does, in this order:
  *  1. It is stored (live_reports), one per reporter per target. A
- *     reporter is the rate limiter's daily-salted IP hash, never the IP.
+ *     reporter is a KEYED hash: HMAC-SHA256(LIVE_REPORTER_HASH_SECRET,
+ *     the rate limiter's daily-salted IP hash). Never the IP, and never an
+ *     unkeyed hash: without the secret the route refuses (503) and stores
+ *     nothing.
  *  2. The session's hold is opened (first report) with a snapshot, so the
  *     record is kept until the admin releases it.
  *  3. The admin is DM'd (throttled per session, except child safety and
@@ -20,7 +23,8 @@
  * Nothing is ended automatically: the admin decides.
  *
  * Replies: 400 bad_request, 404 not_found, 413 too_large, 429 (rate
- * limit), 500 not_configured / internal.
+ * limit), 500 not_configured / internal, 503 unavailable (the reporter
+ * hash secret is not set).
  */
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
@@ -29,7 +33,7 @@ import { LIVE_REPORT_DETAILS_MAX, isLiveReportReason } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { sendReportAlert } from '$lib/live/reportAlert.server';
-import { recordReport } from '$lib/live/safety.server';
+import { keyedReporterHash, recordReport } from '$lib/live/safety.server';
 import { isLiveSessionId, type LiveDb } from '$lib/live/sessions.server';
 import { publishEventRaw } from '$lib/rawPublish';
 
@@ -45,6 +49,13 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
     if (!db) return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
     const sessionId = params.id ?? '';
     if (!isLiveSessionId(sessionId)) return bad();
+
+    // Fail closed: no secret, no report. An unkeyed IP hash is never stored.
+    const hashSecret = readLiveEnv(platform, 'LIVE_REPORTER_HASH_SECRET');
+    if (!hashSecret) {
+      console.error('[Live] report refused: LIVE_REPORTER_HASH_SECRET is not set');
+      return json({ error: 'unavailable' }, { status: 503, headers: NO_STORE });
+    }
 
     const bytes = await readBodyCapped(request, MAX_BODY_BYTES);
     if (bytes === 'too_large') return json({ error: 'too_large' }, { status: 413, headers: NO_STORE });
@@ -72,9 +83,10 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
       comment = { id, pubkey };
     }
 
-    // Per-IP limit; its daily-salted hash is the reporter's identity (one
-    // report per reporter per target). No usable address: the report is
-    // still taken.
+    // Per-IP limit. Its daily-salted hash, keyed with the secret, is the
+    // reporter's identity (one report per reporter per target); the salt
+    // still rotates daily. No usable address (or no KV): the report is
+    // taken under a one-off 'unverified:' id that matches nothing.
     let ip = '';
     try {
       ip = getClientAddress();
@@ -91,7 +103,7 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
         perDay: 20
       });
       if (limited.limited) return json(limited.body, { status: 429, headers: NO_STORE });
-      reporterHash = limited.ipHash;
+      reporterHash = await keyedReporterHash(hashSecret, limited.ipHash);
     }
 
     const result = await recordReport(db, { sessionId, reporterHash, reason, details, comment });

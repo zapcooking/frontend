@@ -15,7 +15,8 @@
  *    admin releases a hold. While it is open, the session row, its reports
  *    and its log entries survive every retention rule and the
  *    account-deletion purge.
- *  - A reporter is a daily-salted IP hash, never an address.
+ *  - A reporter is a keyed hash of the daily-salted IP hash, never an
+ *    address (see keyedReporterHash).
  */
 import {
   LIVE_ACCESS_REQUEST_RETENTION_SECONDS,
@@ -153,6 +154,26 @@ export async function setHostingMode(
 }
 
 // ── Reports and holds ────────────────────────────────────────────────
+
+/**
+ * The stored reporter id: HMAC-SHA256(secret, ipHash) as 64 hex. The
+ * input is the per-IP limiter's daily-salted hash, so ids still rotate
+ * daily; the secret means a leak of the database and KV together cannot
+ * be reversed to an address. Anything that is not a real limiter hash
+ * (no address, no KV: 'no-kv') yields '' and is stored as 'unverified:'.
+ */
+export async function keyedReporterHash(secret: string, ipHash: string): Promise<string> {
+  if (!HEX64_RE.test(ipHash)) return '';
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(ipHash));
+  return Array.from(new Uint8Array(mac), (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 export interface ReportInput {
   sessionId: string;

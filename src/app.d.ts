@@ -107,6 +107,8 @@ declare global {
           LIVE_INPUT_PREFIX?: string;
           /** Go live sessions open at once, all hosts; default 20. Plain var (optional). */
           LIVE_MAX_OPEN_SESSIONS?: string;
+          /** HMAC key for stored Go live reporter ids. Secret, one per environment; reports are refused without it. */
+          LIVE_REPORTER_HASH_SECRET?: string;
           /** HMAC key for Go live rejoin passes. Secret, one per environment. */
           LIVE_PASS_SECRET?: string;
           /** D1 database for scheduled posts (zapcooking-scheduler). */
