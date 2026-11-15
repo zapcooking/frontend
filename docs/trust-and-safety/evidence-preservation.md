@@ -23,6 +23,7 @@ These are product proposals, **not** an instruction to delete records subject to
 - The first report on a stream or one of its comments opens a hold automatically, with a snapshot of the session's public facts. The snapshot never contains the Cloudflare input identifier.
 - A held session, its reports and related action-log entries survive the 30/90-day purge and the host's account deletion.
 - Release is a manual admin action on /admin/live and is logged; a new report reopens the hold.
+- A child-safety or violence report is never lost as a duplicate. It is stored even when the same reporter already reported that stream or comment for another reason, and every urgent submission alerts the admin.
 - Gap against step 2 above: the hold records no lawful basis, owner or review date. Record those in the restricted incident system for any hold that goes beyond routine moderation, until the admin tool supports them.
 
 ## Data minimization
