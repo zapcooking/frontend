@@ -62,12 +62,11 @@ In both modes, an account that is blocked cannot host.
 
 ## 2. Reports
 
-Anyone watching can report a stream. The chat asks for sign-in before it
-offers to report a comment. **That is a UI rule only:** `POST
-/api/live/<id>/report` accepts a comment report without a signature. The
-public text says the option "is offered to signed-in users", which is true.
-To make it a server rule: require NIP-98 when `comment` is present, and
-have the chat sign the report request. The reasons are: child safety, violence or
+Anyone watching can report a stream, with no account. The chat asks for
+sign-in before it offers to report a comment, and (from #987, Seth's
+ruling) the server requires a NIP-98 signature on every comment report
+(401 `auth_required` without one). The signature is checked, never stored
+or sent: the reporter is still only the keyed IP hash. The reasons are: child safety, violence or
 immediate danger, nudity or sexual content, spam, and other.
 
 Each report:

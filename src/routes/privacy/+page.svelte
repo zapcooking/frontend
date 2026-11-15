@@ -109,7 +109,7 @@
 
     <p>To limit abuse of reporting, we store a pseudonymous identifier derived from your IP address, not the address itself. It is made with a value that changes every day, and for live stream reports it is also computed with a secret key held only on our servers. This makes the identifier hard to link back to an IP address, but we still treat it as personal data. We use it only to recognize repeated or abusive reports, and it is deleted with the report.</p>
 
-    <p>You do not need an account to report a live stream. In a stream's chat, the option to report a comment is offered to signed-in users. For each live stream report, our moderators receive an encrypted Nostr direct message with the reason and a link to the stream, and nothing about you. Child safety and violence reports alert them every time; other reports about the same stream are grouped, with at most one alert per stream every 10 minutes. A report does not end a stream on its own: a moderator reviews it and decides what to do, and can act right away, before a review is complete.</p>
+    <p>You do not need an account to report a live stream. Reporting a comment in a stream's chat requires you to be signed in: your browser signs the request, and we check the signature but do not store your public key with the report or include it in the alert. For each live stream report, our moderators receive an encrypted Nostr direct message with the reason and a link to the stream, and nothing about you. Child safety and violence reports alert them every time; other reports about the same stream are grouped, with at most one alert per stream every 10 minutes. A report does not end a stream on its own: a moderator reviews it and decides what to do, and can act right away, before a review is complete.</p>
 
     <!-- Section 2 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">2. How We Use Information</h2>
@@ -252,7 +252,7 @@
 
     <p><strong>Hidden commenters.</strong> A host can hide a commenter from their streams' comments, and we can hide a commenter from all Go live comments. We keep the hidden account's public key, the scope of the hide, and when it was made, until it is undone. Hiding does not delete anything from Nostr.</p>
 
-    <p><strong>Hosting agreement.</strong> Before you host for the first time, we ask you to confirm that you are 18 or older and to agree to the Terms of Service. We record your public key, the version of the terms you agreed to, and when. We ask again when those terms change. This record is deleted when you delete your account, unless one of your streams is under review or the record must be preserved by law.</p>
+    <p><strong>Hosting agreement.</strong> Before you host for the first time, we ask you to confirm that you are 18 or older and to agree to the Terms of Service. We record your public key, the version of the terms you agreed to, and when. We ask again when those terms change. This record is deleted when you delete your account, unless one of your streams is under review, your account is blocked from hosting, or the record must be preserved by law.</p>
 
     <p><strong>Hosting access requests.</strong> If you ask for access to host, we keep your public key, any note you add, and our decision. A request is kept until we decide it, and then for 90 days.</p>
 
@@ -293,7 +293,7 @@
 
     <p>Support communications are retained for as long as reasonably necessary to resolve the inquiry and for our records.</p>
 
-    <p>Live stream records are deleted 30 days after the stream ends. Reports, including reports about streams, are deleted after 90 days. Hosting access requests are kept until decided and then for 90 days. The Go live moderation log is kept for 2 years. While a review of a reported stream is open, that stream's record, its reports, and the log entries about it are kept until the review is closed. Hidden-commenter and hosting-block records are kept until they are removed, and deleting the account does not remove a hosting block. The hosting agreement record is kept until the account is deleted, unless one of its streams is under review. Any of these may be kept longer when the law requires us to preserve them (see "Legal preservation" under "Live video").</p>
+    <p>Live stream records are deleted 30 days after the stream ends. Reports, including reports about streams, are deleted after 90 days. Hosting access requests are kept until decided and then for 90 days. The Go live moderation log is kept for 2 years. While a review of a reported stream is open, that stream's record, its reports, and the log entries about it are kept until the review is closed. Hidden-commenter and hosting-block records are kept until they are removed, and deleting the account does not remove a hosting block. The hosting agreement record is kept until the account is deleted, unless one of its streams is under review or the account is blocked from hosting. Any of these may be kept longer when the law requires us to preserve them (see "Legal preservation" under "Live video").</p>
 
     <!-- Section 13 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">13. Children's Privacy</h2>
