@@ -81,6 +81,9 @@ export const LIVE_ACCESS_DECLINE_COOLDOWN_SECONDS = 30 * 24 * 60 * 60;
  */
 export const LIVE_ACCESS_ALERT_THROTTLE_SECONDS = 10 * 60;
 
+/** A decided (approved or declined) access request is deleted this long after the decision. Pending ones are kept. */
+export const LIVE_ACCESS_REQUEST_RETENTION_SECONDS = 90 * 24 * 60 * 60;
+
 // ── Reports and safety ───────────────────────────────────────────────
 
 /** Reasons a stream or a comment can be reported for. */

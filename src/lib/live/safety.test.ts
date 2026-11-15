@@ -157,6 +157,26 @@ describe('retention', () => {
   });
 });
 
+describe('access request retention', () => {
+  it('keeps pending requests, and deletes decided ones 90 days after the decision', async () => {
+    const ins = (id: string, status: string, decidedAt: number | null) =>
+      db.raw
+        .prepare(
+          'INSERT INTO live_access_requests (id, pubkey, status, created_at, decided_at) VALUES (?, ?, ?, 1, ?)'
+        )
+        .run(id, id.repeat(64).slice(0, 64), status, decidedAt);
+    ins('a', 'pending', null);
+    ins('b', 'approved', NOW - 91 * DAY);
+    ins('c', 'declined', NOW - 91 * DAY);
+    ins('d', 'declined', NOW - 89 * DAY);
+    await cleanupSafetyRecords(db, NOW);
+    expect(db.raw.prepare('SELECT id FROM live_access_requests ORDER BY id').all()).toEqual([
+      { id: 'a' },
+      { id: 'd' }
+    ]);
+  });
+});
+
 describe('logAction', () => {
   it('returns false, without throwing, when the log cannot be written', async () => {
     db.raw.exec('DROP TABLE live_actions');

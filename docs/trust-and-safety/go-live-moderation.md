@@ -1,5 +1,7 @@
 # Go live: rollout and moderation process
 
+> Part of the trust and safety governance framework. Start at [README.md](README.md).
+
 This page describes how hosting is opened, how reports are handled and
 what is recorded. It covers PR #977, which folds in the report and hold
 design of draft PR #976. Every admin control is on **/admin/live**, signed
@@ -94,7 +96,7 @@ Nostr, and the action log.
 | Reports | 90 days after the report; while a hold is open, until it is released |
 | Session row after a released hold | Until its reports age out, then the 30-day rule |
 | Hold | While open; a released hold is removed once its reports are gone |
-| Access requests | Kept (pending, approved, declined) |
+| Access requests | Pending: until decided. Approved or declined: 90 days after the decision |
 | Approved and blocked lists | Until changed by the admin (a block survives account deletion) |
 | Action log | 2 years; entries about a session under an open hold are kept until it is released |
 
@@ -105,7 +107,7 @@ hold**.
 
 - Privacy must state the 2-year action log, which holds account keys.
 - It must state the access-request queue: the key, the note, and the
-  decision.
+  decision, kept until decided and then 90 days.
 - It must state the reporter IP hash and the 90-day report retention.
 
 ## 5. Before production

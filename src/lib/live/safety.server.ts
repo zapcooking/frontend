@@ -18,6 +18,7 @@
  *  - A reporter is a daily-salted IP hash, never an address.
  */
 import {
+  LIVE_ACCESS_REQUEST_RETENTION_SECONDS,
   LIVE_ACTION_LOG_RETENTION_SECONDS,
   LIVE_HOSTING_MODE_KEY,
   LIVE_REPORT_DETAILS_MAX,
@@ -341,7 +342,8 @@ export async function listIncidents(db: LiveDb, limit = 50): Promise<Incident[]>
  * Delete reports older than the report retention unless their session's
  * hold is open, then released holds with no reports left, then action log
  * entries older than the log retention unless they are about a session
- * whose hold is open.
+ * whose hold is open, then access requests decided more than the request
+ * retention ago (pending requests are kept until decided).
  */
 export async function cleanupSafetyRecords(
   db: LiveDb,
@@ -370,5 +372,12 @@ export async function cleanupSafetyRecords(
                                WHERE h.session_id = live_actions.session_id AND h.status = 'open'))`
     )
     .bind(now - LIVE_ACTION_LOG_RETENTION_SECONDS)
+    .run();
+  await db
+    .prepare(
+      `DELETE FROM live_access_requests
+        WHERE status != 'pending' AND decided_at IS NOT NULL AND decided_at < ?1`
+    )
+    .bind(now - LIVE_ACCESS_REQUEST_RETENTION_SECONDS)
     .run();
 }
