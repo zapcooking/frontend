@@ -14,8 +14,9 @@ preview_urls = false
 [observability]
 enabled = true
 
-# One object per Go live session. In memory only: the class never uses
-# Durable Object storage (SQLite-backed so it runs on any plan).
+# One object per Go live session. Its storage holds only unexpired
+# heartbeat codes and the peak; an alarm deletes each code ~1 s after it
+# expires and wipes the storage when none are left.
 [[durable_objects.bindings]]
 name = "LIVE_PRESENCE"
 class_name = "LivePresence"

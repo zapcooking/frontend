@@ -1,8 +1,9 @@
 /**
  * Go live — the "watching now" counter for one session.
  *
- * Runs inside the session's Durable Object (workers/live-presence), in
- * memory only: nothing here is ever written to storage. Pure and clock-
+ * Runs inside the session's Durable Object (workers/live-presence). The
+ * object also keeps each code in its own storage until it expires, so a
+ * restart does not empty the count (see `restore`). Pure and clock-
  * injected so it can be tested without the Workers runtime.
  *
  * A watch page sends a heartbeat about every 30 s while its tab is
@@ -113,6 +114,37 @@ export class PresenceCounter {
     const newPeak = watching > this.peakSeen;
     if (newPeak) this.peakSeen = watching;
     return { ok: true, watching, peak: this.peakSeen, newPeak };
+  }
+
+  /**
+   * Put back a code heard at `seen` (ms), after the object restarted.
+   * Ignored when already expired, or when the session is full.
+   */
+  restore(code: string, seen: number, now: number): void {
+    if (!isHeartbeatCode(code) || !Number.isFinite(seen)) return;
+    if (seen <= now - this.limits.windowMs || this.codes.size >= this.limits.maxCodes) return;
+    const held = this.codes.get(code);
+    if (held === undefined || held < seen) this.codes.set(code, seen);
+  }
+
+  /** Put back the peak after a restart (it never moves down). */
+  restorePeak(peak: number): void {
+    if (Number.isSafeInteger(peak) && peak > this.peakSeen) this.peakSeen = peak;
+  }
+
+  /** Whether this code is currently counted. */
+  has(code: string): boolean {
+    return this.codes.has(code);
+  }
+
+  /** The highest count seen. */
+  get peak(): number {
+    return this.peakSeen;
+  }
+
+  /** The window length (ms). */
+  get windowMs(): number {
+    return this.limits.windowMs;
   }
 
   /** Distinct codes heard in the last window. */

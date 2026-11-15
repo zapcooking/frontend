@@ -12,11 +12,13 @@
  * stream is playing. The host's own page sends none, and a watch page
  * signed in as the host sends none (the count leaves the host out).
  *
- * The count lives in the session's presence Durable Object, in memory
- * only (workers/live-presence). Nothing about a heartbeat is stored or
- * logged: not the code, not the address. The address is passed to the
- * object for the rate limit only, where it is salted, hashed and kept for
- * one minute with two counters, never linked to a code.
+ * The count lives in the session's presence Durable Object
+ * (workers/live-presence). It keeps each code in memory and in its own
+ * storage until the code expires (~60 s after its last heartbeat), so a
+ * restart does not empty the count; nothing else about a heartbeat is
+ * stored, and nothing is logged. The address is passed to the object for
+ * the rate limit only, where it is salted, hashed and kept in memory for
+ * one minute with two counters, never stored and never linked to a code.
  *
  * At the edge, the zone's one rate-limiting rule (the join rule, extended)
  * also covers this path and ../watching.

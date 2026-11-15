@@ -11,7 +11,8 @@
 -- That count comes from an anonymous heartbeat: each watch page sends a
 -- random code made fresh on every page load, and a Durable Object per
 -- session counts the distinct codes heard in the last ~60 s. The codes
--- are kept in that object's memory only and are never written here.
+-- are held by that object (in memory, and in its own storage until they
+-- expire, so a restart does not empty the count) and never written here.
 --
 -- joins counts viewers admitted by the play relay (members and guests),
 -- not counting rejoins on a pass and not counting the host.
