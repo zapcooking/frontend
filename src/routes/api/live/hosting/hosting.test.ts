@@ -205,6 +205,22 @@ describe('POST /api/live/hosting (Request access)', () => {
     expect(requests()).toEqual([]);
   });
 
+  it('on preview, throttles with the preview key only', async () => {
+    env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
+    kv.data.set('live:access-alert', '1'); // a production throttle
+    await ask();
+    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(kv.data.has('live:preview:access-alert')).toBe(true);
+  });
+
+  it("reads the preview mode on preview: production's 'members' does not open it", async () => {
+    kv.data.set('live:hosting_mode', 'members');
+    env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
+    expect((await status()).data).toMatchObject({ mode: 'approved', approved: false });
+    kv.data.set('live:preview:hosting_mode', 'members');
+    expect((await status()).data).toMatchObject({ mode: 'members', approved: true });
+  });
+
   it('keeps the request when the DM cannot be sent, and the next one alerts', async () => {
     mocks.publish.mockRejectedValueOnce(new Error('no relay'));
     expect((await ask()).res.status).toBe(200);

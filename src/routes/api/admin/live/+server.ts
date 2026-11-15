@@ -10,7 +10,9 @@
  * write failed (the action itself has happened).
  *
  * GET /api/admin/live
- *   200: { off, mode, sessions, approved, requests, blocked, incidents, actions }
+ *   200: { off, mode, mode_set, sessions, approved, requests, blocked, incidents, actions }
+ *     mode       the hosting mode as KV reads it here (can lag ~1 min after a switch)
+ *     mode_set   the mode last switched to, from the action log (null = never)
  *     sessions   open ones, ended ones whose input is not confirmed
  *                deleted, and every one under an open report hold (no
  *                input id, token or lock)
@@ -57,6 +59,7 @@ import { readLiveEnv } from '$lib/live/env.server';
 import { isLiveOff, setLiveOff } from '$lib/live/killSwitch.server';
 import {
   getHostingMode,
+  lastModeSet,
   listActions,
   listIncidents,
   logAction,
@@ -121,6 +124,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
       {
         off: await isLiveOff(platform),
         mode: await getHostingMode(platform),
+        mode_set: await lastModeSet(db),
         sessions: await listSessionsForAdmin(db, 100),
         approved: await listApprovedHosts(db),
         requests: await pendingWithMembership(platform, db),

@@ -22,6 +22,8 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { isAdmin } from '$lib/adminAuth';
   import { signNip98AuthHeader } from '$lib/nip98';
+  import { showToast } from '$lib/toast';
+  import { adminActionError, displayedMode } from '$lib/live/adminClient';
 
   interface Session {
     id: string;
@@ -93,7 +95,11 @@
   let incidents: Incident[] = [];
   let actions: Action[] = [];
   let off = false;
-  let mode: 'approved' | 'members' = 'approved';
+  /** The mode as KV reads it (can lag ~1 min) and as last switched (action log). */
+  let modeRead: 'approved' | 'members' = 'approved';
+  let modeSet: 'approved' | 'members' | null = null;
+  $: shown = displayedMode(modeRead, modeSet);
+  $: mode = shown.mode;
   let loading = false;
   let loadError = '';
   let actionError = '';
@@ -126,7 +132,8 @@
       incidents = data.incidents ?? [];
       actions = data.actions ?? [];
       off = !!data.off;
-      mode = data.mode === 'members' ? 'members' : 'approved';
+      modeRead = data.mode === 'members' ? 'members' : 'approved';
+      modeSet = data.mode_set === 'members' || data.mode_set === 'approved' ? data.mode_set : null;
       loaded = true;
     } catch (err) {
       loadError = err instanceof Error ? err.message : String(err);
@@ -135,21 +142,42 @@
     }
   }
 
-  /** Run one admin action. True when it was sent and accepted. */
+  /** Show a failure where it can't be missed: the banner at the top and a toast. */
+  function fail(message: string) {
+    actionError = message;
+    showToast('error', message);
+  }
+
+  /**
+   * Run one admin action. True when it was sent and accepted. Every
+   * failure is shown (banner + toast). After every action the page is
+   * reloaded from the server; a mode switch also takes the mode from the
+   * server's reply, so the page never shows a stale mode.
+   */
   async function act(body: Record<string, unknown>, confirmText?: string): Promise<boolean> {
     if (confirmText && !confirm(confirmText)) return false;
     busy = true;
     actionError = '';
     try {
-      const res = await signedFetch('POST', JSON.stringify(body));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      let res: Response;
+      try {
+        res = await signedFetch('POST', JSON.stringify(body));
+      } catch {
+        fail(adminActionError('network'));
+        return false;
+      }
       const data = await res.json().catch(() => ({}));
-      if (data.logged === false) actionError = 'Done, but the action log entry could not be written.';
+      if (!res.ok) {
+        fail(adminActionError({ status: res.status, error: data?.error }));
+        await load();
+        return false;
+      }
+      if (body.action === 'mode' && (data.mode === 'members' || data.mode === 'approved')) {
+        modeSet = data.mode;
+      }
       await load();
+      if (data.logged === false) fail('Done, but the action log entry could not be written.');
       return true;
-    } catch (err) {
-      actionError = err instanceof Error ? err.message : String(err);
-      return false;
     } finally {
       busy = false;
     }
@@ -230,12 +258,18 @@
     <div class="status status-error">{loadError}</div>
   {:else}
     {#if off}<p class="status-error">Go live is switched off for everyone.</p>{/if}
-    {#if actionError}<p class="status-error">{actionError}</p>{/if}
+    {#if actionError}
+      <div class="action-error" role="alert">
+        <span>{actionError}</span>
+        <button on:click={() => (actionError = '')} aria-label="Dismiss">✕</button>
+      </div>
+    {/if}
 
     <h2>Who can host</h2>
     <div class="card">
       <div class="row">
         <strong>{mode === 'approved' ? 'Approved hosts only' : 'Any active member'}</strong>
+        {#if shown.applying}<span class="flag">Applying everywhere (up to a minute)</span>{/if}
         {#if mode === 'approved'}
           <button disabled={busy} on:click={() => switchMode('members')}>Open to all members</button>
         {:else}
@@ -477,6 +511,26 @@
     padding: 1.25rem;
     text-align: center;
     color: var(--color-text-secondary);
+  }
+  .action-error {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0 0 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-danger);
+    background: var(--color-bg-secondary);
+    color: var(--color-danger);
+    font-weight: 600;
+  }
+  .action-error button {
+    border: 0;
+    padding: 0 0.25rem;
   }
   .status-error {
     color: var(--color-danger);

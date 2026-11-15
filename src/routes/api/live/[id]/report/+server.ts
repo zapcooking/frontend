@@ -30,10 +30,14 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { ADMIN_PUBKEY } from '$lib/adminAuth';
 import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
-import { LIVE_REPORT_DETAILS_MAX, isLiveReportReason } from '$lib/live/config';
+import {
+  LIVE_REPORT_DETAILS_MAX,
+  isLiveReportReason,
+  liveReportRateScope
+} from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
-import { readLiveEnv } from '$lib/live/env.server';
-import { sendReportAlert } from '$lib/live/reportAlert.server';
+import { liveKv, readLiveEnv } from '$lib/live/env.server';
+import { alertThrottleName, sendReportAlert } from '$lib/live/reportAlert.server';
 import { keyedReporterHash, recordReport } from '$lib/live/safety.server';
 import { getSession, isLiveSessionId, type LiveDb } from '$lib/live/sessions.server';
 import { publishEventRaw } from '$lib/rawPublish';
@@ -92,7 +96,7 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
       const kv = platform?.env?.GATED_CONTENT ?? platform?.env?.NOURISH_FLAGS;
       const limited = await checkPerIpRateLimit(kv, {
         ip,
-        scope: 'live-report',
+        scope: liveReportRateScope(readLiveEnv(platform, 'LIVE_INPUT_PREFIX')),
         perHour: 8,
         perDay: 20
       });
@@ -102,6 +106,7 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
 
     const alertDeps = {
       kv: platform?.env?.GATED_CONTENT,
+      throttleKey: liveKv(platform, alertThrottleName(sessionId)),
       senderKey: readLiveEnv(platform, 'NOTIFICATION_PRIVATE_KEY'),
       recipientPubkey: ADMIN_PUBKEY,
       publish: publishEventRaw

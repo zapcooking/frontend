@@ -21,7 +21,15 @@ In both modes, an account that is blocked cannot host.
 - The mode is changed on /admin/live, with no deploy. The change is logged
   (`mode`, with old and new value). It is stored in KV and can take about a
   minute to reach every location. A missing or unreadable value means
-  `approved`.
+  `approved`. /admin/live shows the mode last switched to, from the action
+  log, with "Applying everywhere" until KV catches up. Any admin action
+  that fails shows an error banner.
+- Preview and production share one KV namespace, so every Go live key is
+  named per environment from `LIVE_INPUT_PREFIX`:
+  - production: `live:off`, `live:hosting_mode`, `live:alert:<id>`,
+    `live:access-alert`
+  - preview: `live:preview:off`, `live:preview:hosting_mode`, and so on
+  A switch on preview never reaches production.
 - Approving and removing hosts is logged (`approve`, `unapprove`).
   Removing a host does not end a stream already running; to stop one, use
   **End** or **Block**.

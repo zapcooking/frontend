@@ -145,6 +145,23 @@ describe('POST /api/live/<id>/report', () => {
     for (const r of ids) expect(r.reporter_hash).toMatch(/^unverified:/);
   });
 
+  it('on preview, uses preview throttle and rate-limit keys only', async () => {
+    env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
+    await post({ reason: 'nudity' });
+    const keys = [...kv.data.keys()];
+    expect(keys).toContain(`live:preview:alert:${SESSION}`);
+    expect(keys).not.toContain(`live:alert:${SESSION}`);
+    expect(keys.some((k) => k.startsWith('rl:live-preview-report:'))).toBe(true);
+    expect(keys.some((k) => k.startsWith('rl:live-report:'))).toBe(false);
+    // A production throttle does not hold back a preview alert.
+    env.LIVE_INPUT_PREFIX = undefined;
+    kv.data.delete(`live:preview:alert:${SESSION}`);
+    kv.data.set(`live:alert:${SESSION}`, '1');
+    env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
+    await post({ reason: 'spam' });
+    expect(mocks.publish).toHaveBeenCalledTimes(2);
+  });
+
   it('stores a comment report against that comment', async () => {
     await post({ reason: 'spam', comment: COMMENT });
     expect(db.raw.prepare('SELECT comment_id, comment_pubkey FROM live_reports').get()).toEqual({

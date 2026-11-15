@@ -698,3 +698,53 @@ describe('access requests', () => {
     expect(requestRow(ID1).status).toBe('pending');
   });
 });
+
+describe('environments share one KV namespace', () => {
+  it('preview switches its own off flag and mode, never production’s', async () => {
+    env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
+    await admin({ action: 'off', on: true });
+    await admin({ action: 'mode', mode: 'members' });
+    expect(kv.data.get('live:preview:off')).toBe('1');
+    expect(kv.data.get('live:preview:hosting_mode')).toBe('members');
+    expect(kv.data.has('live:off')).toBe(false);
+    expect(kv.data.has('live:hosting_mode')).toBe(false);
+  });
+
+  it('production does not read preview keys', async () => {
+    kv.data.set('live:preview:off', '1');
+    kv.data.set('live:preview:hosting_mode', 'members');
+    const list = await adminList();
+    expect(list.data.off).toBe(false);
+    expect(list.data.mode).toBe('approved');
+    await createLive(0); // production create still works
+  });
+
+  it('preview does not read production keys', async () => {
+    kv.data.set('live:off', '1');
+    env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
+    expect((await adminList()).data.off).toBe(false);
+  });
+});
+
+describe('mode display', () => {
+  it('reports the mode last switched to (mode_set) even when the KV read is stale', async () => {
+    expect((await adminList()).data.mode_set).toBeNull();
+    await admin({ action: 'mode', mode: 'members' });
+    await admin({ action: 'mode', mode: 'approved' });
+    // Simulate a stale KV read at this location: it still says members.
+    kv.data.set('live:hosting_mode', 'members');
+    const { data } = await adminList();
+    expect(data.mode).toBe('members');
+    expect(data.mode_set).toBe('approved');
+  });
+
+  it('a failed switch is an error reply and leaves mode_set alone', async () => {
+    await admin({ action: 'mode', mode: 'members' });
+    kv.failWrites = true;
+    const { res, data } = await admin({ action: 'mode', mode: 'approved' });
+    expect(res.status).toBe(503);
+    expect(data).toEqual({ error: 'not_written' });
+    kv.failWrites = false;
+    expect((await adminList()).data.mode_set).toBe('members');
+  });
+});

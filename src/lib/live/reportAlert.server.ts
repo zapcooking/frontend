@@ -30,7 +30,8 @@ export const ALERT_RELAYS = [
   'wss://purplepag.es'
 ];
 
-export const ALERT_THROTTLE_PREFIX = 'live:alert:';
+/** The throttle key's name; the route makes it per environment with liveKv(). */
+export const alertThrottleName = (sessionId: string) => `alert:${sessionId}`;
 
 const REASON_LABELS: Record<LiveReportReason, string> = {
   child_safety: 'Child safety',
@@ -149,9 +150,13 @@ export type ReportAlertResult = AdminDmResult | 'throttled';
 /** Send the report alert, unless throttled. Never throws. */
 export async function sendReportAlert(
   input: ReportAlertInput,
-  deps: AdminDmDeps & { kv: AlertKV | null | undefined }
+  deps: AdminDmDeps & {
+    kv: AlertKV | null | undefined;
+    /** Full KV key of this session's throttle in this environment (liveKv). */
+    throttleKey: string;
+  }
 ): Promise<ReportAlertResult> {
-  const throttleKey = ALERT_THROTTLE_PREFIX + input.sessionId;
+  const throttleKey = deps.throttleKey;
   const urgent = LIVE_URGENT_REASONS.includes(input.reason) || input.notStored === true;
   if (!urgent && deps.kv) {
     try {

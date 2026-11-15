@@ -21,7 +21,7 @@
 import {
   LIVE_ACCESS_REQUEST_RETENTION_SECONDS,
   LIVE_ACTION_LOG_RETENTION_SECONDS,
-  LIVE_HOSTING_MODE_KEY,
+  LIVE_HOSTING_MODE_NAME,
   LIVE_REPORT_DETAILS_MAX,
   LIVE_REPORT_RETENTION_SECONDS,
   LIVE_URGENT_REASONS,
@@ -29,6 +29,7 @@ import {
   type LiveHostingMode,
   type LiveReportReason
 } from './config';
+import { liveKv } from './env.server';
 import { getSession, nowSeconds, type LiveDb } from './sessions.server';
 
 // ── Action log ───────────────────────────────────────────────────────
@@ -130,7 +131,7 @@ export async function getHostingMode(
   const kv = modeStore(platform);
   if (!kv) return 'approved';
   try {
-    return parseHostingMode(await kv.get(LIVE_HOSTING_MODE_KEY, 'text'));
+    return parseHostingMode(await kv.get(liveKv(platform, LIVE_HOSTING_MODE_NAME), 'text'));
   } catch (err) {
     console.error(`[Live] hosting mode unreadable: ${(err as Error)?.name ?? 'error'}`);
     return 'approved';
@@ -145,12 +146,30 @@ export async function setHostingMode(
   const kv = modeStore(platform);
   if (!kv) return false;
   try {
-    await kv.put(LIVE_HOSTING_MODE_KEY, mode);
+    await kv.put(liveKv(platform, LIVE_HOSTING_MODE_NAME), mode);
     return true;
   } catch (err) {
     console.error(`[Live] hosting mode not written: ${(err as Error)?.name ?? 'error'}`);
     return false;
   }
+}
+
+/**
+ * The mode the admin last set, from the action log (D1 is consistent;
+ * KV reads can lag by up to a minute after a write). Null when the mode
+ * has never been switched. A mode entry is written only after the KV
+ * write succeeded.
+ */
+export async function lastModeSet(db: LiveDb): Promise<LiveHostingMode | null> {
+  const row = await db
+    .prepare(
+      `SELECT detail FROM live_actions WHERE action = 'mode'
+        ORDER BY occurred_at DESC, rowid DESC LIMIT 1`
+    )
+    .bind()
+    .first<{ detail: string }>();
+  const after = row?.detail.split('->')[1]?.trim();
+  return after === 'members' || after === 'approved' ? after : null;
 }
 
 // ── Reports and holds ────────────────────────────────────────────────

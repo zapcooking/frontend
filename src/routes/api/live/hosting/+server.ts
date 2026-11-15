@@ -38,7 +38,7 @@ import {
   ownRequestState
 } from '$lib/live/access.server';
 import { readBodyCapped } from '$lib/live/body.server';
-import { readLiveEnv } from '$lib/live/env.server';
+import { liveKv, readLiveEnv } from '$lib/live/env.server';
 import { buildAccessRequest, sendAdminDm } from '$lib/live/reportAlert.server';
 import { getHostingMode } from '$lib/live/safety.server';
 import { isHostApproved, type LiveDb } from '$lib/live/sessions.server';
@@ -46,7 +46,8 @@ import { publishEventRaw } from '$lib/rawPublish';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const MAX_BODY_BYTES = 2048;
-const ALERT_KEY = 'live:access-alert';
+/** KV name of the access-request DM throttle; per environment via liveKv(). */
+const ALERT_NAME = 'access-alert';
 
 /** Printable text, newlines allowed, trimmed. Null when over the limit. */
 function cleanNote(value: unknown): string | null {
@@ -136,7 +137,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const kv = platform?.env?.GATED_CONTENT;
     let throttled = false;
     try {
-      throttled = !!(kv && (await kv.get(ALERT_KEY, 'text')));
+      throttled = !!(kv && (await kv.get(liveKv(platform, ALERT_NAME), 'text')));
     } catch {
       /* a KV failure must not swallow the alert */
     }
@@ -157,7 +158,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
         );
         if (sent === 'sent') {
           try {
-            await kv?.put(ALERT_KEY, '1', { expirationTtl: LIVE_ACCESS_ALERT_THROTTLE_SECONDS });
+            await kv?.put(liveKv(platform, ALERT_NAME), '1', {
+              expirationTtl: LIVE_ACCESS_ALERT_THROTTLE_SECONDS
+            });
           } catch {
             /* worst case another DM goes out */
           }

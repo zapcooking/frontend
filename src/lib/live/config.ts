@@ -61,8 +61,12 @@ export function parseMaxOpenSessions(value: string | undefined): number {
  */
 export type LiveHostingMode = 'approved' | 'members';
 
-/** KV key (GATED_CONTENT) of the hosting mode. Anything but 'members' reads as 'approved'. */
-export const LIVE_HOSTING_MODE_KEY = 'live:hosting_mode';
+/**
+ * KV name (GATED_CONTENT) of the hosting mode; the key is
+ * liveKvKey(prefix, LIVE_HOSTING_MODE_NAME). Anything but 'members'
+ * reads as 'approved'.
+ */
+export const LIVE_HOSTING_MODE_NAME = 'hosting_mode';
 
 export function parseHostingMode(value: unknown): LiveHostingMode {
   return value === 'members' ? 'members' : 'approved';
@@ -208,8 +212,8 @@ export const LIVE_ORPHAN_MIN_AGE_SECONDS = 10 * 60;
 export const LIVE_SWEEP_BATCH = 25;
 export const LIVE_SWEEP_BUDGET_MS = 20_000;
 
-/** KV key (GATED_CONTENT) of the global off flag. Present with value '1' = off. */
-export const LIVE_OFF_KEY = 'live:off';
+/** KV name (GATED_CONTENT) of the global off flag. Present with value '1' = off. */
+export const LIVE_OFF_NAME = 'off';
 
 /**
  * Prefix of the operator-facing name of every live input this deployment
@@ -225,4 +229,38 @@ export function parseInputPrefix(value: string | undefined): string {
   return value !== undefined && /^zc-live-([a-z0-9]+-)?$/.test(value)
     ? value
     : LIVE_INPUT_PREFIX_DEFAULT;
+}
+
+// ── KV keys per environment ──────────────────────────────────────────
+
+/**
+ * The environment named by a live input prefix: '' for production
+ * ('zc-live-', also the default), 'preview' for 'zc-live-preview-'.
+ */
+export function liveEnvSegment(inputPrefix: string | undefined): string {
+  return parseInputPrefix(inputPrefix).slice(LIVE_INPUT_PREFIX_DEFAULT.length).replace(/-$/, '');
+}
+
+/**
+ * The KV key of one Go live value in this environment. Production and
+ * preview share one GATED_CONTENT namespace, so every Go live key carries
+ * the environment from LIVE_INPUT_PREFIX:
+ *   production  live:<name>            (unchanged names: live:off, ...)
+ *   preview     live:preview:<name>
+ * A switch, mode or throttle set on preview can then never reach
+ * production, and the reverse.
+ */
+export function liveKvKey(inputPrefix: string | undefined, name: string): string {
+  const env = liveEnvSegment(inputPrefix);
+  return env ? `live:${env}:${name}` : `live:${name}`;
+}
+
+/**
+ * The per-IP rate-limit scope for Go live reports in this environment
+ * (the limiter's counters live in the same shared namespace):
+ * 'live-report' on production, 'live-preview-report' on preview.
+ */
+export function liveReportRateScope(inputPrefix: string | undefined): string {
+  const env = liveEnvSegment(inputPrefix);
+  return env ? `live-${env}-report` : 'live-report';
 }

@@ -6,7 +6,6 @@ import { createKvFake } from '../../test/liveStreamStub';
 import type { LiveReportReason } from './config';
 import {
   ALERT_RELAYS,
-  ALERT_THROTTLE_PREFIX,
   buildAccessRequest,
   buildReportAlert,
   sendAdminDm,
@@ -33,6 +32,7 @@ let kv: ReturnType<typeof createKvFake>;
 let publish: ReturnType<typeof vi.fn>;
 const deps = () => ({
   kv,
+  throttleKey: `live:alert:${SESSION}`,
   senderKey: bytesToHex(senderSk),
   recipientPubkey: ADMIN,
   publish: publish as unknown as (event: any, relays: string[]) => Promise<number>,
@@ -83,8 +83,11 @@ describe('sendReportAlert', () => {
     expect(await sendReportAlert(input(), deps())).toBe('sent');
     expect(await sendReportAlert(input({ reason: 'spam' }), deps())).toBe('throttled');
     expect(publish).toHaveBeenCalledTimes(1);
-    expect(kv.data.has(ALERT_THROTTLE_PREFIX + SESSION)).toBe(true);
-    expect(await sendReportAlert(input({ sessionId: 'cd'.repeat(16) }), deps())).toBe('sent');
+    expect(kv.data.has(`live:alert:${SESSION}`)).toBe(true);
+    const other = 'cd'.repeat(16);
+    expect(
+      await sendReportAlert(input({ sessionId: other }), { ...deps(), throttleKey: `live:alert:${other}` })
+    ).toBe('sent');
   });
 
   it('never throttles child safety or violence', async () => {
