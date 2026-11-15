@@ -201,7 +201,27 @@
     return out;
   }
 
-  function isBlockPart(part?: { type?: string; prefix?: string; url?: string; bare?: boolean }) {
+  // A URL "on a bare line" owns its whole line: nothing but whitespace
+  // before or after it on that line. Such a URL keeps its preview card in
+  // place; a URL typed mid-sentence (#989) renders as an inline link and
+  // its card moves to the end of the note (trailingPreviewUrls).
+  function isOwnLineUrl(text: string, index: number, length: number): boolean {
+    const lineStart = text.lastIndexOf('\n', index) + 1;
+    const lineEndAt = text.indexOf('\n', index + length);
+    const lineEnd = lineEndAt === -1 ? text.length : lineEndAt;
+    return (
+      WHITESPACE_ONLY.test(text.slice(lineStart, index)) &&
+      WHITESPACE_ONLY.test(text.slice(index + length, lineEnd))
+    );
+  }
+
+  function isBlockPart(part?: {
+    type?: string;
+    prefix?: string;
+    url?: string;
+    bare?: boolean;
+    ownLine?: boolean;
+  }) {
     if (!part?.type) return false;
     if (part.type === 'nostr') {
       // nevent1, note1, and naddr1 are all block-level embedded content
@@ -212,7 +232,15 @@
       // Bare domains stay inline links — a fuzzy match is an inference, and
       // it must never grow into a media gallery or a preview card.
       if (part.bare) return false;
-      return isImageUrl(part.url) || isVideoUrl(part.url) || isYouTube(part.url) || showLinkPreviews;
+      // Media and video embeds keep their block treatment wherever they
+      // appear: authors nearly always put those on their own lines, and
+      // shrinking them to inline text would hide the content.
+      if (isImageUrl(part.url) || isVideoUrl(part.url) || isYouTube(part.url)) return true;
+      // A link preview card stays in place only when the URL owns its line.
+      // A URL typed mid-sentence (#989) renders as an inline link instead;
+      // its card is collected at the end of the note (trailingPreviewUrls)
+      // so it never interrupts the sentence.
+      return showLinkPreviews && part.ownLine === true;
     }
     return false;
   }
@@ -277,6 +305,7 @@
           content: match.content,
           url: match.url,
           bare: match.bare,
+          ownLine: isOwnLineUrl(text, match.index, match.content.length),
           key: `url-${keyCounter++}`
         });
       } else if (match.type === 'nostr') {
@@ -407,6 +436,27 @@
 
   $: renderParts = normalizeParts(groupMediaRuns(finalParsedContent));
   $: firstMediaIndex = renderParts.findIndex((part: any) => part.type === 'media-gallery');
+  // Preview-eligible URLs typed mid-sentence: their cards render in a
+  // block at the end of the note (#989) so they never interrupt a
+  // sentence. Images, videos, YouTube and tweet embeds keep their inline
+  // treatment; bare domains are already inline links.
+  $: trailingPreviewUrls = [
+    ...new Set(
+      finalParsedContent
+        .filter(
+          (p: any) =>
+            p.type === 'url' &&
+            p.url &&
+            !p.bare &&
+            p.ownLine === false &&
+            !isImageUrl(p.url) &&
+            !isVideoUrl(p.url) &&
+            !isYouTube(p.url) &&
+            !isTwitterStatus(p.url)
+        )
+        .map((p: any) => p.url)
+    )
+  ];
 
   const LIGHTNING_REGEX = /(?:(?:lightning|nostr):)?((lnbc|lntb|lnbcrt)[a-z0-9]{50,})/gi;
 
@@ -532,7 +582,8 @@
         <VideoPreview url={part.url} />
       {:else if part.url && isTwitterStatus(part.url)}
         <TwitterEmbed tweetUrl={part.url} />
-      {:else if showLinkPreviews && part.url}
+      {:else if showLinkPreviews && part.url && part.ownLine}
+        <!-- Bare-line URL: the card stays in place. -->
         <LinkPreview url={part.url} />
       {:else}
         <a
@@ -595,6 +646,16 @@
       <LightningInvoiceCard invoice={part.invoice} />
     {/if}
   {/each}
+
+  {#if trailingPreviewUrls.length}
+    <!-- Preview cards for URLs typed mid-sentence: collected here so they
+         never split a sentence (see isOwnLineUrl / #989). -->
+    {#each trailingPreviewUrls as previewUrl (previewUrl)}
+      <div class="mt-2">
+        <LinkPreview url={previewUrl} />
+      </div>
+    {/each}
+  {/if}
   </div>
 
   {#if shouldCollapse}
