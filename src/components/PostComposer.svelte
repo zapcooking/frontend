@@ -30,7 +30,8 @@
     toggleHashtag
   } from '$lib/hashtagPills';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
-  import { clearQuotedNote, postComposerOpen } from '$lib/postComposerStore';
+  import { clearQuotedNote, composerPrefillText, postComposerOpen } from '$lib/postComposerStore';
+  import { appendPrefill } from '$lib/live/share';
   import { requireAuth, signedIn } from '$lib/auth/requireAuth';
   import { publishQueue, publishQueueState } from '$lib/publishQueue';
   import MentionDropdown from './MentionDropdown.svelte';
@@ -536,6 +537,13 @@
       // Set initial quoted note if provided (from store via PostModal)
       if (initialQuotedNote) {
         quotedNote = initialQuotedNote;
+      }
+      // Text handed in by a share action ("Share on Nostr"): taken once,
+      // after any restored draft, which keeps its text.
+      const prefill = get(composerPrefillText);
+      if (prefill) {
+        content = appendPrefill(content, prefill);
+        composerPrefillText.set(null);
       }
       focusComposer();
     }
