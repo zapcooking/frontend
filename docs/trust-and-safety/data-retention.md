@@ -2,6 +2,8 @@
 
 **Draft; public disclosures must be checked against deployed code and vendor terms.**
 
+Public text for these rows: Privacy Policy §1.6, §1.7 (reports, every surface), §9 (Live video) and §12 (Data Retention); Terms §2.4 and "Live Stream Conduct" in §4; Child Safety Standards §4, §6, §7 and §9; and the Go live exceptions on /delete-account (live-streaming policies PR, pending counsel review). Change the code and the public text together.
+
 | Category | Proposed normal retention | Exceptions / verification |
 | --- | --- | --- |
 | Stream metadata (host pubkey, title, recipe, start/end, end reason, guest counts, peak watching and total joins, announcement note ID) | 30 days | Preservation/legal hold |
@@ -9,7 +11,7 @@
 | Reports, report text and IP-derived anti-abuse identifier | 90 days | Preservation/legal hold. The Go live identifier is a keyed hash (see below, settled in #977) |
 | Host restrictions (blocks) and hidden-commenter state | Until removed | Periodic necessity review; a block is not lifted by account deletion |
 | Approved-hosts list | Until the host is removed | Periodic necessity review |
-| Hosting access requests (pubkey, optional note, decision) | Pending: until decided. Approved or declined: 90 days after the decision | Set in #977 and deleted by the sweep. Must be disclosed in the Privacy text (policy PR) |
+| Hosting access requests (pubkey, optional note, decision) | Pending: until decided. Approved or declined: 90 days after the decision | Set in #977 and deleted by the sweep. Not removed by the account-deletion purge; it follows this schedule. Disclosed in Privacy §9 and on /delete-account |
 | Moderation action log (actor, action, target pubkey, time) | 2 years | Longer while a related hold is open |
 | Report holds and session snapshots | Until released | Released only by a logged admin action; the related reports then follow their 90-day schedule |
 | Public replies and zap receipts on Nostr | Network-dependent | Zap Cooking cannot promise deletion across independent relays |

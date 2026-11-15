@@ -10,7 +10,7 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Terms of Service</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: September 26, 2026</p>
+    <p class="text-sm opacity-75">Last updated: November 15, 2026</p>
 
     <p>Welcome to zap.cooking. These Terms of Service ("Terms") are a legally binding agreement between you and Zap Cooking LLC ("Zap Cooking," "we," "our," or "us") governing your access to and use of our website, mobile applications, interfaces, and related services we make available (collectively, the "Service").</p>
 
@@ -48,10 +48,16 @@
 
     <p>You are solely responsible for maintaining the security of your Nostr identity, private keys, wallet credentials, devices, backups, and any other access credentials associated with your use of the Service. Zap Cooking does not store, recover, or control your private keys. We are not responsible for any loss of access, unauthorized use, wallet compromise, mistaken transaction, or loss of funds resulting from your handling of keys, wallets, credentials, or devices.</p>
 
+    <h3 class="text-xl font-semibold mt-4 mb-2" style="color: var(--color-text-primary)">2.4 Live Hosting</h3>
+
+    <p>You must be at least 18 years old to host a live stream on Zap Cooking ("Go live"). By starting a live stream, you represent and warrant that you are at least 18 years old. Hosting is available to active members and may be limited, suspended, or withdrawn for any account at our discretion. Watching a live stream is subject to the general age requirement in Section 2.1.</p>
+
+    <p>Before you host for the first time, we ask you to confirm that you are at least 18 and to agree to these Terms, including the Live Stream Conduct rules in Section 4, and we keep a record that you did. We ask again when those terms change. If we block an account from hosting, deleting the account does not lift the block.</p>
+
     <!-- Section 3 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">3. User Content</h2>
 
-    <p>You are solely responsible for any content you publish, submit, transmit, display, link to, or otherwise make available through the Service, including recipes, comments, images, videos, profile information, marketplace listings, product claims, and messages.</p>
+    <p>You are solely responsible for any content you publish, submit, transmit, display, link to, or otherwise make available through the Service, including recipes, comments, images, videos, live video and audio, profile information, marketplace listings, product claims, and messages.</p>
 
     <p>Content published using the Nostr protocol may be copied, indexed, cached, republished, archived, or retained by third-party relays, clients, users, search engines, and other parties beyond Zap Cooking's control. Once content is published to decentralized infrastructure, complete deletion may not be possible.</p>
 
@@ -103,6 +109,21 @@
       <li>manipulate reviews, engagement, pricing, sponsorship disclosures, or listing visibility;</li>
       <li>move a transaction off-platform for the purpose of evading these Terms, safety rules, reporting mechanisms, or enforcement within Zap Cooking-operated components.</li>
     </ul>
+
+    <h3 class="text-xl font-semibold mt-4 mb-2" style="color: var(--color-text-primary)">Live Stream Conduct</h3>
+
+    <p>When you host a live stream, you are responsible for everything shown or heard in it and for the comments you allow to remain visible in it. In addition to the rules above, you agree not to:</p>
+
+    <ul class="list-disc pl-6 space-y-2">
+      <li>show nudity, sexual content, or sexual activity of any kind;</li>
+      <li>show a minor in a way that sexualizes, endangers, or exploits them, or show a minor on camera without the knowledge and consent of their parent or legal guardian;</li>
+      <li>show or encourage acts likely to cause serious injury, including unsafe food handling presented as safe;</li>
+      <li>film people who have not agreed to appear, or film in places where people expect privacy;</li>
+      <li>broadcast music, television, film, or other material you do not have the right to share;</li>
+      <li>use a live stream or its comments to harass, threaten, or target anyone, or to promote anything prohibited in these Terms.</li>
+    </ul>
+
+    <p>Live streams are limited in length and in the number of viewers, and are provided as available, without any guarantee of quality or uptime. We may end any live stream at any time, and may block any account from hosting, without notice, including on the basis of a report we have not yet fully reviewed. We do not record live streams, but viewers can capture what they see and hear, and you should assume anything you broadcast may be kept by someone else.</p>
 
     <!-- Section 5 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">5. Payments to Zap Cooking</h2>

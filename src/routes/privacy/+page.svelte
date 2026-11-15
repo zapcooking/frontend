@@ -25,7 +25,7 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Privacy Policy</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: October 24, 2026</p>
+    <p class="text-sm opacity-75">Last updated: November 15, 2026</p>
 
     <p>Zap Cooking LLC ("Zap Cooking," "we," "our," or "us") respects your privacy and is committed to transparency about how information is handled when you use our website, mobile applications, and related services (collectively, the "Service").</p>
 
@@ -97,9 +97,17 @@
       <li>Your membership status and tier, including Cook+</li>
       <li>Your AI credit balance and usage counts</li>
       <li>A reference to any payment you have made, so we can activate your membership</li>
+      <li>If you host live streams: a record of each stream, a record that you confirmed you are 18 or older and agreed to the Terms of Service, and whether you have been blocked from hosting (see "Live video" below)</li>
+      <li>If you have asked for access to host live streams: your request and our decision</li>
     </ul>
 
-    <p>These contain no name, email address, phone number, card number, or billing address, because we do not collect those. You can request deletion of all of them at any time — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page.</p>
+    <p>These contain no name, email address, phone number, card number, or billing address, because we do not collect those. You can request deletion of them at any time — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page. A few live-streaming records are kept after an account is deleted: records under review because of a report, and a block from hosting. "Live video" below explains when.</p>
+
+    <h3 class="text-xl font-semibold mt-6 mb-3" style="color: var(--color-text-primary)">1.7 Reports you send us</h3>
+
+    <p>If you report a live stream, a comment, an article, or other content, or flag a Nourish score, we keep what you send (the link, the reason, and anything you write) for 90 days, together with a one-way hash of your IP address that we use to prevent report abuse. The hash is made with a value that changes every day. For live stream reports, it is also keyed with a secret held only on our servers, so the stored value cannot be traced back to an IP address without that secret. Reports about a live stream can be kept longer while a review is open (see "Live video" below).</p>
+
+    <p>You do not need an account to report a live stream. To report a comment in a stream's chat, you need to be signed in. For live streams, we send our moderators a summary of each report, without anything about you, as an encrypted Nostr direct message so they can act while the stream is live.</p>
 
     <!-- Section 2 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">2. How We Use Information</h2>
@@ -164,7 +172,7 @@
       <li><strong>nostr.build GIFs.</strong> When you search for a GIF in the composer, your typed search term is sent to our server, which forwards it to <code>gifs.nostr.build</code> (our server holds only the API key). GIF previews and picked GIFs load from <code>image.nostr.build</code>. Nothing is sent until you open the GIF picker.</li>
       <li><strong>Google.</strong> Optional, only if you restore a key from a Google Drive backup. See "Google Drive restore" below.</li>
       <li><strong>Stripe.</strong> Card payment processing.</li>
-      <li><strong>Cloudflare.</strong> Hosting, content delivery, security, and website analytics for zap.cooking.</li>
+      <li><strong>Cloudflare.</strong> Hosting, content delivery, security, and website analytics for zap.cooking, and live video delivery for Go live streams (Cloudflare Stream).</li>
     </ul>
 
     <p>We may also share limited information in the following circumstances:</p>
@@ -219,7 +227,36 @@
     <p>If you do not use passkey sign-in, we store no copy of your key.</p>
 
     <!-- Section 9 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">9. Crash reports</h2>
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">9. Live video (Go live)</h2>
+
+    <p><strong>How a stream travels.</strong> When you go live, your camera and microphone are sent from your browser to Cloudflare Stream, which delivers them to viewers in real time. Our servers set up each connection but do not receive or store the video.</p>
+
+    <p><strong>No recording.</strong> We do not record live streams, and Cloudflare does not record this kind of stream. When a stream ends, its video is gone from our systems and from Cloudflare's. Anyone watching can still capture the screen with their own tools.</p>
+
+    <p><strong>What we keep about a stream.</strong> For each stream we keep the host's public key, its title, any attached recipe, when it started and ended, why it ended, how many viewers joined, the most viewers watching at once, the number of guest viewers admitted and turned away, and the ID of the host's "Live now" note. These records are deleted 30 days after the stream ends, unless a report about it is under review (see "Reports and reviews" below) or the law requires us to keep them longer.</p>
+
+    <p><strong>What we keep about viewers.</strong> Nothing. We store no viewer IP address, public key, or per-viewer record. If you are signed in, your browser may sign a request so we can check whether you are a member, which means you do not count toward the guest limit. The answer is used for that one decision and is not stored.</p>
+
+    <p><strong>Watching count.</strong> While a stream plays, your browser sends a small anonymous signal about every 30 seconds so we can show how many people are watching. Each signal carries only a random code that your browser makes up each time the page loads. It is not linked to your account or your key, and it is discarded about a minute after the signals stop. Your IP address is used briefly, in memory only, to limit how often signals can be sent; it is never stored and never linked to the code. From these signals we keep two numbers per stream: the most people watching at once and the total number of joins. Only the host can see them, and they are deleted with the stream's record.</p>
+
+    <p><strong>Join pass.</strong> A guest viewer's browser receives a short-lived pass, valid for up to two hours, that lets it rejoin the same stream without taking another viewer place. The pass is a signed expiry time for that stream. It contains nothing about you, and we do not store it.</p>
+
+    <p><strong>Comments and zaps.</strong> Comments on a stream are public Nostr replies to the host's "Live now" note, and zaps are public zap receipts. Both are published to relays like any other Nostr content (see "Decentralized Data and Public Content").</p>
+
+    <p><strong>Hidden commenters.</strong> A host can hide a commenter from their streams' comments, and we can hide a commenter from all Go live comments. We keep the hidden account's public key, the scope of the hide, and when it was made, until it is undone. Hiding does not delete anything from Nostr.</p>
+
+    <p><strong>Hosting agreement.</strong> Before you host for the first time, we ask you to confirm that you are 18 or older and to agree to the Terms of Service. We record your public key, the version of the terms you agreed to, and when. We ask again when those terms change. This record is deleted when you delete your account, unless one of your streams is under review.</p>
+
+    <p><strong>Hosting access requests.</strong> If you ask for access to host, we keep your public key, any note you add, and our decision. A request is kept until we decide it, and then for 90 days.</p>
+
+    <p><strong>Hosting blocks.</strong> If we block an account from hosting, we keep its public key and when the block was made until we remove the block. Deleting the account does not lift a block.</p>
+
+    <p><strong>Reports and reviews.</strong> The first report about a stream opens a review of it, and we keep a snapshot of the stream's public details as they were at that time. While the review is open, the stream's record, its reports, and our moderation log entries about it are kept past their normal deletion dates, including if the host deletes their account. When we close the review, those records return to their normal schedule.</p>
+
+    <p><strong>Moderation log.</strong> We log every moderation action we take on Go live (which moderator acted, what they did, the stream or account affected, and when). Entries are kept for 2 years, and longer while a review of the stream they are about is open.</p>
+
+    <!-- Section 10 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">10. Crash reports</h2>
 
     <p>The Android application can send a crash report when it encounters an error.</p>
 
@@ -227,8 +264,8 @@
 
     <p>Reports are sent as encrypted Nostr direct messages to our development team, routed through the relays <code>relay.0xchat.com</code> and <code>relay.utxo.one/chat</code>. A report contains diagnostic information about the failure and is associated with your public key.</p>
 
-    <!-- Section 10 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">10. Data Security</h2>
+    <!-- Section 11 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">11. Data Security</h2>
 
     <p>We take reasonable technical and organizational measures to protect the Service and the limited information we process. These measures include encryption in transit (HTTPS), access controls, and security features provided by our infrastructure providers.</p>
 
@@ -236,10 +273,10 @@
 
     <p>However, no method of transmission or storage is completely secure. Decentralized systems rely on user-controlled cryptographic keys, and the security of your identity and content ultimately depends on how you manage your keys, devices, and wallet credentials.</p>
 
-    <!-- Section 11 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">11. Data Retention</h2>
+    <!-- Section 12 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">12. Data Retention</h2>
 
-    <p>Except where described in "AI features" and "What we hold against your public key," we do not retain your user-generated content on our servers. Content published through the Nostr protocol is stored on decentralized relays and may persist on those relays even if you stop using the Service.</p>
+    <p>Except where described in "AI features," "What we hold against your public key," "Reports you send us," and "Live video," we do not retain your user-generated content on our servers. Content published through the Nostr protocol is stored on decentralized relays and may persist on those relays even if you stop using the Service.</p>
 
     <p>For content on relays we operate (The Pantry), we retain content in accordance with our relay operations and moderation practices. We may remove content from our relays, but we cannot remove content from third-party relays.</p>
 
@@ -247,10 +284,12 @@
 
     <p>Support communications are retained for as long as reasonably necessary to resolve the inquiry and for our records.</p>
 
-    <!-- Section 12 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">12. Children's Privacy</h2>
+    <p>Live stream records are deleted 30 days after the stream ends. Reports, including reports about streams, are deleted after 90 days. Hosting access requests are kept until decided and then for 90 days. The Go live moderation log is kept for 2 years. While a review of a reported stream is open, that stream's record, its reports, and the log entries about it are kept until the review is closed, or longer if the law requires. Hidden-commenter and hosting-block records are kept until they are removed, and deleting the account does not remove a hosting block. The hosting agreement record is kept until the account is deleted, unless one of its streams is under review.</p>
 
-    <p>The Service is available to users aged 13 and older. The Market (marketplace features) is restricted to users aged 18 and older. The Service is not directed to children under 13, and we do not knowingly collect personal information from children under 13.</p>
+    <!-- Section 13 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">13. Children's Privacy</h2>
+
+    <p>The Service is available to users aged 13 and older. The Market (marketplace features) and hosting live streams are restricted to users aged 18 and older. The Service is not directed to children under 13, and we do not knowingly collect personal information from children under 13.</p>
 
     <p>If we become aware that a user under 13 has accessed the Service, we will take reasonable steps to restrict that user's access to Zap Cooking-operated components and delete any personal information we may have inadvertently collected.</p>
 
@@ -258,8 +297,8 @@
 
     <p>For our policies on child sexual abuse and exploitation, including how to report it and how we respond, see our <a href="/child-safety" class="text-primary hover:underline">Child Safety Standards</a>.</p>
 
-    <!-- Section 13 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">13. Third-Party Wallets and Payment Services</h2>
+    <!-- Section 14 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">14. Third-Party Wallets and Payment Services</h2>
 
     <p>The Service may integrate with or reference third-party wallet providers (such as Spark by Breez) and payment infrastructure for Bitcoin and Lightning transactions. Zap Cooking does not operate, control, or take responsibility for any third-party wallet or payment service.</p>
 
@@ -267,8 +306,8 @@
 
     <p>Zap Cooking does not have access to your wallet private keys, seed phrases, or the content of your Lightning or Bitcoin transactions conducted through third-party tools.</p>
 
-    <!-- Section 14 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">14. Sponsored Placements and Boosted Content</h2>
+    <!-- Section 15 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">15. Sponsored Placements and Boosted Content</h2>
 
     <p>Zap Cooking may offer paid partnerships, sponsored placements, featured listings, boosted recipes, promoted marketplace listings, and other promotional features within the Service.</p>
 
@@ -282,15 +321,15 @@
 
     <p>Zap Cooking does not provide sponsors or advertisers with users' personal information.</p>
 
-    <!-- Section 15 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">15. International Use</h2>
+    <!-- Section 16 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">16. International Use</h2>
 
     <p>The Service is operated from the United States. If you access the Service from outside the United States, you do so at your own initiative and are responsible for compliance with applicable local laws. By using the Service, you acknowledge that information may be processed and stored in the United States and other jurisdictions where our service providers operate.</p>
 
     <p>You can request deletion of the records we hold against your public key at any time — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page. We do not currently offer a full suite of data subject access tools under non-U.S. privacy laws (such as GDPR access or portability requests), but we are committed to handling privacy inquiries in good faith. For other privacy-related requests, contact us at {@html SUPPORT_EMAIL}.</p>
 
-    <!-- Section 16 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">16. Your Choices</h2>
+    <!-- Section 17 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">17. Your Choices</h2>
 
     <ul class="list-disc pl-6 space-y-2">
       <li><strong>Content.</strong> You control what content you publish through the Service. Once published to decentralized relays, complete deletion may not be possible.</li>
@@ -302,15 +341,15 @@
       <li><strong>Account and data deletion.</strong> You can request deletion of the records we hold against your public key — see our <a href="/delete-account" class="text-primary hover:underline">Account and Data Deletion</a> page.</li>
     </ul>
 
-    <!-- Section 17 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">17. Changes to This Policy</h2>
+    <!-- Section 18 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">18. Changes to This Policy</h2>
 
     <p>We may update this Privacy Policy from time to time. If we make material changes, we will post the updated policy and revise the "Last updated" date. We may also provide notice through the Service or by other reasonable electronic means.</p>
 
     <p>Your continued use of the Service after the effective date of any changes constitutes acceptance of the updated Privacy Policy.</p>
 
-    <!-- Section 18 -->
-    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">18. Contact</h2>
+    <!-- Section 19 -->
+    <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">19. Contact</h2>
 
     <p>If you have questions about this Privacy Policy or Zap Cooking's privacy practices, contact us at:</p>
 

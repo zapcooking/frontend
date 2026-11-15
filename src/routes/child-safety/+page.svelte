@@ -28,8 +28,8 @@
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
     <p class="text-sm opacity-75">
       <strong>Zap Cooking LLC</strong><br />
-      Last updated: 25 July 2026<br />
-      Next scheduled review: 25 January 2027
+      Last updated: 15 November 2026<br />
+      Next scheduled review: 15 May 2027
     </p>
 
     <hr style="border-color: var(--color-input-border)" />
@@ -77,6 +77,7 @@
       <li><strong>Pantry</strong> (pantry.zap.cooking), our relay. We can and do refuse, remove, and block here.</li>
       <li><strong>The Zap Cooking web application and our Android and iOS clients.</strong> We control what our clients fetch, render, and serve.</li>
       <li><strong>Our own feeds, discovery surfaces, and AI features.</strong></li>
+      <li><strong>Go live streams</strong>, which play only through Zap Cooking. We can end a stream within seconds and block the account from hosting.</li>
     </ul>
 
     <p>On these surfaces, removal is immediate and effective.</p>
@@ -111,7 +112,9 @@
     <!-- Section 6 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">6. How to report</h2>
 
-    <p><strong>By email</strong> — {@html SUPPORT_EMAIL}. This inbox is monitored and child safety reports are prioritized above all other correspondence. This is the reporting route from the web application and from any surface where an in-app control is not yet available.</p>
+    <p><strong>By email</strong> — {@html SUPPORT_EMAIL}. This inbox is monitored, and child safety reports are prioritized above all other correspondence. Use it from any surface where an in-app control is not yet available.</p>
+
+    <p><strong>On a live stream</strong> — every Go live stream has a "Report this stream" control, which needs no account or email address. Signed-in users can also report a comment in a stream's chat. Live reports alert our moderators immediately, and we can end the stream and block the account from hosting while it is still live. A report also keeps the stream's records from being deleted until we have reviewed it, even if the host deletes their account. Streams are not recorded, so please describe what you saw and roughly when.</p>
 
     <p><strong>In the Android application</strong> — reporting controls are available in group chats today, including a dedicated child safety category, and are being extended across posts, recipes, comments, and profiles. Reports route directly to designated moderation accounts and require no email address or account.</p>
 
@@ -127,6 +130,7 @@
     <ul class="list-disc pl-6 space-y-2">
       <li><strong>Acknowledgement and triage within 24 hours of receipt.</strong> CSAE reports take priority over every other category of report we receive.</li>
       <li><strong>On confirmation:</strong> immediate removal from all surfaces we control, permanent block of the responsible key from Pantry and our clients, and deletion requests issued to third-party relays where the content appears.</li>
+      <li><strong>Live streams:</strong> on a credible report of child sexual abuse or exploitation, we end the stream immediately and block the account from hosting, pending review. Deleting the account does not lift the block.</li>
       <li><strong>Preservation:</strong> we preserve relevant records as required by law and do not delete evidence prior to reporting.</li>
       <li><strong>Reporting:</strong> confirmed CSAM is reported to the National Center for Missing &amp; Exploited Children (NCMEC), and to law enforcement where circumstances warrant.</li>
       <li><strong>No appeal</strong> for CSAM determinations. Other enforcement decisions may be appealed to the contact below.</li>
@@ -155,6 +159,8 @@
     <p>Users aged 13 to 17 represent that a parent or legal guardian has reviewed and agreed to our <a href="/terms" class="text-primary hover:underline">Terms of Service</a> on their behalf and has authorized their use of the Service.</p>
 
     <p><strong>The Zap Cooking Market is restricted to users 18 and older</strong>, including creating listings, purchasing goods, and communicating with other users for the purpose of a transaction. The Market may not be used to facilitate any interaction, solicitation, or transaction involving a minor. Promoted and boosted listings are subject to these same standards.</p>
+
+    <p><strong>Hosting a live stream is restricted to users 18 and older.</strong> Anyone may watch. Hosts may not show a minor in a way that sexualizes, endangers, or exploits them, or show a minor on camera without the knowledge and consent of their parent or legal guardian (see the Live Stream Conduct rules in our <a href="/terms" class="text-primary hover:underline">Terms of Service</a>).</p>
 
     <!-- Section 10 -->
     <h2 class="text-2xl font-bold mt-8 mb-4" style="color: var(--color-text-primary)">10. Point of contact</h2>
