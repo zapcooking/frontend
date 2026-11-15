@@ -10,8 +10,8 @@
 
 ## Operational sequence
 1. **Intake and prioritize:** capture what reporter observed and roughly when, without asking them to transmit illegal material.
-2. **Intervene:** end an active stream and suspend further hosting when there is a credible report of child sexual abuse or exploitation. Escalate imminent danger to appropriate emergency responders.
-3. **Preserve:** place holds on reasonably accessible relevant metadata, reports, timestamps, logs and public event identifiers. Do not assume recordings exist; do not attempt to reconstruct or solicit them.
+2. **Intervene:** end an active stream and block the account from hosting (**Block** on /admin/live does both) when there is a credible report of child sexual abuse or exploitation. Escalate imminent danger to appropriate emergency responders.
+3. **Preserve:** place holds on reasonably accessible relevant metadata, reports, timestamps, logs and public event identifiers. A report opens a hold automatically; confirm it is open, and record the incident in the restricted system. Do not assume recordings exist; do not attempt to reconstruct or solicit them.
 4. **Assess federal reporting:** authorized staff promptly determine whether known facts trigger duties under 18 U.S.C. § 2258A; follow [CyberTipline reporting](cybertipline-reporting.md).
 5. **Record and escalate securely:** track decisions, acknowledgments and applicable hold clocks in the restricted system; limit staff access.
 6. **Follow-up:** review any ongoing risk, security flaws and policy gaps without exposing incident details in public tickets.

@@ -12,13 +12,21 @@
 - [ ] Validate no unintended viewer logs, persistent tokens or sensitive analytics.
 
 ## Reporting and policy
-- [ ] Confirm NCMEC provider account and working **manual** CyberTipline reporting access.
+- [ ] Register Zap Cooking LLC with NCMEC as an electronic service provider, and confirm working **manual** CyberTipline reporting access.
 - [ ] Document authorized reporting decision owner and backup in private runbook.
 - [ ] Exercise manual submission fallback; integrate API only after test environment validation.
 - [ ] Obtain legal review of 18 U.S.C. § 2258A duties, preservation and jurisdiction-specific age rules.
 - [ ] Confirm DMCA agent registration and live complaint handling where relevant.
 - [ ] Harmonize Terms, Privacy and Child Safety Standards with live controls, data flows and retention.
 - [ ] Confirm Cloudflare contractual/data-processing posture and language about non-recording.
+
+## Staged rollout
+- [ ] Phase 1 (approved hosts): founder plus a few invited hosts. Review every report, hold and action-log entry from this phase.
+- [ ] Before widening the approved list: report alerts verified end to end, and holds verified to survive the purge.
+- [ ] Before switching hosting to "all members": a named backup moderator receives alerts, the restricted incident system exists, NCMEC registration is complete, and public policies are published.
+- [ ] Preview environments use their own notification key, never the production one.
+- [ ] Set and disclose a retention period for hosting access requests.
+- [ ] Confirm the reporter IP hash is keyed with a server-side secret.
 
 ## Governance
 - [ ] Record owners and effective date.

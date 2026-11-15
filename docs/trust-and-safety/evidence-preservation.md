@@ -19,6 +19,12 @@ These are product proposals, **not** an instruction to delete records subject to
 
 **CyberTipline preservation:** after a qualifying report, apply applicable federal preservation requirements (generally one year from submission under 18 U.S.C. § 2258A(h)); other processes may require different periods. Avoid a single automatic 90-day hold expiry.
 
+## Current implementation (PR #977)
+- The first report on a stream or one of its comments opens a hold automatically, with a snapshot of the session's public facts. The snapshot never contains the Cloudflare input identifier.
+- A held session, its reports and related action-log entries survive the 30/90-day purge and the host's account deletion.
+- Release is a manual admin action on /admin/live and is logged; a new report reopens the hold.
+- Gap against step 2 above: the hold records no lawful basis, owner or review date. Record those in the restricted incident system for any hold that goes beyond routine moderation, until the admin tool supports them.
+
 ## Data minimization
 Preserve what exists and is reasonably accessible: stream metadata, relevant report text, Nostr event IDs, moderation events, timestamps, and other covered records. Do not create unsolicited copies of suspected illegal video or solicit illegal material. No incident data in GitHub.
 
