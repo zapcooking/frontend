@@ -185,11 +185,20 @@ is asked again on their next stream, and the create route refuses with
   the total number of joins. Your IP address is used briefly to limit
   abuse of this signal and is not stored."
 
+**For the next policy PR (Live metrics, migration 0010):** Privacy §9 currently says stream records are deleted 30 days after the stream and that audience totals are seen only by the host. With 0010 both change:
+
+- "What we keep about a stream" should add "the total time viewers spent watching and the sats zapped to the host's "Live now" note".
+- "Totals" should say that Zap Cooking's admins also see them, to run the service and estimate its costs.
+- A new line for the monthly summary. Proposed: "For each host we also keep a monthly summary for running the service: how many streams they hosted, for how long, the total time viewers spent watching, the most viewers at once and the sats zapped. It holds nothing about any viewer. We keep it for 24 months and delete it when the host asks us to delete their account."
+- /delete-account: the monthly summary is deleted with the account.
+
 ## 5. Before production
 
 - One Cloudflare rate-limiting rule (the plan allows one): the existing join rule is extended to cover `/api/live/*/join`, `/api/live/*/heartbeat` and `/api/live/*/watching`. Seth edits it in the dashboard (#984).
 - Apply migration `0007_live_rollout_and_safety.sql` to preview, then
   production (see `migrations/scheduler/APPLIED.md`).
+- Live metrics: land the Privacy §9 lines above before migration
+  `0010_live_metrics.sql` reaches production.
 - Set `NOTIFICATION_PRIVATE_KEY` on every environment that should send
   report alerts and access-request DMs.
 - Set `LIVE_REPORTER_HASH_SECRET` on every environment, with a different

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { LivePresence, type PresenceState } from './index';
+import { LivePresence, TOTALS_RETAIN_MS, type PresenceState } from './index';
 
 const code = (n: number) => n.toString(16).padStart(32, '0');
 
@@ -88,11 +88,11 @@ describe('LivePresence across a restart', () => {
     const a = new LivePresence(state);
     await state.ready();
     await beat(a, code(1), '203.0.113.77');
-    expect([...state.data.keys()].sort()).toEqual([`c:${code(1)}`, 'peak']);
+    expect([...state.data.keys()].sort()).toEqual([`c:${code(1)}`, 'peak', 'vms']);
     expect(JSON.stringify([...state.data])).not.toContain('203.0.113.77');
   });
 
-  it('deletes each code about a second after it expires, then wipes storage', async () => {
+  it('deletes each code about a second after it expires, keeping only the totals', async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     const state = fakeState();
     const a = new LivePresence(state);
@@ -110,8 +110,23 @@ describe('LivePresence across a restart', () => {
 
     vi.setSystemTime(1_091_000);
     await a.alarm();
+    // No codes left: only the totals, kept for the sweep, with a retention alarm.
+    expect([...state.data.keys()].sort()).toEqual(['idle', 'peak', 'vms']);
+    expect(state.alarmAt()).toBe(1_091_000 + TOTALS_RETAIN_MS);
+
+    vi.setSystemTime(1_091_000 + TOTALS_RETAIN_MS);
+    await a.alarm();
     expect(state.data.size).toBe(0);
     expect(state.alarmAt()).toBeNull();
+  });
+
+  it('wipes storage at once when nothing was ever counted', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const state = fakeState();
+    const a = new LivePresence(state);
+    await state.ready();
+    await a.alarm();
+    expect(state.data.size).toBe(0);
   });
 
   it('schedules cleanup before storing, and re-arms leftovers after a restart', async () => {
@@ -123,5 +138,84 @@ describe('LivePresence across a restart', () => {
     await state.ready();
     expect(state.alarmAt()).toBe(1_001_000);
     expect(await watching(b)).toEqual({ watching: 1 });
+  });
+});
+
+const totals = (o: LivePresence) =>
+  o.fetch(new Request('https://presence/totals')).then((r) => r.json());
+const finish = (o: LivePresence) =>
+  o.fetch(new Request('https://presence/finish', { method: 'POST' })).then((r) => r.json());
+
+describe('LivePresence viewer time', () => {
+  it('adds the time between heartbeats of a counted code, capped at one window', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const state = fakeState();
+    const a = new LivePresence(state);
+    await state.ready();
+    await beat(a, code(1)); // first beat: nothing yet
+    expect(await totals(a)).toEqual({ viewer_seconds: 0, peak: 1 });
+    vi.setSystemTime(1_030_000);
+    await beat(a, code(1)); // +30 s
+    await beat(a, code(2), '198.51.100.2'); // new: nothing
+    vi.setSystemTime(1_059_000);
+    await beat(a, code(1)); // +29 s
+    await beat(a, code(2), '198.51.100.2'); // +29 s
+    expect(await totals(a)).toEqual({ viewer_seconds: 88, peak: 2 });
+    // A code gone quiet past the window starts again from nothing.
+    vi.setSystemTime(1_200_000);
+    await beat(a, code(1));
+    expect(await totals(a)).toEqual({ viewer_seconds: 88, peak: 2 });
+  });
+
+  it('keeps the total across a restart and after the codes expire', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const state = fakeState();
+    const a = new LivePresence(state);
+    await state.ready();
+    await beat(a, code(1));
+    vi.setSystemTime(1_030_000);
+    await beat(a, code(1));
+    vi.setSystemTime(1_091_000);
+    await a.alarm();
+    const b = new LivePresence(state);
+    await state.ready();
+    expect(await totals(b)).toEqual({ viewer_seconds: 30, peak: 1 });
+  });
+
+  it('re-arms an alarm for totals left without one', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const state = fakeState();
+    await state.storage.put('vms', 5000);
+    const b = new LivePresence(state);
+    await state.ready();
+    expect(state.alarmAt()).toBe(1_001_000);
+  });
+
+  it('brings a retention alarm forward when a new code arrives', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const state = fakeState();
+    const a = new LivePresence(state);
+    await state.ready();
+    await beat(a, code(1));
+    vi.setSystemTime(1_061_000);
+    await a.alarm();
+    expect(state.alarmAt()).toBe(1_061_000 + TOTALS_RETAIN_MS);
+    vi.setSystemTime(1_100_000);
+    await beat(a, code(2));
+    expect(state.alarmAt()).toBe(1_161_000);
+  });
+
+  it('finish wipes storage and memory', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const state = fakeState();
+    const a = new LivePresence(state);
+    await state.ready();
+    await beat(a, code(1));
+    vi.setSystemTime(1_030_000);
+    await beat(a, code(1));
+    expect(await finish(a)).toEqual({ ok: true });
+    expect(state.data.size).toBe(0);
+    expect(await totals(a)).toEqual({ viewer_seconds: 0, peak: 0 });
+    expect(await watching(a)).toEqual({ watching: 0 });
   });
 });

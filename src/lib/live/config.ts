@@ -231,6 +231,30 @@ export const LIVE_ORPHAN_MIN_AGE_SECONDS = 10 * 60;
 export const LIVE_SWEEP_BATCH = 25;
 export const LIVE_SWEEP_BUDGET_MS = 20_000;
 
+// ── Metrics (admin) ──────────────────────────────────────────────────
+
+/**
+ * The sweep records a session's viewer time and zaps this long after it
+ * ended, so zap receipts sent in the last moments have time to arrive.
+ */
+export const LIVE_METRICS_DELAY_SECONDS = 5 * 60;
+
+/**
+ * If the presence object or every relay stays unreachable this long after
+ * the end, the session is recorded with what could be read (viewer time
+ * NULL, zaps 0) so it is not retried forever.
+ */
+export const LIVE_METRICS_GIVE_UP_SECONDS = 60 * 60;
+
+/** Sessions recorded per sweep (each reads relays for up to ~5 s). */
+export const LIVE_METRICS_BATCH = 5;
+
+/** live_host_monthly rows are kept for this many months, the current one included. */
+export const LIVE_MONTHLY_RETENTION_MONTHS = 24;
+
+/** Estimated Cloudflare Stream delivery cost: US$1 per 1,000 minutes delivered. */
+export const LIVE_COST_USD_PER_1000_MINUTES = 1;
+
 /** KV name (GATED_CONTENT) of the global off flag. Present with value '1' = off. */
 export const LIVE_OFF_NAME = 'off';
 
