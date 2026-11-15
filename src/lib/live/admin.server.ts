@@ -87,8 +87,9 @@ export async function blockHost(
  * If an input could not be deleted its row is removed all the same; the
  * sweep's orphan check finds the input by name and deletes it. A hosting
  * block is NOT removed: deleting an account must not lift it. The hosting
- * agreement is removed too, unless one of the rows is under a hold (the
- * sweep removes it after the release: cleanupTermsAcceptances).
+ * agreement is removed too, unless one of the rows is under a hold or the
+ * account is blocked from hosting (the sweep removes it once neither is
+ * true: cleanupTermsAcceptances).
  */
 export async function purgeLiveSessions(
   db: LiveDb,

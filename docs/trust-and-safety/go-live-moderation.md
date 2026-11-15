@@ -124,7 +124,7 @@ Nostr, and the action log.
 | Hold | While open; a released hold is removed once its reports are gone |
 | Access requests | Pending: until decided. Approved or declined: 90 days after the decision |
 | Approved and blocked lists | Until changed by the admin (a block survives account deletion) |
-| Hosting agreement (18+ and the Terms, per terms version) | Until the account is deleted; kept while one of its sessions is under an open hold |
+| Hosting agreement (18+ and the Terms, per terms version) | Until the account is deleted; kept while one of its sessions is under an open hold or the account is blocked from hosting |
 | Action log | 2 years; entries about a session under an open hold are kept until it is released |
 
 Account deletion removes the host's sessions **except those under an open

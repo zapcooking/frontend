@@ -8,7 +8,8 @@
  *
  * Retention (Privacy Policy §9 "Hosting agreement"): an account's rows are
  * deleted once the account has asked to be deleted, unless one of its
- * streams is under an open report hold; then they wait for the release.
+ * streams is under an open report hold or the account is blocked from
+ * hosting; then they wait until neither is true (Seth's ruling, #985).
  */
 import type { LiveDb } from './sessions.server';
 
@@ -41,18 +42,24 @@ export async function recordTermsAcceptance(
     .run();
 }
 
-/** No stream hosted by the row's account is under an open hold. */
-const NOT_HELD = `NOT EXISTS (
+/**
+ * Nothing keeps the row: no stream hosted by its account is under an open
+ * hold, and the account is not blocked from hosting.
+ */
+const NOT_KEPT = `NOT EXISTS (
     SELECT 1 FROM live_sessions s JOIN live_holds h ON h.session_id = s.id
-     WHERE s.host_pubkey = live_terms_acceptance.pubkey AND h.status = 'open')`;
+     WHERE s.host_pubkey = live_terms_acceptance.pubkey AND h.status = 'open')
+  AND NOT EXISTS (
+    SELECT 1 FROM live_blocked_hosts b WHERE b.pubkey = live_terms_acceptance.pubkey)`;
 
 /**
  * Delete one account's agreements, unless one of its streams is under an
- * open hold (account deletion, at the request).
+ * open hold or the account is blocked from hosting (account deletion, at
+ * the request).
  */
 export async function deleteTermsAcceptancesFor(db: LiveDb, pubkey: string): Promise<number> {
   const result = await db
-    .prepare(`DELETE FROM live_terms_acceptance WHERE pubkey = ?1 AND ${NOT_HELD}`)
+    .prepare(`DELETE FROM live_terms_acceptance WHERE pubkey = ?1 AND ${NOT_KEPT}`)
     .bind(pubkey.toLowerCase())
     .run();
   return result.meta?.changes ?? 0;
@@ -60,8 +67,9 @@ export async function deleteTermsAcceptancesFor(db: LiveDb, pubkey: string): Pro
 
 /**
  * The sweep: delete agreements made before their account asked to be
- * deleted, once no stream of that account is under an open hold. Catches
- * rows a hold kept at the request, after the hold is released. An
+ * deleted, once no stream of that account is under an open hold and the
+ * account is not blocked. Catches rows a hold or a block kept at the
+ * request, after the hold is released or the block removed. An
  * agreement made after the request (the key came back and hosted again)
  * is kept.
  */
@@ -72,7 +80,7 @@ export async function cleanupTermsAcceptances(db: LiveDb): Promise<number> {
         WHERE EXISTS (SELECT 1 FROM account_deletion_requests d
                        WHERE d.pubkey = live_terms_acceptance.pubkey
                          AND d.requested_at >= live_terms_acceptance.accepted_at)
-          AND ${NOT_HELD}`
+          AND ${NOT_KEPT}`
     )
     .bind()
     .run();

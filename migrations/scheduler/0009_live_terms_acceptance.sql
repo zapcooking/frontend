@@ -15,8 +15,9 @@
 -- A repeat agreement to the same version keeps the first time.
 --
 -- Retention (Privacy Policy §9): deleted after the account is deleted,
--- unless one of the account's streams is under an open report hold. See
--- deleteTermsAcceptances in src/lib/live/terms.server.ts.
+-- unless one of the account's streams is under an open report hold or the
+-- account is blocked from hosting. See deleteTermsAcceptancesFor and
+-- cleanupTermsAcceptances in src/lib/live/terms.server.ts.
 
 CREATE TABLE live_terms_acceptance (
   pubkey         TEXT NOT NULL,   -- 64 lowercase hex; the NIP-98 signer, never a body field

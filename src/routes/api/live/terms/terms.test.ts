@@ -161,6 +161,17 @@ describe('hosting agreement retention', () => {
     expect(rows()).toEqual([]);
   });
 
+  it('keeps it while the account is blocked from hosting, then the sweep removes it after unblock', async () => {
+    acceptTerms(db, HOST); // accepted_at = 1
+    db.raw.prepare('INSERT INTO live_blocked_hosts (pubkey, created_at) VALUES (?, 1)').run(HOST);
+    expect(await deleteTermsAcceptancesFor(db, HOST)).toBe(0);
+    requestDeletion(HOST, 100);
+    expect(await cleanupTermsAcceptances(db)).toBe(0); // still blocked
+    db.raw.prepare('DELETE FROM live_blocked_hosts WHERE pubkey = ?').run(HOST);
+    expect(await cleanupTermsAcceptances(db)).toBe(1);
+    expect(rows()).toEqual([]);
+  });
+
   it('the sweep keeps agreements of accounts that did not ask to be deleted, and later ones', async () => {
     acceptTerms(db, OTHER);
     // HOST asked to be deleted at t=100, then agreed again at t=200.
