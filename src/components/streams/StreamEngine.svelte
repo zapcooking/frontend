@@ -31,7 +31,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { signNip98AuthHeader } from '$lib/nip98';
   import { joinLiveSession, loadPass, savePass } from '$lib/live/watch/joinClient';
-  import { decodedVideoFrames, WatchPolicy, type WatchStop } from '$lib/live/watch/watchPolicy';
+  import { mediaProgress, WatchPolicy, type WatchStop } from '$lib/live/watch/watchPolicy';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import SpeakerHighIcon from 'phosphor-svelte/lib/SpeakerHigh';
   import SpeakerXIcon from 'phosphor-svelte/lib/SpeakerX';
@@ -285,11 +285,11 @@
   async function pollFrames() {
     if (!pc || !policy) return;
     try {
-      // No inbound video entry yet counts as 0 frames (see decodedVideoFrames):
+      // No inbound entry yet counts as 0 (see decodedVideoFrames, mediaProgress):
       // an answered join that never delivers media must still trip the
       // no-picture rule and rejoin, not stay black.
       const report = await pc.getStats();
-      policy?.frames(decodedVideoFrames(report));
+      policy?.frames(mediaProgress(report));
     } catch {
       /* stats unavailable this tick */
     }

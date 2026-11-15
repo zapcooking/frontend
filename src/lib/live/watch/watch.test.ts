@@ -6,6 +6,7 @@ import {
   MAX_ATTEMPTS,
   retryDelayMs,
   decodedVideoFrames,
+  mediaProgress,
   type WatchStop
 } from './watchPolicy';
 import { classifyJoinReply, joinLiveSession, loadPass, savePass } from './joinClient';
@@ -210,6 +211,54 @@ describe('decodedVideoFrames', () => {
     }
     advance(0);
     expect(rejoins).toEqual(['no_picture']);
+  });
+});
+
+describe('mediaProgress (screen share: a still screen is not a stall)', () => {
+  const report = (stats: object[]) => ({
+    forEach: (
+      fn: (s: {
+        type?: string;
+        kind?: string;
+        framesDecoded?: number;
+        packetsReceived?: number;
+      }) => void
+    ) => stats.forEach((s) => fn(s as never))
+  });
+  const stats = (frames: number, packets: number) =>
+    report([
+      { type: 'inbound-rtp', kind: 'video', framesDecoded: frames },
+      { type: 'inbound-rtp', kind: 'audio', packetsReceived: packets }
+    ]);
+
+  it('adds audio packets to decoded frames', () => {
+    expect(mediaProgress(stats(30, 50))).toBe(80);
+    expect(mediaProgress(report([]))).toBe(0);
+    expect(
+      mediaProgress(report([{ type: 'inbound-rtp', kind: 'audio', packetsReceived: 7 }]))
+    ).toBe(7);
+  });
+
+  it('frozen video with sound still arriving never rejoins', () => {
+    const p = makePolicy();
+    joined(p);
+    for (let t = 1; t <= 30; t++) {
+      advance(1000);
+      p.frames(mediaProgress(stats(t < 3 ? t * 30 : 60, t * 50)));
+    }
+    advance(0);
+    expect(rejoins).toEqual([]);
+  });
+
+  it('a gone broadcast (video and sound both stop) still rejoins after the stall', () => {
+    const p = makePolicy();
+    joined(p);
+    for (let t = 1; t <= 10; t++) {
+      advance(1000);
+      p.frames(mediaProgress(stats(t < 3 ? t * 30 : 60, t < 3 ? t * 50 : 100)));
+    }
+    advance(0);
+    expect(rejoins).toEqual(['stalled']);
   });
 });
 

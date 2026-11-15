@@ -10,6 +10,8 @@
  *  - No picture within 8 s of a join: rejoin. (A join can land on an input
  *    the host is just replacing and never receive video.)
  *  - Video that was flowing stalls for 4 s: rejoin.
+ *  - "Frames" here is video frames PLUS audio packets (mediaProgress): a
+ *    shared still screen sends few video frames, but its sound keeps coming.
  *  - Never rejoin from a hidden tab. Browsers pause background video, which
  *    looks like a stall, and every guest rejoin can cost a slot. A rejoin
  *    that comes due while hidden waits until the tab is visible again.
@@ -182,4 +184,36 @@ export function decodedVideoFrames(report: {
       frames = Math.max(frames, s.framesDecoded ?? 0);
   });
   return frames;
+}
+
+type StatsReport = {
+  forEach: (
+    fn: (stat: {
+      type?: string;
+      kind?: string;
+      framesDecoded?: number;
+      packetsReceived?: number;
+    }) => void
+  ) => void;
+};
+
+/**
+ * What the player feeds `WatchPolicy.frames()`: decoded video frames PLUS
+ * received audio packets. Either one moving means the broadcast is alive.
+ *
+ * A host sharing a still screen can send no new video frames for many
+ * seconds (screen capture sends a frame only when the screen changes),
+ * which on video alone looked like a stall and rejoined every viewer. The
+ * host's audio keeps arriving the whole time, silence included (a muted
+ * microphone still sends packets). A broadcast that is really gone (the
+ * host republished to a new input, or the input was deleted) stops BOTH,
+ * so the stall and no-picture rules still catch it.
+ */
+export function mediaProgress(report: StatsReport): number {
+  let audio = 0;
+  report.forEach((s) => {
+    if (s.type === 'inbound-rtp' && s.kind === 'audio')
+      audio = Math.max(audio, s.packetsReceived ?? 0);
+  });
+  return decodedVideoFrames(report) + audio;
 }

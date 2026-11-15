@@ -20,6 +20,7 @@ import {
   type StopReason
 } from './reconnect';
 import {
+  audioSwitches,
   cameraAttempts,
   classifyMediaError,
   clearStoredSession,
@@ -33,6 +34,13 @@ import {
   storeSession
 } from './hostDevice';
 import { LIVE_MAX_PUBLISH_ATTEMPTS } from '../config';
+import {
+  canShareScreen,
+  classifyShareError,
+  displayMediaAttempts,
+  shareHint,
+  shareProblemMessage
+} from './screenShare';
 
 const ID = 'a'.repeat(32);
 const TOKEN = 'b'.repeat(64);
@@ -158,7 +166,9 @@ describe('acceptLiveTerms', () => {
       version: 'v2'
     });
     expect(await at(409, { error: 'terms_changed' })).toEqual({ kind: 'unavailable' });
-    expect(await at(403, { error: 'membership_required' })).toEqual({ kind: 'membership_required' });
+    expect(await at(403, { error: 'membership_required' })).toEqual({
+      kind: 'membership_required'
+    });
     expect(await at(503, { error: 'membership_unavailable' })).toEqual({ kind: 'unavailable' });
     expect(await at(500, 'not json')).toEqual({ kind: 'unavailable' });
     const refused = await acceptLiveTerms('v1', async () => {
@@ -655,5 +665,81 @@ describe('liveDurationLine', () => {
     expect(liveDurationLine(null)).toBeNull();
     expect(liveDurationLine(-5)).toBeNull();
     expect(liveDurationLine(Number.NaN)).toBeNull();
+  });
+});
+
+describe('screen share helpers', () => {
+  const named = (name: string, message = '') => Object.assign(new Error(message), { name });
+
+  it('offers sharing only on desktop, with the API and a mouse or trackpad', () => {
+    expect(canShareScreen({ platform: 'other', hasGetDisplayMedia: true, finePointer: true })).toBe(
+      true
+    );
+    expect(
+      canShareScreen({ platform: 'other', hasGetDisplayMedia: false, finePointer: true })
+    ).toBe(false);
+    expect(
+      canShareScreen({ platform: 'other', hasGetDisplayMedia: true, finePointer: false })
+    ).toBe(false);
+    expect(canShareScreen({ platform: 'ios', hasGetDisplayMedia: true, finePointer: true })).toBe(
+      false
+    );
+    expect(
+      canShareScreen({ platform: 'android', hasGetDisplayMedia: true, finePointer: true })
+    ).toBe(false);
+  });
+
+  it('asks for audio and excludes this tab first, then asks for less', () => {
+    const [first, second, last] = displayMediaAttempts();
+    expect(first.audio).toBe(true);
+    expect((first as Record<string, unknown>).selfBrowserSurface).toBe('exclude');
+    expect(second).toEqual({ video: true, audio: true });
+    expect(last).toEqual({ video: true });
+  });
+
+  it('classifies share errors', () => {
+    expect(classifyShareError(named('NotAllowedError', 'Permission denied'))).toBe('cancelled');
+    expect(classifyShareError(named('NotAllowedError', 'Permission denied by system'))).toBe(
+      'system_blocked'
+    );
+    expect(classifyShareError(named('AbortError'))).toBe('cancelled');
+    expect(classifyShareError(named('TypeError'))).toBe('retry');
+    expect(classifyShareError(named('OverconstrainedError'))).toBe('retry');
+    expect(classifyShareError(named('NotReadableError'))).toBe('other');
+    expect(classifyShareError(null)).toBe('other');
+  });
+
+  it('says nothing for a cancel, and how to fix a system block', () => {
+    expect(shareProblemMessage('cancelled')).toBeNull();
+    expect(shareProblemMessage('system_blocked')).toMatch(/Screen & System Audio Recording/);
+    expect(shareProblemMessage('other')).toMatch(/try again/);
+  });
+
+  it('warns more strongly about a whole screen', () => {
+    expect(shareHint('window')).toBe('Share one window or tab, not your whole screen.');
+    expect(shareHint(undefined)).toBe('Share one window or tab, not your whole screen.');
+    expect(shareHint('monitor')).toMatch(/whole screen, including notifications/);
+  });
+});
+
+describe('audioSwitches (Mute button)', () => {
+  it('camera, or sharing without tab audio: one track, on only when both allow', () => {
+    const f = (micMuted: boolean, soundOn: boolean) =>
+      audioSwitches({ mixing: false, micMuted, soundOn });
+    expect(f(false, true)).toEqual({ mic: true, sent: true });
+    expect(f(true, true)).toEqual({ mic: false, sent: false });
+    expect(f(false, false)).toEqual({ mic: false, sent: false });
+    expect(f(true, false)).toEqual({ mic: false, sent: false });
+  });
+
+  it('sharing with tab audio: Mute silences only the microphone, the page rule silences all', () => {
+    expect(audioSwitches({ mixing: true, micMuted: true, soundOn: true })).toEqual({
+      mic: false,
+      sent: true
+    });
+    expect(audioSwitches({ mixing: true, micMuted: false, soundOn: false })).toEqual({
+      mic: true,
+      sent: false
+    });
   });
 });

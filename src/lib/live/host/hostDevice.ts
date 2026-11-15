@@ -102,6 +102,25 @@ export function setMicrophoneEnabled(
   return changed;
 }
 
+/**
+ * Which audio tracks are on, from the host's Mute button (`micMuted`) and
+ * the page's automatic rule (`soundOn`: off while a phone is locked, the
+ * page is hidden in camera mode, or the page is closing).
+ *
+ * `mic` is the microphone track; `sent` is the track on the connection.
+ * Without tab audio they are the same track. While sharing with tab audio
+ * the sent track is a mix: Mute silences only the microphone inside it,
+ * so the tab's sound keeps playing, and the automatic rule silences all.
+ */
+export function audioSwitches(o: { mixing: boolean; micMuted: boolean; soundOn: boolean }): {
+  mic: boolean;
+  sent: boolean;
+} {
+  if (o.mixing) return { mic: !o.micMuted, sent: o.soundOn };
+  const on = o.soundOn && !o.micMuted;
+  return { mic: on, sent: on };
+}
+
 export interface MediaHelp {
   title: string;
   /** What to change, one step per entry. Empty when there is nothing to change. */
