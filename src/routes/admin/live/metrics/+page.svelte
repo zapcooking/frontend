@@ -48,6 +48,8 @@
   let monthly: MonthlyRow[] = [];
   let streams: StreamRow[] = [];
   let unrecorded = 0;
+  /** More streams in the window than the API returns: everything below is partial. */
+  let truncated = false;
   let usdPer1000 = 1;
   let names: Record<string, string> = {};
 
@@ -74,6 +76,7 @@
       monthly = data.monthly ?? [];
       streams = data.streams ?? [];
       unrecorded = data.unrecorded ?? 0;
+      truncated = data.truncated === true;
       usdPer1000 = data.usd_per_1000_minutes ?? 1;
       loaded = true;
       void loadNames([...new Set([...monthly, ...streams].map((r) => r.host_pubkey))]);
@@ -125,7 +128,8 @@
 
   // ── Formatting ─────────────────────────────────────────────────────
   const npub = (hex: string) => nip19.npubEncode(hex);
-  const hostLabel = (pk: string) => names[pk] || `${npub(pk).slice(0, 12)}…`;
+  // Reactive so labels refresh as profile names arrive (they load after the data).
+  $: hostLabel = (pk: string) => names[pk] || `${npub(pk).slice(0, 12)}…`;
   const int = (n: number) => Math.round(n).toLocaleString();
   const one = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 1 });
   const usd = (n: number) =>
@@ -176,7 +180,7 @@
   $: seriesKeys = [...colored, ...(hasOther ? ['other'] : [])];
   const seriesVar = (key: string, i: number) =>
     key === 'other' ? 'var(--viz-other)' : `var(--viz-${i + 1})`;
-  const seriesName = (key: string) => (key === 'other' ? 'Other hosts' : hostLabel(key));
+  $: seriesName = (key: string) => (key === 'other' ? 'Other hosts' : hostLabel(key));
   function stackFor(d: Day): { key: string; value: number }[] {
     const parts = colored.map((k) => ({ key: k, value: d.streamsByHost.get(k) ?? 0 }));
     if (hasOther) {
@@ -334,6 +338,12 @@
           >{unrecorded} ended {unrecorded === 1 ? 'stream is' : 'streams are'} not recorded yet.</strong
         >
       {/if}
+      {#if truncated}
+        <strong class="warn">
+          More streams started in these 30 days than the page can load ({streams.length.toLocaleString()}
+          shown): the charts, tables and CSV are partial.
+        </strong>
+      {/if}
       <button class="small" disabled={busy} on:click={recordNow}>Record ended streams now</button>
     </p>
 
@@ -364,7 +374,7 @@
       <svg
         width={chartWidth}
         height={H}
-        role="img"
+        role="group"
         aria-label="Viewer-minutes per day, last 30 days"
       >
         {#each [0, vmMax / 2, vmMax] as t}
@@ -395,7 +405,8 @@
             y={PAD.top}
             width={slot}
             height={plotH}
-            role="presentation"
+            role="img"
+            aria-label={`${dayLabel(d.day)}: ${int(d.viewerMinutes)} viewer-minutes, ${usd(d.costUsd)} estimated cost, ${d.streams} ${d.streams === 1 ? 'stream' : 'streams'}`}
             on:mouseenter={() => (hoverA = i)}
             on:mouseleave={() => (hoverA = null)}
           />
@@ -411,6 +422,31 @@
         </div>
       {/if}
     </div>
+    <details class="data-table">
+      <summary>Show as a table</summary>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Day (UTC)</th>
+              <th class="num">Viewer-minutes</th>
+              <th class="num">Est. cost</th>
+              <th class="num">Streams</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each days as d (d.day)}
+              <tr>
+                <td>{dayLabel(d.day)}</td>
+                <td class="num">{int(d.viewerMinutes)}</td>
+                <td class="num">{usd(d.costUsd)}</td>
+                <td class="num">{d.streams}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </details>
 
     <h2>Streams per day by host</h2>
     {#if seriesKeys.length > 0}
@@ -426,7 +462,7 @@
       <svg
         width={chartWidth}
         height={H}
-        role="img"
+        role="group"
         aria-label="Streams per day by host, last 30 days"
       >
         {#each [0, stMax / 2, stMax] as t}
@@ -471,7 +507,13 @@
             y={PAD.top}
             width={slot}
             height={plotH}
-            role="presentation"
+            role="img"
+            aria-label={`${dayLabel(d.day)}: ${d.streams} ${d.streams === 1 ? 'stream' : 'streams'}${stackFor(
+              d
+            )
+              .filter((p) => p.value > 0)
+              .map((p) => `, ${seriesName(p.key)} ${p.value}`)
+              .join('')}`}
             on:mouseenter={() => (hoverB = i)}
             on:mouseleave={() => (hoverB = null)}
           />
@@ -487,6 +529,29 @@
         </div>
       {/if}
     </div>
+    <details class="data-table">
+      <summary>Show as a table</summary>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Day (UTC)</th>
+              {#each seriesKeys as k (k)}<th class="num">{seriesName(k)}</th>{/each}
+              <th class="num">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each days as d (d.day)}
+              <tr>
+                <td>{dayLabel(d.day)}</td>
+                {#each stackFor(d) as p (p.key)}<td class="num">{p.value}</td>{/each}
+                <td class="num">{d.streams}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </details>
 
     <div class="table-head">
       <h2>Hosts</h2>
@@ -756,6 +821,18 @@
   }
   .hit {
     fill: transparent;
+  }
+  .data-table {
+    margin-top: 0.5rem;
+    font-size: 0.8125rem;
+  }
+  .data-table summary {
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    margin-bottom: 0.5rem;
+  }
+  .warn {
+    color: var(--color-danger);
   }
   .tooltip {
     position: absolute;

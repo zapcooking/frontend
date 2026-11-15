@@ -19,6 +19,7 @@ vi.mock('$lib/adminAuth', () => ({
 }));
 
 import { GET, POST } from './+server';
+import { dailySeries } from '$lib/live/metricsView';
 
 const URL_ = 'https://zap.cooking/api/admin/live/metrics';
 const adminSk = generateSecretKey();
@@ -104,6 +105,20 @@ describe('GET /api/admin/live/metrics', () => {
     expect(data.streams[0]).toMatchObject({ viewer_seconds: null, metrics_at: null });
     expect(data.unrecorded).toBe(2); // both ended streams that went live
     expect(data.usd_per_1000_minutes).toBe(1);
+  });
+});
+
+describe('the 30-day window', () => {
+  it("starts at 00:00 UTC of the charts' first day, so table, CSV and charts hold the same streams", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const firstDay = Math.floor(now / 86400) * 86400 - 29 * 86400;
+    insert('a'.repeat(32), firstDay + 60, firstDay + 600); // early on the first charted day
+    insert('b'.repeat(32), firstDay - 60, firstDay + 600); // the day before: not charted, not listed
+    const data = await (await get(adminSk)).json();
+    expect(data.since).toBe(firstDay);
+    expect(data.streams.map((s: { id: string }) => s.id)).toEqual(['a'.repeat(32)]);
+    expect(dailySeries(data.streams, now, 1)[0].streams).toBe(1);
+    expect(data.truncated).toBe(false);
   });
 });
 

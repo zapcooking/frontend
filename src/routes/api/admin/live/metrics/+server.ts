@@ -10,9 +10,12 @@
  *     monthly     live_host_monthly rows for this month and last month
  *                 (UTC). Streams are counted once recorded (about 5 min
  *                 after they end).
- *     streams     every stream that went live in the last 30 days, newest
+ *     streams     every stream that went live in the 30 UTC days ending
+ *                 today (the same days as the page's charts), newest
  *                 first, with its metrics (viewer_seconds NULL until
- *                 recorded, or when it could not be read)
+ *                 recorded, or when it could not be read). At most
+ *                 STREAMS_LIMIT; `truncated` is true when there were more.
+ *     since       the start of that window (unix seconds, 00:00 UTC)
  *     unrecorded  ended streams not folded into their month yet
  *
  * POST /api/admin/live/metrics — body { action: 'record' }
@@ -43,6 +46,8 @@ const NO_STORE = { 'Cache-Control': 'no-store' };
 const MAX_BODY_BYTES = 256;
 const RECORD_BUDGET_MS = 20_000;
 const DAY = 86_400;
+/** Most streams returned for the 30-day window. More sets `truncated`. */
+const STREAMS_LIMIT = 5000;
 const forbidden = () => json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
 const bad = () => json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
 
@@ -58,11 +63,15 @@ export const GET: RequestHandler = async ({ request, platform }) => {
     const now = nowSeconds();
     const thisMonth = monthKey(now);
     const lastMonth = monthKey(now, -1);
-    const [monthly, streams, unrecorded] = await Promise.all([
+    // 00:00 UTC 29 days ago: the first of the charts' 30 daily buckets.
+    const since = Math.floor(now / DAY) * DAY - 29 * DAY;
+    const [monthly, rows, unrecorded] = await Promise.all([
       listMonthly(db, [lastMonth, thisMonth]),
-      listMetricsStreams(db, now - 30 * DAY),
+      listMetricsStreams(db, since, STREAMS_LIMIT + 1),
       countUnrecorded(db)
     ]);
+    const truncated = rows.length > STREAMS_LIMIT;
+    const streams = truncated ? rows.slice(0, STREAMS_LIMIT) : rows;
     return json(
       {
         now,
@@ -70,6 +79,8 @@ export const GET: RequestHandler = async ({ request, platform }) => {
         last_month: lastMonth,
         monthly,
         streams,
+        since,
+        truncated,
         unrecorded,
         usd_per_1000_minutes: LIVE_COST_USD_PER_1000_MINUTES
       },
@@ -108,7 +119,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     {
       readTotals: (id) => readPresenceTotals(platform, id),
       finish: (id) => finishPresence(platform, id),
-      zapSats: (noteId) => fetchNoteZapSats(noteId)
+      zapSats: (noteId, host) => fetchNoteZapSats(noteId, host)
     },
     nowSeconds(),
     () => Date.now() > deadline
