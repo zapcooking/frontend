@@ -4,7 +4,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { generateSecretKey, nip04 } from 'nostr-tools';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEY, ADMIN_PUBKEYS, BACKUP_ADMIN_PUBKEY } from '$lib/adminAuth';
+// One DM per admin (primary and backup) for every alert.
+const DMS = ADMIN_PUBKEYS.length;
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { createLiveDatabase } from '../../../../../test/liveDatabase';
 import { createKvFake } from '../../../../../test/liveStreamStub';
@@ -81,7 +83,12 @@ describe('POST /api/live/<id>/report', () => {
     expect(row.reporter_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(row)).not.toContain('10.0.0.');
     expect(count('live_holds')).toBe(1);
-    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
+    // One DM each: the primary and the backup admin.
+    expect(mocks.publish.mock.calls.map((c: any) => c[0].tags)).toEqual(
+      ADMIN_PUBKEYS.map((pk) => [['p', pk]])
+    );
+    expect(ADMIN_PUBKEYS).toEqual([ADMIN_PUBKEY, BACKUP_ADMIN_PUBKEY]);
   });
 
   it('stores HMAC(secret, limiter hash), never the limiter hash itself', async () => {
@@ -111,9 +118,13 @@ describe('POST /api/live/<id>/report', () => {
       '[Live] report NOT stored: LIVE_REPORTER_HASH_SECRET is not set'
     );
 
-    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
     const event = mocks.publish.mock.calls[0][0];
     const text = nip04.decrypt(senderSk, ADMIN_PUBKEY, event.content);
+    // The backup admin gets the same urgent alert, encrypted to their key.
+    const backup = mocks.publish.mock.calls[1][0];
+    expect(backup.tags).toEqual([['p', BACKUP_ADMIN_PUBKEY]]);
+    expect(nip04.decrypt(senderSk, BACKUP_ADMIN_PUBKEY, backup.content)).toBe(text);
     expect(text).toMatch(/^⚠️ NOT STORED/);
     expect(text).toContain('CHILD SAFETY');
     expect(text).toContain(`/live/s/${SESSION}`);
@@ -126,7 +137,7 @@ describe('POST /api/live/<id>/report', () => {
       env.LIVE_REPORTER_HASH_SECRET = value;
       expect((await post({ reason: 'spam' })).status).toBe(503);
     }
-    expect(mocks.publish).toHaveBeenCalledTimes(3);
+    expect(mocks.publish).toHaveBeenCalledTimes(3 * DMS);
     expect(count('live_reports')).toBe(0);
   });
 
@@ -159,7 +170,7 @@ describe('POST /api/live/<id>/report', () => {
     kv.data.set(`live:alert:${SESSION}`, '1');
     env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
     await post({ reason: 'spam' });
-    expect(mocks.publish).toHaveBeenCalledTimes(2);
+    expect(mocks.publish).toHaveBeenCalledTimes(2 * DMS);
   });
 
   it('stores a comment report against that comment', async () => {
@@ -174,7 +185,7 @@ describe('POST /api/live/<id>/report', () => {
     await post({ reason: 'spam' }, { ctx: true });
     expect(waited).toHaveLength(1);
     await Promise.all(waited);
-    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
   });
 
   it('a repeat from the same reporter is a duplicate and sends nothing', async () => {
@@ -182,7 +193,7 @@ describe('POST /api/live/<id>/report', () => {
     const again = await post({ reason: 'spam' }, { ip: '10.9.9.9' });
     expect(await again.json()).toEqual({ ok: true, duplicate: true });
     expect(count('live_reports')).toBe(1);
-    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
   });
 
   it('stores and alerts an urgent report even after the same reporter reported another reason', async () => {
@@ -199,7 +210,7 @@ describe('POST /api/live/<id>/report', () => {
     await post({ reason: 'violence' }, { ip: '10.5.5.5' });
     expect(count('live_reports')).toBe(3);
     // Every urgent submission alerts (nudity once + child safety + violence).
-    expect(mocks.publish).toHaveBeenCalledTimes(3);
+    expect(mocks.publish).toHaveBeenCalledTimes(3 * DMS);
   });
 
   it('an identical urgent repeat is stored once but alerts every time', async () => {
@@ -207,7 +218,7 @@ describe('POST /api/live/<id>/report', () => {
     const again = await post({ reason: 'child_safety' }, { ip: '10.6.6.6' });
     expect(await again.json()).toEqual({ ok: true, duplicate: true });
     expect(count('live_reports')).toBe(1);
-    expect(mocks.publish).toHaveBeenCalledTimes(2);
+    expect(mocks.publish).toHaveBeenCalledTimes(2 * DMS);
   });
 
   it("after an urgent report, the reporter's first other-reason report is stored and later ones are duplicates", async () => {
@@ -223,10 +234,10 @@ describe('POST /api/live/<id>/report', () => {
   it('throttles alerts per session, except child safety and violence', async () => {
     await post({ reason: 'nudity' });
     await post({ reason: 'spam' });
-    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
     await post({ reason: 'child_safety' });
     await post({ reason: 'violence' });
-    expect(mocks.publish).toHaveBeenCalledTimes(3);
+    expect(mocks.publish).toHaveBeenCalledTimes(3 * DMS);
   });
 
   it('refuses bad input and unknown sessions', async () => {

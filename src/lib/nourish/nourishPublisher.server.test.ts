@@ -205,7 +205,8 @@ describe('rescore round-trip — macros + labels reach the publisher', () => {
 			verifyNip98: vi.fn(async () => ({ ok: true, pubkey: 'admin' }))
 		}));
 		vi.doMock('$lib/adminAuth', () => ({
-			ADMIN_PUBKEY: 'admin'
+			ADMIN_PUBKEY: 'admin',
+			ADMIN_PUBKEYS: ['admin']
 		}));
 		vi.doMock('$env/dynamic/private', () => ({
 			env: {
@@ -281,7 +282,8 @@ describe('rescore round-trip — macros + labels reach the publisher', () => {
 			verifyNip98: vi.fn(async () => ({ ok: true, pubkey: 'admin' }))
 		}));
 		vi.doMock('$lib/adminAuth', () => ({
-			ADMIN_PUBKEY: 'admin'
+			ADMIN_PUBKEY: 'admin',
+			ADMIN_PUBKEYS: ['admin']
 		}));
 		vi.doMock('$env/dynamic/private', () => ({
 			env: {

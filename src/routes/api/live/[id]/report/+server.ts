@@ -30,7 +30,7 @@
  * hash secret is not set; the admin was DM'd).
  */
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { checkPerIpRateLimit } from '$lib/ipRateLimit.server';
 import {
   LIVE_REPORT_DETAILS_MAX,
@@ -110,7 +110,7 @@ export const POST: RequestHandler = async ({ request, params, getClientAddress, 
       kv: platform?.env?.GATED_CONTENT,
       throttleKey: liveKv(platform, alertThrottleName(sessionId)),
       senderKey: readLiveEnv(platform, 'NOTIFICATION_PRIVATE_KEY'),
-      recipientPubkey: ADMIN_PUBKEY,
+      recipientPubkeys: ADMIN_PUBKEYS,
       publish: publishEventRaw
     };
     const origin = new URL(request.url).origin;

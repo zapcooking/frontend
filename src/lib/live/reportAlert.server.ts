@@ -1,10 +1,10 @@
 /**
- * Go live — DMs to the admin: real-time report alerts and hosting access
- * requests.
+ * Go live — DMs to the admins: real-time report alerts and hosting access
+ * requests. Every key in ADMIN_PUBKEYS gets its own DM (sendAdminDms).
  *
  * The channel is the one the deletion digest and the membership notices
  * already use: a NIP-04 DM from the notification account
- * (NOTIFICATION_PRIVATE_KEY) to ADMIN_PUBKEY, published with the
+ * (NOTIFICATION_PRIVATE_KEY) to each admin key, published with the
  * workerd-safe raw publisher (nostr-tools' pool drops frames in the
  * Workers runtime).
  *
@@ -118,6 +118,11 @@ function senderKeyBytes(key: string): Uint8Array {
 
 export type AdminDmResult = 'sent' | 'no-sender-key' | 'failed';
 
+export interface AdminDmsDeps extends Omit<AdminDmDeps, 'recipientPubkey'> {
+  /** Every admin (ADMIN_PUBKEYS). Each gets its own DM. */
+  recipientPubkeys: readonly string[];
+}
+
 /** Encrypt and publish one DM to the admin. Never throws. */
 export async function sendAdminDm(text: string, deps: AdminDmDeps): Promise<AdminDmResult> {
   try {
@@ -140,6 +145,23 @@ export async function sendAdminDm(text: string, deps: AdminDmDeps): Promise<Admi
   }
 }
 
+/**
+ * Send the same DM to every admin, one event each (NIP-04 is per
+ * recipient). 'sent' when at least one went out, so one admin's failure
+ * never blocks the other's alert. Never throws.
+ */
+export async function sendAdminDms(text: string, deps: AdminDmsDeps): Promise<AdminDmResult> {
+  const { recipientPubkeys, ...rest } = deps;
+  const results = await Promise.all(
+    [...new Set(recipientPubkeys)].map((recipientPubkey) =>
+      sendAdminDm(text, { ...rest, recipientPubkey })
+    )
+  );
+  if (results.includes('sent')) return 'sent';
+  if (results.includes('no-sender-key')) return 'no-sender-key';
+  return 'failed';
+}
+
 interface AlertKV {
   get(key: string, type?: 'text'): Promise<string | unknown | null>;
   put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
@@ -150,7 +172,7 @@ export type ReportAlertResult = AdminDmResult | 'throttled';
 /** Send the report alert, unless throttled. Never throws. */
 export async function sendReportAlert(
   input: ReportAlertInput,
-  deps: AdminDmDeps & {
+  deps: AdminDmsDeps & {
     kv: AlertKV | null | undefined;
     /** Full KV key of this session's throttle in this environment (liveKv). */
     throttleKey: string;
@@ -165,7 +187,7 @@ export async function sendReportAlert(
       // A KV read failure must not swallow the alert: send it.
     }
   }
-  const result = await sendAdminDm(buildReportAlert(input), deps);
+  const result = await sendAdminDms(buildReportAlert(input), deps);
   if (result === 'sent' && deps.kv) {
     try {
       await deps.kv.put(throttleKey, '1', { expirationTtl: LIVE_REPORT_ALERT_THROTTLE_SECONDS });

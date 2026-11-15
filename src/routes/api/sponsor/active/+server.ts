@@ -7,7 +7,7 @@
  *
  * Admin mode: ?admin=true returns all sponsors (active + hidden)
  * with full details. Gated by NIP-98 HTTP Auth — the signing pubkey
- * must equal ADMIN_PUBKEY. The previous ?pubkey= comparison was
+ * must be in ADMIN_PUBKEYS. The previous ?pubkey= comparison was
  * spoofable since the admin pubkey is public.
  *
  * Returns:
@@ -18,7 +18,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { getActiveSponsors, getAllSponsors, type SponsorTier } from '$lib/sponsorStore.server';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { verifyNip98 } from '$lib/nip98.server';
 
 const VALID_TIERS: SponsorTier[] = ['headline', 'kitchen_card'];
@@ -30,7 +30,7 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
     // Admin mode: return all sponsors (active + hidden) with full details
     const adminParam = url.searchParams.get('admin');
     if (adminParam === 'true') {
-      const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY });
+      const auth = await verifyNip98(request, { expectedPubkeys: ADMIN_PUBKEYS });
       if (!auth.ok) {
         console.warn('[sponsor.active.admin-auth-failed]', { reason: auth.reason });
         return json({ error: 'forbidden' }, { status: 403 });

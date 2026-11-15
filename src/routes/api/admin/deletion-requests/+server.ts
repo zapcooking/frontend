@@ -8,11 +8,11 @@
  * POST { pubkey } → marks that pending request completed, after staff
  *      has removed membership + credits (member-relay) and Pantry events.
  *
- * NIP-98 gated to ADMIN_PUBKEY, same as /api/admin/promos.
+ * NIP-98 gated to ADMIN_PUBKEYS (any admin), same as /api/admin/promos.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { verifyNip98 } from '$lib/nip98.server';
 import {
   completeDeletionRequest,
@@ -21,7 +21,7 @@ import {
 } from '$lib/accountDeletion.server';
 
 export const GET: RequestHandler = async ({ request, url, platform }) => {
-  const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY });
+  const auth = await verifyNip98(request, { expectedPubkeys: ADMIN_PUBKEYS });
   if (!auth.ok) {
     console.warn('[admin.deletion-requests.auth-failed]', { method: 'GET', reason: auth.reason });
     return json({ error: 'forbidden' }, { status: 403 });
@@ -40,7 +40,7 @@ export const GET: RequestHandler = async ({ request, url, platform }) => {
 
 export const POST: RequestHandler = async ({ request, platform }) => {
   const bodyBytes = new Uint8Array(await request.arrayBuffer());
-  const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY, bodyBytes });
+  const auth = await verifyNip98(request, { expectedPubkeys: ADMIN_PUBKEYS, bodyBytes });
   if (!auth.ok) {
     console.warn('[admin.deletion-requests.auth-failed]', { method: 'POST', reason: auth.reason });
     return json({ error: 'forbidden' }, { status: 403 });

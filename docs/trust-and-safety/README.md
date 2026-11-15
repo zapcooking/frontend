@@ -21,7 +21,7 @@ Implementation status at the time of writing:
 | --- | --- |
 | End a stream and block a host quickly | Built (admin End and Block, PR #958 and #977) |
 | Report intake for streams (no account) and comments (signed in) | Built (PR #977) |
-| Real-time alert to a moderator | Built as an encrypted Nostr DM to the admin account (PR #977). One recipient only; no backup yet |
+| Real-time alert to a moderator | Built as an encrypted Nostr DM to every admin account (PR #977); since the backup-admin PR, both the primary and the backup admin each get their own DM |
 | Legal hold that survives 30/90-day deletion and account deletion | Built (PR #977): opened automatically by the first report, released only by a logged admin action |
 | Keyed pseudonymous reporter identifier | Built for Go live reports (PR #977): HMAC with a server-side secret per environment. The shared limiter used elsewhere is still unkeyed (#978) |
 | Preview cannot change Production's Go live controls | Built (PR #977): Go live KV keys are named per environment |
@@ -30,7 +30,7 @@ Implementation status at the time of writing:
 | Automatic stream termination | Deliberately not built. A person decides every enforcement action |
 | Restricted incident system outside GitHub for case notes and CyberTipline records | **Not yet designated** |
 | NCMEC provider registration and manual CyberTipline access | **Not yet done** |
-| Named moderator backup with alert coverage | **Not yet designated** |
+| Named moderator backup with alert coverage | Designated in code: a second full admin key (`BACKUP_ADMIN_PUBKEY`), receiving every report alert and access-request DM. End-to-end delivery to the backup not yet verified |
 
 ## Documents
 1. [Live moderation](live-stream-moderation.md)
@@ -44,4 +44,4 @@ Implementation status at the time of writing:
 **Do not commit** actual incident records, reporter details, stream evidence, images of abuse, CyberTipline reports or IDs, credentials, API payloads, moderator private contacts, or case-specific notes here. Git history, clones and forks make erasure difficult. Use a separate restricted, access-controlled incident system with auditing and retention controls. GitHub Issues/PRs are for generic engineering work only, not cases.
 
 ## Ownership
-Assign a named primary owner and backup in a private runbook. Today the founder is the only moderator and the only alert recipient. That is acceptable while hosting is limited to approved hosts the founder knows, but a backup with working alert access is required before switching hosting to "all members". Review procedures at launch and after material changes; record legal sign-off separately. Confirm the published Terms, Privacy Policy and Child Safety Standards match actual deployed practices.
+Assign a named primary owner and backup in a private runbook (names and contacts there, not here). There are two admin keys, listed in `ADMIN_PUBKEYS` in `src/lib/adminAuth.ts`: the founder's (primary, `ADMIN_PUBKEY`) and a backup moderator's (`BACKUP_ADMIN_PUBKEY`). Both are full site admins with the same powers on every admin route, both receive every report alert and access-request DM, and the action log records whichever key acted. The daily account-deletion digest still goes to the primary only. A backup with working alert access is required before switching hosting to "all members": confirm on Production that the backup actually reads the alerts (see the launch checklist). Review procedures at launch and after material changes; record legal sign-off separately. Confirm the published Terms, Privacy Policy and Child Safety Standards match actual deployed practices.

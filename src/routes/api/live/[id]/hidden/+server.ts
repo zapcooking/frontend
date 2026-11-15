@@ -32,7 +32,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { readBodyCapped } from '$lib/live/body.server';
 import { logAction } from '$lib/live/safety.server';
 import {
@@ -97,12 +97,12 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
       !HEX64.test(pubkey) ||
       typeof input.hidden !== 'boolean' ||
       (scope !== 'host' && scope !== 'global') ||
-      (input.hidden && (pubkey === row.host_pubkey || pubkey === ADMIN_PUBKEY))
+      (input.hidden && (pubkey === row.host_pubkey || ADMIN_PUBKEYS.includes(pubkey)))
     ) {
       return json({ error: 'bad_request' }, { status: 400, headers: NO_STORE });
     }
 
-    const isAdmin = signer === ADMIN_PUBKEY;
+    const isAdmin = ADMIN_PUBKEYS.includes(signer);
     if (scope === 'global' ? !isAdmin : !(isAdmin || signer === row.host_pubkey)) {
       return json({ error: 'forbidden' }, { status: 403, headers: NO_STORE });
     }
