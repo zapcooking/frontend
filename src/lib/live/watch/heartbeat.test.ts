@@ -182,11 +182,24 @@ describe('display', () => {
     expect(sessionToStreamItem({ ...goLiveSession(), watching: 0 }).viewers).toBeNull();
   });
 
-  it('writes the ended line, with sats only when there are some', () => {
+  it('writes the ended line in plain words, with sats only when there are some', () => {
     expect(endedStatsLine({ peakWatching: 12, joins: 30 }, 2100)).toBe(
-      `Peak 12 watching · 30 joins · ${(2100).toLocaleString()} sats`
+      `30 people joined, with up to 12 watching at once. You got ${(2100).toLocaleString()} sats in zaps.`
     );
-    expect(endedStatsLine({ peakWatching: 1, joins: 1 }, 0)).toBe('Peak 1 watching · 1 join');
+    expect(endedStatsLine({ peakWatching: 3, joins: 3 }, 0)).toBe(
+      '3 people joined, with up to 3 watching at once.'
+    );
+    expect(endedStatsLine({ peakWatching: 1, joins: 1 }, 1)).toBe(
+      '1 person joined. You got 1 sat in zaps.'
+    );
+    expect(endedStatsLine({ peakWatching: 1, joins: 4 }, 0)).toBe(
+      '4 people joined, one at a time.'
+    );
+    // A reload can count one person twice: "at once" never exceeds joins.
+    expect(endedStatsLine({ peakWatching: 3, joins: 2 }, 0)).toBe(
+      '2 people joined, with up to 2 watching at once.'
+    );
+    expect(endedStatsLine({ peakWatching: 0, joins: 0 }, 0)).toBe('Nobody tuned in this time.');
   });
 });
 

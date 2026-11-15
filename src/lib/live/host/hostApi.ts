@@ -354,14 +354,29 @@ export async function readWatchingNow(
   }
 }
 
-/** "Peak 12 watching · 30 joins · 2,100 sats" (sats left out when there are none). */
+/**
+ * The ended screen's summary, in plain words:
+ *   "30 people joined, with up to 12 watching at once. You got 2,100 sats in zaps."
+ * The "at once" number never exceeds the people who joined (a reload can
+ * briefly count one person twice). Sats are left out when there are none.
+ */
 export function endedStatsLine(stats: LiveStats, sats: number): string {
-  const parts = [
-    `Peak ${stats.peakWatching.toLocaleString()} watching`,
-    `${stats.joins.toLocaleString()} ${stats.joins === 1 ? 'join' : 'joins'}`
-  ];
-  if (Number.isFinite(sats) && sats > 0) parts.push(`${Math.floor(sats).toLocaleString()} sats`);
-  return parts.join(' · ');
+  const joins = stats.joins;
+  const peak = joins > 0 ? Math.min(stats.peakWatching, joins) : stats.peakWatching;
+  let line: string;
+  if (joins === 0) {
+    line = 'Nobody tuned in this time.';
+  } else {
+    line = `${joins.toLocaleString()} ${joins === 1 ? 'person' : 'people'} joined`;
+    if (joins > 1 && peak > 1) line += `, with up to ${peak.toLocaleString()} watching at once.`;
+    else if (joins > 1 && peak <= 1) line += ', one at a time.';
+    else line += '.';
+  }
+  if (Number.isFinite(sats) && sats >= 1) {
+    const n = Math.floor(sats);
+    line += ` You got ${n.toLocaleString()} ${n === 1 ? 'sat' : 'sats'} in zaps.`;
+  }
+  return line;
 }
 
 /**
