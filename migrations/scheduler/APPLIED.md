@@ -17,7 +17,7 @@ again.
 | `0007_live_rollout_and_safety.sql` | 2026-11-14 (#977) | 2026-11-15 (#977) |
 | `0008_add_live_watching_counts.sql` | 2026-11-15 (#984) | 2026-11-15 (#984) |
 | `0009_live_terms_acceptance.sql` | 2026-11-15 (#986) | 2026-11-15 (#986), after #985 was live |
-| `0010_live_metrics.sql` | **not applied** | **not applied** — after the Privacy §9 lines (go-live-moderation.md §4) are live |
+| `0010_live_metrics.sql` | 2026-11-15 (#991; 25 objects) | **not applied** — after the Privacy §9 lines (go-live-moderation.md §4) are live |
 
 ## Applying a new migration
 
