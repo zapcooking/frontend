@@ -89,7 +89,8 @@ export async function blockHost(
  * block is NOT removed: deleting an account must not lift it. The hosting
  * agreement is removed too, unless one of the rows is under a hold or the
  * account is blocked from hosting (the sweep removes it once neither is
- * true: cleanupTermsAcceptances).
+ * true: cleanupTermsAcceptances). The account is removed from the
+ * approved-hosts list: a returning key asks again.
  */
 export async function purgeLiveSessions(
   db: LiveDb,
@@ -101,5 +102,9 @@ export async function purgeLiveSessions(
   }
   const removed = await deleteRowsForHost(db, pubkey);
   await deleteTermsAcceptancesFor(db, pubkey);
+  await db
+    .prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?1')
+    .bind(pubkey.toLowerCase())
+    .run();
   return removed;
 }

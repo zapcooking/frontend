@@ -5,12 +5,17 @@
    * opens a report hold (the record is kept until the admin releases it)
    * and DMs the admin. The admin reviews it, ends the stream or blocks the
    * host from /admin/live. No picture is captured. A comment report
-   * carries the comment's event id and author.
+   * carries the comment's event id and author, and is signed (NIP-98):
+   * the server only takes comment reports from signed-in users. A stream
+   * report is never signed.
    */
   import Modal from '../Modal.svelte';
   import FlagIcon from 'phosphor-svelte/lib/Flag';
   import { showToast } from '$lib/toast';
   import { LIVE_REPORT_DETAILS_MAX, type LiveReportReason } from '$lib/live/config';
+  import { get } from 'svelte/store';
+  import { ndk } from '$lib/nostr';
+  import { signNip98AuthHeader } from '$lib/nip98';
 
   export let sessionId: string;
   /** Report this comment instead of the stream. */
@@ -32,16 +37,28 @@
   let sending = false;
 
   async function send(): Promise<{ ok: boolean; error?: string }> {
+    const path = `/api/live/${sessionId}/report`;
+    const body = JSON.stringify({
+      reason,
+      details: note.trim().slice(0, LIVE_REPORT_DETAILS_MAX),
+      ...(comment ? { comment: { id: comment.id, pubkey: comment.pubkey } } : {})
+    });
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (comment) {
+      // The server only takes comment reports signed by a signed-in user.
+      try {
+        headers.Authorization = await signNip98AuthHeader(get(ndk), {
+          method: 'POST',
+          url: `${location.origin}${path}`,
+          bodyString: body
+        });
+      } catch {
+        return { ok: false, error: 'sign_failed' };
+      }
+    }
     try {
-      const res = await fetch(`/api/live/${sessionId}/report`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reason,
-          details: note.trim().slice(0, LIVE_REPORT_DETAILS_MAX),
-          ...(comment ? { comment: { id: comment.id, pubkey: comment.pubkey } } : {})
-        })
-      });
+      const res = await fetch(path, { method: 'POST', headers, body });
+      if (res.status === 401) return { ok: false, error: 'sign_failed' };
       if (res.status === 429) return { ok: false, error: 'rate_limited' };
       if (res.status === 503) return { ok: false, error: 'not_stored' };
       return res.ok ? { ok: true } : { ok: false, error: 'network' };
@@ -64,9 +81,11 @@
         'error',
         result.error === 'rate_limited'
           ? 'Too many reports from here. Please try again in a few minutes.'
-          : result.error === 'not_stored'
-            ? 'Something went wrong. Please email support@zap.cooking.'
-            : 'The report could not be sent. Check your connection and try again.'
+          : result.error === 'sign_failed'
+            ? 'Reporting a comment needs you to be signed in. Approve the request in your signer and try again.'
+            : result.error === 'not_stored'
+              ? 'Something went wrong. Please email support@zap.cooking.'
+              : 'The report could not be sent. Check your connection and try again.'
       );
     }
   }

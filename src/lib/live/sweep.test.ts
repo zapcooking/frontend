@@ -3,7 +3,7 @@
  * (migration 0004); Cloudflare is the stub in src/test/liveStreamStub.ts.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createLiveDatabase } from '../../test/liveDatabase';
+import { approveHosts, createLiveDatabase } from '../../test/liveDatabase';
 import { createStreamStub, STUB_ACCOUNT } from '../../test/liveStreamStub';
 import { purgeLiveSessions } from './admin.server';
 import { runLiveSweep } from './sweep.server';
@@ -533,5 +533,31 @@ describe('purgeLiveSessions (account deletion)', () => {
     expect(await purgeLiveSessions(db, cfg, HOST)).toBe(1);
     expect(get(held)).toBeDefined();
     expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_blocked_hosts').get().c).toBe(1);
+  });
+
+  it('removes the account from the approved-hosts list, and only that account', async () => {
+    approveHosts(db, HOST, OTHER_HOST);
+    await purgeLiveSessions(db, cfg, HOST);
+    const approved = db.raw
+      .prepare('SELECT pubkey FROM live_approved_hosts WHERE pubkey IN (?, ?)')
+      .all(HOST, OTHER_HOST)
+      .map((r: { pubkey: string }) => r.pubkey);
+    expect(approved).toEqual([OTHER_HOST]);
+  });
+
+  it('removes the approved-hosts row and the hosting agreement together; a block keeps only the agreement', async () => {
+    approveHosts(db, HOST, OTHER_HOST); // also records each one's agreement
+    db.raw.prepare('INSERT INTO live_blocked_hosts (pubkey, created_at) VALUES (?, ?)').run(OTHER_HOST, NOW);
+    await purgeLiveSessions(db, cfg, HOST);
+    await purgeLiveSessions(db, cfg, OTHER_HOST);
+    const left = (table: string) =>
+      db.raw
+        .prepare(`SELECT pubkey FROM ${table} WHERE pubkey IN (?, ?) ORDER BY pubkey`)
+        .all(HOST, OTHER_HOST)
+        .map((r: { pubkey: string }) => r.pubkey);
+    expect(left('live_approved_hosts')).toEqual([]);
+    // The blocked account's agreement is kept (Seth's ruling); the other is gone.
+    expect(left('live_terms_acceptance')).toEqual([OTHER_HOST]);
+    expect(left('live_blocked_hosts')).toEqual([OTHER_HOST]);
   });
 });
