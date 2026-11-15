@@ -23,6 +23,7 @@ No *application-level per-viewer records* are proposed. Do not claim 'no viewer 
 - Rate limit: the sender's IP address goes to that object for the limit only, where it is hashed with a random salt that exists only in the object's memory, and kept for one minute with two counters (heartbeats and new codes). It is never linked to a code.
 - After the stream, two integers stay on the session row: the peak watching count and total joins (viewers the play relay admitted, members and guests together, not counting rejoins on a pass or the host). They are shown only to the host, and are deleted with the row (30 days, or later under a hold).
 - Heartbeats do not touch the guest cap or the pass ceiling.
+- Edge limit: one Cloudflare rate-limiting rule (the plan allows one): the existing join rule is extended to cover `/api/live/*/join`, `/api/live/*/heartbeat` and `/api/live/*/watching`. Its counters are Cloudflare's, at the edge; the app stores nothing for it.
 
 A one-way hash of an IP address can remain personal data; use limited-purpose, keyed pseudonymization where practicable and explain the purpose and retention.
 
@@ -33,6 +34,6 @@ A one-way hash of an IP address can remain personal data; use limited-purpose, k
 
 **Elsewhere (still open, #978):** the shared per-IP limiter's hash, used by Reads reports, keyword hits, rate-limit counters and (through a similar helper) Nourish flags, is still an unkeyed daily-salted SHA-256. Treat those as reversible while their salt exists (3 days).
 
-Cloudflare also processes viewer and reporter IP addresses at the edge for delivery and for the rate-limiting rule on stream joins. That processing should be covered by the Cloudflare disclosure in the Privacy Policy, even though Zap Cooking's application stores no viewer records. Ensure policies accurately identify processors, data flows and cross-border transfer arrangements. Verify Cloudflare's current DPA and relevant product terms.
+Cloudflare also processes viewer and reporter IP addresses at the edge for delivery and for the rate-limiting rule on stream joins, heartbeats and watching-count reads. That processing should be covered by the Cloudflare disclosure in the Privacy Policy, even though Zap Cooking's application stores no viewer records. Ensure policies accurately identify processors, data flows and cross-border transfer arrangements. Verify Cloudflare's current DPA and relevant product terms.
 
 Privacy notices should allow retention when necessary for legitimate investigations, legal preservation or compliance; avoid an absolute deletion guarantee.

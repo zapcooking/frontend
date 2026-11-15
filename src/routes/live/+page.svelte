@@ -36,6 +36,7 @@
     mergeLiveItems,
     sessionToStreamItem,
     streamPath,
+    watchingCount,
     watchingLabel,
     type GoLiveSession,
     type RecipeCard
@@ -283,11 +284,12 @@
             >
               {item.status === 'ended' ? 'Replay' : item.status === 'planned' ? 'Soon' : 'Live'}
             </span>
-            {#if item.viewers != null && item.status === 'live'}
+            <!-- "N watching" on every live card, Go live and Nostr alike, from 1 up. -->
+            {#if watchingCount(item.viewers) != null && item.status === 'live'}
               <span
                 class="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white"
               >
-                {isGoLiveItem(item) ? watchingLabel(item.viewers) : item.viewers.toLocaleString()}
+                {watchingLabel(item.viewers ?? 0)}
               </span>
             {/if}
           </div>

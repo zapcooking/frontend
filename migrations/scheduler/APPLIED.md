@@ -15,7 +15,7 @@ again.
 | `0005_add_live_pass_rejoins.sql` | 2026-11-14 (#967) | 2026-11-14 (#967) |
 | `0006_add_live_note_id.sql` | 2026-11-14 (#974) | 2026-11-14 (#974) |
 | `0007_live_rollout_and_safety.sql` | 2026-11-14 (#977) | 2026-11-15 (#977) |
-| `0008_add_live_watching_counts.sql` | **not applied** | **not applied** |
+| `0008_add_live_watching_counts.sql` | 2026-11-15 (#984) | **not applied** — waits for Seth's go |
 
 ## Applying a new migration
 

@@ -149,6 +149,7 @@ hold**.
 
 ## 5. Before production
 
+- One Cloudflare rate-limiting rule (the plan allows one): the existing join rule is extended to cover `/api/live/*/join`, `/api/live/*/heartbeat` and `/api/live/*/watching`. Seth edits it in the dashboard (#984).
 - Apply migration `0007_live_rollout_and_safety.sql` to preview, then
   production (see `migrations/scheduler/APPLIED.md`).
 - Set `NOTIFICATION_PRIVATE_KEY` on every environment that should send

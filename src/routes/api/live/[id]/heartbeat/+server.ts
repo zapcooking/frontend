@@ -18,6 +18,9 @@
  * object for the rate limit only, where it is salted, hashed and kept for
  * one minute with two counters, never linked to a code.
  *
+ * At the edge, the zone's one rate-limiting rule (the join rule, extended)
+ * also covers this path and ../watching.
+ *
  * Heartbeats do not touch the guest cap, the pass ceiling or the joins
  * count. When the count passes the session's stored peak, the peak is
  * raised (one conditional update): that and `joins` are the only numbers
