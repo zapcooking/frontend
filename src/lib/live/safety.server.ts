@@ -172,6 +172,26 @@ export async function lastModeSet(db: LiveDb): Promise<LiveHostingMode | null> {
   return after === 'members' || after === 'approved' ? after : null;
 }
 
+/**
+ * Whether the admin last switched Go live off (true) or back on (false),
+ * from the action log; null when never switched. A switch whose KV flag
+ * could not be written is ignored (it did not take effect).
+ */
+export async function lastOffSet(db: LiveDb): Promise<boolean | null> {
+  const row = await db
+    .prepare(
+      `SELECT detail FROM live_actions
+        WHERE action = 'off' AND detail NOT LIKE '%NOT written%'
+        ORDER BY occurred_at DESC, rowid DESC LIMIT 1`
+    )
+    .bind()
+    .first<{ detail: string }>();
+  if (!row) return null;
+  if (row.detail.startsWith('switched off')) return true;
+  if (row.detail.startsWith('switched on')) return false;
+  return null;
+}
+
 // ── Reports and holds ────────────────────────────────────────────────
 
 /**

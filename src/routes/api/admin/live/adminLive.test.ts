@@ -748,3 +748,25 @@ describe('mode display', () => {
     expect((await adminList()).data.mode_set).toBe('members');
   });
 });
+
+describe('off switch display (off_set)', () => {
+  it('reports the last switch from the log, over a stale KV read', async () => {
+    expect((await adminList()).data.off_set).toBeNull();
+    await admin({ action: 'off', on: true });
+    expect((await adminList()).data.off_set).toBe(true);
+    await admin({ action: 'off', on: false });
+    kv.data.set('live:off', '1'); // a stale read here still says off
+    const { data } = await adminList();
+    expect(data.off).toBe(true);
+    expect(data.off_set).toBe(false);
+  });
+
+  it('ignores a switch whose flag could not be written', async () => {
+    await admin({ action: 'off', on: false });
+    kv.failWrites = true;
+    const { data } = await admin({ action: 'off', on: true });
+    expect(data.flag_written).toBe(false);
+    kv.failWrites = false;
+    expect((await adminList()).data.off_set).toBe(false);
+  });
+});

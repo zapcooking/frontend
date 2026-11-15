@@ -1,7 +1,7 @@
 /** Go live KV keys are separate per environment (preview and production share one namespace). */
 import { describe, it, expect } from 'vitest';
 import { liveEnvSegment, liveKvKey, liveReportRateScope } from './config';
-import { adminActionError, displayedMode } from './adminClient';
+import { adminActionError, displayedMode, displayedOff } from './adminClient';
 
 describe('liveKvKey', () => {
   it('keeps the unprefixed production names (live:off is unchanged)', () => {
@@ -44,5 +44,14 @@ describe('admin page helpers', () => {
     expect(displayedMode('members', 'approved')).toEqual({ mode: 'approved', applying: true });
     expect(displayedMode('approved', 'approved')).toEqual({ mode: 'approved', applying: false });
     expect(displayedMode('members', null)).toEqual({ mode: 'members', applying: false });
+  });
+});
+
+describe('off switch display', () => {
+  it('shows the last logged switch over a lagging KV read', () => {
+    expect(displayedOff(false, true)).toEqual({ off: true, applying: true });
+    expect(displayedOff(true, false)).toEqual({ off: false, applying: true });
+    expect(displayedOff(true, true)).toEqual({ off: true, applying: false });
+    expect(displayedOff(true, null)).toEqual({ off: true, applying: false });
   });
 });

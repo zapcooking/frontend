@@ -23,7 +23,7 @@
   import { isAdmin } from '$lib/adminAuth';
   import { signNip98AuthHeader } from '$lib/nip98';
   import { showToast } from '$lib/toast';
-  import { adminActionError, displayedMode } from '$lib/live/adminClient';
+  import { adminActionError, displayedMode, displayedOff } from '$lib/live/adminClient';
 
   interface Session {
     id: string;
@@ -94,7 +94,11 @@
   let blocked: Listed[] = [];
   let incidents: Incident[] = [];
   let actions: Action[] = [];
-  let off = false;
+  /** The off flag as KV reads it (can lag ~1 min) and as last switched (action log). */
+  let offRead = false;
+  let offSet: boolean | null = null;
+  $: offShown = displayedOff(offRead, offSet);
+  $: off = offShown.off;
   /** The mode as KV reads it (can lag ~1 min) and as last switched (action log). */
   let modeRead: 'approved' | 'members' = 'approved';
   let modeSet: 'approved' | 'members' | null = null;
@@ -131,7 +135,8 @@
       blocked = data.blocked ?? [];
       incidents = data.incidents ?? [];
       actions = data.actions ?? [];
-      off = !!data.off;
+      offRead = !!data.off;
+      offSet = typeof data.off_set === 'boolean' ? data.off_set : null;
       modeRead = data.mode === 'members' ? 'members' : 'approved';
       modeSet = data.mode_set === 'members' || data.mode_set === 'approved' ? data.mode_set : null;
       loaded = true;
@@ -175,7 +180,18 @@
       if (body.action === 'mode' && (data.mode === 'members' || data.mode === 'approved')) {
         modeSet = data.mode;
       }
+      if (body.action === 'off' && data.flag_written === true && typeof data.off === 'boolean') {
+        offSet = data.off;
+      }
       await load();
+      if (body.action === 'off' && data.flag_written === false) {
+        fail(
+          'The off switch could not be saved (KV). ' +
+            (body.on ? `Open streams were still ended (${data.ended ?? 0}).` : 'Nothing changed.') +
+            ' Try again.'
+        );
+        return false;
+      }
       if (data.logged === false) fail('Done, but the action log entry could not be written.');
       return true;
     } finally {
@@ -257,13 +273,36 @@
   {:else if loadError}
     <div class="status status-error">{loadError}</div>
   {:else}
-    {#if off}<p class="status-error">Go live is switched off for everyone.</p>{/if}
     {#if actionError}
       <div class="action-error" role="alert">
         <span>{actionError}</span>
         <button on:click={() => (actionError = '')} aria-label="Dismiss">✕</button>
       </div>
     {/if}
+
+    <h2>Go live switch</h2>
+    <div class="card">
+      <div class="row">
+        <strong class:off-label={off}>{off ? 'Go live is OFF for everyone' : 'Go live is on'}</strong>
+        {#if offShown.applying}<span class="flag">Applying everywhere (up to a minute)</span>{/if}
+        {#if off}
+          <button disabled={busy} on:click={() => act({ action: 'off', on: false }, 'Switch Go live back on? Nothing is restarted.')}
+            >Switch back on</button
+          >
+        {:else}
+          <button
+            class="danger"
+            disabled={busy}
+            on:click={() =>
+              act(
+                { action: 'off', on: true },
+                'Switch Go live OFF for everyone? Every open stream ends now, and nobody can start, publish or join until it is switched back on.'
+              )}>Switch off for everyone</button
+          >
+        {/if}
+      </div>
+      <p class="meta">The emergency stop. It ends every open stream at once; the switch itself takes up to a minute to reach every location.</p>
+    </div>
 
     <h2>Who can host</h2>
     <div class="card">
@@ -511,6 +550,9 @@
     padding: 1.25rem;
     text-align: center;
     color: var(--color-text-secondary);
+  }
+  .off-label {
+    color: var(--color-danger);
   }
   .action-error {
     position: sticky;

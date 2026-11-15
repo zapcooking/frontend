@@ -40,3 +40,9 @@ export function displayedMode(
   const mode = set ?? read;
   return { mode, applying: set !== null && read !== set };
 }
+
+/** Whether the page shows Go live as off: the last logged switch wins over a lagging KV read. */
+export function displayedOff(read: boolean, set: boolean | null): { off: boolean; applying: boolean } {
+  const off = set ?? read;
+  return { off, applying: set !== null && read !== set };
+}

@@ -10,9 +10,10 @@
  * write failed (the action itself has happened).
  *
  * GET /api/admin/live
- *   200: { off, mode, mode_set, sessions, approved, requests, blocked, incidents, actions }
+ *   200: { off, off_set, mode, mode_set, sessions, approved, requests, blocked, incidents, actions }
  *     mode       the hosting mode as KV reads it here (can lag ~1 min after a switch)
  *     mode_set   the mode last switched to, from the action log (null = never)
+ *     off_set    whether Go live was last switched off, from the log (null = never)
  *     sessions   open ones, ended ones whose input is not confirmed
  *                deleted, and every one under an open report hold (no
  *                input id, token or lock)
@@ -60,6 +61,7 @@ import { isLiveOff, setLiveOff } from '$lib/live/killSwitch.server';
 import {
   getHostingMode,
   lastModeSet,
+  lastOffSet,
   listActions,
   listIncidents,
   logAction,
@@ -125,6 +127,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
         off: await isLiveOff(platform),
         mode: await getHostingMode(platform),
         mode_set: await lastModeSet(db),
+        off_set: await lastOffSet(db),
         sessions: await listSessionsForAdmin(db, 100),
         approved: await listApprovedHosts(db),
         requests: await pendingWithMembership(platform, db),
