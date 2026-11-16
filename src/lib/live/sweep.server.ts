@@ -31,7 +31,12 @@
  *     carry this environment's name prefix, are older than ten minutes
  *     and are not recorded on any row.
  *
- *  4. Delete ended rows older than 30 days.
+ *  4. Close out ended sessions (metrics): record each one's viewer time
+ *     and zaps and fold it into its host's month (see metrics.server.ts),
+ *     a few minutes after it ended. Only when `metrics` is given.
+ *
+ *  5. Delete ended rows older than 30 days, and monthly rows older than
+ *     24 months.
  *
  * Every step is safe to run twice at once: each write is conditional on
  * what the sweep saw, and deleting an input that is already gone is fine.
@@ -50,6 +55,12 @@ import {
   LIVE_SWEEP_BATCH,
   LIVE_SWEEP_BUDGET_MS
 } from './config';
+import {
+  closeOutEndedSessions,
+  deleteOldMonthly,
+  type CloseOutSummary,
+  type MetricsDeps
+} from './metrics.server';
 import { removeInputAfterEnd } from './relay.server';
 import { cleanupSafetyRecords } from './safety.server';
 import {
@@ -84,6 +95,8 @@ export interface SweepSummary {
   retried: { deleted: number; pending: number };
   orphans: { listed: number | null; candidates: number; deleted: number; failed: number };
   rowsDeleted: number;
+  metrics: CloseOutSummary;
+  monthlyDeleted: number;
   outOfTime: boolean;
   streamConfigured: boolean;
 }
@@ -93,6 +106,8 @@ export interface SweepOptions {
   /** Milliseconds clock for the time budget. Injectable for tests. */
   clockMs?: () => number;
   budgetMs?: number;
+  /** The presence object and relays, for the metrics close-out. Skipped when absent. */
+  metrics?: MetricsDeps;
 }
 
 /** One log line per reading acted on. Session id and status words only. */
@@ -128,6 +143,8 @@ export async function runLiveSweep(
     retried: { deleted: 0, pending: 0 },
     orphans: { listed: null, candidates: 0, deleted: 0, failed: 0 },
     rowsDeleted: 0,
+    metrics: { recorded: 0, gaveUp: 0, retry: 0, waiting: 0 },
+    monthlyDeleted: 0,
     outOfTime: false,
     streamConfigured: cfg !== null
   };
@@ -269,13 +286,20 @@ export async function runLiveSweep(
     );
   }
 
-  // ── 4. Retention ───────────────────────────────────────────────────
+  // ── 4. Metrics close-out ───────────────────────────────────────────
+  // Before retention, so a row is never deleted before it is recorded.
+  if (opts.metrics && !outOfTime()) {
+    summary.metrics = await closeOutEndedSessions(db, opts.metrics, now, outOfTime);
+  }
+
+  // ── 5. Retention ───────────────────────────────────────────────────
   if (!outOfTime()) {
     // Reports first (90 days unless a hold is open), so a session whose
     // reports have aged out can then go with the 30-day rule.
     await cleanupSafetyRecords(db, now);
     summary.rowsDeleted = await deleteOldEndedRows(db, now - LIVE_ROW_RETENTION_SECONDS);
     if (summary.rowsDeleted > 0) console.log(`[LiveSweep] rows_deleted=${summary.rowsDeleted}`);
+    summary.monthlyDeleted = await deleteOldMonthly(db, now);
   }
 
   if (summary.outOfTime)

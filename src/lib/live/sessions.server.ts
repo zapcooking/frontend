@@ -698,13 +698,16 @@ export async function listRecordedInputs(db: LiveDb): Promise<Set<string>> {
  * age: a row that still has an input to delete (until that is done), and
  * a reported row: while its hold is open, and after release until its
  * reports have aged out (the report retention, 90 days), so a report
- * never outlives the session it is about.
+ * never outlives the session it is about. A row not recorded by the
+ * metrics close-out yet (metrics_at NULL, migration 0010) is kept until
+ * it is, so it is never lost from the monthly totals.
  */
 export async function deleteOldEndedRows(db: LiveDb, endedBefore: number): Promise<number> {
   const result = await db
     .prepare(
       `DELETE FROM live_sessions
         WHERE status = 'ended' AND ended_at < ?1 AND cf_input_uid IS NULL
+          AND metrics_at IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM live_holds h WHERE h.session_id = live_sessions.id)
           AND NOT EXISTS (SELECT 1 FROM live_reports r WHERE r.session_id = live_sessions.id)`
     )

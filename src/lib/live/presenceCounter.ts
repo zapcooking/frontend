@@ -17,6 +17,13 @@
  * `newCodesPerWindow` codes per window. The source is never linked to a
  * code: the counter keeps two numbers per source, not which codes it sent.
  * `maxCodes` bounds memory for the whole session.
+ *
+ * Viewer time. Each heartbeat from a code that is already counted adds the
+ * time since that code's previous heartbeat, capped at one window, to a
+ * running total (`viewerMs`). A code's first heartbeat adds nothing, and
+ * the time after its last heartbeat is not counted, so the total runs a
+ * little low (up to one heartbeat interval per viewer page). It is one
+ * number per session: nothing per viewer is kept for it.
  */
 
 export interface PresenceLimits {
@@ -74,6 +81,8 @@ export class PresenceCounter {
   /** source → counters for its current window. */
   private buckets = new Map<string, Bucket>();
   private peakSeen = 0;
+  /** Total viewer time heard so far, all codes (ms). */
+  private viewerMsTotal = 0;
 
   constructor(private readonly limits: PresenceLimits = DEFAULT_PRESENCE_LIMITS) {}
 
@@ -108,6 +117,8 @@ export class PresenceCounter {
         return { ok: true, watching: this.codes.size, peak: this.peakSeen, newPeak: false };
       }
       bucket.newCodes++;
+    } else {
+      this.viewerMsTotal += Math.min(Math.max(0, now - (seen ?? now)), this.limits.windowMs);
     }
     this.codes.set(code, now);
     const watching = this.codes.size;
@@ -130,6 +141,16 @@ export class PresenceCounter {
   /** Put back the peak after a restart (it never moves down). */
   restorePeak(peak: number): void {
     if (Number.isSafeInteger(peak) && peak > this.peakSeen) this.peakSeen = peak;
+  }
+
+  /** Put back the viewer-time total after a restart (it never moves down). */
+  restoreViewerMs(ms: number): void {
+    if (Number.isSafeInteger(ms) && ms > this.viewerMsTotal) this.viewerMsTotal = ms;
+  }
+
+  /** Total viewer time heard so far (ms). */
+  get viewerMs(): number {
+    return this.viewerMsTotal;
   }
 
   /** Whether this code is currently counted. */

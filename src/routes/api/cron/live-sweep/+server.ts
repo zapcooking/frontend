@@ -15,6 +15,8 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { readLiveEnv } from '$lib/live/env.server';
+import { fetchNoteZapSats } from '$lib/live/metrics.server';
+import { finishPresence, readPresenceTotals } from '$lib/live/presence.server';
 import { runLiveSweep } from '$lib/live/sweep.server';
 import type { LiveDb } from '$lib/live/sessions.server';
 import { readStreamConfig } from '$lib/live/stream.server';
@@ -52,7 +54,15 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       console.error(
         '[LiveSweep] Stream is not configured; statuses cannot be read and inputs cannot be deleted'
       );
-    const summary = await runLiveSweep(db, cfg);
+    // Provider lookups shared by this run (one per host).
+    const providers = new Map();
+    const summary = await runLiveSweep(db, cfg, {
+      metrics: {
+        readTotals: (id) => readPresenceTotals(platform, id),
+        finish: (id) => finishPresence(platform, id),
+        zapSats: (noteId, host) => fetchNoteZapSats(noteId, host, { providers })
+      }
+    });
     return json(summary, { headers: NO_STORE });
   } catch (err) {
     console.error(`[LiveSweep] failed: ${(err as Error)?.name ?? 'error'}`);

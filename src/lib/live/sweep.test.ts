@@ -37,6 +37,8 @@ interface RowInit {
   started?: number | null;
   ended?: number | null;
   streak?: number;
+  /** Ended rows count as recorded by the metrics close-out unless this is false. */
+  recorded?: boolean;
 }
 
 /** Insert a session row; returns its id. A live row gets an input unless told otherwise. */
@@ -68,6 +70,9 @@ function row(init: RowInit = {}): string {
       init.streak ?? 0
     );
   if (uid && status !== 'ended') cf.add({ uid, name: `zc-live-${id}` });
+  if (status === 'ended' && init.recorded !== false) {
+    db.raw.prepare('UPDATE live_sessions SET metrics_at = ended_at WHERE id = ?').run(id);
+  }
   return id;
 }
 
@@ -402,6 +407,14 @@ describe('retention', () => {
     cf.deleteStatus = 200;
     await sweep(NOW + MIN);
     expect(get(oldWithInput)).toBeUndefined();
+  });
+
+  it('keeps an old row until the metrics close-out has recorded it', async () => {
+    const unrecorded = row({ status: 'ended', uid: null, ended: NOW - 40 * DAY, recorded: false });
+    expect((await sweep()).rowsDeleted).toBe(0);
+    expect(get(unrecorded)).toBeDefined();
+    db.raw.prepare('UPDATE live_sessions SET metrics_at = ? WHERE id = ?').run(NOW, unrecorded);
+    expect((await sweep(NOW + MIN)).rowsDeleted).toBe(1);
   });
 
   it('keeps a reported row while its hold is open, and until its reports age out after release', async () => {

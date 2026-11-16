@@ -25,8 +25,9 @@
  *
  * Heartbeats do not touch the guest cap, the pass ceiling or the joins
  * count. Each beat raises the session's stored peak to the object's peak
- * if it is higher (one conditional update, so a missed write catches up): that and `joins` are the only numbers
- * kept after the stream.
+ * if it is higher (one conditional update, so a missed write catches up).
+ * The object also sums viewer time; the sweep records that on the row
+ * after the stream (src/lib/live/metrics.server.ts).
  *
  * Replies:
  *   200                  counted (or already counted)
