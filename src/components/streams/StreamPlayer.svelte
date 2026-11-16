@@ -1,43 +1,48 @@
 <script lang="ts">
   /**
-   * The embedded player surface for /live/[naddr] and /live/s/[id]: video
-   * engine, host row, zap bolt + total, and the About panel. Comments
-   * (NIP-22) live on the page, not in the player.
+   * The embedded player surface for /live/[naddr] and /live/s/[id]: the
+   * video engine, the host row with Save/About, and the About panel. The
+   * zap strip, goal and top zappers live under the video in StreamView;
+   * comments (NIP-22) are not rendered on stream pages.
    */
+  import TextAlignLeftIcon from 'phosphor-svelte/lib/TextAlignLeft';
+  import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
+  import LiveAvatar from './LiveAvatar.svelte';
+  import { pseudonym } from '$lib/streams/parse';
+  import { loadSaved, toggleSavedItem } from '$lib/streams/saved';
+  import { selectStream, streamPlayer, updateStreamItem } from '$lib/stores/streamPlayer';
+  import { streamSlot } from '$lib/stores/streamSlot';
+  import { openProfilePreview } from '$lib/stores/profilePreview';
+  import StreamAbout from './StreamAbout.svelte';
+  import { fetchProfile } from '$lib/streams/fetch';
+  import { DISCOVERY_RELAYS } from '$lib/streams/relays';
   import { onMount, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { browser } from '$app/environment';
   import type { SimplePool } from 'nostr-tools/pool';
-  import TextAlignLeftIcon from 'phosphor-svelte/lib/TextAlignLeft';
-  import LiveAvatar from './LiveAvatar.svelte';
-  import { pseudonym } from '$lib/streams/parse';
   import { isGoLiveItem, streamPath } from '$lib/streams/goLive';
   import { getSiteOrigin } from '$lib/utils/share';
   import LiveShareButton from './LiveShareButton.svelte';
-  import { selectStream, streamPlayer, updateStreamItem } from '$lib/stores/streamPlayer';
-  import { streamSlot } from '$lib/stores/streamSlot';
-  import { openProfilePreview } from '$lib/stores/profilePreview';
-  import StreamZapTotal from './StreamZapTotal.svelte';
-  import StreamAbout from './StreamAbout.svelte';
-  import { fetchProfile } from '$lib/streams/fetch';
-  import { DISCOVERY_RELAYS } from '$lib/streams/relays';
-  import { createEventDispatcher } from 'svelte';
-  import type { StreamZapTally } from '$lib/streams/streamZaps';
   import type { StreamItem } from '$lib/streams/types';
 
   export let item: StreamItem;
   /** The shared nostr-tools pool from the route page (announcement + profile reads). */
   export let pool: SimplePool;
-  /** Zap tally owned by the page (shared with the chat's top-zappers strip). */
-  export let tally: StreamZapTally | null = null;
-  export let tallyLoading = false;
-
-  const dispatch = createEventDispatcher<{ zapComplete: void }>();
 
   let showAbout = false;
   let hostName: string | null = null;
   let hostPicture: string | null = null;
-  let hostLud16: string | null = null;
+
+  // Saved streams (localStorage). NIP-53 streams only: a Go live session has
+  // neither a 30311 address nor a media URL to save.
+  let savedList: ReturnType<typeof loadSaved> = [];
+  onMount(() => {
+    savedList = loadSaved();
+  });
+  function toggleSave() {
+    savedList = toggleSavedItem(item, savedList).items;
+  }
+  $: savedNow = savedList.some((row) => row.key === item.key);
 
   // Browser-only: the player store is a client singleton; SSR must not touch it.
   if (browser) selectStream(item);
@@ -50,13 +55,19 @@
   // survive navigation.
   let slotEl: HTMLElement | null = null;
   /**
-   * The chat section, owned by the page. It drives dock/restore: once the
+   * The chat section, owned by the page, docks the video early: once the
    * chat reaches the upper part of the viewport the user is reading it, so
    * the video docks; when they scroll back so the chat sinks to the lower
    * half, the video returns. Docking collapses the slot and moves the chat
    * further UP — the same direction as the engagement — so this pair of
    * thresholds cannot oscillate, and the page keeps no empty gap where the
    * video used to be.
+   *
+   * The video's own position is the guarantee underneath that: layouts
+   * without a chat marker (wide landscape has no recipe below the video)
+   * never docked at all and let the video scroll half-hidden under the
+   * header. Whatever the marker does, the slot touching the header bottom
+   * always docks, and clearing the header always restores.
    */
   export let chatMarker: HTMLElement | null = null;
   /**
@@ -79,6 +90,15 @@
   const RESTORE_GRACE_MS = 900;
   let restoredAt = -Infinity;
 
+  /**
+   * The clip line: the painted bottom of the fixed header. The video must
+   * never slide behind it.
+   */
+  function headerClip(): number {
+    const blur = document.querySelector('.header-blur');
+    return blur ? blur.getBoundingClientRect().bottom : 75;
+  }
+
   function restoreInline() {
     if (!shrunk || !slotEl) return;
     shrunk = false;
@@ -87,18 +107,46 @@
   }
 
   function updateShrink() {
-    if (!chatMarker || !browser) return;
+    if (!slotEl || !browser) return;
     if (!get(streamPlayer).item) return;
     if (!userScrolled) return;
     if (performance.now() - restoredAt < RESTORE_GRACE_MS) return;
-    const top = chatMarker.getBoundingClientRect().top;
+
     const vh = window.innerHeight;
-    if (!shrunk && top < vh * 0.25) {
-      shrunk = true;
-      streamSlot.set(null);
-    } else if (shrunk && top > vh * 0.5) {
-      restoreInline();
+    const markerTop = chatMarker ? chatMarker.getBoundingClientRect().top : null;
+    // Guaranteed trigger: the slot's own position. The chat marker does not
+    // exist on every layout (wide landscape has no recipe below the video),
+    // and without it the video used to scroll under the header half-clipped.
+    const slotTop = slotEl.getBoundingClientRect().top;
+    const clipLine = headerClip();
+
+    if (!shrunk) {
+      const markerLow = markerTop != null && markerTop < vh * 0.25;
+      const slotClipped = slotTop < clipLine;
+      if (markerLow || slotClipped) {
+        shrunk = true;
+        streamSlot.set(null);
+      }
+    } else {
+      const markerClear = markerTop != null && markerTop > vh * 0.5;
+      // Collapsing the slot can clamp the scroll position to the top on
+      // pages that barely overflow; the slot then sits below the header
+      // with no way to scroll, so only trust this restore while real
+      // upward scroll range is left. A clip-docked video otherwise comes
+      // back through wheel-up, swipe-down or Expand.
+      const scroller = pageScroller();
+      const canScrollUp = scroller ? scroller.scrollTop > 8 : true;
+      const slotClear = slotTop > clipLine + 8 && canScrollUp;
+      if (markerClear || slotClear) restoreInline();
     }
+  }
+
+  /** The element the app scrolls in (a container, not the window). */
+  function pageScroller(): HTMLElement | null {
+    return (
+      (document.querySelector('#app-scroll') as HTMLElement | null) ??
+      (document.scrollingElement as HTMLElement | null)
+    );
   }
 
   /**
@@ -162,9 +210,6 @@
   // The chat marker binds after mount; re-check once it exists.
   $: (chatMarker, updateShrink());
 
-  // The chat marker binds after mount; re-check once it exists.
-  $: (chatMarker, updateShrink());
-
   /**
    * Expand-click while already on this page: take the video back inline.
    * The reader is usually scrolled down at the chat when they tap it, so
@@ -195,14 +240,8 @@
   });
 
   // Derived from the current item: announcement refreshes can change the
-  // host `p` tag, and the displayed identity + zap recipient must follow.
+  // host `p` tag, and the displayed identity must follow.
   $: host = item.host;
-  // A Go live session has no NIP-53 address: its zap targets the "Live
-  // now" note when there is one (with a running total), otherwise the
-  // host's profile.
-  $: address = isGoLiveItem(item) ? null : item.key;
-  $: noteId = isGoLiveItem(item) ? (item.noteId ?? null) : null;
-  $: notePending = isGoLiveItem(item) && !noteId && !!item.notePending;
 
   // Host identity read straight from relays (newest kind 0 wins). The
   // announcement's author is often a service account, and the app's NDK
@@ -220,20 +259,13 @@
       if (profile) {
         hostName = profile.displayName || profile.name || null;
         hostPicture = profile.picture || null;
-        hostLud16 = profile.lud16 || null;
       }
     } catch {
       // A profile miss just leaves the pseudonym.
     }
   }
-
   /** The stream's own page (Go live: /live/s/<id>; Nostr: /live/<naddr>). */
   $: sharePath = streamPath(item);
-
-  function onZapComplete() {
-    // The page owns the tally scan; ask it to re-run after a paid zap.
-    dispatch('zapComplete');
-  }
 </script>
 
 <div class="flex flex-col gap-4">
@@ -259,18 +291,22 @@
       </div>
     </div>
     <div class="flex items-center gap-3">
-      <StreamZapTotal
-        {address}
-        {noteId}
-        {notePending}
-        goLive={isGoLiveItem(item)}
-        hostPubkey={host}
-        {hostLud16}
-        sats={tally?.totalSats ?? 0}
-        count={tally?.zapCount ?? 0}
-        loading={tallyLoading}
-        on:zapComplete={onZapComplete}
-      />
+      {#if !isGoLiveItem(item)}
+        <button
+          type="button"
+          class="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors
+            {savedNow
+            ? 'text-amber-500'
+            : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200'}"
+          aria-pressed={savedNow}
+          aria-label={savedNow ? 'Remove from saved' : 'Save stream'}
+          title={savedNow ? 'Saved' : 'Save stream'}
+          on:click={toggleSave}
+        >
+          <BookmarkIcon class="h-4 w-4" weight={savedNow ? 'fill' : 'regular'} />
+          {savedNow ? 'Saved' : 'Save'}
+        </button>
+      {/if}
       {#if sharePath}
         <LiveShareButton url={getSiteOrigin() + sharePath} title={item.title} />
       {/if}

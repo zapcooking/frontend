@@ -16,12 +16,14 @@
    * session turns out to be full for guests.
    */
   import { onDestroy, onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import {
     streamPlayer,
     setStreamStatus,
     setStreamPaused,
     setStreamMuted,
-    setStreamPosition
+    setStreamPosition,
+    setStreamOrientation
   } from '$lib/stores/streamPlayer';
   import { runtime } from '$lib/streams/parse';
   import { clampSeek, formatClock, isSeekableDuration, percentOf } from '$lib/streams/scrub';
@@ -42,6 +44,7 @@
   import LiveOverlay from './LiveOverlay.svelte';
   import { streamSlot } from '$lib/stores/streamSlot';
   import { showToast } from '$lib/toast';
+  import StreamLikes from './StreamLikes.svelte';
 
   export let surface: 'page' | 'dock' | 'popout' = 'page';
 
@@ -64,14 +67,71 @@
   let appliedGeneration = -1;
   let appliedUrl: string | null = null;
   let autoplayRejected = false;
-  /** A portrait picture (a phone held upright): the page player grows taller for it. */
-  let portrait = false;
+  /**
+   * Dev-only preview: `?orientation=portrait|landscape` on the URL forces
+   * the layout branch without a real broadcast in that shape. No-op in
+   * production builds.
+   */
+  const devOrientation =
+    import.meta.env.DEV && browser
+      ? ((): 'portrait' | 'landscape' | null => {
+          const v = new URLSearchParams(window.location.search).get('orientation');
+          return v === 'portrait' || v === 'landscape' ? v : null;
+        })()
+      : null;
+  let portrait = devOrientation === 'portrait';
   function measure(e: Event) {
     const v = e.currentTarget as HTMLVideoElement;
+    if (devOrientation) {
+      portrait = devOrientation === 'portrait';
+      setStreamOrientation(devOrientation);
+      return;
+    }
     portrait = v.videoHeight > v.videoWidth && v.videoWidth > 0;
+    // The stream page's layout follows the picture's shape (chat beside a
+    // portrait video runs full height; landscape caps to the video block).
+    setStreamOrientation(v.videoWidth && v.videoHeight ? (v.videoHeight > v.videoWidth ? 'portrait' : 'landscape') : null);
   }
+
+  // The dev override re-asserts itself whenever the store resets (stream
+  // switch) or before any metadata has arrived.
+  $: if (devOrientation && $streamPlayer.orientation === null) setStreamOrientation(devOrientation);
   let paused = true;
   let inPictureInPicture = false;
+
+  // ── Control chrome reveal ────────────────────────────────────────────
+  // The seek bar and buttons fade unless they are needed: the pointer is
+  // moving over the player (desktop), a tap was recent (touch), the stream
+  // is paused, a drag is in flight, or a control inside has keyboard focus
+  // (:focus-within in the styles). Stillness is the fade signal on desktop
+  // too — parked-mouse chrome is never shown idle.
+  let touchRecent = false;
+  let chromeTimer: ReturnType<typeof setTimeout> | null = null;
+  const CHROME_SHOW_MS = 3000;
+
+  function pokeChrome() {
+    touchRecent = true;
+    if (chromeTimer) clearTimeout(chromeTimer);
+    chromeTimer = setTimeout(() => (touchRecent = false), CHROME_SHOW_MS);
+  }
+
+  /** A tap on hidden controls reveals the chrome; the click that follows
+      it is swallowed instead of toggling play/pause. */
+  let tapToReveal = false;
+
+  function onChromePointerDown(event: PointerEvent) {
+    tapToReveal = !chromeVisible;
+    // A reveal tap on any pointer type should show the chrome immediately:
+    // a stationary mouse must not wait for its next movement.
+    pokeChrome();
+  }
+
+  /** Desktop: movement keeps the chrome up, stillness lets it fade. */
+  function onChromePointerMove(event: PointerEvent) {
+    if (event.pointerType === 'mouse') pokeChrome();
+  }
+
+  $: chromeVisible = touchRecent || paused || scrubbing;
 
   // ── Replay playhead ───────────────────────────────────────────────────
   // A live HLS playlist reports an infinite duration, so the bar only shows
@@ -607,6 +667,14 @@
     };
   }
 
+  onMount(() => {
+    // The chrome shows briefly on load, then fades until it is needed.
+    pokeChrome();
+    return () => {
+      if (chromeTimer) clearTimeout(chromeTimer);
+    };
+  });
+
   onDestroy(() => {
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', onVisibility);
@@ -619,6 +687,10 @@
   bind:this={container}
   class="engine-box @container relative w-full overflow-hidden rounded-xl bg-black aspect-video group"
   class:portrait
+  role="group"
+  aria-label="Video player"
+  on:pointerdown={onChromePointerDown}
+  on:pointermove={onChromePointerMove}
 >
   <!-- Live relay video has no caption track; the a11y rule targets media
        with meaningful content that can carry one. -->
@@ -631,6 +703,9 @@
       setStreamStatus('playing');
       paused = false;
       setStreamPaused(false);
+      // The reveal clock starts with the picture: a slow WebRTC join must
+      // not eat the three seconds before the viewer sees anything.
+      pokeChrome();
     }}
     on:pause={() => {
       paused = true;
@@ -650,13 +725,31 @@
     }}
     on:resize={measure}
     on:seeked={syncTime}
-    on:playing={() => (paused = false)}
-    on:pause={() => (paused = true)}
     on:click={() => {
+      // A tap that revealed hidden controls is a reveal, not a toggle:
+      // swallowing it keeps "show me the controls" from pausing the stream.
+      if (tapToReveal) {
+        tapToReveal = false;
+        return;
+      }
       if (video?.paused) video.play().catch(() => {});
       else video?.pause();
     }}
   ></video>
+  {#if devOrientation}
+    <!-- Dev preview: a standalone placeholder broadcast, so the portrait
+         and landscape layouts can be judged without a real stream. -->
+    <!-- svelte-ignore a11y-media-has-caption -->
+    <video
+      class="pointer-events-none absolute inset-0 h-full w-full object-cover"
+      src="/dev/portrait-demo.mp4"
+      autoplay
+      muted
+      loop
+      playsinline
+      aria-hidden="true"
+    ></video>
+  {/if}
   {#if overlayTarget}
     <LiveOverlay
       target={overlayTarget}
@@ -687,8 +780,9 @@
     </div>
 
     <div
-      class="pointer-events-none absolute bottom-0 left-0 right-0 flex flex-col gap-1 p-3
+      class="chrome pointer-events-none absolute bottom-0 left-0 right-0 flex flex-col gap-1 p-3
       bg-gradient-to-t from-black/70 to-transparent"
+      class:chrome-hidden={!chromeVisible}
     >
       {#if scrubbable}
         <!-- Replay playhead. A native range gives pointer, touch and keyboard
@@ -859,9 +953,29 @@
       </p>
     </div>
   {/if}
+
+  <!-- Rapid-fire likes: local and ephemeral, nothing is signed or sent. -->
+  <StreamLikes />
 </div>
 
 <style>
+  /* Control chrome fades when it is not needed: no hover, no recent tap,
+     playing, not scrubbing. Keyboard focus inside it reveals it again. */
+  .chrome {
+    transition: opacity 0.25s ease;
+  }
+  .chrome.chrome-hidden {
+    opacity: 0;
+  }
+  .chrome.chrome-hidden .pointer-events-auto {
+    pointer-events: none;
+  }
+  .chrome:focus-within {
+    opacity: 1;
+  }
+  .chrome:focus-within .pointer-events-auto {
+    pointer-events: auto;
+  }
   /* The filled part of the track follows --progress; the thumb grows while
      the bar is hovered, focused or held. */
   .scrub {

@@ -21,13 +21,16 @@
   import LiveShareButton from '../../components/streams/LiveShareButton.svelte';
   import { getSiteOrigin } from '$lib/utils/share';
   import { StreamDirectory } from '$lib/streams/directory';
-  import { pseudonym, runtime } from '$lib/streams/parse';
+  import { pseudonym, runtime, streamAddress, naddrEncode } from '$lib/streams/parse';
+  import { loadSaved, toggleSavedItem, isSaved } from '$lib/streams/saved';
   import { createStreamPool } from '$lib/streams/relayPage';
   import { fetchChatProfiles, type ChatProfile } from '$lib/streams/chat';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
   import { pickThumb } from '$lib/streams/thumb';
   import ImageBrokenIcon from 'phosphor-svelte/lib/ImageBroken';
-  import type { NostrEventLike, StreamItem } from '$lib/streams/types';
+  import BookmarkIcon from 'phosphor-svelte/lib/BookmarkSimple';
+  import TrashIcon from 'phosphor-svelte/lib/Trash';
+  import type { NostrEventLike, StreamBookmark, StreamItem } from '$lib/streams/types';
   import { get } from 'svelte/store';
   import { ndk } from '$lib/nostr';
   import {
@@ -44,11 +47,12 @@
   } from '$lib/streams/goLive';
   import { fetchRecipeEventWithRetry, recipeCardOf } from '$lib/streams/recipeCard';
 
-  type Tab = 'live' | 'upcoming' | 'past';
+  type Tab = 'live' | 'upcoming' | 'past' | 'saved';
   const TABS: { id: Tab; label: string }[] = [
     { id: 'live', label: 'Live now' },
     { id: 'upcoming', label: 'Upcoming' },
-    { id: 'past', label: 'Past' }
+    { id: 'past', label: 'Past' },
+    { id: 'saved', label: 'Saved' }
   ];
 
   let pool: SimplePool | null = null;
@@ -65,6 +69,7 @@
   let goLiveLoaded = false;
   /** Recipe title and photo per recipe address, filled as they resolve. */
   let recipeCards = new Map<string, RecipeCard | null>();
+  let savedList: StreamBookmark[] = browser ? loadSaved() : [];
 
   const GO_LIVE_REFRESH_MS = 20000;
   /** Last known "watching" per session, held through a failed count read. */
@@ -72,6 +77,16 @@
 
   function link(item: StreamItem): string | null {
     return streamPath(item);
+  }
+
+  function save(item: StreamItem) {
+    savedList = toggleSavedItem(item, savedList).items;
+  }
+
+  /** The naddr a saved addressable stream opens at; null for saved video links. */
+  function savedHref(entry: StreamBookmark): string | null {
+    const address = streamAddress(entry);
+    return address ? '/live/' + naddrEncode(address) : null;
   }
 
   function goLiveItems(): StreamItem[] {
@@ -223,7 +238,56 @@
     {/each}
   </div>
 
-  {#if loading}
+  {#if tab === 'saved'}
+    {#if savedList.length === 0}
+      <div class="flex h-64 flex-col items-center justify-center gap-2 text-center">
+        <p class="text-sm text-zinc-500">
+          No saved streams yet. Tap the bookmark on a stream card to keep it here.
+        </p>
+      </div>
+    {:else}
+      <ul class="flex flex-col gap-2">
+        {#each savedList as entry (entry.key)}
+          {@const href = savedHref(entry)}
+          <li
+            class="flex items-center gap-3 rounded-xl border px-3 py-2.5"
+            style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
+          >
+            {#if href}
+              <a
+                href={href}
+                class="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+                style="color: var(--color-text-primary);"
+                title={entry.title}
+              >
+                {entry.title}
+              </a>
+            {:else}
+              <!-- A pasted video link has no stream page: open it directly. -->
+              <a
+                href={entry.url || '#'}
+                target="_blank"
+                rel="noreferrer"
+                class="min-w-0 flex-1 truncate text-sm font-medium hover:underline"
+                style="color: var(--color-text-primary);"
+                title={entry.title}
+              >
+                {entry.title}
+              </a>
+            {/if}
+            <button
+              type="button"
+              class="shrink-0 rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-red-600 dark:hover:bg-zinc-800"
+              aria-label="Remove from saved"
+              on:click={() => (savedList = toggleSavedItem(entry, savedList).items)}
+            >
+              <TrashIcon size={16} />
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  {:else if loading}
     <!-- Skeleton grid mirrors the card layout while discovery fills. -->
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {#each [0, 1, 2, 3, 4, 5] as i (i)}
@@ -245,12 +309,13 @@
       {#each items as item (item.key)}
         {@const href = link(item)}
         {@const thumb = pickThumb(item, failedThumbs)}
-        <!-- The share button sits over the card, beside (not inside) its link:
-             a button inside a link is not valid and would follow the link. -->
+        <!-- The card's link is a stretched overlay (after:inset-0): the
+             save and share buttons sit beside (not inside) it — a button
+             inside a link is not valid and would follow the link. -->
         <div class="relative">
         <a
           href={href || '#'}
-          class="group block overflow-hidden rounded-xl border transition-colors"
+          class="group relative block overflow-hidden rounded-xl border transition-colors after:absolute after:inset-0 after:z-10 after:rounded-xl after:content-['']"
           style="border-color: var(--color-input-border); background-color: var(--color-bg-primary);"
         >
           <div class="relative aspect-video w-full overflow-hidden bg-zinc-200 dark:bg-zinc-800">
@@ -296,29 +361,60 @@
               </span>
             {/if}
           </div>
-          <div class="p-3 {href ? 'pr-12' : ''}">
-            <p
-              class="truncate text-sm font-semibold"
-              style="color: var(--color-text-primary);"
-              title={item.title}
-            >
-              {item.title}
-            </p>
-            <p class="mt-1 flex items-center gap-1.5 text-xs" style="color: var(--color-caption);">
-              <Avatar pubkey={item.host} size={16} alt={hostName(item.host)} interactive={false} />
-              <span class="truncate">{hostName(item.host)}</span>
-              {#if item.status === 'live' && runtime(item.starts)}
-                · {runtime(item.starts)?.days
-                  ? `${runtime(item.starts)?.days}d`
-                  : runtime(item.starts)?.hours
-                    ? `${runtime(item.starts)?.hours}h`
-                    : `${runtime(item.starts)?.minutes}m`}
-              {/if}
-            </p>
+          <div class="p-3 pr-12">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <p
+                  class="truncate text-sm font-semibold"
+                  style="color: var(--color-text-primary);"
+                  title={item.title}
+                >
+                  {item.title}
+                </p>
+                <p
+                  class="mt-1 flex items-center gap-1.5 text-xs"
+                  style="color: var(--color-caption);"
+                >
+                  <Avatar
+                    pubkey={item.host}
+                    size={16}
+                    alt={hostName(item.host)}
+                    interactive={false}
+                  />
+                  <span class="truncate">{hostName(item.host)}</span>
+                  {#if item.status === 'live' && runtime(item.starts)}
+                    · {runtime(item.starts)?.days
+                      ? `${runtime(item.starts)?.days}d`
+                      : runtime(item.starts)?.hours
+                        ? `${runtime(item.starts)?.hours}h`
+                        : `${runtime(item.starts)?.minutes}m`}
+                  {/if}
+                </p>
+              </div>
+            </div>
           </div>
         </a>
+        {#if !isGoLiveItem(item)}
+          <!-- Beside the card link, not inside it (see above). Clustered
+               with Share in the bottom-right so neither control covers the
+               host line or the watching badge. -->
+          <button
+            type="button"
+            class="absolute bottom-2.5 right-12 z-20 rounded-full bg-black/50 p-1.5 backdrop-blur-sm transition-colors cursor-pointer hover:bg-black/70
+              {isSaved(item, savedList) ? 'text-amber-400' : 'text-white'}"
+            aria-label="Save stream"
+            aria-pressed={isSaved(item, savedList)}
+            title={isSaved(item, savedList) ? 'Saved' : 'Save'}
+            on:click={() => save(item)}
+          >
+            <BookmarkIcon
+              size={16}
+              weight={isSaved(item, savedList) ? 'fill' : 'regular'}
+            />
+          </button>
+        {/if}
         {#if href}
-          <div class="absolute bottom-2.5 right-2.5">
+          <div class="absolute bottom-2.5 right-2.5 z-20">
             <LiveShareButton url={getSiteOrigin() + href} title={item.title} variant="icon" up />
           </div>
         {/if}

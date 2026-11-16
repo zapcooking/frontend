@@ -49,3 +49,6 @@ nip98-matrix.mjs
 # Local scratch: screenshots, headless-browser scripts, session artifacts.
 tmp/
 .zcode/
+
+# Dev-only preview assets (never shipped).
+static/dev/

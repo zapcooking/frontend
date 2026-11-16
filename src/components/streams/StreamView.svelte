@@ -4,11 +4,13 @@
    * Cooking's own Go live sessions (/live/s/[id]), so both look and behave
    * the same.
    *
-   * Wide screens (from 1200 px): the video large on the left, the chat on
-   * the right at full height (sticky while the page scrolls), and under the
-   * video the recipe (Go live) or the NIP-22 comments drawer (NIP-53).
-   * Narrower: the video on top, then the chat; a Go live stream with a
-   * recipe gets "Chat | Recipe" tabs there, Chat selected.
+   * Wide screens (from 1200 px): the video large on the left, the chat
+   * beside it (full-height rail when a vertical picture or a recipe leads
+   * the main column; capped to the video block for landscape; a full-width
+   * row whenever the video minimizes), and under the video the zap strip,
+   * goal and top zappers. Narrower: the video on top, then the chat; a Go
+   * live stream with a recipe gets "Chat | Recipe" tabs there, Chat
+   * selected.
    *
    *  - NIP-53: live chat (kind 1311).
    *  - Go live: comments are replies to the host's "Live now" note; until
@@ -23,19 +25,23 @@
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import { browser } from '$app/environment';
   import { setBottomDockClaim } from '$lib/stores/bottomDock';
-  import CommentThread from '../comments/CommentThread.svelte';
+  import { streamPlayer } from '$lib/stores/streamPlayer';
+  import { streamSlot } from '$lib/stores/streamSlot';
   import StreamPlayer from './StreamPlayer.svelte';
   import StreamChat from './StreamChat.svelte';
+  import StreamZapTotal from './StreamZapTotal.svelte';
+  import StreamZapGoal from './StreamZapGoal.svelte';
+  import StreamTopZappers from './StreamTopZappers.svelte';
   import RecipePanel from './RecipePanel.svelte';
   import LiveReport from './LiveReport.svelte';
+  import ArrowsIn from 'phosphor-svelte/lib/ArrowsIn';
+  import ArrowsOutSimple from 'phosphor-svelte/lib/ArrowsOutSimple';
   import { isGoLiveItem } from '$lib/streams/goLive';
   import type { StreamZapTally } from '$lib/streams/streamZaps';
   import type { StreamItem } from '$lib/streams/types';
 
   export let item: StreamItem;
   export let pool: SimplePool;
-  /** NIP-53 only: the announcement as an NDKEvent, for comments. */
-  export let ndkEvent: NDKEvent | null = null;
   export let tally: StreamZapTally | null = null;
   export let tallyLoading = false;
   export let topZappers: { pubkey: string; sats: number }[] = [];
@@ -50,8 +56,10 @@
 
   let panelEl: HTMLElement | null = null;
   let recipeEl: HTMLElement | null = null;
-  let commentsOpen = false;
   let tab: 'chat' | 'recipe' = 'chat';
+  // True once children have mounted and the player slot is registered.
+  let mounted = false;
+  onMount(() => (mounted = true));
 
   // The floating create and scroll-to-top buttons would sit on the player's
   // controls and the Zap button; the stream page keeps that corner clear.
@@ -72,7 +80,42 @@
   $: hasRecipe = goLive && !!item.recipeA;
   /** Go live: the note exists (chat), or is expected any moment. */
   $: chatShown = !goLive || !!item.noteId || !!item.notePending;
+  /** A vertical picture: the wide layout keeps the chat beside it at full height. */
+  $: portraitVideo = $streamPlayer.orientation === 'portrait';
   $: twoCol = wide && chatShown;
+  /**
+   * The video minimized itself (docked to the corner): the leftover strips
+   * would strand the chat in a skinny rail beside a hole in every layout,
+   * portrait included, so the chat breaks out and takes the full content
+   * width as a stacked row instead. The header's expand/contract button
+   * forces the same on the user's say-so, dock or not.
+   *
+   * Excluded when a recipe leads the main column: the recipe is unbounded,
+   * so a stretched chat would push its composer below the fold and the
+   * dock-triggered takeover would drop the chat below the recipe. There
+   * the chat keeps the sticky, viewport-height rail and the video docks
+   * on the recipe marker alone.
+   */
+  let chatExpanded = false;
+  let lastItemKey = '';
+  $: railCollapsed =
+    mounted && twoCol && (chatExpanded || ($streamSlot === null && !recipeInMain));
+  // The expand state is per stream: a switch resets it.
+  $: if (item.key !== lastItemKey) {
+    lastItemKey = item.key;
+    chatExpanded = false;
+  }
+
+  /** Header toggle. Collapsing while docked also restores the video —
+      the dock owns the full-width layout until the player is back. */
+  function toggleChatExpand() {
+    if ($streamSlot === null) {
+      window.dispatchEvent(new Event('stream-player-restore'));
+      chatExpanded = false;
+      return;
+    }
+    chatExpanded = !chatExpanded;
+  }
   /** Narrow Go live with both: the Chat | Recipe tabs. */
   $: tabbed = !wide && goLive && hasRecipe && chatShown;
   // The chat stays mounted on the Recipe tab (hidden, not removed): it
@@ -85,16 +128,42 @@
   $: marker = twoCol ? (recipeInMain ? recipeEl : null) : panelEl;
 </script>
 
-<div class="stream-layout" class:two-col={twoCol}>
+<div
+  class="stream-layout"
+  class:two-col={twoCol}
+  class:portrait-video={twoCol && portraitVideo}
+  class:recipe-main={twoCol && recipeInMain}
+  class:rail-collapsed={railCollapsed}
+>
   <div class="main-col min-w-0">
-    <StreamPlayer
-      {item}
-      {pool}
-      chatMarker={marker}
-      {tally}
-      {tallyLoading}
-      on:zapComplete={() => dispatch('zapComplete')}
-    />
+    <StreamPlayer {item} {pool} chatMarker={marker} />
+
+    <!-- Zaps sit under the video in every layout: the tally, the goal and
+         the top zappers tell the stream's story where the video is, and
+         the rail stays a chat window that can use the full column height. -->
+    <div class="zap-strip">
+      {#if !goLive && item.goal}
+        {#key item.goal}
+          <StreamZapGoal goalId={item.goal} {pool} relays={item.relays || []} raised={tally?.totalSats ?? 0} />
+        {/key}
+      {/if}
+      <div class="zap-bar">
+        <StreamZapTotal
+          address={goLive ? null : item.key}
+          noteId={item.noteId ?? null}
+          notePending={!!item.notePending}
+          {goLive}
+          hostPubkey={item.host}
+          sats={tally?.totalSats ?? 0}
+          count={tally?.zapCount ?? 0}
+          loading={tallyLoading}
+          on:zapComplete={() => dispatch('zapComplete')}
+        />
+      </div>
+    </div>
+    {#if topZappers.length}
+      <StreamTopZappers {pool} {topZappers} />
+    {/if}
 
     {#if goLive && recipeInMain}
       <section bind:this={recipeEl} aria-label="Recipe">
@@ -130,7 +199,14 @@
     {#if chatShown}
       <section class="chat-box" aria-label="Live chat" hidden={chatHidden}>
         {#if !goLive}
-          <StreamChat {item} {pool} {topZappers} />
+          <StreamChat
+            {item}
+            {pool}
+            {topZappers}
+            expanded={railCollapsed || $streamSlot === null}
+            expandable={twoCol}
+            on:toggleExpand={toggleChatExpand}
+          />
         {:else if item.noteId}
           <!-- Comments: replies to the host's "Live now" note, in #954's
                chat layout. Read-only once the stream has ended. -->
@@ -141,12 +217,39 @@
               {topZappers}
               target={item.noteId}
               closed={item.status === 'ended'}
+              expanded={railCollapsed || $streamSlot === null}
+              expandable={twoCol}
+              on:toggleExpand={toggleChatExpand}
               on:zaps={(e) => dispatch('zaps', e.detail)}
             />
           {/key}
         {:else}
           <div class="chat-wait" role="status">
-            <p>Comments open in a moment, when the host's “Live now” note is posted.</p>
+            <div class="flex items-center justify-between px-3 pt-2 text-xs">
+              <span class="font-semibold uppercase tracking-wide" style="color: var(--color-caption);">
+                Live chat
+              </span>
+              {#if twoCol}
+                <button
+                  type="button"
+                  class="rounded p-1 hover:opacity-80 cursor-pointer"
+                  style="color: var(--color-caption);"
+                  aria-pressed={railCollapsed || $streamSlot === null}
+                  aria-label="Toggle chat panel size"
+                  title={railCollapsed || $streamSlot === null ? 'Collapse chat' : 'Expand chat'}
+                  on:click={toggleChatExpand}
+                >
+                  {#if railCollapsed || $streamSlot === null}
+                    <ArrowsIn size={16} />
+                  {:else}
+                    <ArrowsOutSimple size={16} />
+                  {/if}
+                </button>
+              {/if}
+            </div>
+            <p class="px-3 pb-3 text-xs" style="color: var(--color-caption);">
+              Comments open in a moment, when the host's “Live now” note is posted.
+            </p>
           </div>
         {/if}
       </section>
@@ -162,43 +265,6 @@
       <LiveReport sessionId={item.sessionId} />
     {/if}
   </div>
-
-  {#if !goLive && ndkEvent}
-    <!-- Permanent NIP-22 comments: the slow-moving discussion on the
-         announcement itself, not the live conversation, so they stay out
-         of the way until asked for. -->
-    <div class="comments rounded-xl border border-zinc-200 dark:border-zinc-800">
-      <button
-        type="button"
-        class="flex w-full items-center justify-between px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
-        aria-expanded={commentsOpen}
-        aria-controls="stream-comments-drawer"
-        on:click={() => (commentsOpen = !commentsOpen)}
-      >
-        Comments
-        <svg
-          class="h-4 w-4 transition-transform {commentsOpen ? 'rotate-180' : ''}"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </button>
-      {#if commentsOpen}
-        <div
-          id="stream-comments-drawer"
-          class="max-h-[60vh] overflow-y-auto border-t border-zinc-200 px-3 py-3 dark:border-zinc-800"
-        >
-          <CommentThread variant="recipe" event={ndkEvent} />
-        </div>
-      {/if}
-    </div>
-  {/if}
 </div>
 
 <style>
@@ -220,25 +286,77 @@
   .chat-box[hidden] {
     display: none;
   }
-  /* Wide: video left, chat right at full height, sticky under the header. */
+  /* Wide: video left, chat right. Landscape (the default): the side column
+     stretches to the video block's height, so a quiet chat is not a tall
+     empty panel beside a short video. A portrait picture switches to
+     .portrait-video: sticky, full viewport height, like the tall player. */
   .stream-layout.two-col {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 22rem;
     column-gap: 1.25rem;
-    align-items: start;
   }
-  /* The page scrolls inside #app-scroll, whose top padding already clears
-     the fixed header, so the sticky offset is measured below it. */
-  .stream-layout.two-col .side-col {
+  .stream-layout.two-col .chat-box {
+    /* Definite zero height + grow: the chat fills whatever space the video
+       column leaves, but its own content can never inflate the grid row —
+       the row is sized by the video column alone and extra chat scrolls
+       inside. */
+    height: 0;
+    flex: 1 1 auto;
+    min-height: 12rem;
+  }
+  /* A recipe leads the main column: the panel is unbounded, so instead of
+     stretching beside it (composer below the fold) the chat keeps the
+     sticky, viewport-height rail while the reader is at the video. */
+  .stream-layout.recipe-main.two-col .side-col {
     position: sticky;
     top: 0.75rem;
   }
-  .stream-layout.two-col .chat-box {
+  .stream-layout.recipe-main.two-col .chat-box {
     height: calc(100dvh - var(--header-h, 4rem) - 2.5rem);
     min-height: 24rem;
+    flex: none;
   }
-  .stream-layout.two-col .comments {
-    grid-column: 1;
+  /* Video minimized (docked to the corner): the leftover strips would
+     strand the chat in a skinny rail beside a hole, so the chat leaves the
+     grid and takes the full content width as a stacked row. Placed last
+     and qualified so it also beats the portrait and recipe rules — the
+     takeover applies in every layout. */
+  .stream-layout.rail-collapsed.two-col {
+    display: flex;
+    flex-direction: column;
+  }
+  .stream-layout.rail-collapsed.two-col .side-col {
+    position: static;
+  }
+  .stream-layout.rail-collapsed.two-col .chat-box {
+    height: 60vh;
+    min-height: 20rem;
+    flex: none;
+  }
+  .stream-layout.portrait-video.two-col:not(.rail-collapsed) .side-col {
+    position: sticky;
+    top: 0.75rem;
+  }
+  .stream-layout.portrait-video.two-col:not(.rail-collapsed) .chat-box {
+    height: calc(100dvh - var(--header-h, 4rem) - 2.5rem);
+    min-height: 24rem;
+    flex: none;
+  }
+  .zap-strip {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .zap-bar {
+    display: flex;
+    align-items: center;
+    min-height: 2.25rem;
+  }
+  /* StreamZapTotal's root: stretched across the row it spreads the zap
+     total to the left edge and the button to the right (it justifies
+     itself; with no zaps yet the lone button keeps the right edge). */
+  .zap-bar > :global(div) {
+    flex: 1;
   }
   .tabs {
     display: flex;

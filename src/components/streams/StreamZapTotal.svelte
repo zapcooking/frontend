@@ -31,8 +31,6 @@
   /** Go live: a session with no note at all (switch off). Says so on the button. */
   export let goLive = false;
   export let hostPubkey: string;
-  /** Host's lud16 resolved by the player — skips the profile resolver. */
-  export let hostLud16: string | null = null;
   export let sats = 0;
   export let count = 0;
   export let loading = false;
@@ -66,8 +64,29 @@
   }
 </script>
 
-<div class="flex items-center gap-1.5">
+<div class="flex items-center gap-1.5 {count > 0 ? 'justify-between' : 'justify-end'}">
   {#if hostUser}
+    {#if count > 0}
+      <!-- The count leads and the Zap button closes the row, so the button
+           sits at the right edge wherever this strip is stretched or paired
+           with the goal box. -->
+      <button
+        type="button"
+        class="text-sm font-semibold text-amber-500 tabular-nums whitespace-nowrap {loading
+          ? 'opacity-60'
+          : ''}"
+        on:click={() => (zapOpen = true)}
+        title={'⚡ ' +
+          sats.toLocaleString() +
+          ' sats across ' +
+          count.toLocaleString() +
+          (count === 1 ? ' zap' : ' zaps')}
+      >
+        ⚡ {compact(sats)} sats · {count.toLocaleString()}
+        {count === 1 ? 'zap' : 'zaps'}
+      </button>
+    {/if}
+
     <button
       type="button"
       class="flex items-center gap-1 rounded-full bg-amber-500/15 px-3 py-1.5 text-sm font-semibold text-amber-500 hover:bg-amber-500/25 disabled:cursor-wait disabled:opacity-60"
@@ -93,24 +112,6 @@
         Zap
       {/if}
     </button>
-
-    {#if count > 0}
-      <button
-        type="button"
-        class="text-sm font-semibold text-amber-500 tabular-nums whitespace-nowrap {loading
-          ? 'opacity-60'
-          : ''}"
-        on:click={() => (zapOpen = true)}
-        title={'⚡ ' +
-          sats.toLocaleString() +
-          ' sats across ' +
-          count.toLocaleString() +
-          (count === 1 ? ' zap' : ' zaps')}
-      >
-        ⚡ {compact(sats)} sats · {count.toLocaleString()}
-        {count === 1 ? 'zap' : 'zaps'}
-      </button>
-    {/if}
   {/if}
 </div>
 

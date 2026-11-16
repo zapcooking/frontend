@@ -23,6 +23,8 @@ export interface StreamPlayerState {
   paused: boolean;
   /** Playback position for replays (seconds), so a reload can restore. */
   position: number | null;
+  /** Shape of the playing picture, from its metadata. Null until it is known. */
+  orientation: 'landscape' | 'portrait' | null;
   /** Bump on every selection change; stale async continuations check it. */
   generation: number;
 }
@@ -36,6 +38,7 @@ const initial: StreamPlayerState = {
   status: 'idle',
   paused: false,
   position: null,
+  orientation: null,
   generation: 0
 };
 
@@ -65,6 +68,7 @@ export function selectStream(item: StreamItem, surface: PlayerSurface = 'dock'):
     status: sameStream ? current.status : 'idle',
     paused: sameStream ? current.paused : false,
     position: sameStream ? current.position : null,
+    orientation: sameStream ? current.orientation : null,
     generation: current.generation + (sameStream ? 0 : 1)
   });
 }
@@ -92,6 +96,10 @@ export function setStreamMuted(muted: boolean): void {
 
 export function setStreamPosition(position: number | null): void {
   streamPlayer.update((s) => ({ ...s, position }));
+}
+
+export function setStreamOrientation(orientation: 'landscape' | 'portrait' | null): void {
+  streamPlayer.update((s) => (s.orientation === orientation ? s : { ...s, orientation }));
 }
 
 /** A late update to the selected stream's announcement (viewers, status). */

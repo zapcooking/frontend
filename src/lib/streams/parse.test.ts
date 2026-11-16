@@ -76,6 +76,14 @@ describe('parseStreamEvent', () => {
     expect(parseStreamEvent(announcement({ pubkey: 'short' }), NOW)).toBeNull();
   });
 
+  it('keeps a well-formed goal event id and drops the rest', () => {
+    const goalId = 'c'.repeat(64);
+    expect(parseStreamEvent(announcement(undefined, [['goal', goalId]]), NOW)!.goal).toBe(goalId);
+    expect(parseStreamEvent(announcement(undefined, [['goal', 'naddr1abc']]), NOW)!.goal).toBeNull();
+    expect(parseStreamEvent(announcement(undefined, [['goal', 'javascript:alert(1)']]), NOW)!.goal).toBeNull();
+    expect(parseStreamEvent(announcement(), NOW)!.goal).toBeNull();
+  });
+
   it('only trusts live status on fresh announcements', () => {
     expect(parseStreamEvent(announcement(), NOW)!.live).toBe(true);
     const stale = parseStreamEvent(announcement({ created_at: NOW - 7200 }), NOW);
