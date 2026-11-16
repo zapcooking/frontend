@@ -62,6 +62,17 @@ export function monthTotals(rows: MonthlyRow[], month: string, usdPer1000: numbe
   };
 }
 
+/** The toast after "Record ended streams now": "N recorded, M waiting". */
+export function recordToast(s: { recorded?: number; gaveUp?: number; waiting?: number }): string {
+  const recorded = s.recorded ?? 0;
+  const waiting = s.waiting ?? 0;
+  let text = `${recorded.toLocaleString()} recorded, ${waiting.toLocaleString()} waiting`;
+  if (s.gaveUp) {
+    text += ` (${s.gaveUp.toLocaleString()} after 24 h with missing viewer time or zaps)`;
+  }
+  return text;
+}
+
 /** Relative change from `last` to `now`, or null when there is no base. */
 export function change(now: number, last: number): number | null {
   if (!(last > 0)) return null;

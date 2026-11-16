@@ -86,7 +86,7 @@ describe('GET /api/admin/live/metrics', () => {
     expect((await get(backupSk)).status).toBe(200);
   });
 
-  it('returns this and last month, 30 days of streams and the unrecorded count', async () => {
+  it('returns this and last month, 30 days of streams and the waiting count', async () => {
     const now = Math.floor(Date.now() / 1000);
     insert('1'.repeat(32), now - 3600, now - 600);
     insert('2'.repeat(32), now - 40 * 86400, now - 40 * 86400 + 600); // older than 30 days
@@ -103,8 +103,19 @@ describe('GET /api/admin/live/metrics', () => {
     expect(data.monthly).toEqual([]); // 2001-01 is neither month
     expect(data.streams.map((s: { id: string }) => s.id)).toEqual(['1'.repeat(32)]);
     expect(data.streams[0]).toMatchObject({ viewer_seconds: null, metrics_at: null });
-    expect(data.unrecorded).toBe(2); // both ended streams that went live
+    expect(data.waiting).toBe(3); // every ended session not recorded, never-started included
     expect(data.usd_per_1000_minutes).toBe(1);
+  });
+});
+
+describe('draining the queue', () => {
+  it('records the whole backlog in one press, not 5', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    // Twelve never-started sessions: nothing to read, so all can be recorded.
+    for (let i = 0; i < 12; i++) insert(i.toString(16).padStart(32, 'c'), null, now - 600 - i);
+    const res = await post(JSON.stringify({ action: 'record' }));
+    expect(await res.json()).toEqual({ recorded: 12, gaveUp: 0, retry: 0, waiting: 0 });
+    expect((await (await get(adminSk)).json()).waiting).toBe(0);
   });
 });
 
@@ -129,7 +140,7 @@ describe('POST /api/admin/live/metrics', () => {
     const res = await post(JSON.stringify({ action: 'record' }));
     // No presence binding in the test: the object reads as unreachable, so
     // the stream waits (it ended 10 minutes ago, under the 1-hour give-up).
-    expect(await res.json()).toEqual({ recorded: 0, waiting: 1, gaveUp: 0 });
+    expect(await res.json()).toEqual({ recorded: 0, gaveUp: 0, retry: 1, waiting: 1 });
   });
 
   it('records a never-started stream and refuses other actions and strangers', async () => {

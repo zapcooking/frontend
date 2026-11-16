@@ -508,15 +508,3 @@ export async function listMetricsStreams(
     .all<MetricsStreamRow>();
   return results;
 }
-
-/** Ended streams that went live but are not folded into their month yet. */
-export async function countUnrecorded(db: LiveDb): Promise<number> {
-  const row = await db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM live_sessions
-        WHERE status = 'ended' AND metrics_at IS NULL AND started_at IS NOT NULL`
-    )
-    .bind()
-    .first<{ n: number }>();
-  return row?.n ?? 0;
-}

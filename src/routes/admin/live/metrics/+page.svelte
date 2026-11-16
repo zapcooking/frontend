@@ -26,6 +26,7 @@
     dailySeries,
     hostRows,
     monthTotals,
+    recordToast,
     sortBy,
     streamSeconds,
     streamsCsv,
@@ -47,7 +48,8 @@
   let lastMonth = '';
   let monthly: MonthlyRow[] = [];
   let streams: StreamRow[] = [];
-  let unrecorded = 0;
+  /** Ended sessions not recorded yet (any reason). */
+  let waiting = 0;
   /** More streams in the window than the API returns: everything below is partial. */
   let truncated = false;
   let usdPer1000 = 1;
@@ -75,7 +77,7 @@
       lastMonth = data.last_month;
       monthly = data.monthly ?? [];
       streams = data.streams ?? [];
-      unrecorded = data.unrecorded ?? 0;
+      waiting = data.waiting ?? 0;
       truncated = data.truncated === true;
       usdPer1000 = data.usd_per_1000_minutes ?? 1;
       loaded = true;
@@ -102,10 +104,7 @@
         showToast('error', adminActionError({ status: res.status, error: data?.error }));
         return;
       }
-      const parts = [`${data.recorded ?? 0} recorded`];
-      if (data.waiting) parts.push(`${data.waiting} waiting (presence or relays unreachable)`);
-      if (data.gaveUp) parts.push(`${data.gaveUp} recorded without viewer time`);
-      showToast('success', parts.join(' · '));
+      showToast('success', recordToast(data));
       await load();
     } finally {
       busy = false;
@@ -333,11 +332,11 @@
     <p class="lede">
       {monthName(thisMonth)} so far against {monthName(lastMonth)} (UTC). A stream counts once it is recorded,
       about 5 minutes after it ends.
-      {#if unrecorded > 0}
-        <strong
-          >{unrecorded} ended {unrecorded === 1 ? 'stream is' : 'streams are'} not recorded yet.</strong
-        >
-      {/if}
+      <strong
+        class="waiting"
+        title="Ended streams not recorded yet: in the 5-minute wait, queued, or retrying a lookup"
+        >{waiting.toLocaleString()} waiting</strong
+      >
       {#if truncated}
         <strong class="warn">
           More streams started in these 30 days than the page can load ({streams.length.toLocaleString()}

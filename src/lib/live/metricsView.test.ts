@@ -5,6 +5,7 @@ import {
   dailySeries,
   hostRows,
   monthTotals,
+  recordToast,
   sortBy,
   streamsCsv,
   type MonthlyRow,
@@ -152,5 +153,15 @@ describe('streamsCsv', () => {
     );
     expect(lines[2].endsWith(',50.0,4,9,,,,,no')).toBe(true);
     expect(lines).toHaveLength(4); // trailing CRLF
+  });
+});
+
+describe('recordToast', () => {
+  it('says how many were recorded and how many are still waiting', () => {
+    expect(recordToast({ recorded: 5, gaveUp: 0, waiting: 55 })).toBe('5 recorded, 55 waiting');
+    expect(recordToast({ recorded: 0, waiting: 0 })).toBe('0 recorded, 0 waiting');
+    expect(recordToast({ recorded: 2, gaveUp: 1, waiting: 0 })).toBe(
+      '2 recorded, 0 waiting (1 after 24 h with missing viewer time or zaps)'
+    );
   });
 });

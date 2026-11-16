@@ -5,8 +5,8 @@
  * /api/admin/live. Nothing else is accepted.
  *
  * GET /api/admin/live/metrics
- *   200: { now, this_month, last_month, monthly, streams, unrecorded,
- *          usd_per_1000_minutes }
+ *   200: { now, this_month, last_month, monthly, streams, since, truncated,
+ *          waiting, usd_per_1000_minutes }
  *     monthly     live_host_monthly rows for this month and last month
  *                 (UTC). Streams are counted once recorded (about 5 min
  *                 after they end).
@@ -16,15 +16,17 @@
  *                 recorded, or when it could not be read). At most
  *                 STREAMS_LIMIT; `truncated` is true when there were more.
  *     since       the start of that window (unix seconds, 00:00 UTC)
- *     unrecorded  ended streams not folded into their month yet
+ *     waiting     ended sessions not recorded yet, for any reason (inside
+ *                 the 5-minute wait, queued, or retrying a lookup)
  *
  * POST /api/admin/live/metrics — body { action: 'record' }
  *   Runs the sweep's close-out step now (see $lib/live/metrics.server):
- *   records ended streams whose 5-minute wait is over. The cron sweep does
+ *   records ended streams whose 5-minute wait is over, oldest first, until
+ *   the queue is empty or RECORD_BUDGET_MS runs out. The cron sweep does
  *   the same every minute, but only against production; this is how a
  *   preview deployment records its streams. Not written to the action log
  *   (it moderates nothing).
- *   200: { recorded, waiting, gaveUp }
+ *   200: { recorded, gaveUp, retry, waiting }   (see CloseOutSummary)
  */
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { ADMIN_PUBKEYS } from '$lib/adminAuth';
@@ -33,7 +35,7 @@ import { readBodyCapped } from '$lib/live/body.server';
 import { LIVE_COST_USD_PER_1000_MINUTES } from '$lib/live/config';
 import {
   closeOutEndedSessions,
-  countUnrecorded,
+  countWaiting,
   fetchNoteZapSats,
   listMetricsStreams,
   listMonthly,
@@ -65,10 +67,10 @@ export const GET: RequestHandler = async ({ request, platform }) => {
     const lastMonth = monthKey(now, -1);
     // 00:00 UTC 29 days ago: the first of the charts' 30 daily buckets.
     const since = Math.floor(now / DAY) * DAY - 29 * DAY;
-    const [monthly, rows, unrecorded] = await Promise.all([
+    const [monthly, rows, waiting] = await Promise.all([
       listMonthly(db, [lastMonth, thisMonth]),
       listMetricsStreams(db, since, STREAMS_LIMIT + 1),
-      countUnrecorded(db)
+      countWaiting(db)
     ]);
     const truncated = rows.length > STREAMS_LIMIT;
     const streams = truncated ? rows.slice(0, STREAMS_LIMIT) : rows;
@@ -81,7 +83,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
         streams,
         since,
         truncated,
-        unrecorded,
+        waiting,
         usd_per_1000_minutes: LIVE_COST_USD_PER_1000_MINUTES
       },
       { headers: NO_STORE }
@@ -114,18 +116,20 @@ export const POST: RequestHandler = async ({ request, platform }) => {
   }
   if (action !== 'record') return bad();
   const deadline = Date.now() + RECORD_BUDGET_MS;
+  // Provider lookups shared by this run (one per host).
+  const providers = new Map();
   const summary = await closeOutEndedSessions(
     db,
     {
       readTotals: (id) => readPresenceTotals(platform, id),
       finish: (id) => finishPresence(platform, id),
-      zapSats: (noteId, host) => fetchNoteZapSats(noteId, host)
+      zapSats: (noteId, host) => fetchNoteZapSats(noteId, host, { providers })
     },
     nowSeconds(),
     () => Date.now() > deadline
   );
   console.log(
-    `[Live metrics] record recorded=${summary.recorded} waiting=${summary.waiting} gave_up=${summary.gaveUp}`
+    `[Live metrics] record recorded=${summary.recorded} gave_up=${summary.gaveUp} retry=${summary.retry} waiting=${summary.waiting}`
   );
   return json(summary, { headers: NO_STORE });
 };
