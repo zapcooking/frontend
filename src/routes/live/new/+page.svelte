@@ -84,6 +84,7 @@
   import type { StreamItem } from '$lib/streams/types';
   import StreamChat from '../../../components/streams/StreamChat.svelte';
   import RecipePanel from '../../../components/streams/RecipePanel.svelte';
+  import { hostCheckScope, pruneHostChecks } from '$lib/live/host/hostRecipeChecks';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
   import CameraRotateIcon from 'phosphor-svelte/lib/CameraRotate';
   import MonitorArrowUpIcon from 'phosphor-svelte/lib/MonitorArrowUp';
@@ -239,10 +240,8 @@
   let recipeImage: string | null = null;
   /** The attached recipe, for the host's own recipe panel while live. */
   let recipeEvent: NDKEventType | null = null;
-  /** Phones: which panel shows under the video while live. */
+  /** With a recipe and comments: which tab shows (Chat on each new stream). */
   let hostTab: 'chat' | 'recipe' = 'chat';
-  let hostWide = false;
-  const HOST_WIDE_QUERY = '(min-width: 1100px)';
   let recipeImageFor: string | null = null;
   let chatPool: SimplePool | null = null;
   /** Verified zaps on the note, as the chat counts them. */
@@ -281,6 +280,31 @@
         )
       : null;
   $: if (chatItem && !chatPool) chatPool = createStreamPool();
+
+  // The side panel: the comments (when the note exists) and, for a stream
+  // with a recipe attached, the recipe. A title-only stream keeps chat alone.
+  $: sideChat = !!(chatItem && chatPool && noteId);
+  $: sideRecipe = !!recipeA && isLive;
+  $: sideTabs = sideChat && sideRecipe;
+  $: withSide = phase !== 'ended' && (sideChat || sideRecipe);
+
+  // Each new stream starts on Chat with no recipe checks. The checks live in
+  // this device's localStorage, scoped to the session; earlier streams' are
+  // removed here.
+  let hostTabFor: string | null = null;
+  $: if ((session?.id ?? null) !== hostTabFor) startHostPanels(session?.id ?? null);
+  function startHostPanels(id: string | null) {
+    hostTabFor = id;
+    hostTab = 'chat';
+    if (!id) return;
+    let ls: Storage | null = null;
+    try {
+      ls = window.localStorage;
+    } catch {
+      /* storage blocked: checks work in memory only */
+    }
+    pruneHostChecks(ls, id);
+  }
 
   /**
    * Post the "Live now" note and record it on the session. Runs once, when
@@ -432,14 +456,6 @@
   }
   const retryDate = (s: number | null) =>
     s ? new Date(s * 1000).toLocaleDateString(undefined, { dateStyle: 'long' }) : 'soon';
-
-  onMount(() => {
-    const mq = window.matchMedia(HOST_WIDE_QUERY);
-    const onChange = () => (hostWide = mq.matches);
-    onChange();
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  });
 
   onMount(async () => {
     platform = detectPlatform(navigator.userAgent, navigator.maxTouchPoints);
@@ -1253,7 +1269,7 @@
   <meta name="robots" content="noindex" />
 </svelte:head>
 
-<div class="live-host" class:with-chat={!!chatItem && phase !== 'ended'}>
+<div class="live-host" class:with-side={withSide}>
   {#if phase === 'loading'}
     <p class="muted">Getting ready…</p>
   {:else if phase === 'signed_out'}
@@ -1510,44 +1526,75 @@
           <p class="muted small" role="status">Posting your Live now note…</p>
         {/if}
       </div>
-      {#if !hostWide && chatItem && chatPool && noteId && recipeA}
-        <div class="tabs" role="tablist" aria-label="Live panels">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={hostTab === 'chat'}
-            class:active={hostTab === 'chat'}
-            on:click={() => (hostTab = 'chat')}>Chat</button
-          >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={hostTab === 'recipe'}
-            class:active={hostTab === 'recipe'}
-            on:click={() => (hostTab = 'recipe')}>Recipe</button
-          >
+      {#if sideChat || sideRecipe}
+        <!-- Beside the video on wide screens, under it on phones. With a
+             recipe and comments both: Chat | Recipe tabs, Chat first. The
+             chat stays mounted on the Recipe tab, so comments and the zap
+             total keep arriving. -->
+        <div class="host-side">
+          {#if sideTabs}
+            <div class="tabs" role="tablist" aria-label="Live panels">
+              <button
+                type="button"
+                role="tab"
+                id="host-tab-chat"
+                aria-controls="host-panel-chat"
+                aria-selected={hostTab === 'chat'}
+                class:active={hostTab === 'chat'}
+                on:click={() => (hostTab = 'chat')}>Chat</button
+              >
+              <button
+                type="button"
+                role="tab"
+                id="host-tab-recipe"
+                aria-controls="host-panel-recipe"
+                aria-selected={hostTab === 'recipe'}
+                class:active={hostTab === 'recipe'}
+                on:click={() => (hostTab = 'recipe')}>Recipe</button
+              >
+            </div>
+          {/if}
+          {#if sideRecipe && session}
+            <section
+              class="host-recipe"
+              id="host-panel-recipe"
+              role={sideTabs ? 'tabpanel' : undefined}
+              aria-labelledby={sideTabs ? 'host-tab-recipe' : undefined}
+              aria-label={sideTabs ? undefined : 'Recipe'}
+              hidden={sideTabs && hostTab !== 'recipe'}
+            >
+              <RecipePanel
+                recipe={recipeEvent}
+                loading={!recipeEvent}
+                size="host"
+                checkScope={hostCheckScope(session.id)}
+              />
+            </section>
+          {/if}
+          {#if sideChat && chatItem && chatPool && noteId}
+            <!-- The stream's comments: replies to the Live now note. -->
+            <section
+              class="host-chat"
+              id="host-panel-chat"
+              role={sideTabs ? 'tabpanel' : undefined}
+              aria-labelledby={sideTabs ? 'host-tab-chat' : undefined}
+              aria-label={sideTabs ? undefined : 'Live chat'}
+              hidden={sideTabs && hostTab !== 'chat'}
+            >
+              {#key noteId}
+                <StreamChat
+                  item={chatItem}
+                  pool={chatPool}
+                  target={noteId}
+                  on:zaps={(e) => {
+                    zapSats = Math.max(zapSats, e.detail.sats);
+                    zapCount = Math.max(zapCount, e.detail.count);
+                  }}
+                />
+              {/key}
+            </section>
+          {/if}
         </div>
-      {/if}
-      {#if recipeA && (phase === 'live' || phase === 'reconnecting') && (hostWide || !(chatItem && noteId) || hostTab === 'recipe')}
-        <section class="host-recipe" aria-label="Recipe">
-          <RecipePanel recipe={recipeEvent} loading={!recipeEvent} />
-        </section>
-      {/if}
-      {#if chatItem && chatPool && noteId && (hostWide || !recipeA || hostTab === 'chat')}
-        <!-- The stream's comments: replies to the Live now note. -->
-        <section class="host-chat" aria-label="Live chat">
-          {#key noteId}
-            <StreamChat
-              item={chatItem}
-              pool={chatPool}
-              target={noteId}
-              on:zaps={(e) => {
-                zapSats = Math.max(zapSats, e.detail.sats);
-                zapCount = Math.max(zapCount, e.detail.count);
-              }}
-            />
-          {/key}
-        </section>
       {/if}
     {/if}
   {/if}
@@ -1854,6 +1901,15 @@
     gap: 0.15rem;
     font-size: 0.9375rem;
   }
+  .host-side {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  /* A tab's hidden panel stays mounted (the chat keeps listening). */
+  .host-side [hidden] {
+    display: none !important;
+  }
   .host-chat {
     height: 26rem;
     min-height: 18rem;
@@ -1869,9 +1925,9 @@
     margin: 0 1rem;
   }
   .tabs button {
-    padding: 0.35rem 1rem;
+    padding: 0.5rem 1.25rem;
     border-radius: 9999px;
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
     font-weight: 600;
     color: var(--color-caption);
   }
@@ -1880,31 +1936,43 @@
     color: var(--color-bg-primary);
   }
   @media (max-width: 640px) {
-    .host-recipe {
-      padding: 0 0.75rem;
-    }
-  }
-  @media (max-width: 640px) {
+    .host-recipe,
     .host-chat {
       padding: 0 0.75rem;
     }
   }
-  /* Wide screens: the comments sit beside the video, as tall as the stage. */
+  /* Wide screens: the side panel sits beside the video, as tall as the
+     stage; the recipe scrolls inside it. */
   @media (min-width: 1100px) {
-    .live-host.with-chat {
+    .live-host.with-side {
       max-width: 90rem;
       display: grid;
       grid-template-columns: minmax(0, 1fr) 23rem;
       column-gap: 1rem;
       align-items: start;
     }
-    .live-host.with-chat > :not(.host-chat) {
+    .live-host.with-side > :not(.host-side) {
       grid-column: 1;
     }
-    .live-host.with-chat .host-chat {
+    .live-host.with-side .host-side {
       grid-column: 2;
       grid-row: 1 / span 4;
       height: min(calc(100dvh - var(--header-h, 4rem) - 6rem), 48rem);
+      min-height: 24rem;
+    }
+    .host-side .tabs {
+      margin: 0;
+      flex-shrink: 0;
+    }
+    .host-side .host-chat,
+    .host-side .host-recipe {
+      flex: 1 1 0;
+      min-height: 0;
+      height: auto;
+    }
+    .host-side .host-recipe {
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
   }
   .hint {
