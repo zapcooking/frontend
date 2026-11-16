@@ -288,6 +288,13 @@
           <span class="comment-time">
             {formatDate(new Date((event.created_at || 0) * 1000))}
           </span>
+          {#if authorMuted && mutedRevealed}
+            <button
+              type="button"
+              class="muted-reply-hide"
+              on:click|stopPropagation={() => (mutedRevealed = false)}
+            >Hide</button>
+          {/if}
           {#if showPlated}
             <span class="plated-badge">
               <CookingPotIcon size={14} weight="fill" aria-hidden="true" />
@@ -547,6 +554,19 @@
   /* Muted-reply placeholder: a quiet one-liner where the reply would be.
      Revealing it swaps this row for the full card — individually, so
      reading one reply doesn't surface the rest of the muted account's. */
+  .muted-reply-hide {
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    border-radius: 6px;
+    transition: color 140ms ease;
+  }
+  .muted-reply-hide:hover {
+    color: var(--color-text-primary);
+  }
   .muted-reply-reveal {
     display: block;
     width: 100%;

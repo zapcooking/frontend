@@ -153,6 +153,13 @@
           </a>
           <PowBadge id={event.id} tags={event.tags} />
         </div>
+        {#if authorMuted && mutedRevealed}
+          <button
+            type="button"
+            class="muted-reply-hide"
+            on:click|stopPropagation={() => (mutedRevealed = false)}
+          >Hide</button>
+        {/if}
       </div>
       <!-- Only stops the row's click-to-navigate; the menu owns its controls. -->
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
@@ -291,6 +298,20 @@
   }
 
   /* Muted reply placeholder — same contract as CommentCard's. */
+  .muted-reply-hide {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    border-radius: 6px;
+    transition: color 140ms ease;
+  }
+  .muted-reply-hide:hover {
+    color: var(--color-text-primary);
+  }
   .muted-reply-reveal {
     display: block;
     width: 100%;

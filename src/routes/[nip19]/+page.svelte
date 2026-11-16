@@ -975,7 +975,20 @@ import { eventPath } from '$lib/utils/eventUrl';
                           {parentNote.created_at ? formatTimeAgo(parentNote.created_at) : ''}
                         </span>
                       </div>
-                      <PostActionsMenu event={parentNote} />
+                      <div class="flex items-center gap-1">
+                        {#if revealedMutedContext.has(parentNote.id)}
+                          <button
+                            type="button"
+                            class="muted-reply-hide"
+                            on:click|stopPropagation={() => {
+                              const next = new Set(revealedMutedContext);
+                              next.delete(parentNote.id);
+                              revealedMutedContext = next;
+                            }}
+                          >Hide</button>
+                        {/if}
+                        <PostActionsMenu event={parentNote} />
+                      </div>
                     </div>
                     {#if parentNote.kind === 1068}
                       <PollDisplay event={parentNote} />
@@ -1211,6 +1224,19 @@ import { eventPath } from '$lib/utils/eventUrl';
 <style>
  
   /* Muted ancestor placeholder — same contract as the thread rows. */
+  .muted-reply-hide {
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    border-radius: 6px;
+    transition: color 140ms ease;
+  }
+  .muted-reply-hide:hover {
+    color: var(--color-text-primary);
+  }
   .muted-reply-reveal {
     display: block;
     width: 100%;
