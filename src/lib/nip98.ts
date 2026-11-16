@@ -28,7 +28,13 @@ export function normalizeUrl(url: string): string {
   if (pathname.length > 1 && pathname.endsWith('/')) {
     pathname = pathname.slice(0, -1);
   }
-  return `${u.origin}${pathname}`;
+  // Dev Go Live proxy: requests go to localhost but reach production as
+  // https://zap.cooking — sign the public origin so verifyNip98's URL
+  // check passes (see the LIVE_API_PROXY define in vite.config.ts).
+  const proxied =
+    import.meta.env.LIVE_API_PROXY === true && u.pathname.startsWith('/api/live/');
+  const origin = proxied ? 'https://zap.cooking' : u.origin;
+  return `${origin}${pathname}`;
 }
 
 /** Lowercase-hex SHA-256 of raw bytes — NIP-98 `payload` tag format. */

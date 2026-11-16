@@ -45,3 +45,73 @@ export function liveNoteTemplate(input: LiveNoteInput, now = Date.now()): LiveNo
   if (image) tags.push(['imeta', `url ${image}`]);
   return { kind: 1, created_at: Math.floor(now / 1000), content: lines.join('\n'), tags };
 }
+
+export interface LiveAnnouncementInput {
+  /** The Go live session id — the announcement's replaceable `d` tag. */
+  sessionId: string;
+  /** The stream's name, from $lib/live/streamName. */
+  name: string;
+  /** The host's pubkey, tagged so replies reach them (not a service account). */
+  hostPubkey: string;
+  /** Absolute WHEP playback endpoint, `<origin>/api/live/<id>/join`. */
+  joinUrl: string;
+  /** Absolute watch page URL, `<origin>/live/s/<id>`. */
+  watchUrl: string;
+  /** Session start in seconds. */
+  startedAt: number;
+  /** 'live' while broadcasting; 'ended' replaces the announcement at the end. */
+  status: 'live' | 'ended';
+  /** The recipe's photo (https), when there is one. */
+  image?: string | null;
+  /** The attached recipe's address, `<kind>:<pubkey>:<d>`. */
+  recipeA?: string | null;
+}
+
+export interface LiveAnnouncementTemplate {
+  kind: 30311;
+  created_at: number;
+  content: string;
+  tags: string[][];
+}
+
+const HEX_PUBKEY = /^[0-9a-f]{64}$/;
+
+/**
+ * The NIP-53 user-status announcement for a Go live session (kind 30311).
+ *
+ * This is what puts a Go live session in the main live category: every
+ * Nostr client scanning kind 30311 (Sidecar's video feature, zap.stream,
+ * snort…) finds it, and the `streaming` tag carries the session's WHEP
+ * join endpoint so WHEP-capable players can play it directly. The in-app
+ * directory reads the same event via fetchStreamByNaddr.
+ *
+ * The host is tagged with the 'host' marker (NIP-53's current-host rule),
+ * so clients address replies, zaps and moderation at the host — not at
+ * the announcement's author.
+ */
+export function liveAnnouncementTemplate(
+  input: LiveAnnouncementInput,
+  now = Date.now()
+): LiveAnnouncementTemplate {
+  const name = input.name.replace(/\s+/g, ' ').trim();
+  const image = input.image && HTTPS_IMAGE.test(input.image) ? input.image : null;
+  const host = HEX_PUBKEY.test(input.hostPubkey) ? input.hostPubkey : '';
+  const tags: string[][] = [
+    ['d', input.sessionId],
+    ['title', name],
+    ['streaming', input.joinUrl],
+    ['status', input.status],
+    ['t', 'zapcooking'],
+    ['t', 'live']
+  ];
+  if (host) tags.splice(4, 0, ['p', host, '', 'host']);
+  if (input.startedAt > 0) tags.push(['starts', String(input.startedAt)]);
+  if (input.status === 'ended') tags.push(['ends', String(Math.floor(now / 1000))]);
+  if (input.recipeA && RECIPE_A.test(input.recipeA)) tags.push(['a', input.recipeA]);
+  if (image) {
+    tags.push(['imeta', `url ${image}`]);
+    tags.push(['image', image]);
+  }
+  const content = [name, '', `Watch live: ${input.watchUrl}`].join('\n');
+  return { kind: 30311, created_at: Math.floor(now / 1000), content, tags };
+}

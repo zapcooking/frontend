@@ -26,6 +26,7 @@
    *    note). Off: no note, no comments, no zap total.
    */
   import { onDestroy, onMount, tick } from 'svelte';
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
@@ -77,7 +78,7 @@
   import { fetchRecipeEvent, recipeCardOf } from '$lib/streams/recipeCard';
   import { createStreamPool } from '$lib/streams/relayPage';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
-  import { liveNoteTemplate } from '$lib/live/liveNote';
+  import { liveAnnouncementTemplate, liveNoteTemplate } from '$lib/live/liveNote';
   import { addClientTagToEvent } from '$lib/nip89';
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { SimplePool } from 'nostr-tools/pool';
@@ -328,6 +329,11 @@
    * would otherwise leave duplicate Live now posts.
    */
   let signedNote: { sessionId: string; event: NDKEvent } | null = null;
+  let signedAnnouncement: { sessionId: string; event: NDKEvent } | null = null;
+  let announceFailed = false;
+  let announcePublishedFor: string | null = null;
+  let announceRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  const ANNOUNCE_REFRESH_MS = 30 * 60 * 1000;
   const NOTE_RETRY_MS = 15000;
   const NOTE_MAX_TRIES = 5;
   let noteTries = 0;
@@ -370,6 +376,8 @@
       }
       signedNote = null;
       if (notice.startsWith('The Live now note')) notice = '';
+      // The announcement puts the session in the main live category (NIP-53).
+      void postLiveAnnouncement('live');
     } catch {
       if (session?.id === forSession.id) {
         if (noteTries < NOTE_MAX_TRIES) {
@@ -387,6 +395,86 @@
     } finally {
       notePosting = false;
     }
+  }
+
+  /**
+   * The NIP-53 announcement puts the session in the main live category so
+   * other clients (Sidecar's video feature, zap.stream…) can pick it up.
+   * The signed announcement is cached per session: 'live' re-publishes on
+   * reconnect; 'ended' replaces it when the stream is over — pass the
+   * closing session for that, since teardown has already cleared the page
+   * state. Best-effort: the Live now note is the primary surface and this
+   * one fails quietly.
+   */
+  /**
+   * The NIP-53 announcement puts the session in the main live category so
+   * other clients (Sidecar's video feature, zap.stream…) can pick it up.
+   * The announcement is cached per session; `fresh` forces a re-sign so a
+   * periodic republish refreshes `created_at` (the directory treats stale
+   * announcements as ended) and `status: 'ended'` replaces it when the
+   * stream is over. Best-effort: the Live now note is the primary surface
+   * and this one fails quietly.
+   */
+  async function postLiveAnnouncement(
+    status: 'live' | 'ended',
+    forSession: HostSession | null = session,
+    fresh = false
+  ) {
+    if (!forSession || !browser) return;
+    try {
+      // The signer's own pubkey — activeUser is only set by the NIP-46
+      // path, but every supported host signs through the configured signer.
+      const user = await $ndk.signer?.user();
+      const hostPubkey = user?.pubkey ?? $ndk.activeUser?.pubkey ?? '';
+      if (!hostPubkey) return;
+      let event =
+        !fresh &&
+        status === 'live' &&
+        signedAnnouncement?.sessionId === forSession.id
+          ? signedAnnouncement.event
+          : null;
+      if (!event) {
+        const template = liveAnnouncementTemplate({
+          sessionId: forSession.id,
+          name: streamName,
+          hostPubkey,
+          joinUrl: `${getSiteOrigin()}/api/live/${forSession.id}/join`,
+          watchUrl: `${getSiteOrigin()}/live/s/${forSession.id}`,
+          // The session's start in seconds (startedAt is a local ms clock
+          // from the resume point; good enough when the server time is
+          // not in hand yet).
+          startedAt: Math.floor((startedAt ?? Date.now()) / 1000),
+          status,
+          image: recipeImage,
+          recipeA
+        });
+        event = new NDKEvent($ndk, template as never);
+        addClientTagToEvent(event);
+        await event.sign();
+        signedAnnouncement = { sessionId: forSession.id, event };
+      }
+      const urls = [...new Set([...$ndk.pool.relays.keys(), ...DISCOVERY_RELAYS])];
+      await Promise.race([
+        event.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true)),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+      ]);
+      announcePublishedFor = forSession.id;
+      if (status === 'live') startAnnouncementRefresh();
+    } catch {
+      announceFailed = true;
+    }
+  }
+
+  /**
+   * The directory treats announcements older than an hour as ended, so a
+   * long broadcast re-signs and republishes a fresh replacement while
+   * still live.
+   */
+  function startAnnouncementRefresh() {
+    if (announceRefreshTimer) return;
+    announceRefreshTimer = setInterval(() => {
+      if (session && !document.hidden) void postLiveAnnouncement('live', session, true);
+    }, ANNOUNCE_REFRESH_MS);
   }
 
   /** The host's own name, for "<name> is cooking <recipe>". */
@@ -1011,8 +1099,10 @@
     }
     startedAt = Date.now();
     // The note (if any) was posted before the reload: show its comments,
-    // never post a second one.
+    // never post a second one. The announcement, though, gets a fresh
+    // signature — the directory treats stale announcements as ended.
     postNote = false;
+    void postLiveAnnouncement('live', session);
     void fetchSession(session.id).then((read) => {
       if (!read || session?.id !== read.id) return;
       if (read.note_id) noteId = read.note_id;
@@ -1238,6 +1328,11 @@
         const end = read.ended_at ?? Math.floor(Date.now() / 1000);
         liveLine = liveDurationLine(end - read.started_at);
       }
+      // Replace the 'live' announcement with the ended one — only when a
+      // live announcement went out (never-live sessions publish nothing).
+      if (announcePublishedFor === closing.id) {
+        void postLiveAnnouncement('ended', closing, true);
+      }
     }
   }
 
@@ -1251,6 +1346,8 @@
     watching = null;
     if (clockTimer) clearInterval(clockTimer);
     clockTimer = null;
+    if (announceRefreshTimer) clearInterval(announceRefreshTimer);
+    announceRefreshTimer = null;
     pc?.close();
     pc = null;
     stream?.getTracks().forEach((t) => t.stop());

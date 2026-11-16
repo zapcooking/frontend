@@ -42,7 +42,13 @@ export default defineConfig({
   define: {
     global: 'globalThis',
     __BUILD_HASH__: JSON.stringify(BUILD_HASH),
-    __VERSION__: JSON.stringify(VERSION)
+    __VERSION__: JSON.stringify(VERSION),
+    // Set when the Go Live dev proxy is enabled (LIVE_API_PROXY=1): the
+    // client then signs NIP-98 requests for the public origin so they
+    // survive the localhost → production hop.
+    'import.meta.env.LIVE_API_PROXY': JSON.stringify(
+      process.env.LIVE_API_PROXY === '1'
+    )
   },
   optimizeDeps: {
     // Exclude packages from pre-bundling:
@@ -83,6 +89,20 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
       },
+      // Go live sessions live in the server's SCHEDULER_DB (session row
+      // holds the Cloudflare play address), which local dev does not have.
+      // Opt in with LIVE_API_PROXY=1: this shadows the local /api/live
+      // endpoints (create/end/publish/note/hidden) and sends them to
+      // production, so plain `pnpm dev` keeps exercising local routes.
+      ...(process.env.LIVE_API_PROXY === '1'
+        ? {
+            '/api/live': {
+              target: 'https://zap.cooking',
+              changeOrigin: true,
+              secure: true,
+            },
+          }
+        : {}),
     },
   },
   ssr: {
