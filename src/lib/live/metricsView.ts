@@ -130,6 +130,16 @@ export function sortBy<T>(rows: T[], key: keyof T, dir: SortDir): T[] {
     .map((x) => x.row);
 }
 
+/**
+ * Whether a stream's viewer time can be shown: 'not_recorded' until the
+ * close-out has run, 'not_measured' when it ran but stored NULL (the
+ * presence object was unreachable or had lost the totals).
+ */
+export function viewerTimeState(s: StreamRow): 'measured' | 'not_measured' | 'not_recorded' {
+  if (s.metrics_at === null) return 'not_recorded';
+  return s.viewer_seconds === null ? 'not_measured' : 'measured';
+}
+
 /** Seconds a stream ran (to now while still live). */
 export function streamSeconds(s: StreamRow, now: number): number {
   return Math.max(0, (s.ended_at ?? now) - s.started_at);
@@ -232,6 +242,8 @@ export function streamsCsv(
   for (const s of streams) {
     const secs = streamSeconds(s, now);
     const vs = s.viewer_seconds;
+    // Recorded without viewer time: say so in each viewer-time cell.
+    const none = viewerTimeState(s) === 'not_measured' ? 'not measured' : '';
     lines.push(
       [
         s.id,
@@ -245,9 +257,9 @@ export function streamsCsv(
         (secs / 60).toFixed(1),
         s.peak_watching,
         s.joins,
-        vs === null || secs === 0 ? '' : (vs / secs).toFixed(2),
-        vs === null ? '' : (vs / 60).toFixed(1),
-        vs === null ? '' : costUsd(vs, usdPer1000).toFixed(4),
+        vs === null ? none : secs === 0 ? '' : (vs / secs).toFixed(2),
+        vs === null ? none : (vs / 60).toFixed(1),
+        vs === null ? none : costUsd(vs, usdPer1000).toFixed(4),
         s.zap_sats ?? '',
         s.metrics_at === null ? 'no' : 'yes'
       ]

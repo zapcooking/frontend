@@ -8,6 +8,7 @@ import {
   recordToast,
   sortBy,
   streamsCsv,
+  viewerTimeState,
   type MonthlyRow,
   type StreamRow
 } from './metricsView';
@@ -163,5 +164,25 @@ describe('recordToast', () => {
     expect(recordToast({ recorded: 2, gaveUp: 1, waiting: 0 })).toBe(
       '2 recorded, 0 waiting (1 after 24 h with missing viewer time or zaps)'
     );
+  });
+});
+
+describe('not measured', () => {
+  it('tells not recorded, not measured and measured apart', () => {
+    expect(viewerTimeState(stream({ metrics_at: null, viewer_seconds: null }))).toBe(
+      'not_recorded'
+    );
+    expect(viewerTimeState(stream({ viewer_seconds: null }))).toBe('not_measured');
+    expect(viewerTimeState(stream({ viewer_seconds: 0 }))).toBe('measured');
+  });
+
+  it('writes "not measured" in the viewer-time cells of the CSV, and leaves them empty when not recorded', () => {
+    const lines = streamsCsv(
+      [stream({ viewer_seconds: null }), stream({ viewer_seconds: null, metrics_at: null })],
+      NOW,
+      1
+    ).split('\r\n');
+    expect(lines[1].endsWith(',50.0,4,9,not measured,not measured,not measured,21,yes')).toBe(true);
+    expect(lines[2].endsWith(',50.0,4,9,,,,21,no')).toBe(true);
   });
 });

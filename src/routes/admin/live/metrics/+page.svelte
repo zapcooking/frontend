@@ -30,6 +30,7 @@
     sortBy,
     streamSeconds,
     streamsCsv,
+    viewerTimeState,
     type Day,
     type HostRow,
     type MonthlyRow,
@@ -359,9 +360,9 @@
       {/each}
     </ul>
     <p class="note">
-      Estimated cost = viewer-minutes × ${usdPer1000} per 1,000 (Cloudflare Stream delivery). Viewer time
-      comes from the watch page's heartbeat, which stops while a tab is hidden, so it runs low against
-      what Cloudflare bills.
+      Estimated cost = viewer-minutes × ${usdPer1000} per 1,000 (Cloudflare Stream delivery).
+      <strong>Est. cost is a lower bound:</strong> viewer time counts only visible tabs, but Cloudflare
+      also bills video delivered to hidden tabs. "Not measured" streams add no viewer time.
     </p>
 
     <h2>Viewer-minutes per day</h2>
@@ -650,9 +651,17 @@
                 <td class="num nowrap">{duration(s.seconds)}</td>
                 <td class="num">{int(s.peak_watching)}</td>
                 <td class="num">{int(s.joins)}</td>
-                <td class="num">{s.avg === null ? '—' : one(s.avg)}</td>
-                <td class="num">{s.viewerMinutes === null ? '—' : int(s.viewerMinutes)}</td>
-                <td class="num">{s.cost === null ? '—' : usd(s.cost)}</td>
+                {#if viewerTimeState(s) === 'not_measured'}
+                  <td class="num" colspan="3"
+                    ><span title="Recorded, but the viewer time could not be read"
+                      >— not measured</span
+                    ></td
+                  >
+                {:else}
+                  <td class="num">{s.avg === null ? '—' : one(s.avg)}</td>
+                  <td class="num">{s.viewerMinutes === null ? '—' : int(s.viewerMinutes)}</td>
+                  <td class="num">{s.cost === null ? '—' : usd(s.cost)}</td>
+                {/if}
                 <td class="num">{s.zap_sats === null ? '—' : int(s.zap_sats)}</td>
               </tr>
             {/each}
