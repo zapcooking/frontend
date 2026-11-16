@@ -178,7 +178,7 @@
   {/if}
 </svelte:head>
 
-<div class="mx-auto w-full max-w-3xl py-4 sm:px-4 sm:py-6 min-[1200px]:max-w-[90rem]">
+<div class="mx-auto w-full max-w-3xl py-4 sm:px-4 sm:py-6 min-[1440px]:max-w-[90rem]">
   {#if loading}
     <!-- Skeleton mirrors the player + host row while the announcement resolves. -->
     <StreamPageSkeleton />

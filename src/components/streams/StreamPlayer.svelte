@@ -78,7 +78,9 @@
   let userScrolled = false;
   let shrunk = false;
   let scrollTick = false;
+  let lastPageScrollTop = -1;
   let wheelUpAccum = 0;
+  let wheelDownAccum = 0;
   let touchStartY: number | null = null;
   /**
    * After the video returns inline it only lands in the slot a tick later.
@@ -89,6 +91,17 @@
    */
   const RESTORE_GRACE_MS = 900;
   let restoredAt = -Infinity;
+  /**
+   * Docking also shrinks the layout: the browser clamps the scroll
+   * position down and fires a scroll event on the page scroller. That
+   * event must not restore the video it just docked (a scroll-end dock is
+   * within 4px of the clamp, so it would bounce ~once a second), and its
+   * stale position must not poison the movement direction. Dock checks
+   * pause for this window and the recorded position re-reads once layout
+   * settles.
+   */
+  const DOCK_GRACE_MS = 900;
+  let dockedAt = -Infinity;
 
   /**
    * The clip line: the painted bottom of the fixed header. The video must
@@ -106,39 +119,78 @@
     streamSlot.set(slotEl);
   }
 
-  function updateShrink() {
+  function updateShrink(prevTop: number | null = null) {
     if (!slotEl || !browser) return;
     if (!get(streamPlayer).item) return;
     if (!userScrolled) return;
     if (performance.now() - restoredAt < RESTORE_GRACE_MS) return;
+    if (performance.now() - dockedAt < DOCK_GRACE_MS) return;
 
     const vh = window.innerHeight;
     const markerTop = chatMarker ? chatMarker.getBoundingClientRect().top : null;
     // Guaranteed trigger: the slot's own position. The chat marker does not
     // exist on every layout (wide landscape has no recipe below the video),
     // and without it the video used to scroll under the header half-clipped.
-    const slotTop = slotEl.getBoundingClientRect().top;
+    const slotRect = slotEl.getBoundingClientRect();
+    const slotTop = slotRect.top;
     const clipLine = headerClip();
+    // With a header the video may slide beneath it, so the slot's top edge
+    // triggers the dock. At xl the header is gone (the strip nests in the
+    // sidebar) — nothing hides the video, so it docks once the video's
+    // bottom edge climbs into the top quarter of the viewport. And because
+    // two-column pages have a short scroll range, reaching the scroll END
+    // with the video mostly above the fold docks it too: "scrolled past
+    // the video" is the user's intent even when the page cannot scroll it
+    // all the way out.
+    const headerGone = clipLine <= 0;
+    const scroller = pageScroller();
+    const atScrollEnd = scroller
+      ? scroller.scrollTop >= scroller.scrollHeight - scroller.clientHeight - 4
+      : false;
+    const slotCrossed = headerGone
+      ? slotRect.bottom <= vh * 0.25 || (atScrollEnd && slotRect.bottom < vh * 0.6)
+      : slotTop < clipLine;
 
     if (!shrunk) {
       const markerLow = markerTop != null && markerTop < vh * 0.25;
-      const slotClipped = slotTop < clipLine;
-      if (markerLow || slotClipped) {
-        shrunk = true;
-        streamSlot.set(null);
-      }
+      const slotClipped = slotCrossed;
+      if (markerLow || slotClipped) dockNow();
     } else {
       const markerClear = markerTop != null && markerTop > vh * 0.5;
       // Collapsing the slot can clamp the scroll position to the top on
       // pages that barely overflow; the slot then sits below the header
       // with no way to scroll, so only trust this restore while real
       // upward scroll range is left. A clip-docked video otherwise comes
-      // back through wheel-up, swipe-down or Expand.
-      const scroller = pageScroller();
+      // back through wheel-up, swipe-down or Expand. On headerless pages
+      // the slot is an empty, zero-height div pinned near the page top
+      // while docked — its rect can never re-enter view — so upward page
+      // movement itself restores: the reader scrolling back up IS the
+      // intent. The 50%-line keeps a scroll-end dock from instantly
+      // un-docking at the same position.
       const canScrollUp = scroller ? scroller.scrollTop > 8 : true;
-      const slotClear = slotTop > clipLine + 8 && canScrollUp;
+      const pageTop = scroller ? scroller.scrollTop : 0;
+      const movingUp = prevTop != null && pageTop < prevTop - 8;
+      const slotClear = headerGone
+        ? movingUp || slotRect.bottom > vh * 0.5
+        : (slotTop > clipLine + 8) && canScrollUp;
       if (markerClear || slotClear) restoreInline();
     }
+  }
+
+  function dockNow() {
+    if (shrunk || !slotEl) return;
+    shrunk = true;
+    dockedAt = performance.now();
+    streamSlot.set(null);
+    // Once the clamp settles, record where the page actually ended up: the
+    // next movement comparison reads the settled position, not the stale
+    // pre-dock one.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const scroller = pageScroller();
+        if (scroller) lastPageScrollTop = scroller.scrollTop;
+      })
+    );
   }
 
   /** The element the app scrolls in (a container, not the window). */
@@ -155,19 +207,58 @@
    * the corner. Raw upward wheel/touch intent always returns it, scrollable
    * or not.
    */
+  /**
+   * True when this wheel event is driving the page scroller itself: walk
+   * up from the target to the nearest scrollable ancestor — if that is
+   * the page scroller, the wheel is page intent; if it is an inner
+   * surface (the live chat, the drawer, a modal, the notifications list),
+   * the wheel belongs to it and must never dock or restore the video.
+   */
+  function isPageWheel(e: WheelEvent): boolean {
+    let el = e.target instanceof Element ? e.target : null;
+    while (el && el !== document.body && el !== document.documentElement) {
+      if (el.id === 'app-scroll') return true;
+      if (el.scrollHeight > el.clientHeight + 1) {
+        const style = getComputedStyle(el);
+        if (/(auto|scroll)/.test(style.overflowY)) return false;
+      }
+      el = el.parentElement;
+    }
+    return true;
+  }
+
   function onWheel(e: WheelEvent) {
-    if (!shrunk) {
+    if (!isPageWheel(e)) {
+      wheelDownAccum = 0;
       wheelUpAccum = 0;
       return;
     }
-    if (e.deltaY < 0) {
-      wheelUpAccum += -e.deltaY;
-      if (wheelUpAccum >= 160) {
+    if (shrunk) {
+      if (e.deltaY < 0) {
+        wheelUpAccum += -e.deltaY;
+        if (wheelUpAccum >= 160) {
+          wheelUpAccum = 0;
+          restoreInline();
+        }
+      } else {
         wheelUpAccum = 0;
-        restoreInline();
       }
-    } else {
-      wheelUpAccum = 0;
+      return;
+    }
+    // Not docked yet: sustained downward wheel intent over the PAGE
+    // scroller docks the video once it sits above the viewport's midline.
+    if (e.deltaY <= 0) {
+      wheelDownAccum = 0;
+      return;
+    }
+    if (performance.now() - dockedAt < DOCK_GRACE_MS) return;
+    wheelDownAccum += e.deltaY;
+    if (wheelDownAccum >= 160 && userScrolled && slotEl) {
+      const r = slotEl.getBoundingClientRect();
+      if (r.bottom < window.innerHeight * 0.5) {
+        wheelDownAccum = 0;
+        dockNow();
+      }
     }
   }
 
@@ -184,13 +275,35 @@
     }
   }
 
-  function onScrollShrink() {
+  function onScrollShrink(e?: Event) {
+    // Only the PAGE's own scrolling may dock the video. The capture-phase
+    // document listener sees every inner scroller too — the live chat,
+    // the drawer, the user panel — and scrolling the chat to read it must
+    // never dock the video (even when the page itself sits at its scroll
+    // end).
+    if (e && e.type === 'scroll') {
+      const t = e.target;
+      if (
+        !(t instanceof HTMLElement) ||
+        (t.id !== 'app-scroll' &&
+          t !== document.documentElement &&
+          t !== document.body)
+      ) {
+        return;
+      }
+    }
     userScrolled = true;
+    // Remember the position BEFORE this frame's check: the movement
+    // direction (page scrolling up while the video is docked) is what
+    // restores it on headerless pages.
+    const prevTop = lastPageScrollTop;
     if (scrollTick) return;
     scrollTick = true;
     requestAnimationFrame(() => {
       scrollTick = false;
-      updateShrink();
+      updateShrink(prevTop);
+      const scroller = document.getElementById('app-scroll');
+      if (scroller) lastPageScrollTop = scroller.scrollTop;
     });
   }
 
@@ -271,7 +384,7 @@
 <div class="flex flex-col gap-4">
   <!-- The layout-level dock moves its (persistent) video container into this
        slot while the page is mounted. -->
-  <div bind:this={slotEl} class="stream-slot w-full scroll-mt-20"></div>
+  <div bind:this={slotEl} class="stream-slot w-full scroll-mt-20 xl:scroll-mt-0"></div>
 
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex min-w-0 items-center gap-2">
