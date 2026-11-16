@@ -59,6 +59,8 @@ export interface PendingMetricsRow {
   started_at: number | null;
   ended_at: number;
   note_id: string | null;
+  /** The peak the heartbeat route stored on the row while live. */
+  peak_watching: number;
 }
 
 /** Where a close-out run has got to: the last (ended_at, id) it looked at. */
@@ -81,7 +83,7 @@ export async function listPendingMetrics(
 ): Promise<PendingMetricsRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, host_pubkey, started_at, ended_at, note_id FROM live_sessions
+      `SELECT id, host_pubkey, started_at, ended_at, note_id, peak_watching FROM live_sessions
         WHERE status = 'ended' AND metrics_at IS NULL AND ended_at <= ?1
           AND (?3 IS NULL OR ended_at > ?3 OR (ended_at = ?3 AND id > ?4))
         ORDER BY ended_at, id LIMIT ?2`
@@ -170,6 +172,20 @@ export async function recordSessionMetrics(
   return (marked?.meta?.changes ?? 0) === 1;
 }
 
+/**
+ * The viewer time to store. NULL ("not measured") when the presence object
+ * could not be read, and when it answered empty (nothing summed, no peak)
+ * although the row shows people watched (stored peak above 0): the object
+ * no longer had the stream's totals, e.g. a stream from before viewer time
+ * was summed, or one whose totals were already wiped. 0 only when nobody
+ * was counted at all.
+ */
+export function viewerSecondsFor(totals: PresenceTotals | null, storedPeak: number): number | null {
+  if (!totals) return null;
+  if (totals.viewer_seconds === 0 && totals.peak === 0 && storedPeak > 0) return null;
+  return totals.viewer_seconds;
+}
+
 export interface CloseOutSummary {
   /** Recorded this run (gaveUp included). */
   recorded: number;
@@ -234,7 +250,7 @@ export async function closeOutEndedSessions(
           db,
           row.id,
           {
-            viewer_seconds: totals?.viewer_seconds ?? null,
+            viewer_seconds: viewerSecondsFor(totals, row.peak_watching),
             peak: totals?.peak ?? 0,
             zap_sats: sats ?? 0
           },

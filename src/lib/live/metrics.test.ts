@@ -11,6 +11,7 @@ import {
   fetchNoteZapSats,
   monthKey,
   recordSessionMetrics,
+  viewerSecondsFor,
   type MetricsDeps
 } from './metrics.server';
 import { runLiveSweep } from './sweep.server';
@@ -297,6 +298,37 @@ describe('closeOutEndedSessions', () => {
       retry: 0,
       waiting: 0
     });
+  });
+});
+
+describe('not measured (viewer time NULL)', () => {
+  it('stores NULL when the presence object is empty but the row shows people watched', async () => {
+    const id = ended({ peak: 3 });
+    // An emptied object (e.g. a stream from before viewer time was summed) answers 0 / 0.
+    await closeOutEndedSessions(db, deps({ [id]: { viewer_seconds: 0, peak: 0 } }), NOW, never);
+    expect(sessionRow(id)).toMatchObject({ viewer_seconds: null, peak_watching: 3 });
+    expect(sessionRow(id).metrics_at).toBe(NOW);
+    // Still a stream in its month, adding no viewer time.
+    expect(monthly()[0]).toMatchObject({ streams: 1, viewer_seconds: 0, peak_watching: 3 });
+  });
+
+  it('stores 0 when nobody was counted at all (peak 0)', async () => {
+    const id = ended({ peak: 0 });
+    await closeOutEndedSessions(db, deps({ [id]: { viewer_seconds: 0, peak: 0 } }), NOW, never);
+    expect(sessionRow(id).viewer_seconds).toBe(0);
+  });
+
+  it('keeps a measured 0 when the object counted someone (its own peak above 0)', async () => {
+    const id = ended({ peak: 1 });
+    await closeOutEndedSessions(db, deps({ [id]: { viewer_seconds: 0, peak: 1 } }), NOW, never);
+    expect(sessionRow(id).viewer_seconds).toBe(0);
+  });
+
+  it('viewerSecondsFor', () => {
+    expect(viewerSecondsFor(null, 0)).toBeNull();
+    expect(viewerSecondsFor({ viewer_seconds: 0, peak: 0 }, 2)).toBeNull();
+    expect(viewerSecondsFor({ viewer_seconds: 0, peak: 0 }, 0)).toBe(0);
+    expect(viewerSecondsFor({ viewer_seconds: 90, peak: 0 }, 2)).toBe(90);
   });
 });
 
