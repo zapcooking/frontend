@@ -67,8 +67,12 @@ describe('A2 — launcher fully removed, no orphans', () => {
     const messenger = readFileSync(MESSENGER, 'utf8');
     expect(messenger).toContain('prevFocus.isConnected');
     expect(messenger).toContain('.zh-intelligence-btn');
-    // And that trigger actually exists in the header with that class.
-    expect(readFileSync('src/components/Header.svelte', 'utf8')).toContain('zh-intelligence-btn');
+    // And that trigger actually exists in the header chrome with that
+    // class (it lives in HeaderActions, which the header renders).
+    expect(readFileSync('src/components/Header.svelte', 'utf8')).toContain('HeaderActions');
+    expect(
+      readFileSync('src/components/HeaderActions.svelte', 'utf8')
+    ).toContain('zh-intelligence-btn');
   });
 
   it('no source file references the launcher component or its class', () => {
