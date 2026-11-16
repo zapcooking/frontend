@@ -399,20 +399,12 @@
   /**
    * The NIP-53 announcement puts the session in the main live category so
    * other clients (Sidecar's video feature, zap.stream…) can pick it up.
-   * The signed announcement is cached per session: 'live' re-publishes on
-   * reconnect; 'ended' replaces it when the stream is over — pass the
-   * closing session for that, since teardown has already cleared the page
-   * state. Best-effort: the Live now note is the primary surface and this
-   * one fails quietly.
-   */
-  /**
-   * The NIP-53 announcement puts the session in the main live category so
-   * other clients (Sidecar's video feature, zap.stream…) can pick it up.
    * The announcement is cached per session; `fresh` forces a re-sign so a
    * periodic republish refreshes `created_at` (the directory treats stale
    * announcements as ended) and `status: 'ended'` replaces it when the
-   * stream is over. Best-effort: the Live now note is the primary surface
-   * and this one fails quietly.
+   * stream is over — pass the closing session for that, since teardown
+   * has already cleared the page state. Best-effort: the Live now note is
+   * the primary surface and this one fails quietly.
    */
   async function postLiveAnnouncement(
     status: 'live' | 'ended',

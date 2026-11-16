@@ -40,11 +40,10 @@
         }
       } as never
     );
-    // NIP-75 zap receipts can target the goal event itself; count those
-    // toward progress on top of the stream's zap total.
     // Goal-directed receipts (NIP-75): trust the amount only from the
     // receipt's embedded zap request after verifying its signature — the
-    // receipt's own amount tag is trivially forgeable.
+    // receipt's own amount tag is trivially forgeable. Requests without
+    // an amount fall back to the bolt11 invoice's encoded amount.
     const zapSub = pool.subscribeMany(
       goalRelays,
       { kinds: [9735], '#e': [goalId] } as never,
@@ -62,8 +61,20 @@
             if (request.kind !== 9734 || !Array.isArray(request.tags) || !verifyEvent(request as never)) {
               return;
             }
-            const amount = request.tags.find((t) => Array.isArray(t) && t[0] === 'amount')?.[1];
-            const msat = /^\d+$/.test(amount || '') ? Number(amount) : 0;
+            const requestAmount = request.tags.find((t) => Array.isArray(t) && t[0] === 'amount')?.[1];
+            let msat = /^\d+$/.test(requestAmount || '') ? Number(requestAmount) : 0;
+            if (msat <= 0) {
+              // No amount tag: decode it from the paid invoice instead
+              // (the HRP carries it: lnbc<amount><m|u|n|p>).
+              const invoice = e.tags.find((t) => Array.isArray(t) && t[0] === 'bolt11')?.[1];
+              const match = /^lnbc(\d+)?([munp])?/i.exec(invoice || '');
+              if (match) {
+                const mult = { m: 1e8, u: 1e5, n: 100, p: 0.1 }[
+                  (match[2] || '').toLowerCase()
+                ] ?? 1e11;
+                msat = Math.round(Number(match[1] || '0') * mult);
+              }
+            }
             if (msat > 0) goalZapSats += Math.round(msat / 1000);
           } catch {
             // Malformed embedded request: ignore this receipt.

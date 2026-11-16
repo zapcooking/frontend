@@ -234,12 +234,12 @@
                   type="button"
                   class="rounded p-1 hover:opacity-80 cursor-pointer"
                   style="color: var(--color-caption);"
-                  aria-pressed={railCollapsed}
+                  aria-pressed={railCollapsed || $streamSlot === null}
                   aria-label="Toggle chat panel size"
-                  title={railCollapsed ? 'Collapse chat' : 'Expand chat'}
+                  title={railCollapsed || $streamSlot === null ? 'Collapse chat' : 'Expand chat'}
                   on:click={toggleChatExpand}
                 >
-                  {#if railCollapsed}
+                  {#if railCollapsed || $streamSlot === null}
                     <ArrowsIn size={16} />
                   {:else}
                     <ArrowsOutSimple size={16} />
